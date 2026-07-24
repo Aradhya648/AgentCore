@@ -10,7 +10,7 @@
 
 License: [MIT](./LICENSE). Security reports: [SECURITY.md](./SECURITY.md). Contributions: [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-This repository ([`Lawofall/AgentCore`](https://github.com/Lawofall/AgentCore)) is the single source of truth. It is private while we finish hygiene and a first publishable tree; it will be switched to **Public** under the same name (MIT). Early public emphasis is the backend runtime, shared contracts, and docs—client apps in this monorepo follow in later phases, not a second repository.
+This repository ([`Lawofall/AgentCore`](https://github.com/Lawofall/AgentCore)) is the public product monorepo under MIT. Development history prior to the public cut is archived privately; please open Issues/PRs against this repository.
 
 ## 仓库结构
 
