@@ -53,12 +53,20 @@ run("tar admin dist", "tar", ["-czf", TARBALL, "-C", "apps/admin", "dist"]);
 scp(TARBALL, "/tmp/admin-dist.tgz");
 scp(NGINX_CONF, "/tmp/office-admin.conf");
 
+const deployDir = process.env.AGENTCORE_DEPLOY_DIR?.trim() || "";
+const deployDirExport = deployDir
+  ? `export AGENTCORE_DEPLOY_DIR=${JSON.stringify(deployDir)}\n`
+  : "";
+
 sshScript(
   [
+    deployDirExport.trimEnd(),
     `export ORIGIN=${JSON.stringify(`https://${OFFICE_HOST}`)}`,
     `export OFFICE_HOST=${JSON.stringify(OFFICE_HOST)}`,
     readFileSync(REMOTE_SCRIPT, "utf8"),
-  ].join("\n"),
+  ]
+    .filter(Boolean)
+    .join("\n"),
 );
 
 unlinkSync(TARBALL);
