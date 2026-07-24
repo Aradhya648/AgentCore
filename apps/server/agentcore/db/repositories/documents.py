@@ -4,12 +4,15 @@ One repository over the single ``documents`` table. It serves three consumers th
 share the same rows:
 
 - **Memory store backing**: AI-maintained long-term memory (``ai_maintained=true``) notes
-  live under a per-(user, scope) ``记忆`` root folder, addressed by their store-relative
-  ``name`` ("画像.md", "主题/部署.md", …). ``DocumentMemoryStore`` maps the ``(user, path,
-  scope)`` seam onto these rows (Agent记忆与知识系统 §5.7「一处替换收口」).
+  live under the per-(user, scope) convention tree ``AgentCore/记忆/``, addressed by their
+  store-relative ``name`` ("画像.md", "主题/部署.md", …). ``DocumentMemoryStore`` maps the
+  ``(user, path, scope)`` seam onto these rows (Agent记忆与知识系统 §5.0 / §5.7).
 - **Rule injection**: both user rules (``ai_maintained=false``) and the always-injected memory
   core (``ai_maintained=true``) are ``role='rule', apply_mode='always'`` nodes, gathered per
-  scope by ``list_injectable_rules`` for the two-tier ``<rules>`` block (§二).
+  scope by ``list_injectable_rules`` for the two-tier ``<rules>`` block (§二). Collection
+  stays role + folder_id + apply_mode (not parent-tree walk); when the convention dirs exist,
+  results are further restricted to ``AgentCore/规则/`` / ``AgentCore/记忆/`` (bare ``记忆/``
+  still accepted for memory during transition). Writes land under ``AgentCore/{规则,记忆}/``.
 - **Generic tree CRUD**: the ``/documents`` API creates / reads / renames / moves / deletes any
   node (user rules are just ``role='rule', ai_maintained=false`` documents, §5.2).
 
@@ -24,7 +27,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -33,8 +36,15 @@ from agentcore.db.models import Document
 
 from ._base import _UNSET
 
-# The per-(user, scope) folder node that groups a scope's AI-memory notes (§1.4「记忆/」
-# folder). Reserved: a user's own folder is ``ai_maintained=false``, so it never collides.
+# Cloud-documents convention root (Agent记忆与知识系统 §5.0). NOT the desktop local default
+# path ``~/Documents/AgentCore/`` (workspace container) — same product name, different carrier.
+AGENTCORE_ROOT_NAME = "AgentCore"
+
+# User-owned rules directory under the convention root (§5.0 ``AgentCore/规则/``).
+RULES_DIR_NAME = "规则"
+
+# AI-memory notes folder under the convention root (§5.0 ``AgentCore/记忆/``). Reserved: a
+# user's own folder is ``ai_maintained=false``, so it never collides with this node.
 MEMORY_ROOT_NAME = "记忆"
 
 # The canonical user-rule document ``remember`` appends to when the user gives an explicit
@@ -54,33 +64,140 @@ class DocumentRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    # --- memory store backing (ai_maintained=true notes under a per-scope 记忆 root) ---
+    # --- AgentCore/ convention tree (§5.0) -----------------------------------------------------
 
-    def _memory_root_stmt(self, user_id: str, folder_id: str | None) -> Select:
+    def _agentcore_root_stmt(self, user_id: str, folder_id: str | None) -> Select:
         return select(Document).where(
             Document.user_id == user_id,
             _scope_clause(folder_id),
             Document.parent_id.is_(None),
             Document.kind == "folder",
-            Document.ai_maintained.is_(True),
-            Document.name == MEMORY_ROOT_NAME,
+            Document.name == AGENTCORE_ROOT_NAME,
             Document.deleted_at.is_(None),
         )
 
-    async def get_memory_root(self, user_id: str, folder_id: str | None) -> Document | None:
-        """The ``记忆`` folder node for one (user, scope), or None if none exists yet."""
-        result = await self._session.execute(self._memory_root_stmt(user_id, folder_id))
+    async def get_agentcore_root(
+        self, user_id: str, folder_id: str | None
+    ) -> Document | None:
+        """The per-scope ``AgentCore/`` convention root, or None if none exists yet."""
+        result = await self._session.execute(self._agentcore_root_stmt(user_id, folder_id))
         return result.scalars().first()
 
-    async def _ensure_memory_root(self, user_id: str, folder_id: str | None) -> Document:
-        """Find-or-create the per-scope ``记忆`` root that holds this scope's memory notes."""
-        root = await self.get_memory_root(user_id, folder_id)
+    async def ensure_agentcore_root(self, user_id: str, folder_id: str | None) -> Document:
+        """Find-or-create the per-scope ``AgentCore/`` convention root (user-visible)."""
+        root = await self.get_agentcore_root(user_id, folder_id)
         if root is not None:
             return root
         root = Document(
             id=new_id(),
             user_id=user_id,
             parent_id=None,
+            folder_id=folder_id,
+            kind="folder",
+            role="general",
+            ai_maintained=False,
+            apply_mode="always",
+            name=AGENTCORE_ROOT_NAME,
+            content="",
+        )
+        self._session.add(root)
+        await self._session.flush()
+        return root
+
+    async def get_rules_dir(self, user_id: str, folder_id: str | None) -> Document | None:
+        """The ``AgentCore/规则/`` folder for one scope, or None."""
+        ac = await self.get_agentcore_root(user_id, folder_id)
+        if ac is None:
+            return None
+        result = await self._session.execute(
+            select(Document).where(
+                Document.user_id == user_id,
+                Document.parent_id == ac.id,
+                Document.kind == "folder",
+                Document.name == RULES_DIR_NAME,
+                Document.deleted_at.is_(None),
+            )
+        )
+        return result.scalars().first()
+
+    async def ensure_rules_dir(self, user_id: str, folder_id: str | None) -> Document:
+        """Find-or-create ``AgentCore/规则/`` for one scope (user-owned)."""
+        existing = await self.get_rules_dir(user_id, folder_id)
+        if existing is not None:
+            return existing
+        ac = await self.ensure_agentcore_root(user_id, folder_id)
+        rules = Document(
+            id=new_id(),
+            user_id=user_id,
+            parent_id=ac.id,
+            folder_id=folder_id,
+            kind="folder",
+            role="general",
+            ai_maintained=False,
+            apply_mode="always",
+            name=RULES_DIR_NAME,
+            content="",
+        )
+        self._session.add(rules)
+        await self._session.flush()
+        return rules
+
+    # --- memory store backing (ai_maintained=true notes under AgentCore/记忆/) ---
+
+    async def _legacy_bare_memory_root(
+        self, user_id: str, folder_id: str | None
+    ) -> Document | None:
+        """Pre-§5.0 bare ``记忆/`` at scope root (``parent_id IS NULL``) — migration source."""
+        result = await self._session.execute(
+            select(Document).where(
+                Document.user_id == user_id,
+                _scope_clause(folder_id),
+                Document.parent_id.is_(None),
+                Document.kind == "folder",
+                Document.ai_maintained.is_(True),
+                Document.name == MEMORY_ROOT_NAME,
+                Document.deleted_at.is_(None),
+            )
+        )
+        return result.scalars().first()
+
+    async def get_memory_root(self, user_id: str, folder_id: str | None) -> Document | None:
+        """The ``记忆`` folder for one (user, scope), or None if none exists yet.
+
+        Prefers ``AgentCore/记忆/``; falls back to a pre-migration bare ``记忆/`` so reads
+        keep working until the idempotent layout migration reparents it.
+        """
+        ac = await self.get_agentcore_root(user_id, folder_id)
+        if ac is not None:
+            result = await self._session.execute(
+                select(Document).where(
+                    Document.user_id == user_id,
+                    Document.parent_id == ac.id,
+                    Document.kind == "folder",
+                    Document.ai_maintained.is_(True),
+                    Document.name == MEMORY_ROOT_NAME,
+                    Document.deleted_at.is_(None),
+                )
+            )
+            under = result.scalars().first()
+            if under is not None:
+                return under
+        return await self._legacy_bare_memory_root(user_id, folder_id)
+
+    async def _ensure_memory_root(self, user_id: str, folder_id: str | None) -> Document:
+        """Find-or-create ``AgentCore/记忆/`` (reparents a bare ``记忆/`` when present)."""
+        root = await self.get_memory_root(user_id, folder_id)
+        ac = await self.ensure_agentcore_root(user_id, folder_id)
+        if root is not None:
+            if root.parent_id != ac.id:
+                # Legacy bare root still at scope top — hoist into the convention tree.
+                root.parent_id = ac.id
+                await self._session.flush()
+            return root
+        root = Document(
+            id=new_id(),
+            user_id=user_id,
+            parent_id=ac.id,
             folder_id=folder_id,
             kind="folder",
             role="general",
@@ -130,7 +247,7 @@ class DocumentRepository:
         role: str,
         apply_mode: str,
     ) -> Document:
-        """Upsert one memory note (creating the 记忆 root on first write). Unconditional —
+        """Upsert one memory note (creating ``AgentCore/记忆/`` on first write). Unconditional —
         CAS is the caller's job (content-hash baseline under the per-user lock)."""
         root = await self._ensure_memory_root(user_id, folder_id)
         note = await self.get_memory_note(user_id, name, folder_id)
@@ -204,6 +321,43 @@ class DocumentRepository:
 
     # --- rule injection (memory core + user rules are both role='rule') ---
 
+    async def _injectable_parent_filter(
+        self, user_id: str, folder_id: str | None, *, ai_maintained: bool
+    ) -> ColumnElement[bool] | None:
+        """Restrict injectables to the convention tree when that tree already exists.
+
+        No convention dir → ``None`` (legacy scope-wide collect; avoids half-migration empty
+        reads). User rules require ``parent_id == AgentCore/规则/``. Memory always-cores require
+        ``AgentCore/记忆/``; a still-live bare ``记忆/`` parent is also accepted (transition /
+        name-clash leftovers).
+        """
+        if ai_maintained:
+            ac = await self.get_agentcore_root(user_id, folder_id)
+            under: Document | None = None
+            if ac is not None:
+                result = await self._session.execute(
+                    select(Document).where(
+                        Document.user_id == user_id,
+                        Document.parent_id == ac.id,
+                        Document.kind == "folder",
+                        Document.ai_maintained.is_(True),
+                        Document.name == MEMORY_ROOT_NAME,
+                        Document.deleted_at.is_(None),
+                    )
+                )
+                under = result.scalars().first()
+            if under is None:
+                return None
+            bare = await self._legacy_bare_memory_root(user_id, folder_id)
+            if bare is not None:
+                return or_(Document.parent_id == under.id, Document.parent_id == bare.id)
+            return Document.parent_id == under.id
+
+        rules_dir = await self.get_rules_dir(user_id, folder_id)
+        if rules_dir is None:
+            return None
+        return Document.parent_id == rules_dir.id
+
     async def list_injectable_rules(
         self, user_id: str, folder_id: str | None, *, ai_maintained: bool
     ) -> list[Document]:
@@ -211,20 +365,25 @@ class DocumentRepository:
 
         ``ai_maintained=True`` → the memory core (偏好.md / 画像.md); ``False`` → the user's own
         rule documents. ``apply_mode='on_demand'`` topics are excluded (they ride the directory,
-        not ``<rules>``). Ordered by ``name`` for a stable prefix.
+        not ``<rules>``). Ordered by ``name`` for a stable prefix. When convention dirs exist,
+        only nodes under those parents are returned (see ``_injectable_parent_filter``).
         """
+        conditions: list[ColumnElement[bool]] = [
+            Document.user_id == user_id,
+            _scope_clause(folder_id),
+            Document.role == "rule",
+            Document.apply_mode == "always",
+            Document.ai_maintained.is_(ai_maintained),
+            Document.kind == "document",
+            Document.deleted_at.is_(None),
+        ]
+        parent_filter = await self._injectable_parent_filter(
+            user_id, folder_id, ai_maintained=ai_maintained
+        )
+        if parent_filter is not None:
+            conditions.append(parent_filter)
         result = await self._session.execute(
-            select(Document)
-            .where(
-                Document.user_id == user_id,
-                _scope_clause(folder_id),
-                Document.role == "rule",
-                Document.apply_mode == "always",
-                Document.ai_maintained.is_(ai_maintained),
-                Document.kind == "document",
-                Document.deleted_at.is_(None),
-            )
-            .order_by(Document.name.asc())
+            select(Document).where(*conditions).order_by(Document.name.asc())
         )
         return list(result.scalars().all())
 
@@ -233,7 +392,26 @@ class DocumentRepository:
     async def get_user_rules_doc(
         self, user_id: str, folder_id: str | None
     ) -> Document | None:
-        """The canonical user-rule document for a scope (``remember`` target), or None."""
+        """The canonical user-rule document for a scope (``remember`` target), or None.
+
+        Prefers a doc under ``AgentCore/规则/``; falls back to any same-name live rule in
+        the scope (pre-migration top-level) so append/dedupe keeps working across layout.
+        """
+        rules_dir = await self.get_rules_dir(user_id, folder_id)
+        if rules_dir is not None:
+            result = await self._session.execute(
+                select(Document).where(
+                    Document.user_id == user_id,
+                    Document.parent_id == rules_dir.id,
+                    Document.role == "rule",
+                    Document.ai_maintained.is_(False),
+                    Document.name == USER_RULES_DOC_NAME,
+                    Document.deleted_at.is_(None),
+                )
+            )
+            under = result.scalars().first()
+            if under is not None:
+                return under
         result = await self._session.execute(
             select(Document).where(
                 Document.user_id == user_id,
@@ -249,13 +427,14 @@ class DocumentRepository:
     async def upsert_user_rules_doc(
         self, user_id: str, folder_id: str | None, content: str
     ) -> Document:
-        """Create-or-update the canonical user-rule document (top-level of its scope)."""
+        """Create-or-update the canonical user-rule document under ``AgentCore/规则/``."""
         doc = await self.get_user_rules_doc(user_id, folder_id)
+        rules_dir = await self.ensure_rules_dir(user_id, folder_id)
         if doc is None:
             doc = Document(
                 id=new_id(),
                 user_id=user_id,
-                parent_id=None,
+                parent_id=rules_dir.id,
                 folder_id=folder_id,
                 kind="document",
                 role="rule",
@@ -266,10 +445,31 @@ class DocumentRepository:
             )
             self._session.add(doc)
         else:
+            if doc.parent_id != rules_dir.id:
+                doc.parent_id = rules_dir.id
             doc.content = content
         await self._session.commit()
         await self._session.refresh(doc)
         return doc
+
+    async def list_top_level_user_rules(
+        self, user_id: str, folder_id: str | None
+    ) -> list[Document]:
+        """Live user-rule docs still at scope root (``parent_id IS NULL``) — migration sources."""
+        result = await self._session.execute(
+            select(Document)
+            .where(
+                Document.user_id == user_id,
+                _scope_clause(folder_id),
+                Document.parent_id.is_(None),
+                Document.kind == "document",
+                Document.role == "rule",
+                Document.ai_maintained.is_(False),
+                Document.deleted_at.is_(None),
+            )
+            .order_by(Document.name.asc())
+        )
+        return list(result.scalars().all())
 
     # --- generic tree CRUD (the /documents API; user rules are role=rule docs) ---
 

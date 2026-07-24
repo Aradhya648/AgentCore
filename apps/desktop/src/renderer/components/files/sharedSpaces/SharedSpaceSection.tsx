@@ -3,7 +3,7 @@ import { IconButton } from "@/components/files/parts";
 import { CreateSharedSpaceDialog } from "@/components/files/sharedSpaces/CreateSharedSpaceDialog";
 import { SharedSpaceEventsDialog } from "@/components/files/sharedSpaces/SharedSpaceEventsDialog";
 import { SharedSpaceMembersDialog } from "@/components/files/sharedSpaces/SharedSpaceMembersDialog";
-import { Button } from "@/components/ui";
+import { Button, IconButton as UiIconButton } from "@/components/ui";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -11,6 +11,12 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   useDeleteSharedSpace,
   useRemoveOrLeaveSharedMember,
@@ -22,9 +28,9 @@ import { cn } from "@/lib/utils";
 import {
   type SharedSpaceSummary,
   canWriteSharedSpace,
-  sharedSpaceRoleLabel,
 } from "@/services/sharedSpaces";
 import { useAuthStore } from "@/stores/auth";
+import { useFoldersStore } from "@/stores/folders";
 import {
   Check,
   ChevronDown,
@@ -34,6 +40,7 @@ import {
   FolderPlus,
   History,
   Pencil,
+  Plus,
   Trash2,
   Upload,
   Users,
@@ -251,7 +258,7 @@ export function SharedSpaceSection({
       )}
       <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
         <Users size={12} />
-        {sharedSpaceRoleLabel(space.my_role)}
+        共享
       </span>
     </div>
   );
@@ -352,27 +359,46 @@ export function SharedSpaceSection({
   );
 }
 
-/** Section header row with「新建」for the shared-spaces group. */
-export function SharedSpacesRailHeader({
-  onCreated,
+/**
+ * 「项目」段头：区名 + `+` 菜单（新建项目 / 新建共享空间）。
+ * 共享空间已并入项目段混排，不再有独立「共享空间」区头。
+ */
+export function ProjectsRailHeader({
+  onSharedCreated,
 }: {
-  onCreated?: (spaceId: string) => void;
+  onSharedCreated?: (spaceId: string) => void;
 }) {
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createSharedOpen, setCreateSharedOpen] = useState(false);
+  const openCreateFolder = useFoldersStore((s) => s.openCreateFolder);
+
   return (
     <>
-      <div className="flex items-center gap-1 px-2 pb-0.5 pt-2">
+      <div className="flex items-center gap-1 px-2 pb-0.5 pt-3">
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
-          共享空间
+          项目
         </span>
-        <IconButton title="新建共享空间" onClick={() => setCreateOpen(true)}>
-          <FolderPlus size={13} />
-        </IconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <UiIconButton aria-label="新建" title="新建">
+              <Plus size={13} />
+            </UiIconButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40">
+            <DropdownMenuItem onSelect={() => openCreateFolder()}>
+              <FolderPlus size={14} className="shrink-0" />
+              <span className="flex-1 truncate">新建项目…</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setCreateSharedOpen(true)}>
+              <Users size={14} className="shrink-0" />
+              <span className="flex-1 truncate">新建共享空间…</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <CreateSharedSpaceDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={onCreated}
+        open={createSharedOpen}
+        onClose={() => setCreateSharedOpen(false)}
+        onCreated={onSharedCreated}
       />
     </>
   );

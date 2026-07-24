@@ -10,7 +10,7 @@ skip_if:
 
 # Agent 记忆与知识系统
 
-> **状态**：MVP 方案已确定（存储基础、分层策略、注入流程）；作用域分层（全局/项目）+ 偏好/画像二分**后端已落地**（§1.4 / §二），项目层双栏画像编辑器 + 主题树浏览·编辑·删除**前端已落地**（§1.6）；维护协议已升级为**两层（情景沉淀 → 低频巩固）**并落地（§1.5）；**「一切皆文档」+ 用户自定义规则 + Document 第一期已落地**（记忆迁 `documents` 表 + 用户规则闭环 + 跨文件预算 + 桌面「你的规则」编辑入口，§五 / §5.7）；`code_search`（BM25 符号检索）已落地（§5.6）；embedding 去重 / pgvector 知识库等高级特性待定
+> **状态**：MVP 方案已确定（存储基础、分层策略、注入流程）；作用域分层（全局/项目）+ 偏好/画像二分**后端已落地**（§1.4 / §二），项目层双栏画像编辑器 + 主题树浏览·编辑·删除**前端已落地**（§1.6）；维护协议已升级为**两层（情景沉淀 → 低频巩固）**并落地（§1.5）；**「一切皆文档」+ 用户自定义规则 + Document 第一期已落地**（记忆迁 `documents` 表 + 用户规则闭环 + 跨文件预算 + 桌面「你的规则」编辑入口，§五 / §5.7）；`code_search`（BM25 符号检索）已落地（§5.6）；**`AgentCore/` 约定目录**（规则 + 记忆统一树）✅ 已落地（§5.0；**已取消**独立「知识/」子树）；embedding 去重 / pgvector 知识库等高级特性待定
 >
 > → 见代码：`apps/server/agentcore/memory/`、`workspace/indexing/`
 
@@ -57,22 +57,28 @@ MVP 阶段实现两层记忆，覆盖最核心的用户体验需求。
 
 ### 1.4 用户长期记忆（AI 维护的记忆文件夹）
 
-用户的长期记忆是文件树里一个 AI 维护的**文件夹** `记忆/`（其内每个 `.md` 都是 `role=rule`、`ai_maintained=true`；与用户手写规则同载体、同注入，区别仅在 AI 可静默改写，详见 §五）。**记忆按位置分两个作用域**（位置即作用域，[§5.3](#53-位置即作用域)——不另立标记位、不给用户手动开关）：用户云端根（`parent_id IS NULL`）下是**全局**（注入每次对话），项目文件夹下是**项目级**（仅绑定该文件夹的对话才注入）。`apply_mode` 由位置约定派生（无 manifest）：
+用户的长期记忆是文件树里一组 AI 维护的 `role=rule`、`ai_maintained=true` 笔记（与用户手写规则同载体、同注入，区别仅在 AI 可静默改写，详见 §五）。**记忆按位置分两个作用域**（位置即作用域，[§5.3](#53-位置即作用域)——不另立标记位、不给用户手动开关）：用户云端根下是**全局**（注入每次对话），项目文件夹下是**项目级**（仅绑定该文件夹的对话才注入）。`apply_mode` 由位置约定派生（无 manifest）。
+
+> **布局（2026-07-24）**：约定根夹 [`AgentCore/记忆/`](#50-agentcore-约定目录)（与规则同树）。新写入落 `AgentCore/{规则,记忆}/`；旧裸 `记忆/` / 顶层规则由启动期幂等迁移收口。
 
 ```
-（全局：用户云端根下，注入所有对话）
-记忆/
-├── 偏好.md       always       沟通偏好 + 工作习惯（软、普适、仅全局）
-├── 画像.md       always       技术栈 + 关于用户的事实（全局事实）
-└── 主题/<slug>.md on_demand   全局话题 / 经验 / 流程（按需查阅）
+（全局：云端根 / AgentCore/）
+AgentCore/
+├── 规则/                    用户硬规则（默认 always）
+└── 记忆/
+    ├── 偏好.md       always  沟通偏好 + 工作习惯（软、普适、仅全局）
+    ├── 画像.md       always  技术栈 + 关于用户的事实
+    └── 主题/<slug>.md on_demand  话题 / 经验 / 流程
 
-（项目级：folder_id = F 的文件夹下，仅 F 内对话注入）
-记忆/
-├── 画像.md       always       本项目事实 / 技术栈（在 F 内常注入；项目层无偏好）
-└── 主题/<slug>.md on_demand   本项目话题 / 经验 / 流程（按需查阅）
+（项目级：Folder F / AgentCore/；仅 F 内对话注入；无偏好.md）
+AgentCore/
+├── 规则/
+└── 记忆/
+    ├── 画像.md       always
+    └── 主题/<slug>.md on_demand
 ```
 
-**为什么是文件夹而非单文件**（驱动是产品 / 架构、**不是** token——1M 窗口装得下，见 §六）：① **作用域**——`记忆/` 可落到项目文件夹下，[§5.3 位置即作用域](#53-位置即作用域)天然分「全局 / 项目」两层 ✅；② **记忆类型**——文件夹装得下 episodic（"试过 X、因 Y 失败"）/ procedural（"本项目部署流程"）/ 项目知识，不再只有「偏好 / 事实」；③ **通往文件树的桥**——目标本就是「记忆进文件树」，直接落成「`记忆/` 一组 `ai_maintained` rule 文件」、迁移即终点。行业坐标：Anthropic Memory Tool（`/memories` 一个文件夹、反向量、整文件读）、Letta/MemGPT（分层 + 后台整理）佐证「记忆 = 文件夹 + agentic 自取」这一路线（与 §5.6 反向量决策一致）。
+**为什么是文件夹而非单文件**（驱动是产品 / 架构、**不是** token——1M 窗口装得下，见 §六）：① **作用域**——约定夹可落到项目下，[§5.3 位置即作用域](#53-位置即作用域)天然分「全局 / 项目」两层 ✅；② **记忆类型**——文件夹装得下 episodic / procedural / 主题，不再只有「偏好 / 事实」；③ **统一约定根**——规则与记忆同树（§5.0），不再根上裸挂多套入口。行业坐标：Anthropic Memory Tool（`/memories` 文件夹 + 反向量）、Letta/MemGPT 佐证「记忆 = 文件夹 + agentic 自取」（与 §5.6 反向量决策一致）。
 
 **always 核心 = `偏好.md` + `画像.md`（按「怎么对我 vs 关于我」二分）** ✅：常注入核心是两个文件——`偏好.md` 收 `沟通偏好`/`工作习惯`（软、普适、**仅全局**），`画像.md` 收 `技术栈与工具`/`关于用户的事实`（较硬、可全局可项目）。两者都沿用**固定小节锚点**纪律（内容始终归位固定小节，防自由文本漂移；维护协议已升级为「巩固期整文件重写」，见 §1.5），写入路由带「**作用域 + 文件**」两维。**为何拆、为何此时拆**：阶段一曾否决二分（无第二作用域时纯属预支复杂度）；其价值由作用域解锁——有了项目层才出现「偏好天生全局、不该复制进每个项目；只有事实/知识按项目变」这条真实分界，故 A（作用域）、B（偏好/画像）同期落地。分文件 = 分 CAS、分变更原因，整理边界清爽。
 
@@ -119,7 +125,7 @@ MVP 阶段实现两层记忆，覆盖最核心的用户体验需求。
 
 ### 1.6 记忆的查看 / 编辑 / 开关 ✅ 已落地（前端）
 
-记忆当文件用：文件页「AI 记忆」入口 + 同一 Markdown 编辑器。**CAS** 防盲覆盖；总开关在设置（停用＝不注入不增长且推进 watermark）；全局 = 偏好‖画像两叶；项目记忆集中在「项目记忆」子夹（**否决就地挂载**）；主题树可编删、核心叶不可删。→ 见代码: `components/files/fileWorkbench/MemorySection.tsx`
+记忆当文件用：文件页约定树 `AgentCore/{规则,记忆}/` + 同一 Markdown 编辑器。**CAS** 防盲覆盖；总开关在设置（停用＝不注入不增长且推进 watermark）；全局 = 偏好‖画像两叶；项目记忆在项目下同名约定夹；主题树可编删、核心叶不可删。→ 见代码: `components/files/fileWorkbench/AgentCoreSection.tsx`
 
 ---
 
@@ -171,6 +177,43 @@ MVP 阶段实现两层记忆，覆盖最核心的用户体验需求。
 >
 > **被否决**：① 照搬 Cursor rules 形态（用户手写规则文件心智 + globs 条件注入为主入口）——大众用户不手写规则文件，文件 globs 在对话产品无附着物；② 轻量先行（先在 `FileMemoryStore` 过渡态上接 `ai_maintained` 两档措辞、Document 子系统另行排期）——被「直接立 Document 子系统」替代，避免记忆二次迁移。
 
+### 5.0 `AgentCore/` 约定目录 ✅（2026-07-24）
+
+> **问题**：元模型已统一（谁写 × 作用域 × 注入），但物理布局与 IA 曾分裂——根上裸挂 `记忆/`、规则散落 / 双 rail。目标是**一个可见约定根夹**管齐进 `<rules>` 的规则与记忆。
+
+**夹名与可见性**：用户可见 **`AgentCore/`**（产品名；不设点前缀隐藏）。与本地技术旁路 **`.agentcore/index/`**（`code_search` 索引，gitignore）**正交、不混用**。与案卷层约定目录 **`research/` / `debate/`**（[双模式工作区 · 阶段产物](/docs/02-架构/双模式工作区.md)）**正交**——后者是多幕阶段产物落盘，前者是 AI 上下文（规则/记忆）。**勿与本地盘默认路径 `~/Documents/AgentCore/`（工作区容器）混淆**——同名异载体。
+
+**作用域**：云端根下 `AgentCore/` = 全局；项目 Folder 下同名夹 = 仅该项目。叠加注入、全局优先存活（§5.3）不变。
+
+**约定树**：
+
+```
+AgentCore/
+├── 规则/                 role=rule, ai_maintained=false
+│   └── *.md              默认 always；超长规则可选 on_demand（预留）
+└── 记忆/                 role=rule, ai_maintained=true
+    ├── 偏好.md           always（仅全局）
+    ├── 画像.md           always
+    └── 主题/<slug>.md    on_demand（`consult_memory`，现状保留）
+```
+
+**按需注入（已确认策略）**：
+
+| 内容 | 模式 | 理由 |
+|---|---|---|
+| 用户硬规则 | 默认 **always** | 行为约束模型不会主动去查；缺了≈不存在 |
+| 偏好 / 画像 | **always** | 同上；不改为 on_demand |
+| 记忆主题 | **on_demand** | 现状 `consult_memory` |
+| 超长用户规则 | **可选** `on_demand` | 能力预留；默认仍 always |
+
+**注入收集**：always 规则/记忆核心由 `list_injectable_rules` 按 **role + `folder_id` + `apply_mode=always`** 收（**不**按树直子级 walk）。约定目录已存在时加 parent 闸：用户规则须 `parent_id == AgentCore/规则/`；记忆 always 核心须在 `AgentCore/记忆/`（过渡期仍允许未迁完的裸 `记忆/` 父节点）。无约定夹时保持旧口径（防半迁移读空）。
+
+**迁移**：启动期幂等把裸 `记忆/`、既有顶层用户规则迁入约定树；失败保留源、不丢数据（对齐 §1.4）。双根折入后若裸 `记忆/` 无 live 子节点 → **软删**（`deleted_at`）；仍有子节点（name clash 留下）则保留并打日志。`ensure_memory_root` / `upsert_user_rules_doc` / 前端 `listUserRules`·`createRuleDocument`（API 对 `role=rule` + `parent_id=null` 自动挂到 `AgentCore/规则/`）已同步。IA：文件页单一 `AgentCore/` 段，无双 pinned rail。→ 见代码：`memory/migrate_agentcore.py`、`db/repositories/documents.py`、`fileWorkbench/AgentCoreSection.tsx`
+
+**被否决（2026-07-24）**：独立 `AgentCore/知识/` 子树 + 知识目录注入——并无独立产品功能；工作区普通文件已由概览 + agentic 检索覆盖；且 documents 与工作区盘双载体下「正文走 file_read」接不上。远期 pgvector「项目知识库」（§七）仍另案，不挂本约定夹。
+
+**明确不做 / 现状（本蓝图）**：把偏好/画像改 on_demand；用隐藏点目录替代可见 `AgentCore/`；与 `.agentcore/index` 合并；为本夹新建 `consult_knowledge` / `KNOWLEDGE_DIRECTORY`。**主题不改为真实嵌套 folder**：继续 `name=主题/<slug>.md` + `parent=记忆/`，前端合成「主题」节点——属有意设计（保住 MemoryStore 路径语义），非未完成残留。
+
 ### 5.1 文件夹 = 对话的上下文边界
 
 不引入新实体。**任何文件夹天然就是对话的上下文边界**，对话关联到哪个文件夹，那个文件夹的文档就是该对话的上下文。类比 Cursor：打开项目目录 = 进入该项目的上下文。
@@ -213,7 +256,7 @@ MVP 阶段实现两层记忆，覆盖最核心的用户体验需求。
 
 > **为什么规则/偏好占 always、知识占 on_demand**（2026-07 定案时明确）：规则约束的是 AI **意识不到的行为盲区**——知识缺了模型会主动去查，规则缺了模型不会去查「用户有没有规定过这个」，不常驻就等于不存在。on_demand 的最小形态也是「摘要常驻」（目录一行），真正零常驻的只有 conditional（靠外部触发器）。
 
-> **on_demand 现状**：今日唯一接线的 on_demand 消费者是**记忆主题**（`主题/*.md`，经 `consult_memory`，见 §1.4 / §二）。面向**用户手写规则**的通用 `consult_rule` 尚未实现——按「第 3 次真重复才抽象」留到出现第二类 on_demand 消费者时再建（扳机 A，见 [上下文工程](/docs/03-AI核心/上下文工程.md)）。
+> **on_demand 现状**：今日唯一接线的 on_demand 消费者是**记忆主题**（`主题/*.md`，经 `consult_memory`，见 §1.4 / §二）。面向**用户手写规则**的通用 `consult_rule` 尚未实现——按「第 3 次真重复才抽象」留到出现第二类 on_demand 规则消费者或扳机 A 触发时再建（见 [上下文工程](/docs/03-AI核心/上下文工程.md)）。
 
 ### 5.5 上下文装配顺序
 
@@ -240,11 +283,11 @@ BASE 100 → RUNTIME_CONTEXT 200 → MEMORY 300 → CEO_CORE 400
 
 | 机制 | 范围 | 限制手段 |
 |---|---|---|
-| `rule` 注入（规则 + 记忆） | 仅关联文件夹的 **direct children** | `MAX_INSTRUCTION_DOCS` / `MAX_INSTRUCTION_CHARS` |
+| `rule` 注入（规则 + 记忆） | **现状 / §5.0 后**：按 scope 的 `role=rule` + `apply_mode=always`（`list_injectable_rules`）；**不**按树直子级 walk；约定夹存在时再闸 `parent_id` 到 `AgentCore/{规则,记忆}/`（裸 `记忆/` 过渡期仍收） | `MAX_INSTRUCTION_DOCS` / `MAX_INSTRUCTION_CHARS` |
 | 工作区概览（`<workspace_file_index>`） | 工作区画像 + 关联文件夹文件清单（**整棵子树**，最近更新在前） | 画像 ≤600 字符；文件数 + 字符预算双重封顶；只列路径与元数据、正文不进概览 |
 | Agentic 检索（`file_read` / `grep` / `code_search` / `file_list` / `git`） | **整棵子树**（`file_list` 递归树有 `max_depth`/条目上限） | Agent 自取正文；`file_read` 支持 `offset`/`limit` 行号范围；单次工具输出截断 |
 
-`rule` 不递归是因为规则按层级生效（子文件夹有自己的规则）；工作区不限深度是因为用户心智是"文件夹里的东西 AI 都能看到"——**不把向量 chunk 自动灌进 prompt**：概览给方位、Agent 用文件工具 / `code_search` 自取（agentic 检索为主路）。
+`rule` 不按整树递归扫是因为按 scope + role 生效；工作区不限深度是因为用户心智是"文件夹里的东西 AI 都能看到"——**不把向量 chunk 自动灌进 prompt**：概览给方位、Agent 用文件工具 / `code_search` 自取（agentic 检索为主路）。
 
 > **决策：取消向量 RAG（pgvector / embedding）作为 prompt 自动注入层，改用「实时概览 + agentic 检索」。** 理由：① 向量索引一改文件就失效，需 embedder + pgvector + 重建管线，与"文件随时变"的工作区天然不合；② 关键词 `grep` + Agent 自取，在工作区规模（数十～数百文件）下召回足够、永远新鲜；③ 项目知识库级 pgvector **仍为远期**（§七），触发条件见 [上下文工程](/docs/03-AI核心/上下文工程.md) 扳机 A。
 
@@ -253,7 +296,7 @@ BASE 100 → RUNTIME_CONTEXT 200 → MEMORY 300 → CEO_CORE 400
 | 约束 | 口径 |
 |---|---|
 | 索引旁路 | 索引是**工具后端**，**不是** prompt 自动 RAG 层——命中后仍由 Agent 决定是否 `file_read` 精读 |
-| 与 `grep` 并存 | `grep` = 精确正则逐行；`code_search` = 意图/概念入口（tree-sitter 分块 + BM25） |
+| 与 `grep` 并存 | `grep` = 精确正则逐行（内嵌 ripgrep / Rust regex）；`code_search` = 意图/概念入口（tree-sitter 分块 + BM25，符号列加权；空命中附建议 grep 关键词，不静默二次调用） |
 | 刻意不做 prompt RAG | **否决**纯向量 chunk 注入 system prompt；嵌入 / 调用图为可选后手，不上自动装配链 |
 | 存储 | 工作区旁 `.agentcore/index/`（`code_search.db`，gitignore）。云端与 sidecar（`ServerWorkspace`）直连盘；云遥控桌面的 `LocalWorkspace` 经通道读文件、索引缓存在服务端 `data_dir/code_index/`（✅ 2026-07-23）。 |
 
@@ -291,8 +334,9 @@ DeepSeek V4 有 1M token 上下文窗口，MVP 合计约 13K–73K，远小于�
 | 工作记忆（当前会话） | ✅ | — |
 | 用户长期记忆（`ai_maintained` rule 文件） | ✅ Day 1（轻结构化 markdown）；✅ 项目级作用域 + 偏好/画像二分（后端，见 §1.4 / §二）；✅ 项目层双栏画像编辑器 + 主题树浏览·编辑·删除（前端，见 §1.6）；✅ 两层维护协议（情景沉淀 → 低频巩固重写，见 §1.5） | embedding 去重 |
 | 自动标题（侧边栏 UX） | ✅ Day 1 | — |
-| 记忆可见/编辑 | ✅ 文件页顶部「AI 记忆」→ 全局偏好/画像两叶 + 项目双栏画像，当成文件用同一编辑器查看/编辑/清空（见 §1.6）；✅ 底层已并入 `documents` 树（§5.7） | — |
-| 用户规则可见/编辑 | ✅ 文件页「你的规则」rail（全局 + 项目规则子夹；同编辑器 / CAS，见 §5.7） | Marketplace Rules / `consult_rule` |
+| 记忆可见/编辑 | ✅ 文件页 `AgentCore/记忆/`（全局偏好/画像 + 项目画像/主题；同编辑器 / CAS，见 §1.6 / §5.0） | — |
+| 用户规则可见/编辑 | ✅ 文件页 `AgentCore/规则/`（全局 + 项目；同编辑器 / CAS，见 §5.0 / §5.7） | Marketplace Rules / `consult_rule` |
+| `AgentCore/` 约定目录（规则+记忆） | ✅ 写入落点 + 幂等迁树 + IA + 约定树注入过滤 + 空裸根软删（§5.0；**已取消**独立「知识/」；主题 slash-in-name 为有意设计） | — |
 | 记忆总开关（启用/停用） | ✅ 设置→「AI 记忆」，每用户 `memory_enabled`（停用＝不注入＋不增长，见 §1.6） | — |
 | 项目知识库 | ❌ | pgvector 语义检索 |
 | 跨 Agent 共享记忆 | ❌ | 共享知识图 |

@@ -68,6 +68,8 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     assert "file_read" in review_tools
     assert "检索纪律" in by_id["review"]["task"]
     assert "grep" in by_id["review"]["task"]
+    assert "code_search" in by_id["review"]["task"]
+    assert "整目录" in by_id["review"]["task"]
 
 
 def test_research_report_without_angles_uses_single_researcher():

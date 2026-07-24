@@ -6,7 +6,7 @@ import { useLocation } from "react-router-dom";
 
 /**
  * The 文件 hub (跨工作区文件总览) — one place to browse files across every
- * workspace root (`folder:<id>` 项目共享空间 + `conv:<id>` 裸聊 scratch，云 + 本地)
+ * workspace root (`folder:<id>` 项目 + `shared:<id>` 共享空间混排 + `conv:<id>` 裸聊 scratch，云 + 本地)
  * without first opening a conversation. Layout is VSCode 式左树右详情: the left
  * rail stacks each root as a flat, collapsible section over its own
  * {@link FileSource}.

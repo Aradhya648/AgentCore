@@ -24,7 +24,6 @@ import {
   FolderOpen,
   Loader2,
   Pencil,
-  ScrollText,
   Trash2,
 } from "lucide-react";
 import { forwardRef, useState } from "react";
@@ -62,10 +61,9 @@ function nextRuleName(existing: Iterable<string>): string {
 }
 
 /**
- * The「你的规则」rail section (Agent记忆与知识系统 §5.7 前端规则入口) — the user's own
- * rules (`role='rule', ai_maintained=false`, §5.2). GLOBAL mounts at the {@link FileWorkbench}
- * rail root (every conversation); each cloud project mounts its own project-scope section
- * under the project folder (header「规则」, bound to that `folderId`, §5.3).
+ * The「规则」rail section (Agent记忆与知识系统 §5.7 / §5.0) — the user's own rules
+ * (`role='rule', ai_maintained=false`, §5.2). Mounted under {@link AgentCoreSection} as
+ * `AgentCore/规则/` (GLOBAL + per-project).
  *
  * Deliberately NOT the generic {@link FileTree} (照 {@link MemorySection} 先例): rules are a
  * flat per-scope list needing only 打开 / 新建 / 重命名 / 删除. Opening a rule reuses the shared
@@ -226,16 +224,12 @@ export function RuleSection({
         ) : (
           <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
         )}
-        {scope.kind === "global" ? (
-          <ScrollText size={14} className="shrink-0 text-primary" />
-        ) : sectionOpen ? (
+        {sectionOpen ? (
           <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
         ) : (
           <Folder size={14} className="shrink-0 text-muted-foreground" />
         )}
-        <span className="min-w-0 flex-1 truncate">
-          {scope.kind === "global" ? "你的规则" : "规则"}
-        </span>
+        <span className="min-w-0 flex-1 truncate">规则</span>
       </button>
 
       {sectionOpen &&
@@ -282,7 +276,7 @@ export function RuleSection({
             )}
             <NewRuleRow
               paddingLeft={leafPad}
-              label={scope.kind === "global" ? "新建全局规则" : "新建规则"}
+              label="新建规则"
               onClick={() => void createRule()}
             />
           </>

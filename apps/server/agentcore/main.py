@@ -139,11 +139,12 @@ def _validate_production_security() -> None:
 
 
 async def _run_document_memory_migration() -> None:
-    """Best-effort one-shot: copy file-backed long-term memory into the documents tree.
+    """Best-effort one-shot: copy file-backed long-term memory into the documents tree,
+    then hoist bare ``记忆/`` + top-level user rules into ``AgentCore/`` (§5.0 / §5.7).
 
-    Agent记忆与知识系统 §5.7 换底 — idempotent, per-note best-effort, source files untouched
-    (never loses data). A no-op once done or on a fresh deploy; fire-and-forget so a slow scan
-    never blocks readiness.
+    Idempotent, per-note / per-scope best-effort, source files/nodes untouched on failure
+    (never loses data). A no-op once done or on a fresh deploy; fire-and-forget so a slow
+    scan never blocks readiness.
     """
     try:
         from agentcore.memory.migrate_documents import migrate_file_memory_to_documents
@@ -153,6 +154,15 @@ async def _run_document_memory_migration() -> None:
         raise
     except Exception as e:  # noqa: BLE001 - never let the one-shot migration break boot
         get_logger(__name__).warning("memory.migrate_documents_failed", error=str(e))
+
+    try:
+        from agentcore.memory.migrate_agentcore import migrate_agentcore_layout
+
+        await migrate_agentcore_layout()
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001 - layout migration is best-effort too
+        get_logger(__name__).warning("memory.migrate_agentcore_failed", error=str(e))
 
 
 @asynccontextmanager

@@ -176,7 +176,14 @@ export function resolveSpawnConfig(): SpawnConfig {
       cmd: python,
       args: ["-m", "agentcore.sidecar"],
       cwd: base,
-      env: { PYTHONPATH: join(base, "site-packages") },
+      env: {
+        PYTHONPATH: join(base, "site-packages"),
+        AGENTCORE_RG_PATH: join(
+          process.resourcesPath,
+          "rg",
+          process.platform === "win32" ? "rg.exe" : "rg",
+        ),
+      },
     };
   }
 
@@ -185,11 +192,18 @@ export function resolveSpawnConfig(): SpawnConfig {
     process.platform === "win32"
       ? join(serverDir, ".venv", "Scripts", "python.exe")
       : join(serverDir, ".venv", "bin", "python");
+  const rgDev = join(
+    serverDir,
+    "bin",
+    process.platform === "win32" ? "rg.exe" : "rg",
+  );
+  const rgEnv = existsSync(rgDev) ? { AGENTCORE_RG_PATH: rgDev } : undefined;
   if (existsSync(venvPython)) {
     return {
       cmd: venvPython,
       args: ["-m", "agentcore.sidecar"],
       cwd: serverDir,
+      env: rgEnv,
     };
   }
   // 回退：让 uv 解析环境（需 uv 在 PATH）。
@@ -197,6 +211,7 @@ export function resolveSpawnConfig(): SpawnConfig {
     cmd: "uv",
     args: ["run", "python", "-m", "agentcore.sidecar"],
     cwd: serverDir,
+    env: rgEnv,
   };
 }
 

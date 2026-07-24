@@ -9,7 +9,7 @@ import {
   type SharedSpaceSummary,
   sharedSpaceRoleLabel,
 } from "@/services/sharedSpaces";
-import { Loader2, Users } from "lucide-react";
+import { Users } from "lucide-react";
 
 /**
  * REST-backed pending-invite strip for the files rail. Firehose only nudges;
@@ -25,18 +25,11 @@ export function PendingSharedInvites({
   const reject = useRejectSharedInvite();
   const invites = data ?? [];
 
-  if (isLoading && invites.length === 0) {
-    return (
-      <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
-        <Loader2 size={12} className="animate-spin" />
-        加载邀请…
-      </div>
-    );
-  }
+  if (isLoading && invites.length === 0) return null;
 
-  if (isError) {
+  if (isError && invites.length === 0) {
     return (
-      <div className="space-y-1 px-2 py-2">
+      <div className="space-y-1 border-b border-border px-2 py-2">
         <p className="text-xs text-destructive">无法加载共享空间邀请</p>
         <Button variant="ghost" size="sm" onClick={() => void refetch()}>
           重试

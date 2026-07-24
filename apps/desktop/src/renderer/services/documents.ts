@@ -14,7 +14,17 @@ import { api } from "@/services/api";
  * Scope is the `folderId` column (§5.7 过渡态：项目作用域由 `documents.folder_id` 桥接，
  * 待 Folder 并入文档树后折叠为「位置即作用域」终态): `null` = the GLOBAL layer (all
  * conversations), else that project's layer (only that folder's conversations).
+ *
+ * Convention tree (§5.0): user rules live under cloud-documents `AgentCore/规则/` (NOT the
+ * desktop local default path `~/Documents/AgentCore/`). New `role=rule` creates with
+ * `parent_id=null` are auto-parented there by the API.
  */
+
+/** Cloud-documents convention root name (§5.0). ≠ local disk `~/Documents/AgentCore`. */
+export const AGENTCORE_ROOT_NAME = "AgentCore";
+
+/** User-rules directory under the convention root. */
+export const RULES_DIR_NAME = "规则";
 
 /** A tree node's metadata (list rows — body omitted so a listing stays light). */
 export interface DocumentNode {
@@ -76,6 +86,10 @@ const toDetail = (w: DocumentDetailWire): DocumentDetail => ({
   version: w.version,
 });
 
+function isUserRuleDoc(n: DocumentNode): boolean {
+  return n.role === "rule" && !n.aiMaintained && n.kind === "document";
+}
+
 /** List a folder's direct children (`parentId` null = the user's top-level nodes). */
 export function listDocuments(
   parentId: string | null = null,
@@ -87,19 +101,37 @@ export function listDocuments(
 }
 
 /**
- * All of the user's own rule documents across scopes (§5.2 user rules =
- * `role='rule', ai_maintained=false`). Phase-1 rules are top-level of their scope
- * (global rules + `remember`'s 用户规则.md + project rules created here all sit at
- * `parent_id=null`), so ONE top-level listing gathers them; partition by `folderId`
- * for the GLOBAL vs per-project layers. AI memory (记忆 folder + its ai_maintained
- * notes) and any general docs are filtered out.
+ * All of the user's own rule documents across scopes (§5.2 / §5.0).
+ * Collects leaves under each scope's `AgentCore/规则/`, plus any leftover top-level
+ * rule docs (pre-migration) so the rail stays complete across layout migration.
+ * Partition by `folderId` for GLOBAL vs per-project layers.
  */
-export function listUserRules(): Promise<DocumentNode[]> {
-  return listDocuments(null).then((nodes) =>
-    nodes.filter(
-      (n) => n.role === "rule" && !n.aiMaintained && n.kind === "document",
-    ),
+export async function listUserRules(): Promise<DocumentNode[]> {
+  const tops = await listDocuments(null);
+  const byId = new Map<string, DocumentNode>();
+
+  for (const n of tops) {
+    if (isUserRuleDoc(n)) byId.set(n.id, n);
+  }
+
+  const agentcores = tops.filter(
+    (n) => n.kind === "folder" && n.name === AGENTCORE_ROOT_NAME,
   );
+  await Promise.all(
+    agentcores.map(async (ac) => {
+      const kids = await listDocuments(ac.id);
+      const rulesDir = kids.find(
+        (k) => k.kind === "folder" && k.name === RULES_DIR_NAME,
+      );
+      if (!rulesDir) return;
+      const rules = await listDocuments(rulesDir.id);
+      for (const n of rules) {
+        if (isUserRuleDoc(n)) byId.set(n.id, n);
+      }
+    }),
+  );
+
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "zh"));
 }
 
 /** Load one document's body + CAS version (the editor's load). */
@@ -111,7 +143,8 @@ export function getDocument(id: string): Promise<DocumentDetail> {
 
 /**
  * Create a user rule document in a scope (`folderId` null = global, else that project).
- * Always `role='rule', ai_maintained=false, apply_mode='always'` (the API pins authorship).
+ * Always `role='rule', ai_maintained=false, apply_mode='always'`. With `parent_id=null`
+ * the API auto-parents under that scope's `AgentCore/规则/` (§5.0).
  */
 export function createRuleDocument(
   name: string,

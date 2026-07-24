@@ -51,6 +51,24 @@ RUN mkdir -p /out \
          python /fetch_runsc.py /out/runsc && chmod 0755 /out/runsc; \
        fi
 
+# ---- ripgrep：产品 AI grep 内嵌二进制（不依赖 PATH；缺则工具显式失败）----
+# 默认 pin 14.1.1 musl 静态；大陆构建可用 RG_URL / RG_SHA256=skip 指镜像源。
+FROM python:3.12-slim AS ripgrep
+ARG INSTALL_RG=1
+ARG RG_VERSION=14.1.1
+ARG RG_TARGET=x86_64-unknown-linux-musl
+ARG RG_URL=""
+ARG RG_SHA256=""
+ENV RG_VERSION=${RG_VERSION} \
+    RG_TARGET=${RG_TARGET} \
+    RG_URL=${RG_URL} \
+    RG_SHA256=${RG_SHA256}
+COPY scripts/fetch_ripgrep.py /fetch_ripgrep.py
+RUN mkdir -p /out \
+    && if [ "$INSTALL_RG" = "1" ]; then \
+         python /fetch_ripgrep.py /out/rg && chmod 0755 /out/rg; \
+       fi
+
 # ---- runtime：精简镜像，只带 venv + 源码 ----
 FROM python:3.12-slim AS runtime
 
@@ -108,6 +126,8 @@ RUN set -eux; \
 
 # ④ runsc 二进制（INSTALL_RUNSC=0 时该层只拷到一个空目录占位）。
 COPY --from=runsc /out/ /usr/local/bin/
+# ④b ripgrep 二进制（INSTALL_RG=0 时占位空目录；缺 rg 时 grep 工具显式失败）。
+COPY --from=ripgrep /out/ /usr/local/bin/
 
 WORKDIR /app
 

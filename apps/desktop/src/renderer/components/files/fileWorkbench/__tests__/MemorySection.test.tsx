@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 /**
- * MemorySection —「AI 记忆」rail after the project-under-folder IA:
- * GLOBAL lists 最近更新 / 偏好 / 画像 / 主题 only (no「项目记忆」aggregator).
- * Project scope mounts under each project folder as a fixed「记忆」child.
+ * MemorySection —「记忆」under AgentCore convention tree:
+ * GLOBAL lists 最近更新 / 偏好 / 画像 / 主题; project scope is 画像 + 主题.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -83,11 +82,12 @@ describe("MemorySection (global)", () => {
   it("lists GLOBAL core leaves without a 项目记忆 aggregator", () => {
     const { onOpen } = renderGlobal();
 
-    expect(screen.getByText("AI 记忆")).toBeTruthy();
+    expect(screen.getByText("记忆")).toBeTruthy();
     expect(screen.getByText("最近更新")).toBeTruthy();
     expect(screen.getByText("画像")).toBeTruthy();
     expect(screen.getByText("主题")).toBeTruthy();
     expect(screen.queryByText("项目记忆")).toBeNull();
+    expect(screen.queryByText("AI 记忆")).toBeNull();
 
     fireEvent.click(screen.getByText("偏好"));
     expect(onOpen).toHaveBeenCalledWith(GLOBAL_PREFERENCES_PATH, "偏好.md");

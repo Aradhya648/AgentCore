@@ -205,9 +205,8 @@ _RESEARCHER_SEARCH_DISCIPLINE = (
 # 审查 / 调查类 playbook 任务书检索纪律（与 worker_budget.DIRECTED_SEARCH_DISCIPLINE 同义；
 # playbook 内联避免循环 import，测试可对 task 文案断言）。
 _DIRECTED_SEARCH_TASK_HINT = (
-    "【检索纪律】先用 grep / code_search 定向定位相关符号、关键字与片段，"
-    "再对命中文件精读（file_read 优先带 offset/limit）；"
-    "禁止无目标地整目录逐文件通读。"
+    "【检索纪律】概念/意图先用 code_search，精确符号或字符串用 grep；"
+    "命中后再 file_read（优先 offset/limit）；禁止无目标地整目录逐文件通读。"
 )
 
 

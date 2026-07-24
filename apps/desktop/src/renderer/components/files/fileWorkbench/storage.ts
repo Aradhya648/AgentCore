@@ -114,6 +114,27 @@ export function saveRulesExpanded(set: Set<string>): void {
   saveStringSet(RULES_EXPANDED_KEY, set);
 }
 
+// AgentCore 约定根折叠态：全局段**默认展开**（取代旧双 rail），故只持久化「被折叠」；
+// 项目下 AgentCore 子节点**默认折叠**，故只持久化「被展开」的 folderId。
+const AGENTCORE_COLLAPSED_KEY = "files-agentcore-collapsed";
+const AGENTCORE_EXPANDED_KEY = "files-agentcore-expanded";
+
+export function loadAgentCoreCollapsed(): Set<string> {
+  return loadStringSet(AGENTCORE_COLLAPSED_KEY);
+}
+
+export function saveAgentCoreCollapsed(set: Set<string>): void {
+  saveStringSet(AGENTCORE_COLLAPSED_KEY, set);
+}
+
+export function loadAgentCoreExpanded(): Set<string> {
+  return loadStringSet(AGENTCORE_EXPANDED_KEY);
+}
+
+export function saveAgentCoreExpanded(set: Set<string>): void {
+  saveStringSet(AGENTCORE_EXPANDED_KEY, set);
+}
+
 export interface Tab {
   wsId: string;
   path: string;

@@ -33,6 +33,7 @@
     "release:win": "node scripts/release-win.mjs",
     "preview": "electron-vite preview",
     "bundle:sidecar": "node scripts/bundle-sidecar.mjs",
+    "fetch:rg": "node scripts/fetch-rg.mjs",
     "build:unpack": "pnpm bundle:sidecar && electron-vite build && electron-builder --dir",
     "build:win": "pnpm bundle:sidecar && electron-vite build && electron-builder --win",
     "build:win:cn": "node scripts/build-win-cn.mjs",

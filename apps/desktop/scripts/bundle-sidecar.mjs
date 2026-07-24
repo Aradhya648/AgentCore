@@ -246,7 +246,35 @@ function main() {
     { env: { ...process.env, PYTHONPATH: sitePackages, PYTHONUTF8: "1" } },
   );
 
+  // 8. 内嵌 ripgrep（产品 AI grep；主进程 opGrep + sidecar AGENTCORE_RG_PATH 共用）。
+  fetchDesktopRipgrep();
+
   console.log(`\n✅ 内置 Python 运行时就绪: ${outDir}`);
+}
+
+/** 下载当前平台 rg 到 resources/rg/（与 electron-builder extraResources 对齐）。 */
+function fetchDesktopRipgrep() {
+  const fetchScript = join(serverDir, "scripts", "fetch_ripgrep.py");
+  if (!existsSync(fetchScript)) {
+    throw new Error(`缺少 ripgrep 获取脚本: ${fetchScript}`);
+  }
+  console.log("获取内嵌 ripgrep → resources/rg/");
+  // Prefer server venv python; fall back to uv run.
+  const venvPy = isWin
+    ? join(serverDir, ".venv", "Scripts", "python.exe")
+    : join(serverDir, ".venv", "bin", "python");
+  if (existsSync(venvPy)) {
+    run(venvPy, [fetchScript, "--install-desktop"], { cwd: serverDir });
+  } else {
+    run("uv", ["run", "python", fetchScript, "--install-desktop"], {
+      cwd: serverDir,
+    });
+  }
+  const rgName = isWin ? "rg.exe" : "rg";
+  const rgPath = join(desktopDir, "resources", "rg", rgName);
+  if (!existsSync(rgPath)) {
+    throw new Error(`ripgrep 未写入预期路径: ${rgPath}`);
+  }
 }
 
 /**

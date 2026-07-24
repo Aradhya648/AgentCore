@@ -45,9 +45,15 @@ nodeGypRebuild: false
 # resources/sidecar/。主进程 resolveSpawnConfig 在 app.isPackaged 时据此拉起 sidecar，
 # 用户机器无需任何系统 Python / venv / uv。须在 electron-builder 前跑 `pnpm bundle:sidecar`
 # （package.json 的 build:* 已前置）；原生 wheel/解释器不可交叉编译，故每平台各自 CI 构建。
+# 内嵌 ripgrep（产品 AI grep）：scripts/fetch_ripgrep.py --install-desktop → resources/rg/；
+# 主进程 opGrep 与 sidecar（AGENTCORE_RG_PATH）共用，不依赖 PATH。
 extraResources:
   - from: resources/sidecar
     to: sidecar
+  - from: resources/rg
+    to: rg
+    filter:
+      - "**/*"
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 

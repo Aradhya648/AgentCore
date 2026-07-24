@@ -37,22 +37,78 @@ beforeEach(() => {
 });
 
 describe("documents client", () => {
-  it("listUserRules keeps only user rule docs and partitions carry folderId (scope)", async () => {
-    vi.mocked(api.get).mockResolvedValue([
-      node({ id: "g", folder_id: null, name: "全局.md" }),
-      node({ id: "p", folder_id: "F1", name: "项目.md" }),
-      // AI memory: role=rule but ai_maintained → excluded (not user-settable here).
-      node({ id: "m", ai_maintained: true, name: "画像.md" }),
-      // The 记忆 root folder + plain docs are not user rules → excluded.
-      node({ id: "root", kind: "folder", role: "general", name: "记忆" }),
-      node({ id: "gen", role: "general", name: "note.md" }),
-    ]);
+  it("listUserRules collects AgentCore/规则 leaves and leftover top-level rules", async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/v1/documents") {
+        return [
+          node({ id: "legacy", folder_id: null, name: "旧顶层.md" }),
+          node({
+            id: "ac-g",
+            kind: "folder",
+            role: "general",
+            name: "AgentCore",
+            folder_id: null,
+          }),
+          node({
+            id: "ac-p",
+            kind: "folder",
+            role: "general",
+            name: "AgentCore",
+            folder_id: "F1",
+          }),
+          node({ id: "m", ai_maintained: true, name: "画像.md" }),
+          node({ id: "gen", role: "general", name: "note.md" }),
+        ];
+      }
+      if (url === "/v1/documents?parent_id=ac-g") {
+        return [
+          node({
+            id: "rules-g",
+            kind: "folder",
+            role: "general",
+            name: "规则",
+            parent_id: "ac-g",
+          }),
+        ];
+      }
+      if (url === "/v1/documents?parent_id=rules-g") {
+        return [node({ id: "g", folder_id: null, name: "全局.md", parent_id: "rules-g" })];
+      }
+      if (url === "/v1/documents?parent_id=ac-p") {
+        return [
+          node({
+            id: "rules-p",
+            kind: "folder",
+            role: "general",
+            name: "规则",
+            parent_id: "ac-p",
+            folder_id: "F1",
+          }),
+        ];
+      }
+      if (url === "/v1/documents?parent_id=rules-p") {
+        return [
+          node({
+            id: "p",
+            folder_id: "F1",
+            name: "项目.md",
+            parent_id: "rules-p",
+          }),
+        ];
+      }
+      return [];
+    });
 
     const rules = await listUserRules();
-    expect(api.get).toHaveBeenCalledWith("/v1/documents");
-    expect(rules.map((r) => r.id)).toEqual(["g", "p"]);
-    expect(rules[0]).toMatchObject({ folderId: null, name: "全局.md" });
-    expect(rules[1]).toMatchObject({ folderId: "F1", name: "项目.md" });
+    expect(rules.map((r) => r.id).sort()).toEqual(["g", "legacy", "p"]);
+    expect(rules.find((r) => r.id === "g")).toMatchObject({
+      folderId: null,
+      name: "全局.md",
+    });
+    expect(rules.find((r) => r.id === "p")).toMatchObject({
+      folderId: "F1",
+      name: "项目.md",
+    });
   });
 
   it("getDocument maps the wire body + CAS version", async () => {

@@ -292,3 +292,218 @@ async def test_migration_skips_soft_deleted_same_name(session_factory, tmp_path)
             uid, topic, None, include_deleted=True
         )
         assert tombstone is not None and tombstone.deleted_at is not None
+
+
+# --- AgentCore/ convention layout (§5.0) ------------------------------------------------------
+
+
+async def test_new_writes_land_under_agentcore(session_factory):
+    """Memory notes + remember target land under AgentCore/{记忆,规则}/."""
+    from agentcore.db.repositories.documents import (
+        AGENTCORE_ROOT_NAME,
+        MEMORY_ROOT_NAME,
+        RULES_DIR_NAME,
+        USER_RULES_DOC_NAME,
+    )
+
+    uid = str(uuid.uuid4())
+    async with session_factory() as session:
+        store = DocumentMemoryStore(session=session)
+        await store.save(uid, CORE_MEMORY_FILE, "## 技术栈与工具\n- Python", scope=None)
+        repo = DocumentRepository(session)
+        await repo.upsert_user_rules_doc(uid, None, "- 必须用中文")
+
+        mem_root = await repo.get_memory_root(uid, None)
+        assert mem_root is not None
+        ac = await repo.get(mem_root.parent_id, user_id=uid)
+        assert ac is not None and ac.name == AGENTCORE_ROOT_NAME and ac.parent_id is None
+
+        rules_dir = await repo.get_rules_dir(uid, None)
+        assert rules_dir is not None and rules_dir.name == RULES_DIR_NAME
+        assert rules_dir.parent_id == ac.id
+        rule = await repo.get_user_rules_doc(uid, None)
+        assert rule is not None and rule.parent_id == rules_dir.id
+        assert rule.name == USER_RULES_DOC_NAME
+
+        note = await repo.get_memory_note(uid, CORE_MEMORY_FILE, None)
+        assert note is not None and note.parent_id == mem_root.id
+        assert mem_root.name == MEMORY_ROOT_NAME
+
+
+async def test_agentcore_layout_migration_idempotent(session_factory):
+    """Bare 记忆/ + top-level user rules reparent into AgentCore/; second run is a no-op."""
+    from agentcore.db.repositories.documents import (
+        AGENTCORE_ROOT_NAME,
+        MEMORY_ROOT_NAME,
+        RULES_DIR_NAME,
+    )
+    from agentcore.memory.migrate_agentcore import migrate_agentcore_layout
+
+    uid = str(uuid.uuid4())
+    async with session_factory() as session:
+        repo = DocumentRepository(session)
+        # Pre-§5.0 shape: bare memory root + top-level rule.
+        bare = await repo.create(
+            uid,
+            name=MEMORY_ROOT_NAME,
+            kind="folder",
+            role="general",
+            ai_maintained=True,
+            parent_id=None,
+        )
+        note = await repo.create(
+            uid,
+            name=CORE_MEMORY_FILE,
+            kind="document",
+            role="rule",
+            ai_maintained=True,
+            parent_id=bare.id,
+            content="## 技术栈与工具\n- Python",
+        )
+        top_rule = await repo.create(
+            uid, name="语气.md", role="rule", content="- 简洁", parent_id=None
+        )
+        bare_id, note_id, rule_id = bare.id, note.id, top_rule.id
+
+    stats = await migrate_agentcore_layout(session_factory=session_factory)
+    assert stats.scopes_failed == 0
+    assert stats.memory_roots_moved >= 1
+    assert stats.rules_moved >= 1
+
+    async with session_factory() as session:
+        repo = DocumentRepository(session)
+        mem = await repo.get_memory_root(uid, None)
+        assert mem is not None and mem.id == bare_id
+        ac = await repo.get(mem.parent_id, user_id=uid)
+        assert ac is not None and ac.name == AGENTCORE_ROOT_NAME
+        rules_dir = await repo.get_rules_dir(uid, None)
+        assert rules_dir is not None and rules_dir.name == RULES_DIR_NAME
+        moved_rule = await repo.get(rule_id, user_id=uid)
+        assert moved_rule is not None and moved_rule.parent_id == rules_dir.id
+        moved_note = await repo.get(note_id, user_id=uid)
+        assert moved_note is not None and moved_note.parent_id == mem.id
+        assert "Python" in moved_note.content
+
+    stats2 = await migrate_agentcore_layout(session_factory=session_factory)
+    assert stats2.memory_roots_moved == 0
+    assert stats2.rules_moved == 0
+
+
+async def test_injectable_rules_skip_stray_outside_convention(session_factory):
+    """With AgentCore/规则/ present, a top-level stray always-rule is not injectable."""
+    from agentcore.db.repositories.documents import USER_RULES_DOC_NAME
+
+    uid = str(uuid.uuid4())
+    async with session_factory() as session:
+        repo = DocumentRepository(session)
+        await repo.upsert_user_rules_doc(uid, None, "- 必须用中文")
+        stray = await repo.create(
+            uid,
+            name="漏网规则.md",
+            role="rule",
+            content="- 不该注入",
+            parent_id=None,
+            apply_mode="always",
+        )
+        stray_id = stray.id
+        rules_dir = await repo.get_rules_dir(uid, None)
+        assert rules_dir is not None
+
+        docs = await repo.list_injectable_rules(uid, None, ai_maintained=False)
+        ids = {d.id for d in docs}
+        assert stray_id not in ids
+        assert any(d.name == USER_RULES_DOC_NAME for d in docs)
+        assert all(d.parent_id == rules_dir.id for d in docs)
+
+
+async def test_dual_memory_roots_soft_deletes_empty_bare(session_factory):
+    """After dual-root fold, empty bare 记忆/ gets soft-deleted; notes live under convention."""
+    from agentcore.db.models import Document
+    from agentcore.db.repositories.documents import (
+        AGENTCORE_ROOT_NAME,
+        MEMORY_ROOT_NAME,
+    )
+    from agentcore.memory.migrate_agentcore import migrate_agentcore_layout
+
+    uid = str(uuid.uuid4())
+    async with session_factory() as session:
+        repo = DocumentRepository(session)
+        ac = await repo.ensure_agentcore_root(uid, None)
+        under = await repo.create(
+            uid,
+            name=MEMORY_ROOT_NAME,
+            kind="folder",
+            role="general",
+            ai_maintained=True,
+            parent_id=ac.id,
+        )
+        note_under = await repo.create(
+            uid,
+            name=CORE_MEMORY_FILE,
+            kind="document",
+            role="rule",
+            ai_maintained=True,
+            parent_id=under.id,
+            content="## 技术栈与工具\n- under",
+            apply_mode="always",
+        )
+        bare = await repo.create(
+            uid,
+            name=MEMORY_ROOT_NAME,
+            kind="folder",
+            role="general",
+            ai_maintained=True,
+            parent_id=None,
+        )
+        note_bare = await repo.create(
+            uid,
+            name=PREFERENCES_MEMORY_FILE,
+            kind="document",
+            role="rule",
+            ai_maintained=True,
+            parent_id=bare.id,
+            content="## 沟通偏好\n- bare",
+            apply_mode="always",
+        )
+        bare_id, under_id = bare.id, under.id
+        note_bare_id, note_under_id = note_bare.id, note_under.id
+
+    stats = await migrate_agentcore_layout(session_factory=session_factory)
+    assert stats.scopes_failed == 0
+    assert stats.bare_memory_roots_soft_deleted >= 1
+
+    async with session_factory() as session:
+        repo = DocumentRepository(session)
+        bare_row = await session.get(Document, bare_id)
+        assert bare_row is not None and bare_row.deleted_at is not None
+
+        mem = await repo.get_memory_root(uid, None)
+        assert mem is not None and mem.id == under_id
+        ac = await repo.get(mem.parent_id, user_id=uid)
+        assert ac is not None and ac.name == AGENTCORE_ROOT_NAME
+
+        moved_pref = await repo.get(note_bare_id, user_id=uid)
+        assert moved_pref is not None and moved_pref.parent_id == under_id
+        kept = await repo.get(note_under_id, user_id=uid)
+        assert kept is not None and kept.parent_id == under_id
+
+
+async def test_create_rule_api_auto_parents_under_agentcore(client, make_invite):
+    await register_and_login(client, None, "acrule")
+    r = await client.post(
+        "/v1/documents",
+        json={"name": "新规则.md", "kind": "document", "role": "rule", "content": "x"},
+    )
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc["role"] == "rule" and doc["parent_id"] is not None
+
+    r = await client.get(f"/v1/documents/{doc['parent_id']}")
+    assert r.status_code == 200
+    rules_dir = r.json()
+    assert rules_dir["name"] == "规则" and rules_dir["kind"] == "folder"
+
+    r = await client.get(f"/v1/documents/{rules_dir['parent_id']}")
+    assert r.status_code == 200
+    assert r.json()["name"] == "AgentCore"
+

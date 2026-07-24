@@ -1,18 +1,195 @@
+/**
+ * 产品 AI grep：桌面通道侧（LocalWorkspace → opGrep）走内嵌 ripgrep。
+ *
+ * 语义与服务端 `workspace/rg_grep.py` 对齐：先 pathGuard，再 rg；单文件忽略 glob；
+ * glob 仅文件名（normalize 后 `--glob`）；`--no-ignore` + 产品名集；截断前按 path/line
+ * 稳定排序；文件大小帽 2MiB。缺二进制 = 显式 WorkspaceIOError，禁止回退 JS walk。
+ */
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
-import { join, relative } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 import type { WorkspaceOpResult } from "@shared/ipc-contract";
-import { GREP_MAX_FILES, GREP_MAX_RESULTS_CAP } from "../constants";
+import {
+  GREP_MAX_FILE_BYTES,
+  GREP_MAX_FILES,
+  GREP_MAX_RESULTS_CAP,
+} from "../constants";
 import { realInside, resolveLexical, toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
-import { shouldSkipWorkspaceEntry } from "../workspaceIgnore";
 import {
-  globToRegExp,
-  opErr,
-  opOk,
-  readTextSafe,
-  toPosix,
-  trimLine,
-} from "./result";
+  AI_NOISE_FILE_SUFFIXES,
+  LIST_FILES_SKIP_DIRS,
+  SYSTEM_IGNORED_FILE_SUFFIXES,
+} from "../workspaceIgnore";
+import { resolveRgBinary } from "./rgBinary";
+import { opErr, opOk, toPosix, trimLine } from "./result";
+
+const FILE_ARG_CHUNK = 200;
+
+/** 与服务端 `normalize_glob` 对齐：只保留文件名段。 */
+export function normalizeGlob(globPat: string): string | null {
+  let p = globPat.trim().replace(/\\/g, "/");
+  if (!p) return null;
+  if (p.startsWith("**/")) p = p.slice(3);
+  if (p.includes("/")) p = p.slice(p.lastIndexOf("/") + 1);
+  return p || null;
+}
+
+function productIgnoreGlobs(): string[] {
+  const globs: string[] = [];
+  for (const name of [...LIST_FILES_SKIP_DIRS].sort()) {
+    globs.push(`!${name}`, `!**/${name}/**`);
+  }
+  const suffixes = [
+    ...SYSTEM_IGNORED_FILE_SUFFIXES,
+    ...AI_NOISE_FILE_SUFFIXES,
+  ].sort();
+  for (const suf of suffixes) {
+    globs.push(`!**/*${suf}`);
+  }
+  return globs;
+}
+
+function commonRgFlags(opts: {
+  caseInsensitive: boolean;
+  nameGlob: string | null;
+  applyProductIgnore: boolean;
+}): string[] {
+  const args = [
+    "--no-ignore",
+    "--no-config",
+    "--hidden",
+    "--color",
+    "never",
+    "--max-filesize",
+    String(GREP_MAX_FILE_BYTES),
+    "--sort",
+    "path",
+  ];
+  if (opts.caseInsensitive) args.push("--ignore-case");
+  if (opts.applyProductIgnore) {
+    for (const g of productIgnoreGlobs()) {
+      args.push("--glob", g);
+    }
+  }
+  if (opts.nameGlob) args.push("--glob", opts.nameGlob);
+  return args;
+}
+
+function runRg(
+  rg: string,
+  args: string[],
+  cwd: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(rg, args, {
+      cwd,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (c: string) => {
+      stdout += c;
+    });
+    child.stderr?.on("data", (c: string) => {
+      stderr += c;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      resolve({ code: code ?? 2, stdout, stderr });
+    });
+  });
+}
+
+function regexErrorMessage(stderr: string): string | null {
+  const text = stderr.trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("regex") ||
+    lower.includes("parse error") ||
+    lower.includes("syntax error")
+  ) {
+    const first =
+      text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find(Boolean) ?? text;
+    return `正则表达式无效：${first}`;
+  }
+  return null;
+}
+
+function handleRgStatus(code: number, stderr: string): void {
+  if (code === 0 || code === 1) return;
+  const regexMsg = regexErrorMessage(stderr);
+  if (regexMsg) throw new Error(regexMsg);
+  const detail = stderr.trim() || `rg exited with code ${code}`;
+  throw new Error(`ripgrep 失败：${detail}`);
+}
+
+function parseLineHit(
+  line: string,
+): { path: string; lineNo: number; text: string } | null {
+  const m = /^(.*):(\d+):(.*)$/.exec(line);
+  if (!m) return null;
+  return { path: m[1], lineNo: Number(m[2]), text: m[3] };
+}
+
+function parseCountLine(line: string): { path: string; count: number } | null {
+  const m = /^(.*):(\d+)$/.exec(line);
+  if (!m) return null;
+  return { path: m[1], count: Number(m[2]) };
+}
+
+async function validateRegexp(rg: string, pattern: string): Promise<void> {
+  const probe = join(tmpdir(), `agentcore-rg-probe-${process.pid}-${Date.now()}.txt`);
+  await fs.writeFile(probe, "", "utf8");
+  try {
+    const ran = await runRg(rg, ["--regexp", pattern, "--", probe], dirname(probe));
+    handleRgStatus(ran.code, ran.stderr);
+  } finally {
+    await fs.unlink(probe).catch(() => undefined);
+  }
+}
+
+async function searchPaths(
+  rg: string,
+  opts: {
+    pattern: string;
+    paths: string[];
+    cwd: string;
+    caseInsensitive: boolean;
+    filesOnly: boolean;
+  },
+): Promise<string> {
+  if (opts.paths.length === 0) return "";
+  const modeFlags = opts.filesOnly
+    ? ["--count", "--with-filename"]
+    : ["--line-number", "--with-filename", "--no-heading"];
+  const base = [
+    ...modeFlags,
+    ...commonRgFlags({
+      caseInsensitive: opts.caseInsensitive,
+      nameGlob: null,
+      applyProductIgnore: false,
+    }),
+    "--regexp",
+    opts.pattern,
+  ];
+  const chunks: string[] = [];
+  for (let i = 0; i < opts.paths.length; i += FILE_ARG_CHUNK) {
+    const chunk = opts.paths.slice(i, i + FILE_ARG_CHUNK);
+    const ran = await runRg(rg, [...base, "--", ...chunk], opts.cwd);
+    handleRgStatus(ran.code, ran.stderr);
+    if (ran.stdout) chunks.push(ran.stdout);
+  }
+  return chunks.join("");
+}
 
 export async function opGrep(
   root: StoredRoot,
@@ -36,6 +213,7 @@ export async function opGrep(
       ? opErr("OutsideWorkspace", directory)
       : opErr("PathNotFound", directory);
   }
+
   let baseIsFile = false;
   try {
     const st = await fs.stat(baseReal.path);
@@ -47,103 +225,125 @@ export async function opGrep(
     return opErr("PathNotFound", directory);
   }
 
-  let re: RegExp;
-  try {
-    re = new RegExp(pattern, caseInsensitive ? "i" : "");
-  } catch (e) {
-    return opErr("WorkspaceIOError", `非法正则：${toReason(e)}`);
+  const rg = resolveRgBinary();
+  if (!rg) {
+    return opErr(
+      "WorkspaceIOError",
+      "ripgrep 二进制未找到（未设置 AGENTCORE_RG_PATH / 未内嵌 rg）。请运行: python apps/server/scripts/fetch_ripgrep.py --install-desktop",
+    );
   }
-  const nameRe = glob ? globToRegExp(glob) : null;
 
-  const hits: { path: string; line_no: number; text: string }[] = [];
-  const fileCounts: [string, number][] = [];
-  let totalMatches = 0;
-  let truncated = false;
-  let filesScanned = 0;
-  let stop = false;
+  const nameGlob = baseIsFile ? null : normalizeGlob(glob);
+  const searchCwd = baseIsFile ? dirname(baseReal.path) : baseReal.path;
+  const toRel = (absFile: string) => toPosix(relative(root.absPath, absFile));
 
-  // Scan one file's lines into the accumulators; return true if a result cap is
-  // hit. Shared by the single-file fast path and the directory walk so both
-  // render identical hits / counts / truncation (mirrors ServerWorkspace).
-  const scanFile = async (absFile: string): Promise<boolean> => {
-    const text = await readTextSafe(absFile);
-    if (text === null) return false; // binary / too large / unreadable — skip
-    const rel = toPosix(relative(root.absPath, absFile));
-    let fileCount = 0;
-    let stopLocal = false;
-    const lines = text.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      if (!re.test(lines[i])) continue;
-      fileCount++;
-      totalMatches++;
-      if (!filesOnly) {
-        hits.push({ path: rel, line_no: i + 1, text: trimLine(lines[i]) });
-        if (hits.length >= maxResults) {
-          truncated = true;
-          stopLocal = true;
-          break;
-        }
+  try {
+    await validateRegexp(rg, pattern);
+
+    let candidateFiles: string[] = [];
+    let scanTruncated = false;
+
+    if (baseIsFile) {
+      candidateFiles = [baseReal.path.split(/[/\\]/).pop() ?? baseReal.path];
+    } else {
+      const listArgs = [
+        "--files",
+        ...commonRgFlags({
+          caseInsensitive,
+          nameGlob,
+          applyProductIgnore: true,
+        }),
+        ".",
+      ];
+      const listed = await runRg(rg, listArgs, searchCwd);
+      handleRgStatus(listed.code, listed.stderr);
+      candidateFiles = listed.stdout
+        .split(/\r?\n/)
+        .map((l) => l.replace(/\\/g, "/").trim())
+        .filter(Boolean)
+        .sort();
+      if (candidateFiles.length > GREP_MAX_FILES) {
+        scanTruncated = true;
+        candidateFiles = candidateFiles.slice(0, GREP_MAX_FILES);
+      }
+      if (candidateFiles.length === 0) {
+        return opOk({
+          hits: [],
+          file_counts: [],
+          total_matches: 0,
+          truncated: scanTruncated,
+        });
       }
     }
-    if (fileCount > 0) {
-      fileCounts.push([rel, fileCount]);
-      if (filesOnly && fileCounts.length >= maxResults) {
+
+    const stdout = await searchPaths(rg, {
+      pattern,
+      paths: candidateFiles,
+      cwd: searchCwd,
+      caseInsensitive,
+      filesOnly,
+    });
+    const lines = stdout.split(/\r?\n/).filter(Boolean);
+
+    if (filesOnly) {
+      const parsed = lines
+        .map(parseCountLine)
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .map((x) => {
+          const abs = baseIsFile ? baseReal.path : join(searchCwd, x.path);
+          return [toRel(abs), x.count] as [string, number];
+        })
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      let truncated = scanTruncated;
+      let fileCounts = parsed;
+      if (fileCounts.length > maxResults) {
         truncated = true;
-        stopLocal = true;
+        fileCounts = fileCounts.slice(0, maxResults);
       }
+      const total = fileCounts.reduce((s, [, c]) => s + c, 0);
+      return opOk({
+        hits: [],
+        file_counts: fileCounts,
+        total_matches: total,
+        truncated,
+      });
     }
-    return stopLocal;
-  };
 
-  // `directory` may name a single file (rg PATTERN FILE): scan just it, no walk.
-  // `glob` is moot — the file is already pinpointed.
-  if (baseIsFile) {
-    await scanFile(baseReal.path);
+    const parsedHits = lines
+      .map(parseLineHit)
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .map((x) => {
+        const abs = baseIsFile ? baseReal.path : join(searchCwd, x.path);
+        return {
+          path: toRel(abs),
+          line_no: x.lineNo,
+          text: trimLine(x.text),
+        };
+      })
+      .sort(
+        (a, b) => a.path.localeCompare(b.path) || a.line_no - b.line_no,
+      );
+
+    let truncated = scanTruncated;
+    let hits = parsedHits;
+    if (hits.length > maxResults) {
+      truncated = true;
+      hits = hits.slice(0, maxResults);
+    }
+    const countMap = new Map<string, number>();
+    for (const h of hits) {
+      countMap.set(h.path, (countMap.get(h.path) ?? 0) + 1);
+    }
+    const fileCounts = [...countMap.entries()].sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
     return opOk({
       hits,
       file_counts: fileCounts,
-      total_matches: totalMatches,
+      total_matches: hits.length,
       truncated,
     });
+  } catch (e) {
+    return opErr("WorkspaceIOError", toReason(e));
   }
-
-  const walk = async (absDir: string): Promise<void> => {
-    if (stop) return;
-    let dirents: import("node:fs").Dirent[];
-    try {
-      dirents = await fs.readdir(absDir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    dirents.sort((a, b) => a.name.localeCompare(b.name));
-    for (const d of dirents) {
-      if (stop) break;
-      if (!d.isFile()) continue;
-      if (shouldSkipWorkspaceEntry(d.name, false)) continue;
-      if (nameRe && !nameRe.test(d.name)) continue;
-      filesScanned++;
-      if (filesScanned > GREP_MAX_FILES) {
-        truncated = true;
-        stop = true;
-        break;
-      }
-      stop = await scanFile(join(absDir, d.name));
-      if (stop) break;
-    }
-    if (stop) return;
-    for (const d of dirents) {
-      if (stop) break;
-      if (d.isDirectory() && !shouldSkipWorkspaceEntry(d.name, true)) {
-        await walk(join(absDir, d.name));
-      }
-    }
-  };
-
-  await walk(baseReal.path);
-  return opOk({
-    hits,
-    file_counts: fileCounts,
-    total_matches: totalMatches,
-    truncated,
-  });
 }

@@ -11,7 +11,15 @@ from pathlib import Path
 
 from agentcore.workspace.indexing.chunker import RawChunk
 
-_FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
+# Keep Python/JS identifiers intact; split adjacent CJK ↔ Latin (``\w+`` would glue them).
+_QUERY_TOKEN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*|[\u4e00-\u9fff]+|[0-9]+",
+)
+
+# FTS5 column order (incl. UNINDEXED): path, symbol, symbol_type, language,
+# content, start_line, end_line. Boost symbol / symbol_type so name hits
+# outrank body-only hits. One weight per column (SQLite FTS5 contract).
+_BM25_WEIGHTS = "bm25(chunks, 1.0, 10.0, 5.0, 1.0, 1.0, 1.0, 1.0)"
 
 
 class BM25Index:
@@ -165,7 +173,7 @@ class BM25Index:
         where = " AND ".join(filters)
         sql = f"""
             SELECT path, symbol, symbol_type, language, content, start_line, end_line,
-                   bm25(chunks) AS rank
+                   {_BM25_WEIGHTS} AS rank
             FROM chunks
             WHERE {where}
             ORDER BY rank
@@ -200,8 +208,36 @@ class BM25Index:
         return results
 
 
+def tokenize_query(query: str) -> list[str]:
+    """Split a natural-language / mixed CJK–Latin query into FTS tokens.
+
+    Identifiers (``foo_bar``, ``ApprovalGate``) stay intact; adjacent CJK and
+    Latin runs are separated. Long CJK runs also emit overlapping bigrams so
+    partial Chinese phrases can still hit.
+    """
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for raw in _QUERY_TOKEN.findall(query):
+        for piece in _expand_token(raw):
+            if piece not in seen:
+                seen.add(piece)
+                tokens.append(piece)
+    return tokens
+
+
+def _expand_token(token: str) -> list[str]:
+    """Keep the original token; add CJK bigrams for longer Chinese runs."""
+    out = [token]
+    if len(token) >= 2 and all("\u4e00" <= ch <= "\u9fff" for ch in token):
+        for i in range(len(token) - 1):
+            bigram = token[i : i + 2]
+            if bigram != token:
+                out.append(bigram)
+    return out
+
+
 def _to_fts_query(query: str) -> str | None:
-    tokens = _FTS_TOKEN.findall(query)
+    tokens = tokenize_query(query)
     if not tokens:
         return None
     # OR across tokens for better recall on natural-language queries.

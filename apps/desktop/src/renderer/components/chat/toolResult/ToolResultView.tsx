@@ -17,6 +17,8 @@ import { BookOpen, Brain, FileCode2, FileText, Terminal } from "lucide-react";
 import { useMemo } from "react";
 import { Favicon } from "../Favicon";
 import { type DiffLine, lineDiff } from "./diff";
+import { isSearchHitTool } from "./parseSearchHits";
+import { SearchHitResult } from "./SearchHitResult";
 
 /** Normalized data a tool result renders from, shared by the single-agent process
  * panel (ProcessToolRow) and the multi-agent run detail (RunDetailBody): the call
@@ -510,6 +512,15 @@ export function ToolResultView({ data }: { data: ToolResultData }) {
         content={asString(data.args.content) ?? ""}
       />
     );
+  }
+  // grep / code_search: clickable workspace paths → side-panel file preview.
+  // Empty「可执行下一步」notes have no hit lines → plain TextResult below.
+  if (
+    data.status === "success" &&
+    isSearchHitTool(data.toolName) &&
+    data.result?.trim()
+  ) {
+    return <SearchHitResult result={data.result} kind={data.toolName} />;
   }
   return <TextResult result={data.result ?? ""} status={data.status} />;
 }

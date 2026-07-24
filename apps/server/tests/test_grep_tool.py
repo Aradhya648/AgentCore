@@ -170,7 +170,9 @@ async def test_grep_no_matches(tmp_path: Path):
     _seed(tmp_path)
     result = await GrepTool().execute({"pattern": "zzz_nope"}, _ctx(tmp_path))
     assert result.success is True
-    assert "没有匹配" in result.output
+    assert "未匹配" in result.output or "没有匹配" in result.output
+    assert "可执行下一步" in result.output
+    assert "code_search" in result.output
     assert result.metadata["match_count"] == 0
 
 
@@ -189,6 +191,32 @@ async def test_grep_truncates_at_max_results(tmp_path: Path):
     # 3 matching lines + summary header + truncation note
     body_lines = [ln for ln in result.output.splitlines() if ln.startswith("many.txt:")]
     assert len(body_lines) == 3
+
+
+async def test_grep_truncation_order_is_stable(tmp_path: Path):
+    """Hits are sorted by (path, line) before the result cap — same order both ends."""
+    (tmp_path / "b.txt").write_text("hit\n", encoding="utf-8")
+    (tmp_path / "a.txt").write_text("hit\nhit\n", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("hit\n", encoding="utf-8")
+    result = await GrepTool().execute({"pattern": "hit", "max_results": 2}, _ctx(tmp_path))
+    assert result.success is True
+    assert "[结果已截断" in result.output
+    body = [ln for ln in result.output.splitlines() if ":hit" in ln or ln.endswith(": hit")]
+    # path-sorted: a.txt lines first
+    assert body[0].startswith("a.txt:1:")
+    assert body[1].startswith("a.txt:2:")
+
+
+async def test_grep_missing_rg_binary_fails_explicitly(tmp_path: Path, monkeypatch):
+    _seed(tmp_path)
+    monkeypatch.setattr(
+        "agentcore.workspace.rg_grep.resolve_rg_binary",
+        lambda: None,
+    )
+    monkeypatch.delenv("AGENTCORE_RG_PATH", raising=False)
+    result = await GrepTool().execute({"pattern": "TODO"}, _ctx(tmp_path))
+    assert result.success is False
+    assert "ripgrep" in (result.error or "").lower() or "rg" in (result.error or "").lower()
 
 
 # --- normalize_glob ---

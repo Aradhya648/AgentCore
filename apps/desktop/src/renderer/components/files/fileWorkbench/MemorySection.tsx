@@ -17,7 +17,6 @@ import {
 } from "@/services/sources/memorySource";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Brain,
   ChevronDown,
   ChevronRight,
   FilePlus,
@@ -46,12 +45,10 @@ export type MemoryScope =
   | { kind: "project"; folderId: string; projectName: string };
 
 /**
- * The folder-style「AI 记忆」rail section (Agent记忆与知识系统 §1.6) — a collapsible header over the
- * always-injected core leaves (偏好 global-only / 画像) **plus** a lazy 主题/ sub-folder of the
- * on-demand TOPIC notes (`consult_memory` pulls these; here they become browsable·editable·
- * deletable). GLOBAL mounts at the {@link FileWorkbench} rail root (最近更新 / 偏好 / 画像 / 主题);
- * each cloud project mounts its own project-scope section under the project folder (header「记忆」—
- * 画像 + 主题, scoped to that `folderId`).
+ * The folder-style「记忆」rail section (Agent记忆与知识系统 §1.6 / §5.0) — a collapsible
+ * header over the always-injected core leaves (偏好 global-only / 画像) **plus** a lazy
+ * 主题/ sub-folder of on-demand TOPIC notes. Mounted under {@link AgentCoreSection} as
+ * `AgentCore/记忆/` (GLOBAL at rail root; per-project under each cloud project).
  *
  * Deliberately NOT the generic {@link FileTree}: memory is AI-maintained by fixed sections
  * (防漂移), so the rail offers **打开 + (主题)删除 + (项目)新建主题** — no 改名 / 移动 / 上传.
@@ -251,16 +248,12 @@ export function MemorySection({
         ) : (
           <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
         )}
-        {scope.kind === "global" ? (
-          <Brain size={14} className="shrink-0 text-primary" />
-        ) : sectionOpen ? (
+        {sectionOpen ? (
           <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
         ) : (
           <Folder size={14} className="shrink-0 text-muted-foreground" />
         )}
-        <span className="min-w-0 flex-1 truncate">
-          {scope.kind === "global" ? "AI 记忆" : "记忆"}
-        </span>
+        <span className="min-w-0 flex-1 truncate">记忆</span>
       </button>
 
       {sectionOpen && (

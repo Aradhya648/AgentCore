@@ -1,29 +1,29 @@
 import { FileDetail } from "@/components/files/FileDetail";
 import { MemoryProfileSplitEditor } from "@/components/files/MemoryProfileSplitEditor";
 import { MemoryUpdatesView } from "@/components/files/MemoryUpdatesView";
+import { AgentCoreSection } from "@/components/files/fileWorkbench/AgentCoreSection";
 import { DetailTabs } from "@/components/files/fileWorkbench/DetailTabs";
-import { MemorySection } from "@/components/files/fileWorkbench/MemorySection";
-import { RuleSection } from "@/components/files/fileWorkbench/RuleSection";
 import { WorkspaceSection } from "@/components/files/fileWorkbench/WorkspaceSection";
 import {
   type Tab,
   clampRail,
   folderIdOf,
+  loadAgentCoreExpanded,
   loadExpandedWs,
-  loadMemoryProjectsExpanded,
   loadRailWidth,
+  saveAgentCoreExpanded,
   saveExpandedWs,
-  saveMemoryProjectsExpanded,
   saveRailWidth,
   tabKey,
 } from "@/components/files/fileWorkbench/storage";
 import { EmptyHint, InlineError } from "@/components/files/parts";
 import { PendingSharedInvites } from "@/components/files/sharedSpaces/PendingSharedInvites";
 import {
+  ProjectsRailHeader,
   SharedSpaceSection,
-  SharedSpacesRailHeader,
 } from "@/components/files/sharedSpaces/SharedSpaceSection";
 import { SearchField } from "@/components/ui";
+import { useConversations } from "@/hooks/useConversations";
 import { getFolders } from "@/hooks/useFolders";
 import { useSharedSpaces } from "@/hooks/useSharedSpaces";
 import type { FileSource } from "@/lib/fileSource";
@@ -49,6 +49,30 @@ import type { WorkspaceInfo } from "@/services/workspaces";
 import { FileText, FolderOpen, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+/** One row in the「项目」段 — personal `folder:` or multi-user `shared:`. */
+type ProjectRailItem =
+  | { kind: "folder"; ws: WorkspaceInfo; sortAt: number }
+  | { kind: "shared"; space: SharedSpaceSummary; sortAt: number };
+
+function msOrZero(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Best-effort「最近活跃」for a folder: max conversation `updatedAt` in that project. */
+function folderActivityMs(
+  folderId: string,
+  conversations: { folderId?: string | null; updatedAt: string }[],
+): number {
+  let max = 0;
+  for (const c of conversations) {
+    if (c.folderId !== folderId) continue;
+    max = Math.max(max, msOrZero(c.updatedAt));
+  }
+  return max;
+}
+
 /** Synthetic workspace id every memory leaf's tab lives under — they belong to no real
  * workspace (private per-user data), so they're resolved to {@link createMemorySource}
  * directly (path-aware: one source serves all leaves) and exempted from the "workspace
@@ -69,9 +93,10 @@ const RULES_WS = "__rules__";
  * 段**默认折叠**（只露根标题），点标题展开/收起、展开态持久化（`expandedWs`）；折叠时不
  * 挂载 {@link FileTree}，故云端 eager 源的「整树递归拉取」推迟到展开时才发——工作区一多时
  * 既清爽又省掉打开页面即 N 次全量请求。全部平铺、无「home / 其他项目」分区——只靠
- * cloud/local 徽标区分（用户 2026-06 决定）。每个 `folder:` 项目展开后固定挂「记忆」「规则」
- * 两子节点（顺序记忆→规则，无内容也显示），再是文件树；顶层「AI 记忆」只留全局层（最近更新 /
- * 偏好 / 画像），顶层「你的规则」只留全局规则。
+ * cloud/local 徽标区分（用户 2026-06 决定）；多人 `shared:` 并入「项目」段、角标「共享」
+ * （定案 B）。每个 `folder:` 项目展开后固定挂约定树 ``AgentCore/{规则,记忆}/``
+ * （无内容也显示），再是文件树；顶层同样挂全局 ``AgentCore/``（规则 + 记忆 / 最近更新），
+ * 不再双 pinned「AI 记忆 / 你的规则」rail。
  * 工作区一视同仁（工作区对称化 D1a 起不再有置顶的「我的工作区」默认壳——裸聊产文件时由服务端
  * 懒建一个 per 对话本地工作区，与云端裸聊同构）。The right pane is a **tab strip** — opening
  * files stacks tabs, each {@link FileDetail} stays mounted (hidden when inactive) so
@@ -108,8 +133,8 @@ export function FileWorkbench({
   isError: boolean;
   onRetry: () => void;
   fsAvailable: boolean;
-  /** Show the pinned「AI 记忆」entry atop the rail (opens the memory doc in the detail
-   * pane like any file). Off for hosts that shouldn't surface it (e.g. side panels). */
+  /** Show the pinned ``AgentCore/`` convention tree atop the rail (规则 + 记忆).
+   * Off for hosts that shouldn't surface it (e.g. side panels). */
   showMemory?: boolean;
   /** When navigated here with a target workspace (`/conversations`「浏览文件」),
    * auto-expand + highlight + scroll to that section（段默认折叠，故主动展开那一个）。
@@ -153,6 +178,7 @@ export function FileWorkbench({
     () => sharedQuery.data ?? [],
     [sharedQuery.data],
   );
+  const conversations = useConversations();
 
   /** Project + bare scratch only — `shared:` rows come from {@link useSharedSpaces}. */
   const personalWorkspaces = useMemo(
@@ -184,7 +210,7 @@ export function FileWorkbench({
     setRevealMemoryTopicsKey(null);
   }, []);
 
-  /** Expand project「记忆」(+ optional「主题」) for a deep-linked leaf. */
+  /** Expand project AgentCore (+ memory / topics) for a deep-linked leaf. */
   const revealMemoryInRail = useCallback(
     (path: string, projectId?: string | null) => {
       const folderId = parseProjectMemoryFolderId(path) ?? projectId ?? null;
@@ -193,9 +219,9 @@ export function FileWorkbench({
       if (folderId) {
         const wsId = `folder:${folderId}`;
         expandWs(wsId);
-        const expandedMem = loadMemoryProjectsExpanded();
-        expandedMem.add(folderId);
-        saveMemoryProjectsExpanded(expandedMem);
+        const expandedAc = loadAgentCoreExpanded();
+        expandedAc.add(folderId);
+        saveAgentCoreExpanded(expandedAc);
         setRevealMemoryFolderId(folderId);
         setFlashWsId(wsId);
         window.setTimeout(() => setFlashWsId(null), 1500);
@@ -331,10 +357,29 @@ export function FileWorkbench({
     return sharedSpaces.filter((s) => s.name.toLowerCase().includes(q));
   }, [sharedSpaces, filter]);
 
-  const projects = useMemo(
-    () => visiblePersonal.filter((w) => w.wsId.startsWith("folder:")),
-    [visiblePersonal],
-  );
+  /** folder: + shared: 混排进「项目」段（按最近活跃降序）。 */
+  const projectItems = useMemo(() => {
+    const items: ProjectRailItem[] = [];
+    for (const ws of visiblePersonal) {
+      if (!ws.wsId.startsWith("folder:")) continue;
+      const folderId = folderIdOf(ws.wsId);
+      items.push({
+        kind: "folder",
+        ws,
+        sortAt: folderId ? folderActivityMs(folderId, conversations) : 0,
+      });
+    }
+    for (const space of visibleShared) {
+      items.push({
+        kind: "shared",
+        space,
+        sortAt: msOrZero(space.updated_at),
+      });
+    }
+    items.sort((a, b) => b.sortAt - a.sortAt);
+    return items;
+  }, [visiblePersonal, visibleShared, conversations]);
+
   const scratches = useMemo(
     () => visiblePersonal.filter((w) => w.wsId.startsWith("conv:")),
     [visiblePersonal],
@@ -403,8 +448,8 @@ export function FileWorkbench({
         style={{ width: railWidth }}
         className="flex shrink-0 flex-col border-r border-border"
       >
-        {/* Rail header: workspace name filter only (新建项目走命令面板 / 侧栏；
-            段级 CRUD 在各 WorkspaceSection 右键菜单). */}
+        {/* Rail header: workspace name filter only (新建走项目区 + 菜单；
+            段级 CRUD 在各 WorkspaceSection / SharedSpaceSection 右键菜单). */}
         <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2">
           <SearchField
             value={filter}
@@ -415,41 +460,38 @@ export function FileWorkbench({
           />
         </div>
 
-        {/* Pinned「AI 记忆」— GLOBAL only (最近更新 / 偏好 / 画像 / 主题). Per-project
-            memory is a fixed「记忆」child under each project folder. */}
+        {/* Pinned global ``AgentCore/{规则,记忆}/`` — replaces dual「AI 记忆 / 你的规则」rails.
+            Per-project convention tree mounts under each project folder. */}
         {showMemory && (
           <div className="shrink-0 border-b border-border px-2 py-1">
-            <MemorySection
+            <AgentCoreSection
               scope={{ kind: "global" }}
-              activePath={activeTab?.wsId === MEMORY_WS ? activeTab.path : null}
-              onOpen={(path, name) => openFile(MEMORY_WS, path, name)}
-              onTopicDeleted={(path) => closeTab(tabKey(MEMORY_WS, path))}
-              onOpenUpdates={() =>
-                openFile(MEMORY_WS, MEMORY_UPDATES_PATH, "记忆动态")
+              memoryActivePath={
+                activeTab?.wsId === MEMORY_WS ? activeTab.path : null
               }
-              forceOpen={revealMemoryTopicsKey === "global"}
-              forceOpenTopics={revealMemoryTopicsKey === "global"}
-              onRevealApplied={clearMemoryReveal}
-            />
-          </div>
-        )}
-
-        {/* Pinned「你的规则」— GLOBAL rules only. Per-project rules are a fixed「规则」
-            child under each project folder. */}
-        {showMemory && (
-          <div className="shrink-0 border-b border-border px-2 py-1">
-            <RuleSection
-              scope={{ kind: "global" }}
-              activePath={activeTab?.wsId === RULES_WS ? activeTab.path : null}
-              onOpen={(path, name) => openFile(RULES_WS, path, name)}
-              onDeleted={(path) => closeTab(tabKey(RULES_WS, path))}
-              onRenamed={(path, name) =>
+              rulesActivePath={
+                activeTab?.wsId === RULES_WS ? activeTab.path : null
+              }
+              onOpenMemory={(path, name) => openFile(MEMORY_WS, path, name)}
+              onOpenRule={(path, name) => openFile(RULES_WS, path, name)}
+              onMemoryTopicDeleted={(path) =>
+                closeTab(tabKey(MEMORY_WS, path))
+              }
+              onRuleDeleted={(path) => closeTab(tabKey(RULES_WS, path))}
+              onRuleRenamed={(path, name) =>
                 setTabs((prev) =>
                   prev.map((t) =>
                     t.wsId === RULES_WS && t.path === path ? { ...t, name } : t,
                   ),
                 )
               }
+              onOpenUpdates={() =>
+                openFile(MEMORY_WS, MEMORY_UPDATES_PATH, "记忆动态")
+              }
+              forceOpen={revealMemoryTopicsKey === "global"}
+              forceOpenMemory={revealMemoryTopicsKey === "global"}
+              forceOpenMemoryTopics={revealMemoryTopicsKey === "global"}
+              onRevealApplied={clearMemoryReveal}
             />
           </div>
         )}
@@ -481,64 +523,55 @@ export function FileWorkbench({
           <EmptyHint
             icon={<FolderOpen size={24} className="text-muted-foreground/40" />}
             title="还没有工作区"
-            hint="新建共享空间，或在对话里产生文件后，对应条目会出现在这里。"
+            hint="新建项目或共享空间，或在对话里产生文件后，对应条目会出现在这里。"
           />
         ) : (
           <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 py-1">
             {filter.trim() &&
-            visibleShared.length === 0 &&
-            projects.length === 0 &&
+            projectItems.length === 0 &&
             scratches.length === 0 ? (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground">
                 没有名称匹配「{filter.trim()}」的工作区
               </p>
             ) : (
               <>
-                <SharedSpacesRailHeader
-                  onCreated={(spaceId) => {
-                    const wsId = sharedWsId(spaceId);
-                    expandWs(wsId);
-                    setFlashWsId(wsId);
-                    window.setTimeout(() => setFlashWsId(null), 1500);
-                  }}
-                />
-                {visibleShared.length === 0 ? (
-                  <p className="px-2 py-2 text-xs text-muted-foreground/70">
-                    {filter.trim()
-                      ? "无匹配的共享空间"
-                      : "还没有共享空间——点上方 + 创建，或接受邀请"}
-                  </p>
-                ) : (
-                  visibleShared.map((space) => {
-                    const wsId = space.ws_id || sharedWsId(space.id);
-                    return (
-                      <SharedSpaceSection
-                        key={space.id}
-                        space={space}
-                        source={sourceByWs.get(wsId) ?? null}
-                        activePath={
-                          activeTab?.wsId === wsId ? activeTab.path : null
-                        }
-                        expanded={expandedWs.has(wsId)}
-                        onToggle={() => toggleWs(wsId)}
-                        onOpenFile={(path, name) => openFile(wsId, path, name)}
-                        flashing={wsId === flashWsId}
-                      />
-                    );
-                  })
+                {(projectItems.length > 0 || !filter.trim()) && (
+                  <ProjectsRailHeader
+                    onSharedCreated={(spaceId) => {
+                      const wsId = sharedWsId(spaceId);
+                      expandWs(wsId);
+                      setFlashWsId(wsId);
+                      window.setTimeout(() => setFlashWsId(null), 1500);
+                    }}
+                  />
                 )}
-
-                {(projects.length > 0 || !filter.trim()) && (
-                  <div className="px-2 pb-0.5 pt-3 text-xs font-medium text-muted-foreground">
-                    项目
-                  </div>
-                )}
-                {projects.length === 0 && !filter.trim() ? (
+                {projectItems.length === 0 && !filter.trim() ? (
                   <p className="px-2 py-2 text-xs text-muted-foreground/70">
                     还没有项目工作区
                   </p>
                 ) : (
-                  projects.map((ws) => {
+                  projectItems.map((item) => {
+                    if (item.kind === "shared") {
+                      const { space } = item;
+                      const wsId = space.ws_id || sharedWsId(space.id);
+                      return (
+                        <SharedSpaceSection
+                          key={space.id}
+                          space={space}
+                          source={sourceByWs.get(wsId) ?? null}
+                          activePath={
+                            activeTab?.wsId === wsId ? activeTab.path : null
+                          }
+                          expanded={expandedWs.has(wsId)}
+                          onToggle={() => toggleWs(wsId)}
+                          onOpenFile={(path, name) =>
+                            openFile(wsId, path, name)
+                          }
+                          flashing={wsId === flashWsId}
+                        />
+                      );
+                    }
+                    const { ws } = item;
                     const folderId = folderIdOf(ws.wsId);
                     return (
                       <WorkspaceSection
@@ -556,56 +589,54 @@ export function FileWorkbench({
                         flashing={ws.wsId === flashWsId}
                         projectRail={
                           showMemory && folderId ? (
-                            <>
-                              <MemorySection
-                                scope={{
-                                  kind: "project",
-                                  folderId,
-                                  projectName: ws.name,
-                                }}
-                                activePath={
-                                  activeTab?.wsId === MEMORY_WS
-                                    ? activeTab.path
-                                    : null
-                                }
-                                onOpen={(path, name) =>
-                                  openFile(MEMORY_WS, path, name)
-                                }
-                                onTopicDeleted={(path) =>
-                                  closeTab(tabKey(MEMORY_WS, path))
-                                }
-                                indent={14}
-                                forceOpen={revealMemoryFolderId === folderId}
-                                forceOpenTopics={
-                                  revealMemoryTopicsKey === folderId
-                                }
-                                onRevealApplied={clearMemoryReveal}
-                              />
-                              <RuleSection
-                                scope={{ kind: "project", folderId }}
-                                activePath={
-                                  activeTab?.wsId === RULES_WS
-                                    ? activeTab.path
-                                    : null
-                                }
-                                onOpen={(path, name) =>
-                                  openFile(RULES_WS, path, name)
-                                }
-                                onDeleted={(path) =>
-                                  closeTab(tabKey(RULES_WS, path))
-                                }
-                                onRenamed={(path, name) =>
-                                  setTabs((prev) =>
-                                    prev.map((t) =>
-                                      t.wsId === RULES_WS && t.path === path
-                                        ? { ...t, name }
-                                        : t,
-                                    ),
-                                  )
-                                }
-                                indent={14}
-                              />
-                            </>
+                            <AgentCoreSection
+                              scope={{
+                                kind: "project",
+                                folderId,
+                                projectName: ws.name,
+                              }}
+                              memoryActivePath={
+                                activeTab?.wsId === MEMORY_WS
+                                  ? activeTab.path
+                                  : null
+                              }
+                              rulesActivePath={
+                                activeTab?.wsId === RULES_WS
+                                  ? activeTab.path
+                                  : null
+                              }
+                              onOpenMemory={(path, name) =>
+                                openFile(MEMORY_WS, path, name)
+                              }
+                              onOpenRule={(path, name) =>
+                                openFile(RULES_WS, path, name)
+                              }
+                              onMemoryTopicDeleted={(path) =>
+                                closeTab(tabKey(MEMORY_WS, path))
+                              }
+                              onRuleDeleted={(path) =>
+                                closeTab(tabKey(RULES_WS, path))
+                              }
+                              onRuleRenamed={(path, name) =>
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.wsId === RULES_WS && t.path === path
+                                      ? { ...t, name }
+                                      : t,
+                                  ),
+                                )
+                              }
+                              indent={14}
+                              forceOpen={revealMemoryFolderId === folderId}
+                              forceOpenMemory={
+                                revealMemoryFolderId === folderId ||
+                                revealMemoryTopicsKey === folderId
+                              }
+                              forceOpenMemoryTopics={
+                                revealMemoryTopicsKey === folderId
+                              }
+                              onRevealApplied={clearMemoryReveal}
+                            />
                           ) : undefined
                         }
                       />

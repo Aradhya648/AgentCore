@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 /**
- * RuleSection —「你的规则」rail after the project-under-folder IA:
- * GLOBAL lists only global rules (no「项目规则」aggregator).
- * Project scope mounts under each project folder as a fixed「规则」child.
+ * RuleSection —「规则」under AgentCore convention tree:
+ * GLOBAL lists only global rules; project scope filters by folderId.
  */
 
 import { ApiError } from "@/services/api";
@@ -103,8 +102,10 @@ describe("RuleSection (global)", () => {
     renderGlobal();
 
     expect(await screen.findByText("语气规则.md")).toBeTruthy();
-    expect(screen.getByText("新建全局规则")).toBeTruthy();
+    expect(screen.getByText("新建规则")).toBeTruthy();
     expect(screen.queryByText("项目规则")).toBeNull();
+    expect(screen.queryByText("你的规则")).toBeNull();
+    expect(screen.getByText("规则")).toBeTruthy();
   });
 
   it("shows an empty hint when there are no global rules yet", async () => {
@@ -128,9 +129,9 @@ describe("RuleSection (global)", () => {
     );
     const { onOpen } = renderGlobal();
 
-    await screen.findByText("新建全局规则");
+    await screen.findByText("新建规则");
     await act(async () => {
-      fireEvent.click(screen.getByText("新建全局规则"));
+      fireEvent.click(screen.getByText("新建规则"));
     });
 
     expect(createRuleDocument).toHaveBeenCalledWith("新规则.md", null);

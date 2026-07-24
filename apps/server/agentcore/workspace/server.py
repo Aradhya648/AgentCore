@@ -10,11 +10,9 @@ so executed code sees the workspace files — fixing the long-standing bug where
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import fnmatch
 import os
-import re
 import shutil
 import tempfile
 from collections.abc import Awaitable, Callable
@@ -32,8 +30,6 @@ from agentcore.workspace._paths import (
     is_ignored_dir_name,
     is_ignored_file_name,
     is_system_ignored_file_name,
-    normalize_glob,
-    read_text_file,
     resolve_safe_path,
 )
 from agentcore.workspace.external_mounts import (
@@ -51,7 +47,6 @@ from agentcore.workspace.protocol import (
     AmbiguousMatch,
     CodeSearchResult,
     DirEntry,
-    GrepHit,
     GrepQuery,
     GrepResult,
     NoMatch,
@@ -66,6 +61,7 @@ from agentcore.workspace.protocol import (
     TreeResult,
     WorkspaceIOError,
 )
+from agentcore.workspace.rg_grep import run_grep_rg
 from agentcore.workspace.shared_mounts import (
     SharedMount,
     SharedMountMode,
@@ -82,19 +78,11 @@ from agentcore.workspace.shared_paths import (
 from agentcore.workspace.trash import is_trash_or_agentcore_path, soft_delete_to_trash
 
 _MAX_LIST_ENTRIES = 100
-_MAX_LINE_LEN = 300  # trim very long matching lines (e.g. minified bundles)
-_MAX_FILES_SCANNED = 5000  # bound total files opened per grep call
-_MAX_RESULTS_CAP = 200
 _MAX_INDEX_FILES = 5000  # @ mention flat index cap (mirrors desktop LIST_FILES_CAP)
 
 
 def _posix(rel: str) -> str:
     return rel.replace(os.sep, "/")
-
-
-def _trim(line: str) -> str:
-    s = line.strip()
-    return s[:_MAX_LINE_LEN] + " …" if len(s) > _MAX_LINE_LEN else s
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -801,110 +789,19 @@ class ServerWorkspace:
 
     async def grep(self, query: GrepQuery) -> GrepResult:
         # Path checks stay on the event loop so OutsideWorkspace / PathNotFound
-        # surface immediately; the walk + re.search body is CPU/IO-bound and can
-        # monopolise the loop (ReDoS / large trees), so it runs in a worker thread.
-        # That lets ``asyncio.wait_for`` around tool exec raise on timeout without
-        # waiting for C-level ``re`` to finish — the thread may still run to
-        # completion, but the loop stays free for other work.
+        # surface immediately. The ripgrep child is awaited with
+        # ``create_subprocess_exec`` so a tool-level ``asyncio.wait_for`` /
+        # cancellation can kill the process (no silent Python walk fallback).
         base = self._safe(query.directory)
         if not base.exists():
             raise PathNotFound(query.directory)
-        return await asyncio.to_thread(
-            self._grep_sync, base, query, query.directory
+        logical = query.directory
+        return await run_grep_rg(
+            query=query,
+            search_root=base,
+            workspace_root=self._root,
+            model_path=lambda p: self._model_path(p, logical=logical),
         )
-
-    def _grep_sync(self, base: Path, query: GrepQuery, logical_dir: str) -> GrepResult:
-        flags = re.IGNORECASE if query.case_insensitive else 0
-        regex = re.compile(query.pattern, flags)
-        max_results = max(1, min(query.max_results, _MAX_RESULTS_CAP))
-        result = GrepResult()
-
-        # ``directory`` may name a single file (rg PATTERN FILE muscle memory):
-        # scan just that file, no walk. ``glob`` is moot — the file is pinpointed.
-        if base.is_file():
-            self._grep_one_file(
-                base,
-                regex,
-                result,
-                files_only=query.files_only,
-                max_results=max_results,
-                logical_dir=logical_dir,
-            )
-            return result
-
-        name_filter = normalize_glob(query.glob or "")
-        files_scanned = 0
-        stop = False
-        for dirpath, dirnames, filenames in os.walk(base):
-            # Prune noise dirs in place so os.walk never descends into them.
-            dirnames[:] = sorted(d for d in dirnames if not is_ignored_dir_name(d))
-            for fname in sorted(filenames):
-                if is_ignored_file_name(fname):
-                    continue
-                if name_filter and not fnmatch.fnmatch(fname, name_filter):
-                    continue
-
-                files_scanned += 1
-                if files_scanned > _MAX_FILES_SCANNED:
-                    result.truncated = True
-                    stop = True
-                    break
-
-                if self._grep_one_file(
-                    Path(dirpath) / fname,
-                    regex,
-                    result,
-                    files_only=query.files_only,
-                    max_results=max_results,
-                    logical_dir=logical_dir,
-                ):
-                    stop = True
-                    break
-            if stop:
-                break
-
-        return result
-
-    def _grep_one_file(
-        self,
-        abs_path: Path,
-        regex: re.Pattern[str],
-        result: GrepResult,
-        *,
-        files_only: bool,
-        max_results: int,
-        logical_dir: str = ".",
-    ) -> bool:
-        """Scan one file's lines into ``result``; return True if a result cap hit.
-
-        Shared by the single-file fast path and the directory walk so both render
-        identical ``rel:line: text`` hits, per-file counts, and truncation flags.
-        """
-        text = read_text_file(abs_path)
-        if text is None:  # binary / too large / unreadable — skip
-            return False
-
-        rel = self._model_path(abs_path, logical=logical_dir)
-        file_count = 0
-        stop = False
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if not regex.search(line):
-                continue
-            file_count += 1
-            result.total_matches += 1
-            if not files_only:
-                result.hits.append(GrepHit(rel, lineno, _trim(line)))
-                if len(result.hits) >= max_results:
-                    result.truncated = True
-                    stop = True
-                    break
-
-        if file_count:
-            result.file_counts.append((rel, file_count))
-            if files_only and len(result.file_counts) >= max_results:
-                result.truncated = True
-                stop = True
-        return stop
 
     async def code_search(
         self,

@@ -5,13 +5,12 @@ Complements the rest of the file family: ``file_list`` finds files by NAME and
 pattern appears across many files, returning ripgrep-style ``path:line: text``
 hits the model can then open with ``file_read``.
 
-Thin shell over ``ToolContext.backend``: this tool validates the regex, builds a
-``GrepQuery``, and renders the bounded ``GrepResult`` the backend returns. The
-actual walk (ignore-dir pruning, size caps, binary filter, match caps) lives in
-the backend so it runs identically against a server or local workspace.
+Thin shell over ``ToolContext.backend``: this tool builds a ``GrepQuery`` and
+renders the bounded ``GrepResult`` the backend returns. Search itself is
+**embedded ripgrep** (Rust regex dialect) on both cloud and desktop backends —
+no Python/JS walk fallback.
 """
 
-import re
 import time
 from typing import Any
 
@@ -50,19 +49,19 @@ class GrepTool:
         return ToolSchema(
             name="grep",
             description=(
-                "用正则表达式搜索工作区内文件的【内容】（Python `re` 语法，类似 "
-                "ripgrep）。用它来定位某个符号、函数、字符串或任意文本【出现在"
-                "哪里】——返回形如 `path:line: text` 的匹配行，再用 `file_read` "
-                "打开周边代码。要按【文件名】找文件请改用 `file_list`。会跳过"
-                "二进制文件与噪音目录（.git、node_modules、缓存）。用 `path` 和/或 "
-                "`glob` 收窄范围可更快更准。"
+                "用正则精确搜索工作区文件【内容】（ripgrep / Rust regex）。"
+                "适合确切符号名、字符串或模式（如 `ApprovalGate`、`TODO`）；"
+                "返回 `path:line: text`，命中后再用 file_read（offset/limit）精读，"
+                "禁止整目录通读。概念/意图定位请用 code_search——两工具并存。"
+                "按【文件名】找文件用 `file_list`。跳过二进制与噪音目录；"
+                "用 `path`/`glob` 收窄可更快更准。"
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "要搜索的正则表达式（Python re 语法）。",
+                        "description": "要搜索的正则表达式（ripgrep / Rust regex 语法）。",
                     },
                     "path": {
                         "type": "string",
@@ -112,12 +111,7 @@ class GrepTool:
         if not pattern:
             return _fail("缺少必填参数：pattern", start)
 
-        flags = re.IGNORECASE if arguments.get("case_insensitive") else 0
-        try:
-            re.compile(pattern, flags)
-        except re.error as e:
-            return _fail(f"正则表达式无效：{e}", start)
-
+        # Regex validity is authoritative in ripgrep (Rust regex), not Python re.
         rel_dir = arguments.get("path") or "."
         files_only = bool(arguments.get("files_only", False))
         try:
@@ -142,6 +136,11 @@ class GrepTool:
         except PathNotFound:
             return _fail(f"路径不存在：{rel_dir}", start)
         except WorkspaceError as e:
+            msg = str(e)
+            # Surface regex failures without the generic "搜索失败" wrapper so the
+            # model sees the dialect hint immediately.
+            if "正则" in msg:
+                return _fail(msg, start)
             return _fail(f"搜索失败：{e}", start)
 
         output = _render(
@@ -184,6 +183,22 @@ def _outside_workspace_msg(path: str) -> str:
     )
 
 
+def _empty_result_note(*, pattern: str, rel_dir: str, glob: str) -> str:
+    """Actionable empty-success note (align with web_search: success + 促重拟).
+
+    Does not silently call another tool — feedback only.
+    """
+    scope = "" if rel_dir in ("", ".") else f"（在 '{rel_dir}' 下）"
+    glob_note = f"（文件名匹配 '{glob}'）" if glob else ""
+    tips = (
+        "可执行下一步：① 收窄或放宽 path/glob；"
+        "② 换更短/同义的 pattern，或开 case_insensitive；"
+        "③ 若是概念/意图而非确切字符串，改用 code_search；"
+        "④ 确认 path 相对工作区根且存在。"
+    )
+    return f"本次 grep 未匹配 /{pattern}/{scope}{glob_note}。不要据此断定代码不存在。{tips}"
+
+
 def _render(
     *,
     pattern: str,
@@ -203,9 +218,7 @@ def _render(
         )
 
     if not lines:
-        scope = "" if rel_dir in ("", ".") else f"（在 '{rel_dir}' 下）"
-        glob_note = f"（文件名匹配 '{glob}'）" if glob else ""
-        return f"没有匹配 /{pattern}/{scope}{glob_note}。"
+        return _empty_result_note(pattern=pattern, rel_dir=rel_dir, glob=glob)
 
     body = "\n".join(lines)
     if result.truncated:

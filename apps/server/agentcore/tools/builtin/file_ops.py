@@ -550,7 +550,11 @@ class FileReadTool:
     def schema(self) -> ToolSchema:
         return ToolSchema(
             name="file_read",
-            description="读取工作区内某个文件的内容。路径必须是相对于工作区的相对路径。",
+            description=(
+                "读取工作区内某个文件的内容（相对路径）。"
+                "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
+                "禁止无目标地整目录逐文件通读。"
+            ),
             parameters={
                 "type": "object",
                 "properties": {

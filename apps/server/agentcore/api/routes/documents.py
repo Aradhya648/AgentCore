@@ -64,8 +64,10 @@ class DocumentCreateRequest(BaseModel):
     kind: DocKind = "document"
     role: DocRole = "general"
     content: str = ""
-    # ``parent_id`` None = a top-level node of its scope (the user's cloud root, §5.3). When set,
-    # the child inherits the parent's ``folder_id`` scope; ``folder_id`` is only honored at root.
+    # ``parent_id`` None = a top-level node of its scope — except ``role='rule'`` documents,
+    # which are auto-parented under ``AgentCore/规则/`` (§5.0 新写入落点). When ``parent_id``
+    # is set, the child inherits the parent's ``folder_id`` scope; ``folder_id`` is only
+    # honored at root (and for the rule auto-parent path).
     parent_id: str | None = None
     folder_id: str | None = None
 
@@ -128,19 +130,26 @@ async def create_document(
     """Create a tree node (always ``ai_maintained=false`` — user-owned).
 
     A child inherits its parent's ``folder_id`` scope; a root node takes the requested scope.
+    New ``role='rule'`` documents with no parent land under ``AgentCore/规则/`` (§5.0).
     """
     folder_id = body.folder_id
-    if body.parent_id is not None:
-        parent = await repo.get(body.parent_id, user_id=user.user_id)
+    parent_id = body.parent_id
+    if parent_id is not None:
+        parent = await repo.get(parent_id, user_id=user.user_id)
         if parent is None:
             raise HTTPException(status_code=404, detail="parent not found")
         if parent.kind != "folder":
             raise HTTPException(status_code=400, detail="parent is not a folder")
         folder_id = parent.folder_id
+    elif body.role == "rule" and body.kind == "document":
+        # Convention write path: user rules never sit bare at the scope root.
+        rules_dir = await repo.ensure_rules_dir(user.user_id, folder_id)
+        parent_id = rules_dir.id
+        folder_id = rules_dir.folder_id
     doc = await repo.create(
         user.user_id,
         name=body.name,
-        parent_id=body.parent_id,
+        parent_id=parent_id,
         folder_id=folder_id,
         kind=body.kind,
         role=body.role,

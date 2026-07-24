@@ -19,6 +19,7 @@ from agentcore.workspace.protocol import (
     AlreadyExists,
     AmbiguousMatch,
     GrepQuery,
+    GrepResult,
     NoMatch,
     NotADirectory,
     NotAFile,
@@ -244,22 +245,24 @@ async def test_read_only_ops_do_not_dirty(tmp_path: Path):
 
 
 async def test_grep_wait_for_timeout_fires_while_scan_runs(tmp_path: Path, monkeypatch):
-    """``asyncio.wait_for`` must be able to expire while grep is still scanning.
+    """``asyncio.wait_for`` must be able to expire while grep is still running.
 
-    Before the to_thread offload, sync ``re`` / ``os.walk`` held the event loop so
-    the timeout could not fire until the whole scan finished.
+    Ripgrep is awaited via ``create_subprocess_exec``; cancellation must not
+    wait for a stuck scan the way a blocking walk on the event loop would.
     """
     import asyncio
 
     (tmp_path / "f.txt").write_text("hello\n", encoding="utf-8")
     ws = _ws(tmp_path)
-    real = ServerWorkspace._grep_sync
 
-    def slow(self: ServerWorkspace, base: Path, query: GrepQuery, logical_dir: str):
-        time.sleep(1.0)
-        return real(self, base, query, logical_dir)
+    async def slow(**_kwargs):
+        await asyncio.sleep(1.0)
+        return GrepResult()
 
-    monkeypatch.setattr(ServerWorkspace, "_grep_sync", slow)
+    monkeypatch.setattr(
+        "agentcore.workspace.server.run_grep_rg",
+        slow,
+    )
 
     ticks = 0
 

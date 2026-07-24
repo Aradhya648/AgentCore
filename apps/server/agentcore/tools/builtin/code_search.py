@@ -15,6 +15,7 @@ from agentcore.tools.registration import (
     ToolRegistration,
     ToolSurface,
 )
+from agentcore.workspace.indexing.bm25 import tokenize_query
 from agentcore.workspace.protocol import CodeSearchResult, WorkspaceError
 
 _DEFAULT_MAX_RESULTS = 10
@@ -26,7 +27,10 @@ CODE_SEARCH_PARAMETERS = {
     "properties": {
         "query": {
             "type": "string",
-            "description": "自然语言或关键词查询（如「审批门控」「User model」）。",
+            "description": (
+                "概念 / 意图查询（自然语言或关键词，如「审批门控」「User model」）。"
+                "精确符号名或字面字符串请改用 grep。"
+            ),
         },
         "language": {
             "type": "string",
@@ -61,9 +65,10 @@ class CodeSearchTool:
         return ToolSchema(
             name="code_search",
             description=(
-                "按意图搜索工作区代码。支持自然语言或关键词查询，返回匹配的代码块"
-                "（函数、类、方法）及其位置。用于概念搜索、跨文件定位等场景。"
-                "精确正则匹配请用 grep。"
+                "按【概念 / 意图】搜索工作区代码（BM25 符号块）。适合「审批怎么做」"
+                "「User 模型在哪」这类自然语言或关键词定位；返回匹配的函数/类/方法"
+                "及路径。命中后用 file_read（带 offset/limit）精读，禁止整目录通读。"
+                "精确符号名、字符串或正则请用 grep——两工具并存，勿互相替代。"
             ),
             parameters=CODE_SEARCH_PARAMETERS,
             category=ToolCategory.FILESYSTEM,
@@ -97,7 +102,7 @@ class CodeSearchTool:
         except WorkspaceError as e:
             return _fail(f"搜索失败：{e}", start)
 
-        output = _render(result)
+        output = _render(result, query=query, path_prefix=path_prefix)
         return ToolResult(
             tool_call_id="",
             success=True,
@@ -118,12 +123,9 @@ def _fail(error: str, start: float) -> ToolResult:
     )
 
 
-def _render(result: CodeSearchResult) -> str:
+def _render(result: CodeSearchResult, *, query: str, path_prefix: str) -> str:
     if not result.chunks:
-        body = "没有匹配的代码块。"
-        if result.index_stale:
-            body += "\n⚠️ 索引可能过旧，建议配合 grep 验证。"
-        return body
+        return _empty_result_note(query, path_prefix=path_prefix, index_stale=result.index_stale)
 
     lines: list[str] = []
     for chunk, score in zip(result.chunks, result.scores, strict=True):
@@ -146,3 +148,55 @@ def _render(result: CodeSearchResult) -> str:
     if result.index_stale:
         body += "\n⚠️ 索引可能过旧，建议配合 grep 验证。"
     return body
+
+
+def _empty_result_note(query: str, *, path_prefix: str, index_stale: bool) -> str:
+    """Actionable empty-success note (align with web_search: success + 促重拟).
+
+    Does not silently call another tool — feedback only.
+    """
+    scope = "" if path_prefix in ("", ".") else f"（path_prefix='{path_prefix}'）"
+    keywords = _grep_keyword_suggestions(query)
+    kw_line = ""
+    if keywords:
+        quoted = "、".join(f"`{k}`" for k in keywords)
+        kw_line = f"建议用 grep 精确搜这些关键词：{quoted}。"
+
+    tips = (
+        "可执行下一步：① 收窄或放宽 path_prefix / 去掉 language 过滤；"
+        "② 换更短的概念词或同义改写后再 code_search；"
+        "③ 若目标是确切符号/字符串，改用 grep；"
+        "④ 确认 path_prefix 相对工作区根且存在。"
+    )
+    body = f"本次 code_search 未命中任何代码块{scope}。不要据此断定代码不存在。{kw_line}{tips}"
+    if index_stale:
+        body += " ⚠️ 索引可能过旧，建议直接用 grep 验证。"
+    return body
+
+
+def _grep_keyword_suggestions(query: str, *, limit: int = 5) -> list[str]:
+    """Prefer identifier-like tokens as grep pattern hints."""
+    tokens = tokenize_query(query)
+    ranked: list[tuple[int, str]] = []
+    for t in tokens:
+        if len(t) < 2:
+            continue
+        # Prefer snake/Camel identifiers over pure CJK bigrams.
+        score = 0
+        if "_" in t or (any(c.isupper() for c in t[1:]) and t[0].isalpha()):
+            score = 3
+        elif t.isascii() and t.isidentifier():
+            score = 2
+        elif any("\u4e00" <= ch <= "\u9fff" for ch in t) and len(t) >= 2:
+            score = 1
+        else:
+            score = 1
+        ranked.append((score, t))
+    ranked.sort(key=lambda x: (-x[0], -len(x[1])))
+    out: list[str] = []
+    for _, t in ranked:
+        if t not in out:
+            out.append(t)
+        if len(out) >= limit:
+            break
+    return out

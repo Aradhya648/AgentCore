@@ -61,6 +61,9 @@ apps/town/Builds/
 apps/website/.shots/
 # 内置 Python 运行时（sidecar 打包产物，由 apps/desktop/scripts/bundle-sidecar.mjs 生成）
 apps/desktop/resources/sidecar/
+# 内嵌 ripgrep（产品 AI grep；fetch_ripgrep.py / pnpm fetch:rg）
+apps/desktop/resources/rg/
+apps/server/bin/
 # apps/desktop/build/ 是 electron-builder 的 buildResources（应用图标源），不是上面 Python
 # 通用 `build/` 产物——解除目录忽略、再忽略目录内容、只放行 icon.png（仅图标入仓）。
 !apps/desktop/build/

@@ -155,3 +155,78 @@ async def test_code_search_requires_query(sample_py: Path):
     result = await tool.execute({"query": ""}, ctx)
     assert not result.success
     assert "query" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_code_search_empty_is_success_with_next_steps(sample_py: Path):
+    ws = ServerWorkspace(root=sample_py, sandbox=SubprocessSandbox())
+    tool = CodeSearchTool()
+    ctx = ToolContext(
+        execution_id="e1",
+        run_id="r1",
+        agent_id="a1",
+        backend=ws,
+        user_id="u1",
+    )
+    result = await tool.execute({"query": "zzz_definitely_missing_symbol"}, ctx)
+    assert result.success
+    assert result.metadata["match_count"] == 0
+    assert "可执行下一步" in result.output
+    assert "grep" in result.output
+    assert "zzz_definitely_missing_symbol" in result.output
+
+
+def test_tokenize_query_keeps_identifiers_and_splits_cjk_latin():
+    from agentcore.workspace.indexing.bm25 import tokenize_query
+
+    assert "check_approval" in tokenize_query("check_approval")
+    assert "ApprovalGate" in tokenize_query("ApprovalGate")
+    mixed = tokenize_query("审批门控ApprovalGate")
+    assert "ApprovalGate" in mixed
+    assert any("审批" in t or t.startswith("审") for t in mixed)
+    # Adjacent CJK+Latin must not glue into one token.
+    assert "审批门控ApprovalGate" not in mixed
+
+
+@pytest.mark.asyncio
+async def test_symbol_column_ranks_above_body_only_hit(tmp_path: Path):
+    """Symbol-field hits should outrank content-only mentions of the same token."""
+    from agentcore.workspace.indexing.bm25 import BM25Index
+    from agentcore.workspace.indexing.chunker import RawChunk
+
+    db = tmp_path / "idx.db"
+    index = BM25Index(str(db))
+    await index.upsert_file(
+        "sym.py",
+        "class ApprovalGate:\n    pass\n",
+        [
+            RawChunk(
+                path="sym.py",
+                symbol="ApprovalGate",
+                symbol_type="class",
+                start_line=1,
+                end_line=2,
+                language="python",
+                content="class ApprovalGate:\n    pass\n",
+            )
+        ],
+    )
+    await index.upsert_file(
+        "body.py",
+        "# see ApprovalGate elsewhere\n",
+        [
+            RawChunk(
+                path="body.py",
+                symbol="helper",
+                symbol_type="function",
+                start_line=1,
+                end_line=1,
+                language="python",
+                content="# see ApprovalGate elsewhere\n",
+            )
+        ],
+    )
+    hits = await index.search("ApprovalGate", limit=5)
+    assert hits
+    assert hits[0][0].path == "sym.py"
+    assert hits[0][0].symbol == "ApprovalGate"
