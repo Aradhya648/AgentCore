@@ -10,7 +10,7 @@ def test_debate_uses_unified_worker_token_ceiling():
     s = EngineSettings()
     assert not hasattr(s, "engine_debate_token_ceiling")
     assert not hasattr(s, "engine_worker_token_wind_down_ratio")
-    assert s.engine_worker_token_ceiling == 400_000
+    assert s.engine_worker_token_ceiling == 600_000
     assert s.engine_worker_token_ceiling >= 120_000
     assert s.engine_worker_token_wind_down_reserve == 30_000
 

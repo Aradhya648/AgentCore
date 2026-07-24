@@ -1,8 +1,13 @@
 import { login, register } from "@/api/auth";
+import type { LegalDocId } from "@/pages/legal/types";
 import { type FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 type Mode = "login" | "register";
+
+function legalPath(id: LegalDocId): string {
+  return `/legal/${id}`;
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -10,12 +15,16 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [isAdult, setIsAdult] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const registerReady = agreed && isAdult;
   const canSubmit =
     username.trim().length >= 3 &&
     password.length >= (mode === "register" ? 8 : 1) &&
+    (mode === "login" || registerReady) &&
     !busy;
 
   function switchMode(next: Mode) {
@@ -102,6 +111,36 @@ export function LoginPage() {
             />
           )}
 
+          {mode === "register" && (
+            <div className="auth-legal">
+              <label className="auth-check">
+                <input
+                  type="checkbox"
+                  checked={isAdult}
+                  disabled={busy}
+                  onChange={(e) => setIsAdult(e.target.checked)}
+                />
+                <span>我已年满 18 周岁</span>
+              </label>
+              <label className="auth-check">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  disabled={busy}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                />
+                <span>
+                  我已阅读并同意
+                  <Link to={legalPath("terms")}>《用户协议》</Link>和
+                  <Link to={legalPath("privacy")}>《隐私政策》</Link>
+                </span>
+              </label>
+              <p className="auth-tip">
+                对话通常保存在云端；AI 输出请自行核实。
+              </p>
+            </div>
+          )}
+
           {error && <div className="error">{error}</div>}
 
           <button type="submit" disabled={!canSubmit}>
@@ -112,6 +151,12 @@ export function LoginPage() {
             <p className="auth-foot muted">忘记密码？请联系管理员重置。</p>
           )}
         </form>
+
+        <p className="auth-links muted">
+          <Link to={legalPath("terms")}>用户协议</Link>
+          <span>·</span>
+          <Link to={legalPath("privacy")}>隐私政策</Link>
+        </p>
       </div>
     </div>
   );

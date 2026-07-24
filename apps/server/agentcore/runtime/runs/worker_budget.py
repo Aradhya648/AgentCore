@@ -1,6 +1,6 @@
 """派单时为 worker 回填统一 token 顶与墙钟超时 backstop.
 
-全局 ``engine_worker_token_ceiling``（默认 400k）与统一墙钟 600s 是防失控安全阀，
+全局 ``engine_worker_token_ceiling``（默认 600k）与统一墙钟 600s 是防失控安全阀，
 **不做**按任务规格的四档启发式分档。CEO 显式 ``timeout_ms`` / 预置 ``token_ceiling``
 恒优先（已写入则不动）。
 
@@ -207,4 +207,4 @@ def _settings_default_token_ceiling() -> int:
             return ceiling
     except Exception:  # noqa: BLE001 — settings optional in unit stubs
         pass
-    return 400_000
+    return 600_000

@@ -107,6 +107,32 @@
   color: var(--muted);
 }
 
+.settings-section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-section-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.legal-links a {
+  font-size: 14px;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* A titled block: heading + card surface. */
 .section {
   margin-bottom: 24px;

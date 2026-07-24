@@ -115,10 +115,10 @@ def test_research_report_review_explicit_wall_clock_survives_build():
     by_role = {n.role: n for n in plan.nodes}
     # review 有上游；墙钟显式 300s；token 顶走统一 backstop。
     assert by_role["学术审校员"].policy.timeout_s == 300
-    assert by_role["学术审校员"].token_ceiling == 400_000
+    assert by_role["学术审校员"].token_ceiling == 600_000
     # 提纲同为依赖上游的 prose 节点、未显式声明 → 统一 backstop 600s / 200k。
     assert by_role["提纲编辑"].policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
-    assert by_role["提纲编辑"].token_ceiling == 400_000
+    assert by_role["提纲编辑"].token_ceiling == 600_000
 
 
 def test_research_report_requires_topic():

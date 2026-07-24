@@ -481,7 +481,7 @@ export const referenceChapter: ManualChapterContent = {
             },
             {
               title: "对话记录",
-              desc: "保存在后端，用于续聊与记忆；随时可查。",
+              desc: "保存在后端，用于续聊与记忆；随时可查。正式说明见「设置 · 关于」中的隐私政策。",
             },
             {
               title: "记忆",

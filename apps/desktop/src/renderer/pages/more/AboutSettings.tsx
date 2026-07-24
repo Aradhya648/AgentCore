@@ -195,7 +195,7 @@ export function AboutSettings() {
       <section className="mt-8 border-t border-border pt-6">
         <h2 className="text-sm font-semibold text-foreground">法律与合规</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          用户协议、隐私政策与注册须知。
+          用户协议与隐私政策。
         </p>
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm">
           <Link
@@ -209,12 +209,6 @@ export function AboutSettings() {
             className="text-foreground underline-offset-2 hover:underline"
           >
             隐私政策
-          </Link>
-          <Link
-            to={APP_PATHS.more.legal.notice}
-            className="text-foreground underline-offset-2 hover:underline"
-          >
-            注册须知
           </Link>
         </div>
       </section>

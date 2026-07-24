@@ -12,7 +12,10 @@ export function LegalSettingsPage() {
 
   return (
     <div>
-      <SettingsHeader title={doc.title} description={`更新日期：${doc.updatedAt}`} />
+      <SettingsHeader
+        title={doc.title}
+        description={`更新日期：${doc.updatedAt}`}
+      />
       <div className="mt-6 max-w-2xl">
         <LegalDocBody docId={doc.id as LegalDocId} />
       </div>

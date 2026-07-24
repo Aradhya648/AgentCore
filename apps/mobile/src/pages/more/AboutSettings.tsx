@@ -7,7 +7,7 @@ import {
 // 关于 (/more/about) — version + build provenance. The desktop's 软件更新 section is
 // dropped (mobile updates ship through the App Store / Play, not an in-app updater).
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import "@/pages/more/more.css";
 
 export function AboutSettings() {
@@ -67,6 +67,15 @@ export function AboutSettings() {
             />
           </>
         ) : null}
+
+        <section className="settings-section">
+          <h2 className="settings-section-title">法律与合规</h2>
+          <p className="settings-desc">用户协议与隐私政策。</p>
+          <div className="legal-links">
+            <Link to="/legal/terms">用户协议</Link>
+            <Link to="/legal/privacy">隐私政策</Link>
+          </div>
+        </section>
       </div>
     </div>
   );

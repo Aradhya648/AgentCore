@@ -1,5 +1,5 @@
-import type { LegalDocId } from "./types";
 import { getLegalDoc } from "./content";
+import type { LegalDocId } from "./types";
 
 /** Scrollable legal document body — used by login overlay and 设置·关于. */
 export function LegalDocBody({ docId }: { docId: LegalDocId }) {
@@ -12,7 +12,9 @@ export function LegalDocBody({ docId }: { docId: LegalDocId }) {
     <article className="space-y-6 text-sm text-foreground">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold">{doc.title}</h1>
-        <p className="text-xs text-muted-foreground">更新日期：{doc.updatedAt}</p>
+        <p className="text-xs text-muted-foreground">
+          更新日期：{doc.updatedAt}
+        </p>
       </header>
 
       {doc.sections.map((section) => (

@@ -42,7 +42,6 @@ export const APP_STATIC_ROUTES: readonly string[] = [
   APP_PATHS.more.about,
   APP_PATHS.more.legal.terms,
   APP_PATHS.more.legal.privacy,
-  APP_PATHS.more.legal.notice,
 ] as const;
 
 const ROUTE_SET = new Set(APP_STATIC_ROUTES);

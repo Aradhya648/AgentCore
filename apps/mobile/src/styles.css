@@ -249,6 +249,102 @@ body {
   font-size: 12px;
 }
 
+.auth-legal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.auth-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: left;
+}
+
+.auth-check input {
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.auth-check a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-tip {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 20px;
+  font-size: 12px;
+}
+
+.auth-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.auth-links a:active {
+  color: var(--fg);
+}
+
+.legal-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.legal-article {
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+.legal-header h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.legal-section {
+  margin-top: 20px;
+}
+
+.legal-section h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.legal-section p,
+.legal-section li {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.legal-section ul {
+  margin: 0 0 8px;
+  padding-left: 1.25rem;
+}
+
 .muted {
   color: var(--muted);
   font-size: 13px;

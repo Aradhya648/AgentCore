@@ -1,5 +1,5 @@
 /** Identifiers for in-app legal documents shown on login / 关于. */
-export type LegalDocId = "terms" | "privacy" | "notice";
+export type LegalDocId = "terms" | "privacy";
 
 export interface LegalSection {
   heading: string;

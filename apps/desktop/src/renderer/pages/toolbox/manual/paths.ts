@@ -26,7 +26,6 @@ export const APP_PATHS = {
     legal: {
       terms: "/more/legal/terms",
       privacy: "/more/legal/privacy",
-      notice: "/more/legal/notice",
     },
   },
 } as const;

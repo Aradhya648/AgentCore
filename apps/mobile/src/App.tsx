@@ -14,6 +14,7 @@ import { WorkspaceFilesPage } from "@/pages/WorkspaceFilesPage";
 import { WorkspacesPage } from "@/pages/WorkspacesPage";
 import { ChatThreadPage } from "@/pages/im/ChatThreadPage";
 import { NewDmPage } from "@/pages/im/NewDmPage";
+import { LegalDocPage } from "@/pages/legal/LegalDocPage";
 import { AboutSettings } from "@/pages/more/AboutSettings";
 import { AccountSettings } from "@/pages/more/AccountSettings";
 import { AutonomySettings } from "@/pages/more/AutonomySettings";
@@ -100,6 +101,7 @@ function AppShell() {
     ) : (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/legal/:docId" element={<LegalDocPage />} />
         <Route
           path="/"
           element={

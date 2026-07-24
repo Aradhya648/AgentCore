@@ -196,7 +196,7 @@ async def test_explicit_light_with_deep_deliverable_ignored_to_deep_budget(monke
     assert spy.get("delegate.started")["complexity_hint"] == "standard"
     assert spy.get("delegate.complexity_hint_ignored")["reason"] == "deep_deliverable"
     assert captured["complexity_hint"] == "standard"
-    assert captured["token_ceiling"] == 400_000
+    assert captured["token_ceiling"] == 600_000
 
 
 async def test_multi_worker_keeps_standard_complexity_hint(monkeypatch):

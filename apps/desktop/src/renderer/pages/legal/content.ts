@@ -31,6 +31,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
         paragraphs: [
           "您须年满 18 周岁，并具备完全民事行为能力。未满 18 周岁不得注册或使用本服务。",
           "您应使用真实、合法的信息注册，妥善保管用户名与密码，并对该账号下的行为负责。如发现账号被盗用或存在异常，请尽快通过应用内反馈或公示联系渠道通知我们。",
+          "当前阶段如忘记密码，请联系管理员重置（自助邮件找回尚未开放）。开放注册期间可能提供平台试用额度；滥用或违规可能导致限权或封禁。",
           "我们有权在发现违规、滥用、安全风险或监管要求时，采取警告、限制功能、暂停或终止账号等措施。内测 / 公测期间，注册入口可能临时关闭；已有账号的登录不受影响，除非另有通知。",
         ],
       },
@@ -57,7 +58,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
       {
         heading: "六、数据、工作区与分享",
         paragraphs: [
-          "为提供对话续聊、团队协作与跨端访问，与账号相关的对话等内容通常存储于服务端。本地工作区、草稿与云端工作区的具体边界以产品说明为准；我们不会承诺「所有数据均不出本机」。",
+          "为提供对话续聊、团队协作与跨端访问，与账号相关的对话等内容通常存储于服务端。本地工作区、草稿与云端工作区的具体边界以产品说明为准；我们不会承诺「所有数据均不出本机」。请勿向本服务提交您无权处理的敏感信息。",
           "若您使用分享链接等功能，被分享内容可能对持有链接的访问者可见，请谨慎操作。注销账号或删除相关内容后，公开面将按产品设计失效，但备份、日志或依法需保留的信息可能在合理期限内继续存在。",
         ],
       },
@@ -99,9 +100,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
       },
       {
         heading: "二、我们收集的信息",
-        paragraphs: [
-          "根据您使用方式的不同，我们可能收集以下类别的信息：",
-        ],
+        paragraphs: ["根据您使用方式的不同，我们可能收集以下类别的信息："],
         bullets: [
           "账号信息：用户名、密码（仅存储不可逆哈希）、可选显示名、可选邮箱、头像等；",
           "服务内容：您在对话中输入与生成的内容、工作区文件元数据与内容（取决于您使用的工作区模式）、AI 记忆相关摘要（可按产品设置关闭或清理）；",
@@ -112,9 +111,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
       },
       {
         heading: "三、使用目的",
-        paragraphs: [
-          "我们在下述目的范围内处理相关信息：",
-        ],
+        paragraphs: ["我们在下述目的范围内处理相关信息："],
         bullets: [
           "创建与维护账号、完成登录鉴权与会话管理；",
           "提供对话、Agent 协作、工作区、记忆、消息等核心功能；",
@@ -168,37 +165,9 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
         heading: "八、安全与政策更新",
         paragraphs: [
           "我们采取合理的技术与管理措施保护信息安全，但互联网环境并非绝对安全，请您妥善保管终端与凭证。",
+          "请使用足够强度的密码且勿与其他网站复用；不要在对话中粘贴银行卡、身份证号等敏感个人信息；对外分享对话或文件前请确认内容范围。",
           "我们可能更新本政策，并通过客户端或官网提示。重大变更将以更显著方式告知。",
           "联系我们：应用内「设置 · 反馈」，或官网 https://fashitianxia.xyz 公示渠道。",
-        ],
-      },
-    ],
-  },
-
-  notice: {
-    id: "notice",
-    title: "注册须知",
-    updatedAt: UPDATED_AT,
-    sections: [
-      {
-        heading: "请在注册前了解",
-        paragraphs: [
-          "注册 AgentCore 账号即表示您确认以下事项。完整约定见《用户服务协议》与《隐私政策》。",
-        ],
-        bullets: [
-          "您已年满 18 周岁，并自愿注册使用本服务；",
-          "您已阅读并同意《用户服务协议》与《隐私政策》；",
-          "对话等内容通常保存在服务端，用于续聊、协作与多端访问；请勿向本服务提交您无权处理的敏感信息；",
-          "AI 输出可能不准确，重要事项请人工核实；",
-          "开放注册期间可能提供平台试用额度；滥用、违规可能导致限权或封禁；",
-          "当前阶段如忘记密码，请联系管理员重置（自助邮件找回尚未开放）；",
-          "您可随时在账户设置中申请注销账号。",
-        ],
-      },
-      {
-        heading: "建议的安全习惯",
-        paragraphs: [
-          "请使用足够强度的密码且勿与其他网站复用；不要在对话中粘贴银行卡、身份证号等敏感个人信息；对外分享对话或文件前请确认内容范围。",
         ],
       },
     ],
@@ -208,11 +177,10 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
 export const LEGAL_DOC_LIST: LegalDocument[] = [
   LEGAL_DOCS.terms,
   LEGAL_DOCS.privacy,
-  LEGAL_DOCS.notice,
 ];
 
 export function getLegalDoc(id: string | undefined): LegalDocument | null {
-  if (id === "terms" || id === "privacy" || id === "notice") {
+  if (id === "terms" || id === "privacy") {
     return LEGAL_DOCS[id];
   }
   return null;

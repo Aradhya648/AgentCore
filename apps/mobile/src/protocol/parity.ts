@@ -808,4 +808,18 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     reason: "桌面 run 详情全页；手机在 TeamView / 气泡内嵌简版",
   },
+
+  // —— 法律文案（登录前 / 关于页入口）——
+  "legal/LegalDocBody": {
+    verdict: "ported",
+    surface: "legal/LegalDocBody",
+  },
+  "legal/LegalDocPane": {
+    verdict: "ported",
+    surface: "legal/LegalDocPage（登录前全页阅读）",
+  },
+  "legal/LegalSettingsPage": {
+    verdict: "ported",
+    surface: "more/AboutSettings → /legal/:docId（LegalDocPage）",
+  },
 };

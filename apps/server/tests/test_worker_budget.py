@@ -18,8 +18,8 @@ from agentcore.runtime.runs.worker_budget import (
 def test_apply_fills_unified_backstop():
     """未声明 token_ceiling / timeout_s → 统一回填。"""
     spec = RunSpec(run_id="x", task="t", role="r", policy=RunPolicy())
-    apply_worker_budgets_to_specs([spec], default_token_ceiling=400_000)
-    assert spec.token_ceiling == 400_000
+    apply_worker_budgets_to_specs([spec], default_token_ceiling=600_000)
+    assert spec.token_ceiling == 600_000
     assert spec.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S == 600
 
 
@@ -33,7 +33,7 @@ def test_apply_preserves_pre_set_token_ceiling_and_timeout():
         token_ceiling=50_000,
         policy=RunPolicy(timeout_s=90),
     )
-    apply_worker_budgets_to_specs([spec], default_token_ceiling=400_000)
+    apply_worker_budgets_to_specs([spec], default_token_ceiling=600_000)
     assert spec.token_ceiling == 50_000
     assert spec.policy.timeout_s == 90
 
@@ -47,7 +47,7 @@ def test_apply_fills_timeout_when_ceiling_preset():
         token_ceiling=50_000,
         policy=RunPolicy(),
     )
-    apply_worker_budgets_to_specs([spec], default_token_ceiling=400_000)
+    apply_worker_budgets_to_specs([spec], default_token_ceiling=600_000)
     assert spec.token_ceiling == 50_000
     assert spec.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
 
@@ -75,7 +75,7 @@ def test_build_plan_applies_unified_backstop_regardless_of_shape():
     )
     assert errors == []
     for node in plan.nodes:
-        assert node.token_ceiling == 400_000
+        assert node.token_ceiling == 600_000
         assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
 
 
@@ -93,7 +93,7 @@ def test_build_plan_research_root_still_gets_research_retrieval():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 400_000
+    assert node.token_ceiling == 600_000
     assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
     from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET_RESEARCH
 
@@ -115,7 +115,7 @@ def test_explicit_timeout_ms_wins_over_backstop():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 400_000
+    assert node.token_ceiling == 600_000
     assert node.policy.timeout_s == 90  # CEO 显式优先
 
 

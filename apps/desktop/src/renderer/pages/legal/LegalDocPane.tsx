@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui";
 import { ArrowLeft } from "lucide-react";
 import { LegalDocBody } from "./LegalDocBody";
-import type { LegalDocId } from "./types";
 import { LEGAL_DOCS } from "./content";
+import type { LegalDocId } from "./types";
 
 /** Full-pane legal reader for pre-auth (LoginPage) — back returns to the form. */
 export function LegalDocPane({

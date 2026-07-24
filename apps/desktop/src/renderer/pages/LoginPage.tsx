@@ -40,7 +40,11 @@ function LegalLink({
     <button
       type="button"
       className="text-foreground underline-offset-2 hover:underline"
-      onClick={() => onOpen(docId)}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpen(docId);
+      }}
     >
       {children}
     </button>
@@ -189,16 +193,15 @@ export function LoginPage() {
                   <LegalLink docId="terms" onOpen={setLegalDoc}>
                     《用户协议》
                   </LegalLink>
-                  、
+                  和
                   <LegalLink docId="privacy" onOpen={setLegalDoc}>
                     《隐私政策》
                   </LegalLink>
-                  和
-                  <LegalLink docId="notice" onOpen={setLegalDoc}>
-                    《注册须知》
-                  </LegalLink>
                 </span>
               </label>
+              <p className="pl-6 text-xs text-muted-foreground">
+                对话通常保存在云端；AI 输出请自行核实。
+              </p>
             </div>
           )}
 
@@ -223,10 +226,6 @@ export function LoginPage() {
           <span className="mx-1.5">·</span>
           <LegalLink docId="privacy" onOpen={setLegalDoc}>
             隐私政策
-          </LegalLink>
-          <span className="mx-1.5">·</span>
-          <LegalLink docId="notice" onOpen={setLegalDoc}>
-            注册须知
           </LegalLink>
         </p>
       </div>
