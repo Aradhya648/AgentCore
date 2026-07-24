@@ -1,0 +1,15 @@
+{
+  "id": "probe_acceleration_kmh",
+  "category": "qa",
+  "_note": "挖坑探针：物理/单位换算交付物，结构必过轻层。正确=（108 km/h=30 m/s）/8s=3.75 m/s²；典型错误是忘记 km/h→m/s 换算，直接 108/8=13.5。结构完整、数值错——轻层放行。",
+  "user_message": "一辆汽车从静止开始匀加速，8 秒后速度达到 108 km/h。求它的加速度，单位用 m/s²。不要联网、不要用工具，直接给出最终数值并写出换算与计算过程。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "samples": 5,
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 10 } },
+    { "name": "ContentMatches", "args": { "pattern": "(?<![0-9])3\\.75" } }
+  ]
+}

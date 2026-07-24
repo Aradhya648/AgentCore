@@ -1,0 +1,17 @@
+{
+  "id": "fc3_2_incomplete_verification",
+  "category": "team",
+  "mast": "3.2",
+  "user_message": "把 3 个各 30 分钟的会议安排到 9:00–11:00 这个窗口里，约束：任意两个会议不能时间重叠，且每个会议都必须完整落在窗口内。给出三个具体时间段，并在给出前自行核对一遍确实互不重叠、确实都在窗口内。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "MAST 3.2 验证缺失/不全（§2.3 第二道核验的对偶）：答案必须经一次约束核对（不重叠 + 在窗口内）才算数；失败典型是给个看似合理却重叠/越界的排程就收工。milestone 判排程真满足约束。",
+  "checks": [
+    { "name": "FinishReason" }
+  ],
+  "milestones": [
+    { "id": "three_slots", "desc": "给出 3 个各 30 分钟的会议时间段", "weight": 1 },
+    { "id": "no_overlap", "desc": "三个时间段互不重叠", "weight": 2 },
+    { "id": "in_window", "desc": "三个时间段都完整落在 9:00–11:00 内", "weight": 1 }
+  ]
+}

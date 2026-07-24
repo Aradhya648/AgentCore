@@ -1,0 +1,180 @@
+{
+  "name": "single_agent_content_reset",
+  "description": "单聊：交付前核验回炉 (finish_guard) content_reset 丢弃违规版正文、重写修正版",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "先查资料再作答。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "arguments": {
+          "query": "建设工程价款优先权"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "status": "success",
+        "result": "找到 1 条来源。"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "依据 [1] 与 "
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "[2] 可知……"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "content_reset",
+      "payload": {
+        "reason": "finish_guard"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "依据 [1] "
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "可知……"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "citations",
+      "payload": {
+        "citations": [
+          {
+            "url": "https://a.example/x",
+            "title": "来源 A",
+            "snippet": "片段 A",
+            "site": "a.example"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1900,
+          "output_tokens": 210,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "依据 [1] 可知……",
+    "reasoning": "先查资料再作答。",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "reasoning",
+        "text": "先查资料再作答。"
+      },
+      {
+        "kind": "tool",
+        "id": "tc1",
+        "tool_name": "web_search",
+        "arguments": {
+          "query": "建设工程价款优先权"
+        },
+        "result": "找到 1 条来源。",
+        "status": "success"
+      },
+      {
+        "kind": "rework"
+      },
+      {
+        "kind": "content",
+        "text": "依据 [1] 可知……"
+      }
+    ],
+    "citations": [
+      {
+        "url": "https://a.example/x",
+        "title": "来源 A",
+        "snippet": "片段 A",
+        "site": "a.example"
+      }
+    ],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

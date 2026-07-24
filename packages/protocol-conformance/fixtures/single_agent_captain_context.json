@@ -1,0 +1,211 @@
+{
+  "name": "single_agent_captain_context",
+  "description": "单聊：CEO 收到的上下文（run_context kind=captain → 回合级 captainContext，system/history/request）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "c1",
+        "agent_id": "c1",
+        "parent_run_id": null,
+        "kind": "captain"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "c1",
+        "agent_id": "c1",
+        "blocks": [
+          {
+            "channel": "system",
+            "heading": "CEO 系统提示（本回合实际遵循的系统指令）",
+            "body": "你是 CEO，统筹团队完成用户目标。",
+            "chars": 18,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "history",
+            "heading": "对话历史（本回合之前的往来）",
+            "body": "用户：你好\n\nCEO：你好，有什么可以帮你？",
+            "chars": 22,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "request",
+            "heading": "原始用户请求",
+            "body": "帮我把这段话润色一下。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "先理解用户的润色诉求。"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "润色后的版本如下：……"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "c1",
+        "agent_id": "c1",
+        "output_summary": "完成润色",
+        "duration_ms": 800,
+        "role": "captain",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.802Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1200,
+          "output_tokens": 300,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.803Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "润色后的版本如下：……",
+    "reasoning": "先理解用户的润色诉求。",
+    "captainContext": [
+      {
+        "channel": "system",
+        "heading": "CEO 系统提示（本回合实际遵循的系统指令）",
+        "body": "你是 CEO，统筹团队完成用户目标。",
+        "chars": 18,
+        "truncated": false,
+        "source_role": "",
+        "source_run_id": "",
+        "fidelity": "",
+        "files": []
+      },
+      {
+        "channel": "history",
+        "heading": "对话历史（本回合之前的往来）",
+        "body": "用户：你好\n\nCEO：你好，有什么可以帮你？",
+        "chars": 22,
+        "truncated": false,
+        "source_role": "",
+        "source_run_id": "",
+        "fidelity": "",
+        "files": []
+      },
+      {
+        "channel": "request",
+        "heading": "原始用户请求",
+        "body": "帮我把这段话润色一下。",
+        "chars": 11,
+        "truncated": false,
+        "source_role": "",
+        "source_run_id": "",
+        "fidelity": "",
+        "files": []
+      }
+    ],
+    "process": [
+      {
+        "kind": "reasoning",
+        "text": "先理解用户的润色诉求。"
+      },
+      {
+        "kind": "content",
+        "text": "润色后的版本如下：……"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

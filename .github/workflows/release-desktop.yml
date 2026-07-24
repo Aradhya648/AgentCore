@@ -1,0 +1,124 @@
+name: Release Desktop
+
+# 桌面端安装包发布（docs/05-平台与运维/部署与运维.md §7.6 双仓发布）。
+#
+# 触发与平台分工（为省 Actions 额度）：
+#   · 日常 Windows：Cursor 本地 `release:win` / 分步 electron-builder --win（见 cursor-deploy.mdc）
+#   · macOS：仅本 workflow（workflow_dispatch，platform=mac）— 紧急或常规 Mac 打包
+#   · 禁止用 GHA 打 Windows / 双平台（勿再加 win/all 选项）
+#
+# 跨仓发布需 PAT：secrets.RELEASE_GH_TOKEN（对 Lawofall/AgentCore-releases 有写权）。
+
+# ⚠️ 已弃用 push desktop-v* 自动触发（2026-06）— tag 仅作发布点标记。
+# ⚠️ 已移除 GHA Windows job（2026-07）— Win 只走本地，避免误点烧额度。
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Build platform (GHA 仅 Mac；Win 请本地构建)"
+        required: true
+        default: mac
+        type: choice
+        options:
+          - mac
+
+jobs:
+  precreate-release:
+    name: Pre-create draft release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          pkg_ver="$(node -p "require('./package.json').version")"
+          tag_ver="${GITHUB_REF_NAME#desktop-v}"
+          if [[ "$pkg_ver" != "$tag_ver" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME (=$tag_ver) != package.json version $pkg_ver"
+            exit 1
+          fi
+          echo "version ok: $pkg_ver"
+
+      - name: Pre-create draft release (avoid parallel-upload race)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          ver="$(node -p "require('./package.json').version")"
+          tag="v${ver}"
+          repo="Lawofall/AgentCore-releases"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "release $tag already exists on $repo — reuse it"
+          else
+            gh release create "$tag" --repo "$repo" --draft --title "$ver" --notes "AgentCore $ver"
+            echo "created draft $tag on $repo"
+          fi
+
+  release-mac:
+    name: Build & publish (macOS arm64)
+    needs: precreate-release
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile --filter agentcore-desktop...
+
+      - name: Bundle sidecar Python runtime
+        run: pnpm bundle:sidecar
+
+      # 不走 electron-builder --publish：已转正的 release 与 releaseType=draft 冲突会整批跳过
+      # （见 electron-builder#2393）。改为本地出包 + gh release upload，draft/已发布均可补传。
+      - name: Build macOS arm64 package
+        env:
+          # electron-vite + large renderer OOMs on default Node heap (macos-latest)
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          pnpm build
+          pnpm exec electron-builder --mac --arm64 --publish never
+
+      - name: Upload mac assets to AgentCore-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          ver="$(node -p "require('./package.json').version")"
+          tag="v${ver}"
+          repo="Lawofall/AgentCore-releases"
+          dir="release/${ver}"
+          test -f "${dir}/AgentCore-${ver}-mac-arm64.dmg"
+          test -f "${dir}/AgentCore-${ver}-mac-arm64.zip"
+          test -f "${dir}/latest-mac.yml"
+          gh release upload "$tag" \
+            "${dir}/AgentCore-${ver}-mac-arm64.dmg" \
+            "${dir}/AgentCore-${ver}-mac-arm64.dmg.blockmap" \
+            "${dir}/AgentCore-${ver}-mac-arm64.zip" \
+            "${dir}/AgentCore-${ver}-mac-arm64.zip.blockmap" \
+            "${dir}/latest-mac.yml" \
+            --repo "$repo" --clobber
+          echo "uploaded mac assets to ${repo} ${tag}"
+          gh release view "$tag" --repo "$repo"

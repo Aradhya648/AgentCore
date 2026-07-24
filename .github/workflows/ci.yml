@@ -1,0 +1,261 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  backend:
+    name: Backend (lint + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/server
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agentcore
+          POSTGRES_PASSWORD: agentcore
+          POSTGRES_DB: agentcore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentcore"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Schema gate (migration head ↔ ORM)
+        env:
+          DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
+        run: |
+          uv run alembic upgrade head
+          uv run python scripts/check_schema_gate.py --live
+
+      - name: Test
+        env:
+          DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
+          TEST_DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
+        run: uv run pytest --tb=short
+
+  contracts:
+    name: Contracts + conformance (gen + drift gate)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install backend dependencies
+        working-directory: apps/server
+        run: uv sync --all-extras
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install contract-rest-types deps
+        run: pnpm install --frozen-lockfile --filter @agentcore/contract-rest-types...
+
+      - name: Regenerate committed contract artifacts
+        run: node scripts/gen-types.mjs
+
+      # Conformance fixtures are generated from the Python vectors (single source:
+      # agentcore.conformance.vectors). Regenerate them here so the drift gate below
+      # fails if a committed fixture is stale vs the vectors/oracle — keeping the
+      # 前端预览 (#/preview) and `pnpm conformance` honest with zero manual re-export.
+      - name: Regenerate committed conformance fixtures
+        working-directory: apps/server
+        run: uv run python -m agentcore.conformance.export
+
+      - name: Check town story-pack materialization (canonical ↔ Unity ↔ backend)
+        run: node scripts/sync-story-packs.mjs --check
+
+      - name: Fail on uncommitted drift
+        run: git diff --exit-code
+
+  frontend:
+    name: Frontend (lint + test)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # 桌面端已纳入 pnpm workspace（contract-types / protocol-conformance）。
+      # 须在仓库根目录 install，才能正确链接 workspace 包；子目录 cwd 虽能向上找到根，
+      # 但语义不清晰且与 mobile job 不一致。
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter agentcore-desktop...
+
+      - name: Lint
+        run: pnpm --filter agentcore-desktop lint
+
+      - name: UI token gate
+        run: pnpm --filter agentcore-desktop check-ui-tokens
+
+      - name: Typecheck
+        run: pnpm --filter agentcore-desktop typecheck
+
+      - name: Conformance
+        run: pnpm --filter agentcore-desktop conformance
+
+      - name: Test
+        run: pnpm --filter agentcore-desktop test -- --run
+
+      # Render smoke gate: replay every committed conformance vector through the
+      # real components in a headless browser (#/preview) and fail if any AI state
+      # crashes on render. Catches component changes that silently break a state —
+      # zero backend/LLM, same vectors as `pnpm conformance`. See scripts/shoot.mjs.
+      # Cache the ~130MB browser download keyed on the lockfile; restore-keys lets an
+      # unrelated dep bump still reuse it (playwright install then skips the download
+      # when the cached build matches and only ensures OS deps).
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Chromium for preview shots
+        run: pnpm --filter agentcore-desktop exec playwright install --with-deps chromium
+
+      - name: Preview render smoke gate
+        # SHOOT_FRAMES=3 also gates 3 mid-stream frames per scenario (tool running,
+        # run started-not-completed…), not just the terminal state.
+        env:
+          SHOOT_FRAMES: "3"
+        run: pnpm --filter agentcore-desktop shoot
+
+      - name: Upload preview shots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-shots
+          path: apps/desktop/shoot-out/
+          if-no-files-found: ignore
+
+      # Web client boot gate (form A: desktop renderer in a plain browser). Boots the
+      # PRODUCTION web entry (vite.webapp.config.ts → main.webapp.tsx, real cookie
+      # auth — NOT the offline #/preview) in the chromium installed above and asserts
+      # it mounts with the real auth gate active (__WEB__ && !__WEB_PREVIEW__) and
+      # zero uncaught render errors. Catches a regressed web entry / broken auth gate
+      # / web-incompatible import on every PR. No backend or LLM here: the full
+      # login→send→stream smoke (`pnpm smoke:webapp`) needs a live server + seeded
+      # dev user and bills a real turn, so it stays a local/nightly check.
+      - name: Web client boot smoke gate
+        run: pnpm --filter agentcore-desktop smoke:webapp:ci
+
+      - name: Upload web smoke shots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke-shots
+          path: apps/desktop/smoke-out/
+          if-no-files-found: ignore
+
+  mobile:
+    name: Mobile (lint + typecheck + conformance)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter agentcore-mobile...
+
+      - name: Lint
+        run: pnpm --filter agentcore-mobile lint
+
+      - name: UI token gate
+        run: pnpm --filter agentcore-mobile check-ui-tokens
+
+      - name: Typecheck
+        run: pnpm --filter agentcore-mobile typecheck
+
+      - name: Conformance
+        run: pnpm --filter agentcore-mobile conformance
+
+  admin:
+    name: Admin (typecheck)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter agentcore-admin...
+
+      - name: Typecheck
+        run: pnpm --filter agentcore-admin typecheck

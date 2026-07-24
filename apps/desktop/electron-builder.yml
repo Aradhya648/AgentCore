@@ -1,0 +1,91 @@
+# AgentCore 桌面端打包配置（P2-1；docs/05-平台与运维/部署与运维.md §7.6、
+# docs/04-前端/前端技术与架构.md §7.6）。
+# 出 Windows(NSIS) / macOS(DMG+zip, arm64) / Linux(AppImage)；
+# MVP 不签名（内测；正式发布前再申请代码签名 / Mac 公证）。Win 优先。
+#
+# 用法：
+#   pnpm build:unpack   # 仅解包到 release/<ver>/，快速验证打包（不编译 NSIS）
+#   pnpm build:win      # 出 Windows NSIS 安装包
+# 产物落 release/<version>/（被 .gitignore 忽略）。
+
+appId: xyz.fashitianxia.agentcore
+productName: AgentCore
+
+# 应用图标单源 = build/icon.png（1024×1024 方形品牌标记）。electron-builder 自动从
+# buildResources 的 icon.png 派生各平台图标（Windows .ico / macOS .icns / Linux png 集）。
+# 注意：仓库根 .gitignore 通用忽略 build/（Python 产物），已对 apps/desktop/build/icon.png
+# 加豁免使其入仓；运行时窗口图标另在 resources/icon.png（经 ?asset，见 main/index.ts）。
+directories:
+  output: release/${version}
+  buildResources: build
+
+# out/ 是 electron-vite 自包含产物（renderer 已 bundle；main/preload 仅保留少量运行时
+# 外部依赖）。renderer 专用包放在 package.json devDependencies，electron-builder 不会
+# 把它们打进 node_modules。shoot 截图在 shoot-out/（须在 out/ 外）；下列排除为
+# 历史/防御性规则，防止旧路径或手误产物再次进包。
+files:
+  - out/**
+  - package.json
+  - "!out/preview/**"
+  - "!out/preview-debate/**"
+  - "!out/cmdregion/**"
+  - "!out/route-shots/**"
+
+# node-pty 原生 .node / conpty DLL 不可进 asar（运行时 dlopen 失败）；解包到 app.asar.unpacked。
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+
+# node-pty 官方 prebuilds 走 N-API，Electron ABI 可直接加载；打包时勿强制 node-gyp
+# rebuild（本机缺 Spectre 缓解库时会失败）。asarUnpack 见上。
+npmRebuild: false
+nodeGypRebuild: false
+
+# 内置 Python 运行时（远期规划 §一.1「内置 Python 打包」方案 B）：由 scripts/bundle-sidecar.mjs
+# 预构建到 resources/sidecar/（独立 CPython + --target site-packages），随包拷入应用
+# resources/sidecar/。主进程 resolveSpawnConfig 在 app.isPackaged 时据此拉起 sidecar，
+# 用户机器无需任何系统 Python / venv / uv。须在 electron-builder 前跑 `pnpm bundle:sidecar`
+# （package.json 的 build:* 已前置）；原生 wheel/解释器不可交叉编译，故每平台各自 CI 构建。
+extraResources:
+  - from: resources/sidecar
+    to: sidecar
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+win:
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AgentCore
+
+mac:
+  # dmg = 首装下载；zip = electron-updater 拉取（latest-mac.yml）。
+  # 内测未签名：首装需右键打开；自动更新安装可能再次遇 Gatekeeper（见 06-规划 Mac 部署设计）。
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+
+linux:
+  target:
+    - AppImage
+  category: Utility
+
+# electron-updater 发布目标：安装包发公开发布仓、源码仓保持私有（部署与运维.md §7.6）。
+# CI（.github/workflows/release-desktop.yml）经 `--publish always` 推草稿 release。
+# owner/repo 指向公开发布仓（与源码仓 Lawofall/AgentCore 分离）；该仓需人工先建好，
+# 跨仓发布凭据走 secrets.RELEASE_GH_TOKEN（默认 GITHUB_TOKEN 无跨仓写权）。
+# ⚠️ releaseType 必须保持 draft：CI 先在发布仓建空草稿，再让 electron-builder 并行
+# 上传到同一草稿，规避「多产物并行各自创建 → 重复草稿、资产拆散」竞态
+# （electron-builder#6676）。改成 release 会与预建的 draft 类型冲突 → 资产被全部跳过
+# （electron-builder#2393）；人工转正门槛也依赖 draft。
+publish:
+  provider: github
+  owner: Lawofall
+  repo: AgentCore-releases
+  releaseType: draft

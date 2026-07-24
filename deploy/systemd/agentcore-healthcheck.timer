@@ -1,0 +1,17 @@
+# AgentCore 健康巡检定时器（部署与运维.md §7.8）。每分钟跑一次 .service。
+# 启用：sudo systemctl enable --now agentcore-healthcheck.timer
+# 查看：systemctl list-timers agentcore-healthcheck.timer
+
+[Unit]
+Description=每分钟运行 AgentCore 健康巡检
+
+[Timer]
+# 开机 2 分钟后首跑（给后端留启动余量），此后每 1 分钟一次。
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+# 错过的周期（如停机）开机后补跑一次，避免盲区。
+Persistent=true
+
+[Install]
+WantedBy=timers.target

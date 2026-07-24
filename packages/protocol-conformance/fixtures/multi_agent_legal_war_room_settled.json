@@ -1,0 +1,1339 @@
+{
+  "name": "multi_agent_legal_war_room_settled",
+  "description": "法律「答辩状作战室」收口终稿态 (§十一 方案①)：consult_skill→delegate 起草→debate(red_team) 原告红队压测→delegate 核验(web_search 命中法条源)→CEO 收口正文出终稿(已核验法条带 [n] 角标连到来源卡、[待核验] 不编角标)→citations_event(2 张法条来源卡)→message_end(success)",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我先翻一下「答辩状作战室」的打法。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "cs1",
+        "tool_name": "consult_skill",
+        "arguments": {
+          "name": "legal_answer_brief"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "cs1",
+        "tool_name": "consult_skill",
+        "status": "success",
+        "result": "## 答辩状作战室\n1. 解析对方起诉状 + 我方事实 → 逐项答辩（程序抗辩 + 实体抗辩 + 质证 + 法律依据）。\n2. delegate 起草，debate(red_team, is_subject=我方答辩) 让原告红队单向压测，再逐点加固。\n3. delegate 核验逐条法条 / 时效，未核验不得引用、标 [待核验]；终稿标法域 + 免责 + 人审闸门。\n",
+        "display": {
+          "skill_name": "legal_answer_brief",
+          "summary": "答辩状要素结构 + 对方律师作战室编排 + 反幻觉硬约束"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "按作战室打法组队：先起草，再让原告红队压一遍，核验法条，最后请你拍板。"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "起草律师"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "起草答辩状初稿",
+        "agents": [
+          {
+            "id": "w_draft",
+            "role": "起草律师",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r_draft",
+            "agent_id": "w_draft",
+            "task": "起草答辩状初稿",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r_draft",
+        "agent_id": "w_draft",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r_draft",
+        "agent_id": "w_draft",
+        "tool_name": "file_write",
+        "chars": 92
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "fw1",
+        "tool_name": "file_write",
+        "arguments": {
+          "path": "答辩状初稿.md",
+          "content": "# 民事答辩状（初稿）\n## 程序抗辩\n- 对原告送达与举证提出异议。\n## 实体抗辩\n- 质量异议函已发，违约责任不成立。\n## 法律依据\n- 《民法典》合同编相关条款（待核验）。\n"
+        },
+        "run_id": "r_draft"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "fw1",
+        "tool_name": "file_write",
+        "status": "success",
+        "result": "已写入",
+        "run_id": "r_draft"
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r_draft",
+        "agent_id": "w_draft",
+        "delta": "答辩状初稿就绪：程序抗辩 + 实体抗辩 + 质证 + 法律依据。"
+      },
+      "timestamp": "2026-01-01T00:00:00.012Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r_draft",
+        "agent_id": "w_draft",
+        "output_summary": "起草完成：答辩状初稿.md",
+        "duration_ms": 1600,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.608Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "起草完成：答辩状初稿.md"
+      },
+      "timestamp": "2026-01-01T00:00:01.609Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "现在让原告红队来压测我方答辩。"
+      },
+      "timestamp": "2026-01-01T00:00:01.610Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "红队审查：原告视角压测我方《民事答辩状》",
+        "agents": [
+          {
+            "id": "warroom_mod1",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "warroom_mod1",
+            "agent_id": "warroom_mod1",
+            "task": "主持红队审查：原告视角压测我方答辩",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.611Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "warroom_mod1",
+        "agent_id": "warroom_mod1",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.612Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_defense",
+            "role": "我方答辩",
+            "thinking": true
+          },
+          {
+            "id": "d_red_proc",
+            "role": "程序红队",
+            "thinking": true
+          },
+          {
+            "id": "d_red_subst",
+            "role": "实体红队",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "warroom_mod1_r1_defense",
+            "agent_id": "d_defense",
+            "task": "为我方答辩抗辩并加固",
+            "depends_on": [],
+            "parent_run_id": "warroom_mod1",
+            "group": "debate:red_team",
+            "round": 1
+          },
+          {
+            "id": "warroom_mod1_r1_redproc",
+            "agent_id": "d_red_proc",
+            "task": "以原告视角挖程序 / 送达漏洞",
+            "depends_on": [],
+            "parent_run_id": "warroom_mod1",
+            "group": "debate:red_team",
+            "round": 1
+          },
+          {
+            "id": "warroom_mod1_r1_redsubst",
+            "agent_id": "d_red_subst",
+            "task": "以原告视角挖实体抗辩漏洞",
+            "depends_on": [],
+            "parent_run_id": "warroom_mod1",
+            "group": "debate:red_team",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.613Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "warroom_mod1_r1_defense",
+        "agent_id": "d_defense",
+        "parent_run_id": "warroom_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.614Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "warroom_mod1_r1_defense",
+        "agent_id": "d_defense",
+        "delta": "我方：已补送达回执、异议函逐条对应批次，并就沉默项明确否认。"
+      },
+      "timestamp": "2026-01-01T00:00:01.615Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "warroom_mod1_r1_defense",
+        "agent_id": "d_defense",
+        "output_summary": "我方抗辩 + 加固完成",
+        "duration_ms": 900,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.514Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "warroom_mod1_r1_redproc",
+        "agent_id": "d_red_proc",
+        "parent_run_id": "warroom_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:02.515Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "warroom_mod1_r1_redproc",
+        "agent_id": "d_red_proc",
+        "delta": "程序红队：到达举证缺签收链，送达争议对我方不利。"
+      },
+      "timestamp": "2026-01-01T00:00:02.516Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "warroom_mod1_r1_redproc",
+        "agent_id": "d_red_proc",
+        "output_summary": "程序红队挖掘完成",
+        "duration_ms": 840,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.355Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "warroom_mod1_r1_redsubst",
+        "agent_id": "d_red_subst",
+        "parent_run_id": "warroom_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:03.356Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "warroom_mod1_r1_redsubst",
+        "agent_id": "d_red_subst",
+        "delta": "实体红队：质量异议函笼统、对部分诉请沉默易被推定认可。"
+      },
+      "timestamp": "2026-01-01T00:00:03.357Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "warroom_mod1_r1_redsubst",
+        "agent_id": "d_red_subst",
+        "output_summary": "实体红队挖掘完成",
+        "duration_ms": 860,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.216Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "warroom_mod1",
+        "agent_id": "warroom_mod1",
+        "output_summary": "原告红队三点攻击已被逐点回应",
+        "duration_ms": 2200,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.217Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "warroom_mod1",
+        "form": "red_team",
+        "motion": "以原告视角压测我方《民事答辩状》的稳健性",
+        "stop_reason": "red_team_exhausted",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "defense",
+            "name": "我方答辩",
+            "stance": "逐项抗辩成立、无需担责",
+            "is_subject": true,
+            "model": ""
+          },
+          {
+            "key": "red_proc",
+            "name": "程序红队（原告）",
+            "stance": "程序与送达举证存在硬伤",
+            "is_subject": false,
+            "model": ""
+          },
+          {
+            "key": "red_subst",
+            "name": "实体红队（原告）",
+            "stance": "实体抗辩不成立",
+            "is_subject": false,
+            "model": ""
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "送达举证 / 质量异议具体性 / 沉默推定 三点攻防",
+            "summary": "原告红队挖出送达签收链缺失、异议函笼统、对部分诉请沉默三点；我方补证据并逐点否认加固。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": true,
+              "converged": true,
+              "stop_reason": "red_team_exhausted",
+              "rationale": "三点攻击已被逐点回应 / 加固，无新增有效攻击。"
+            },
+            "sides": [
+              {
+                "key": "defense",
+                "name": "我方答辩",
+                "run_id": "warroom_mod1_r1_defense",
+                "ok": true
+              },
+              {
+                "key": "red_proc",
+                "name": "程序红队（原告）",
+                "run_id": "warroom_mod1_r1_redproc",
+                "ok": true
+              },
+              {
+                "key": "red_subst",
+                "name": "实体红队（原告）",
+                "run_id": "warroom_mod1_r1_redsubst",
+                "ok": true
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "red_proc",
+                "to_key": "defense",
+                "point": "到达举证缺签收链，送达争议规则对我方不利。"
+              },
+              {
+                "from_key": "red_subst",
+                "to_key": "defense",
+                "point": "质量异议函笼统、未指向批次 / 标准；对部分诉请沉默易被推定认可。"
+              }
+            ]
+          }
+        ],
+        "brief": {
+          "crux": "我方答辩能否扛住原告对『送达举证 + 质量异议具体性 + 沉默推定』三点的攻击",
+          "strongest_points": {
+            "red_proc": "到达举证缺签收链，按送达争议规则我方不利，是最尖锐风险。",
+            "red_subst": "质量异议函表述笼统、未指向具体批次 / 标准，难达异议成立要件；对原告主张沉默处易被推定认可。",
+            "defense": "已补送达回执 + 异议函逐条对应批次，并就沉默项明确否认。"
+          },
+          "risk_severities": {
+            "red_proc": "high",
+            "red_subst": "medium"
+          },
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "以程序抗辩拖延 vs 实体一次性了结的策略取舍"
+            },
+            {
+              "kind": "fact",
+              "text": "质量异议函是否在合理期限内送达原告口径不一"
+            },
+            {
+              "kind": "question",
+              "text": "违约金调减的请求权基础按哪条主张？"
+            }
+          ],
+          "leaning": "有条件成立：补强送达证据 + 异议函具体化 + 逐项否认后可扛住",
+          "confidence": "medium",
+          "recommendation": "终稿前必须：① 补送达签收链证据 ② 异议函按批次 / 标准逐条具体化 ③ 对原告每项主张明确否认，杜绝沉默推定。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.218Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "再逐条核验法条与时效。"
+      },
+      "timestamp": "2026-01-01T00:00:04.219Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc2",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "核验律师"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.220Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "逐条核验法条 / 时效",
+        "agents": [
+          {
+            "id": "w_verify",
+            "role": "核验律师",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r_verify",
+            "agent_id": "w_verify",
+            "task": "逐条核验法条与时效",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:04.221Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:04.222Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "tool_name": "web_search",
+        "chars": 3
+      },
+      "timestamp": "2026-01-01T00:00:04.223Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "ws1",
+        "tool_name": "web_search",
+        "arguments": {
+          "query": "民法典合同编通则解释 违约金 调减"
+        },
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.224Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "ws1",
+        "tool_name": "web_search",
+        "status": "success",
+        "result": "命中：合同编通则解释第 65 条、民法典第 621 条；送达规则未取到权威原文。",
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.225Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "tool_name": "file_write",
+        "chars": 208
+      },
+      "timestamp": "2026-01-01T00:00:04.226Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "fw2",
+        "tool_name": "file_write",
+        "arguments": {
+          "path": "法条核验报告.md",
+          "content": "# 法条核验报告\n| 引用 | 现行有效性 | 出处 | 结论 |\n|---|---|---|---|\n| 违约金超损失 30% 可调减 | 现行有效 | 《民法典合同编通则若干问题的解释》第 65 条 | ✅ 已核验 |\n| 质量异议合理期限 | 现行有效 | 《民法典》第 621 条 | ✅ 已核验 |\n| 送达推定到达规则 | 待确认条款 | web 摘要不足 | ⚠️ [待核验]（转人工 / 库核） |\n"
+        },
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.227Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "fw2",
+        "tool_name": "file_write",
+        "status": "success",
+        "result": "已写入",
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.228Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "delta": "核验完成：违约金调减引《合同编通则解释》第 65 条、质量异议引第 621 条；送达规则标 [待核验]。"
+      },
+      "timestamp": "2026-01-01T00:00:04.229Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "output_summary": "核验完成：法条核验报告.md",
+        "duration_ms": 2000,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:06.222Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc2",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "核验完成：法条核验报告.md（1 处 [待核验]）"
+      },
+      "timestamp": "2026-01-01T00:00:06.223Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "人审已通过，现出具答辩状终稿（完整正文如下，《答辩状初稿.md》留作可下载附件）：\n\n"
+      },
+      "timestamp": "2026-01-01T00:00:06.224Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "# 民事答辩状（终稿）\n## 程序抗辩\n- 原告送达签收链缺失，对送达是否到达有异议（送达推定到达规则待权威核验，暂标 [待核验]）。\n## 实体抗辩\n- 买方已在合理期限内就质量提出异议，依《民法典》第六百二十一条 [1]，异议成立、可主张相应减款。\n- 即便认定违约，约定违约金过分高于实际损失，依《合同编通则若干问题的解释》第六十五条 [2]，请求酌减至不超过损失的 130%。\n## 质证意见\n- 对送货单真实性无异议；对原告『货物合格』主张的关联性有异议。\n## 答辩意见\n- 请求依法驳回原告的全部或部分诉讼请求。\n\n【法域】中国大陆法。【免责】本文为 AI 辅助起草，须执业律师复核后使用，不构成法律意见。\n"
+      },
+      "timestamp": "2026-01-01T00:00:06.225Z"
+    },
+    {
+      "type": "citations",
+      "payload": {
+        "citations": [
+          {
+            "url": "https://flk.npc.gov.cn/minfadian-621",
+            "title": "中华人民共和国民法典 第六百二十一条（买受人质量异议合理期限）",
+            "snippet": "当事人约定检验期限的，买受人应当在检验期限内将标的物数量或质量不符合约定的情形通知出卖人……",
+            "site": "flk.npc.gov.cn"
+          },
+          {
+            "url": "https://www.court.gov.cn/hetongbian-tongze-jieshi-65",
+            "title": "最高法关于适用民法典合同编通则若干问题的解释 第六十五条（违约金调减）",
+            "snippet": "约定的违约金超过造成损失百分之三十的，一般可以认定为民法典第五百八十五条规定的『过分高于造成的损失』……",
+            "site": "court.gov.cn"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:06.226Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 6200,
+          "output_tokens": 1100,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:06.227Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我先翻一下「答辩状作战室」的打法。按作战室打法组队：先起草，再让原告红队压一遍，核验法条，最后请你拍板。现在让原告红队来压测我方答辩。再逐条核验法条与时效。人审已通过，现出具答辩状终稿（完整正文如下，《答辩状初稿.md》留作可下载附件）：\n\n# 民事答辩状（终稿）\n## 程序抗辩\n- 原告送达签收链缺失，对送达是否到达有异议（送达推定到达规则待权威核验，暂标 [待核验]）。\n## 实体抗辩\n- 买方已在合理期限内就质量提出异议，依《民法典》第六百二十一条 [1]，异议成立、可主张相应减款。\n- 即便认定违约，约定违约金过分高于实际损失，依《合同编通则若干问题的解释》第六十五条 [2]，请求酌减至不超过损失的 130%。\n## 质证意见\n- 对送货单真实性无异议；对原告『货物合格』主张的关联性有异议。\n## 答辩意见\n- 请求依法驳回原告的全部或部分诉讼请求。\n\n【法域】中国大陆法。【免责】本文为 AI 辅助起草，须执业律师复核后使用，不构成法律意见。\n",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我先翻一下「答辩状作战室」的打法。"
+      },
+      {
+        "kind": "tool",
+        "id": "cs1",
+        "tool_name": "consult_skill",
+        "arguments": {
+          "name": "legal_answer_brief"
+        },
+        "result": "## 答辩状作战室\n1. 解析对方起诉状 + 我方事实 → 逐项答辩（程序抗辩 + 实体抗辩 + 质证 + 法律依据）。\n2. delegate 起草，debate(red_team, is_subject=我方答辩) 让原告红队单向压测，再逐点加固。\n3. delegate 核验逐条法条 / 时效，未核验不得引用、标 [待核验]；终稿标法域 + 免责 + 人审闸门。\n",
+        "status": "success",
+        "display": {
+          "skill_name": "legal_answer_brief",
+          "summary": "答辩状要素结构 + 对方律师作战室编排 + 反幻觉硬约束"
+        }
+      },
+      {
+        "kind": "content",
+        "text": "按作战室打法组队：先起草，再让原告红队压一遍，核验法条，最后请你拍板。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "content",
+        "text": "现在让原告红队来压测我方答辩。再逐条核验法条与时效。人审已通过，现出具答辩状终稿（完整正文如下，《答辩状初稿.md》留作可下载附件）：\n\n# 民事答辩状（终稿）\n## 程序抗辩\n- 原告送达签收链缺失，对送达是否到达有异议（送达推定到达规则待权威核验，暂标 [待核验]）。\n## 实体抗辩\n- 买方已在合理期限内就质量提出异议，依《民法典》第六百二十一条 [1]，异议成立、可主张相应减款。\n- 即便认定违约，约定违约金过分高于实际损失，依《合同编通则若干问题的解释》第六十五条 [2]，请求酌减至不超过损失的 130%。\n## 质证意见\n- 对送货单真实性无异议；对原告『货物合格』主张的关联性有异议。\n## 答辩意见\n- 请求依法驳回原告的全部或部分诉讼请求。\n\n【法域】中国大陆法。【免责】本文为 AI 辅助起草，须执业律师复核后使用，不构成法律意见。\n"
+      }
+    ],
+    "citations": [
+      {
+        "url": "https://flk.npc.gov.cn/minfadian-621",
+        "title": "中华人民共和国民法典 第六百二十一条（买受人质量异议合理期限）",
+        "snippet": "当事人约定检验期限的，买受人应当在检验期限内将标的物数量或质量不符合约定的情形通知出卖人……",
+        "site": "flk.npc.gov.cn"
+      },
+      {
+        "url": "https://www.court.gov.cn/hetongbian-tongze-jieshi-65",
+        "title": "最高法关于适用民法典合同编通则若干问题的解释 第六十五条（违约金调减）",
+        "snippet": "约定的违约金超过造成损失百分之三十的，一般可以认定为民法典第五百八十五条规定的『过分高于造成的损失』……",
+        "site": "court.gov.cn"
+      }
+    ],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w_draft",
+        "role": "起草律师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "答辩状初稿就绪：程序抗辩 + 实体抗辩 + 质证 + 法律依据。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "warroom_mod1",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_defense",
+        "role": "我方答辩",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "我方：已补送达回执、异议函逐条对应批次，并就沉默项明确否认。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_red_proc",
+        "role": "程序红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "程序红队：到达举证缺签收链，送达争议对我方不利。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_red_subst",
+        "role": "实体红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "实体红队：质量异议函笼统、对部分诉请沉默易被推定认可。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w_verify",
+        "role": "核验律师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "核验完成：违约金调减引《合同编通则解释》第 65 条、质量异议引第 621 条；送达规则标 [待核验]。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r_draft",
+        "agentId": "w_draft",
+        "task": "起草答辩状初稿",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "起草完成：答辩状初稿.md",
+        "debrief": null,
+        "durationMs": 1600,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "fw1",
+            "tool_name": "file_write",
+            "arguments": {
+              "path": "答辩状初稿.md",
+              "content": "# 民事答辩状（初稿）\n## 程序抗辩\n- 对原告送达与举证提出异议。\n## 实体抗辩\n- 质量异议函已发，违约责任不成立。\n## 法律依据\n- 《民法典》合同编相关条款（待核验）。\n"
+            },
+            "result": "已写入",
+            "status": "success"
+          },
+          {
+            "kind": "content",
+            "text": "答辩状初稿就绪：程序抗辩 + 实体抗辩 + 质证 + 法律依据。"
+          }
+        ]
+      },
+      {
+        "id": "warroom_mod1",
+        "agentId": "warroom_mod1",
+        "task": "主持红队审查：原告视角压测我方答辩",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "原告红队三点攻击已被逐点回应",
+        "debrief": null,
+        "durationMs": 2200,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "warroom_mod1_r1_defense",
+        "agentId": "d_defense",
+        "task": "为我方答辩抗辩并加固",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "我方抗辩 + 加固完成",
+        "debrief": null,
+        "durationMs": 900,
+        "error": null,
+        "parentRunId": "warroom_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "我方：已补送达回执、异议函逐条对应批次，并就沉默项明确否认。"
+          }
+        ]
+      },
+      {
+        "id": "warroom_mod1_r1_redproc",
+        "agentId": "d_red_proc",
+        "task": "以原告视角挖程序 / 送达漏洞",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "程序红队挖掘完成",
+        "debrief": null,
+        "durationMs": 840,
+        "error": null,
+        "parentRunId": "warroom_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "程序红队：到达举证缺签收链，送达争议对我方不利。"
+          }
+        ]
+      },
+      {
+        "id": "warroom_mod1_r1_redsubst",
+        "agentId": "d_red_subst",
+        "task": "以原告视角挖实体抗辩漏洞",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "实体红队挖掘完成",
+        "debrief": null,
+        "durationMs": 860,
+        "error": null,
+        "parentRunId": "warroom_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "实体红队：质量异议函笼统、对部分诉请沉默易被推定认可。"
+          }
+        ]
+      },
+      {
+        "id": "r_verify",
+        "agentId": "w_verify",
+        "task": "逐条核验法条与时效",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "核验完成：法条核验报告.md",
+        "debrief": null,
+        "durationMs": 2000,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "ws1",
+            "tool_name": "web_search",
+            "arguments": {
+              "query": "民法典合同编通则解释 违约金 调减"
+            },
+            "result": "命中：合同编通则解释第 65 条、民法典第 621 条；送达规则未取到权威原文。",
+            "status": "success"
+          },
+          {
+            "kind": "tool",
+            "id": "fw2",
+            "tool_name": "file_write",
+            "arguments": {
+              "path": "法条核验报告.md",
+              "content": "# 法条核验报告\n| 引用 | 现行有效性 | 出处 | 结论 |\n|---|---|---|---|\n| 违约金超损失 30% 可调减 | 现行有效 | 《民法典合同编通则若干问题的解释》第 65 条 | ✅ 已核验 |\n| 质量异议合理期限 | 现行有效 | 《民法典》第 621 条 | ✅ 已核验 |\n| 送达推定到达规则 | 待确认条款 | web 摘要不足 | ⚠️ [待核验]（转人工 / 库核） |\n"
+            },
+            "result": "已写入",
+            "status": "success"
+          },
+          {
+            "kind": "content",
+            "text": "核验完成：违约金调减引《合同编通则解释》第 65 条、质量异议引第 621 条；送达规则标 [待核验]。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 6,
+      "total": 6
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec1",
+      "moderator_run_id": "warroom_mod1",
+      "form": "red_team",
+      "motion": "以原告视角压测我方《民事答辩状》的稳健性",
+      "stop_reason": "red_team_exhausted",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "defense",
+          "name": "我方答辩",
+          "stance": "逐项抗辩成立、无需担责",
+          "is_subject": true,
+          "model": ""
+        },
+        {
+          "key": "red_proc",
+          "name": "程序红队（原告）",
+          "stance": "程序与送达举证存在硬伤",
+          "is_subject": false,
+          "model": ""
+        },
+        {
+          "key": "red_subst",
+          "name": "实体红队（原告）",
+          "stance": "实体抗辩不成立",
+          "is_subject": false,
+          "model": ""
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "送达举证 / 质量异议具体性 / 沉默推定 三点攻防",
+          "summary": "原告红队挖出送达签收链缺失、异议函笼统、对部分诉请沉默三点；我方补证据并逐点否认加固。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": true,
+            "converged": true,
+            "stop_reason": "red_team_exhausted",
+            "rationale": "三点攻击已被逐点回应 / 加固，无新增有效攻击。"
+          },
+          "sides": [
+            {
+              "key": "defense",
+              "name": "我方答辩",
+              "run_id": "warroom_mod1_r1_defense",
+              "ok": true
+            },
+            {
+              "key": "red_proc",
+              "name": "程序红队（原告）",
+              "run_id": "warroom_mod1_r1_redproc",
+              "ok": true
+            },
+            {
+              "key": "red_subst",
+              "name": "实体红队（原告）",
+              "run_id": "warroom_mod1_r1_redsubst",
+              "ok": true
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "red_proc",
+              "to_key": "defense",
+              "point": "到达举证缺签收链，送达争议规则对我方不利。"
+            },
+            {
+              "from_key": "red_subst",
+              "to_key": "defense",
+              "point": "质量异议函笼统、未指向批次 / 标准；对部分诉请沉默易被推定认可。"
+            }
+          ]
+        }
+      ],
+      "brief": {
+        "crux": "我方答辩能否扛住原告对『送达举证 + 质量异议具体性 + 沉默推定』三点的攻击",
+        "strongest_points": {
+          "red_proc": "到达举证缺签收链，按送达争议规则我方不利，是最尖锐风险。",
+          "red_subst": "质量异议函表述笼统、未指向具体批次 / 标准，难达异议成立要件；对原告主张沉默处易被推定认可。",
+          "defense": "已补送达回执 + 异议函逐条对应批次，并就沉默项明确否认。"
+        },
+        "risk_severities": {
+          "red_proc": "high",
+          "red_subst": "medium"
+        },
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "以程序抗辩拖延 vs 实体一次性了结的策略取舍"
+          },
+          {
+            "kind": "fact",
+            "text": "质量异议函是否在合理期限内送达原告口径不一"
+          },
+          {
+            "kind": "question",
+            "text": "违约金调减的请求权基础按哪条主张？"
+          }
+        ],
+        "leaning": "有条件成立：补强送达证据 + 异议函具体化 + 逐项否认后可扛住",
+        "confidence": "medium",
+        "recommendation": "终稿前必须：① 补送达签收链证据 ② 异议函按批次 / 标准逐条具体化 ③ 对原告每项主张明确否认，杜绝沉默推定。"
+      }
+    },
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

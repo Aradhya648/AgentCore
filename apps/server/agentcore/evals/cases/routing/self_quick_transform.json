@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_quick_transform",
+  "category": "routing",
+  "user_message": "把下面这句话翻译成自然的英文：『协作，是更高级的智能。』",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "单点轻量任务：一句话翻译，CEO 直接给出即可，不该拆成团队。"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "neg_qa_oneliner",
+  "archetype": "simple",
+  "user_message": "Python 里 list 和 tuple 最主要的区别是什么？一句话。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }, { "name": "MaxRounds", "args": { "budget": 3 } }]
+  },
+  "rubric": "是否简洁正确指出 list 可变、tuple 不可变。负对照：团队在此应不优于单体；若团队胜，多半是裁判偏好长答案，需校准。简洁正确优先。"
+}

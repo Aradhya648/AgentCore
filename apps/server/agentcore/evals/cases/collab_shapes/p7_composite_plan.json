@@ -1,0 +1,28 @@
+{
+  "id": "collab_p7_composite_plan",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "我想做个人知识向的自媒体启动方案，领域就定「AI 工具实用技巧」（教普通人用 AI 提效），预算每月不超过 800 元、每周可投入约 8 小时。请分别起草：定位与受众、选题与更新节奏、变现路径，部件之间必须互相一致（别超预算、别和时间打架），最后做一次一致性对账再定稿。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型7 组合方案·中档：部件并行起草 → 一致性对账员 → 定向修订。硬增益=约束共享面+部件一致性。MAST 2.5 无视他人产出（对账须汇入各部件）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 100 } }
+  ],
+  "expected_shape": {
+    "min_workers": 4,
+    "max_workers": 6,
+    "parallel_fanout_min": 3,
+    "has_join": true,
+    "independent_reviewer": true,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "parts", "desc": "覆盖定位受众、选题节奏、变现路径三大部件", "weight": 2 },
+    { "id": "budget", "desc": "方案显式尊重月预算≤800 与每周≈8 小时约束", "weight": 2 },
+    { "id": "consistent", "desc": "部件之间无明显打架（时间/预算/定位一致）", "weight": 1 }
+  ]
+}

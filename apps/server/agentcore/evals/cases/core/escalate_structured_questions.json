@@ -1,0 +1,12 @@
+{
+  "id": "escalate_structured_questions",
+  "category": "tool_use",
+  "user_message": "帮我把这个内部 CLI 工具的分发方式定下来，并写出对应的完整安装脚本到工作区。请在两条互斥路线里二选一：(A) 发布为全局 npm 包（用户 npm i -g 安装），或 (B) 用 pkg 打包成单文件可执行（用户下载即用）。两条路的脚本与目录结构完全不同、选错就得整段重写；而选哪条取决于我们团队的分发渠道与运维偏好——这点只有我能拍板。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "checks": [
+    { "name": "ToolCalled", "args": { "tool": "escalate" } },
+    { "name": "ToolArgNonEmpty", "args": { "tool": "escalate", "arg": "questions" } }
+  ]
+}

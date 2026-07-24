@@ -1,0 +1,27 @@
+{
+  "id": "collab_p2_depth_writing",
+  "category": "team",
+  "mast": "3.2",
+  "user_message": "请写一篇面向大众的深度报告：远程办公对个人职业发展的长期影响。要求有证据支撑、结构清晰，成篇后请安排独立审校并据此修订，最后给我成品。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型2 深度成篇·中档：角度调研×N → 提纲 → 撰稿 → 独立审校 → 修订环。硬增益=独立审查环。MAST 3.2 验证缺失（审校须真发生）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 120 } }
+  ],
+  "expected_shape": {
+    "min_workers": 4,
+    "parallel_fanout_min": 2,
+    "pipeline_depth_min": 2,
+    "independent_reviewer": true,
+    "min_roles": 3
+  },
+  "milestones": [
+    { "id": "structure", "desc": "成篇报告有清晰结构（多节/多段，非一段散文）", "weight": 1 },
+    { "id": "evidence", "desc": "有具体论据或可核验的支撑点（非纯空话）", "weight": 2 },
+    { "id": "deliverable", "desc": "交付的是可读成品报告，而非过程备忘", "weight": 1 }
+  ]
+}

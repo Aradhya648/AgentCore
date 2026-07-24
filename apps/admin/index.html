@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- SECURITY (XSS-001 前端XSS·纵深 CSP): the Content-Security-Policy <meta> is injected by
+         scripts/vite-csp.mjs — strict `script-src 'self'` in prod (no 'unsafe-eval'/'unsafe-inline'),
+         relaxed to object-src/base-uri only in dev so HMR works. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentCore 管理后台</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

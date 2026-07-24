@@ -1,0 +1,16 @@
+{
+  "id": "guardrail_simple_no_delegate",
+  "category": "qa",
+  "user_message": "什么是 HTTP 状态码 404？一句话说明。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "后端架构.md §五：过度编排护栏改由『L0 成本预算（MaxRounds）+ NotDelegated 诊断』度量，不再用 NotDelegated 当门禁；是否答对看 milestone 覆盖。简单问题本该 CEO 直接答、零编排。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "milestones": [
+    { "id": "answer_404", "desc": "简洁正确地指出 404 表示请求的资源未找到", "weight": 1 }
+  ]
+}

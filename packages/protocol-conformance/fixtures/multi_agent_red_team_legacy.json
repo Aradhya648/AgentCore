@@ -1,0 +1,575 @@
+{
+  "name": "multi_agent_red_team_legacy",
+  "description": "旧红队载荷降级：仅 risk_severities、无 findings/beat",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "回放一场旧红队磁带。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_legacy_rt",
+        "plan_type": "debate",
+        "task_summary": "旧红队兼容",
+        "agents": [
+          {
+            "id": "legacy_rt_mod",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "legacy_rt_mod",
+            "agent_id": "legacy_rt_mod",
+            "task": "主持红队审查：旧载荷兼容",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "legacy_rt_mod",
+        "agent_id": "legacy_rt_mod",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_legacy_rt",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_subject",
+            "role": "方案方",
+            "thinking": true
+          },
+          {
+            "id": "d_red1",
+            "role": "安全红队",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "legacy_rt_mod_r1_subject",
+            "agent_id": "d_subject",
+            "task": "为方案抗辩并修补",
+            "depends_on": [],
+            "parent_run_id": "legacy_rt_mod",
+            "group": "debate:red_team",
+            "round": 1
+          },
+          {
+            "id": "legacy_rt_mod_r1_red1",
+            "agent_id": "d_red1",
+            "task": "挖方案的安全风险",
+            "depends_on": [],
+            "parent_run_id": "legacy_rt_mod",
+            "group": "debate:red_team",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "legacy_rt_mod_r1_subject",
+        "agent_id": "d_subject",
+        "parent_run_id": "legacy_rt_mod",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "legacy_rt_mod_r1_subject",
+        "agent_id": "d_subject",
+        "output_summary": "方案方",
+        "duration_ms": 100,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.106Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "legacy_rt_mod_r1_red1",
+        "agent_id": "d_red1",
+        "parent_run_id": "legacy_rt_mod",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.107Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "legacy_rt_mod_r1_red1",
+        "agent_id": "d_red1",
+        "output_summary": "红队",
+        "duration_ms": 100,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.207Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "legacy_rt_mod",
+        "agent_id": "legacy_rt_mod",
+        "output_summary": "旧风险看板",
+        "duration_ms": 200,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.208Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec_legacy_rt",
+        "moderator_run_id": "legacy_rt_mod",
+        "form": "red_team",
+        "motion": "旧磁带回放：按方风险严重度",
+        "stop_reason": "red_team_exhausted",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "subject",
+            "name": "方案方",
+            "stance": "方案可行",
+            "is_subject": true,
+            "model": ""
+          },
+          {
+            "key": "red1",
+            "name": "安全红队",
+            "stance": "挖安全风险",
+            "is_subject": false,
+            "model": ""
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "旧场次焦点",
+            "summary": "旧拓扑并行波小结。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "red_team_exhausted",
+              "rationale": "旧载荷无 finding 台账。"
+            },
+            "sides": [
+              {
+                "key": "subject",
+                "name": "方案方",
+                "run_id": "legacy_rt_mod_r1_subject",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              },
+              {
+                "key": "red1",
+                "name": "安全红队",
+                "run_id": "legacy_rt_mod_r1_red1",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              }
+            ],
+            "clashes": []
+          }
+        ],
+        "brief": {
+          "crux": "旧风险看板",
+          "strongest_points": {
+            "red1": "有高危风险",
+            "subject": "可修补"
+          },
+          "risk_severities": {
+            "red1": "high"
+          },
+          "handoffs": [],
+          "leaning": "有条件通过",
+          "confidence": "low",
+          "recommendation": "先看旧风险看板再决定。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.209Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 50,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.210Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "回放一场旧红队磁带。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "回放一场旧红队磁带。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec_legacy_rt"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "legacy_rt_mod",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_subject",
+        "role": "方案方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_red1",
+        "role": "安全红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "legacy_rt_mod",
+        "agentId": "legacy_rt_mod",
+        "task": "主持红队审查：旧载荷兼容",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "旧风险看板",
+        "debrief": null,
+        "durationMs": 200,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "legacy_rt_mod_r1_subject",
+        "agentId": "d_subject",
+        "task": "为方案抗辩并修补",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "方案方",
+        "debrief": null,
+        "durationMs": 100,
+        "error": null,
+        "parentRunId": "legacy_rt_mod",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "legacy_rt_mod_r1_red1",
+        "agentId": "d_red1",
+        "task": "挖方案的安全风险",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "红队",
+        "debrief": null,
+        "durationMs": 100,
+        "error": null,
+        "parentRunId": "legacy_rt_mod",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 3,
+      "total": 3
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec_legacy_rt",
+      "moderator_run_id": "legacy_rt_mod",
+      "form": "red_team",
+      "motion": "旧磁带回放：按方风险严重度",
+      "stop_reason": "red_team_exhausted",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "subject",
+          "name": "方案方",
+          "stance": "方案可行",
+          "is_subject": true,
+          "model": ""
+        },
+        {
+          "key": "red1",
+          "name": "安全红队",
+          "stance": "挖安全风险",
+          "is_subject": false,
+          "model": ""
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "旧场次焦点",
+          "summary": "旧拓扑并行波小结。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "red_team_exhausted",
+            "rationale": "旧载荷无 finding 台账。"
+          },
+          "sides": [
+            {
+              "key": "subject",
+              "name": "方案方",
+              "run_id": "legacy_rt_mod_r1_subject",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            },
+            {
+              "key": "red1",
+              "name": "安全红队",
+              "run_id": "legacy_rt_mod_r1_red1",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            }
+          ],
+          "clashes": []
+        }
+      ],
+      "brief": {
+        "crux": "旧风险看板",
+        "strongest_points": {
+          "red1": "有高危风险",
+          "subject": "可修补"
+        },
+        "risk_severities": {
+          "red1": "high"
+        },
+        "handoffs": [],
+        "leaning": "有条件通过",
+        "confidence": "low",
+        "recommendation": "先看旧风险看板再决定。"
+      }
+    },
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

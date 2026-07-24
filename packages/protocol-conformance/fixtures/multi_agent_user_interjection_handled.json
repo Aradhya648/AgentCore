@@ -1,0 +1,420 @@
+{
+  "name": "multi_agent_user_interjection_handled",
+  "description": "协调插话入图：user_interjection(delivered) → update_synthesis，折到 userInterjections",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我来安排团队并行推进。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "研究员"
+            },
+            {
+              "role": "撰写员"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "并行调研 + 撰写",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "研究员",
+            "thinking": true
+          },
+          {
+            "id": "w2",
+            "role": "撰写员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "调研",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "撰写",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "user_interjection",
+      "payload": {
+        "interjection_id": "inj1",
+        "execution_id": "exec1",
+        "content": "补充一点：结论里请点明成本对比。",
+        "status": "delivered"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "syn1",
+        "tool_name": "update_synthesis",
+        "arguments": {
+          "draft": "已收到补充：成品会点明成本对比。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "syn1",
+        "tool_name": "update_synthesis",
+        "status": "success",
+        "result": "已更新合成草稿（18 字），用户可见「进展中」预览。"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "team_synthesis_preview",
+      "payload": {
+        "execution_id": "exec1",
+        "completed": 0,
+        "total": 2,
+        "headline": "合成草稿更新 · 已完成 0/2",
+        "text": "已收到补充：成品会点明成本对比。",
+        "workers": [],
+        "in_progress": true
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "完成调研",
+        "duration_ms": 1000,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.005Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "output_summary": "完成撰写",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.006Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "团队已完成。"
+      },
+      "timestamp": "2026-01-01T00:00:01.007Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "团队已按你的补充交稿。"
+      },
+      "timestamp": "2026-01-01T00:00:01.008Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 2000,
+          "output_tokens": 400,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:01.009Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我来安排团队并行推进。团队已按你的补充交稿。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我来安排团队并行推进。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "tool",
+        "id": "syn1",
+        "tool_name": "update_synthesis",
+        "arguments": {
+          "draft": "已收到补充：成品会点明成本对比。"
+        },
+        "result": "已更新合成草稿（18 字），用户可见「进展中」预览。",
+        "status": "success"
+      },
+      {
+        "kind": "content",
+        "text": "团队已按你的补充交稿。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "研究员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "撰写员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "调研",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "完成调研",
+        "debrief": null,
+        "durationMs": 1000,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "撰写",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "完成撰写",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 2,
+      "total": 2
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": {
+      "execution_id": "exec1",
+      "completed": 0,
+      "total": 2,
+      "headline": "合成草稿更新 · 已完成 0/2",
+      "text": "已收到补充：成品会点明成本对比。",
+      "workers": [],
+      "in_progress": true
+    },
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": [
+      {
+        "interjectionId": "inj1",
+        "executionId": "exec1",
+        "content": "补充一点：结论里请点明成本对比。",
+        "status": "delivered",
+        "note": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "oracle_message_id": "3654bda5-e84b-4d41-a75c-092f454bf012",
+  "tape": "C:\\Project\\AgentCore\\demos\\tapes\\lv-molihua-trademark.json",
+  "checks": {
+    "captain_content_byte_equal": true,
+    "fresh_export_content_byte_equal": true,
+    "started_before_context": true,
+    "debate_structure": true
+  },
+  "errors": [],
+  "ok": true
+}

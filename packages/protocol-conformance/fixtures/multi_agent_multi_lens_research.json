@@ -1,0 +1,1074 @@
+{
+  "name": "multi_agent_multi_lens_research",
+  "description": "多 Agent·多视角深度调研幕1：team_preview(delegate) → 4 透镜并行流式 → 汇总分析师 debrief.motion_card → CEO 呈报建议开辩 → followups 首条开辩芯片",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我将按多视角深度调研推进「某消费品牌是否应在争议代言人事件后继续联名」。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "playbook": "multi_lens_research",
+          "playbook_args": {
+            "topic": "某消费品牌是否应在争议代言人事件后继续联名"
+          },
+          "coordinate": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_mlr1",
+        "plan_type": "multi_agent",
+        "task_summary": "多视角深度调研：某消费品牌是否应在争议代言人事件后继续联名",
+        "agents": [
+          {
+            "id": "lens_0",
+            "role": "法律视角",
+            "thinking": true
+          },
+          {
+            "id": "lens_1",
+            "role": "品牌商业视角",
+            "thinking": true
+          },
+          {
+            "id": "lens_2",
+            "role": "舆情公关视角",
+            "thinking": true
+          },
+          {
+            "id": "lens_3",
+            "role": "文化社会视角",
+            "thinking": true
+          },
+          {
+            "id": "synthesizer",
+            "role": "汇总分析师",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "lens_0",
+            "agent_id": "lens_0",
+            "task": "梳理代言合同解约条款、连带责任与监管口径",
+            "depends_on": []
+          },
+          {
+            "id": "lens_1",
+            "agent_id": "lens_1",
+            "task": "评估联名营收贡献、库存与渠道契约成本",
+            "depends_on": []
+          },
+          {
+            "id": "lens_2",
+            "agent_id": "lens_2",
+            "task": "盘点舆论热度、声量拐点与危机公关窗口",
+            "depends_on": []
+          },
+          {
+            "id": "lens_3",
+            "agent_id": "lens_3",
+            "task": "分析代言人象征意义与圈层价值冲突",
+            "depends_on": []
+          },
+          {
+            "id": "synthesizer",
+            "agent_id": "synthesizer",
+            "task": "交叉验证综述（共识/冲突/分歧；必要时附建议开辩命题卡）· 某消费品牌是否应在争议代言人事件后继续联名",
+            "depends_on": [
+              "lens_0",
+              "lens_1",
+              "lens_2",
+              "lens_3"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "team_preview_required",
+      "payload": {
+        "checkpoint_id": "tp_mlr1",
+        "conversation_id": "conv_demo",
+        "workers": [
+          {
+            "run_id": "lens_0",
+            "role": "法律视角",
+            "task": "梳理代言合同解约条款、连带责任与监管口径",
+            "depends_on": [],
+            "debate": false
+          },
+          {
+            "run_id": "lens_1",
+            "role": "品牌商业视角",
+            "task": "评估联名营收贡献、库存与渠道契约成本",
+            "depends_on": [],
+            "debate": false
+          },
+          {
+            "run_id": "lens_2",
+            "role": "舆情公关视角",
+            "task": "盘点舆论热度、声量拐点与危机公关窗口",
+            "depends_on": [],
+            "debate": false
+          },
+          {
+            "run_id": "lens_3",
+            "role": "文化社会视角",
+            "task": "分析代言人象征意义与圈层价值冲突",
+            "depends_on": [],
+            "debate": false
+          },
+          {
+            "run_id": "synthesizer",
+            "role": "汇总分析师",
+            "task": "交叉验证综述 · 某消费品牌是否应在争议代言人事件后继续联名",
+            "depends_on": [
+              "lens_0",
+              "lens_1",
+              "lens_2",
+              "lens_3"
+            ],
+            "debate": false
+          }
+        ],
+        "tools": [
+          "web_search",
+          "web_fetch",
+          "file_read"
+        ],
+        "primitive": "delegate",
+        "motion": "",
+        "form": "",
+        "sides": [],
+        "max_rounds": 0,
+        "thorough": true
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "team_preview_resolved",
+      "payload": {
+        "checkpoint_id": "tp_mlr1",
+        "decision": "continue",
+        "note": ""
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "run_reasoning_delta",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "delta": "先核对代言合同解约与连带责任条款…"
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "delta": "【法律】合同含道德条款，解约需举证重大声誉损害；"
+      },
+      "timestamp": "2026-01-01T00:00:00.012Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "delta": "【品牌商业】联名贡献约 18% 季度营收，渠道有最低采购约束；"
+      },
+      "timestamp": "2026-01-01T00:00:00.013Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "delta": "【舆情公关】负面声量 72h 内翻倍，品牌官号评论区失控；"
+      },
+      "timestamp": "2026-01-01T00:00:00.014Z"
+    },
+    {
+      "type": "run_reasoning_delta",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "delta": "代言人象征意义与品牌调性是否仍兼容…"
+      },
+      "timestamp": "2026-01-01T00:00:00.015Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "delta": "【文化社会】圈层撕裂明显，年轻用户要求切割，铁粉要求澄清；"
+      },
+      "timestamp": "2026-01-01T00:00:00.016Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "delta": "监管口径偏谨慎，仓促解约亦有违约风险。"
+      },
+      "timestamp": "2026-01-01T00:00:00.017Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "output_summary": "法律透镜：解约可行但举证门槛高",
+        "duration_ms": 2100,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "debrief": {
+          "summary": "解约可行但举证门槛高，仓促动作亦有违约风险",
+          "key_points": [
+            "道德条款可援引",
+            "举证声誉损害是关键"
+          ],
+          "next_steps": "汇总时对照舆情时间线评估举证难度"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.107Z"
+    },
+    {
+      "type": "run_progress",
+      "payload": {
+        "completed": 1,
+        "total": 5
+      },
+      "timestamp": "2026-01-01T00:00:02.108Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "delta": "库存与退货成本估算约两千万量级。"
+      },
+      "timestamp": "2026-01-01T00:00:02.109Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "output_summary": "品牌商业透镜：短期财务代价高",
+        "duration_ms": 2400,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "debrief": {
+          "summary": "继续联名保营收，终止则短期财务冲击大",
+          "key_points": [
+            "联名约占 18% 季度营收",
+            "渠道最低采购约束"
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.408Z"
+    },
+    {
+      "type": "run_progress",
+      "payload": {
+        "completed": 2,
+        "total": 5
+      },
+      "timestamp": "2026-01-01T00:00:02.409Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "delta": "危机窗口约 5–7 天，沉默会被解读为纵容。"
+      },
+      "timestamp": "2026-01-01T00:00:02.410Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "output_summary": "舆情公关透镜：沉默成本高于表态成本",
+        "duration_ms": 1900,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "debrief": {
+          "summary": "负面声量持续攀升，沉默会被解读为纵容",
+          "key_points": [
+            "72h 声量翻倍",
+            "危机窗口约一周"
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.411Z"
+    },
+    {
+      "type": "run_progress",
+      "payload": {
+        "completed": 3,
+        "total": 5
+      },
+      "timestamp": "2026-01-01T00:00:02.412Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "delta": "价值冲突难靠更多事实消解，更接近立场对抗。"
+      },
+      "timestamp": "2026-01-01T00:00:02.413Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "output_summary": "文化社会透镜：价值冲突难靠取证收敛",
+        "duration_ms": 2200,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "debrief": {
+          "summary": "圈层撕裂对应价值对立，继续取证难以收敛",
+          "key_points": [
+            "年轻用户要求切割",
+            "铁粉要求澄清"
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.414Z"
+    },
+    {
+      "type": "run_progress",
+      "payload": {
+        "completed": 4,
+        "total": 5
+      },
+      "timestamp": "2026-01-01T00:00:02.415Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:02.416Z"
+    },
+    {
+      "type": "run_reasoning_delta",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "delta": "四路已齐：标清共识/冲突，判断是否必须对抗开辩…"
+      },
+      "timestamp": "2026-01-01T00:00:02.417Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "delta": "### 交叉验证\n**共识**：事件已实质伤害品牌声誉，需在一周内给出清晰立场。\n"
+      },
+      "timestamp": "2026-01-01T00:00:02.418Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "delta": "**冲突**：法律侧强调举证与违约风险；舆情侧强调沉默即纵容；商业侧强调短期财务代价。\n"
+      },
+      "timestamp": "2026-01-01T00:00:02.419Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "delta": "**分歧**：是否「立即终止联名」是价值判断，继续调研无法收敛。\n"
+      },
+      "timestamp": "2026-01-01T00:00:02.420Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "output_summary": "交叉验证完成；核心争议需开辩检验",
+        "duration_ms": 2800,
+        "role": "member",
+        "model": "deepseek-v4-pro",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "debrief": {
+          "summary": "四路交叉后，是否立即终止联名是必须对抗检验的核心争议",
+          "key_points": [
+            "共识：一周内需清晰立场",
+            "冲突：法律举证 vs 舆情窗口 vs 商业代价",
+            "分歧：立即终止 vs 冷静观望"
+          ],
+          "assumptions": "争议事实以公开报道与合同摘要为准，未做内部审计",
+          "next_steps": "若用户同意，建议就命题开一场正反辩论",
+          "motion_card": {
+            "motion": "品牌是否应立即终止与该代言人的联名合作",
+            "sides": [
+              {
+                "key": "terminate",
+                "name": "立即终止方",
+                "stance": "应立刻切割止损"
+              },
+              {
+                "key": "hold",
+                "name": "冷静观望方",
+                "stance": "证据未定不宜仓促解约"
+              }
+            ],
+            "fact_pointers": [
+              "#r1",
+              "#r3",
+              "notes/endorsement.md"
+            ],
+            "rationale": "法律风险与品牌声誉的取舍无法靠继续取证收敛，必须对抗检验价值判断。",
+            "form": "debate"
+          }
+        }
+      },
+      "timestamp": "2026-01-01T00:00:05.216Z"
+    },
+    {
+      "type": "run_progress",
+      "payload": {
+        "completed": 5,
+        "total": 5
+      },
+      "timestamp": "2026-01-01T00:00:05.217Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "多视角调研完成：4 透镜 + 汇总；汇总员提交了建议开辩命题卡。"
+      },
+      "timestamp": "2026-01-01T00:00:05.218Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "\n\n## 多视角调研结论\n\n围绕「某消费品牌是否应在争议代言人事件后继续联名」，四路透镜与汇总已完成交叉验证。\n\n**共识**：事件已实质伤害品牌声誉，需在约一周内给出清晰立场。\n**冲突**：法律侧强调举证与违约风险；舆情侧强调沉默成本；商业侧强调短期财务冲击。\n**缺口**：内部合同全文与库存明细尚未核验。\n\n### 建议开辩\n\n**命题**：品牌是否应立即终止与该代言人的联名合作\n- 立即终止方：应立刻切割止损\n- 冷静观望方：证据未定不宜仓促解约\n**为何必须对抗**：法律风险与品牌声誉的取舍无法靠继续取证收敛，必须对抗检验价值判断。\n\n若你同意，可开一场正反辩论；本回合我不会直接开辩，请你拍板。"
+      },
+      "timestamp": "2026-01-01T00:00:05.219Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 9200,
+          "output_tokens": 1600,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:05.220Z"
+    },
+    {
+      "type": "followups_generated",
+      "payload": {
+        "conversation_id": "conv_demo",
+        "message_id": "m1",
+        "followups": [
+          "就『品牌是否应立即终止与该代言人的联名合作』开一场正反辩论",
+          "把四路调研要点整理成一页决策纪要",
+          "先补核代言合同全文与库存数字"
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:05.221Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我将按多视角深度调研推进「某消费品牌是否应在争议代言人事件后继续联名」。\n\n## 多视角调研结论\n\n围绕「某消费品牌是否应在争议代言人事件后继续联名」，四路透镜与汇总已完成交叉验证。\n\n**共识**：事件已实质伤害品牌声誉，需在约一周内给出清晰立场。\n**冲突**：法律侧强调举证与违约风险；舆情侧强调沉默成本；商业侧强调短期财务冲击。\n**缺口**：内部合同全文与库存明细尚未核验。\n\n### 建议开辩\n\n**命题**：品牌是否应立即终止与该代言人的联名合作\n- 立即终止方：应立刻切割止损\n- 冷静观望方：证据未定不宜仓促解约\n**为何必须对抗**：法律风险与品牌声誉的取舍无法靠继续取证收敛，必须对抗检验价值判断。\n\n若你同意，可开一场正反辩论；本回合我不会直接开辩，请你拍板。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我将按多视角深度调研推进「某消费品牌是否应在争议代言人事件后继续联名」。"
+      },
+      {
+        "kind": "team_preview",
+        "checkpoint_id": "tp_mlr1"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec_mlr1"
+      },
+      {
+        "kind": "content",
+        "text": "\n\n## 多视角调研结论\n\n围绕「某消费品牌是否应在争议代言人事件后继续联名」，四路透镜与汇总已完成交叉验证。\n\n**共识**：事件已实质伤害品牌声誉，需在约一周内给出清晰立场。\n**冲突**：法律侧强调举证与违约风险；舆情侧强调沉默成本；商业侧强调短期财务冲击。\n**缺口**：内部合同全文与库存明细尚未核验。\n\n### 建议开辩\n\n**命题**：品牌是否应立即终止与该代言人的联名合作\n- 立即终止方：应立刻切割止损\n- 冷静观望方：证据未定不宜仓促解约\n**为何必须对抗**：法律风险与品牌声誉的取舍无法靠继续取证收敛，必须对抗检验价值判断。\n\n若你同意，可开一场正反辩论；本回合我不会直接开辩，请你拍板。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "lens_0",
+        "role": "法律视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "【法律】合同含道德条款，解约需举证重大声誉损害；监管口径偏谨慎，仓促解约亦有违约风险。",
+        "reasoning": "先核对代言合同解约与连带责任条款…",
+        "toolProgress": null
+      },
+      {
+        "id": "lens_1",
+        "role": "品牌商业视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "【品牌商业】联名贡献约 18% 季度营收，渠道有最低采购约束；库存与退货成本估算约两千万量级。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "lens_2",
+        "role": "舆情公关视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "【舆情公关】负面声量 72h 内翻倍，品牌官号评论区失控；危机窗口约 5–7 天，沉默会被解读为纵容。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "lens_3",
+        "role": "文化社会视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "【文化社会】圈层撕裂明显，年轻用户要求切割，铁粉要求澄清；价值冲突难靠更多事实消解，更接近立场对抗。",
+        "reasoning": "代言人象征意义与品牌调性是否仍兼容…",
+        "toolProgress": null
+      },
+      {
+        "id": "synthesizer",
+        "role": "汇总分析师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "### 交叉验证\n**共识**：事件已实质伤害品牌声誉，需在一周内给出清晰立场。\n**冲突**：法律侧强调举证与违约风险；舆情侧强调沉默即纵容；商业侧强调短期财务代价。\n**分歧**：是否「立即终止联名」是价值判断，继续调研无法收敛。\n",
+        "reasoning": "四路已齐：标清共识/冲突，判断是否必须对抗开辩…",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "lens_0",
+        "agentId": "lens_0",
+        "task": "梳理代言合同解约条款、连带责任与监管口径",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "法律透镜：解约可行但举证门槛高",
+        "debrief": {
+          "summary": "解约可行但举证门槛高，仓促动作亦有违约风险",
+          "key_points": [
+            "道德条款可援引",
+            "举证声誉损害是关键"
+          ],
+          "next_steps": "汇总时对照舆情时间线评估举证难度"
+        },
+        "durationMs": 2100,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "reasoning",
+            "text": "先核对代言合同解约与连带责任条款…"
+          },
+          {
+            "kind": "content",
+            "text": "【法律】合同含道德条款，解约需举证重大声誉损害；监管口径偏谨慎，仓促解约亦有违约风险。"
+          }
+        ]
+      },
+      {
+        "id": "lens_1",
+        "agentId": "lens_1",
+        "task": "评估联名营收贡献、库存与渠道契约成本",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "品牌商业透镜：短期财务代价高",
+        "debrief": {
+          "summary": "继续联名保营收，终止则短期财务冲击大",
+          "key_points": [
+            "联名约占 18% 季度营收",
+            "渠道最低采购约束"
+          ]
+        },
+        "durationMs": 2400,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "【品牌商业】联名贡献约 18% 季度营收，渠道有最低采购约束；库存与退货成本估算约两千万量级。"
+          }
+        ]
+      },
+      {
+        "id": "lens_2",
+        "agentId": "lens_2",
+        "task": "盘点舆论热度、声量拐点与危机公关窗口",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "舆情公关透镜：沉默成本高于表态成本",
+        "debrief": {
+          "summary": "负面声量持续攀升，沉默会被解读为纵容",
+          "key_points": [
+            "72h 声量翻倍",
+            "危机窗口约一周"
+          ]
+        },
+        "durationMs": 1900,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "【舆情公关】负面声量 72h 内翻倍，品牌官号评论区失控；危机窗口约 5–7 天，沉默会被解读为纵容。"
+          }
+        ]
+      },
+      {
+        "id": "lens_3",
+        "agentId": "lens_3",
+        "task": "分析代言人象征意义与圈层价值冲突",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "文化社会透镜：价值冲突难靠取证收敛",
+        "debrief": {
+          "summary": "圈层撕裂对应价值对立，继续取证难以收敛",
+          "key_points": [
+            "年轻用户要求切割",
+            "铁粉要求澄清"
+          ]
+        },
+        "durationMs": 2200,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "reasoning",
+            "text": "代言人象征意义与品牌调性是否仍兼容…"
+          },
+          {
+            "kind": "content",
+            "text": "【文化社会】圈层撕裂明显，年轻用户要求切割，铁粉要求澄清；价值冲突难靠更多事实消解，更接近立场对抗。"
+          }
+        ]
+      },
+      {
+        "id": "synthesizer",
+        "agentId": "synthesizer",
+        "task": "交叉验证综述（共识/冲突/分歧；必要时附建议开辩命题卡）· 某消费品牌是否应在争议代言人事件后继续联名",
+        "status": "completed",
+        "dependsOn": [
+          "lens_0",
+          "lens_1",
+          "lens_2",
+          "lens_3"
+        ],
+        "outputSummary": "交叉验证完成；核心争议需开辩检验",
+        "debrief": {
+          "summary": "四路交叉后，是否立即终止联名是必须对抗检验的核心争议",
+          "key_points": [
+            "共识：一周内需清晰立场",
+            "冲突：法律举证 vs 舆情窗口 vs 商业代价",
+            "分歧：立即终止 vs 冷静观望"
+          ],
+          "assumptions": "争议事实以公开报道与合同摘要为准，未做内部审计",
+          "next_steps": "若用户同意，建议就命题开一场正反辩论",
+          "motion_card": {
+            "motion": "品牌是否应立即终止与该代言人的联名合作",
+            "sides": [
+              {
+                "key": "terminate",
+                "name": "立即终止方",
+                "stance": "应立刻切割止损"
+              },
+              {
+                "key": "hold",
+                "name": "冷静观望方",
+                "stance": "证据未定不宜仓促解约"
+              }
+            ],
+            "fact_pointers": [
+              "#r1",
+              "#r3",
+              "notes/endorsement.md"
+            ],
+            "rationale": "法律风险与品牌声誉的取舍无法靠继续取证收敛，必须对抗检验价值判断。",
+            "form": "debate"
+          }
+        },
+        "durationMs": 2800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-pro",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "reasoning",
+            "text": "四路已齐：标清共识/冲突，判断是否必须对抗开辩…"
+          },
+          {
+            "kind": "content",
+            "text": "### 交叉验证\n**共识**：事件已实质伤害品牌声誉，需在一周内给出清晰立场。\n**冲突**：法律侧强调举证与违约风险；舆情侧强调沉默即纵容；商业侧强调短期财务代价。\n**分歧**：是否「立即终止联名」是价值判断，继续调研无法收敛。\n"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 5,
+      "total": 5
+    },
+    "interactions": [
+      {
+        "kind": "team_preview",
+        "id": "tp_mlr1",
+        "status": "resolved",
+        "workerIds": [
+          "lens_0",
+          "lens_1",
+          "lens_2",
+          "lens_3",
+          "synthesizer"
+        ]
+      }
+    ],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

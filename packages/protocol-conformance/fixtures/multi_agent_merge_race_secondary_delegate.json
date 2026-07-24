@@ -1,0 +1,396 @@
+{
+  "name": "multi_agent_merge_race_secondary_delegate",
+  "description": "批次4·merge：同回合二次 delegate 同 execution_id 生长合并",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "先调研。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "研究员"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec-merge",
+        "plan_type": "multi_agent",
+        "task_summary": "调研",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "研究员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "调研",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "团队已启动"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "调研完成",
+        "duration_ms": 500,
+        "role": "member",
+        "model": "test",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.506Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": " 再追加校对。"
+      },
+      "timestamp": "2026-01-01T00:00:00.507Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc2",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "校对员"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.508Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec-merge",
+        "plan_type": "multi_agent",
+        "task_summary": "追加校对",
+        "agents": [
+          {
+            "id": "w2",
+            "role": "校对员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "校对",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.509Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc2",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "已追加校对员"
+      },
+      "timestamp": "2026-01-01T00:00:00.510Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.511Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "output_summary": "校对完成",
+        "duration_ms": 300,
+        "role": "member",
+        "model": "test",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.811Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "都完成了。"
+      },
+      "timestamp": "2026-01-01T00:00:00.812Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 2000,
+          "output_tokens": 150,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.813Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "先调研。 再追加校对。都完成了。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "先调研。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec-merge"
+      },
+      {
+        "kind": "content",
+        "text": " 再追加校对。都完成了。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "研究员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "校对员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "调研",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "调研完成",
+        "debrief": null,
+        "durationMs": 500,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "test",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "校对",
+        "status": "completed",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": "校对完成",
+        "debrief": null,
+        "durationMs": 300,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "test",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 2,
+      "total": 2
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

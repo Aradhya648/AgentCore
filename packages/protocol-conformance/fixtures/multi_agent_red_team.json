@@ -1,0 +1,1634 @@
+{
+  "name": "multi_agent_red_team",
+  "description": "多 Agent：红队三拍 + finding 台账 + 门决（form=red_team）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我发起一场红队审查来压测这个方案。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "红队审查：压测「自建鉴权服务」方案",
+        "agents": [
+          {
+            "id": "redteam_mod1",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "redteam_mod1",
+            "agent_id": "redteam_mod1",
+            "task": "主持红队审查：压测「自建鉴权服务」方案",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "redteam_mod1",
+        "agent_id": "redteam_mod1",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "redteam_mod1",
+        "round_no": 1,
+        "focus": "凭证存储与会话固定的攻击面",
+        "cross_exam_enabled": false,
+        "opening": "红队开场：先压测凭证存储与会话固定。",
+        "form": "red_team"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_red1",
+            "role": "安全红队",
+            "thinking": true
+          },
+          {
+            "id": "d_red2",
+            "role": "合规红队",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "redteam_mod1_r1_red1",
+            "agent_id": "d_red1",
+            "task": "挖「自建鉴权服务」方案的安全风险",
+            "depends_on": [],
+            "parent_run_id": "redteam_mod1",
+            "group": "debate:red_team",
+            "round": 1
+          },
+          {
+            "id": "redteam_mod1_r1_red2",
+            "agent_id": "d_red2",
+            "task": "审「自建鉴权服务」方案的合规缺口",
+            "depends_on": [],
+            "parent_run_id": "redteam_mod1",
+            "group": "debate:red_team",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1",
+        "agent_id": "d_red1",
+        "parent_run_id": "redteam_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1",
+        "agent_id": "d_red1",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·attack",
+            "body": "挖安全 finding",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "attack",
+            "heading": "attack",
+            "body": "攻击波",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1",
+        "agent_id": "d_red1",
+        "delta": "- [critical] 指向：刷新令牌轮换 — 泄漏即长期可用"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1",
+        "agent_id": "d_red1",
+        "output_summary": "安全红队攻击完成",
+        "duration_ms": 860,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.867Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2",
+        "agent_id": "d_red2",
+        "parent_run_id": "redteam_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.868Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2",
+        "agent_id": "d_red2",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·attack",
+            "body": "挖合规 finding",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "attack",
+            "heading": "attack",
+            "body": "攻击波",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.869Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2",
+        "agent_id": "d_red2",
+        "delta": "- [major] 指向：审计日志留存 — 过不了等保"
+      },
+      "timestamp": "2026-01-01T00:00:00.870Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2",
+        "agent_id": "d_red2",
+        "output_summary": "合规红队攻击完成",
+        "duration_ms": 780,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.648Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_subject",
+            "role": "方案方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "redteam_mod1_r1_subject_defense",
+            "agent_id": "d_subject",
+            "task": "逐条处置本轮 finding：接受/缓解/反驳/挂起",
+            "depends_on": [],
+            "parent_run_id": "redteam_mod1",
+            "group": "debate:red_team",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.649Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "redteam_mod1_r1_subject_defense",
+        "agent_id": "d_subject",
+        "parent_run_id": "redteam_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.650Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "redteam_mod1_r1_subject_defense",
+        "agent_id": "d_subject",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·defense",
+            "body": "逐条处置 finding",
+            "chars": 12,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "defense",
+            "heading": "defense",
+            "body": "回应拍",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.651Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "redteam_mod1_r1_subject_defense",
+        "agent_id": "d_subject",
+        "delta": "r1-f1 缓解：引入轮换；r1-f2 接受：补审计。"
+      },
+      "timestamp": "2026-01-01T00:00:01.652Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "redteam_mod1_r1_subject_defense",
+        "agent_id": "d_subject",
+        "output_summary": "方案方回应完成",
+        "duration_ms": 820,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.470Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1_rebuttal",
+        "agent_id": "redteam_mod1_r1_red1_rebuttal",
+        "parent_run_id": "redteam_mod1",
+        "kind": "agent",
+        "continues_run_id": "redteam_mod1_r1_red1",
+        "group": "debate:red_team",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:02.471Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1_rebuttal",
+        "agent_id": "redteam_mod1_r1_red1_rebuttal",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·rebuttal",
+            "body": "复核处置",
+            "chars": 4,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "rebuttal",
+            "heading": "rebuttal",
+            "body": "复攻拍",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:02.472Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1_rebuttal",
+        "agent_id": "redteam_mod1_r1_red1_rebuttal",
+        "delta": "r1-f1 escalated：轮换方案仍放大惊群。"
+      },
+      "timestamp": "2026-01-01T00:00:02.473Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red1_rebuttal",
+        "agent_id": "redteam_mod1_r1_red1_rebuttal",
+        "output_summary": "安全红队复攻完成",
+        "duration_ms": 640,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.111Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2_rebuttal",
+        "agent_id": "redteam_mod1_r1_red2_rebuttal",
+        "parent_run_id": "redteam_mod1",
+        "kind": "agent",
+        "continues_run_id": "redteam_mod1_r1_red2",
+        "group": "debate:red_team",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:03.112Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2_rebuttal",
+        "agent_id": "redteam_mod1_r1_red2_rebuttal",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·rebuttal",
+            "body": "复核处置",
+            "chars": 4,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "rebuttal",
+            "heading": "rebuttal",
+            "body": "复攻拍",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:03.113Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2_rebuttal",
+        "agent_id": "redteam_mod1_r1_red2_rebuttal",
+        "delta": "r1-f2 closed：审计补强可接受。"
+      },
+      "timestamp": "2026-01-01T00:00:03.114Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "redteam_mod1_r1_red2_rebuttal",
+        "agent_id": "redteam_mod1_r1_red2_rebuttal",
+        "output_summary": "合规红队复攻完成",
+        "duration_ms": 520,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.632Z"
+    },
+    {
+      "type": "debate_round",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "redteam_mod1",
+        "round_no": 1,
+        "focus": "凭证存储与会话固定的攻击面",
+        "summary": "红队挖出令牌与审计两条刺；方案方逐条处置；复攻仍 escalate 令牌轮换。",
+        "verdict": {
+          "real_clash": true,
+          "new_arguments": true,
+          "converged": true,
+          "stop_reason": "red_team_exhausted",
+          "rationale": "critical/major 已有下场；令牌项 escalate 进加固清单。"
+        },
+        "sides": [
+          {
+            "key": "red1",
+            "name": "安全红队",
+            "run_id": "redteam_mod1_r1_red1",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "attack"
+          },
+          {
+            "key": "red2",
+            "name": "合规红队",
+            "run_id": "redteam_mod1_r1_red2",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "attack"
+          },
+          {
+            "key": "subject",
+            "name": "方案方",
+            "run_id": "redteam_mod1_r1_subject_defense",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "defense"
+          },
+          {
+            "key": "red1",
+            "name": "安全红队",
+            "run_id": "redteam_mod1_r1_red1_rebuttal",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "rebuttal"
+          },
+          {
+            "key": "red2",
+            "name": "合规红队",
+            "run_id": "redteam_mod1_r1_red2_rebuttal",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "rebuttal"
+          }
+        ],
+        "clashes": [],
+        "user_interjections": [],
+        "cross_exam": [],
+        "scores": {},
+        "findings": [
+          {
+            "id": "r1-f1",
+            "severity": "critical",
+            "target": "刷新令牌轮换",
+            "attacker_key": "red1",
+            "status": "escalated",
+            "disposition": "mitigate",
+            "attack_run_id": "redteam_mod1_r1_red1",
+            "response_run_id": "redteam_mod1_r1_subject_defense",
+            "rebuttal_run_id": "redteam_mod1_r1_red1_rebuttal",
+            "merged_from": []
+          },
+          {
+            "id": "r1-f2",
+            "severity": "major",
+            "target": "审计日志留存",
+            "attacker_key": "red2",
+            "status": "closed",
+            "disposition": "accept",
+            "attack_run_id": "redteam_mod1_r1_red2",
+            "response_run_id": "redteam_mod1_r1_subject_defense",
+            "rebuttal_run_id": "redteam_mod1_r1_red2_rebuttal",
+            "merged_from": []
+          }
+        ],
+        "thread_turns": []
+      },
+      "timestamp": "2026-01-01T00:00:03.633Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "redteam_mod1",
+        "agent_id": "redteam_mod1",
+        "output_summary": "自建鉴权的攻击面是否可控",
+        "duration_ms": 2100,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.634Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "redteam_mod1",
+        "form": "red_team",
+        "motion": "压测「自建鉴权服务」方案的稳健性",
+        "stop_reason": "red_team_exhausted",
+        "narrative_first": false,
+        "opening": "红队开场：先压测凭证存储与会话固定。",
+        "sides": [
+          {
+            "key": "subject",
+            "name": "方案方",
+            "stance": "自建鉴权可控且省授权成本",
+            "is_subject": true,
+            "model": ""
+          },
+          {
+            "key": "red1",
+            "name": "安全红队",
+            "stance": "自建鉴权的攻击面与凭证安全",
+            "is_subject": false,
+            "model": ""
+          },
+          {
+            "key": "red2",
+            "name": "合规红队",
+            "stance": "自建鉴权的合规与审计缺口",
+            "is_subject": false,
+            "model": ""
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "凭证存储与会话固定的攻击面",
+            "summary": "红队挖出令牌与审计两条刺；方案方逐条处置；复攻仍 escalate 令牌轮换。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": true,
+              "converged": true,
+              "stop_reason": "red_team_exhausted",
+              "rationale": "critical/major 已有下场；令牌项 escalate 进加固清单。"
+            },
+            "sides": [
+              {
+                "key": "red1",
+                "name": "安全红队",
+                "run_id": "redteam_mod1_r1_red1",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "attack"
+              },
+              {
+                "key": "red2",
+                "name": "合规红队",
+                "run_id": "redteam_mod1_r1_red2",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "attack"
+              },
+              {
+                "key": "subject",
+                "name": "方案方",
+                "run_id": "redteam_mod1_r1_subject_defense",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "defense"
+              },
+              {
+                "key": "red1",
+                "name": "安全红队",
+                "run_id": "redteam_mod1_r1_red1_rebuttal",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "rebuttal"
+              },
+              {
+                "key": "red2",
+                "name": "合规红队",
+                "run_id": "redteam_mod1_r1_red2_rebuttal",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "rebuttal"
+              }
+            ],
+            "clashes": [],
+            "user_interjections": [],
+            "cross_exam": [],
+            "scores": {},
+            "findings": [
+              {
+                "id": "r1-f1",
+                "severity": "critical",
+                "target": "刷新令牌轮换",
+                "attacker_key": "red1",
+                "status": "escalated",
+                "disposition": "mitigate",
+                "attack_run_id": "redteam_mod1_r1_red1",
+                "response_run_id": "redteam_mod1_r1_subject_defense",
+                "rebuttal_run_id": "redteam_mod1_r1_red1_rebuttal",
+                "merged_from": []
+              },
+              {
+                "id": "r1-f2",
+                "severity": "major",
+                "target": "审计日志留存",
+                "attacker_key": "red2",
+                "status": "closed",
+                "disposition": "accept",
+                "attack_run_id": "redteam_mod1_r1_red2",
+                "response_run_id": "redteam_mod1_r1_subject_defense",
+                "rebuttal_run_id": "redteam_mod1_r1_red2_rebuttal",
+                "merged_from": []
+              }
+            ],
+            "thread_turns": []
+          }
+        ],
+        "closings": [],
+        "subtopics": [],
+        "brief": {
+          "crux": "自建鉴权的攻击面是否可控、加固成本是否低于外采",
+          "strongest_points": {
+            "red1": "刷新令牌缺轮换与设备绑定，泄漏即长期可用。",
+            "red2": "无审计日志留存与访问追溯，过不了等保。",
+            "subject": "可引入短时访问令牌 + 轮换刷新令牌。"
+          },
+          "risk_severities": {},
+          "findings": [
+            {
+              "id": "r1-f1",
+              "severity": "critical",
+              "target": "刷新令牌轮换",
+              "attacker_key": "red1",
+              "status": "escalated",
+              "disposition": "mitigate",
+              "attack_run_id": "redteam_mod1_r1_red1",
+              "response_run_id": "redteam_mod1_r1_subject_defense",
+              "rebuttal_run_id": "redteam_mod1_r1_red1_rebuttal",
+              "merged_from": []
+            },
+            {
+              "id": "r1-f2",
+              "severity": "major",
+              "target": "审计日志留存",
+              "attacker_key": "red2",
+              "status": "closed",
+              "disposition": "accept",
+              "attack_run_id": "redteam_mod1_r1_red2",
+              "response_run_id": "redteam_mod1_r1_subject_defense",
+              "rebuttal_run_id": "redteam_mod1_r1_red2_rebuttal",
+              "merged_from": []
+            }
+          ],
+          "gate": "needs_major_rework",
+          "must_fix": [
+            "r1-f1"
+          ],
+          "consensus_map": [],
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "把鉴权握在自己手里的掌控感 vs 外采省心？"
+            },
+            {
+              "kind": "fact",
+              "text": "自建 vs 外采的真实合规改造工作量"
+            }
+          ],
+          "decisive": "finding r1-f1（令牌轮换）定了门决",
+          "leaning": "需重大修改：先闭环 critical 再上线",
+          "confidence": "medium",
+          "recommendation": "上线前必须完成 r1-f1 加固并复测。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.635Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 3200,
+          "output_tokens": 560,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:03.636Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我发起一场红队审查来压测这个方案。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我发起一场红队审查来压测这个方案。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "redteam_mod1",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_red1",
+        "role": "安全红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "- [critical] 指向：刷新令牌轮换 — 泄漏即长期可用",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_red2",
+        "role": "合规红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "- [major] 指向：审计日志留存 — 过不了等保",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_subject",
+        "role": "方案方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "r1-f1 缓解：引入轮换；r1-f2 接受：补审计。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "redteam_mod1_r1_red1_rebuttal",
+        "role": "安全红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "r1-f1 escalated：轮换方案仍放大惊群。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "redteam_mod1_r1_red2_rebuttal",
+        "role": "合规红队",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "r1-f2 closed：审计补强可接受。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "redteam_mod1",
+        "agentId": "redteam_mod1",
+        "task": "主持红队审查：压测「自建鉴权服务」方案",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "自建鉴权的攻击面是否可控",
+        "debrief": null,
+        "durationMs": 2100,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "redteam_mod1_r1_red1",
+        "agentId": "d_red1",
+        "task": "挖「自建鉴权服务」方案的安全风险",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "安全红队攻击完成",
+        "debrief": null,
+        "durationMs": 860,
+        "error": null,
+        "parentRunId": "redteam_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·attack",
+            "body": "挖安全 finding",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "attack",
+            "heading": "attack",
+            "body": "攻击波",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "- [critical] 指向：刷新令牌轮换 — 泄漏即长期可用"
+          }
+        ]
+      },
+      {
+        "id": "redteam_mod1_r1_red2",
+        "agentId": "d_red2",
+        "task": "审「自建鉴权服务」方案的合规缺口",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "合规红队攻击完成",
+        "debrief": null,
+        "durationMs": 780,
+        "error": null,
+        "parentRunId": "redteam_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·attack",
+            "body": "挖合规 finding",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "attack",
+            "heading": "attack",
+            "body": "攻击波",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "- [major] 指向：审计日志留存 — 过不了等保"
+          }
+        ]
+      },
+      {
+        "id": "redteam_mod1_r1_subject_defense",
+        "agentId": "d_subject",
+        "task": "逐条处置本轮 finding：接受/缓解/反驳/挂起",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "方案方回应完成",
+        "debrief": null,
+        "durationMs": 820,
+        "error": null,
+        "parentRunId": "redteam_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·defense",
+            "body": "逐条处置 finding",
+            "chars": 12,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "defense",
+            "heading": "defense",
+            "body": "回应拍",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "r1-f1 缓解：引入轮换；r1-f2 接受：补审计。"
+          }
+        ]
+      },
+      {
+        "id": "redteam_mod1_r1_red1_rebuttal",
+        "agentId": "redteam_mod1_r1_red1_rebuttal",
+        "task": "挖「自建鉴权服务」方案的安全风险",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "安全红队复攻完成",
+        "debrief": null,
+        "durationMs": 640,
+        "error": null,
+        "parentRunId": "redteam_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": "redteam_mod1_r1_red1",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·rebuttal",
+            "body": "复核处置",
+            "chars": 4,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "rebuttal",
+            "heading": "rebuttal",
+            "body": "复攻拍",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "r1-f1 escalated：轮换方案仍放大惊群。"
+          }
+        ]
+      },
+      {
+        "id": "redteam_mod1_r1_red2_rebuttal",
+        "agentId": "redteam_mod1_r1_red2_rebuttal",
+        "task": "审「自建鉴权服务」方案的合规缺口",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "合规红队复攻完成",
+        "debrief": null,
+        "durationMs": 520,
+        "error": null,
+        "parentRunId": "redteam_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:red_team",
+        "round": 1,
+        "continuesRunId": "redteam_mod1_r1_red2",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 1 轮·rebuttal",
+            "body": "复核处置",
+            "chars": 4,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "rebuttal",
+            "heading": "rebuttal",
+            "body": "复攻拍",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "r1-f2 closed：审计补强可接受。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 6,
+      "total": 6
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec1",
+      "moderator_run_id": "redteam_mod1",
+      "form": "red_team",
+      "motion": "压测「自建鉴权服务」方案的稳健性",
+      "stop_reason": "red_team_exhausted",
+      "narrative_first": false,
+      "opening": "红队开场：先压测凭证存储与会话固定。",
+      "sides": [
+        {
+          "key": "subject",
+          "name": "方案方",
+          "stance": "自建鉴权可控且省授权成本",
+          "is_subject": true,
+          "model": ""
+        },
+        {
+          "key": "red1",
+          "name": "安全红队",
+          "stance": "自建鉴权的攻击面与凭证安全",
+          "is_subject": false,
+          "model": ""
+        },
+        {
+          "key": "red2",
+          "name": "合规红队",
+          "stance": "自建鉴权的合规与审计缺口",
+          "is_subject": false,
+          "model": ""
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "凭证存储与会话固定的攻击面",
+          "summary": "红队挖出令牌与审计两条刺；方案方逐条处置；复攻仍 escalate 令牌轮换。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": true,
+            "converged": true,
+            "stop_reason": "red_team_exhausted",
+            "rationale": "critical/major 已有下场；令牌项 escalate 进加固清单。"
+          },
+          "sides": [
+            {
+              "key": "red1",
+              "name": "安全红队",
+              "run_id": "redteam_mod1_r1_red1",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "attack"
+            },
+            {
+              "key": "red2",
+              "name": "合规红队",
+              "run_id": "redteam_mod1_r1_red2",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "attack"
+            },
+            {
+              "key": "subject",
+              "name": "方案方",
+              "run_id": "redteam_mod1_r1_subject_defense",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "defense"
+            },
+            {
+              "key": "red1",
+              "name": "安全红队",
+              "run_id": "redteam_mod1_r1_red1_rebuttal",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "rebuttal"
+            },
+            {
+              "key": "red2",
+              "name": "合规红队",
+              "run_id": "redteam_mod1_r1_red2_rebuttal",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "rebuttal"
+            }
+          ],
+          "clashes": [],
+          "user_interjections": [],
+          "cross_exam": [],
+          "scores": {},
+          "findings": [
+            {
+              "id": "r1-f1",
+              "severity": "critical",
+              "target": "刷新令牌轮换",
+              "attacker_key": "red1",
+              "status": "escalated",
+              "disposition": "mitigate",
+              "attack_run_id": "redteam_mod1_r1_red1",
+              "response_run_id": "redteam_mod1_r1_subject_defense",
+              "rebuttal_run_id": "redteam_mod1_r1_red1_rebuttal",
+              "merged_from": []
+            },
+            {
+              "id": "r1-f2",
+              "severity": "major",
+              "target": "审计日志留存",
+              "attacker_key": "red2",
+              "status": "closed",
+              "disposition": "accept",
+              "attack_run_id": "redteam_mod1_r1_red2",
+              "response_run_id": "redteam_mod1_r1_subject_defense",
+              "rebuttal_run_id": "redteam_mod1_r1_red2_rebuttal",
+              "merged_from": []
+            }
+          ],
+          "thread_turns": []
+        }
+      ],
+      "closings": [],
+      "subtopics": [],
+      "brief": {
+        "crux": "自建鉴权的攻击面是否可控、加固成本是否低于外采",
+        "strongest_points": {
+          "red1": "刷新令牌缺轮换与设备绑定，泄漏即长期可用。",
+          "red2": "无审计日志留存与访问追溯，过不了等保。",
+          "subject": "可引入短时访问令牌 + 轮换刷新令牌。"
+        },
+        "risk_severities": {},
+        "findings": [
+          {
+            "id": "r1-f1",
+            "severity": "critical",
+            "target": "刷新令牌轮换",
+            "attacker_key": "red1",
+            "status": "escalated",
+            "disposition": "mitigate",
+            "attack_run_id": "redteam_mod1_r1_red1",
+            "response_run_id": "redteam_mod1_r1_subject_defense",
+            "rebuttal_run_id": "redteam_mod1_r1_red1_rebuttal",
+            "merged_from": []
+          },
+          {
+            "id": "r1-f2",
+            "severity": "major",
+            "target": "审计日志留存",
+            "attacker_key": "red2",
+            "status": "closed",
+            "disposition": "accept",
+            "attack_run_id": "redteam_mod1_r1_red2",
+            "response_run_id": "redteam_mod1_r1_subject_defense",
+            "rebuttal_run_id": "redteam_mod1_r1_red2_rebuttal",
+            "merged_from": []
+          }
+        ],
+        "gate": "needs_major_rework",
+        "must_fix": [
+          "r1-f1"
+        ],
+        "consensus_map": [],
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "把鉴权握在自己手里的掌控感 vs 外采省心？"
+          },
+          {
+            "kind": "fact",
+            "text": "自建 vs 外采的真实合规改造工作量"
+          }
+        ],
+        "decisive": "finding r1-f1（令牌轮换）定了门决",
+        "leaning": "需重大修改：先闭环 critical 再上线",
+        "confidence": "medium",
+        "recommendation": "上线前必须完成 r1-f1 加固并复测。"
+      }
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "凭证存储与会话固定的攻击面",
+        "summary": "红队挖出令牌与审计两条刺；方案方逐条处置；复攻仍 escalate 令牌轮换。",
+        "verdict": {
+          "real_clash": true,
+          "new_arguments": true,
+          "converged": true,
+          "stop_reason": "red_team_exhausted",
+          "rationale": "critical/major 已有下场；令牌项 escalate 进加固清单。"
+        },
+        "sides": [
+          {
+            "key": "red1",
+            "name": "安全红队",
+            "run_id": "redteam_mod1_r1_red1",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "attack"
+          },
+          {
+            "key": "red2",
+            "name": "合规红队",
+            "run_id": "redteam_mod1_r1_red2",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "attack"
+          },
+          {
+            "key": "subject",
+            "name": "方案方",
+            "run_id": "redteam_mod1_r1_subject_defense",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "defense"
+          },
+          {
+            "key": "red1",
+            "name": "安全红队",
+            "run_id": "redteam_mod1_r1_red1_rebuttal",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "rebuttal"
+          },
+          {
+            "key": "red2",
+            "name": "合规红队",
+            "run_id": "redteam_mod1_r1_red2_rebuttal",
+            "ok": true,
+            "absent": false,
+            "arguments": [],
+            "beat": "rebuttal"
+          }
+        ],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [
+          {
+            "id": "r1-f1",
+            "severity": "critical",
+            "target": "刷新令牌轮换",
+            "attacker_key": "red1",
+            "status": "escalated",
+            "disposition": "mitigate",
+            "attack_run_id": "redteam_mod1_r1_red1",
+            "response_run_id": "redteam_mod1_r1_subject_defense",
+            "rebuttal_run_id": "redteam_mod1_r1_red1_rebuttal",
+            "merged_from": []
+          },
+          {
+            "id": "r1-f2",
+            "severity": "major",
+            "target": "审计日志留存",
+            "attacker_key": "red2",
+            "status": "closed",
+            "disposition": "accept",
+            "attack_run_id": "redteam_mod1_r1_red2",
+            "response_run_id": "redteam_mod1_r1_subject_defense",
+            "rebuttal_run_id": "redteam_mod1_r1_red2_rebuttal",
+            "merged_from": []
+          }
+        ],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": "红队开场：先压测凭证存储与会话固定。",
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

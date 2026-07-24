@@ -1,0 +1,520 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildGraphScene · golden > continuation chain → top-level continuation edges, no sub-team box 1`] = `
+{
+  "acts": [
+    {
+      "actId": "act-1",
+      "authorizedBy": null,
+      "kind": null,
+      "title": null,
+      "unitIds": [
+        "w1",
+        "w1_v2",
+        "w1_v3",
+      ],
+    },
+  ],
+  "beatFoldsByHost": {},
+  "debateStages": [],
+  "edges": [
+    "continuation:w1->w1_v2",
+    "continuation:w1_v2->w1_v3",
+    "dep:__input__->w1",
+    "dep:__input__->w1_v2",
+    "dep:__input__->w1_v3",
+    "dep:w1->captain",
+    "dep:w1_v2->captain",
+    "dep:w1_v3->captain",
+  ],
+  "fold": {
+    "debateUnits": [],
+    "descendants": {},
+    "folded": [],
+    "unitOf": {
+      "w1": "w1",
+      "w1_v2": "w1_v2",
+      "w1_v3": "w1_v3",
+    },
+  },
+  "lanes": [],
+  "nodeGroup": {},
+  "subTeams": [],
+  "units": [
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "w1",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "w1_v2",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "w1_v3",
+      "memberIds": [],
+    },
+  ],
+}
+`;
+
+exports[`buildGraphScene · golden > debate multibeat → beat folds into round hosts, closing stays column 1`] = `
+{
+  "acts": [
+    {
+      "actId": "act-1",
+      "authorizedBy": null,
+      "kind": null,
+      "title": null,
+      "unitIds": [
+        "mod",
+      ],
+    },
+  ],
+  "beatFoldsByHost": {
+    "mod_r1_con": [
+      "mod_r1_cx_con",
+    ],
+    "mod_r1_pro": [
+      "mod_r1_cx_pro",
+    ],
+    "mod_r2_con": [
+      "mod_r2_cx_con",
+    ],
+    "mod_r2_pro": [
+      "mod_r2_cx_pro",
+    ],
+  },
+  "debateStages": [
+    {
+      "id": "debate-stage-1",
+      "label": "第 1 轮",
+      "memberRunIds": [
+        "mod_r1_pro",
+        "mod_r1_con",
+      ],
+    },
+    {
+      "id": "debate-stage-2",
+      "label": "第 2 轮",
+      "memberRunIds": [
+        "mod_r2_pro",
+        "mod_r2_con",
+      ],
+    },
+    {
+      "id": "debate-stage-9007199254740991",
+      "label": "结辩",
+      "memberRunIds": [
+        "mod_closing_pro",
+        "mod_closing_con",
+      ],
+    },
+  ],
+  "edges": [
+    "continuation:mod_r1_con->mod_r2_con",
+    "continuation:mod_r1_pro->mod_r2_pro",
+    "continuation:mod_r2_con->mod_closing_con",
+    "continuation:mod_r2_pro->mod_closing_pro",
+    "delegate:mod->mod_r1_con",
+    "delegate:mod->mod_r1_pro",
+    "dep:__input__->mod",
+    "dep:mod->captain",
+  ],
+  "fold": {
+    "debateUnits": [
+      "mod",
+    ],
+    "descendants": {
+      "mod": [
+        "mod_r1_pro",
+        "mod_r1_cx_pro",
+        "mod_r2_pro",
+        "mod_r2_cx_pro",
+        "mod_closing_pro",
+        "mod_r1_con",
+        "mod_r1_cx_con",
+        "mod_r2_con",
+        "mod_r2_cx_con",
+        "mod_closing_con",
+      ],
+    },
+    "folded": [
+      "mod_closing_con",
+      "mod_closing_pro",
+      "mod_r1_con",
+      "mod_r1_cx_con",
+      "mod_r1_cx_pro",
+      "mod_r1_pro",
+      "mod_r2_con",
+      "mod_r2_cx_con",
+      "mod_r2_cx_pro",
+      "mod_r2_pro",
+    ],
+    "unitOf": {
+      "mod": "mod",
+      "mod_closing_con": "mod",
+      "mod_closing_pro": "mod",
+      "mod_r1_con": "mod",
+      "mod_r1_cx_con": "mod",
+      "mod_r1_cx_pro": "mod",
+      "mod_r1_pro": "mod",
+      "mod_r2_con": "mod",
+      "mod_r2_cx_con": "mod",
+      "mod_r2_cx_pro": "mod",
+      "mod_r2_pro": "mod",
+    },
+  },
+  "lanes": [],
+  "nodeGroup": {
+    "mod": "__group__mod",
+    "mod_closing_con": "__group__mod",
+    "mod_closing_pro": "__group__mod",
+    "mod_r1_con": "__group__mod",
+    "mod_r1_pro": "__group__mod",
+    "mod_r2_con": "__group__mod",
+    "mod_r2_pro": "__group__mod",
+  },
+  "subTeams": [
+    {
+      "groupId": "__group__mod",
+      "memberIds": [
+        "mod_r1_pro",
+        "mod_r2_pro",
+        "mod_closing_pro",
+        "mod_r1_con",
+        "mod_r2_con",
+        "mod_closing_con",
+      ],
+      "parentId": "mod",
+    },
+  ],
+  "units": [
+    {
+      "actId": "act-1",
+      "debate": true,
+      "groupId": "__group__mod",
+      "id": "mod",
+      "memberIds": [
+        "mod_r1_pro",
+        "mod_r2_pro",
+        "mod_closing_pro",
+        "mod_r1_con",
+        "mod_r2_con",
+        "mod_closing_con",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`buildGraphScene · golden > multi-act (≥2) → act bands + acts→units→members hierarchy 1`] = `
+{
+  "acts": [
+    {
+      "actId": "act-1",
+      "authorizedBy": null,
+      "kind": "multi_agent",
+      "title": "多视角调研",
+      "unitIds": [
+        "lens_0",
+        "synthesizer",
+      ],
+    },
+    {
+      "actId": "act-2",
+      "authorizedBy": "stage_card",
+      "kind": "debate",
+      "title": "辩论对抗",
+      "unitIds": [
+        "mod",
+      ],
+    },
+  ],
+  "beatFoldsByHost": {},
+  "debateStages": [
+    {
+      "id": "debate-stage-1",
+      "label": "第 1 轮",
+      "memberRunIds": [
+        "mod_r1_pro",
+        "mod_r1_con",
+      ],
+    },
+  ],
+  "edges": [
+    "delegate:mod->mod_r1_con",
+    "delegate:mod->mod_r1_pro",
+    "dep:__input__->lens_0",
+    "dep:lens_0->synthesizer",
+    "dep:mod->captain",
+    "dep:synthesizer->captain",
+    "dep:synthesizer->mod",
+  ],
+  "fold": {
+    "debateUnits": [
+      "mod",
+    ],
+    "descendants": {
+      "mod": [
+        "mod_r1_pro",
+        "mod_r1_con",
+      ],
+    },
+    "folded": [
+      "mod_r1_con",
+      "mod_r1_pro",
+    ],
+    "unitOf": {
+      "lens_0": "lens_0",
+      "mod": "mod",
+      "mod_r1_con": "mod",
+      "mod_r1_pro": "mod",
+      "synthesizer": "synthesizer",
+    },
+  },
+  "lanes": [
+    {
+      "id": "act-band-act-1",
+      "kind": "act",
+      "label": "多视角调研",
+      "memberRunIds": [
+        "lens_0",
+        "synthesizer",
+      ],
+    },
+    {
+      "id": "act-band-act-2",
+      "kind": "act",
+      "label": "辩论对抗 · 经推进卡授权",
+      "memberRunIds": [
+        "mod",
+        "mod_r1_pro",
+        "mod_r1_con",
+      ],
+    },
+  ],
+  "nodeGroup": {
+    "mod": "__group__mod",
+    "mod_r1_con": "__group__mod",
+    "mod_r1_pro": "__group__mod",
+  },
+  "subTeams": [
+    {
+      "groupId": "__group__mod",
+      "memberIds": [
+        "mod_r1_pro",
+        "mod_r1_con",
+      ],
+      "parentId": "mod",
+    },
+  ],
+  "units": [
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "lens_0",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "synthesizer",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-2",
+      "debate": true,
+      "groupId": "__group__mod",
+      "id": "mod",
+      "memberIds": [
+        "mod_r1_pro",
+        "mod_r1_con",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`buildGraphScene · golden > multi-delegate → two 委派 lane bands, no fold 1`] = `
+{
+  "acts": [
+    {
+      "actId": "act-1",
+      "authorizedBy": null,
+      "kind": null,
+      "title": null,
+      "unitIds": [
+        "a",
+        "b",
+        "c",
+        "d",
+      ],
+    },
+  ],
+  "beatFoldsByHost": {},
+  "debateStages": [],
+  "edges": [
+    "dep:__input__->a",
+    "dep:__input__->c",
+    "dep:a->b",
+    "dep:b->captain",
+    "dep:c->d",
+    "dep:d->captain",
+  ],
+  "fold": {
+    "debateUnits": [],
+    "descendants": {},
+    "folded": [],
+    "unitOf": {
+      "a": "a",
+      "b": "b",
+      "c": "c",
+      "d": "d",
+    },
+  },
+  "lanes": [
+    {
+      "id": "delegate-1",
+      "kind": "delegate",
+      "label": "第 1 次委派（2 节点）",
+      "memberRunIds": [
+        "a",
+        "b",
+      ],
+    },
+    {
+      "id": "delegate-2",
+      "kind": "delegate",
+      "label": "第 2 次委派（2 节点）",
+      "memberRunIds": [
+        "c",
+        "d",
+      ],
+    },
+  ],
+  "nodeGroup": {},
+  "subTeams": [],
+  "units": [
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "a",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "b",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "c",
+      "memberIds": [],
+    },
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": null,
+      "id": "d",
+      "memberIds": [],
+    },
+  ],
+}
+`;
+
+exports[`buildGraphScene · golden > nested sub-team → nested compounds + nodeGroup attribution 1`] = `
+{
+  "acts": [
+    {
+      "actId": "act-1",
+      "authorizedBy": null,
+      "kind": null,
+      "title": null,
+      "unitIds": [
+        "mpm",
+      ],
+    },
+  ],
+  "beatFoldsByHost": {},
+  "debateStages": [],
+  "edges": [
+    "delegate:lead->eng1",
+    "delegate:lead->eng2",
+    "delegate:mpm->lead",
+    "dep:__input__->mpm",
+    "dep:mpm->captain",
+  ],
+  "fold": {
+    "debateUnits": [],
+    "descendants": {
+      "mpm": [
+        "lead",
+        "eng1",
+        "eng2",
+      ],
+    },
+    "folded": [
+      "eng1",
+      "eng2",
+      "lead",
+    ],
+    "unitOf": {
+      "eng1": "mpm",
+      "eng2": "mpm",
+      "lead": "mpm",
+      "mpm": "mpm",
+    },
+  },
+  "lanes": [],
+  "nodeGroup": {
+    "eng1": "__group__lead",
+    "eng2": "__group__lead",
+    "lead": "__group__lead",
+    "mpm": "__group__mpm",
+  },
+  "subTeams": [
+    {
+      "groupId": "__group__lead",
+      "memberIds": [
+        "eng1",
+        "eng2",
+      ],
+      "parentId": "lead",
+    },
+    {
+      "groupId": "__group__mpm",
+      "memberIds": [
+        "lead",
+      ],
+      "parentId": "mpm",
+    },
+  ],
+  "units": [
+    {
+      "actId": "act-1",
+      "debate": false,
+      "groupId": "__group__mpm",
+      "id": "mpm",
+      "memberIds": [
+        "lead",
+      ],
+    },
+  ],
+}
+`;

@@ -1,0 +1,14 @@
+{
+  "id": "fc2_2_fail_to_ask_clarification",
+  "category": "tool_use",
+  "mast": "2.2",
+  "user_message": "把我们产品定价页的文案定稿并写到工作区。只有一个硬约束：定价档位的数量与价格必须与我们『尚未对外公布』的商业策略一致——这条只有我能给。缺这条关键输入时，请别擅自编一套价格糊弄过去。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "_note": "MAST 2.2 该问不问：唯一能决定交付物的关键输入只有用户能给（未公布的定价策略），正确行为是用 escalate 抛回求决策、而非编造一套价格硬交。",
+  "checks": [
+    { "name": "ToolCalled", "args": { "tool": "escalate" } },
+    { "name": "ToolArgNonEmpty", "args": { "tool": "escalate", "arg": "questions" } }
+  ]
+}

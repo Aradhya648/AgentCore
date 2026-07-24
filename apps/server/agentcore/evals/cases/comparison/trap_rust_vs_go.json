@@ -1,0 +1,13 @@
+{
+  "id": "trap_rust_vs_go",
+  "archetype": "simple",
+  "user_message": "调研一下 Rust 和 Go 哪个更适合用来写命令行工具（CLI），给个结论。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }]
+  },
+  "rubric": "伪团队陷阱：表面像可拆解的并行调研，实则单体两三次检索即可覆盖（两语言的对比维度高度耦合，需放在一起权衡）。是否给出有依据的结论（编译产物体积/启动速度/并发模型/生态与学习曲线等维度）。团队不应显著更优；若团队在此「赢」→几乎可断定是裁判 verbosity 偏好，作为裁判校准信号而非真实优势。简洁正确优先，不因更长而偏好。"
+}

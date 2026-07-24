@@ -1,0 +1,18 @@
+{
+  "id": "dependency_chain_research_write",
+  "category": "team",
+  "user_message": "分三步完成，后一步必须基于前一步的产出：(1) 调研『远程办公对团队协作的两个主要负面影响』；(2) 基于调研结论分析其共同根因；(3) 把根因写成一段给管理者看的 100 字左右改进建议。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "后端架构.md §五：依赖链任务的『后一步基于前一步』改为结果断言——advice 这条权重 2 且要求『明确建立在前述根因之上』，捕获跨阶段产物保真这一命门，而非断言走了某条轨迹。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "milestones": [
+    { "id": "impacts", "desc": "指出远程办公对团队协作的两个主要负面影响", "weight": 1 },
+    { "id": "root_cause", "desc": "分析这些负面影响的共同根因", "weight": 1 },
+    { "id": "advice", "desc": "给出约 100 字、面向管理者、且明确建立在前述根因之上的改进建议（而非另起炉灶）", "weight": 2 }
+  ]
+}

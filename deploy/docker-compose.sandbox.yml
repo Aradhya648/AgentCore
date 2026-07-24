@@ -1,0 +1,31 @@
+# 云端代码执行沙箱叠加（gVisor 灰度）— 与 server + app compose 三文件合并使用。
+#
+# 作用：给 api 容器补齐「容器内跑 runsc（rootless）」所需的运行时权限与资源余量。
+# 开关本身（GVISOR_ENABLED 与灰度护栏 GVISOR_*）放 deploy/config/production.env
+# （见 production.env.example「云端代码执行」段）。
+# deploy-server.sh / finish-server.sh 在 GVISOR_ENABLED=true 时自动叠加本文件；
+# 只开 env 不叠本文件时沙箱起不来，启动期健康探测失败**不拒启**（fail-safe）：打
+# sandbox.cloud_health_failed warning、执行类（code_execute/test_run）整类不装配、
+# 能力行如实显示未装配，不悄悄回落 subprocess。
+#
+# 手动用法（服务器）：
+#   docker compose \
+#     -f deploy/docker-compose.server.yml \
+#     -f deploy/docker-compose.app.yml \
+#     -f deploy/docker-compose.sandbox.yml \
+#     --env-file deploy/config/production.env \
+#     up -d
+#
+# 部署后人工验证清单见 部署与运维.md §云端执行灰度（gVisor）。
+# 发布前自检：python apps/server/scripts/verify_gvisor_sandbox.py [--live]
+services:
+  api:
+    # rootless runsc 在容器内需要创建 user/mount namespace 等被 Docker 默认
+    # seccomp/AppArmor profile 拦截的系统调用。宿主侧前置：内核开启非特权用户
+    # 命名空间（sysctl kernel.unprivileged_userns_clone=1，多数现代发行版默认开）。
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    # 沙箱内存记在 api 容器 cgroup 名下：基线 1G + 并发 2 × 单次 512MB 上限 + 余量。
+    # 覆盖 app compose 的 mem_limit=1024m，否则开沙箱后必然 OOM。
+    mem_limit: 3g

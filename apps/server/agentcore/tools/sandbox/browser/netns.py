@@ -1,0 +1,78 @@
+"""Per-session network isolation (Linux-only) — validated by the M0 channel PoC.
+
+Each browser sandbox gets its OWN network namespace with a veth pair to the host.
+The host end runs (is reachable by) the SSRF proxy; the sandbox end has a default
+route via the host end but the host does NOT NAT/forward, so the sandbox's ONLY
+reachable off-link destination is the proxy (D10 network-layer egress control —
+proven in the PoC: a raw socket to the public internet times out, only the proxy
+is reachable). runsc ``--network=sandbox`` then clones this netns's veth + routes
+into netstack (the OCI must reference the netns by PATH — see PoC finding #1).
+
+All calls shell out to ``ip`` and only run on Linux under a real gVisor deploy;
+they never execute in tests / on the dev host (the registry uses fakes there).
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from agentcore.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+NETNS_RUN_DIR = "/var/run/netns"
+
+
+class NetnsError(RuntimeError):
+    """A per-session netns / veth setup or teardown step failed."""
+
+
+async def _ip(*args: str, check: bool = True) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        "ip", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+    out, _ = await proc.communicate()
+    text = out.decode("utf-8", errors="replace")
+    if check and proc.returncode != 0:
+        raise NetnsError(f"ip {' '.join(args)} failed ({proc.returncode}): {text.strip()}")
+    return proc.returncode or 0, text
+
+
+class SessionNetns:
+    """Names / addresses for one session's isolated stack (slot-derived, no clashes)."""
+
+    def __init__(self, *, slot: int, subnet_base: str) -> None:
+        self.slot = slot
+        self.name = f"acbrw{slot}"
+        self.veth_host = f"acbrwh{slot}"
+        self.veth_sbx = f"acbrws{slot}"
+        self.host_ip = f"{subnet_base}.{slot}.1"
+        self.sbx_ip = f"{subnet_base}.{slot}.2"
+        self.cidr = "24"
+
+    @property
+    def netns_path(self) -> str:
+        return f"{NETNS_RUN_DIR}/{self.name}"
+
+    async def setup(self) -> None:
+        """Create the netns + veth, address both ends, default-route the sandbox."""
+        await self.teardown()  # clear any stale remnant from a crashed prior run
+        await _ip("netns", "add", self.name)
+        await _ip("link", "add", self.veth_host, "type", "veth", "peer", "name", self.veth_sbx)
+        await _ip("link", "set", self.veth_sbx, "netns", self.name)
+        await _ip("addr", "add", f"{self.host_ip}/{self.cidr}", "dev", self.veth_host)
+        await _ip("link", "set", self.veth_host, "up")
+        await _ip(
+            "-n", self.name, "addr", "add", f"{self.sbx_ip}/{self.cidr}", "dev", self.veth_sbx
+        )
+        await _ip("-n", self.name, "link", "set", self.veth_sbx, "up")
+        await _ip("-n", self.name, "link", "set", "lo", "up")
+        # Default route via the host veth end. No NAT/forward on the host ⇒ the ONLY
+        # reachable off-link address is the proxy on host_ip (egress chokepoint).
+        await _ip("-n", self.name, "route", "add", "default", "via", self.host_ip)
+        logger.info("browser.netns_setup", netns=self.name, host_ip=self.host_ip)
+
+    async def teardown(self) -> None:
+        """Best-effort removal (deleting the netns drops its veth end; then the host end)."""
+        await _ip("netns", "del", self.name, check=False)
+        await _ip("link", "del", self.veth_host, check=False)

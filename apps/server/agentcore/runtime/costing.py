@@ -1,0 +1,415 @@
+"""Per-call detail + per-run aggregate ledger shapes.
+``CallCost`` → ``cost_calls`` (authority). ``RunCost`` → ``cost_events`` (per-run
+materialized view the product surfaces read). Both carry structural ``role``
+(captain/member/…) and optional ``persona`` (调研员 / CEO / …) so persona-level
+payroll derives from the same attribution fields on every path (cloud finalize
+and sidecar-via-proxy).
+Money stays integer nano-USD throughout; pricing happens exactly once via
+:func:`agentcore.llm.pricing.calculate_cost`. This module only *reshapes*
+priced states / usages into ledger rows — it never re-prices.
+Ledger routing by ``credential_source`` (on the priced ``Cost`` / cost dict):
+platform/vendor → ``cost_total_nano`` (quota / admin); user → ``cost_estimated_nano``
+(``cost_total_nano`` stays 0 so BYOK estimates never pollute ``enforce_quota``).
+"""
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from agentcore.core.types import new_id
+from agentcore.llm.pricing import CredentialSource, calculate_cost
+from agentcore.llm.provider.protocol import TokenUsage
+from agentcore.runtime.citations import merge_citations
+from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
+
+# Structural role categories (mirror the DB CheckConstraint). A turn's run tree
+# produces captain + member; ``title`` / ``memory`` tag the off-turn background
+# LLM calls (标题生成 / 记忆整合) so their spend rolls into account/conversation
+# totals without polluting the per-message team payroll. ``arena`` is reserved.
+ROLE_CAPTAIN = "captain"
+ROLE_MEMBER = "member"
+ROLE_TITLE = "title"
+ROLE_MEMORY = "memory"
+# ``vision`` tags a board_read 读图 sub-call (AI协作白板.md §九.4): an in-turn tool-layer
+# call to a SEPARATE vision model (qwen-vl ≠ the run's DeepSeek). It is NOT a Run/Agent —
+# it gets its own priced ledger row (one model = one row, 同跨档不复价) so its spend shows
+# as its own line on the team payroll + the by-role dashboard.
+ROLE_VISION = "vision"
+PERSONA_CEO = "CEO"
+# The four money keys carried in cost_events.cost (integer nano-USD). The Cost
+# dataclass also exposes ``currency`` / ``pricing_source`` / ``credential_source``.
+_COST_KEYS = ("input", "cached", "output", "total")
+# The five short-key token counts carried on RunState.usage / a tool's accumulated
+# usage (cache_hit/cache_miss split kept so the folded total stays priceable).
+_USAGE_KEYS = ("input", "output", "reasoning", "cache_hit", "cache_miss")
+def usage_metadata(usage: Mapping[str, int]) -> dict[str, int]:
+    """The ``metadata`` token block a non-terminal orchestration tool returns.
+    Re-keys the short-key usage form ({input, ...}) to the engine's ``*_tokens``
+    names ({input_tokens, ...}). ``delegate`` (this call's worker usage) and
+    ``revise`` (the revision's usage) both report through this single seam so the
+    shape can never drift between them.
+    """
+    return {f"{key}_tokens": int(usage.get(key, 0)) for key in _USAGE_KEYS}
+@dataclass(frozen=True)
+class RunCost:
+    """One per-run ledger row (``cost_events`` materialized view).
+    The user / conversation / message envelope is attached at persistence time by
+    the conversation service (which owns the DB session), so this stays a pure
+    value object the runtime can build without any DB awareness.
+    """
+    run_id: str
+    parent_run_id: str | None
+    agent_id: str | None
+    role: str
+    model: str
+    tokens: dict[str, int]
+    cost: dict[str, int | str]
+    cost_total_nano: int
+    currency: str
+    rounds: int
+    duration_ms: int
+    persona: str | None = None
+    cost_estimated_nano: int = 0
+@dataclass(frozen=True)
+class CallCost:
+    """One per-call detail row (``cost_calls`` — billing authority)."""
+    call_id: str
+    run_id: str
+    parent_run_id: str | None
+    agent_id: str | None
+    role: str
+    model: str
+    tokens: dict[str, int]
+    cost: dict[str, int | str]
+    cost_total_nano: int
+    currency: str
+    duration_ms: int
+    persona: str | None = None
+    cost_estimated_nano: int = 0
+def _split_cost(cost: dict) -> tuple[dict[str, int | str], int, int, str]:
+    """Normalise a cost dict into (JSONB body, billed nano, estimated nano, currency).
+    Accepts the ``asdict(Cost)`` shape. User-sourced money always lands in
+    ``cost_estimated_nano`` with ``cost_total_nano == 0``; platform/vendor keep
+    billed ``cost_total_nano``.
+    """
+    body: dict[str, int | str] = {key: int(cost.get(key, 0)) for key in _COST_KEYS}
+    pricing_source = str(cost.get("pricing_source") or "curated")
+    credential_source = str(cost.get("credential_source") or "platform")
+    body["pricing_source"] = pricing_source
+    body["credential_source"] = credential_source
+    total = int(body["total"])
+    currency = str(cost.get("currency", "USD"))
+    if credential_source == "user":
+        return body, 0, total, currency
+    return body, total, 0, currency
+def member_run_cost(spec: RunSpec, state: RunState, *, parent_run_id: str | None) -> RunCost:
+    """A delegated worker's ledger row, read off its terminal :class:`RunState`.
+    The executor already priced this run onto ``state.cost``; this only reshapes
+    it into a ledger row (no re-pricing). ``parent_run_id`` is the delegating
+    captain's run id, so the turn's run tree is reconstructable. ``persona`` is
+    the worker's human-facing role label from the plan (调研员 / 写作 / …).
+    """
+    body, billed, estimated, currency = _split_cost(state.cost)
+    persona = (spec.role or "").strip() or None
+    return RunCost(
+        run_id=spec.run_id,
+        parent_run_id=parent_run_id,
+        agent_id=spec.agent_id or spec.run_id,
+        role=ROLE_MEMBER,
+        persona=persona,
+        model=state.model,
+        tokens=dict(state.usage),
+        cost=body,
+        cost_total_nano=billed,
+        cost_estimated_nano=estimated,
+        currency=currency,
+        rounds=state.rounds,
+        duration_ms=state.duration_ms,
+    )
+def captain_run_cost_from_state(run_id: str, state: RunState) -> RunCost:
+    """The CEO root run's ledger row, read off its terminal :class:`RunState`.
+    The captain is now a real Run node executed through the run executor (it owns
+    the turn's reply and may ``delegate``), so its cost is priced exactly once —
+    onto ``state.cost`` by the executor — and this only reshapes it into the
+    captain ledger row (role=captain, no parent: it is the turn's root). The
+    delegated workers get their own member rows via :func:`member_run_cost`.
+    """
+    body, billed, estimated, currency = _split_cost(state.cost)
+    return RunCost(
+        run_id=run_id,
+        parent_run_id=None,
+        agent_id=None,
+        role=ROLE_CAPTAIN,
+        persona=PERSONA_CEO,
+        model=state.model,
+        tokens=dict(state.usage),
+        cost=body,
+        cost_total_nano=billed,
+        cost_estimated_nano=estimated,
+        currency=currency,
+        rounds=state.rounds,
+        duration_ms=state.duration_ms,
+    )
+def background_run_cost(
+    role: str,
+    model: str,
+    usage: TokenUsage,
+    *,
+    credential_source: CredentialSource | None = None,
+) -> RunCost:
+    """A ledger row for an off-turn background LLM call (标题生成 / 记忆整合).
+    These calls belong to no Run tree and no assistant turn, so unlike the
+    captain/member builders there is no ``RunState`` to read — the row is priced
+    straight off the call's :class:`TokenUsage` via the one ``calculate_cost``
+    (不变量 #2), under a fresh ``run_id``. The persistence layer attaches it with
+    ``message_id = NULL`` (Gap C): it then SUMs into the account/conversation
+    totals and shows as its own ``role`` line on the dashboard payroll, but never
+    lands in a single turn's per-Agent 工资单 (which is fetched by ``message_id``)
+    nor inflates the「请求数」(``COUNT(DISTINCT message_id)`` ignores NULL).
+    ``rounds`` is 1 (one LLM call); ``duration_ms`` is left 0 — these are
+    best-effort background passes, not user-visible turns whose latency matters.
+    """
+    body, billed, estimated, currency = _split_cost(
+        asdict(calculate_cost(model, usage, credential_source=credential_source))
+    )
+    return RunCost(
+        run_id=new_id(),
+        parent_run_id=None,
+        agent_id=None,
+        role=role,
+        persona=None,
+        model=model,
+        tokens=usage.as_dict(),
+        cost=body,
+        cost_total_nano=billed,
+        cost_estimated_nano=estimated,
+        currency=currency,
+        rounds=1,
+        duration_ms=0,
+    )
+def priced_call_cost(
+    *,
+    model: str,
+    usage: TokenUsage,
+    role: str,
+    run_id: str | None = None,
+    parent_run_id: str | None = None,
+    agent_id: str | None = None,
+    persona: str | None = None,
+    call_id: str | None = None,
+    duration_ms: int = 0,
+    credential_source: CredentialSource | None = None,
+) -> CallCost:
+    """Price one LLM call into a ``cost_calls`` detail row (不变量 #2).
+    Used by the inference proxy (sidecar path) and in-process cloud metering.
+    ``call_id`` is the idempotency key; when omitted a fresh id is minted.
+    ``run_id`` defaults to a fresh id when the caller has no run tree (title /
+    memory / unattributed proxy call) — each such call is its own run aggregate.
+    """
+    body, billed, estimated, currency = _split_cost(
+        asdict(calculate_cost(model, usage, credential_source=credential_source))
+    )
+    rid = run_id or new_id()
+    return CallCost(
+        call_id=call_id or f"call_{new_id()}",
+        run_id=rid,
+        parent_run_id=parent_run_id,
+        agent_id=agent_id,
+        role=role,
+        persona=(persona or "").strip() or None,
+        model=model,
+        tokens=usage.as_dict(),
+        cost=body,
+        cost_total_nano=billed,
+        cost_estimated_nano=estimated,
+        currency=currency,
+        duration_ms=duration_ms,
+    )
+def vision_run_cost(
+    model: str,
+    usage: TokenUsage,
+    *,
+    parent_run_id: str | None,
+    duration_ms: int = 0,
+    credential_source: CredentialSource | None = None,
+) -> RunCost:
+    """A ledger row for a ``board_read`` vision sub-call (AI协作白板.md §九.4 Gap ②).
+    A tool-layer sub-call to a SEPARATE vision model (qwen-vl ≠ the run's DeepSeek), so it
+    cannot fold into the run's usage — that would misprice it at the run's tier. Priced
+    here exactly once via the one ``calculate_cost`` (不变量 #2) under the dedicated
+    ``vision`` role, then routed into the turn's ``cost_runs`` via ``ToolContext.cost_sink``
+    so it lands on the turn's ``message_id`` (in-turn spend, UNLIKE ``background_run_cost``'s
+    off-turn NULL). ``parent_run_id`` is the calling captain's run id, so the spend nests
+    under the captain in the turn's run tree; ``rounds`` is 1 (one vision call). A unique
+    ``vis_`` run id keeps the ledger's idempotent upsert-by-run_id honest.
+    """
+    body, billed, estimated, currency = _split_cost(
+        asdict(calculate_cost(model, usage, credential_source=credential_source))
+    )
+    return RunCost(
+        run_id=f"vis_{new_id()}",
+        parent_run_id=parent_run_id,
+        agent_id=None,
+        role=ROLE_VISION,
+        persona=None,
+        model=model,
+        tokens=usage.as_dict(),
+        cost=body,
+        cost_total_nano=billed,
+        cost_estimated_nano=estimated,
+        currency=currency,
+        rounds=1,
+        duration_ms=duration_ms,
+    )
+def run_cost_from_calls(calls: Sequence[CallCost | Mapping[str, Any]]) -> RunCost | None:
+    """Materialize one per-run aggregate from a batch of call details.
+    Sums tokens / cost / duration; ``rounds`` = call count. Attribution
+    (role / persona / agent / parent) is taken from the first call. Returns
+    ``None`` when ``calls`` is empty.
+    """
+    if not calls:
+        return None
+    first = calls[0]
+    if isinstance(first, CallCost):
+        first_map: Mapping[str, Any] = asdict(first)
+    else:
+        first_map = first
+    tokens = {key: 0 for key in _USAGE_KEYS}
+    cost_body: dict[str, int | str] = {key: 0 for key in _COST_KEYS}
+    billed = 0
+    estimated = 0
+    duration = 0
+    pricing_source = "curated"
+    credential_source = "platform"
+    for raw in calls:
+        row = asdict(raw) if isinstance(raw, CallCost) else raw
+        for key in _USAGE_KEYS:
+            tokens[key] += int((row.get("tokens") or {}).get(key, 0) or 0)
+        c = row.get("cost") or {}
+        for key in ("input", "cached", "output"):
+            cost_body[key] = int(cost_body[key]) + int(c.get(key, 0) or 0)
+        billed += int(row.get("cost_total_nano", 0) or 0)
+        estimated += int(row.get("cost_estimated_nano", 0) or 0)
+        duration += int(row.get("duration_ms", 0) or 0)
+        if c.get("pricing_source"):
+            pricing_source = str(c["pricing_source"])
+        if c.get("credential_source"):
+            credential_source = str(c["credential_source"])
+    cost_body["total"] = billed + estimated
+    cost_body["pricing_source"] = pricing_source
+    cost_body["credential_source"] = credential_source
+    return RunCost(
+        run_id=str(first_map["run_id"]),
+        parent_run_id=first_map.get("parent_run_id"),
+        agent_id=first_map.get("agent_id"),
+        role=str(first_map.get("role") or ROLE_MEMBER),
+        persona=(str(first_map["persona"]).strip() if first_map.get("persona") else None),
+        model=str(first_map.get("model") or ""),
+        tokens=tokens,
+        cost=cost_body,
+        cost_total_nano=billed,
+        cost_estimated_nano=estimated,
+        currency=str(first_map.get("currency") or "USD"),
+        rounds=len(calls),
+        duration_ms=duration,
+    )
+def aggregate_cost(cost_runs: Sequence[dict]) -> dict[str, int | str]:
+    """Sum per-run cost rows into the turn total carried on ``message_end.cost``.
+    Takes the ``asdict(RunCost)`` rows the pipeline builds (captain + members) and
+    returns the ``{input, cached, output, total, currency, pricing_source}`` block.
+    ``total`` is billed nano (SUM of ``cost_total_nano``); ``estimated_total`` is
+    the BYOK estimate SUM. Never re-prices combined usage.
+    """
+    agg: dict[str, int | str] = {
+        "input": 0,
+        "cached": 0,
+        "output": 0,
+        "total": 0,
+        "estimated_total": 0,
+        "currency": "USD",
+        "pricing_source": "curated",
+    }
+    sources: set[str] = set()
+    for row in cost_runs:
+        cost = row.get("cost") or {}
+        agg["input"] = int(agg["input"]) + int(cost.get("input", 0))
+        agg["cached"] = int(agg["cached"]) + int(cost.get("cached", 0))
+        agg["output"] = int(agg["output"]) + int(cost.get("output", 0))
+        # Billed vs estimated stay on scalar columns — never fall back to
+        # cost.total (user estimates live there for display but must not bill).
+        agg["total"] = int(agg["total"]) + int(row.get("cost_total_nano", 0) or 0)
+        agg["estimated_total"] = int(agg["estimated_total"]) + int(
+            row.get("cost_estimated_nano", 0) or 0
+        )
+        if cost.get("pricing_source"):
+            sources.add(str(cost["pricing_source"]))
+    if len(sources) == 1:
+        agg["pricing_source"] = next(iter(sources))
+    elif sources:
+        agg["pricing_source"] = "estimated"
+    return agg
+class WorkerResultAccumulator:
+    """The shared「用量 + 账目 + 引用」roll-up for orchestration tools.
+    ``delegate`` (cold workers) and ``revise`` (a recalled author) both spin up
+    member runs whose results must fold back into the turn totals the pipeline
+    reads: token ``usage`` (summed, cache split kept), a per-run cost ``run_ledger``
+    (one row per metered run, 决策②), and the workers' ``citations`` (de-duped into
+    the turn's shared source card). Both tools used to hand-roll these three
+    identical pieces; they now share this accumulator so the fold logic lives once.
+    All three collections are mutated in place — a tool exposes them read-only and
+    the pipeline reads ``usage`` / ``run_ledger`` / ``citations`` after the loop.
+    """
+    def __init__(self) -> None:
+        self.usage: dict[str, int] = {key: 0 for key in _USAGE_KEYS}
+        self.run_ledger: list[RunCost] = []
+        self.citations: list[dict[str, Any]] = []
+        # 协作质量 tally (学·度量, docs/05-平台与运维/管理员后台.md §四): per-turn orchestration
+        # signals rolled up the SAME parent/child path as usage (merge() below), so a nested
+        # lead's sub-team folds in for free. ``boundary_yields`` = 受监督边界让出次数 (首计划存活:
+        # a supervised bind/scope boundary handed control back to the captain mid-plan);
+        # ``scope_signals`` = escalate kind=scope count (漂移); ``escalations`` = total
+        # worker→captain escalations. The revise count (返工 的另一半) is read off the revise
+        # tool's run_ledger, not here.
+        self.collab: dict[str, int] = {
+            "boundary_yields": 0,
+            "scope_signals": 0,
+            "escalations": 0,
+        }
+    def add_usage(self, usage: Mapping[str, int]) -> None:
+        """Fold one run's (or sub-team's) short-key token usage into the total."""
+        for key in self.usage:
+            self.usage[key] += usage.get(key, 0)
+    def add_run_cost(self, spec: RunSpec, state: RunState, *, parent_run_id: str | None) -> None:
+        """Append a member ledger row for a run that metered LLM usage.
+        Runs that never hit the LLM (skipped / failed before any call) carry no
+        usage and are not billed, mirroring the old delegate/revise guard.
+        """
+        if state.usage:
+            self.run_ledger.append(member_run_cost(spec, state, parent_run_id=parent_run_id))
+    def add_citations(self, state: RunState) -> None:
+        """Merge a COMPLETED run's web sources into the shared card (de-duped/capped).
+        Only COMPLETED runs contribute — a hard-failed worker's output is discarded
+        by the captain, so its sources must not back the answer.
+        """
+        if state.phase is RunPhase.COMPLETED and state.citations:
+            merge_citations(self.citations, state.citations)
+    def add_run(self, spec: RunSpec, state: RunState, *, parent_run_id: str | None) -> None:
+        """Fold one finished member run end-to-end: usage + ledger row + citations.
+        The convenience the ``revise`` path uses (one run per call). ``delegate``
+        folds a batch through the granular adders so it can also stage this call's
+        usage for the result metadata.
+        """
+        self.add_usage(state.usage)
+        self.add_run_cost(spec, state, parent_run_id=parent_run_id)
+        self.add_citations(state)
+    def merge(self, other: WorkerResultAccumulator) -> None:
+        """Fold another accumulator into this one (a nested sub-team's roll-up).
+        Used by ``delegate.nesting.absorb_children`` to roll a re-delegating worker's
+        sub-team usage + ledger + sources up into this captain's totals.
+        """
+        self.add_usage(other.usage)
+        self.run_ledger.extend(other.run_ledger)
+        merge_citations(self.citations, other.citations)
+        for key in self.collab:
+            self.collab[key] += other.collab.get(key, 0)

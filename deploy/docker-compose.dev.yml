@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentcore-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agentcore
+      POSTGRES_PASSWORD: agentcore
+      POSTGRES_DB: agentcore
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentcore"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: agentcore-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: agentcore-searxng
+    restart: unless-stopped
+    ports:
+      # 18888 而非 8888：Windows winnat/Hyper-V 会把 8866–8965 整段保留为排除端口，
+      # 绑 8888 会报 "bind: ... forbidden by its access permissions"。18888 跨平台通用。
+      - "18888:8080"
+    environment:
+      SEARXNG_BASE_URL: "http://localhost:18888"
+      # Dev overrides the engine set: settings.yml is the *production* (Aliyun Shenzhen)
+      # config — CN scraper engines only, since international engines are GFW-blocked
+      # there. This dev host is the inverse (international engines reachable & fast; the
+      # CN scrapers serve CAPTCHA / 360search returns nothing → web_search would be empty).
+      # settings.dev.yml is the international-first union; prod keeps using settings.yml.
+      SEARXNG_SETTINGS_PATH: "/etc/searxng/settings.dev.yml"
+      # This single dev instance serves a parallel Agent team (several researchers,
+      # each fanning web_search to 4 CN engines). The image defaults to 1 granian
+      # worker (× GRANIAN_BLOCKING_THREADS=4 ≈ 4 concurrent), which the team's burst
+      # saturates → inbound connects time out → the app-side per-host breaker trips
+      # for everyone. 4 workers (≈16 concurrent) comfortably covers the app's search
+      # concurrency cap (_SEARCH_CONCURRENCY). Peak upstream load stays bounded by
+      # that cap, so this doesn't raise engine bot-detection risk.
+      GRANIAN_WORKERS: "4"
+    volumes:
+      - ./searxng:/etc/searxng
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  redisdata:

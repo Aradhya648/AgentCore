@@ -1,0 +1,317 @@
+{
+  "name": "multi_agent_worker_tool",
+  "description": "多 Agent：worker 工具调用 + run_tool_progress 实时态",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我来分工。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "实现 + 测试",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "工程师",
+            "thinking": true
+          },
+          {
+            "id": "w2",
+            "role": "测试员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "写代码",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "跑测试",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "tool_name": "file_write",
+        "chars": 1200
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "file_write",
+        "arguments": {
+          "path": "a.py",
+          "content": "print(1)"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "file_write",
+        "status": "success",
+        "result": "已写入",
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "delta": "代码就绪"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "实现完成",
+        "duration_ms": 1500,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.504Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.505Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "tool_name": "code_execute",
+        "chars": 64
+      },
+      "timestamp": "2026-01-01T00:00:01.506Z"
+    }
+  ],
+  "projected": {
+    "status": "running",
+    "finishReason": null,
+    "content": "我来分工。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我来分工。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "工程师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "代码就绪",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "测试员",
+        "thinking": true,
+        "status": "working",
+        "currentRunId": "r2",
+        "output": "",
+        "reasoning": "",
+        "toolProgress": {
+          "toolName": "code_execute",
+          "chars": 64
+        }
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "写代码",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "实现完成",
+        "debrief": null,
+        "durationMs": 1500,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "tc1",
+            "tool_name": "file_write",
+            "arguments": {
+              "path": "a.py",
+              "content": "print(1)"
+            },
+            "result": "已写入",
+            "status": "success"
+          },
+          {
+            "kind": "content",
+            "text": "代码就绪"
+          }
+        ]
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "跑测试",
+        "status": "running",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 1,
+      "total": 2
+    },
+    "interactions": [],
+    "cost": null,
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

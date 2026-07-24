@@ -1,0 +1,14 @@
+{
+  "id": "xd_landing_page",
+  "archetype": "cross_domain",
+  "user_message": "为一款「AI 简历优化」产品做一个落地页，需要同时产出：①一段有说服力的营销文案；②一段可直接运行的 HTML/CSS 首屏代码；③3 个 SEO 关键词。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "三个产物是否齐备且各达专业水准：①营销文案是否有说服力与卖点；②HTML/CSS 是否结构完整可直接运行（含 <html>/<style>，能渲染出首屏）；③是否给满 3 个相关 SEO 关键词。文案/前端/SEO 三种技能各自分开评分（单一 system prompt 难同时擅长三者）。简洁正确优先，不因更长而偏好。"
+}

@@ -1,0 +1,451 @@
+{
+  "name": "multi_agent_browser_session",
+  "description": "L3 团队浏览器 M0：worker 用 browser_* 六工具（navigate→snapshot→click→screenshot），每步 tool_use_end.display 携 kind:browser 契约 + 关键帧引用，折入 run.process",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我安排调研员用浏览器实地看一下。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "调研员"
+            }
+          ],
+          "coordinate": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "浏览器调研",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "调研员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "用浏览器调研目标网站",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b1",
+        "tool_name": "browser_navigate",
+        "arguments": {
+          "url": "https://example.com/"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b1",
+        "tool_name": "browser_navigate",
+        "status": "success",
+        "result": "{\"action\":\"navigate\",\"final_url\":\"https://example.com/\",\"http_status\":200}",
+        "display": {
+          "kind": "browser",
+          "action": "navigate",
+          "url": "https://example.com/",
+          "title": "Example Domain",
+          "detail": "打开 https://example.com/（HTTP 200）",
+          "frame": "browser/step-0001.jpg"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b2",
+        "tool_name": "browser_snapshot",
+        "arguments": {},
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b2",
+        "tool_name": "browser_snapshot",
+        "status": "success",
+        "result": "{\"action\":\"snapshot\",\"snapshot_version\":1,\"untrusted_web_content\":{\"source_url\":\"https://example.com/\"}}",
+        "display": {
+          "kind": "browser",
+          "action": "snapshot",
+          "url": "https://example.com/",
+          "title": "Example Domain",
+          "detail": "读取页面结构（v1）"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b3",
+        "tool_name": "browser_click",
+        "arguments": {
+          "ref": "e1",
+          "snapshot_version": 1
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b3",
+        "tool_name": "browser_click",
+        "status": "success",
+        "result": "{\"action\":\"click\",\"final_url\":\"https://example.com/\"}",
+        "display": {
+          "kind": "browser",
+          "action": "click",
+          "url": "https://example.com/",
+          "title": "Example Domain",
+          "detail": "点击元素 e1",
+          "frame": "browser/step-0002.jpg"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b4",
+        "tool_name": "browser_screenshot",
+        "arguments": {},
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.012Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b4",
+        "tool_name": "browser_screenshot",
+        "status": "success",
+        "result": "{\"action\":\"screenshot\",\"keyframe\":\"browser/step-0003.jpg\"}",
+        "display": {
+          "kind": "browser",
+          "action": "screenshot",
+          "url": "https://example.com/",
+          "title": "Example Domain",
+          "detail": "截取当前页面",
+          "frame": "browser/step-0003.jpg"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.013Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "delta": "已用浏览器完成目标网站调研。"
+      },
+      "timestamp": "2026-01-01T00:00:00.014Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "完成网站调研",
+        "duration_ms": 4200,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.205Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "团队完成浏览器调研。"
+      },
+      "timestamp": "2026-01-01T00:00:04.206Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": " 调研员已实地查看并记录关键帧。"
+      },
+      "timestamp": "2026-01-01T00:00:04.207Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 3200,
+          "output_tokens": 520,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:04.208Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我安排调研员用浏览器实地看一下。 调研员已实地查看并记录关键帧。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我安排调研员用浏览器实地看一下。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "content",
+        "text": " 调研员已实地查看并记录关键帧。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "调研员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "已用浏览器完成目标网站调研。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "用浏览器调研目标网站",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "完成网站调研",
+        "debrief": null,
+        "durationMs": 4200,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "b1",
+            "tool_name": "browser_navigate",
+            "arguments": {
+              "url": "https://example.com/"
+            },
+            "result": "{\"action\":\"navigate\",\"final_url\":\"https://example.com/\",\"http_status\":200}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "navigate",
+              "url": "https://example.com/",
+              "title": "Example Domain",
+              "detail": "打开 https://example.com/（HTTP 200）",
+              "frame": "browser/step-0001.jpg"
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "b2",
+            "tool_name": "browser_snapshot",
+            "arguments": {},
+            "result": "{\"action\":\"snapshot\",\"snapshot_version\":1,\"untrusted_web_content\":{\"source_url\":\"https://example.com/\"}}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "snapshot",
+              "url": "https://example.com/",
+              "title": "Example Domain",
+              "detail": "读取页面结构（v1）"
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "b3",
+            "tool_name": "browser_click",
+            "arguments": {
+              "ref": "e1",
+              "snapshot_version": 1
+            },
+            "result": "{\"action\":\"click\",\"final_url\":\"https://example.com/\"}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "click",
+              "url": "https://example.com/",
+              "title": "Example Domain",
+              "detail": "点击元素 e1",
+              "frame": "browser/step-0002.jpg"
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "b4",
+            "tool_name": "browser_screenshot",
+            "arguments": {},
+            "result": "{\"action\":\"screenshot\",\"keyframe\":\"browser/step-0003.jpg\"}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "screenshot",
+              "url": "https://example.com/",
+              "title": "Example Domain",
+              "detail": "截取当前页面",
+              "frame": "browser/step-0003.jpg"
+            }
+          },
+          {
+            "kind": "content",
+            "text": "已用浏览器完成目标网站调研。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 1,
+      "total": 1
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "rev_code_planted",
+  "archetype": "debate",
+  "user_message": "工作区里有一个 bank.py，请审查这段转账与手续费均摊的代码，列出你发现的所有问题（正确性、并发安全、边界条件等），并说明每个问题会在什么情况下触发。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "workspace_fixture": "planted_bug",
+  "samples": 5,
+  "checks": {
+    "single": [
+      { "name": "FinishReason" },
+      { "name": "ToolCalled", "args": { "tool": "file_read" } },
+      { "name": "ToolArgsValid", "args": { "tool": "file_read", "required": ["path"] } }
+    ],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "ground truth：代码植入了 3 个隐蔽缺陷——①竞态条件（transfer 全程未用 self._lock 的 check-then-act，并发下可超额转出，与 open/balance 已加锁形成不一致）②未校验收款账户存在（dst 未 open 时 self._accounts[dst] 触发 KeyError 崩溃）③off-by-one（split_fee 用 range(1, len(payers)) 漏掉 payers[0]，第一位 payer 从未被扣费）。评判抓到了几个植入缺陷（读写分离/多审查者更易抓全）；凭空臆造的不存在问题（误报）扣分。简洁准确优先，不因更长而偏好。"
+}

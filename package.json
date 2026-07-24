@@ -1,0 +1,46 @@
+{
+  "name": "agentcore",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "conformance": "pnpm -r run conformance",
+    "gen:types": "node scripts/gen-types.mjs",
+    "gen:story-packs": "node scripts/sync-story-packs.mjs",
+    "gen:story-packs:check": "node scripts/sync-story-packs.mjs --check",
+    "bump-version": "node scripts/bump-version.mjs",
+    "release:gate": "node scripts/release-gate.mjs",
+    "test:server": "cd apps/server && uv run pytest --tb=short -q",
+    "test:server:unit": "cd apps/server && uv run pytest --ignore=tests/integration --tb=short -q",
+    "test:server:slow": "cd apps/server && uv run pytest --durations=20 -q",
+    "deploy:backend": "node deploy/scripts/remote-build-deploy.mjs",
+    "deploy:backend:status": "node deploy/scripts/check-remote-build.mjs",
+    "sync:logs": "bash scripts/sync-prod-logs.sh",
+    "town:build": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/build-unity.ps1",
+    "town:build:webgl": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/build-unity.ps1 -Target WebGL",
+    "town:spike:webgl": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/spike-webgl-sse.ps1",
+    "town:serve:webgl": "node apps/town/scripts/serve-webgl.mjs",
+    "town:shoot:webgl": "node apps/town/scripts/shoot-webgl-demo.mjs",
+    "town:verify": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/verify-unity.ps1",
+    "town:perf": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/perf-unity.ps1",
+    "town:open": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/open-unity.ps1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "electron",
+      "node-pty"
+    ],
+    "overrides": {
+      "@radix-ui/react-slot": "1.3.0",
+      "esbuild": "^0.25.0",
+      "js-yaml": "^4.2.0"
+    }
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.23"
+  }
+}

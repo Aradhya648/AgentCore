@@ -1,0 +1,15 @@
+{
+  "id": "par_notes_3x4",
+  "archetype": "parallel_research",
+  "user_message": "调研 Notion、Obsidian、Logseq 三款笔记工具，从〔价格 / 协作能力 / 本地优先 / 插件生态〕四个维度分别给出事实，最后汇总成一张 3×4 对比表。",
+  "arms": ["matched_single", "team"],
+  "baseline_arm": "matched_single",
+  "mode": "economy",
+  "samples": 5,
+  "_note": "等算力对比：matched_single = 与 team 同 compute 预算的 best-of-N 单体，baseline 设为它，得到可信判据「team vs 等算力单体」（而非 team vs 单次单体那种「砸了更多算力」）。",
+  "checks": {
+    "matched_single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "覆盖完整度：3 产品 ×（价格 / 协作 / 本地优先 / 插件生态）共 12 格填全几项；事实是否准确、未编造来源。3 个产品相互独立、可并行检索（团队的结构性优势）。简洁正确优先，不因更长而偏好。"
+}

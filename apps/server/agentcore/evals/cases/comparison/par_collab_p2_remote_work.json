@@ -1,0 +1,22 @@
+{
+  "id": "par_collab_p2_remote_work",
+  "archetype": "cross_domain",
+  "user_message": "请写一篇面向大众的深度报告：远程办公对个人职业发展的长期影响。要求有证据支撑、结构清晰，成篇后请安排独立审校并据此修订，最后给我成品。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 2,
+  "_note": "协作基线质量臂·原型2：成篇+独立审查环的质量增益对照。",
+  "checks": {
+    "single": [
+      { "name": "FinishReason" },
+      { "name": "DeliverableIntegrity" }
+    ],
+    "team": [
+      { "name": "Delegated" },
+      { "name": "FinishReason" },
+      { "name": "DeliverableIntegrity" }
+    ]
+  },
+  "rubric": "成篇质量：结构是否清晰、证据是否具体、论证是否自洽；是否像经过审校（少明显空话/自相矛盾）。团队若有独立审查环，应比单体自审更少结构性盲区。简洁有力优先，不因更长而偏好。"
+}

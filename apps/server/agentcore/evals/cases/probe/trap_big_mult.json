@@ -1,0 +1,15 @@
+{
+  "id": "probe_big_multiplication",
+  "category": "qa",
+  "_note": "挖坑探针：大数乘法是 LLM 不带工具时的经典软肋——交付物结构完整（一段算式+结果），轻层必放行，但结果常错一两位。正确=4789*3256=15592984。pattern 容忍千分位 15,592,984。这一类只有『真算一遍』的重层才拦得住。",
+  "user_message": "请计算 4789 × 3256 的准确结果。请手算（不要联网、不要调用任何工具），写出竖式或分步过程，并给出最终的整数结果。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "samples": 5,
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 10 } },
+    { "name": "ContentMatches", "args": { "pattern": "15\\D{0,3}592\\D{0,3}984" } }
+  ]
+}

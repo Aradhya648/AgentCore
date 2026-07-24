@@ -1,0 +1,425 @@
+{
+  "name": "multi_agent_redelegate_continuation",
+  "description": "多 Agent：delegate 带 continue_from_run_id 的同批续派（计划内节点 + continues_run_id）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "调研后同人续写",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "研究员",
+            "thinking": true
+          },
+          {
+            "id": "w1b",
+            "role": "研究员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "先调研",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w1b",
+            "task": "据调研接着写实现要点",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "cap",
+        "agent_id": "cap",
+        "parent_run_id": null,
+        "kind": "captain"
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": "cap",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "delta": "调研稿"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "调研完成",
+        "duration_ms": 700,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.704Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w1b",
+        "parent_run_id": "cap",
+        "kind": "agent",
+        "continues_run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.705Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w1b",
+        "blocks": [
+          {
+            "channel": "continuation",
+            "heading": "续干指令",
+            "body": "据调研接着写实现要点",
+            "chars": 10,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "dependency",
+            "heading": "上游产物（r1）",
+            "body": "调研稿",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "r1",
+            "fidelity": "pass_through",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.706Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w1b",
+        "delta": "实现要点……"
+      },
+      "timestamp": "2026-01-01T00:00:00.707Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w1b",
+        "output_summary": "续写完成",
+        "duration_ms": 500,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.205Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "cap",
+        "agent_id": "cap",
+        "output_summary": "已安排同人续派",
+        "duration_ms": 100,
+        "role": "captain",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.206Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 2200,
+          "output_tokens": 450,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:01.207Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "研究员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "调研稿",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w1b",
+        "role": "研究员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "实现要点……",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "先调研",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "调研完成",
+        "debrief": null,
+        "durationMs": 700,
+        "error": null,
+        "parentRunId": "cap",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "调研稿"
+          }
+        ]
+      },
+      {
+        "id": "r2",
+        "agentId": "w1b",
+        "task": "据调研接着写实现要点",
+        "status": "completed",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": "续写完成",
+        "debrief": null,
+        "durationMs": 500,
+        "error": null,
+        "parentRunId": "cap",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": "r1",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "continuation",
+            "heading": "续干指令",
+            "body": "据调研接着写实现要点",
+            "chars": 10,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "dependency",
+            "heading": "上游产物（r1）",
+            "body": "调研稿",
+            "chars": 3,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "r1",
+            "fidelity": "pass_through",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "实现要点……"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 2,
+      "total": 2
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "qa_capital",
+  "category": "qa",
+  "user_message": "中国的首都是哪个城市？请直接给出答案。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 2 } },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "回答是否正确指出『北京』、表述清晰、无多余编造。"
+}

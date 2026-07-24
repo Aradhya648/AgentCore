@@ -1,0 +1,462 @@
+import { Button, IconButton } from "@/components/ui";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+import {
+  type ByokProviderId,
+  DEFAULT_BYOK_PROVIDER_ID,
+  getByokProviderPreset,
+  isCustomByokProvider,
+  listByokProviderOptions,
+  resolveByokProviderFromConfig,
+} from "@/lib/byokProviderPresets";
+import { ApiError } from "@/services/api";
+import {
+  type LlmProviderView,
+  type UpdateLlmProviderInput,
+  createLlmProvider,
+  updateLlmProvider,
+} from "@/services/llmProviders";
+import { ExternalLink, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useState } from "react";
+
+export const MODEL_CONFIG_INPUT_CLASS =
+  "h-8 w-full rounded-lg border border-input bg-background px-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+
+const MODEL_OTHER_VALUE = "__other__";
+
+/** Same phrasing as LoginPage / lib/errors — admin sessions cannot use product APIs. */
+export const ADMIN_PRODUCT_FORBIDDEN_MESSAGE =
+  "此账号为管理员账号，请使用管理后台登录";
+
+/**
+ * 404/501 on model-config routes usually means the desktop build is calling a
+ * retired path (前后端协议硬切) — not a transient failure. Guide to 设置·关于.
+ */
+export const CLIENT_VERSION_MISMATCH_MESSAGE =
+  "当前客户端版本过旧，请到设置 · 关于检查更新";
+
+export function modelConfigApiErrorMessage(
+  e: unknown,
+  fallback: string,
+): string {
+  if (e instanceof ApiError) {
+    if (e.code === "ADMIN_PRODUCT_FORBIDDEN") {
+      return ADMIN_PRODUCT_FORBIDDEN_MESSAGE;
+    }
+    // Protocol hard-cut / missing route — prefer upgrade copy over generic 加载失败.
+    if (e.status === 404 || e.status === 501) {
+      return CLIENT_VERSION_MISMATCH_MESSAGE;
+    }
+    if (e.serverMessage) return e.serverMessage;
+    try {
+      const body = JSON.parse(e.body) as { error?: { message?: string } };
+      if (body.error?.message) return body.error.message;
+    } catch {
+      /* non-JSON body */
+    }
+  }
+  return fallback;
+}
+
+export type ModelKeyFormProps = {
+  /** Present = 编辑该服务商（PATCH）；缺省 = 新增一个服务商（POST）。 */
+  providerId?: string;
+  initialLabel?: string;
+  initialBaseUrl?: string;
+  initialModel?: string;
+  /** Round-trip existing price card on edit (整卡替换). */
+  initialPriceCacheHit?: string | null;
+  initialPriceCacheMiss?: string | null;
+  initialPriceOutput?: string | null;
+  onSaved: (provider: LlmProviderView) => void;
+  onCancel?: () => void;
+  /** Override primary CTA label (defaults: 保存 / 添加). */
+  submitLabel?: string;
+  /** Busy label while saving. */
+  savingLabel?: string;
+  /** When true, hide the post-save「建议测试连接」hint. */
+  hideTestHint?: boolean;
+};
+
+/**
+ * BYOK 服务商表单 — 设置·模型配置的「添加服务商」/「编辑服务商」共用单一真相源。
+ * 厂商预设 → label / Key / Base URL / 默认模型（+ 可选价卡）；新增走 `createLlmProvider`、
+ * 编辑走 `updateLlmProvider`（省略 api_key 保留已存密文）。后台默认模型已上移为账号级指针，
+ * 不在本表单（见设置页的「后台任务模型」选择器）。
+ */
+export function ModelKeyForm({
+  providerId,
+  initialLabel = "",
+  initialBaseUrl = "",
+  initialModel = "",
+  initialPriceCacheHit = null,
+  initialPriceCacheMiss = null,
+  initialPriceOutput = null,
+  onSaved,
+  onCancel,
+  submitLabel,
+  savingLabel = "保存中…",
+  hideTestHint = false,
+}: ModelKeyFormProps) {
+  const isEdit = !!providerId;
+  const [apiKey, setApiKey] = useState("");
+  const [providerPreset, setProviderPreset] = useState<ByokProviderId>(() =>
+    resolveByokProviderFromConfig(initialBaseUrl),
+  );
+  const [label, setLabel] = useState(() => {
+    if (initialLabel.trim()) return initialLabel;
+    const preset = resolveByokProviderFromConfig(initialBaseUrl);
+    return isCustomByokProvider(preset)
+      ? ""
+      : getByokProviderPreset(preset).label;
+  });
+  const [baseUrl, setBaseUrl] = useState(() => {
+    if (initialBaseUrl.trim()) return initialBaseUrl;
+    return getByokProviderPreset(DEFAULT_BYOK_PROVIDER_ID).baseUrl;
+  });
+  const [defaultModel, setDefaultModel] = useState(() => {
+    if (initialModel.trim()) return initialModel;
+    return getByokProviderPreset(DEFAULT_BYOK_PROVIDER_ID).defaultModel;
+  });
+  const [priceCacheMiss, setPriceCacheMiss] = useState(
+    () => initialPriceCacheMiss?.trim() ?? "",
+  );
+  const [priceOutput, setPriceOutput] = useState(
+    () => initialPriceOutput?.trim() ?? "",
+  );
+  const [priceCacheHit, setPriceCacheHit] = useState(
+    () => initialPriceCacheHit?.trim() ?? "",
+  );
+  const [customModelMode, setCustomModelMode] = useState(() => {
+    const model = initialModel.trim();
+    if (!model) return false;
+    const preset = resolveByokProviderFromConfig(initialBaseUrl);
+    if (isCustomByokProvider(preset)) return false;
+    return !getByokProviderPreset(preset).models.includes(model);
+  });
+  const [reveal, setReveal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasInitialAdvanced = Boolean(
+    initialPriceCacheHit?.trim() ||
+      initialPriceCacheMiss?.trim() ||
+      initialPriceOutput?.trim(),
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(hasInitialAdvanced);
+
+  const preset = !isCustomByokProvider(providerPreset)
+    ? getByokProviderPreset(providerPreset)
+    : null;
+  const modelSuggestions = preset?.models ?? [];
+  const keyHelpUrl =
+    preset?.keyHelpUrl ?? "https://platform.openai.com/api-keys";
+  const useModelSelect = modelSuggestions.length > 0;
+
+  const selectProvider = (next: ByokProviderId) => {
+    setProviderPreset(next);
+    if (!isCustomByokProvider(next)) {
+      const p = getByokProviderPreset(next);
+      setBaseUrl(p.baseUrl);
+      setDefaultModel(p.defaultModel);
+      setLabel(p.label);
+      setCustomModelMode(false);
+    } else {
+      setCustomModelMode(false);
+    }
+  };
+
+  const selectModelOption = (value: string) => {
+    if (value === MODEL_OTHER_VALUE) {
+      setCustomModelMode(true);
+      return;
+    }
+    setCustomModelMode(false);
+    setDefaultModel(value);
+  };
+
+  const keyOk = isEdit || apiKey.trim().length > 0;
+  const canSave =
+    keyOk &&
+    baseUrl.trim().length > 0 &&
+    defaultModel.trim().length > 0 &&
+    !saving;
+  const cta = submitLabel ?? (isEdit ? "保存" : "添加");
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const miss = priceCacheMiss.trim();
+      const out = priceOutput.trim();
+      const hit = priceCacheHit.trim();
+      // 输入+输出成对；全空=清除价卡。只填一侧时仍原样提交，由后端校验报错。
+      const pricesEmpty = !miss && !out && !hit;
+      const priceCard = {
+        price_cache_miss: pricesEmpty ? null : miss || null,
+        price_output: pricesEmpty ? null : out || null,
+        price_cache_hit: pricesEmpty ? null : hit || null,
+      };
+      const trimmedKey = apiKey.trim();
+      if (isEdit && providerId) {
+        const body: UpdateLlmProviderInput = {
+          label: label.trim(),
+          base_url: baseUrl.trim() || null,
+          default_model: defaultModel.trim() || null,
+          ...priceCard,
+        };
+        // 省略 api_key 保留已存密文——只有用户重新填写时才带上。
+        if (trimmedKey) body.api_key = trimmedKey;
+        onSaved(await updateLlmProvider(providerId, body));
+      } else {
+        onSaved(
+          await createLlmProvider({
+            label: label.trim(),
+            api_key: trimmedKey,
+            base_url: baseUrl.trim() || null,
+            default_model: defaultModel.trim() || null,
+            ...priceCard,
+          }),
+        );
+      }
+    } catch (e) {
+      setError(modelConfigApiErrorMessage(e, "保存失败，请重试"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const modelSelectValue =
+    useModelSelect &&
+    !customModelMode &&
+    modelSuggestions.includes(defaultModel)
+      ? defaultModel
+      : MODEL_OTHER_VALUE;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-sm font-medium text-foreground">
+        {isEdit ? "编辑服务商" : "添加服务商"}
+      </p>
+      <div className="mt-3 space-y-3">
+        <label className="block">
+          <span className="text-xs text-muted-foreground">厂商预设</span>
+          <select
+            value={providerPreset}
+            onChange={(e) => selectProvider(e.target.value as ByokProviderId)}
+            className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS} font-sans`}
+          >
+            {listByokProviderOptions().map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          {!isCustomByokProvider(providerPreset) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              选择后将预填名称、Base URL 与常见模型；可按你的 Key 权限修改。
+            </p>
+          )}
+        </label>
+        <label className="block">
+          <span className="text-xs text-muted-foreground">名称</span>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="如 DeepSeek、火山方舟"
+            autoComplete="off"
+            spellCheck={false}
+            className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS} font-sans`}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs text-muted-foreground">
+            API Key{isEdit ? "（可选）" : ""}
+          </span>
+          <div className="relative mt-1">
+            <input
+              type={reveal ? "text" : "password"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={isEdit ? "留空则保留已保存的 Key" : "sk-..."}
+              autoComplete="off"
+              spellCheck={false}
+              className={`${MODEL_CONFIG_INPUT_CLASS} pl-2 pr-9`}
+            />
+            <SimpleTooltip label={reveal ? "隐藏" : "显示"}>
+              <IconButton
+                onClick={() => setReveal((r) => !r)}
+                aria-label={reveal ? "隐藏" : "显示"}
+                className="absolute right-1 top-1/2 size-6 -translate-y-1/2"
+              >
+                {reveal ? <EyeOff size={14} /> : <Eye size={14} />}
+              </IconButton>
+            </SimpleTooltip>
+          </div>
+        </label>
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Base URL</span>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={
+              isCustomByokProvider(providerPreset)
+                ? "https://your-endpoint.example/v1"
+                : preset?.baseUrl
+            }
+            autoComplete="off"
+            spellCheck={false}
+            className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+          />
+        </label>
+        <div>
+          {useModelSelect ? (
+            <label className="block">
+              <span className="text-xs text-muted-foreground">默认模型名</span>
+              <select
+                value={modelSelectValue}
+                onChange={(e) => selectModelOption(e.target.value)}
+                className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS} font-sans`}
+              >
+                {modelSuggestions.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+                <option value={MODEL_OTHER_VALUE}>其他…</option>
+              </select>
+            </label>
+          ) : (
+            <label className="block">
+              <span className="text-xs text-muted-foreground">默认模型名</span>
+              <input
+                type="text"
+                value={defaultModel}
+                onChange={(e) => setDefaultModel(e.target.value)}
+                placeholder="model-name"
+                autoComplete="off"
+                spellCheck={false}
+                className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+              />
+            </label>
+          )}
+          {useModelSelect &&
+            (customModelMode || modelSelectValue === MODEL_OTHER_VALUE) && (
+              <input
+                type="text"
+                value={defaultModel}
+                onChange={(e) => setDefaultModel(e.target.value)}
+                placeholder={preset?.defaultModel ?? "model-name"}
+                autoComplete="off"
+                spellCheck={false}
+                className={`mt-2 ${MODEL_CONFIG_INPUT_CLASS}`}
+              />
+            )}
+        </div>
+        <details
+          className="rounded-lg border border-border/60 bg-muted/20 p-3"
+          open={advancedOpen}
+          onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
+        >
+          <summary className="cursor-pointer text-xs font-medium text-foreground">
+            高级选项
+          </summary>
+          <div className="mt-3 space-y-3">
+            <div>
+              <p className="text-xs font-medium text-foreground">
+                单价卡（可选）
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                USD / 1M tokens。输入与输出成对填写后，用量页与回合成本可显示 ≈¥
+                估算；全空则清除价卡。
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                <label className="block">
+                  <span className="text-xs text-muted-foreground">输入价</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={priceCacheMiss}
+                    onChange={(e) => setPriceCacheMiss(e.target.value)}
+                    placeholder="如 0.28"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-muted-foreground">输出价</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={priceOutput}
+                    onChange={(e) => setPriceOutput(e.target.value)}
+                    placeholder="如 0.42"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-muted-foreground">
+                    缓存命中价（可选）
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={priceCacheHit}
+                    onChange={(e) => setPriceCacheHit(e.target.value)}
+                    placeholder="缺省=输入价"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button
+          size="md"
+          disabled={!canSave}
+          icon={
+            saving ? <Loader2 size={14} className="animate-spin" /> : undefined
+          }
+          onClick={() => void save()}
+        >
+          {saving ? savingLabel : cta}
+        </Button>
+        {onCancel && (
+          <Button
+            variant="neutral"
+            size="md"
+            disabled={saving}
+            onClick={onCancel}
+          >
+            取消
+          </Button>
+        )}
+      </div>
+      {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+      <a
+        href={keyHelpUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-3 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+      >
+        <ExternalLink size={14} />
+        {isCustomByokProvider(providerPreset)
+          ? "前往厂商控制台创建 API Key"
+          : `前往 ${preset?.label ?? "厂商"} 创建 API Key`}
+      </a>
+      {!hideTestHint && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          保存后建议点「测试连接」确认可用，并查看是否支持工具调用。
+        </p>
+      )}
+    </div>
+  );
+}

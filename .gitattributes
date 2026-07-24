@@ -1,0 +1,7 @@
+# 行尾符规范：仓库与工作树统一 LF（跨平台唯一真源；Windows 上的 CRLF 编辑器写入
+# 曾多次触发 biome 格式化门禁误报）。二进制由 text=auto 自动识别，不受影响。
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF（cmd.exe 对 LF 的 goto/label 解析不可靠）
+*.cmd text eol=crlf
+*.bat text eol=crlf

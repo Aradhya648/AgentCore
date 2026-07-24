@@ -1,0 +1,257 @@
+"""Tests for the intra-batch write-conflict guard (并行写隔离·硬约束).
+
+Two layers: the pure :class:`WriteCoordinator` ownership rules, and the
+``FileWriteTool`` end-to-end behaviour when a coordinator is wired onto the context
+(concurrent sibling refused; dependency overwrite allowed; no-coordinator path inert).
+"""
+
+import json
+from pathlib import Path
+
+from agentcore.llm.provider.protocol import ToolCall, ToolCallFunction
+from agentcore.runtime.engine.tool_exec import execute_tools
+from agentcore.runtime.events import EventSink
+from agentcore.runtime.loop_controller import DEFAULT_TOOL_FAILURE_DISABLE, LoopController
+from agentcore.tools.builtin.file_ops import FileAppendTool, FileWriteTool
+from agentcore.tools.protocol import ToolContext
+from agentcore.tools.registry import ToolRegistry
+from agentcore.tools.sandbox.subprocess import SubprocessSandbox
+from agentcore.workspace.server import ServerWorkspace
+from agentcore.workspace.write_claims import WriteCoordinator
+
+
+def _ctx(
+    workspace: Path,
+    *,
+    run_id: str = "s",
+    coordinator: WriteCoordinator | None = None,
+    ancestors: frozenset[str] = frozenset(),
+) -> ToolContext:
+    return ToolContext(
+        execution_id="e",
+        run_id=run_id,
+        agent_id="a",
+        backend=ServerWorkspace(root=workspace, sandbox=SubprocessSandbox()),
+        user_id="u",
+        write_coordinator=coordinator,
+        write_ancestors=ancestors,
+    )
+
+
+# --- WriteCoordinator unit rules ---
+
+
+def test_first_claim_granted():
+    c = WriteCoordinator()
+    assert c.claim("report.md", "a", frozenset()) is None
+
+
+def test_concurrent_sibling_conflicts():
+    c = WriteCoordinator()
+    assert c.claim("report.md", "a", frozenset()) is None
+    # b has no dependency on a → blocked, told who owns it.
+    assert c.claim("report.md", "b", frozenset()) == "a"
+
+
+def test_same_run_may_rewrite_its_own_file():
+    c = WriteCoordinator()
+    assert c.claim("report.md", "a", frozenset()) is None
+    # A contract retry re-writes the same path under the same run → allowed.
+    assert c.claim("report.md", "a", frozenset()) is None
+
+
+def test_descendant_may_overwrite_ancestor_file():
+    c = WriteCoordinator()
+    assert c.claim("report.md", "upstream", frozenset()) is None
+    # d depends on upstream → consolidating its product is intended, not a clobber.
+    assert c.claim("report.md", "d", frozenset({"upstream"})) is None
+    # ownership transferred to d: a fresh unrelated sibling now conflicts with d.
+    assert c.claim("report.md", "e", frozenset()) == "d"
+
+
+def test_paths_normalized_to_one_owner():
+    c = WriteCoordinator()
+    assert c.claim("out/report.md", "a", frozenset()) is None
+    # ./out/report.md and out//report.md are the same file → same conflict.
+    assert c.claim("./out/report.md", "b", frozenset()) == "a"
+    assert c.claim("out//report.md", "b", frozenset()) == "a"
+
+
+def test_release_frees_a_failed_write():
+    c = WriteCoordinator()
+    assert c.claim("report.md", "a", frozenset()) is None
+    c.release("report.md", "a")
+    # a never really wrote it (write failed) → b is free to take the name.
+    assert c.claim("report.md", "b", frozenset()) is None
+
+
+def test_release_only_affects_the_owner():
+    c = WriteCoordinator()
+    assert c.claim("report.md", "a", frozenset()) is None
+    # b doesn't own it; its release is a no-op (can't free a's claim).
+    c.release("report.md", "b")
+    assert c.claim("report.md", "b", frozenset()) == "a"
+
+
+# --- FileWriteTool end-to-end ---
+
+
+async def test_concurrent_sibling_write_is_refused_and_does_not_clobber(tmp_path: Path):
+    coordinator = WriteCoordinator()
+    a = await FileWriteTool().execute(
+        {"path": "report.md", "content": "from-A"},
+        _ctx(tmp_path, run_id="a", coordinator=coordinator),
+    )
+    assert a.success is True
+
+    b = await FileWriteTool().execute(
+        {"path": "report.md", "content": "from-B"},
+        _ctx(tmp_path, run_id="b", coordinator=coordinator),
+    )
+    assert b.success is False
+    assert "写入冲突" in b.error
+    assert "`a`" in b.error or "owner" in b.error.lower() or "负责" in b.error
+    # A's deliverable survives — B never overwrote it.
+    assert (tmp_path / "report.md").read_text(encoding="utf-8") == "from-A"
+
+
+async def test_dependency_overwrite_is_allowed(tmp_path: Path):
+    coordinator = WriteCoordinator()
+    await FileWriteTool().execute(
+        {"path": "report.md", "content": "draft"},
+        _ctx(tmp_path, run_id="up", coordinator=coordinator),
+    )
+    # downstream depends on "up" → may consolidate (overwrite) its file.
+    d = await FileWriteTool().execute(
+        {"path": "report.md", "content": "final"},
+        _ctx(tmp_path, run_id="down", coordinator=coordinator, ancestors=frozenset({"up"})),
+    )
+    assert d.success is True
+    assert (tmp_path / "report.md").read_text(encoding="utf-8") == "final"
+
+
+async def test_write_conflict_result_is_contract_failure(tmp_path: Path):
+    """并发写冲突回执标 contract_failure（自我纠正型参数打回）——file_write 与 file_append 对称。"""
+    coordinator = WriteCoordinator()
+    await FileWriteTool().execute(
+        {"path": "report.md", "content": "from-A"},
+        _ctx(tmp_path, run_id="a", coordinator=coordinator),
+    )
+    # A concurrent sibling's file_write onto A's claimed path collides.
+    w = await FileWriteTool().execute(
+        {"path": "report.md", "content": "from-B"},
+        _ctx(tmp_path, run_id="b", coordinator=coordinator),
+    )
+    assert w.success is False
+    assert w.contract_failure is True
+
+    # file_append onto the same claimed path collides identically.
+    ap = await FileAppendTool().execute(
+        {"path": "report.md", "content": "more"},
+        _ctx(tmp_path, run_id="c", coordinator=coordinator),
+    )
+    assert ap.success is False
+    assert ap.contract_failure is True
+
+
+async def test_write_conflict_does_not_trip_run_circuit_breaker(tmp_path: Path):
+    """写冲突经 execute_tools→LoopController 不计入 run 级熔断：同批连撞不烧穿禁用阈值。"""
+    coordinator = WriteCoordinator()
+    a = await FileWriteTool().execute(
+        {"path": "report.md", "content": "from-A"},
+        _ctx(tmp_path, run_id="a", coordinator=coordinator),
+    )
+    assert a.success is True
+
+    reg = ToolRegistry()
+    reg.register(FileWriteTool())
+    controller = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    # A concurrent sibling collides more times than the disable threshold.
+    for _ in range(DEFAULT_TOOL_FAILURE_DISABLE + 1):
+        tc = ToolCall(
+            id="c",
+            function=ToolCallFunction(
+                name="file_write",
+                arguments=json.dumps({"path": "report.md", "content": "from-B"}),
+            ),
+        )
+        _msgs, _terminal, attempts = await execute_tools(
+            [tc], reg, _ctx(tmp_path, run_id="b", coordinator=coordinator), EventSink()
+        )
+        assert attempts[0].success is False
+        assert attempts[0].contract_failure is True  # forwarded from the ToolResult
+        controller.record(attempts)
+
+    # The run-scoped breaker never tallied the collisions → tool stays enabled.
+    assert controller.tool_failure_count("file_write") == 0
+    assert not controller.tool_circuit_breaker()
+    # A's deliverable survived every collision (B never overwrote it).
+    assert (tmp_path / "report.md").read_text(encoding="utf-8") == "from-A"
+
+
+async def test_no_coordinator_means_no_guard(tmp_path: Path):
+    # The CEO / tests path: without a coordinator, file_write is unguarded (two writes
+    # to the same path just overwrite, last-writer-wins — the pre-existing behaviour).
+    first = await FileWriteTool().execute(
+        {"path": "report.md", "content": "one"}, _ctx(tmp_path, run_id="a")
+    )
+    second = await FileWriteTool().execute(
+        {"path": "report.md", "content": "two"}, _ctx(tmp_path, run_id="b")
+    )
+    assert first.success is True
+    assert second.success is True
+    assert (tmp_path / "report.md").read_text(encoding="utf-8") == "two"
+
+
+# --- C3: str_replace / write_section / declare / transfer ---
+
+
+async def test_str_replace_respects_ownership(tmp_path: Path):
+    from agentcore.tools.builtin.file_ops import StrReplaceTool
+
+    coordinator = WriteCoordinator()
+    (tmp_path / "App.tsx").write_text(" cons ", encoding="utf-8")
+    await FileWriteTool().execute(
+        {"path": "App.tsx", "content": "from-integration"},
+        _ctx(tmp_path, run_id="integration", coordinator=coordinator),
+    )
+    r = await StrReplaceTool().execute(
+        {"path": "App.tsx", "old_string": "from-integration", "new_string": "hijack"},
+        _ctx(tmp_path, run_id="frontend", coordinator=coordinator),
+    )
+    assert r.success is False
+    assert "integration" in (r.error or "")
+    assert "负责" in (r.error or "")
+    assert (tmp_path / "App.tsx").read_text(encoding="utf-8") == "from-integration"
+
+
+def test_declare_and_completed_owner_still_blocks():
+    c = WriteCoordinator()
+    assert c.declare("site/index.html", "skeleton", frozenset()) is None
+    # Completed owner still holds — sibling cannot declare or claim.
+    assert c.declare("site/index.html", "frontend", frozenset()) == "skeleton"
+    assert c.claim("site/index.html", "frontend", frozenset()) == "skeleton"
+
+
+def test_replaces_transfers_ownership():
+    c = WriteCoordinator()
+    c.declare("App.tsx", "old_fe", frozenset())
+    moved = c.transfer_all_from("old_fe", "new_fe")
+    assert "App.tsx" in moved
+    assert c.owner_of("App.tsx") == "new_fe"
+    assert c.claim("App.tsx", "new_fe", frozenset()) is None
+
+
+def test_force_claim_transfers():
+    c = WriteCoordinator()
+    c.claim("x.md", "a", frozenset())
+    assert c.claim("x.md", "b", frozenset(), force=True) is None
+    assert c.owner_of("x.md") == "b"
+
+
+def test_ownership_snapshot_roundtrip():
+    c = WriteCoordinator()
+    c.declare("a/b.md", "w1", frozenset())
+    restored = WriteCoordinator.from_dict(c.to_dict())
+    assert restored.owner_of("a/b.md") == "w1"
+    assert restored.claim("a/b.md", "w2", frozenset()) == "w1"

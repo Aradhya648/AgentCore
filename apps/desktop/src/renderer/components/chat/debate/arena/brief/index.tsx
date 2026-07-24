@@ -1,0 +1,753 @@
+import { Button } from "@/components/ui";
+import {
+  brandPanelPrimary,
+  confidenceLabel,
+  confidencePill,
+  statusAccentText,
+  statusPillInline,
+  surfaceSubtle,
+} from "@/components/ui/tone-presets";
+import { useComposerDraftStore } from "@/stores/composer";
+import type {
+  DebateBriefInfo,
+  DebateHandoffInfo,
+  DebateSideInfo,
+} from "@/types/events";
+import {
+  Check,
+  GitCompare,
+  Lightbulb,
+  MessagesSquare,
+  Scale,
+  SearchCheck,
+  ShieldAlert,
+  ShieldCheck,
+  Swords,
+  Target,
+  UserRound,
+  Users,
+} from "lucide-react";
+import type { ReactNode } from "react";
+import { SideIdentity } from "../../SideChip";
+import {
+  FINDING_SEVERITY,
+  FINDING_STATUS,
+  findingDispositionLabel,
+  gateLabel,
+  sortFindings,
+} from "../../findings";
+import {
+  type DebateForm,
+  type DebateScoreView,
+  debateSideColorVar,
+} from "../../model";
+import {
+  RISK_LEVELS,
+  RISK_SEVERITY,
+  type RiskItem,
+  type RiskLevel,
+  buildRiskItems,
+  rankOf,
+  riskCounts,
+} from "../../severity";
+import { ConsensusMap } from "../ConsensusMap";
+import { ScoreBreakdown, formatNetTotal } from "../ScoreBreakdown";
+
+/** 交接清单 kind；坏 kind 容错归 question（契约不变）。 */
+type HandoffKind = "value" | "fact" | "question";
+
+function asHandoffKind(raw: string): HandoffKind {
+  return raw === "value" || raw === "fact" || raw === "question"
+    ? raw
+    : "question";
+}
+
+function briefHandoffs(brief: DebateBriefInfo): DebateHandoffInfo[] {
+  return (brief.handoffs ?? []).map((h) => ({
+    kind: asHandoffKind(h.kind),
+    text: h.text,
+  }));
+}
+
+function prefillDecide(text: string): void {
+  useComposerDraftStore
+    .getState()
+    .fill(`关于「${text}」，我的取舍是：`, "append");
+}
+
+function prefillVerify(text: string): void {
+  useComposerDraftStore.getState().fill(`帮我查证：${text}`, "append");
+}
+
+export function BriefCard({
+  brief,
+  sides,
+  form,
+  scores,
+  stanceAgree,
+}: {
+  brief: DebateBriefInfo;
+  sides: DebateSideInfo[];
+  form: DebateForm;
+  scores?: DebateScoreView[];
+  /** 你的站队与 AI 累计净分最高方是否一致；null = 未站队 / 平分。 */
+  stanceAgree?: boolean | null;
+}) {
+  if (form === "red_team") return <RedTeamBrief brief={brief} sides={sides} />;
+  if (form === "roundtable") return <RoundtableBrief brief={brief} />;
+  return (
+    <DebateBrief
+      brief={brief}
+      sides={sides}
+      scores={scores}
+      stanceAgree={stanceAgree}
+    />
+  );
+}
+
+/** 正反：① 裁决 → ② 战果对照 → ③ 留给你的 */
+function DebateBrief({
+  brief,
+  sides,
+  scores,
+  stanceAgree,
+}: {
+  brief: DebateBriefInfo;
+  sides: DebateSideInfo[];
+  scores?: DebateScoreView[];
+  stanceAgree?: boolean | null;
+}) {
+  return (
+    <div className="space-y-4">
+      <VerdictCard brief={brief} form="debate" />
+      <SideOutcomeCompare
+        sides={sides}
+        points={brief.strongest_points}
+        scores={scores}
+        stanceAgree={stanceAgree}
+      />
+      <YourCallZone
+        handoffs={briefHandoffs(brief)}
+        recommendation={brief.recommendation}
+        form="debate"
+      />
+    </div>
+  );
+}
+
+/** 红队同构：① 门决评定 → ② finding 台账（或旧 RiskBoard 降级）→ ③ 留给你的 */
+function RedTeamBrief({
+  brief,
+  sides,
+}: {
+  brief: DebateBriefInfo;
+  sides: DebateSideInfo[];
+}) {
+  const subject = sides.find((s) => s.is_subject) ?? null;
+  const findings = brief.findings ?? [];
+  const hasFindings = findings.length > 0;
+  const risks = hasFindings ? [] : buildRiskItems(sides, brief);
+  const defense = subject ? brief.strongest_points[subject.key] : undefined;
+  const mustFix = brief.must_fix ?? [];
+  return (
+    <div className="space-y-4">
+      <VerdictCard brief={brief} form="red_team" />
+      {hasFindings ? (
+        <BriefFindingBoard
+          findings={findings}
+          sides={sides}
+          mustFix={mustFix}
+        />
+      ) : (
+        <div className="space-y-3">
+          <RiskBoard risks={risks} />
+          {defense && subject && (
+            <div>
+              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                <ShieldCheck size={14} className="text-muted-foreground" />
+                <span className="text-xs font-medium text-muted-foreground">
+                  方案方回应
+                </span>
+                <SideIdentity
+                  name={subject.name}
+                  colorVar={debateSideColorVar(subject.key, subject.name)}
+                  model={subject.model}
+                />
+              </div>
+              <p className="text-sm text-foreground">{defense}</p>
+            </div>
+          )}
+        </div>
+      )}
+      <YourCallZone
+        handoffs={briefHandoffs(brief)}
+        recommendation={brief.recommendation}
+        form="red_team"
+      />
+    </div>
+  );
+}
+
+/** 终审区 finding 摘要台账（结构字段；全文已在轮内英雄区）。 */
+function BriefFindingBoard({
+  findings,
+  sides,
+  mustFix,
+}: {
+  findings: NonNullable<DebateBriefInfo["findings"]>;
+  sides: DebateSideInfo[];
+  mustFix: string[];
+}) {
+  const nameByKey = new Map(sides.map((s) => [s.key, s.name]));
+  const ordered = sortFindings(findings);
+  const mustSet = new Set(mustFix);
+  return (
+    <div>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <h4 className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <ShieldAlert size={14} />
+          Finding 下场
+        </h4>
+        {mustFix.length > 0 && (
+          <span className={statusPillInline.destructive}>
+            must-fix {mustFix.length}
+          </span>
+        )}
+      </div>
+      <ul className="space-y-1.5">
+        {ordered.map((f) => {
+          const sev = FINDING_SEVERITY[f.severity];
+          const st = FINDING_STATUS[f.status];
+          const attacker = nameByKey.get(f.attacker_key) ?? f.attacker_key;
+          const disposition = findingDispositionLabel(f.disposition ?? "");
+          return (
+            <li key={f.id} className={sev.surface}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={sev.pill}>{sev.label}</span>
+                <span className={st.pill}>{st.label}</span>
+                {mustSet.has(f.id) && (
+                  <span className={statusPillInline.destructive}>must-fix</span>
+                )}
+                <SideIdentity
+                  name={attacker}
+                  colorVar={debateSideColorVar(f.attacker_key, attacker)}
+                />
+              </div>
+              <p className="mt-1 text-sm text-foreground">
+                {f.target}
+                {disposition ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · 处置 {disposition}
+                  </span>
+                ) : null}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * ① 裁决卡（带边框）：纯判断区——结论倾向大字 + 置信；
+ * 胜负手作卡内次级「理由」行；争点仅红队保留（正反不渲染）。
+ * recommendation 已迁至 YourCallZone。
+ */
+function VerdictCard({
+  brief,
+  form,
+}: {
+  brief: DebateBriefInfo;
+  form: "debate" | "red_team";
+}) {
+  const label = form === "red_team" ? "方案评定" : "结论倾向";
+  const level = confidenceLevel(brief.confidence);
+  const gate = form === "red_team" ? gateLabel(brief.gate) : null;
+  const showCrux = form === "red_team" && !!brief.crux;
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <Scale size={13} />
+          {label}
+        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {gate && <span className={statusPillInline.primary}>{gate}</span>}
+          <span
+            className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${confidencePill[level]}`}
+          >
+            置信 {confidenceLabel[level]}
+          </span>
+        </div>
+      </div>
+      <p className="mt-2 text-xl font-semibold leading-snug text-foreground">
+        {brief.leaning}
+      </p>
+      {(brief.decisive || showCrux) && (
+        <div className="mt-3 space-y-1.5 border-t border-border pt-3">
+          {brief.decisive && (
+            <ReasonRow
+              icon={<Swords size={13} />}
+              label={form === "red_team" ? "定门决" : "胜负手"}
+            >
+              {brief.decisive}
+            </ReasonRow>
+          )}
+          {showCrux && (
+            <ReasonRow icon={<Target size={13} />} label="争点">
+              {brief.crux}
+            </ReasonRow>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReasonRow({
+  icon,
+  label,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <span>
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="mx-1">·</span>
+        {children}
+      </span>
+    </p>
+  );
+}
+
+/**
+ * ② 战果对照（开放区）：每方 = 身份 + 净分 + 比分条 + 三维构成（常驻）+ 罚分可展开 + 最强论点；
+ * 累计净分最高方标「AI 倾向」；站队软对照收进标题行。
+ */
+function SideOutcomeCompare({
+  sides,
+  points,
+  scores,
+  stanceAgree,
+}: {
+  sides: DebateSideInfo[];
+  points: Record<string, string>;
+  scores?: DebateScoreView[];
+  stanceAgree?: boolean | null;
+}) {
+  const scoreByKey = new Map((scores ?? []).map((s) => [s.sideKey, s]));
+  const leanKey = aiLeanSideKey(sides, scores);
+  const maxAbs = Math.max(
+    1,
+    ...sides.map((s) => Math.abs(scoreByKey.get(s.key)?.total ?? 0)),
+  );
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h3 className="text-sm font-semibold text-foreground">战果对照</h3>
+        {stanceAgree !== null && stanceAgree !== undefined && (
+          <StanceSoftCompare agree={stanceAgree} />
+        )}
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {sides.map((s) => {
+          const colorVar = debateSideColorVar(s.key, s.name);
+          const score = scoreByKey.get(s.key);
+          const isLean = leanKey === s.key;
+          const barPct =
+            score === undefined
+              ? 0
+              : Math.round((Math.abs(score.total) / maxAbs) * 100);
+          return (
+            <div key={s.key} className="min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <SideIdentity name={s.name} colorVar={colorVar} />
+                  {isLean && (
+                    <span className={statusPillInline.primary}>AI 倾向</span>
+                  )}
+                </div>
+                {score !== undefined && (
+                  <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-xs font-semibold tabular-nums text-foreground">
+                    净 {formatNetTotal(score.total)}
+                  </span>
+                )}
+              </div>
+              {score !== undefined && (
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full transition-[width]"
+                    style={{
+                      width: `${barPct}%`,
+                      backgroundColor: colorVar,
+                    }}
+                  />
+                </div>
+              )}
+              {score !== undefined && (
+                <ScoreBreakdown
+                  score={score}
+                  density="comfortable"
+                  penalties="expandable"
+                />
+              )}
+              <div className="border-l-2 border-border pl-2.5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  最强论点
+                </span>
+                <p className="mt-1 text-sm text-foreground">
+                  {points[s.key] ?? "—"}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StanceSoftCompare({ agree }: { agree: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs ${agree ? statusAccentText.success : statusAccentText.muted}`}
+    >
+      {agree ? <Check size={12} /> : <GitCompare size={12} />}
+      {agree ? "你的倾向与 AI 一致" : "你的倾向与 AI 不同"}
+    </span>
+  );
+}
+
+/** 累计净分唯一最高方；平分或无数则无倾向 chip。 */
+function aiLeanSideKey(
+  sides: DebateSideInfo[],
+  scores?: DebateScoreView[],
+): string | null {
+  if (!scores || scores.length === 0) return null;
+  const byKey = new Map(scores.map((s) => [s.sideKey, s.total]));
+  const ranked = sides
+    .map((s) => ({
+      key: s.key,
+      total: byKey.get(s.key) ?? Number.NEGATIVE_INFINITY,
+    }))
+    .sort((a, b) => b.total - a.total);
+  if (ranked.length < 2) return ranked[0]?.key ?? null;
+  if (ranked[0].total === ranked[1].total) return null;
+  if (!Number.isFinite(ranked[0].total)) return null;
+  return ranked[0].key;
+}
+
+function RiskBoard({ risks }: { risks: RiskItem[] }) {
+  if (risks.length === 0) return null;
+  const counts = riskCounts(risks);
+  const ordered = [...risks].sort((a, b) => rankOf(a.level) - rankOf(b.level));
+  return (
+    <div>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <h4 className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <ShieldAlert size={14} />
+          风险清单
+        </h4>
+        <RiskTally counts={counts} />
+      </div>
+      <ul className="space-y-1.5">
+        {ordered.map((r) => {
+          const meta = r.level ? RISK_SEVERITY[r.level] : null;
+          return (
+            <li
+              key={r.side.key}
+              className={meta?.surface ?? "border-l-2 border-border pl-2.5"}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <SideIdentity
+                  name={r.side.name}
+                  colorVar={debateSideColorVar(r.side.key, r.side.name)}
+                />
+                {meta && <span className={meta.pill}>{meta.label}</span>}
+              </div>
+              <p className="mt-1 text-sm text-foreground">{r.text}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function RiskTally({ counts }: { counts: Record<RiskLevel, number> }) {
+  const shown = RISK_LEVELS.filter((l) => counts[l] > 0);
+  if (shown.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1">
+      {shown.map((l) => (
+        <span key={l} className={RISK_SEVERITY[l].pill}>
+          {RISK_SEVERITY[l].label} {counts[l]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 圆桌：有 consensus_map → 共识/分歧地图；否则降级旧观点光谱。
+ * 共同焦点 / 分歧由 RoundtableBrief → ③ 区处理。
+ */
+export function RoundtableSpectrum({
+  brief,
+  sides,
+  subtopics,
+}: {
+  brief: DebateBriefInfo;
+  sides: DebateSideInfo[];
+  subtopics?: string[] | null;
+}) {
+  const map = brief.consensus_map ?? [];
+  if (map.length > 0) {
+    return (
+      <ConsensusMap
+        items={map}
+        sides={sides}
+        subtopics={subtopics}
+        strongestPoints={brief.strongest_points}
+        leaning={brief.leaning}
+        recommendation={brief.recommendation}
+      />
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        <Users size={15} className="text-muted-foreground" />
+        圆桌观点光谱
+      </h3>
+      <SidePointsGrid
+        label="各视角核心主张"
+        sides={sides}
+        points={brief.strongest_points}
+      />
+      {brief.leaning && (
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+          <h4 className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <MessagesSquare size={14} />
+            综合观察
+          </h4>
+          <p className="text-sm text-foreground">{brief.leaning}</p>
+          {brief.recommendation && (
+            <p className="mt-1.5 flex items-start gap-1.5 text-sm text-muted-foreground">
+              <Lightbulb size={14} className="mt-0.5 shrink-0" />
+              <span>
+                <span className="font-medium text-foreground">建议：</span>
+                {brief.recommendation}
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 圆桌 ③：共同焦点 + 留给你的 */
+function RoundtableBrief({
+  brief,
+}: {
+  brief: DebateBriefInfo;
+}) {
+  const handoffs = briefHandoffs(brief);
+  if (!brief.crux && handoffs.length === 0) {
+    return null;
+  }
+  return (
+    <div className="space-y-4">
+      {brief.crux && (
+        <p className="flex items-start gap-1.5 text-sm text-foreground">
+          <Target size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <span>
+            <span className="font-medium">共同焦点：</span>
+            {brief.crux}
+          </span>
+        </p>
+      )}
+      <YourCallZone handoffs={handoffs} />
+    </div>
+  );
+}
+
+/**
+ * ③ 留给你的（完整行动面板）：顶部 AI 建议位，其后按 kind 三种异质形态——
+ *   value → 问句卡置顶高光 +「回复拍板」；
+ *   fact → 可查证任务列表 +「派查证」；
+ *   question → 脚注一行收尾（不与前两者平级）。
+ * handoffs 全空但有 recommendation 时仍渲染面板。
+ * 圆桌不传 recommendation（建议仍留在 RoundtableSpectrum「综合观察」）。
+ */
+function YourCallZone({
+  handoffs,
+  recommendation,
+  form,
+}: {
+  handoffs: DebateHandoffInfo[];
+  recommendation?: string;
+  form?: "debate" | "red_team";
+}) {
+  const values = handoffs.filter((h) => asHandoffKind(h.kind) === "value");
+  const facts = handoffs.filter((h) => asHandoffKind(h.kind) === "fact");
+  const questions = handoffs.filter(
+    (h) => asHandoffKind(h.kind) === "question",
+  );
+  const hasHandoffs =
+    values.length > 0 || facts.length > 0 || questions.length > 0;
+  if (!hasHandoffs && !recommendation) {
+    return null;
+  }
+
+  const recLabel = form === "red_team" ? "加固建议" : "建议";
+
+  return (
+    <div className={brandPanelPrimary}>
+      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        <UserRound size={15} className="text-primary" />
+        留给你的
+      </h3>
+      {recommendation && (
+        <p className="flex items-start gap-1.5 text-sm text-foreground">
+          <Lightbulb
+            size={14}
+            className="mt-0.5 shrink-0 text-muted-foreground"
+          />
+          <span>
+            <span className="font-medium">{recLabel}：</span>
+            {recommendation}
+          </span>
+        </p>
+      )}
+      {values.length > 0 && (
+        <div
+          className={
+            recommendation
+              ? "space-y-2 border-t border-primary/15 pt-3"
+              : "space-y-2"
+          }
+        >
+          {values.map((it) => (
+            <ValueCallCard key={it.text} text={it.text} />
+          ))}
+        </div>
+      )}
+      {facts.length > 0 && (
+        <ul
+          className={
+            values.length > 0 || recommendation
+              ? "space-y-2 border-t border-primary/15 pt-3"
+              : "space-y-2"
+          }
+        >
+          {facts.map((it) => (
+            <FactVerifyRow key={it.text} text={it.text} />
+          ))}
+        </ul>
+      )}
+      {questions.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          只能等的：{questions.map((h) => h.text).join("；")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** value：整场化简出的选择题——问句形态高光卡 + 回复拍板预填。
+ *  问号兜底仅当末尾无终结标点（历史数据是「。」收尾的陈述句，别拼成「。？」）。 */
+function ValueCallCard({ text }: { text: string }) {
+  const questionMark = /[？?。！!…]$/.test(text) ? "" : "？";
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between ${surfaceSubtle.primary}`}
+    >
+      <p className="min-w-0 flex-1 text-base font-medium leading-snug text-foreground">
+        {text}
+        {questionMark ? (
+          <span className="text-primary">{questionMark}</span>
+        ) : null}
+      </p>
+      <Button
+        variant="primary"
+        size="sm"
+        className="shrink-0 self-start"
+        onClick={() => prefillDecide(text)}
+      >
+        回复拍板
+      </Button>
+    </div>
+  );
+}
+
+/** fact：还撑不牢的事实——任务行 + 派查证预填（AI 可接手）。 */
+function FactVerifyRow({ text }: { text: string }) {
+  return (
+    <li className="flex items-start justify-between gap-2">
+      <span className="min-w-0 flex-1 text-sm text-foreground">{text}</span>
+      <Button
+        variant="neutral"
+        size="sm"
+        className="shrink-0 border border-border"
+        icon={<SearchCheck size={13} />}
+        onClick={() => prefillVerify(text)}
+      >
+        派查证
+      </Button>
+    </li>
+  );
+}
+
+/** 圆桌光谱等轻量网格（无比分条）。 */
+function SidePointsGrid({
+  label,
+  sides,
+  points,
+}: {
+  label: string;
+  sides: DebateSideInfo[];
+  points: Record<string, string>;
+}) {
+  return (
+    <div>
+      <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">
+        {label}
+      </h4>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {sides.map((s) => {
+          const colorVar = debateSideColorVar(s.key, s.name);
+          return (
+            <div key={s.key} className="border-l-2 border-border pl-2.5">
+              <SideIdentity name={s.name} colorVar={colorVar} />
+              <p className="mt-1 text-sm text-foreground">
+                {points[s.key] ?? "—"}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const CONFIDENCE_LEVELS = ["high", "medium", "low"] as const;
+type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
+
+function confidenceLevel(raw: string): ConfidenceLevel {
+  const s = raw.toLowerCase();
+  if (CONFIDENCE_LEVELS.includes(s as ConfidenceLevel))
+    return s as ConfidenceLevel;
+  if (s.includes("high") || raw.includes("高")) return "high";
+  if (s.includes("low") || raw.includes("低")) return "low";
+  return "medium";
+}

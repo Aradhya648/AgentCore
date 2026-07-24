@@ -1,0 +1,184 @@
+/*
+ * AgentCore semantic OKLCH tokens — single source for desktop (+ mobile mirrors
+ * light values in mobile-light.css). Hue 255 = brand blue.
+ *
+ * Brand migration (方案 3 · 分步)：
+ * - Step 0 ✅ sidebar cool gray (hue 250)
+ * - Step 1–2 ↩ reverted — surfaces + primary back to pre-migration
+ */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.15 0.01 255);
+  --card: var(--background);
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.55 0.18 255);
+  --primary-foreground: oklch(0.985 0.01 255);
+  --muted: oklch(0.97 0.006 255);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --muted-foreground: oklch(0.55 0.02 255);
+  --accent: oklch(0.96 0.012 255);
+  --accent-foreground: oklch(0.25 0.03 255);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.985 0.01 27);
+  --success: oklch(0.55 0.14 152);
+  --success-foreground: oklch(0.985 0.02 152);
+  --warning: oklch(0.66 0.15 65);
+  --warning-foreground: oklch(0.25 0.05 65);
+  --border: oklch(0.92 0.008 255);
+  --input: var(--border);
+  --ring: var(--primary);
+  --overlay: oklch(0 0 0 / 0.45);
+  --scrollbar-thumb: oklch(0.8 0.012 255 / 0.8);
+  --scrollbar-thumb-hover: oklch(0.62 0.02 255 / 0.9);
+
+  /* Sidebar chrome: cool gray (hue 250, low chroma) — distinct from brand blue 255. */
+  --sidebar: oklch(0.97 0.004 250);
+  --sidebar-foreground: oklch(0.18 0.006 250);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.93 0.006 250);
+  --sidebar-accent-foreground: oklch(0.5 0.17 255);
+  --sidebar-border: oklch(0.9 0.005 250);
+  --sidebar-ring: var(--primary);
+  --sidebar-gradient: linear-gradient(
+    180deg,
+    oklch(0.965 0.005 250),
+    oklch(0.985 0.002 255)
+  );
+
+  --syntax-keyword: oklch(0.5 0.18 300);
+  --syntax-string: oklch(0.5 0.13 150);
+  --syntax-number: oklch(0.55 0.15 50);
+  --syntax-comment: oklch(0.6 0.02 255);
+  --syntax-function: oklch(0.5 0.16 255);
+  --syntax-attr: oklch(0.52 0.12 220);
+  --syntax-builtin: oklch(0.55 0.16 25);
+
+  /* 身份色（角色头像，非状态）：低彩度「安静底色」+ 色相全部避开状态色相
+   * (destructive 27 / warning 65 / success 152 / primary 255)，故一个绿/蓝头像
+   * 不会被误读成「已完成 / 运行中」。彩度 0.07 = 状态色的一半，确保身份永不冒充状态。
+   * 主要辨识仍靠字形 monogram，颜色只承载「同一拨人」的连续性。 */
+  --agent-1: oklch(0.58 0.07 95);
+  --agent-2: oklch(0.58 0.07 120);
+  --agent-3: oklch(0.58 0.07 180);
+  --agent-4: oklch(0.58 0.07 205);
+  --agent-5: oklch(0.58 0.07 230);
+  --agent-6: oklch(0.58 0.07 285);
+  --agent-7: oklch(0.58 0.07 310);
+  --agent-8: oklch(0.58 0.07 335);
+
+  /* 辩论二元对立（阵营色，非状态）：pro=蓝 / con=红，一眼可读 VS 对垒。
+   * 彩度 0.11 介于 agent(0.07) 与 status(~0.18+) 之间——比身份色更醒目、不像错误/运行徽章。
+   * 色相避开 status 带（primary 255 / destructive 27 / success 152 / warning 65）。 */
+  --debate-side-pro: oklch(0.58 0.11 225);
+  --debate-side-con: oklch(0.58 0.11 25);
+
+  /* Creation-tool / catalog type identity (toolbox, file tree — not run status). */
+  --artifact-doc: oklch(0.58 0.14 255);
+  --artifact-mindmap: oklch(0.58 0.14 290);
+  --artifact-table: oklch(0.58 0.14 140);
+  --artifact-canvas: oklch(0.58 0.14 25);
+  --artifact-slides: oklch(0.58 0.14 65);
+  --artifact-app: oklch(0.58 0.14 200);
+  --artifact-diagram: oklch(0.58 0.14 245);
+  --artifact-form: oklch(0.58 0.14 335);
+  --artifact-connectors: oklch(0.58 0.14 180);
+  --artifact-workflow: oklch(0.58 0.14 300);
+  --artifact-manual: oklch(0.58 0.14 50);
+
+  --catalog-research: oklch(0.58 0.14 200);
+  --catalog-search: oklch(0.58 0.14 65);
+  --catalog-filesystem: oklch(0.58 0.14 220);
+  --catalog-execution: oklch(0.58 0.14 25);
+  --catalog-orchestration: oklch(0.58 0.14 290);
+  --catalog-skill: oklch(0.58 0.14 155);
+  --catalog-interaction: oklch(0.58 0.14 335);
+}
+
+.dark {
+  --background: oklch(0.16 0.01 255);
+  --foreground: oklch(0.98 0.005 255);
+  --card: var(--background);
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.62 0.18 255);
+  --primary-foreground: oklch(0.985 0.01 255);
+  --muted: oklch(0.25 0.015 255);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --muted-foreground: oklch(0.71 0.02 255);
+  --accent: oklch(0.27 0.02 255);
+  --accent-foreground: oklch(0.98 0.005 255);
+  --destructive: oklch(0.62 0.2 27);
+  --destructive-foreground: oklch(0.985 0.01 27);
+  --success: oklch(0.7 0.16 155);
+  --success-foreground: oklch(0.16 0.03 155);
+  --warning: oklch(0.8 0.15 75);
+  --warning-foreground: oklch(0.2 0.04 75);
+  --border: oklch(0.27 0.015 255);
+  --input: var(--border);
+  --ring: var(--primary);
+  --overlay: oklch(0 0 0 / 0.6);
+  --scrollbar-thumb: oklch(0.42 0.015 255 / 0.75);
+  --scrollbar-thumb-hover: oklch(0.58 0.02 255 / 0.9);
+
+  /* Sidebar chrome: cool gray (matches light; hue 250). */
+  --sidebar: oklch(0.17 0.004 250);
+  --sidebar-foreground: oklch(0.96 0.003 250);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.24 0.006 250);
+  --sidebar-accent-foreground: oklch(0.78 0.13 255);
+  --sidebar-border: oklch(0.25 0.004 250);
+  --sidebar-ring: var(--primary);
+  --sidebar-gradient: linear-gradient(
+    180deg,
+    oklch(0.175 0.005 250),
+    oklch(0.15 0.003 255)
+  );
+
+  --syntax-keyword: oklch(0.78 0.13 300);
+  --syntax-string: oklch(0.8 0.13 150);
+  --syntax-number: oklch(0.8 0.12 60);
+  --syntax-comment: oklch(0.62 0.02 255);
+  --syntax-function: oklch(0.78 0.12 255);
+  --syntax-attr: oklch(0.8 0.1 210);
+  --syntax-builtin: oklch(0.78 0.14 25);
+
+  /* 身份色（暗色）：同亮度带低彩度 + 避开状态色相，见 :root 注释。 */
+  --agent-1: oklch(0.72 0.07 95);
+  --agent-2: oklch(0.72 0.07 120);
+  --agent-3: oklch(0.72 0.07 180);
+  --agent-4: oklch(0.72 0.07 205);
+  --agent-5: oklch(0.72 0.07 230);
+  --agent-6: oklch(0.72 0.07 285);
+  --agent-7: oklch(0.72 0.07 310);
+  --agent-8: oklch(0.72 0.07 335);
+
+  --debate-side-pro: oklch(0.72 0.11 225);
+  --debate-side-con: oklch(0.72 0.11 25);
+
+  --artifact-doc: oklch(0.72 0.14 255);
+  --artifact-mindmap: oklch(0.72 0.14 290);
+  --artifact-table: oklch(0.72 0.14 140);
+  --artifact-canvas: oklch(0.72 0.14 25);
+  --artifact-slides: oklch(0.72 0.14 65);
+  --artifact-app: oklch(0.72 0.14 200);
+  --artifact-diagram: oklch(0.72 0.14 245);
+  --artifact-form: oklch(0.72 0.14 335);
+  --artifact-connectors: oklch(0.72 0.14 180);
+  --artifact-workflow: oklch(0.72 0.14 300);
+  --artifact-manual: oklch(0.72 0.14 50);
+
+  --catalog-research: oklch(0.72 0.14 200);
+  --catalog-search: oklch(0.72 0.14 65);
+  --catalog-filesystem: oklch(0.72 0.14 220);
+  --catalog-execution: oklch(0.72 0.14 25);
+  --catalog-orchestration: oklch(0.72 0.14 290);
+  --catalog-skill: oklch(0.72 0.14 155);
+  --catalog-interaction: oklch(0.72 0.14 335);
+}

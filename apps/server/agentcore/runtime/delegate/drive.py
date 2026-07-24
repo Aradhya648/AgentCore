@@ -1,0 +1,473 @@
+"""WaveScheduler drive loop for a delegate plan.
+
+Public entry points (:func:`drive`, :func:`drive_coordinated`) stay here so
+external imports remain stable. Phase helpers live in sibling ``drive_*`` modules.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from agentcore.runtime.delegate.drive_finalize import finalize_drive
+from agentcore.runtime.delegate.drive_preview import team_preview_before_workers
+from agentcore.runtime.delegate.drive_redirect import RedirectController
+from agentcore.runtime.delegate.drive_setup import (
+    apply_delegation_grant,
+    build_drive_executor,
+    resolve_on_boundary,
+    resolve_worker_gate,
+    setup_note_wall,
+)
+from agentcore.runtime.delegate.drive_terminal import post_session_all_completed
+from agentcore.runtime.events import run_skipped
+from agentcore.runtime.runs.types import RunPhase, RunState
+from agentcore.tools.protocol import ToolResult
+
+if TYPE_CHECKING:
+    from agentcore.runtime.runs.plan import RunPlan
+
+# Drive host is the tools-side DelegateTool instance (duck-typed; no tools import).
+type DelegateTool = Any
+
+# Re-export for tests / callers that imported private helpers from this module.
+_team_preview_before_workers = team_preview_before_workers
+_post_session_all_completed = post_session_all_completed
+
+
+def _materialise_turn_token_budget_skips(
+    tool: DelegateTool,
+    plan: RunPlan,
+    results: dict[str, RunState],
+) -> None:
+    """After turn-ceiling / nested-envelope soft-stop: mark un-run tail SKIPPED.
+
+    Not a resume substrate. Page-QA skips stash ids on
+    ``tool._pending_light_website_qa_ids`` so :func:`_attach_light_website_gaps`
+    can append B3 shell gaps (missing critical files / residual ``{{…}}``).
+    """
+    from agentcore.core.logging import get_logger
+    from agentcore.runtime.turn_token_budget import (
+        REASON_TURN_TOKEN_BUDGET,
+        budget_skip_warning_for_active_scope,
+        current_nested_envelope,
+        current_turn_tokens,
+        honesty_gaps_for_skipped_delivery_node,
+        is_page_qa_delivery_node,
+        resolve_turn_token_ceiling,
+    )
+
+    logger = get_logger(__name__)
+    warning = budget_skip_warning_for_active_scope()
+    skipped_ids: list[str] = []
+    page_qa_ids: list[str] = []
+    for node in plan.nodes:
+        if node.run_id in results:
+            continue
+        gaps = [
+            {
+                "description": warning,
+                "reason": REASON_TURN_TOKEN_BUDGET,
+            },
+            *honesty_gaps_for_skipped_delivery_node(node),
+        ]
+        results[node.run_id] = RunState(
+            phase=RunPhase.SKIPPED,
+            warnings=[warning],
+            delivery_gaps=gaps,
+        )
+        agent_id = (node.agent_id if node.agent_id else "") or node.run_id
+        tool._sink.emit(run_skipped(node.run_id, agent_id, reason=REASON_TURN_TOKEN_BUDGET))
+        skipped_ids.append(node.run_id)
+        if is_page_qa_delivery_node(node):
+            page_qa_ids.append(node.run_id)
+    if skipped_ids:
+        nested = current_nested_envelope()
+        logger.info(
+            "delegate.turn_token_ceiling_skip",
+            skipped=len(skipped_ids),
+            spent=current_turn_tokens(),
+            ceiling=resolve_turn_token_ceiling(),
+            nested_envelope=nested.envelope if nested else None,
+            nested_baseline=nested.baseline if nested else None,
+            depth=getattr(tool, "_depth", None),
+        )
+    tool._pending_light_website_qa_ids = page_qa_ids
+
+
+async def _attach_light_website_gaps(
+    tool: DelegateTool,
+    results: dict[str, RunState],
+) -> None:
+    """B3: when page QA was ceiling-skipped, still run light shell acceptance."""
+    qa_ids = getattr(tool, "_pending_light_website_qa_ids", None) or []
+    if not qa_ids:
+        return
+    tool._pending_light_website_qa_ids = []
+    backend = getattr(getattr(tool, "_base_tool_context", None), "backend", None)
+    if backend is None:
+        return
+    from agentcore.runtime.runs.website_section import (
+        collect_light_website_acceptance_gaps,
+    )
+
+    light = await collect_light_website_acceptance_gaps(backend)
+    if not light:
+        return
+    for rid in qa_ids:
+        state = results.get(rid)
+        if state is None:
+            continue
+        existing = list(state.delivery_gaps or [])
+        existing.extend(light)
+        state.delivery_gaps = existing
+
+
+async def drive(
+    tool: DelegateTool,
+    plan: RunPlan,
+    *,
+    execution_id: str,
+    seed_completed: dict[str, RunState] | None,
+    finalize: bool,
+    seed_notes: list[dict[str, str]] | None = None,
+    complexity_hint: str = "standard",
+    coordination: str = "none",
+    call_idx: int | None = None,
+    completion_criteria: Any = None,
+    coordinate: bool = True,
+    session: Any = None,
+) -> ToolResult:
+    """Run ``plan`` through the WaveScheduler and fold workers' products into a CEO ToolResult.
+
+    When ``coordinate`` is true (default) and the gate passes (≥2 workers, root CEO,
+    not finalize), starts a background scheduler and returns immediately. Pass
+    ``coordinate=False`` for classic blocking. Pass ``session`` only from the
+    background task (:func:`drive_coordinated`).
+
+    ``team_preview`` runs on the CEO path **before** the coordinate fork so a durable
+    pause yields ``SUSPEND`` on the main loop (``message_end(paused)``), not only inside
+    the background task.
+    """
+    tool._pending_boundary = None
+    tool._pending_pause = False
+    # 本批次定格的委派序号（见 DelegateTool.execute）：同回合并发委派共享 tool._calls，完成侧
+    # 日志必须用调用时定格的值而非活动计数器。resume / checkpoint 重跑时只有单个委派在飞，回退
+    # 到活动计数器即可。
+    call_idx = call_idx if call_idx is not None else tool._calls
+
+    from agentcore.runtime.turn_token_budget import (
+        NestedEnvelopeRejected,
+        current_turn_tokens,
+        is_turn_token_ceiling_hit,
+        nested_turn_envelope_scope,
+        resolve_turn_token_ceiling,
+        turn_token_ceiling_reject_message,
+    )
+
+    depth = int(getattr(tool, "_depth", 0) or 0)
+
+    # Turn 顶已触：新开批拒绝；resume 续跑则跳过未跑尾并 finalize（不 cancel 已完成）。
+    # 嵌套信封开启时：父顶只决定「能否开工」；波内停靠信封（见下方 scope）。
+    if is_turn_token_ceiling_hit():
+        from agentcore.core.logging import get_logger
+
+        get_logger(__name__).info(
+            "delegate.turn_token_ceiling_rejected",
+            spent=current_turn_tokens(),
+            ceiling=resolve_turn_token_ceiling(),
+            via="drive",
+            has_seed=bool(seed_completed),
+            depth=depth,
+        )
+        if seed_completed:
+            results = dict(seed_completed)
+            _materialise_turn_token_budget_skips(tool, plan, results)
+            await _attach_light_website_gaps(tool, results)
+            return await finalize_drive(
+                tool,
+                plan,
+                results,
+                execution_id=execution_id,
+                finalize=finalize,
+                seed_completed=seed_completed,
+                completion_criteria=completion_criteria,
+                session=session,
+                call_idx=call_idx,
+                complexity_hint=complexity_hint,
+                batch_metrics=[],
+            )
+        return ToolResult(
+            tool_call_id="",
+            success=False,
+            output="",
+            error=turn_token_ceiling_reject_message(),
+            contract_failure=True,
+        )
+
+    try:
+        with nested_turn_envelope_scope(depth=depth):
+            return await _drive_body(
+                tool,
+                plan,
+                execution_id=execution_id,
+                seed_completed=seed_completed,
+                finalize=finalize,
+                seed_notes=seed_notes,
+                complexity_hint=complexity_hint,
+                coordination=coordination,
+                call_idx=call_idx,
+                completion_criteria=completion_criteria,
+                coordinate=coordinate,
+                session=session,
+            )
+    except NestedEnvelopeRejected as exc:
+        # 嵌套信封拨付失败（父剩余 0）：与父顶拒开同族。
+        return ToolResult(
+            tool_call_id="",
+            success=False,
+            output="",
+            error=str(exc),
+            contract_failure=True,
+        )
+
+
+async def _drive_body(
+    tool: DelegateTool,
+    plan: RunPlan,
+    *,
+    execution_id: str,
+    seed_completed: dict[str, RunState] | None,
+    finalize: bool,
+    seed_notes: list[dict[str, str]] | None,
+    complexity_hint: str,
+    coordination: str,
+    call_idx: int,
+    completion_criteria: Any,
+    coordinate: bool,
+    session: Any,
+) -> ToolResult:
+    """Inner drive after budget admission / nested envelope bind."""
+    from agentcore.runtime.turn_token_budget import (
+        resolve_wave_budget_hooks,
+        should_materialise_turn_token_budget_skips,
+    )
+
+    # 团队预审：必须在 coordinate fork 之前（CEO 主路径）。挂起 → SUSPEND 收口；
+    # 用户开做/调整后续跑再臂后台。后台 drive_coordinated 带 session，跳过本闸。
+    # 增量委派（合并进活跃协调）同样走开工卡——不得静默并入。
+    merging_into_active = False
+    if session is None and seed_completed is None:
+        from agentcore.runtime.coordination.session import active_coordination
+
+        existing_coord = active_coordination(execution_id)
+        merging_into_active = (
+            existing_coord is not None
+            and existing_coord.active
+            and tool._depth == 0
+            and not finalize
+        )
+
+    if session is None:
+        preview_early = await team_preview_before_workers(
+            tool,
+            plan,
+            finalize=finalize,
+            complexity_hint=complexity_hint,
+            seed_completed=seed_completed,
+            call_idx=call_idx,
+        )
+        if preview_early is not None:
+            return preview_early
+
+    # 同构再委派护栏：活跃协调上角色+任务高度同构 → 结构化拒绝（除非 force）。
+    force = bool(getattr(tool, "_delegate_force", False))
+    if merging_into_active and not force:
+        from agentcore.core.types import ToolEffect
+        from agentcore.runtime.coordination.isomorphic import (
+            is_isomorphic_redelegation,
+            isomorphic_reject_message,
+        )
+        from agentcore.runtime.coordination.session import active_coordination
+        from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
+        from agentcore.tools.protocol import ToolResult
+
+        existing = active_coordination(execution_id)
+        if existing is not None and is_isomorphic_redelegation(
+            plan,
+            existing.live_plan,
+            completed_run_ids=existing.completed_run_ids,
+        ):
+            from agentcore.core.logging import get_logger
+
+            get_logger(__name__).info(
+                "delegate.isomorphic_rejected",
+                execution_id=execution_id,
+                nodes=len(plan.nodes),
+                completed=len(existing.completed_run_ids),
+                total=existing.total_workers,
+                call=call_idx,
+            )
+            msg = isomorphic_reject_message(
+                plan,
+                completed=len(existing.completed_run_ids),
+                total=existing.total_workers,
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    effect=ToolEffect.CONTINUE,
+                    # 同构重派是零成本可自纠的契约拒绝——勿进熔断（CEO 连试会误禁用）。
+                    contract_failure=True,
+                ),
+                node_count=0,
+                has_deps=False,
+            )
+
+    # CEO 协调模式：默认非阻塞臂（solo / finalize / depth>0 / 显式 false 由 gate 拦下）。
+    # 已有活跃协调会话时必须走 try_start（内部 merge），即使本批 coordinate=false。
+    if session is None and (coordinate or merging_into_active):
+        from agentcore.runtime.coordination.host import try_start_coordination
+
+        started = try_start_coordination(
+            tool,
+            plan,
+            execution_id=execution_id,
+            seed_completed=seed_completed,
+            finalize=finalize,
+            seed_notes=seed_notes,
+            complexity_hint=complexity_hint,
+            coordination=coordination,
+            call_idx=call_idx,
+            completion_criteria=completion_criteria,
+            coordinate=coordinate,
+        )
+        if started is not None:
+            return started
+
+    from agentcore.runtime.runs import BatchMetrics, WaveScheduler, resolve_max_parallel
+
+    note_wall, collaboration = setup_note_wall(
+        tool,
+        plan,
+        execution_id=execution_id,
+        coordination=coordination,
+        seed_completed=seed_completed,
+        seed_notes=seed_notes,
+    )
+    worker_gate = resolve_worker_gate(tool)
+    executor = build_drive_executor(
+        tool,
+        plan,
+        execution_id=execution_id,
+        worker_gate=worker_gate,
+        note_wall=note_wall,
+        collaboration=collaboration,
+        completion_criteria=completion_criteria,
+        session=session,
+    )
+
+    # 跑一半改方向：单人 cancel + 热优先 continue_run / 冷诚实 _redir 接手
+    redirects = RedirectController(
+        tool=tool,
+        plan=plan,
+        execution_id=execution_id,
+        worker_gate=worker_gate,
+        session=session,
+        total=len(plan.nodes),
+        _coord_seen=set(seed_completed or ()),
+    )
+    on_boundary = resolve_on_boundary(
+        tool, plan, complexity_hint=complexity_hint, session=session
+    )
+    batch_metrics: list[BatchMetrics] = []
+
+    delegation_started = apply_delegation_grant(
+        tool,
+        execution_id=execution_id,
+        worker_gate=worker_gate,
+        seed_completed=seed_completed,
+    )
+
+    def _on_skipped(rid: str, aid: str, reason: str) -> None:
+        tool._sink.emit(run_skipped(rid, aid, reason=reason))
+
+    should_stop, priority_reserve_hit = resolve_wave_budget_hooks()
+    try:
+        results = await WaveScheduler(tool._max_parallel or resolve_max_parallel()).run(
+            plan,
+            executor,
+            seed_completed=seed_completed,
+            cancel_run_ids=redirects.cancel_run_ids,
+            on_progress=redirects.on_progress,
+            on_boundary=on_boundary,
+            on_skipped=_on_skipped,
+            metrics_sink=batch_metrics,
+            # 触顶后禁新波：在飞 drain，不 cancel；嵌套路径绑信封谓词（见 resolve_wave_budget_hooks）。
+            should_stop=should_stop,
+            # 交付预留：根 depth0 放行 ceiling_priority；嵌套路径关闭（None）。
+            priority_reserve_hit=priority_reserve_hit,
+        )
+    finally:
+        if delegation_started and worker_gate is not None:
+            worker_gate.revoke_delegation(execution_id)
+
+    # soft should_stop 默认把未跑尾留给 resume；turn 顶 / 信封是硬停，物化为 SKIPPED。
+    if should_materialise_turn_token_budget_skips():
+        _materialise_turn_token_budget_skips(tool, plan, results)
+        await _attach_light_website_gaps(tool, results)
+
+    results = await redirects.drain_post_wave(
+        results,
+        executor=executor,
+        max_parallel=tool._max_parallel or resolve_max_parallel(),
+        on_skipped=_on_skipped,
+    )
+    redirects.audit_ignored_redirects()
+
+    return await finalize_drive(
+        tool,
+        plan,
+        results,
+        execution_id=execution_id,
+        finalize=finalize,
+        seed_completed=seed_completed,
+        completion_criteria=completion_criteria,
+        session=session,
+        call_idx=call_idx,
+        complexity_hint=complexity_hint,
+        batch_metrics=batch_metrics,
+    )
+
+
+async def drive_coordinated(
+    tool: DelegateTool,
+    plan: RunPlan,
+    *,
+    execution_id: str,
+    seed_completed: dict[str, RunState] | None,
+    finalize: bool,
+    seed_notes: list[dict[str, str]] | None = None,
+    complexity_hint: str = "standard",
+    coordination: str = "none",
+    call_idx: int | None = None,
+    completion_criteria: Any = None,
+    session: Any,
+) -> ToolResult:
+    """Background entry: same as ``drive`` but with an active coordination session."""
+    return await drive(
+        tool,
+        plan,
+        execution_id=execution_id,
+        seed_completed=seed_completed,
+        finalize=finalize,
+        seed_notes=seed_notes,
+        complexity_hint=complexity_hint,
+        coordination=coordination,
+        call_idx=call_idx,
+        completion_criteria=completion_criteria,
+        coordinate=False,
+        session=session,
+    )

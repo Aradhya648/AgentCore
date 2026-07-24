@@ -1,0 +1,15 @@
+{
+  "id": "probe_nth_prime_100",
+  "category": "qa",
+  "_note": "挖坑探针：交付物=代码+自报结果。轻层 finish_guard 只查代码围栏闭合（模型一般会闭合）+ 角标越界（无角标），故结构上必放行；但自报的 nth_prime(100) 极易算错（off-by-one / 漏数）。正确=541。这一类『代码看着对、自报结果却错』正是机械轻层够不着、要『真跑一遍』的重层才拦得住。",
+  "user_message": "写一个 Python 函数 nth_prime(n) 返回第 n 个素数（约定第 1 个素数是 2）。然后直接告诉我 nth_prime(100) 等于多少。不要联网、不要调用任何工具，凭你自己的推算给出最终这个数字。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "samples": 5,
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 10 } },
+    { "name": "ContentMatches", "args": { "pattern": "(?<![0-9])541(?![0-9])" } }
+  ]
+}

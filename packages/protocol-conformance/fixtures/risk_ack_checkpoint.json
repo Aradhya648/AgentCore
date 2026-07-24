@@ -1,0 +1,130 @@
+{
+  "name": "risk_ack_checkpoint",
+  "description": "单聊：风险确认卡 ask_user(card=risk_ack) 挂起（intent=risk_ack）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "落地前请勾选要一并处理的风险："
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "checkpoint_required",
+      "payload": {
+        "checkpoint_id": "cp_risk",
+        "conversation_id": "conv_demo",
+        "question": "哪些风险要在本轮处理？",
+        "context": "未勾选的项将记入后续 backlog。",
+        "assumptions": [],
+        "questions": [
+          {
+            "id": "q0",
+            "prompt": "勾选要处理的风险",
+            "kind": "choice",
+            "multiple": true,
+            "default": "",
+            "options": [
+              {
+                "label": "[高] 密钥轮换",
+                "detail": "生产密钥仍是默认值，泄露即全库失守",
+                "recommended": true
+              },
+              {
+                "label": "[中] 备份校验",
+                "detail": "近 30 天备份未做恢复演练"
+              },
+              {
+                "label": "回滚演练"
+              }
+            ]
+          }
+        ],
+        "style_options": [],
+        "intent": "risk_ack"
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "paused",
+        "usage": {
+          "input_tokens": 1900,
+          "output_tokens": 140,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    }
+  ],
+  "projected": {
+    "status": "paused",
+    "finishReason": "paused",
+    "content": "",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "checkpoint",
+        "checkpoint_id": "cp_risk"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [
+      {
+        "kind": "ask_user",
+        "id": "cp_risk",
+        "status": "pending",
+        "question": "哪些风险要在本轮处理？",
+        "context": "未勾选的项将记入后续 backlog。"
+      }
+    ],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

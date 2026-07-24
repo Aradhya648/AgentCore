@@ -1,0 +1,221 @@
+{
+  "as_of": "2026-07-15",
+  "source": "manual snapshot from public vendor USD list prices (OpenAI/Anthropic/Google/DeepSeek/Mistral/Alibaba/Moonshot/Zhipu/Volcengine); cache_hit derived as published cached-input or ~50% of input when vendor publishes no cache tier",
+  "models": {
+    "gpt-4o": {
+      "cache_hit": "1.25",
+      "cache_miss": "2.50",
+      "output": "10.00"
+    },
+    "gpt-4o-mini": {
+      "cache_hit": "0.075",
+      "cache_miss": "0.15",
+      "output": "0.60"
+    },
+    "gpt-4.1": {
+      "cache_hit": "0.50",
+      "cache_miss": "2.00",
+      "output": "8.00"
+    },
+    "gpt-4.1-mini": {
+      "cache_hit": "0.10",
+      "cache_miss": "0.40",
+      "output": "1.60"
+    },
+    "gpt-4.1-nano": {
+      "cache_hit": "0.025",
+      "cache_miss": "0.10",
+      "output": "0.40"
+    },
+    "o3": {
+      "cache_hit": "2.50",
+      "cache_miss": "10.00",
+      "output": "40.00"
+    },
+    "o3-mini": {
+      "cache_hit": "0.55",
+      "cache_miss": "1.10",
+      "output": "4.40"
+    },
+    "o4-mini": {
+      "cache_hit": "0.55",
+      "cache_miss": "1.10",
+      "output": "4.40"
+    },
+    "claude-sonnet-4-20250514": {
+      "cache_hit": "0.30",
+      "cache_miss": "3.00",
+      "output": "15.00"
+    },
+    "claude-sonnet-4-5-20250929": {
+      "cache_hit": "0.30",
+      "cache_miss": "3.00",
+      "output": "15.00"
+    },
+    "claude-opus-4-20250514": {
+      "cache_hit": "1.50",
+      "cache_miss": "15.00",
+      "output": "75.00"
+    },
+    "claude-3-5-haiku-20241022": {
+      "cache_hit": "0.08",
+      "cache_miss": "0.80",
+      "output": "4.00"
+    },
+    "claude-3-5-sonnet-20241022": {
+      "cache_hit": "0.30",
+      "cache_miss": "3.00",
+      "output": "15.00"
+    },
+    "claude-haiku-4-5-20251001": {
+      "cache_hit": "0.10",
+      "cache_miss": "1.00",
+      "output": "5.00"
+    },
+    "deepseek-v4-flash": {
+      "cache_hit": "0.0028",
+      "cache_miss": "0.14",
+      "output": "0.28"
+    },
+    "deepseek-v4-pro": {
+      "cache_hit": "0.003625",
+      "cache_miss": "0.435",
+      "output": "0.87"
+    },
+    "deepseek-v3": {
+      "cache_hit": "0.07",
+      "cache_miss": "0.27",
+      "output": "1.10"
+    },
+    "qwen-plus": {
+      "cache_hit": "0.08",
+      "cache_miss": "0.40",
+      "output": "1.20"
+    },
+    "qwen-turbo": {
+      "cache_hit": "0.01",
+      "cache_miss": "0.05",
+      "output": "0.20"
+    },
+    "qwen-max": {
+      "cache_hit": "0.32",
+      "cache_miss": "1.60",
+      "output": "6.40"
+    },
+    "qwen-vl-max": {
+      "cache_hit": "0.16",
+      "cache_miss": "0.80",
+      "output": "3.20"
+    },
+    "qwen3-235b-a22b": {
+      "cache_hit": "0.10",
+      "cache_miss": "0.70",
+      "output": "2.80"
+    },
+    "moonshot-v1-8k": {
+      "cache_hit": "0.12",
+      "cache_miss": "0.12",
+      "output": "0.12"
+    },
+    "moonshot-v1-32k": {
+      "cache_hit": "0.24",
+      "cache_miss": "0.24",
+      "output": "0.24"
+    },
+    "moonshot-v1-128k": {
+      "cache_hit": "0.60",
+      "cache_miss": "0.60",
+      "output": "0.60"
+    },
+    "kimi-k2-0711-preview": {
+      "cache_hit": "0.15",
+      "cache_miss": "0.60",
+      "output": "2.50"
+    },
+    "glm-4-flash": {
+      "cache_hit": "0.01",
+      "cache_miss": "0.01",
+      "output": "0.01"
+    },
+    "glm-4-plus": {
+      "cache_hit": "5.00",
+      "cache_miss": "5.00",
+      "output": "5.00"
+    },
+    "glm-4-air": {
+      "cache_hit": "0.14",
+      "cache_miss": "0.14",
+      "output": "0.14"
+    },
+    "glm-4.5": {
+      "cache_hit": "0.60",
+      "cache_miss": "0.60",
+      "output": "2.20"
+    },
+    "doubao-seed-2-1-turbo-260628": {
+      "cache_hit": "0.1111",
+      "cache_miss": "0.1111",
+      "output": "1.1111"
+    },
+    "doubao-pro-32k": {
+      "cache_hit": "0.12",
+      "cache_miss": "0.12",
+      "output": "0.30"
+    },
+    "doubao-lite-32k": {
+      "cache_hit": "0.04",
+      "cache_miss": "0.04",
+      "output": "0.04"
+    },
+    "gemini-2.0-flash": {
+      "cache_hit": "0.025",
+      "cache_miss": "0.10",
+      "output": "0.40"
+    },
+    "gemini-2.5-flash": {
+      "cache_hit": "0.075",
+      "cache_miss": "0.30",
+      "output": "2.50"
+    },
+    "gemini-2.5-pro": {
+      "cache_hit": "0.315",
+      "cache_miss": "1.25",
+      "output": "10.00"
+    },
+    "mistral-small-latest": {
+      "cache_hit": "0.05",
+      "cache_miss": "0.10",
+      "output": "0.30"
+    },
+    "mistral-large-latest": {
+      "cache_hit": "1.00",
+      "cache_miss": "2.00",
+      "output": "6.00"
+    },
+    "mistral-medium-latest": {
+      "cache_hit": "0.40",
+      "cache_miss": "0.40",
+      "output": "2.00"
+    },
+    "codestral-latest": {
+      "cache_hit": "0.15",
+      "cache_miss": "0.30",
+      "output": "0.90"
+    },
+    "llama-3.3-70b": {
+      "cache_hit": "0.20",
+      "cache_miss": "0.20",
+      "output": "0.20"
+    },
+    "grok-3": {
+      "cache_hit": "1.50",
+      "cache_miss": "3.00",
+      "output": "15.00"
+    },
+    "grok-3-mini": {
+      "cache_hit": "0.15",
+      "cache_miss": "0.30",
+      "output": "0.50"
+    }
+  }
+}

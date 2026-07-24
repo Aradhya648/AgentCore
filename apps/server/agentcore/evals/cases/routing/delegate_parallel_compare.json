@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_parallel_compare",
+  "category": "routing",
+  "user_message": "帮我系统对比 PostgreSQL、MySQL、SQLite 三者在中小型 Web 项目里的取舍（性能、运维、生态、适用场景），最后给一份选型建议。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "有规模 / 多角度的对比调研：天然可按对象或维度并行，应委派团队多角度推进后综述，而非 CEO 串行独答。"
+}

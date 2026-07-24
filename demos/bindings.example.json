@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to bindings.json and replace conversation_id. Repo root relative.",
+  "00000000-0000-0000-0000-000000000000": {
+    "tape": "demos/tapes/lv-molihua-trademark.json",
+    "speed": 4,
+    "max_gap_ms": 2000
+  }
+}

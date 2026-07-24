@@ -1,0 +1,3947 @@
+@import "@agentcore/design-tokens/mobile-light.css";
+
+/* M3 skeleton styling — mobile usage-mapped tokens from design-tokens package.
+   Touch targets are kept >=44px per the touch guidance even at skeleton stage. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  accent-color: var(--accent);
+}
+
+/* --- 触控适配 (Batch F): make the WebView feel native --- */
+
+/* Remove the gray/blue tap-flash on every control (we provide our own :active feedback). */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The app shell is fixed-height (each .screen is 100dvh with its own inner scroller), so the
+   body never needs to scroll. Disabling its overscroll kills the whole-page rubber-band /
+   pull-to-refresh that would otherwise betray the WebView — without clipping (no overflow
+   hidden, which could crop the composer if 100dvh and 100% ever disagree). */
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Inner scrollers keep their overscroll to themselves (no chaining to the shell) and use
+   momentum scrolling on iOS. */
+.messages,
+.list,
+.viewer-body {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Phone-first, but don't sprawl on a tablet / desktop preview: center the shell in a
+   phone-width column with side rails on wide viewports (no effect on phones < 768px). */
+@media (min-width: 768px) {
+  body {
+    background: oklch(0.94 0.006 255);
+  }
+  #root {
+    display: flex;
+    justify-content: center;
+  }
+  .screen,
+  .tabs-shell {
+    width: 480px;
+    max-width: 100%;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+  }
+  /* The page inside a tab shell fills the shell (the shell owns the side rails). */
+  .tabs-body > .screen {
+    width: 100%;
+    border-left: none;
+    border-right: none;
+  }
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.screen.center {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* --- Bottom tab navigation (手机端布局重构 · 底部 4-tab 导航) --- */
+/* The shell owns the viewport height + top safe-area; the page fills the body and the TabBar
+   owns the bottom safe-area (home indicator). Only top-level pages mount inside a shell;
+   detail pages keep their bare .screen (100dvh) so they push full-screen over the bar. */
+.tabs-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+}
+
+.tabs-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* A page inside the tab shell drops its own 100dvh + safe-area (the shell + bar own those)
+   and just fills the body. */
+.tabs-body > .screen {
+  height: 100%;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.tabbar {
+  display: flex;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-weight: 500;
+}
+
+/* The bar tracks state via color, not the global button dim-on-press. */
+.tab:active:not(:disabled) {
+  opacity: 1;
+}
+
+.tab-active {
+  color: var(--accent);
+}
+
+.tab-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-label {
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Unread count on the 消息 tab — a pill on the icon's top-right. Brand color (var(--accent))
+   matches the in-app unread badge (.im-unread) + the desktop nav, not a red error tone. */
+.tab-badge {
+  position: absolute;
+  top: -5px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--panel);
+  border-radius: 999px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.card h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+/* Login / register — centered auth shell (mirrors desktop LoginPage flow). */
+.auth-wrap {
+  width: 100%;
+  max-width: 360px;
+  padding: 0 16px;
+}
+
+.auth-header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.auth-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.auth-seg {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+
+.auth-seg-btn {
+  flex: 1;
+  min-height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.auth-seg-btn.auth-seg-active {
+  color: var(--fg);
+  background: var(--panel);
+  box-shadow: 0 1px 3px color-mix(in oklch, var(--fg) 8%, transparent);
+}
+
+.auth-card {
+  max-width: none;
+}
+
+.auth-foot {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.hint {
+  padding: 24px 8px;
+  text-align: center;
+}
+
+/* 历史上翻 — a centered "load older" pill at the top of the message window. */
+.load-older {
+  align-self: center;
+  margin: 4px 0 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.load-older:disabled {
+  opacity: 0.6;
+}
+
+/* Relative wrapper so the floating 回到底部 button stays put over the scroller. */
+.messages-pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Light affordance when the user has scrolled away from the live tail. */
+.jump-bottom {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--fg) 12%, transparent);
+}
+
+.jump-bottom:active {
+  color: var(--fg);
+}
+
+input {
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 16px; /* >=16px avoids iOS zoom-on-focus */
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  touch-action: manipulation; /* no 300ms double-tap-zoom delay */
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+button {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 10px;
+  /* Chrome shouldn't be selectable / callout-able on long-press; kill tap delay. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Touch has no hover — give every button a quick pressed state instead. */
+button:active:not(:disabled) {
+  opacity: 0.7;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+button.link {
+  min-height: auto;
+  padding: 6px 8px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+/* ChatPage header: ☰ history (left) · title (center) · 文件/✎ new (right). The title flexes
+   to center between the icon groups; the icon buttons are 40px tap targets in the fg tone
+   (scoped to .bar so they win over button.link's muted color + small padding). */
+.bar-title {
+  flex: 1;
+  text-align: center;
+  font-weight: 500;
+}
+
+.bar .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px;
+  color: var(--fg);
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Derived-from-ProjectedTurn status line (progress / tool / pause) under a bubble. */
+.meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.turn-warning {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 12%, transparent);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.finish-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.retry-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+/* 回合总账 — a low-prominence cost caption under a finished assistant bubble. */
+.cost {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 消息复制出口：仅交付 / 含过程 */
+.msg-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.msg-copy-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.msg-copy-btn:active {
+  background: var(--accent);
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--user);
+}
+
+/* 异步团队收口：合成用户消息 → 居中系统芯片（非用户气泡） */
+.system-chip {
+  align-self: center;
+  max-width: 92%;
+  margin: 4px 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  max-width: 92%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+/* --- Rich assistant content (富渲染): Markdown body + 思考 + 工具 + 引用 --- */
+.md {
+  white-space: normal;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md pre,
+.md table {
+  margin: 8px 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 12px 0 6px;
+  line-height: 1.3;
+}
+
+.md h1 {
+  font-size: 20px;
+}
+
+.md h2 {
+  font-size: 18px;
+}
+
+.md h3 {
+  font-size: 16px;
+}
+
+.md h4 {
+  font-size: 15px;
+}
+
+.md ul,
+.md ol {
+  padding-left: 22px;
+}
+
+.md li {
+  margin: 2px 0;
+}
+
+.md a {
+  color: var(--accent);
+}
+
+.md code {
+  padding: 1px 5px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.md pre {
+  overflow-x: auto;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.md pre code {
+  padding: 0;
+  font-size: 13px;
+  background: none;
+  border: none;
+}
+
+.md blockquote {
+  padding-left: 12px;
+  color: var(--muted);
+  border-left: 3px solid var(--border);
+}
+
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.md th,
+.md td {
+  padding: 6px 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.md hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.md img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.md-muted,
+.md-muted * {
+  color: var(--muted);
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 热审批 / 委派授权痕迹 (统一时间线二期 D3): resolved 后 required 时刻槽的轻状态行。 */
+.hot-trace {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 跨回合同图追加：追加回合锚点（宿主气泡仍挂完整协作图）。 */
+.graph-append-anchor {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.reasoning {
+  font-size: 13px;
+}
+
+.reasoning summary {
+  padding: 4px 0;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.reasoning summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasoning summary::before {
+  content: "▸ ";
+}
+
+.reasoning[open] summary::before {
+  content: "▾ ";
+}
+
+/* 收到的上下文 · CEO 侧 (上下文传递可视化 通道①): collapsible like 思考 (.reasoning); each
+   block shows its channel origin + the body the CEO read. */
+.recv {
+  font-size: 13px;
+}
+
+.recv > summary {
+  padding: 4px 0;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.recv > summary::-webkit-details-marker {
+  display: none;
+}
+
+.recv > summary::before {
+  content: "▸ ";
+}
+
+.recv[open] > summary::before {
+  content: "▾ ";
+}
+
+.recv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.recv-item {
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.recv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.recv-channel {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.recv-heading {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recv-body {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  font-size: 12px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.recv-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.recv-file {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.recv-trunc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tool {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--bg);
+  border: none;
+  border-radius: 0;
+}
+
+.tool-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tool-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-status {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tool-running .tool-status {
+  color: var(--accent);
+}
+
+.tool-error .tool-status {
+  color: var(--error);
+}
+
+.tool-body {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.tool-pre {
+  max-height: 240px;
+  margin: 4px 0;
+  padding: 8px 10px;
+  overflow: auto;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 连续工具折叠组 (前端UX设计.md §一B): same <details> fold idiom as 思考 (.reasoning) in a
+   .tool-style bordered shell; expands to the per-tool cards. Pure web_search runs skip the
+   shell and render as a flat stack (parity with desktop ToolLineGroup). */
+.tool-group-flat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tool-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--bg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-group > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tool-group[open] > summary::before {
+  content: "▾";
+}
+
+.tool-group-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-group-error {
+  flex-shrink: 0;
+  color: var(--error);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.tool-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.cites {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cites-title {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cite {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  color: var(--fg);
+  text-decoration: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.cite-n {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cite-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cite-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cite-title {
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cite-id {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.cite-tier {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 999px;
+}
+
+.cite-tier-official {
+  color: var(--success);
+  background: color-mix(in oklch, var(--success) 12%, transparent);
+}
+
+.cite-tier-media {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
+.cite-tier-unknown {
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.cite-tier-weak {
+  color: var(--warning);
+  background: color-mix(in oklch, var(--warning) 12%, transparent);
+}
+
+.cite-site {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- 「本回合产出文件」卡 (回合内文件呈现 §九): 折叠清单 + 一键直达预览 --- */
+.artifacts {
+  margin-top: 10px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.artifacts-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: none;
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.artifacts-folder {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.artifacts-title {
+  flex: 1;
+  text-align: left;
+}
+
+.artifacts-count {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+/* 行间无横线（统一两卡列表语言）；头部↔列表的 border-top 是结构分隔、保留。 */
+.artifacts-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.artifact-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  color: var(--fg);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-weight: 400;
+}
+
+.artifact-row:active:not(.artifact-static) {
+  background: var(--bg);
+}
+
+.artifact-static {
+  opacity: 0.7;
+}
+
+.artifact-icon {
+  flex-shrink: 0;
+}
+
+/* op 色调（复用状态色映射）：写=success / 改=品牌 / 删=error / 移=中性。 */
+.art-write {
+  color: var(--success);
+}
+
+.art-edit {
+  color: var(--accent);
+}
+
+.art-delete {
+  color: var(--error);
+}
+
+.art-move {
+  color: var(--muted);
+}
+
+.artifact-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artifact-dir {
+  color: var(--muted);
+}
+
+.artifact-name {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.artifact-stage {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.artifact-op {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 999px;
+}
+
+.artifact-op.art-write {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.artifact-op.art-edit {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.artifact-op.art-delete {
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+.artifact-op.art-move {
+  color: var(--muted);
+  background: var(--border);
+}
+
+.artifact-go {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+/* --- Multi-agent team view (多 Agent 团队视图): progress + vertical worker cards --- */
+.team {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.team-tag {
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 999px;
+}
+
+.team-bar {
+  height: 4px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.team-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.team-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 多幕列表分组头（批 A4）：手机列表语言，非桌面幕分带。 */
+.team-act-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 0 2px;
+}
+
+.team-act-head:first-child {
+  margin-top: 0;
+}
+
+.team-act-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.team-act-kind {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 999px;
+}
+
+.team-act-auth {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  border-radius: 999px;
+}
+
+.run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+}
+
+.run-run {
+  border-left-color: var(--accent);
+}
+
+.run-ok {
+  border-left-color: var(--success);
+}
+
+.run-err {
+  border-left-color: var(--error);
+}
+
+/* 深度检视入口 (RunDetail): the card summary is ONE tap target that opens the run detail. A flush,
+   transparent button reset so the peek looks identical to the old static card; the escalation
+   answer card renders as a sibling BELOW this button, so its controls are never hijacked. */
+.run-open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.run-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.run-badge {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+}
+
+.badge-muted {
+  color: var(--muted);
+  background: var(--border);
+}
+
+.badge-run {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.badge-ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.badge-err {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+.run-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.run-pill {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+/* 「需要你」pill（待放行 / 待你拍板）——拍板类不用琥珀（2026-07 拍板），蓝=行动信号。 */
+.pill-act {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.run-task {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.run-preview {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--fg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.run-error {
+  font-size: 12px;
+  color: var(--error);
+}
+
+/* 升级实时可见: a worker's 向上求决策 (escalate), surfaced inline on its run card.
+   Read-only record → neutral（拍板类不用琥珀，与桌面 RaisedEscalation 同调）。 */
+.run-escalation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+
+.run-escalation-q {
+  color: var(--fg);
+}
+
+.run-escalation-a {
+  color: var(--muted);
+}
+
+/* 阻塞式求决策「待你拍板」(②): the interactive variant — a worker SUSPENDED on a blocking
+   escalate, answerable on a live turn. 蓝=需要你（对齐桌面 EscalationCard primary）+
+   an answer box and 提交/按假设继续. */
+.run-escalation-live {
+  gap: 8px;
+  padding: 10px;
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.run-escalation-note {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 16px; /* >=16px avoids iOS zoom-on-focus */
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  resize: none;
+}
+
+.run-escalation-note:focus {
+  border-color: var(--accent);
+}
+
+.run-escalation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.esc-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.esc-btn:disabled {
+  opacity: 0.5;
+}
+
+.esc-btn-primary {
+  color: #fff;
+  background: var(--accent);
+}
+
+.esc-btn-neutral {
+  color: var(--fg);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.run-escalation-busy {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.run-foot {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 团队便签墙 (§2.2 通): the one-line decisions / heads-ups workers broadcast to their concurrent
+   siblings — a glass-box notes panel under the team runs (贴事实·不要求回应, NOT a chat).
+   Collapsible via the same <details> fold idiom as 思考 (.reasoning) / 工具组 (.tool-group). */
+/* 完成条件（批次验收）：缺口 / 待操作对账；与 finish_guard 核验重写 chip 分流。 */
+.delivery {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.delivery-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.delivery-go {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.delivery-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.delivery-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.delivery-state.is-partial {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.delivery-state.is-blocked {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+.delivery-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.delivery-row {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 行间无横线（统一两卡列表语言）：gap 描述可多行，行距增至 10px（6px gap + 4px），
+   保换行行与相邻行不糊。 */
+.delivery-row + .delivery-row {
+  margin-top: 4px;
+}
+
+.delivery-role {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.delivery-desc {
+  min-width: 0;
+  color: var(--fg);
+}
+
+.delivery-reason {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--destructive-fg, var(--destructive));
+  background: color-mix(in oklch, var(--destructive) 14%, transparent);
+}
+
+.delivery-action {
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+/* 首条虚线 = gaps→actions 结构边界（保留）；连续 action 行之间不再重复画线。 */
+.delivery-action + .delivery-action {
+  padding-top: 0;
+  border-top: none;
+}
+
+.delivery-action .delivery-desc {
+  color: var(--accent);
+}
+
+.team-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.team-notes-head {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.team-notes-head::-webkit-details-marker {
+  display: none;
+}
+
+.team-notes-head::before {
+  content: "▸ ";
+}
+
+.team-notes[open] > .team-notes-head::before {
+  content: "▾ ";
+}
+
+.team-notes-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.team-note-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-note-kind {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--border);
+}
+
+.team-note-author {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-note-text {
+  font-size: 13px;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+/* 便签会过期 → supersession (§2.2): a 改写 (superseded) / 作废 (voided) note is dimmed and its text
+   struck through, so a stale decision is never mistaken for current truth. */
+.team-note-stale {
+  opacity: 0.6;
+}
+
+.team-note-stale .team-note-text {
+  text-decoration: line-through;
+}
+
+.team-note-status {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 999px;
+}
+
+.team-note-status.status-superseded,
+.team-note-status.status-voided {
+  color: var(--muted);
+  background: var(--border);
+}
+
+/* --- 深度检视单个队员 · RunDetail 详情面 (native <dialog> bottom sheet) ---
+   A tall bottom sheet pinned to one worker run: header (角色 + 状态 + 时长 + 关闭) over a scrollable
+   body of sections. Reuses the .tool* / .recv* / .run-escalation vocab inside; only the panel
+   shell + section chrome (.rd-*) are new. Dims via the UA ::backdrop like the other mobile dialogs. */
+dialog.run-detail {
+  position: fixed;
+  inset: auto 0 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 88vh;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 16px 16px 0 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+dialog.run-detail[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.run-detail::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.rd-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rd-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rd-dur {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rd-close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 16px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 999px;
+}
+
+.rd-close:active {
+  background: var(--border);
+}
+
+.rd-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.rd-section-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.rd-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 轮次 / 修订链 track (chips; current is non-interactive + accented) */
+.rd-chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rd-chip {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.rd-chip-current {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+}
+
+/* 思考全文 (raw preformatted thought log) */
+.rd-reasoning {
+  max-height: 320px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rd-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 输出 / 交接简报 panels */
+.rd-output,
+.rd-debrief,
+.rd-metrics {
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.rd-debrief {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rd-part-label {
+  margin-bottom: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.rd-points {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.rd-points li {
+  margin: 2px 0;
+}
+
+.rd-assume {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 资源用量 metrics */
+.rd-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rd-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rd-metric-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rd-metric-value {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--fg);
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rd-mono {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+}
+
+/* 关系 refs (each row navigates the panel to that run) */
+.rd-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rd-refs-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rd-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  text-align: start;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.rd-ref:active {
+  background: var(--border);
+}
+
+.rd-ref-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--muted);
+  border-radius: 999px;
+}
+
+.dot-run {
+  background: var(--accent);
+}
+
+.dot-ok {
+  background: var(--success);
+}
+
+.dot-err {
+  background: var(--error);
+}
+
+.rd-ref-name {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.rd-ref-task {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.debate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.debate-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debate-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.debate-tag {
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 999px;
+}
+
+.debate-stop {
+  margin-inline-start: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.debate-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 8px;
+}
+
+.debate-leaning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debate-leaning-text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.debate-conf {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.conf-high {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.conf-medium {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.debate-points {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debate-point {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.debate-point-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.debate-point-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+/* 真·多模型辩论：该方背后的模型（豆包 / DeepSeek …）—— 中性元数据 pill，与状态/身份色不竞争。 */
+.debate-point-model {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.debate-point-text {
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.debate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.debate-field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.debate-field-value {
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.debate-list {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.debate-list li {
+  margin: 1px 0;
+}
+
+.debate-handoffs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.debate-handoffs-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.debate-handoff-value {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+
+.debate-handoff-value-text {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--fg);
+}
+
+.debate-handoff-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.debate-handoff-fact {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.debate-handoff-fact-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.debate-handoff-action {
+  align-self: flex-start;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.debate-handoff-action-muted {
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.debate-handoff-footnote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.debate-narrative > summary {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.debate-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.debate-round {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.debate-round-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.debate-round-no {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.debate-round-focus {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.debate-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.debate-vpill {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.vpill-ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.debate-round-summary {
+  font-size: 12px;
+  color: var(--fg);
+}
+
+/* L3 论点级交锋边（谁驳谁）：每行「来源方 → 被驳方  要点」，名加粗、要点弱化。 */
+.debate-clashes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.debate-clash {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.debate-clash-edge {
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.debate-clash-point {
+  color: var(--muted);
+}
+
+/* 本轮「你的追问」(交互式逐轮 verbatim 复盘)：向谁问 + 问题原文 + 承接状态。被动复盘记录 →
+   中性调（对齐桌面 UserInterjection：border-border + muted，已承接 = success）。 */
+.debate-asks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+
+.debate-ask {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.debate-ask-edge {
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.debate-ask-text {
+  color: var(--fg);
+}
+
+.debate-ask-state {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.debate-ask-state.ask-ok {
+  color: var(--success);
+}
+
+/* 下一步推荐 (CEO→用户): one-tap quick-reply chips above the composer for a finished turn —
+   tapping fills the input (review/edit before send). Transport-only; retires on the next turn. */
+.followups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px 0;
+}
+
+.followups-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.followups-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.followup-chip {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  white-space: normal;
+}
+
+.followup-chip:active:not(:disabled) {
+  background: var(--border);
+}
+
+/* 阶段推进卡（批 B）— 紧凑列表呈现 */
+.stage-card {
+  margin: 8px 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.stage-card--orphaned,
+.stage-card--resolved {
+  opacity: 0.72;
+}
+.stage-card__eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.stage-card__title {
+  font-weight: 600;
+}
+.stage-card__hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.stage-card__motion {
+  font-weight: 600;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+.stage-card__motion-input,
+.stage-card__note-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  background: var(--bg, #fff);
+  color: var(--fg);
+}
+.stage-card__sides {
+  margin: 0 0 8px;
+  padding-left: 1.1em;
+}
+.stage-card__meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.stage-card__error {
+  margin: 0 0 8px;
+  color: #b91c1c;
+  font-size: 12px;
+}
+.stage-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stage-card__actions .btn {
+  min-height: 36px;
+}
+
+/* 非阻塞提问卡 (ask_user blocking=false): inline in the answer timeline at its `ask` marker.
+   AI 中途问你一句但没阻塞（已按默认继续）；点 chip 即回填输入框（可改后发），不回复保持默认。
+   品牌弱底，区别于「待裁决」的琥珀 .pause（那是阻塞、必须答）。 */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 12px;
+}
+
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.ask-icon {
+  flex-shrink: 0;
+}
+
+.ask-q {
+  font-size: 14px;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.ask-context {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.ask-assume {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 8px;
+}
+
+.ask-assume-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.ask-assume-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ask-assume-k {
+  flex-shrink: 0;
+  width: 64px;
+  color: var(--muted);
+}
+
+.ask-assume-v {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.ask-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ask-prompt {
+  font-size: 13px;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  white-space: normal;
+}
+
+.ask-chip:active:not(:disabled) {
+  background: var(--border);
+}
+
+.ask-chip-active {
+  border-color: var(--accent, var(--fg));
+  background: var(--border);
+}
+
+.ask-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.ask-badge-rec {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ask-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 会话级模型切换：当前模型 badge，贴在 composer 上方（对齐桌面 CurrentModelBadge）。 */
+.model-bar {
+  display: flex;
+  padding: 6px 16px 0;
+}
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.model-badge:disabled {
+  opacity: 0.55;
+}
+
+.model-badge-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.composer input {
+  flex: 1;
+}
+
+/* 停止 replaces 发送 while a turn streams — neutral (not the primary action) so it reads
+   as an interrupt, not a send. */
+.composer .stop {
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+/* 诚实停止过渡：停止中… — 略降对比，仍可点（重试 /stop）。 */
+.composer .stop.stopping {
+  opacity: 0.75;
+}
+
+/* 附件「＋」: a neutral square that opens the file picker, sized to the composer row. */
+.composer .attach-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.composer .attach-btn:disabled {
+  opacity: 0.45;
+}
+
+/* --- 语音输入 (手机端语音 · 桌面交互形态对齐) --- */
+/* composer 行内麦克风按钮：中性方块，与附件「＋」同尺寸；录音态转 error 红 + 脉冲。 */
+.composer .voice-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.composer .voice-btn:disabled {
+  opacity: 0.45;
+}
+
+.composer .voice-btn-recording {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+.voice-spin {
+  animation: voice-rotate 0.9s linear infinite;
+}
+
+/* 录音态提示条：贴 composer 上方 (与 followups / attach-tray 同侧)，error 红强调「正在录音」。 */
+.voice-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 16px 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, var(--border));
+  border-left: 3px solid var(--error);
+  border-radius: 12px;
+}
+
+.voice-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--error);
+  border-radius: 999px;
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+.voice-time {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--error);
+}
+
+.voice-wave {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+
+.voice-wave-bar {
+  width: 3px;
+  height: 100%;
+  background: var(--error);
+  border-radius: 999px;
+  transform: scaleY(0.35);
+  transform-origin: bottom;
+  animation: voice-wave 1s ease-in-out infinite;
+}
+
+.voice-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.voice-cancel {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+}
+
+.voice-cancel:active {
+  background: var(--border);
+}
+
+.voice-interim {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes voice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes voice-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes voice-wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Staged-attachment tray above the composer (composer 附件), and the read-only context
+   chips on a sent user bubble. Shared chip look; the tray adds a remove「×」. */
+.attach-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px 0;
+}
+
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.attach-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.attach-chip-trunc {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.attach-chip-x {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+}
+
+.conv-new {
+  flex: 1;
+}
+
+/* Conversation list (home). Rows are full-width tap targets; the new-chat CTA sits in the
+   bottom composer bar (reusing its layout). */
+.list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.conv {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 56px;
+  padding: 12px 14px;
+  text-align: left;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  font-weight: 400;
+}
+
+.conv:active {
+  background: var(--panel);
+}
+
+/* The conversation currently open in the chat behind the drawer — a brand-tinted highlight
+   so you can see where you are in the history list. */
+.conv.conv-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.conv-title {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.conv-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Conversation row = a full-width tap target + a trailing ⋯ actions button. */
+.conv-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.conv-row .conv {
+  flex: 1;
+  min-width: 0; /* let the title ellipsis inside the flex child */
+}
+
+.conv-actions {
+  min-width: 44px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.conv-actions:active {
+  background: var(--panel);
+}
+
+/* Header right-aligned action group (已归档 / 退出). */
+.bar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Search bar (跨会话搜索). The clear ✕ overlays the input's right edge. */
+.search {
+  position: relative;
+  padding: 8px 12px 0;
+}
+
+.search-input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.search-clear {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  font-size: 16px;
+}
+
+/* Search results: sectioned (对话 / 消息) with a match-highlighted snippet. */
+.search-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-section-title {
+  padding: 12px 14px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.conv-snippet {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hl {
+  padding: 0 1px;
+  color: var(--fg);
+  background: var(--user);
+  border-radius: 3px;
+}
+
+/* Bottom action sheet (touch-native row menu). Two hosts share the look:
+   ChatThreadPage renders <div.sheet-backdrop><div.sheet> (the parent flexbox
+   pins it to the bottom); ActionSheet renders a native <dialog class="sheet">
+   that pins itself and dims via the UA ::backdrop. Shared visuals live on
+   .sheet; self-positioning + the UA <dialog> reset live on dialog.sheet. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sheet {
+  background: var(--panel);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+}
+
+dialog.sheet {
+  position: fixed;
+  inset: auto 0 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  border: none;
+  color: var(--fg);
+}
+
+dialog.sheet::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sheet-title {
+  overflow: hidden;
+  padding: 12px 8px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sheet-item {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  color: var(--fg);
+  background: var(--bg);
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.sheet-item:active {
+  background: var(--border);
+}
+
+.sheet-danger {
+  color: var(--error);
+}
+
+.sheet-cancel {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+/* 会话级模型切换 · 选择器 (ModelPicker bottom sheet). A scrollable, vendor-grouped list of
+   the user's catalog; unavailable rows grey out and route to 模型配置. */
+.model-sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+.model-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.model-group {
+  margin-top: 8px;
+}
+
+.model-origin-section {
+  margin-top: 12px;
+}
+
+.model-origin-section:first-of-type {
+  margin-top: 0;
+}
+
+.model-origin-title {
+  padding: 4px 8px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.model-group-title {
+  padding: 8px 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--fg);
+  background: var(--bg);
+  border: none;
+  border-radius: 12px;
+}
+
+.model-row:active {
+  background: var(--border);
+}
+
+.model-row-selected {
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+.model-row-disabled {
+  opacity: 0.55;
+}
+
+.model-row-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-name {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.model-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-free-tier {
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-radius: 999px;
+}
+
+.model-sub {
+  font-size: 12px;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-cap {
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  border-radius: 6px;
+}
+
+.model-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.model-price {
+  font-size: 12px;
+}
+
+.model-locked {
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.model-check {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+/* Centered modal dialog (rename / delete confirm) — native <dialog>. It centers
+   itself (inset:0 + margin:auto) and dims via ::backdrop, so there is no backdrop
+   element; display is gated on [open] so the pre-showModal frame stays hidden. */
+dialog.dialog {
+  position: fixed;
+  inset: 0;
+  width: calc(100% - 48px);
+  max-width: 360px;
+  height: fit-content;
+  margin: auto;
+  padding: 20px;
+  border: none;
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--fg);
+}
+
+dialog.dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+dialog.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dialog-msg {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.dialog-input {
+  width: 100%;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.dialog-danger {
+  background: var(--error);
+}
+
+.error {
+  color: var(--error);
+  font-size: 13px;
+}
+
+.error.bar {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+
+/* The 重连 action on a dropped-stream banner — accent so it stands out as the recovery. */
+.error.bar .reconnect {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 「去配置」on a BYOK refusal banner — same accent weight as 重连 (parity with desktop
+   RetryBanner primary action). */
+.error.bar .config-action {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Interactive pause card (审批 / 检查点 / plan_review) — the actionable surface for a turn
+   blocked on the user. 蓝=需要你（拍板类不用琥珀，对齐桌面 ResumePrompt primary）;
+   sits above the composer, always visible. */
+.pause {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 16px 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+}
+
+.pause-orphaned {
+  opacity: 0.7;
+  border-color: var(--border);
+  border-left-color: var(--muted);
+}
+
+.pause-orphaned .pause-title {
+  color: var(--muted);
+}
+
+.pause-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pause-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pause-question {
+  font-size: 15px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pause-context {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pause-arg {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.pause-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pause-step {
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.pause-step-role {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pause-step-summary {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pause-note {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 16px; /* >=16px avoids iOS zoom-on-focus */
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  resize: none;
+}
+
+.pause-note:focus {
+  border-color: var(--accent);
+}
+
+.pause-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pause-btn {
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.pause-btn-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.pause-btn-primary {
+  color: #fff;
+  background: var(--accent);
+}
+
+.pause-btn-neutral {
+  color: var(--fg);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.pause-btn-danger {
+  color: var(--error);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.pause-busy {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pause-err {
+  margin: 0;
+}
+
+/* --- Cloud workspace file browser (云端文件浏览): breadcrumb + rows + full-screen viewer --- */
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.crumb-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.crumb-sep {
+  color: var(--muted);
+}
+
+.crumb {
+  min-height: auto;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+}
+
+.crumb:disabled {
+  color: var(--muted);
+  opacity: 1;
+}
+
+/* 项目协作摘要（文字降级 · 工作区文件页顶部） */
+.collab-summary {
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.collab-summary-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.collab-summary-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collab-summary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 4px;
+  text-align: left;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+}
+
+.collab-summary-row:active {
+  background: var(--bg);
+}
+
+.collab-summary-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.collab-summary-acts,
+.collab-summary-refs {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.collab-summary-note {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 14px;
+  text-align: left;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  font-weight: 400;
+}
+
+.file-row:active {
+  background: var(--panel);
+}
+
+.file-icon {
+  flex-shrink: 0;
+  width: 16px;
+  font-size: 14px;
+  color: var(--accent);
+  text-align: center;
+}
+
+.file-icon-doc {
+  color: var(--muted);
+}
+
+.file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+/* "空" marker on an empty workspace row in the 文件 tab list. */
+.file-tag {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+/* Full-screen file previewer — native <dialog>. Opaque fullscreen, so the UA
+   ::backdrop is never seen; display is gated on [open] (no pre-showModal flash). */
+dialog.viewer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  border: none;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+dialog.viewer[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.viewer::backdrop {
+  background: var(--bg);
+}
+
+.viewer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.viewer-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.viewer-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+
+.viewer-text {
+  margin: 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- 历史对话抽屉 (ConversationDrawer · 手机端对话页重设计) --- */
+/* A left slide-in over the chat surface (opened by the header ☰). Always mounted so it can
+   animate both ways; closed state is click-through (pointer-events:none) + off-screen. The
+   z-index:60 sits above the bottom TabBar; the row action sheet / dialogs (z-index:50) render
+   inside this stacking context, so they layer above the panel. */
+.drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.drawer-root.open {
+  pointer-events: auto;
+}
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.drawer-root.open .drawer-backdrop {
+  opacity: 1;
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: 84%;
+  max-width: 360px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  will-change: transform;
+}
+
+.drawer-root.open .drawer {
+  transform: translateX(0);
+}
+
+/* Left-edge swipe-to-open hit strip (only live while closed; sits left of the 16px content
+   padding so it doesn't steal taps from the header ☰ / composer ＋). */
+.drawer-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  pointer-events: auto;
+}
+
+/* While a drag is in flight the panel + backdrop track the finger 1:1 (inline transform /
+   opacity, no transition); on release the .open / closed class takes over and CSS animates
+   the settle. The root stays interactive even mid-open-drag (before `open` flips true). */
+.drawer-root.dragging {
+  pointer-events: auto;
+}
+
+.drawer-root.dragging .drawer,
+.drawer-root.dragging .drawer-backdrop {
+  transition: none;
+}
+
+/* The drawer's own list scrolls; its header + search stay pinned. */
+.drawer .list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Draft chat welcome (开盖即聊 empty state) — the single visual focal point of a fresh draft,
+   centered in the message area. */
+.chat-welcome {
+  margin: auto;
+  padding: 24px;
+  text-align: center;
+}
+
+.chat-welcome-title {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.chat-welcome-sub {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.chat-welcome-cta {
+  margin-top: 16px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* 「记忆已更新」卡 (③ Agent记忆与知识系统 §1.6): offline-consolidation results pinned at the
+   thread tail — the WRITE side of memory made visible (读侧 consult_memory 本就内联可见)。
+   中性 chrome：记忆是被动后台行为，不是「需要你」的面（品牌/状态色留给待裁决类），故卡身走
+   neutral border + panel 底，仅动作标用语义状态色。 */
+.mem-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.mem-update {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.mem-update-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.mem-update-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.mem-update-title {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.mem-update-count {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.mem-update-when {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.mem-update-episodic {
+  gap: 4px;
+}
+
+.mem-episodic-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mem-update-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mem-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.mem-action {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 999px;
+}
+
+/* 动作语义色对齐桌面 (add=success / update=primary(品牌) / remove=muted)。 */
+.mem-action.mem-add {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.mem-action.mem-update-on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.mem-action.mem-remove,
+.mem-action.mem-update-other {
+  color: var(--muted);
+  background: var(--border);
+}
+
+.mem-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mem-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mem-item-leaf {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mem-item-scope {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.mem-item-text {
+  font-size: 14px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mem-item-removed {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.mem-update-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-end;
+  padding: 4px 2px;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+}
+
+.mem-update-link:active {
+  color: var(--fg);
+}
+
+/* 「最近更新」feed on /memory — reuse .mem-update chrome; head is time + source link. */
+.mem-feed .mem-updates {
+  margin-top: 0;
+}
+
+.mem-feed-when {
+  margin-left: 0;
+}
+
+.mem-feed-source {
+  margin-left: auto;
+  align-self: center;
+  padding: 0;
+}
+
+/* --- Dev offline preview (/preview) --- */
+
+.preview-controls {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.preview-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.preview-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.preview-scrub input[type="range"] {
+  width: 100%;
+}
+
+.preview-messages {
+  flex: 1;
+  overflow: auto;
+}
+
+.preview-pending {
+  margin-top: 12px;
+  font-size: 13px;
+}

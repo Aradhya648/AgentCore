@@ -1,0 +1,12 @@
+{
+  "name": "@agentcore/contract-types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "桌面/手机两端共享的事件与 REST 契约类型（单一源，理想由后端 schema 生成）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sidecar-ipc.json": "./src/sidecar-ipc.json"
+  },
+  "types": "./src/index.ts"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "team_energy_compare",
+  "category": "team",
+  "user_message": "请组建一个小团队来完成这个任务：先调研太阳能和风能各自的优缺点，再把结论整理成一段清晰的对比短文给我。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "后端架构.md §五：rubric 散文 → 可逐条判定的 milestone 清单。compare 这条权重 2，恰好捕获 CEO 的整合价值（把各 worker 产出真整合成对比，而非各写一段）。Delegated 降为诊断。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "NonEmpty", "args": { "min_len": 40 } }
+  ],
+  "milestones": [
+    { "id": "solar", "desc": "给出太阳能的优点与缺点", "weight": 1 },
+    { "id": "wind", "desc": "给出风能的优点与缺点", "weight": 1 },
+    { "id": "compare", "desc": "把太阳能与风能整理成清晰的直接对比（互相照应，而非各写一段不对照）", "weight": 2 }
+  ]
+}

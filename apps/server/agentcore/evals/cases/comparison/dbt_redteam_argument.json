@@ -1,0 +1,14 @@
+{
+  "id": "dbt_redteam_argument",
+  "archetype": "debate",
+  "user_message": "压力测试下面这个融资论点并找出它的漏洞：「竞品都没有做多 Agent 对比评估，所以我们做了就立刻拥有护城河。」",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "反驳深度：是否指出多个相互独立的漏洞（如「别人没做≠不能快速复制」「评估方法本身非壁垒」「因果倒置：有评估不等于有产品优势」「缺少用户价值与可持续性论证」等）；红队式对抗（攻方+辩方）是否比单次直答挖得更深、更全面。简洁有力优先，不因更长而偏好。"
+}

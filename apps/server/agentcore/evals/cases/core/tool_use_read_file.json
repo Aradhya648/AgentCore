@@ -1,0 +1,16 @@
+{
+  "id": "tool_use_read_file",
+  "category": "tool_use",
+  "user_message": "工作区里有一个 README.md，请读取它并用一句话概括它讲了什么。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "workspace_fixture": "sample_repo",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "ToolCalled", "args": { "tool": "file_read" } },
+    { "name": "ToolArgsValid", "args": { "tool": "file_read", "required": ["path"] } },
+    { "name": "MaxRounds", "args": { "budget": 5 } }
+  ],
+  "rubric": "概括是否基于文件真实内容（提到 TaskFlow / 任务管理），未脱离原文编造。"
+}

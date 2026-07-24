@@ -1,0 +1,15 @@
+{
+  "id": "probe_weekday_plus_100",
+  "category": "qa",
+  "_note": "挖坑探针：纯文字交付物，结构必过轻层（无代码、无角标）。日期模运算（100 mod 7 = 2，周四+2=周六）模型常算错。正确=周六/星期六。语义错而结构完整——轻层放行。",
+  "user_message": "今天是星期四。请直接推算：从今天算起，100 天之后是星期几？不要联网、不要调用工具，直接给出星期几并简述算法。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "samples": 5,
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 10 } },
+    { "name": "ContentMatches", "args": { "pattern": "星期六|周六" } }
+  ]
+}

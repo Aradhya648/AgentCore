@@ -1,0 +1,14 @@
+{
+  "id": "dbt_storage_pick",
+  "archetype": "debate",
+  "user_message": "为一个高并发计数器选型存储方案，在 Redis INCR、PostgreSQL 行锁、内存+定期落盘三者中给出推荐，并分别说明每种方案在什么场景下会翻车。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "是否给出明确推荐 + 三方案各自的失败/翻车场景共 3 个边界（如 Redis 持久化窗口丢数据、PG 行锁成为热点瓶颈、内存方案进程宕机丢未落盘窗口）覆盖几个；对立方论证是否逼出真实边界失败模式而非空话。简洁正确优先，不因更长而偏好。"
+}

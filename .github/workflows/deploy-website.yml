@@ -1,0 +1,49 @@
+name: Deploy Website
+
+# ⚠️ 已弃用自动触发 — 官网改由 Cursor Agent 本地 `pnpm -C apps/website deploy:pages` 部署。
+# 见 docs/05-平台与运维/部署与运维.md §二、.cursor/rules/cursor-deploy.mdc
+# 仅保留 workflow_dispatch 作紧急备用（需 Actions 配额可用）。
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-website
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/website/pnpm-lock.yaml
+
+      # 官网是独立 lockfile（不在根 pnpm workspace），须 --ignore-workspace 避免误装整仓。
+      - name: Install dependencies
+        working-directory: apps/website
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Build static site
+        working-directory: apps/website
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/website
+          command: pages deploy out --project-name=agentcore-website --branch=main

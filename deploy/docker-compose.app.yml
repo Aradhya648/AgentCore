@@ -1,0 +1,65 @@
+# AgentCore 应用容器化（api 服务）— 与 docker-compose.server.yml 叠加使用。
+#
+# server compose 只编排基础设施（PG/Redis/SearXNG）；本文件叠加后端 API 容器。
+# 两个文件用 -f 合并为同一 compose project，故 api 经服务名直连基础设施
+# （覆盖 env_file 里的 127.0.0.1 串，见 部署与运维.md §8.2）。
+#
+# 用法（服务器）：
+#   docker compose \
+#     -f deploy/docker-compose.server.yml \
+#     -f deploy/docker-compose.app.yml \
+#     --env-file deploy/config/production.env \
+#     up -d
+# 镜像由 CI 构建推 ACR；deploy-server.sh 设 IMAGE_TAG=<sha> 后 pull 部署。
+# 本地可 `up --build` 直接从 apps/server 构建。
+#
+# 注：worker 容器（部署与运维.md §三 当前容器清单）暂不纳入——当前执行引擎是
+# 进程内 asyncio 协程，无独立 worker 入口；贸然起第二个 `python -m agentcore`
+# 会重复跑后台循环（如 retention sweep），是 bug 而非扩容。待有专用 worker 入口再加。
+
+# 日志：json-file 驱动 + 轮转，封顶单容器 10m×5=50MB（部署与运维.md §7.8「可观测·日志」）。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  api:
+    image: ${IMAGE_REGISTRY:-agentcore}/api:${IMAGE_TAG:-latest}
+    container_name: agentcore-api
+    build:
+      context: ../apps/server
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1024m
+    mem_reservation: 256m
+    # 应用配置（JWT / DeepSeek Key / CORS / 配额…）从同一 env 文件注入。
+    env_file:
+      - ./config/production.env
+    # 覆盖连接串为 compose 服务名（密码仍来自 env_file，这里只改主机名）。
+    # GIT_SHA / BUILT_AT 不在此覆盖：以镜像构建期 ENV 为单一真相源，避免覆成 unknown。
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agentcore:${POSTGRES_PASSWORD}@postgres:5432/agentcore
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SEARXNG_URL: http://searxng:8080
+      DATA_DIR: /data
+      HOST: 0.0.0.0
+      PORT: "8000"
+      DEBUG: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  appdata:

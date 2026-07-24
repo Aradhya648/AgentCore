@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@/*": ["../desktop/src/renderer/*"],
+      "@shared/*": ["../desktop/src/shared/*"],
+      "@mobile/*": ["../mobile/src/*"],
+      "@agentcore/contract-types": ["../../packages/contract-types/src/index.ts"],
+      "@agentcore/protocol-conformance": [
+        "../../packages/protocol-conformance/src/index.ts"
+      ]
+    },
+    "baseUrl": "."
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}

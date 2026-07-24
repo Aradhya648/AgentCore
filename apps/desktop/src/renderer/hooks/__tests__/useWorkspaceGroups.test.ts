@@ -1,0 +1,100 @@
+import {
+  MAX_WORKSPACE_GROUPS,
+  buildWorkspaceGroups,
+} from "@/hooks/useWorkspaceGroups";
+import type { FolderMeta } from "@/services/folders";
+import type { Conversation } from "@/stores/conversation";
+import { describe, expect, it } from "vitest";
+
+const folder = (id: string, name = id): FolderMeta => ({
+  id,
+  name,
+  mode: "cloud",
+  localRootId: null,
+  localSubpath: null,
+});
+
+const conv = (
+  id: string,
+  opts: { folderId?: string | null; at?: string; pinned?: boolean } = {},
+): Conversation => ({
+  id,
+  title: id,
+  updatedAt: opts.at ?? "2026-01-01T00:00:00Z",
+  messageCount: 0,
+  lastMessagePreview: null,
+  folderId: opts.folderId ?? null,
+  pinned: opts.pinned,
+});
+
+describe("buildWorkspaceGroups (方案B 项目分组)", () => {
+  it("groups foldered chats by folder and excludes 裸聊", () => {
+    const groups = buildWorkspaceGroups(
+      [
+        conv("a", { folderId: "f1" }),
+        conv("bare", { folderId: null }),
+        conv("b", { folderId: "f1" }),
+      ],
+      [folder("f1")],
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].folder.id).toBe("f1");
+    expect(groups[0].convs.map((c) => c.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("skips conversations whose folder is not in cache", () => {
+    const groups = buildWorkspaceGroups(
+      [conv("a", { folderId: "ghost" })],
+      [folder("f1")],
+    );
+    expect(groups).toHaveLength(0);
+  });
+
+  it("orders groups by latest activity (newest folder first)", () => {
+    const groups = buildWorkspaceGroups(
+      [
+        conv("old", { folderId: "f1", at: "2026-01-01T00:00:00Z" }),
+        conv("new", { folderId: "f2", at: "2026-02-01T00:00:00Z" }),
+      ],
+      [folder("f1"), folder("f2")],
+    );
+    expect(groups.map((g) => g.folder.id)).toEqual(["f2", "f1"]);
+  });
+
+  it("sorts within a group pinned-first then newest-first", () => {
+    const groups = buildWorkspaceGroups(
+      [
+        conv("oldPinned", {
+          folderId: "f1",
+          at: "2026-01-01T00:00:00Z",
+          pinned: true,
+        }),
+        conv("newer", { folderId: "f1", at: "2026-03-01T00:00:00Z" }),
+        conv("newest", { folderId: "f1", at: "2026-04-01T00:00:00Z" }),
+      ],
+      [folder("f1")],
+    );
+    expect(groups[0].convs.map((c) => c.id)).toEqual([
+      "oldPinned",
+      "newest",
+      "newer",
+    ]);
+  });
+
+  it("caps the number of groups at MAX_WORKSPACE_GROUPS", () => {
+    const folders = Array.from({ length: MAX_WORKSPACE_GROUPS + 3 }, (_, i) =>
+      folder(`f${i}`),
+    );
+    const conversations = folders.map((f, i) =>
+      conv(`c${i}`, {
+        folderId: f.id,
+        // strictly increasing activity so ordering is deterministic
+        at: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+      }),
+    );
+    const groups = buildWorkspaceGroups(conversations, folders);
+    expect(groups).toHaveLength(MAX_WORKSPACE_GROUPS);
+    // the most recent folders survive the cap
+    expect(groups[0].folder.id).toBe(`f${folders.length - 1}`);
+  });
+});

@@ -1,0 +1,32 @@
+{
+  "name": "@agentcore/protocol-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "协议一致性巡检：后端权威向量 + golden + ProjectedTurn schema + 通用断言（规范，非实现）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixtureKind": "./src/fixtureKind.ts",
+    "./projectedTurn": "./src/projectedTurn.ts",
+    "./fixtures/simulation-region-positions.json": "./fixtures/simulation-region-positions.json",
+    "./fixtures/simulation-m1-tick.json": "./fixtures/simulation-m1-tick.json",
+    "./fixtures/simulation/multi-agent-tick.json": "./fixtures/simulation/multi-agent-tick.json",
+    "./fixtures/simulation/coordinate-transform.json": "./fixtures/simulation/coordinate-transform.json",
+    "./fixtures/simulation/interaction-conversation.json": "./fixtures/simulation/interaction-conversation.json",
+    "./fixtures/simulation/world-event.json": "./fixtures/simulation/world-event.json",
+    "./fixtures/simulation/tick-frame-snapshot.json": "./fixtures/simulation/tick-frame-snapshot.json",
+    "./fixtures/simulation/rest-run-summary.json": "./fixtures/simulation/rest-run-summary.json",
+    "./fixtures/simulation/rest-advance-tick.json": "./fixtures/simulation/rest-advance-tick.json",
+    "./fixtures/simulation/rest-tick-frame.json": "./fixtures/simulation/rest-tick-frame.json",
+    "./fixtures/simulation/rest-run-status.json": "./fixtures/simulation/rest-run-status.json",
+    "./fixtures/simulation/rest-metrics.json": "./fixtures/simulation/rest-metrics.json",
+    "./fixtures/simulation/rest-manifest.json": "./fixtures/simulation/rest-manifest.json",
+    "./fixtures/simulation/rest-inject.json": "./fixtures/simulation/rest-inject.json",
+    "./fixtures/simulation/rest-patch-agent.json": "./fixtures/simulation/rest-patch-agent.json",
+    "./fixtures/show/episode-3-manifest.json": "./fixtures/show/episode-3-manifest.json"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@agentcore/contract-types": "workspace:*"
+  }
+}

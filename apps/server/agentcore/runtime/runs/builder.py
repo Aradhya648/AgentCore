@@ -1,0 +1,884 @@
+"""build_run_plan — raw delegate args → RunPlan (第一阶段：内联角色版).
+
+Single / parallel / DAG stop being distinct *modes* and become one RunPlan whose
+shape falls out of the ``depends_on`` edges (no deps + 1 task = single; no deps +
+N = parallel; any deps = a DAG). Pure and dict-based.
+
+第一阶段：每个 task 自带「内联角色」（role / objective / tools /
+…），无独立 Agent 实体与 allow-list。``agent_id`` 铸成 == ``run_id``，``agent_name``
+取 ``role``，仅供 ``run_*`` 事件与图展示。
+
+Run-id minting preserves two schemes: a no-deps batch numbers nodes
+``{prefix}_{n}`` so a re-delegate in the same turn never reuses an id, while a
+DAG namespaces each declared id ``{prefix}_{raw}`` and rewrites every
+``depends_on`` ref the same way, so intra-DAG edges survive.
+
+→ 见设计: docs/03-AI核心/执行引擎架构设计.md §八（Run 模型）
+"""
+
+from __future__ import annotations
+
+import re
+import time
+from typing import Any
+
+from agentcore.core.logging import get_logger
+from agentcore.core.types import new_id
+from agentcore.runtime.runs.constants import (
+    DEFAULT_ON_FAILURE,
+    MAX_DELEGATION_TASKS,
+    MAX_RUN_RETRIES,
+    VALID_ON_FAILURE,
+)
+from agentcore.runtime.runs.plan import RunPlan, RunPlanError
+from agentcore.runtime.runs.types import Deliverable, RunKind, RunOrigin, RunPolicy, RunSpec
+
+# Debate/review opposition markers (前端UX设计.md §四): a display-only side tag the
+# frontend pairs into a side-by-side comparison; anything else is dropped (lenient)
+# so a stray value never leaks onto the graph.
+_VALID_STANCES = frozenset({"pro", "con"})
+_VALID_OUTPUT_FORMATS = frozenset({"text", "json"})
+# DAG 节点可显式声明 timeout_ms；缺省不填 → ``apply_worker_budgets`` 填统一 backstop。
+_DEFAULT_RETRY_DELAY_MS = 2_000
+# Per-sibling excerpt caps in a fan-out awareness summary: a scope line (责任/任务)
+# plus a shorter deliverable note (预期产出), kept tight so a wide fan-out's
+# awareness block stays scannable and can't blow up a worker's context.
+_SIBLING_TASK_CHARS = 150
+_SIBLING_OUTPUT_CHARS = 80
+_UPSTREAM_HINTS = re.compile(
+    r"上游|基于.*(?:产出|结果|输出)|见上游|前置|依赖.*(?:结果|产出)|"
+    r"读取.*(?:产出|结果)|upstream|based on|depends on",
+    re.IGNORECASE,
+)
+
+logger = get_logger(__name__)
+
+
+def _format_available_dep_nodes(
+    nodes: list[tuple[str, str]],
+) -> str:
+    """Human-readable catalog of (run_id_or_raw, role) for depends_on errors."""
+    if not nodes:
+        return "（当前无可用节点）"
+    parts = [
+        f"{rid}（{role}）" if role and role != rid else rid for rid, role in nodes
+    ]
+    return "、".join(parts)
+
+
+def _resolve_dep_ref(
+    raw: str,
+    *,
+    by_raw_id: dict[str, str],
+    by_role: dict[str, list[str]],
+    available_label: str,
+) -> tuple[str | None, str | None]:
+    """Resolve one depends_on token to a namespaced run_id.
+
+    Order: exact raw id → unambiguous role / agent_name alias.
+    Returns ``(run_id, None)`` on success or ``(None, error_message)`` on failure.
+    """
+    token = (raw or "").strip()
+    if not token:
+        return None, None
+    if token in by_raw_id:
+        return by_raw_id[token], None
+    # Already-namespaced full id that happens to equal a minted value.
+    minted_values = set(by_raw_id.values())
+    if token in minted_values:
+        return token, None
+    role_hits = by_role.get(token) or []
+    if len(role_hits) == 1:
+        return role_hits[0], None
+    if len(role_hits) > 1:
+        return None, (
+            f"depends_on `{token}` 角色名有歧义（候选 run_id：{'、'.join(role_hits)}）。"
+            f"请改用 id 字段字面值。可用节点：{available_label}"
+        )
+    return None, (
+        f"depends_on `{token}` 无法解析为已知节点。"
+        f"可用节点：{available_label}。"
+        "请填 id 字段字面值，或填无歧义的角色名。"
+    )
+
+
+def _nonempty_str(value: Any) -> str:
+    return value.strip() if isinstance(value, str) and value.strip() else ""
+
+
+def _is_complete_task(item: Any) -> bool:
+    """A real task node: object with both role and task (the delegate schema required pair)."""
+    if not isinstance(item, dict):
+        return False
+    return bool(_nonempty_str(item.get("role")) and _nonempty_str(item.get("task")))
+
+
+def _is_pure_stub(item: dict[str, Any]) -> bool:
+    """Metadata-only row (id / depends_on / …) with neither role nor task."""
+    return not _nonempty_str(item.get("role")) and not _nonempty_str(item.get("task"))
+
+
+def _merge_task_fragments(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    """Merge two adjacent fragments the model split across array slots (id 行 + task 行)."""
+    merged = dict(left)
+    for key, value in right.items():
+        if value is None or value == "":
+            continue
+        # Keep left's id / role / task when already set; fill only the missing halves.
+        if key in ("id", "role", "task") and _nonempty_str(merged.get(key)):
+            continue
+        merged[key] = value
+    return merged
+
+
+def coalesce_split_tasks(tasks_raw: list[Any]) -> list[dict[str, Any]]:
+    """Collapse model-emitted split rows into real task nodes before counting / planning.
+
+    Some models put DAG ``id`` (or role-only / task-only halves) in a separate ``tasks[]``
+    element from the ``role``+``task`` payload. That inflates ``len(tasks)`` past the
+    single-call cap even when the intended node count is within budget (trace
+    2f52c042: 10 intended → counted as 15). Merge only:
+    - adjacent incompletes that together supply role+task; or
+    - a pure id/metadata stub immediately before a complete task.
+    A role-only hole between two complete tasks is NOT folded away — validation must
+    still reject it. Non-dict slots are dropped (they cannot become nodes).
+    """
+    out: list[dict[str, Any]] = []
+    i = 0
+    n = len(tasks_raw)
+    while i < n:
+        cur = tasks_raw[i]
+        if not isinstance(cur, dict):
+            i += 1
+            continue
+        if _is_complete_task(cur):
+            out.append(dict(cur))
+            i += 1
+            continue
+        nxt = tasks_raw[i + 1] if i + 1 < n else None
+        # role-only + task-only (or id+role + task) → one node.
+        if isinstance(nxt, dict) and not _is_complete_task(nxt):
+            merged = _merge_task_fragments(cur, nxt)
+            if _is_complete_task(merged):
+                out.append(merged)
+                i += 2
+                continue
+        # Pure id stub right before a complete task → fold id/depends_on in.
+        if isinstance(nxt, dict) and _is_complete_task(nxt) and _is_pure_stub(cur):
+            out.append(_merge_task_fragments(cur, nxt))
+            i += 2
+            continue
+        # Keep the incomplete row so later validation can report a precise field error.
+        out.append(dict(cur))
+        i += 1
+    return out
+
+
+def build_run_plan(
+    tasks_raw: list[dict[str, Any]],
+    *,
+    valid_tools: set[str] | None = None,
+    id_prefix: str = "",
+    counter_start: int = 0,
+    max_tasks: int = MAX_DELEGATION_TASKS,
+    parent_run_id: str | None = None,
+    depth: int = 1,
+    complexity_hint: str = "standard",
+) -> tuple[RunPlan, list[str]]:
+    """Build a RunPlan from raw delegate-tool task args.
+
+    ``valid_tools`` (when given) is the allow-list each task's ``tools`` is
+    intersected against — an unknown tool name is dropped silently, mirroring the
+    old planner. Returns the plan plus a list of validation errors; a non-empty
+    error list means the batch is rejected and the plan must not be run
+    (reject-on-error for both flat and DAG batches).
+
+    ``parent_run_id`` / ``depth`` stamp every node with its place in the turn's Run
+    tree (阶段2 嵌套子任务): the CEO's direct workers are ``depth=1`` parented to the
+    captain root; a worker that re-delegates passes its own run id + depth so its
+    sub-workers come out one level deeper. The executor reads ``depth`` to enforce
+    the nesting cap.
+
+    ``complexity_hint`` feeds retrieval-budget defaults
+    (:mod:`agentcore.runtime.runs.retrieval_budget`); worker token/timeout backstop
+    is applied uniformly afterward (:mod:`agentcore.runtime.runs.worker_budget`).
+    """
+    if not tasks_raw:
+        return RunPlan(), ["'tasks' array is required and cannot be empty"]
+    # Count / plan against real task nodes (coalesce id/task 拆行), not raw array length.
+    tasks_raw = coalesce_split_tasks(list(tasks_raw))
+    if not tasks_raw:
+        return RunPlan(), ["'tasks' array is required and cannot be empty"]
+    for item in tasks_raw:
+        deps = item.get("depends_on")
+        if deps is not None:
+            item["depends_on"] = [d for d in deps if d and isinstance(d, str) and d.strip()]
+    prefix = id_prefix or f"del_{int(time.time() * 1000)}"
+    if any(item.get("depends_on") for item in tasks_raw):
+        plan, errors = _dag_plan(tasks_raw, valid_tools, prefix, max_tasks, parent_run_id, depth)
+    else:
+        plan, errors = _flat_plan(
+            tasks_raw, valid_tools, prefix, counter_start, max_tasks, parent_run_id, depth
+        )
+    # Fan-out awareness is computed ONCE here, after the shape-specific build, so a
+    # flat batch and a DAG share one definition of「sibling」= nodes that fanned out
+    # from the same point (same depends_on). The DAG case is the fix: its parallel
+    # nodes (e.g. the 调研 workers a「research → writer」fan-out spawns) used to get
+    # nothing and ran blind/overlapping. Skipped for a rejected plan (nodes may be
+    # partial).
+    if not errors:
+        _apply_sibling_summaries(plan)
+        from agentcore.runtime.runs.retrieval_budget import apply_retrieval_budgets
+        from agentcore.runtime.runs.worker_budget import (
+            apply_directed_search_tools,
+            apply_worker_budgets,
+        )
+
+        apply_retrieval_budgets(plan, valid_tools=valid_tools, complexity_hint=complexity_hint)
+        apply_directed_search_tools(plan, valid_tools=valid_tools)
+        apply_worker_budgets(plan)
+    return plan, errors
+
+
+def build_added_nodes(
+    adds: list[dict[str, Any]],
+    plan: RunPlan,
+    *,
+    valid_tools: set[str] | None = None,
+    parent_run_id: str | None = None,
+    depth: int = 1,
+    max_tasks: int = MAX_DELEGATION_TASKS,
+) -> tuple[list[RunSpec], list[str]]:
+    """Build the RunSpecs for a ``replan(add=[…])`` batch the CEO appends to a paused
+    ``plan`` at a wave boundary (受监督的波循环 §7.1 续跑入口).
+
+    Returns ``(specs, errors)``. A non-empty ``errors`` means the whole replan is
+    rejected (all-or-nothing) and the caller must NOT mutate the plan; this function is
+    pure (it never touches ``plan``) so rejection leaves no trace. On success the caller
+    appends each spec via :meth:`RunPlan.add`.
+
+    id 生成 + 依赖接线 (the bit that made ``add`` its own phase):
+    - each added node gets a fresh collision-free id ``{add_<uuid>}_{raw}`` (a brand-new
+      prefix per batch, so re-adds across multiple boundary yields never reuse an id);
+    - each ``depends_on`` ref resolves against BOTH the existing plan nodes (a cross-edge
+      onto already-declared / completed work) AND the other raw ids in THIS batch
+      (intra-edge), so the CEO can append a mini-DAG that hangs off the live graph;
+    - role/task are required (like a DAG node); an unknown ``depends_on`` ref, a dup id,
+      an over-cap batch, or a cycle introduced among the new nodes is a rejected error.
+    """
+    if not adds:
+        return [], []
+    adds = coalesce_split_tasks(list(adds))
+    if not adds:
+        return [], []
+    if len(adds) > max_tasks:
+        return [], [f"add 一次最多追加 {max_tasks} 个节点（收到 {len(adds)}）"]
+
+    prefix = f"add_{new_id()}"
+    existing_ids = {n.run_id for n in plan.nodes}
+    # First pass: assign each item a raw id + mint its namespaced run_id, catching dup
+    # raw ids up front (two added nodes can't share an id, and a mint must not collide
+    # with an existing node — impossible given the fresh prefix, but checked anyway).
+    raw_to_minted: dict[str, str] = {}
+    minted_ids: list[str] = []
+    errors: list[str] = []
+    for i, item in enumerate(adds):
+        if not isinstance(item, dict):
+            errors.append(f"add[{i}] 必须是对象")
+            minted_ids.append("")
+            continue
+        raw = (str(item.get("id")).strip() if item.get("id") is not None else "") or f"n{i}"
+        if raw in raw_to_minted:
+            errors.append(f"add[{i}]: 重复的 id `{raw}`")
+            minted_ids.append("")
+            continue
+        minted = f"{prefix}_{raw}"
+        if minted in existing_ids:
+            errors.append(f"add[{i}]: 生成的 run_id `{minted}` 与现有节点冲突")
+            minted_ids.append("")
+            continue
+        raw_to_minted[raw] = minted
+        minted_ids.append(minted)
+    if errors:
+        return [], errors
+
+    # Second pass: validate fields + resolve each depends_on ref (existing node id OR a
+    # raw id / unambiguous role in THIS batch). Build the specs reusing the same
+    # _inline_spec / _dag_policy the up-front builder uses.
+    by_raw_id = dict(raw_to_minted)
+    by_role: dict[str, list[str]] = {}
+    for n in plan.nodes:
+        by_raw_id.setdefault(n.run_id, n.run_id)
+        role_key = (n.role or n.agent_name or "").strip()
+        if role_key:
+            by_role.setdefault(role_key, []).append(n.run_id)
+    for j, add_item in enumerate(adds):
+        if not isinstance(add_item, dict):
+            continue
+        minted_j = minted_ids[j]
+        if not minted_j:
+            continue
+        add_role = str(add_item.get("role") or "").strip()
+        if add_role:
+            by_role.setdefault(add_role, []).append(minted_j)
+    available_nodes = [
+        (n.run_id, n.role or n.agent_name or "") for n in plan.nodes
+    ] + [
+        (minted_ids[j], str(adds[j].get("role") or "").strip())
+        for j in range(len(adds))
+        if isinstance(adds[j], dict) and minted_ids[j]
+    ]
+    available_label = _format_available_dep_nodes(available_nodes)
+
+    specs: list[RunSpec] = []
+    for i, item in enumerate(adds):
+        minted = minted_ids[i]
+        role = item.get("role")
+        task = item.get("task")
+        if not (isinstance(role, str) and role.strip()):
+            errors.append(f"add[{i}]: 缺少 role")
+            continue
+        if not (isinstance(task, str) and task.strip()):
+            errors.append(f"add[{i}]: 缺少 task")
+            continue
+        resolved_deps: list[str] = []
+        dep_ok = True
+        for dep in item.get("depends_on") or []:
+            dep_id = str(dep).strip()
+            resolved, err = _resolve_dep_ref(
+                dep_id,
+                by_raw_id=by_raw_id,
+                by_role=by_role,
+                available_label=available_label,
+            )
+            if err:
+                errors.append(f"add[{i}]: {err}")
+                dep_ok = False
+                continue
+            if resolved:
+                resolved_deps.append(resolved)
+        if not dep_ok:
+            continue
+        specs.append(
+            _inline_spec(
+                {**item, "role": role.strip(), "task": task.strip()},
+                run_id=minted,
+                depends_on=resolved_deps,
+                policy=_dag_policy(item),
+                valid_tools=valid_tools,
+                parent_run_id=parent_run_id,
+                depth=depth,
+            )
+        )
+    if errors:
+        return [], errors
+
+    # Topology pre-check on the combined graph: existing nodes never gain edges and the
+    # existing plan is already acyclic, so the only new cycle risk is among the added
+    # nodes — a throwaway combined RunPlan.waves() surfaces it without mutating `plan`.
+    try:
+        RunPlan(nodes=[*plan.nodes, *specs], origin=plan.origin).waves()
+    except RunPlanError as e:
+        return [], [f"add 拓扑无效：{e}"]
+    from agentcore.runtime.runs.retrieval_budget import apply_retrieval_budgets_to_specs
+    from agentcore.runtime.runs.worker_budget import (
+        apply_directed_search_tools_to_specs,
+        apply_worker_budgets_to_specs,
+    )
+
+    apply_retrieval_budgets_to_specs(specs, valid_tools=valid_tools, complexity_hint="standard")
+    apply_directed_search_tools_to_specs(specs, valid_tools=valid_tools)
+    # replan add：token/超时走统一 backstop；检索额度仍由 complexity_hint=standard +
+    # is_research_root 判据决定（见 retrieval_budget）。
+    apply_worker_budgets_to_specs(specs)
+    return specs, []
+
+
+def _flat_plan(
+    tasks_raw: list[dict[str, Any]],
+    valid_tools: set[str] | None,
+    prefix: str,
+    counter_start: int,
+    max_tasks: int,
+    parent_run_id: str | None,
+    depth: int,
+) -> tuple[RunPlan, list[str]]:
+    """Single / parallel batch (no deps). Invalid items (missing role or task)
+    or an over-cap batch reject the whole plan."""
+    if len(tasks_raw) > max_tasks:
+        # 拒绝整批时把「怎么分」算好回给 CEO：无依赖批纯按数量装箱，指明本次传前 max_tasks
+        # 个、其余下次 delegate 再传，让重来那一轮照做即可、不必重想编排（见 trace 4d715ea0：
+        # CEO 首轮派 18 撞上限后要整轮重规划才拆两批）。
+        overflow = len(tasks_raw) - max_tasks
+        batches = (len(tasks_raw) + max_tasks - 1) // max_tasks
+        return RunPlan(), [
+            f"任务数 {len(tasks_raw)} 超过单次委派上限 {max_tasks}。这些任务互相独立，"
+            f"分 {batches} 次 delegate 调用完成：本次只传前 {max_tasks} 个，"
+            f"其余 {overflow} 个在下一次 delegate 调用里传。"
+        ]
+    errors: list[str] = []
+    for i, item in enumerate(tasks_raw):
+        role = item.get("role")
+        task = item.get("task")
+        if not (isinstance(role, str) and role.strip()) or not (
+            isinstance(task, str) and task.strip()
+        ):
+            errors.append(f"tasks[{i}]: 'role' 和 'task' 字段必填")
+    if errors:
+        return RunPlan(), errors
+    plan = RunPlan()
+    counter = counter_start
+    for item in tasks_raw:
+        counter += 1
+        run_id = f"{prefix}_{counter}"
+        plan.add(
+            _inline_spec(
+                item,
+                run_id=run_id,
+                policy=RunPolicy(
+                    result_handling=item.get("result_handling") or "pass_through",
+                    timeout_s=_explicit_timeout_s(item),
+                ),
+                valid_tools=valid_tools,
+                parent_run_id=parent_run_id,
+                depth=depth,
+            )
+        )
+    return plan, []
+
+
+def _dag_plan(
+    tasks_raw: list[dict[str, Any]],
+    valid_tools: set[str] | None,
+    prefix: str,
+    max_tasks: int,
+    parent_run_id: str | None,
+    depth: int,
+) -> tuple[RunPlan, list[str]]:
+    """DAG batch (has deps). Per-run validation collects errors; topology
+    (cycle / unknown edge) is checked via ``RunPlan.waves``."""
+    if len(tasks_raw) > max_tasks:
+        # 有依赖批不能按数量硬切（会拆断依赖链），给依赖感知的分批指引：独立子团队拆到不同次
+        # 调用、有依赖的留同一次或用 depends_on 跨批衔接，让 CEO 重来那轮一次到位。
+        return RunPlan(), [
+            f"任务数 {len(tasks_raw)} 超过单次委派上限 {max_tasks}。分多次 delegate 调用："
+            f"把互相独立的子团队（彼此无 depends_on）拆到不同次调用、每次 ≤{max_tasks}；"
+            f"有依赖的任务留在同一次调用内，或让后一次调用用 depends_on 衔接前一批已产出的节点。"
+            f"本次只传 ≤{max_tasks} 个。"
+        ]
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for i, item in enumerate(tasks_raw):
+        raw_id = str(item.get("id", "")).strip() or f"n{i}"
+        if raw_id in seen_ids:
+            errors.append(f"tasks[{i}]: 重复的 id '{raw_id}'")
+        seen_ids.add(raw_id)
+    if errors:
+        return RunPlan(), errors
+
+    plan = RunPlan(origin=RunOrigin.TEMPLATE)
+    errors = []
+
+    def _nsid(raw: str) -> str:
+        return f"{prefix}_{raw}"
+
+    # Index raw id → minted run_id and role → [minted] for tolerant depends_on resolve.
+    raw_ids: list[str] = []
+    roles_for_index: list[str] = []
+    for i, item in enumerate(tasks_raw):
+        raw_ids.append(str(item.get("id", "")).strip() or f"n{i}")
+        roles_for_index.append(str(item.get("role") or "").strip())
+    by_raw_id = {raw: _nsid(raw) for raw in raw_ids}
+    by_role: dict[str, list[str]] = {}
+    for raw, role in zip(raw_ids, roles_for_index, strict=True):
+        if not role:
+            continue
+        by_role.setdefault(role, []).append(_nsid(raw))
+    available_nodes = list(zip(raw_ids, roles_for_index, strict=True))
+    available_label = _format_available_dep_nodes(available_nodes)
+
+    for i, item in enumerate(tasks_raw):
+        raw_id = str(item.get("id", "")).strip() or f"n{i}"
+        role = item.get("role", "")
+        task = item.get("task", "")
+        if not role:
+            errors.append(f"Run '{raw_id}': missing role")
+            continue
+        if not task:
+            errors.append(f"Run '{raw_id}': missing task")
+            continue
+        resolved_deps: list[str] = []
+        dep_ok = True
+        for dep in item.get("depends_on") or []:
+            dep_token = str(dep).strip()
+            resolved, err = _resolve_dep_ref(
+                dep_token,
+                by_raw_id=by_raw_id,
+                by_role=by_role,
+                available_label=available_label,
+            )
+            if err:
+                errors.append(f"tasks[{i}]（{role or raw_id}）: {err}")
+                dep_ok = False
+                continue
+            if resolved:
+                resolved_deps.append(resolved)
+        if not dep_ok:
+            continue
+        plan.add(
+            _inline_spec(
+                item,
+                run_id=_nsid(raw_id),
+                depends_on=resolved_deps,
+                policy=_dag_policy(item),
+                valid_tools=valid_tools,
+                parent_run_id=parent_run_id,
+                depth=depth,
+            )
+        )
+
+    if errors:
+        return plan, errors
+    try:
+        plan.waves()
+    except RunPlanError as e:
+        # Defense in depth: waves() unknown-edge should be unreachable after resolve,
+        # but keep the catalog so any residual message stays actionable.
+        return plan, [f"{e}。可用节点：{available_label}"]
+    for node in plan.nodes:
+        if not node.depends_on and node.task and _UPSTREAM_HINTS.search(node.task):
+            logger.warning(
+                "builder.suspect_missing_dep",
+                run_id=node.run_id,
+                role=node.role,
+                hint="task 提及上游产出但 depends_on 为空",
+            )
+            # 搭车 CEO 注入通道（见 coordination/inject.py）：不再只写后台日志，让 CEO 可见。
+            plan.advisories.append(
+                f"「{node.role or node.run_id}」的任务提及上游产出，但 depends_on 为空"
+                f"（run_id={node.run_id}）。若确需先拿上游结果，补 depends_on 或分批 delegate；"
+                "本就独立可忽略。"
+            )
+    return plan, []
+
+
+def _inline_spec(
+    item: dict[str, Any],
+    *,
+    run_id: str,
+    depends_on: list[str] | None = None,
+    policy: RunPolicy,
+    valid_tools: set[str] | None = None,
+    parent_run_id: str | None = None,
+    depth: int = 1,
+) -> RunSpec:
+    """Assemble one RunSpec from a task item's inline-role fields (阶段1)."""
+    role = item["role"]
+    thinking_raw = item.get("thinking")
+    model_raw = item.get("model")
+    stance_raw = item.get("stance")
+    group_raw = item.get("group")
+    round_raw = item.get("round")
+    return RunSpec(
+        run_id=run_id,
+        agent_id=run_id,
+        agent_name=role,
+        kind=RunKind.AGENT,
+        task=item["task"],
+        role=role,
+        objective=item.get("objective", "") or "",
+        system_prompt_supplement=item.get("system_prompt_supplement") or None,
+        research_then_draft=bool(item.get("research_then_draft")),
+        evidence_ledger_check=bool(item.get("evidence_ledger_check")),
+        side_key=(
+            item["side_key"].strip()
+            if isinstance(item.get("side_key"), str)
+            else ""
+        ),
+        draft_brief=(
+            item["draft_brief"].strip()
+            if isinstance(item.get("draft_brief"), str)
+            else ""
+        ),
+        draft_system=(
+            item["draft_system"].strip()
+            if isinstance(item.get("draft_system"), str)
+            else ""
+        ),
+        tools=_tools(item.get("tools"), valid_tools),
+        # Explicit model override (真·多模型辩手)：宽松解析（仅收非空字符串，否则空=按
+        # 统一 profile 解析），由执行器覆写 profile.model 并经路由器分发。普通 worker
+        # 不带此字段 → 空。
+        model=model_raw.strip() if isinstance(model_raw, str) else "",
+        thinking=thinking_raw if isinstance(thinking_raw, bool) else None,
+        deliverable=_parse_deliverable(item),
+        # 辩论/审查 呈现标记（display-only）：宽松解析，非法 stance 丢弃、group 取整后
+        # 字符串、round 仅收正整数（bool 不算，否则 0）。执行器从不读它们，仅透传给
+        # run_plan 供前端识别辩论 → 并排渲染 / 按轮次分层。
+        stance=stance_raw if stance_raw in _VALID_STANCES else "",
+        group=group_raw.strip() if isinstance(group_raw, str) else "",
+        round=(
+            round_raw
+            if isinstance(round_raw, int) and not isinstance(round_raw, bool) and round_raw > 0
+            else 0
+        ),
+        depends_on=depends_on or [],
+        # 结构化挂起 2a：计划期挂起标记，宽松读取（非真值即 False），WaveScheduler
+        # 在该节点完成后、其下游运行前挂起请用户 plan_review。已由 delegate schema 暴露为
+        # 可设 task 字段、并由 on_boundary 消费；未接 on_boundary 的调度（自治/测试）下仍 inert。
+        checkpoint_after=bool(item.get("checkpoint_after")),
+        # 晚绑定标记（受监督的波循环）：宽松读取（非真值即 False），同 checkpoint_after 已激活。
+        # 由 schema 暴露、replan 在波边界定稿消费；无 on_boundary hook 时 inert。
+        bind_after_deps=bool(item.get("bind_after_deps")),
+        parent_run_id=parent_run_id,
+        depth=depth,
+        replaces_run_id=_parse_replaces_run_id(item.get("replaces_run_id")),
+        continue_from_run_id=_parse_continue_from_run_id(item.get("continue_from_run_id")),
+        force_continue=bool(item.get("force_continue")),
+        ceiling_priority=bool(item.get("ceiling_priority")),
+        context_inject_files=_str_list(item.get("context_inject_files")),
+        require_upstream=bool(item.get("require_upstream")),
+        retrieval_budget=_parse_retrieval_budget(item.get("retrieval_budget")),
+        search_policy=_parse_search_policy(item.get("search_policy")),
+        policy=policy,
+    )
+
+
+def _parse_replaces_run_id(raw: Any) -> str | None:
+    """Normalise optional ``replaces_run_id`` (回落换人) → stripped id or None."""
+    if not isinstance(raw, str):
+        return None
+    cleaned = raw.strip()
+    return cleaned or None
+
+
+def _parse_continue_from_run_id(raw: Any) -> str | None:
+    """Normalise optional ``continue_from_run_id`` (同人续派) → stripped id or None."""
+    if not isinstance(raw, str):
+        return None
+    cleaned = raw.strip()
+    return cleaned or None
+
+
+def _parse_retrieval_budget(raw: Any) -> int | None:
+    """Normalise optional CEO-explicit ``retrieval_budget``; None → structured default."""
+    from agentcore.runtime.runs.retrieval_budget import parse_retrieval_budget
+
+    return parse_retrieval_budget(raw)
+
+
+def _parse_search_policy(raw: Any) -> str:
+    """Normalise optional ``search_policy``; only ``debate_evidence`` is recognised."""
+    if isinstance(raw, str) and raw.strip() == "debate_evidence":
+        return "debate_evidence"
+    return ""
+
+
+def _tools(declared: Any, valid_tools: set[str] | None) -> list[str] | None:
+    """Normalise a task's declared tool names → an allowed-tools restriction, or
+    ``None`` for *no restriction* (the worker is offered all team tools).
+
+    ``None`` is the fail-safe default and is returned whenever a task omits ``tools``
+    or names only unknown tools. We never return ``[]``: the engine reads an empty
+    allow-list as "offer no tools", which strands a worker that has a file/exec
+    deliverable as a text-only agent (it dumps the file content into chat and the
+    workspace stays empty). A non-empty list still restricts to the named
+    (allow-list-intersected) tools so the CEO can opt into least-privilege.
+    """
+    if not isinstance(declared, list):
+        return None
+    names = [t for t in declared if isinstance(t, str) and t]
+    if valid_tools is not None:
+        names = [t for t in names if t in valid_tools]
+    return names or None
+
+
+def _apply_sibling_summaries(plan: RunPlan) -> None:
+    """Populate each node's ``sibling_summary`` with its fan-out siblings — the
+    *other* nodes that fanned out from the SAME point (share the exact same
+    ``depends_on`` set), so they run in parallel toward the same juncture.
+
+    This is the precise「parallel sibling」notion: a「research → writer」fan-out's
+    researchers share their dependency set (both have no deps, or both wait on the
+    same upstream) and so see each other — the gap this fixes (a DAG used to give its
+    parallel nodes nothing, so they ran blind/overlapping). It is deliberately
+    NARROWER than「same wave」: two *independent* chains can land in one topological
+    wave by coincidence (``s2`` deps ``[s1]`` and ``u2`` deps ``[u1]``) yet are not
+    siblings — coupling those would bloat a worker's context with unrelated
+    concurrent work and blur branch independence (cf. the checkpoint-steer isolation
+    guarantee). A flat parallel batch is the degenerate case (every node shares the
+    empty dep set → all siblings, unchanged); a node with no same-fan-out peer (a
+    pipeline link, a lone writer) stays blank. A node never lists its own
+    upstream/downstream — those arrive separately via ``depends_on``.
+
+    Mutates specs in place; reads only ``depends_on`` so it is safe on any plan."""
+    groups: dict[frozenset[str], list[RunSpec]] = {}
+    for spec in plan.nodes:
+        groups.setdefault(frozenset(spec.depends_on), []).append(spec)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        for spec in group:
+            spec.sibling_summary = _sibling_summary(group, spec)
+
+
+def _sibling_summary(group: list[RunSpec], me: RunSpec) -> str:
+    """Fan-out awareness body for ``me``: one bullet per *other* node in its
+    fan-out group, carrying enough for a peer to draw its own boundary —
+
+      ``- {role}：{scope}（预期产出：{deliverable.name}）``
+
+    ``scope`` is the sibling's ``objective`` (its declared 责任/负责的部分) when the
+    CEO set one, else the ``task`` instruction (always present) so a peer is never
+    blank; ``deliverable.name`` (its declared 产出) is appended only when given. This
+    enriches the bare role+task list so parallel peers see *who owns what* and *what
+    each will hand back* — and can avoid both overlapping the same ground and leaving
+    a seam uncovered. Excerpts are capped (:func:`_excerpt`). Assumes
+    ``len(group) >= 2`` (caller skips a lone node)."""
+    lines: list[str] = []
+    for other in group:
+        if other.run_id == me.run_id:
+            continue
+        scope = _excerpt(other.objective or other.task, _SIBLING_TASK_CHARS)
+        line = f"- {other.role}：{scope}"
+        if other.deliverable and other.deliverable.name:
+            line += f"（预期产出：{_excerpt(other.deliverable.name, _SIBLING_OUTPUT_CHARS)}）"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _excerpt(text: str, limit: int) -> str:
+    """Head excerpt of ``text`` capped at ``limit`` chars (ellipsis when over) — a
+    sibling overview only needs the gist, not the tail."""
+    text = text.strip()
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _explicit_timeout_s(item: dict[str, Any]) -> int | None:
+    """CEO-explicit ``timeout_ms`` → seconds; omit → None (worker_budget fills)."""
+    raw_timeout = item.get("timeout_ms")
+    if isinstance(raw_timeout, bool):
+        return None
+    if isinstance(raw_timeout, int) and raw_timeout > 0:
+        return max(1, raw_timeout // 1000)
+    if isinstance(raw_timeout, float) and raw_timeout > 0:
+        return max(1, int(raw_timeout) // 1000)
+    return None
+
+
+def _dag_policy(item: dict[str, Any]) -> RunPolicy:
+    """Map a DAG node's declarative knobs onto a RunPolicy (the WaveScheduler
+    reads on_failure / retries; result_handling feeds the dep-context size).
+
+    ``timeout_ms`` is CEO-explicit only: omit → ``None``, filled later by
+    :func:`~agentcore.runtime.runs.worker_budget.apply_worker_budgets`.
+    """
+    raw_on_failure = item.get("on_failure", DEFAULT_ON_FAILURE)
+    on_failure = raw_on_failure if raw_on_failure in VALID_ON_FAILURE else DEFAULT_ON_FAILURE
+    return RunPolicy(
+        on_failure=on_failure,  # type: ignore[arg-type]
+        max_retries=min(item.get("max_retries", 1), MAX_RUN_RETRIES),
+        retry_delay_ms=item.get("retry_delay_ms", _DEFAULT_RETRY_DELAY_MS),
+        timeout_s=_explicit_timeout_s(item),
+        result_handling=item.get("result_handling") or "pass_through",
+    )
+
+
+def _parse_deliverable(item: dict[str, Any]) -> Deliverable | None:
+    """Parse a task's ``deliverable`` object into a :class:`Deliverable`.
+
+    Returns None when no name and no enforceable rule is declared — the executor still
+    enforces the non-empty baseline regardless. Invalid knob values are dropped (lenient
+    handling)."""
+    raw = item.get("deliverable")
+    if not isinstance(raw, dict):
+        return None
+    name = ""
+    if isinstance(raw.get("name"), str) and raw["name"].strip():
+        name = raw["name"].strip()
+    deliverable = _deliverable_from_dict(raw, name=name)
+    return deliverable if _deliverable_has_content(deliverable) else None
+
+
+_VALID_DELIVERABLE_FORMS = frozenset({"prose", "files"})
+
+
+def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverable:
+    required_sections = _str_list(raw.get("required_sections"))
+    must_contain = _str_list(raw.get("must_contain"))
+    artifacts = _str_list(raw.get("artifacts"))
+    min_length = raw.get("min_length")
+    max_length = raw.get("max_length")
+    min_length = min_length if isinstance(min_length, int) and min_length > 0 else 0
+    max_length = max_length if isinstance(max_length, int) and max_length > 0 else 0
+    fmt = raw.get("output_format")
+    output_format = fmt if fmt in _VALID_OUTPUT_FORMATS else "text"
+    form_raw = raw.get("form")
+    form = form_raw if form_raw in _VALID_DELIVERABLE_FORMS else None
+    # Declaring concrete artifact paths or form=files implies a file deliverable —
+    # path reconciliation is stricter than a bare requires_files count check.
+    # form=prose wins: never imply requires_files (even if CEO also set the flag).
+    if form == "prose":
+        requires_files = False
+        artifacts = []  # path reconciliation meaningless for prose delivery
+    else:
+        requires_files = (
+            bool(raw.get("requires_files", False)) or bool(artifacts) or form == "files"
+        )
+    web_seam_scope = raw.get("web_seam_scope", "")
+    if not isinstance(web_seam_scope, str):
+        web_seam_scope = ""
+    placeholder_hard_exempt = bool(raw.get("placeholder_hard_exempt", False))
+    placeholder_hard_exempt_artifacts = _str_list(
+        raw.get("placeholder_hard_exempt_artifacts")
+    )
+    web_quality_scan = bool(raw.get("web_quality_scan", False))
+    web_quality_soft_exempt = bool(raw.get("web_quality_soft_exempt", False))
+    web_quality_soft_exempt_labels = _str_list(
+        raw.get("web_quality_soft_exempt_labels")
+    )
+    visual_critic = bool(raw.get("visual_critic", False))
+    must_contain_soft = bool(raw.get("must_contain_soft", False))
+    return Deliverable(
+        name=name,
+        output_format=output_format,
+        required_sections=required_sections,
+        must_contain=must_contain,
+        min_length=min_length,
+        max_length=max_length,
+        form=form,  # type: ignore[arg-type]
+        requires_files=requires_files,
+        artifacts=artifacts,
+        web_seam_scope=web_seam_scope.strip(),
+        placeholder_hard_exempt=placeholder_hard_exempt,
+        placeholder_hard_exempt_artifacts=placeholder_hard_exempt_artifacts,
+        web_quality_scan=web_quality_scan,
+        web_quality_soft_exempt=web_quality_soft_exempt,
+        web_quality_soft_exempt_labels=web_quality_soft_exempt_labels,
+        visual_critic=visual_critic,
+        must_contain_soft=must_contain_soft,
+        strict=bool(raw.get("strict", False)),
+    )
+
+
+def _deliverable_has_content(deliverable: Deliverable) -> bool:
+    return bool(
+        deliverable.name.strip()
+        or deliverable.form
+        or deliverable.required_sections
+        or deliverable.must_contain
+        or deliverable.min_length
+        or deliverable.max_length
+        or deliverable.output_format == "json"
+        or deliverable.requires_files
+        or deliverable.artifacts
+        or deliverable.web_quality_scan
+        or deliverable.visual_critic
+    )
+
+
+def _str_list(value: Any) -> list[str]:
+    """Normalise a declared list field to non-empty trimmed strings."""
+    if not isinstance(value, list):
+        return []
+    return [s.strip() for s in value if isinstance(s, str) and s.strip()]

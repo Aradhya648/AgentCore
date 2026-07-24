@@ -1,0 +1,13 @@
+{
+  "id": "tool_use_search_args",
+  "category": "tool_use",
+  "user_message": "帮我查一下 Python 3.13 的正式发布日期是哪天。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "checks": [
+    { "name": "ToolCalled", "args": { "tool": "web_search" } },
+    { "name": "ToolArgsValid", "args": { "tool": "web_search", "required": ["query"] } },
+    { "name": "MaxRounds", "args": { "budget": 6 } }
+  ]
+}

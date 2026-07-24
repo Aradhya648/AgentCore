@@ -1,0 +1,675 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+@import "katex/dist/katex.min.css";
+@import "@agentcore/design-tokens/tokens.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Semantic OKLCH values: @agentcore/design-tokens/tokens.css (imported above). */
+
+* {
+  border-color: var(--border);
+}
+
+/* Scrollbars — thin, rounded, auto-hiding (macOS / Linear style): the thumb is
+ * transparent at rest and fades in only on hover or while actively scrolling
+ * (the latter driven by lib/scrollReveal.ts toggling `.is-scrolling` on <html>).
+ * No arrow buttons, transparent track. Chromium (Electron) honors the
+ * ::-webkit-scrollbar rules; scrollbar-width/color is the standard fallback.
+ * The 10px gutter is always reserved (invisible at rest) so revealing the thumb
+ * never shifts content. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  /* Transparent 2px border + padding-box clip renders a slimmer thumb that floats
+   * with breathing room from the track edge (GitHub-style). */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+}
+/* Reveal: hovering the scroll area, or anywhere while the doc is scrolling. */
+*:hover::-webkit-scrollbar-thumb,
+.is-scrolling::-webkit-scrollbar-thumb,
+.is-scrolling *::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+/* Direct thumb hover wins (placed last) for the stronger grab affordance. */
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.markdown-body {
+  font-size: 0.875rem;
+  line-height: 1.625;
+}
+.markdown-body p {
+  margin-bottom: 0.75rem;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-body pre {
+  margin: 0.75rem 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background-color: var(--muted);
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  font-size: 0.75rem;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+.markdown-body :not(pre) > code {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background-color: var(--muted);
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.markdown-body h1 {
+  font-size: 1rem;
+}
+.markdown-body h2 {
+  font-size: 0.875rem;
+}
+.markdown-body h3 {
+  font-size: 0.875rem;
+}
+.markdown-body ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-body ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+.markdown-body blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--muted-foreground);
+}
+.markdown-body a {
+  text-decoration: underline;
+}
+.markdown-body hr {
+  margin: 1rem 0;
+  border-color: var(--border);
+}
+
+/* Tighter spacing for catalog / context prompt bodies (PromptDocument). */
+.markdown-body--compact {
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.markdown-body--compact p {
+  margin-bottom: 0.5rem;
+}
+.markdown-body--compact h1,
+.markdown-body--compact h2,
+.markdown-body--compact h3 {
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+}
+.markdown-body--compact ul,
+.markdown-body--compact ol {
+  margin-bottom: 0.5rem;
+  padding-left: 1rem;
+}
+.markdown-body--compact li {
+  margin-bottom: 0.125rem;
+}
+.markdown-body--compact pre {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+}
+
+/* Fenced code blocks: a bordered card with a header (filename / language +
+ * wrap-toggle + copy) on top, an aligned line-number gutter beside the <pre>
+ * body, and a collapse toggle for long blocks (rendered by CodeBlock.tsx). */
+.markdown-body .code-block {
+  margin: 0.75rem 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background-color: var(--muted);
+}
+.markdown-body .code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.markdown-body .code-block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.markdown-body .code-block-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.markdown-body .code-block-lang {
+  text-transform: lowercase;
+}
+/* With a filename present the language collapses into a small trailing badge. */
+.markdown-body .code-block-file + .code-block-lang {
+  flex: none;
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+  background-color: var(--accent);
+}
+.markdown-body .code-block-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex: none;
+}
+.markdown-body .code-block-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.5rem;
+  color: var(--muted-foreground);
+}
+.markdown-body .code-block-action:hover {
+  background-color: var(--accent);
+  color: var(--foreground);
+}
+.markdown-body .code-block-action[aria-pressed="true"] {
+  color: var(--primary);
+}
+.markdown-body .code-block-body {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+.markdown-body .code-block-body.collapsed {
+  max-height: 30rem;
+  overflow: hidden;
+}
+/* Fade the clipped tail of a collapsed block into the card background. */
+.markdown-body .code-block-body.collapsed::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3rem;
+  background: linear-gradient(transparent, var(--muted));
+  pointer-events: none;
+}
+.markdown-body .code-block-gutter {
+  flex: none;
+  padding: 1rem 0.5rem;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.625;
+  color: var(--muted-foreground);
+  opacity: 0.55;
+  white-space: pre;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+.markdown-body .code-block pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.markdown-body .code-block-body pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+.markdown-body .code-block-body.wrap pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.markdown-body .code-block-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.25rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.markdown-body .code-block-expand:hover {
+  background-color: var(--accent);
+  color: var(--foreground);
+}
+
+/* GFM tables. */
+.markdown-body table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  overflow-x: auto;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.375rem 0.625rem;
+  text-align: left;
+}
+.markdown-body th {
+  background-color: var(--muted);
+  font-weight: 600;
+}
+
+/* KaTeX: keep wide display math scrollable instead of overflowing the bubble. */
+.markdown-body .katex-display {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+/* Syntax tokens (highlight.js classes) mapped onto semantic palette vars. */
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-subst,
+.markdown-body .hljs-section {
+  color: var(--syntax-keyword);
+}
+.markdown-body .hljs-string,
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-addition {
+  color: var(--syntax-string);
+}
+.markdown-body .hljs-number,
+.markdown-body .hljs-literal {
+  color: var(--syntax-number);
+}
+.markdown-body .hljs-title,
+.markdown-body .hljs-name,
+.markdown-body .hljs-title.function_,
+.markdown-body .hljs-title.class_ {
+  color: var(--syntax-function);
+}
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-template-variable,
+.markdown-body .hljs-property {
+  color: var(--syntax-attr);
+}
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-builtin-name,
+.markdown-body .hljs-type,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet {
+  color: var(--syntax-builtin);
+}
+.markdown-body .hljs-meta {
+  color: var(--muted-foreground);
+}
+.markdown-body .hljs-deletion {
+  color: var(--destructive);
+}
+.markdown-body .hljs-emphasis {
+  font-style: italic;
+}
+.markdown-body .hljs-strong {
+  font-weight: 600;
+}
+
+@keyframes blink-cursor {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes dropdown-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* Task card entrance — plays once when a multi-agent plan (`run_plan`) first
+ * mounts the in-chat team dashboard. A stable wrapper in TaskCard keeps inner
+ * status swaps (running→completed/failed) from re-triggering it. */
+@keyframes task-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Chat message bubble entrance — fade + slide-up on mount (initial load + new turns). */
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Collaboration-graph node entrance — plays once when a node first mounts
+ * (run_plan declares the whole team up-front, so nodes cascade in via a per-node
+ * animation-delay). Scale/opacity only, applied to an inner wrapper — never the
+ * ReactFlow node element, which owns the node's positioning translate(). */
+@keyframes graph-node-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* One-shot status flash — a brief colored glow + pop when a run reaches a
+ * terminal state. Colour comes from --graph-flash-color (set per status). */
+@keyframes graph-node-flash {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  40% {
+    transform: scale(1.035);
+    box-shadow: 0 0 12px 3px var(--graph-flash-color, var(--success));
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Terminal status pop — a brief scale + fade when a tool row's status icon swaps
+ * from the running pulse to its ✓/✗ verdict (设计 §3 状态转换过渡). Scale/opacity
+ * only, on the freshly-mounted icon, so it plays once on the running→done edge. */
+@keyframes status-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes voice-wave {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 16px;
+  }
+}
+
+.voice-wave-bar {
+  height: 4px;
+  animation: voice-wave 0.8s ease-in-out infinite;
+}
+
+@theme inline {
+  --animate-dropdown-in: dropdown-in 0.15s ease-out;
+  --animate-dropdown-out: dropdown-out 0.1s ease-in;
+  --animate-task-card-enter: task-card-enter 0.3s ease-out;
+  --animate-message-enter: message-enter 0.25s ease-out;
+  /* `both`: hold the `from` state during the stagger delay (else a delayed node
+     flashes visible → hidden → fades in) and the `to` state after. */
+  --animate-graph-node-enter: graph-node-enter 0.28s ease-out both;
+  --animate-graph-node-flash: graph-node-flash 0.6s ease-out;
+  --animate-status-pop: status-pop 0.2s ease-out;
+}
+
+/* Layout morph only while a layout-kind switch is in flight. Always-on
+ * `transition: transform` amplified hover/measurement jitter on the canvas. */
+.react-flow__node.graph-layout-morphing {
+  transition: transform 0.3s ease;
+}
+
+/* Keyboard focus ring on the RF node wrapper (arrow-key navigation). */
+.react-flow__node.graph-keyboard-focus .animate-graph-node-enter > * {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Honor reduced-motion: skip the entrance/flash/layout transforms. Unlayered, so
+ * it reliably overrides the layered Tailwind `animate-*` utilities. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-task-card-enter,
+  .animate-message-enter,
+  .animate-graph-node-enter,
+  .animate-graph-node-flash,
+  .animate-status-pop {
+    animation: none;
+  }
+  .voice-wave-bar {
+    animation: none;
+    height: 8px;
+  }
+  .react-flow__node.graph-layout-morphing {
+    transition: none;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Noto Sans SC", sans-serif;
+}
+
+/* 阶段推进卡（批 B）— 命题卡升级为可操作交互 */
+.stage-card {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--card, #fafafa);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.stage-card--orphaned,
+.stage-card--resolved {
+  opacity: 0.72;
+}
+.stage-card__eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted-foreground, #6b7280);
+  margin-bottom: 6px;
+}
+.stage-card__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.stage-card__hint {
+  margin: 0;
+  color: var(--muted-foreground, #6b7280);
+  font-size: 12px;
+}
+.stage-card__motion {
+  font-weight: 600;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+.stage-card__motion-input {
+  width: 100%;
+  resize: vertical;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  font: inherit;
+}
+.stage-card__sides {
+  margin: 0 0 8px;
+  padding-left: 1.1em;
+}
+.stage-card__sides li {
+  margin-bottom: 2px;
+}
+.stage-card__side-name {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.stage-card__side-stance {
+  color: var(--muted-foreground, #4b5563);
+}
+.stage-card__meta {
+  font-size: 12px;
+  color: var(--muted-foreground, #6b7280);
+  margin-bottom: 8px;
+}
+.stage-card__rationale {
+  margin: 0 0 8px;
+  color: var(--muted-foreground, #4b5563);
+  font-size: 12px;
+}
+.stage-card__note {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted-foreground, #6b7280);
+}
+.stage-card__note input,
+.stage-card__note-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  font: inherit;
+}
+.stage-card__error {
+  margin: 0 0 8px;
+  color: var(--destructive, #b91c1c);
+  font-size: 12px;
+}
+.stage-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stage-card__btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d1d5db);
+  background: var(--background, #fff);
+  font: inherit;
+  cursor: pointer;
+}
+.stage-card__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.stage-card__btn--primary {
+  background: var(--primary, #111827);
+  color: var(--primary-foreground, #fff);
+  border-color: transparent;
+}

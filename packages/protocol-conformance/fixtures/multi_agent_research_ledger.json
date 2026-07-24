@@ -1,0 +1,491 @@
+{
+  "name": "multi_agent_research_ledger",
+  "description": "多 Agent·调研台账 P2：worker 引 #rN → evidence_ledger 全量；citations_event=仅引用集（含 weak+tier 徽标）；未引用命中只留台账痕迹",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "安排调研。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "调研员"
+            }
+          ],
+          "coordinate": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "调研来源",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "调研员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "调研来源",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "evidence_ledger",
+      "payload": {
+        "delta": [
+          {
+            "id": "#r1",
+            "url": "https://docs.example.com/guide",
+            "title": "官方指南",
+            "snippet": "权威说明",
+            "site": "docs.example.com",
+            "date": "",
+            "tier": "official",
+            "query": "AgentCore 架构",
+            "deep_read": true,
+            "registrant": "worker:w1",
+            "citable": true
+          },
+          {
+            "id": "#r2",
+            "url": "https://news.example.com/a",
+            "title": "媒体报道",
+            "snippet": "二手转述",
+            "site": "news.example.com",
+            "date": "",
+            "tier": "media",
+            "query": "AgentCore 架构",
+            "deep_read": false,
+            "registrant": "worker:w1",
+            "citable": true
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "evidence_ledger",
+      "payload": {
+        "delta": [
+          {
+            "id": "#r3",
+            "url": "https://wenku.baidu.com/view/x",
+            "title": "弱源笔记",
+            "snippet": "低质命中",
+            "site": "wenku.baidu.com",
+            "date": "",
+            "tier": "weak",
+            "query": "AgentCore 架构",
+            "deep_read": false,
+            "registrant": "worker:w1",
+            "citable": true
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "delta": "据官方指南 #r1 与弱源笔记 #r3，架构采用多 Agent 协作。"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "完成调研",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "debrief": {
+          "summary": "引用官方源 + 显式弱源；一处未引用媒体痕迹",
+          "key_points": [
+            "#r1",
+            "#r3"
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.805Z"
+    },
+    {
+      "type": "run_progress",
+      "payload": {
+        "completed": 1,
+        "total": 1
+      },
+      "timestamp": "2026-01-01T00:00:00.806Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "调研完成。"
+      },
+      "timestamp": "2026-01-01T00:00:00.807Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "综合调研：官方指南 #r1 与弱源 #r3 支持该结论。"
+      },
+      "timestamp": "2026-01-01T00:00:00.808Z"
+    },
+    {
+      "type": "evidence_ledger",
+      "payload": {
+        "delta": [],
+        "entries": [
+          {
+            "id": "#r1",
+            "url": "https://docs.example.com/guide",
+            "title": "官方指南",
+            "snippet": "权威说明",
+            "site": "docs.example.com",
+            "date": "",
+            "tier": "official",
+            "query": "AgentCore 架构",
+            "deep_read": true,
+            "registrant": "worker:w1",
+            "citable": true
+          },
+          {
+            "id": "#r2",
+            "url": "https://news.example.com/a",
+            "title": "媒体报道",
+            "snippet": "二手转述",
+            "site": "news.example.com",
+            "date": "",
+            "tier": "media",
+            "query": "AgentCore 架构",
+            "deep_read": false,
+            "registrant": "worker:w1",
+            "citable": true
+          },
+          {
+            "id": "#r3",
+            "url": "https://wenku.baidu.com/view/x",
+            "title": "弱源笔记",
+            "snippet": "低质命中",
+            "site": "wenku.baidu.com",
+            "date": "",
+            "tier": "weak",
+            "query": "AgentCore 架构",
+            "deep_read": false,
+            "registrant": "worker:w1",
+            "citable": true
+          }
+        ],
+        "cited_ids": [
+          "#r1",
+          "#r3"
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.809Z"
+    },
+    {
+      "type": "citations",
+      "payload": {
+        "citations": [
+          {
+            "url": "https://docs.example.com/guide",
+            "title": "官方指南",
+            "snippet": "权威说明",
+            "site": "docs.example.com",
+            "id": "#r1",
+            "tier": "official",
+            "query": "AgentCore 架构",
+            "deep_read": true,
+            "registrant": "worker:w1",
+            "citable": true
+          },
+          {
+            "url": "https://wenku.baidu.com/view/x",
+            "title": "弱源笔记",
+            "snippet": "低质命中",
+            "site": "wenku.baidu.com",
+            "id": "#r3",
+            "tier": "weak",
+            "query": "AgentCore 架构",
+            "deep_read": false,
+            "registrant": "worker:w1",
+            "citable": true
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.810Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 2400,
+          "output_tokens": 420,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.811Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "安排调研。综合调研：官方指南 #r1 与弱源 #r3 支持该结论。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "安排调研。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "content",
+        "text": "综合调研：官方指南 #r1 与弱源 #r3 支持该结论。"
+      }
+    ],
+    "citations": [
+      {
+        "url": "https://docs.example.com/guide",
+        "title": "官方指南",
+        "snippet": "权威说明",
+        "site": "docs.example.com",
+        "id": "#r1",
+        "tier": "official",
+        "query": "AgentCore 架构",
+        "deep_read": true,
+        "registrant": "worker:w1",
+        "citable": true
+      },
+      {
+        "url": "https://wenku.baidu.com/view/x",
+        "title": "弱源笔记",
+        "snippet": "低质命中",
+        "site": "wenku.baidu.com",
+        "id": "#r3",
+        "tier": "weak",
+        "query": "AgentCore 架构",
+        "deep_read": false,
+        "registrant": "worker:w1",
+        "citable": true
+      }
+    ],
+    "evidenceLedger": [
+      {
+        "id": "#r1",
+        "url": "https://docs.example.com/guide",
+        "title": "官方指南",
+        "snippet": "权威说明",
+        "site": "docs.example.com",
+        "date": "",
+        "tier": "official",
+        "query": "AgentCore 架构",
+        "deep_read": true,
+        "registrant": "worker:w1",
+        "citable": true
+      },
+      {
+        "id": "#r2",
+        "url": "https://news.example.com/a",
+        "title": "媒体报道",
+        "snippet": "二手转述",
+        "site": "news.example.com",
+        "date": "",
+        "tier": "media",
+        "query": "AgentCore 架构",
+        "deep_read": false,
+        "registrant": "worker:w1",
+        "citable": true
+      },
+      {
+        "id": "#r3",
+        "url": "https://wenku.baidu.com/view/x",
+        "title": "弱源笔记",
+        "snippet": "低质命中",
+        "site": "wenku.baidu.com",
+        "date": "",
+        "tier": "weak",
+        "query": "AgentCore 架构",
+        "deep_read": false,
+        "registrant": "worker:w1",
+        "citable": true
+      }
+    ],
+    "citedIds": [
+      "#r1",
+      "#r3"
+    ],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "调研员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "据官方指南 #r1 与弱源笔记 #r3，架构采用多 Agent 协作。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "调研来源",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "完成调研",
+        "debrief": {
+          "summary": "引用官方源 + 显式弱源；一处未引用媒体痕迹",
+          "key_points": [
+            "#r1",
+            "#r3"
+          ]
+        },
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "据官方指南 #r1 与弱源笔记 #r3，架构采用多 Agent 协作。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 1,
+      "total": 1
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

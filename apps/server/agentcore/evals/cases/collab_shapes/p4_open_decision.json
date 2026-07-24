@@ -1,0 +1,25 @@
+{
+  "id": "collab_p4_open_decision",
+  "category": "team",
+  "mast": "2.3",
+  "user_message": "我拿到两个 offer：A 是一线大厂基础架构岗，薪资更高但加班多；B 是成长型公司的 AI 应用岗，薪资略低但更贴近我的兴趣。请组织一场多立场辩论帮我把利弊想清楚，最后给我一份简报供我拍板。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型4 开放决策·辩论编排：多立场辩手 → 交锋 → 收敛简报。硬增益=结构驱动真对抗。期望 plan_type=debate。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "expected_shape": {
+    "plan_types": ["debate"],
+    "min_workers": 2,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "both_sides", "desc": "A/B 两边的核心利弊都被展开（非一边倒）", "weight": 2 },
+    { "id": "tension", "desc": "点出真正张力（兴趣 vs 薪资/强度等），而非清单罗列", "weight": 1 },
+    { "id": "brief", "desc": "给出可供用户拍板的简报或决策要点", "weight": 1 }
+  ]
+}

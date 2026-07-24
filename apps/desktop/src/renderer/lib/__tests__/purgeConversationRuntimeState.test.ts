@@ -1,0 +1,99 @@
+import { purgeConversationRuntimeState } from "@/lib/purgeConversationRuntimeState";
+import { useBackgroundTasksStore } from "@/stores/backgroundTasks";
+import { useInteractionStore } from "@/stores/interactions";
+import { type PendingResume, usePausedTurnStore } from "@/stores/pausedTurns";
+import { useTurnModelStore } from "@/stores/turnModel";
+import { beforeEach, describe, expect, it } from "vitest";
+
+const CID = "conv-del";
+const OTHER = "conv-keep";
+
+function resume(conversationId: string, checkpointId: string): PendingResume {
+  return {
+    messageId: `msg-${checkpointId}`,
+    conversationId,
+    checkpointId,
+    kind: "ask_user",
+    userMessage: "q",
+    userMessageId: "u1",
+    steps: [],
+    pending: [],
+    workers: [],
+    tools: [],
+    primitive: "delegate",
+    motion: "",
+    form: "",
+    sides: [],
+    maxRounds: 0,
+    thorough: true,
+    offerResearchFirst: false,
+    researchFirstRecommended: false,
+    question: "?",
+    context: "",
+    assumptions: [],
+    questions: [],
+    styleOptions: [],
+    intent: "decision",
+    origin: "server",
+  };
+}
+
+beforeEach(() => {
+  usePausedTurnStore.getState().clear();
+  useInteractionStore.getState().clear();
+  useTurnModelStore.setState({ byConversation: {} });
+  useBackgroundTasksStore.setState({
+    byConversation: {},
+    modeByConversation: {},
+    rootIdByConversation: {},
+  });
+});
+
+describe("purgeConversationRuntimeState", () => {
+  it("删会话清空 pausedTurns / interactions（及 turnModel / backgroundTasks）", () => {
+    usePausedTurnStore.getState().addLiveResume(resume(CID, "cp-1"));
+    usePausedTurnStore.getState().addLiveResume(resume(OTHER, "cp-2"));
+    useInteractionStore.getState().upsertRequired({
+      kind: "ask_user",
+      conversationId: CID,
+      messageId: "m1",
+      payload: { checkpoint_id: "cp-ix-1", question: "q" },
+    });
+    useInteractionStore.getState().upsertRequired({
+      kind: "ask_user",
+      conversationId: OTHER,
+      messageId: "m2",
+      payload: { checkpoint_id: "cp-ix-2", question: "q2" },
+    });
+    useTurnModelStore.getState().setLastModel(CID, "gpt-test");
+    useTurnModelStore.getState().setLastModel(OTHER, "keep-model");
+    useBackgroundTasksStore.setState({
+      byConversation: {
+        [CID]: [],
+        [OTHER]: [],
+      },
+      modeByConversation: { [CID]: "local", [OTHER]: "cloud" },
+      rootIdByConversation: { [CID]: "root-1", [OTHER]: null },
+    });
+
+    purgeConversationRuntimeState(CID);
+
+    expect(
+      usePausedTurnStore.getState().pending.map((p) => p.conversationId),
+    ).toEqual([OTHER]);
+    expect(useInteractionStore.getState().listForConversation(CID)).toEqual([]);
+    expect(
+      useInteractionStore.getState().listForConversation(OTHER),
+    ).toHaveLength(1);
+    expect(useTurnModelStore.getState().byConversation[CID]).toBeUndefined();
+    expect(useTurnModelStore.getState().byConversation[OTHER]).toBe(
+      "keep-model",
+    );
+    expect(
+      useBackgroundTasksStore.getState().byConversation[CID],
+    ).toBeUndefined();
+    expect(useBackgroundTasksStore.getState().modeByConversation[OTHER]).toBe(
+      "cloud",
+    );
+  });
+});

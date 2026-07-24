@@ -1,0 +1,12 @@
+{
+  "id": "routing_boundary_tiny_file_deliverable",
+  "category": "routing",
+  "user_message": "把这段内容保存成一个 hello.py 文件，内容就一行：print('Hello, AgentCore')。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "边界用例：交付物极小（一行文件），易诱使 CEO 把内容直接粘进正文充数。但 CEO 无写文件工具，正确路由是委派 worker 落盘——判据是『活的产出形态是文件』而非『规模大小』。"
+}

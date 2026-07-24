@@ -1,0 +1,176 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# uv
+.uv/
+
+# Python tooling caches (ruff / mypy)
+.mypy_cache/
+.ruff_cache/
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# Electron
+out/
+release/
+# pnpm shoot 截图（须在 out/ 外，避免 electron-builder 误打进安装包）
+# 通配所有 shoot-out 变体（-manual/-whiteboard/-finale/-slice2…），新增目录不必再逐条枚举
+apps/desktop/shoot-out*/
+# pnpm smoke:webapp 截图（同上：web 冒烟产物，不入仓 / 不打包）
+apps/desktop/smoke-out/
+# pnpm e2e 交互自检产物（失败截图 / trace / html report）
+apps/desktop/e2e-results/
+apps/desktop/e2e-report/
+# demo-tape 回放/保真自检产物（smoke-demo-tape / fidelity_check 写出）
+apps/desktop/demo-tape-out/
+demo-tape-out/
+# 服务端本地 eval / conformance 基线草稿（一次性产物，不入仓）
+apps/server/eval-tmp/
+apps/server/eval-out/
+apps/server/.conformance-baseline-refactor/
+# web 客户端构建产物（渲染层跑浏览器，形态 A）——由 deploy:web / deploy-web.yml 的
+# build:webapp 每次重新构建，不入仓。
+apps/desktop/dist-web/
+# 临时截图评审产物（配色 / 卡片 / 房间视觉自检）——同 shoot-out，不入仓 / 不打包。
+apps/desktop/color-review/
+apps/desktop/shoot-fix/
+apps/desktop/shoot-room/
+apps/desktop/e2e-shots/
+apps/desktop/verdict-shots/
+apps/desktop/.lint-out.txt
+# UE AgentTown 截图自检产物（pnpm town:ue:shoot）及对比基线目录
+apps/town/shoot-out/
+apps/town/shoot-out-before/
+# Unity AgentTown player builds（Windows / WebGL）
+apps/town/Builds/
+# AgentTown 3D 资产（Kenney/Quaternius 等 CC0，vendored）：源 mesh/纹理 + Import 生成的
+# prefab/catalog 连 .meta 入库。勿入库 Mixamo 等禁止再分发的 raw 角色。见 TownAssets/README.md。
+# website 预览自检截图
+apps/website/.shots/
+# 内置 Python 运行时（sidecar 打包产物，由 apps/desktop/scripts/bundle-sidecar.mjs 生成）
+apps/desktop/resources/sidecar/
+# apps/desktop/build/ 是 electron-builder 的 buildResources（应用图标源），不是上面 Python
+# 通用 `build/` 产物——解除目录忽略、再忽略目录内容、只放行 icon.png（仅图标入仓）。
+!apps/desktop/build/
+apps/desktop/build/*
+!apps/desktop/build/icon.png
+
+# TS build info / lint cache
+*.tsbuildinfo
+.eslintcache
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env*
+!.env.example
+!.env.*.example
+# Intentionally tracked: public API URL only (no secrets)
+!apps/desktop/.env.production
+# Local probe script outputs
+apps/server/.pytest-result.txt
+apps/server/_pytest*.txt
+apps/server/_pf*.txt
+# Ad-hoc underscore-prefixed one-off scripts + scratch outputs (.py/.txt/.json) dropped
+# under apps/server/scripts by parallel probe/analysis sessions — not release artifacts.
+# Already-tracked _mlr_*.py stay tracked; this only stops NEW underscore scratch landing.
+apps/server/scripts/_*
+apps/server/scripts/tmp_*
+# Ad-hoc probe/debug scratch dir (pytest chunks, trace dumps, debate exports, grad runs)
+apps/server/tmp/
+# Session audit / log dumps dropped at repo root or under apps/server (not release artifacts)
+/tmp_*
+/_tmp_*
+apps/server/_tmp_*
+apps/server/tmp_*
+# Cursor IDE local config / AI rules (kept on disk, not published)
+.cursor/
+# Cursor agent transcripts (local IDE); never ship
+agent-transcripts/
+# Real production secrets (created on the server from production.env.example)
+deploy/config/production.env
+
+# Certificates / keystores (private material). Public .pem in-tree: re-narrow if needed.
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# Cloudflare Wrangler local state
+.wrangler/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / Coverage
+htmlcov/
+.coverage
+.coverage.*
+# pytest cache + ad-hoc --basetemp scratch dirs (test artifacts)
+.pytest_*/
+.pytmp/
+._pytmp/
+.tmp_pytest/
+.pytest_out.txt
+coverage/
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+
+# Logs
+*.log
+logs/
+# Conversation timeline exports (stdout dumps from scripts/log_timeline.py)
+_*_timeline.txt
+
+# Database
+*.db
+*.sqlite3
+
+# Docker volumes (local dev)
+.docker-data/
+
+# Local throwaway tooling artifacts (cookie-verify harness output: cloudflared
+# binary, self-signed certs incl. private key, logs, evidence json — all regenerated)
+.tools/
+
+# Server local data (MVP long-term memory files, see apps/server/agentcore/memory/store.py)
+apps/server/data/
+data/
+
+# Cursor 对话存档（PChat 生成的上下文归档，不应进入代码仓库）
+杂项/
+
+# Dev-only demo tape session bindings (local conversation_id → tape map)
+demos/bindings.json
+demos/tapes/_*.json
+# Full-session demo tapes / promo capture media (real runs — keep local, do not publish)
+demos/tapes/*.json
+apps/promo/assets/**/clips/
+apps/promo/assets/**/stills/
+apps/promo/assets/**/manifest.json
+# Dev-only live-stream recordings (DEMO_TAPE_RECORD_ENABLED tap output; may carry
+# real conversation content — export curated tapes into demos/tapes/ instead)
+demos/recordings/

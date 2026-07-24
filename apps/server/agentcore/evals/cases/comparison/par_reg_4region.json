@@ -1,0 +1,15 @@
+{
+  "id": "par_reg_4region",
+  "archetype": "parallel_research",
+  "user_message": "分别调研欧盟、美国、中国、日本对生成式 AI 的最新监管政策，每地给出关键法规名称、核心要求、生效时间，最后汇总成一张对比表。",
+  "arms": ["matched_single", "team"],
+  "baseline_arm": "matched_single",
+  "mode": "economy",
+  "samples": 5,
+  "_note": "等算力对比：matched_single = 与 team 同 compute 预算的 best-of-N 单体，baseline 设为它，得到可信判据「team vs 等算力单体」（而非 team vs 单次单体那种「砸了更多算力」）。",
+  "checks": {
+    "matched_single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "覆盖完整度：4 地 ×（法规名 / 核心要求 / 生效时间）共 12 项填全几项；事实是否被检索支撑、未编造来源。简洁正确优先，不因更长而偏好。"
+}

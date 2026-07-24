@@ -1,0 +1,7 @@
+{
+  "name": "agentcore-cookie-verify",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Standalone Electron harness that reproduces the packaged app://agentcore origin and objectively verifies the Secure; SameSite=None auth-cookie round-trip against a real HTTPS API.",
+  "main": "main.cjs"
+}

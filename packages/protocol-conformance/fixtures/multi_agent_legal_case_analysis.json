@@ -1,0 +1,1426 @@
+{
+  "name": "multi_agent_legal_case_analysis",
+  "description": "法律「三方视角案情研判」端到端收场：consult_skill(legal_case_analysis)→debate(form=debate) 原被告两轮对抗→delegate 中立法官研判(接案研判.md)→delegate 核验(法条核验报告 + [待核验])→CEO 收口(倾向研判·非预测 + 法域 + 免责)",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我先翻一下「三方视角案情研判」的打法。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "cs1",
+        "tool_name": "consult_skill",
+        "arguments": {
+          "name": "legal_case_analysis"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "cs1",
+        "tool_name": "consult_skill",
+        "status": "success",
+        "result": "## 三方视角案情研判\n1. 先分流：接案评估 / 诉讼策略。\n2. debate(form=debate) 原告 vs 被告独立对抗 → delegate 中立法官按举证责任研判 → delegate 核验法条。\n3. 胜负定性为倾向研判（非判决结果预测）；终稿标法域 + 免责 + 人审闸门。\n",
+        "display": {
+          "skill_name": "legal_case_analysis",
+          "summary": "三方视角案情研判：原被告对抗 + 中立法官 + 反幻觉硬约束"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "这是接案评估场景。先让原告、被告两方独立对抗，再请中立法官按举证责任研判，最后核验法条、请你拍板。"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "原被告对抗：买卖合同货款纠纷的攻防",
+        "agents": [
+          {
+            "id": "analysis_mod1",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "analysis_mod1",
+            "agent_id": "analysis_mod1",
+            "task": "主持原被告对抗：买卖合同货款纠纷的攻防",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "analysis_mod1",
+        "agent_id": "analysis_mod1",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "原告视角",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "被告视角",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "analysis_mod1_r1_pro",
+            "agent_id": "d_pro",
+            "task": "以原告（卖方）立场主张交付与欠款",
+            "depends_on": [],
+            "parent_run_id": "analysis_mod1",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "analysis_mod1_r1_con",
+            "agent_id": "d_con",
+            "task": "以被告（买方）立场主张质量抗辩",
+            "depends_on": [],
+            "parent_run_id": "analysis_mod1",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "analysis_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "parent_run_id": "analysis_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "analysis_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "delta": "原告（卖方）：合同 + 送货单 + 对账单证明交付与欠款 80 万。"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "analysis_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "output_summary": "原告视角陈述完成",
+        "duration_ms": 860,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.869Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "analysis_mod1_r1_con",
+        "agent_id": "d_con",
+        "parent_run_id": "analysis_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.870Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "analysis_mod1_r1_con",
+        "agent_id": "d_con",
+        "delta": "被告（买方）：货物质量不合格、已提质量异议，主张拒付 / 减款。"
+      },
+      "timestamp": "2026-01-01T00:00:00.871Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "analysis_mod1_r1_con",
+        "agent_id": "d_con",
+        "output_summary": "被告视角陈述完成",
+        "duration_ms": 880,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.750Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "analysis_mod1_r2_pro",
+        "agent_id": "d_pro2",
+        "parent_run_id": "analysis_mod1",
+        "kind": "agent",
+        "continues_run_id": "analysis_mod1_r1_pro"
+      },
+      "timestamp": "2026-01-01T00:00:01.751Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "analysis_mod1_r2_pro",
+        "agent_id": "d_pro2",
+        "delta": "原告（续）：买方未在合理期限内书面异议、无质量鉴定，应视为认可。"
+      },
+      "timestamp": "2026-01-01T00:00:01.752Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "analysis_mod1_r2_pro",
+        "agent_id": "d_pro2",
+        "output_summary": "原告二轮完成",
+        "duration_ms": 720,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.471Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "analysis_mod1_r2_con",
+        "agent_id": "d_con2",
+        "parent_run_id": "analysis_mod1",
+        "kind": "agent",
+        "continues_run_id": "analysis_mod1_r1_con"
+      },
+      "timestamp": "2026-01-01T00:00:02.472Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "analysis_mod1_r2_con",
+        "agent_id": "d_con2",
+        "delta": "被告（续）：曾口头异议，但书面凭证与鉴定确有缺口。"
+      },
+      "timestamp": "2026-01-01T00:00:02.473Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "analysis_mod1_r2_con",
+        "agent_id": "d_con2",
+        "output_summary": "被告二轮完成",
+        "duration_ms": 700,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.172Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "analysis_mod1",
+        "agent_id": "analysis_mod1",
+        "output_summary": "原被告交锋收敛到质量异议的举证",
+        "duration_ms": 2400,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.173Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "analysis_mod1",
+        "form": "debate",
+        "motion": "买卖合同货款纠纷：原被告各自最强主张与抗辩、争议焦点何在",
+        "stop_reason": "converged",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "原告视角（卖方）",
+            "stance": "已交付货物、买方应付欠款 80 万",
+            "is_subject": false,
+            "model": ""
+          },
+          {
+            "key": "con",
+            "name": "被告视角（买方）",
+            "stance": "货物质量不合格、已提异议，可拒付 / 减款",
+            "is_subject": false,
+            "model": ""
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "货款请求权 vs 质量抗辩",
+            "summary": "原告以合同 + 送货单 + 对账单主张交付与欠款；被告以质量不合格主张拒付，焦点指向质量异议是否成立。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": true,
+              "converged": false,
+              "stop_reason": "",
+              "rationale": "双方立场清晰，质量异议的举证尚未交锋，需二轮收口。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "原告视角（卖方）",
+                "run_id": "analysis_mod1_r1_pro",
+                "ok": true
+              },
+              {
+                "key": "con",
+                "name": "被告视角（买方）",
+                "run_id": "analysis_mod1_r1_con",
+                "ok": true
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "con",
+                "to_key": "pro",
+                "point": "货物质量不合格，付款义务应相应减免。"
+              }
+            ]
+          },
+          {
+            "round_no": 2,
+            "focus": "质量异议的举证：是否及时书面 + 有无鉴定",
+            "summary": "原告指出买方未在合理期限内书面异议、无质量鉴定应视为认可；被告承认书面凭证与鉴定确有缺口，焦点收敛到买方举证能否补足。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "converged",
+              "rationale": "核心分歧收敛到买方质量异议的举证缺口，无新论据。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "原告视角（卖方）",
+                "run_id": "analysis_mod1_r2_pro",
+                "ok": true
+              },
+              {
+                "key": "con",
+                "name": "被告视角（买方）",
+                "run_id": "analysis_mod1_r2_con",
+                "ok": true
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "pro",
+                "to_key": "con",
+                "point": "买方未在合理期限内书面异议、无鉴定，质量抗辩难成立。"
+              }
+            ]
+          }
+        ],
+        "brief": {
+          "crux": "买方的质量异议能否在举证上成立（是否及时书面 + 有无鉴定）",
+          "strongest_points": {
+            "pro": "合同 + 送货单 + 对账单可证交付与欠款，凭证较充分。",
+            "con": "若能补强及时书面异议 + 质量鉴定，则可主张减款 / 拒付。"
+          },
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "先和解止损 vs 补证后再诉的策略取舍"
+            },
+            {
+              "kind": "fact",
+              "text": "买方是否在合理期限内书面提出质量异议"
+            },
+            {
+              "kind": "fact",
+              "text": "是否存在质量鉴定结论"
+            },
+            {
+              "kind": "question",
+              "text": "买方主张的减款金额与依据为何？"
+            }
+          ],
+          "leaning": "在买方补足质量异议举证前，付款义务大概率成立（倾向研判，非判决结果预测）",
+          "confidence": "medium",
+          "recommendation": "接案前请买方补：① 质量异议的书面记录及送达凭证 ② 质量鉴定报告 ③ 损失证据；据补证情况再定接案 / 和解。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.174Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "现在请中立法官按举证责任研判，并出具《接案研判》。"
+      },
+      "timestamp": "2026-01-01T00:00:03.175Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "法官研判"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.176Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "中立法官按举证责任研判",
+        "agents": [
+          {
+            "id": "w_judge",
+            "role": "法官研判",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r_judge",
+            "agent_id": "w_judge",
+            "task": "中立按举证责任研判并出具接案研判",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:03.177Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r_judge",
+        "agent_id": "w_judge",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:03.178Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r_judge",
+        "agent_id": "w_judge",
+        "tool_name": "file_write",
+        "chars": 407
+      },
+      "timestamp": "2026-01-01T00:00:03.179Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "fw1",
+        "tool_name": "file_write",
+        "arguments": {
+          "path": "接案研判.md",
+          "content": "# 接案研判（买卖合同货款纠纷）\n## 一句话研判\n胜算：中偏低（取决于买方能否证明质量异议及时且成立）。\n## 原告视角（卖方）\n合同 + 送货单 + 对账单可证交付与欠款 80 万，主张买方应付款。\n## 被告视角（买方）\n主张货物质量不合格、已提质量异议，可拒付并主张减款 / 反诉。\n## 法官视角（按举证责任）\n- 交付与货款：举证责任在卖方，现有凭证较充分。\n- 质量抗辩：举证责任在买方——关键看异议是否在合理期限内书面提出、有无质量鉴定。\n- 倾向：若买方无及时书面异议 + 鉴定，质量抗辩难成立。【倾向研判，非判决结果预测】\n## 证据短板清单（要接 / 要赢需补）\n- 质量异议的书面记录及送达凭证\n- 质量鉴定报告\n- 因质量问题造成的损失证据\n## 风险与告知\n质量抗辩举证不能则可能全额担责；建议据补证情况评估和解。\n## 下一步\n补齐上述证据后再评估接案 / 主攻方向 / 是否和解。\n"
+        },
+        "run_id": "r_judge"
+      },
+      "timestamp": "2026-01-01T00:00:03.180Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "fw1",
+        "tool_name": "file_write",
+        "status": "success",
+        "result": "已写入",
+        "run_id": "r_judge"
+      },
+      "timestamp": "2026-01-01T00:00:03.181Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r_judge",
+        "agent_id": "w_judge",
+        "delta": "研判完成：胜算中偏低，关键在买方质量异议的举证。"
+      },
+      "timestamp": "2026-01-01T00:00:03.182Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r_judge",
+        "agent_id": "w_judge",
+        "output_summary": "研判完成：接案研判.md",
+        "duration_ms": 1800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.978Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "研判完成：接案研判.md"
+      },
+      "timestamp": "2026-01-01T00:00:04.979Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "再逐条核验法官引用的法条与异议期限。"
+      },
+      "timestamp": "2026-01-01T00:00:04.980Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc2",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "核验律师"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.981Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "逐条核验法条 / 异议期限",
+        "agents": [
+          {
+            "id": "w_verify",
+            "role": "核验律师",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r_verify",
+            "agent_id": "w_verify",
+            "task": "逐条核验法条与异议期限",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:04.982Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:04.983Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "tool_name": "web_search",
+        "chars": 3
+      },
+      "timestamp": "2026-01-01T00:00:04.984Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "ws1",
+        "tool_name": "web_search",
+        "arguments": {
+          "query": "民法典 买受人 质量异议 合理期限 622条"
+        },
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.985Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "ws1",
+        "tool_name": "web_search",
+        "status": "success",
+        "result": "命中：民法典第 621 / 622 条；买卖合同司法解释举证细则未取到权威原文。",
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.986Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "tool_name": "file_write",
+        "chars": 204
+      },
+      "timestamp": "2026-01-01T00:00:04.987Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "fw2",
+        "tool_name": "file_write",
+        "arguments": {
+          "path": "法条核验报告.md",
+          "content": "# 法条核验报告\n| 引用 | 现行有效性 | 出处 | 结论 |\n|---|---|---|---|\n| 买受人质量异议合理期限 | 现行有效 | 《民法典》第 621 条 | ✅ 已核验 |\n| 检验期限 / 异议失权 | 现行有效 | 《民法典》第 622 条 | ✅ 已核验 |\n| 买卖合同司法解释·质量异议举证 | 待确认条款 | web 摘要不足 | ⚠️ [待核验]（转人工 / 库核） |\n"
+        },
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.988Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "fw2",
+        "tool_name": "file_write",
+        "status": "success",
+        "result": "已写入",
+        "run_id": "r_verify"
+      },
+      "timestamp": "2026-01-01T00:00:04.989Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "delta": "核验完成：异议期限引《民法典》第 621 / 622 条；举证细则标 [待核验]。"
+      },
+      "timestamp": "2026-01-01T00:00:04.990Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r_verify",
+        "agent_id": "w_verify",
+        "output_summary": "核验完成：法条核验报告.md",
+        "duration_ms": 2000,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:06.983Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc2",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "核验完成：法条核验报告.md（1 处 [待核验]）"
+      },
+      "timestamp": "2026-01-01T00:00:06.984Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "综合原被告对抗与法官研判，出具《接案研判》：胜算中偏低，关键在买方质量异议的举证；已列证据短板与下一步。"
+      },
+      "timestamp": "2026-01-01T00:00:06.985Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "【倾向研判，非判决结果预测】【法域】中国大陆法。【免责】本文为 AI 辅助研判、非正式法律意见，亦不构成对诉讼结果的承诺，须执业律师独立判断并人工复核。"
+      },
+      "timestamp": "2026-01-01T00:00:06.986Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 5400,
+          "output_tokens": 950,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:06.987Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我先翻一下「三方视角案情研判」的打法。这是接案评估场景。先让原告、被告两方独立对抗，再请中立法官按举证责任研判，最后核验法条、请你拍板。现在请中立法官按举证责任研判，并出具《接案研判》。再逐条核验法官引用的法条与异议期限。综合原被告对抗与法官研判，出具《接案研判》：胜算中偏低，关键在买方质量异议的举证；已列证据短板与下一步。【倾向研判，非判决结果预测】【法域】中国大陆法。【免责】本文为 AI 辅助研判、非正式法律意见，亦不构成对诉讼结果的承诺，须执业律师独立判断并人工复核。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我先翻一下「三方视角案情研判」的打法。"
+      },
+      {
+        "kind": "tool",
+        "id": "cs1",
+        "tool_name": "consult_skill",
+        "arguments": {
+          "name": "legal_case_analysis"
+        },
+        "result": "## 三方视角案情研判\n1. 先分流：接案评估 / 诉讼策略。\n2. debate(form=debate) 原告 vs 被告独立对抗 → delegate 中立法官按举证责任研判 → delegate 核验法条。\n3. 胜负定性为倾向研判（非判决结果预测）；终稿标法域 + 免责 + 人审闸门。\n",
+        "status": "success",
+        "display": {
+          "skill_name": "legal_case_analysis",
+          "summary": "三方视角案情研判：原被告对抗 + 中立法官 + 反幻觉硬约束"
+        }
+      },
+      {
+        "kind": "content",
+        "text": "这是接案评估场景。先让原告、被告两方独立对抗，再请中立法官按举证责任研判，最后核验法条、请你拍板。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "content",
+        "text": "现在请中立法官按举证责任研判，并出具《接案研判》。再逐条核验法官引用的法条与异议期限。综合原被告对抗与法官研判，出具《接案研判》：胜算中偏低，关键在买方质量异议的举证；已列证据短板与下一步。【倾向研判，非判决结果预测】【法域】中国大陆法。【免责】本文为 AI 辅助研判、非正式法律意见，亦不构成对诉讼结果的承诺，须执业律师独立判断并人工复核。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "analysis_mod1",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro",
+        "role": "原告视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "原告（卖方）：合同 + 送货单 + 对账单证明交付与欠款 80 万。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con",
+        "role": "被告视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "被告（买方）：货物质量不合格、已提质量异议，主张拒付 / 减款。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro2",
+        "role": "原告视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "原告（续）：买方未在合理期限内书面异议、无质量鉴定，应视为认可。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con2",
+        "role": "被告视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "被告（续）：曾口头异议，但书面凭证与鉴定确有缺口。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w_judge",
+        "role": "法官研判",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "研判完成：胜算中偏低，关键在买方质量异议的举证。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w_verify",
+        "role": "核验律师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "核验完成：异议期限引《民法典》第 621 / 622 条；举证细则标 [待核验]。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "analysis_mod1",
+        "agentId": "analysis_mod1",
+        "task": "主持原被告对抗：买卖合同货款纠纷的攻防",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "原被告交锋收敛到质量异议的举证",
+        "debrief": null,
+        "durationMs": 2400,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "analysis_mod1_r1_pro",
+        "agentId": "d_pro",
+        "task": "以原告（卖方）立场主张交付与欠款",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "原告视角陈述完成",
+        "debrief": null,
+        "durationMs": 860,
+        "error": null,
+        "parentRunId": "analysis_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "原告（卖方）：合同 + 送货单 + 对账单证明交付与欠款 80 万。"
+          }
+        ]
+      },
+      {
+        "id": "analysis_mod1_r1_con",
+        "agentId": "d_con",
+        "task": "以被告（买方）立场主张质量抗辩",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "被告视角陈述完成",
+        "debrief": null,
+        "durationMs": 880,
+        "error": null,
+        "parentRunId": "analysis_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "被告（买方）：货物质量不合格、已提质量异议，主张拒付 / 减款。"
+          }
+        ]
+      },
+      {
+        "id": "analysis_mod1_r2_pro",
+        "agentId": "d_pro2",
+        "task": "以原告（卖方）立场主张交付与欠款",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "原告二轮完成",
+        "debrief": null,
+        "durationMs": 720,
+        "error": null,
+        "parentRunId": "analysis_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": "analysis_mod1_r1_pro",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "原告（续）：买方未在合理期限内书面异议、无质量鉴定，应视为认可。"
+          }
+        ]
+      },
+      {
+        "id": "analysis_mod1_r2_con",
+        "agentId": "d_con2",
+        "task": "以被告（买方）立场主张质量抗辩",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "被告二轮完成",
+        "debrief": null,
+        "durationMs": 700,
+        "error": null,
+        "parentRunId": "analysis_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": "analysis_mod1_r1_con",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "被告（续）：曾口头异议，但书面凭证与鉴定确有缺口。"
+          }
+        ]
+      },
+      {
+        "id": "r_judge",
+        "agentId": "w_judge",
+        "task": "中立按举证责任研判并出具接案研判",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "研判完成：接案研判.md",
+        "debrief": null,
+        "durationMs": 1800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "fw1",
+            "tool_name": "file_write",
+            "arguments": {
+              "path": "接案研判.md",
+              "content": "# 接案研判（买卖合同货款纠纷）\n## 一句话研判\n胜算：中偏低（取决于买方能否证明质量异议及时且成立）。\n## 原告视角（卖方）\n合同 + 送货单 + 对账单可证交付与欠款 80 万，主张买方应付款。\n## 被告视角（买方）\n主张货物质量不合格、已提质量异议，可拒付并主张减款 / 反诉。\n## 法官视角（按举证责任）\n- 交付与货款：举证责任在卖方，现有凭证较充分。\n- 质量抗辩：举证责任在买方——关键看异议是否在合理期限内书面提出、有无质量鉴定。\n- 倾向：若买方无及时书面异议 + 鉴定，质量抗辩难成立。【倾向研判，非判决结果预测】\n## 证据短板清单（要接 / 要赢需补）\n- 质量异议的书面记录及送达凭证\n- 质量鉴定报告\n- 因质量问题造成的损失证据\n## 风险与告知\n质量抗辩举证不能则可能全额担责；建议据补证情况评估和解。\n## 下一步\n补齐上述证据后再评估接案 / 主攻方向 / 是否和解。\n"
+            },
+            "result": "已写入",
+            "status": "success"
+          },
+          {
+            "kind": "content",
+            "text": "研判完成：胜算中偏低，关键在买方质量异议的举证。"
+          }
+        ]
+      },
+      {
+        "id": "r_verify",
+        "agentId": "w_verify",
+        "task": "逐条核验法条与异议期限",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "核验完成：法条核验报告.md",
+        "debrief": null,
+        "durationMs": 2000,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "ws1",
+            "tool_name": "web_search",
+            "arguments": {
+              "query": "民法典 买受人 质量异议 合理期限 622条"
+            },
+            "result": "命中：民法典第 621 / 622 条；买卖合同司法解释举证细则未取到权威原文。",
+            "status": "success"
+          },
+          {
+            "kind": "tool",
+            "id": "fw2",
+            "tool_name": "file_write",
+            "arguments": {
+              "path": "法条核验报告.md",
+              "content": "# 法条核验报告\n| 引用 | 现行有效性 | 出处 | 结论 |\n|---|---|---|---|\n| 买受人质量异议合理期限 | 现行有效 | 《民法典》第 621 条 | ✅ 已核验 |\n| 检验期限 / 异议失权 | 现行有效 | 《民法典》第 622 条 | ✅ 已核验 |\n| 买卖合同司法解释·质量异议举证 | 待确认条款 | web 摘要不足 | ⚠️ [待核验]（转人工 / 库核） |\n"
+            },
+            "result": "已写入",
+            "status": "success"
+          },
+          {
+            "kind": "content",
+            "text": "核验完成：异议期限引《民法典》第 621 / 622 条；举证细则标 [待核验]。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 7,
+      "total": 7
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec1",
+      "moderator_run_id": "analysis_mod1",
+      "form": "debate",
+      "motion": "买卖合同货款纠纷：原被告各自最强主张与抗辩、争议焦点何在",
+      "stop_reason": "converged",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "pro",
+          "name": "原告视角（卖方）",
+          "stance": "已交付货物、买方应付欠款 80 万",
+          "is_subject": false,
+          "model": ""
+        },
+        {
+          "key": "con",
+          "name": "被告视角（买方）",
+          "stance": "货物质量不合格、已提异议，可拒付 / 减款",
+          "is_subject": false,
+          "model": ""
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "货款请求权 vs 质量抗辩",
+          "summary": "原告以合同 + 送货单 + 对账单主张交付与欠款；被告以质量不合格主张拒付，焦点指向质量异议是否成立。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": true,
+            "converged": false,
+            "stop_reason": "",
+            "rationale": "双方立场清晰，质量异议的举证尚未交锋，需二轮收口。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "原告视角（卖方）",
+              "run_id": "analysis_mod1_r1_pro",
+              "ok": true
+            },
+            {
+              "key": "con",
+              "name": "被告视角（买方）",
+              "run_id": "analysis_mod1_r1_con",
+              "ok": true
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "con",
+              "to_key": "pro",
+              "point": "货物质量不合格，付款义务应相应减免。"
+            }
+          ]
+        },
+        {
+          "round_no": 2,
+          "focus": "质量异议的举证：是否及时书面 + 有无鉴定",
+          "summary": "原告指出买方未在合理期限内书面异议、无质量鉴定应视为认可；被告承认书面凭证与鉴定确有缺口，焦点收敛到买方举证能否补足。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "converged",
+            "rationale": "核心分歧收敛到买方质量异议的举证缺口，无新论据。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "原告视角（卖方）",
+              "run_id": "analysis_mod1_r2_pro",
+              "ok": true
+            },
+            {
+              "key": "con",
+              "name": "被告视角（买方）",
+              "run_id": "analysis_mod1_r2_con",
+              "ok": true
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "pro",
+              "to_key": "con",
+              "point": "买方未在合理期限内书面异议、无鉴定，质量抗辩难成立。"
+            }
+          ]
+        }
+      ],
+      "brief": {
+        "crux": "买方的质量异议能否在举证上成立（是否及时书面 + 有无鉴定）",
+        "strongest_points": {
+          "pro": "合同 + 送货单 + 对账单可证交付与欠款，凭证较充分。",
+          "con": "若能补强及时书面异议 + 质量鉴定，则可主张减款 / 拒付。"
+        },
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "先和解止损 vs 补证后再诉的策略取舍"
+          },
+          {
+            "kind": "fact",
+            "text": "买方是否在合理期限内书面提出质量异议"
+          },
+          {
+            "kind": "fact",
+            "text": "是否存在质量鉴定结论"
+          },
+          {
+            "kind": "question",
+            "text": "买方主张的减款金额与依据为何？"
+          }
+        ],
+        "leaning": "在买方补足质量异议举证前，付款义务大概率成立（倾向研判，非判决结果预测）",
+        "confidence": "medium",
+        "recommendation": "接案前请买方补：① 质量异议的书面记录及送达凭证 ② 质量鉴定报告 ③ 损失证据；据补证情况再定接案 / 和解。"
+      }
+    },
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

@@ -1,0 +1,68 @@
+# 开发环境专用引擎集（仅经 docker-compose.dev.yml 的 SEARXNG_SETTINGS_PATH 生效）。
+#
+# 为什么需要它：生产用的 settings.yml 把活跃引擎收敛为大陆可达的 scraper 引擎
+# （baidu/360search/sogou/quark）——那是给阿里云深圳（国际引擎被墙）准备的。但本机开发环境
+# 恰恰相反：
+#   1) 实测本机可直连国际引擎（duckduckgo/bing/brave/wikipedia 均 200，google 296ms）；
+#   2) 大陆 scraper 引擎对本机持续返回 CAPTCHA（baidu/sogou/quark «Suspended: CAPTCHA»），
+#      360search 静默返回 0 结果——仅靠它们会让 web_search 恒为空（实测 results=0）。
+# 故 dev 改用「国际引擎为主 + CN 引擎为辅」的并集：CN 引擎被 CAPTCHA 时只标记 unresponsive、
+# 几乎不增延迟，恢复后又能为中文查询补覆盖。生产仍用纯 CN 的 settings.yml，本文件不影响生产。
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - brave
+      - bing
+      - wikipedia
+      - baidu
+      - 360search
+      - sogou
+      - quark
+
+general:
+  instance_name: "AgentCore Search (dev)"
+  debug: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "auto"
+  formats:
+    - html
+    - json
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "agentcore-searxng-dev-secret"
+  limiter: false
+  image_proxy: false
+
+brand: {}
+
+ui:
+  static_use_hash: true
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+
+# 显式启用上述引擎（部分在 SearXNG 默认里 disabled: true，必须手动打开）。
+engines:
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: baidu
+    disabled: false
+  - name: 360search
+    disabled: false
+  - name: sogou
+    disabled: false
+  - name: quark
+    disabled: false

@@ -1,0 +1,82 @@
+# AgentCore 生产基础设施编排（infra-only）
+#
+# 当前形态：后端 API 进程在宿主机以 uv / systemd 运行（本仓暂无服务端镜像，
+# 容器化是后续待办）；本文件只编排 API 依赖的基础设施：
+# PostgreSQL(pgvector) + Redis + SearXNG。Neo4j/ES/MinIO/NATS 为旧版/未来组件，
+# 本仓代码不依赖，故不纳入（见 docs/05-平台与运维/部署与运维.md「保留 SearXNG，移除旧版组件」）。
+#
+# 端口一律绑 127.0.0.1（不对外，由宿主机 Nginx + 证书反代）；应用经 127.0.0.1
+# 连接（见 deploy/config/production.env.example 的 *_URL）。
+#
+# 用法（服务器）：
+#   docker compose -f deploy/docker-compose.server.yml --env-file deploy/config/production.env up -d
+
+# 日志：json-file 驱动 + 轮转，封顶单容器 10m×5=50MB，防单机磁盘被日志写爆
+# （部署与运维.md §7.8「可观测·日志」）。各服务以 *default-logging 复用。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agentcore-postgres
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1024m
+    mem_reservation: 256m
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: agentcore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the env file}
+      POSTGRES_DB: agentcore
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentcore"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: agentcore-redis
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 384m
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: agentcore-searxng
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    ports:
+      # 与宿主机同机：API 用 SEARXNG_URL=http://127.0.0.1:18888 直连。
+      - "127.0.0.1:18888:8080"
+    environment:
+      SEARXNG_BASE_URL: "http://127.0.0.1:18888"
+    volumes:
+      - ./searxng:/etc/searxng
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  redisdata:

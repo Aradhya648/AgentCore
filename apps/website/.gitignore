@@ -1,0 +1,9 @@
+# Next.js build output (never commit)
+.next/
+out/
+
+# Generated at build time
+src/lib/download.generated.ts
+
+# 自检截图（scripts/shot-*.mjs 产物）
+.shots/

@@ -1,0 +1,65 @@
+# 面向中国大陆默认：只保留大陆可达且结果质量可靠的搜索引擎为活跃引擎。
+# 1) 默认引擎集（google/duckduckgo/brave/startpage/wikipedia…）在大陆全部超时，
+#    会让 web_search 返回空（实测 results=0、引擎全 timeout）。
+# 2) 活跃引擎：baidu + sogou（主，大陆可达、相关性好，会被 CAPTCHA 间歇挂起 1h，
+#    引擎抛异常→进日志/标 unresponsive，能自恢复）+ bing（备援，weight 0.3，见注 4）。
+# 3) 360search / quark 已移除：从生产云服务器 IP 直连实测被「云 IP 反爬」硬封——
+#    so.com 把请求 302 跳 qcaptcha「无结果」页（空体）；quark.sm.cn 返回阿里 X5SEC
+#    punish 页（含 cloud_ip_bl）。两引擎代码对这两种软封都「静默 return []」（不抛异常、
+#    不标 unresponsive、不打日志），从这台 IP 稳定 0 产出 → 纯假冗余，故剔除。
+#    若换非云/住宅出口代理才可能恢复（见 docs/05-平台与运维/部署与运维.md）。
+# 4) bing 已启用（weight 0.3，base_url 指向 cn.bing.com）：同一生产 IP 实测 200 可达、
+#    未被 cloud_ip_bl，是少数独立于 baidu/sogou 的备援来源。中国 IP 上 www.bing.com 会
+#    302 到 cn.bing.com，SearXNG 自带引擎对该跳转适配不良会解析 0 条，故 base_url 直打
+#    cn.bing.com（见下方 engines 注释）。中文质量不稳定故压低权重，仅 CN 引擎降级时补位。
+# 用 keep_only 把活跃引擎收敛为下列几家；下方 engines: 再把它们显式 enabled。
+use_default_settings:
+  engines:
+    keep_only:
+      - baidu
+      - sogou
+      - bing
+
+general:
+  instance_name: "AgentCore Search"
+  debug: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "auto"
+  formats:
+    - html
+    - json
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "agentcore-searxng-dev-secret"
+  limiter: false
+  image_proxy: false
+
+brand: {}
+
+ui:
+  static_use_hash: true
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+
+# 显式启用国内可达引擎（baidu/sogou 在 SearXNG 默认里多为 disabled: true，
+# 必须在此手动打开）。bing 备援已启用（weight 0.3，见顶部注释 4）。
+engines:
+  - name: baidu
+    disabled: false
+  - name: sogou
+    disabled: false
+  # 备援来源：weight 压低，仅在 baidu/sogou 被 CAPTCHA 降级时实质影响排序，CN 引擎
+  # 正常时几不污染中文质量。base_url 指向 cn.bing.com：本机在中国 IP 上 www.bing.com
+  # 会 302 到 cn.bing.com，SearXNG 自带 bing 引擎对该跳转/DOM 适配不良会解析出 0 条，
+  # 直接打 cn.bing.com 规避（settings.yml 覆盖引擎模块的 base_url 常量）。
+  - name: bing
+    disabled: false
+    weight: 0.3
+    base_url: https://cn.bing.com

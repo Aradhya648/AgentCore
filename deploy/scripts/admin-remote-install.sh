@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Remote install for admin console static files + nginx + CORS + cloudflared ingress.
+# Invoked via: ssh user@host 'bash -s' < deploy/scripts/admin-remote-install.sh
+set -euo pipefail
+
+ORIGIN="https://office.fashitianxia.xyz"
+ADMIN_ROOT="/opt/agentcore/admin"
+DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy_f6d1637}"
+ENVF="$DEPLOY/config/production.env"
+NGINX_AVAIL="/etc/nginx/sites-available/office-admin"
+NGINX_ENABLED="/etc/nginx/sites-enabled/office-admin"
+
+mkdir -p "$ADMIN_ROOT"
+rm -rf "$ADMIN_ROOT/dist"
+tar xzf /tmp/admin-dist.tgz -C "$ADMIN_ROOT"
+rm -f /tmp/admin-dist.tgz
+echo "admin static → $ADMIN_ROOT/dist ($(find "$ADMIN_ROOT/dist" -type f | wc -l) files)"
+
+sudo install -D -m 644 /tmp/office-admin.conf "$NGINX_AVAIL" 2>/dev/null \
+  || sudo install -D -m 644 /tmp/deploy/nginx/office-admin.conf "$NGINX_AVAIL"
+rm -f /tmp/office-admin.conf /tmp/deploy/nginx/office-admin.conf
+ln -sfn "$NGINX_AVAIL" "$NGINX_ENABLED"
+sudo nginx -t
+sudo systemctl reload nginx
+LOCAL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: office.fashitianxia.xyz' http://127.0.0.1:8090/ || true)"
+echo "nginx reloaded; local probe :8090 → HTTP ${LOCAL_CODE}"
+
+[[ -f "$ENVF" ]] || { echo "ERROR: $ENVF missing"; exit 1; }
+if grep -q 'office\.fashitianxia\.xyz' "$ENVF"; then
+  echo "CORS already includes $ORIGIN"
+elif grep -q '^CORS_ALLOW_ORIGINS=' "$ENVF"; then
+  sed -i "s|^CORS_ALLOW_ORIGINS=\(.*\)|CORS_ALLOW_ORIGINS=\1,${ORIGIN}|" "$ENVF"
+  echo "appended $ORIGIN to CORS_ALLOW_ORIGINS"
+else
+  echo "CORS_ALLOW_ORIGINS=${ORIGIN}" >>"$ENVF"
+fi
+grep '^CORS_ALLOW_ORIGINS=' "$ENVF"
+
+COMPOSE=( docker compose -p agentcore \
+  -f "$DEPLOY/docker-compose.server.yml" \
+  -f "$DEPLOY/docker-compose.app.yml" \
+  --env-file "$ENVF" )
+# 与 finish-server.sh 同口径：GVISOR_ENABLED=true 时叠 sandbox，避免重建 api 抹掉 seccomp/apparmor。
+if grep -Eq '^[[:space:]]*GVISOR_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|True|TRUE)[[:space:]]*$' "$ENVF"; then
+  _sandbox_yml=""
+  for _cand in \
+    "$DEPLOY/docker-compose.sandbox.yml" \
+    "${AGENTCORE_HOME:-/opt/agentcore}/repo/deploy/docker-compose.sandbox.yml"; do
+    if [[ -f "$_cand" ]]; then
+      _sandbox_yml="$_cand"
+      break
+    fi
+  done
+  if [[ -z "$_sandbox_yml" ]]; then
+    echo "ERROR: GVISOR_ENABLED=true 但找不到 docker-compose.sandbox.yml"
+    exit 1
+  fi
+  COMPOSE+=(-f "$_sandbox_yml")
+  echo "gVisor sandbox overlay: $_sandbox_yml"
+fi
+"${COMPOSE[@]}" up -d api
+echo "api recreated for CORS"
+
+OFFICE_HOST=office.fashitianxia.xyz
+OFFICE_SERVICE=http://127.0.0.1:8090
+CONFIG=""
+for f in /etc/cloudflared/config.yml /etc/cloudflared/config.yaml \
+  /root/.cloudflared/config.yml "$HOME/.cloudflared/config.yml"; do
+  [[ -f "$f" ]] && CONFIG="$f" && break
+done
+if [[ -n "$CONFIG" ]] && grep -q "hostname: ${OFFICE_HOST}" "$CONFIG" \
+  && grep -A1 "hostname: ${OFFICE_HOST}" "$CONFIG" | grep -q "${OFFICE_SERVICE}"; then
+  echo "cloudflared ingress already ${OFFICE_HOST} → ${OFFICE_SERVICE}"
+elif [[ -n "$CONFIG" ]]; then
+  python3 - "$CONFIG" "$OFFICE_HOST" "$OFFICE_SERVICE" <<'PY'
+import sys, pathlib, re
+path, host, service = sys.argv[1:4]
+text = pathlib.Path(path).read_text(encoding="utf-8")
+block = f"  - hostname: {host}\n    service: {service}\n"
+if re.search(rf"hostname:\s*{re.escape(host)}\b", text):
+    text = re.sub(
+        rf"(  - hostname: {re.escape(host)}\n    service: ).*",
+        rf"\g<1>{service}",
+        text,
+    )
+elif "ingress:" in text:
+    text = re.sub(r"(ingress:\n)", r"\1" + block, text, count=1)
+else:
+    sys.exit("no ingress section in cloudflared config")
+pathlib.Path(path).write_text(text, encoding="utf-8")
+PY
+  if systemctl is-active --quiet cloudflared 2>/dev/null; then
+    sudo systemctl restart cloudflared
+  fi
+  echo "cloudflared ingress patched"
+else
+  echo "WARN: no cloudflared config; skip tunnel ingress patch"
+fi

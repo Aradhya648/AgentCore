@@ -1,0 +1,68 @@
+name: Deploy Backend
+
+# 后端部署紧急备用流（部署与运维.md §7.2 / §三 CI/CD；cursor-deploy.mdc）。
+# 仅 workflow_dispatch——prod-* tag / push 均不触发本流（2026-06 起弃用自动触发，勿再启用）。
+#
+# 日常主路径：pnpm deploy:backend <sha> → remote-build-deploy.mjs
+#   （构建+推 ACR+SSH finish-server.sh）。本 GHA 仅在本地脚本不可用时手动 dispatch。
+#
+# dispatch 填 ref（prod-* tag / 短 SHA / latest）→ SSH 生产机 → finish-server.sh <short-sha>：
+#   解析 ref→短 SHA→拉镜像（VPC 无 short-sha 时回退 latest 并本地打 tag）→
+#   停 api → alembic upgrade → schema gate --live → compose up → /readyz。
+#
+# 生产机当前跑 deploy_f6d1637 快照栈（非仓库 deploy/ 蓝图），故用 finish-server.sh
+# 而非 deploy-server.sh。待生产对齐 deploy/ 蓝图后可统一。
+#
+# master 是 WIP 主干、HEAD≠可上线点（§7.2）：部署认发布点（prod-* 仅作标记），
+# 不随 master 自动上线。回退：对旧 prod-* tag（或旧 SHA）重跑本流填 ref——
+# deploy-server.sh 自动识别为回退、跳过正向迁移（库需对齐时从 backups/ 手动恢复，§7.7）。
+#
+# 需配 secrets（源码仓 Settings → Secrets and variables → Actions）：
+#   DEPLOY_SSH_HOST   服务器地址（公网 IP / 域名）
+#   DEPLOY_SSH_USER   SSH 用户（对 $AGENTCORE_HOME 与 docker 有权）
+#   DEPLOY_SSH_KEY    SSH 私钥（对应公钥已加服务器 authorized_keys）
+#   DEPLOY_SSH_PORT   SSH 端口（可选，默认 22）
+# 服务器前置（一次性，见 deploy-server.sh 头注 / §8.2）：
+#   $AGENTCORE_HOME/repo 已 clone；$AGENTCORE_HOME/.env 含 ACR 凭据（拉 VPC 端点）+
+#   IMAGE_REGISTRY；deploy/config/production.env 已填值。
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "部署目标 ref（prod-* tag / 短 SHA / latest）；回退填旧 prod-* tag"
+        required: true
+        default: latest
+
+# 部署串行，且【绝不】中断进行中的部署（迁移中途被杀会留下半截 schema）。
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy to production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via finish-server.sh over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_REF: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          envs: DEPLOY_REF
+          script: |
+            set -euo pipefail
+            HOME_DIR="${AGENTCORE_HOME:-/opt/agentcore}"
+            REPO="$HOME_DIR/repo"
+            echo "==> deploy ref=${DEPLOY_REF} home=${HOME_DIR}"
+            cd "$REPO"
+            # --force：避免本地陈旧 tag 与远端冲突导致 fetch 非零退出（set -e 会整段失败）。
+            git fetch --tags --force --quiet origin
+            SHA="$(git rev-parse --short "${DEPLOY_REF}^{commit}")"
+            echo "resolved ${DEPLOY_REF} -> ${SHA}"
+            bash "$REPO/deploy/scripts/finish-server.sh" "$SHA"

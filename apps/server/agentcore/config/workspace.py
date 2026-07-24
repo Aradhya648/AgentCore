@@ -1,0 +1,141 @@
+"""Workspace storage, snapshots, retention, and local-op timeouts."""
+
+from pydantic import BaseModel
+
+
+class WorkspaceSettings(BaseModel):
+    data_dir: str = "./data"
+
+    storage_backend: str = "auto"
+    s3_endpoint_url: str = ""
+    s3_region: str = "cn-shenzhen"
+    s3_bucket: str = "agentcore-workspaces"
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_addressing_style: str = "path"
+
+    workspace_snapshot_enabled: bool = True
+    workspace_auto_snapshot_max: int = 10
+
+    workspace_retention_enabled: bool = True
+    workspace_retention_days: int = 30
+    workspace_retention_sweep_interval_seconds: int = 6 * 3600
+    workspace_retention_batch_limit: int = 100
+
+    workspace_upload_max_bytes: int = 25 * 1024 * 1024
+    avatar_upload_max_bytes: int = 5 * 1024 * 1024
+    workspace_clone_timeout_seconds: int = 120
+    workspace_op_timeout_seconds: float = 60.0
+    workspace_execute_timeout_slack_seconds: float = 30.0
+    workspace_handoff_timeout_seconds: float = 300.0
+    # AI 协作白板 (AI协作白板.md §六 M2): how long the BoardChannel waits for the bound
+    # desktop to apply an op batch before failing the call (so a closed canvas / dropped
+    # client never hangs the turn). Same class as the workspace-op deadline above.
+    board_op_timeout_seconds: float = 60.0
+
+    # Cloud (server-location) workers: code_execute runs in the API container subprocess
+    # — not a real isolation boundary. Default off; local/sidecar keeps code_execute.
+    code_execute_cloud_enabled: bool = False
+    # Second, deliberate acknowledgement that the cloud subprocess "sandbox" is NOT a real
+    # isolation boundary (no namespace/seccomp/rlimit/egress control): enabling cloud code
+    # execution gives any authenticated user full-permission RCE inside the API container.
+    # ``_validate_production_security`` refuses to boot a non-debug server that turns
+    # ``code_execute_cloud_enabled`` on without ALSO setting this, so the dangerous config
+    # can never be reached by flipping a single flag (SEC-005).
+    code_execute_cloud_unsafe_ack: bool = False
+
+    # Cloud (server-location) workers: use gVisor (runsc) for real isolation.
+    # When true, code_execute is enabled on cloud workers without the unsafe-ack gate.
+    gvisor_enabled: bool = False
+    # Path to the runsc binary (default: on PATH).
+    gvisor_runsc_path: str = "runsc"
+    # runsc runtime state directory (containers, sandboxes).
+    gvisor_runtime_root: str = "/tmp/agentcore-sandbox"
+
+    # ── gVisor 灰度护栏（部署与运维.md §云端执行灰度 / 安全权限与治理.md §五）──
+    # Global cap on concurrently RUNNING cloud sandbox executions per API process
+    # (single-uvicorn production ⇒ effectively per host). Sized for the 2C8G box.
+    gvisor_max_concurrent_executions: int = 2
+    # Bounded grace queue: how long one call may wait for a free slot before it
+    # fails fast with an explainable "busy" result. Budget check: slot wait (15)
+    # + exec cap (60) stays under the engine EXECUTION backstop (90s).
+    gvisor_slot_wait_seconds: float = 15.0
+    # Per-execution hard resource caps enforced by the OCI spec. Authoritative for
+    # cloud runs: an ExecutionRequest cannot exceed them. Memory default sized for
+    # document/data workloads (pandas + matplotlib comfortably above 256MB).
+    gvisor_memory_limit_mb: int = 512
+    gvisor_timeout_max_seconds: int = 60
+    # 产物写回 (copy-in/copy-out): the workspace is COPIED into a per-execution
+    # staging dir (mounted rw at /workspace), and new/changed regular files are
+    # copied back after the run. Caps bound both legs.
+    gvisor_stage_max_bytes: int = 512 * 1024 * 1024
+    gvisor_write_back_max_bytes: int = 128 * 1024 * 1024
+    gvisor_write_back_max_files: int = 200
+
+    # ── L3 团队浏览器 M0（内置浏览器与Agent浏览器提案.md · D9–D11）────────────
+    # Session-level long-lived Chromium sandboxes (browser_* tools). Cloud-only:
+    # gated by the SAME cloud-execution predicate as code_execute (needs gVisor),
+    # so a plain-subprocess API container never runs a browser (no isolation).
+    # Concurrency gate: process-wide cap on live browser sessions (~1GB/session per
+    # PoC, so a 8GB node holds a handful). A new conversation past the cap fails
+    # fast with an explainable busy result after an idle reap.
+    browser_max_sessions: int = 4
+    # Idle TTL: a session untouched this long is reaped (the reaper loop + lazy
+    # checks). Default 10min — a research pause shouldn't hold ~1GB indefinitely.
+    browser_session_idle_ttl_seconds: float = 10 * 60.0
+    # Max lifetime: a session is force-recycled past this age even if active, so a
+    # runaway loop cannot pin a sandbox forever. Default 2h.
+    browser_session_max_lifetime_seconds: float = 2 * 3600.0
+    # Reaper sweep cadence (lifespan background loop, mirrors session_retention).
+    browser_reaper_interval_seconds: float = 60.0
+    # Per-command RPC deadline (host waits this long for one driver response before
+    # treating the driver as wedged). Navigation is the slow leg.
+    browser_command_timeout_seconds: float = 60.0
+    # Keyframe budget (D5 关键帧): jpeg quality / viewport width, per-turn frame
+    # count cap and single-frame byte cap. Over a cap ⇒ stop capturing frames but
+    # the tool keeps working (the action still runs, only the screenshot is skipped).
+    browser_keyframe_jpeg_quality: int = 70
+    browser_keyframe_width: int = 1280
+    browser_keyframe_max_per_turn: int = 60
+    browser_keyframe_max_bytes: int = 512 * 1024
+    # Per-session OCI caps (PoC 差异清单：browser 会话专用，勿动 code_execute 限额).
+    # ~1.5–2GB observed peak (systrap); pids/cpu raised for Chromium's many procs.
+    browser_sandbox_memory_limit_mb: int = 2048
+    browser_sandbox_pids_limit: int = 512
+    browser_sandbox_cpu_limit: float = 2.0
+    # Some nested/dev cgroup layouts don't delegate the pids controller to runsc
+    # (Docker Desktop cgroup v1 — see PoC finding #6). Enable to skip OCI cgroup
+    # application; a production host with proper delegation keeps it off (limits apply).
+    browser_sandbox_ignore_cgroups: bool = False
+    # Playwright Chromium bundle location inside the runtime image (ro-bind into the
+    # sandbox; the product's 5 host binds don't cover /opt, so add exactly this one).
+    browser_playwright_browsers_path: str = "/opt/ms-playwright"
+    # Host SSRF filter proxy: the per-session veth /24 base and listen port. Each
+    # session gets 10.<base2>.<n>.0/24 (host .1 = proxy, sandbox .2); no NAT/forward
+    # so the sandbox's only route out is the proxy (D10 network-layer enforcement).
+    browser_proxy_port: int = 8899
+    browser_veth_subnet_base: str = "10.201"
+
+    # ── L3 团队浏览器 M1 直播（内置浏览器与Agent浏览器提案.md · D13–D15）─────────
+    # Live screencast baseline (D14): CDP Page.startScreencast params. The gVisor gate
+    # (scripts/poc_browser_gvisor/run_screencast.py) measured ~57fps @ ~14KB/frame at
+    # q60/1280 — capability far exceeds need, so everyNthFrame throttles the base rate
+    # (2 ⇒ ~half) while frame ack backpressure + per-viewer coalescing bound the rest.
+    browser_screencast_jpeg_quality: int = 60
+    browser_screencast_max_width: int = 1280
+    browser_screencast_max_height: int = 800
+    browser_screencast_every_nth_frame: int = 2
+    # Viewer lifecycle (D13): screencast starts on the FIRST viewer attach and stops when
+    # the LAST viewer leaves — after this grace window, so a refresh / quick reconnect does
+    # not thrash start/stop. A watched session is also spared idle-TTL reaping (max lifetime
+    # still applies) so an open live tab does not pin a sandbox forever.
+    browser_live_grace_seconds: float = 3.0
+    # Per-viewer bounded frame queue (drop-oldest = latest-frame-wins): keeps a slow / stalled
+    # viewer from growing memory and keeps latency low (show the newest frame, not a backlog).
+    browser_live_max_queued_frames: int = 8
+
+    # ── L3 团队浏览器 M2 接管（内置浏览器与Agent浏览器提案.md · D16–D18）──────────
+    # Max input events one POST …/browser/input batch may carry (打字合批 上限). Bounds a
+    # single injection round so a malformed / oversized batch is rejected (422) rather than
+    # wedging the driver; the client coalesces typing into batches under this cap.
+    browser_input_max_events: int = 256

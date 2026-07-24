@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_simple_explain",
+  "category": "routing",
+  "user_message": "用一句话解释什么是幂等性（idempotency）。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "轻量解释类：CEO 应直接简洁作答，零编排、不委派团队。"
+}

@@ -1,0 +1,80 @@
+[
+  {
+    "id": "manual-intro",
+    "description": "认识 AgentCore · 全文顶部",
+    "path": "/toolbox/manual/intro",
+    "previewManual": "manual-intro"
+  },
+  {
+    "id": "manual-collaboration-briefing",
+    "description": "指挥团队 · 任务简报节",
+    "path": "/toolbox/manual/collaboration",
+    "section": "briefing",
+    "previewManual": "manual-collaboration"
+  },
+  {
+    "id": "manual-collaboration-checkpoint",
+    "description": "指挥团队 · 检查点节",
+    "path": "/toolbox/manual/collaboration",
+    "section": "checkpoint",
+    "previewManual": "manual-collaboration"
+  },
+  {
+    "id": "manual-collaboration-debate",
+    "description": "指挥团队 · 辩论室节",
+    "path": "/toolbox/manual/collaboration",
+    "section": "debate",
+    "previewManual": "manual-collaboration"
+  },
+  {
+    "id": "manual-mechanism-live",
+    "description": "看懂协作 · 实况节（HeroGraph 真图）",
+    "path": "/toolbox/manual/mechanism",
+    "section": "live",
+    "previewManual": "manual-mechanism",
+    "waitEmbeds": ["HeroGraph"]
+  },
+  {
+    "id": "manual-mechanism-embeds",
+    "description": "看懂协作 · 协作回合（拍板卡 + 审批卡）",
+    "path": "/toolbox/manual/mechanism",
+    "section": "turnflow",
+    "previewManual": "manual-mechanism",
+    "waitEmbeds": ["ManualCheckpointCardPreview", "ManualApprovalCardPreview"]
+  },
+  {
+    "id": "manual-mechanism-scenarios",
+    "description": "看懂协作 · 机制场景（记分牌 + 场景画廊）",
+    "path": "/toolbox/manual/mechanism",
+    "section": "scenarios",
+    "previewManual": "manual-mechanism",
+    "waitEmbeds": ["ManualDebateScoreboardPreview", "MechanismScenarios"]
+  },
+  {
+    "id": "manual-reference",
+    "description": "参考手册 · 全文顶栏",
+    "path": "/toolbox/manual/reference",
+    "previewManual": "manual-reference"
+  },
+  {
+    "id": "manual-reference-workspace",
+    "description": "参考手册 · 工作区与文件（双模式）",
+    "path": "/toolbox/manual/reference",
+    "section": "workspace",
+    "previewManual": "manual-reference"
+  },
+  {
+    "id": "manual-reference-faq",
+    "description": "参考手册 · 常见问题（Git 边界表 + 反馈）",
+    "path": "/toolbox/manual/reference",
+    "section": "faq",
+    "previewManual": "manual-reference"
+  },
+  {
+    "id": "manual-reference-privacy",
+    "description": "参考手册 · 数据与隐私",
+    "path": "/toolbox/manual/reference",
+    "section": "privacy",
+    "previewManual": "manual-reference"
+  }
+]

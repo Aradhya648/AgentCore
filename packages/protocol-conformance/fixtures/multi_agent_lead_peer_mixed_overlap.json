@@ -1,0 +1,548 @@
+{
+  "name": "multi_agent_lead_peer_mixed_overlap",
+  "description": "多 Agent·嵌套 lead + 平级同名角色混合（反模式）：引擎不拒单；lead 子队挂 L1、平级挂根，嵌套由 depth+parent_run_id 表达（委派默认开、无 opt-in 开关），双路径仍可投影",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我会组一支团队（含嵌套 lead 与平级同名角色）。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "嵌套 lead + 平级混合（反模式）",
+        "agents": [
+          {
+            "id": "L1",
+            "role": "前端工程师",
+            "thinking": true
+          },
+          {
+            "id": "w_fe",
+            "role": "前端工程师",
+            "thinking": true
+          },
+          {
+            "id": "w_be",
+            "role": "后端工程师",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "L1",
+            "agent_id": "L1",
+            "task": "带队拆前端（嵌套）",
+            "depends_on": []
+          },
+          {
+            "id": "w_fe",
+            "agent_id": "w_fe",
+            "task": "平级直派前端（与 lead 同名）",
+            "depends_on": []
+          },
+          {
+            "id": "w_be",
+            "agent_id": "w_be",
+            "task": "平级直派后端",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "L1",
+        "agent_id": "L1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "w_fe",
+        "agent_id": "w_fe",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "w_be",
+        "agent_id": "w_be",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "L1 子团队",
+        "agents": [
+          {
+            "id": "sa",
+            "role": "子实现",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "sa",
+            "agent_id": "sa",
+            "task": "子实现组件",
+            "depends_on": [],
+            "parent_run_id": "L1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "sa",
+        "agent_id": "sa",
+        "parent_run_id": "L1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "sa",
+        "agent_id": "sa",
+        "delta": "子实现完成……"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "sa",
+        "agent_id": "sa",
+        "output_summary": "完成子实现",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.808Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "L1",
+        "agent_id": "L1",
+        "output_summary": "lead 整合完成",
+        "duration_ms": 2000,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.004Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "w_fe",
+        "agent_id": "w_fe",
+        "output_summary": "平级前端完成",
+        "duration_ms": 1500,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.005Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "w_be",
+        "agent_id": "w_be",
+        "output_summary": "平级后端完成",
+        "duration_ms": 1500,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.006Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": " 混合批次已跑完（引擎未拒单）。"
+      },
+      "timestamp": "2026-01-01T00:00:02.007Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 4800,
+          "output_tokens": 900,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:02.008Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我会组一支团队（含嵌套 lead 与平级同名角色）。 混合批次已跑完（引擎未拒单）。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我会组一支团队（含嵌套 lead 与平级同名角色）。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "content",
+        "text": " 混合批次已跑完（引擎未拒单）。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "L1",
+        "role": "前端工程师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w_fe",
+        "role": "前端工程师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w_be",
+        "role": "后端工程师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "sa",
+        "role": "子实现",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "子实现完成……",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "L1",
+        "agentId": "L1",
+        "task": "带队拆前端（嵌套）",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "lead 整合完成",
+        "debrief": null,
+        "durationMs": 2000,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "w_fe",
+        "agentId": "w_fe",
+        "task": "平级直派前端（与 lead 同名）",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "平级前端完成",
+        "debrief": null,
+        "durationMs": 1500,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "w_be",
+        "agentId": "w_be",
+        "task": "平级直派后端",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "平级后端完成",
+        "debrief": null,
+        "durationMs": 1500,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "sa",
+        "agentId": "sa",
+        "task": "子实现组件",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "完成子实现",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": "L1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "子实现完成……"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 4,
+      "total": 4
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

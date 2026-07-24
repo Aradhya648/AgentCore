@@ -1,0 +1,14 @@
+{
+  "id": "qa_recursion",
+  "category": "qa",
+  "user_message": "用一两句话通俗解释什么是『递归』，不要写代码。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 10 } },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "解释是否正确、通俗易懂、抓住『函数调用自身 / 自相似分解』的要点且无明显错误。"
+}

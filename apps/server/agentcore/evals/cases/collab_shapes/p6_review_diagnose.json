@@ -1,0 +1,25 @@
+{
+  "id": "collab_p6_review_diagnose",
+  "category": "team",
+  "mast": "3.2",
+  "user_message": "请帮我审查下面这段对外回复，找出坑点并按严重度分级，给出可行动建议（不要重写全文，只要诊断清单）：\n\n「您好！非常感谢您的反馈。我们会尽快处理您的问题，预计本周内给您满意答复。另外我们的新产品即将上线，欢迎关注。」",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型6 审查诊断·轻档（材料极短）：审查员 + 复核双人底线即可，不强求多透镜（那是 p6b 中档的事）。MAST 3.2 验证/诊断不全。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 60 } }
+  ],
+  "expected_shape": {
+    "min_workers": 2,
+    "max_workers": 4,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "findings", "desc": "给出具体坑点/风险点（非空泛「可以更好」）", "weight": 2 },
+    { "id": "severity", "desc": "按严重度分级呈现", "weight": 1 },
+    { "id": "actions", "desc": "每条或整体有可行动建议", "weight": 1 }
+  ]
+}

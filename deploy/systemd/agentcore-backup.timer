@@ -1,0 +1,18 @@
+# AgentCore 备份定时器（部署与运维.md §7.7）。每日跑一次 .service。
+# 启用：sudo systemctl enable --now agentcore-backup.timer
+# 查看：systemctl list-timers agentcore-backup.timer
+
+[Unit]
+Description=每日运行 AgentCore 数据库备份
+
+[Timer]
+# 每日 03:30（系统本地时区）跑——低峰时段。改频率即改 OnCalendar（man systemd.time）。
+OnCalendar=*-*-* 03:30:00
+# 与精确点错开几分钟，避免与其他定时任务同刻抢资源。
+RandomizedDelaySec=5min
+AccuracySec=1min
+# 错过的周期（如停机）开机后补跑一次，避免漏备。
+Persistent=true
+
+[Install]
+WantedBy=timers.target

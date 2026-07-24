@@ -1,0 +1,15 @@
+{
+  "id": "probe_compound_interest",
+  "category": "qa",
+  "_note": "挖坑探针：金融计算交付物，结构必过轻层。正确=10000*(1.01)^12=11268.25；典型错误是按单利算成 11200（年化 12% 直接乘）或复利幂次错。结构完整、数字错——轻层放行。pattern 容忍千分位 11,268。",
+  "user_message": "本金 10000 元，年利率 12%，按月计复利（即每月利率 1%），存满 12 个月。请计算到期的本息合计是多少元，保留两位小数。不要联网、不要用工具，直接给出最终金额并写出计算过程。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "samples": 5,
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 10 } },
+    { "name": "ContentMatches", "args": { "pattern": "11\\D{0,3}268" } }
+  ]
+}

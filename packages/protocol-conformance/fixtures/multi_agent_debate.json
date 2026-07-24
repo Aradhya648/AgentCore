@@ -1,0 +1,1458 @@
+{
+  "name": "multi_agent_debate",
+  "description": "多 Agent：辩论（debate 工具）主持人→辩手 + 决策简报/叙事线双产物",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我发起一场正反辩论来定夺。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "正反辩论：是否采用方案 A",
+        "agents": [
+          {
+            "id": "debate_mod1",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod1",
+            "agent_id": "debate_mod1",
+            "task": "主持正反辩论：是否采用方案 A",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1",
+        "agent_id": "debate_mod1",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "debate_mod1",
+        "round_no": 1,
+        "focus": "方案 A 的收益与风险敞口",
+        "cross_exam_enabled": true,
+        "opening": "这场要定的是该不该上方案 A，先从最要害的成本与收益切入。"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "支持方",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "反对方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod1_r1_pro",
+            "agent_id": "d_pro",
+            "task": "论证支持采用方案 A",
+            "depends_on": [],
+            "parent_run_id": "debate_mod1",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "debate_mod1_r1_con",
+            "agent_id": "d_con",
+            "task": "论证反对采用方案 A",
+            "depends_on": [],
+            "parent_run_id": "debate_mod1",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "parent_run_id": "debate_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "delta": "支持理由：收益可量化——首年可降本【已核实·2024成本审计】约 18%，同类系统迁移回收周期约两个季度【待核实·推断】。"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "output_summary": "支持方陈述完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.807Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1_r1_con",
+        "agent_id": "d_con",
+        "parent_run_id": "debate_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.808Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod1_r1_con",
+        "agent_id": "d_con",
+        "delta": "反对理由：风险缺兜底——迁移期存在双写不一致窗口【已核实·内部SRE复盘】，尾部故障率恐被低估【待核实·推断】。"
+      },
+      "timestamp": "2026-01-01T00:00:00.809Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1_r1_con",
+        "agent_id": "d_con",
+        "output_summary": "反对方陈述完成",
+        "duration_ms": 850,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.658Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_pro",
+        "agent_id": "debate_mod1_r1_cx_pro",
+        "parent_run_id": "debate_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_mod1_r1_pro",
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "side_key": "pro"
+      },
+      "timestamp": "2026-01-01T00:00:01.659Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_pro",
+        "agent_id": "debate_mod1_r1_cx_pro",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "质询环节",
+            "body": "## 第 1 轮 · 质询环节（本轮焦点：方案 A 的收益与风险敞口）\n主持人代表交锋，向你发出以下【必须正面回答】的质询。请按「### 质询一」「### 质询二」标题逐条正面作答。\n质询列表（共 2 条）：\n1. 收益量化口径是否计入了尾部风险？请是/否直接回答。\n2. 若熔断触发、灰度止损，已投入成本由谁承担？",
+            "chars": 158,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "cross_exam",
+            "heading": "第 1 轮 · 质询（必须正面回答）",
+            "body": "- 收益量化口径是否计入了尾部风险？请是/否直接回答。\n- 若熔断触发、灰度止损，已投入成本由谁承担？",
+            "chars": 51,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.660Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_pro",
+        "agent_id": "debate_mod1_r1_cx_pro",
+        "delta": "### 质询一\n量化口径未含尾部风险【待核实·推断】\n\n### 质询二\n成本由灰度预算池兜底、触发熔断即回滚【已核实·灰度预案v2】"
+      },
+      "timestamp": "2026-01-01T00:00:01.661Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_pro",
+        "agent_id": "debate_mod1_r1_cx_pro",
+        "output_summary": "支持方质询作答完成",
+        "duration_ms": 640,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.299Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_con",
+        "agent_id": "debate_mod1_r1_cx_con",
+        "parent_run_id": "debate_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_mod1_r1_con",
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "side_key": "con"
+      },
+      "timestamp": "2026-01-01T00:00:02.300Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_con",
+        "agent_id": "debate_mod1_r1_cx_con",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "质询环节",
+            "body": "## 第 1 轮 · 质询环节（本轮焦点：方案 A 的收益与风险敞口）\n主持人代表交锋，向你发出以下【必须正面回答】的质询。请按「### 质询一」标题逐条正面作答。\n质询列表（共 1 条）：\n1. 你主张的风险敞口，有无可量化的历史故障率支撑？没有就直说。",
+            "chars": 128,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "cross_exam",
+            "heading": "第 1 轮 · 质询（必须正面回答）",
+            "body": "- 你主张的风险敞口，有无可量化的历史故障率支撑？没有就直说。",
+            "chars": 31,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:02.301Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_con",
+        "agent_id": "debate_mod1_r1_cx_con",
+        "delta": "### 质询一\n暂无统一口径的历史故障率【待核实·推断】；但同类系统的尾部事件可作参照【已核实·SRE年报】"
+      },
+      "timestamp": "2026-01-01T00:00:02.302Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1_r1_cx_con",
+        "agent_id": "debate_mod1_r1_cx_con",
+        "output_summary": "反对方质询作答完成",
+        "duration_ms": 620,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.920Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1_closing_pro",
+        "agent_id": "debate_mod1_closing_pro",
+        "parent_run_id": "debate_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_mod1_r1_pro",
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "side_key": "pro"
+      },
+      "timestamp": "2026-01-01T00:00:02.921Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_mod1_closing_pro",
+        "agent_id": "debate_mod1_closing_pro",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "结辩环节",
+            "body": "## 结辩环节（本场辩论已充分交锋，现在请你做【结辩陈词】）\n这是你的**最后陈词**，不是新一轮立论——请【只讲胜负手】；【不得引入任何新论据 / 新事实 / 新案例】。直接输出你的结辩陈词。",
+            "chars": 97,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "closing",
+            "heading": "结辩环节",
+            "body": "本场辩论已充分交锋，现请做结辩陈词。",
+            "chars": 18,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:02.922Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod1_closing_pro",
+        "agent_id": "debate_mod1_closing_pro",
+        "delta": "结辩：方案 A 首年降本可核实【已核实·2024成本审计】，尾部风险有熔断兜底、触发即回滚可控——收益确定、风险有解，应有条件采用。"
+      },
+      "timestamp": "2026-01-01T00:00:02.923Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1_closing_pro",
+        "agent_id": "debate_mod1_closing_pro",
+        "output_summary": "支持方结辩完成",
+        "duration_ms": 520,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.441Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod1_closing_con",
+        "agent_id": "debate_mod1_closing_con",
+        "parent_run_id": "debate_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_mod1_r1_con",
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "side_key": "con"
+      },
+      "timestamp": "2026-01-01T00:00:03.442Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_mod1_closing_con",
+        "agent_id": "debate_mod1_closing_con",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "结辩环节",
+            "body": "## 结辩环节（本场辩论已充分交锋，现在请你做【结辩陈词】）\n这是你的**最后陈词**，不是新一轮立论——请【只讲胜负手】；【不得引入任何新论据 / 新事实 / 新案例】。直接输出你的结辩陈词。",
+            "chars": 97,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "closing",
+            "heading": "结辩环节",
+            "body": "本场辩论已充分交锋，现请做结辩陈词。",
+            "chars": 18,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:03.443Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod1_closing_con",
+        "agent_id": "debate_mod1_closing_con",
+        "delta": "结辩：对方的收益量化口径始终未含尾部风险【待核实·推断】，双写不一致窗口【已核实·内部SRE复盘】未有硬兜底——风险未对冲前不宜全量。"
+      },
+      "timestamp": "2026-01-01T00:00:03.444Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1_closing_con",
+        "agent_id": "debate_mod1_closing_con",
+        "output_summary": "反对方结辩完成",
+        "duration_ms": 540,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.982Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod1",
+        "agent_id": "debate_mod1",
+        "output_summary": "方案 A 的风险是否可控",
+        "duration_ms": 2000,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.983Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "debate_mod1",
+        "form": "debate",
+        "motion": "是否采用方案 A",
+        "stop_reason": "converged",
+        "opening": "这场要定的是该不该上方案 A，先从最要害的成本与收益切入。",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方",
+            "stance": "支持采用方案 A",
+            "is_subject": false
+          },
+          {
+            "key": "con",
+            "name": "反对方",
+            "stance": "反对采用方案 A",
+            "is_subject": false
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "方案 A 的收益与风险敞口",
+            "summary": "支持方强调收益可量化，反对方指出缺乏风险兜底，焦点收敛到风险可控性。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "双方核心分歧已充分暴露，无新论据。",
+              "rationale": "争点收敛到风险可控性这一关键点，继续无新增信息。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "支持方",
+                "run_id": "debate_mod1_r1_pro",
+                "ok": true,
+                "absent": false,
+                "arguments": [
+                  {
+                    "id": "arg-0",
+                    "title": "支持理由：收益可量化",
+                    "body": "支持理由：收益可量化——首年可降本【已核实·2024成本审计】约 18%，同类系统迁移回收周期约两个季度【待核实·推断】。"
+                  }
+                ]
+              },
+              {
+                "key": "con",
+                "name": "反对方",
+                "run_id": "debate_mod1_r1_con",
+                "ok": true,
+                "absent": false,
+                "arguments": [
+                  {
+                    "id": "arg-0",
+                    "title": "反对理由：风险缺兜底",
+                    "body": "反对理由：风险缺兜底——迁移期存在双写不一致窗口【已核实·内部SRE复盘】，尾部故障率恐被低估【待核实·推断】。"
+                  }
+                ]
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "con",
+                "to_key": "pro",
+                "point": "收益可量化但未对冲风险敞口，量化口径回避了尾部风险。"
+              }
+            ],
+            "cross_exam": [
+              {
+                "target": "pro",
+                "questioner": "",
+                "exchanges": [
+                  {
+                    "question": "收益量化口径是否计入了尾部风险？请是/否直接回答。",
+                    "answer": "量化口径未含尾部风险【待核实·推断】"
+                  },
+                  {
+                    "question": "若熔断触发、灰度止损，已投入成本由谁承担？",
+                    "answer": "成本由灰度预算池兜底、触发熔断即回滚【已核实·灰度预案v2】"
+                  }
+                ],
+                "answer_run_id": "debate_mod1_r1_cx_pro"
+              },
+              {
+                "target": "con",
+                "questioner": "",
+                "exchanges": [
+                  {
+                    "question": "你主张的风险敞口，有无可量化的历史故障率支撑？没有就直说。",
+                    "answer": "暂无统一口径的历史故障率【待核实·推断】；但同类系统的尾部事件可作参照【已核实·SRE年报】"
+                  }
+                ],
+                "answer_run_id": "debate_mod1_r1_cx_con"
+              }
+            ],
+            "scores": {
+              "pro": {
+                "argument": 4,
+                "engagement": 3,
+                "evidence": 3,
+                "penalties": [],
+                "note": "收益量化扎实，质询下承认口径未含尾部但给出熔断兜底。",
+                "total": 10
+              },
+              "con": {
+                "argument": 3,
+                "engagement": 4,
+                "evidence": 2,
+                "penalties": [
+                  "以未证实的尾部风险当既定事实"
+                ],
+                "note": "紧咬风险敞口命门、回应完整，但缺量化证据且有一处未支撑主张。",
+                "total": 8
+              }
+            }
+          }
+        ],
+        "closings": [
+          {
+            "key": "pro",
+            "name": "支持方",
+            "run_id": "debate_mod1_closing_pro",
+            "ok": true
+          },
+          {
+            "key": "con",
+            "name": "反对方",
+            "run_id": "debate_mod1_closing_con",
+            "ok": true
+          }
+        ],
+        "brief": {
+          "crux": "方案 A 的风险是否可控",
+          "strongest_points": {
+            "pro": "收益显著且可量化",
+            "con": "风险敞口缺乏兜底"
+          },
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "增长优先 vs 稳健优先"
+            },
+            {
+              "kind": "fact",
+              "text": "历史故障率的数据口径不一致"
+            },
+            {
+              "kind": "question",
+              "text": "灰度的回滚阈值如何设定？"
+            }
+          ],
+          "decisive": "反对方紧咬「风险敞口未对冲」命门，却把未证实的尾部风险当既定事实（记分 -1）；支持方收益量化更扎实、质询下给出熔断兜底，综合净分小幅领先（10 : 8）。",
+          "leaning": "倾向有条件采用",
+          "confidence": "medium",
+          "recommendation": "先小流量灰度验证风险，再决定是否全量。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.984Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 3000,
+          "output_tokens": 500,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:03.985Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我发起一场正反辩论来定夺。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我发起一场正反辩论来定夺。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "debate_mod1",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "支持理由：收益可量化——首年可降本【已核实·2024成本审计】约 18%，同类系统迁移回收周期约两个季度【待核实·推断】。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "反对理由：风险缺兜底——迁移期存在双写不一致窗口【已核实·内部SRE复盘】，尾部故障率恐被低估【待核实·推断】。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_mod1_r1_cx_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "### 质询一\n量化口径未含尾部风险【待核实·推断】\n\n### 质询二\n成本由灰度预算池兜底、触发熔断即回滚【已核实·灰度预案v2】",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_mod1_r1_cx_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "### 质询一\n暂无统一口径的历史故障率【待核实·推断】；但同类系统的尾部事件可作参照【已核实·SRE年报】",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_mod1_closing_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "结辩：方案 A 首年降本可核实【已核实·2024成本审计】，尾部风险有熔断兜底、触发即回滚可控——收益确定、风险有解，应有条件采用。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_mod1_closing_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "结辩：对方的收益量化口径始终未含尾部风险【待核实·推断】，双写不一致窗口【已核实·内部SRE复盘】未有硬兜底——风险未对冲前不宜全量。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "debate_mod1",
+        "agentId": "debate_mod1",
+        "task": "主持正反辩论：是否采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "方案 A 的风险是否可控",
+        "debrief": null,
+        "durationMs": 2000,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "debate_mod1_r1_pro",
+        "agentId": "d_pro",
+        "task": "论证支持采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方陈述完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": "debate_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "支持理由：收益可量化——首年可降本【已核实·2024成本审计】约 18%，同类系统迁移回收周期约两个季度【待核实·推断】。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod1_r1_con",
+        "agentId": "d_con",
+        "task": "论证反对采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方陈述完成",
+        "debrief": null,
+        "durationMs": 850,
+        "error": null,
+        "parentRunId": "debate_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "反对理由：风险缺兜底——迁移期存在双写不一致窗口【已核实·内部SRE复盘】，尾部故障率恐被低估【待核实·推断】。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod1_r1_cx_pro",
+        "agentId": "debate_mod1_r1_cx_pro",
+        "task": "论证支持采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方质询作答完成",
+        "debrief": null,
+        "durationMs": 640,
+        "error": null,
+        "parentRunId": "debate_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": "debate_mod1_r1_pro",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "质询环节",
+            "body": "## 第 1 轮 · 质询环节（本轮焦点：方案 A 的收益与风险敞口）\n主持人代表交锋，向你发出以下【必须正面回答】的质询。请按「### 质询一」「### 质询二」标题逐条正面作答。\n质询列表（共 2 条）：\n1. 收益量化口径是否计入了尾部风险？请是/否直接回答。\n2. 若熔断触发、灰度止损，已投入成本由谁承担？",
+            "chars": 158,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "cross_exam",
+            "heading": "第 1 轮 · 质询（必须正面回答）",
+            "body": "- 收益量化口径是否计入了尾部风险？请是/否直接回答。\n- 若熔断触发、灰度止损，已投入成本由谁承担？",
+            "chars": 51,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "### 质询一\n量化口径未含尾部风险【待核实·推断】\n\n### 质询二\n成本由灰度预算池兜底、触发熔断即回滚【已核实·灰度预案v2】"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod1_r1_cx_con",
+        "agentId": "debate_mod1_r1_cx_con",
+        "task": "论证反对采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方质询作答完成",
+        "debrief": null,
+        "durationMs": 620,
+        "error": null,
+        "parentRunId": "debate_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": "debate_mod1_r1_con",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "质询环节",
+            "body": "## 第 1 轮 · 质询环节（本轮焦点：方案 A 的收益与风险敞口）\n主持人代表交锋，向你发出以下【必须正面回答】的质询。请按「### 质询一」标题逐条正面作答。\n质询列表（共 1 条）：\n1. 你主张的风险敞口，有无可量化的历史故障率支撑？没有就直说。",
+            "chars": 128,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "cross_exam",
+            "heading": "第 1 轮 · 质询（必须正面回答）",
+            "body": "- 你主张的风险敞口，有无可量化的历史故障率支撑？没有就直说。",
+            "chars": 31,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "### 质询一\n暂无统一口径的历史故障率【待核实·推断】；但同类系统的尾部事件可作参照【已核实·SRE年报】"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod1_closing_pro",
+        "agentId": "debate_mod1_closing_pro",
+        "task": "论证支持采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方结辩完成",
+        "debrief": null,
+        "durationMs": 520,
+        "error": null,
+        "parentRunId": "debate_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": "debate_mod1_r1_pro",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "结辩环节",
+            "body": "## 结辩环节（本场辩论已充分交锋，现在请你做【结辩陈词】）\n这是你的**最后陈词**，不是新一轮立论——请【只讲胜负手】；【不得引入任何新论据 / 新事实 / 新案例】。直接输出你的结辩陈词。",
+            "chars": 97,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "closing",
+            "heading": "结辩环节",
+            "body": "本场辩论已充分交锋，现请做结辩陈词。",
+            "chars": 18,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "结辩：方案 A 首年降本可核实【已核实·2024成本审计】，尾部风险有熔断兜底、触发即回滚可控——收益确定、风险有解，应有条件采用。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod1_closing_con",
+        "agentId": "debate_mod1_closing_con",
+        "task": "论证反对采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方结辩完成",
+        "debrief": null,
+        "durationMs": 540,
+        "error": null,
+        "parentRunId": "debate_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": "debate_mod1_r1_con",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "结辩环节",
+            "body": "## 结辩环节（本场辩论已充分交锋，现在请你做【结辩陈词】）\n这是你的**最后陈词**，不是新一轮立论——请【只讲胜负手】；【不得引入任何新论据 / 新事实 / 新案例】。直接输出你的结辩陈词。",
+            "chars": 97,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "closing",
+            "heading": "结辩环节",
+            "body": "本场辩论已充分交锋，现请做结辩陈词。",
+            "chars": 18,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "结辩：对方的收益量化口径始终未含尾部风险【待核实·推断】，双写不一致窗口【已核实·内部SRE复盘】未有硬兜底——风险未对冲前不宜全量。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 7,
+      "total": 7
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec1",
+      "moderator_run_id": "debate_mod1",
+      "form": "debate",
+      "motion": "是否采用方案 A",
+      "stop_reason": "converged",
+      "opening": "这场要定的是该不该上方案 A，先从最要害的成本与收益切入。",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "pro",
+          "name": "支持方",
+          "stance": "支持采用方案 A",
+          "is_subject": false
+        },
+        {
+          "key": "con",
+          "name": "反对方",
+          "stance": "反对采用方案 A",
+          "is_subject": false
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "方案 A 的收益与风险敞口",
+          "summary": "支持方强调收益可量化，反对方指出缺乏风险兜底，焦点收敛到风险可控性。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "双方核心分歧已充分暴露，无新论据。",
+            "rationale": "争点收敛到风险可控性这一关键点，继续无新增信息。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "支持方",
+              "run_id": "debate_mod1_r1_pro",
+              "ok": true,
+              "absent": false,
+              "arguments": [
+                {
+                  "id": "arg-0",
+                  "title": "支持理由：收益可量化",
+                  "body": "支持理由：收益可量化——首年可降本【已核实·2024成本审计】约 18%，同类系统迁移回收周期约两个季度【待核实·推断】。"
+                }
+              ]
+            },
+            {
+              "key": "con",
+              "name": "反对方",
+              "run_id": "debate_mod1_r1_con",
+              "ok": true,
+              "absent": false,
+              "arguments": [
+                {
+                  "id": "arg-0",
+                  "title": "反对理由：风险缺兜底",
+                  "body": "反对理由：风险缺兜底——迁移期存在双写不一致窗口【已核实·内部SRE复盘】，尾部故障率恐被低估【待核实·推断】。"
+                }
+              ]
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "con",
+              "to_key": "pro",
+              "point": "收益可量化但未对冲风险敞口，量化口径回避了尾部风险。"
+            }
+          ],
+          "cross_exam": [
+            {
+              "target": "pro",
+              "questioner": "",
+              "exchanges": [
+                {
+                  "question": "收益量化口径是否计入了尾部风险？请是/否直接回答。",
+                  "answer": "量化口径未含尾部风险【待核实·推断】"
+                },
+                {
+                  "question": "若熔断触发、灰度止损，已投入成本由谁承担？",
+                  "answer": "成本由灰度预算池兜底、触发熔断即回滚【已核实·灰度预案v2】"
+                }
+              ],
+              "answer_run_id": "debate_mod1_r1_cx_pro"
+            },
+            {
+              "target": "con",
+              "questioner": "",
+              "exchanges": [
+                {
+                  "question": "你主张的风险敞口，有无可量化的历史故障率支撑？没有就直说。",
+                  "answer": "暂无统一口径的历史故障率【待核实·推断】；但同类系统的尾部事件可作参照【已核实·SRE年报】"
+                }
+              ],
+              "answer_run_id": "debate_mod1_r1_cx_con"
+            }
+          ],
+          "scores": {
+            "pro": {
+              "argument": 4,
+              "engagement": 3,
+              "evidence": 3,
+              "penalties": [],
+              "note": "收益量化扎实，质询下承认口径未含尾部但给出熔断兜底。",
+              "total": 10
+            },
+            "con": {
+              "argument": 3,
+              "engagement": 4,
+              "evidence": 2,
+              "penalties": [
+                "以未证实的尾部风险当既定事实"
+              ],
+              "note": "紧咬风险敞口命门、回应完整，但缺量化证据且有一处未支撑主张。",
+              "total": 8
+            }
+          }
+        }
+      ],
+      "closings": [
+        {
+          "key": "pro",
+          "name": "支持方",
+          "run_id": "debate_mod1_closing_pro",
+          "ok": true
+        },
+        {
+          "key": "con",
+          "name": "反对方",
+          "run_id": "debate_mod1_closing_con",
+          "ok": true
+        }
+      ],
+      "brief": {
+        "crux": "方案 A 的风险是否可控",
+        "strongest_points": {
+          "pro": "收益显著且可量化",
+          "con": "风险敞口缺乏兜底"
+        },
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "增长优先 vs 稳健优先"
+          },
+          {
+            "kind": "fact",
+            "text": "历史故障率的数据口径不一致"
+          },
+          {
+            "kind": "question",
+            "text": "灰度的回滚阈值如何设定？"
+          }
+        ],
+        "decisive": "反对方紧咬「风险敞口未对冲」命门，却把未证实的尾部风险当既定事实（记分 -1）；支持方收益量化更扎实、质询下给出熔断兜底，综合净分小幅领先（10 : 8）。",
+        "leaning": "倾向有条件采用",
+        "confidence": "medium",
+        "recommendation": "先小流量灰度验证风险，再决定是否全量。"
+      }
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "方案 A 的收益与风险敞口",
+        "summary": "",
+        "verdict": null,
+        "sides": [],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": null,
+    "crossExamEnabled": true,
+    "debateOpening": "这场要定的是该不该上方案 A，先从最要害的成本与收益切入。",
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

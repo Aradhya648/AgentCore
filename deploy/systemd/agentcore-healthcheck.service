@@ -1,0 +1,27 @@
+# AgentCore 健康巡检（部署与运维.md §7.8「可观测·巡检」）。
+# 由 agentcore-healthcheck.timer 驱动的 oneshot；脚本自身防抖 + 告警。
+#
+# 安装：
+#   sudo cp deploy/systemd/agentcore-healthcheck.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now agentcore-healthcheck.timer
+#   # 告警渠道：把 ALERT_WEBHOOK_URL=<飞书群机器人 webhook> 写进 /opt/agentcore/.env
+#   # （未配则降级 journald：journalctl -u agentcore-healthcheck.service）
+#
+# 非默认部署根（AGENTCORE_HOME）需同步改下方 Environment 与 ExecStart 路径。
+
+[Unit]
+Description=AgentCore 健康巡检（/readyz）+ 防抖告警
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 运维变量（ALERT_WEBHOOK_URL 等）；前缀 '-' = 文件缺失不报错。脚本内亦会再 source 一次。
+EnvironmentFile=-/opt/agentcore/.env
+Environment=AGENTCORE_HOME=/opt/agentcore
+# 显式 bash 调用：不依赖脚本 +x 位（Windows 创作经 git checkout 到 Linux 可能丢失）。
+ExecStart=/usr/bin/env bash /opt/agentcore/repo/deploy/scripts/healthcheck.sh
+# 建议以部署用户运行（按实际改；留空则以 root 运行，仅 curl + 写状态文件，无副作用）。
+# User=agentcore
+# Group=agentcore

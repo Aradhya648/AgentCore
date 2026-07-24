@@ -1,0 +1,84 @@
+name: Deploy Web Client
+
+# ⚠️ 已弃用自动触发 — 改由 Cursor Agent 本地 `pnpm -C apps/desktop deploy:web` 部署。
+# 见 docs/05-平台与运维/部署与运维.md §二、.cursor/rules/cursor-deploy.mdc
+#
+# web 客户端（apps/desktop 渲染层跑在浏览器，形态 A）同源部署在 app. 根路径：页面 app./、
+# API app./api/ 同一台 Nginx → 第一方 cookie、零 CORS。本工作流只「同步文件 + reload」，
+# 不改 nginx 配置；前置须一次性把 deploy/nginx/app-web.conf 的 root + location / 合入 app.
+# 既有 server 块（保留 /api、/storage 代理）。
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy web client to production (app. root, same-origin)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install desktop dependencies
+        # The webapp build needs the workspace packages (contract-types / design-tokens /
+        # protocol-conformance), so a workspace-filtered install — not --ignore-workspace.
+        # The web build needs no electron binary, so skip that postinstall download.
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile --filter agentcore-desktop...
+
+      - name: Build web client (same-origin prod API baked by .env.production)
+        run: pnpm --filter agentcore-desktop build:webapp
+
+      - name: Publish index.html + pack tarball
+        # Nginx try_files serves /index.html; the multi-entry build emits index.webapp.html
+        # (asset refs are absolute, so the copy is safe). Then tar dist-web for transfer.
+        run: |
+          cp apps/desktop/dist-web/index.webapp.html apps/desktop/dist-web/index.html
+          tar -czf web-dist.tgz -C apps/desktop dist-web
+
+      - name: Upload dist tarball
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          source: web-dist.tgz
+          target: /tmp
+
+      - name: Sync static files + reload nginx
+        # Repeatable file sync only (assumes the one-time location / wiring is in place).
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            WEB_ROOT="/opt/agentcore/web"
+            rm -rf "$WEB_ROOT/dist"
+            mkdir -p "$WEB_ROOT/dist"
+            tar xzf /tmp/web-dist.tgz -C "$WEB_ROOT/dist" --strip-components=1
+            rm -f /tmp/web-dist.tgz
+            echo "web static → $WEB_ROOT/dist ($(find "$WEB_ROOT/dist" -type f | wc -l) files)"
+            sudo nginx -t
+            sudo systemctl reload nginx
+            CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: app.fashitianxia.xyz' http://127.0.0.1/ || true)"
+            echo "nginx reloaded; local probe app.fashitianxia.xyz/ → HTTP ${CODE}"
+            echo "前置：deploy/nginx/app-web.conf 的 root + location / 须已合入 app. server 块"

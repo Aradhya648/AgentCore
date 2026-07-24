@@ -1,0 +1,127 @@
+"""Split from executor.py — see executor.py module docstring.
+
+``build_agent_executor`` wires turn bindings; node execution and escalate
+channel live in ``executor_node`` / ``executor_escalation``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Mapping
+
+from agentcore.core.log_context import log_context
+from agentcore.llm.profiles import TurnProfiles as ProfileSet
+from agentcore.llm.profiles import default_turn_profiles as default_profile_set
+from agentcore.llm.provider.protocol import LLMProvider
+from agentcore.runtime.approvals import ApprovalGate
+from agentcore.runtime.events import EventSink
+from agentcore.runtime.facts import record_turn_fact
+from agentcore.runtime.ports import ClientRequestBridge
+from agentcore.runtime.runs.executor_context import _ancestors_by_id, _safe_index_files
+from agentcore.runtime.runs.executor_env import AgentExecutorEnv
+from agentcore.runtime.runs.executor_identities import DelegateFactory
+from agentcore.runtime.runs.executor_node import execute_agent_node
+from agentcore.runtime.runs.notewall import NoteWall
+from agentcore.runtime.runs.plan import RunPlan
+from agentcore.runtime.runs.scheduler import RunExecutor
+from agentcore.runtime.runs.serialize import run_final_fact
+from agentcore.runtime.runs.types import RunSpec, RunState
+from agentcore.tools.protocol import ToolContext
+from agentcore.tools.registry import ToolRegistry
+
+
+def build_agent_executor(
+    *,
+    plan: RunPlan,
+    llm: LLMProvider,
+    tools: ToolRegistry,
+    sink: EventSink,
+    base_tool_context: ToolContext,
+    profile_set: ProfileSet | None = None,
+    system_prompt: str,
+    user_message: str,
+    execution_id: str,
+    approval_gate: ApprovalGate | None = None,
+    delegate_factory: DelegateFactory | None = None,
+    interaction_bridge: ClientRequestBridge | None = None,
+    escalation_timeout: float | None = None,
+    escalation_armed: bool = False,
+    note_wall: NoteWall | None = None,
+    collaboration: bool = True,
+    team_brief: str | None = None,
+    evidence_ledger: object | None = None,
+    turn_evidence_ledger: object | None = None,
+    batch_completion_criteria: object | None = None,
+) -> RunExecutor:
+    """Build a :class:`RunExecutor` bound to one turn's wiring.
+
+    Closes over ``plan`` so a node can resolve a dependency's display role when
+    labelling injected upstream context; the scheduler passes only the terminal
+    ``completed`` states per call.
+
+    See module history / design docs on ``profile_set``, ``approval_gate``,
+    ``delegate_factory``, escalation wiring, and ``collaboration``.
+    """
+    profiles = profile_set or default_profile_set()
+    # C3: prefer coordination-session ledger (shared with nested via current_execution_id);
+    # non-coordination batches keep a fresh batch-local book.
+    from agentcore.workspace.write_claims import resolve_write_coordinator
+
+    write_coordinator = resolve_write_coordinator(execution_id=execution_id)
+    ancestors_by_id = _ancestors_by_id(plan)
+    note_wall = (note_wall or NoteWall()) if collaboration else None
+
+    _ambient_snapshot: dict[str, list[str]] = {}
+    _ambient_lock = asyncio.Lock()
+
+    async def _preexisting_files() -> list[str]:
+        if "paths" in _ambient_snapshot:
+            return _ambient_snapshot["paths"]
+        async with _ambient_lock:
+            if "paths" not in _ambient_snapshot:
+                _ambient_snapshot["paths"] = await _safe_index_files(base_tool_context.backend)
+            return _ambient_snapshot["paths"]
+
+    env = AgentExecutorEnv(
+        plan=plan,
+        llm=llm,
+        tools=tools,
+        sink=sink,
+        base_tool_context=base_tool_context,
+        profiles=profiles,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        execution_id=execution_id,
+        approval_gate=approval_gate,
+        delegate_factory=delegate_factory,
+        interaction_bridge=interaction_bridge,
+        escalation_timeout=escalation_timeout,
+        escalation_armed=escalation_armed,
+        note_wall=note_wall,
+        collaboration=collaboration,
+        team_brief=team_brief,
+        write_coordinator=write_coordinator,
+        ancestors_by_id=ancestors_by_id,
+        conversation_id=base_tool_context.conversation_id,
+        preexisting_files=_preexisting_files,
+        shared_workspace=bool(base_tool_context.shared_workspace),
+        evidence_ledger=evidence_ledger,
+        turn_evidence_ledger=turn_evidence_ledger,
+        batch_completion_criteria=batch_completion_criteria,  # type: ignore[arg-type]
+    )
+
+    async def execute(spec: RunSpec, completed: Mapping[str, RunState]) -> RunState:
+        agent_id = spec.agent_id or spec.run_id
+        with log_context(
+            run_id=spec.run_id,
+            agent_id=agent_id,
+            depth=spec.depth,
+            cost_role="member",
+            persona=(spec.role or "").strip() or None,
+            parent_run_id=spec.parent_run_id or None,
+        ):
+            state = await execute_agent_node(env, spec, completed, agent_id)
+            record_turn_fact(run_final_fact(spec.run_id, state))
+            return state
+
+    return execute

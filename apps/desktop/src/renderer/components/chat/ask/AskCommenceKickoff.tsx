@@ -1,0 +1,296 @@
+/**
+ * Production kickoff Ask card — V2 Brief + Choose (Notion AI / product-brief style),
+ * slim chrome + always-visible compact choice rows.
+ * Wired by {@link AskUserCard} when intent === "kickoff".
+ */
+import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
+import { Button } from "@/components/ui";
+import {
+  formatBindLocalFolderAnswer,
+  pickAndBindLocalFolder,
+} from "@/lib/bindLocalFolder";
+import type { CheckpointUserDecision } from "@/services/checkpoint";
+import type { AskAssumption, AskOption, AskQuestion } from "@/types/events";
+import { ChevronRight, Loader2, OctagonX, Rocket } from "lucide-react";
+import { useState } from "react";
+import {
+  ChoiceQuestion,
+  CommenceNote,
+  PlanChips,
+  StylePills,
+  splitBriefContext,
+} from "./AskCommenceParts";
+import type { AskUserContent } from "./AskUserFields";
+import type { useAskAnswer } from "./AskUserFields";
+
+export function AskCommenceKickoffBody({
+  content,
+  answer,
+  busy,
+  submitting,
+  onContinue,
+  onStop,
+  conversationId,
+  onBindResolve,
+}: {
+  content: AskUserContent;
+  answer: ReturnType<typeof useAskAnswer>;
+  busy: boolean;
+  submitting: CheckpointUserDecision | null;
+  onContinue: () => void;
+  onStop: () => void;
+  conversationId?: string | null;
+  onBindResolve?: (composedAnswer: string) => void | Promise<void>;
+}) {
+  const { lead, points } = splitBriefContext(content.context);
+  const [bindBusyLabel, setBindBusyLabel] = useState<string | null>(null);
+  const [bindError, setBindError] = useState<string | null>(null);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+
+  const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
+    if (!conversationId || !onBindResolve || busy || bindBusyLabel) return;
+    setBindBusyLabel(opt.label);
+    setBindError(null);
+    const result = await pickAndBindLocalFolder(conversationId);
+    if (!result.ok) {
+      if (result.reason === "error") setBindError(result.message);
+      setBindBusyLabel(null);
+      return;
+    }
+    const value = formatBindLocalFolderAnswer(opt.label, result.root.name);
+    try {
+      await onBindResolve(answer.composeWithAnswer("kickoff", q.id, value));
+    } catch {
+      setBindBusyLabel(null);
+    }
+  };
+
+  return (
+    <div
+      data-ask-commence-variant="v2"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
+      {/* Brief — 目标复述 2 行；点开全文 + context */}
+      <div className="shrink-0 space-y-2 border-b border-border bg-muted/10 px-4 py-3">
+        <div className="flex items-center gap-1.5">
+          <Rocket size={14} className="shrink-0 text-muted-foreground" />
+          <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
+            开工提案 · 确认即开做
+          </p>
+          <ManualHelpLink to={MANUAL_HELP.checkpoint} />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setBriefOpen((v) => !v)}
+          aria-expanded={briefOpen}
+          className="flex w-full items-start gap-1.5 text-left"
+        >
+          <div className="min-w-0 flex-1">
+            <p
+              className={`text-sm font-semibold leading-snug text-foreground ${
+                briefOpen ? "whitespace-pre-wrap" : "line-clamp-2"
+              }`}
+            >
+              {content.question}
+            </p>
+            {briefOpen && lead && (
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                {lead}
+              </p>
+            )}
+            {briefOpen && points.length > 0 && (
+              <BriefPointList points={points} className="mt-1.5" />
+            )}
+          </div>
+          <ChevronRight
+            size={14}
+            className={`mt-0.5 shrink-0 text-muted-foreground transition-transform ${
+              briefOpen ? "rotate-90" : ""
+            }`}
+          />
+        </button>
+
+        {content.assumptions.length > 0 && (
+          <PlanChipsEntry
+            assumptions={content.assumptions}
+            open={planOpen}
+            onToggle={() => setPlanOpen((v) => !v)}
+          />
+        )}
+      </div>
+
+      {/* Choose — 题干 + 紧凑单行选项常驻 */}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-2.5">
+        {content.questions.map((q, i) => (
+          <ChoiceQuestion
+            key={q.id}
+            question={q}
+            index={i + 1}
+            numbered={content.questions.length > 1}
+            answer={answer.answers[q.id] ?? []}
+            otherOn={answer.otherOn[q.id] ?? false}
+            otherText={answer.otherText[q.id] ?? ""}
+            disabled={busy || !!bindBusyLabel}
+            onToggle={(opt) => answer.toggleChoice(q, opt)}
+            onSetText={(v) => answer.setText(q, v)}
+            onToggleOther={() => answer.toggleOther(q)}
+            onSetOther={(v) => answer.setOtherValue(q, v)}
+            optionLayout="compact"
+            conversationId={conversationId}
+            bindBusyLabel={bindBusyLabel}
+            onBindOption={(opt) => void handleBindOption(q, opt)}
+          />
+        ))}
+        {bindError && <p className="text-xs text-destructive">{bindError}</p>}
+
+        <StylePills content={content} answer={answer} disabled={busy} />
+
+        {/* 恰好一题时「其他…」已覆盖自定义；多题才保留跨题附言，且默认折叠。 */}
+        {content.questions.length !== 1 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setNoteOpen((v) => !v)}
+              aria-expanded={noteOpen}
+              className="flex w-full items-center gap-1.5 text-left"
+            >
+              <ChevronRight
+                size={13}
+                className={`shrink-0 text-muted-foreground transition-transform ${
+                  noteOpen ? "rotate-90" : ""
+                }`}
+              />
+              <span className="text-xs text-muted-foreground">补充说明</span>
+              {!noteOpen && answer.note.trim() && (
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
+                  {answer.note.trim()}
+                </span>
+              )}
+            </button>
+            {noteOpen && (
+              <div className="mt-1.5 pl-5">
+                <CommenceNote answer={answer} disabled={busy} compact />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer — CTA + 预填提示同一行 */}
+      <div className="shrink-0 border-t border-border bg-card/95 px-3 py-2.5 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            size="md"
+            variant="primary"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            disabled={busy}
+            onClick={onContinue}
+            icon={
+              submitting === "continue" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Rocket size={14} />
+              )
+            }
+          >
+            就这样开做
+          </Button>
+          <Button
+            size="md"
+            variant="ghost"
+            disabled={busy}
+            onClick={onStop}
+            className="text-muted-foreground hover:text-foreground"
+            icon={
+              submitting === "stop" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <OctagonX size={14} />
+              )
+            }
+          >
+            停止
+          </Button>
+          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {answer.presetCount > 0
+              ? `已预填 ${answer.presetCount} 项，直接开做或按需调整`
+              : "也可直接在下方对话框回复"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 起步计划：前 2 项 +「+N」一行入口，点开全显。 */
+function PlanChipsEntry({
+  assumptions,
+  open,
+  onToggle,
+}: {
+  assumptions: AskAssumption[];
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const preview = assumptions.slice(0, 2);
+  const rest = assumptions.length - preview.length;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 text-left"
+      >
+        <ChevronRight
+          size={13}
+          className={`shrink-0 text-muted-foreground transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+        />
+        <span className="shrink-0 text-xs text-muted-foreground">起步计划</span>
+        {!open && (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/80">
+            {preview.map((a) => `${a.label} ${a.value}`).join(" · ")}
+          </span>
+        )}
+        {!open && rest > 0 && (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            +{rest}
+          </span>
+        )}
+      </button>
+      {open && (
+        <PlanChips assumptions={assumptions} quiet className="mt-1.5 pl-5" />
+      )}
+    </div>
+  );
+}
+
+function BriefPointList({
+  points,
+  className = "",
+}: {
+  points: string[];
+  className?: string;
+}) {
+  return (
+    <ul className={`space-y-1 ${className}`}>
+      {points.map((p) => (
+        <li
+          key={p}
+          className="flex gap-2 text-xs leading-snug text-foreground/80"
+        >
+          <span
+            className="mt-1.5 size-1 shrink-0 rounded-full bg-muted-foreground/50"
+            aria-hidden
+          />
+          <span>{p}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}

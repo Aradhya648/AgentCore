@@ -1,0 +1,18 @@
+{
+  "id": "fc2_3_task_derailment",
+  "category": "team",
+  "mast": "2.3",
+  "user_message": "做一个『用户反馈』小功能的两块，并汇成一段说明交付：(1) 定义后端接口 POST /feedback，请求体字段必须是 message 与 rating；(2) 写前端表单的提交逻辑。硬约束：前端提交的字段名必须与接口完全一致（message、rating）——别中途改名、别两块各用各的。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "MAST 2.3 任务跑偏 / §2.3 合·语义边界对账（4b）的对偶：两块相互依赖、共享字段契约（message+rating），跑偏的典型表现是一端偷偷改名导致拼不上。milestone 守两端字段一致。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "milestones": [
+    { "id": "endpoint", "desc": "定义 POST /feedback 接口，请求体字段为 message 与 rating", "weight": 1 },
+    { "id": "form", "desc": "给出前端表单的提交逻辑", "weight": 1 },
+    { "id": "consistent", "desc": "前端提交的字段名与接口定义完全一致（均为 message 与 rating，无改名/不一致）", "weight": 2 }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "message-detail-inflight-partial",
+  "description": "REST shape (流式回复持久化 P0): GET /messages 在飞回合 MessageDetail — usage.status=running（投影为顶层 status）+ 部分 content/reasoning。Overlay 填段属 P1；本夹具只钉形状。",
+  "endpoint": "GET /v1/conversations/{id}/messages",
+  "response": {
+    "id": "msg-inflight-conformance",
+    "conversation_id": "conv-conformance",
+    "role": "assistant",
+    "content": "正在生成的半截正",
+    "reasoning_content": "先想一步…",
+    "status": "running",
+    "usage": null,
+    "rounds": null,
+    "runs": null,
+    "attachments": [],
+    "citations": [],
+    "followups": [],
+    "feedback": null,
+    "collab": null,
+    "trace_id": null,
+    "created_at": "2026-07-11T00:00:00Z"
+  }
+}

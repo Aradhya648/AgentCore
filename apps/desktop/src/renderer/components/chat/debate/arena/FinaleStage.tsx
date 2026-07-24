@@ -1,0 +1,98 @@
+import { Button } from "@/components/ui";
+import { useDebateTake } from "@/stores/debateUserTake";
+import type { Execution } from "@/stores/execution";
+import { useSidePanelStore } from "@/stores/sidePanel";
+import { ModelBadge } from "../ModelBadge";
+import {
+  type DebateModel,
+  debateRoster,
+  stopLabel,
+  tallyScores,
+} from "../model";
+import { finaleAnchorId } from "./anchors";
+import { BriefCard, RoundtableSpectrum } from "./brief";
+
+export function FinaleStage({
+  model,
+  execution,
+  messageId,
+}: {
+  model: DebateModel;
+  execution: Execution;
+  messageId: string;
+}) {
+  const showRunDetail = useSidePanelStore((s) => s.showRunDetail);
+  const moderatorRun = model.moderatorRunId
+    ? execution.runs.find((r) => r.id === model.moderatorRunId)
+    : undefined;
+  const brief = model.brief;
+  const sides = model.sides;
+  const hasBrief = !!(brief && sides);
+  const tally = model.form === "roundtable" ? [] : tallyScores(model.rounds);
+
+  const take = useDebateTake(messageId);
+  const stanceSide =
+    debateRoster(model.rounds).find((r) => r.sideKey === take.stance) ?? null;
+  const stanceAgree = (() => {
+    if (!stanceSide || tally.length < 2) return null;
+    const sorted = [...tally].sort((a, b) => b.total - a.total);
+    if (sorted[0].total === sorted[1].total) return null;
+    return sorted[0].sideKey === stanceSide.sideKey;
+  })();
+
+  return (
+    <div
+      id={finaleAnchorId()}
+      className="scroll-mt-28 mt-8 border-t-2 border-border pt-6"
+    >
+      {/* 终审区恒定 max-w-3xl 居中（split 并排下也不随 max-w-7xl 通栏）。 */}
+      <div className="mx-auto max-w-3xl">
+        <div className="flex flex-wrap items-center gap-2">
+          {moderatorRun ? (
+            // 对齐 SpeakerBlock 惯例：身份行（标题 + 模型徽章）即钻取入口。
+            <Button
+              variant="ghost"
+              onClick={() =>
+                showRunDetail(messageId, moderatorRun.id, "主持人")
+              }
+              className="h-auto justify-start gap-2 rounded-none px-0 py-0 hover:bg-transparent"
+            >
+              <h2 className="text-xl font-semibold text-foreground">
+                主持人终审
+              </h2>
+              <ModelBadge model={moderatorRun.model ?? ""} />
+            </Button>
+          ) : (
+            <h2 className="text-xl font-semibold text-foreground">
+              主持人终审
+            </h2>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {stopLabel(model.stopReason)}
+          </span>
+        </div>
+
+        {hasBrief ? (
+          <div className="mt-4 space-y-4">
+            {model.form === "roundtable" && (
+              <RoundtableSpectrum
+                brief={brief}
+                sides={sides}
+                subtopics={model.subtopics}
+              />
+            )}
+            <BriefCard
+              brief={brief}
+              sides={sides}
+              form={model.form}
+              scores={tally.length > 0 ? tally : undefined}
+              stanceAgree={stanceAgree}
+            />
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">结论简报生成中…</p>
+        )}
+      </div>
+    </div>
+  );
+}

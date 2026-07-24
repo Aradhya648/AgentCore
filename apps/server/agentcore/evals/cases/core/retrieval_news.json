@@ -1,0 +1,15 @@
+{
+  "id": "retrieval_ai_news",
+  "category": "retrieval",
+  "user_message": "搜索最近和人工智能相关的新闻，挑两条用中文总结，并标注每条的来源。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "ToolCalled", "args": { "tool": "web_search" } },
+    { "name": "HasCitations", "args": { "min": 1 } },
+    { "name": "MaxRounds", "args": { "budget": 6 } }
+  ],
+  "rubric": "总结是否由真实检索结果支撑、与来源一致、未编造链接或事实（faithfulness）。"
+}

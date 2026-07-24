@@ -1,0 +1,36 @@
+# 收敛 apps/server 构建上下文：只需 pyproject/uv.lock/agentcore/alembic.ini。
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 工具缓存
+.pytest_cache/
+.pytest_*/
+.tmp_pytest/
+.ruff_cache/
+.mypy_cache/
+.uv/
+
+# 测试 / 覆盖率（不进镜像）
+tests/
+htmlcov/
+.coverage
+.coverage.*
+coverage/
+
+# 本地数据 / 密钥 / 日志（绝不进镜像）
+data/
+*.env
+.env
+.env.*
+*.log
+logs/
+
+# 文档 / IDE / 杂项
+*.md
+.idea/
+.vscode/
+.DS_Store

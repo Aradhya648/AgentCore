@@ -1,0 +1,416 @@
+{
+  "name": "single_agent_web_read",
+  "description": "单聊：联网检索+深读富渲染（web_search 卡 · 单条 read_url 来源头+正文 · ≥2 read_url 来源集合）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "先检索这个案子的背景。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "arguments": {
+          "query": "LV 茉莉奶白 商标 诉讼"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "status": "success",
+        "result": "找到 3 条结果。",
+        "display": {
+          "query": "LV 茉莉奶白 商标 诉讼",
+          "results": [
+            {
+              "title": "驴疯了？LV 起诉国家知识产权局！",
+              "url": "https://www.sohu.com/a/1050596771_121124370",
+              "snippet": "路易威登与「茉莉奶白」的商标纠纷再起波澜。",
+              "site": "sohu.com"
+            },
+            {
+              "title": "LV 起诉国家知识产权局，7 月开庭",
+              "url": "https://www.sohu.com/a/1050271277_349248",
+              "snippet": "相关商标行政纠纷案将于 7 月 16 日开庭审理。",
+              "site": "sohu.com"
+            },
+            {
+              "title": "又涉及茉莉奶白？本案属行政诉讼",
+              "url": "https://www.sohu.com/a/1050304127_121811866",
+              "snippet": "本案属于行政诉讼范畴，被告为国家知识产权局。",
+              "site": "sohu.com"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "摘要不够，深读第一篇看细节。"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc2",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://www.sohu.com/a/1050596771_121124370"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc2",
+        "tool_name": "read_url",
+        "status": "success",
+        "result": "{\"url\": \"…\", \"title\": \"驴疯了？LV 起诉国家知识产权局！\", \"content\": \"…\"}",
+        "display": {
+          "url": "https://www.sohu.com/a/1050596771_121124370",
+          "title": "驴疯了？LV 起诉国家知识产权局！",
+          "site": "sohu.com",
+          "snippet": "路易威登针对「茉莉奶白」商标争议将国家知识产权局诉至法院。",
+          "content": "路易威登（LV）近日就「茉莉奶白」商标争议，将国家知识产权局诉至法院。该案源于双方在商标近似认定上的分歧，一审将于近期开庭。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "再多读几篇核对细节。"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc3",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://www.sohu.com/a/1050271277_349248"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc3",
+        "tool_name": "read_url",
+        "status": "success",
+        "result": "正文……",
+        "display": {
+          "url": "https://www.sohu.com/a/1050271277_349248",
+          "title": "LV 起诉国家知识产权局，7 月开庭",
+          "site": "sohu.com",
+          "snippet": "相关商标行政纠纷案将于 7 月 16 日开庭审理。",
+          "content": "相关商标行政纠纷案将于 7 月 16 日在北京知识产权法院开庭审理。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc4",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://www.sohu.com/a/1050304127_121811866"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc4",
+        "tool_name": "read_url",
+        "status": "success",
+        "result": "正文……",
+        "display": {
+          "url": "https://www.sohu.com/a/1050304127_121811866",
+          "title": "又涉及茉莉奶白？本案属行政诉讼",
+          "site": "sohu.com",
+          "snippet": "本案属于行政诉讼范畴，被告为国家知识产权局。",
+          "content": "本案属于行政诉讼范畴，被告为国家知识产权局，原告为路易威登。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.012Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc5",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://zhuanlan.zhihu.com/p/700123456"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.013Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc5",
+        "tool_name": "read_url",
+        "status": "success",
+        "result": "正文……",
+        "display": {
+          "url": "https://zhuanlan.zhihu.com/p/700123456",
+          "title": "如何看待 LV 起诉国家知识产权局",
+          "site": "zhihu.com",
+          "snippet": "多角度分析该案的法律看点与商标近似认定标准。",
+          "content": "本文从商标近似认定与行政诉讼程序两方面分析该案的看点。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.014Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "综合多篇报道，"
+      },
+      "timestamp": "2026-01-01T00:00:00.015Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "该案为 LV 就「茉莉奶白」商标提起的行政诉讼，将于 7 月开庭。"
+      },
+      "timestamp": "2026-01-01T00:00:00.016Z"
+    },
+    {
+      "type": "citations",
+      "payload": {
+        "citations": [
+          {
+            "title": "驴疯了？LV 起诉国家知识产权局！",
+            "url": "https://www.sohu.com/a/1050596771_121124370",
+            "snippet": "路易威登与「茉莉奶白」的商标纠纷。",
+            "site": "sohu.com"
+          },
+          {
+            "title": "LV 起诉国家知识产权局，7 月开庭",
+            "url": "https://www.sohu.com/a/1050271277_349248",
+            "snippet": "将于 7 月 16 日开庭审理。",
+            "site": "sohu.com"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.017Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 2200,
+          "output_tokens": 320,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.018Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "综合多篇报道，该案为 LV 就「茉莉奶白」商标提起的行政诉讼，将于 7 月开庭。",
+    "reasoning": "先检索这个案子的背景。摘要不够，深读第一篇看细节。再多读几篇核对细节。",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "reasoning",
+        "text": "先检索这个案子的背景。"
+      },
+      {
+        "kind": "tool",
+        "id": "tc1",
+        "tool_name": "web_search",
+        "arguments": {
+          "query": "LV 茉莉奶白 商标 诉讼"
+        },
+        "result": "找到 3 条结果。",
+        "status": "success",
+        "display": {
+          "query": "LV 茉莉奶白 商标 诉讼",
+          "results": [
+            {
+              "title": "驴疯了？LV 起诉国家知识产权局！",
+              "url": "https://www.sohu.com/a/1050596771_121124370",
+              "snippet": "路易威登与「茉莉奶白」的商标纠纷再起波澜。",
+              "site": "sohu.com"
+            },
+            {
+              "title": "LV 起诉国家知识产权局，7 月开庭",
+              "url": "https://www.sohu.com/a/1050271277_349248",
+              "snippet": "相关商标行政纠纷案将于 7 月 16 日开庭审理。",
+              "site": "sohu.com"
+            },
+            {
+              "title": "又涉及茉莉奶白？本案属行政诉讼",
+              "url": "https://www.sohu.com/a/1050304127_121811866",
+              "snippet": "本案属于行政诉讼范畴，被告为国家知识产权局。",
+              "site": "sohu.com"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "reasoning",
+        "text": "摘要不够，深读第一篇看细节。"
+      },
+      {
+        "kind": "tool",
+        "id": "tc2",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://www.sohu.com/a/1050596771_121124370"
+        },
+        "result": "{\"url\": \"…\", \"title\": \"驴疯了？LV 起诉国家知识产权局！\", \"content\": \"…\"}",
+        "status": "success",
+        "display": {
+          "url": "https://www.sohu.com/a/1050596771_121124370",
+          "title": "驴疯了？LV 起诉国家知识产权局！",
+          "site": "sohu.com",
+          "snippet": "路易威登针对「茉莉奶白」商标争议将国家知识产权局诉至法院。",
+          "content": "路易威登（LV）近日就「茉莉奶白」商标争议，将国家知识产权局诉至法院。该案源于双方在商标近似认定上的分歧，一审将于近期开庭。"
+        }
+      },
+      {
+        "kind": "reasoning",
+        "text": "再多读几篇核对细节。"
+      },
+      {
+        "kind": "tool",
+        "id": "tc3",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://www.sohu.com/a/1050271277_349248"
+        },
+        "result": "正文……",
+        "status": "success",
+        "display": {
+          "url": "https://www.sohu.com/a/1050271277_349248",
+          "title": "LV 起诉国家知识产权局，7 月开庭",
+          "site": "sohu.com",
+          "snippet": "相关商标行政纠纷案将于 7 月 16 日开庭审理。",
+          "content": "相关商标行政纠纷案将于 7 月 16 日在北京知识产权法院开庭审理。"
+        }
+      },
+      {
+        "kind": "tool",
+        "id": "tc4",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://www.sohu.com/a/1050304127_121811866"
+        },
+        "result": "正文……",
+        "status": "success",
+        "display": {
+          "url": "https://www.sohu.com/a/1050304127_121811866",
+          "title": "又涉及茉莉奶白？本案属行政诉讼",
+          "site": "sohu.com",
+          "snippet": "本案属于行政诉讼范畴，被告为国家知识产权局。",
+          "content": "本案属于行政诉讼范畴，被告为国家知识产权局，原告为路易威登。"
+        }
+      },
+      {
+        "kind": "tool",
+        "id": "tc5",
+        "tool_name": "read_url",
+        "arguments": {
+          "url": "https://zhuanlan.zhihu.com/p/700123456"
+        },
+        "result": "正文……",
+        "status": "success",
+        "display": {
+          "url": "https://zhuanlan.zhihu.com/p/700123456",
+          "title": "如何看待 LV 起诉国家知识产权局",
+          "site": "zhihu.com",
+          "snippet": "多角度分析该案的法律看点与商标近似认定标准。",
+          "content": "本文从商标近似认定与行政诉讼程序两方面分析该案的看点。"
+        }
+      },
+      {
+        "kind": "content",
+        "text": "综合多篇报道，该案为 LV 就「茉莉奶白」商标提起的行政诉讼，将于 7 月开庭。"
+      }
+    ],
+    "citations": [
+      {
+        "title": "驴疯了？LV 起诉国家知识产权局！",
+        "url": "https://www.sohu.com/a/1050596771_121124370",
+        "snippet": "路易威登与「茉莉奶白」的商标纠纷。",
+        "site": "sohu.com"
+      },
+      {
+        "title": "LV 起诉国家知识产权局，7 月开庭",
+        "url": "https://www.sohu.com/a/1050271277_349248",
+        "snippet": "将于 7 月 16 日开庭审理。",
+        "site": "sohu.com"
+      }
+    ],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

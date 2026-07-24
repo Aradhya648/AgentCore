@@ -1,0 +1,695 @@
+{
+  "name": "multi_agent_debate_pretrial_fast",
+  "description": "庭前取证：thorough=False 不带队秒过（skip_reason=fast）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "快速对碰。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_fast",
+        "plan_type": "debate",
+        "task_summary": "正反辩论：快速对碰",
+        "agents": [
+          {
+            "id": "debate_mod_fast",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_fast",
+            "agent_id": "debate_mod_fast",
+            "task": "主持正反辩论：快速对碰",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_fast",
+        "agent_id": "debate_mod_fast",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "debate_pretrial_started",
+      "payload": {
+        "execution_id": "exec_fast",
+        "moderator_run_id": "debate_mod_fast",
+        "thorough": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方"
+          },
+          {
+            "key": "con",
+            "name": "反对方"
+          }
+        ],
+        "skip_reason": "fast"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "debate_pretrial_completed",
+      "payload": {
+        "execution_id": "exec_fast",
+        "moderator_run_id": "debate_mod_fast",
+        "thorough": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方"
+          },
+          {
+            "key": "con",
+            "name": "反对方"
+          }
+        ],
+        "status": "skipped",
+        "skip_reason": "fast",
+        "orders": [],
+        "investigators": [],
+        "fallback_self_search": false,
+        "evidence_ready": false,
+        "evidence_ledger_count": 0,
+        "evidence_ledger_delta": []
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec_fast",
+        "moderator_run_id": "debate_mod_fast",
+        "round_no": 1,
+        "focus": "核心一击",
+        "cross_exam_enabled": false,
+        "opening": "",
+        "form": "debate"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_fast",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "支持方",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "反对方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_fast_r1_pro",
+            "agent_id": "d_pro",
+            "task": "快速支持",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_fast",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "debate_mod_fast_r1_con",
+            "agent_id": "d_con",
+            "task": "快速反对",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_fast",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_fast_r1_pro",
+        "agent_id": "debate_mod_fast_r1_pro",
+        "parent_run_id": "debate_mod_fast",
+        "kind": "agent",
+        "stance": "pro",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod_fast_r1_pro",
+        "agent_id": "debate_mod_fast_r1_pro",
+        "delta": "支持。"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_fast_r1_pro",
+        "agent_id": "debate_mod_fast_r1_pro",
+        "output_summary": "支持方",
+        "duration_ms": 400,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.409Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_fast_r1_con",
+        "agent_id": "debate_mod_fast_r1_con",
+        "parent_run_id": "debate_mod_fast",
+        "kind": "agent",
+        "stance": "con",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:00.410Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod_fast_r1_con",
+        "agent_id": "debate_mod_fast_r1_con",
+        "delta": "反对。"
+      },
+      "timestamp": "2026-01-01T00:00:00.411Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_fast_r1_con",
+        "agent_id": "debate_mod_fast_r1_con",
+        "output_summary": "反对方",
+        "duration_ms": 400,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.810Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_fast",
+        "agent_id": "debate_mod_fast",
+        "output_summary": "1 轮·快速",
+        "duration_ms": 1200,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.204Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec_fast",
+        "moderator_run_id": "debate_mod_fast",
+        "form": "debate",
+        "motion": "快速对碰命题",
+        "stop_reason": "converged",
+        "opening": "",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方",
+            "stance": "支持",
+            "is_subject": false
+          },
+          {
+            "key": "con",
+            "name": "反对方",
+            "stance": "反对",
+            "is_subject": false
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "核心一击",
+            "summary": "快速交锋。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "converged",
+              "rationale": "单轮即收"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "支持方",
+                "run_id": "debate_mod_fast_r1_pro",
+                "ok": true
+              },
+              {
+                "key": "con",
+                "name": "反对方",
+                "run_id": "debate_mod_fast_r1_con",
+                "ok": true
+              }
+            ],
+            "clashes": [],
+            "cross_exam": [],
+            "scores": {}
+          }
+        ],
+        "closings": [],
+        "brief": {
+          "crux": "快速分歧",
+          "strongest_points": {
+            "pro": "支持",
+            "con": "反对"
+          },
+          "handoffs": [],
+          "decisive": "",
+          "leaning": "未决",
+          "confidence": "low",
+          "recommendation": "需要更深入再辩"
+        },
+        "evidence_ledger": []
+      },
+      "timestamp": "2026-01-01T00:00:01.205Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 500,
+          "output_tokens": 80,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:01.206Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "快速对碰。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "快速对碰。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec_fast"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "debate_mod_fast",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "debate_mod_fast",
+        "agentId": "debate_mod_fast",
+        "task": "主持正反辩论：快速对碰",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "1 轮·快速",
+        "debrief": null,
+        "durationMs": 1200,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "debate_mod_fast_r1_pro",
+        "agentId": "d_pro",
+        "task": "快速支持",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方",
+        "debrief": null,
+        "durationMs": 400,
+        "error": null,
+        "parentRunId": "debate_mod_fast",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "支持。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod_fast_r1_con",
+        "agentId": "d_con",
+        "task": "快速反对",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方",
+        "debrief": null,
+        "durationMs": 400,
+        "error": null,
+        "parentRunId": "debate_mod_fast",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "反对。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 3,
+      "total": 3
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec_fast",
+      "moderator_run_id": "debate_mod_fast",
+      "form": "debate",
+      "motion": "快速对碰命题",
+      "stop_reason": "converged",
+      "opening": "",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "pro",
+          "name": "支持方",
+          "stance": "支持",
+          "is_subject": false
+        },
+        {
+          "key": "con",
+          "name": "反对方",
+          "stance": "反对",
+          "is_subject": false
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "核心一击",
+          "summary": "快速交锋。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "converged",
+            "rationale": "单轮即收"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "支持方",
+              "run_id": "debate_mod_fast_r1_pro",
+              "ok": true
+            },
+            {
+              "key": "con",
+              "name": "反对方",
+              "run_id": "debate_mod_fast_r1_con",
+              "ok": true
+            }
+          ],
+          "clashes": [],
+          "cross_exam": [],
+          "scores": {}
+        }
+      ],
+      "closings": [],
+      "brief": {
+        "crux": "快速分歧",
+        "strongest_points": {
+          "pro": "支持",
+          "con": "反对"
+        },
+        "handoffs": [],
+        "decisive": "",
+        "leaning": "未决",
+        "confidence": "low",
+        "recommendation": "需要更深入再辩"
+      },
+      "evidence_ledger": []
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "核心一击",
+        "summary": "",
+        "verdict": null,
+        "sides": [],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": {
+      "status": "skipped",
+      "thorough": false,
+      "skipReason": "fast",
+      "sides": [
+        {
+          "key": "pro",
+          "name": "支持方"
+        },
+        {
+          "key": "con",
+          "name": "反对方"
+        }
+      ],
+      "orders": [],
+      "investigators": [],
+      "evidenceLedgerCount": 0,
+      "fallbackSelfSearch": false,
+      "evidenceReady": false
+    },
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

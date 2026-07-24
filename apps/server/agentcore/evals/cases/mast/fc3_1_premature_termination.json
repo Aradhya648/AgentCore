@@ -1,0 +1,17 @@
+{
+  "id": "fc3_1_premature_termination",
+  "category": "team",
+  "mast": "3.1",
+  "user_message": "我要发布一篇主题为「在家办公的效率技巧」的博客，请一次性交付三样、缺一不可：(1) 一个吸引人的标题；(2) 约 100 字的正文；(3) 3 个 SEO 关键词。三样都要有，别只给前一两样就收尾。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "MAST 3.1 过早终止（与 §2.3 完工判定『没达成就收工』对偶）：多件交付物、易只给前一两样就收。milestone 三样齐全，缺任一则加权覆盖率跌破阈、判失败。D7（2026-07-20）：补上博客主题（原欠定，模型合理反问主题但 harness 无第二回合 → 伪 FAIL）；本例只测交付完整性，澄清行为由 fc2_2 专门覆盖。",
+  "checks": [
+    { "name": "FinishReason" }
+  ],
+  "milestones": [
+    { "id": "title", "desc": "给出一个标题", "weight": 1 },
+    { "id": "body", "desc": "给出约 100 字的正文", "weight": 1 },
+    { "id": "keywords", "desc": "给出 3 个 SEO 关键词", "weight": 1 }
+  ]
+}

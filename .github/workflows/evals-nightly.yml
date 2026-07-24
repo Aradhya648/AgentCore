@@ -1,0 +1,181 @@
+name: Evals (nightly, real model)
+
+# 真模型离线评测：把黄金用例喂真实运行路径，出确定性 Check + 路由混淆矩阵 + 风格违规率
+# + 团队/单体对比。与 per-PR 的零 LLM 门禁（pytest 里的 seed_lint 单测 + 下面的 --lint-only）
+# 正交——那守「用例结构」，这守「真模型行为」。真跑要钱且非确定（思考模型不吃 temperature），
+# 故只夜跑 / 手动触发，且真跑步骤一律**软门禁**（信息性、不弄红夜跑）；硬门禁只留零 LLM 的
+# 用例结构校验。命令与退出码见 apps/server/agentcore/evals/__main__.py。
+#
+# 草案：需在仓库 Secrets 配 EVAL_DEEPSEEK_API_KEY（建议指向一个**低额度** DeepSeek 账号，
+# 配合下面的 schedule 限频 + concurrency 去叠加 + timeout 兜底控成本）。未配 key 则自动跳过
+# 真跑、仅跑硬门禁，不报红。
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "功能套件名（cases/<suite>/，默认 core）"
+        default: "core"
+  schedule:
+    - cron: "0 18 * * *" # 每天 18:00 UTC（避开 smoke-production 的 08:00）
+
+# 同一时刻只允许一个夜跑，叠加只会重复烧额度。
+concurrency:
+  group: evals-nightly
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: Evals (real DeepSeek)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # 兜底：真跑失控时硬停，防烧额度
+    defaults:
+      run:
+        working-directory: apps/server
+
+    # 与 ci.yml backend job 同构的 Postgres（保险）。离线 eval 用 FileMemoryStore + 文件工作区、
+    # run_chat_pipeline 返回结果由调用方持久化（eval 不走 API 层），实测不碰 DB——若确认全程
+    # 无 DB 触达，可删掉这个 service 与下面的 DATABASE_URL 两行。
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agentcore
+          POSTGRES_PASSWORD: agentcore
+          POSTGRES_DB: agentcore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentcore"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
+      TEST_DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
+      # 真跑凭据（仓库 Secret）。EVAL_DEEPSEEK_BASE_URL 可选（缺省回落 settings.platform_base_url）。
+      EVAL_DEEPSEEK_API_KEY: ${{ secrets.EVAL_DEEPSEEK_API_KEY }}
+      EVAL_DEEPSEEK_BASE_URL: ${{ secrets.EVAL_DEEPSEEK_BASE_URL }}
+      SUITE: ${{ github.event.inputs.suite || 'core' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      # ---- 硬门禁：零 LLM 用例结构校验（写错立刻挂；__main__ 对配置错 exit 2） ----
+      - name: Lint eval cases (hard gate, zero LLM)
+        run: |
+          uv run python -m agentcore.evals --suite "$SUITE" --lint-only
+          uv run python -m agentcore.evals --suite mast --lint-only
+          uv run python -m agentcore.evals --suite probe --lint-only
+          uv run python -m agentcore.evals --suite collab_shapes --lint-only
+          uv run python -m agentcore.evals --routing --lint-only
+          uv run python -m agentcore.evals --compare --lint-only
+
+      # ---- 真跑前置：没配 key 就跳过后续真跑步骤，不让夜跑变红 ----
+      - name: Check eval key present
+        id: key
+        run: |
+          if [ -n "$EVAL_DEEPSEEK_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::EVAL_DEEPSEEK_API_KEY 未配置，跳过真模型评测（仅跑零 LLM 硬门禁）。"
+          fi
+
+      - name: Prepare report dir
+        if: steps.key.outputs.present == 'true'
+        run: mkdir -p eval-reports
+
+      # ---- 软门禁：真模型评测（continue-on-error，非确定回归不弄红夜跑；出数留作观测/基线） ----
+      - name: Functional suite (deterministic checks, soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python -m agentcore.evals --suite "$SUITE" --out eval-reports/functional.json
+
+      # MAST 失败标签套件（学·度量 §2.5 / §五 ①）：这是「拆·lead B / 通·便签墙 / 合·验证」
+      # 默认铺开的**数据闸门**——按 MAST 14 类 / 三组聚合通过率（report 的 summary.by_mast），
+      # 看「哪一类失败被压下去了」。team 路径 + milestone 裁判（layer 2 默认），故必须真模型。
+      - name: MAST failure-label suite (collab rollout gate, soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python -m agentcore.evals --suite mast --out eval-reports/mast.json
+
+      - name: Routing accuracy (confusion matrix, soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python -m agentcore.evals --routing --out eval-reports/routing.json
+
+      - name: Output-style anti-slop (violation rates, soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python -m agentcore.evals --style --suite "$SUITE" --out eval-reports/style.json
+
+      - name: Team-vs-single comparison (pairwise judge, soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python -m agentcore.evals --compare --out eval-reports/comparison.json
+
+      # ---- 软门禁·挖坑探针（交付前核验「重层」立项的证据绊线，见 docs/06-规划/远期规划.md §2.5）：
+      # 跑「便宜层 finish_guard 够不着」的两类——①算术/单一答案（确定性地面真值 ContentMatches）、
+      # ②代码必须真跑（生成→沙箱跑隐藏边界用例）。开发期实测两类均近满分（缺口不在此），故为观测性
+      # 软门禁；哪天通过率抬头，即「机械轻层不够、该上重层」的触发信号。
+      - name: Probe · arithmetic ground-truth (soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python -m agentcore.evals --suite probe --layer 1 --out eval-reports/probe.json
+
+      - name: Probe · code-must-run (soft)
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: uv run python scripts/probe_code_execution.py --out eval-reports/probe_code.json
+
+      # 把关键指标写进 GitHub 作业摘要（best-effort；jq 在 ubuntu-latest 自带）。
+      - name: Write job summary
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        run: |
+          {
+            echo "## AgentCore 夜跑评测"
+            if [ -f eval-reports/functional.json ]; then
+              echo "### 功能套件"
+              jq -r '.summary | "通过 \(.passed)/\(.total)（\((.pass_rate*100)|floor)%）  成本 $\(.cost_usd)"' eval-reports/functional.json
+            fi
+            if [ -f eval-reports/mast.json ]; then
+              echo "### MAST 失败标签套件（协作铺开闸门）"
+              jq -r '.summary | "通过 \(.passed)/\(.total)（\((.pass_rate*100)|floor)%）  成本 $\(.cost_usd)"' eval-reports/mast.json
+              jq -r '.summary.by_mast.by_group | to_entries[] | "- \(.key) \(.value.passed)/\(.value.total)（\((.value.pass_rate*100)|floor)%）"' eval-reports/mast.json
+            fi
+            if [ -f eval-reports/routing.json ]; then
+              echo "### 路由准确率"
+              jq -r '.routing | "准确率 \(((.accuracy//0)*100)|floor)%  过度编排 \(((.over_delegation_rate//0)*100)|floor)%  组队不足 \(((.under_delegation_rate//0)*100)|floor)%"' eval-reports/routing.json
+            fi
+            if [ -f eval-reports/style.json ]; then
+              echo "### 输出风格"
+              jq -r '"干净率 \(((.clean_rate//0)*100)|floor)%（计入 \(.total) 条）"' eval-reports/style.json
+            fi
+            if [ -f eval-reports/probe.json ]; then
+              echo "### 挖坑探针·算术/单一答案"
+              jq -r '.summary | "通过 \(.passed)/\(.total)（\((.pass_rate*100)|floor)%）  成本 $\(.cost_usd)"' eval-reports/probe.json
+            fi
+            if [ -f eval-reports/probe_code.json ]; then
+              echo "### 挖坑探针·代码必须真跑"
+              jq -r '.summary | "通过 \(.passed)/\(.total)（\((.pass_rate*100)|floor)%）"' eval-reports/probe_code.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload eval reports
+        if: steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: apps/server/eval-reports/
+          if-no-files-found: warn

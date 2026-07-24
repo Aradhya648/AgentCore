@@ -1,0 +1,13 @@
+{
+  "id": "neg_tight_math",
+  "archetype": "simple",
+  "user_message": "一个数加 7，再乘以 3，结果等于 36。这个数是多少？请给出步骤。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }, { "name": "MaxRounds", "args": { "budget": 3 } }]
+  },
+  "rubric": "确定性锚点：答案为 5（36÷3=12，12−7=5），步骤是否正确。负对照/紧耦合：单跳推理链，拆给团队只增交接损耗，质量不应更高，而成本/延迟应显著更高。若团队在此胜出→疑似裁判 verbosity 偏好，需校准。简洁正确优先。"
+}

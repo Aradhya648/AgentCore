@@ -1,0 +1,902 @@
+"""DebateTool — CEO 发起结构化辩论 / 交叉审查的编排原语。"""
+
+from __future__ import annotations
+
+import time
+from typing import TYPE_CHECKING, Any
+
+from agentcore.core.logging import get_logger
+from agentcore.core.types import AutonomyPolicy, ToolApproval, ToolCategory, ToolEffect, new_id
+from agentcore.llm.profiles import TurnProfiles as ProfileSet
+from agentcore.llm.profiles import default_turn_profiles as default_profile_set
+from agentcore.llm.provider.protocol import LLMProvider
+from agentcore.runtime.checkpoints import CheckpointDecision
+from agentcore.runtime.debate import (
+    DebateConfig,
+    Moderator,
+    RoundBoundary,
+    RoundPolicy,
+    RoundResult,
+)
+from agentcore.runtime.debate.events import account_moderator, moderator_plan_event
+from agentcore.runtime.debate.rounds import (
+    make_closing_runner,
+    make_cross_exam_runner,
+    make_round_runner,
+)
+from agentcore.runtime.debate.steer_queue import fold_steers, take_steers
+from agentcore.runtime.events import (
+    EventSink,
+    debate_result,
+    debate_round,
+    debate_round_started,
+    run_started,
+)
+from agentcore.runtime.plan_only import PlanOnlyAbortError
+from agentcore.tools.builtin.debate.schema import (
+    DEBATE_DESCRIPTION,
+    DEBATE_OUTPUT_LIMIT,
+    DEBATE_PARAMETERS,
+    err,
+    parse_background,
+    parse_form,
+    parse_sides,
+)
+from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
+from agentcore.tools.registration import (
+    AUDIENCE_CEO_ONLY,
+    CeoWire,
+    ToolRegistration,
+    ToolSurface,
+)
+from agentcore.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from agentcore.runtime.approvals import ApprovalGate
+    from agentcore.runtime.costing import RunCost
+    from agentcore.runtime.ports import ClientRequestBridge
+    from agentcore.runtime.runs.session import RunSession
+    from agentcore.runtime.suspension import SuspensionDeleter, SuspensionSaver
+
+logger = get_logger(__name__)
+
+
+class DebateTool:
+    """CEO-agent tool：发起主持人驱动的结构化辩论，返回双产物供 CEO 收尾（非终结）。
+
+    持有与 ``DelegateTool`` 同形的「用量 + 账目 + 引用」累加器（``_acc``），辩手 run（首轮
+    executor、后续轮 continue_run）与主持人自身 LLM 调用都折算进去，由 pipeline 折回回合总账。
+    ``_debater_sessions`` 按 side.key 留住每个辩手的可续写 session，支撑跨轮带记忆。
+
+    顶层调用在主持人循环启动前走编排层开工卡（``team_preview``，primitive=debate）；
+    嵌套 / 续跑 / full_auto 跳过语义对齐 delegate。
+    """
+
+    registration = ToolRegistration(
+        surface=ToolSurface.CEO_ORCHESTRATION,
+        audience=AUDIENCE_CEO_ONLY,
+        ceo_wire=CeoWire.ALWAYS,
+    )
+
+    def __init__(
+        self,
+        *,
+        llm: LLMProvider,
+        sink: EventSink,
+        system_prompt: str,
+        user_message: str,
+        tools: ToolRegistry,
+        base_tool_context: ToolContext,
+        profile_set: ProfileSet | None = None,
+        max_parallel: int | None = None,
+        captain_run_id: str | None = None,
+        approval_gate: ApprovalGate | None = None,
+        depth: int = 0,
+        conversation_id: str = "",
+        ambient_armed: bool = False,
+        message_id: str | None = None,
+        suspension_saver: SuspensionSaver | None = None,
+        suspension_deleter: SuspensionDeleter | None = None,
+        folder_id: str | None = None,
+        memory_enabled: bool = True,
+        autonomy_policy: AutonomyPolicy | None = None,
+        registry: ClientRequestBridge | None = None,
+        session_store: Any = None,
+        session_loader: Any = None,
+    ) -> None:
+        self._llm = llm
+        self._sink = sink
+        self._system_prompt = system_prompt
+        self._user_message = user_message
+        self._tools = tools
+        self._base_tool_context = base_tool_context
+        self._profile_set = profile_set or default_profile_set()
+        self._max_parallel = max_parallel
+        self._captain_run_id = captain_run_id
+        self._approval_gate = approval_gate
+        self._depth = depth
+        # ambient 掌舵闸：有活跃用户即武装（同 ask_user 的 checkpoint 闸）——无活跃用户
+        # （自治 / handoff）不挂 on_round_boundary，辩论纯裁判自判；有用户则轮次边界非阻塞
+        # drain steer 队列（永不硬停）。
+        self._conversation_id = conversation_id
+        self._ambient_armed = ambient_armed
+        self._message_id = message_id
+        self._suspension_saver = suspension_saver
+        self._suspension_deleter = suspension_deleter
+        self._folder_id = folder_id
+        self._memory_enabled = memory_enabled
+        self._autonomy_policy = autonomy_policy or AutonomyPolicy.FIRST_GRANT
+        self._registry = registry
+        # 批 D1：会话级留人 roster（探测幕1 透镜 session）；缺省 = 无证人。
+        self._session_store = session_store
+        self._session_loader = session_loader
+        self._pending_pause = False
+        # 每个 side 的可续写 session（跨轮带记忆）：首轮执行后留人，后续轮 continue_run 取用。
+        self._debater_sessions: dict[str, RunSession] = {}
+        # 批 D1：本场证人席位（key=lens run_id）。
+        self._witness_seats: dict[str, Any] = {}
+        from agentcore.runtime.costing import WorkerResultAccumulator
+        from agentcore.runtime.debate.evidence_ledger import EvidenceLedger
+
+        self._acc = WorkerResultAccumulator()
+        self._evidence_ledger = EvidenceLedger()
+        # 批 A2：挂宿主新幕时由决议机制写入；缺省 = 独立辩论图（act-1）。
+        self._debate_act_id: str = "act-1"
+        self._debate_act_title: str | None = None
+        self._debate_anchor_run_id: str | None = None
+        self._debate_host_message_id: str | None = None
+        self._debate_graph_parent_run_id: str | None = None
+        # 批 B：幕授权来源 stage_card / auto / preview；缺省 = 开工卡路径补 preview。
+        self._debate_authorized_by: str | None = None
+        # 推进卡消费 / 点卡直起时携带的卡 payload（宿主三元组优先）。
+        self._debate_stage_card: dict[str, Any] | None = None
+        # debate.started 后立刻 finalize 的上下文；启动失败保持 None。
+        self._stage_card_finalize: dict[str, Any] | None = None
+        # 已在开跑边界落 resolved（中途失败不回 pending）。
+        self._stage_card_finalized_at_start: bool = False
+
+    def _kickoff_system_prompt(self) -> str:
+        return self._system_prompt
+
+    def _kickoff_tool_name(self) -> str:
+        return "debate"
+
+    @property
+    def usage(self) -> dict[str, int]:
+        """本回合辩论累计 token 用量（辩手 + 主持人；pipeline 折回回合总账）。"""
+        return self._acc.usage
+
+    @property
+    def run_ledger(self) -> list[RunCost]:
+        """每个计费 run 一行账目（辩手各一行 + 主持人一行，决策②）。"""
+        return self._acc.run_ledger
+
+    @property
+    def citations(self) -> list[dict[str, Any]]:
+        """辩手查阅的网页来源（去重，折入回合共享来源卡）。"""
+        return self._acc.citations
+
+    @property
+    def schema(self) -> ToolSchema:
+        return ToolSchema(
+            name="debate",
+            description=DEBATE_DESCRIPTION,
+            parameters=DEBATE_PARAMETERS,
+            category=ToolCategory.ORCHESTRATION,
+            approval=ToolApproval.NEVER,
+        )
+
+    async def execute(
+        self,
+        arguments: dict[str, Any],
+        context: ToolContext,
+        *,
+        skip_kickoff: bool = False,
+    ) -> ToolResult:
+        from agentcore.runtime.costing import usage_metadata
+        from agentcore.runtime.kickoff.stage_card import (
+            clear_turn_keeps_stage_card,
+            debate_arguments_from_card,
+            mark_turn_keeps_stage_card,
+        )
+        from agentcore.runtime.turn_token_budget import (
+            current_turn_tokens,
+            is_turn_token_ceiling_hit,
+            resolve_turn_token_ceiling,
+            turn_token_ceiling_reject_message,
+        )
+
+        self._pending_pause = False
+        # Turn 级硬顶：禁新开辩（与 delegate 同闸）。
+        if is_turn_token_ceiling_hit():
+            msg = turn_token_ceiling_reject_message()
+            logger.info(
+                "debate.turn_token_ceiling_rejected",
+                spent=current_turn_tokens(),
+                ceiling=resolve_turn_token_ceiling(),
+            )
+            return err(msg)
+
+        # 本回合调了 debate（含闸失败）→ 收尾不 orphan pending 推进卡。
+        # 开辩失败 / STOP 会 clear；仅真正开跑成功才保持 keep + finalize resolve。
+        mark_turn_keeps_stage_card()
+        motion = str(arguments.get("motion") or "").strip()
+        if not motion:
+            clear_turn_keeps_stage_card()
+            return err("debate 需要 motion（辩论命题 / 要解决的问题）。")
+
+        consume_host_turn_id = ""
+        consume_card_id = ""
+        consume_override: str | None = None
+        consume_note = ""
+        self._stage_card_finalize = None
+        self._stage_card_finalized_at_start = False
+
+        # 口头开赛 = 消费推进卡（有 pending 时一律走 stage_card 授权路径）。
+        if (
+            not skip_kickoff
+            and self._depth == 0
+            and self._debate_authorized_by != "stage_card"
+            and (self._conversation_id or "").strip()
+        ):
+            from agentcore.conversation.stage_card_resolve import (
+                consume_pending_stage_card_for_debate,
+                list_pending_stage_cards,
+            )
+
+            try:
+                merged, _override, consume_err = (
+                    await consume_pending_stage_card_for_debate(
+                        conversation_id=self._conversation_id or "",
+                        ceo_motion=motion,
+                        sink=self._sink,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — 查卡失败不得阻断冷开辩
+                logger.warning(
+                    "stage_card.consume_lookup_failed",
+                    conversation_id=self._conversation_id,
+                    error=str(exc),
+                )
+                merged, consume_err = None, ""
+            if consume_err and merged is None:
+                # 有 pending 但 motion 闸失败 → 卡保持 pending（keep 保留，防收尾误 orphan）。
+                try:
+                    pending = await list_pending_stage_cards(
+                        self._conversation_id or ""
+                    )
+                except Exception:  # noqa: BLE001
+                    pending = []
+                if pending:
+                    return err(consume_err)
+                clear_turn_keeps_stage_card()
+            elif merged is not None:
+                consume_host_turn_id = str(merged.pop("_host_turn_id", "") or "")
+                consume_card_id = str(
+                    merged.get("stage_card_id") or merged.pop("_card_id", "") or ""
+                )
+                raw_override = merged.pop("_motion_override", _override)
+                consume_override = (
+                    str(raw_override) if raw_override is not None else None
+                )
+                consume_note = str(merged.pop("_resolve_note", "") or "")
+                card_args = debate_arguments_from_card(merged)
+                # CEO motion（可能为 override）已写入 merged；保留 background / kickoff_ask。
+                if arguments.get("background"):
+                    card_args["background"] = arguments.get("background")
+                if arguments.get("_kickoff_ask"):
+                    card_args["_kickoff_ask"] = arguments.get("_kickoff_ask")
+                arguments = card_args
+                motion = str(arguments.get("motion") or "").strip()
+                self._debate_authorized_by = "stage_card"
+                self._debate_stage_card = dict(merged)
+                skip_kickoff = True
+
+        # 按钮 / 机制直起：卡上已带 host 回合 id（成功边界同为 debate.started）。
+        if (
+            not consume_card_id
+            and self._debate_authorized_by == "stage_card"
+            and isinstance(self._debate_stage_card, dict)
+        ):
+            sc = self._debate_stage_card
+            consume_host_turn_id = str(sc.get("_host_turn_id") or "")
+            consume_card_id = str(
+                sc.get("stage_card_id") or sc.get("_card_id") or ""
+            )
+            raw_override = sc.get("_motion_override")
+            if consume_override is None and raw_override is not None:
+                consume_override = str(raw_override) if raw_override else None
+            if not consume_note:
+                consume_note = str(sc.get("_resolve_note") or "")
+
+        sides, side_err = parse_sides(arguments.get("sides"))
+        if side_err:
+            clear_turn_keeps_stage_card()
+            return err(side_err)
+        form = parse_form(arguments.get("form"))
+        thorough = arguments.get("thorough", True)
+        if not isinstance(thorough, bool):
+            thorough = True
+        policy = RoundPolicy.for_form(form, thorough=thorough)
+        try:
+            max_rounds_arg = int(arguments["max_rounds"])  # type: ignore[index]
+            if max_rounds_arg >= 1:
+                policy = RoundPolicy(thorough=thorough, max_rounds=max_rounds_arg)
+        except (KeyError, TypeError, ValueError):
+            pass
+        # `_kickoff_ask` 为 resume 注入的内部键（非 schema / 非 wire），开赛嘱咐进首轮插话管道。
+        kickoff_ask = str(arguments.get("_kickoff_ask") or "").strip()
+        config = DebateConfig(
+            motion=motion,
+            form=form,
+            sides=sides,
+            policy=policy,
+            background=parse_background(arguments.get("background")),
+            kickoff_ask=kickoff_ask,
+        )
+
+        if not skip_kickoff:
+            early = await self._kickoff_before_moderator(config, arguments)
+            if early is not None:
+                # STOP / research_first / pause — 未真正开跑则清 keep。
+                if not self._pending_pause:
+                    clear_turn_keeps_stage_card()
+                return early
+        elif self._debate_authorized_by is None:
+            # skip_kickoff 调用方未显式授权时：resume 开工卡 = preview。
+            self._debate_authorized_by = "preview"
+
+        # 成功边界 = debate.started：开跑即 finalize（见 _run_moderator）。
+        if (
+            consume_card_id
+            and consume_host_turn_id
+            and self._debate_authorized_by == "stage_card"
+        ):
+            self._stage_card_finalize = {
+                "host_turn_id": consume_host_turn_id,
+                "stage_card_id": consume_card_id,
+                "note": consume_note,
+                "motion_override": consume_override,
+            }
+
+        result = await self._run_moderator(config, usage_metadata)
+        if not result.success:
+            clear_turn_keeps_stage_card()
+            return result
+        return result
+
+    async def resume_after_kickoff(
+        self,
+        *,
+        decision: CheckpointDecision,
+        note: str,
+        arguments: dict[str, Any],
+    ) -> ToolResult:
+        """Settle a debate kickoff: STOP / RESEARCH_FIRST → cancel; CONTINUE/ADJUST → run moderator.
+
+        CONTINUE/ADJUST + note → 开赛嘱咐（首轮全场插话），不覆写 motion / 不改 sides。
+        ADJUST 枚举保留供历史挂起帧 / API；语义与 CONTINUE+note 同构。
+        RESEARCH_FIRST → 不开赛，固定回灌文案令 CEO 挂 multi_lens_research（与 STOP 同构）。
+        """
+
+        if decision is CheckpointDecision.STOP:
+            closing = (note or "").strip() or "用户停止了辩论，未开赛。"
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output=closing,
+                effect=ToolEffect.CONTINUE,
+            )
+
+        if decision is CheckpointDecision.RESEARCH_FIRST:
+            from agentcore.runtime.kickoff.research_first import research_first_tool_result
+
+            motion = str(arguments.get("motion") or "").strip()
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output=research_first_tool_result(
+                    motion=motion,
+                    user_message=self._user_message,
+                ),
+                effect=ToolEffect.CONTINUE,
+            )
+
+        args = dict(arguments)
+        note_text = (note or "").strip()
+        if note_text and decision in (
+            CheckpointDecision.CONTINUE,
+            CheckpointDecision.ADJUST,
+        ):
+            args["_kickoff_ask"] = note_text
+
+        return await self.execute(args, self._base_tool_context, skip_kickoff=True)
+
+    async def _kickoff_before_moderator(
+        self,
+        config: DebateConfig,
+        arguments: dict[str, Any],
+    ) -> ToolResult | None:
+        """Durable kickoff before ``debate.started``. Nested / full_auto skip."""
+        if self._depth != 0:
+            return None
+        from agentcore.runtime.deep_research_auto import (
+            record_auto_debate,
+            tool_may_auto_debate,
+        )
+        from agentcore.runtime.kickoff import (
+            await_kickoff,
+            debate_kickoff_summary,
+            needs_capability_auth,
+            should_kickoff,
+            skip_after_confirmed_ask,
+        )
+        from agentcore.runtime.sandbox_approval import worker_gate_applies
+
+        autonomy = self._autonomy_policy
+        local_gate = worker_gate_applies(self._base_tool_context.backend)
+        # 深度研究自治：旗标或 full_trust 且未超会话上限 → 免挂 debate 开赛卡
+        # （只放行本卡；本地执行 / 其他能力审批 / plan_review 不变）。
+        auto_adopt = tool_may_auto_debate(self)
+        # Debate always wants the plan half at top-level; capability half is False
+        # for read-only debaters (local_gate tools aren't grantable for debate).
+        if not should_kickoff(
+            plan_preview=True,
+            local_gate=local_gate,
+            autonomy=autonomy,
+        ):
+            # full_trust 本就全跳；仍计一次自治自动开辩（上限降级用）。
+            if auto_adopt:
+                await record_auto_debate(self)
+                self._debate_authorized_by = "auto"
+            else:
+                self._debate_authorized_by = "preview"
+            return None
+        # 单开旗标（非 full_trust）：免挂 team_preview，语义 = 用户预先授权这一场。
+        if auto_adopt:
+            await record_auto_debate(self)
+            self._debate_authorized_by = "auto"
+            logger.info(
+                "debate.deep_research_auto_skip_kickoff",
+                motion=config.motion[:80],
+            )
+            return None
+        if (
+            skip_after_confirmed_ask(self)
+            and not needs_capability_auth(local_gate=local_gate, autonomy=autonomy)
+        ):
+            return None
+
+        # Capability half stays False for debate (read-only debaters) — never list tools.
+        summary = debate_kickoff_summary(config, arguments=arguments, tools=[])
+        decision = await await_kickoff(self, summary, plan=None)
+        if self._pending_pause:
+            logger.info(
+                "debate.team_preview_paused",
+                sides=len(config.sides),
+                motion=config.motion[:80],
+            )
+            return ToolResult(
+                tool_call_id="", success=True, output="", effect=ToolEffect.SUSPEND
+            )
+        if decision is CheckpointDecision.STOP:
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output="用户停止了辩论，未开赛。",
+                effect=ToolEffect.CONTINUE,
+            )
+        return None
+
+    async def _resolve_host_attach(self, config: DebateConfig):
+        """开工决议后：尝试把辩论新幕挂到幕 1 MLR 宿主；失败则保持独立图。
+
+        推进卡路径优先用卡上直传三元组（host_execution_id / synthesizer_run_id /
+        host_message_id），找不到再回落 resolve_debate_host_attach。
+        """
+        from agentcore.runtime.debate.constants import FORM_LABELS
+        from agentcore.runtime.debate.research_dossier import workspace_has_research_artifacts
+        from agentcore.runtime.facts import snapshot_fact_log
+        from agentcore.runtime.kickoff.debate_host import resolve_debate_host_attach
+        from agentcore.runtime.kickoff.stage_card import resolve_host_attach_from_card
+
+        attach = await resolve_host_attach_from_card(
+            self._debate_stage_card,
+            append_message_id=self._message_id,
+        )
+        if attach is None:
+            has_research = False
+            try:
+                has_research = await workspace_has_research_artifacts(
+                    self._base_tool_context.backend
+                )
+            except Exception:
+                logger.exception("debate.research_dossier_probe_failed")
+                has_research = False
+            attach = await resolve_debate_host_attach(
+                conversation_id=self._conversation_id or "",
+                append_message_id=self._message_id,
+                journal_entries=snapshot_fact_log(),
+                has_research_artifacts=has_research,
+            )
+        if attach is None:
+            return None
+        label = FORM_LABELS.get(config.form, "辩论")
+        self._debate_act_id = attach.act_id
+        self._debate_act_title = f"{label}对抗"
+        self._debate_anchor_run_id = attach.anchor_run_id
+        self._debate_host_message_id = attach.host_message_id
+        self._debate_graph_parent_run_id = attach.anchor_run_id
+        return attach
+
+    async def _run_moderator(self, config: DebateConfig, usage_metadata) -> ToolResult:
+        import contextlib
+
+        if self._debate_authorized_by is None:
+            self._debate_authorized_by = "preview"
+
+        # 底料预登记：【已核实·出处】→ 台账条目 + 改写为 #eN（咬合点 1）
+        from agentcore.runtime.debate.evidence_ledger import (
+            preregister_background,
+            preregister_turn_research_entries,
+        )
+        from agentcore.runtime.debate.research_dossier import (
+            format_research_dossier_index,
+            list_research_artifact_paths,
+        )
+
+        # 案卷桥无条件化：CEO 回合 #rN → 场级 #eN（不论是否写入 background）。
+        try:
+            from agentcore.runtime.suspension import turn_evidence_ledger as _turn_led
+
+            turn_core = _turn_led.get()
+            if turn_core is not None:
+                preregister_turn_research_entries(
+                    self._evidence_ledger, turn_core.all_entries()
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("debate.turn_ledger_preregister_failed")
+
+        if (config.background or "").strip():
+            config.background = preregister_background(
+                self._evidence_ledger, config.background
+            )
+
+        # 幕1 案卷：预登记进场级台账（#rN 锚 → #eN）+ 注入索引（含 #eN 映射）。
+        try:
+            from agentcore.runtime.debate.research_dossier import (
+                preregister_research_dossier,
+            )
+
+            config.research_dossier_index = await preregister_research_dossier(
+                self._evidence_ledger, self._base_tool_context.backend
+            )
+        except Exception:
+            logger.exception("debate.research_dossier_index_failed")
+            config.research_dossier_index = ""
+            # 兜底一层：预登记失败时仍给路径索引（无台账映射）。
+            try:
+                paths = await list_research_artifact_paths(
+                    self._base_tool_context.backend
+                )
+                config.research_dossier_index = format_research_dossier_index(paths)
+            except Exception:
+                logger.exception("debate.research_dossier_probe_failed")
+                config.research_dossier_index = ""
+
+        # 批 A2：决议机制携带宿主 → 新幕生长；找不到则独立成图（现状）。
+        host_attach = await self._resolve_host_attach(config)
+        graph_redirect = None
+        graph_redirect_token = None
+        if host_attach is not None:
+            from agentcore.core.log_context import get_log_value
+            from agentcore.runtime.delegate.graph_append import (
+                GraphAppendRedirect,
+                bind_redirect,
+                open_host_journal_writer,
+            )
+            from agentcore.runtime.events import graph_append as graph_append_event
+
+            execution_id = host_attach.execution_id
+            self._base_tool_context.execution_id = execution_id
+            if not host_attach.same_turn:
+                host_writer = await open_host_journal_writer(
+                    host_message_id=host_attach.host_message_id,
+                    conversation_id=self._conversation_id or "",
+                    trace_id=get_log_value("trace_id"),
+                )
+                graph_redirect = GraphAppendRedirect(
+                    execution_id=execution_id,
+                    host_message_id=host_attach.host_message_id,
+                    append_message_id=self._message_id or "",
+                    host_writer=host_writer,
+                )
+                graph_redirect_token = bind_redirect(graph_redirect)
+        else:
+            execution_id = self._base_tool_context.execution_id or new_id()
+
+        moderator_run_id = f"debate_{new_id()}"
+        moderator_model = self._profile_set.model_for("agent")
+        graph_parent = self._debate_graph_parent_run_id or self._captain_run_id
+
+        try:
+            if host_attach is not None:
+                self._sink.emit(
+                    graph_append_event(
+                        execution_id=execution_id,
+                        host_message_id=host_attach.host_message_id,
+                        append_message_id=self._message_id or "",
+                        added_count=1,
+                        roles=["主持人"],
+                        added_run_ids=[moderator_run_id],
+                        act_id=host_attach.act_id,
+                        act_kind="debate",
+                        authorized_by=self._debate_authorized_by,
+                    )
+                )
+
+            # 先声明主持人节点（CEO 之下 / 汇总员之后），辩手节点逐轮声明。
+            self._sink.emit(
+                moderator_plan_event(self, execution_id, moderator_run_id, config)
+            )
+            # 主持人作为完成态节点：开播 run_started，收场 run_completed（见 account_moderator）。
+            self._sink.emit(
+                run_started(
+                    moderator_run_id,
+                    moderator_run_id,
+                    parent_run_id=graph_parent,
+                )
+            )
+            started_fields = {
+                "form": config.form.value,
+                "sides": len(config.sides),
+                "motion": config.motion[:80],
+                "execution_id": execution_id,
+                "act_id": self._debate_act_id,
+                "host_attach": bool(host_attach),
+            }
+            if host_attach is not None:
+                logger.info("debate.started", **started_fields)
+            else:
+                # 独立图 = 未同图生长；warning 级可观测（禁止静默降级）。
+                logger.warning(
+                    "debate.started",
+                    **started_fields,
+                    host_attach_miss="independent_graph",
+                )
+
+            # 推进卡成功边界 = debate.started（主持人/计划落地、真正开跑）。
+            # 口头消费与按钮直起同构；中途失败不回 pending。
+            finalize_ctx = self._stage_card_finalize
+            if (
+                finalize_ctx
+                and self._debate_authorized_by == "stage_card"
+                and not self._stage_card_finalized_at_start
+            ):
+                try:
+                    from agentcore.conversation.stage_card_resolve import (
+                        finalize_stage_card_start_debate,
+                    )
+
+                    await finalize_stage_card_start_debate(
+                        conversation_id=self._conversation_id or "",
+                        host_turn_id=str(finalize_ctx.get("host_turn_id") or ""),
+                        stage_card_id=str(finalize_ctx.get("stage_card_id") or ""),
+                        note=str(finalize_ctx.get("note") or ""),
+                        motion_override=finalize_ctx.get("motion_override"),
+                        sink=self._sink,
+                    )
+                    self._stage_card_finalized_at_start = True
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "stage_card.finalize_at_started_failed",
+                        stage_card_id=str(finalize_ctx.get("stage_card_id") or ""),
+                        error=str(exc),
+                    )
+
+            moderator = Moderator(
+                provider=self._llm,
+                model=moderator_model,
+                run_id=moderator_run_id,
+                parent_run_id=graph_parent,
+            )
+            runner = make_round_runner(self, execution_id, moderator_run_id, config)
+            cross_exam_runner = make_cross_exam_runner(
+                self, execution_id, moderator_run_id, config
+            )
+            closing_runner = make_closing_runner(
+                self, execution_id, moderator_run_id, config
+            )
+
+            # 批 D1：开赛探测幕1 透镜 session → 辩论幕内证人席位；无则零行为变化。
+            from agentcore.runtime.debate.witness import (
+                build_witness_seats,
+                make_witness_runner,
+                probe_witness_sessions,
+                seats_to_info,
+                witness_plan_event,
+            )
+
+            lens_sessions = probe_witness_sessions(self._session_store)
+            self._witness_seats = build_witness_seats(
+                lens_sessions,
+                moderator_run_id=moderator_run_id,
+                depth=self._depth + 2,
+            )
+            witness_runner = None
+            witness_roster = ()
+            if self._witness_seats:
+                self._sink.emit(
+                    witness_plan_event(
+                        self, execution_id, moderator_run_id, self._witness_seats
+                    )
+                )
+                witness_runner = make_witness_runner(
+                    self, execution_id, moderator_run_id, self._witness_seats
+                )
+                witness_roster = tuple(seats_to_info(self._witness_seats))
+                logger.info(
+                    "debate.witness.probed",
+                    count=len(self._witness_seats),
+                    keys=list(self._witness_seats.keys()),
+                )
+
+            from agentcore.runtime.debate.moderator_agenda import cross_exam_enabled
+
+            cx_enabled = cross_exam_enabled(config)
+
+            # 庭前取证（§二之二）：首轮立论前；fast 档秒过。
+            from agentcore.runtime.debate.pretrial import run_pretrial_phase
+            from agentcore.runtime.events import (
+                debate_pretrial_completed,
+                debate_pretrial_orders,
+                debate_pretrial_progress,
+                debate_pretrial_started,
+            )
+
+            async def _pt_started(p: dict) -> None:
+                self._sink.emit(debate_pretrial_started(**p))
+
+            async def _pt_orders(p: dict) -> None:
+                self._sink.emit(debate_pretrial_orders(**p))
+
+            async def _pt_progress(p: dict) -> None:
+                self._sink.emit(
+                    debate_pretrial_progress(
+                        execution_id=execution_id,
+                        moderator_run_id=moderator_run_id,
+                        **{
+                            k: v
+                            for k, v in p.items()
+                            if k not in ("execution_id", "moderator_run_id")
+                        },
+                    )
+                )
+
+            async def _pt_completed(p: dict) -> None:
+                self._sink.emit(debate_pretrial_completed(**p))
+
+            await run_pretrial_phase(
+                self,
+                execution_id=execution_id,
+                moderator_run_id=moderator_run_id,
+                config=config,
+                complete_json=moderator._complete_json,
+                on_started=_pt_started,
+                on_orders=_pt_orders,
+                on_progress=_pt_progress,
+                on_completed=_pt_completed,
+            )
+
+            async def _emit_round_start(round_no: int, focus: str, opening: str) -> None:
+                self._sink.emit(
+                    debate_round_started(
+                        execution_id=execution_id,
+                        moderator_run_id=moderator_run_id,
+                        round_no=round_no,
+                        focus=focus,
+                        cross_exam_enabled=cx_enabled,
+                        opening=opening,
+                        form=config.form.value,
+                    )
+                )
+
+            async def _emit_round(rr: RoundResult) -> None:
+                payload = rr.to_event_payload()
+                payload["evidence_ledger_delta"] = self._evidence_ledger.drain_delta()
+                self._sink.emit(
+                    debate_round(
+                        execution_id=execution_id,
+                        moderator_run_id=moderator_run_id,
+                        payload=payload,
+                    )
+                )
+
+            async def _round_boundary(
+                *, round_no: int, result: RoundResult, converged: bool, max_rounds: int
+            ) -> RoundBoundary | None:
+                steers = take_steers(execution_id)
+                boundary = fold_steers(steers)
+                if boundary is not None:
+                    logger.info(
+                        "debate.steer.applied",
+                        execution_id=execution_id,
+                        round_no=round_no,
+                        decision=boundary.decision.value,
+                        n=len(steers),
+                    )
+                return boundary
+
+            started_at = time.monotonic()
+            try:
+                result = await moderator.run(
+                    config,
+                    run_round=runner,
+                    run_cross_exam=cross_exam_runner,
+                    run_witness_exam=witness_runner,
+                    witness_roster=witness_roster,
+                    run_closing=closing_runner,
+                    on_round_start=_emit_round_start,
+                    on_round=_emit_round,
+                    on_round_boundary=_round_boundary if self._ambient_armed else None,
+                    evidence_ledger=self._evidence_ledger,
+                )
+            except PlanOnlyAbortError:
+                # First-round run_plan already emitted; end the CEO turn without debaters.
+                summary = "[plan-only] 已记录辩论计划，跳过辩手执行。"
+                logger.info("debate.plan_only_done", motion=config.motion[:80])
+                return ToolResult(
+                    tool_call_id="",
+                    success=True,
+                    output=summary,
+                    effect=ToolEffect.HANDOFF,
+                    final_text=summary,
+                )
+            except Exception as exc:  # noqa: BLE001 — 辩论崩溃降级为工具失败，让 CEO 回落
+                logger.exception("debate.failed", motion=config.motion[:80])
+                return err(f"辩论执行失败：{exc}。可重试，或改用 delegate 单独处理。")
+
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+            account_moderator(
+                self, moderator, moderator_run_id, moderator_model, result, duration_ms
+            )
+            result_payload = result.to_event_payload()
+            result_payload["evidence_ledger"] = self._evidence_ledger.all_entries()
+            self._sink.emit(
+                debate_result(
+                    execution_id=execution_id,
+                    moderator_run_id=moderator_run_id,
+                    payload=result_payload,
+                )
+            )
+            # 双产物机制性落盘（案卷 ``debate/``）；失败不阻断收口，路径附 CEO 输出尾部。
+            from agentcore.runtime.debate.persist import (
+                artifact_stamp,
+                format_artifact_footer,
+                persist_debate_artifacts,
+            )
+
+            ceo_output = result.to_ceo_output()
+            paths = await persist_debate_artifacts(
+                self._base_tool_context.backend,
+                result,
+                stamp=artifact_stamp(moderator_run_id),
+            )
+            if paths is not None:
+                ceo_output += format_artifact_footer(paths)
+            logger.info("debate.done", rounds=len(result.rounds), stop=result.stop_reason)
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output=ceo_output,
+                output_limit=DEBATE_OUTPUT_LIMIT,
+                metadata=usage_metadata(self._acc.usage),
+            )
+        finally:
+            if graph_redirect_token is not None:
+                from agentcore.runtime.delegate.graph_append import reset_redirect
+
+                reset_redirect(graph_redirect_token)
+            if graph_redirect is not None:
+                with contextlib.suppress(Exception):
+                    await graph_redirect.host_writer.flush()

@@ -1,0 +1,17 @@
+{
+  "id": "routing_named_roles",
+  "category": "routing",
+  "user_message": "这个任务需要一个团队，请明确委派两名 worker：一名角色名叫『研究员』，负责调研 Notion（笔记与协作工具）的市场口碑；一名角色名叫『撰稿人』，负责把调研结论写成一段推广文案。",
+  "path": "team",
+  "mode": "economy",
+  "samples": 1,
+  "_note": "后端架构.md §五：从轨迹断言（RosterMatches 角色名对不对）改为结果断言（交付物该有的内容齐没齐）。Delegated 保留为诊断（非门禁，只记『有没有派单』），是否成功看 milestone 覆盖。D7（2026-07-20）：点名具体产品（原『一款产品』欠定，模型合理反问但 harness 无第二回合 → 伪 FAIL）；本例只测派单+交付，澄清行为由 mast fc2_2 专门覆盖。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "milestones": [
+    { "id": "research", "desc": "给出对 Notion 市场口碑的实质调研内容（有具体观点/信息，而非一句空话）", "weight": 1 },
+    { "id": "copy", "desc": "把调研结论写成一段可直接使用的成文推广文案", "weight": 1 }
+  ]
+}

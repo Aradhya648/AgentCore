@@ -1,0 +1,26 @@
+{
+  "id": "collab_p5_creative_options",
+  "category": "team",
+  "mast": "1.2",
+  "user_message": "我们要给一款面向普通人的多 Agent 协作工作台起中文名，再各配一句 slogan。请给出 4 个风格明显不同的方案（例如稳重专业 / 轻快亲和 / 科技未来 / 人文温度），先交叉短评再整理成方案墙供我挑选。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型5 创意多方案·中档：N 风格并行（N≤5）→ 轻量交叉互评 → 方案墙。硬增益=人挑选。MAST 1.2 角色规格（人设差异化）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 60 } }
+  ],
+  "expected_shape": {
+    "min_workers": 4,
+    "max_workers": 6,
+    "parallel_fanout_min": 4,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "options", "desc": "给出至少 4 个可挑选的命名+slogan 方案", "weight": 2 },
+    { "id": "diversity", "desc": "方案之间风格可区分（非同质换皮）", "weight": 2 },
+    { "id": "wall", "desc": "整理成便于挑选的方案墙/对照呈现", "weight": 1 }
+  ]
+}

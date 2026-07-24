@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AgentCore Cookie Verify</title>
+  </head>
+  <body>
+    <pre id="log">running…</pre>
+    <script>
+      // Runs on the real packaged origin: app://agentcore. Every fetch is
+      // credentialed and cross-site to the HTTPS API, exactly like the real client.
+      const log = (m) => {
+        document.getElementById("log").textContent += "\n" + m;
+      };
+
+      async function run() {
+        const cfg = await window.verify.config();
+        const api = cfg.apiUrl;
+        const out = { apiUrl: api, steps: {} };
+
+        // 1) Login — server replies Set-Cookie: access_token / refresh_token.
+        const login = await fetch(api + "/v1/auth/login", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: cfg.username, password: cfg.password }),
+        });
+        out.steps.login = { status: login.status };
+        log("login " + login.status);
+
+        // Snapshot the cookie jar from the main process (httpOnly cookies are
+        // invisible to document.cookie, so we ask Electron's session API).
+        out.cookiesAfterLogin = await window.verify.cookies();
+        log("cookies stored: " + out.cookiesAfterLogin.map((c) => c.name).join(", "));
+
+        // 2) Refresh — only succeeds if the path-scoped (/v1/auth) refresh cookie
+        //    actually rode this cross-site credentialed request.
+        const refresh = await fetch(api + "/v1/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+        });
+        out.steps.refresh = { status: refresh.status };
+        log("refresh " + refresh.status);
+
+        // 3) Authed call — only succeeds if the access cookie (path /) rode along.
+        const me = await fetch(api + "/v1/auth/me", { credentials: "include" });
+        out.steps.me = { status: me.status };
+        try {
+          out.me = await me.json();
+        } catch {
+          out.me = null;
+        }
+        log("me " + me.status);
+
+        await window.verify.report(out);
+      }
+
+      run().catch((e) => window.verify.report({ error: String(e && e.stack || e) }));
+    </script>
+  </body>
+</html>

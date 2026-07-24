@@ -1,0 +1,13 @@
+{
+  "id": "neg_rewrite",
+  "archetype": "simple",
+  "user_message": "把这句口语改写成正式书面语：「这事儿我觉得吧，咱们最好还是赶紧弄完，别拖了。」",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }, { "name": "MaxRounds", "args": { "budget": 3 } }]
+  },
+  "rubric": "是否产出一句语义保真、正式书面化的改写（如「我认为我们应尽快完成此事，不宜拖延」）。负对照：单步文本转换，团队纯属浪费；质量应与单体打平，成本/延迟应更高。若团队胜出→疑似裁判偏好长答案，需校准。简洁正确优先。"
+}

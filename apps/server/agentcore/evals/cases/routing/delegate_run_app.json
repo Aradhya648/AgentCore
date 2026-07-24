@@ -1,0 +1,22 @@
+{
+  "id": "routing_delegate_run_app",
+  "category": "routing",
+  "user_message": "你能帮我直接打开这个软件吗。",
+  "history": [
+    {
+      "role": "user",
+      "content": "开发一个类似于 OpenClaw 的简化 Agent，委派团队实现，项目名 MiniClaw。"
+    },
+    {
+      "role": "assistant",
+      "content": "团队已完成 MiniClaw，代码在工作区 mini-claw/ 目录，但尚未验证能否启动。"
+    }
+  ],
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "用户要安装/运行/打开刚写的软件：CEO 无 code_execute，应委派 worker 修复并【显式】声明 completion_criteria=code_verified（硬要求，不可省略、不可只靠 task 文案暗示跑通——引擎不从文案推断验收），禁止 tools=0 口头拒绝或只给用户 bash 命令。"
+}

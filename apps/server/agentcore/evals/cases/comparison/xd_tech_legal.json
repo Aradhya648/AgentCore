@@ -1,0 +1,14 @@
+{
+  "id": "xd_tech_legal",
+  "archetype": "cross_domain",
+  "user_message": "我们要做一个「用户上传文件、由 AI 分析内容」的功能。请给出：①最简可行的技术实现方案；②隐私合规要点至少 3 条（需分别对应 GDPR 与中国《个人信息保护法》）。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 5,
+  "checks": {
+    "single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }]
+  },
+  "rubric": "工程域：技术方案是否最简可行（上传→存储→AI 分析→返回结果的链路，含关键风险点）。法务域：是否给出 ≥3 条合规要点，且真正对应 GDPR/个保法（如数据最小化收集、明示同意与告知、留存期限与删除/被遗忘权），而非泛泛而谈。两域是否都体现专业深度（工程 + 法务，单一 system prompt 难兼擅）。简洁准确优先，不因更长而偏好。"
+}

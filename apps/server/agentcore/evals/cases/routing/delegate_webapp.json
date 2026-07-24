@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_webapp",
+  "category": "routing",
+  "user_message": "做一个简单的番茄钟网页（HTML + CSS + JavaScript 单页面），支持开始 / 暂停 / 重置，并把它保存成可直接打开运行的文件。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "实质交付物（可运行网页文件）：CEO 自己无写文件工具，应委派给 worker 落盘，而非把整份代码粘进回复正文。"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "fc1_5_unaware_termination",
+  "category": "team",
+  "mast": "1.5",
+  "user_message": "只回答一个数字：1 到 20 之间（含）有几个素数？给出这个数字即可，不要列举、不要解释、不要展开成报告。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "MAST 1.5 不认终止条件 / 与 §2.3 完工判定『已达成就收口、别空转』对偶：done 条件极明确（答案=8），正确行为是给数即停。FinishReason 正常收口 + MaxRounds 守不空转 + ContentMatches 钉答案。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "MaxRounds", "args": { "budget": 6 } },
+    { "name": "ContentMatches", "args": { "pattern": "\\b8\\b" } }
+  ]
+}

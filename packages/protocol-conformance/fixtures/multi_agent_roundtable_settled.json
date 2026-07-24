@@ -1,0 +1,917 @@
+{
+  "name": "multi_agent_roundtable_settled",
+  "description": "多 Agent：圆桌点名串行线程 + 共识/分歧地图（form=roundtable）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我来组织一场多方圆桌并收场。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "多方圆桌：AI 该如何治理",
+        "agents": [
+          {
+            "id": "rts_mod1",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "rts_mod1",
+            "agent_id": "rts_mod1",
+            "task": "主持多方圆桌：AI 该如何治理",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "rts_mod1",
+        "agent_id": "rts_mod1",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "rts_mod1",
+        "round_no": 1,
+        "focus": "AI 治理的主轴：先管能力还是先管问责",
+        "cross_exam_enabled": false,
+        "opening": "圆桌收场前开场：先定治理主轴——能力还是问责。",
+        "form": "roundtable"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "rt_a",
+            "role": "技术视角",
+            "thinking": true
+          },
+          {
+            "id": "rt_b",
+            "role": "监管视角",
+            "thinking": true
+          },
+          {
+            "id": "rt_c",
+            "role": "产业视角",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "rts_mod1_r1_a",
+            "agent_id": "rt_a",
+            "task": "从技术视角谈 AI 治理",
+            "depends_on": [],
+            "parent_run_id": "rts_mod1",
+            "group": "debate:roundtable",
+            "round": 1
+          },
+          {
+            "id": "rts_mod1_r1_b",
+            "agent_id": "rt_b",
+            "task": "从监管视角谈 AI 治理",
+            "depends_on": [],
+            "parent_run_id": "rts_mod1",
+            "group": "debate:roundtable",
+            "round": 1
+          },
+          {
+            "id": "rts_mod1_r1_c",
+            "agent_id": "rt_c",
+            "task": "从产业视角谈 AI 治理",
+            "depends_on": [],
+            "parent_run_id": "rts_mod1",
+            "group": "debate:roundtable",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "rts_mod1_r1_a",
+        "agent_id": "rt_a",
+        "parent_run_id": "rts_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "rts_mod1_r1_a",
+        "agent_id": "rt_a",
+        "delta": "技术视角：能力外溢是根因，需可观测与熔断。"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "rts_mod1_r1_a",
+        "agent_id": "rt_a",
+        "output_summary": "技术视角发言完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.807Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "rts_mod1_r1_b",
+        "agent_id": "rt_b",
+        "parent_run_id": "rts_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.808Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "rts_mod1_r1_b",
+        "agent_id": "rt_b",
+        "delta": "监管视角：问责缺位才是关键，须立法明确。"
+      },
+      "timestamp": "2026-01-01T00:00:00.809Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "rts_mod1_r1_b",
+        "agent_id": "rt_b",
+        "output_summary": "监管视角发言完成",
+        "duration_ms": 820,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.628Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "rts_mod1_r1_c",
+        "agent_id": "rt_c",
+        "parent_run_id": "rts_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.629Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "rts_mod1_r1_c",
+        "agent_id": "rt_c",
+        "delta": "产业视角：别忽视落地成本，应分级分场景。"
+      },
+      "timestamp": "2026-01-01T00:00:01.630Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "rts_mod1_r1_c",
+        "agent_id": "rt_c",
+        "output_summary": "产业视角发言完成",
+        "duration_ms": 810,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.439Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "rts_mod1",
+        "agent_id": "rts_mod1",
+        "output_summary": "AI 治理的主轴：先管能力还是先管问责",
+        "duration_ms": 2200,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.440Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "rts_mod1",
+        "form": "roundtable",
+        "motion": "AI 该如何治理",
+        "stop_reason": "converged",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "a",
+            "name": "技术视角",
+            "stance": "风险源于能力外溢，治理应内建可观测与熔断",
+            "is_subject": false,
+            "model": ""
+          },
+          {
+            "key": "b",
+            "name": "监管视角",
+            "stance": "缺的是问责主体，须以立法明确责任归属",
+            "is_subject": false,
+            "model": ""
+          },
+          {
+            "key": "c",
+            "name": "产业视角",
+            "stance": "一刀切立法抬高合规成本，应分级分场景落地",
+            "is_subject": false,
+            "model": ""
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "AI 治理的主轴：先管能力还是先管问责",
+            "summary": "技术方归因能力外溢，监管方强调问责缺位，产业方提醒落地成本，三方收敛到分级治理。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "三方视角已充分铺开并就分级治理形成交集。",
+              "rationale": "光谱铺满且出现交集，继续无新增视角。"
+            },
+            "sides": [
+              {
+                "key": "a",
+                "name": "技术视角",
+                "run_id": "rts_mod1_r1_a",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "thread"
+              },
+              {
+                "key": "b",
+                "name": "监管视角",
+                "run_id": "rts_mod1_r1_b",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "thread"
+              },
+              {
+                "key": "c",
+                "name": "产业视角",
+                "run_id": "rts_mod1_r1_c",
+                "ok": true,
+                "absent": false,
+                "arguments": [],
+                "beat": "thread"
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "b",
+                "to_key": "a",
+                "point": "能力外溢说回避了问责主体，技术归因不能替代责任分配。"
+              },
+              {
+                "from_key": "c",
+                "to_key": "b",
+                "point": "强问责会抬高合规成本，产业落地承受不起一刀切立法。"
+              }
+            ],
+            "findings": [],
+            "thread_turns": [
+              {
+                "speaker": "a",
+                "reply_to": "",
+                "run_id": "rts_mod1_r1_a",
+                "ok": true,
+                "beat": "thread"
+              },
+              {
+                "speaker": "b",
+                "reply_to": "a",
+                "run_id": "rts_mod1_r1_b",
+                "ok": true,
+                "beat": "thread"
+              },
+              {
+                "speaker": "c",
+                "reply_to": "b",
+                "run_id": "rts_mod1_r1_c",
+                "ok": true,
+                "beat": "thread"
+              }
+            ]
+          }
+        ],
+        "closings": [],
+        "subtopics": [
+          "先管能力还是先管问责",
+          "分级落地的成本边界"
+        ],
+        "brief": {
+          "crux": "AI 治理的主轴：先管能力还是先管问责",
+          "strongest_points": {
+            "a": "风险源于能力外溢，治理应内建可观测与熔断。",
+            "b": "缺的是问责主体，须以立法明确责任归属。",
+            "c": "一刀切立法抬高合规成本，应分级分场景落地。"
+          },
+          "risk_severities": {},
+          "findings": [],
+          "gate": "",
+          "must_fix": [],
+          "consensus_map": [
+            {
+              "topic": "先管能力还是先管问责",
+              "consensus": [
+                "分级治理 + 可观测先行"
+              ],
+              "divergences": [
+                "问责立法时点与强度"
+              ],
+              "crux": "价值：创新速度 vs 风险兜底"
+            }
+          ],
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "创新速度优先 vs 风险兜底优先？"
+            },
+            {
+              "kind": "fact",
+              "text": "现有事故里『能力外溢』与『问责缺位』各占多少缺一致数据"
+            },
+            {
+              "kind": "question",
+              "text": "谁来认定与维护『高风险场景』清单？"
+            }
+          ],
+          "decisive": "",
+          "leaning": "三方共识：分级治理 + 可观测先行，问责随之立法",
+          "confidence": "medium",
+          "recommendation": "按能力分级，先强制高风险场景的可观测与熔断，再补问责立法。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.441Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 3400,
+          "output_tokens": 600,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:02.442Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我来组织一场多方圆桌并收场。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我来组织一场多方圆桌并收场。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "rts_mod1",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "rt_a",
+        "role": "技术视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "技术视角：能力外溢是根因，需可观测与熔断。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "rt_b",
+        "role": "监管视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "监管视角：问责缺位才是关键，须立法明确。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "rt_c",
+        "role": "产业视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "产业视角：别忽视落地成本，应分级分场景。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "rts_mod1",
+        "agentId": "rts_mod1",
+        "task": "主持多方圆桌：AI 该如何治理",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "AI 治理的主轴：先管能力还是先管问责",
+        "debrief": null,
+        "durationMs": 2200,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "rts_mod1_r1_a",
+        "agentId": "rt_a",
+        "task": "从技术视角谈 AI 治理",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "技术视角发言完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": "rts_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:roundtable",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "技术视角：能力外溢是根因，需可观测与熔断。"
+          }
+        ]
+      },
+      {
+        "id": "rts_mod1_r1_b",
+        "agentId": "rt_b",
+        "task": "从监管视角谈 AI 治理",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "监管视角发言完成",
+        "debrief": null,
+        "durationMs": 820,
+        "error": null,
+        "parentRunId": "rts_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:roundtable",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "监管视角：问责缺位才是关键，须立法明确。"
+          }
+        ]
+      },
+      {
+        "id": "rts_mod1_r1_c",
+        "agentId": "rt_c",
+        "task": "从产业视角谈 AI 治理",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "产业视角发言完成",
+        "debrief": null,
+        "durationMs": 810,
+        "error": null,
+        "parentRunId": "rts_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": "debate:roundtable",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "产业视角：别忽视落地成本，应分级分场景。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 4,
+      "total": 4
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec1",
+      "moderator_run_id": "rts_mod1",
+      "form": "roundtable",
+      "motion": "AI 该如何治理",
+      "stop_reason": "converged",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "a",
+          "name": "技术视角",
+          "stance": "风险源于能力外溢，治理应内建可观测与熔断",
+          "is_subject": false,
+          "model": ""
+        },
+        {
+          "key": "b",
+          "name": "监管视角",
+          "stance": "缺的是问责主体，须以立法明确责任归属",
+          "is_subject": false,
+          "model": ""
+        },
+        {
+          "key": "c",
+          "name": "产业视角",
+          "stance": "一刀切立法抬高合规成本，应分级分场景落地",
+          "is_subject": false,
+          "model": ""
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "AI 治理的主轴：先管能力还是先管问责",
+          "summary": "技术方归因能力外溢，监管方强调问责缺位，产业方提醒落地成本，三方收敛到分级治理。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "三方视角已充分铺开并就分级治理形成交集。",
+            "rationale": "光谱铺满且出现交集，继续无新增视角。"
+          },
+          "sides": [
+            {
+              "key": "a",
+              "name": "技术视角",
+              "run_id": "rts_mod1_r1_a",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "thread"
+            },
+            {
+              "key": "b",
+              "name": "监管视角",
+              "run_id": "rts_mod1_r1_b",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "thread"
+            },
+            {
+              "key": "c",
+              "name": "产业视角",
+              "run_id": "rts_mod1_r1_c",
+              "ok": true,
+              "absent": false,
+              "arguments": [],
+              "beat": "thread"
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "b",
+              "to_key": "a",
+              "point": "能力外溢说回避了问责主体，技术归因不能替代责任分配。"
+            },
+            {
+              "from_key": "c",
+              "to_key": "b",
+              "point": "强问责会抬高合规成本，产业落地承受不起一刀切立法。"
+            }
+          ],
+          "findings": [],
+          "thread_turns": [
+            {
+              "speaker": "a",
+              "reply_to": "",
+              "run_id": "rts_mod1_r1_a",
+              "ok": true,
+              "beat": "thread"
+            },
+            {
+              "speaker": "b",
+              "reply_to": "a",
+              "run_id": "rts_mod1_r1_b",
+              "ok": true,
+              "beat": "thread"
+            },
+            {
+              "speaker": "c",
+              "reply_to": "b",
+              "run_id": "rts_mod1_r1_c",
+              "ok": true,
+              "beat": "thread"
+            }
+          ]
+        }
+      ],
+      "closings": [],
+      "subtopics": [
+        "先管能力还是先管问责",
+        "分级落地的成本边界"
+      ],
+      "brief": {
+        "crux": "AI 治理的主轴：先管能力还是先管问责",
+        "strongest_points": {
+          "a": "风险源于能力外溢，治理应内建可观测与熔断。",
+          "b": "缺的是问责主体，须以立法明确责任归属。",
+          "c": "一刀切立法抬高合规成本，应分级分场景落地。"
+        },
+        "risk_severities": {},
+        "findings": [],
+        "gate": "",
+        "must_fix": [],
+        "consensus_map": [
+          {
+            "topic": "先管能力还是先管问责",
+            "consensus": [
+              "分级治理 + 可观测先行"
+            ],
+            "divergences": [
+              "问责立法时点与强度"
+            ],
+            "crux": "价值：创新速度 vs 风险兜底"
+          }
+        ],
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "创新速度优先 vs 风险兜底优先？"
+          },
+          {
+            "kind": "fact",
+            "text": "现有事故里『能力外溢』与『问责缺位』各占多少缺一致数据"
+          },
+          {
+            "kind": "question",
+            "text": "谁来认定与维护『高风险场景』清单？"
+          }
+        ],
+        "decisive": "",
+        "leaning": "三方共识：分级治理 + 可观测先行，问责随之立法",
+        "confidence": "medium",
+        "recommendation": "按能力分级，先强制高风险场景的可观测与熔断，再补问责立法。"
+      }
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "AI 治理的主轴：先管能力还是先管问责",
+        "summary": "",
+        "verdict": null,
+        "sides": [],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": "圆桌收场前开场：先定治理主轴——能力还是问责。",
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

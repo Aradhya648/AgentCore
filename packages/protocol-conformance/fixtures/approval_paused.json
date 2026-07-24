@@ -1,0 +1,84 @@
+{
+  "name": "approval_paused",
+  "description": "审批：approval_required 暂停（无 message_end）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我需要运行代码。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "approval_required",
+      "payload": {
+        "approval_id": "tc1",
+        "conversation_id": "conv_demo",
+        "tool_call_id": "tc1",
+        "tool_name": "code_execute",
+        "arguments": {
+          "code": "print(1)"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    }
+  ],
+  "projected": {
+    "status": "paused",
+    "finishReason": null,
+    "content": "我需要运行代码。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我需要运行代码。"
+      },
+      {
+        "kind": "approval",
+        "approval_id": "tc1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [
+      {
+        "kind": "approval",
+        "id": "tc1",
+        "status": "pending",
+        "toolCallId": "tc1",
+        "toolName": "code_execute",
+        "arguments": {
+          "code": "print(1)"
+        }
+      }
+    ],
+    "cost": null,
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

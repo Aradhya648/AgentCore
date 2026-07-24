@@ -1,0 +1,15 @@
+{
+  "id": "par_collab_p7_creator_plan",
+  "archetype": "parallel_research",
+  "user_message": "我想做个人知识向的自媒体启动方案，预算每月不超过 800 元、每周可投入约 8 小时。请分别起草：定位与受众、选题与更新节奏、变现路径，部件之间必须互相一致（别超预算、别和时间打架），最后做一次一致性对账再定稿。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 2,
+  "_note": "协作基线质量臂·原型7：部件并行+一致性对账的质量增益对照。",
+  "checks": {
+    "single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }, { "name": "FinishReason" }]
+  },
+  "rubric": "方案可执行性：三大部件是否齐全；是否显式尊重预算与时间约束；部件之间是否一致（无行程超预算、选题与定位打架）。团队若有对账节点，应比单体长文更少前后矛盾。简洁正确优先，不因更长而偏好。"
+}

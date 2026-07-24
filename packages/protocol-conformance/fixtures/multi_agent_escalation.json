@@ -1,0 +1,380 @@
+{
+  "name": "multi_agent_escalation",
+  "description": "多 Agent：worker 升级实时可见（run_escalation 折到节点 escalations，非阻塞）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我来安排团队。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "选型并给建议",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "研究员",
+            "thinking": true
+          },
+          {
+            "id": "w2",
+            "role": "撰写员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "调研选型",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "撰写建议",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_escalation",
+      "payload": {
+        "escalation_id": "esc1",
+        "run_id": "r1",
+        "agent_id": "w1",
+        "question": "数据库选 Postgres 还是 MySQL？这关系到后续所有选型。",
+        "assumption": "暂按 Postgres 推进",
+        "blocking": true,
+        "kind": "normal"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "delta": "已按 Postgres 完成选型调研"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "完成选型调研（含 1 条升级）",
+        "duration_ms": 1000,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.005Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "delta": "基于选型给出建议"
+      },
+      "timestamp": "2026-01-01T00:00:01.006Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r2",
+        "agent_id": "w2",
+        "output_summary": "完成建议",
+        "duration_ms": 1200,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.205Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": " 团队已完成（有 1 条待你拍板的升级）。"
+      },
+      "timestamp": "2026-01-01T00:00:02.206Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 4200,
+          "output_tokens": 820,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:02.207Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我来安排团队。 团队已完成（有 1 条待你拍板的升级）。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我来安排团队。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "escalation",
+        "escalation_id": "esc1"
+      },
+      {
+        "kind": "content",
+        "text": " 团队已完成（有 1 条待你拍板的升级）。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "研究员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "已按 Postgres 完成选型调研",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "撰写员",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "基于选型给出建议",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "调研选型",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "完成选型调研（含 1 条升级）",
+        "debrief": null,
+        "durationMs": 1000,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [
+          {
+            "question": "数据库选 Postgres 还是 MySQL？这关系到后续所有选型。",
+            "assumption": "暂按 Postgres 推进",
+            "blocking": true,
+            "status": "raised",
+            "answer": null,
+            "kind": "normal"
+          }
+        ],
+        "process": [
+          {
+            "kind": "content",
+            "text": "已按 Postgres 完成选型调研"
+          }
+        ]
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "撰写建议",
+        "status": "completed",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": "完成建议",
+        "debrief": null,
+        "durationMs": 1200,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "基于选型给出建议"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 2,
+      "total": 2
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

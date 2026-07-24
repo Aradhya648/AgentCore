@@ -1,0 +1,1391 @@
+{
+  "name": "multi_agent_mlr_debate_acts",
+  "description": "批A2·两幕同图：幕1 MLR multi_agent + 幕2 debate 同 execution 生长（graph_append + act-2/anchor=synthesizer；辩手 runs 归 act-2；authorized_by=preview）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "先做多视角调研：品牌是否应立即终止争议代言联名。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "playbook": "multi_lens_research",
+          "playbook_args": {
+            "topic": "品牌是否应立即终止争议代言联名"
+          },
+          "coordinate": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_mlr_debate",
+        "plan_type": "multi_agent",
+        "task_summary": "多视角深度调研：品牌是否应立即终止争议代言联名",
+        "agents": [
+          {
+            "id": "lens_0",
+            "role": "法律视角",
+            "thinking": true
+          },
+          {
+            "id": "lens_1",
+            "role": "品牌商业视角",
+            "thinking": true
+          },
+          {
+            "id": "lens_2",
+            "role": "舆情公关视角",
+            "thinking": true
+          },
+          {
+            "id": "lens_3",
+            "role": "文化社会视角",
+            "thinking": true
+          },
+          {
+            "id": "synthesizer",
+            "role": "汇总分析师",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "lens_0",
+            "agent_id": "lens_0",
+            "task": "梳理解约条款",
+            "depends_on": []
+          },
+          {
+            "id": "lens_1",
+            "agent_id": "lens_1",
+            "task": "评估营收冲击",
+            "depends_on": []
+          },
+          {
+            "id": "lens_2",
+            "agent_id": "lens_2",
+            "task": "盘点声量窗口",
+            "depends_on": []
+          },
+          {
+            "id": "lens_3",
+            "agent_id": "lens_3",
+            "task": "分析圈层冲突",
+            "depends_on": []
+          },
+          {
+            "id": "synthesizer",
+            "agent_id": "synthesizer",
+            "task": "交叉验证综述 · 品牌是否应立即终止争议代言联名",
+            "depends_on": [
+              "lens_0",
+              "lens_1",
+              "lens_2",
+              "lens_3"
+            ]
+          }
+        ],
+        "act": {
+          "act_id": "act-1",
+          "kind": "multi_agent",
+          "title": "多视角调研"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "delta": "lens_0 要点就绪"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_0",
+        "agent_id": "lens_0",
+        "output_summary": "lens_0 完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.805Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.806Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "delta": "lens_1 要点就绪"
+      },
+      "timestamp": "2026-01-01T00:00:00.807Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_1",
+        "agent_id": "lens_1",
+        "output_summary": "lens_1 完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.606Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:01.607Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "delta": "lens_2 要点就绪"
+      },
+      "timestamp": "2026-01-01T00:00:01.608Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_2",
+        "agent_id": "lens_2",
+        "output_summary": "lens_2 完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.407Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:02.408Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "delta": "lens_3 要点就绪"
+      },
+      "timestamp": "2026-01-01T00:00:02.409Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "lens_3",
+        "agent_id": "lens_3",
+        "output_summary": "lens_3 完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.208Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:03.209Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "delta": "交叉验证完成，建议开辩。"
+      },
+      "timestamp": "2026-01-01T00:00:03.210Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "synthesizer",
+        "agent_id": "synthesizer",
+        "output_summary": "汇总完成并附命题卡",
+        "duration_ms": 1200,
+        "role": "member",
+        "model": "deepseek-v4-pro",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.409Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "status": "success",
+        "result": "多视角调研完成。"
+      },
+      "timestamp": "2026-01-01T00:00:04.410Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "调研已呈报，建议开辩。"
+      },
+      "timestamp": "2026-01-01T00:00:04.411Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 5000,
+          "output_tokens": 900,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:04.412Z"
+    },
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m2",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:04.413Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "按命题卡开辩。"
+      },
+      "timestamp": "2026-01-01T00:00:04.414Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "db1",
+        "tool_name": "debate",
+        "arguments": {
+          "motion": "品牌是否应立即终止争议代言联名",
+          "form": "debate",
+          "sides": [
+            {
+              "key": "pro",
+              "name": "立即终止方",
+              "stance": "应立刻切割止损"
+            },
+            {
+              "key": "con",
+              "name": "冷静观望方",
+              "stance": "证据未定不宜仓促解约"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.415Z"
+    },
+    {
+      "type": "graph_append",
+      "payload": {
+        "execution_id": "exec_mlr_debate",
+        "host_message_id": "m1",
+        "append_message_id": "m2",
+        "added_count": 1,
+        "roles": [
+          "主持人"
+        ],
+        "added_run_ids": [
+          "debate_mod_act2"
+        ],
+        "act_id": "act-2",
+        "act_kind": "debate",
+        "authorized_by": "preview"
+      },
+      "timestamp": "2026-01-01T00:00:04.416Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_mlr_debate",
+        "plan_type": "debate",
+        "task_summary": "正反辩论：品牌是否应立即终止争议代言联名",
+        "agents": [
+          {
+            "id": "debate_mod_act2",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_act2",
+            "agent_id": "debate_mod_act2",
+            "task": "主持正反辩论：品牌是否应立即终止争议代言联名",
+            "depends_on": [],
+            "parent_run_id": "synthesizer"
+          }
+        ],
+        "host_message_id": "m1",
+        "act": {
+          "act_id": "act-2",
+          "kind": "debate",
+          "title": "辩论对抗",
+          "anchor_run_id": "synthesizer",
+          "authorized_by": "preview"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.417Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_act2",
+        "agent_id": "debate_mod_act2",
+        "parent_run_id": "synthesizer",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:04.418Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec_mlr_debate",
+        "moderator_run_id": "debate_mod_act2",
+        "round_no": 1,
+        "focus": "立即终止 vs 观望",
+        "cross_exam_enabled": false,
+        "opening": "先从法律风险与舆情窗口切入。",
+        "form": "debate"
+      },
+      "timestamp": "2026-01-01T00:00:04.419Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_mlr_debate",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "支持方",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "反对方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_act2_r1_pro",
+            "agent_id": "d_pro",
+            "task": "论证应立即终止联名",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_act2",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "debate_mod_act2_r1_con",
+            "agent_id": "d_con",
+            "task": "论证应冷静观望",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_act2",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ],
+        "host_message_id": "m1",
+        "act": {
+          "act_id": "act-2",
+          "kind": "debate",
+          "title": "辩论对抗",
+          "anchor_run_id": "synthesizer",
+          "authorized_by": "preview"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.420Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_act2_r1_pro",
+        "agent_id": "debate_mod_act2_r1_pro",
+        "parent_run_id": "debate_mod_act2",
+        "kind": "agent",
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:04.421Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod_act2_r1_pro",
+        "agent_id": "debate_mod_act2_r1_pro",
+        "delta": "应立即终止以止损。"
+      },
+      "timestamp": "2026-01-01T00:00:04.422Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_act2_r1_pro",
+        "agent_id": "debate_mod_act2_r1_pro",
+        "output_summary": "立即终止方立论完成",
+        "duration_ms": 900,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:05.321Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_act2_r1_con",
+        "agent_id": "debate_mod_act2_r1_con",
+        "parent_run_id": "debate_mod_act2",
+        "kind": "agent",
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:05.322Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod_act2_r1_con",
+        "agent_id": "debate_mod_act2_r1_con",
+        "delta": "举证不足不宜仓促解约。"
+      },
+      "timestamp": "2026-01-01T00:00:05.323Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_act2_r1_con",
+        "agent_id": "debate_mod_act2_r1_con",
+        "output_summary": "冷静观望方立论完成",
+        "duration_ms": 950,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:06.272Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_act2",
+        "agent_id": "debate_mod_act2",
+        "output_summary": "1 轮·收敛",
+        "duration_ms": 2000,
+        "role": "主持人",
+        "model": "deepseek-v4-pro",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:06.418Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec_mlr_debate",
+        "moderator_run_id": "debate_mod_act2",
+        "form": "debate",
+        "motion": "品牌是否应立即终止争议代言联名",
+        "stop_reason": "converged",
+        "opening": "先从法律风险与舆情窗口切入。",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "立即终止方",
+            "stance": "应立刻切割止损",
+            "is_subject": false
+          },
+          {
+            "key": "con",
+            "name": "冷静观望方",
+            "stance": "证据未定不宜仓促解约",
+            "is_subject": false
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "立即终止 vs 观望",
+            "summary": "双方争点收敛到举证门槛与沉默成本。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "核心分歧已充分暴露。",
+              "rationale": "继续无新增信息。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "立即终止方",
+                "run_id": "debate_mod_act2_r1_pro",
+                "ok": true
+              },
+              {
+                "key": "con",
+                "name": "冷静观望方",
+                "run_id": "debate_mod_act2_r1_con",
+                "ok": true
+              }
+            ],
+            "clashes": [],
+            "cross_exam": [],
+            "scores": {}
+          }
+        ],
+        "brief": {
+          "crux": "立即终止联名是否必要",
+          "strongest_points": {
+            "pro": "沉默即纵容",
+            "con": "举证门槛高"
+          },
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "声誉 vs 财务"
+            }
+          ],
+          "leaning": "视举证强度",
+          "confidence": "中",
+          "recommendation": "先核合同再定",
+          "decisive": "举证门槛决定是否立即切割"
+        },
+        "closings": []
+      },
+      "timestamp": "2026-01-01T00:00:06.419Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "db1",
+        "tool_name": "debate",
+        "status": "success",
+        "result": "辩论完成。"
+      },
+      "timestamp": "2026-01-01T00:00:06.420Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "辩论收束，决策简报已呈。"
+      },
+      "timestamp": "2026-01-01T00:00:06.421Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 6000,
+          "output_tokens": 1100,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:06.422Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "按命题卡开辩。辩论收束，决策简报已呈。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "按命题卡开辩。"
+      },
+      {
+        "kind": "graph_append",
+        "execution_id": "exec_mlr_debate",
+        "host_message_id": "m1",
+        "added_count": 1
+      },
+      {
+        "kind": "content",
+        "text": "辩论收束，决策简报已呈。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "lens_0",
+        "role": "法律视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "lens_0 要点就绪",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "lens_1",
+        "role": "品牌商业视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "lens_1 要点就绪",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "lens_2",
+        "role": "舆情公关视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "lens_2 要点就绪",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "lens_3",
+        "role": "文化社会视角",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "lens_3 要点就绪",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "synthesizer",
+        "role": "汇总分析师",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "交叉验证完成，建议开辩。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_mod_act2",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "lens_0",
+        "agentId": "lens_0",
+        "task": "梳理解约条款",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "lens_0 完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "lens_0 要点就绪"
+          }
+        ]
+      },
+      {
+        "id": "lens_1",
+        "agentId": "lens_1",
+        "task": "评估营收冲击",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "lens_1 完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "lens_1 要点就绪"
+          }
+        ]
+      },
+      {
+        "id": "lens_2",
+        "agentId": "lens_2",
+        "task": "盘点声量窗口",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "lens_2 完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "lens_2 要点就绪"
+          }
+        ]
+      },
+      {
+        "id": "lens_3",
+        "agentId": "lens_3",
+        "task": "分析圈层冲突",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "lens_3 完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "lens_3 要点就绪"
+          }
+        ]
+      },
+      {
+        "id": "synthesizer",
+        "agentId": "synthesizer",
+        "task": "交叉验证综述 · 品牌是否应立即终止争议代言联名",
+        "status": "completed",
+        "dependsOn": [
+          "lens_0",
+          "lens_1",
+          "lens_2",
+          "lens_3"
+        ],
+        "outputSummary": "汇总完成并附命题卡",
+        "debrief": null,
+        "durationMs": 1200,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-pro",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "交叉验证完成，建议开辩。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod_act2",
+        "agentId": "debate_mod_act2",
+        "task": "主持正反辩论：品牌是否应立即终止争议代言联名",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "1 轮·收敛",
+        "debrief": null,
+        "durationMs": 2000,
+        "error": null,
+        "parentRunId": "synthesizer",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-pro",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-2",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "debate_mod_act2_r1_pro",
+        "agentId": "d_pro",
+        "task": "论证应立即终止联名",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "立即终止方立论完成",
+        "debrief": null,
+        "durationMs": 900,
+        "error": null,
+        "parentRunId": "debate_mod_act2",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-2",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "应立即终止以止损。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod_act2_r1_con",
+        "agentId": "d_con",
+        "task": "论证应冷静观望",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "冷静观望方立论完成",
+        "debrief": null,
+        "durationMs": 950,
+        "error": null,
+        "parentRunId": "debate_mod_act2",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-2",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "举证不足不宜仓促解约。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": "多视角调研",
+        "anchorRunId": null,
+        "authorizedBy": null
+      },
+      {
+        "actId": "act-2",
+        "kind": "debate",
+        "title": "辩论对抗",
+        "anchorRunId": "synthesizer",
+        "authorizedBy": "preview"
+      }
+    ],
+    "progress": {
+      "completed": 8,
+      "total": 8
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec_mlr_debate",
+      "moderator_run_id": "debate_mod_act2",
+      "form": "debate",
+      "motion": "品牌是否应立即终止争议代言联名",
+      "stop_reason": "converged",
+      "opening": "先从法律风险与舆情窗口切入。",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "pro",
+          "name": "立即终止方",
+          "stance": "应立刻切割止损",
+          "is_subject": false
+        },
+        {
+          "key": "con",
+          "name": "冷静观望方",
+          "stance": "证据未定不宜仓促解约",
+          "is_subject": false
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "立即终止 vs 观望",
+          "summary": "双方争点收敛到举证门槛与沉默成本。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "核心分歧已充分暴露。",
+            "rationale": "继续无新增信息。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "立即终止方",
+              "run_id": "debate_mod_act2_r1_pro",
+              "ok": true
+            },
+            {
+              "key": "con",
+              "name": "冷静观望方",
+              "run_id": "debate_mod_act2_r1_con",
+              "ok": true
+            }
+          ],
+          "clashes": [],
+          "cross_exam": [],
+          "scores": {}
+        }
+      ],
+      "brief": {
+        "crux": "立即终止联名是否必要",
+        "strongest_points": {
+          "pro": "沉默即纵容",
+          "con": "举证门槛高"
+        },
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "声誉 vs 财务"
+          }
+        ],
+        "leaning": "视举证强度",
+        "confidence": "中",
+        "recommendation": "先核合同再定",
+        "decisive": "举证门槛决定是否立即切割"
+      },
+      "closings": []
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "立即终止 vs 观望",
+        "summary": "",
+        "verdict": null,
+        "sides": [],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": "先从法律风险与舆情窗口切入。",
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

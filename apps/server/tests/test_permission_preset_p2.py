@@ -1,0 +1,205 @@
+"""P2 permission-preset audit + gVisor network grading."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+from agentcore.core.types import PermissionPreset
+from agentcore.runtime.audit.hooks import (
+    bind_recorder,
+    on_approval_resolved,
+    on_journal_fact_appended,
+)
+from agentcore.runtime.audit.projector import (
+    project_approval_resolved,
+    project_permission_preset_changed,
+)
+from agentcore.runtime.audit.recorder import AuditRecorder, current_audit_recorder
+from agentcore.tools.builtin.code_execute import CodeExecuteTool
+from agentcore.tools.protocol import ToolContext
+from agentcore.tools.sandbox.gvisor import GVisorSandbox
+from agentcore.tools.sandbox.protocol import ExecutionRequest, ExecutionResult
+from agentcore.tools.sandbox.subprocess import SubprocessSandbox
+from agentcore.workspace.server import ServerWorkspace
+
+
+def test_permission_preset_changed_projection():
+    draft = project_permission_preset_changed(
+        previous="workspace", next_preset="full_trust"
+    )
+    assert draft.category == "permission"
+    assert draft.action == "permission.preset_changed"
+    assert draft.detail["previous"] == "workspace"
+    assert draft.detail["permission_preset"] == "full_trust"
+    assert draft.detail["decided_by"] == "user"
+
+
+def test_approval_resolved_includes_decided_by_user():
+    recorder = AuditRecorder(
+        user_id="u1",
+        conversation_id="c1",
+        turn_id="t1",
+        trace_id=None,
+        delegated=False,
+    )
+    draft = project_approval_resolved(
+        recorder,
+        tool_name="file_write",
+        tool_call_id="tc1",
+        decision="approve",
+        arguments={"path": "a.md"},
+    )
+    assert draft.detail["decided_by"] == "user"
+    assert draft.action == "approval.granted"
+
+
+@pytest.mark.asyncio
+async def test_approval_force_schedules_without_delegation():
+    """Solo turns still persist who approved even when audit is not yet active."""
+    recorder = AuditRecorder(
+        user_id="u1",
+        conversation_id="c1",
+        turn_id="t1",
+        trace_id=None,
+        delegated=False,
+    )
+    token = current_audit_recorder.set(recorder)
+    try:
+        on_approval_resolved(
+            tool_name="file_write",
+            tool_call_id="tc1",
+            decision="approve",
+            arguments={"path": "a.md"},
+        )
+        assert len(recorder._pending) == 1  # noqa: SLF001
+        await recorder.flush()
+    finally:
+        current_audit_recorder.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_full_trust_bind_activates_and_snapshots_preset():
+    recorder, token = bind_recorder(
+        user_id="u1",
+        conversation_id=str(uuid4()),
+        turn_id=str(uuid4()),
+        trace_id=None,
+        delegated=True,
+        permission_preset=PermissionPreset.FULL_TRUST.value,
+    )
+    try:
+        assert recorder.active is True
+        assert recorder._preset_snapshotted is True  # noqa: SLF001
+        assert len(recorder._pending) >= 1  # noqa: SLF001
+        await recorder.flush()
+    finally:
+        current_audit_recorder.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_full_trust_journal_tool_side_effect_without_delegate():
+    recorder, token = bind_recorder(
+        user_id="u1",
+        conversation_id=str(uuid4()),
+        turn_id=str(uuid4()),
+        trace_id=None,
+        delegated=True,
+        permission_preset="full_trust",
+    )
+    try:
+        on_journal_fact_appended(
+            {
+                "kind": "tool_use_start",
+                "payload": {
+                    "tool_call_id": "tc-1",
+                    "tool_name": "code_execute",
+                    "arguments": {"code": "print(1)"},
+                    "run_id": "r1",
+                },
+            }
+        )
+        on_journal_fact_appended(
+            {
+                "kind": "tool_use_end",
+                "payload": {
+                    "tool_call_id": "tc-1",
+                    "tool_name": "code_execute",
+                    "status": "success",
+                    "run_id": "r1",
+                },
+            }
+        )
+        assert len(recorder._pending) >= 2  # noqa: SLF001
+        await recorder.flush()
+    finally:
+        current_audit_recorder.reset(token)
+
+
+def test_gvisor_restricted_adds_network_namespace():
+    sandbox = GVisorSandbox(workspace_root="/tmp")
+    req = ExecutionRequest(
+        code="print(1)",
+        language="python",
+        network_mode="restricted",
+    )
+    config = sandbox._build_oci_config(  # noqa: SLF001
+        req,
+        script_name="main.py",
+        workspace="/tmp/ws",
+        scratch_dir="/tmp/scratch",
+    )
+    ns_types = {n["type"] for n in config["linux"]["namespaces"]}
+    assert "network" in ns_types
+
+
+def test_gvisor_none_mode_keeps_offline_namespaces():
+    sandbox = GVisorSandbox(workspace_root="/tmp")
+    req = ExecutionRequest(code="print(1)", language="python", network_mode="none")
+    config = sandbox._build_oci_config(  # noqa: SLF001
+        req,
+        script_name="main.py",
+        workspace="/tmp/ws",
+        scratch_dir="/tmp/scratch",
+    )
+    ns_types = {n["type"] for n in config["linux"]["namespaces"]}
+    assert "network" not in ns_types
+
+
+@pytest.mark.asyncio
+async def test_code_execute_network_mode_follows_preset(tmp_path: Path):
+    captured: list[ExecutionRequest] = []
+
+    class _CaptureSandbox(SubprocessSandbox):
+        async def execute(self, request: ExecutionRequest) -> ExecutionResult:
+            captured.append(request)
+            return ExecutionResult(
+                success=True, stdout="ok", stderr="", exit_code=0, duration_ms=1
+            )
+
+    backend = ServerWorkspace(root=tmp_path, sandbox=_CaptureSandbox())
+    tool = CodeExecuteTool(location="server")
+
+    ctx_trust = ToolContext(
+        execution_id="e",
+        run_id="r",
+        agent_id="a",
+        backend=backend,
+        user_id="u",
+        permission_preset="full_trust",
+    )
+    await tool.execute({"code": "print(1)", "language": "python"}, ctx_trust)
+    assert captured[-1].network_mode == "restricted"
+
+    ctx_ws = ToolContext(
+        execution_id="e",
+        run_id="r",
+        agent_id="a",
+        backend=backend,
+        user_id="u",
+        permission_preset="workspace",
+    )
+    await tool.execute({"code": "print(1)", "language": "python"}, ctx_ws)
+    assert captured[-1].network_mode == "none"

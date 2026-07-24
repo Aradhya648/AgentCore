@@ -1,0 +1,346 @@
+{
+  "name": "resume_content_reset_reinject",
+  "description": "挂起恢复：content_reset 后重灌 pre_pause delta 再重写（G6）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "阶段成果如下。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "分阶段",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "调研",
+            "thinking": true
+          },
+          {
+            "id": "w2",
+            "role": "执行",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "出方案",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "落地",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "方案就绪",
+        "duration_ms": 900,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.904Z"
+    },
+    {
+      "type": "plan_review_required",
+      "payload": {
+        "checkpoint_id": "cp1",
+        "conversation_id": "conv_demo",
+        "steps": [
+          {
+            "run_id": "r1",
+            "role": "调研",
+            "summary": "方案就绪"
+          }
+        ],
+        "pending": [
+          {
+            "run_id": "r2",
+            "role": "执行"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.905Z"
+    },
+    {
+      "type": "plan_review_resolved",
+      "payload": {
+        "checkpoint_id": "cp1",
+        "decision": "continue",
+        "note": ""
+      },
+      "timestamp": "2026-01-01T00:00:00.906Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "这一版将被核验回炉丢弃。"
+      },
+      "timestamp": "2026-01-01T00:00:00.907Z"
+    },
+    {
+      "type": "content_reset",
+      "payload": {
+        "reason": "finish_guard"
+      },
+      "timestamp": "2026-01-01T00:00:00.908Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "阶段成果如下。\n\n"
+      },
+      "timestamp": "2026-01-01T00:00:00.909Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "重写后的交付正文。"
+      },
+      "timestamp": "2026-01-01T00:00:00.910Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 3200,
+          "output_tokens": 420,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.911Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "阶段成果如下。\n\n重写后的交付正文。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "阶段成果如下。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "plan_review",
+        "checkpoint_id": "cp1"
+      },
+      {
+        "kind": "rework"
+      },
+      {
+        "kind": "content",
+        "text": "阶段成果如下。\n\n重写后的交付正文。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "调研",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "执行",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "出方案",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "方案就绪",
+        "debrief": null,
+        "durationMs": 900,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": {
+          "status": "resolved",
+          "decision": "continue"
+        },
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "落地",
+        "status": "skipped",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 1,
+      "total": 2
+    },
+    "interactions": [
+      {
+        "kind": "plan_review",
+        "id": "cp1",
+        "status": "resolved",
+        "runIds": [
+          "r1"
+        ]
+      }
+    ],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

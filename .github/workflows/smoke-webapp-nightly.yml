@@ -1,0 +1,200 @@
+name: Web client smoke (nightly, real turn)
+
+# End-to-end smoke for the PRODUCTION web client (form A: the desktop renderer run
+# in a plain browser — P1 多端：web = 云工作区一等入口). This is the heavy counterpart
+# to ci.yml's per-PR "Web client boot smoke gate": that one proves the entry boots
+# with no backend; THIS one stands up the real stack (Postgres + migrated schema +
+# seeded dev user whose BYOK DeepSeek key is set from the repo secret + a live FastAPI
+# server) and drives a headless browser through the full path the spike exists to prove:
+#   login (real cookie flow) → send one message → the turn streams to completion over
+#   the cloud SSE path (web never routes to the local sidecar).
+# Script: apps/desktop/scripts/smoke-webapp.mjs (no --boot → full mode).
+#
+# Cost & flake control (mirrors evals-nightly.yml): one real LLM turn costs money and
+# depends on DeepSeek being up, so this only runs nightly / on demand, is bounded by a
+# job timeout + concurrency, and SKIPS (never reds) when EVAL_DEEPSEEK_API_KEY is unset
+# — so forks and unconfigured repos stay green while the per-PR boot gate still guards
+# the entry. Configure EVAL_DEEPSEEK_API_KEY (a low-quota key) in repo Secrets to arm it.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 18 * * *" # 18:30 UTC nightly (after evals-nightly's 18:00)
+
+# One run at a time; overlapping nightlies only re-bill the turn.
+concurrency:
+  group: smoke-webapp-nightly
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Web client full smoke (real DeepSeek)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # backstop: never let a hung turn burn the runner / budget
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agentcore
+          POSTGRES_PASSWORD: agentcore
+          POSTGRES_DB: agentcore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentcore"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Shared by the backend (server-side) and the smoke (client-side) so both agree
+      # on the same local stack.
+      DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
+      API_BASE: http://localhost:8000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Gate: without a real key there is no turn to drive, so skip the whole stack
+      # (boot is already covered per-PR). Not a failure — keeps unconfigured repos green.
+      - name: Check DeepSeek key present
+        id: key
+        run: |
+          if [ -n "${{ secrets.EVAL_DEEPSEEK_API_KEY }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::EVAL_DEEPSEEK_API_KEY 未配置，跳过 web 全链路冒烟（per-PR 的 boot 门禁仍在守）。"
+          fi
+
+      # ---- Backend toolchain ----
+      - name: Install uv
+        if: steps.key.outputs.present == 'true'
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        if: steps.key.outputs.present == 'true'
+        run: uv python install 3.12
+
+      - name: Install backend dependencies
+        if: steps.key.outputs.present == 'true'
+        working-directory: apps/server
+        run: uv sync --all-extras
+
+      # ---- Frontend toolchain ----
+      - name: Setup pnpm
+        if: steps.key.outputs.present == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        if: steps.key.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install desktop dependencies
+        if: steps.key.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile --filter agentcore-desktop...
+
+      - name: Cache Playwright browsers
+        if: steps.key.outputs.present == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Chromium
+        if: steps.key.outputs.present == 'true'
+        run: pnpm --filter agentcore-desktop exec playwright install --with-deps chromium
+
+      # ---- Migrate schema, seed the dev user, boot the server ----
+      # BYOK billing (the beta default): the turn runs on the dev user's OWN DeepSeek key,
+      # set in the next step. The server therefore needs ENCRYPTION_KEY to encrypt that key
+      # at rest — generated fresh per run for the throwaway DB. DEBUG=false keeps uvicorn
+      # single-process (no reload watcher) and requires a non-placeholder JWT secret, also
+      # generated fresh. The server-fixed base_url (key test + turn) honors an optional
+      # EVAL_DEEPSEEK_BASE_URL secret.
+      - name: Migrate, seed, and start backend
+        if: steps.key.outputs.present == 'true'
+        working-directory: apps/server
+        env:
+          DEBUG: "false"
+          BILLING_MODE: byok
+          # Optional BYOK probe endpoint (EVAL_DEEPSEEK_BASE_URL secret). Server reads
+          # PLATFORM_BASE_URL; this override shell var is legacy naming in this step only.
+          DEEPSEEK_BASE_URL_OVERRIDE: ${{ secrets.EVAL_DEEPSEEK_BASE_URL }}
+          COOKIE_SECURE: "false"
+          COOKIE_SAMESITE: lax
+          # The smoke serves the web client on :5174; its Origin must be CORS-allowlisted
+          # (both hostnames, since Vite may report either localhost or 127.0.0.1).
+          CORS_ALLOW_ORIGINS: http://localhost:5174,http://127.0.0.1:5174,http://localhost:5173,http://localhost:3000
+          HOST: 127.0.0.1
+          PORT: "8000"
+          LOG_LEVEL: warning
+        run: |
+          set -euo pipefail
+          export JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          # byok billing requires a 32-byte (64-hex) master key to encrypt the user's key.
+          export ENCRYPTION_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          if [ -n "${DEEPSEEK_BASE_URL_OVERRIDE:-}" ]; then
+            export DEEPSEEK_BASE_URL="$DEEPSEEK_BASE_URL_OVERRIDE"
+          fi
+          uv run alembic upgrade head
+          uv run python scripts/seed_dev_user.py
+          uv run python -m agentcore > "$RUNNER_TEMP/backend.log" 2>&1 &
+          echo "BACKEND_PID=$!" >> "$GITHUB_ENV"
+          # Wait for readiness (DB migrated + reachable). /readyz is 200 only when ready.
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:8000/readyz" >/dev/null 2>&1; then
+              echo "backend ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::backend never became ready"; cat "$RUNNER_TEMP/backend.log"; exit 1
+
+      # Arm the dev user's BYOK key (the beta default path) by POSTing it to the live
+      # server, which encrypts it with the ENCRYPTION_KEY above then connectivity-tests it
+      # against DeepSeek — so a bad key / endpoint / encryption config reds here with a
+      # clear message, before the browser turn. Sourced from the same repo secret.
+      - name: Set dev user's BYOK DeepSeek key
+        if: steps.key.outputs.present == 'true'
+        working-directory: apps/server
+        env:
+          DEV_DEEPSEEK_KEY: ${{ secrets.EVAL_DEEPSEEK_API_KEY }}
+          PROBE_BASE_URL: http://127.0.0.1:8000
+          DEV_USERNAME: dev
+          DEV_PASSWORD: devpassword
+        run: uv run python scripts/set_dev_llm_key.py
+
+      - name: Run web client full smoke (login → send → stream)
+        if: steps.key.outputs.present == 'true'
+        env:
+          SMOKE_API: ${{ env.API_BASE }}
+          VITE_API_URL: ${{ env.API_BASE }} # the app's own backend base (services/api.ts)
+          SMOKE_PORT: "5174"
+          SMOKE_USER: dev
+          SMOKE_PASS: devpassword
+          SMOKE_TURN_TIMEOUT_MS: "120000"
+        run: pnpm --filter agentcore-desktop smoke:webapp
+
+      - name: Dump backend log on failure
+        if: failure() && steps.key.outputs.present == 'true'
+        run: cat "$RUNNER_TEMP/backend.log" || true
+
+      - name: Upload smoke screenshots
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke-nightly-shots
+          path: apps/desktop/smoke-out/
+          if-no-files-found: ignore
+
+      - name: Stop backend
+        if: always()
+        run: kill "${BACKEND_PID:-}" 2>/dev/null || true

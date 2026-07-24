@@ -1,0 +1,91 @@
+{
+  "turnResult": {
+    "keys": [
+      "turnId",
+      "messageId",
+      "content",
+      "reasoningContent",
+      "finishReason",
+      "model",
+      "rounds",
+      "usage",
+      "citations",
+      "runs",
+      "error"
+    ],
+    "usageKeys": [
+      "inputTokens",
+      "outputTokens",
+      "reasoningTokens",
+      "cacheHitTokens",
+      "cacheMissTokens"
+    ]
+  },
+  "resumeIpcRequest": {
+    "keys": [
+      "rootId",
+      "conversationId",
+      "messageId",
+      "traceId",
+      "decision",
+      "note",
+      "subpath",
+      "selected",
+      "inference",
+      "permissionPreset"
+    ],
+    "required": [
+      "rootId",
+      "conversationId",
+      "messageId",
+      "traceId",
+      "decision",
+      "note"
+    ]
+  },
+  "resumeRpcParams": {
+    "keys": [
+      "messageId",
+      "conversationId",
+      "traceId",
+      "decision",
+      "note",
+      "selected",
+      "inference",
+      "permissionPreset"
+    ],
+    "required": [
+      "messageId",
+      "conversationId",
+      "traceId",
+      "decision",
+      "note"
+    ]
+  },
+  "inference": {
+    "keys": ["baseUrl", "apiKey", "model"],
+    "required": ["baseUrl", "apiKey", "model"]
+  },
+  "writeBack": {
+    "ipcOnlyTurnResultFields": ["turnId", "model", "error"],
+    "resultToRecordTurn": {
+      "content": "content",
+      "reasoningContent": "reasoning_content",
+      "citations": "citations",
+      "runs": "runs",
+      "messageId": "message_id",
+      "usage.inputTokens": "input_tokens",
+      "usage.outputTokens": "output_tokens",
+      "usage.reasoningTokens": "reasoning_tokens",
+      "usage.cacheHitTokens": "cache_hit_tokens",
+      "usage.cacheMissTokens": "cache_miss_tokens",
+      "rounds": "rounds",
+      "finishReason": "finish_reason"
+    },
+    "contextFields": {
+      "traceId": "trace_id",
+      "userMessage": "user_message",
+      "optimisticUserId": "user_message_id"
+    }
+  }
+}

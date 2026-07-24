@@ -1,0 +1,25 @@
+{
+  "id": "collab_p3_build_tool",
+  "category": "team",
+  "mast": "3.2",
+  "user_message": "帮我做一个小工具：给定一段中文文本，统计字数、句数，并列出出现次数最多的 10 个词。请写出可运行的 Python 脚本，并安排独立验证者按说明真跑通后再交付。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型3 构建类·中档偏轻活底线：实现者 + 独立验证（可再拆模块）。硬增益=真跑通。MAST 3.2 验证缺失。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 60 } }
+  ],
+  "expected_shape": {
+    "min_workers": 2,
+    "independent_reviewer": true,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "script", "desc": "给出可运行的 Python 脚本或完整代码块", "weight": 2 },
+    { "id": "howto", "desc": "说明如何运行/验证（启动方式或测试步骤）", "weight": 1 },
+    { "id": "features", "desc": "覆盖字数、句数与词频 Top10 三项能力", "weight": 1 }
+  ]
+}

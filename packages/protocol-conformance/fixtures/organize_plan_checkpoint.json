@@ -1,0 +1,129 @@
+{
+  "name": "organize_plan_checkpoint",
+  "description": "单聊：整理方案卡 ask_user(card=organize_plan) 挂起（intent=organize_plan）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "请确认整理方案（取消勾选即剔除）："
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "checkpoint_required",
+      "payload": {
+        "checkpoint_id": "cp_org",
+        "conversation_id": "conv_demo",
+        "question": "按下列方案整理桌面？",
+        "context": "确认后按方案批量执行，不再二次弹审批。",
+        "assumptions": [],
+        "questions": [
+          {
+            "id": "q0",
+            "prompt": "整理项",
+            "kind": "choice",
+            "multiple": true,
+            "default": "",
+            "options": [
+              {
+                "label": "发票.pdf → 财务/发票.pdf",
+                "op": "move",
+                "source": "external/desk/发票.pdf",
+                "destination": "external/desk/财务/发票.pdf"
+              },
+              {
+                "label": "新建 财务/",
+                "op": "mkdir",
+                "path": "external/desk/财务"
+              }
+            ]
+          }
+        ],
+        "style_options": [],
+        "intent": "organize_plan"
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "paused",
+        "usage": {
+          "input_tokens": 1900,
+          "output_tokens": 140,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    }
+  ],
+  "projected": {
+    "status": "paused",
+    "finishReason": "paused",
+    "content": "",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "checkpoint",
+        "checkpoint_id": "cp_org"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [
+      {
+        "kind": "ask_user",
+        "id": "cp_org",
+        "status": "pending",
+        "question": "按下列方案整理桌面？",
+        "context": "确认后按方案批量执行，不再二次弹审批。"
+      }
+    ],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

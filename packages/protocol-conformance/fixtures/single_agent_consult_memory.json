@@ -1,0 +1,141 @@
+{
+  "name": "single_agent_consult_memory",
+  "description": "单聊：CEO 翻开记忆主题笔记（consult_memory → 查阅记忆卡片 + 全文）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "这事和部署有关，先翻一下记忆里的部署流程。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "consult_memory",
+        "arguments": {
+          "name": "部署流程"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "consult_memory",
+        "status": "success",
+        "result": "## 部署流程\n- 前端：pnpm dev 起桌面壳\n- 服务端：uv run python -m agentcore\n- 数据库：本地 Postgres，迁移 alembic upgrade head\n",
+        "display": {
+          "topic": "部署流程"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "按你记录的部署流程，"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "先 pnpm dev 起壳，再 uv run 起服务端即可。"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1400,
+          "output_tokens": 180,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "按你记录的部署流程，先 pnpm dev 起壳，再 uv run 起服务端即可。",
+    "reasoning": "这事和部署有关，先翻一下记忆里的部署流程。",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "reasoning",
+        "text": "这事和部署有关，先翻一下记忆里的部署流程。"
+      },
+      {
+        "kind": "tool",
+        "id": "tc1",
+        "tool_name": "consult_memory",
+        "arguments": {
+          "name": "部署流程"
+        },
+        "result": "## 部署流程\n- 前端：pnpm dev 起桌面壳\n- 服务端：uv run python -m agentcore\n- 数据库：本地 Postgres，迁移 alembic upgrade head\n",
+        "status": "success",
+        "display": {
+          "topic": "部署流程"
+        }
+      },
+      {
+        "kind": "content",
+        "text": "按你记录的部署流程，先 pnpm dev 起壳，再 uv run 起服务端即可。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

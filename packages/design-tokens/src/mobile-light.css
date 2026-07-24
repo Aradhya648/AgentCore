@@ -1,0 +1,17 @@
+/*
+ * Mobile light palette — usage-mapped names, values mirror desktop :root in tokens.css.
+ * Phone端暂不做暗色；见 color-tokens.mdc 跨端节。
+ */
+:root {
+  --bg: oklch(0.97 0.006 255);
+  --panel: oklch(1 0 0);
+  --border: oklch(0.92 0.008 255);
+  --fg: oklch(0.15 0.01 255);
+  --muted: oklch(0.55 0.02 255);
+  --accent: oklch(0.55 0.18 255);
+  --user: oklch(0.92 0.05 255);
+  --error: oklch(0.58 0.22 27);
+  --success: oklch(0.55 0.14 152);
+  --warning: oklch(0.66 0.15 65);
+  --warning-border: oklch(0.86 0.08 65);
+}

@@ -1,0 +1,369 @@
+{
+  "name": "decision_then_second_gate_then_kill",
+  "description": "恢复收口：决策后二次挂起再杀 → 仅新决策卡 pending，无中断态双显",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我来安排团队。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "调研"
+            },
+            {
+              "role": "撰写"
+            }
+          ],
+          "coordinate": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "构建 X",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "调研",
+            "thinking": true
+          },
+          {
+            "id": "w2",
+            "role": "撰写",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "调研方案",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "写初稿",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "team_preview_required",
+      "payload": {
+        "checkpoint_id": "tp1",
+        "conversation_id": "conv_demo",
+        "workers": [
+          {
+            "run_id": "r1",
+            "role": "调研",
+            "task": "调研方案",
+            "depends_on": [],
+            "debate": false
+          },
+          {
+            "run_id": "r2",
+            "role": "撰写",
+            "task": "写初稿",
+            "depends_on": [
+              "r1"
+            ],
+            "debate": false
+          }
+        ],
+        "tools": [
+          "code_execute",
+          "file_write",
+          "test_run"
+        ],
+        "primitive": "delegate",
+        "motion": "",
+        "form": "",
+        "sides": [],
+        "max_rounds": 0,
+        "thorough": true
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "team_preview_resolved",
+      "payload": {
+        "checkpoint_id": "tp1",
+        "decision": "continue",
+        "note": ""
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "output_summary": "调研完成",
+        "duration_ms": 900,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.907Z"
+    },
+    {
+      "type": "checkpoint_required",
+      "payload": {
+        "checkpoint_id": "cp-second",
+        "conversation_id": "conv_demo",
+        "question": "调研结论你认吗？",
+        "context": "二次挂起",
+        "assumptions": [],
+        "questions": [],
+        "style_options": [],
+        "intent": "decision"
+      },
+      "timestamp": "2026-01-01T00:00:00.908Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "paused",
+        "usage": {
+          "input_tokens": 2200,
+          "output_tokens": 180,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.909Z"
+    }
+  ],
+  "projected": {
+    "status": "paused",
+    "finishReason": "paused",
+    "content": "",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我来安排团队。"
+      },
+      {
+        "kind": "team_preview",
+        "checkpoint_id": "tp1"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "checkpoint",
+        "checkpoint_id": "cp-second"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "调研",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "撰写",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "调研方案",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "调研完成",
+        "debrief": null,
+        "durationMs": 900,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "写初稿",
+        "status": "pending",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 1,
+      "total": 2
+    },
+    "interactions": [
+      {
+        "kind": "team_preview",
+        "id": "tp1",
+        "status": "resolved",
+        "workerIds": [
+          "r1",
+          "r2"
+        ]
+      },
+      {
+        "kind": "ask_user",
+        "id": "cp-second",
+        "status": "pending",
+        "question": "调研结论你认吗？",
+        "context": "二次挂起"
+      }
+    ],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

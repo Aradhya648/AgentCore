@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hello_cli"
+version = "0.1.0"
+description = "A minimal CLI demo package"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

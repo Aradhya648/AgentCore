@@ -1,0 +1,126 @@
+"""Set a user's per-user quota overrides (成本配额与计费.md §一, 决策④).
+
+Operator tool for granting a specific account more (or unlimited) headroom during
+内测, without touching the database by hand. The same ``UserRepository.set_quota``
+this calls will back a future admin 成员-page endpoint.
+
+Run from ``apps/server``::
+
+    # never cost-cap this user
+    uv run python scripts/set_quota.py alice --unlimited
+
+    # raise just the daily token budget, leave the rest inheriting global config
+    uv run python scripts/set_quota.py bob --daily-tokens 5000000
+
+    # cap monthly spend at $20 and clear the daily-requests override (inherit again)
+    uv run python scripts/set_quota.py carol --monthly-usd 20 --daily-requests inherit
+
+Semantics per dimension: a number sets the override (``0`` = unlimited for that
+dimension); ``inherit`` clears it back to the global config threshold; omitting the
+flag leaves it unchanged. ``--unlimited / --no-unlimited`` toggles the master
+bypass.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+
+from agentcore.db import async_session_factory
+from agentcore.db.repositories import UserRepository
+
+# argparse default meaning "flag not given → leave this column unchanged",
+# distinct from an explicit None (= clear the override / inherit global config).
+_UNSET: object = object()
+
+
+def _opt_int(raw: str) -> int | None:
+    return None if raw.strip().lower() == "inherit" else int(raw)
+
+
+def _opt_float(raw: str) -> float | None:
+    return None if raw.strip().lower() == "inherit" else float(raw)
+
+
+def _fmt(value: object) -> str:
+    """Render an override column for the summary: None = inherit global config."""
+    return "inherit" if value is None else str(value)
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Set a user's per-user quota overrides.")
+    p.add_argument("username", help="target account username")
+    p.add_argument(
+        "--unlimited",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="master bypass: skip all quota checks (--no-unlimited to clear)",
+    )
+    p.add_argument(
+        "--daily-tokens",
+        type=_opt_int,
+        default=_UNSET,
+        metavar="N|inherit",
+        help="daily token cap (0 = unlimited; 'inherit' clears the override)",
+    )
+    p.add_argument(
+        "--monthly-usd",
+        type=_opt_float,
+        default=_UNSET,
+        metavar="X|inherit",
+        help="monthly cost cap in USD (0 = unlimited; 'inherit' clears)",
+    )
+    p.add_argument(
+        "--daily-usd",
+        type=_opt_float,
+        default=_UNSET,
+        metavar="X|inherit",
+        help="daily cost cap in USD (0 = unlimited; 'inherit' clears)",
+    )
+    p.add_argument(
+        "--daily-requests",
+        type=_opt_int,
+        default=_UNSET,
+        metavar="N|inherit",
+        help="daily request cap (0 = unlimited; 'inherit' clears the override)",
+    )
+    return p.parse_args()
+
+
+async def _run(args: argparse.Namespace) -> None:
+    async with async_session_factory() as session:
+        users = UserRepository(session)
+        user = await users.get_by_username(args.username)
+        if user is None:
+            print(f"user {args.username!r} not found", file=sys.stderr)
+            raise SystemExit(1)
+
+        kwargs: dict[str, object] = {}
+        if args.unlimited is not None:
+            kwargs["is_unlimited"] = args.unlimited
+        if args.daily_tokens is not _UNSET:
+            kwargs["daily_tokens"] = args.daily_tokens
+        if args.monthly_usd is not _UNSET:
+            kwargs["monthly_cost_usd"] = args.monthly_usd
+        if args.daily_usd is not _UNSET:
+            kwargs["daily_cost_usd"] = args.daily_usd
+        if args.daily_requests is not _UNSET:
+            kwargs["daily_requests"] = args.daily_requests
+
+        if not kwargs:
+            print("nothing to change (pass --unlimited/--daily-tokens/...).\n")
+        else:
+            await users.set_quota(user.user_id, **kwargs)
+            user = await users.get_by_id(user.user_id)
+            print(f"updated quota for {args.username!r} (id={user.user_id})\n")
+
+        print(f"  is_unlimited        : {user.is_unlimited}")
+        print(f"  quota_daily_tokens  : {_fmt(user.quota_daily_tokens)}")
+        print(f"  quota_monthly_usd   : {_fmt(user.quota_monthly_cost_usd)}")
+        print(f"  quota_daily_usd     : {_fmt(user.quota_daily_cost_usd)}")
+        print(f"  quota_daily_requests: {_fmt(user.quota_daily_requests)}")
+
+
+if __name__ == "__main__":
+    asyncio.run(_run(_parse_args()))

@@ -1,0 +1,146 @@
+{
+  "name": "board_ops_tool_failed",
+  "description": "白板：board_ops 画布未打开失败（工具步失败 + 回合仍收尾）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "board_ops",
+        "arguments": {
+          "ops": [
+            {
+              "op": "add_node",
+              "ref": "a",
+              "text": "Hi"
+            }
+          ]
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "board_op_required",
+      "payload": {
+        "request_id": "board-req-1",
+        "conversation_id": "conv_demo",
+        "board_id": "board_demo",
+        "ops": [
+          {
+            "op": "add_node",
+            "ref": "a",
+            "text": "Hi"
+          }
+        ],
+        "summary": ""
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "board_ops",
+        "status": "error",
+        "result": "画布未打开"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "当前画布未打开，无法作画。"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 800,
+          "output_tokens": 60,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "当前画布未打开，无法作画。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "tool",
+        "id": "tc1",
+        "tool_name": "board_ops",
+        "arguments": {
+          "ops": [
+            {
+              "op": "add_node",
+              "ref": "a",
+              "text": "Hi"
+            }
+          ]
+        },
+        "result": "画布未打开",
+        "status": "error"
+      },
+      {
+        "kind": "content",
+        "text": "当前画布未打开，无法作画。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

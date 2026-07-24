@@ -1,0 +1,28 @@
+# AgentCore 数据库定时备份（部署与运维.md §7.7「备份与恢复策略」）。
+# 由 agentcore-backup.timer 驱动的 oneshot；脚本自身做 pg_dump|gzip + 轮转保留。
+#
+# 安装：
+#   sudo cp deploy/systemd/agentcore-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now agentcore-backup.timer
+#   # 手动跑一次验证：sudo systemctl start agentcore-backup.service
+#   #                journalctl -u agentcore-backup.service
+#
+# 非默认部署根（AGENTCORE_HOME）需同步改下方 Environment 与 ExecStart 路径。
+
+[Unit]
+Description=AgentCore 数据库全量备份（pg_dump|gzip + 轮转）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 运维变量（BACKUP_DIR / BACKUP_KEEP 等）；前缀 '-' = 文件缺失不报错。脚本内亦会再 source 一次。
+EnvironmentFile=-/opt/agentcore/.env
+Environment=AGENTCORE_HOME=/opt/agentcore
+# 显式 bash 调用：不依赖脚本 +x 位（Windows 创作经 git checkout 到 Linux 可能丢失）。
+ExecStart=/usr/bin/env bash /opt/agentcore/repo/deploy/scripts/backup.sh
+# 备份须经 `docker compose exec postgres pg_dump`——运行身份须能访问 docker（root
+# 或已加入 docker 组的用户）。故默认以 root 跑；若启用专用 User=，须确保其在 docker 组。
+# User=agentcore
+# Group=agentcore

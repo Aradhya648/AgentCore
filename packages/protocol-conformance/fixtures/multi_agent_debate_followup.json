@@ -1,0 +1,1714 @@
+{
+  "name": "multi_agent_debate_followup",
+  "description": "多 Agent：辩论收场带用户追问（user_interjections verbatim 复盘）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我发起一场可追问的正反辩论来定夺。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "正反辩论（可追问）：是否采用方案 A",
+        "agents": [
+          {
+            "id": "debate_fu_mod1",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_fu_mod1",
+            "agent_id": "debate_fu_mod1",
+            "task": "主持正反辩论（可追问）：是否采用方案 A",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1",
+        "agent_id": "debate_fu_mod1",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "debate_fu_mod1",
+        "round_no": 1,
+        "focus": "方案 A 的收益与风险敞口",
+        "cross_exam_enabled": true,
+        "opening": "这场可追问辩论：先把方案 A 的收益与风险敞口说清。"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "支持方",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "反对方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_fu_mod1_r1_pro",
+            "agent_id": "d_pro",
+            "task": "论证支持采用方案 A",
+            "depends_on": [],
+            "parent_run_id": "debate_fu_mod1",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "debate_fu_mod1_r1_con",
+            "agent_id": "d_con",
+            "task": "论证反对采用方案 A",
+            "depends_on": [],
+            "parent_run_id": "debate_fu_mod1",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "parent_run_id": "debate_fu_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_fu_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "delta": "支持理由：收益可量化。"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1_r1_pro",
+        "agent_id": "d_pro",
+        "output_summary": "支持方陈述完成",
+        "duration_ms": 800,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.807Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1_r1_con",
+        "agent_id": "d_con",
+        "parent_run_id": "debate_fu_mod1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.808Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_fu_mod1_r1_con",
+        "agent_id": "d_con",
+        "delta": "反对理由：风险无兜底。"
+      },
+      "timestamp": "2026-01-01T00:00:00.809Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1_r1_con",
+        "agent_id": "d_con",
+        "output_summary": "反对方陈述完成",
+        "duration_ms": 850,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.658Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_pro",
+        "agent_id": "debate_fu_mod1_r2_pro",
+        "parent_run_id": "debate_fu_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_fu_mod1_r1_pro",
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 2
+      },
+      "timestamp": "2026-01-01T00:00:01.659Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_pro",
+        "agent_id": "debate_fu_mod1_r2_pro",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 2 轮任务",
+            "body": "## 第 2 轮 · 本轮焦点：灰度期的兜底与熔断机制\n⚠️ 用户在本轮追问（向你提出）：\n- 灰度期谁来兜底？\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 75,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 2 轮 · 本轮焦点",
+            "body": "灰度期的兜底与熔断机制",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "interjection",
+            "heading": "用户本轮追问（向你提出 · 最高优先级）",
+            "body": "- 灰度期谁来兜底？",
+            "chars": 10,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 反方",
+            "body": "反对理由：风险无兜底。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "反方",
+            "source_run_id": "debate_fu_mod1_r1_con",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.660Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_pro",
+        "agent_id": "debate_fu_mod1_r2_pro",
+        "delta": "回应追问：灰度以保守口径为准并设熔断。"
+      },
+      "timestamp": "2026-01-01T00:00:01.661Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_pro",
+        "agent_id": "debate_fu_mod1_r2_pro",
+        "output_summary": "支持方回应追问完成",
+        "duration_ms": 820,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:02.479Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_con",
+        "agent_id": "debate_fu_mod1_r2_con",
+        "parent_run_id": "debate_fu_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_fu_mod1_r1_con",
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 2
+      },
+      "timestamp": "2026-01-01T00:00:02.480Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_con",
+        "agent_id": "debate_fu_mod1_r2_con",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 2 轮任务",
+            "body": "## 第 2 轮 · 本轮焦点：灰度期的兜底与熔断机制\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 46,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 2 轮 · 本轮焦点",
+            "body": "灰度期的兜底与熔断机制",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 正方",
+            "body": "支持理由：收益可量化。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "正方",
+            "source_run_id": "debate_fu_mod1_r1_pro",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "challenge",
+            "heading": "上一轮你被反驳的命门",
+            "body": "- 正方：收益可量化，风险可用熔断兜底，并非无解。",
+            "chars": 25,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:02.481Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_con",
+        "agent_id": "debate_fu_mod1_r2_con",
+        "delta": "仍存疑：熔断阈值过松。"
+      },
+      "timestamp": "2026-01-01T00:00:02.482Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1_r2_con",
+        "agent_id": "debate_fu_mod1_r2_con",
+        "output_summary": "反对方续论完成",
+        "duration_ms": 830,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:03.310Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_pro",
+        "agent_id": "debate_fu_mod1_r3_pro",
+        "parent_run_id": "debate_fu_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_fu_mod1_r1_pro",
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 3
+      },
+      "timestamp": "2026-01-01T00:00:03.311Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_pro",
+        "agent_id": "debate_fu_mod1_r3_pro",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 3 轮任务",
+            "body": "## 第 3 轮 · 本轮焦点：熔断阈值如何取值\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 43,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 3 轮 · 本轮焦点",
+            "body": "熔断阈值如何取值",
+            "chars": 8,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 反方",
+            "body": "仍存疑：熔断阈值过松。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "反方",
+            "source_run_id": "debate_fu_mod1_r2_con",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:03.312Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_pro",
+        "agent_id": "debate_fu_mod1_r3_pro",
+        "delta": "收敛：按尾部损失分位设阈并自动回滚。"
+      },
+      "timestamp": "2026-01-01T00:00:03.313Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_pro",
+        "agent_id": "debate_fu_mod1_r3_pro",
+        "output_summary": "支持方第三轮收敛完成",
+        "duration_ms": 810,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.121Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_con",
+        "agent_id": "debate_fu_mod1_r3_con",
+        "parent_run_id": "debate_fu_mod1",
+        "kind": "agent",
+        "continues_run_id": "debate_fu_mod1_r1_con",
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 3
+      },
+      "timestamp": "2026-01-01T00:00:04.122Z"
+    },
+    {
+      "type": "run_context",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_con",
+        "agent_id": "debate_fu_mod1_r3_con",
+        "blocks": [
+          {
+            "channel": "task",
+            "heading": "第 3 轮任务",
+            "body": "## 第 3 轮 · 本轮焦点：熔断阈值如何取值\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 43,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 3 轮 · 本轮焦点",
+            "body": "熔断阈值如何取值",
+            "chars": 8,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 正方",
+            "body": "回应追问：灰度以保守口径为准并设熔断。",
+            "chars": 19,
+            "truncated": false,
+            "source_role": "正方",
+            "source_run_id": "debate_fu_mod1_r2_pro",
+            "fidelity": "",
+            "files": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:04.123Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_con",
+        "agent_id": "debate_fu_mod1_r3_con",
+        "delta": "认可机制，仅阈值取值仍需拍板。"
+      },
+      "timestamp": "2026-01-01T00:00:04.124Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1_r3_con",
+        "agent_id": "debate_fu_mod1_r3_con",
+        "output_summary": "反对方第三轮收敛完成",
+        "duration_ms": 820,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.942Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_fu_mod1",
+        "agent_id": "debate_fu_mod1",
+        "output_summary": "灰度兜底已达成，仅剩阈值取值待你拍板",
+        "duration_ms": 2800,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.943Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec1",
+        "moderator_run_id": "debate_fu_mod1",
+        "form": "debate",
+        "motion": "是否采用方案 A",
+        "stop_reason": "converged",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方",
+            "stance": "支持采用方案 A",
+            "is_subject": false
+          },
+          {
+            "key": "con",
+            "name": "反对方",
+            "stance": "反对采用方案 A",
+            "is_subject": false
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "方案 A 的收益与风险敞口",
+            "summary": "支持方强调收益可量化，反对方指出缺乏风险兜底，焦点收敛到风险可控性。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": true,
+              "converged": false,
+              "stop_reason": "",
+              "rationale": "核心交锋已起，但风险兜底尚未谈透，值得再探一轮。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "支持方",
+                "run_id": "debate_fu_mod1_r1_pro",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              },
+              {
+                "key": "con",
+                "name": "反对方",
+                "run_id": "debate_fu_mod1_r1_con",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "con",
+                "to_key": "pro",
+                "point": "收益可量化但未对冲风险敞口，量化口径回避了尾部风险。"
+              }
+            ],
+            "user_interjections": [],
+            "scores": {
+              "pro": {
+                "argument": 4,
+                "engagement": 2,
+                "evidence": 3,
+                "penalties": [],
+                "note": "收益量化扎实，但尚未正面接住风险兜底。",
+                "total": 9
+              },
+              "con": {
+                "argument": 3,
+                "engagement": 3,
+                "evidence": 2,
+                "penalties": [],
+                "note": "风险敞口命门抓得准，缺量化证据。",
+                "total": 8
+              }
+            }
+          },
+          {
+            "round_no": 2,
+            "focus": "灰度期数据口径不一致时的兜底机制",
+            "summary": "支持方正面回应追问：灰度期以反对方数据口径为准并设熔断；分歧收敛到阈值该如何设。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": true,
+              "converged": false,
+              "stop_reason": "",
+              "rationale": "支持方接住追问、给出兜底，但回滚/熔断阈值该多严仍有实质分歧，值得再探一轮。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "支持方",
+                "run_id": "debate_fu_mod1_r2_pro",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              },
+              {
+                "key": "con",
+                "name": "反对方",
+                "run_id": "debate_fu_mod1_r2_con",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "con",
+                "to_key": "pro",
+                "point": "以反对方口径为准虽稳妥，但熔断阈值过松仍可能放大尾部风险。"
+              }
+            ],
+            "user_interjections": [
+              {
+                "ask": "灰度期如果出现数据口径不一致，谁来兜底、按谁的口径？",
+                "target_key": "pro",
+                "answered": true
+              }
+            ],
+            "scores": {
+              "pro": {
+                "argument": 4,
+                "engagement": 4,
+                "evidence": 3,
+                "penalties": [],
+                "note": "正面接住追问、给出保守口径 + 熔断兜底。",
+                "total": 11
+              },
+              "con": {
+                "argument": 3,
+                "engagement": 3,
+                "evidence": 2,
+                "penalties": [
+                  "回避了灰度兜底的成本归属"
+                ],
+                "note": "仍质疑熔断阈值，但对成本归属避而不答。",
+                "total": 7
+              }
+            }
+          },
+          {
+            "round_no": 3,
+            "focus": "回滚与熔断阈值该如何设定",
+            "summary": "支持方提出按尾部损失分位设阈并自动回滚，反对方认可机制、仅保留阈值取值分歧，收敛到价值取舍。",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "兜底机制已谈透，仅剩阈值取值这一价值判断需用户拍板。",
+              "rationale": "阈值机制双方达成一致，取值严松是风险偏好取舍、AI 判不了，交用户拍板。"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "支持方",
+                "run_id": "debate_fu_mod1_r3_pro",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              },
+              {
+                "key": "con",
+                "name": "反对方",
+                "run_id": "debate_fu_mod1_r3_con",
+                "ok": true,
+                "absent": false,
+                "arguments": []
+              }
+            ],
+            "clashes": [
+              {
+                "from_key": "con",
+                "to_key": "pro",
+                "point": "按分位设阈方向对，但分位取多少直接决定放行多少尾部风险，仍需拍板。"
+              }
+            ],
+            "user_interjections": [],
+            "scores": {
+              "pro": {
+                "argument": 3,
+                "engagement": 4,
+                "evidence": 3,
+                "penalties": [],
+                "note": "按分位设阈 + 自动回滚，机制落地。",
+                "total": 10
+              },
+              "con": {
+                "argument": 3,
+                "engagement": 4,
+                "evidence": 3,
+                "penalties": [],
+                "note": "认可机制，保留阈值取值分歧。",
+                "total": 10
+              }
+            }
+          }
+        ],
+        "brief": {
+          "crux": "方案 A 的风险是否可控、灰度兜底是否到位",
+          "strongest_points": {
+            "pro": "收益显著且可量化，已就追问给出灰度兜底（保守口径 + 熔断 + 按分位设阈自动回滚）",
+            "con": "风险敞口缺乏兜底，熔断阈值仍可能过松"
+          },
+          "handoffs": [
+            {
+              "kind": "value",
+              "text": "增长优先 vs 稳健优先"
+            },
+            {
+              "kind": "fact",
+              "text": "历史故障率的数据口径不一致"
+            },
+            {
+              "kind": "question",
+              "text": "灰度的回滚/熔断阈值取多少（你的追问已促成兜底，取值仍需你定）？"
+            }
+          ],
+          "decisive": "胜负手在第 2 轮：支持方正面接住你的追问、给出灰度兜底（回应完整度跳升），反对方却回避成本归属被扣分；第 3 轮双方就阈值机制达成一致。累计净分 30 : 25，支持方占优，仅剩阈值取值是价值取舍。",
+          "leaning": "倾向有条件采用",
+          "confidence": "medium",
+          "recommendation": "采纳支持方的灰度兜底方案（按分位设阈 + 自动回滚），阈值取值需你拍板。"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:04.944Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 3600,
+          "output_tokens": 620,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:04.945Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "我发起一场可追问的正反辩论来定夺。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我发起一场可追问的正反辩论来定夺。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "debate_fu_mod1",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "支持理由：收益可量化。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "反对理由：风险无兜底。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_fu_mod1_r2_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "回应追问：灰度以保守口径为准并设熔断。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_fu_mod1_r2_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "仍存疑：熔断阈值过松。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_fu_mod1_r3_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "收敛：按尾部损失分位设阈并自动回滚。",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "debate_fu_mod1_r3_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "认可机制，仅阈值取值仍需拍板。",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "debate_fu_mod1",
+        "agentId": "debate_fu_mod1",
+        "task": "主持正反辩论（可追问）：是否采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "灰度兜底已达成，仅剩阈值取值待你拍板",
+        "debrief": null,
+        "durationMs": 2800,
+        "error": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "debate_fu_mod1_r1_pro",
+        "agentId": "d_pro",
+        "task": "论证支持采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方陈述完成",
+        "debrief": null,
+        "durationMs": 800,
+        "error": null,
+        "parentRunId": "debate_fu_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "支持理由：收益可量化。"
+          }
+        ]
+      },
+      {
+        "id": "debate_fu_mod1_r1_con",
+        "agentId": "d_con",
+        "task": "论证反对采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方陈述完成",
+        "debrief": null,
+        "durationMs": 850,
+        "error": null,
+        "parentRunId": "debate_fu_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "反对理由：风险无兜底。"
+          }
+        ]
+      },
+      {
+        "id": "debate_fu_mod1_r2_pro",
+        "agentId": "debate_fu_mod1_r2_pro",
+        "task": "论证支持采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方回应追问完成",
+        "debrief": null,
+        "durationMs": 820,
+        "error": null,
+        "parentRunId": "debate_fu_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 2,
+        "continuesRunId": "debate_fu_mod1_r1_pro",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 2 轮任务",
+            "body": "## 第 2 轮 · 本轮焦点：灰度期的兜底与熔断机制\n⚠️ 用户在本轮追问（向你提出）：\n- 灰度期谁来兜底？\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 75,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 2 轮 · 本轮焦点",
+            "body": "灰度期的兜底与熔断机制",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "interjection",
+            "heading": "用户本轮追问（向你提出 · 最高优先级）",
+            "body": "- 灰度期谁来兜底？",
+            "chars": 10,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 反方",
+            "body": "反对理由：风险无兜底。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "反方",
+            "source_run_id": "debate_fu_mod1_r1_con",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "回应追问：灰度以保守口径为准并设熔断。"
+          }
+        ]
+      },
+      {
+        "id": "debate_fu_mod1_r2_con",
+        "agentId": "debate_fu_mod1_r2_con",
+        "task": "论证反对采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方续论完成",
+        "debrief": null,
+        "durationMs": 830,
+        "error": null,
+        "parentRunId": "debate_fu_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 2,
+        "continuesRunId": "debate_fu_mod1_r1_con",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 2 轮任务",
+            "body": "## 第 2 轮 · 本轮焦点：灰度期的兜底与熔断机制\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 46,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 2 轮 · 本轮焦点",
+            "body": "灰度期的兜底与熔断机制",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 正方",
+            "body": "支持理由：收益可量化。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "正方",
+            "source_run_id": "debate_fu_mod1_r1_pro",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "challenge",
+            "heading": "上一轮你被反驳的命门",
+            "body": "- 正方：收益可量化，风险可用熔断兜底，并非无解。",
+            "chars": 25,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "仍存疑：熔断阈值过松。"
+          }
+        ]
+      },
+      {
+        "id": "debate_fu_mod1_r3_pro",
+        "agentId": "debate_fu_mod1_r3_pro",
+        "task": "论证支持采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方第三轮收敛完成",
+        "debrief": null,
+        "durationMs": 810,
+        "error": null,
+        "parentRunId": "debate_fu_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 3,
+        "continuesRunId": "debate_fu_mod1_r1_pro",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 3 轮任务",
+            "body": "## 第 3 轮 · 本轮焦点：熔断阈值如何取值\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 43,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 3 轮 · 本轮焦点",
+            "body": "熔断阈值如何取值",
+            "chars": 8,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 反方",
+            "body": "仍存疑：熔断阈值过松。",
+            "chars": 11,
+            "truncated": false,
+            "source_role": "反方",
+            "source_run_id": "debate_fu_mod1_r2_con",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "收敛：按尾部损失分位设阈并自动回滚。"
+          }
+        ]
+      },
+      {
+        "id": "debate_fu_mod1_r3_con",
+        "agentId": "debate_fu_mod1_r3_con",
+        "task": "论证反对采用方案 A",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方第三轮收敛完成",
+        "debrief": null,
+        "durationMs": 820,
+        "error": null,
+        "parentRunId": "debate_fu_mod1",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 3,
+        "continuesRunId": "debate_fu_mod1_r1_con",
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [
+          {
+            "channel": "task",
+            "heading": "第 3 轮任务",
+            "body": "## 第 3 轮 · 本轮焦点：熔断阈值如何取值\n对方上一轮的论点如下，请针对性回应。",
+            "chars": 43,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "round_focus",
+            "heading": "第 3 轮 · 本轮焦点",
+            "body": "熔断阈值如何取值",
+            "chars": 8,
+            "truncated": false,
+            "source_role": "",
+            "source_run_id": "",
+            "fidelity": "",
+            "files": []
+          },
+          {
+            "channel": "opponent",
+            "heading": "对方上一轮 · 正方",
+            "body": "回应追问：灰度以保守口径为准并设熔断。",
+            "chars": 19,
+            "truncated": false,
+            "source_role": "正方",
+            "source_run_id": "debate_fu_mod1_r2_pro",
+            "fidelity": "",
+            "files": []
+          }
+        ],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "认可机制，仅阈值取值仍需拍板。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 7,
+      "total": 7
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec1",
+      "moderator_run_id": "debate_fu_mod1",
+      "form": "debate",
+      "motion": "是否采用方案 A",
+      "stop_reason": "converged",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "pro",
+          "name": "支持方",
+          "stance": "支持采用方案 A",
+          "is_subject": false
+        },
+        {
+          "key": "con",
+          "name": "反对方",
+          "stance": "反对采用方案 A",
+          "is_subject": false
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "方案 A 的收益与风险敞口",
+          "summary": "支持方强调收益可量化，反对方指出缺乏风险兜底，焦点收敛到风险可控性。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": true,
+            "converged": false,
+            "stop_reason": "",
+            "rationale": "核心交锋已起，但风险兜底尚未谈透，值得再探一轮。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "支持方",
+              "run_id": "debate_fu_mod1_r1_pro",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            },
+            {
+              "key": "con",
+              "name": "反对方",
+              "run_id": "debate_fu_mod1_r1_con",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "con",
+              "to_key": "pro",
+              "point": "收益可量化但未对冲风险敞口，量化口径回避了尾部风险。"
+            }
+          ],
+          "user_interjections": [],
+          "scores": {
+            "pro": {
+              "argument": 4,
+              "engagement": 2,
+              "evidence": 3,
+              "penalties": [],
+              "note": "收益量化扎实，但尚未正面接住风险兜底。",
+              "total": 9
+            },
+            "con": {
+              "argument": 3,
+              "engagement": 3,
+              "evidence": 2,
+              "penalties": [],
+              "note": "风险敞口命门抓得准，缺量化证据。",
+              "total": 8
+            }
+          }
+        },
+        {
+          "round_no": 2,
+          "focus": "灰度期数据口径不一致时的兜底机制",
+          "summary": "支持方正面回应追问：灰度期以反对方数据口径为准并设熔断；分歧收敛到阈值该如何设。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": true,
+            "converged": false,
+            "stop_reason": "",
+            "rationale": "支持方接住追问、给出兜底，但回滚/熔断阈值该多严仍有实质分歧，值得再探一轮。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "支持方",
+              "run_id": "debate_fu_mod1_r2_pro",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            },
+            {
+              "key": "con",
+              "name": "反对方",
+              "run_id": "debate_fu_mod1_r2_con",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "con",
+              "to_key": "pro",
+              "point": "以反对方口径为准虽稳妥，但熔断阈值过松仍可能放大尾部风险。"
+            }
+          ],
+          "user_interjections": [
+            {
+              "ask": "灰度期如果出现数据口径不一致，谁来兜底、按谁的口径？",
+              "target_key": "pro",
+              "answered": true
+            }
+          ],
+          "scores": {
+            "pro": {
+              "argument": 4,
+              "engagement": 4,
+              "evidence": 3,
+              "penalties": [],
+              "note": "正面接住追问、给出保守口径 + 熔断兜底。",
+              "total": 11
+            },
+            "con": {
+              "argument": 3,
+              "engagement": 3,
+              "evidence": 2,
+              "penalties": [
+                "回避了灰度兜底的成本归属"
+              ],
+              "note": "仍质疑熔断阈值，但对成本归属避而不答。",
+              "total": 7
+            }
+          }
+        },
+        {
+          "round_no": 3,
+          "focus": "回滚与熔断阈值该如何设定",
+          "summary": "支持方提出按尾部损失分位设阈并自动回滚，反对方认可机制、仅保留阈值取值分歧，收敛到价值取舍。",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "兜底机制已谈透，仅剩阈值取值这一价值判断需用户拍板。",
+            "rationale": "阈值机制双方达成一致，取值严松是风险偏好取舍、AI 判不了，交用户拍板。"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "支持方",
+              "run_id": "debate_fu_mod1_r3_pro",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            },
+            {
+              "key": "con",
+              "name": "反对方",
+              "run_id": "debate_fu_mod1_r3_con",
+              "ok": true,
+              "absent": false,
+              "arguments": []
+            }
+          ],
+          "clashes": [
+            {
+              "from_key": "con",
+              "to_key": "pro",
+              "point": "按分位设阈方向对，但分位取多少直接决定放行多少尾部风险，仍需拍板。"
+            }
+          ],
+          "user_interjections": [],
+          "scores": {
+            "pro": {
+              "argument": 3,
+              "engagement": 4,
+              "evidence": 3,
+              "penalties": [],
+              "note": "按分位设阈 + 自动回滚，机制落地。",
+              "total": 10
+            },
+            "con": {
+              "argument": 3,
+              "engagement": 4,
+              "evidence": 3,
+              "penalties": [],
+              "note": "认可机制，保留阈值取值分歧。",
+              "total": 10
+            }
+          }
+        }
+      ],
+      "brief": {
+        "crux": "方案 A 的风险是否可控、灰度兜底是否到位",
+        "strongest_points": {
+          "pro": "收益显著且可量化，已就追问给出灰度兜底（保守口径 + 熔断 + 按分位设阈自动回滚）",
+          "con": "风险敞口缺乏兜底，熔断阈值仍可能过松"
+        },
+        "handoffs": [
+          {
+            "kind": "value",
+            "text": "增长优先 vs 稳健优先"
+          },
+          {
+            "kind": "fact",
+            "text": "历史故障率的数据口径不一致"
+          },
+          {
+            "kind": "question",
+            "text": "灰度的回滚/熔断阈值取多少（你的追问已促成兜底，取值仍需你定）？"
+          }
+        ],
+        "decisive": "胜负手在第 2 轮：支持方正面接住你的追问、给出灰度兜底（回应完整度跳升），反对方却回避成本归属被扣分；第 3 轮双方就阈值机制达成一致。累计净分 30 : 25，支持方占优，仅剩阈值取值是价值取舍。",
+        "leaning": "倾向有条件采用",
+        "confidence": "medium",
+        "recommendation": "采纳支持方的灰度兜底方案（按分位设阈 + 自动回滚），阈值取值需你拍板。"
+      }
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "方案 A 的收益与风险敞口",
+        "summary": "",
+        "verdict": null,
+        "sides": [],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": null,
+    "crossExamEnabled": true,
+    "debateOpening": "这场可追问辩论：先把方案 A 的收益与风险敞口说清。",
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

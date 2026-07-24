@@ -1,0 +1,24 @@
+{
+  "errors": [],
+  "checks": {
+    "content_byte_equal": true,
+    "has_moderator": true,
+    "has_closing": true,
+    "has_cross_exam": true,
+    "has_output_deltas": true,
+    "four_rounds": true,
+    "order_ok": true
+  },
+  "api": "http://127.0.0.1:8015",
+  "graph": {
+    "mods": 1,
+    "closings": 2,
+    "cx": 7,
+    "closing_ctx": 2,
+    "out_d": 17,
+    "rounds": 4
+  },
+  "ok": true,
+  "replay_cid": "d8820a32-7815-4138-a732-a9bbcf5b9a5a",
+  "replay_mid": "81ad727a-4b74-4a48-8ac0-39f286d957b4"
+}

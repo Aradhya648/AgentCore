@@ -1,0 +1,187 @@
+"""Card field normalization and caps for ask_user."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+# Caps so a runaway prompt can't bloat the card / event. The free-form note on the
+# card always lets the user steer beyond these.
+_MAX_QUESTIONS = 5  # 开场重点问题最多 5 个（对齐 Cursor 2.1 的 3–5）
+_MAX_OPTIONS = 6  # 每个 choice 问题的选项上限
+_MAX_OPTION_DETAIL = 120  # 单个选项的权衡说明上限（一行内）
+_MAX_ASSUMPTIONS = 10
+_MAX_STYLES = 6
+
+
+class ListArgError(ValueError):
+    """Non-list tool arg that cannot be coerced to a JSON array (e.g. double-encoded junk)."""
+
+
+def coerce_list_arg(raw: Any, *, field: str) -> list[Any]:
+    """Accept a real list, or a single JSON-encoded array string (common model fumble).
+
+    Empty / missing → ``[]``. A non-empty string that is not a JSON array raises
+    :class:`ListArgError` so the tool can reject instead of silently dropping options.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ListArgError(f"{field} 须为数组；收到无法解析的 JSON 字符串。") from exc
+        if isinstance(parsed, list):
+            return parsed
+        raise ListArgError(
+            f"{field} 须为数组；JSON 字符串解析结果为 {type(parsed).__name__}，不是数组。"
+        )
+    return []
+
+
+def option_label(opt: Any) -> str:
+    """The canonical label of a choice option, tolerant of both shapes.
+
+    Options normalize to ``{label, detail?, recommended?}`` dicts, but a durable frame
+    persisted before that change (or a hand-built test) may still carry a bare string —
+    both the live tool and a resume read labels through here so an old paused turn still
+    settles. The label is the answer value (答复模型 α): no separate wire value exists.
+    """
+    if isinstance(opt, dict):
+        return str(opt.get("label") or "").strip()
+    return str(opt).strip()
+
+
+def normalize_options(
+    raw: Any,
+    *,
+    max_options: int = _MAX_OPTIONS,
+) -> list[dict[str, Any]]:
+    """Cap choice options, accepting either bare strings or rich objects.
+
+    Default cap is 6 (ordinary choice). ``card=risk_ack`` may raise the cap to 10.
+    A bare ``"Postgres"`` becomes ``{"label": "Postgres"}``; an object may add a one-line
+    ``detail`` (the trade-off shown under the label), ``recommended`` (the asker's
+    advised option — advisory only, never a pre-selection), and ``action`` (a desktop
+    client action such as ``bind_local_folder`` — unknown values drop so a hallucinated
+    action never reaches the wire). Empty-label entries drop, and only the FIRST
+    ``recommended`` survives (至多一个推荐项), so the card shows one clear「推荐」without
+    a wall of badges.
+    """
+    cap = max(1, int(max_options))
+    items = coerce_list_arg(raw, field="options")
+    out: list[dict[str, Any]] = []
+    recommended_taken = False
+    for it in items:
+        label = option_label(it)
+        if not label:
+            continue
+        opt: dict[str, Any] = {"label": label}
+        if isinstance(it, dict):
+            detail = str(it.get("detail") or "").strip()
+            if detail:
+                opt["detail"] = detail[:_MAX_OPTION_DETAIL]
+            if bool(it.get("recommended")) and not recommended_taken:
+                opt["recommended"] = True
+                recommended_taken = True
+            action = str(it.get("action") or "").strip()
+            if action in (
+                "bind_local_folder",
+                "grant_readonly_folder",
+                "grant_organize_folder",
+            ):
+                opt["action"] = action
+            # organize_plan structured fields (passed through for plan binding).
+            op = str(it.get("op") or "").strip()
+            if op in ("move", "copy", "delete", "mkdir"):
+                opt["op"] = op
+                if op in ("move", "copy"):
+                    src = str(it.get("source") or "").strip()
+                    dst = str(it.get("destination") or "").strip()
+                    if src:
+                        opt["source"] = src
+                    if dst:
+                        opt["destination"] = dst
+                else:
+                    p = str(it.get("path") or "").strip()
+                    if p:
+                        opt["path"] = p
+        out.append(opt)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def normalize_assumptions(raw: Any) -> list[dict[str, Any]]:
+    """Cap + id the 起步计划 chips, dropping malformed / empty-label entries."""
+    items = coerce_list_arg(raw, field="assumptions")
+    out: list[dict[str, Any]] = []
+    for i, it in enumerate(items[:_MAX_ASSUMPTIONS]):
+        if not isinstance(it, dict):
+            continue
+        label = str(it.get("label") or "").strip()
+        if not label:
+            continue
+        out.append({"id": f"a{i}", "label": label, "value": str(it.get("value") or "").strip()})
+    return out
+
+
+def normalize_questions(
+    raw: Any,
+    *,
+    max_options: int = _MAX_OPTIONS,
+) -> list[dict[str, Any]]:
+    """Cap (≤5) + id the questions, normalizing kind/options/multiple/default.
+
+    ``default`` is optional here (unlike the old kickoff): an opening question should
+    pre-fill one, but a mid-task fork usually wants the user to actively choose, so it
+    is left empty when the CEO omits it. ``max_options`` forwards to
+    :func:`normalize_options` (raised for ``card=risk_ack``).
+    """
+    items = coerce_list_arg(raw, field="questions")
+    out: list[dict[str, Any]] = []
+    for i, it in enumerate(items[:_MAX_QUESTIONS]):
+        if not isinstance(it, dict):
+            continue
+        prompt = str(it.get("prompt") or "").strip()
+        if not prompt:
+            continue
+        kind = "text" if str(it.get("kind") or "").strip() == "text" else "choice"
+        if kind == "choice":
+            options = normalize_options(it.get("options"), max_options=max_options)
+            multiple = bool(it.get("multiple") or False)
+        else:
+            options = []
+            multiple = False
+        out.append(
+            {
+                "id": f"q{i}",
+                "prompt": prompt,
+                "kind": kind,
+                "options": options,
+                "multiple": multiple,
+                "default": str(it.get("default") or "").strip(),
+            }
+        )
+    return out
+
+
+def normalize_style_options(raw: Any) -> list[dict[str, Any]]:
+    """Cap + id the 风格预设, accepting either ``{label}`` dicts or bare strings.
+
+    Wire ids are always ``s0``/``s1``/… (resume ``style_id`` / ``selected`` values).
+    """
+    items = coerce_list_arg(raw, field="style_options")
+    out: list[dict[str, Any]] = []
+    for i, it in enumerate(items[:_MAX_STYLES]):
+        raw_label = it.get("label") if isinstance(it, dict) else it
+        label = str(raw_label or "").strip()
+        if not label:
+            continue
+        out.append({"id": f"s{i}", "label": label})
+    return out

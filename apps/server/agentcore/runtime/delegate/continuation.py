@@ -1,0 +1,229 @@
+"""同人续派：``continue_from_run_id`` 校验、执行与单 run 完成即登记。"""
+
+from __future__ import annotations
+
+import time
+from typing import TYPE_CHECKING, Any
+
+from agentcore.core.logging import get_logger
+from agentcore.runtime.runs.constants import DEFAULT_RECALL_LIMIT
+from agentcore.runtime.runs.types import ContextBlock, RunPhase, RunSpec, RunState
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.session import RunSession
+
+DelegateTool = Any
+
+logger = get_logger(__name__)
+
+
+class ContinuationRejectedError(Exception):
+    """输入校验失败：该项拒绝续派，驱动层折成 FAILED RunState 交回 CEO。"""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+async def resolve_session(
+    tool: DelegateTool,
+    continue_from_run_id: str,
+    *,
+    own_run_id: str,
+    completed: Mapping[str, RunState] | None = None,
+) -> RunSession:
+    """校验并取回目标现场。失败抛 :class:`ContinuationRejectedError`（明确报错，不静默降级）。"""
+    target = continue_from_run_id.strip()
+    if not target:
+        raise ContinuationRejectedError("continue_from_run_id 不能为空。")
+    if target == own_run_id:
+        raise ContinuationRejectedError(
+            f"continue_from_run_id 不能自指（`{target}`）。请填已完成的其它 run，"
+            "或去掉该字段走冷委派。"
+        )
+    # 终局 run（COMPLETED / FAILED）可带现场续写；真正进行中（未终局）才拒。FAILED 放行——
+    # CEO 用 continue_from 让原作者在失败草稿上改写正是同人续派的用途。CANCELLED / SKIPPED
+    # 不是「可续终局」：前者走 redirect/salvage 的 partial session（本闸不动），后者从未产出。
+    if completed is not None and target in completed:
+        st = completed[target]
+        if st.phase not in (RunPhase.COMPLETED, RunPhase.FAILED):
+            raise ContinuationRejectedError(
+                f"目标 run `{target}` 仍在进行中（{st.phase.value}），无法带现场续派。"
+                "请用 depends_on 等它完成后再续，或改冷委派。"
+            )
+    elif completed is not None:
+        # 同批尚未出现在 completed：若 plan 里存在该节点且本节点依赖它，调度保证先跑完；
+        # 否则视为「进行中 / 未完成」拒绝，避免竞态读半成品。
+        pass
+
+    session = None
+    if tool._session_store is not None:
+        session = tool._session_store.get(target)
+    if session is None and tool._session_loader is not None:
+        session = await tool._session_loader(target)
+        if session is not None and tool._session_store is not None:
+            tool._session_store.put(session)
+    if session is None:
+        raise ContinuationRejectedError(
+            f"找不到 run_id 为 `{target}` 的可续写现场（内存与落盘均未命中）。"
+            "请改用冷委派：把需要的上下文写进 task，必要时设 replaces_run_id 标接手。"
+        )
+    if session.recall_count >= DEFAULT_RECALL_LIMIT:
+        raise ContinuationRejectedError(
+            f"队员 `{target}` 的带现场续派已达上限（{DEFAULT_RECALL_LIMIT} 次）。"
+            "请改用冷委派重派，并设 replaces_run_id 标接手。"
+        )
+    return session
+
+
+async def run_continuation(
+    tool: DelegateTool,
+    spec: RunSpec,
+    completed: Mapping[str, RunState],
+    *,
+    execution_id: str,
+    approval_gate: Any = None,
+) -> RunState:
+    """执行带现场续派：校验 → continue_run → 提交 session → 计入续派账。"""
+    from agentcore.runtime.runs import continue_run
+
+    assert spec.continue_from_run_id
+    try:
+        session = await resolve_session(
+            tool,
+            spec.continue_from_run_id,
+            own_run_id=spec.run_id,
+            completed=completed,
+        )
+    except ContinuationRejectedError as exc:
+        logger.info(
+            "delegate.continuation_rejected",
+            run_id=spec.run_id,
+            continue_from=spec.continue_from_run_id,
+            reason=exc.message,
+        )
+        # 折成 FAILED 交回 CEO，并标记调度层不可重试（复用 executor contract.failed 的
+        # non-retryable 机制）：输入校验是确定性的，重跑必再拒——避免同错在日志里重放两次。
+        return RunState(phase=RunPhase.FAILED, error=exc.message, error_retryable=False)
+
+    # 依赖产物：与冷开局同构，写入续干 feedback 正文（LLM）+ continuation 通道块（UI）。
+    feedback, context_blocks = _continuation_prompt(spec, completed)
+    try:
+        state = await continue_run(
+            session=session,
+            feedback=feedback,
+            continuation_run_id=spec.run_id,
+            llm=tool._llm,
+            tools=tool._tools,
+            sink=tool._sink,
+            base_tool_context=tool._base_tool_context,
+            execution_id=execution_id,
+            profile_set=tool._profile_set,
+            approval_gate=approval_gate,
+            context_blocks=context_blocks,
+            parent_run_id=spec.parent_run_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "delegate.continuation_failed",
+            run_id=spec.run_id,
+            continue_from=spec.continue_from_run_id,
+        )
+        return RunState(phase=RunPhase.FAILED, error=str(exc))
+
+    # 续派完成后回写现场，对齐「有 transcript 的终局 run 现场可续」：只要续写产生了可续
+    # transcript（终局 COMPLETED / FAILED）就更新，不再要求聊天正文非空——文件形态交付常以
+    # 空正文 + 落盘文件收尾。content 为空则保留旧值供展示。异常崩溃无 transcript ⇒ 不回写。
+    if state.phase in (RunPhase.COMPLETED, RunPhase.FAILED) and state.transcript:
+        session.recall_count += 1
+        session.transcript = state.transcript
+        session.content = state.content or session.content
+        session.updated_at = time.time()
+        if tool._session_store is not None:
+            tool._session_store.put(session)
+        if tool._session_saver is not None:
+            await tool._session_saver(session)
+        tool.note_continuation(spec.run_id)
+        logger.info(
+            "delegate.continuation_ok",
+            run_id=spec.run_id,
+            continues_run_id=session.run_id,
+            recall_count=session.recall_count,
+        )
+    return state
+
+
+def _continuation_prompt(
+    spec: RunSpec, completed: Mapping[str, RunState]
+) -> tuple[str, list[ContextBlock]]:
+    """组装续干指令正文 + UI 上下文块（task + 上游依赖）。"""
+    parts = [spec.task.strip()]
+    blocks = [
+        ContextBlock(channel="continuation", heading="续干指令", body=spec.task.strip()),
+    ]
+    for dep_id in spec.depends_on:
+        st = completed.get(dep_id)
+        if st is None or st.phase is not RunPhase.COMPLETED or not (st.content or "").strip():
+            continue
+        heading = f"上游产物（{dep_id}）"
+        body = st.content.strip()
+        parts.append(f"## {heading}\n{body}")
+        blocks.append(
+            ContextBlock(
+                channel="dependency",
+                heading=heading,
+                body=body,
+                source_run_id=dep_id,
+                fidelity="pass_through",
+            )
+        )
+    return "\n\n".join(parts), blocks
+
+
+def register_completed_session(
+    tool: DelegateTool,
+    plan: RunPlan,
+    run_id: str,
+    state: RunState,
+    *,
+    author_sessions: dict[str, RunSession] | None = None,
+) -> RunSession | None:
+    """单个 run 到达终局即登记现场（使同批 depends_on X + continue_from X 成立）。
+
+    验收失败的 run 也保留现场：终局（COMPLETED 或 FAILED）且 transcript 非空即登记并持久化，
+    这样 CEO 可用 continue_from 让原作者在失败草稿上改写（否则「找不到可续写现场」）。CANCELLED
+    走 redirect/salvage 的 partial session，SKIPPED 从未产出，均不在此登记。
+
+    已登记则跳过（续派 / redirect 自行更新同一 session，避免用冷开局态覆盖延展 transcript）。
+    """
+    if tool._session_store is None:
+        return None
+    if state.phase not in (RunPhase.COMPLETED, RunPhase.FAILED) or not state.transcript:
+        return None
+    node = plan.by_id(run_id)
+    if node is None:
+        return None
+    # 续派节点：现场仍挂在根上（continue_from），不另开 session 键。
+    if node.continue_from_run_id:
+        return None
+    if tool._session_store.get(run_id) is not None:
+        return None
+    from agentcore.runtime.runs import RunSession
+
+    recall = 0
+    if author_sessions is not None and run_id in author_sessions:
+        recall = author_sessions[run_id].recall_count
+    session = RunSession(
+        run_id=run_id,
+        spec=node,
+        transcript=state.transcript,
+        content=state.content,
+        recall_count=recall,
+    )
+    tool._session_store.put(session)
+    if author_sessions is not None:
+        author_sessions[run_id] = session
+    return session

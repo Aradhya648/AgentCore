@@ -1,0 +1,116 @@
+import {
+  useArchiveConversation,
+  useDeleteConversation,
+  useUnarchiveConversation,
+} from "@/hooks/useConversations";
+import { notifyError } from "@/lib/toast";
+import type { Conversation } from "@/stores/conversation";
+import { useConversationStore } from "@/stores/conversation";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+export function useConversationBulkSelect(
+  list: Conversation[],
+  selectedFilter: string,
+  _isArchivedView: boolean,
+) {
+  const navigate = useNavigate();
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  const archiveMutation = useArchiveConversation();
+  const deleteMutation = useDeleteConversation();
+  const unarchiveMutation = useUnarchiveConversation();
+  const dropConversationRuntime = useConversationStore(
+    (s) => s.dropConversationRuntime,
+  );
+  const currentId = useConversationStore((s) => s.currentConversationId);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `selectedFilter` is the intentional re-run key.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  }, [selectedFilter]);
+
+  const allVisibleSelected =
+    list.length > 0 && list.every((c) => selectedIds.has(c.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(list.map((c) => c.id)));
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  };
+
+  const handleBulkArchive = async () => {
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      try {
+        await archiveMutation.mutateAsync(id);
+        dropConversationRuntime(id);
+        if (id === currentId) navigate("/");
+      } catch (err) {
+        notifyError(err, "批量归档失败");
+        return;
+      }
+    }
+    exitSelectMode();
+  };
+
+  const handleBulkUnarchive = () => {
+    for (const id of selectedIds) {
+      unarchiveMutation.mutate(id, {
+        onError: (err) => notifyError(err, "批量取消归档失败"),
+      });
+    }
+    exitSelectMode();
+  };
+
+  const handleBulkDelete = async () => {
+    setConfirmBulkDelete(false);
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      try {
+        await deleteMutation.mutateAsync(id);
+        dropConversationRuntime(id);
+        if (id === currentId) navigate("/");
+      } catch (err) {
+        notifyError(err, "批量删除失败");
+        return;
+      }
+    }
+    exitSelectMode();
+  };
+
+  return {
+    selectMode,
+    setSelectMode,
+    selectedIds,
+    confirmBulkDelete,
+    setConfirmBulkDelete,
+    allVisibleSelected,
+    toggleSelectAll,
+    toggleSelected,
+    exitSelectMode,
+    handleBulkArchive,
+    handleBulkUnarchive,
+    handleBulkDelete,
+  };
+}

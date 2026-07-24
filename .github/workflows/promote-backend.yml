@@ -1,0 +1,77 @@
+name: Promote Backend
+
+# 将 master 当前 HEAD（或指定 ref）部署到生产：SSH → finish-server.sh。
+# 等价于打 prod-* tag 触发 deploy-backend，但不强制写 git tag。
+# 镜像须已由 build-backend.yml 推 ACR（push master 后）。
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref（短 SHA / 分支 / prod-* tag）；默认 master"
+        required: false
+        default: master
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve deploy SHA
+        id: meta
+        run: |
+          ref="${{ inputs.ref }}"
+          sha="$(git rev-parse --short "${ref}^{commit}")"
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+          echo "Deploy target: $ref → $sha"
+
+      - name: Verify backend image build for SHA
+        run: |
+          if ! gh run list --workflow=build-backend.yml --commit "$(git rev-parse "${{ inputs.ref }}^{commit}")" \
+            --json conclusion --jq '.[0].conclusion' 2>/dev/null | grep -q success; then
+            echo "::warning::No successful build-backend run found for this commit; finish-server may fall back to latest"
+          else
+            echo "build-backend succeeded for this commit"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Deploy via finish-server.sh
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ steps.meta.outputs.sha }}
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          envs: DEPLOY_SHA
+          script: |
+            set -euo pipefail
+            HOME_DIR="${AGENTCORE_HOME:-/opt/agentcore}"
+            REPO="$HOME_DIR/repo"
+            cd "$REPO"
+            git fetch --tags --force --quiet origin
+            bash "$REPO/deploy/scripts/finish-server.sh" "${DEPLOY_SHA}"
+
+      - name: Record promoted SHA on server
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ steps.meta.outputs.sha }}
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          envs: DEPLOY_SHA
+          script: |
+            set -euo pipefail
+            HOME="${AGENTCORE_HOME:-/opt/agentcore}"
+            echo "${DEPLOY_SHA}" >"$HOME/.last-deployed-sha"
+            echo "recorded .last-deployed-sha=${DEPLOY_SHA}"

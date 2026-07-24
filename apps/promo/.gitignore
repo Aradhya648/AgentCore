@@ -1,0 +1,4 @@
+# 宣传素材仓：临时原始录屏与中间帧序列（不入仓）
+# 精选交付物仍在 stills/、clips/ 下，由各项目 MANIFEST 登记
+assets/**/_video_tmp*/
+assets/**/sequences/

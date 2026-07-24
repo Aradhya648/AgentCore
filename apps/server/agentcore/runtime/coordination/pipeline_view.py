@@ -1,0 +1,186 @@
+"""Pipeline progress view for CEO coordination injections.
+
+Surfaces wave progress + running / dependency-blocked node overview so idle
+wakes do not read as「闲着了该干点什么」when the DAG is advancing normally.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentcore.runtime.coordination.session import CoordinationSession
+    from agentcore.runtime.runs.plan import RunPlan
+
+
+def _node_label(node: Any) -> str:
+    return str(
+        getattr(node, "role", None)
+        or getattr(node, "agent_name", None)
+        or getattr(node, "run_id", "")
+        or "?"
+    )
+
+
+def _classify_nodes(
+    session: CoordinationSession,
+) -> tuple[list[Any], list[Any], list[Any], list[Any], list[Any]]:
+    """Split live nodes into completed / failed / running / dep_blocked / pending.
+
+    ``pending`` = deps satisfied but not yet running (between-wave dispatch lag).
+    Failed ids come from ``session.failed_run_ids`` when present.
+    """
+    live: RunPlan | None = getattr(session, "live_plan", None)
+    if live is None or not live.nodes:
+        return [], [], [], [], []
+
+    done = set(session.completed_run_ids)
+    failed = set(getattr(session, "failed_run_ids", None) or ())
+    running_ids = {rid for rid, _ in session.running_workers()}
+
+    completed: list[Any] = []
+    failed_nodes: list[Any] = []
+    running: list[Any] = []
+    dep_blocked: list[Any] = []
+    pending: list[Any] = []
+
+    for node in live.nodes:
+        rid = node.run_id
+        if rid in failed:
+            failed_nodes.append(node)
+            continue
+        if rid in done:
+            completed.append(node)
+            continue
+        if rid in running_ids:
+            running.append(node)
+            continue
+        deps = list(getattr(node, "depends_on", None) or [])
+        # Dep may name short id or full run_id — treat satisfied if every dep is
+        # in completed_run_ids OR any completed id endswith _{dep} / equals dep.
+        if deps and not all(_dep_satisfied(dep, done) for dep in deps):
+            dep_blocked.append(node)
+        else:
+            pending.append(node)
+    return completed, failed_nodes, running, dep_blocked, pending
+
+
+def _dep_satisfied(dep: str, done: set[str]) -> bool:
+    if dep in done:
+        return True
+    suffix = f"_{dep}"
+    return any(rid == dep or rid.endswith(suffix) for rid in done)
+
+
+def is_pipeline_healthy(session: CoordinationSession) -> bool:
+    """True when work is advancing: someone running, rest only waiting on deps, no fails.
+
+    Between-wave ``pending`` (deps met, not yet armed) is still treated as healthy
+    as long as at least one node is running and nothing has failed.
+    """
+    _completed, failed, running, dep_blocked, pending = _classify_nodes(session)
+    if failed:
+        return False
+    if not running and not session.has_inflight_work():
+        return False
+    # Incomplete nodes must be running, dep-blocked, or briefly pending dispatch.
+    # (No "mystery" incomplete class beyond these.)
+    live = getattr(session, "live_plan", None)
+    if live is None:
+        # No plan pointer — fall back to busy workers only.
+        return session.has_inflight_work() or bool(session.running_workers())
+    incomplete = [
+        n for n in live.nodes if n.run_id not in session.completed_run_ids
+    ]
+    accounted = {n.run_id for n in (*running, *dep_blocked, *pending)}
+    if any(n.run_id not in accounted for n in incomplete):
+        return False
+    # Must have active progress (running or in-flight LLM/tool).
+    if not running and not session.has_inflight_work():
+        return False
+    # If everything incomplete is pending with nobody running — not healthy.
+    return not (not running and pending and not dep_blocked)
+
+
+def format_pipeline_progress(session: CoordinationSession) -> str:
+    """Human-readable wave / node progress block for CEO injection."""
+    live: RunPlan | None = getattr(session, "live_plan", None)
+    done_n = len(session.completed_run_ids)
+    total = session.total_workers or (len(live.nodes) if live else 0)
+    head = f"【流水线进度】已完成 {done_n}/{total}"
+
+    if live is None or not live.nodes:
+        summary = session.worker_progress_summary()
+        return f"{head}\n{summary}"
+
+    completed, failed, running, dep_blocked, pending = _classify_nodes(session)
+    lines: list[str] = [head]
+
+    try:
+        waves = live.waves()
+    except Exception:  # noqa: BLE001 — never break inject on bad topology
+        waves = [list(live.nodes)]
+
+    done = set(session.completed_run_ids)
+    failed_ids = set(getattr(session, "failed_run_ids", None) or ())
+    running_ids = {rid for rid, _ in session.running_workers()}
+
+    for i, wave in enumerate(waves):
+        bits: list[str] = []
+        for n in wave:
+            label = _node_label(n)
+            if n.run_id in failed_ids:
+                bits.append(f"{label}=失败")
+            elif n.run_id in done:
+                bits.append(f"{label}=完成")
+            elif n.run_id in running_ids:
+                bits.append(f"{label}=在跑")
+            elif n in dep_blocked:
+                bits.append(f"{label}=依赖阻塞")
+            elif n in pending:
+                bits.append(f"{label}=待调度")
+            else:
+                bits.append(f"{label}=未启动")
+        lines.append(f"  Wave {i}：{'；'.join(bits)}")
+
+    if running:
+        names = "、".join(_node_label(n) for n in running)
+        lines.append(f"  在跑：{names}")
+    if dep_blocked:
+        names = "、".join(_node_label(n) for n in dep_blocked[:8])
+        extra = f" 等{len(dep_blocked)}个" if len(dep_blocked) > 8 else ""
+        lines.append(f"  依赖阻塞：{names}{extra}")
+    if pending:
+        names = "、".join(_node_label(n) for n in pending[:6])
+        lines.append(f"  待调度：{names}")
+    if failed:
+        names = "、".join(_node_label(n) for n in failed)
+        lines.append(f"  失败：{names}")
+
+    # Attach busy detail when useful.
+    if session.running_workers():
+        lines.append(session.worker_progress_summary())
+
+    return "\n".join(lines)
+
+
+def format_idle_yield_brief(session: CoordinationSession) -> str:
+    """CEO brief when idle-yield wakes with workers still in flight."""
+    progress = format_pipeline_progress(session)
+    healthy = is_pipeline_healthy(session)
+    lines = ["【团队协调·空转让出】", progress, ""]
+    if healthy:
+        lines.append(
+            "流水线状态：正常推进（有队员在跑，其余节点仅因依赖未就绪而阻塞，无失败）。"
+            "这是预期中的等待，不是空闲——【无需追加动作】："
+            "不要 delegate 再派与现有计划重叠的队员；不要为「好像闲着」重复派文案/前端/QA。"
+            "保持静默即可，等 worker_completed / 波次前进事件再处置；"
+            "仅当出现失败、升级仲裁、老板插话或明确缺口时再出手。"
+        )
+    else:
+        lines.append(
+            "协调等待窗口到期且仍有在途工作。可继续静默等待；"
+            "若队员疑似卡死再用 cancel_worker；发现计划缺口且职责/文件目标不与在图节点重叠时"
+            "才可 delegate 追加。勿与未完成流水线节点抢同一交付物。"
+        )
+    return "\n".join(lines)

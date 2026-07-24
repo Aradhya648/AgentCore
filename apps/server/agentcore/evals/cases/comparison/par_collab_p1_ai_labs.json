@@ -1,0 +1,15 @@
+{
+  "id": "par_collab_p1_ai_labs",
+  "archetype": "parallel_research",
+  "user_message": "请对比 OpenAI、Google、Anthropic、Meta 这四家在大模型产品上的定位、核心产品与开放程度，最后整理成一张横向可比的对照表，并指出各自最明显的差异亮点。",
+  "arms": ["single", "team"],
+  "baseline_arm": "single",
+  "mode": "economy",
+  "samples": 2,
+  "_note": "协作基线质量臂·原型1：同任务单 Agent vs 团队，成对盲评；samples≤2 控成本。",
+  "checks": {
+    "single": [{ "name": "FinishReason" }],
+    "team": [{ "name": "Delegated" }, { "name": "FinishReason" }]
+  },
+  "rubric": "覆盖完整度：四家是否都有定位/产品/开放程度信息；对照表是否横向可比；差异亮点是否互相照应而非各写一段。团队若能用分实体调研再汇总，应比单体更少口径漂移、覆盖更均衡。简洁正确优先，不因更长而偏好。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "collab_p1_multi_object_compare",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "请对比 OpenAI、Google、Anthropic、Meta 这四家在大模型产品上的定位、核心产品与开放程度，最后整理成一张横向可比的对照表，并指出各自最明显的差异亮点。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "原型1 多对象研究对比·中档：每实体一名调研员（扁平）+ 横向对比员（depends_on 全部）。硬增益=口径一致性。MAST 2.5 无视他人产出（对比员须汇入各实体调研）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "expected_shape": {
+    "min_workers": 5,
+    "parallel_fanout_min": 4,
+    "has_join": true,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "coverage", "desc": "四家公司均有定位/产品/开放程度方面的实质信息", "weight": 2 },
+    { "id": "table", "desc": "给出横向可比的对照表或等价结构化对比", "weight": 2 },
+    { "id": "diffs", "desc": "点出各家最明显的差异亮点（互相照应，非各写一段）", "weight": 1 }
+  ]
+}

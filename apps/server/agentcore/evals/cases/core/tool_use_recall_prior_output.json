@@ -1,0 +1,25 @@
+{
+  "id": "tool_use_recall_prior_output",
+  "category": "tool_use",
+  "user_message": "你知道刚才的产出吗",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "ceo",
+  "workspace_fixture": "sample_repo",
+  "history": [
+    {
+      "role": "user",
+      "content": "请在工作区准备一份项目说明文档。"
+    },
+    {
+      "role": "assistant",
+      "content": "已在工作区完成 README.md。"
+    }
+  ],
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "ToolCalled", "args": { "tool": "file_list" } },
+    { "name": "MaxRounds", "args": { "budget": 4 } }
+  ],
+  "rubric": "应先 file_list 或 file_read 核实工作区现状再回答，禁止零工具凭对话记忆断言路径或完成度。"
+}

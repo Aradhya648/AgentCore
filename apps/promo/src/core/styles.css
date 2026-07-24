@@ -1,0 +1,80 @@
+/*
+ * Promo video styles — imports the real desktop globals.css to ensure
+ * pixel-identical token definitions, keyframes, and Tailwind theme.
+ * This is the "same source" guarantee for Phase 0 pixel verification.
+ */
+@import "../../../desktop/src/renderer/styles/globals.css";
+
+/*
+ * Tailwind v4 auto-detects utility usage only inside this project (apps/promo).
+ * The reused desktop components live outside it, so every class they use
+ * (rounded-xl, bg-card, ring-success, animate-pulse, …) would be tree-shaken
+ * away and the cards would render unstyled. Register the desktop renderer as an
+ * explicit content source so all those utilities are emitted.
+ */
+@source "../../../desktop/src/renderer";
+
+/*
+ * Self-hosted webfonts (apps/promo/README.md): the product uses the machine's
+ * system fonts, which drift glyph shapes across render hosts. Bundling Inter
+ * (Latin/digits) + Noto Sans SC (简体中文) and forcing them as the active family
+ * makes every render byte-identical. css-loader bundles these woff2 from
+ * src/fonts/; fonts.ts blocks the render until they finish loading.
+ */
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/Inter-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/Inter-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/Inter-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("./fonts/NotoSansSC-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("./fonts/NotoSansSC-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Force the embedded faces as the active family everywhere (overrides the
+ * system stack globals.css sets on body), so Latin renders Inter and 中文
+ * renders Noto Sans SC on every host. */
+@import "./styles-mobile-still.css";
+
+/*
+ * Neutralize the components' built-in CSS wall-clock animations
+ * (apps/promo/README.md). The product animates node entrance / running pulse / terminal flash and
+ * the streaming caret on the wall clock, which a frame-accurate render cannot
+ * sync to — a still freezes them mid-cycle (nodes captured at opacity 0). The
+ * promo re-drives all motion from useCurrentFrame on its own wrappers, so the
+ * components must render at their static resting state here.
+ */
+.animate-graph-node-enter,
+.animate-graph-node-flash,
+.animate-pulse,
+.animate-graph-node-enter * {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}

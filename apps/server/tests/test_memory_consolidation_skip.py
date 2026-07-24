@@ -1,0 +1,92 @@
+"""Unit pins: abnormal-turn skip gate + preference-prompt hardening."""
+
+from agentcore.memory.consolidation import abnormal_turn_skip_reason
+from agentcore.memory.episodic import _EPISODIC_SYSTEM
+from agentcore.memory.semantic import _SEMANTIC_SYSTEM_PROMPT
+
+
+def test_skip_cancelled_and_incomplete():
+    assert (
+        abnormal_turn_skip_reason(
+            usage={"status": "incomplete", "finish_reason": "cancelled", "incomplete": True},
+            content="半成品",
+            has_assistant=True,
+        )
+        == "incomplete"
+    )
+    assert (
+        abnormal_turn_skip_reason(
+            usage={"status": "incomplete", "finish_reason": "cancelled"},
+            content="半成品",
+            has_assistant=True,
+        )
+        == "status:incomplete"
+    )
+    assert (
+        abnormal_turn_skip_reason(
+            usage={"status": "complete", "finish_reason": "cancelled"},
+            content="半成品",
+            has_assistant=True,
+        )
+        == "finish_reason:cancelled"
+    )
+
+
+def test_skip_running_empty_and_no_assistant():
+    assert (
+        abnormal_turn_skip_reason(
+            usage={"status": "running"},
+            content="",
+            has_assistant=True,
+        )
+        == "status:running"
+    )
+    assert (
+        abnormal_turn_skip_reason(
+            usage={"status": "complete", "finish_reason": "end_turn"},
+            content="   ",
+            has_assistant=True,
+        )
+        == "empty_assistant"
+    )
+    assert (
+        abnormal_turn_skip_reason(usage=None, content=None, has_assistant=False)
+        == "no_assistant"
+    )
+
+
+def test_end_turn_with_content_is_eligible():
+    assert (
+        abnormal_turn_skip_reason(
+            usage={"status": "complete", "finish_reason": "end_turn"},
+            content="调研结论如下。",
+            has_assistant=True,
+        )
+        is None
+    )
+
+
+def test_episodic_prompt_forbids_inferring_preference_from_task_genre():
+    text = _EPISODIC_SYSTEM
+    assert "explicit statements" in text or "explicit" in text.lower()
+    assert "must NOT" in text or "Do NOT infer" in text
+    assert "mock trial" in text or "模拟法庭" in text
+    assert "法律分析" in text or "legal" in text.lower()
+
+
+def test_semantic_prompt_tightens_preferences_promotion():
+    text = _SEMANTIC_SYSTEM_PROMPT
+    assert "Preference promotion rule" in text
+    assert "explicit user" in text.lower() or "explicit" in text.lower()
+    assert "NEVER promote task topics" in text or "never promote" in text.lower()
+    assert "偏好法律" in text or "legal" in text.lower()
+
+
+def test_semantic_prompt_domain_split_keeps_genre_out_of_preferences():
+    """M2: 题材/领域偏好 → 主题/*.md；偏好.md 限沟通风格与工作方式。"""
+    text = _SEMANTIC_SYSTEM_PROMPT
+    assert "Domain split" in text
+    assert "communication style" in text.lower() or "工作习惯" in text
+    assert "主题/<slug>.md" in text or "主题/" in text
+    assert "must NOT stay in 偏好.md" in text or "不得" in text
+    assert "偏好法律分析" in text

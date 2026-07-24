@@ -1,0 +1,39 @@
+import { Button } from "@/components/ui";
+import { ArrowLeft } from "lucide-react";
+import { LegalDocBody } from "./LegalDocBody";
+import type { LegalDocId } from "./types";
+import { LEGAL_DOCS } from "./content";
+
+/** Full-pane legal reader for pre-auth (LoginPage) — back returns to the form. */
+export function LegalDocPane({
+  docId,
+  onBack,
+}: {
+  docId: LegalDocId;
+  onBack: () => void;
+}) {
+  const title = LEGAL_DOCS[docId].title;
+
+  return (
+    <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 px-2"
+          onClick={onBack}
+        >
+          <ArrowLeft size={14} />
+          返回
+        </Button>
+        <span className="truncate text-sm text-muted-foreground">{title}</span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        <div className="mx-auto max-w-2xl">
+          <LegalDocBody docId={docId} />
+        </div>
+      </div>
+    </div>
+  );
+}

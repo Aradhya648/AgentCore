@@ -1,0 +1,89 @@
+{
+  "name": "single_agent_checkpoint",
+  "description": "单聊：检查点 ask_user(blocking) 在时间线原位落 checkpoint 标记 + 暂停",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "这个需求有歧义，先问清楚。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "开始前我确认一下方向："
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "checkpoint_required",
+      "payload": {
+        "checkpoint_id": "cp1",
+        "conversation_id": "conv_demo",
+        "question": "先做 A 还是 B？",
+        "context": "两条路线各有取舍。",
+        "assumptions": [],
+        "questions": [],
+        "style_options": [],
+        "intent": "kickoff"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    }
+  ],
+  "projected": {
+    "status": "paused",
+    "finishReason": null,
+    "content": "",
+    "reasoning": "这个需求有歧义，先问清楚。",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "reasoning",
+        "text": "这个需求有歧义，先问清楚。"
+      },
+      {
+        "kind": "checkpoint",
+        "checkpoint_id": "cp1"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [
+      {
+        "kind": "ask_user",
+        "id": "cp1",
+        "status": "pending",
+        "question": "先做 A 还是 B？",
+        "context": "两条路线各有取舍。"
+      }
+    ],
+    "cost": null,
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

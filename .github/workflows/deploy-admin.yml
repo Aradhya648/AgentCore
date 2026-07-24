@@ -1,0 +1,154 @@
+name: Deploy Admin Console
+
+# ⚠️ 已弃用自动触发 — 改由 Cursor Agent 本地 `pnpm -C apps/admin deploy:production` 部署。
+# 见 docs/05-平台与运维/部署与运维.md §二、.cursor/rules/cursor-deploy.mdc
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-admin
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy admin to production
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install admin dependencies
+        working-directory: apps/admin
+        run: pnpm install --no-frozen-lockfile --ignore-workspace
+
+      - name: Generate API types
+        working-directory: apps/admin
+        run: pnpm gen:api
+
+      - name: Build admin SPA
+        working-directory: apps/admin
+        env:
+          VITE_API_URL: https://app.fashitianxia.xyz/api
+        run: pnpm build
+
+      - name: Pack dist tarball
+        run: tar -czf admin-dist.tgz -C apps/admin dist
+
+      - name: Upload dist tarball
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          source: admin-dist.tgz
+          target: /tmp
+
+      - name: Upload nginx site config
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          source: deploy/nginx/office-admin.conf
+          target: /tmp
+
+      - name: Install static files, nginx site, CORS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            ORIGIN="https://office.fashitianxia.xyz"
+            ADMIN_ROOT="/opt/agentcore/admin"
+            DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy_f6d1637}"
+            REPO="${AGENTCORE_HOME:-/opt/agentcore}/repo"
+            ENVF="$DEPLOY/config/production.env"
+            NGINX_AVAIL="/etc/nginx/sites-available/office-admin"
+            NGINX_ENABLED="/etc/nginx/sites-enabled/office-admin"
+
+            mkdir -p "$ADMIN_ROOT"
+            rm -rf "$ADMIN_ROOT/dist"
+            tar xzf /tmp/admin-dist.tgz -C "$ADMIN_ROOT"
+            rm -f /tmp/admin-dist.tgz
+            echo "admin static → $ADMIN_ROOT/dist ($(find "$ADMIN_ROOT/dist" -type f | wc -l) files)"
+
+            sudo install -D -m 644 /tmp/office-admin.conf "$NGINX_AVAIL" 2>/dev/null \
+              || sudo install -D -m 644 /tmp/deploy/nginx/office-admin.conf "$NGINX_AVAIL"
+            rm -f /tmp/office-admin.conf /tmp/deploy/nginx/office-admin.conf
+            ln -sfn "$NGINX_AVAIL" "$NGINX_ENABLED"
+            sudo nginx -t
+            sudo systemctl reload nginx
+            LOCAL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: office.fashitianxia.xyz' http://127.0.0.1:8090/ || true)"
+            echo "nginx reloaded; local probe :8090 → HTTP ${LOCAL_CODE}"
+            echo "若公网仍 502：Cloudflare Tunnel 须将 office.fashitianxia.xyz → http://127.0.0.1:8090"
+
+            [[ -f "$ENVF" ]] || { echo "ERROR: $ENVF missing"; exit 1; }
+            if grep -q 'office\.fashitianxia\.xyz' "$ENVF"; then
+              echo "CORS already includes $ORIGIN"
+            elif grep -q '^CORS_ALLOW_ORIGINS=' "$ENVF"; then
+              sed -i "s|^CORS_ALLOW_ORIGINS=\(.*\)|CORS_ALLOW_ORIGINS=\1,${ORIGIN}|" "$ENVF"
+              echo "appended $ORIGIN to CORS_ALLOW_ORIGINS"
+            else
+              echo "CORS_ALLOW_ORIGINS=${ORIGIN}" >>"$ENVF"
+            fi
+            grep '^CORS_ALLOW_ORIGINS=' "$ENVF"
+
+            COMPOSE=( docker compose -p agentcore \
+              -f "$DEPLOY/docker-compose.server.yml" \
+              -f "$DEPLOY/docker-compose.app.yml" \
+              --env-file "$ENVF" )
+            "${COMPOSE[@]}" up -d api
+            echo "api recreated for CORS"
+
+            # cloudflared ingress: office → admin nginx :8090（本机 config，非 CF API）
+            OFFICE_HOST=office.fashitianxia.xyz
+            OFFICE_SERVICE=http://127.0.0.1:8090
+            CONFIG=""
+            for f in /etc/cloudflared/config.yml /etc/cloudflared/config.yaml \
+              /root/.cloudflared/config.yml "$HOME/.cloudflared/config.yml"; do
+              [[ -f "$f" ]] && CONFIG="$f" && break
+            done
+            if [[ -n "$CONFIG" ]] && grep -q "hostname: ${OFFICE_HOST}" "$CONFIG" \
+              && grep -A1 "hostname: ${OFFICE_HOST}" "$CONFIG" | grep -q "${OFFICE_SERVICE}"; then
+              echo "cloudflared ingress already ${OFFICE_HOST} → ${OFFICE_SERVICE}"
+            elif [[ -n "$CONFIG" ]]; then
+              python3 - "$CONFIG" "$OFFICE_HOST" "$OFFICE_SERVICE" <<'PY'
+            import sys, pathlib, re
+            path, host, service = sys.argv[1:4]
+            text = pathlib.Path(path).read_text(encoding="utf-8")
+            block = f"  - hostname: {host}\n    service: {service}\n"
+            if re.search(rf"hostname:\s*{re.escape(host)}\b", text):
+                text = re.sub(
+                    rf"(  - hostname: {re.escape(host)}\n    service: ).*",
+                    rf"\g<1>{service}",
+                    text,
+                )
+            elif "ingress:" in text:
+                text = re.sub(r"(ingress:\n)", r"\1" + block, text, count=1)
+            else:
+                sys.exit("no ingress section in cloudflared config")
+            pathlib.Path(path).write_text(text, encoding="utf-8")
+            PY
+              if systemctl is-active --quiet cloudflared 2>/dev/null; then
+                sudo systemctl restart cloudflared
+              fi
+              echo "cloudflared ingress patched"
+            else
+              echo "WARN: no cloudflared config; skip tunnel ingress patch"
+            fi

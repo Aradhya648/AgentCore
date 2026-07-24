@@ -1,0 +1,82 @@
+name: Build Backend Image
+
+# 后端 api 镜像构建推 ACR（部署与运维.md §7.5 选择性构建 / §7.1 版本钉定）。
+# push master → 构建 api 镜像（钉 GIT_SHA/BUILT_AT）→ 推 ACR，打 <short-sha> + latest 双标签。
+# 这里只「构建推仓」，不部署——部署是 prod-* tag 触发的 deploy-backend.yml（§7.2 发布点）。
+#
+# 为何每次 master 都构建 api（不按路径过滤）：§7.5「api 例外，始终真实构建」——其 /version 是
+# 版本可观测唯一出口；且保证「每个 master SHA 都有 api 镜像」，prod-* tag 才能钉任意 SHA 部署。
+# （多服务时其余服务可 retag latest→sha 省构建，当前仅 api 单服务，暂不需要。）
+#
+# ⚠️ 端点：ACR_REGISTRY 必须是 ACR【公网】端点（GitHub 跑在 Aliyun VPC 外，推不进 -vpc 端点）；
+#    服务器 production.env 的 IMAGE_REGISTRY 用【VPC】端点拉取（同一仓库、两条路由）。
+#    两者命名空间一致（如 .../agentcore1），镜像 repo 均为 <ns>/api。
+#
+# 需配 secrets（源码仓 Settings → Secrets and variables → Actions）：
+#   ACR_REGISTRY   ACR 公网端点 + 命名空间，如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/agentcore1
+#   ACR_USERNAME   ACR 登录用户名
+#   ACR_PASSWORD   ACR 登录密码（凭据）
+
+# ⚠️ 已弃用 push 自动触发（2026-06）— 改由 Cursor Agent 在生产机构建推 ACR：
+#   node deploy/scripts/remote-build-deploy.mjs <short-sha>
+# 见 docs/05-平台与运维/部署与运维.md §三、.cursor/rules/cursor-deploy.mdc
+# 仅保留 workflow_dispatch 作紧急备用（需 Actions 配额可用）。
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-push:
+    name: Build & push api image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 解析镜像 ref：host（登录用，去命名空间）/ image（repo 全名）/ short-sha / 构建时间。
+      - name: Compute image refs
+        id: img
+        shell: bash
+        run: |
+          reg="${{ secrets.ACR_REGISTRY }}"
+          if [[ -z "$reg" ]]; then echo "::error::secret ACR_REGISTRY 未配置"; exit 1; fi
+          echo "host=${reg%%/*}" >> "$GITHUB_OUTPUT"
+          echo "image=${reg}/api" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.img.outputs.host }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # GIT_SHA/BUILT_AT 构建期钉入镜像 ENV（运行时经 GET /version 暴露，§7.1）。
+      # GitHub Actions 网络直连 Docker Hub/ghcr，无需国内镜像。gha 缓存复用层。
+      - name: Build & push (<short-sha> + latest)
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/server
+          push: true
+          tags: |
+            ${{ steps.img.outputs.image }}:${{ steps.img.outputs.sha }}
+            ${{ steps.img.outputs.image }}:latest
+          build-args: |
+            GIT_SHA=${{ steps.img.outputs.sha }}
+            BUILT_AT=${{ steps.img.outputs.built_at }}
+            PYPI_INDEX=https://pypi.org/simple/
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "pushed: ${{ steps.img.outputs.image }}:${{ steps.img.outputs.sha }} (+latest)" >> "$GITHUB_STEP_SUMMARY"
