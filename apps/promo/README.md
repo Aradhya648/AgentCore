@@ -6,6 +6,13 @@
 
 本 README 是宣传内容的现状说明书，分三条产线。
 
+## 版权与素材
+
+- Remotion 品牌片与代码：随仓库 **MIT**。
+- 内嵌字体：Inter / Noto Sans SC，见 [`src/core/fonts/NOTICE.md`](./src/core/fonts/NOTICE.md)（SIL OFL 1.1）。
+- 真机捕获静帧/短片：**不入公开仓**（见 `assets/lv-molihua/MANIFEST.md`）；本地宣传制作请自备素材。片中出现的第三方商标归各权利人所有，仅作产品演示语境。
+- BGM：不入库，成片由剪辑侧自行添加。
+
 ---
 
 ## 一、品牌片 · brand-30s（Remotion）

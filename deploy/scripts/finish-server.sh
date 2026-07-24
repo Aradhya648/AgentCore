@@ -7,7 +7,7 @@
 # 禁止在旧容器仍接流量时 DROP COLUMN/TABLE（2026-07-20 单日 582×500 根因）。
 set -euo pipefail
 
-DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy_f6d1637}"
+DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy}"
 ENVF="$DEPLOY/config/production.env"
 ROOT_ENV="${AGENTCORE_HOME:-/opt/agentcore}/.env"
 TAG="${1:?usage: finish-server.sh <short-sha|latest>}"
@@ -40,8 +40,8 @@ elif ! docker pull "$IMAGE" 2>/dev/null; then
 fi
 
 COMPOSE=( docker compose -p agentcore -f "$DEPLOY/docker-compose.server.yml" -f "$DEPLOY/docker-compose.app.yml" --env-file "$ENVF" )
-# gVisor 灰度：env 开了就叠 sandbox 层。活栈若仍指向 deploy_f6d1637 快照且缺
-# sandbox.yml，回退到仓库 live deploy/（remote-build-deploy 已 checkout 的 tree）。
+# gVisor 灰度：env 开了就叠 sandbox 层。快照目录若缺 sandbox 则回退仓库 deploy/
+# （remote-build-deploy 已 checkout 的 tree）。
 if grep -Eq '^[[:space:]]*GVISOR_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|True|TRUE)[[:space:]]*$' "$ENVF"; then
   _sandbox_yml=""
   for _cand in \

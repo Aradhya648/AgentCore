@@ -16,9 +16,11 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dir, "..");
 const PROJECT = "agentcore-website";
 
+const SITE_HOST = process.env.AGENTCORE_SITE_HOST || "www.example.com";
+
 loadDeployEnv();
 
 run("pnpm build", "pnpm", ["build"], { cwd: ROOT });
 runWranglerPagesDeploy(PROJECT, join(ROOT, "out"));
 
-console.log("✓ Deploy complete — verify https://fashitianxia.xyz/download/");
+console.log(`✓ Deploy complete — verify https://${SITE_HOST}/`);

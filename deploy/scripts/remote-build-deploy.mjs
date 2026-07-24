@@ -30,7 +30,7 @@ ROOT_ENV="\$HOME_DIR/.env"
 ACR_USER="\$(grep -E '^ACR_USERNAME=' "\$ROOT_ENV" | head -1 | cut -d= -f2-)"
 ACR_PASS="\$(grep -E '^ACR_PASSWORD=' "\$ROOT_ENV" | head -1 | cut -d= -f2-)"
 ACR_HOST="\$(grep -E '^ACR_REGISTRY=' "\$ROOT_ENV" | head -1 | cut -d= -f2-)"
-ENVF="\${AGENTCORE_DEPLOY_DIR:-\$HOME_DIR/repo/deploy_f6d1637}/config/production.env"
+ENVF="\${AGENTCORE_DEPLOY_DIR:-\$HOME_DIR/repo/deploy}/config/production.env"
 IMAGE_REG="\$(grep -E '^IMAGE_REGISTRY=' "\$ENVF" | head -1 | cut -d= -f2-)"
 echo "==> build+push api:\$SHA registry=\$IMAGE_REG"
 echo "\$ACR_PASS" | docker login "\$ACR_HOST" -u "\$ACR_USER" --password-stdin

@@ -8,14 +8,13 @@ name: Build Backend Image
 # 版本可观测唯一出口；且保证「每个 master SHA 都有 api 镜像」，prod-* tag 才能钉任意 SHA 部署。
 # （多服务时其余服务可 retag latest→sha 省构建，当前仅 api 单服务，暂不需要。）
 #
-# ⚠️ 端点：ACR_REGISTRY 必须是 ACR【公网】端点（GitHub 跑在 Aliyun VPC 外，推不进 -vpc 端点）；
-#    服务器 production.env 的 IMAGE_REGISTRY 用【VPC】端点拉取（同一仓库、两条路由）。
-#    两者命名空间一致（如 .../agentcore1），镜像 repo 均为 <ns>/api。
+# ⚠️ 端点：ACR_REGISTRY 填构建机可达的【公网】仓库端点；服务器 production.env 的
+#    IMAGE_REGISTRY 可另用内网/VPC 端点拉同一命名空间（镜像 repo 均为 <ns>/api）。
 #
 # 需配 secrets（源码仓 Settings → Secrets and variables → Actions）：
-#   ACR_REGISTRY   ACR 公网端点 + 命名空间，如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/agentcore1
-#   ACR_USERNAME   ACR 登录用户名
-#   ACR_PASSWORD   ACR 登录密码（凭据）
+#   ACR_REGISTRY   镜像仓库公网端点 + 命名空间，如 registry.example.com/your-namespace
+#   ACR_USERNAME   登录用户名
+#   ACR_PASSWORD   登录密码（凭据）
 
 # ⚠️ 已弃用 push 自动触发（2026-06）— 改由 Cursor Agent 在生产机构建推 ACR：
 #   node deploy/scripts/remote-build-deploy.mjs <short-sha>

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Remote install for admin console static files + nginx + CORS + cloudflared ingress.
 # Invoked via: ssh user@host 'bash -s' < deploy/scripts/admin-remote-install.sh
+# Override hosts via env: ORIGIN / OFFICE_HOST（默认 office.example.com 占位）。
 set -euo pipefail
 
-ORIGIN="https://office.fashitianxia.xyz"
+ORIGIN="${ORIGIN:-https://office.example.com}"
+OFFICE_HOST="${OFFICE_HOST:-office.example.com}"
 ADMIN_ROOT="/opt/agentcore/admin"
-DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy_f6d1637}"
+DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy}"
 ENVF="$DEPLOY/config/production.env"
 NGINX_AVAIL="/etc/nginx/sites-available/office-admin"
 NGINX_ENABLED="/etc/nginx/sites-enabled/office-admin"
@@ -22,11 +24,11 @@ rm -f /tmp/office-admin.conf /tmp/deploy/nginx/office-admin.conf
 ln -sfn "$NGINX_AVAIL" "$NGINX_ENABLED"
 sudo nginx -t
 sudo systemctl reload nginx
-LOCAL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: office.fashitianxia.xyz' http://127.0.0.1:8090/ || true)"
+LOCAL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: ${OFFICE_HOST}" http://127.0.0.1:8090/ || true)"
 echo "nginx reloaded; local probe :8090 → HTTP ${LOCAL_CODE}"
 
 [[ -f "$ENVF" ]] || { echo "ERROR: $ENVF missing"; exit 1; }
-if grep -q 'office\.fashitianxia\.xyz' "$ENVF"; then
+if grep -qF "$OFFICE_HOST" "$ENVF"; then
   echo "CORS already includes $ORIGIN"
 elif grep -q '^CORS_ALLOW_ORIGINS=' "$ENVF"; then
   sed -i "s|^CORS_ALLOW_ORIGINS=\(.*\)|CORS_ALLOW_ORIGINS=\1,${ORIGIN}|" "$ENVF"
@@ -61,7 +63,6 @@ fi
 "${COMPOSE[@]}" up -d api
 echo "api recreated for CORS"
 
-OFFICE_HOST=office.fashitianxia.xyz
 OFFICE_SERVICE=http://127.0.0.1:8090
 CONFIG=""
 for f in /etc/cloudflared/config.yml /etc/cloudflared/config.yaml \

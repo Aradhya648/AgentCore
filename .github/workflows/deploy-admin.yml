@@ -2,6 +2,8 @@ name: Deploy Admin Console
 
 # ⚠️ 已弃用自动触发 — 改由 Cursor Agent 本地 `pnpm -C apps/admin deploy:production` 部署。
 # 见 docs/05-平台与运维/部署与运维.md §二、.cursor/rules/cursor-deploy.mdc
+#
+# 下方 app./office.example.com 为自托管占位；用 GitHub vars（如 APP_HOST / OFFICE_HOST）覆盖。
 
 on:
   workflow_dispatch:
@@ -39,7 +41,7 @@ jobs:
       - name: Build admin SPA
         working-directory: apps/admin
         env:
-          VITE_API_URL: https://app.fashitianxia.xyz/api
+          VITE_API_URL: https://app.example.com/api
         run: pnpm build
 
       - name: Pack dist tarball
@@ -74,9 +76,10 @@ jobs:
           port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
           script: |
             set -euo pipefail
-            ORIGIN="https://office.fashitianxia.xyz"
+            ORIGIN="https://office.example.com"
+            OFFICE_HOST="office.example.com"
             ADMIN_ROOT="/opt/agentcore/admin"
-            DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy_f6d1637}"
+            DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy}"
             REPO="${AGENTCORE_HOME:-/opt/agentcore}/repo"
             ENVF="$DEPLOY/config/production.env"
             NGINX_AVAIL="/etc/nginx/sites-available/office-admin"
@@ -94,12 +97,12 @@ jobs:
             ln -sfn "$NGINX_AVAIL" "$NGINX_ENABLED"
             sudo nginx -t
             sudo systemctl reload nginx
-            LOCAL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: office.fashitianxia.xyz' http://127.0.0.1:8090/ || true)"
+            LOCAL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: ${OFFICE_HOST}" http://127.0.0.1:8090/ || true)"
             echo "nginx reloaded; local probe :8090 → HTTP ${LOCAL_CODE}"
-            echo "若公网仍 502：Cloudflare Tunnel 须将 office.fashitianxia.xyz → http://127.0.0.1:8090"
+            echo "若公网仍 502：Tunnel/反代须将 ${OFFICE_HOST} → http://127.0.0.1:8090"
 
             [[ -f "$ENVF" ]] || { echo "ERROR: $ENVF missing"; exit 1; }
-            if grep -q 'office\.fashitianxia\.xyz' "$ENVF"; then
+            if grep -qF "$OFFICE_HOST" "$ENVF"; then
               echo "CORS already includes $ORIGIN"
             elif grep -q '^CORS_ALLOW_ORIGINS=' "$ENVF"; then
               sed -i "s|^CORS_ALLOW_ORIGINS=\(.*\)|CORS_ALLOW_ORIGINS=\1,${ORIGIN}|" "$ENVF"
@@ -117,7 +120,6 @@ jobs:
             echo "api recreated for CORS"
 
             # cloudflared ingress: office → admin nginx :8090（本机 config，非 CF API）
-            OFFICE_HOST=office.fashitianxia.xyz
             OFFICE_SERVICE=http://127.0.0.1:8090
             CONFIG=""
             for f in /etc/cloudflared/config.yml /etc/cloudflared/config.yaml \

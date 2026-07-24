@@ -2,8 +2,9 @@
 /**
  * Build + deploy the WEB CLIENT (the desktop renderer run in a plain browser — form A,
  * P1 多端：web = 「云工作区」一等入口) to the production server, served SAME-ORIGIN at
- * app.fashitianxia.xyz/ — the API is on the same Nginx at /api, so the SPA gets
- * first-party cookies and zero CORS. Mirrors apps/admin's server (scp + Nginx) deploy.
+ * app.example.com/ — the API is on the same Nginx at /api, so the SPA gets
+ * first-party cookies and zero CORS. Override via AGENTCORE_APP_HOST /
+ * AGENTCORE_APP_API_URL (or VITE_API_URL). Mirrors apps/admin's server deploy.
  *
  *   pnpm -C apps/desktop deploy:web
  *
@@ -29,8 +30,12 @@ import {
   sshScript,
 } from "../../../deploy/scripts/load-deploy-env.mjs";
 
-// Same-origin API the built SPA calls (pinned in apps/desktop/.env.production).
-const API_URL = "https://app.fashitianxia.xyz/api";
+// Same-origin API the built SPA calls. Prefer baked .env.production; override for forks.
+const APP_HOST = process.env.AGENTCORE_APP_HOST || "app.example.com";
+const API_URL =
+  process.env.AGENTCORE_APP_API_URL ||
+  process.env.VITE_API_URL ||
+  `https://${APP_HOST}/api`;
 const WEB_ROOT = "/opt/agentcore/web";
 const DESKTOP_DIR = join(REPO_ROOT, "apps/desktop");
 const DIST = join(DESKTOP_DIR, "dist-web");
@@ -66,11 +71,11 @@ rm -f /tmp/web-dist.tgz
 echo "web static → $WEB_ROOT/dist ($(find "$WEB_ROOT/dist" -type f | wc -l) files)"
 sudo nginx -t
 sudo systemctl reload nginx
-CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: app.fashitianxia.xyz' http://127.0.0.1/ || true)"
-echo "nginx reloaded; local probe app.fashitianxia.xyz/ → HTTP $CODE"
+CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: ${APP_HOST}' http://127.0.0.1/ || true)"
+echo "nginx reloaded; local probe ${APP_HOST}/ → HTTP $CODE"
 `);
 
 unlinkSync(TARBALL);
 console.log(
-  "✓ Web client deploy complete — verify https://app.fashitianxia.xyz/",
+  `✓ Web client deploy complete — verify https://${APP_HOST}/`,
 );

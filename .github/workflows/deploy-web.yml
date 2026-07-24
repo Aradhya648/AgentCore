@@ -7,6 +7,7 @@ name: Deploy Web Client
 # API app./api/ 同一台 Nginx → 第一方 cookie、零 CORS。本工作流只「同步文件 + reload」，
 # 不改 nginx 配置；前置须一次性把 deploy/nginx/app-web.conf 的 root + location / 合入 app.
 # 既有 server 块（保留 /api、/storage 代理）。
+# 下方 app.example.com 为自托管占位；用 GitHub vars（如 APP_HOST）覆盖。
 
 on:
   workflow_dispatch:
@@ -79,6 +80,6 @@ jobs:
             echo "web static → $WEB_ROOT/dist ($(find "$WEB_ROOT/dist" -type f | wc -l) files)"
             sudo nginx -t
             sudo systemctl reload nginx
-            CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: app.fashitianxia.xyz' http://127.0.0.1/ || true)"
-            echo "nginx reloaded; local probe app.fashitianxia.xyz/ → HTTP ${CODE}"
+            CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: app.example.com' http://127.0.0.1/ || true)"
+            echo "nginx reloaded; local probe app.example.com/ → HTTP ${CODE}"
             echo "前置：deploy/nginx/app-web.conf 的 root + location / 须已合入 app. server 块"

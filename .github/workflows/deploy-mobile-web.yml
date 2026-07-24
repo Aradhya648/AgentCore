@@ -2,6 +2,8 @@ name: Deploy Mobile Web
 
 # ⚠️ 已弃用自动触发 — 改由 Cursor Agent 本地 `pnpm -C apps/mobile deploy:pages` 部署。
 # 见 docs/05-平台与运维/部署与运维.md §二、.cursor/rules/cursor-deploy.mdc
+#
+# 下方 *.example.com 为自托管占位；用 GitHub vars（如 APP_HOST / MOBILE_HOST / DNS_ZONE）覆盖。
 
 on:
   workflow_dispatch:
@@ -35,7 +37,7 @@ jobs:
 
       - name: Build mobile web SPA
         env:
-          VITE_API_URL: https://app.fashitianxia.xyz/api
+          VITE_API_URL: https://app.example.com/api
         run: pnpm --filter agentcore-mobile build
 
       - name: Ensure Cloudflare Pages project exists
@@ -54,7 +56,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx --yes wrangler@4 pages deploy apps/mobile/dist --project-name=agentcore-mobile --branch=main
 
-      - name: Bind custom domain m.fashitianxia.xyz
+      - name: Bind custom domain m.example.com
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -65,7 +67,7 @@ jobs:
             -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/agentcore-mobile/domains" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H 'Content-Type: application/json' \
-            --data '{"name":"m.fashitianxia.xyz"}')"
+            --data '{"name":"m.example.com"}')"
           if [[ "$code" == "200" || "$code" == "201" || "$code" == "409" ]]; then
             echo "custom domain ok (HTTP $code)"
           else
@@ -80,7 +82,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          ZONE=fashitianxia.xyz
+          ZONE=example.com
           FQDN=m.${ZONE}
           TARGET=agentcore-mobile.pages.dev
           auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
@@ -125,12 +127,12 @@ jobs:
           port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
           script: |
             set -euo pipefail
-            ORIGIN="https://m.fashitianxia.xyz"
-            DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy_f6d1637}"
+            ORIGIN="https://m.example.com"
+            DEPLOY="${AGENTCORE_DEPLOY_DIR:-/opt/agentcore/repo/deploy}"
             ENVF="$DEPLOY/config/production.env"
             [[ -f "$ENVF" ]] || { echo "ERROR: $ENVF missing"; exit 1; }
 
-            if grep -q 'm\.fashitianxia\.xyz' "$ENVF"; then
+            if grep -qF 'm.example.com' "$ENVF"; then
               echo "CORS already includes $ORIGIN"
             elif grep -q '^CORS_ALLOW_ORIGINS=' "$ENVF"; then
               sed -i "s|^CORS_ALLOW_ORIGINS=\(.*\)|CORS_ALLOW_ORIGINS=\1,${ORIGIN}|" "$ENVF"
