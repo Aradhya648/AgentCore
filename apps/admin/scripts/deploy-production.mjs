@@ -53,7 +53,13 @@ run("tar admin dist", "tar", ["-czf", TARBALL, "-C", "apps/admin", "dist"]);
 scp(TARBALL, "/tmp/admin-dist.tgz");
 scp(NGINX_CONF, "/tmp/office-admin.conf");
 
-sshScript(readFileSync(REMOTE_SCRIPT, "utf8"));
+sshScript(
+  [
+    `export ORIGIN=${JSON.stringify(`https://${OFFICE_HOST}`)}`,
+    `export OFFICE_HOST=${JSON.stringify(OFFICE_HOST)}`,
+    readFileSync(REMOTE_SCRIPT, "utf8"),
+  ].join("\n"),
+);
 
 unlinkSync(TARBALL);
 
