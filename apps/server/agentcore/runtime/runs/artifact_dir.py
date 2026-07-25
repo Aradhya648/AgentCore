@@ -2,7 +2,10 @@
 
 工作区布局事实见 ``workspace_context``；本模块只在 ``form=files`` /
 ``requires_files`` / 已声明 ``artifacts`` 且语义为案卷时，按 ``stage_dirs``
-填默认落盘目录。Worker 只定文件名；契约验收复用 ``artifacts`` 目录前缀闸。
+填默认落盘目录。Worker 只定文件名。
+
+**验收 vs 归属分键**：``artifact_dir`` / 目录前缀 / 通配 = 验收覆盖；具体文件
+路径 = C3 归属与 sibling 互斥。裸目录**永不**注入 ``artifacts`` 冒充归属键。
 
 不做：``file_write`` 启发式改写、根目录搬迁、``playbook=none`` 特例。
 """
@@ -107,30 +110,66 @@ def resolve_artifact_dir(
     return _default_stage_dir(role, task, deliverable.name)
 
 
+def is_acceptance_only_artifact_pattern(path: str) -> bool:
+    """True for directory / glob patterns that must not become C3 ownership keys."""
+    raw = path.replace("\\", "/").strip()
+    if not raw:
+        return True
+    if raw.endswith("/") or any(ch in raw for ch in "*?["):
+        return True
+    p = normalize_artifact_dir(raw)
+    if not p:
+        return True
+    # Exact stage dir (``AgentCore/文档/research``) — shared dossier namespace.
+    if stage_dir_covering(p) == p:
+        return True
+    return False
+
+
+def is_file_ownership_path(path: str) -> bool:
+    """Concrete file path eligible for sibling / ownership declare."""
+    return not is_acceptance_only_artifact_pattern(path)
+
+
 def apply_artifact_dir_defaults(deliverable: Deliverable, *, role: str, task: str) -> None:
-    """Fill ``artifact_dir`` and ensure acceptance covers that prefix (in-place)."""
+    """Fill ``artifact_dir``; relocate bare filenames under it (in-place).
+
+    Empty ``artifacts`` stays empty — acceptance uses ``artifact_dir`` directly;
+    do not inject ``[dir/]`` (that falsely exclusivizes a shared dossier).
+    """
     resolved = resolve_artifact_dir(deliverable, role=role, task=task)
     if not resolved:
         return
 
     deliverable.artifact_dir = resolved
     deliverable.requires_files = True
-    prefix = f"{resolved}/"
 
     if not deliverable.artifacts:
-        deliverable.artifacts = [prefix]
         return
 
     relocated: list[str] = []
     for raw in deliverable.artifacts:
-        norm = normalize_artifact_dir(raw)
+        if not isinstance(raw, str):
+            continue
+        raw_s = raw.replace("\\", "/").strip()
+        if not raw_s:
+            continue
+        if is_acceptance_only_artifact_pattern(raw_s):
+            if any(ch in raw_s for ch in "*?["):
+                relocated.append(normalize_artifact_dir(raw_s) or raw_s)
+            else:
+                bare = normalize_artifact_dir(raw_s)
+                if bare:
+                    relocated.append(f"{bare}/")
+            continue
+        norm = normalize_artifact_dir(raw_s)
         if not norm:
             continue
         if "/" not in norm:
             relocated.append(f"{resolved}/{norm}")
         else:
             relocated.append(norm)
-    deliverable.artifacts = relocated or [prefix]
+    deliverable.artifacts = relocated
 
 
 def apply_artifact_dir_to_spec(spec: RunSpec) -> None:
@@ -155,6 +194,8 @@ __all__ = [
     "apply_artifact_dir_to_plan",
     "apply_artifact_dir_to_spec",
     "apply_artifact_dir_to_specs",
+    "is_acceptance_only_artifact_pattern",
+    "is_file_ownership_path",
     "normalize_artifact_dir",
     "resolve_artifact_dir",
     "stage_dir_covering",

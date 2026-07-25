@@ -165,4 +165,20 @@ stage "healthy"
 
 # ── 10. 记录成功部署的 SHA（仅健康后）──
 echo "$TARGET_SHA" >"$SHA_FILE"
+
+# ── 11. 回收本机历史 api:<sha>（健康后；ACR 仍可回拉）。默认保留最近 5 个。──
+KEEP_API_IMAGES="${KEEP_API_IMAGES:-5}"
+if [[ -n "${IMAGE_REGISTRY:-}" ]]; then
+  mapfile -t _old_tags < <(docker images "${IMAGE_REGISTRY}/api" --format '{{.CreatedAt}}\t{{.Tag}}' \
+    | sort -r | awk -F'\t' '$2!="<none>" && $2!="latest" {print $2}')
+  if ((${#_old_tags[@]} > KEEP_API_IMAGES)); then
+    for _t in "${_old_tags[@]:KEEP_API_IMAGES}"; do
+      docker rmi "${IMAGE_REGISTRY}/api:${_t}" 2>/dev/null || true
+    done
+    stage "pruned old api tags (keep ${KEEP_API_IMAGES})"
+  fi
+  docker image prune -f >/dev/null 2>&1 || true
+  docker builder prune -af --filter until=168h >/dev/null 2>&1 || true
+fi
+
 log "部署成功 ✅  $SHORT_SHA  （总耗时 ${SECONDS}s）"

@@ -7,7 +7,7 @@
 三层记账：
 - **终向**：最终落到 ASK / DIRECT / DELEGATE / DEBATE 是否符合期望
 - **直达**：终向对、且中间没有先 ``consult_skill`` 绕说明书
-- **打转**：思考启发式 flags（与对错分开）
+- **打转**：只看「第一下行动前」的思考启发式 flags（与对错分开）；开卡 / 闸后纯「长」降权不计入门禁
 
 成功线（报告对照）：终向 ≥80%、直达 ≥60%（在终向对的样本内）、打转 ≤15%。
 
@@ -393,8 +393,11 @@ def _parse_delegate(args_json: str) -> dict[str, object]:
     }
 
 
+_SPIN_FLAG_NAMES = ("长", "翻转", "术语堆", "自检违规")
+
+
 def _spin_flags(reasoning: str) -> list[str]:
-    """思维链打转启发式：命中记 flags。"""
+    """思维链打转启发式：命中记 flags（应对「第一动前」思考文本调用）。"""
     flags: list[str] = []
     if not reasoning:
         return flags
@@ -440,6 +443,35 @@ def _spin_flags(reasoning: str) -> list[str]:
         flags.append("自检违规")
 
     return flags
+
+
+def _spin_counts_for_gate(
+    flags: list[str],
+    *,
+    action: str,
+    first_action: str,
+    trail: list[str],
+) -> bool:
+    """是否计入打转门禁。
+
+    定案 A：只盯第一动前思考的 flags；以下降权、不计入 spin_rate（flags 仍保留诊断）：
+    - 纯「长」且终向/首动为开卡
+    - 能力/组队闸已触发后的 ASK/DIRECT 收口（含自检违规等，属闸后说明而非路由打转）
+    """
+    spinish = [f for f in flags if f in _SPIN_FLAG_NAMES]
+    if not spinish:
+        return False
+    act = (action or "").upper()
+    fa = (first_action or "").upper()
+    if ("exec_verify_gate" in trail or "team_gate" in trail) and act in {
+        "ASK",
+        "DIRECT",
+    }:
+        return False
+    only_long = set(spinish) <= {"长"}
+    if only_long and (act == "ASK" or fa == "ASK" or fa.startswith("ASK")):
+        return False
+    return True
 
 
 def _expect_match(expect: str, action: str, delegate_summary: dict[str, object] | None) -> str:
@@ -674,12 +706,15 @@ async def _run_one(
     detour: list[str] = []
     first_action = ""
     last_reasoning = ""
+    pre_action_reasoning = ""
+    pre_action_frozen = False
     # 与生产 CEO 环同步：探路累计≥3 一律硬收调查工具
     # （成篇意图另追加形状句；本地改文件 → 摸仓≥2 独立硬催派）
     inv_tools = frozenset(_RECON)
     gate_controller = create_loop_controller(inv_tools)
     disabled_tools: set[str] = set()
     live_tool_defs = tool_defs
+    ask_user_available = "ask_user" in chat_tools.names
     # 跑/打开验证：首轮前注入能力策略（与 react_loop 同形）
     if maybe_inject_exec_verify_gate(
         gate_controller,
@@ -691,9 +726,22 @@ async def _run_one(
         browser=browser,
         disabled_tools=disabled_tools,
         investigation_tools=inv_tools,
+        ask_user_available=ask_user_available,
     ):
         trail.append("exec_verify_gate")
-        live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+        live_tool_defs = (
+            None
+            if gate_controller.exec_verify_text_exit
+            else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+        )
+
+    def _freeze_pre_action(reasoning: str) -> None:
+        nonlocal pre_action_reasoning, pre_action_frozen
+        if pre_action_frozen:
+            return
+        text = (reasoning or "").strip() or last_reasoning
+        pre_action_reasoning = text
+        pre_action_frozen = True
 
     def _pack(
         action: str,
@@ -704,8 +752,11 @@ async def _run_one(
         delegate_summary: dict[str, object] | None = None,
         flags: list[str] | None = None,
     ) -> SampleResult:
-        fl = flags if flags is not None else _spin_flags(last_reasoning)
-        _print_reasoning(last_reasoning, quiet=quiet)
+        if not pre_action_frozen:
+            _freeze_pre_action(last_reasoning)
+        spin_text = pre_action_reasoning or last_reasoning
+        fl = flags if flags is not None else _spin_flags(spin_text)
+        _print_reasoning(spin_text, quiet=quiet)
         fa = first_action or action
         return SampleResult(
             sample_index=0,
@@ -713,8 +764,14 @@ async def _run_one(
             tool_name=tool_name,
             rounds=rounds,
             trail=list(trail),
-            reasoning=last_reasoning,
-            reasoning_meta=_truncate_reasoning(last_reasoning),
+            reasoning=spin_text,
+            reasoning_meta={
+                **_truncate_reasoning(spin_text),
+                "spin_window": "pre_first_action",
+                "spin_counts": _spin_counts_for_gate(
+                    fl, action=action, first_action=fa, trail=trail
+                ),
+            },
             flags=fl,
             delegate_summary=delegate_summary,
             detail=detail,
@@ -746,6 +803,7 @@ async def _run_one(
         if not calls:
             if not first_action:
                 first_action = "DIRECT"
+            _freeze_pre_action(reasoning or last_reasoning)
             return _pack(
                 "DIRECT",
                 tool_name=None,
@@ -753,6 +811,8 @@ async def _run_one(
                 detail="正文: " + (resp.content or "").replace("\n", " ")[:80],
             )
 
+        # 第一动（任一工具）当轮思考冻结为打转窗口
+        _freeze_pre_action(reasoning or last_reasoning)
         terminal = [c for c in calls if c.function.name in _TERMINAL]
         consults = [c for c in calls if c.function.name == "consult_skill"]
         recon_only = (
@@ -767,7 +827,7 @@ async def _run_one(
             action = _classify_action(name)
             if not first_action:
                 first_action = action
-            flags = _spin_flags(last_reasoning)
+            flags = _spin_flags(pre_action_reasoning or last_reasoning)
             delegate_summary = None
             detail = ""
             if name == "delegate":
@@ -879,10 +939,13 @@ async def _run_one(
                 browser=browser,
                 disabled_tools=disabled_tools,
                 investigation_tools=inv_tools,
+                ask_user_available=ask_user_available,
             ):
                 trail.append("exec_verify_gate")
-                live_tool_defs = resolve_openai_tool_defs(
-                    chat_tools, None, disabled_tools
+                live_tool_defs = (
+                    None
+                    if gate_controller.exec_verify_text_exit
+                    else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
                 )
             if maybe_inject_team_gate(
                 gate_controller,
@@ -894,8 +957,10 @@ async def _run_one(
                 investigation_tools=inv_tools,
             ):
                 trail.append("team_gate")
-                live_tool_defs = resolve_openai_tool_defs(
-                    chat_tools, None, disabled_tools
+                live_tool_defs = (
+                    None
+                    if gate_controller.exec_verify_text_exit
+                    else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
                 )
             continue
 
@@ -921,9 +986,14 @@ async def _run_one(
             browser=browser,
             disabled_tools=disabled_tools,
             investigation_tools=inv_tools,
+            ask_user_available=ask_user_available,
         ):
             trail.append("exec_verify_gate")
-            live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+            live_tool_defs = (
+                None
+                if gate_controller.exec_verify_text_exit
+                else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+            )
         if maybe_inject_team_gate(
             gate_controller,
             messages=messages,
@@ -934,7 +1004,11 @@ async def _run_one(
             investigation_tools=inv_tools,
         ):
             trail.append("team_gate")
-            live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+            live_tool_defs = (
+                None
+                if gate_controller.exec_verify_text_exit
+                else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+            )
 
     return _pack(
         "RECON_UNDECIDED",
@@ -955,10 +1029,11 @@ def _confusion_overview(rows: list[dict[str, object]]) -> dict[str, object]:
     soft_stats: dict[str, object] = {"soft_ok": 0, "soft_mismatch": 0, "by_expect": {}}
     hard_matched = hard_mismatch = 0
     spin_hit = 0
+    spin_raw_hit = 0
+    spin_excluded = 0
     terminal_ok_n = 0
     direct_ok_n = 0
     detour_n = 0
-    spin_flags = ("长", "翻转", "术语堆", "自检违规")
 
     for row in rows:
         expect = str(row["expect"])
@@ -968,9 +1043,23 @@ def _confusion_overview(rows: list[dict[str, object]]) -> dict[str, object]:
         terminal_ok = bool(row.get("terminal_ok"))
         direct = bool(row.get("direct"))
         detour = list(row.get("detour") or [])
+        trail = list(row.get("trail") or [])
+        first_action = str(row.get("first_action") or "")
 
-        if any(f in flags for f in spin_flags):
+        raw = any(f in flags for f in _SPIN_FLAG_NAMES)
+        if raw:
+            spin_raw_hit += 1
+        counted = _spin_counts_for_gate(
+            flags, action=action, first_action=first_action, trail=trail
+        )
+        # 兼容旧 JSON：若已写入 spin_counts 则以之为准
+        meta = row.get("reasoning_meta")
+        if isinstance(meta, dict) and "spin_counts" in meta:
+            counted = bool(meta["spin_counts"])
+        if counted:
             spin_hit += 1
+        elif raw:
+            spin_excluded += 1
         if terminal_ok:
             terminal_ok_n += 1
             if direct:
@@ -999,6 +1088,7 @@ def _confusion_overview(rows: list[dict[str, object]]) -> dict[str, object]:
     # 直达率：分母=终向对的样本（无终向对时记 0）
     direct_rate = round(direct_ok_n / terminal_ok_n, 3) if terminal_ok_n else 0.0
     spin_rate = round(spin_hit / total, 3)
+    spin_raw_rate = round(spin_raw_hit / total, 3)
 
     return {
         "hard_matrix": hard,
@@ -1013,6 +1103,10 @@ def _confusion_overview(rows: list[dict[str, object]]) -> dict[str, object]:
             "detour_hits": detour_n,
             "spin_hits": spin_hit,
             "spin_rate": spin_rate,
+            "spin_raw_hits": spin_raw_hit,
+            "spin_raw_rate": spin_raw_rate,
+            "spin_excluded": spin_excluded,
+            "spin_metric": "pre_first_action_v1",
             "total_samples": len(rows),
         },
         "gates": {
@@ -1195,6 +1289,7 @@ async def main_async(args: argparse.Namespace) -> None:
                     "terminal_ok": result.terminal_ok,
                     "detour": result.detour,
                     "first_action": result.first_action,
+                    "trail": result.trail,
                 }
             )
 
@@ -1267,7 +1362,10 @@ async def main_async(args: argparse.Namespace) -> None:
     print(
         f"打转率: {layers['spin_hits']}/{layers['total_samples']} "
         f"= {layers['spin_rate']:.1%}  "
-        f"（门禁 ≤{_GATE_SPIN:.0%} → {'过' if gates['spin_pass'] else '未过'}）"
+        f"（门禁 ≤{_GATE_SPIN:.0%} → {'过' if gates['spin_pass'] else '未过'}；"
+        f"原始 {layers.get('spin_raw_hits', layers['spin_hits'])}/"
+        f"{layers['total_samples']}={layers.get('spin_raw_rate', layers['spin_rate']):.1%}，"
+        f"开卡/闸后长想降权 {layers.get('spin_excluded', 0)}）"
     )
     print(f"累计 tokens: input={tot_in} output={tot_out}")
     print(f"已写入: {out_path.resolve()}")

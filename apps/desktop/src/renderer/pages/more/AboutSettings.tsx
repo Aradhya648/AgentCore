@@ -105,7 +105,7 @@ function UpdateSection() {
 /**
  * 开发者 / 诊断模式 (前端UX设计.md §十) — an advanced, off-by-default toggle that
  * surfaces low-level execution diagnostics (run / trace ids in run detail, the
- * bubble「更多」→「复制诊断信息」) for debugging. Lives on 关于 — next to build
+ * bubble「更多」→「复制排查包」) for debugging. Lives on 关于 — next to build
  * 溯源 — so this dev affordance stays off the 大众-facing 偏好 pages.
  */
 function DiagnosticModeSection() {
@@ -121,7 +121,7 @@ function DiagnosticModeSection() {
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             显示运行 / 追踪 ID
-            等底层诊断信息（运行详情面板、消息「更多」里的「复制诊断信息」），便于排查问题。普通使用无需开启；报障可直接用错误卡「复制诊断信息」。
+            等底层诊断信息（运行详情面板、消息「更多」里的「复制排查包」），便于排查问题。普通使用无需开启；报障可直接用错误卡「复制排查包」。
           </p>
         </div>
         <Switch

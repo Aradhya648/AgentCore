@@ -258,7 +258,11 @@ async def react_loop(
             return wind_down_effective_allowed
         return allowed_tool_names
 
+    controller: LoopController | None = None
+
     def _resolve_tool_defs() -> list[dict[str, Any]] | None:
+        if controller is not None and controller.exec_verify_text_exit:
+            return None
         return resolve_openai_tool_defs(tools, _effective_allowed(), disabled_tools)
 
     tool_defs = _resolve_tool_defs()
@@ -292,6 +296,11 @@ async def react_loop(
         )
 
         backend = tool_context.backend
+        ask_user_available = (
+            "ask_user" in allowed_tool_names
+            if allowed_tool_names is not None
+            else "ask_user" in tools.names
+        )
         if maybe_inject_exec_verify_gate(
             controller,
             messages=messages,
@@ -300,8 +309,10 @@ async def react_loop(
             role=role,
             code_execute=code_execution_enabled_for(backend),
             browser=browser_execution_enabled_for(backend),
+            local_open=backend.location == "local",
             disabled_tools=disabled_tools,
             investigation_tools=investigation_tools,
+            ask_user_available=ask_user_available,
         ):
             tool_defs = _resolve_tool_defs()
     active_model: str | None = base_model
@@ -714,19 +725,28 @@ async def react_loop(
                     )
                     # Soft debate-commitment / audit-gate: captain wrap-up —
                     # discard the draft, inject nudge, continue (one-shot each).
-                    directive, rolled = maybe_soft_gate_no_tool_return(
-                        directive=directive,
-                        outcome=outcome,
-                        controller=controller,
-                        messages=messages,
-                        role=role,
-                        round_idx=round_idx,
-                        run_id=run_id,
-                        content_before_round=content_before_round,
-                        emit_reset=emit_reset,
-                    )
-                    if rolled is not None:
-                        final_content = rolled
+                    # text_exit: skip soft gates; empty → Finalize 兜底防 max_rounds 空转。
+                    if controller.exec_verify_text_exit:
+                        from .directive import Finalize, Return
+
+                        if isinstance(directive, Return) and outcome.content:
+                            pass
+                        else:
+                            directive = Finalize(reason="exec_verify_text_exit")
+                    else:
+                        directive, rolled = maybe_soft_gate_no_tool_return(
+                            directive=directive,
+                            outcome=outcome,
+                            controller=controller,
+                            messages=messages,
+                            role=role,
+                            round_idx=round_idx,
+                            run_id=run_id,
+                            content_before_round=content_before_round,
+                            emit_reset=emit_reset,
+                        )
+                        if rolled is not None:
+                            final_content = rolled
                 else:
                     # Wind-down breach: non-whitelist tool → nudge+handoff-only, or
                     # local synth close (2nd breach / already at hard ceiling).

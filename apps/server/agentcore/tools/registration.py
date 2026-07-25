@@ -145,6 +145,7 @@ def _load_declared_tools() -> tuple[type, ...]:
     from agentcore.tools.builtin.git_ops import GitTool
     from agentcore.tools.builtin.grep import GrepTool
     from agentcore.tools.builtin.handoff import HandoffTool
+    from agentcore.tools.builtin.md_to_docx import MdToDocxTool
     from agentcore.tools.builtin.post_note import PostNoteTool
     from agentcore.tools.builtin.read_notes import ReadNotesTool
     from agentcore.tools.builtin.remember import RememberTool
@@ -170,6 +171,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         FileCopyTool,
         MkdirTool,
         FileBatchTool,
+        MdToDocxTool,
         GrepTool,
         CodeSearchTool,
         GitTool,

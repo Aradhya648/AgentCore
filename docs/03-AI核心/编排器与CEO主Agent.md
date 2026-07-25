@@ -172,7 +172,7 @@ CEO 在自己的 ReAct 循环里调用单一的 `delegate` 工具把一批子任
 
 **再委派护栏 ✅**：活跃协调上二次 `delegate` 若与在跑队员**角色+任务同构** → 结构化拒绝（须显式 `force=true` 才放行）；增量合并进活跃协调**同样走** `team_preview` 开工卡，不得静默并入。→ 见代码: `runtime/coordination/isomorphic.py`、`runtime/delegate/drive.py`。
 
-**追加重叠守门 ✅**：同构拒绝之外，协作图追加的 `delegate` 若与在图节点**角色职责**重叠（仅未完成节点）或**文件归属**重叠（C3：含已完成 owner 的会话归属表）→ 结构化拒绝并引导（等波次推进，或 `cancel_worker` / `replan` / `replaces_run_id` 显式接手后再派）；流水线外新增职责放行；`force=true` 旁路或强制转移。动因：GEO 官网事故——CEO 空转唤醒后追加重复文案 / 整站前端 / 重复 QA，与骨架节点抢写 `site/index.html` 触发写冲突。→ 见代码: `runtime/coordination/append_guard.py`、`runtime/coordination/host.py`。
+**追加重叠守门 ✅**：同构拒绝之外，协作图追加的 `delegate` 若与在图节点**角色职责**重叠（仅未完成节点）或**文件归属**重叠（C3：含已完成 owner 的会话归属表）→ 结构化拒绝并引导（等波次推进，或 `cancel_worker` / `replan` / `replaces_run_id` 显式接手后再派）；流水线外新增职责放行；`force=true` 旁路或强制转移。**不变量**：同批 sibling 交付物交叉与上述同类准入闸均在 durable `run_plan` emit **之前**（准入→提交→执行）；契约拒绝零图副作用。动因：GEO 官网事故——CEO 空转唤醒后追加重复文案 / 整站前端 / 重复 QA，与骨架节点抢写 `site/index.html` 触发写冲突。→ 见代码: `runtime/coordination/append_guard.py`、`runtime/coordination/host.py`、`tools/builtin/delegate/tool.py`。
 
 | 约束 | 决策 |
 |---|---|
@@ -305,7 +305,7 @@ CEO `delegate` **不声明模型档位**（原 `model_preference{fast,strong}` �
 >
 > **工作区产物清单 ✅**：开局注入队友产物 + 既有文件（预算封顶）。
 >
-> **并行写隔离 / C3 较强文件归属 ✅**：协调会话级归属表（`deliverable.artifacts` 声明即占，完成后仍占；与批次 `WriteCoordinator` 统一一本账）；写时互斥覆盖 `file_write` / `file_append` / `str_replace` / `write_section`（及 delete/move）；祖先交接 / `replaces_run_id` / `continue_from_run_id` / `force` 可移交。`code_execute` 写回本期不硬拦。回滚开关 `engine_file_ownership_v2=false` → 仅未完成启发式 + 批内 write/append claim。非协调批仍为批内守卫。→ 见代码: `workspace/write_claims.py`、`runtime/coordination/append_guard.py`
+> **并行写隔离 / C3 较强文件归属 ✅**：协调会话级归属表（**具体文件** `deliverable.artifacts` 声明即占，完成后仍占；与批次 `WriteCoordinator` 统一一本账）；**`artifact_dir` / 目录前缀 / 通配只做验收覆盖、不进归属键**——同批可共享案卷目录。写时互斥覆盖 `file_write` / `file_append` / `str_replace` / `write_section`（及 delete/move）；祖先交接 / `replaces_run_id` / `continue_from_run_id` / `force` 可移交。`code_execute` 写回本期不硬拦。回滚开关 `engine_file_ownership_v2=false` → 仅未完成启发式 + 批内 write/append claim。非协调批仍为批内守卫。→ 见代码: `workspace/write_claims.py`、`runtime/coordination/append_guard.py`、`runtime/runs/artifact_dir.py`
 >
 > **覆盖写完整性 ✅**：成篇非空目标（≥约 400 字）的 `file_write` 整文件覆盖 → **硬拒绝**并引导 `str_replace` /（骨架上的）`file_append`；不足阈值的短文件仍可覆盖（保留完整性软警示）。
 >
@@ -335,12 +335,13 @@ worker 的可用工具**不由 CEO 手填**：`delegate` / `replan` 曾有的 ta
 
 批次「怎样算干完」的验收契约，档位：`files_written`（有 worker 产物落盘）/ `code_verified`（须真跑通——校验确有 `code_execute` / `test_run` 成功记录）/ `custom`（描述性，机械校验不了即报缺口）。
 
-- **省略 = 不强制 + 仅结构化补全（废除文案推断）✅**：CEO 未显式声明时默认**不启用批次验收**；仅当任一 worker 声明 `deliverable.artifacts` 或 `form=files` 时自动解析为 `files_written`（结构化信号；路径级对账另由 per-worker 契约门执行）。task 含「运行 / 打开 / 安装 / 启动」类语义**不再**绑定 `code_verified`——真运行类任务须由 CEO **显式**声明（skill / CEO 提示词已升为硬要求；eval `delegate_run_app` 棘轮守住）。非绑定软警告（运行 / 二进制产物启发）仍随 delegate 结果返回。delegate 工具结果**始终回显** resolved 验收（含「本批验收：未启用」），CEO 当轮可见可改。**为何废除文案推断**（2026-07-18 提案 B1）：静态产物文案天然带「打开页面」类字眼，误推后 unmet → 无限重派；「打开软件」路径 A 改由显式声明 + 三项补偿兜住。**为何不默认强制**：写文档 / 纯讨论类本无落盘或跑通语义；落盘要求由 per-worker `deliverable` 承载。提案正文与实测依据见 git 历史（检索与交付约束前置提案）。
+- **省略 = 不强制 + 仅结构化补全（废除文案推断）✅**：CEO 未显式声明时默认**不启用批次验收**；仅当任一 worker 声明 `deliverable.artifacts` 或 `form=files` 时自动解析为 `files_written`（结构化信号；路径级对账另由 per-worker 契约门执行）。task 含「运行 / 打开 / 安装 / 启动」类语义**不再**绑定 `code_verified`——真运行类任务须由 CEO **显式**声明（skill / CEO 提示词已升为硬要求）。「直接打开软件」类：无本机打开能力 → CEO 终向须 `ask_user`（eval `delegate_run_app` 现为 `NotDelegated` 棘轮，禁假委派冒充已打开）；有 `local_open` 时才可 `delegate` 并显式 `code_verified`——由回合**能力策略**收口（见下），不再靠「必须委派」一条金标硬拧。非绑定软警告（运行 / 二进制产物启发）仍随 delegate 结果返回。delegate 工具结果**始终回显** resolved 验收（含「本批验收：未启用」），CEO 当轮可见可改。**为何废除文案推断**（2026-07-18 提案 B1）：静态产物文案天然带「打开页面」类字眼，误推后 unmet → 无限重派；「打开软件」路径 A 改由显式声明 + 能力策略兜住。**为何不默认强制**：写文档 / 纯讨论类本无落盘或跑通语义；落盘要求由 per-worker `deliverable` 承载。提案正文与实测依据见 git 历史（检索与交付约束前置提案）。
 - **验收标准注入 worker（B2）✅**：resolved criteria 写入持**执行类工具**（`tools is None` 或 allow-list 含 `code_execute` / `test_run` / `terminal`）且 `form=files` 的节点的「交付物规格」块——避免调研 / prose 全员冗余跑验证。禁止按 role 字符串圈定。
 - **误放 task 层自动提升（hoist）+ 同缺口收敛**：正式契约位置在 delegate **顶层**（与 tasks 同级）；顶层缺失且单 task / 多 task 值一致 → 自动提升并打 `delegate.completion_criteria_hoisted`；多 task 值冲突 → 参数校验报错。验收 unmet 的 gap 消息**必标 criteria 来源**（显式 / 结构化）；同一委派**连续 2 次相同缺口** → 升级收口。→ 见代码：`completion.py` `hoist_task_completion_criteria` / `resolve_completion_with_source` / `format_completion_gap_message` / `format_resolved_acceptance_echo`。
 - **评估口径（vacuous pass 已修）**：criteria 针对**全部 COMPLETED worker** 的真实信号评估——纯落盘、纯 handoff 的空正文完成态同样计入；无任何证据 = 缺口，绝不空过。
 - **收敛强制收尾与缺口上报**：治理 `convergence_finalize` 仍禁写文件（只读收口），但收尾后契约缺口以 per-worker gaps 段写入 delegate 汇总。
-- **对治「写了但跑不起来」**：路径 A·工作区内验收靠**显式** `code_verified` + 收尾校验（不再文案推断）；路径 B·本机 OS 启动走 sidecar / Client Tools，见 [`双模式工作区.md` §十](/docs/02-架构/双模式工作区.md)、[`安全权限与治理.md` §三](/docs/05-平台与运维/安全权限与治理.md)。
+- **对治「写了但跑不起来」**：路径 A·工作区内验收靠**显式** `code_verified` + 收尾校验（不再文案推断）；路径 B·本机 OS 启动 / 打开软件走 sidecar / Client Tools（无 `local_open` 时先 `ask_user`，勿直答冒充已打开），见 [`双模式工作区.md` §十](/docs/02-架构/双模式工作区.md)、[`安全权限与治理.md` §三](/docs/05-平台与运维/安全权限与治理.md)。
+- **CEO 回合能力策略（跑 / 打开验证 / 贴码写回 / 打开软件）✅**：窄意图 × 本回合能力（`workspace_context`：`code_execute` / browser / `local_open`）由引擎硬收终向——有能力 → 只许 `delegate`（跑修可叠显式 `code_verified`）；缺能力或缺可验产物路径 → 只许 `ask_user`；**贴码写回**恒 `delegate`（空仓也须落盘，禁口述修复当直答）。禁止用翻目录 / 读文件冒充已跑 / 已验。→ 见代码：`runtime/runs/exec_verify.py`、`runtime/engine/governance.py`
 - **委派前能力闸 ✅**：**resolved `code_verified`**（显式声明，与收尾验收共用同一 resolver；文案启发不进硬闸）撞上「本回合无执行环境」→ `delegate` **硬拒绝**，给三条出路（`bind_local_folder` / 改 `files_written` / 先 `ask_user`）。剩余软警告：resolved 非 `code_verified` 但文案含运行 / 二进制产物暗示 → 工具结果尾部注入不拦截（宁漏不错杀）。→ 见代码：`completion.py` `validate_execution_capability` / `execution_capability_warning`。
 - **交付底线前置（finish_guard B3 一期）✅**：共享基座提示词含 `<delivery_baseline>`（围栏须闭合、`#rN` 须在台账内）；命中频率靠既有 `engine.finish_guard_rework` 日志可统计。自动规范化 / 新 reset reason 属二期，本批不做。
 - **交付状态结构化（`delivery_status` 事件）✅**：批次收尾把已有信号汇成面向用户的结构化交付对账——`state` + 已交付文件 + 缺口 + 待用户操作。DURABLE、同 `execution_id` 保最新；纯 prose 成功批次无声。→ 见代码：`runtime/runs/cutoff.py`、`runtime/delegate/delivery_status.py`、conformance 向量 `multi_agent_delivery_status_partial`。

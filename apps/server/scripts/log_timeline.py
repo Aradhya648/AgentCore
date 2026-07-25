@@ -21,10 +21,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+_BARE_HEX32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+_EMPTY_HIT_SYNC_HINT = (
+    "本地无命中且像线上 → 先 `pnpm sync:logs`，再加 "
+    "`--export-dir ../../logs/prod-export`。\n"
+    "ID 形态：无连字符 32-hex = trace_id；带连字符 UUID = conversation_id。"
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 LOG_FILE = _REPO_ROOT / "logs" / "dev.jsonl"
@@ -110,6 +118,28 @@ def _format_jsonl_gap_hint(log_events: list[dict]) -> str | None:
         return _JOURNAL_SOURCE_HINT
     secs = int(gap.get("gap_seconds") or 0)
     return f"{_JOURNAL_SOURCE_HINT}  gap≈{secs}s"
+
+
+def is_bare_trace_id(value: str) -> bool:
+    """True when *value* is a no-hyphen 32-hex string (trace_id shape)."""
+    return bool(_BARE_HEX32_RE.fullmatch(value))
+
+
+def normalize_trace_id_arg(value: str) -> str:
+    """CLI-only: hyphenated UUID → bare 32-hex when the hex payload is 32 chars."""
+    if "-" not in value:
+        return value
+    stripped = value.replace("-", "")
+    if _BARE_HEX32_RE.fullmatch(stripped):
+        return stripped
+    return value
+
+
+def format_empty_hit_hint(*, using_export_dir: bool) -> str:
+    """Guidance appended on empty hits when not already querying an export dir."""
+    if using_export_dir:
+        return ""
+    return _EMPTY_HIT_SYNC_HINT
 
 
 def _parse_cli_args(
@@ -313,7 +343,7 @@ def format_conversation_context(
                 extras.append("委派")
             status_suffix = f"  {' · '.join(extras)}" if extras else ""
         elif start:
-            status = "⚠️ 未完成"
+            status = "⚠️ 未完成（进行中或仅 kickoff）"
             status_suffix = ""
         else:
             status = "?"
@@ -332,6 +362,8 @@ def format_trace(
     log_file: Path = LOG_FILE,
     since: datetime | None = None,
     traffic: str | None = None,
+    *,
+    using_export_dir: bool = False,
 ) -> str:
     lines = [
         "=" * 70,
@@ -340,6 +372,10 @@ def format_trace(
     ]
     if traffic:
         lines.append(f"  Traffic: {traffic} (合成流量)")
+    has_start = any(ev.get("event") == "chat.turn_start" for ev in log_events)
+    has_complete = any(ev.get("event") == "chat.turn_complete" for ev in log_events)
+    if has_start and not has_complete:
+        lines.append("  Status: ⚠️ 未完成（进行中或仅 kickoff）")
     gap_hint = _format_jsonl_gap_hint(log_events)
     if gap_hint:
         lines.append(f"  {gap_hint}")
@@ -352,6 +388,10 @@ def format_trace(
             lines.extend(_fmt_log_item(item))
     lines.append("")
     output = "\n".join(lines)
+    if not log_events:
+        hint = format_empty_hit_hint(using_export_dir=using_export_dir)
+        if hint:
+            output += hint + "\n"
     conv_id = extract_conversation_id(log_events)
     if conv_id:
         spine = load_conversation_spine_events(
@@ -438,12 +478,19 @@ async def main() -> None:
             print()
             return
 
-        if args[0] == "--trace":
-            if len(args) < 2:
-                print("usage: log_timeline.py --trace <trace_id>")
-                return
+        if args[0] == "--trace" or is_bare_trace_id(args[0]):
+            if args[0] == "--trace":
+                if len(args) < 2:
+                    print("usage: log_timeline.py --trace <trace_id>")
+                    return
+                raw_trace = args[1]
+            else:
+                raw_trace = args[0]
+                if not as_json:
+                    print(f"已按 trace_id 解释（无连字符 32-hex）: {raw_trace}")
+            trace_id = normalize_trace_id_arg(raw_trace)
             result = await query_trace(
-                args[1],
+                trace_id,
                 log_file=log_file,
                 since=since,
             )
@@ -452,11 +499,12 @@ async def main() -> None:
                 return
             print(
                 format_trace(
-                    args[1],
+                    trace_id,
                     result.log_events,
                     log_file=log_file,
                     since=since,
                     traffic=result.meta.get("traffic"),
+                    using_export_dir=export_dir is not None,
                 )
             )
             return
@@ -474,6 +522,9 @@ async def main() -> None:
         if result.meta.get("error") == "conversation_not_found":
             where = "export" if export_dir else "database"
             print(f"Conversation '{conv_id}' not found in {where}.")
+            hint = format_empty_hit_hint(using_export_dir=export_dir is not None)
+            if hint:
+                print(hint)
             return
         assert result.conversation is not None
         print(

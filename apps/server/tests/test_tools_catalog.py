@@ -29,6 +29,7 @@ _EXPECTED_NAMES = {
     "file_copy",
     "mkdir",
     "file_batch",
+    "md_to_docx",
     "grep",
     "code_search",
     "git",
@@ -59,6 +60,7 @@ _DELEGATED_MUTATION_NAMES = {
     "file_copy",
     "mkdir",
     "file_batch",
+    "md_to_docx",
     "code_execute",
 }
 
@@ -116,6 +118,7 @@ def test_write_and_exec_tools_are_grantable():
     assert approvals["file_copy"] is ToolApproval.GRANTABLE
     assert approvals["mkdir"] is ToolApproval.GRANTABLE
     assert approvals["file_batch"] is ToolApproval.GRANTABLE
+    assert approvals["md_to_docx"] is ToolApproval.GRANTABLE
     # Read-only tools auto-run (no approval prompt).
     assert approvals["file_read"] is ToolApproval.NEVER
     assert approvals["web_search"] is ToolApproval.NEVER
@@ -136,6 +139,7 @@ def test_file_mutation_class_is_grantable_filesystem_without_code_execute():
         "file_copy",
         "mkdir",
         "file_batch",
+        "md_to_docx",
     }
     assert "code_execute" not in names
     # Exactly the delegated mutation set minus code_execute (stays in lockstep).

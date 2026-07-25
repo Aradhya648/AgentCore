@@ -280,6 +280,15 @@ def check_contract(
         if missing:
             listed = "、".join(f"`{p}`" for p in missing)
             failures.append(f"声明的交付物路径未落盘：{listed}")
+    # 案卷目录验收（与归属分键）：artifact_dir 不进 ownership，须在此对账前缀。
+    if deliverable.artifact_dir and deliverable.requires_files:
+        from agentcore.runtime.runs.artifact_dir import normalize_artifact_dir
+
+        dir_pat = f"{normalize_artifact_dir(deliverable.artifact_dir)}/"
+        if dir_pat != "/" and not artifact_present(dir_pat, workspace_paths or []):
+            failures.append(
+                f"产物未写入案卷目录 `{dir_pat}`（须落在此目录下，勿写到工作区根）"
+            )
     # 网页接缝：同批 HTML+CSS/JS，或 ``web_seam_scope`` 终态整站复查。
     if deliverable.web_seam_scope:
         failures.extend(

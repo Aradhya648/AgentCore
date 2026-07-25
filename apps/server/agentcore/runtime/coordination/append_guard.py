@@ -9,7 +9,11 @@ file checks — all_completed still blocks racing a held final path unless
 ``replaces_run_id`` / ``continue_from_run_id`` / ancestor / ``force`` transfers.
 Role-only overlap still requires incomplete live nodes.
 
-Same-batch sibling artifact crosses are rejected at dispatch (name the pair).
+Same-batch sibling artifact crosses are rejected at dispatch (name the pair),
+**before** durable ``run_plan`` emit (admit → commit → execute).
+
+Ownership keys are **concrete file** ``artifacts`` only — directory prefixes /
+``artifact_dir`` / globs are acceptance coverage, never exclusive claims.
 """
 
 from __future__ import annotations
@@ -125,13 +129,18 @@ def _paths_in_text(text: str) -> set[str]:
 
 
 def node_artifact_paths(node: Any) -> set[str]:
-    """Structured deliverable.artifacts only (C3 declare / ownership keys)."""
+    """Concrete ``deliverable.artifacts`` file paths (C3 declare / ownership keys).
+
+    Directory prefixes, stage dirs, and globs are acceptance-only — excluded here.
+    """
+    from agentcore.runtime.runs.artifact_dir import is_file_ownership_path
+
     out: set[str] = set()
     deliverable = getattr(node, "deliverable", None)
     if deliverable is None:
         return out
     for art in getattr(deliverable, "artifacts", None) or []:
-        if isinstance(art, str) and art.strip():
+        if isinstance(art, str) and art.strip() and is_file_ownership_path(art):
             key = _normalize_path(art)
             if key:
                 out.add(key)

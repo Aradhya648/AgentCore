@@ -5,6 +5,7 @@
   "user_message": "把配置文件 config.yaml 里的 `debug: false` 改成 `debug: true`，只改这一行，别动别的。",
   "path": "team",
   "mode": "economy",
+  "workspace_fixture": "probe_workspace",
   "_note": "机械单步改文件：单 worker 形状；禁为改一行堆多角色。",
   "checks": [
     { "name": "FinishReason" },

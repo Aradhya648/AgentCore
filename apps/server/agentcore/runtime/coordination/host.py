@@ -43,6 +43,165 @@ DelegateTool = Any
 logger = get_logger(__name__)
 
 
+def should_defer_run_plan_emit_to_merge(
+    tool: DelegateTool,
+    *,
+    execution_id: str,
+    finalize: bool,
+) -> bool:
+    """True when an active coordination session will emit the commit ``run_plan``.
+
+    Secondary same-turn ``delegate`` merges into the live graph; the merge path
+    emits the grown plan after admission. Emitting earlier would leave a durable
+    skeleton even when admission later rejects.
+    """
+    if finalize or int(getattr(tool, "_depth", 0) or 0) != 0:
+        return False
+    existing = active_coordination(execution_id)
+    return existing is not None and existing.active
+
+
+def admit_before_run_plan_emit(
+    tool: DelegateTool,
+    plan: RunPlan,
+    *,
+    execution_id: str,
+    finalize: bool = False,
+    call_idx: int | None = None,
+) -> ToolResult | None:
+    """Sibling / append / isomorphic gates before durable ``run_plan`` emit.
+
+    Returns a contract-failure :class:`ToolResult` when the batch must not become
+    a graph member; ``None`` means admitted (caller may emit then execute).
+    """
+    from agentcore.runtime.coordination.append_guard import (
+        append_overlap_reject_message,
+        find_append_overlaps,
+        find_sibling_artifact_crosses,
+    )
+    from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
+    from agentcore.workspace.write_claims import file_ownership_v2_enabled
+
+    force = getattr(tool, "_delegate_force", False) is True
+    if force:
+        return None
+
+    existing = active_coordination(execution_id)
+    merging = (
+        existing is not None
+        and existing.active
+        and int(getattr(tool, "_depth", 0) or 0) == 0
+        and not finalize
+    )
+
+    if merging and existing is not None:
+        from agentcore.runtime.coordination.isomorphic import (
+            is_isomorphic_redelegation,
+            isomorphic_reject_message,
+        )
+
+        if is_isomorphic_redelegation(
+            plan,
+            existing.live_plan,
+            completed_run_ids=existing.completed_run_ids,
+        ):
+            logger.info(
+                "delegate.isomorphic_rejected",
+                execution_id=execution_id,
+                nodes=len(plan.nodes),
+                completed=len(existing.completed_run_ids),
+                total=existing.total_workers,
+                call=call_idx,
+                via="pre_emit",
+            )
+            msg = isomorphic_reject_message(
+                plan,
+                completed=len(existing.completed_run_ids),
+                total=existing.total_workers,
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=0,
+                has_deps=False,
+            )
+
+        ownership = (
+            existing.ensure_file_ownership() if file_ownership_v2_enabled() else None
+        )
+        overlaps = find_append_overlaps(
+            plan,
+            existing.live_plan,
+            completed_run_ids=existing.completed_run_ids,
+            ownership=ownership,
+        )
+        if overlaps:
+            completed_k = len(existing.completed_run_ids)
+            msg = append_overlap_reject_message(
+                overlaps,
+                completed=completed_k,
+                total=existing.total_workers,
+            )
+            logger.info(
+                "coordination.append_overlap_rejected",
+                execution_id=execution_id,
+                overlaps=len(overlaps),
+                reasons=[o.reason for o in overlaps],
+                completed=completed_k,
+                total=existing.total_workers,
+                call=call_idx,
+                via="pre_emit",
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=len(plan.nodes),
+                has_deps=any(n.depends_on for n in plan.nodes),
+            )
+        return None
+
+    if file_ownership_v2_enabled():
+        sibling_hits = find_sibling_artifact_crosses(plan)
+        if sibling_hits:
+            msg = append_overlap_reject_message(
+                sibling_hits,
+                completed=0,
+                total=len(plan.nodes),
+            )
+            logger.info(
+                "coordination.sibling_artifact_rejected",
+                execution_id=execution_id,
+                overlaps=len(sibling_hits),
+                call=call_idx,
+                via="pre_emit",
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=len(plan.nodes),
+                has_deps=any(n.depends_on for n in plan.nodes),
+            )
+    return None
+
+
 def _bind_session_host_journal(session: CoordinationSession) -> None:
     """Pin the arming turn's journal writer onto the session (pillar A)."""
     from agentcore.runtime.journal.writer import current_journal_writer
@@ -526,6 +685,45 @@ def try_start_coordination(
             )
         return None
 
+    # C3 sibling gate before session create (defense if caller skipped pre-emit admit).
+    from agentcore.workspace.write_claims import file_ownership_v2_enabled
+
+    force = getattr(tool, "_delegate_force", False) is True
+    creating_fresh = session is None
+    if file_ownership_v2_enabled() and creating_fresh and not force:
+        from agentcore.runtime.coordination.append_guard import (
+            append_overlap_reject_message,
+            find_sibling_artifact_crosses,
+        )
+        from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
+
+        sibling_hits = find_sibling_artifact_crosses(plan)
+        if sibling_hits:
+            msg = append_overlap_reject_message(
+                sibling_hits,
+                completed=0,
+                total=len(plan.nodes),
+            )
+            logger.info(
+                "coordination.sibling_artifact_rejected",
+                execution_id=execution_id,
+                overlaps=len(sibling_hits),
+                call=call_idx,
+                via="try_start",
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=len(plan.nodes),
+                has_deps=any(n.depends_on for n in plan.nodes),
+            )
+
     fresh_session = False
     if session is None:
         init_progress, init_decision = split_coordination_budget(
@@ -559,50 +757,10 @@ def try_start_coordination(
             _bind_session_host_journal(session)
         set_active_coordination(session)
 
-    # C3: first arm rejects sibling artifact crosses then declares; resume keeps snapshot.
-    from agentcore.workspace.write_claims import file_ownership_v2_enabled
-
-    force = getattr(tool, "_delegate_force", False) is True
+    # C3: first arm declares ownership after admission; resume keeps snapshot.
     if file_ownership_v2_enabled() and fresh_session:
-        from agentcore.runtime.coordination.append_guard import (
-            append_overlap_reject_message,
-            declare_plan_artifacts,
-            find_sibling_artifact_crosses,
-        )
+        from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
 
-        if not force:
-            sibling_hits = find_sibling_artifact_crosses(plan)
-            if sibling_hits:
-                from agentcore.runtime.coordination.session import (
-                    clear_active_coordination,
-                )
-                from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
-
-                msg = append_overlap_reject_message(
-                    sibling_hits,
-                    completed=len(session.completed_run_ids),
-                    total=session.total_workers,
-                )
-                logger.info(
-                    "coordination.sibling_artifact_rejected",
-                    execution_id=execution_id,
-                    overlaps=len(sibling_hits),
-                    call=call_idx,
-                )
-                session.close()
-                clear_active_coordination(execution_id)
-                return annotate_batch_meta(
-                    ToolResult(
-                        tool_call_id="",
-                        success=False,
-                        output="",
-                        error=msg,
-                        effect=ToolEffect.CONTINUE,
-                        contract_failure=True,
-                    ),
-                    node_count=len(plan.nodes),
-                    has_deps=any(n.depends_on for n in plan.nodes),
-                )
         declare_plan_artifacts(plan, session.ensure_file_ownership(), force=force)
         record_coordination_snapshot(session)
     elif file_ownership_v2_enabled() and session.file_ownership is None:

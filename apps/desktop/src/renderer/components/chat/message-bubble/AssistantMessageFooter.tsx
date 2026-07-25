@@ -283,13 +283,13 @@ function MessageMoreMenu({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onSelect={() => void copyDiagnostic("诊断信息", diagnosticText)}
+                onSelect={() => void copyDiagnostic("排查包", diagnosticText)}
               >
                 <Fingerprint
                   size={14}
                   className="shrink-0 text-muted-foreground"
                 />
-                复制诊断信息
+                复制排查包
               </DropdownMenuItem>
             </>
           )}

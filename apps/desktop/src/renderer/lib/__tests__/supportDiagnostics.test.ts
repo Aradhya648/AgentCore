@@ -13,6 +13,7 @@ describe("formatSupportDiagnosticText", () => {
       }),
     ).toBe(
       [
+        "阅读这段产品AI日志：",
         "conversation_id: conv-1",
         "message_id: msg-1",
         `trace_id: ${trace}`,
@@ -31,6 +32,7 @@ describe("formatSupportDiagnosticText", () => {
       }),
     ).toBe(
       [
+        "阅读这段产品AI日志：",
         "conversation_id: conv-1",
         "message_id: msg-1",
         "execution_id: exec-1",
@@ -46,7 +48,7 @@ describe("formatSupportDiagnosticText", () => {
         traceId: null,
         executionId: "  ",
       }),
-    ).toBe("message_id: msg-1");
+    ).toBe(["阅读这段产品AI日志：", "message_id: msg-1"].join("\n"));
   });
 
   it("returns empty string when nothing to copy", () => {

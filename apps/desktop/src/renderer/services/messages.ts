@@ -254,7 +254,7 @@ export function toMessage(m: BackendMessage): Message {
     role,
     content: contentText,
     reasoning: m.reasoning_content ?? undefined,
-    // 关联气泡↔日志: replay the turn's trace_id so a reloaded bubble's「复制诊断信息」
+    // 关联气泡↔日志: replay the turn's trace_id so a reloaded bubble's「复制排查包」
     // includes it for log_timeline.py --trace.
     traceId: m.trace_id ?? undefined,
     process,

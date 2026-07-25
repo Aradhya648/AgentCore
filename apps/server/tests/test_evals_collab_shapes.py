@@ -301,6 +301,8 @@ def test_collab_shapes_suite_loads_and_lints():
         "collab_xd_meeting_notes_synth",
         "collab_xd_portfolio_pipeline",
     }
+    by_id = {c.id: c for c in cases}
+    assert by_id["collab_solo_config_line"].workspace_fixture == "probe_workspace"
     for c in cases:
         assert c.path == "team"
         assert c.mast is not None

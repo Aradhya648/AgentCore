@@ -167,6 +167,38 @@ class UploadFileResponse(BaseModel):
     size_bytes: int
 
 
+class ExportDocxRequest(BaseModel):
+    """Export a workspace Markdown file to a sibling ``.docx`` (确定性转换器)."""
+
+    path: str = Field(..., min_length=1, max_length=1000)
+
+
+class ExportDocxResponse(BaseModel):
+    """Result of Markdown → Word export into the workspace."""
+
+    path: str
+    source_path: str
+    size_bytes: int
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ConvertMdToDocxRequest(BaseModel):
+    """Stateless Markdown → Word conversion (local desktop UI; images as base64)."""
+
+    markdown: str
+    # Raw Markdown image ``src`` → base64 payload (omit / null = missing → warning).
+    images: dict[str, str | None] = Field(default_factory=dict)
+    source_name: str = Field("document.md", max_length=500)
+
+
+class ConvertMdToDocxResponse(BaseModel):
+    """Base64-encoded .docx plus non-fatal warnings."""
+
+    docx_base64: str
+    warnings: list[str] = Field(default_factory=list)
+    suggested_filename: str
+
+
 class WorkspaceEditDoc(BaseModel):
     """Full text of a cloud workspace file for in-panel editing, plus CAS baseline.
 

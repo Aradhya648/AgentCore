@@ -4,9 +4,11 @@
 
 你是老板：定目标、拍板；由 AI CEO 带队的多个 Agent 分工、协商、互审，共同完成复杂任务。协作过程全程可见。
 
-> A multi-agent AI workspace built around real agent-team collaboration.
+> A multi-agent AI workspace built around real agent-team collaboration.  
+> Docs and contributing guides are **Chinese**; this English blurb is for search / AI retrieval only.
 
-官网：[fashitianxia.xyz](https://fashitianxia.xyz)
+官网：[fashitianxia.xyz](https://fashitianxia.xyz)  
+桌面安装包：[最新 Release](https://github.com/Lawofall/AgentCore-releases/releases/latest)（产物仓 [`AgentCore-releases`](https://github.com/Lawofall/AgentCore-releases)，与源码仓分工）
 
 ## 核心能力（速览）
 
@@ -45,25 +47,28 @@ AI 运行时入口 → [`docs/03-AI核心/运行时总览.md`](docs/03-AI核心/
 
 ## 仓库结构
 
-| 路径 | 说明 |
-|------|------|
-| [`apps/server`](apps/server/README.md) | FastAPI 后端 · runtime 执行引擎 · LLM 网关 |
-| [`apps/desktop`](apps/desktop/README.md) | Electron + React 桌面客户端（主产品面） |
-| [`apps/mobile`](apps/mobile/README.md) | 手机 Web / Capacitor |
-| [`apps/admin`](apps/admin/README.md) | 运营管理后台 |
-| [`apps/town`](apps/town/README.md) | AI 小镇（Unity / AgentTown）观测客户端 |
-| [`apps/website`](apps/website/README.md) | 官网 |
-| [`apps/promo`](apps/promo/README.md) | 宣传片 / Remotion 素材 |
-| `packages/` | 跨端契约与工具包（非业务实现） |
-| `docs/` | 设计文档（What / Why）；总入口见下 |
-| `deploy/` | Docker Compose、部署脚本与环境模板 |
-| `conformance/` | SSE / fold 协议对账向量 |
-| `demos/` | 产品磁带录制与可控回放 |
-| `evals/` | 能力评估与合成场景 |
+| 路径 | 受众 | 说明 |
+|------|------|------|
+| [`apps/server`](apps/server/README.md) | 核心 | FastAPI 后端 · runtime 执行引擎 · LLM 网关 |
+| [`apps/desktop`](apps/desktop/README.md) | 核心 | Electron + React 桌面客户端（主产品面） |
+| [`apps/mobile`](apps/mobile/README.md) | 核心 | 手机 Web / Capacitor |
+| [`apps/admin`](apps/admin/README.md) | 核心 | 运营管理后台 |
+| `packages/` | 核心 | 跨端契约与工具包（非业务实现） |
+| `conformance/` | 核心 | SSE / fold 协议对账向量 |
+| `deploy/` | 核心 | Docker Compose、部署脚本与环境模板 |
+| `docs/` | 核心 | 设计文档（What / Why，中文）；总入口见下 |
+| [`apps/town`](apps/town/README.md) | 可选 | AI 小镇（Unity / AgentTown）观测客户端 |
+| `demos/` | 可选 | 产品磁带录制与可控回放 |
+| `evals/` | 可选 | 能力评估与合成场景 |
+| [`apps/website`](apps/website/README.md) | 品牌 | 官网 |
+| [`apps/promo`](apps/promo/README.md) | 品牌 | 宣传片 / Remotion 素材 |
+| `assets/` | 品牌 | 跨应用品牌素材 |
 
 更细的目录边界 → [`docs/02-架构/项目结构.md`](docs/02-架构/项目结构.md)
 
 ## 文档从哪读
+
+设计文档与贡献说明以**中文**为准；不维护完整英文 docs。根 README 仅保留一句英文产品介绍，便于检索与跨工具 AI 定位。
 
 设计文档总入口与**任务路由全表**权威：**[`docs/索引.md`](docs/索引.md)**。跨工具 AI 最短入口：**[`AGENTS.md`](AGENTS.md)**。下表只是常用子集指针，勿与索引抢权威。
 
@@ -75,6 +80,7 @@ AI 运行时入口 → [`docs/03-AI核心/运行时总览.md`](docs/03-AI核心/
 | 改桌面 / 手机 UI | [`前端地图`](docs/04-前端/前端地图.md) |
 | 查术语 | [`术语表`](docs/01-产品/术语表.md) |
 | 贡献与 PR 自检 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 问问题 / 去哪提 Issue | [`SUPPORT.md`](SUPPORT.md) |
 | 安全漏洞（勿开公开 Issue） | [`SECURITY.md`](SECURITY.md) |
 
 权威分层：`docs/01`–`05` = What/Why（给人 + AI；⏳ 未落地蓝图以代码与文内短指针为准）；包级 How-to / 命令见各 `apps/*/README`；开发用 AI 细则在本地 `.cursor/rules/`（How，gitignore、**勿** `git add -f`，贡献者可不读）。详细提案 / `docs/06-规划/` **不在公开树**（仅维护者本地）。
@@ -114,6 +120,18 @@ pnpm -C apps/desktop dev
 
 可选：手机 Web `pnpm -C apps/mobile dev`（`:5175`）；管理后台见 [`apps/admin/README.md`](apps/admin/README.md)。
 
+### 按改动面的最小命令
+
+不必每次跑全仓门禁；按你改的区域选：
+
+| 改动面 | 最小准备 | 提交前建议 |
+|--------|----------|------------|
+| 只改文档 `docs/` | 无 | 对照 [`索引.md`](docs/索引.md) 链是否仍通 |
+| 后端 `apps/server` | Compose + `uv sync` | `pnpm test:server:unit` |
+| 桌面 `apps/desktop` | `pnpm install` | `pnpm --filter agentcore-desktop test` |
+| 协议 / OpenAPI / SSE / fold | `pnpm install` + 后端可 gen | `pnpm gen:types` 再 `pnpm conformance` |
+| 多包 / 发布前 | 全量依赖 | `pnpm release:gate`（可 `--only` / `--from` 缩小） |
+
 ## 常用开发命令
 
 在**仓库根**执行（细节与范围开关见本地开发「常用命令」）：
@@ -132,7 +150,10 @@ pnpm -C apps/desktop dev
 
 本仓库（[`Lawofall/AgentCore`](https://github.com/Lawofall/AgentCore)）为对外公开的产品 monorepo，许可证 [MIT](./LICENSE)。
 
+桌面安装包与 electron-updater 元数据发布在独立仓 [`Lawofall/AgentCore-releases`](https://github.com/Lawofall/AgentCore-releases)（双仓 = 产物与源码分工，不是为了藏源码）。Issue / PR 请提到**本仓**；发布仓不接受源码贡献。
+
 - 贡献指南：[CONTRIBUTING.md](./CONTRIBUTING.md)
+- 获取帮助：[SUPPORT.md](./SUPPORT.md)
 - 行为准则：[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
 - 安全报告：[SECURITY.md](./SECURITY.md)（请勿用公开 Issue 报漏洞）
 

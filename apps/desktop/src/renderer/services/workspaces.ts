@@ -91,6 +91,42 @@ export async function wsUploadFile(
   });
 }
 
+/** Export a workspace Markdown file to a sibling ``.docx`` (server converter). */
+export async function wsExportMdToDocx(
+  wsId: string,
+  path: string,
+): Promise<{ path: string; warnings: string[] }> {
+  const res = await api.post<{
+    path: string;
+    source_path: string;
+    size_bytes: number;
+    warnings: string[];
+  }>(`${wsPath(wsId)}/export-docx`, { path });
+  return { path: res.path, warnings: res.warnings ?? [] };
+}
+
+/** Stateless Markdown → Word (local desktop path; images as base64). */
+export async function convertMdToDocx(input: {
+  markdown: string;
+  images: Record<string, string | null>;
+  sourceName: string;
+}): Promise<{ docxBase64: string; warnings: string[]; suggestedFilename: string }> {
+  const res = await api.post<{
+    docx_base64: string;
+    warnings: string[];
+    suggested_filename: string;
+  }>("/v1/workspaces/convert/md-to-docx", {
+    markdown: input.markdown,
+    images: input.images,
+    source_name: input.sourceName,
+  });
+  return {
+    docxBase64: res.docx_base64,
+    warnings: res.warnings ?? [],
+    suggestedFilename: res.suggested_filename,
+  };
+}
+
 /** Delete a workspace file or directory (directories go recursively). */
 export async function wsDeleteFile(wsId: string, path: string): Promise<void> {
   await api.delete(`${wsPath(wsId)}/files/${encodePath(path)}`);

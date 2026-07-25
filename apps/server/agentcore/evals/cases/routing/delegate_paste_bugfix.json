@@ -4,6 +4,7 @@
   "user_message": "下面这段 Python 跑起来报错，帮我找出坑并给出能跑的修复版，改完写回同文件：\n\n```python\ndef avg(nums):\n    return sum(nums) / len(nums)\n\nprint(avg([]))\n```",
   "path": "team",
   "mode": "economy",
+  "workspace_fixture": "probe_workspace",
   "checks": [
     { "name": "FinishReason" },
     { "name": "Delegated" }

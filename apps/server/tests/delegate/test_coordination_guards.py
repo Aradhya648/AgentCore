@@ -143,11 +143,13 @@ def test_tasks_similar_and_isomorphic_plan():
 
 
 async def test_secondary_isomorphic_delegate_rejected():
+    from agentcore.runtime.events import EventSink, EventType
     from tests.delegate.conftest import ctx, tool
     from tests.delegate.test_coordination_secondary_delegate import _SlowWorkers
 
     clear_active_coordination()
-    t = tool(_SlowWorkers(["A", "B", "C", "D"], delay=0.5))
+    sink = EventSink()
+    t = tool(_SlowWorkers(["A", "B", "C", "D"], delay=0.5), sink=sink)
     first = await t.execute(
         {
             "tasks": [
@@ -163,6 +165,7 @@ async def test_secondary_isomorphic_delegate_rejected():
     assert session is not None
     drive = session.drive_task
     assert drive is not None and not drive.done()
+    assert len([e for e in sink._history if e.type is EventType.RUN_PLAN]) == 1
 
     second = await t.execute(
         {
@@ -178,6 +181,8 @@ async def test_secondary_isomorphic_delegate_rejected():
     assert "同构" in (second.error or "")
     assert second.contract_failure is True
     assert session.total_workers == 2
+    # 同构拒在 emit 前：不得留下第二张 durable run_plan。
+    assert len([e for e in sink._history if e.type is EventType.RUN_PLAN]) == 1
 
     # 同构连拒不得推进熔断。
     from agentcore.runtime.loop_controller import LoopController, ToolAttempt
@@ -846,3 +851,196 @@ def test_session_ownership_snapshot_roundtrip():
     assert snap.file_ownership.get("f.md") == "w1"
     restored = CoordinationSession.from_snapshot(snap)
     assert restored.ensure_file_ownership().owner_of("f.md") == "w1"
+
+
+# --- C3: reject before durable run_plan emit (零图副作用) ---
+
+
+async def test_sibling_artifact_reject_emits_no_run_plan():
+    """同批交付物交叉 → 拒在 emit 前，sink/journal 无该批 run_plan。"""
+    from agentcore.runtime.events import EventSink, EventType
+    from tests.delegate.conftest import ctx, tool
+
+    clear_active_coordination()
+    sink = EventSink()
+    t = tool(MagicMock(), sink=sink)
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "前端",
+                    "task": "写 App",
+                    "deliverable": {"artifacts": ["src/App.tsx"]},
+                },
+                {
+                    "role": "整合",
+                    "task": "也写 App",
+                    "deliverable": {"artifacts": ["src/App.tsx"]},
+                },
+            ],
+            "coordinate": False,
+        },
+        ctx(),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "同批交付物交叉" in (result.error or "") or "交叉" in (result.error or "")
+    run_plans = [e for e in sink._history if e.type is EventType.RUN_PLAN]
+    assert run_plans == []
+    assert active_coordination("e") is None
+
+
+async def test_sibling_reject_then_reassign_single_swimlane():
+    """拒后改分文件再派 → 仅一套泳道（一次成功 run_plan）。"""
+    from agentcore.runtime.events import EventSink, EventType
+    from tests.delegate.conftest import Provider, ctx, tool
+
+    clear_active_coordination()
+    sink = EventSink()
+    t = tool(Provider(["AOUT", "BOUT"]), sink=sink)
+    rejected = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "前端",
+                    "task": "写 App",
+                    "deliverable": {"artifacts": ["src/App.tsx"]},
+                },
+                {
+                    "role": "整合",
+                    "task": "也写 App",
+                    "deliverable": {"artifacts": ["src/App.tsx"]},
+                },
+            ],
+            "coordinate": False,
+        },
+        ctx(),
+    )
+    assert rejected.success is False
+    assert [e for e in sink._history if e.type is EventType.RUN_PLAN] == []
+
+    ok = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "前端",
+                    "task": "写 App",
+                    "deliverable": {"artifacts": ["src/App.tsx"]},
+                },
+                {
+                    "role": "整合",
+                    "task": "写汇总",
+                    "deliverable": {"artifacts": ["src/summary.md"]},
+                },
+            ],
+            "coordinate": False,
+        },
+        ctx(),
+    )
+    assert ok.success is True
+    run_plans = [e for e in sink._history if e.type is EventType.RUN_PLAN]
+    assert len(run_plans) == 1
+    roles = {a.get("role") for a in (run_plans[0].payload.get("agents") or [])}
+    assert "前端" in roles and "整合" in roles
+
+
+async def test_append_overlap_reject_emits_no_run_plan():
+    """活跃协调上文件重叠追加 → 拒在 emit 前，无第二张 run_plan。"""
+    from agentcore.runtime.events import EventSink, EventType
+    from tests.delegate.conftest import ctx, tool
+    from tests.delegate.test_coordination_secondary_delegate import _SlowWorkers
+
+    clear_active_coordination()
+    sink = EventSink()
+    t = tool(_SlowWorkers(["A", "B", "C"], delay=0.5), sink=sink)
+    first = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "骨架",
+                    "task": "写 site/index.html",
+                    "deliverable": {
+                        "artifacts": ["site/index.html"],
+                        "form": "files",
+                    },
+                },
+                {"role": "文案", "task": "写文案"},
+            ],
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert first.success is True
+    session = active_coordination("e")
+    assert session is not None
+    drive = session.drive_task
+    assert drive is not None and not drive.done()
+    plans_after_first = [e for e in sink._history if e.type is EventType.RUN_PLAN]
+    assert len(plans_after_first) == 1
+
+    second = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "前端整站",
+                    "task": "重写整站",
+                    "deliverable": {
+                        "artifacts": ["site/index.html"],
+                        "form": "files",
+                    },
+                }
+            ],
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert second.success is False
+    assert "重叠" in (second.error or "") or "归属" in (second.error or "")
+    plans_after_reject = [e for e in sink._history if e.type is EventType.RUN_PLAN]
+    assert len(plans_after_reject) == 1
+    assert session.total_workers == 2
+
+    drive.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drive
+    clear_active_coordination("e")
+
+
+def test_try_start_sibling_reject_creates_no_session():
+    """try_start 防御闸：sibling 拒在建 session 之前。"""
+    from agentcore.runtime.coordination.host import try_start_coordination
+    from agentcore.runtime.runs.types import Deliverable
+
+    clear_active_coordination()
+    plan = _plan(
+        RunSpec(
+            run_id="a",
+            role="前端",
+            task="写",
+            deliverable=Deliverable(artifacts=["App.tsx"]),
+        ),
+        RunSpec(
+            run_id="b",
+            role="整合",
+            task="也写",
+            deliverable=Deliverable(artifacts=["App.tsx"]),
+        ),
+    )
+    tool = _fake_merge_tool()
+    tool._depth = 0
+    tool._checkpoint_enabled = False
+    started = try_start_coordination(
+        tool,
+        plan,
+        execution_id="e-sib-pre",
+        seed_completed=None,
+        finalize=False,
+        seed_notes=None,
+        complexity_hint="standard",
+        call_idx=1,
+        completion_criteria=None,
+        coordinate=True,
+    )
+    assert started is not None
+    assert started.success is False
+    assert active_coordination("e-sib-pre") is None

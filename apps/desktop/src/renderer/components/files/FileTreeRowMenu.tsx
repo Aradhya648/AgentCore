@@ -4,6 +4,7 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import type { FileNode, FileSource } from "@/lib/fileSource";
+import { baseName, isMarkdownPath, parentDir } from "@/lib/fileSource";
 import { notifyActionError, notifySuccess } from "@/lib/toast";
 import { openShellAtWorkspacePath } from "@/services/terminalActions";
 import {
@@ -13,6 +14,7 @@ import {
   ExternalLink,
   FilePlus,
   FileText,
+  FileType,
   FolderPlus,
   FolderSearch,
   Pencil,
@@ -34,6 +36,7 @@ export function FileTreeRowMenu({
   onCopy,
   onCut,
   onPaste,
+  onReloadDir,
 }: { node: FileNode; source: FileSource } & Pick<
   FileTreeRowProps,
   | "hasClipboard"
@@ -44,6 +47,7 @@ export function FileTreeRowMenu({
   | "onCopy"
   | "onCut"
   | "onPaste"
+  | "onReloadDir"
 >) {
   // 系统集成项只在源实现了对应方法时出现（本地源有、云端源无）——靠「方法是否存在」门控，
   // 组件内不按源 if 分支。「用默认程序打开」仅给文件（对目录而言就是再次定位，与 reveal 重复）。
@@ -124,6 +128,33 @@ export function FileTreeRowMenu({
             <FileText size={14} className="shrink-0" />
             <span className="flex-1 truncate">打开</span>
           </ContextMenuItem>
+          {canMutate &&
+            isMarkdownPath(node.path) &&
+            source.exportMdToDocx && (
+              <ContextMenuItem
+                onSelect={() => {
+                  void (async () => {
+                    try {
+                      const result = await source.exportMdToDocx?.(node.path);
+                      if (!result) return;
+                      onReloadDir(parentDir(node.path));
+                      if (result.warnings.length > 0) {
+                        notifySuccess(
+                          `已导出 ${baseName(result.path)}（${result.warnings.length} 条警告）`,
+                        );
+                      } else {
+                        notifySuccess(`已导出 ${baseName(result.path)}`);
+                      }
+                    } catch (e) {
+                      notifyActionError("导出 Word 失败", e);
+                    }
+                  })();
+                }}
+              >
+                <FileType size={14} className="shrink-0" />
+                <span className="flex-1 truncate">导出 Word</span>
+              </ContextMenuItem>
+            )}
         </>
       )}
       {hasOsGroup && (

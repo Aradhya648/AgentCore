@@ -317,6 +317,8 @@ class LoopController:
         self._team_gate_fired: bool = False
         # 跑/打开验证能力策略闸：意图命中即硬收探路工具，captain-only、每 run 一次。
         self._exec_verify_gate_fired: bool = False
+        # ask 终向但工具面无 ask_user：强制正文结案（清空 tool_defs，禁空转 max_rounds）。
+        self._exec_verify_text_exit: bool = False
         # Soft audit-gate nudge (协作优先阶段 3 返工环): at most once per run, captain-only.
         self._audit_gate_fired: bool = False
         # 成篇硬门：research_report / 字数承诺 / 手写调研成篇 — nudge 后仍不可直接 end_turn。
@@ -405,6 +407,15 @@ class LoopController:
         self._exec_verify_gate_fired = True
 
     @property
+    def exec_verify_text_exit(self) -> bool:
+        """True when exec-verify ask terminal must end in prose (no ask_user tool)."""
+        return self._exec_verify_text_exit
+
+    def mark_exec_verify_text_exit(self) -> None:
+        """Latch forced prose exit: no tools from this point (eval / no live user)."""
+        self._exec_verify_text_exit = True
+
+    @property
     def audit_gate_fired(self) -> bool:
         """True after the soft audit-gate nudge has been injected (latched)."""
         return self._audit_gate_fired
@@ -447,6 +458,7 @@ class LoopController:
             "delegate_count": self._delegate_count,
             "team_gate_fired": self._team_gate_fired,
             "exec_verify_gate_fired": self._exec_verify_gate_fired,
+            "exec_verify_text_exit": self._exec_verify_text_exit,
             "audit_gate_fired": self._audit_gate_fired,
             "first_batch_substantial": self._first_batch_substantial,
             "audit_hard_required": self._audit_hard_required,
@@ -462,6 +474,7 @@ class LoopController:
         self._delegate_count = int(seed.get("delegate_count", 0) or 0)
         self._team_gate_fired = bool(seed.get("team_gate_fired", False))
         self._exec_verify_gate_fired = bool(seed.get("exec_verify_gate_fired", False))
+        self._exec_verify_text_exit = bool(seed.get("exec_verify_text_exit", False))
         self._audit_gate_fired = bool(seed.get("audit_gate_fired", False))
         self._first_batch_substantial = bool(seed.get("first_batch_substantial", False))
         self._audit_hard_required = bool(seed.get("audit_hard_required", False))

@@ -3,6 +3,11 @@
  * Build + deploy mobile web SPA to Cloudflare Pages.
  *
  *   pnpm -C apps/mobile deploy:pages
+ *
+ * API URL：优先 AGENTCORE_APP_API_URL / VITE_API_URL / AGENTCORE_APP_HOST；
+ * 未覆盖时由 apps/mobile/.env.production 烘焙（与桌面端同口径）。
+ * 须先 loadDeployEnv()，再解析主机——否则 deploy/.env.deploy.local 里的
+ * AGENTCORE_* 不会生效。
  */
 import { join } from "node:path";
 import {
@@ -15,14 +20,15 @@ import {
 } from "../../../deploy/scripts/load-deploy-env.mjs";
 
 const PROJECT = "agentcore-mobile";
-const APP_HOST = process.env.AGENTCORE_APP_HOST || "app.example.com";
-const MOBILE_HOST = process.env.AGENTCORE_MOBILE_HOST || "m.example.com";
+
+loadDeployEnv();
+
+const APP_HOST = process.env.AGENTCORE_APP_HOST || "app.fashitianxia.xyz";
+const MOBILE_HOST = process.env.AGENTCORE_MOBILE_HOST || "m.fashitianxia.xyz";
 const API_URL =
   process.env.AGENTCORE_APP_API_URL ||
   process.env.VITE_API_URL ||
   `https://${APP_HOST}/api`;
-
-loadDeployEnv();
 
 await assertBackendContractSatisfied({ apiBaseUrl: API_URL });
 

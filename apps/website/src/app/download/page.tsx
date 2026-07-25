@@ -1,6 +1,7 @@
 import DownloadPageHero from "@/components/DownloadPageHero";
 import DownloadPanel from "@/components/DownloadPanel";
 import {
+  ANDROID_INSTALL_STEPS,
   DOWNLOAD_PAGE_PATH,
   MOBILE_WEB_URL,
   MAC_INSTALL_STEPS,
@@ -88,7 +89,7 @@ export default function DownloadPage() {
 
         <section className="mx-auto mt-16 max-w-3xl">
           <h2 className="text-center text-xl font-bold">安装步骤</h2>
-          <div className="mt-10 grid gap-12 lg:grid-cols-2">
+          <div className="mt-10 grid gap-12 lg:grid-cols-3">
             <div>
               <h3 className="text-center text-base font-semibold">Windows</h3>
               <InstallStepList steps={WIN_INSTALL_STEPS} />
@@ -101,6 +102,10 @@ export default function DownloadPage() {
                 </span>
               </h3>
               <InstallStepList steps={MAC_INSTALL_STEPS} />
+            </div>
+            <div>
+              <h3 className="text-center text-base font-semibold">Android</h3>
+              <InstallStepList steps={ANDROID_INSTALL_STEPS} />
             </div>
           </div>
         </section>

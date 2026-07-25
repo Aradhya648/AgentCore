@@ -56,6 +56,8 @@ export interface FileTreeRowProps {
   onMoveInto: (src: string, destDir: string) => void;
   onUpload: (files: FileList | null, destDir: string) => void;
   onDropTarget: (path: string | null) => void;
+  /** Reload a directory after a mutation that adds siblings (e.g. export docx). */
+  onReloadDir: (dir: string) => void;
 }
 
 export function FileTreeRow(props: FileTreeRowProps) {

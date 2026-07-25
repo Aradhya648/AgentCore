@@ -4,6 +4,7 @@
   "user_message": "把配置文件 config.yaml 里的 `debug: false` 改成 `debug: true`，只改这一行，别动别的。",
   "path": "team",
   "mode": "economy",
+  "workspace_fixture": "probe_workspace",
   "checks": [
     { "name": "FinishReason" },
     { "name": "Delegated" }

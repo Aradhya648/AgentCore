@@ -8,7 +8,9 @@ Security fixes are applied on the default branch of [`Lawofall/AgentCore`](https
 
 Please **do not** open a public GitHub Issue for security vulnerabilities.
 
-Email: **837554559@qq.com**
+**Preferred:** use GitHub [Private vulnerability reporting](https://github.com/Lawofall/AgentCore/security/advisories/new) on this repository（Security → Advisories → Report a vulnerability）.
+
+**Fallback email:** **837554559@qq.com**
 
 Include:
 

@@ -3450,6 +3450,66 @@
         "title": "ConversationSummary",
         "type": "object"
       },
+      "ConvertMdToDocxRequest": {
+        "description": "Stateless Markdown → Word conversion (local desktop UI; images as base64).",
+        "properties": {
+          "images": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Images",
+            "type": "object"
+          },
+          "markdown": {
+            "title": "Markdown",
+            "type": "string"
+          },
+          "source_name": {
+            "default": "document.md",
+            "maxLength": 500,
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "markdown"
+        ],
+        "title": "ConvertMdToDocxRequest",
+        "type": "object"
+      },
+      "ConvertMdToDocxResponse": {
+        "description": "Base64-encoded .docx plus non-fatal warnings.",
+        "properties": {
+          "docx_base64": {
+            "title": "Docx Base64",
+            "type": "string"
+          },
+          "suggested_filename": {
+            "title": "Suggested Filename",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "docx_base64",
+          "suggested_filename"
+        ],
+        "title": "ConvertMdToDocxResponse",
+        "type": "object"
+      },
       "CostBreakdown": {
         "description": "A run's / turn's / window's cost in integer nano-USD (canonical).",
         "properties": {
@@ -4952,6 +5012,53 @@
           "id"
         ],
         "title": "EvidenceLedgerEntryRest",
+        "type": "object"
+      },
+      "ExportDocxRequest": {
+        "description": "Export a workspace Markdown file to a sibling ``.docx`` (确定性转换器).",
+        "properties": {
+          "path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ExportDocxRequest",
+        "type": "object"
+      },
+      "ExportDocxResponse": {
+        "description": "Result of Markdown → Word export into the workspace.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_path": {
+            "title": "Source Path",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "path",
+          "source_path",
+          "size_bytes"
+        ],
+        "title": "ExportDocxResponse",
         "type": "object"
       },
       "ExternalGrantItem": {
@@ -12228,7 +12335,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.13"
+    "version": "0.3.14"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -21060,6 +21167,91 @@
           }
         },
         "summary": "Write Workspace File",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{conversation_id}/workspace/export-docx": {
+      "post": {
+        "description": "Export a conversation-workspace Markdown file to a sibling ``.docx``.",
+        "operationId": "export_conversation_workspace_docx_v1_conversations__conversation_id__workspace_export_docx_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDocxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportDocxResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Conversation Workspace Docx",
         "tags": [
           "conversations"
         ]
@@ -30544,6 +30736,82 @@
         ]
       }
     },
+    "/v1/workspaces/convert/md-to-docx": {
+      "post": {
+        "description": "Stateless Markdown → Word (shared converter; used by local desktop「导出 Word」).\n\nDoes not touch a workspace. Images are optional base64 payloads keyed by the\nraw Markdown ``src``. Auth required so the surface is not a public converter.",
+        "operationId": "convert_md_to_docx_v1_workspaces_convert_md_to_docx_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertMdToDocxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertMdToDocxResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Convert Md To Docx",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/v1/workspaces/{ws_id}/clone": {
       "post": {
         "description": "Clone a public git repository into a cloud workspace (决策⑤).",
@@ -30885,6 +31153,91 @@
           }
         },
         "summary": "Write Workspace File Text",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/v1/workspaces/{ws_id}/export-docx": {
+      "post": {
+        "description": "Export workspace Markdown to a sibling ``.docx`` (shared ``md_to_docx`` converter).",
+        "operationId": "export_workspace_docx_v1_workspaces__ws_id__export_docx_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ws_id",
+            "required": true,
+            "schema": {
+              "title": "Ws Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDocxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportDocxResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Workspace Docx",
         "tags": [
           "workspaces"
         ]

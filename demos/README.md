@@ -221,16 +221,17 @@ Seek 语义：目标点之前的事件去延时爆发注入；向后 seek = 重�
 
 开 `DEMO_TAPE_RECORD_ENABLED=true` 跑任何满意的真实回合 → 云端落 `demos/recordings/`、sidecar 本地落 `<userData>/sidecar/recordings/` → `demo_tape_recordings.py` 定位原片 → `demo_tape_export.py --message-id <id> --title … --out ../../demos/tapes/<新名字>.json`（sidecar 录制加 `--recording <绝对路径>`）→ 命令面板自动多出该磁带的准备/立即两条入口。也可：`uv run python scripts/log_timeline.py <conversation_id>`。
 
-Promo 截图脚本（默认仍是茉莉花盘；新盘可直接换 tape）：
+Promo 截图脚本（默认仍是茉莉花盘；新盘可直接换 tape）。导演台全流程已并入 `full` 子命令（勿再找已删除的 `*_director.mjs`）：
 
 ```bash
 # 默认 = lv-molihua-trademark → apps/promo/assets/lv-molihua/
-node apps/desktop/scripts/promo_capture_lv_molihua.mjs
-node apps/desktop/scripts/promo_capture_lv_molihua_director.mjs
+cd apps/desktop
+pnpm promo:lv:full
+# 等价：node scripts/promo_capture_lv_molihua.mjs full
 
 # 新盘（输出默认 apps/promo/assets/<tape-id>/；可用 --out 覆盖）
-node apps/desktop/scripts/promo_capture_lv_molihua.mjs --tape <新磁带stem>
-node apps/desktop/scripts/promo_capture_lv_molihua_director.mjs --tape <新磁带stem> --out apps/promo/assets/my-demo
+node scripts/promo_capture_lv_molihua.mjs full --tape <新磁带stem>
+node scripts/promo_capture_lv_molihua.mjs full --tape <新磁带stem> --out ../promo/assets/my-demo
 ```
 
 也可用环境变量 `PROMO_TAPE` / `PROMO_OUT`。SHOT_MARKERS 仍偏茉莉花辩题文案——题材相近可复用，差异大时需改脚本内正则。

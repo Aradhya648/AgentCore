@@ -38,6 +38,7 @@ _WORKER_ONLY_BUILTINS = {
     "file_copy",
     "mkdir",
     "file_batch",
+    "md_to_docx",
     "code_execute",
     "test_run",
     "escalate",

@@ -1,4 +1,4 @@
-"""跑/修脚本 · 打开浏览器验证 —— 窄意图谓词 + 能力策略表（纯函数，无副作用）。
+"""跑/修脚本 · 打开浏览器验证 · 贴码写回 · 打开软件 —— 窄意图谓词 + 能力策略表（纯函数）。
 
 定案：环境能力 + 引擎收口决定终向；本模块只回答「是否命中意图」与「终向该是什么」。
 """
@@ -40,6 +40,16 @@ _OPEN_BROWSER_VERIFY_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# 打开本机软件/应用（非浏览器验证）：无 local_open 时应收口 ask_user。
+_OPEN_LOCAL_APP_RE = re.compile(
+    r"(?:"
+    r"(?:直接)?打开(?:一下|下)?(?:这个|该|那[个份])?(?:软件|应用|程序|\b[Aa]pp\b)"
+    r"|"
+    r"(?:帮我|请你?|你能帮我).{0,16}(?:直接)?打开.{0,24}(?:软件|应用|程序|\b[Aa]pp\b)"
+    r")",
+    re.IGNORECASE | re.DOTALL,
+)
+
 # 可验产物路径：显式扩展名 / URL / 「路径是…」——缺则视为路径不清。
 _CLEAR_ARTIFACT_PATH_RE = re.compile(
     r"(?:"
@@ -50,6 +60,12 @@ _CLEAR_ARTIFACT_PATH_RE = re.compile(
     r"(?:路径|文件)\s*[是为：:=]\s*[\w./\\-]+"
     r")",
     re.IGNORECASE,
+)
+
+# 贴码 + 写回：须有围栏代码块，且要求写回/落盘（空仓也须 delegate，禁止口述修复当直答）。
+_FENCED_CODE_RE = re.compile(r"```[\w+-]*\r?\n.{8,}?```", re.DOTALL)
+_WRITEBACK_RE = re.compile(
+    r"(?:写回|落盘|改回)(?:.{0,16}(?:同文件|原文件|文件))?",
 )
 
 
@@ -69,6 +85,26 @@ def is_open_browser_verify_intent(*texts: str) -> bool:
     return bool(_OPEN_BROWSER_VERIFY_RE.search(blob))
 
 
+def is_open_local_app_intent(*texts: str) -> bool:
+    """True when user asks to open a local software/app (not browser verify)."""
+    blob = " ".join(t for t in texts if isinstance(t, str) and t.strip())
+    if not blob:
+        return False
+    if is_open_browser_verify_intent(blob):
+        return False
+    return bool(_OPEN_LOCAL_APP_RE.search(blob))
+
+
+def is_paste_writeback_intent(*texts: str) -> bool:
+    """True when message pastes code and asks to write it back to a file."""
+    blob = " ".join(t for t in texts if isinstance(t, str) and t.strip())
+    if not blob:
+        return False
+    if not _FENCED_CODE_RE.search(blob):
+        return False
+    return bool(_WRITEBACK_RE.search(blob))
+
+
 def has_clear_verifiable_artifact_path(*texts: str) -> bool:
     """True when user text names a concrete path / URL to verify."""
     blob = " ".join(t for t in texts if isinstance(t, str) and t.strip())
@@ -81,18 +117,28 @@ def resolve_exec_verify_terminal(
     *,
     run_fix: bool,
     open_verify: bool,
+    open_app: bool = False,
+    paste_writeback: bool = False,
     code_execute: bool,
     browser: bool,
+    local_open: bool = False,
     clear_artifact_path: bool,
 ) -> ExecVerifyTerminal | None:
     """Map intent × capability → hard terminal. ``None`` when no relevant intent.
 
     Strategy table (定案):
+    - paste_writeback → delegate（贴码写回，与执行能力无关）
+    - open_app + !local_open → ask_user
+    - open_app + local_open → delegate
     - open_verify + (!browser | !clear_path) → ask_user
     - open_verify + browser + clear_path → delegate
     - run_fix + code_execute → delegate
     - run_fix + !code_execute → ask_user（缺执行 / 需本机未绑）
     """
+    if paste_writeback:
+        return "delegate"
+    if open_app:
+        return "delegate" if local_open else "ask_user"
     if open_verify:
         if not browser or not clear_artifact_path:
             return "ask_user"

@@ -43,13 +43,11 @@ export async function archiveConversationsBeforeDelete(
   return true;
 }
 
-type DialogPhase = "soft" | "permanent";
-
 /**
  * Shared confirmation when deleting a folder (= 项目).
- * Soft-delete is the default; permanent delete is a second confirmation step
- * (no type-to-confirm). Used by {@link WorkspaceSection} and
- * {@link WorkspaceGroupHeader}.
+ * Soft-delete is the default; check the permanent option to hard-delete in the
+ * same dialog (no second step / type-to-confirm). Used by
+ * {@link WorkspaceSection} and {@link WorkspaceGroupHeader}.
  */
 export function DeleteFolderDialog({
   open,
@@ -68,58 +66,17 @@ export function DeleteFolderDialog({
   onConfirm: () => void | Promise<void>;
   onPermanentConfirm: () => void | Promise<void>;
 }) {
-  const [phase, setPhase] = useState<DialogPhase>("soft");
+  const [permanent, setPermanent] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setPhase("soft");
+    setPermanent(false);
   }, [open]);
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) setPhase("soft");
+    if (!next) setPermanent(false);
     onOpenChange(next);
   };
-
-  if (phase === "permanent") {
-    return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>彻底删除项目「{name}」？</DialogTitle>
-            <DialogDescription asChild>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p className="text-foreground">
-                  将永久删除全部对话与云端文件，不可恢复。
-                </p>
-                {liveConvCount > 0 && (
-                  <p>· 含当前可见的 {liveConvCount} 条对话及已归档成员</p>
-                )}
-                {isLocal && (
-                  <p>· 本地磁盘上的文件不会被删除（文件在你电脑上）</p>
-                )}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="neutral"
-              className="h-9 px-4"
-              onClick={() => setPhase("soft")}
-            >
-              返回
-            </Button>
-            <Button
-              variant="danger"
-              className="h-9 px-4"
-              onClick={() => void onPermanentConfirm()}
-            >
-              彻底删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -127,40 +84,58 @@ export function DeleteFolderDialog({
         <DialogHeader>
           <DialogTitle>删除项目「{name}」？</DialogTitle>
           <DialogDescription asChild>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              {liveConvCount > 0 && (
-                <p>其下 {liveConvCount} 条对话将一并归档。</p>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              {permanent ? (
+                <>
+                  <p className="text-foreground">
+                    将永久删除全部对话与云端文件，不可恢复。
+                  </p>
+                  {liveConvCount > 0 && (
+                    <p>· 含当前可见的 {liveConvCount} 条对话及已归档成员</p>
+                  )}
+                  {isLocal && (
+                    <p>· 本地磁盘上的文件不会被删除（文件在你电脑上）</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  {liveConvCount > 0 && (
+                    <p>其下 {liveConvCount} 条对话将一并归档。</p>
+                  )}
+                  <p>
+                    云端文件约 {FOLDER_FILE_RETENTION_DAYS} 天后由系统自动清理。
+                  </p>
+                </>
               )}
-              <p>
-                云端文件约 {FOLDER_FILE_RETENTION_DAYS} 天后由系统自动清理。
-              </p>
             </div>
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="flex-col gap-3 sm:flex-col sm:space-x-0">
-          <div className="flex w-full justify-end gap-2">
-            <Button
-              variant="neutral"
-              className="h-9 px-4"
-              onClick={() => handleOpenChange(false)}
-            >
-              取消
-            </Button>
-            <Button
-              variant="danger"
-              className="h-9 px-4"
-              onClick={() => void onConfirm()}
-            >
-              删除项目
-            </Button>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPhase("permanent")}
-            className="text-center text-muted-foreground text-xs hover:text-foreground"
+
+        <div className="px-5 pb-1">
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm text-foreground">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 shrink-0 rounded border border-input accent-primary"
+              checked={permanent}
+              onChange={(e) => setPermanent(e.target.checked)}
+            />
+            <span>立即永久清除全部对话与云端文件（不可恢复）</span>
+          </label>
+        </div>
+
+        <DialogFooter>
+          <Button variant="neutral" size="md" onClick={() => handleOpenChange(false)}>
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            size="md"
+            onClick={() =>
+              void (permanent ? onPermanentConfirm() : onConfirm())
+            }
           >
-            需要立即清除全部数据？
-          </button>
+            {permanent ? "彻底删除" : "删除项目"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

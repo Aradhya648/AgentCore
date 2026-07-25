@@ -179,6 +179,32 @@ export async function assertBackendContractSatisfied({ apiBaseUrl, force = false
     process.argv.includes("--force") ||
     process.env.DEPLOY_SKIP_CONTRACT_GATE === "1";
 
+  // Placeholder docs hosts must never ship — fail closed even when /version is
+  // unreachable (that path otherwise fail-opens and would bake app.example.com).
+  // Intentional fork/test: DEPLOY_ALLOW_PLACEHOLDER_API=1.
+  let apiHost;
+  try {
+    apiHost = new URL(apiBaseUrl).hostname;
+  } catch {
+    apiHost = "";
+  }
+  const isPlaceholderHost =
+    apiHost === "example.com" || apiHost.endsWith(".example.com");
+  if (isPlaceholderHost && process.env.DEPLOY_ALLOW_PLACEHOLDER_API !== "1") {
+    console.error(
+      [
+        "",
+        "✖ 部署被拦截：API 基址仍是文档占位域名。",
+        `  apiBaseUrl: ${apiBaseUrl}`,
+        "  请在 deploy/.env.deploy.local 设 AGENTCORE_APP_API_URL / AGENTCORE_APP_HOST",
+        "  （或依赖 apps/*/ .env.production），勿把 app.example.com 烤进产物。",
+        "  确需用占位域做演练：设 DEPLOY_ALLOW_PLACEHOLDER_API=1。",
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
   const head = git(["rev-parse", "HEAD"]);
   if (!head.ok) {
     console.warn("⚠ 契约门禁：无法解析 git HEAD — 跳过校验");

@@ -14,6 +14,8 @@ from agentcore.api.schemas import (
     CloneRepoRequest,
     CloneRepoResponse,
     CreateDirRequest,
+    ExportDocxRequest,
+    ExportDocxResponse,
     MoveFileRequest,
     StatusResponse,
     UploadFileResponse,
@@ -27,6 +29,7 @@ from agentcore.config import settings
 from agentcore.core.errors import NotFoundError, ValidationError
 from agentcore.db.models import Conversation
 from agentcore.db.repositories import ConversationRepository
+from agentcore.docs_export.workspace_export import ExportMarkdownError, export_markdown_path
 from agentcore.workspace.files import (
     create_dir,
     delete_file,
@@ -38,7 +41,7 @@ from agentcore.workspace.files import (
     write_file_text,
 )
 from agentcore.workspace.git import CloneError, clone_repo
-from agentcore.workspace.locate import workspace_storage_key
+from agentcore.workspace.locate import build_server_workspace, workspace_storage_key
 from agentcore.workspace.locks import workspace_lock
 from agentcore.workspace.protocol import (
     AlreadyExists,
@@ -124,6 +127,36 @@ async def upload_workspace_file(
     except OutsideWorkspace as e:
         raise ValidationError("路径非法：超出工作区范围") from e
     return UploadFileResponse(path=path, size_bytes=written)
+
+
+@router.post(
+    "/{conversation_id}/workspace/export-docx",
+    response_model=ExportDocxResponse,
+)
+async def export_conversation_workspace_docx(
+    conversation_id: str,
+    body: ExportDocxRequest,
+    user: AuthUser,
+    conv_repo: ConversationRepository = Depends(get_conversation_repo),
+):
+    """Export a conversation-workspace Markdown file to a sibling ``.docx``."""
+    conv = await _get_owned_conversation(conversation_id, user.user_id, conv_repo)
+    try:
+        async with _conv_workspace_lock(conv, user_id=user.user_id):
+            backend = build_server_workspace(
+                user_id=user.user_id,
+                folder_id=conv.folder_id,
+                conversation_id=conv.id,
+            )
+            result = await export_markdown_path(backend, body.path)
+    except ExportMarkdownError as e:
+        raise ValidationError(e.message) from e
+    return ExportDocxResponse(
+        path=result.output_path,
+        source_path=result.source_path,
+        size_bytes=result.size_bytes,
+        warnings=list(result.warnings),
+    )
 
 
 @router.get(

@@ -1,18 +1,14 @@
 /** Public release signals for the admin drift matrix (client-side, read-only). */
 
-const GITHUB_LATEST =
-  "https://api.github.com/repos/Lawofall/AgentCore-releases/releases/latest";
+const CDN_DESKTOP_LATEST =
+  "https://downloads.fashitianxia.xyz/desktop/latest.json";
 const WEBSITE_RELEASE = "https://fashitianxia.xyz/api/desktop-release";
 
 export interface ReleaseDriftSnapshot {
-  desktopGithubTag: string | null;
-  desktopGithubVersion: string | null;
+  /** Brand CDN desktop/latest.json version (user-facing installers + updater). */
+  desktopCdnVersion: string | null;
   websiteDownloadVersion: string | null;
   errors: string[];
-}
-
-function stripTagPrefix(tag: string): string {
-  return tag.replace(/^v/i, "");
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -23,19 +19,15 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 export async function fetchReleaseDrift(): Promise<ReleaseDriftSnapshot> {
   const errors: string[] = [];
-  let desktopGithubTag: string | null = null;
-  let desktopGithubVersion: string | null = null;
+  let desktopCdnVersion: string | null = null;
   let websiteDownloadVersion: string | null = null;
 
   try {
-    const gh = await fetchJson<{ tag_name?: string }>(GITHUB_LATEST);
-    if (gh.tag_name) {
-      desktopGithubTag = gh.tag_name;
-      desktopGithubVersion = stripTagPrefix(gh.tag_name);
-    }
+    const cdn = await fetchJson<{ version?: string }>(CDN_DESKTOP_LATEST);
+    desktopCdnVersion = String(cdn.version ?? "").trim() || null;
   } catch (err) {
     errors.push(
-      `GitHub Latest: ${err instanceof Error ? err.message : String(err)}`,
+      `下载 CDN: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -49,8 +41,7 @@ export async function fetchReleaseDrift(): Promise<ReleaseDriftSnapshot> {
   }
 
   return {
-    desktopGithubTag,
-    desktopGithubVersion,
+    desktopCdnVersion,
     websiteDownloadVersion,
     errors,
   };

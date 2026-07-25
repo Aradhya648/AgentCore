@@ -7,3 +7,6 @@ project(':aparajita-capacitor-secure-storage').projectDir = new File('../../../n
 
 include ':capacitor-push-notifications'
 project(':capacitor-push-notifications').projectDir = new File('../../../node_modules/.pnpm/@capacitor+push-notifications@8.1.1_@capacitor+core@8.4.0/node_modules/@capacitor/push-notifications/android')
+
+include ':capgo-capacitor-speech-recognition'
+project(':capgo-capacitor-speech-recognition').projectDir = new File('../../../node_modules/.pnpm/@capgo+capacitor-speech-rec_9732e4c11f716e01224f08896559d6cd/node_modules/@capgo/capacitor-speech-recognition/android')

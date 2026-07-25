@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  ANDROID_APK_FILENAME,
+  ANDROID_APK_URL,
+  ANDROID_VERSION,
   DESKTOP_VERSION,
   MAC_DMG_FILENAME,
   MAC_DMG_URL,
@@ -22,6 +25,9 @@ function buildTimeFallback(): ReleaseArtifacts {
     winFilename: WIN_INSTALLER_FILENAME,
     macUrl: MAC_DMG_URL,
     macFilename: MAC_DMG_FILENAME,
+    androidUrl: ANDROID_APK_URL,
+    androidFilename: ANDROID_APK_FILENAME,
+    androidVersion: ANDROID_VERSION,
   };
 }
 
@@ -41,7 +47,13 @@ export function useDesktopRelease() {
         if (!res.ok) return;
         const data = (await res.json()) as ReleaseArtifacts;
         if (!cancelled && data?.version) {
-          setArtifacts(data);
+          setArtifacts({
+            ...buildTimeFallback(),
+            ...data,
+            androidUrl: data.androidUrl ?? "",
+            androidFilename: data.androidFilename ?? "",
+            androidVersion: data.androidVersion ?? "",
+          });
         }
       } catch {
         // Keep build-time fallback.

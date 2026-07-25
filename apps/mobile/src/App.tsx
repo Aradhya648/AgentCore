@@ -1,7 +1,9 @@
 import { bootstrapAuth } from "@/api/auth";
 import { getTokens } from "@/api/client";
+import { OutdatedAndroidBanner } from "@/components/OutdatedAndroidBanner";
 import { PushBridge } from "@/components/PushBridge";
 import { TabLayout } from "@/components/TabLayout";
+import { startAndroidUpdates } from "@/lib/androidUpdates";
 import { ChatPage } from "@/pages/ChatPage";
 import { FilesPage } from "@/pages/FilesPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -90,6 +92,9 @@ function AppShell() {
   useEffect(() => {
     run();
   }, [run]);
+
+  // Soft Android sideload update check (GitHub APK) — native Android only.
+  useEffect(() => startAndroidUpdates(), []);
 
   // PushBridge mounts the native push listeners (tap → deep-link); it lives outside the gate
   // so it's present even during the loading splash, catching a cold-start notification tap.
@@ -229,6 +234,7 @@ function AppShell() {
   return (
     <>
       <PushBridge />
+      <OutdatedAndroidBanner />
       {content}
     </>
   );

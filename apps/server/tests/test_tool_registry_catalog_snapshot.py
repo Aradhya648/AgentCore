@@ -39,6 +39,7 @@ _BUILTIN_ORDER = [
     "file_copy",
     "mkdir",
     "file_batch",
+    "md_to_docx",
     "grep",
     "code_search",
     "git",
@@ -97,6 +98,7 @@ _CATALOG_AVAILABLE_TO: dict[str, tuple[str, ...]] = {
     "file_copy": (AVAILABLE_TO_WORKER,),
     "mkdir": (AVAILABLE_TO_WORKER,),
     "file_batch": (AVAILABLE_TO_WORKER,),
+    "md_to_docx": (AVAILABLE_TO_WORKER,),
     "test_run": (AVAILABLE_TO_WORKER,),
     "code_execute": (AVAILABLE_TO_WORKER,),
     "escalate": (AVAILABLE_TO_WORKER,),
@@ -164,6 +166,7 @@ def test_tool_registry_grant_sets_snapshot():
             "file_copy",
             "mkdir",
             "file_batch",
+            "md_to_docx",
         }
     )
     assert approval_class_tool_names() == file_mutation_tool_names() | frozenset({"git"})

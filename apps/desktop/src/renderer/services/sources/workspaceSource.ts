@@ -10,6 +10,7 @@ import {
   createWorkspaceDir,
   deleteWorkspaceFile,
   downloadWorkspaceFile,
+  exportWorkspaceMdToDocx,
   listWorkspaceFiles,
   moveWorkspaceFile,
   openWorkspaceInAppPreview,
@@ -30,6 +31,7 @@ import {
   wsCreateDir,
   wsDeleteFile,
   wsDownloadFile,
+  wsExportMdToDocx,
   wsListFileIndex,
   wsListFiles,
   wsMoveFile,
@@ -85,6 +87,7 @@ interface CloudFileClient {
   move(src: string, dst: string): Promise<void>;
   delete(path: string): Promise<void>;
   download(path: string, filename: string): Promise<void>;
+  exportMdToDocx(path: string): Promise<{ path: string; warnings: string[] }>;
   listFileIndex?(): Promise<string[]>;
 }
 
@@ -145,6 +148,11 @@ function makeCloudSource(
     delete: (path) => client.delete(path),
     writeBytes: (path, body) => client.upload(path, body),
     download: (path, filename) => client.download(path, filename),
+    ...(caps.edit
+      ? {
+          exportMdToDocx: (path: string) => client.exportMdToDocx(path),
+        }
+      : {}),
   };
 }
 
@@ -169,6 +177,7 @@ export function createWorkspaceSource(
     delete: (path) => deleteWorkspaceFile(conversationId, path),
     download: (path, filename) =>
       downloadWorkspaceFile(conversationId, path, filename),
+    exportMdToDocx: (path) => exportWorkspaceMdToDocx(conversationId, path),
   });
   // 系统集成入口按「桌面专属能力是否存在」逐个门控（web stub 均不提供 → web 端不挂，
   // HTML 面板内为源码视图，web 的完整效果出口退化为下载）。二者相互独立：
@@ -212,6 +221,7 @@ export function createCloudWorkspaceSource(
       move: (src, dst) => wsMoveFile(wsId, src, dst),
       delete: (path) => wsDeleteFile(wsId, path),
       download: (path, filename) => wsDownloadFile(wsId, path, filename),
+      exportMdToDocx: (path) => wsExportMdToDocx(wsId, path),
       listFileIndex: () => wsListFileIndex(wsId),
     },
     readonly ? CLOUD_READONLY_CAPS : CLOUD_CAPS,

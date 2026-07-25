@@ -813,6 +813,38 @@ class DelegateTool:
                     contract_failure=True,
                 )
             plan = old_plan
+            # Workers / coordination registry must see the host execution_id before
+            # admission / emit (reject must not leave graph_append / run_plan).
+            self._base_tool_context.execution_id = append_to
+            from agentcore.runtime.coordination.session import current_execution_id
+
+            # Turn teardown clears via current_execution_id — keep it on the host
+            # so the append coordination session is not orphaned under a fresh id.
+            current_execution_id.set(append_to)
+
+        execution_id = (
+            append_to
+            if append_to
+            else (self._base_tool_context.execution_id or new_id())
+        )
+        finalize_flag = bool(arguments.get("finalize"))
+        from agentcore.runtime.coordination.host import (
+            admit_before_run_plan_emit,
+            should_defer_run_plan_emit_to_merge,
+        )
+
+        # 准入→提交→执行：sibling / 追加重叠 / 同构闸在 durable run_plan 之前。
+        admitted_reject = admit_before_run_plan_emit(
+            self,
+            plan,
+            execution_id=execution_id,
+            finalize=finalize_flag,
+            call_idx=call_idx,
+        )
+        if admitted_reject is not None:
+            return admitted_reject
+
+        if append_to:
             from agentcore.core.log_context import get_log_value
 
             host_writer = await open_host_journal_writer(
@@ -827,13 +859,6 @@ class DelegateTool:
                 host_writer=host_writer,
             )
             graph_redirect_token = bind_redirect(graph_redirect)
-            # Workers / coordination registry must see the host execution_id.
-            self._base_tool_context.execution_id = append_to
-            from agentcore.runtime.coordination.session import current_execution_id
-
-            # Turn teardown clears via current_execution_id — keep it on the host
-            # so the append coordination session is not orphaned under a fresh id.
-            current_execution_id.set(append_to)
             roles_anchor = [
                 n.role or n.agent_name or n.run_id for n in added_nodes_for_anchor
             ]
@@ -860,11 +885,6 @@ class DelegateTool:
 
         record_plan_snapshot(plan)
 
-        execution_id = (
-            append_to
-            if append_to
-            else (self._base_tool_context.execution_id or new_id())
-        )
         from agentcore.runtime.audit.hooks import on_delegate_plan
 
         on_delegate_plan(
@@ -872,14 +892,18 @@ class DelegateTool:
             plan=plan,
             captain_run_id=self._captain_run_id,
         )
-        self._sink.emit(
-            plan_event(
-                self,
-                execution_id,
-                plan,
-                host_message_id=host_message_id,
+        # 同回合合入活跃协调时由 merge 在准入后发出成长后的 run_plan（提交点）。
+        if not should_defer_run_plan_emit_to_merge(
+            self, execution_id=execution_id, finalize=finalize_flag
+        ):
+            self._sink.emit(
+                plan_event(
+                    self,
+                    execution_id,
+                    plan,
+                    host_message_id=host_message_id,
+                )
             )
-        )
         # 决策可观测: who + what got delegated (the「派了谁、干什么」input basis), not just a
         # node count. `parallel` = first-wave width (nodes with no deps → run concurrently), so
         # 扇出 vs 串行 is visible offline. `agents` is capped to keep the line bounded on a big fan-out.

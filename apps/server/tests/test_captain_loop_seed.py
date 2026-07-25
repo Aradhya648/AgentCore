@@ -102,6 +102,7 @@ def test_controller_seed_round_trip_json_safe():
         "delegate_count": 1,
         "team_gate_fired": True,
         "exec_verify_gate_fired": False,
+        "exec_verify_text_exit": False,
         "audit_gate_fired": True,
         "first_batch_substantial": True,
         "audit_hard_required": False,

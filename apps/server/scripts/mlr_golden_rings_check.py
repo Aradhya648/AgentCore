@@ -11,7 +11,7 @@ Usage (apps/server)::
     uv run python scripts/mlr_golden_rings_check.py --fixture tests/fixtures/mlr_golden_ring6_positive.json
 
 自测（不碰 DB）见 ``tests/test_mlr_golden_rings.py``。
-真跑驱动（会调 LLM）仍可用已废弃验收职责的 ``_mlr_two_act_verify.py``。
+真跑用产品正常对话完成两幕后，对本检查器传入 conversation_id；旧脚手架 ``_mlr_two_act_verify.py`` 已移除。
 """
 
 from __future__ import annotations

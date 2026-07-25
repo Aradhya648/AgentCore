@@ -16,7 +16,7 @@
   "mode": "economy",
   "checks": [
     { "name": "FinishReason" },
-    { "name": "Delegated" }
+    { "name": "NotDelegated" }
   ],
-  "rubric": "用户要安装/运行/打开刚写的软件：CEO 无 code_execute，应委派 worker 修复并【显式】声明 completion_criteria=code_verified（硬要求，不可省略、不可只靠 task 文案暗示跑通——引擎不从文案推断验收），禁止 tools=0 口头拒绝或只给用户 bash 命令。"
+  "rubric": "用户要直接打开刚写的软件：无本机打开能力时终向须 ask_user（开卡绑定/说明限制），禁止含糊直答假装已打开，也勿假委派冒充已打开；有 local_open 时才可委派并显式 completion_criteria=code_verified。"
 }

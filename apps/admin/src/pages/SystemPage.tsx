@@ -150,21 +150,16 @@ export function SystemPage() {
 
           {drift && (
             <Card title="发布漂移">
-              <Row label="Desktop 最新">
-                {drift.desktopGithubVersion ?? "—"}
-                {drift.desktopGithubTag ? (
-                  <span className="ml-2 text-muted-foreground text-xs">
-                    ({drift.desktopGithubTag})
-                  </span>
-                ) : null}
+              <Row label="CDN 最新">
+                {drift.desktopCdnVersion ?? "—"}
               </Row>
               <Row label="下载页展示">
                 {drift.websiteDownloadVersion ?? "—"}
               </Row>
-              <Row label="GitHub ↔ 下载页">
+              <Row label="CDN ↔ 下载页">
                 <DriftBadge
                   ok={versionsMatch(
-                    drift.desktopGithubVersion,
+                    drift.desktopCdnVersion,
                     drift.websiteDownloadVersion,
                   )}
                   okLabel="一致"
@@ -189,8 +184,8 @@ export function SystemPage() {
                 <p className="mt-3 text-destructive text-xs">{drift.errors.join(" · ")}</p>
               )}
               <p className="mt-3 text-muted-foreground text-xs">
-                Desktop 来自 GitHub Latest；下载页来自官网 runtime API。API 与 Web
-                客户端独立部署，SHA 不同属预期。
+                CDN 来自 downloads.*/desktop/latest.json；下载页来自官网 runtime
+                API。API 与 Web 客户端独立部署，SHA 不同属预期。
               </p>
             </Card>
           )}

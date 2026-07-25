@@ -2,11 +2,13 @@
 
 感谢关注 AgentCore。[`Lawofall/AgentCore`](https://github.com/Lawofall/AgentCore) 是对外公开的产品仓库（见根 [README](./README.md)）。欢迎在该地址提 Issue 与 Pull Request。
 
+文档与贡献说明以**中文**为准；根 README 仅保留一句英文产品介绍（检索 / AI）。不维护完整英文 docs。问问题去哪 → [SUPPORT.md](./SUPPORT.md)。
+
 ## 怎么帮忙
 
 - 通过 [GitHub Issues](https://github.com/Lawofall/AgentCore/issues) 报 Bug、提想法
 - 提交行为或文档的 PR；请保持改动聚焦
-- 安全漏洞按 [SECURITY.md](./SECURITY.md) 私下报告——不要开公开 Issue
+- 安全漏洞按 [SECURITY.md](./SECURITY.md) 私下报告（优先 GitHub Private vulnerability reporting）——不要开公开 Issue
 
 跨模块、影响面大的改动：请先开 Issue 对齐。
 
@@ -42,8 +44,8 @@ cd apps/server && uv sync
 
 1. 改动聚焦；小 PR + 说清要解决的问题。
 2. `apps/server` 行为变更请补或更新测试。
-3. 不要提交密钥、本地 `.env` / `.env.local`、`data/`，或临时 `tmp_*` / `_tmp_*` 文件。
-4. `.cursor/` 与 `docs/06-规划/` 已在 `.gitignore`；勿强行 `git add -f`。AI 规则在本地 `.cursor/rules/`，贡献者一般不必改；规划草案仅维护者本地。
+3. 不要提交密钥、本地 `.env` / `.env.local`、`data/`，或临时 `tmp_*` / `_tmp_*` / `.tmp_*` / `reviews/` 等草稿。
+4. `.cursor/`、`docs/06-规划/`、`reviews/` 已在 `.gitignore`；勿强行 `git add -f`。AI 规则在本地 `.cursor/rules/`，贡献者一般不必改；规划草案与审查草稿仅维护者本地。
 5. 风格与现有代码一致；提交前跑下面的检查。
 
 ### 提交前检查

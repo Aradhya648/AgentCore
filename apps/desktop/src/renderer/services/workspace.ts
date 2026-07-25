@@ -51,6 +51,20 @@ export async function uploadWorkspaceFile(
   });
 }
 
+/** Export a conversation-workspace Markdown file to a sibling ``.docx``. */
+export async function exportWorkspaceMdToDocx(
+  conversationId: string,
+  path: string,
+): Promise<{ path: string; warnings: string[] }> {
+  const res = await api.post<{
+    path: string;
+    source_path: string;
+    size_bytes: number;
+    warnings: string[];
+  }>(`/v1/conversations/${conversationId}/workspace/export-docx`, { path });
+  return { path: res.path, warnings: res.warnings ?? [] };
+}
+
 /** Delete a workspace file or directory (directories go recursively). */
 export async function deleteWorkspaceFile(
   conversationId: string,

@@ -4,6 +4,8 @@ AgentCore：面向大众的 **Multi-Agent AI 工作台**——真正的 Agent �
 
 跨工具 AI / 贡献者入口（本文件入仓、保持短）。详细产品与架构说明在 `docs/`，不在此复述。
 
+文档以**中文**为准；根 README 仅一句英文产品介绍（检索用）。English docs are not maintained.
+
 ## 先读哪里
 
 | 我要… | 去哪 |
@@ -11,6 +13,7 @@ AgentCore：面向大众的 **Multi-Agent AI 工作台**——真正的 Agent �
 | 任务路由 / 设计文档总入口 | [`docs/索引.md`](docs/索引.md) |
 | 产品一句话、最短跑通、仓库地图 | [`README.md`](README.md) |
 | 贡献 / PR / 勿提交什么 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 问问题 / Issue 去哪 | [`SUPPORT.md`](SUPPORT.md) |
 | clone 后跑通前后端 | [`docs/02-架构/本地开发.md`](docs/02-架构/本地开发.md) |
 
 ## Docs 与 Rules

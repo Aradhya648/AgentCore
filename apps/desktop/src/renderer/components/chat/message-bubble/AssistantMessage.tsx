@@ -127,7 +127,7 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
   const copySupportDiagnostics = () => {
     if (!supportDiagnosticText) return;
     void copyText(supportDiagnosticText).then((ok) => {
-      if (ok) notifySuccess("已复制诊断信息");
+      if (ok) notifySuccess("已复制排查包");
     });
   };
   const hasReasoning =
@@ -347,7 +347,7 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
               icon={<Copy size={13} />}
               onClick={copySupportDiagnostics}
             >
-              复制诊断信息
+              复制排查包
             </Button>
           )}
           {errorAction && (

@@ -5,12 +5,14 @@ import {
   type FileSource,
   type WriteTextResult,
   baseName,
+  isMarkdownPath,
   parentDir,
 } from "@/lib/fileSource";
 import type {
   FsErrorCode,
   FilePreview as LocalPreview,
 } from "@shared/ipc-contract";
+import { convertMdToDocx } from "@/services/workspaces";
 
 /** Map the local IPC preview shape into the unified result. */
 function adaptPreview(p: LocalPreview): FilePreviewResult {
@@ -266,6 +268,72 @@ export function createLocalRootSource(
         normalized === "." ? base || "." : inPath(normalized);
       const result = await api.openShellAtRoot(rootId, containerSub);
       if (!result.ok) throw new Error(result.reason);
+    },
+    async exportMdToDocx(path) {
+      if (!isMarkdownPath(path)) {
+        throw new Error("仅支持导出 Markdown（.md / .markdown）");
+      }
+      const doc = await (async () => {
+        const res = await window.fsApi.readTextFile(rootId, inPath(path));
+        if (!res.ok) throwFs(res.reason, res.code);
+        return res.data.content;
+      })();
+
+      // Collect relative image srcs (same heuristic as server collect_image_srcs).
+      const imgRe = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+      const images: Record<string, string | null> = {};
+      let m: RegExpExecArray | null;
+      while ((m = imgRe.exec(doc)) !== null) {
+        const src = m[1]?.trim();
+        if (!src || src in images) continue;
+        if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(src) || src.startsWith("data:")) {
+          continue;
+        }
+        let cleaned = src.replace(/\\/g, "/");
+        while (cleaned.startsWith("./")) cleaned = cleaned.slice(2);
+        const dir = parentDir(path);
+        const joined = dir ? `${dir}/${cleaned}` : cleaned;
+        const parts = joined.split("/");
+        const stack: string[] = [];
+        for (const p of parts) {
+          if (!p || p === ".") continue;
+          if (p === "..") {
+            if (stack.length === 0) {
+              images[src] = null;
+              break;
+            }
+            stack.pop();
+            continue;
+          }
+          stack.push(p);
+        }
+        if (src in images) continue;
+        const wsImg = stack.join("/");
+        const rb = await window.fsApi.workspaceOp(rootId, "read_bytes", {
+          path: inPath(wsImg),
+        });
+        if (rb.ok && typeof rb.value === "string") {
+          images[src] = rb.value;
+        } else {
+          images[src] = null;
+        }
+      }
+
+      const converted = await convertMdToDocx({
+        markdown: doc,
+        images,
+        sourceName: baseName(path),
+      });
+      const outName = converted.suggestedFilename;
+      const outPath = parentDir(path) ? `${parentDir(path)}/${outName}` : outName;
+      const wb = await window.fsApi.workspaceOp(rootId, "write_bytes", {
+        path: inPath(outPath),
+        data: converted.docxBase64,
+      });
+      if (!wb.ok) {
+        throw new Error(wb.error.detail || "写入 Word 失败");
+      }
+      return { path: outPath, warnings: converted.warnings };
     },
   };
 }

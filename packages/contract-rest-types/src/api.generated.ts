@@ -2190,6 +2190,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/conversations/{conversation_id}/workspace/export-docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Conversation Workspace Docx
+         * @description Export a conversation-workspace Markdown file to a sibling ``.docx``.
+         */
+        post: operations["export_conversation_workspace_docx_v1_conversations__conversation_id__workspace_export_docx_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/conversations/{conversation_id}/workspace/external-grants": {
         parameters: {
             query?: never;
@@ -4115,6 +4135,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/convert/md-to-docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Convert Md To Docx
+         * @description Stateless Markdown → Word (shared converter; used by local desktop「导出 Word」).
+         *
+         *     Does not touch a workspace. Images are optional base64 payloads keyed by the
+         *     raw Markdown ``src``. Auth required so the surface is not a public converter.
+         */
+        post: operations["convert_md_to_docx_v1_workspaces_convert_md_to_docx_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{ws_id}/clone": {
         parameters: {
             query?: never;
@@ -4179,6 +4222,26 @@ export interface paths {
          */
         put: operations["write_workspace_file_text_v1_workspaces__ws_id__edit__path__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{ws_id}/export-docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Workspace Docx
+         * @description Export workspace Markdown to a sibling ``.docx`` (shared ``md_to_docx`` converter).
+         */
+        post: operations["export_workspace_docx_v1_workspaces__ws_id__export_docx_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5858,6 +5921,35 @@ export interface components {
             updated_at: string;
         };
         /**
+         * ConvertMdToDocxRequest
+         * @description Stateless Markdown → Word conversion (local desktop UI; images as base64).
+         */
+        ConvertMdToDocxRequest: {
+            /** Images */
+            images?: {
+                [key: string]: string | null;
+            };
+            /** Markdown */
+            markdown: string;
+            /**
+             * Source Name
+             * @default document.md
+             */
+            source_name: string;
+        };
+        /**
+         * ConvertMdToDocxResponse
+         * @description Base64-encoded .docx plus non-fatal warnings.
+         */
+        ConvertMdToDocxResponse: {
+            /** Docx Base64 */
+            docx_base64: string;
+            /** Suggested Filename */
+            suggested_filename: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
          * CostBreakdown
          * @description A run's / turn's / window's cost in integer nano-USD (canonical).
          */
@@ -6532,6 +6624,28 @@ export interface components {
              * @default
              */
             url: string;
+        };
+        /**
+         * ExportDocxRequest
+         * @description Export a workspace Markdown file to a sibling ``.docx`` (确定性转换器).
+         */
+        ExportDocxRequest: {
+            /** Path */
+            path: string;
+        };
+        /**
+         * ExportDocxResponse
+         * @description Result of Markdown → Word export into the workspace.
+         */
+        ExportDocxResponse: {
+            /** Path */
+            path: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Source Path */
+            source_path: string;
+            /** Warnings */
+            warnings?: string[];
         };
         /** ExternalGrantItem */
         ExternalGrantItem: {
@@ -13837,6 +13951,45 @@ export interface operations {
             };
         };
     };
+    export_conversation_workspace_docx_v1_conversations__conversation_id__workspace_export_docx_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportDocxRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportDocxResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_external_grants_v1_conversations__conversation_id__workspace_external_grants_get: {
         parameters: {
             query?: never;
@@ -18238,6 +18391,43 @@ export interface operations {
             };
         };
     };
+    convert_md_to_docx_v1_workspaces_convert_md_to_docx_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConvertMdToDocxRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConvertMdToDocxResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     clone_repo_into_workspace_v1_workspaces__ws_id__clone_post: {
         parameters: {
             query?: never;
@@ -18379,6 +18569,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceWriteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_workspace_docx_v1_workspaces__ws_id__export_docx_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                ws_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportDocxRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportDocxResponse"];
                 };
             };
             /** @description Validation Error */

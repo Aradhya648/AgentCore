@@ -1,7 +1,6 @@
 /**
- * Format conversation / message / trace / execution IDs for support & DEV diagnostics.
- * Users paste this blob when reporting; ops grep logs with the same keys.
- * Trailing line is a ready-to-run log_timeline.py command when trace or conversation is present.
+ * Format a paste-ready「排查包」for support / Cursor AI log lookup.
+ * Lead line triggers conversation-logs workflow; trailing line is log_timeline.py.
  */
 export function formatSupportDiagnosticText(ids: {
   conversationId?: string | null;
@@ -9,17 +8,19 @@ export function formatSupportDiagnosticText(ids: {
   traceId?: string | null;
   executionId?: string | null;
 }): string {
-  const lines: string[] = [];
   const conversationId = ids.conversationId?.trim() || "";
   const messageId = ids.messageId?.trim() || "";
   const traceId = ids.traceId?.trim() || "";
   const executionId = ids.executionId?.trim() || "";
 
-  if (conversationId) lines.push(`conversation_id: ${conversationId}`);
-  if (messageId) lines.push(`message_id: ${messageId}`);
-  if (traceId) lines.push(`trace_id: ${traceId}`);
-  if (executionId) lines.push(`execution_id: ${executionId}`);
+  const idLines: string[] = [];
+  if (conversationId) idLines.push(`conversation_id: ${conversationId}`);
+  if (messageId) idLines.push(`message_id: ${messageId}`);
+  if (traceId) idLines.push(`trace_id: ${traceId}`);
+  if (executionId) idLines.push(`execution_id: ${executionId}`);
+  if (idLines.length === 0) return "";
 
+  const lines = ["阅读这段产品AI日志：", ...idLines];
   if (traceId) {
     lines.push(`uv run python scripts/log_timeline.py --trace ${traceId}`);
   } else if (conversationId) {

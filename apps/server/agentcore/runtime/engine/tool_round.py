@@ -227,6 +227,11 @@ async def handle_tool_calls_round(
     )
 
     backend = tool_context.backend
+    ask_user_available = (
+        "ask_user" in allowed_tool_names
+        if allowed_tool_names is not None
+        else "ask_user" in tools.names
+    )
     directive = govern_after_tools(
         outcome,
         controller,
@@ -239,9 +244,14 @@ async def handle_tool_calls_round(
         investigation_tools=controller.investigation_tool_names,
         code_execute=code_execution_enabled_for(backend),
         browser=browser_execution_enabled_for(backend),
+        local_open=backend.location == "local",
+        ask_user_available=ask_user_available,
     )
     # Hard team-gate / exec-verify may have stripped investigation tools — refresh defs.
-    if (controller.team_gate_fired or controller.exec_verify_gate_fired) and not gate_before:
+    # text_exit: never re-offer tools after forced prose close.
+    if controller.exec_verify_text_exit:
+        tool_defs = None
+    elif (controller.team_gate_fired or controller.exec_verify_gate_fired) and not gate_before:
         tool_defs = resolve_openai_tool_defs(tools, allowed_tool_names, disabled_tools)
     return ToolRoundResult(
         outcome=outcome,

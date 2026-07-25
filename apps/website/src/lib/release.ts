@@ -5,6 +5,9 @@ export type ReleaseArtifacts = {
   winFilename: string;
   macUrl: string;
   macFilename: string;
+  androidUrl: string;
+  androidFilename: string;
+  androidVersion: string;
 };
 
 export const DESKTOP_RELEASE_API = "/api/desktop-release" as const;

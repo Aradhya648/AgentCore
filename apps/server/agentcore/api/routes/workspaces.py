@@ -36,8 +36,12 @@ from agentcore.api.download_headers import download_headers
 from agentcore.api.schemas import (
     CloneRepoRequest,
     CloneRepoResponse,
+    ConvertMdToDocxRequest,
+    ConvertMdToDocxResponse,
     CreateDirRequest,
     CreateSnapshotRequest,
+    ExportDocxRequest,
+    ExportDocxResponse,
     MoveFileRequest,
     SnapshotListResponse,
     SnapshotSummary,
@@ -56,6 +60,11 @@ from agentcore.config import settings
 from agentcore.conversation.scratch import bare_chat_local_subpath
 from agentcore.core.errors import ConflictError, NotFoundError, ValidationError
 from agentcore.db.repositories import ConversationRepository, FolderRepository
+from agentcore.docs_export.md_to_docx import (
+    convert_markdown_to_docx,
+    docx_path_for_markdown,
+)
+from agentcore.docs_export.workspace_export import ExportMarkdownError, export_markdown_path
 from agentcore.shared_spaces.service import SharedSpaceService
 from agentcore.shared_spaces.types import can_write
 from agentcore.storage import SnapshotNotFound
@@ -72,6 +81,7 @@ from agentcore.workspace.files import (
 )
 from agentcore.workspace.git import CloneError, clone_repo
 from agentcore.workspace.locate import (
+    build_server_workspace,
     build_shared_workspace,
     format_shared_workspace_id,
     parse_workspace_id,
@@ -464,6 +474,85 @@ async def upload_workspace_file(
     except OutsideWorkspace as e:
         raise ValidationError("路径非法：超出工作区范围") from e
     return UploadFileResponse(path=path, size_bytes=written)
+
+
+@router.post("/convert/md-to-docx", response_model=ConvertMdToDocxResponse)
+async def convert_md_to_docx(
+    body: ConvertMdToDocxRequest,
+    user: AuthUser,
+):
+    """Stateless Markdown → Word (shared converter; used by local desktop「导出 Word」).
+
+    Does not touch a workspace. Images are optional base64 payloads keyed by the
+    raw Markdown ``src``. Auth required so the surface is not a public converter.
+    """
+    del user  # auth gate only
+    import base64
+
+    images: dict[str, bytes | None] = {}
+    for src, b64 in (body.images or {}).items():
+        if b64 is None or b64 == "":
+            images[src] = None
+            continue
+        try:
+            images[src] = base64.b64decode(b64, validate=False)
+        except Exception as e:
+            raise ValidationError(f"图片 base64 无效：{src}") from e
+
+    result = convert_markdown_to_docx(body.markdown, images=images)
+    suggested = docx_path_for_markdown(body.source_name or "document.md")
+    suggested = suggested.rsplit("/", 1)[-1] or "document.docx"
+    return ConvertMdToDocxResponse(
+        docx_base64=base64.b64encode(result.docx_bytes).decode("ascii"),
+        warnings=list(result.warnings),
+        suggested_filename=suggested,
+    )
+
+
+@router.post("/{ws_id}/export-docx", response_model=ExportDocxResponse)
+async def export_workspace_docx(
+    ws_id: str,
+    body: ExportDocxRequest,
+    user: AuthUser,
+    conv_repo: ConversationRepository = Depends(get_conversation_repo),
+    folder_repo: FolderRepository = Depends(get_folder_repo),
+    shared_svc: SharedSpaceService = Depends(get_shared_space_service),
+):
+    """Export workspace Markdown to a sibling ``.docx`` (shared ``md_to_docx`` converter)."""
+    target = await _resolve_owned_workspace(
+        ws_id, user.user_id, conv_repo, folder_repo, shared_svc
+    )
+    _require_cloud(target)
+    _require_shared_write(target)
+
+    try:
+        async with workspace_lock(_storage_key(user.user_id, target)):
+            if target.space_id:
+                backend = build_shared_workspace(target.space_id)
+            else:
+                backend = build_server_workspace(
+                    user_id=user.user_id,
+                    folder_id=target.folder_id,
+                    conversation_id=target.conversation_id,
+                )
+            result = await export_markdown_path(backend, body.path)
+            if target.space_id:
+                await shared_svc.record_file_change(
+                    space_id=target.space_id,
+                    actor_user_id=user.user_id,
+                    actor_via="user",
+                    action="file_written",
+                    path=result.output_path,
+                )
+    except ExportMarkdownError as e:
+        raise ValidationError(e.message) from e
+
+    return ExportDocxResponse(
+        path=result.output_path,
+        source_path=result.source_path,
+        size_bytes=result.size_bytes,
+        warnings=list(result.warnings),
+    )
 
 
 @router.get("/{ws_id}/edit/{path:path}", response_model=WorkspaceEditDoc)

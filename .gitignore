@@ -87,6 +87,7 @@ apps/desktop/build/*
 !.env.*.example
 # Intentionally tracked: public API URL only (no secrets)
 !apps/desktop/.env.production
+!apps/mobile/.env.production
 # Local probe script outputs
 apps/server/.pytest-result.txt
 apps/server/_pytest*.txt
@@ -101,8 +102,11 @@ apps/server/tmp/
 # Session audit / log dumps dropped at repo root or under apps/server (not release artifacts)
 /tmp_*
 /_tmp_*
+/.tmp_*
 apps/server/_tmp_*
 apps/server/tmp_*
+# One-off review / audit scratch (maintainer-local; not published)
+/reviews/
 # Cursor IDE local config / AI rules (kept on disk, not published)
 .cursor/
 # Planning / proposal drafts (maintainer-local; not published — keep on disk)
@@ -118,6 +122,9 @@ deploy/config/production.env
 *.p12
 *.jks
 *.keystore
+**/keystore.properties
+# Firebase / FCM client config (contains project identifiers; keep local)
+**/google-services.json
 
 # Cloudflare Wrangler local state
 .wrangler/

@@ -97,4 +97,21 @@ echo "READYZ OK"
 echo "--- /version ---"
 curl -s http://127.0.0.1:8000/version
 echo
+
+# 健康后回收本机历史 api:<sha>（ACR 仍可回拉）。默认保留最近 5 个 tag + 容器在用镜像。
+KEEP_API_IMAGES="${KEEP_API_IMAGES:-5}"
+echo "== prune old api images (keep ${KEEP_API_IMAGES}) =="
+_reg="${IMAGE_REGISTRY:-}"
+if [[ -n "$_reg" ]]; then
+  mapfile -t _tags < <(docker images "${_reg}/api" --format '{{.CreatedAt}}\t{{.Tag}}' \
+    | sort -r | awk -F'\t' 'NR>0 && $2!="<none>" && $2!="latest" {print $2}')
+  if ((${#_tags[@]} > KEEP_API_IMAGES)); then
+    for _t in "${_tags[@]:KEEP_API_IMAGES}"; do
+      docker rmi "${_reg}/api:${_t}" 2>/dev/null || true
+    done
+  fi
+  # latest 浮动标签与当前 sha 共存；清掉已无引用的悬空层
+  docker image prune -f >/dev/null 2>&1 || true
+  docker builder prune -af --filter until=168h >/dev/null 2>&1 || true
+fi
 echo "FINISH DONE ✓"

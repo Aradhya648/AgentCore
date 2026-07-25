@@ -1,17 +1,10 @@
-import { Button, IconButton } from "@/components/ui";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { logout } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth";
 import { useSidebarStore } from "@/stores/sidebar";
 import { useUserStore } from "@/stores/user";
-import { BookOpen, LogOut, MoreVertical, Settings } from "lucide-react";
+import { LogOut, MoreVertical } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 export function UserMenu() {
@@ -33,6 +26,8 @@ export function UserMenu() {
     useAuthStore.getState().setUnauthenticated();
   };
 
+  const goSettings = () => navigate("/more");
+
   const avatarUrl = authUser?.avatarUrl ?? profile.avatarUrl;
   const avatar = (
     <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-accent-foreground">
@@ -48,53 +43,21 @@ export function UserMenu() {
     </div>
   );
 
-  const menu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {collapsed ? (
-          <Button
-            variant="ghost"
-            aria-label="账户菜单"
-            className="h-auto rounded-full p-0 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent"
-          >
-            {avatar}
-          </Button>
-        ) : (
-          <IconButton
-            tone="sidebar"
-            aria-label="更多"
-            className="text-sidebar-foreground/50 outline-none hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-accent"
-          >
-            <MoreVertical size={14} />
-          </IconButton>
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side={collapsed ? "right" : "top"} align="end">
-        <DropdownMenuItem onSelect={() => navigate("/toolbox/manual")}>
-          <BookOpen size={14} />
-          产品手册
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigate("/more")}>
-          <Settings size={14} />
-          设置
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="danger" onSelect={() => void handleLogout()}>
-          <LogOut size={14} />
-          登出
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
   return (
     <div className="border-t border-sidebar-border p-2">
       <div
         className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"}`}
       >
         {collapsed ? (
-          <SimpleTooltip label="账户菜单" side="right">
-            {menu}
+          <SimpleTooltip label="设置" side="right">
+            <button
+              type="button"
+              aria-label="设置"
+              onClick={goSettings}
+              className="rounded-full p-0 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent"
+            >
+              {avatar}
+            </button>
           </SimpleTooltip>
         ) : (
           <>
@@ -112,7 +75,16 @@ export function UserMenu() {
                 <LogOut size={14} />
               </IconButton>
             </SimpleTooltip>
-            <SimpleTooltip label="更多">{menu}</SimpleTooltip>
+            <SimpleTooltip label="更多">
+              <IconButton
+                tone="sidebar"
+                onClick={goSettings}
+                aria-label="更多"
+                className="text-sidebar-foreground/50 outline-none hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-accent"
+              >
+                <MoreVertical size={14} />
+              </IconButton>
+            </SimpleTooltip>
           </>
         )}
       </div>

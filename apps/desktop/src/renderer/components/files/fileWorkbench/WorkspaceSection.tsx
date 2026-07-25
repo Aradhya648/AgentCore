@@ -1,5 +1,6 @@
 import { FileTree, type FileTreeHandle } from "@/components/files/FileTree";
 import { IconButton } from "@/components/files/parts";
+import { ClearScratchDialog } from "@/components/files/ClearScratchDialog";
 import {
   DeleteFolderDialog,
   archiveConversationsBeforeDelete,
@@ -31,7 +32,10 @@ import { workspaceKeys } from "@/lib/queryKeys";
 import { notifyActionError, notifyError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { WorkspaceInfo } from "@/services/workspaces";
-import { useConversationStore } from "@/stores/conversation";
+import {
+  useConversationGenerating,
+  useConversationStore,
+} from "@/stores/conversation";
 import {
   Check,
   ChevronDown,
@@ -60,8 +64,9 @@ import { conversationIdOf, folderIdOf } from "./storage";
  * expanded**. Project folders (`folder:<id>`) may also render a `projectRail` (记忆 → 规则)
  * above the file tree.
  *
- * - `conv:<id>` scratch：右键可打开/重命名/删除对话、清空文件。
- * - `folder:<id>` 项目共享空间：右键可「删除项目」（与侧栏 {@link WorkspaceGroupHeader} 同构）。
+ * - `conv:<id>` **云** scratch：右键可打开/重命名/删除对话、清空本对话产物。
+ * - `conv:<id>` **本地** scratch：无根级清空（树内单删 / 删对话）。
+ * - `folder:<id>` 项目共享空间：右键可「删除项目」（与侧栏 {@link WorkspaceGroupHeader} 同构）；无清空。
  */
 export function WorkspaceSection({
   ws,
@@ -101,6 +106,8 @@ export function WorkspaceSection({
   >(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteFolderOpen, setDeleteFolderOpen] = useState(false);
+  const [clearScratchOpen, setClearScratchOpen] = useState(false);
+  const [clearingScratch, setClearingScratch] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ws.name);
 
@@ -113,6 +120,10 @@ export function WorkspaceSection({
   const dropConversationRuntime = useConversationStore(
     (s) => s.dropConversationRuntime,
   );
+  /** Cloud conv scratch only — local/project roots never get root-level clear. */
+  const canClearScratch =
+    !!conversationId && !isLocal && !offlineCloud && !!source?.caps.edit;
+  const scratchGenerating = useConversationGenerating(conversationId ?? "");
 
   const folder = folderId
     ? (getFolders().find((f) => f.id === folderId) ?? null)
@@ -242,31 +253,29 @@ export function WorkspaceSection({
     });
   };
 
-  /** Enumerate top-level entries and delete each — root itself is not deletable. */
-  const clearWorkspaceFiles = async () => {
-    if (!source) return;
-    if (
-      !window.confirm(
-        `确定清空工作区「${ws.name}」下的全部文件？此操作不可撤销。`,
-      )
-    ) {
+  /** Cloud conv scratch only: wipe top-level entries; root itself stays. */
+  const confirmClearScratch = async () => {
+    if (!source || !conversationId || isLocal) return;
+    if (scratchGenerating) {
+      notifyError("对话进行中，无法清空产物");
       return;
     }
+    setClearingScratch(true);
     try {
       const items = await source.listDir("");
       for (const item of items) {
         await source.delete(item.path);
       }
-      // Cloud scratch with no files drops off GET /v1/workspaces; local binding
-      // may keep the section — refresh the rail either way.
-      if (conversationId && !isLocal) {
-        removeConversationScratch(conversationId);
-      }
+      // Empty cloud scratch drops off GET /v1/workspaces.
+      removeConversationScratch(conversationId);
       await queryClient.invalidateQueries({ queryKey: workspaceKeys.list });
       treeRef.current?.refresh();
+      setClearScratchOpen(false);
     } catch (e) {
       notifyActionError("清空失败", e);
       void queryClient.invalidateQueries({ queryKey: workspaceKeys.list });
+    } finally {
+      setClearingScratch(false);
     }
   };
 
@@ -441,13 +450,18 @@ export function WorkspaceSection({
                 <span className="flex-1 truncate">打开对话</span>
               </ContextMenuItem>
             )}
-            {!localUnavailable && !offlineCloud && source?.caps.edit && (
+            {canClearScratch && (
               <ContextMenuItem
                 variant="danger"
-                onSelect={() => void clearWorkspaceFiles()}
+                disabled={scratchGenerating}
+                onSelect={() => setClearScratchOpen(true)}
               >
                 <Eraser size={14} className="shrink-0" />
-                <span className="flex-1 truncate">清空工作区文件</span>
+                <span className="flex-1 truncate">
+                  {scratchGenerating
+                    ? "清空本对话产物（对话进行中）"
+                    : "清空本对话产物…"}
+                </span>
               </ContextMenuItem>
             )}
             {conversationId && (
@@ -495,6 +509,15 @@ export function WorkspaceSection({
           isLocal={folderIsLocal}
           onConfirm={() => void confirmDeleteFolder()}
           onPermanentConfirm={confirmPermanentDeleteFolder}
+        />
+      )}
+      {canClearScratch && (
+        <ClearScratchDialog
+          open={clearScratchOpen}
+          onOpenChange={setClearScratchOpen}
+          name={ws.name}
+          busy={clearingScratch}
+          onConfirm={() => void confirmClearScratch()}
         />
       )}
     </div>

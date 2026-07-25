@@ -186,9 +186,24 @@ function main() {
   const paths = assertLocalAssets(releaseDir, version);
   uploadAndVerify(tag, version, paths);
 
+  // Brand CDN (R2) — user-facing downloads + electron-updater feed.
+  run(
+    "sync:release-cdn (desktop)",
+    process.execPath,
+    [
+      join(REPO_ROOT, "deploy/scripts/sync-release-cdn.mjs"),
+      "--desktop",
+      releaseDir,
+      "--version",
+      version,
+    ],
+    { cwd: REPO_ROOT, env: process.env },
+  );
+
   console.log("");
   console.log(`✓ Win release ${tag} built and uploaded to ${RELEASES_REPO}`);
   console.log(`  local: ${releaseDir}`);
+  console.log(`  CDN: https://downloads.fashitianxia.xyz/desktop/`);
   console.log("");
   console.log("Win-only dev publish (optional):");
   console.log(

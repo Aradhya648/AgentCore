@@ -23,7 +23,7 @@ import { clock } from "@/lib/time";
 import { usePolling } from "@/lib/usePolling";
 import { useStickScroll } from "@/lib/useStickScroll";
 import { ImAvatar, userAvatarPath } from "@/pages/im/ImAvatar";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, Loader2, Send } from "lucide-react";
 // 消息线程 (/im/c/:chatId) — one human↔human thread. REST + polling (no SSE): the open
 // thread refetches the most-recent page every 4s and merges by id, so sends from the peer
 // appear within a cycle. IM list pagination is created_at ASC (page 1 = oldest), so the
@@ -407,10 +407,17 @@ export function ChatThreadPage() {
         />
         <button
           type="button"
+          className="send-btn"
           onClick={() => void send()}
           disabled={(!text.trim() && pending.length === 0) || sending}
+          aria-label={sending ? "发送中…" : "发送"}
+          title={sending ? "发送中…" : "发送"}
         >
-          {sending ? "…" : "发送"}
+          {sending ? (
+            <Loader2 size={18} className="voice-spin" aria-hidden />
+          ) : (
+            <Send size={18} aria-hidden />
+          )}
         </button>
       </div>
 

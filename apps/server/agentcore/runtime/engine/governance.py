@@ -131,11 +131,20 @@ def _user_intent_chunks(messages: list[LLMMessage]) -> list[str]:
 
 
 def exec_verify_ask_prompt() -> str:
-    """Hard gate: missing exec/browser or unclear artifact → ask_user only."""
+    """Hard gate: missing exec/browser/local_open or unclear artifact → ask_user only."""
     return (
-        "[系统提示] 能力策略：用户要跑/修或打开验证，当前缺执行/浏览器能力或可验产物路径不清。"
-        "探路工具已收回。请立即 ask_user（绑定/授权/请用户指路径或附文件）；"
-        "禁止直答，禁止用读文件/列目录收口。"
+        "[系统提示] 能力策略：用户要跑/修或打开验证，当前缺执行/浏览器/本机打开能力或可验产物路径不清。"
+        "探路与委派工具已收回。请立即 ask_user（绑定/授权/请用户指路径或附文件）；"
+        "禁止委派/翻目录冒充。"
+    )
+
+
+def exec_verify_ask_text_exit_prompt() -> str:
+    """Ask terminal but no ask_user tool: force prose close (no card, no tool spin)."""
+    return (
+        "[系统提示] 能力策略：用户要跑/修或打开验证，当前缺执行/浏览器/本机打开能力，"
+        "且本回合未装配 ask_user（无法开卡）。探路与委派工具已收回，工具面已清空。"
+        "请用正文说明能力限制并立即结束；禁止再调工具、禁止委派/翻目录冒充。"
     )
 
 
@@ -148,6 +157,14 @@ def exec_verify_delegate_prompt() -> str:
     )
 
 
+def paste_writeback_delegate_prompt() -> str:
+    """Hard gate: pasted code + write-back → delegate to disk (no verbal fix)."""
+    return (
+        "[系统提示] 能力策略：消息已贴代码且要求写回文件。"
+        "探路工具已收回。请立即 delegate 落盘；禁止口述修复当直答。"
+    )
+
+
 def maybe_inject_exec_verify_gate(
     controller: LoopController,
     *,
@@ -157,13 +174,17 @@ def maybe_inject_exec_verify_gate(
     role: str,
     code_execute: bool,
     browser: bool,
+    local_open: bool = False,
     disabled_tools: set[str] | None = None,
     investigation_tools: frozenset[str] | None = None,
+    ask_user_available: bool = True,
 ) -> bool:
-    """Inject run/open-verify capability strategy once. Returns True if injected.
+    """Inject run/open/paste-writeback capability strategy once. Returns True if injected.
 
     Fires immediately on narrow intent (no recon threshold): strips investigation
-    tools and steers terminal to ``ask_user`` or ``delegate``+code_verified.
+    tools and steers terminal to ``ask_user`` or ``delegate`` (+code_verified when run/open).
+    When terminal is ``ask_user`` but the live tool surface has no ``ask_user``,
+    latches ``exec_verify_text_exit`` so the loop clears tools and forces prose close.
     """
     if (
         role != "captain"
@@ -180,36 +201,62 @@ def maybe_inject_exec_verify_gate(
     from agentcore.runtime.runs.exec_verify import (
         has_clear_verifiable_artifact_path,
         is_open_browser_verify_intent,
+        is_open_local_app_intent,
+        is_paste_writeback_intent,
         is_run_fix_script_intent,
         resolve_exec_verify_terminal,
     )
 
     run_fix = is_run_fix_script_intent(*chunks)
     open_verify = is_open_browser_verify_intent(*chunks)
+    open_app = is_open_local_app_intent(*chunks)
+    paste_writeback = is_paste_writeback_intent(*chunks)
     clear_path = has_clear_verifiable_artifact_path(*chunks)
     terminal = resolve_exec_verify_terminal(
         run_fix=run_fix,
         open_verify=open_verify,
+        open_app=open_app,
+        paste_writeback=paste_writeback,
         code_execute=code_execute,
         browser=browser,
+        local_open=local_open,
         clear_artifact_path=clear_path,
     )
     if terminal is None:
         return False
 
     controller.mark_exec_verify_gate_fired()
-    if disabled_tools is not None and investigation_tools:
-        disabled_tools.update(investigation_tools)
-    nudge = exec_verify_delegate_prompt() if terminal == "delegate" else exec_verify_ask_prompt()
+    text_exit = terminal == "ask_user" and not ask_user_available
+    if text_exit:
+        controller.mark_exec_verify_text_exit()
+    if disabled_tools is not None:
+        if investigation_tools:
+            disabled_tools.update(investigation_tools)
+        # ask 终向：收回探路后仍可 delegate/debate 绕开（如派重建冒充打开）
+        if terminal == "ask_user":
+            disabled_tools.update(("delegate", "debate"))
+    if paste_writeback and terminal == "delegate":
+        nudge = paste_writeback_delegate_prompt()
+    elif terminal == "delegate":
+        nudge = exec_verify_delegate_prompt()
+    elif text_exit:
+        nudge = exec_verify_ask_text_exit_prompt()
+    else:
+        nudge = exec_verify_ask_prompt()
     logger.info(
         "engine.exec_verify_gate_nudge",
         round=round_idx,
         terminal=terminal,
         run_fix=run_fix,
         open_verify=open_verify,
+        open_app=open_app,
+        paste_writeback=paste_writeback,
         code_execute=code_execute,
         browser=browser,
+        local_open=local_open,
         clear_artifact_path=clear_path,
+        ask_user_available=ask_user_available,
+        text_exit=text_exit,
     )
     messages.append(LLMMessage(role="user", content=nudge))
     record_turn_fact(
@@ -734,6 +781,8 @@ def govern_after_tools(
     investigation_tools: frozenset[str] | None = None,
     code_execute: bool = False,
     browser: bool = False,
+    local_open: bool = False,
+    ask_user_available: bool = True,
 ) -> LoopDirective:
     """Run post-tool convergence governance and return the next directive.
 
@@ -785,8 +834,10 @@ def govern_after_tools(
             role=role,
             code_execute=code_execute,
             browser=browser,
+            local_open=local_open,
             disabled_tools=disabled_tools,
             investigation_tools=investigation_tools,
+            ask_user_available=ask_user_available,
         )
         maybe_inject_team_gate(
             controller,
@@ -848,8 +899,10 @@ def govern_after_tools(
         role=role,
         code_execute=code_execute,
         browser=browser,
+        local_open=local_open,
         disabled_tools=disabled_tools,
         investigation_tools=investigation_tools,
+        ask_user_available=ask_user_available,
     )
     maybe_inject_team_gate(
         controller,

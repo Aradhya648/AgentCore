@@ -13,6 +13,8 @@ import { useEffect, useMemo, useState } from "react";
 function detectPlatform(): PlatformId {
   if (typeof navigator === "undefined") return "win";
   const ua = navigator.userAgent.toLowerCase();
+  // Android UA also contains "linux" — check android first.
+  if (ua.includes("android")) return "android";
   if (ua.includes("mac")) return "mac";
   if (ua.includes("linux")) return "linux";
   return "win";
@@ -56,6 +58,10 @@ export default function DownloadPanel() {
 
   const primary = platforms.find((p) => p.id === platform) ?? platforms[0];
   const primaryReady = primary.available && primary.url;
+  const primaryVersion =
+    primary.id === "android"
+      ? artifacts.androidVersion || artifacts.version
+      : artifacts.version;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
@@ -65,7 +71,7 @@ export default function DownloadPanel() {
         <h2 className="mt-3 text-2xl font-bold sm:text-3xl">
           {primary.label}
           <span className="ml-2 text-base font-normal text-muted-foreground">
-            v{artifacts.version}
+            v{primaryVersion}
           </span>
         </h2>
         <p className="mt-2 text-muted-foreground">{primary.subtitle}</p>
@@ -88,13 +94,17 @@ export default function DownloadPanel() {
         ) : (
           <div className="mt-8 rounded-xl border border-border/80 bg-accent/30 px-5 py-4 text-sm text-muted-foreground">
             {primary.id === "mac"
-              ? "macOS 版尚未随本次构建发布。请从 GitHub Releases 查看是否有新版本，或先使用 Windows 版。"
-              : `${primary.label} 版尚未发布。请先下载已提供的平台安装包，或关注后续更新。`}
+              ? "macOS 版尚未随本次构建发布。请先使用 Windows 版，或稍后再试。"
+              : primary.id === "android"
+                ? "Android APK 尚未发布。请先下载桌面版，或关注后续更新。"
+                : `${primary.label} 版尚未发布。请先下载已提供的平台安装包，或关注后续更新。`}
           </div>
         )}
 
         <p className="mt-6 text-sm leading-relaxed text-muted-foreground">
-          已安装用户无需重复下载——应用会在后台检查更新并在就绪后提示重启安装。
+          {primary.id === "android"
+            ? "APK 为侧载安装包，安装时需允许未知来源。"
+            : "已安装用户无需重复下载——应用会在后台检查更新并在就绪后提示重启安装。"}
         </p>
       </div>
 
@@ -164,7 +174,7 @@ export default function DownloadPanel() {
 
       {/* 系统要求 */}
       <div className="surface p-6 lg:col-span-2">
-        <div className="grid gap-8 sm:grid-cols-2">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <p className="font-semibold">系统要求 · Windows</p>
             <ul className="mt-4 grid gap-2">
@@ -184,6 +194,22 @@ export default function DownloadPanel() {
               <p className="font-semibold">系统要求 · macOS</p>
               <ul className="mt-4 grid gap-2">
                 {SYSTEM_REQUIREMENTS.mac.map((item) => (
+                  <li
+                    key={item}
+                    className="flex items-start gap-2 text-sm text-muted-foreground"
+                  >
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {platforms.find((p) => p.id === "android")?.available ? (
+            <div>
+              <p className="font-semibold">系统要求 · Android</p>
+              <ul className="mt-4 grid gap-2">
+                {SYSTEM_REQUIREMENTS.android.map((item) => (
                   <li
                     key={item}
                     className="flex items-start gap-2 text-sm text-muted-foreground"

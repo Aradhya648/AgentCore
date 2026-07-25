@@ -142,6 +142,14 @@ export interface FileSource {
   watch?(dir: string, onChange: FileChangeHandler): () => void;
 
   /**
+   * 把工作区内 Markdown 导出为同目录同名 ``.docx``（调服务端确定性转换器）。
+   * 仅当源支持时存在（云端 REST / 本地经 convert + write_bytes）。失败抛异常。
+   */
+  exportMdToDocx?(
+    path: string,
+  ): Promise<{ path: string; warnings: string[] }>;
+
+  /**
    * 系统集成（桌面本地源专属，云端源不实现 → UI 据「方法是否存在」门控菜单，组件内不按源分支）。
    *
    * 仅本地源有意义：文件在用户机器上、有真实 OS 路径；云端工作区文件在服务器上，故这三者一律省略。

@@ -4,6 +4,7 @@
   "user_message": "把 utils/ 下的 format_date.py、format_money.py、format_phone.py 三个小工具合并成一个 utils/formatters.py，并更新所有 import，保持行为不变。",
   "path": "team",
   "mode": "economy",
+  "workspace_fixture": "probe_workspace",
   "checks": [
     { "name": "FinishReason" },
     { "name": "Delegated" }

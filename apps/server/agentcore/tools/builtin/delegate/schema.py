@@ -30,8 +30,8 @@ TASK_DELIVERABLE_SCHEMA: dict[str, object] = {
         "artifact_dir": {
             "type": "string",
             "description": (
-                "案卷落盘目录（可选；省略时运行时按 stage_dirs 对调研/审查类 form=files 填默认）。"
-                "worker 只定文件名。"
+                "案卷落盘目录（可选；可多人共享；省略时运行时按 stage_dirs 填默认）。"
+                "目录不占归属；并行互斥靠各人不同的 artifacts 文件路径。"
             ),
         },
         "strict": {

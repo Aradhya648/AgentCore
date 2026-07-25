@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * 构建前从 GitHub Releases 拉取 Latest 正式版，生成 download.generated.ts。
- * 线上 /download 还会在运行时经 Pages Function /api/desktop-release 再拉一次；
- * 此脚本仅作 SSG 首屏与 metadata 回退。
+ * 构建前从品牌 CDN（desktop/latest.json + android/latest.json）拉取 Latest，
+ * 生成 download.generated.ts。线上 /download 还会经 Pages Function
+ * /api/desktop-release 再拉一次；此脚本仅作 SSG 首屏与 metadata 回退。
  */
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,9 +20,15 @@ async function main() {
   let artifacts = artifactUrlsForVersion(FALLBACK_VERSION);
   try {
     artifacts = await fetchLatestReleaseArtifacts(FALLBACK_VERSION);
+    const parts = ["win"];
+    if (artifacts.macUrl) parts.push("mac");
+    if (artifacts.androidUrl) parts.push("android");
     console.log(
       `fetch-release: latest v${artifacts.version}` +
-        (artifacts.macUrl ? " (win+mac)" : " (win only)"),
+        (artifacts.androidVersion
+          ? ` · android v${artifacts.androidVersion}`
+          : "") +
+        ` (${parts.join("+")})`,
     );
   } catch (err) {
     console.warn(
@@ -38,6 +44,9 @@ export const WIN_INSTALLER_URL = ${JSON.stringify(artifacts.winUrl)};
 export const WIN_INSTALLER_FILENAME = ${JSON.stringify(artifacts.winFilename)};
 export const MAC_DMG_URL = ${JSON.stringify(artifacts.macUrl)};
 export const MAC_DMG_FILENAME = ${JSON.stringify(artifacts.macFilename)};
+export const ANDROID_APK_URL = ${JSON.stringify(artifacts.androidUrl)};
+export const ANDROID_APK_FILENAME = ${JSON.stringify(artifacts.androidFilename)};
+export const ANDROID_VERSION = ${JSON.stringify(artifacts.androidVersion)};
 `;
 
   writeFileSync(join(__dir, "../src/lib/download.generated.ts"), out, "utf8");

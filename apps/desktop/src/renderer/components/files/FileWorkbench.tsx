@@ -106,10 +106,10 @@ const RULES_WS = "__rules__";
  * the swap-style {@link FileBrowser} used in narrow side panels).
  *
  * Workspace lifecycle (new file·folder / upload / reveal in OS / open chat /
- * clear files / delete conversation or delete project / rename) lives on each
- * root's **right-click menu** to keep the rail clean; the rail header is a
- * **name filter** only (real-time, case-insensitive substring over workspace
- * names; session-only, not persisted — it's a search, not a preference).
+ * clear cloud-scratch artifacts / delete conversation or delete project / rename)
+ * lives on each root's **right-click menu** to keep the rail clean; the rail
+ * header is a **name filter** only (real-time, case-insensitive substring over
+ * workspace names; session-only, not persisted — it's a search, not a preference).
  * Reuses {@link FileTree} in its headerless `chrome={false}` form so per-source
  * CRUD / drag / fold all come for free.
  *

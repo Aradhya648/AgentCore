@@ -98,6 +98,62 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* Soft Android sideload update banner (fixed under status bar; dismissible). */
+.outdated-android-banner {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 12%, var(--panel));
+  border-bottom: 1px solid var(--border);
+}
+
+.outdated-android-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.outdated-android-banner-cta {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.outdated-android-banner-dismiss {
+  flex-shrink: 0;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+}
+
+.outdated-android-banner-dismiss:active {
+  color: var(--fg);
+}
+
+@media (min-width: 768px) {
+  .outdated-android-banner {
+    left: 50%;
+    right: auto;
+    width: 480px;
+    max-width: 100%;
+    transform: translateX(-50%);
+  }
+}
+
 .tabs-body {
   display: flex;
   flex: 1;
@@ -2688,6 +2744,7 @@ dialog.run-detail::backdrop {
 
 .composer {
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--border);
@@ -2695,10 +2752,25 @@ dialog.run-detail::backdrop {
 
 .composer input {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
-/* 停止 replaces 发送 while a turn streams — neutral (not the primary action) so it reads
-   as an interrupt, not a send. */
+/* 发送 / 停止：固定方槽图标钮，窄宽不挤出视口（flex-shrink: 0 + 输入可收缩）。 */
+.composer .send-btn,
+.composer .stop {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+
+/* 停止与发送并排（busy 插话）：中性表面，读作中断而非主操作。 */
 .composer .stop {
   color: var(--fg);
   background: var(--panel);

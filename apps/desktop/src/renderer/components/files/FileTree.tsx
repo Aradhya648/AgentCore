@@ -563,6 +563,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(
               onMoveInto={moveInto}
               onUpload={upload}
               onDropTarget={setDropTarget}
+              onReloadDir={(dir) => data.reload(dir)}
             />
           ))}
         </ul>

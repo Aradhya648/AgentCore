@@ -101,8 +101,11 @@ import {
   ArrowDown,
   Bot,
   Folder,
+  Loader2,
   Menu,
+  Send,
   Sparkles,
+  Square,
   SquarePen,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2037,30 +2040,41 @@ export function ChatPage() {
           <>
             <button
               type="button"
+              className="send-btn"
               onClick={() => void onSubmit()}
               disabled={
                 history === null || !input.trim() || stopPhase === "stopping"
               }
               aria-label="发送插话"
+              title="发送插话"
             >
-              发送
+              <Send size={18} aria-hidden />
             </button>
             <button
               type="button"
               className={`stop${stopPhase === "stopping" ? " stopping" : ""}`}
               onClick={stop}
+              aria-label={stopButtonLabel(stopPhase)}
+              title={stopButtonLabel(stopPhase)}
               aria-busy={stopPhase === "stopping"}
             >
-              {stopButtonLabel(stopPhase)}
+              {stopPhase === "stopping" ? (
+                <Loader2 size={18} className="voice-spin" aria-hidden />
+              ) : (
+                <Square size={16} aria-hidden />
+              )}
             </button>
           </>
         ) : (
           <button
             type="button"
+            className="send-btn"
             onClick={() => void onSubmit()}
             disabled={history === null || !input.trim()}
+            aria-label="发送"
+            title="发送"
           >
-            发送
+            <Send size={18} aria-hidden />
           </button>
         )}
       </div>

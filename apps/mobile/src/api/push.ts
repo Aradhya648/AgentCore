@@ -14,6 +14,10 @@ import {
 // Native-only — every entry no-ops on web (a browser has no FCM), mirroring secureStorage.ts:
 // the plugin import is bundled but its native calls only run behind isNativePlatform(), so a
 // web build never invokes it.
+//
+// CRITICAL (Android): PushNotifications.register() **native-crashes** the process when
+// google-services.json is missing (FirebaseApp not initialized) — JS try/catch cannot catch
+// that. Gate with VITE_PUSH_ENABLED=true only when the release build includes that file.
 import { Capacitor } from "@capacitor/core";
 import {
   type ActionPerformed,
@@ -30,6 +34,11 @@ function platform(): DevicePlatform {
   return Capacitor.getPlatform() as DevicePlatform;
 }
 
+/** True only when the native build was shipped with Firebase (google-services.json). */
+function pushNativeEnabled(): boolean {
+  return import.meta.env.VITE_PUSH_ENABLED === "true";
+}
+
 /**
  * Wire the push listeners ONCE at startup (from <PushBridge/>, inside the router):
  *  - 'registration'                    → an FCM token arrived; remember it + upsert it to
@@ -41,51 +50,61 @@ function platform(): DevicePlatform {
  *                                        deep-link to its conversation.
  *
  * `onOpenConversation` is injected rather than importing the router, so navigation stays in
- * the React tree. Returns a cleanup that removes the listeners (a no-op on web).
+ * the React tree. Returns a cleanup that removes the listeners (a no-op on web / when push
+ * is build-disabled).
  */
 export async function initPush(
   onOpenConversation: (conversationId: string) => void,
 ): Promise<() => void> {
-  if (!Capacitor.isNativePlatform()) return () => {};
+  if (!Capacitor.isNativePlatform() || !pushNativeEnabled()) return () => {};
 
-  const registration = await PushNotifications.addListener(
-    "registration",
-    (token: Token) => {
-      currentToken = token.value;
-      // Best-effort: a failed upsert just means "no push this session", never a crash.
-      void registerDevice(token.value, platform()).catch(() => {});
-    },
-  );
-  const registrationError = await PushNotifications.addListener(
-    "registrationError",
-    () => {
-      currentToken = null;
-    },
-  );
-  const action = await PushNotifications.addListener(
-    "pushNotificationActionPerformed",
-    (event: ActionPerformed) => {
-      const conversationId = event.notification.data?.conversation_id;
-      if (typeof conversationId === "string" && conversationId) {
-        onOpenConversation(conversationId);
-      }
-    },
-  );
+  try {
+    const registration = await PushNotifications.addListener(
+      "registration",
+      (token: Token) => {
+        currentToken = token.value;
+        // Best-effort: a failed upsert just means "no push this session", never a crash.
+        void registerDevice(token.value, platform()).catch(() => {});
+      },
+    );
+    const registrationError = await PushNotifications.addListener(
+      "registrationError",
+      () => {
+        currentToken = null;
+      },
+    );
+    const action = await PushNotifications.addListener(
+      "pushNotificationActionPerformed",
+      (event: ActionPerformed) => {
+        const conversationId = event.notification.data?.conversation_id;
+        if (typeof conversationId === "string" && conversationId) {
+          onOpenConversation(conversationId);
+        }
+      },
+    );
 
-  return () => {
-    void registration.remove();
-    void registrationError.remove();
-    void action.remove();
-  };
+    return () => {
+      void registration.remove();
+      void registrationError.remove();
+      void action.remove();
+    };
+  } catch {
+    // Listener setup failed — degrade to "no push", never break startup.
+    return () => {};
+  }
 }
 
 /**
  * Request notification permission and register with FCM (the token then arrives via the
  * 'registration' listener). Call when authenticated (fresh login / restored session). No-op
- * on web or if the user declines permission — push degrades to "off", never blocks the app.
+ * on web, when push is build-disabled, or if the user declines permission — push degrades
+ * to "off", never blocks the app.
+ *
+ * Do NOT call register() without google-services.json: Android will kill the process
+ * (IllegalStateException: Default FirebaseApp is not initialized).
  */
 export async function enablePush(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
+  if (!Capacitor.isNativePlatform() || !pushNativeEnabled()) return;
   try {
     let perm = await PushNotifications.checkPermissions();
     if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {

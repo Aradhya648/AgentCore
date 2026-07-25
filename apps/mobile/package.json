@@ -1,6 +1,6 @@
 {
   "name": "agentcore-mobile",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "description": "AgentCore Mobile - 手机端 web 客户端 (桌面端减能力层; 前端技术与架构 §七)",
@@ -17,7 +17,10 @@
     "shot": "node scripts/shot.cjs",
     "deploy:pages": "node scripts/deploy-pages.mjs",
     "cap:sync": "pnpm build && cap sync",
-    "android:open": "cap open android"
+    "android:open": "cap open android",
+    "android:sync-version": "node scripts/sync-android-version.mjs",
+    "android:assemble": "node scripts/assemble-android.mjs",
+    "release:android": "node scripts/release-android.mjs"
   },
   "dependencies": {
     "@agentcore/contract-rest-types": "workspace:*",

@@ -180,13 +180,40 @@ def test_non_routing_category_unaffected_by_label_rule() -> None:
 
 
 def test_seeded_routing_suite_loads_and_lints_clean() -> None:
+    from pathlib import Path
+
     cases = load_cases(suite="routing")
     assert len(cases) >= 6
     assert all(c.category == "routing" and c.path == "team" for c in cases)
     # 每条恰好一个路由标签（与聚合器单一标签源契约一致）。
+    by_id = {c.id: c for c in cases}
     for c in cases:
         names = {spec["name"] for spec in c.checks}
         assert len(names & {"Delegated", "NotDelegated"}) == 1
+
+    # 改已有路径类：挂 probe_workspace（对齐探针 seed，避免空仓假象）。
+    for cid in (
+        "routing_delegate_readme_tweak",
+        "routing_delegate_config_line",
+        "routing_delegate_multi_file",
+        "routing_delegate_paste_bugfix",
+    ):
+        assert by_id[cid].workspace_fixture == "probe_workspace"
+    # 打开软件：无本机打开能力时产品终向 ASK，金标 NotDelegated（勿强迫委派）。
+    assert "NotDelegated" in {s["name"] for s in by_id["routing_delegate_run_app"].checks}
+
+    fixture = (
+        Path(__file__).resolve().parents[1]
+        / "agentcore"
+        / "evals"
+        / "fixtures"
+        / "probe_workspace"
+    )
+    assert (fixture / "README.md").is_file()
+    assert (fixture / "config.yaml").is_file()
+    assert (fixture / "avg.py").is_file()
+    assert (fixture / "utils" / "format_date.py").is_file()
+    assert (fixture / "scripts" / "smoke_test.py").is_file()
 
 
 def test_routing_metrics_dataclass_defaults() -> None:
