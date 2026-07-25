@@ -41,6 +41,12 @@ from pathlib import Path
 
 _DEFAULT_VERSION = "14.1.1"
 _GITHUB = "https://github.com/BurntSushi/ripgrep/releases/download"
+# Mainland / flaky-GitHub build hosts: try official first, then common proxies.
+_GITHUB_MIRROR_PREFIXES = (
+    "https://ghfast.top/",
+    "https://ghproxy.net/",
+    "https://mirror.ghproxy.com/",
+)
 
 
 def _host_target() -> str:
@@ -69,27 +75,47 @@ def _exe_name() -> str:
     return "rg.exe" if platform.system().lower() == "windows" else "rg"
 
 
+def _candidate_urls(url: str) -> list[str]:
+    urls = [url]
+    if "github.com/" in url:
+        for prefix in _GITHUB_MIRROR_PREFIXES:
+            urls.append(f"{prefix}{url}")
+    return urls
+
+
+def _download_once(url: str, timeout: int) -> bytes:
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return resp.read()
+
+
 def _download(url: str, timeout: int = 600) -> bytes:
-    print(f"fetching ripgrep: {url}", flush=True)
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return resp.read()
-    except Exception as urllib_err:
-        # Windows / some corp networks: urllib SSL flakes while curl works.
-        curl = shutil.which("curl") or shutil.which("curl.exe")
-        if not curl:
-            raise
-        print(f"urllib failed ({urllib_err!r}); retrying with curl", flush=True)
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp_path = tmp.name
+    last_err: BaseException | None = None
+    for candidate in _candidate_urls(url):
+        print(f"fetching ripgrep: {candidate}", flush=True)
         try:
-            subprocess.check_call(
-                [curl, "-fsSL", "--retry", "3", "-o", tmp_path, url],
-                timeout=timeout,
-            )
-            return Path(tmp_path).read_bytes()
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
+            return _download_once(candidate, timeout)
+        except Exception as urllib_err:
+            last_err = urllib_err
+            print(f"urllib failed ({urllib_err!r})", flush=True)
+            curl = shutil.which("curl") or shutil.which("curl.exe")
+            if not curl:
+                continue
+            print("retrying with curl", flush=True)
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                subprocess.check_call(
+                    [curl, "-fsSL", "--retry", "3", "-o", tmp_path, candidate],
+                    timeout=timeout,
+                )
+                return Path(tmp_path).read_bytes()
+            except Exception as curl_err:
+                last_err = curl_err
+                print(f"curl failed ({curl_err!r})", flush=True)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+    assert last_err is not None
+    raise last_err
 
 
 def _verify(data: bytes, url: str) -> None:
