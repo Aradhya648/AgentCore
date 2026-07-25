@@ -48,15 +48,27 @@ export function requireEnv(name) {
   return val;
 }
 
+/** Quote for cmd.exe when `shell: true` concatenates argv (spaces in Program Files). */
+function winShellQuote(value) {
+  const s = String(value);
+  if (!/[ \t"]/.test(s)) return s;
+  return `"${s.replace(/"/g, '\\"')}"`;
+}
+
 export function run(label, cmd, args, opts = {}) {
   console.log(`→ ${label}`);
-  const result = spawnSync(cmd, args, {
-    cwd: opts.cwd ?? REPO_ROOT,
-    stdio: opts.input ? ["pipe", "inherit", "inherit"] : (opts.stdio ?? "inherit"),
-    env: opts.env ?? process.env,
-    input: opts.input,
-    shell: process.platform === "win32",
-  });
+  const useShell = process.platform === "win32";
+  const result = spawnSync(
+    useShell ? winShellQuote(cmd) : cmd,
+    useShell ? args.map(winShellQuote) : args,
+    {
+      cwd: opts.cwd ?? REPO_ROOT,
+      stdio: opts.input ? ["pipe", "inherit", "inherit"] : (opts.stdio ?? "inherit"),
+      env: opts.env ?? process.env,
+      input: opts.input,
+      shell: useShell,
+    },
+  );
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
