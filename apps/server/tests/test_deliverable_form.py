@@ -6,6 +6,8 @@ from agentcore.runtime.delegate.completion import (
     plan_all_workers_prose,
     plan_declares_files_form,
     resolve_completion_criteria,
+    resolve_completion_with_source,
+    validate_cold_start_explore_deliverables,
     validate_completion_against_forms,
 )
 from agentcore.runtime.runs.builder import build_run_plan
@@ -102,14 +104,15 @@ def test_identity_form_prose_has_no_file_write_guidance():
     assert "必须" in files
     # 落盘纪律落在 worker 会读到的 identity（不只 CEO skill）。
     assert "str_replace" in files
-    assert "骨架 file_write" in files and "分段 file_append" in files
+    assert "Artifact-first" in files or "短骨架" in files
     assert "中间省略" in files or "落盘与修订" in files
+    assert "禁止再 file_read" in files or "artifact manifest" in files
 
     # omit = legacy two-way
     assert "可独立阅读的文字" in omitted
     assert "file_write" in omitted
     assert "落盘与修订" in omitted
-    assert "骨架 file_write" in omitted and "分段 file_append" in omitted
+    assert "Artifact-first" in omitted or "短骨架" in omitted
 
 def test_requires_files_injects_files_form_identity_block():
     """requires_files（或 artifacts）且 form 省略 ⇒ 强制 files 形态提示，非 legacy。"""
@@ -336,3 +339,77 @@ async def test_files_worker_keeps_write_tools_and_identity():
     assert res["t_1"].phase is RunPhase.COMPLETED
     assert "form=files" in provider.system_messages[0]
     assert "file_write" in provider.system_messages[0]
+
+
+def test_cold_start_rejects_form_files():
+    plan, errs = build_run_plan(
+        [{"role": "调研", "task": "摸清项目结构", "deliverable": {"form": "files"}}],
+        id_prefix="t",
+    )
+    assert errs == []
+    err = validate_cold_start_explore_deliverables(plan)
+    assert err is not None
+    assert "prose" in err
+    assert "update_project_profile" in err
+    assert "form=files" in err
+
+
+def test_cold_start_rejects_artifacts():
+    plan, errs = build_run_plan(
+        [
+            {
+                "role": "调研",
+                "task": "摸清项目",
+                "deliverable": {"artifacts": ["brief.md"]},
+            }
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert plan.nodes[0].deliverable is not None
+    assert plan.nodes[0].deliverable.artifacts == ["brief.md"]
+    err = validate_cold_start_explore_deliverables(plan)
+    assert err is not None
+    assert "update_project_profile" in err
+
+
+def test_cold_start_allows_all_prose():
+    plan, errs = build_run_plan(
+        [
+            {"role": "A", "task": "摸目录", "deliverable": {"form": "prose"}},
+            {"role": "B", "task": "读 README", "deliverable": {"form": "prose"}},
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert validate_cold_start_explore_deliverables(plan) is None
+
+
+def test_cold_start_allows_form_files_with_explicit_files_written():
+    plan, errs = build_run_plan(
+        [{"role": "调研", "task": "落盘 brief", "deliverable": {"form": "files"}}],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert (
+        validate_cold_start_explore_deliverables(
+            plan, explicit_criteria="files_written"
+        )
+        is None
+    )
+
+
+def test_cold_start_suppress_does_not_infer_files_written_from_form():
+    plan, errs = build_run_plan(
+        [{"role": "A", "task": "建站", "deliverable": {"form": "files"}}],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert (
+        resolve_completion_with_source(
+            None, plan, suppress_structured_files_written=True
+        ).criteria
+        is None
+    )
+    # 建站回归：无 suppress 时仍推断.
+    assert resolve_completion_criteria(None, plan).kind == "files_written"

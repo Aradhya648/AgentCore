@@ -3,12 +3,17 @@ import { ConversationCanvas } from "@/components/graph/ConversationCanvas";
 import { SidePanel } from "@/components/layout/SidePanel";
 import { Button, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
+import { getConversations } from "@/hooks/useConversations";
 import { logEvent } from "@/lib/log";
 import {
   fetchMessageWindow,
   jumpToMessage,
   shouldSetGeneratingOnHydrate,
 } from "@/services/messages";
+import {
+  cacheOpenedConversation,
+  loadCachedConversation,
+} from "@/services/offlineCache";
 import { loadRecovery, shouldHydrateLocalRecovery } from "@/services/resume";
 import {
   attachOnOpen,
@@ -17,7 +22,12 @@ import {
   settleCloudRunningAssistant,
 } from "@/services/turns";
 import { useBookmarkStore } from "@/stores/bookmarks";
-import { getRuntime, useConversationStore } from "@/stores/conversation";
+import {
+  type MemoryUpdate,
+  type Message,
+  getRuntime,
+  useConversationStore,
+} from "@/stores/conversation";
 import { useInterruptedAfterDecisionStore } from "@/stores/interruptedAfterDecision";
 import { WORKSPACE_TAB_ID, useSidePanelStore } from "@/stores/sidePanel";
 import { useUIStore } from "@/stores/ui";
@@ -32,6 +42,47 @@ function readMsgAnchor(): string | null {
   const q = hash.indexOf("?");
   if (q === -1) return null;
   return new URLSearchParams(hash.slice(q + 1)).get("msg");
+}
+
+function adoptMessageWindow(
+  id: string,
+  messages: Message[],
+  flags: { hasMoreBefore: boolean; hasMoreAfter: boolean },
+  memoryUpdates: MemoryUpdate[],
+): boolean {
+  const s = useConversationStore.getState();
+  if (s.currentConversationId !== id) return false;
+  const rt = getRuntime(id);
+  if (rt.isGenerating || rt.messages.length > 0) return false;
+  s.setMessageWindow(messages, flags, id);
+  s.setMemoryUpdates(memoryUpdates, id);
+  if (shouldSetGeneratingOnHydrate(messages)) {
+    s.setGenerating(true, id);
+  }
+  return true;
+}
+
+async function persistOpenedCache(
+  id: string,
+  messages: Message[],
+  memoryUpdates: MemoryUpdate[],
+  flags: { hasMoreBefore: boolean; hasMoreAfter: boolean },
+): Promise<void> {
+  const listed = getConversations().find((c) => c.id === id);
+  const conversation = listed ?? {
+    id,
+    title: "对话",
+    updatedAt: new Date().toISOString(),
+    messageCount: messages.length,
+    lastMessagePreview: messages.at(-1)?.content?.slice(0, 80) ?? null,
+  };
+  await cacheOpenedConversation({
+    conversation,
+    messages,
+    memoryUpdates,
+    hasMoreBefore: flags.hasMoreBefore,
+    hasMoreAfter: flags.hasMoreAfter,
+  });
 }
 
 export function ConversationPage() {
@@ -66,83 +117,87 @@ export function ConversationPage() {
       try {
         const win = await fetchMessageWindow(id);
         if (cancelled) return;
-        const s = useConversationStore.getState();
-        // Per-conversation load guard: only adopt fetched history into THIS
-        // conversation's own slice (setMessageWindow writes by id, so bail if the
-        // user switched away), and never clobber a live or already-filled slice —
-        // a background turn that streamed while we fetched, or a message that was
-        // just sent locally.
-        if (s.currentConversationId === id) {
-          const rt = getRuntime(id);
-          if (!(rt.isGenerating || rt.messages.length > 0)) {
-            s.setMessageWindow(
-              win.messages,
-              {
-                hasMoreBefore: win.hasMoreBefore,
-                hasMoreAfter: win.hasMoreAfter,
-              },
-              id,
-            );
-            // 记忆更新对话内可见 (§1.6): adopt the conversation-tail「记忆已更新」cards
-            // returned with the latest window, so they replay on open.
-            s.setMemoryUpdates(win.memoryUpdates, id);
-            // P4: running overlay partial paints with stream chrome until attach/ghost settles.
-            // Cold paused (status=running + paused) → toMessage sets isStreaming=false.
-            if (shouldSetGeneratingOnHydrate(win.messages)) {
-              s.setGenerating(true, id);
+        const adopted = adoptMessageWindow(
+          id,
+          win.messages,
+          {
+            hasMoreBefore: win.hasMoreBefore,
+            hasMoreAfter: win.hasMoreAfter,
+          },
+          win.memoryUpdates,
+        );
+        if (adopted) {
+          void persistOpenedCache(id, win.messages, win.memoryUpdates, {
+            hasMoreBefore: win.hasMoreBefore,
+            hasMoreAfter: win.hasMoreAfter,
+          });
+          // P4 unified hydrate: messages (overlay partial) + recovery + attach.
+          // Branch on main-process facts (D6 二次修订) — never resolveSidecarRoot
+          // (routing intent / React Query cache; empty on refresh cold start).
+          const recovery = await recoveryLoaded;
+          if (cancelled) return;
+          const useLocal = shouldHydrateLocalRecovery(recovery);
+          logEvent("info", "conversation.hydrate", {
+            conversation_id: id,
+            sidecar_live: recovery.sidecarLive,
+            cloud_live: recovery.cloudLive,
+            unsynced_count: recovery.unsynced.length,
+            paused_count: recovery.pausedCount,
+            branch: useLocal ? "local" : "cloud",
+          });
+          if (useLocal) {
+            // Order: project unsynced → interrupted_after_decision → attach live.
+            projectUnsyncedTurns(id, recovery.unsynced);
+            useInterruptedAfterDecisionStore
+              .getState()
+              .setForConversation(id, recovery.interruptedAfterDecision);
+            if (
+              recovery.sidecarLive &&
+              recovery.pausedCount === 0 &&
+              recovery.interruptedAfterDecision.length === 0
+            ) {
+              void attachSidecarTurn(id);
             }
-            // P4 unified hydrate: messages (overlay partial) + recovery + attach.
-            // Branch on main-process facts (D6 二次修订) — never resolveSidecarRoot
-            // (routing intent / React Query cache; empty on refresh cold start).
-            const recovery = await recoveryLoaded;
-            if (cancelled) return;
-            const useLocal = shouldHydrateLocalRecovery(recovery);
-            logEvent("info", "conversation.hydrate", {
-              conversation_id: id,
-              sidecar_live: recovery.sidecarLive,
-              cloud_live: recovery.cloudLive,
-              unsynced_count: recovery.unsynced.length,
-              paused_count: recovery.pausedCount,
-              branch: useLocal ? "local" : "cloud",
-            });
-            if (useLocal) {
-              // Order: project unsynced → interrupted_after_decision → attach live.
-              projectUnsyncedTurns(id, recovery.unsynced);
-              useInterruptedAfterDecisionStore
-                .getState()
-                .setForConversation(id, recovery.interruptedAfterDecision);
-              if (
-                recovery.sidecarLive &&
-                recovery.pausedCount === 0 &&
-                recovery.interruptedAfterDecision.length === 0
+          } else {
+            useInterruptedAfterDecisionStore
+              .getState()
+              .setForConversation(id, []);
+            // Cloud session: P4 hydrate — refresh before ghost when empty
+            // (stale recovery vs cold-pause race · settleCloudRunningAssistant).
+            const last = win.messages.at(-1);
+            if (last) {
+              const canAttach =
+                recovery.cloudLive && recovery.pausedCount === 0;
+              if (last.role === "user" && canAttach) {
+                void attachOnOpen(id);
+              } else if (
+                last.role === "assistant" &&
+                last.status === "running"
               ) {
-                void attachSidecarTurn(id);
-              }
-            } else {
-              useInterruptedAfterDecisionStore
-                .getState()
-                .setForConversation(id, []);
-              // Cloud session: P4 hydrate — refresh before ghost when empty
-              // (stale recovery vs cold-pause race · settleCloudRunningAssistant).
-              const last = win.messages.at(-1);
-              if (last) {
-                const canAttach =
-                  recovery.cloudLive && recovery.pausedCount === 0;
-                if (last.role === "user" && canAttach) {
-                  void attachOnOpen(id);
-                } else if (
-                  last.role === "assistant" &&
-                  last.status === "running"
-                ) {
-                  await settleCloudRunningAssistant(id, recovery);
-                  if (cancelled) return;
-                }
+                await settleCloudRunningAssistant(id, recovery);
+                if (cancelled) return;
               }
             }
           }
         }
       } catch {
-        /* 历史加载尽力而为，失败保持空对话 */
+        // N4-A: network / outage → fall back to local-store snapshot for this id.
+        if (cancelled) return;
+        const cached = await loadCachedConversation(id);
+        if (cancelled || !cached) return;
+        adoptMessageWindow(
+          id,
+          cached.messages as Message[],
+          {
+            hasMoreBefore: cached.hasMoreBefore,
+            hasMoreAfter: cached.hasMoreAfter,
+          },
+          cached.memoryUpdates as MemoryUpdate[],
+        );
+        logEvent("info", "conversation.hydrate", {
+          conversation_id: id,
+          branch: "offline_cache",
+        });
       }
       // Honor a search-hit jump that navigated in from elsewhere: now that this
       // conversation's window is loaded, land on the hit (in-window → scroll;

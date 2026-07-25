@@ -123,11 +123,14 @@ export async function attachSidecarTurn(
 
   const onAbort = (): void => {
     if (!activeRootId || !activeTurnId) return;
-    void window.sidecarApi.cancel({
-      rootId: activeRootId,
-      subpath: activeSubpath,
-      turnId: activeTurnId,
-    });
+    void window.sidecarApi
+      .cancel({
+        rootId: activeRootId,
+        subpath: activeSubpath,
+        turnId: activeTurnId,
+        conversationId,
+      })
+      .catch(() => {});
     resolveDone();
   };
   ac.signal.addEventListener("abort", onAbort, { once: true });

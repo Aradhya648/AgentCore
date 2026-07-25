@@ -16,6 +16,11 @@ PLATFORM_MODEL_PRO = "deepseek-v4-pro"
 DEEPSEEK_V4_FLASH = PLATFORM_MODEL_FLASH
 DEEPSEEK_V4_PRO = PLATFORM_MODEL_PRO
 
+# Router / ``agent_provider_id`` sentinel when a worker override runs on platform credentials
+# (main turn may be BYOK). ``route_model_for("agent")`` prefixes ``platform/{model}``;
+# ``build_turn_router`` registers ``platform_llm_credentials`` under this key.
+PLATFORM_PROVIDER_SENTINEL = "platform"
+
 
 @dataclass(frozen=True)
 class ProfileParams:
@@ -89,9 +94,27 @@ class TurnProfiles:
 
     model: str
     model_overrides: dict[str, str] = field(default_factory=dict)
+    # BYOK provider id or ``PLATFORM_PROVIDER_SENTINEL`` for platform-credential worker
+    # overrides; None = follow turn creds. Cross-origin / cross-provider worker defaults
+    # register on the turn ProviderRouter so ``route_model_for("agent")`` can dispatch
+    # with a ``provider_id/model`` (or ``platform/model``) prefix.
+    agent_provider_id: str | None = None
 
     def model_for(self, profile_name: str) -> str:
         return self.model_overrides.get(profile_name, self.model)
+
+    def route_model_for(
+        self, profile_name: str, *, turn_provider_id: str | None = None
+    ) -> str:
+        """Model id for an LLMRequest — may include a router prefix for cross-provider agent."""
+        model = self.model_for(profile_name)
+        if (
+            profile_name == "agent"
+            and self.agent_provider_id
+            and self.agent_provider_id != turn_provider_id
+        ):
+            return f"{self.agent_provider_id}/{model}"
+        return model
 
     def get(self, name: str) -> ProfileParams:
         return get_profile(name)

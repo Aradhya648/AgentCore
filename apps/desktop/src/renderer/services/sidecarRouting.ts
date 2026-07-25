@@ -17,7 +17,7 @@ import type { SidecarHistoryEntry } from "@shared/sidecar-contract";
  * （见 `turns.sendTurn`），故本地引擎已毕业到**默认开**。
  *
  * 路由判定：会话绑定本机存在的本地根、本回合无附件、且开关有效（默认开，用户可在
- * `设置 → 模型配置` 关闭）时走 sidecar；无本地绑定 / 带附件 / 显式关闭 → 维持云链路。
+ * `设置 → 外观` 关闭）时走 sidecar；无本地绑定 / 带附件 / 显式关闭 → 维持云链路。
  * 注意 sidecar 暂非真离线（LLM 仍经云推理代理）、被委派 worker 仍走审批门——这些是其限制，
  * 不再是 opt-in 的理由。
  */
@@ -42,7 +42,8 @@ export interface SidecarTarget {
  * 子路径随目标一并记下，使 respond 能寻址到正确的（按 root+subpath 起的）sidecar 进程。
  * 由 `streamConversationViaSidecar` / sidecar attach 在回合起止时登记 / 注销。
  */
-interface ActiveSidecarTurn extends SidecarTarget {
+/** 活 sidecar 回合寻址（含 cancel 所需的 turnId）。 */
+export interface ActiveSidecarTurn extends SidecarTarget {
   /** 活回合键（startTurn=`turnId`，resume=`messageId`）；多窗口后 attach 者赢时防双清。 */
   turnId?: string;
 }
@@ -74,10 +75,13 @@ export function clearActiveSidecarTurn(
   activeSidecarTurns.delete(conversationId);
 }
 
-/** 该会话此刻在跑的 sidecar 目标（root + subpath）；非 sidecar 回合则 null。 */
+/**
+ * 该会话此刻在跑的 sidecar 目标（root + subpath + turnId）；非 sidecar 回合则 null。
+ * ``turnId`` 供 ``stopConversation`` → ``sidecarApi.cancel`` 寻址。
+ */
 export function getActiveSidecarTarget(
   conversationId: string,
-): SidecarTarget | null {
+): ActiveSidecarTurn | null {
   return activeSidecarTurns.get(conversationId) ?? null;
 }
 

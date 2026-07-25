@@ -102,7 +102,13 @@ async def test_finalize_returns_suspend_and_skips_the_wait():
     tool = _ask_tool(saver, deleter, sink)
     token = captain_transcript.set([LLMMessage(role="user", content="A 还是 B?")])
     try:
-        res = await tool.execute({"message": "A 还是 B?"}, _ctx())
+        res = await tool.execute(
+            {
+                "message": "A 还是 B?",
+                "assumptions": [{"label": "默认", "value": "A"}],
+            },
+            _ctx(),
+        )
     finally:
         captain_transcript.reset(token)
 
@@ -125,7 +131,13 @@ async def test_finalize_fails_explicitly_when_frame_not_saved():
         return None
 
     tool = _ask_tool(saver, deleter, EventSink())
-    res = await tool.execute({"message": "A 还是 B?"}, _ctx())
+    res = await tool.execute(
+        {
+            "message": "A 还是 B?",
+            "assumptions": [{"label": "默认", "value": "A"}],
+        },
+        _ctx(),
+    )
 
     assert frames == []
     assert res.effect is not ToolEffect.SUSPEND
@@ -175,7 +187,10 @@ async def test_loop_finalizes_ask_user_to_paused():
                             index=0,
                             id="call_ask",
                             function_name="ask_user",
-                            arguments_delta=f'{{"message": "{user_message}"}}',
+                            arguments_delta=(
+                                f'{{"message": "{user_message}", '
+                                f'"assumptions": [{{"label": "默认", "value": "A"}}]}}'
+                            ),
                         )
                     ]
                 )
@@ -307,7 +322,7 @@ async def test_persist_tail_writes_pause_snapshot(monkeypatch):
 async def test_loop_absorbs_content_into_blocking_ask_user():
     """Same-round prose + blocking ask_user: content folds into the card, not the bubble."""
     system_prompt = "你是 CEO。"
-    user_message = "做个网站"
+    user_message = "写一份调研报告"
     preamble = "帮你梳理一下起步方案："
     captured: dict[str, object] = {}
 
@@ -342,7 +357,10 @@ async def test_loop_absorbs_content_into_blocking_ask_user():
                             index=0,
                             id="call_ask",
                             function_name="ask_user",
-                            arguments_delta='{"message": ""}',
+                            arguments_delta=(
+                                '{"message": "", '
+                                '"assumptions": [{"label": "篇幅", "value": "约3k字"}]}'
+                            ),
                         )
                     ]
                 ),

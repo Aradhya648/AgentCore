@@ -11,7 +11,7 @@ from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
 from agentcore.llm.resolve import resolve_turn_model
 from agentcore.runtime.checkpoints import CheckpointDecision
-from agentcore.runtime.events import EventSink
+from agentcore.runtime.events import EventSink, FinishReason, message_end
 from agentcore.runtime.journal import runs_from_entries
 from agentcore.runtime.suspension import TurnSuspension
 from agentcore.sidecar import protocol
@@ -25,6 +25,25 @@ def _finish_str(result: dict[str, Any]) -> str | None:
     if finish is None:
         return None
     return finish.value if hasattr(finish, "value") else str(finish)
+
+
+def _emit_user_stop_message_end(sink: EventSink) -> None:
+    """Live stop confirmation for the UI (honest ``stopping`` → ``stopped``).
+
+    Must run before ``sink.close()`` so the event pump still drains it. JSON-RPC
+    ``TURN_CANCELLED`` alone is not enough — the renderer confirms on ``message_end``.
+    """
+    if sink._closed:
+        return
+    with contextlib.suppress(Exception):
+        sink.emit(message_end(FinishReason.CANCELLED))
+
+
+def _emit_cancel_end_if_cancelling(sink: EventSink) -> None:
+    """Emit ``message_end(cancelled)`` when this task is unwinding from cancel."""
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        _emit_user_stop_message_end(sink)
 
 
 class TurnExecutionMixin:
@@ -114,6 +133,9 @@ class TurnExecutionMixin:
 
                     await await_live_detached_drive(conversation_id)
             finally:
+                # Cancel path: emit confirmation *before* close so the pump still
+                # delivers ``message_end(cancelled)`` (TURN_CANCELLED alone is not enough).
+                _emit_cancel_end_if_cancelling(sink)
                 # The pipeline no longer closes the sink (its owner does); the sidecar owns
                 # this one, so close it on EVERY path — success or crash — or the pump would
                 # await the None sentinel forever.
@@ -171,7 +193,7 @@ class TurnExecutionMixin:
         finally:
             if outbox is not None:
                 outbox.clear_turn()
-            self._turns.pop(turn_id, None)
+            self._unregister_turn(turn_id)
 
     async def _outbox_finalize(
         self,
@@ -284,7 +306,7 @@ class TurnExecutionMixin:
                     await self._paused_store.rollback_claim(turn_id)
                 if outbox is not None:
                     outbox.clear_turn()
-                self._turns.pop(turn_id, None)
+                self._unregister_turn(turn_id)
                 logger.warning(
                     "sidecar.resume_settlement_prewrite_failed",
                     turn_id=turn_id,
@@ -340,6 +362,7 @@ class TurnExecutionMixin:
 
                     await await_live_detached_drive(conversation_id)
             finally:
+                _emit_cancel_end_if_cancelling(sink)
                 # The pipeline no longer closes the sink (its owner does); the sidecar owns
                 # this one, so close it on EVERY path — success or crash — or the pump would
                 # await the None sentinel forever.
@@ -418,7 +441,7 @@ class TurnExecutionMixin:
         finally:
             if outbox is not None:
                 outbox.clear_turn()
-            self._turns.pop(turn_id, None)
+            self._unregister_turn(turn_id)
 
     async def _pump(self, turn_id: str, sink: EventSink) -> None:
         """Drain the turn's EventSink, emitting each event as a notification.

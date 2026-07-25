@@ -92,6 +92,8 @@ class EscalateTool:
                 "步骤 / 接一条依赖边）；两者都【不停工】——你照常按假设把当前能做的做完。"
                 "克制使用 normal 与 blocking——能自行合理假设的小事别升级、blocking 省着用；"
                 "唯独 dep（卡在【不存在】的输入、再猜也是错）该喊就喊、别硬猜瞎编。"
+                "browser_login：仅 blocking 有意义；为 true 时强制阻塞语义，挂起后允许用户在"
+                "回合仍 running 时接管浏览器完成登录（AI 永不经手密码）。"
             ),
             parameters={
                 "type": "object",
@@ -120,6 +122,15 @@ class EscalateTool:
                             "作废】时用——你会原地挂起等裁决再继续（须写明 assumption；默认无限"
                             "期等待，用户 / 主管可点「按假设继续」；仅未武装 sink、并发满、或运维"
                             "显式配置超时时才自动按假设继续）。"
+                        ),
+                    },
+                    "browser_login": {
+                        "type": "boolean",
+                        "description": (
+                            "可选，默认 false。true=请求用户接管云端浏览器完成登录（密码由用户"
+                            "亲手输入，AI 永不经手）。仅 blocking 有意义：为 true 时强制升格为"
+                            "blocking=true（须写明 assumption）。典型触发：browser_type 对 "
+                            "password 框硬拒（metadata.code=password_blocked）之后。"
                         ),
                     },
                     "kind": {
@@ -224,6 +235,12 @@ class EscalateTool:
             )
         assumption = str(arguments.get("assumption") or "").strip()
         blocking = bool(arguments.get("blocking"))
+        # browser_login forces blocking semantics (narrow D16 exception for user login
+        # takeover while the escalate is pending). Promote rather than reject so a model
+        # that sets browser_login without blocking still lands on the suspend path.
+        browser_login = bool(arguments.get("browser_login"))
+        if browser_login:
+            blocking = True
         # 执行引擎架构设计.md §受监督的波循环: kind=scope marks a 职责/范围 deviation and
         # kind=dep a 依赖缺口 (卡在缺输入 X, §2.4) — BOTH are consumed at the reactive wave
         # boundary (the CEO re-steers / replan(add)s the un-run tail), distinct from the
@@ -244,6 +261,11 @@ class EscalateTool:
                     "escalate(blocking=true) 必须写明 assumption：显式「按假设继续」、未武装/"
                     "并发满退化、或运维配置超时未答复时，你将按它继续。"
                     "若你本就能自行假设、不需拍板，请改用 blocking=false。"
+                    + (
+                        "（browser_login=true 已强制升格为 blocking，同样需要 assumption。）"
+                        if browser_login
+                        else ""
+                    )
                 ),
             )
         logger.info(
@@ -251,6 +273,7 @@ class EscalateTool:
             run_id=context.run_id,
             blocking=blocking,
             kind=kind,
+            browser_login=browser_login,
             has_assumption=bool(assumption),
             # The 决策/blocker itself + the worker's fallback assumption — the「为什么升级」an
             # offline analysis needs (kind/blocking alone say一次 escalation happened, not什么).
@@ -280,16 +303,26 @@ class EscalateTool:
                         f"{exc} 请直接传 JSON 数组，不要把数组再序列化成字符串。"
                     ),
                 )
+            # browser_login must reach the human (password never touches AI/CEO). Skip
+            # coordination CEO arbitration even when a living CEO is active.
             awaiting = "user"
-            try:
-                from agentcore.runtime.coordination.session import active_coordination
+            if not browser_login:
+                try:
+                    from agentcore.runtime.coordination.session import active_coordination
 
-                coord = active_coordination(context.execution_id)
-                if coord is not None and coord.active:
-                    awaiting = "ceo"
-            except Exception:  # noqa: BLE001
-                awaiting = "user"
-            outcome = await channel.request(question, assumption, questions, kind, awaiting)
+                    coord = active_coordination(context.execution_id)
+                    if coord is not None and coord.active:
+                        awaiting = "ceo"
+                except Exception:  # noqa: BLE001
+                    awaiting = "user"
+            outcome = await channel.request(
+                question,
+                assumption,
+                questions,
+                kind,
+                awaiting,
+                browser_login=browser_login,
+            )
             if outcome.status != "degraded":
                 return escalate_tool_result(
                     outcome.status,

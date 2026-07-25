@@ -10,6 +10,7 @@ from agentcore.config import settings
 from agentcore.core.types import new_id
 from agentcore.desktop.channel import DesktopClientChannel
 from agentcore.llm.credentials import LLMCredentials
+from agentcore.llm.profiles import TurnProfiles
 from agentcore.memory import (
     assemble_turn_rules,
     load_memory_topics,
@@ -66,6 +67,7 @@ async def prepare_fresh_turn(
     permission_preset,
     llm_credentials: LLMCredentials | None,
     x_client_platform: str | None,
+    profiles: TurnProfiles | None = None,
 ) -> PreparedTurn:
     """Build the stable base prompt, worker tools, channels, and tool context."""
     # Long-term memory injection is gated by the user's master switch (Agent记忆
@@ -142,13 +144,15 @@ async def prepare_fresh_turn(
     # 真·多模型辩手：回合 llm = DeepSeek 默认（``build_provider``，保留可测试打桩的 seam）
     # 外包一层 ProviderRouter。无前缀模型（CEO / 委派 / 主持人）照走默认，仅辩论辩手 side
     # 带 ``provider/model`` 前缀的调用路由到对应厂商。无厂商 key 时只是空包一层，零行为变化。
+    # Cross-provider Worker 默认经 ``build_turn_router`` 注入 BYOK extras。
     # 路由器接管默认 + 厂商 client 的生命周期，由下方 finally 的 ``await llm.close()`` 释放。
     from agentcore.llm.credentials import bind_credential_pricing_context
 
     # Call-level pricing + optional user unit card (同路贯穿 calculate_cost).
     bind_credential_pricing_context(llm_credentials)
-    llm = pipeline_pkg.build_router_around(pipeline_pkg.build_provider(llm_credentials))
-
+    llm = await pipeline_pkg.build_turn_router(
+        llm_credentials, user_id=user_id, profiles=profiles
+    )
     # AI 协作白板 (§六 M2): a board-bound turn gets a BoardChannel so ``board_ops`` can
     # reach the user's open canvas via the desktop. Bound to this board + conversation
     # on the shared interaction bridge (same registry the resolve endpoint settles).

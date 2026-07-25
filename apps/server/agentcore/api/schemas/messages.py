@@ -765,12 +765,19 @@ class RecordTurnResponse(BaseModel):
     """The persisted ids for a recorded local turn (the desktop reconciles its
     optimistic user/assistant bubbles against these; ``title`` is set only when this
     turn minted the conversation's first title; ``followups`` mirrors the live
-    ``followups_generated`` chips when this turn minted them)."""
+    ``followups_generated`` chips when this turn minted them).
+
+    ``noop=True`` means the server intentionally skipped an assistant row (empty
+    body + no process state). Desktop may delete the outbox only when
+    ``assistant_message_id`` is set **or** ``noop`` is True — never on a bare null id
+    when the turn carried runs/journal/segments.
+    """
 
     user_message_id: str
     assistant_message_id: str | None = None
     title: str | None = None
     followups: list[str] | None = None
+    noop: bool = False
 
 
 class StopTurnResponse(BaseModel):

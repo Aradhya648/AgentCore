@@ -439,6 +439,8 @@ function CompletedStrip({
   teamPreview,
 }: StatusStripProps & { stopped?: boolean }) {
   const frames = useActiveExecField((rt) => rt.frames);
+  // 交付对账（同 execution_id 保最新）：跑完 ≠ 交付过关。partial/blocked 时勿写单纯「团队完成」。
+  const deliveryStatus = useActiveExecField((rt) => rt.deliveryStatus);
   const { completed, total } = execution.progress;
   const ms = elapsedMs(frames);
   const duration = ms > 0 ? formatDuration(ms) : "";
@@ -451,6 +453,8 @@ function CompletedStrip({
     failedRoles.length > 0 ? `：${failedRoles.join("、")}` : "";
   const failureNotice = `${failedRuns.length} 个子任务失败${failedRolesText}。`;
   const showRecovery = stopped || failedRuns.length > 0;
+  const deliveryUnmet =
+    deliveryStatus?.state === "partial" || deliveryStatus?.state === "blocked";
 
   // 费用累计：以协作图上各 run.cost 之和为准（跨回合追加后仍覆盖全图），
   // 不再读「最新助手气泡」——追加回合的 message_end.cost 会盖掉宿主口径。
@@ -483,7 +487,9 @@ function CompletedStrip({
               ? "已停止"
               : isDebate(execution)
                 ? debatePreviewSubtitle(execution)
-                : "团队完成"}
+                : deliveryUnmet
+                  ? "已跑完 · 交付未过关"
+                  : "团队完成"}
           </span>
           {!isDebate(execution) && (
             <span className="text-muted-foreground">

@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_greet",
+  "category": "routing",
+  "user_message": "你好呀，今天怎么样？",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "闲聊寒暄：CEO 直接回一句即可，零编排、不委派。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "collab_par_frontend_stack",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "我们要给内部工具选前端栈，请并行从「上手成本」「生态」「长期维护」三个角度分别评估 React、Vue、Svelte，再汇总一份选型备忘录（Markdown）。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "并行广度调研：按角度或对象扇出，保留高 min_workers / parallel_fanout_min，再汇入综述。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "expected_shape": {
+    "min_workers": 4,
+    "parallel_fanout_min": 3,
+    "has_join": true,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "coverage", "desc": "三栈在上手/生态/维护维度均有实质对比", "weight": 2 },
+    { "id": "memo", "desc": "给出可决策的选型备忘录或结论", "weight": 1 }
+  ]
+}

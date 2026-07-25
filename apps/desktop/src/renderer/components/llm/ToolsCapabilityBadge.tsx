@@ -1,6 +1,6 @@
 import { AlertTriangle, Wrench } from "lucide-react";
 
-/** Probe result for tool-calling support (设置 · 模型配置). */
+/** Probe result for tool-calling support (设置 · 服务商). */
 export function ToolsCapabilityBadge({
   supportsTools,
 }: {

@@ -38,7 +38,7 @@ skip_if:
 
 **侧栏对话区（IA · 两区混合「方案 B」）**：分上下两区——
 
-- **上·项目分组**（按项目可折叠）：组头显云/本地图标·名称，hover「⋯」/ 右键 = 查看全部对话 / 浏览文件 / **归档全部对话**（批量归档该项目下活跃对话，非 `Folder.archived`）/ **删除项目…**（单入口；两步确认——默认删容器并归档其下对话、云端文件约 30 天清理，链入第二步可彻底删除；与文件页共用 `DeleteFolderDialog`）；组内复用 `ConversationItem` 列 Top 5，超出走「更多」跳 `/conversations` 并聚焦该组。按近活跃排序、组数 ≤6（溢出走「查看全部对话」）；展开态按 `folderId` 持久化（`useSidebarStore`，显式切换优先；无记录默认折叠、唯含当前对话的组自动展开）。
+- **上·项目分组**（按项目可折叠）：组头左槽云/本地图标（hover 时 chevron 叠同一槽位折叠）、名称；组内对话标题与组头名称左对齐；右侧 hover「+」= 在该项目新建对话、hover「⋯」/ 右键 = 新建对话 / 查看全部对话 / 浏览文件 / **归档全部对话**（批量归档该项目下活跃对话，非 `Folder.archived`）/ **删除项目…**（单入口；两步确认——默认删容器并归档其下对话、云端文件约 30 天清理，链入第二步可彻底删除；与文件页共用 `DeleteFolderDialog`）；组内复用 `ConversationItem` 列 Top 5，超出走「更多」跳 `/conversations` 并聚焦该组。按近活跃排序、组数 ≤6（溢出走「查看全部对话」）；展开态按 `folderId` 持久化（`useSidebarStore`，显式切换优先；无记录默认折叠、唯含当前对话的组自动展开）。
 - **下·裸聊扁平列表**（仅未归属项目的对话）：置顶优先、当前裸聊对话恒可见；**上限自适应**——无项目分组时独占侧栏给足 15、有分组时放宽到 10，溢出走「查看全部对话」（侧栏单层外滚，不另设嵌套滚动条）。
 - **底部**：「查看全部对话」入口（归档等低频整理在页内左侧筛选「已归档」）。
 
@@ -95,17 +95,17 @@ skip_if:
 
 **首启入口 = 草稿空态**（已删除一次性全屏价值介绍页 `OnboardingFlow` / `OnboardingGate` 及其 skip 持久化）：新用户打开即见草稿页，无全屏接管、无「开始使用」门。
 
-- **移除「接入门」判定**：不再有 `hasModelAccess` 前端闸门（原 `configured || billing_mode==="platform" || free_tier_active`）——平台代付默认给额度，**keyless 视同有 access**，首启与空态一律不看模型接入。`GET /users/me/llm-providers` 顶层的 `billing_mode` / `free_tier_active` 仅供 **Usage / 配额面**消费（`UsageSettings` 月度条、配额耗尽错误分流；见 [`前端成本呈现.md`](/docs/04-前端/前端成本呈现.md)），**`ModelPicker` 不读这两字段**——同 id 双来源时平台行徽标统一为「平台额度」（§十三）。
+- **移除「接入门」判定**：不再有 `hasModelAccess` 前端闸门（原 `configured || billing_mode==="platform" || free_tier_active`）——平台代付默认给额度，**keyless 视同有 access**，首启与空态一律不看模型接入。`GET /users/me/llm-providers` 顶层的 `billing_mode` / `free_tier_active` 仅供 **Usage / 配额面**消费（`UsageSettings` 月度条、配额耗尽错误分流；见 [`前端成本呈现.md`](/docs/04-前端/前端成本呈现.md)），**组合选择器不读这两字段**（§十三）。
 - **判定纯客户端推导，否决服务端 onboarding 状态 / DB 列**：空态两态从对话列表推导，不新增漂移面；情境提示 seen 落本地 `uiStorage`。
 - **BYOK 表单只在「设置·模型配置」**：`ModelKeyForm`（厂商预设 / Key / Base URL / 默认模型）仅作设置里的可选升级入口，保持单一真相源、禁止第二份配置逻辑。
 - **否决强制配完才能进**（form gate 反模式）：keyless 直接落草稿页 starter_chips 空态开聊，无 needs_key 拦路。
 
-**草稿空态两态 `DraftEmptyState`**（平台代付后由三态收敛，删除「未接入」态）：0 对话 →「今天想解决什么问题？」+ 3 枚**首启任务 chips**（内容设计为天然触发多 Agent 分工的真实任务，点击仅填入**居中**输入框、不自动发送）+ 输入框与引导合成中央块；老用户（已有对话）→ 单句问候 + 居中输入框。**keyless 直接落 starter_chips**（无「先连接你的模型」态）。发出首条消息后输入框过渡落底（见 §一「对话输入框落点」）。
+**草稿空态两态 `DraftEmptyState`**（平台代付后由三态收敛，删除「未接入」态）：0 对话 →「今天想解决什么问题？」+ 协作气质副句 + 3 枚**首启任务 chips**（内容设计为天然触发多 Agent 分工的真实任务，点击仅填入**居中**输入框、不自动发送）+ 输入框与引导合成中央块；老用户（已有对话）→ 单句问候 + 居中输入框。**keyless 直接落 starter_chips**（无「先连接你的模型」态）。发出首条消息后输入框过渡落底（见 §一「对话输入框落点」）。登录 / TitleBar / 侧栏 / 关于字标统一 `BrandMark`；品牌句权威 → [产品定位与品牌](/docs/01-产品/产品定位与品牌.md)，Pattern → [UI-Pattern · BrandMark / 桌面 UI 统一](/docs/04-前端/UI-Pattern索引.md)。
 
 **免费额度耗尽（429 `FREE_TIER_EXHAUSTED`）**：转化语义而非「等重置」——错误条展示后端文案（「本月免费额度已用完——接入自己的模型即可不限量继续」，后端 `message` 单一来源）+「去设置」CTA 直达模型配置（手机端文案仍为「去配置」；`errorActionForCode` 按共享 `KEY_CONFIG_ERROR_CODES` 目录分流）；既有 `QUOTA_EXCEEDED`（等窗口重置、不给重试）语义不动。「免费额度」文案仅出现在 **UsageSettings 月度条**（`free_tier_active` 时「本月免费额度」）与上述错误条——**不**进 `ModelPicker` 徽标。
 
 - **决策修订（2026-07）**：原「空态只留一句提问；场景模板卡片否决（与手机端、宣传素材对齐）」修订为**仅新用户可见的首启 chips**——空白画布冻结是 Agent 产品激活的头号杀手，chips 让首跑直达多 Agent 差异化时刻；原否决的关切（日常噪音）由「产生第一个对话后永久消失」保住，老用户与宣传素材所见空态不变。
-- Composer 模型角标已由只读 `CurrentModelBadge` 升级为下拉 `ModelPicker`（会话级模型切换，§十三）：可选目录模型、切换本会话主模型；仅 byok 部署无平台目录时置灰引导行「接入自己的 Key 解锁」。
+- Composer 角标为组合选择器（§十三）：选本会话模型组合或「跟随账号默认」；「管理组合…」进设置。
 
 **首次协作情境提示 `ContextualTip`**（非 Tour）：首次出现内嵌协作图时一枚一次性浮层（「点节点可看每个 Agent 的实时工作」）——可随手关闭、本地记 seen、总量 ≤3。渐进披露的延伸，**否决**多步 Tour / 教程墙 / 轮播弹窗。
 
@@ -456,7 +456,7 @@ skip_if:
 
 **审批 UX（写操作）**：只读时尝试写引导开启；可写时写前弹审批（可「本轮内都允许」按同名工具、或「本轮内允许所有文件改动」按整类一次放行——类成员单源 = 后端 `approval_class_tool_names()`（文件改动五工具 ∪ `git` 写入），依赖工具审批两态的 `grantable` 级别，避免 N 次写/改/删 = N 次弹窗）。
 
-**对话落点表达（✅ 项目=工作区 · 单一「在哪工作」入口）**：草稿输入框工具行只挂一个 `ComposerWorkspaceChip`。菜单：快速对话（= 云端草稿·桌面/web 默认）/ 本机草稿（桌面显式·落本机容器走本地引擎）/ 项目列表（名称+位置副文）/ 新建项目… / 打开本地文件夹…（= 以该文件夹创建项目，1:1）。选定后 chip 显示单一事实（如「快速对话」/「项目名 · 本地」）。草稿意向为判别联合 `draftWorkspaceIntent`（quick_local / quick_cloud / project）。**新建项目**必选位置（本地文件夹 / 默认 `~/Documents/AgentCore/<名>` / 云端）。已建会话只读展示工作区；无会话级「绑定/断开」；不支持事后移入/「在项目中继续」。**B4** 附件提示 `DraftWorkspaceAssignPrompt` 仍适配新 store。→ 见代码 `ComposerWorkspaceChip.tsx`、`CreateFolderDialog.tsx`、`DraftWorkspaceAssignPrompt.tsx`、`stores/folders.ts`。
+**对话落点表达（✅ 项目=工作区 · 单一「在哪工作」入口）**：草稿输入框工具行只挂一个 `ComposerWorkspaceChip`。菜单：快速对话（= 云端草稿·桌面/web 默认）/ 本机草稿（桌面显式·落本机容器走本地引擎）/ 项目列表（名称+位置副文）/ 新建项目…。选定后 chip 显示单一事实（如「快速对话」/「项目名 · 本地」）。草稿意向为判别联合 `draftWorkspaceIntent`（quick_local / quick_cloud / project）。**新建项目**（桌面）锚点级联菜单（左栏三行）：本机文件夹（右栏搜索 + `listRoots` 路径列表，底部分隔「打开其他文件夹…」；点选或系统选完即建，名=目录名）/ 本机空白（命名 → `~/Documents/AgentCore/<名>`）/ 云端空白（命名）；Web 仅云端空白命名。入口统一（chip「新建项目…」、侧栏项目区 `+`、命令面板「新建项目」）锚定触发按钮。已建会话只读展示工作区；无会话级「绑定/断开」；不支持事后移入/「在项目中继续」。**否决**：菜单并列「打开本地文件夹…」（与新建终点重复，能力在「本机文件夹」右栏底）；大 Dialog 填表。**B4** 附件提示 `DraftWorkspaceAssignPrompt` 仍适配新 store。→ 见代码 `ComposerWorkspaceChip.tsx`、`CreateFolderMenu.tsx`、`DraftWorkspaceAssignPrompt.tsx`、`stores/folders.ts`。
 
 **隐私承诺**：默认不留存（未备份内容不进云）；在途可用（读文件时正文临时发给模型）；备份/分享 = 显式上传（不自动同步，操作前明示）。
 
@@ -464,7 +464,7 @@ skip_if:
 
 **网页产物预览（✅ 已落地）**：工作区面板选中 HTML 与其他文本文件**一致显示源码**（编辑 / 写入归因同权），顶部横幅指路完整效果，CTA 按能力递进：完整预览 → 在浏览器打开 → 下载兜底。完整效果两个出口——①「**完整预览**」= SidePanel「预览」tab 内置浏览器（应用内完整跑 JS + 多文件相对引用，外壳只读地址 + 后退 + 刷新 + 关闭，仅桌面云端会话源出现）；②「**在系统浏览器打开**」（快照解压临时目录，完整效果兜底）。聊天「产出文件」卡点 HTML 产物**直达**完整预览 tab（能力判定与对话侧栏同一套 `useConversationFileSource`，无能力回落文件源码视图）。预览 tab 与工作区/终端 tab 同排、可关闭、切会话自动关闭；页面里的外链点击转系统浏览器（应用内永不离开工作区产物）。原面板内**静态快照**（sandbox srcdoc，不跑 JS）已整体取消——「像效果又不是效果」的半渲染让用户误以为产物坏了，源码视图 + 真浏览器出口更诚实。隔离与遮挡机制 → [`前端技术与架构.md` §9.12](/docs/04-前端/前端技术与架构.md)。→ 见代码 `components/workspace/{FilePreviewView,EmbeddedPreview}.tsx`。
 
-**回合内文件呈现（✅ 已落地）**：**文件产物内联卡**——回合若写了文件，答复正文下方挂一张 `FileArtifactsCard` 列出本回合产物，点行经 `useSidePanelStore` 在工作区面板预览，HTML 产物在会话具备内置浏览器能力时直达「完整预览」tab（单 Agent 取 `process`、多 Agent 取 execution 投影，去重合并）。**A1 / A1+ / A2′ 查看改动 ✅**：卡头「查看改动」只读——云端优先 `GET …/messages/{id}/files/diff`（回合开始 labeled 基线 vs 此刻树）；**本地会话**走 sidecar `turnFilesDiff` / `restoreTurnBaseline`（工作区旁 `.agentcore/baselines/{message_id}.zip`，不经云盘）；无基线 / 失败降级工具参数预览。有基线时出「回退到本回合开始」（确认后云 `restore_snapshot` / 本机 unzip 整树覆盖）。**否决**默认预写暂存。→ 见代码 `FileArtifactsCard.tsx`、`TurnFileChangesReview.tsx`、`workspace/turn_baseline.py`、`workspace/turn_diff.py`；定案 [本地内环基线对齐定案](/docs/06-规划/本地内环基线对齐定案.md)。
+**回合内文件呈现（✅ 已落地）**：**文件产物内联卡**——回合若写了文件，答复正文下方挂一张 `FileArtifactsCard` 列出本回合产物，点行经 `useSidePanelStore` 在工作区面板预览，HTML 产物在会话具备内置浏览器能力时直达「完整预览」tab（单 Agent 取 `process`、多 Agent 取 execution 投影，去重合并）。**A1 / A1+ / A2′ 查看改动 ✅**：卡头「查看改动」只读——云端优先 `GET …/messages/{id}/files/diff`（回合开始 labeled 基线 vs 此刻树）；**本地会话**走 sidecar `turnFilesDiff` / `restoreTurnBaseline`（工作区旁 `.agentcore/baselines/{message_id}.zip`，不经云盘）；无基线 / 失败降级工具参数预览。有基线时出「回退到本回合开始」（确认后云 `restore_snapshot` / 本机 unzip 整树覆盖）。**否决**默认预写暂存。→ 见代码 `FileArtifactsCard.tsx`、`TurnFileChangesReview.tsx`、`workspace/turn_baseline.py`、`workspace/turn_diff.py`；定案 [前端 UX §九](/docs/04-前端/前端UX设计.md)（定案全文：详细提案不在公开仓 / 维护者本地）。
 
 **交付状态卡（掐断透明化 · C3 职责分离 ✅）**：`delivery_status` 在 partial / blocked 时出 `DeliveryStatusCard`（正文下、产物卡上；`delivered` 不出卡、由产物卡承载）。**结构化 `gaps` 是缺口唯一可信源**——综述正文不再承担缺口披露；完成条件卡是缺口的唯一披露面（逐条 gap 明细），partial / blocked 的强调色由卡片头部（图标 + 状态徽标）承接，避免「正文乐观、卡片悲观」。缺口行可选 `reason` 徽标——已知 `token_budget`（预算触顶）/ `worker_timeout`（运行超时）/ `degraded_handoff`（降级交接）；未知 reason 忽略（向前兼容）。整卡可折叠（整行头部开合 + chevron，对齐产出文件卡）——诚实披露卡**默认展开**（不套产物卡「>4 收起」阈值），收起仅折叠 gap 明细与行动项、头部恒可见；桌面折叠偏好按回合持久化（`usePersistentDisclosure`），手机为本地会话态。手机 TeamView `DeliverySection` 同口径（徽标 + 可折叠）。→ 见代码 `DeliveryStatusCard.tsx`、`TeamView.tsx`；后端 [`编排器 §交付状态`](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
@@ -533,17 +533,35 @@ skip_if:
 
 ---
 
-## 十三、模型配置与会话级模型切换
+## 十三、模型配置与会话级组合切换
 
-**BYOK 服务商列表（✅）**：More → 模型配置；质量档 UI 已永久移除。设置页 = 纯凭据管理（测试连接 / 软提示 `supports_tools`）。→ 见代码: `pages/more/ModelSettings.tsx`
+**信息架构（✅）**：设置侧栏「模型」组两项，按任务拆开——凭据、组合、本地引擎不再塞同一页。
 
-**会话级模型切换（✅）**：
-- 目录唯一来源；平台组置顶、BYOK 按服务商分组；同 id 双来源靠「平台额度」徽标区分。
-- **「模型来源」二分已退役**：来源是模型属性，非账号级开关。
-- 切换粒度 = 会话级；全团队同一主模型（**不是**角色→模型矩阵；质量档已否决）。
-- 无 key：有补贴仅平台行；纯 byok 空目录 + CTA；切换器始终可见。
+| 页 | 路由 | 一句话职责 |
+|---|---|---|
+| **模型** | `/more/model` | 账号默认怎么聊：默认组合 + 组合 CRUD |
+| **服务商** | `/more/providers` | Key 从哪来、通不通：平台额度说明 + BYOK 列表/表单/测连 |
 
-→ 见代码: `components/chat/message-input/ModelPicker.tsx`；后端见 [平台LLM接入 §二](/docs/05-平台与运维/平台LLM接入.md)、[编排器 §2.1](/docs/03-AI核心/编排器与CEO主Agent.md)。
+- **打开 `/more` 落点**：`billing_mode=platform`（或已有可用平台/服务商）→ 模型页；byok 且无服务商、又无平台回退 → 服务商页（最短接 Key 路径）。
+- **本地引擎**不在模型组：桌面有本地引擎能力时挂在 **偏好 · 外观**（与 LLM 凭据无关）。
+- **用户面「默认」只保留一个词**：账号默认组合 =「默认组合」；服务商表单里的回落模型名不叫「默认」抢戏；会话侧继续「跟随账号默认」。
+- platform 叙事：模型页首屏强调「已可直接使用」；BYOK 是可选升级，CTA 进服务商页。
+
+**模型页（组合）**：系统预置「5.2」/「Grok 4.5」不可删（模型不在平台目录则该档不展示）；用户组合可新建 / 改名 / 删 / 设账号默认；复制预置为用户组合。编辑：主模型必填；Worker / 后台**默认折叠**「跟随主模型」，展开后从统一目录选槽。无服务商且无平台时：空态 CTA「接入服务商」→ `/more/providers`（本页不塞完整 Key 表单）。
+
+**服务商页（凭据）**：平台额度只读卡（platform / 免费档）；BYOK 列表（测试连接 / 软提示 `supports_tools` / 编辑 / 删除）；添加·编辑表单（高级·价卡）；安全说明跟本页。
+
+质量档 UI 已永久移除。→ 见代码: `pages/more/ModelSettings.tsx`、`pages/more/ProviderSettings.tsx`、`pages/more/AppearanceSettings.tsx`（本地引擎）、`pages/more/MoreIndexRedirect.tsx`。
+
+**会话级组合切换（✅）**：
+- 输入框选的是**组合**（或「跟随账号默认」），**不是**裸模型；次要一行只读摘要 `主 · Worker`。
+- 「管理组合…」跳转 **设置 · 模型**（`/more/model`）。
+- Key / 余额类错误 CTA（「去设置」「接入自己的 Key」）跳转 **设置 · 服务商**（`/more/providers`）。
+- 活引用：`PATCH conversation.model_profile_id`；改组合定义后引用它的会话下一 turn 用新展开。
+- 明确不做：角色→模型矩阵、质量档、输入框双 picker、聊天框散装改三槽。
+- 无 key / 空目录时组合槽位编辑走服务商页 CTA；组合切换器始终可见。
+
+→ 见代码: 桌面 `components/chat/message-input/ModelPicker.tsx`（组合选择器）、手机同契约；后端见 [平台LLM接入 §二](/docs/05-平台与运维/平台LLM接入.md)、[编排器 §2.1](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
 **设置 · 自主度（✅）**：三档 `always_ask` / `first_grant` / `full_auto`；管开工卡 ∪ GRANTABLE；不动拍板节点。→ 见代码: `pages/more/AutonomySettings.tsx`；权威见 [安全权限与治理 §三](/docs/05-平台与运维/安全权限与治理.md)。
 
@@ -563,7 +581,7 @@ skip_if:
 
 会话内 `FindBar` 无命中时引导「在全对话中搜索」并预填关键词打开命令面板。
 
-技术契约 → [`前端技术与架构.md` §9.8](/docs/04-前端/前端技术与架构.md)。组件规格 → [`UI-Pattern索引.md`](/docs/04-前端/UI-Pattern索引.md)。Tier 3 语义搜索 ⏳ → [`远期规划 §三`](/docs/06-规划/远期规划.md)。
+技术契约 → [`前端技术与架构.md` §9.8](/docs/04-前端/前端技术与架构.md)。组件规格 → [`UI-Pattern索引.md`](/docs/04-前端/UI-Pattern索引.md)。Tier 3 语义搜索 ⏳ → 远期规划 §三（详细提案不在公开仓 / 维护者本地）。
 
 ---
 

@@ -189,6 +189,34 @@ function hasMarker(
   );
 }
 
+/**
+ * Promote CEO prose from the message content scalar into `process[]` when the
+ * timeline has no `content` step yet (协作图时间线落点).
+ *
+ * Live / hydrate can leave narration on `message.content` while `process` already
+ * carries `team` / markers (rAF edge, mid-run reload, stream_segments overlay).
+ * Without this, ProcessTimeline's fallback renders the reply AFTER the graph —
+ * the local-vs-cloud timing bug in the screenshot. Inserts before the first
+ * `team` / `graph_append` so the graph stays below the CEO lead-in. No-op when
+ * a content step already exists (same ref).
+ */
+export function promoteScalarContentIntoProcess(
+  process: ProcessStep[] | undefined,
+  content: string,
+): ProcessStep[] {
+  const text = content || "";
+  if (!text) return process ?? [];
+  const steps = process ?? [];
+  if (steps.some((s) => s.kind === "content")) return steps;
+  const marker: ProcessStep = { kind: "content", text };
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i].kind === "team" || steps[i].kind === "graph_append") {
+      return [...steps.slice(0, i), marker, ...steps.slice(i)];
+    }
+  }
+  return [...steps, marker];
+}
+
 /** Drop a `team` marker (collaboration graph slot) at the turn's FIRST `run_plan`
  * (统一团队时间线): later same-execution batches merge into one graph, so only one marker
  * per execution. Returns the same reference when already present so callers can no-op.

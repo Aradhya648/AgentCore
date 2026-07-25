@@ -1,0 +1,25 @@
+{
+  "id": "collab_xd_meeting_notes_synth",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "我想做「AI 会议纪要」方向：一边调研市面三款产品，一边给一段 Python 录音转写样例代码，再请人点评一下产品交互设计，最后合成一篇完整 Markdown 报告落盘到 research/ai-meeting-notes.md。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "跨域合成桶：调研+写码+点评+合成一篇。产品判据=少派（常见 1～2 人），禁按工种堆人。强制 max_workers≤2。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "expected_shape": {
+    "min_workers": 1,
+    "max_workers": 2,
+    "min_roles": 1
+  },
+  "milestones": [
+    { "id": "products", "desc": "覆盖市面产品调研要点（非空泛）", "weight": 1 },
+    { "id": "code", "desc": "含可参考的转写样例代码或等价片段", "weight": 1 },
+    { "id": "synth", "desc": "合成一篇完整报告而非互不相关的三截", "weight": 2 }
+  ]
+}

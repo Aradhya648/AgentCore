@@ -2,7 +2,9 @@
 
 Three historical writers (cancel salvage, lease sweeper, recover degrade) used to emit
 divergent body copy and ``finish_reason`` values. All paths funnel here so terminal
-chrome stays consistent (frontend maps ``interrupted`` → ``cancelled``).
+metadata stays consistent (frontend maps ``interrupted`` → ``cancelled``). Body text is
+streamed captain content only — stop / interrupt chrome is UI StatusStrip, not a
+parenthetical suffix.
 
 After the durable incomplete write, this closer also best-effort reconciles the turn
 cost ledger (``cost.recorded`` + ``messages.cost``) so /stop does not drop payroll.
@@ -35,26 +37,6 @@ _TERMINAL_FINISH = frozenset(
     }
 )
 
-# User-stop / cancel-path copy (matches CloudStore.salvage historical wording).
-_USER_STOP_NOTE = (
-    "（已停止，本回合未完成。下面是已完成队员的产出，已为你保留；如需继续，可重新发送消息。）"
-)
-_USER_STOP_SUFFIX = (
-    "\n\n（已停止，本回合未完成——以上为已生成部分；如需继续，可重新发送消息。）"
-)
-# Process-kill / redrive-failed copy (sweeper salvage).
-_INTERRUPTED_NOTE = "（已中断，可重试）"
-_INTERRUPTED_SUFFIX = "\n\n（已中断，可重试）"
-# True SSE / transport disconnect salvage (not user /stop) — reserved for
-# disconnect-only writers; user_stop / CANCELLED use the「已停止」copy above.
-_DISCONNECT_NOTE = (
-    "（连接中断，本回合未完成。下面是已完成队员的产出，已为你保留；如需继续，可重新发送消息。）"
-)
-_DISCONNECT_SUFFIX = (
-    "\n\n（连接中断，本回合未完成——以上为已生成部分；如需继续，可重新发送消息。）"
-)
-
-
 class TurnInterruptReason(StrEnum):
     USER_STOP = "user_stop"
     PROCESS_KILL = "process_kill"
@@ -81,10 +63,15 @@ def finish_reason_for(reason: TurnInterruptReason) -> FinishReason:
 
 
 def compose_interrupt_body(content: str, *, reason: TurnInterruptReason) -> str:
-    streamed = (content or "").strip()
-    if reason is TurnInterruptReason.USER_STOP:
-        return f"{streamed}{_USER_STOP_SUFFIX}" if streamed else _USER_STOP_NOTE
-    return f"{streamed}{_INTERRUPTED_SUFFIX}" if streamed else _INTERRUPTED_NOTE
+    """Return streamed captain text only.
+
+    Terminal chrome (已停止 / 已中断) lives in message metadata
+    (``incomplete`` + ``finish_reason``) and frontend StatusStrip / chips —
+    do not append parenthetical body notes. ``reason`` is kept for call-site
+    symmetry with ``finish_reason_for``; it does not affect body text.
+    """
+    _ = reason
+    return (content or "").strip()
 
 
 def _journal_has_turn_end(entries: list[dict] | None) -> bool:

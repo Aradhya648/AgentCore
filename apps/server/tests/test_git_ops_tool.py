@@ -131,6 +131,56 @@ async def test_ceo_context_allows_read_status(tmp_path: Path):
     assert "当前分支" in result.output
 
 
+async def test_status_refuses_parent_repo_when_workspace_has_no_git(tmp_path: Path):
+    """Workspace nested under a parent git tree must not operate the parent repo.
+
+    Reproduces host-path leak class: data_dir / scratch lives under the monorepo
+    (e.g. ``C:/Project/...``); without a ceiling, ``git status`` would climb out.
+    """
+    parent = _init_repo(tmp_path / "parent", branch="feature/parent")
+    nested = parent / "nested_workspace"
+    nested.mkdir()
+    (nested / "notes.txt").write_text("scratch only\n", encoding="utf-8")
+    assert not (nested / ".git").exists()
+
+    # Sanity: plain git *would* see the parent work tree from nested cwd.
+    climbed = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=nested,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_GIT_ENV,
+    )
+    assert Path(climbed.stdout.strip()).resolve() == parent.resolve()
+
+    result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(nested))
+    assert result.success is False
+    assert result.error
+    assert "没有 Git 仓库" in result.error or "不会上溯" in result.error
+    # Must not echo parent branch / status as if nested were the repo.
+    assert "feature/parent" not in (result.output or "")
+    assert "当前分支" not in (result.output or "")
+
+
+async def test_status_uses_workspace_repo_not_parent(tmp_path: Path):
+    """When the workspace has its own ``.git``, operate that repo — not a parent."""
+    parent = _init_repo(tmp_path / "parent", branch="feature/parent")
+    nested = _init_repo(parent / "nested_repo", branch="feature/nested")
+    result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(nested))
+    assert result.success is True
+    assert "feature/nested" in result.output
+    assert "feature/parent" not in result.output
+
+
+async def test_no_git_anywhere_reports_clear_error(tmp_path: Path):
+    bare = tmp_path / "not_a_repo"
+    bare.mkdir()
+    result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(bare))
+    assert result.success is False
+    assert "没有 Git 仓库" in (result.error or "")
+
+
 # --- add path policy ---
 
 

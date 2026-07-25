@@ -81,9 +81,14 @@ async def snapshot_local(
         timeout_seconds=settings.workspace_handoff_timeout_seconds,
         root_id=binding.root_id,
     )
+    # Scope ARCHIVE to the workspace subpath (项目子目录 / 裸聊
+    # ``conversations/<id>``)，zip 内路径保持工作区相对——与 LocalWorkspace 前缀口径一致。
+    archive_args: dict[str, object] = {"ignore": True}
+    if binding.subpath:
+        archive_args["directory"] = binding.subpath
     value = await channel.request(
         WorkspaceOp.ARCHIVE,
-        {"ignore": True},
+        archive_args,
         timeout=settings.workspace_handoff_timeout_seconds,
     )
     archive_b64 = value.get("archive", "") if isinstance(value, dict) else ""

@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_short_essay_no_file",
+  "category": "routing",
+  "user_message": "给我写一篇关于咖啡历史的短文，500 字左右。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 5 } }
+  ],
+  "rubric": "短文未要求落盘：正文直接写在回复里即可。质量优先级『过度编排 > 组队不足』——不应为写短文组队。"
+}

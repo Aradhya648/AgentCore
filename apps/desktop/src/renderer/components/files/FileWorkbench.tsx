@@ -27,6 +27,7 @@ import { useConversations } from "@/hooks/useConversations";
 import { getFolders } from "@/hooks/useFolders";
 import { useSharedSpaces } from "@/hooks/useSharedSpaces";
 import type { FileSource } from "@/lib/fileSource";
+import { useReadOnlyOffline } from "@/lib/offlineMode";
 import { cn } from "@/lib/utils";
 import {
   type SharedSpaceSummary,
@@ -41,6 +42,7 @@ import {
   parseProjectMemoryFolderId,
   parseProjectProfilePath,
 } from "@/services/sources/memorySource";
+import { asReadOnlyFileSource } from "@/services/sources/readOnlyFileSource";
 import {
   createCloudWorkspaceSource,
   resolveWorkspaceSource,
@@ -151,6 +153,7 @@ export function FileWorkbench({
   } | null;
   focusKey?: string;
 }) {
+  const offline = useReadOnlyOffline();
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [railWidth, setRailWidth] = useState<number>(() => loadRailWidth());
@@ -321,21 +324,35 @@ export function FileWorkbench({
   }, [openMemoryLeaf, focusKey, revealMemoryInRail]);
 
   // 每个工作区一个稳定的 FileSource（树与详情共用，按 ws 复用，避免重复构建/反复重载）。
+  // N4-A：离线时本地源只读包装；云源仍解析但 UI 灰显（不隐藏）。
   const sourceByWs = useMemo(() => {
     const m = new Map<string, FileSource | null>();
-    for (const w of personalWorkspaces)
-      m.set(w.wsId, resolveWorkspaceSource(w, fsAvailable));
+    for (const w of personalWorkspaces) {
+      const src = resolveWorkspaceSource(w, fsAvailable);
+      if (offline && src && w.location === "local") {
+        m.set(w.wsId, asReadOnlyFileSource(src));
+      } else if (offline && w.location === "cloud") {
+        // Keep a null source so the section renders the offline-cloud hint.
+        m.set(w.wsId, null);
+      } else {
+        m.set(w.wsId, src);
+      }
+    }
     for (const s of sharedSpaces) {
       const wsId = s.ws_id || sharedWsId(s.id);
-      m.set(
-        wsId,
-        createCloudWorkspaceSource(wsId, s.name, {
-          readonly: !canWriteSharedSpace(s.my_role),
-        }),
-      );
+      if (offline) {
+        m.set(wsId, null);
+      } else {
+        m.set(
+          wsId,
+          createCloudWorkspaceSource(wsId, s.name, {
+            readonly: !canWriteSharedSpace(s.my_role),
+          }),
+        );
+      }
     }
     return m;
-  }, [personalWorkspaces, sharedSpaces, fsAvailable]);
+  }, [personalWorkspaces, sharedSpaces, fsAvailable, offline]);
 
   // 记忆叶子的路径感知单一源（所有记忆叶子共用一例，按 tab path 解析作用域；与工作区源同构，
   // 故复用 FileDetail/编辑器）。
@@ -474,9 +491,7 @@ export function FileWorkbench({
               }
               onOpenMemory={(path, name) => openFile(MEMORY_WS, path, name)}
               onOpenRule={(path, name) => openFile(RULES_WS, path, name)}
-              onMemoryTopicDeleted={(path) =>
-                closeTab(tabKey(MEMORY_WS, path))
-              }
+              onMemoryTopicDeleted={(path) => closeTab(tabKey(MEMORY_WS, path))}
               onRuleDeleted={(path) => closeTab(tabKey(RULES_WS, path))}
               onRuleRenamed={(path, name) =>
                 setTabs((prev) =>
@@ -559,6 +574,7 @@ export function FileWorkbench({
                           key={space.id}
                           space={space}
                           source={sourceByWs.get(wsId) ?? null}
+                          offlineUnavailable={offline}
                           activePath={
                             activeTab?.wsId === wsId ? activeTab.path : null
                           }
@@ -578,6 +594,7 @@ export function FileWorkbench({
                         key={ws.wsId}
                         ws={ws}
                         source={sourceByWs.get(ws.wsId) ?? null}
+                        offlineCloud={offline && ws.location === "cloud"}
                         activePath={
                           activeTab?.wsId === ws.wsId ? activeTab.path : null
                         }
@@ -646,12 +663,12 @@ export function FileWorkbench({
 
                 {(scratches.length > 0 || !filter.trim()) && (
                   <div className="px-2 pb-0.5 pt-3 text-xs font-medium text-muted-foreground">
-                    对话工作区
+                    快速对话
                   </div>
                 )}
                 {scratches.length === 0 && !filter.trim() ? (
                   <p className="px-2 py-2 text-xs text-muted-foreground/70">
-                    裸聊产生文件后会出现在这里
+                    快速对话产生文件后会出现在这里
                   </p>
                 ) : (
                   scratches.map((ws) => (
@@ -659,6 +676,7 @@ export function FileWorkbench({
                       key={ws.wsId}
                       ws={ws}
                       source={sourceByWs.get(ws.wsId) ?? null}
+                      offlineCloud={offline && ws.location === "cloud"}
                       activePath={
                         activeTab?.wsId === ws.wsId ? activeTab.path : null
                       }

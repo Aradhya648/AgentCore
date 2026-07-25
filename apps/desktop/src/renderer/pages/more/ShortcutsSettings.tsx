@@ -1,3 +1,4 @@
+import { Card } from "@/components/ui";
 import {
   COMMAND_CATEGORY_ORDER,
   type PaletteCommand,
@@ -54,7 +55,7 @@ export function ShortcutsSettings() {
 
       <section className="mt-6">
         <h2 className="text-base font-medium">全局快捷键</h2>
-        <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
+        <Card className="mt-3 overflow-hidden">
           {GLOBAL_SHORTCUTS.map((s, i) => (
             <ShortcutRow
               key={s.id}
@@ -66,7 +67,7 @@ export function ShortcutsSettings() {
           {/* Esc is owned by the dialog (Radix), not the global handler — listed
               here for completeness so the reference is whole. */}
           <ShortcutRow first={false} label="关闭命令面板" chords={["Esc"]} />
-        </div>
+        </Card>
       </section>
 
       <section className="mt-6">
@@ -84,11 +85,11 @@ export function ShortcutsSettings() {
                 <p className="px-1 pb-1 text-xs font-medium text-muted-foreground">
                   {category}
                 </p>
-                <div className="overflow-hidden rounded-xl border border-border bg-card">
+                <Card className="overflow-hidden">
                   {items.map((c, i) => (
                     <CommandRow key={c.id} first={i === 0} cmd={c} />
                   ))}
-                </div>
+                </Card>
               </div>
             );
           })}

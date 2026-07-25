@@ -109,6 +109,11 @@ async def run_finalize_round(
         tool_defs = None
         tool_choice = "none"
     else:
+        from agentcore.runtime.resolve.ceo_surface import (
+            ensure_coordination_surface_before_llm,
+        )
+
+        ensure_coordination_surface_before_llm(tools)
         tool_defs = resolve_finalize_coordination_tools(tools, allowed_tool_names, disabled_tools)
         tool_choice = "auto" if tool_defs else "none"
 

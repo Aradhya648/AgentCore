@@ -37,14 +37,14 @@ TASK_DELIVERABLE_SCHEMA: dict[str, object] = {
 # Trigger + short cues. Long HOW → CEO core / team_orchestration_advanced.
 DELEGATE_DESCRIPTION = (
     f"拆任务给临时团队（tasks：role+task，≤{MAX_DELEGATION_TASKS}；非终结）。"
-    "实质任务默认组队；闲聊/单点事实自己答。"
+    "该派就派；按活的缝拆人、能少则少；闲聊/单点/聊天短文自己答；要落盘短文派1人。"
     "交付形态：给用户【看】→deliverable.form=prose；【用】→form=files。"
     "多任务先判生产者→消费者；互不依赖才平铺并行。"
     "≥2 worker 默认协调（立即返回、可同回合追加同一张图）。"
     "跨回合加人 append_to_execution_id=\"latest\"。"
     "playbook 可选（建站必须 build_website/build_toolshed；其余可省略直接手写 tasks）；与 tasks 二选一。"
     "completion_criteria 仅顶层（勿写入 tasks[]）。"
-    "进阶 consult_skill(team_orchestration_advanced)。"
+    "拿不准怎么拆再 consult_skill(team_orchestration_advanced)。"
 )
 
 DELEGATE_PARAMETERS = {

@@ -24,9 +24,7 @@ export type SearchHitSegment =
 const GREP_HIT = /^(.+?):(\d+)(: ?.*)$/;
 const CODE_SEARCH_HIT = /^(.+?):(\d+)-(\d+)(.*)$/;
 
-export function isSearchHitTool(
-  toolName: string,
-): toolName is SearchHitKind {
+export function isSearchHitTool(toolName: string): toolName is SearchHitKind {
   return toolName === "grep" || toolName === "code_search";
 }
 
@@ -80,7 +78,9 @@ export function hasSearchHits(segments: SearchHitSegment[]): boolean {
 }
 
 /** Path label shown on the link: `path:line` or `path:start-end`. */
-export function searchHitPathLabel(hit: Extract<SearchHitSegment, { type: "hit" }>): string {
+export function searchHitPathLabel(
+  hit: Extract<SearchHitSegment, { type: "hit" }>,
+): string {
   if (hit.endLine != null) return `${hit.path}:${hit.line}-${hit.endLine}`;
   return `${hit.path}:${hit.line}`;
 }

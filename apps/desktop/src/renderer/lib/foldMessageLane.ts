@@ -33,6 +33,7 @@ import {
   appendTeamStep,
   appendToolStep,
   dropTrailingContentSteps,
+  promoteScalarContentIntoProcess,
   resolveToolStep,
   resolveToolStepPhase,
 } from "./processTimeline";
@@ -138,13 +139,19 @@ export function foldCitations(
 }
 
 /** Fold a `run_plan` into the timeline as a `team` marker (协作图时间线落点) — the FIRST
- * plan of an execution fixes the collaboration graph's slot; later same-id batches no-op. */
+ * plan of an execution fixes the collaboration graph's slot; later same-id batches no-op.
+ * Promotes scalar CEO prose into a content step first so the graph slots below the lead-in. */
 export function foldTeamMarker(
   state: MessageLaneState,
   executionId: string,
 ): MessageLaneState {
-  const process = appendTeamStep(state.process, executionId);
-  return process === state.process ? state : { ...state, process };
+  const promoted = promoteScalarContentIntoProcess(
+    state.process,
+    state.content,
+  );
+  const process = appendTeamStep(promoted, executionId);
+  if (process === state.process && promoted === state.process) return state;
+  return { ...state, process };
 }
 
 /** Fold a `graph_append` event into the appending turn's timeline as an anchor chip. */

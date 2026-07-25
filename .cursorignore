@@ -1,0 +1,38 @@
+# Sensitive / local-only — keep secrets out of Cursor index & context.
+# Syntax: same as .gitignore. Aligns with .gitignore sensitive surface.
+
+# Environment (secrets). Keep examples and tracked non-secret production URL config.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!apps/desktop/.env.production
+
+# Real production secrets (from production.env.example on the host)
+deploy/config/production.env
+
+# Local deploy credentials (CF / SSH / release tokens)
+deploy/.env.deploy.local
+apps/website/.env.deploy.local
+
+# Logs & runtime data
+logs/
+**/logs/
+data/
+**/data/
+apps/server/data/
+.docker-data/
+
+# Certificates / keystores
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+**/id_rsa
+**/id_ed25519
+**/credentials.json
+**/secrets.json
+
+# Cloudflare Wrangler local state
+.wrangler/

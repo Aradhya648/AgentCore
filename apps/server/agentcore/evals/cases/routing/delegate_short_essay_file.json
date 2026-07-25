@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_short_essay_file",
+  "category": "routing",
+  "user_message": "写一篇约 800 字的短文《为什么本地优先软件又火了》，Markdown 存成 essays/local-first.md。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "短文但点名落盘路径：与『未落盘短文直答』对照——要求写文件则委派。"
+}

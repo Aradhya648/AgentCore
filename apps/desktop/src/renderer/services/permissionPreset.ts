@@ -116,8 +116,10 @@ export async function setConversationPermissionPreset(
 }
 
 /**
- * Resolve the permission mode for a conversation (React Query cache first, else default).
- * Sidecar turns send this every startTurn / resume.
+ * Resolve the permission mode for a conversation (React Query cache first, else GET).
+ * Sidecar turns send this every startTurn / resume — must match DB SSO
+ * (``conversations.permission_preset``), never fall back to the user's *new-session*
+ * default when the conversation already exists.
  */
 export async function resolveConversationPermissionPreset(
   conversationId: string,
@@ -128,6 +130,14 @@ export async function resolveConversationPermissionPreset(
     if (conv?.permissionPreset) return conv.permissionPreset;
   } catch {
     // query cache may be unavailable in tests
+  }
+  try {
+    const res = await api.get<{ permission_preset?: SidecarPermissionPreset }>(
+      `/v1/conversations/${conversationId}`,
+    );
+    if (res.permission_preset) return res.permission_preset;
+  } catch {
+    // network / 404 — last resort below
   }
   return resolveDefaultPermissionPreset();
 }

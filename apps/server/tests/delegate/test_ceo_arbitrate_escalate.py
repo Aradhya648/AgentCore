@@ -75,7 +75,7 @@ async def test_blocking_escalate_routes_to_ceo_when_coordination_active():
     set_active_coordination(session)
     seen: list[str] = []
 
-    async def _request(q, a, questions, kind, awaiting="user"):
+    async def _request(q, a, questions, kind, awaiting="user", *, browser_login=False):
         seen.append(awaiting)
         assert awaiting == "ceo"
         return EscalationOutcome(status="resolved", answer="用 Postgres")
@@ -108,7 +108,7 @@ async def test_blocking_escalate_stays_user_without_coordination():
     clear_active_coordination()
     seen: list[str] = []
 
-    async def _request(q, a, questions, kind, awaiting="user"):
+    async def _request(q, a, questions, kind, awaiting="user", *, browser_login=False):
         seen.append(awaiting)
         return EscalationOutcome(status="resolved", answer="用 Postgres")
 

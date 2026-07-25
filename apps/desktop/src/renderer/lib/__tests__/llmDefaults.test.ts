@@ -1,9 +1,11 @@
 import {
+  PLATFORM_POINTER_ID,
   buildDefaultProviderGroups,
   decodePointer,
   encodePointer,
   pointerValue,
 } from "@/lib/llmDefaults";
+import type { ModelProfileSlot } from "@/services/llmModelProfiles";
 import type { LlmProviderView } from "@/services/llmProviders";
 import type { ModelCatalog, ModelCatalogItem } from "@/services/models";
 import { describe, expect, it } from "vitest";
@@ -16,14 +18,12 @@ function provider(
     base_url: "https://api.example.com/v1",
     default_model: "model-default",
     status: "unchecked",
-    is_default_chat: false,
-    is_default_background: false,
     ...over,
   };
 }
 
 function catalogItem(
-  over: Partial<ModelCatalogItem> & { id: string; provider_id: string },
+  over: Partial<ModelCatalogItem> & { id: string },
 ): ModelCatalogItem {
   return {
     origin: "byok",
@@ -31,6 +31,7 @@ function catalogItem(
     vendor: "V",
     capabilities: [],
     available: true,
+    provider_id: over.provider_id ?? "p1",
     ...over,
   };
 }
@@ -44,88 +45,100 @@ function catalog(models: ModelCatalogItem[]): ModelCatalog {
 }
 
 describe("encode/decode pointer", () => {
-  it("round-trips a provider+model pointer", () => {
-    const v = encodePointer("prov-1", "deepseek-v4-pro");
-    expect(v).toBe("prov-1::deepseek-v4-pro");
-    expect(decodePointer(v)).toEqual({
-      provider_id: "prov-1",
-      model: "deepseek-v4-pro",
-    });
+  it("round-trips a byok slot", () => {
+    const slot: ModelProfileSlot = {
+      origin: "byok",
+      provider_id: "p1",
+      model: "m1",
+    };
+    expect(decodePointer(encodePointer(slot))).toEqual(slot);
   });
 
-  it("splits on the first separator so model names may contain colons", () => {
-    const v = encodePointer("prov-1", "org/model:tag");
-    expect(decodePointer(v)).toEqual({
-      provider_id: "prov-1",
-      model: "org/model:tag",
-    });
+  it("round-trips a platform slot", () => {
+    const slot: ModelProfileSlot = {
+      origin: "platform",
+      provider_id: null,
+      model: "flash",
+    };
+    expect(encodePointer(slot)).toBe(`${PLATFORM_POINTER_ID}::flash`);
+    expect(decodePointer(encodePointer(slot))).toEqual(slot);
   });
 
-  it("treats the empty value as no pointer", () => {
-    expect(pointerValue(null)).toBe("");
-    expect(pointerValue(undefined)).toBe("");
+  it("returns null for empty follow value", () => {
     expect(decodePointer("")).toBeNull();
-  });
-
-  it("encodes a live pointer for the select value", () => {
-    expect(pointerValue({ provider_id: "p", model: "m" })).toBe("p::m");
+    expect(pointerValue(null)).toBe("");
   });
 });
 
 describe("buildDefaultProviderGroups", () => {
-  it("groups per provider: default_model unioned with that provider's catalog models", () => {
-    const providers = [
-      provider({
-        id: "p1",
-        label: "DeepSeek",
-        default_model: "deepseek-v4-pro",
-      }),
-      provider({ id: "p2", label: "OpenAI", default_model: "gpt-4o" }),
-    ];
-    const models = [
-      catalogItem({
-        id: "deepseek-v4-pro",
-        provider_id: "p1",
-        display_name: "DeepSeek V4 Pro",
-      }),
-      catalogItem({
-        id: "deepseek-v4-flash",
-        provider_id: "p1",
-        display_name: "DeepSeek V4 Flash",
-      }),
-      catalogItem({ id: "gpt-4o", provider_id: "p2" }),
-      // Another provider's / platform rows are ignored for a provider's group.
-      catalogItem({ id: "ghost", provider_id: "p9" }),
-    ];
-
-    const groups = buildDefaultProviderGroups(providers, catalog(models));
-
-    expect(groups.map((g) => g.providerLabel)).toEqual(["DeepSeek", "OpenAI"]);
-    expect(groups[0].models.map((m) => m.model)).toEqual([
-      "deepseek-v4-pro",
-      "deepseek-v4-flash",
-    ]);
-    expect(groups[0].models[0].label).toBe("DeepSeek V4 Pro");
-    expect(groups[1].models.map((m) => m.model)).toEqual(["gpt-4o"]);
+  it("groups byok models under their provider and pins platform first", () => {
+    const groups = buildDefaultProviderGroups(
+      [
+        provider({
+          id: "p1",
+          label: "DeepSeek",
+          default_model: "deepseek-v4-pro",
+        }),
+        provider({ id: "p2", label: "OpenAI", default_model: "gpt-4o" }),
+      ],
+      catalog([
+        catalogItem({
+          id: "platform-flash",
+          origin: "platform",
+          display_name: "Flash",
+          provider_id: null,
+        }),
+        catalogItem({
+          id: "deepseek-v4-pro",
+          provider_id: "p1",
+          display_name: "DeepSeek V4 Pro",
+        }),
+        catalogItem({
+          id: "gpt-4o",
+          provider_id: "p2",
+          display_name: "GPT-4o",
+        }),
+      ]),
+    );
+    expect(groups[0].providerLabel).toBe("平台额度");
+    expect(groups[0].models.map((m) => m.model)).toEqual(["platform-flash"]);
+    expect(groups.map((g) => g.providerLabel)).toContain("DeepSeek");
+    expect(groups.map((g) => g.providerLabel)).toContain("OpenAI");
   });
 
-  it("folds a live pointer's model into its group even if the catalog lacks it", () => {
-    const providers = [
-      provider({ id: "p1", default_model: "deepseek-v4-pro" }),
-    ];
-    const groups = buildDefaultProviderGroups(providers, catalog([]), {
-      provider_id: "p1",
-      model: "custom-model",
-    });
+  it("folds live slot models into their group", () => {
+    const groups = buildDefaultProviderGroups(
+      [
+        provider({
+          id: "p1",
+          label: "DeepSeek",
+          default_model: "deepseek-v4-pro",
+        }),
+      ],
+      catalog([
+        catalogItem({
+          id: "deepseek-v4-pro",
+          provider_id: "p1",
+          display_name: "DeepSeek V4 Pro",
+        }),
+      ]),
+      {
+        origin: "byok",
+        provider_id: "p1",
+        model: "custom-model",
+      },
+    );
     expect(groups[0].models.map((m) => m.model)).toContain("custom-model");
     expect(groups[0].models.map((m) => m.model)).toContain("deepseek-v4-pro");
   });
 
-  it("falls back to base_url as the group label when no label is set", () => {
-    const groups = buildDefaultProviderGroups(
-      [provider({ id: "p1", label: "", base_url: "https://host.example/v1" })],
-      undefined,
-    );
-    expect(groups[0].providerLabel).toBe("https://host.example/v1");
+  it("creates a platform group when only a live platform slot exists", () => {
+    const groups = buildDefaultProviderGroups([], catalog([]), {
+      origin: "platform",
+      provider_id: null,
+      model: "custom-platform",
+    });
+    expect(groups[0].providerId).toBe(PLATFORM_POINTER_ID);
+    expect(groups[0].models.map((m) => m.model)).toEqual(["custom-platform"]);
   });
 });

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field
 
+from agentcore.runtime.debate.types import DebateForm
 from agentcore.runtime.events.payloads._base import WirePayload, absent
 
 
@@ -48,7 +49,7 @@ class MotionCard(WirePayload):
     sides: list[MotionCardSide]
     fact_pointers: list[str]
     rationale: str
-    form: Literal["debate", "red_team", "roundtable"]
+    form: DebateForm
 
 
 class RunDebrief(WirePayload):

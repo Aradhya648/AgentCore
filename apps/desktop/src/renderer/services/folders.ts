@@ -37,18 +37,27 @@ export interface CreateFolderInput {
   localSubpath?: string | null;
 }
 
+export interface CreateFolderResult {
+  folder: FolderMeta;
+  /** False when the server reused an existing local binding (HTTP 200). */
+  created: boolean;
+}
+
 /** Create a project (= workspace). `mode` is required and immutable after create. */
 export async function createFolder(
   input: CreateFolderInput,
-): Promise<FolderMeta> {
+): Promise<CreateFolderResult> {
   const body: Schemas["CreateFolderRequest"] = {
     name: input.name,
     mode: input.mode,
     local_root_id: input.mode === "local" ? (input.localRootId ?? null) : null,
     local_subpath: input.mode === "local" ? (input.localSubpath ?? null) : null,
   };
-  const res = await api.post<BackendFolder>("/v1/folders", body);
-  return toFolder(res);
+  const { data, status } = await api.postWithStatus<BackendFolder>(
+    "/v1/folders",
+    body,
+  );
+  return { folder: toFolder(data), created: status === 201 };
 }
 
 /** Rename a folder. Mode / local bind are immutable after create. */
@@ -80,4 +89,50 @@ export function sanitizeProjectSubpath(name: string): string {
     .slice(0, 80)
     .trim();
   return cleaned || "project";
+}
+
+/** Local binding key; empty / null subpath collapse to the same slot. */
+export function localFolderBindingKey(
+  localRootId: string,
+  localSubpath: string | null | undefined,
+): string {
+  return `${localRootId}\0${localSubpath || ""}`;
+}
+
+/**
+ * Find a live local project by FS binding (cache-side reuse before create).
+ * First match wins — when the list is created_at asc, that is the oldest row.
+ */
+export function findLocalFolderByBinding(
+  folders: FolderMeta[],
+  localRootId: string,
+  localSubpath: string | null | undefined,
+): FolderMeta | undefined {
+  const key = localFolderBindingKey(localRootId, localSubpath);
+  return folders.find(
+    (f) =>
+      f.mode === "local" &&
+      !!f.localRootId &&
+      localFolderBindingKey(f.localRootId, f.localSubpath) === key,
+  );
+}
+
+/**
+ * Dedupe local projects by binding for picker / list UIs; keep first occurrence
+ * (grouped cache is created_at asc → oldest). Cloud rows are never collapsed.
+ */
+export function dedupeFoldersByLocalBinding(
+  folders: FolderMeta[],
+): FolderMeta[] {
+  const seen = new Set<string>();
+  const out: FolderMeta[] = [];
+  for (const f of folders) {
+    if (f.mode === "local" && f.localRootId) {
+      const key = localFolderBindingKey(f.localRootId, f.localSubpath);
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(f);
+  }
+  return out;
 }

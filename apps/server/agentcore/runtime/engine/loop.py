@@ -570,6 +570,14 @@ async def react_loop(
                 from agentcore.runtime.coordination.session import note_coord_worker_busy
 
                 note_coord_worker_busy(run_id, "llm")
+            # 协调已活 → 进入本轮 LLM 前装好 wait 等闸内工具（与 mid-turn promote 对齐）。
+            if role == "captain":
+                from agentcore.runtime.resolve.ceo_surface import (
+                    ensure_coordination_surface_before_llm,
+                )
+
+                if ensure_coordination_surface_before_llm(tools):
+                    tool_defs = _resolve_tool_defs()
             try:
                 round_result = await run_llm_round(
                     llm=llm,

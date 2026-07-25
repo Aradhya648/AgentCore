@@ -20,6 +20,7 @@ import {
 import { getRuntime, useConversationStore } from "@/stores/conversation";
 import {
   enterTurnStreaming,
+  getTurnPhase,
   throwIfCannotOpenStream,
 } from "@/stores/conversation/turnPhaseActions";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
@@ -99,6 +100,16 @@ function newTraceId(): string {
   return crypto.randomUUID().replace(/-/g, "");
 }
 
+/** 剥 Electron IPC / SidecarRpcError 包装，露出引擎真因原文；提不出则 `null`。 */
+function unwrapSidecarRejectMessage(err: unknown): string | null {
+  if (!(err instanceof Error)) return null;
+  const unwrapped = err.message
+    .replace(/^Error invoking remote method '[^']*':\s*/, "")
+    .replace(/^(?:Error|SidecarRpcError):\s*/, "")
+    .trim();
+  return unwrapped || null;
+}
+
 /**
  * 从一次失败的回合 RPC（`startTurn` / `resume`）拒绝里提取本地引擎真因（onStatus 没记到时的兜底）。
  *
@@ -108,20 +119,34 @@ function newTraceId(): string {
  * 前缀，露出可读真因。提不出则返回 `null`，由调用方退到通用兜底文案。
  */
 function describeSidecarTurnError(err: unknown): string | null {
-  if (!(err instanceof Error)) return null;
-  const unwrapped = err.message
-    .replace(/^Error invoking remote method '[^']*':\s*/, "")
-    .replace(/^(?:Error|SidecarRpcError):\s*/, "")
-    .trim();
+  const unwrapped = unwrapSidecarRejectMessage(err);
   return unwrapped ? `本地引擎出错：${unwrapped}` : null;
+}
+
+/**
+ * 诚实停止（`stopGeneration` 不 abort AbortSignal）下，sidecar `startTurn`/`resume`
+ * 仍会以 `TURN_CANCELLED` / `"turn cancelled"` reject。须识别为用户停止并抛
+ * `AbortError`，否则会误打「本地引擎出错」横幅。
+ *
+ * 判定：拒绝文案是引擎取消约定（IPC 后通常只剩 message，无 -32001 code）；
+ * 或 turnPhase 仍为 `stopping`（message_end 尚未定格时的竞态）。
+ * 不用 `stopped` 单独放行——避免 invoke 已成功后的 writeBack 失败被误吞。
+ */
+function isSidecarUserCancel(conversationId: string, err: unknown): boolean {
+  const msg = unwrapSidecarRejectMessage(err)?.toLowerCase() ?? "";
+  if (msg.includes("turn cancelled") || msg.includes("turn_cancelled")) {
+    return true;
+  }
+  return getTurnPhase(conversationId) === "stopping";
 }
 
 /**
  * 发送一条用户消息，经本地 sidecar 跑完整回合并消费其事件流。
  *
- * 失败语义对齐云链路：用户停止（停止按钮）抛 `AbortError`；其余（拉不起 sidecar /
- * 引擎异常）包成带本地引擎诊断的 `StreamError("sidecar")`（优先 onStatus 记下的生命周期
- * 诊断，见下），由 `services/turns.ts` 统一出**针对性**横幅 + 重试。
+ * 失败语义对齐云链路：用户停止（诚实停止 → cancel → RPC reject，或 AbortSignal）
+ * 抛 `AbortError`；其余（拉不起 sidecar / 引擎异常）包成带本地引擎诊断的
+ * `StreamError("sidecar")`（优先 onStatus 记下的生命周期诊断，见下），由
+ * `services/turns.ts` 统一出**针对性**横幅 + 重试。
  */
 export async function streamConversationViaSidecar({
   conversationId,
@@ -344,7 +369,11 @@ async function runSidecarTurn({
   });
 
   const onAbort = (): void => {
-    void window.sidecarApi.cancel({ rootId, subpath, turnId });
+    // Abort 不是停止权威（stopGeneration 走 stopConversation → cancel）；此处仅在
+    // 其它 abort 路径（如切会话）尽力通知引擎，失败不吞进 UI（fire-and-forget）。
+    void window.sidecarApi
+      .cancel({ rootId, subpath, turnId, conversationId })
+      .catch(() => {});
   };
 
   const primaryToken = claimPrimaryStream(conversationId);
@@ -369,7 +398,8 @@ async function runSidecarTurn({
     return result;
   } catch (err) {
     // 用户停止：与云链路一致地抛 AbortError（调用方据此不出错误横幅）。
-    if (signal?.aborted) {
+    // 诚实停止不 abort signal，靠 phase / TURN_CANCELLED 文案识别（见 isSidecarUserCancel）。
+    if (signal?.aborted || isSidecarUserCancel(conversationId, err)) {
       throw new DOMException("Aborted", "AbortError");
     }
     // 开流门禁抛出的 AbortError（phase 阻断、尚未 invoke）直接上抛。

@@ -21,10 +21,11 @@ Design (mirrors the offline memory consolidation pattern):
   turns. Recomputing it every turn would rewrite the prompt prefix and bust DeepSeek's
   exact-prefix cache (runtime/resolve/prompt.py) — the one thing this must never do.
 
-Robust by construction: a per-user BYOK key is resolved like consolidation, the pass
-is gated so a trivial fold never spends an LLM call, and ANY failure (LLM down,
-timeout, empty output) leaves the stored state untouched and returns without raising —
-the turn already completed; compaction is best-effort enrichment.
+Robust by construction: credentials resolve platform-first via
+``resolve_and_gate_background`` (quota-gated), the pass is gated so a trivial fold
+never spends an LLM call, and ANY failure (LLM down, timeout, empty output, quota
+skip) leaves the stored state untouched and returns without raising — the turn
+already completed; compaction is best-effort enrichment.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
+from agentcore.billing.gate import resolve_and_gate_background
 from agentcore.config import settings
 from agentcore.core.logging import get_logger
 from agentcore.core.text import truncate_head_tail
@@ -41,7 +43,6 @@ from agentcore.db.repositories import ConversationRepository, MessageRepository
 from agentcore.llm import LLMMessage
 from agentcore.llm.factory import build_provider
 from agentcore.llm.profiles import build_request, get_profile
-from agentcore.llm.resolve import resolve_credentials
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
 
 logger = get_logger(__name__)
@@ -195,12 +196,13 @@ async def compact_conversation(
                 return False
             new_watermark = fold_msgs[-1].created_at
             old_summary = conv.compaction_summary or ""
-            credentials = await resolve_credentials(session, conv.user_id, "platform_internal")
+            credentials = await resolve_and_gate_background(
+                session, conv.user_id, purpose="compaction"
+            )
 
-        # BYOK with no usable key: skip WITHOUT advancing the watermark, so it retries
-        # once a key is configured. Platform mode keeps None = global key via
-        # build_provider(None); free-tier users resolve to platform credentials above.
-        if credentials is None and settings.billing_mode == "byok":
+        # No usable platform/BYOK key, or platform quota exhausted: skip WITHOUT
+        # advancing the watermark so a later pass can retry.
+        if credentials is None:
             return False
 
         model = resolve_user_model(credentials)

@@ -69,7 +69,7 @@ export function useFolders(): FolderMeta[] {
 export function useCreateFolder() {
   return useMutation({
     mutationFn: (input: CreateFolderInput) => createFolder(input),
-    onSuccess: (folder) => {
+    onSuccess: ({ folder }) => {
       addFolderCache(folder);
     },
   });

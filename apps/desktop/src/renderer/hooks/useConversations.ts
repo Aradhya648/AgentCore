@@ -16,8 +16,10 @@ import {
   listGrouped,
 } from "@/services/conversations";
 import type { FolderMeta } from "@/services/folders";
+import { cacheShellMeta } from "@/services/offlineCache";
 import type { Conversation } from "@/stores/conversation";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 /**
  * The conversation list as React Query data (REST 数据层 — the reference slice).
@@ -125,12 +127,22 @@ export function restoreConversationCache(
 /** The grouped folders+conversations query — the single network source for the
  * sidebar / conversations list. Loaded once, then optimistic. */
 export function useGroupedConversations() {
-  return useQuery({
+  const q = useQuery({
     queryKey: conversationKeys.grouped,
     queryFn: listGrouped,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
   });
+  // N4-A: keep folder catalog + titles of already-opened conversations warm.
+  // putShellMeta only merges into the opened index (never inflates from full list).
+  useEffect(() => {
+    if (!q.data) return;
+    void cacheShellMeta({
+      folders: q.data.folders,
+      conversations: q.data.conversations,
+    });
+  }, [q.data]);
+  return q;
 }
 
 /** Reactive conversation list (server-ordered; consumers re-sort by recency). */

@@ -71,9 +71,7 @@ export function ServerStatusIndicator() {
  * Prominent inline notice above the textarea, shown only while offline — mirrors
  * the composer's "回合执行中" hint styling so the disconnected state reads as loud
  * without a modal. The heartbeat auto-recovers; the chip's button offers a manual
- * retry. Kept intentionally non-blocking: send stays enabled (a stale probe must
- * never lock the user out), and a genuine failure still raises the existing
- * retry banner.
+ * retry. N4-A: send is hard-disabled while offline (button + handleSend guard).
  */
 export function ComposerConnectionNotice() {
   const status = useServerHealthStore((s) => s.status);
@@ -84,7 +82,7 @@ export function ComposerConnectionNotice() {
       className="flex items-center gap-1.5 px-4 pt-2 text-xs text-destructive"
     >
       <Loader2 size={12} className="shrink-0 animate-spin" />
-      与服务器断开连接，正在自动重连…此时发送可能失败。
+      与服务器断开连接。可浏览已缓存的对话与本地文件；发送已禁用。
     </div>
   );
 }

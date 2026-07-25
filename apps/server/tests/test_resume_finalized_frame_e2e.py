@@ -141,11 +141,14 @@ def _cold_claim(frame: TurnSuspension, journal_entries: list[dict]) -> TurnSuspe
 
 def _patch_resume_seams(monkeypatch, provider: _ScriptedProvider, store: FileMemoryStore) -> None:
     """Swap ONLY the LLM provider + the memory store; keep the REAL toolset assembly, settle,
-    window rebuild and CEO loop. ``resume_chat_pipeline`` reads ``build_provider`` /
-    ``build_router_around`` off the package facade; the real assembly reads
-    ``default_memory_store`` as a module local."""
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
-    monkeypatch.setattr(pipeline, "build_router_around", lambda p: p)
+    window rebuild and CEO loop. ``resume_chat_pipeline`` reads ``build_turn_router``
+    off the package facade; the real assembly reads ``default_memory_store`` as a
+    module local."""
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
     monkeypatch.setattr("agentcore.runtime.resolve.prepare.default_memory_store", lambda: store)
     # No live client on a resume test → keep the resumed loop free of the approval gate.
     monkeypatch.setattr(settings, "approval_gate_enabled", False)
@@ -193,7 +196,10 @@ async def _finalize_ask_user() -> tuple[AskUserSuspension, list[dict]]:
                             index=0,
                             id="call_ask",
                             function_name="ask_user",
-                            arguments_delta=f'{{"message": "{user_message}"}}',
+                            arguments_delta=(
+                                f'{{"message": "{user_message}", '
+                                f'"assumptions": [{{"label": "默认", "value": "A"}}]}}'
+                            ),
                         )
                     ]
                 )

@@ -88,12 +88,15 @@ def _patch_seams(monkeypatch, provider: _ScriptedProvider, store: FileMemoryStor
 
     The point of an e2e is that ``_assemble_ceo_toolset`` (which wires consult_memory to the
     frame's project scope) stays REAL — so patch each seam WHERE IT IS LOOKED UP:
-    ``resume_chat_pipeline`` reads ``build_provider`` / ``build_router_around`` off the
-    package facade (``pipeline_pkg.X``), and the real assembly in ``resolve.prepare`` calls
+    ``resume_chat_pipeline`` reads ``build_turn_router`` off the package facade
+    (``pipeline_pkg.X``), and the real assembly in ``resolve.prepare`` calls
     ``default_memory_store`` as a module local.
     """
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
-    monkeypatch.setattr(pipeline, "build_router_around", lambda p: p)
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
     monkeypatch.setattr(
         "agentcore.runtime.resolve.prepare.default_memory_store", lambda: store
     )

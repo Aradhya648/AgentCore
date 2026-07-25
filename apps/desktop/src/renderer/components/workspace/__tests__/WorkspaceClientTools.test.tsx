@@ -29,32 +29,31 @@ function mockSource(
 }
 
 describe("WorkspaceClientTools", () => {
-  it("renders nothing when source lacks client tool methods", () => {
+  it("renders nothing when source lacks reveal", () => {
     const { container } = renderTools(
       mockSource({
         id: "cloud:1",
         label: "w",
         caps: { watch: false, transfer: true, edit: true, snapshots: true },
+        openShellAtPath: vi.fn(),
       }),
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it("opens folder and shell when local methods exist", async () => {
+  it("opens folder when reveal exists; no title-bar shell button", async () => {
     const reveal = vi.fn().mockResolvedValue(undefined);
-    const openShell = vi.fn().mockResolvedValue(undefined);
     renderTools(
       mockSource({
         id: "local:r1",
         label: "本地",
         caps: { watch: true, transfer: false, edit: true, snapshots: false },
         revealInOsFileManager: reveal,
-        openShellAtPath: openShell,
+        openShellAtPath: vi.fn(),
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "打开此对话文件夹" }));
-    fireEvent.click(screen.getByRole("button", { name: "在终端打开" }));
     expect(reveal).toHaveBeenCalledWith("");
-    expect(openShell).toHaveBeenCalledWith(".");
+    expect(screen.queryByRole("button", { name: "在终端打开" })).toBeNull();
   });
 });

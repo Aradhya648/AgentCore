@@ -1,10 +1,9 @@
 """Unified model + credential resolution for every LLM call site.
 
-BYOK is a **list of providers** (``user_llm_providers``): a user may configure many
-OpenAI-compatible endpoints at once. The account picks a default chat provider and a
-default background provider via pointers on the ``users`` row; a conversation may
-override the model per-turn and pin the exact provider (``conversations.model_provider_id``).
-This module is the single choke point that turns「which user / which conversation / which
+BYOK is a **list of providers** (``user_llm_providers``). Account / conversation
+select a **model combination profile** (``llm_model_profiles`` / system presets);
+expand yields main / worker / background slots (empty = follow_main). This module
+is the single choke point that turns「which user / which conversation / which
 purpose」into「which upstream endpoint + which model + which price card」.
 """
 
@@ -39,6 +38,7 @@ __all__ = [
     "ProviderPurpose",
     "platform_llm_credentials",
     "resolve_account_default_model",
+    "resolve_account_worker_selection",
     "resolve_conversation_model_selection",
     "resolve_credentials",
     "resolve_model_config",
@@ -178,47 +178,48 @@ async def _load_provider(
 async def _default_chat_provider_row(
     session: AsyncSession, user_id: str, *, user=None
 ) -> UserLlmProvider | None:
-    """The account's default chat provider row: pointer → provider, else oldest provider.
+    """The account's default BYOK provider row for chat (profile main → first provider).
 
-    A dangling pointer (provider deleted) silently falls back to the user's sole/first
-    provider, matching the「删除服务商静默回落账号默认」contract.
+    Used as a low-level fallback when expanding slots / decrypting without a full
+    profile walk. Prefer ``resolve_account_default_model`` for turn selection.
     """
     from agentcore.db.repositories import UserLlmProviderRepository, UserRepository
+    from agentcore.llm.model_profiles import (
+        SYSTEM_PRESETS,
+        is_system_profile_id,
+    )
 
     repo = UserLlmProviderRepository(session)
     if user is None:
         user = await UserRepository(session).get_by_id(user_id)
-    if user is not None and getattr(user, "default_chat_provider_id", None):
-        row = await repo.get(user.default_chat_provider_id, user_id=user_id)
-        if row is not None:
-            return row
+    profile_id = (
+        getattr(user, "default_model_profile_id", None) if user is not None else None
+    )
+    if profile_id and not is_system_profile_id(profile_id):
+        from agentcore.db.repositories import LlmModelProfileRepository
+
+        row_prof = await LlmModelProfileRepository(session).get(
+            profile_id, user_id=user_id
+        )
+        if row_prof is not None and row_prof.main_provider_id:
+            row = await repo.get(row_prof.main_provider_id, user_id=user_id)
+            if row is not None:
+                return row
+    elif profile_id in SYSTEM_PRESETS:
+        # System presets are platform-origin; no BYOK default row.
+        return await repo.first_for_user(user_id)
     return await repo.first_for_user(user_id)
 
 
 async def _account_default(
     session: AsyncSession, user_id: str
 ) -> tuple[UserLlmProvider | None, str, ModelOrigin]:
-    """(provider_row, model, origin) for the account default chat selection.
-
-    BYOK when a provider exists (pointer model → provider default_model → Flash). When
-    the user has no provider: platform when the operator subsidizes it
-    (``platform_billing_selectable``), else origin stays ``byok`` so the billing gate
-    refuses keyless turns with 402 (selection stays advisory — the NAME still resolves).
-    """
-    from agentcore.billing.preference import platform_billing_selectable
-    from agentcore.db.repositories import UserRepository
-
-    user = await UserRepository(session).get_by_id(user_id)
-    row = await _default_chat_provider_row(session, user_id, user=user)
-    if row is not None:
-        model = None
-        if user is not None and getattr(user, "default_chat_provider_id", None) == row.id:
-            model = (user.default_chat_model or "").strip() or None
-        model = model or (row.default_model or "").strip() or PLATFORM_MODEL_FLASH
-        return row, model, "byok"
-    platform_model = (settings.platform_model or "").strip() or PLATFORM_MODEL_FLASH
-    origin: ModelOrigin = "platform" if platform_billing_selectable() else "byok"
-    return None, platform_model, origin
+    """(provider_row, model, origin) for the account default chat selection via profile."""
+    selection = await resolve_account_default_model(session, user_id)
+    row = None
+    if selection.origin == "byok" and selection.provider_id:
+        row = await _load_provider(session, user_id, selection.provider_id)
+    return row, selection.model, selection.origin
 
 
 async def user_has_provider(session: AsyncSession, user_id: str) -> bool:
@@ -268,9 +269,11 @@ async def resolve_user_llm_credentials(
 async def resolve_account_default_model(
     session: AsyncSession, user_id: str
 ) -> ModelSelection:
-    """Account default when no conversation override applies."""
-    row, model, origin = await _account_default(session, user_id)
-    return ModelSelection(model=model, origin=origin, provider_id=row.id if row else None)
+    """Account default main slot (default profile / system 5.2 preset)."""
+    from agentcore.llm.model_profiles import LlmModelProfileService
+
+    expanded = await LlmModelProfileService(session).expand(user_id, None)
+    return expanded.main
 
 
 async def resolve_conversation_model_selection(
@@ -278,75 +281,63 @@ async def resolve_conversation_model_selection(
     conv,
     user_id: str,
 ) -> ModelSelection:
-    """Resolve model + origin + provider for a user-facing turn (override > account default).
+    """Resolve main model + origin + provider for a user-facing turn (profile expand).
 
-    Override rows carry ``(model, model_origin, model_provider_id)``:
-    - ``origin=platform`` → platform selection (provider_id None); if the operator
-      turned platform billing off, degrade to the account default.
-    - ``origin=byok`` with a live ``model_provider_id`` → keep the model on that provider.
-    - ``origin=byok`` with ``model_provider_id`` NULL (legacy / pre-multi-provider) →
-      keep the model, resolve credentials via the account's sole/default provider.
-    - ``origin=byok`` whose pinned provider was deleted, or the account now has no
-      provider at all → silent full fallback to the account default (never a hard fail).
-    - legacy ``model`` set with ``model_origin`` NULL → byok when the user has any
-      provider, else platform.
+    ``conversations.model_profile_id`` when set; else account ``default_model_profile_id``;
+    else system 5.2 preset. Live expand — dangling provider pins fall back silently.
     """
-    from agentcore.billing.preference import platform_billing_selectable
+    from agentcore.llm.model_profiles import LlmModelProfileService
 
-    model = (getattr(conv, "model", None) or "").strip() or None
-    if not model:
-        return await resolve_account_default_model(session, user_id)
+    expanded = await LlmModelProfileService(session).expand_for_conversation(
+        user_id, conv
+    )
+    return expanded.main
 
-    origin_raw = getattr(conv, "model_origin", None)
-    provider_id_raw = getattr(conv, "model_provider_id", None) or None
 
-    origin: ModelOrigin
-    if origin_raw in ("byok", "platform"):
-        origin = origin_raw  # type: ignore[assignment]
+async def resolve_account_worker_selection(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    conv=None,
+) -> ModelSelection | None:
+    """Worker slot from the effective profile, or None when follow_main.
+
+    When ``conv`` is given, uses that conversation's profile pin (else account default).
+    """
+    from agentcore.llm.model_profiles import LlmModelProfileService
+
+    svc = LlmModelProfileService(session)
+    if conv is not None:
+        expanded = await svc.expand_for_conversation(user_id, conv)
     else:
-        origin = "byok" if await user_has_provider(session, user_id) else "platform"
-
-    if origin == "platform":
-        if not platform_billing_selectable():
-            return await resolve_account_default_model(session, user_id)
-        return ModelSelection(model=model, origin="platform", provider_id=None)
-
-    # byok — pin the exact provider when set and live.
-    if provider_id_raw:
-        row = await _load_provider(session, user_id, provider_id_raw)
-        if row is not None:
-            return ModelSelection(model=model, origin="byok", provider_id=row.id)
-        # Pinned provider deleted → silent full fallback (decision 6).
-        return await resolve_account_default_model(session, user_id)
-
-    # Legacy byok override without a pinned provider → keep model on the default provider.
-    row = await _default_chat_provider_row(session, user_id)
-    if row is not None:
-        return ModelSelection(model=model, origin="byok", provider_id=row.id)
-    return await resolve_account_default_model(session, user_id)
+        expanded = await svc.expand(user_id, None)
+    return expanded.worker
 
 
 async def _resolve_background(
     session: AsyncSession, user_id: str
 ) -> tuple[LLMCredentials, str] | None:
-    """The account background pointer's ``(creds, model)``, or None when unset/unresolvable."""
-    from agentcore.db.repositories import UserRepository
+    """Account default profile's background slot → ``(creds, model)``, or None (follow)."""
+    from agentcore.llm.model_profiles import LlmModelProfileService
 
-    user = await UserRepository(session).get_by_id(user_id)
-    if user is None or not getattr(user, "default_background_provider_id", None):
+    expanded = await LlmModelProfileService(session).expand(user_id, None)
+    bg = expanded.background
+    if bg is None:
         return None
-    row = await _load_provider(session, user_id, user.default_background_provider_id)
+    if bg.origin == "platform":
+        creds = platform_llm_credentials(model=bg.model)
+        if creds is None:
+            return None
+        return creds, bg.model
+    if not bg.provider_id:
+        return None
+    row = await _load_provider(session, user_id, bg.provider_id)
     if row is None:
         return None
     creds = _decrypt_provider(row, user_id)
     if creds is None:
         return None
-    model = (
-        (user.default_background_model or "").strip()
-        or (row.default_model or "").strip()
-        or PLATFORM_MODEL_FLASH
-    )
-    return creds, model
+    return creds, bg.model
 
 
 def _model_config_from_creds(
@@ -356,7 +347,7 @@ def _model_config_from_creds(
         model=model,
         base_url=creds.base_url,
         api_key=creds.api_key,
-        source="byok",
+        source="byok" if creds.source != "platform" else "platform",
         purpose=purpose,
         price_cache_hit=creds.price_cache_hit,
         price_cache_miss=creds.price_cache_miss,
@@ -375,35 +366,54 @@ async def resolve_model_config(
     SELECTION / ADVISORY ONLY — never an authorization path (01 F10). For a keyless
     user this deliberately FALLS BACK to the platform model so token advisory / turn-
     profile selection still resolves a NAME; the billing gate
-    (``preflight_llm_credentials``) is the single authorization choke point.
+    (``preflight_llm_credentials`` / ``resolve_and_gate_background``) is the
+    authorization choke point.
 
-    D6: background purposes (title/memory/compaction/followups) prefer the account's
-    background provider pointer when set; else follow the chat provider with the
-    background *model*降档 (``platform_background_model`` fallback). Keyless users fall
-    to the platform key.
+    Background purposes (title/memory/compaction/followups) are **platform-first**
+    product chrome (industry-aligned: Cursor-style). BYOK is only a fallback when
+    platform credentials are unavailable. Chat purpose stays user-key-first unless the
+    account default is an explicit platform pointer.
     """
     is_background = purpose in _BACKGROUND_PURPOSES
 
     if is_background:
+        # Platform-first: product shell (titles, memory, …) does not follow the
+        # user's chat BYOK key. Model 降档 via platform_background_model.
+        platform_model = _model_for_purpose(purpose, chat_model=settings.platform_model)
+        platform = platform_llm_credentials(model=platform_model)
+        if platform is not None:
+            return ModelConfig(
+                model=platform_model,
+                base_url=platform.base_url,
+                api_key=platform.api_key,
+                source="platform",
+                purpose=purpose,
+            )
         bg = await _resolve_background(session, user_id)
         if bg is not None:
             creds, model = bg
             return _model_config_from_creds(creds, model, purpose)
+        row, chat_model, _origin = await _account_default(session, user_id)
+        if row is not None:
+            creds = _decrypt_provider(row, user_id)
+            if creds is not None:
+                model = _model_for_purpose(
+                    purpose, chat_model=chat_model, user_background_model=None
+                )
+                return _model_config_from_creds(creds, model, purpose)
+        return None
 
-    row, chat_model, _origin = await _account_default(session, user_id)
-    if row is not None:
+    row, chat_model, origin = await _account_default(session, user_id)
+    if origin == "byok" and row is not None:
         creds = _decrypt_provider(row, user_id)
         if creds is not None:
-            model = (
-                _model_for_purpose(purpose, chat_model=chat_model, user_background_model=None)
-                if is_background
-                else chat_model
-            )
-            return _model_config_from_creds(creds, model, purpose)
+            return _model_config_from_creds(creds, chat_model, purpose)
 
-    # Platform fallback: resolve the purpose-downgraded model name first, then its
-    # per-model credential (background 降档 may pick a different id than chat).
-    platform_model = _model_for_purpose(purpose, chat_model=settings.platform_model)
+    platform_model = (
+        chat_model
+        if origin == "platform"
+        else _model_for_purpose(purpose, chat_model=settings.platform_model)
+    )
     platform = platform_llm_credentials(model=platform_model)
     if platform is not None:
         return ModelConfig(
@@ -445,13 +455,8 @@ def resolve_turn_model(
 ) -> str:
     """Resolve the model for a user-facing turn.
 
-    Priority (会话级模型切换 MVP): ``conversation.model`` (session override) >
-    account ``default_model`` (BYOK creds) > ``platform_model`` > ``deepseek-v4-flash``.
-
-    ``conversation_model`` is the session-level override (``conversations.model``),
-    already validated against the user's catalog at write time (crud.py PATCH). Only
-    the MAIN chat turn threads it in (cloud via ``resolve_turn_profiles``; the sidecar
-    path via the inference proxy) — worker / debate fallback is unchanged.
+    Priority: explicit ``conversation_model`` (already expanded main from the profile)
+    > account ``default_model`` (BYOK creds) > ``platform_model`` > Flash.
     """
     if conversation_model and conversation_model.strip():
         return conversation_model.strip()

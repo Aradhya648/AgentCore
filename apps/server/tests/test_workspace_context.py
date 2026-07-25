@@ -32,7 +32,11 @@ def test_cloud_scratch_facts():
     )
     assert out.startswith("<workspace_context>")
     assert "执行位置：云端沙箱" in out
-    assert "云端临时空间" in out
+    assert "云端草稿/临时文件空间" in out
+    assert "不是用户本机目录" in out
+    assert "不是用户本机已打开的仓库" in out
+    assert "空树" in out
+    assert "本机空项目" in out or "宿主机器" in out
     assert "触达不了用户的电脑" in out
     assert "bind_local_folder" in out
     assert "立即" in out and "勿用纯文本" in out
@@ -49,7 +53,8 @@ def test_cloud_scratch_facts():
     assert "产物出口" in out
     assert "不在用户本机" in out
     assert "双击打开" in out
-
+    # 旧「云端临时空间」短标签已换成诚实草稿口径
+    assert "工作区身份：云端临时空间" not in out
 
 def test_local_remote_channel_facts():
     out = build_workspace_context(

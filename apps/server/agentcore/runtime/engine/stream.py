@@ -8,13 +8,12 @@ from dataclasses import dataclass
 from agentcore.config import settings
 from agentcore.core.errors import LLMTimeoutError
 from agentcore.core.logging import get_logger
-from agentcore.llm.observability import log_llm_call
-from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
 from agentcore.llm.provider.protocol import (
     BACKOFF_MULTIPLIER,
     INITIAL_BACKOFF,
     MAX_RETRIES,
     LLMChunk,
+    LLMProvider,
     LLMRequest,
     TokenUsage,
     ToolCall,
@@ -65,7 +64,7 @@ class StreamRoundResult:
 
 
 async def stream_llm_round(
-    llm: OpenAICompatibleProvider,
+    llm: LLMProvider,
     request: LLMRequest,
     emit_content: Callable[[str], None],
     emit_reasoning: Callable[[str], None],
@@ -265,23 +264,9 @@ async def stream_llm_round(
                 )
             )
 
-    # Per-call observability (chat + worker share this streaming path). latency is
-    # the full stream duration; finish_reason falls back to tool_calls/stop when the
-    # provider omits it on the usage chunk. Attributes via request.scenario + the
-    # ambient worker contextvars (run_id/agent_id/depth).
-    log_llm_call(
-        scenario=request.scenario,
-        model=request.model,
-        usage=usage,
-        finish_reason=finish_reason
-        or ("tool_calls" if tool_calls else ("aborted" if aborted else "stop")),
-        latency_ms=int((time.monotonic() - start) * 1000),
-        stream=True,
-        messages=request.messages,
-        content=content,
-        reasoning=reasoning,
-        tool_names=[tc.function.name for tc in tool_calls] if tool_calls else None,
-    )
+    # Per-call ``llm.call`` is emitted by the ``observe_provider`` fence on the
+    # leaf (build_provider) when each ``stream()`` completes — not here — so
+    # stall retries and proxy paths share one emit point without double-metering.
 
     return StreamRoundResult(
         content=content,

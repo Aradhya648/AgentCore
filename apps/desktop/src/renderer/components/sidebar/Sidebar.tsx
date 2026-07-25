@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand/BrandMark";
 import { IconButton, SearchTrigger, SurfaceRowButton } from "@/components/ui";
 import { isWebClient } from "@/lib/capabilities";
 import { startNewConversation } from "@/lib/newConversation";
@@ -65,8 +66,8 @@ export function Sidebar() {
               className={`flex items-center gap-1 ${collapsed ? "justify-center" : "px-1"}`}
             >
               {!collapsed && (
-                <span className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-sidebar-foreground">
-                  AgentCore
+                <span className="flex flex-1 items-center gap-1.5 text-sidebar-foreground">
+                  <BrandMark size="sm" />
                   {import.meta.env.DEV && (
                     <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                       DEV

@@ -46,10 +46,7 @@ describe("ToolResultView · grep / code_search clickable paths", () => {
       name: "src/widgets/Foo.tsx:42",
     });
     fireEvent.click(link);
-    expect(showFile).toHaveBeenCalledWith(
-      "src/widgets/Foo.tsx",
-      "Foo.tsx",
-    );
+    expect(showFile).toHaveBeenCalledWith("src/widgets/Foo.tsx", "Foo.tsx");
   });
 
   it("code_search hit path click calls showFile", () => {
@@ -65,9 +62,7 @@ describe("ToolResultView · grep / code_search clickable paths", () => {
         })}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "lib/util.py:12-40" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "lib/util.py:12-40" }));
     expect(showFile).toHaveBeenCalledWith("lib/util.py", "util.py");
   });
 

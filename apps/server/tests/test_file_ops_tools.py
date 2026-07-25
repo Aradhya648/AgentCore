@@ -242,24 +242,75 @@ async def test_append_rejects_directory_target(tmp_path: Path):
 
 
 async def test_append_receipt_echoes_merged_tail(tmp_path: Path):
-    # append 只写增量、模型上下文没有合并后的全文；回执必须回显「文件当前末尾」，让 worker 当轮
-    # 确认「追加落对没」，免掉那一轮纯回读自检（trace 4d715ea0 里 8 个 append worker 的空转来源）。
+    # append 回执改为 artifact manifest（含 end_preview），免掉纯回读自检。
     (tmp_path / "draft.md").write_text("# Intro", encoding="utf-8")
     result = await FileAppendTool().execute(
         {"path": "draft.md", "content": "\n\n## Section 2"}, _ctx(tmp_path)
     )
     assert result.success is True
-    assert "## Section 2" in result.output  # 合并后的新末尾被回显
-    assert "无需再读回确认" in result.output
+    assert "## Section 2" in result.output  # end_preview / title_tree
+    assert "artifact manifest" in result.output
+    assert "禁止对本文件再 file_read" in result.output
 
 
 async def test_write_receipt_notes_persisted(tmp_path: Path):
-    # file_write 内容即模型本次提交的全文，无需回显；回执点明「已落盘、无需回读」以抑制自检回读。
+    # file_write 回执 = artifact manifest；禁止再 file_read 回读。
     result = await FileWriteTool().execute(
-        {"path": "report.md", "content": "# Hi"}, _ctx(tmp_path)
+        {"path": "report.md", "content": "# Hi\n\n## A\n"}, _ctx(tmp_path)
     )
     assert result.success is True
-    assert "无需再读回确认" in result.output
+    assert "artifact manifest" in result.output
+    assert "content_sha256:" in result.output
+    assert "title_tree:" in result.output
+    assert "禁止对本文件再 file_read" in result.output
+    assert "kind: skeleton" in result.output
+
+
+async def test_write_prose_then_append_rejected(tmp_path: Path):
+    """成篇 file_write 后同 path file_append 硬拒（Artifact-first）。"""
+    prose = "# 报告\n\n" + ("这是实质正文段落。" * 50)  # well over substantial
+    assert len(prose) >= 400
+    ctx = _ctx(tmp_path)
+    w = await FileWriteTool().execute({"path": "essay.md", "content": prose}, ctx)
+    assert w.success is True
+    assert "kind: prose" in w.output
+    assert ctx.landed_artifact_kinds.get("essay.md") == "prose"
+    blocked = await FileAppendTool().execute(
+        {"path": "essay.md", "content": "\n\n## 续章\n更多。"}, ctx
+    )
+    assert blocked.success is False
+    assert blocked.contract_failure is True
+    assert "拒绝追加" in (blocked.error or "")
+    assert "str_replace" in (blocked.error or "")
+
+
+async def test_write_skeleton_then_append_allowed(tmp_path: Path):
+    skeleton = "# 报告\n\n## 一\n\n## 二\n\n<!-- OUTLINE -->\n"
+    ctx = _ctx(tmp_path)
+    w = await FileWriteTool().execute({"path": "report.md", "content": skeleton}, ctx)
+    assert w.success is True
+    assert ctx.landed_artifact_kinds.get("report.md") == "skeleton"
+    a = await FileAppendTool().execute(
+        {"path": "report.md", "content": "\n\n## 一\n\n正文填空。\n"}, ctx
+    )
+    assert a.success is True
+    assert "artifact manifest" in a.output
+
+
+async def test_file_read_rejects_self_product(tmp_path: Path):
+    """本 run 已落盘路径的 body file_read → contract_failure；不计成功读次数。"""
+    ctx = _ctx(tmp_path)
+    w = await FileWriteTool().execute(
+        {"path": "out.md", "content": "# Title\n\n## Sec\n"}, ctx
+    )
+    assert w.success is True
+    blocked = await FileReadTool().execute({"path": "out.md"}, ctx)
+    assert blocked.success is False
+    assert blocked.contract_failure is True
+    assert "拒绝 file_read" in (blocked.error or "")
+    assert "artifact manifest" in (blocked.error or "") or "现盘结构" in (blocked.error or "")
+    assert "title_tree" in (blocked.error or "")
+    assert ctx.file_read_counts.get("out.md", 0) == 0
 
 
 # --- file_write overwrite integrity nudge ---
@@ -355,8 +406,8 @@ async def test_write_length_nudge_on_oversized_content(tmp_path: Path):
     assert result.success is True
     assert (tmp_path / "big.html").read_text(encoding="utf-8") == body
     assert "内容较长" in result.output
-    assert "骨架 file_write" in result.output
-    assert "分段 file_append" in result.output
+    assert "Artifact-first" in result.output
+    assert "短骨架" in result.output
     assert "绝不拦截本次写入" in result.output
     assert str(_WRITE_LENGTH_WARN_TOKENS) in result.output
     assert str(_WRITE_LENGTH_WARN_CHARS) in result.output
@@ -371,46 +422,53 @@ async def test_write_no_length_nudge_below_threshold(tmp_path: Path):
     )
     assert result.success is True
     assert "内容较长" not in result.output
-    assert "骨架 file_write" not in result.output
+    assert "Artifact-first" not in result.output
 
 
 async def test_write_then_append_segmented_path(tmp_path: Path):
-    """骨架 file_write + 分段 file_append 是大产物默认路径（不硬拒、可组合）。"""
-    skeleton = "<!doctype html>\n<html>\n<head></head>\n<body>\n"
+    """建站 HTML 短骨架 + SECTION 填空：append 仍放行（勿误伤）。"""
+    skeleton = (
+        "<!doctype html>\n<html>\n<head></head>\n<body>\n"
+        "<!-- SECTION:s0 START -->\n<!-- SECTION:s0 END -->\n"
+    )
     section = "  <section>hello</section>\n"
     closing = "</body>\n</html>\n"
 
+    ctx = _ctx(tmp_path)
     w = await FileWriteTool().execute(
-        {"path": "site/index.html", "content": skeleton}, _ctx(tmp_path)
+        {"path": "site/index.html", "content": skeleton}, ctx
     )
     assert w.success is True
     assert "内容较长" not in w.output
+    assert ctx.landed_artifact_kinds.get("site/index.html") == "skeleton"
 
     a1 = await FileAppendTool().execute(
-        {"path": "site/index.html", "content": section}, _ctx(tmp_path)
+        {"path": "site/index.html", "content": section}, ctx
     )
     assert a1.success is True
     assert "已追加" in a1.output
 
     a2 = await FileAppendTool().execute(
-        {"path": "site/index.html", "content": closing}, _ctx(tmp_path)
+        {"path": "site/index.html", "content": closing}, ctx
     )
     assert a2.success is True
     merged = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
     assert merged == skeleton + section + closing
 
 
-def test_write_schema_teaches_chunked_default():
+def test_write_schema_teaches_artifact_first():
     write_desc = FileWriteTool().schema.description
-    assert "骨架 file_write" in write_desc
-    assert "分段 file_append" in write_desc
+    assert "Artifact-first" in write_desc
+    assert "短骨架" in write_desc or "骨架" in write_desc
     assert "中间省略" in write_desc
+    assert "manifest" in write_desc
     content_desc = FileWriteTool().schema.parameters["properties"]["content"]["description"]
-    assert "骨架" in content_desc or "file_append" in content_desc
+    assert "骨架" in content_desc or "一次写完" in content_desc
 
     append_desc = FileAppendTool().schema.description
     assert "骨架" in append_desc
     assert "file_write" in append_desc
+    assert "成篇" in append_desc or "禁止" in append_desc
 
 
 def test_length_nudge_helpers_pin_threshold():
@@ -428,8 +486,24 @@ def test_length_nudge_helpers_pin_threshold():
     assert is_oversized_write("x" * _WRITE_LENGTH_WARN_CHARS)
     assert write_length_nudge("a.md", "short") is None
     text = length_nudge_text(path="a.md", chars=_WRITE_LENGTH_WARN_CHARS)
-    assert "骨架 file_write" in text
+    assert "Artifact-first" in text
     assert "绝不拦截本次写入" in text
+
+
+def test_classify_write_kind_helpers():
+    from agentcore.tools.builtin.file_ops import (
+        classify_write_kind,
+        extract_title_tree,
+        has_skeleton_markers,
+    )
+
+    assert has_skeleton_markers("<!-- SECTION:s0 START -->")
+    assert has_skeleton_markers("<!-- OUTLINE -->")
+    assert classify_write_kind("# A\n\n## B\n\n<!-- OUTLINE -->\n") == "skeleton"
+    assert classify_write_kind("短") == "skeleton"
+    prose = "# T\n\n" + ("正文内容。" * 80)
+    assert classify_write_kind(prose) == "prose"
+    assert extract_title_tree("# Hello\n\n## World\n") == ["# Hello", "## World"]
 
 
 # --- file_delete ---

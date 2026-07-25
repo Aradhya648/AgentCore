@@ -119,17 +119,6 @@ interface UIState {
     conversationId: string,
     mode: "chat" | "canvas",
   ) => void;
-  /**
-   * @deprecated Preview-only stub. Production zoom is `#/conversations/:id/turn/:turnId`
-   * via {@link turnDetailPath}. Kept so PreviewPage's `?zoom=` path still compiles until
-   * preview is wired to the turn-detail route.
-   */
-  requestCanvasFocus: (
-    turnId: string,
-    autoplay: boolean,
-    view?: TurnDetailView,
-    comparePair?: [string, string],
-  ) => void;
   setSidecarEnabled: (v: boolean) => void;
 }
 
@@ -206,8 +195,6 @@ export const useUIStore = create<UIState>((set) => ({
       persistConversationViews(conversationViews);
       return { conversationViews };
     }),
-  // Preview-only no-op (see UIState.requestCanvasFocus).
-  requestCanvasFocus: () => undefined,
   setSidecarEnabled: (sidecarEnabled) => {
     const sidecarPreference: SidecarPreference = sidecarEnabled ? "on" : "off";
     persistSidecarPreference(sidecarPreference);

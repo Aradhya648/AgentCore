@@ -51,7 +51,7 @@ describe("describeStreamError", () => {
 
   it("falls back to a config hint for a 402 with no server message", () => {
     const err = new StreamError("http", 402, { code: "LLM_KEY_REQUIRED" });
-    expect(describeStreamError(err)).toContain("模型配置");
+    expect(describeStreamError(err)).toContain("服务商");
     expect(describeStreamError(err)).not.toContain("服务暂时不可用");
   });
 
@@ -106,21 +106,21 @@ describe("isRetriableStreamError", () => {
 });
 
 describe("errorActionForCode", () => {
-  it("routes missing and invalid keys to the model-config page", () => {
+  it("routes missing and invalid keys to the providers page", () => {
     expect(errorActionForCode("LLM_KEY_REQUIRED")).toEqual({
       label: "去设置",
-      href: "/more/model",
+      href: "/more/providers",
     });
     expect(errorActionForCode("LLM_KEY_INVALID")).toEqual({
       label: "去设置",
-      href: "/more/model",
+      href: "/more/providers",
     });
   });
 
-  it("routes FREE_TIER_EXHAUSTED to model config (conversion CTA)", () => {
+  it("routes FREE_TIER_EXHAUSTED to providers (conversion CTA)", () => {
     expect(errorActionForCode("FREE_TIER_EXHAUSTED")).toEqual({
       label: "去设置",
-      href: "/more/model",
+      href: "/more/providers",
     });
     const err = new StreamError("http", 429, {
       code: "FREE_TIER_EXHAUSTED",
@@ -132,19 +132,19 @@ describe("errorActionForCode", () => {
     expect(isRetriableStreamError(err)).toBe(false);
     expect(streamErrorAction(err)).toEqual({
       label: "去设置",
-      href: "/more/model",
+      href: "/more/providers",
     });
   });
 
   it("routes balance errors to settings; quota offers a BYOK secondary exit (F6)", () => {
     expect(errorActionForCode("LLM_INSUFFICIENT_BALANCE")).toEqual({
       label: "去设置",
-      href: "/more/model",
+      href: "/more/providers",
     });
     // 平台额度耗尽补次级 CTA「接入自己的 Key」(成本配额与计费 §〇·六 F6).
     expect(errorActionForCode("QUOTA_EXCEEDED")).toEqual({
       label: "接入自己的 Key",
-      href: "/more/model",
+      href: "/more/providers",
     });
     expect(errorActionForCode(undefined)).toBeNull();
   });
@@ -154,7 +154,7 @@ describe("errorActionForCode", () => {
       streamErrorAction(
         new StreamError("http", 402, { code: "LLM_KEY_REQUIRED" }),
       ),
-    ).toEqual({ label: "去设置", href: "/more/model" });
+    ).toEqual({ label: "去设置", href: "/more/providers" });
     expect(streamErrorAction(new Error("boom"))).toBeNull();
   });
 });

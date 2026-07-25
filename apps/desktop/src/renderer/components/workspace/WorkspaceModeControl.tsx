@@ -199,8 +199,8 @@ export function WorkspaceModeMenu({
       ? `项目 · ${projectName}`
       : "项目工作区"
     : isLocal
-      ? "草稿 · 本地"
-      : "草稿 · 云";
+      ? "本机草稿"
+      : "云端草稿";
 
   const subtitle = isLocal
     ? rootMissing
@@ -209,10 +209,10 @@ export function WorkspaceModeMenu({
         ? viaProject
           ? `本地 · ${rootName}`
           : `默认容器 · ${rootName}`
-        : "本地工作区"
+        : "本机草稿"
     : viaProject
       ? "云端共享空间"
-      : "文件存放在团队云端";
+      : "快速对话 · 文件随对话保存在云端";
 
   return (
     <>

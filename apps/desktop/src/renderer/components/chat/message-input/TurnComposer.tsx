@@ -9,6 +9,7 @@ import {
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { useFolders } from "@/hooks/useFolders";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
+import { useModels } from "@/hooks/useModels";
 import {
   COMPOSER_CONTINUE_PLACEHOLDER,
   isContinuableAssistant,
@@ -111,8 +112,9 @@ export function TurnComposer({
     : MIN_COMPOSER_HEIGHT_CARD;
   const isGenerating = useActiveGenerating();
   const { data: llmProviders } = useLlmProviders();
+  const { data: modelCatalog } = useModels();
   const toolsGateHint = needsToolsGateHint(
-    defaultChatSupportsTools(llmProviders),
+    defaultChatSupportsTools(llmProviders, modelCatalog?.current?.provider_id),
   );
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const lastMessage = useConversationStore((s) => {
@@ -372,6 +374,8 @@ export function TurnComposer({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // N4-A：离线硬禁用（与发送按钮一致；handleSend 仍有兜底）。
+      if (serverUnhealthy) return;
       // 生成中也发送：handleSend 内部走 mid-flight 插话分支。
       void handleSend();
     }
@@ -418,7 +422,9 @@ export function TurnComposer({
 
   // 生成中：发送=插话（送给正在工作的团队 / 排到下一回合），与停止并存；
   // 停止键始终可用以打断回合。
-  const interjectDisabled = !value.trim();
+  // N4-A：只读离线硬禁用发送（含插话）。
+  const sendBlocked = serverUnhealthy;
+  const interjectDisabled = !value.trim() || sendBlocked;
   const sendControls = isGenerating ? (
     <>
       <IconButton
@@ -427,6 +433,7 @@ export function TurnComposer({
         onClick={() => void handleSend()}
         disabled={interjectDisabled}
         aria-label="发送插话"
+        title={sendBlocked ? "离线时无法发送" : undefined}
       >
         <Send size={14} />
       </IconButton>
@@ -444,8 +451,9 @@ export function TurnComposer({
       size="md"
       tone="primary"
       onClick={() => void handleSend()}
-      disabled={!value.trim()}
+      disabled={!value.trim() || sendBlocked}
       aria-label={bg ? "派发到云端后台" : "发送"}
+      title={sendBlocked ? "离线时无法发送" : undefined}
     >
       {bg ? <CloudUpload size={14} /> : <Send size={14} />}
     </IconButton>

@@ -10,7 +10,7 @@ skip_if:
 
 # 编排器与 CEO 主 Agent
 
-> **状态**：已确定并落地（CEO 主 Agent + `delegate` 原语 + 协调者工具边界 档2.5：CEO 仅持只读/检索工具，且这些工具只供**侦察/收尾**——生产变更与**成规模的广度调查**都委派）；CEO/worker 的 system prompt 已确立「身份 + 边界」结构，路由先判**信息够不够**（产出类请求没说全先 `ask_user` 开工提案卡）、再按**两档路由**判自己做/交团队（直答 / 委派；委派内再按单 worker vs 多 worker DAG 规划），细节（worker 角色模板 / 各 Skill 正文打磨）待迭代
+> **状态**：已确定并落地（CEO 主 Agent + `delegate` 原语 + 协调者工具边界 档2.5：CEO 仅持只读/检索工具，且这些工具只供**侦察/收尾**——生产变更与**成规模的广度调查**都委派）；CEO/worker 的 system prompt 已确立「身份 + 边界」结构，路由**第一拍**定方向（糊需求立刻开工提案卡、勿先 consult；短文未落盘直答 / 落盘派 1 人；该派就派、按活的自然缝拆人），细节（worker 角色模板 / 各 Skill 正文打磨）待迭代
 >
 > → 见代码：`apps/server/agentcore/runtime/delegate/`（已由单文件拆为包）、`tools/builtin/replan.py`
 
@@ -44,16 +44,16 @@ CEO 是**管理者**（不是调查员）：它只直接持有「只读 / 检索
 | 切法 | 决策 |
 |------|------|
 | 分界依据（结构） | 按工具 `approval` 级别：`NEVER`（自动执行、不改环境）= CEO 直接持有；`GRANTABLE`（改动环境、需授权）= 仅 worker 持有。语义自洽，且新增只读工具自动归 CEO、新增变更工具自动留 worker（单一事实源 `build_builtin_registry`） |
-| 【直答】（路由） | 单点确认（一两处文件 / 一条事实就能答）、读已知的少量文件、纯问答 / 闲聊 / 解释、分析推理类的**简短回应**，以及**开工前的轻量探路**——零团队开销，首字即时 |
-| 【委派】（路由） | 凡需 worker 动手的活：① 实质交付物（代码 / 应用 / 网页、脚本、配置、**成篇**报告 / 文档；哪怕只写一个文件、改一行；task 里点明落盘、成篇文字写 `.md`）；② **成规模的广度调查**（要横扫大量文件 / 来源、可拆多角度并行、需多视角对比 / 辩论、产生大量中间内容）——**哪怕只读、哪怕最终只回一段话**。单 worker 能胜任则 `finalize=true` 直出；多方向 / 多依赖 / 多专长先 `consult_skill(team_orchestration_advanced)` 再规划 DAG |
+| 【直答】（路由） | 单点确认（一两处文件 / 一条事实就能答）、读已知的少量文件、纯问答 / 闲聊 / 解释、**聊天里短文或短改写（未要求存文件）**、以及**开工前的轻量探路**——零团队开销，首字即时 |
+| 【委派】（路由） | 凡需 worker 动手的活：① 实质交付物（代码 / 应用 / 网页、脚本、配置、**要求落盘**的成篇文字；哪怕只写一个文件、改一行；task 里点明落盘）；② **成规模的广度调查**（要横扫大量文件 / 来源、可拆多角度并行、需多视角对比 / 辩论、产生大量中间内容）——**哪怕只读、哪怕最终只回一段话**。单 worker 能胜任则 `finalize=true` 直出；形状拿不准才 `consult_skill(team_orchestration_advanced)` |
 
-> **发问优先判据：先判信息够不够、再判规模 ✅ 已落地**：路由两步先后——① 产出类请求若关键高杠杆决策用户没说全，先用 `ask_user` 开**开工提案卡**再动手；② 信息齐了再按「活的规模与结构」判自己做 vs 交团队。**为何前置**：原路由只有「自己做 vs 交团队」一根二元轴，「先问还是先干」不在轴上；提为第一道闸、靠「预填默认=一键通过」避免退回问题墙。详见 §四。→ 见代码: `runtime/resolve/prompt.py`
+> **发问优先判据：先判信息够不够、再判规模 ✅ 已落地**：路由第一拍——① 产出类请求若关键高杠杆决策用户没说全，**立刻** `ask_user` 开**开工提案卡**（勿先 consult 再开卡）；② 信息齐了再按「活的规模与结构」判自己做 vs 交团队。**为何前置**：原路由只有「自己做 vs 交团队」一根二元轴，「先问还是先干」不在轴上；提为第一道闸、靠「预填默认=一键通过」避免退回问题墙。详见 §四。→ 见代码: `runtime/resolve/prompt.py`
 
-> **委派判据：活的规模与结构，而非「产出是不是文件」也非「有没有工具」✅ 已落地**：轻量 / 单点的只读请求 CEO 直答；一旦是**有规模或多角度**的活——实质交付物，**或成规模的广度只读调查**——就 `delegate` 交团队，哪怕答复只是一段话。关键转变：判据看**活的形态**，不看**答复形态**。**运行期收敛护栏**：主要靠系统提示词从第 0 轮立框——曾试「累计 N 次只读即软提醒」的代码侧护栏，**A/B 实测被忽略且净负，已移除**；代码侧只保留失控暴走硬兜底（默认关）。配套：CEO 绝不为省委派把整份代码贴进正文。→ 见代码: `runtime/resolve/prompt.py`
+> **委派判据：活的规模与结构，而非「产出是不是文件」也非「有没有工具」✅ 已落地**：轻量 / 单点的只读请求 CEO 直答；一旦是**有规模或多角度**的活——实质交付物，**或成规模的广度只读调查**——就 `delegate` 交团队，哪怕答复只是一段话。关键转变：判据看**活的形态**，不看**答复形态**。**短文分界**：未要求存文件 → 回复里直写；明确落盘 → 派 1 人。**运行期收敛护栏**：主要靠系统提示词从第 0 轮立框——曾试「累计 N 次只读即软提醒」的代码侧护栏，**A/B 实测被忽略且净负，已移除**；代码侧只保留失控暴走硬兜底（默认关）。配套：CEO 绝不为省委派把整份代码贴进正文；思考里禁止先写完整设计 / 大段代码。→ 见代码: `runtime/resolve/prompt.py`
 
-> **团队形态判据：实质任务默认组队、判据双向、广度调查归团队 ✅ 已落地**：上面的委派判据定「要不要委派」；这条定「委派后团队多大」。**① 实质任务默认组队**：门槛 = **可分解**或质量面敏感 → 组队；`finalize=true` 单 worker 直出只留给机械单步。（曾定「默认不拆」，后被协作优先重设计推翻：协作是产品第一性，协调税由 gate 度量而非预先回避。）**② 判据双向**：拆几个看【活的自然结构】；拿不准先 `consult_skill`。**③ 广度调查归团队**：横扫大量来源、可拆多角度的只读调查也扇出并行调研 worker，task 点明「回报精炼结论、不回贴整段正文」。CEO 只读工具只用于开工前探路 + 收尾综述。**注意**：`result_handling` 只管上游→下游注入，**不**影响回到 CEO 的内容。**④ 对抗 solo 塌缩**：提示词路由自检 + 引擎 `team_gate` 仅保留调查工具累计 ≥3 仍欲继续时的软闸门；曾有的「早期无工具长正文 → 丢弃草稿复核」已撤（误伤正当长直答）。→ 见代码: `runtime/engine/governance.py`
+> **团队形态判据：按活的自然缝拆、能少则少 ✅ 已落地**：上面的委派判据定「要不要委派」；这条定「委派后团队多大」。**① 该派就派**：可分解或质量面敏感 → 派；`finalize=true` 单 worker 留给机械单步或单人落盘短文。**② 按缝拆、不按工种凑**：拆几个看【活能不能独立并行】；「调研+写码+点评+合成一篇」这类跨域合成流水线少派（常见 1～2 人），勿默认每人一种专长（对齐 compare 跨域溃败实证）。拿不准先少派，不够再加；形状拿不准才 `consult_skill`。**③ 广度调查归团队**：横扫大量来源、可拆多角度的只读调查也扇出并行调研 worker，task 点明「回报精炼结论、不回贴整段正文」。CEO 只读工具只用于开工前探路 + 收尾综述。**注意**：`result_handling` 只管上游→下游注入，**不**影响回到 CEO 的内容。**④ 对抗 solo 塌缩**：提示词路由第一拍（一句定方向）+ 引擎 `team_gate`（调查工具累计 ≥3）：一律硬收调查工具；仍可直答（须给归类理由）或 `delegate`，禁止再搜/再读；成篇调研意图（`is_research_report_intent`）硬停时仍追加形状句（宜 `research_report` / ≥2 角，禁 `none`+单人）；本地改文件探路阈（≥2）独立。曾有的「早期无工具长正文 → 丢弃草稿复核」已撤（误伤正当长直答）。→ 见代码: `runtime/engine/governance.py`
 >
-> **首轮组队收益实证（2026-07-21 `--compare` 16 用例，5.2 单模型，数据 `apps/server/eval-out/comparison-merged.json`）**：team vs 单体成对裁判——**赢面**：深度并行调研（`par_collab_p1_ai_labs` 单体 passk 全挂 team 全过；`par_rag_survey` 胜率 0.70 且成本仅单体 53%）、技术选型辩论（`dbt_storage_pick` 0.70 零负场）；**同预算对照（matched_single）下 team 成本全部更低（0.21–0.53×）且更稳过硬性判据**——team 的实证价值是「同预算更便宜/更稳过线」，非「更聪明」（裁判在连贯深度上常偏爱单体，passk×win_rate 背离已记档）；**负面**：简单任务组队零增益纯付 3 倍成本（预期内）；**跨域整合 4 用例 team 全面溃败（avg 胜率 0.175、3 例 team passk=false 而单体全过）——分工接缝损耗 > 专业分工收益，与「实质任务默认组队」判据存在张力**，是否按原型收窄组队判据待产品层拍板（样本与模型单一，先记事实不改判据）。数据质量保留与复跑姿势见 [本地开发 · evals 评测跑法](/docs/02-架构/本地开发.md)。
+> **首轮组队收益实证（2026-07-21 `--compare` 16 用例，5.2 单模型，数据 `apps/server/eval-out/comparison-merged.json`）**：team vs 单体成对裁判——**赢面**：深度并行调研（`par_collab_p1_ai_labs` 单体 passk 全挂 team 全过；`par_rag_survey` 胜率 0.70 且成本仅单体 53%）、技术选型辩论（`dbt_storage_pick` 0.70 零负场）；**同预算对照（matched_single）下 team 成本全部更低（0.21–0.53×）且更稳过硬性判据**——team 的实证价值是「同预算更便宜/更稳过线」，非「更聪明」（裁判在连贯深度上常偏爱单体，passk×win_rate 背离已记档）；**负面**：简单任务组队零增益纯付 3 倍成本（预期内）；**跨域整合 4 用例 team 全面溃败（avg 胜率 0.175）**——产品层已收窄为「按缝拆、跨域合成少派」，见上条团队形态判据。数据质量保留与复跑姿势见 [本地开发 · evals 评测跑法](/docs/02-架构/本地开发.md)。
 
 > **认知分工判据：约束归 CEO、专业方案归专家；派单「指路不代答」 ✅ 已落地**：task 只写【目标·约束·验收】；交付物的【专业方案】与【专业判断】默认归专家 worker，除非用户已明确指定结构。`contract` 是**验收契约**而非结构蓝图。审查类越界：编号「重点关注」清单（含风险预判）不得写进 task 替 worker 作答——正确去处是 `seed_notes`(kind=heads_up)。worker 侧对称：关注点清单是起点线索不是答题边界。→ 见代码: `runtime/resolve/prompt.py`
 
@@ -71,7 +71,7 @@ CEO 是**管理者**（不是调查员）：它只直接持有「只读 / 检索
 
 > **调研引用：worker 引回合台账 `#rN` ✅ 已落地**：并行调研 worker 与 CEO 共用**回合级共享台账**（登记即拿全局 stable id）；成稿只引 `#rN`，handoff / Delegate 汇入**禁止重写**正文 id（否则重排病复发）。worker 仍 `annotate_citations=False`（不注入会重排的池序号 `[n]`），但经台账拿 stable id 注解 + id 存在闸。CEO 汇总继承同一台账、不得对同一 URL「重新编号」；用户可见角标可用展示层 `[n]`（display map），**n 是展示、id 是真理**。→ 见 [工具与能力 · 引用质量闸](/docs/03-AI核心/工具与能力系统.md)、[执行引擎 · finish_guard](/docs/03-AI核心/执行引擎架构设计.md)。
 >
-> **主张须证（P3 prompt）✅ 已落地 · 机械闸 ⏳**：调研成稿与 CEO 综述对关键数字 / 关键结论须旁标 `#rN` 或显式待核实语（共享基座 `<claim_evidence>` + CEO `citing_sources`【汇总继承】）；不强迫辩词 `【已核实·#eN】` 二分、不加机械抽查闸（机械闸待观测数据 → [远期规划 §三·主张须证机械闸](/docs/06-规划/远期规划.md)）。
+> **主张须证（P3 prompt）✅ 已落地 · 机械闸 ⏳**：调研成稿与 CEO 综述对关键数字 / 关键结论须旁标 `#rN` 或显式待核实语（共享基座 `<claim_evidence>` + CEO `citing_sources`【汇总继承】）；不强迫辩词 `【已核实·#eN】` 二分、不加机械抽查闸（机械闸待观测数据 → 远期规划 §三·主张须证机械闸（详细提案不在公开仓 / 维护者本地））。
 >
 > **撤销「worker 不编号」**：旧决策因各 worker 本地列表汇入时按到达序重排、正文 `[n]` 会对错卡——根因是「本地起编 + 事后合并」，不是「worker 不该引用」。现状改为共享台账原子 id 后根因消失；**不是**简单打开旧 `annotate_citations=True`。**被否**：handoff 时重写正文 id「对齐」全局编号（等同重排病）。
 
@@ -82,6 +82,8 @@ CEO 是**管理者**（不是调查员）：它只直接持有「只读 / 检索
 > **否决悬空预留 `Deliverable.output_schema`**：曾作阶段 2 JSON Schema 预留位，无 schema 入口、不校验——假能力已删除；路径级验收由 `artifacts` 清单承载。
 
 > **CEO 提示词分层 ✅ 已落地**：常驻 = 路由脊柱 + 能力目录 + 短钩子；进阶 HOW 在系统 Skill，用时 `consult_skill`。**分层不变量**：同一条知识只在唯一所有者出现。要点：① 核心只写工具**边界**（只读 / 检索 vs 改东西须 `delegate`），不手抄工具名——真名以本回合工具列表 / 注册表为准；② consult 强度**按场面**（多人 / 套 playbook / 没把握 → 必查 `team_orchestration_advanced`；单人清楚可 finalize → 可不查），核与目录 preamble 同句（`CONSULT_TEAM_ORCH_BY_SCENE`）；③ 开场 `ask_user` = **开工提案卡**，`team_preview` = 口语「开工卡」/ 团队预览，勿混名；④ 引用：共享底管「`#rN` 真假引擎查」与「主张须证·暂靠提醒」，CEO citing 只管汇总继承。→ 见代码：`runtime/resolve/prompt.py`、`runtime/skills.py`、`tools/builtin/ask_user/`。
+
+> **冷启动探索幕 ✅ 已落地（P0+P1+过期再探）**：有项目（`folder_id`）+ 实质请求 +（项目 `画像.md` 空 **或** `_memory_meta` 中 `explore_workspace_key` 与当前绑定不一致）→ CEO 提示注入 `<cold_start_explore>`（空仓建档 / 绑定已变两套文案），须先轻量探路 → `delegate`（`team_preview`）组调研队 → 收尾 `update_project_profile` 合并写入项目画像并记录 `workspace_key`（可选 `topics`≤3；本回合工具回灌 + worker prompt 热补丁可见）→ **立刻继续原请求**。用户点名「先了解 / 重新了解 / 刷新项目记忆」强制开幕（合并更新）。旧画像无 key → 不因缺 key 硬开。裸聊 / 纯闲聊 / 空工作区不自动开幕、不写假画像。不新建 Explore 原语；指纹/天数/commit 自动重探不做。→ 见代码: `memory/explore_profile.py`、`tools/builtin/update_project_profile.py`、`runtime/resolve/prompt.py`、`runtime/pipeline/assemble.py`。
 
 > **CEO 工具面瘦身（schema 短触发 + 条件注入）✅ 已落地**：① 长描述迁入 `consult_skill` 渐进披露，schema 只留短触发句 + 关键参数；② **闲聊态**不向 LLM 注入 `replan` + 协调四件套——注入闸与协调工具执行闸对齐；`delegate` / `ask_user` / `debate` **常驻**；进入协调或经典波边界让出时回合内补注册。→ 见代码: `runtime/resolve/ceo_surface.py`
 
@@ -151,7 +153,7 @@ CEO 在自己的 ReAct 循环里调用单一的 `delegate` 工具把一批子任
 
 多 worker 且根 CEO（`depth==0`）、非 `finalize` 时，`delegate` **默认**立即返回「团队已启动」，`WaveScheduler` 后台跑；CEO 继续 ReAct，消费团队事件（完成 / 便签 / 升级 / 超时 / 全部完成）并在有语义增量时用 `update_synthesis` 合成中间稿。同回合再调 `delegate` = 往**【同一张】协作图**动态追加 worker（同 `execution_id` 合并），**不必**等上一批全部完成。传 `coordinate=false` 显式退出到经典阻塞；单 worker、`finalize`、嵌套 lead（`depth>0`）、批含 `checkpoint_after` 且把关闸开 **仍走阻塞语义**。
 
-**生命周期与回合解耦（异步团队）✅**：协调 session / 后台 drive 寿命不绑聊天回合；后台自建自关独立 LLM client；**SSE 断连** teardown **不得** `clear` 仍在跑的 session（detach 续跑）。**显式 user `/stop`** 例外：级联取消协调 drive 与全部在跑 worker，已完成产出保留进收口消息（文案「已停止」；「连接中断」仅留给真断连路径）。→ 见代码: `runtime/coordination/session.py` `cancel_coordination_on_user_stop` / `release_turn_coordination`、`runtime/turn_runs.py` `stop`、`runtime/turn_interrupt.py`。
+**生命周期与回合解耦（异步团队）✅**：协调 session / 后台 drive 寿命不绑聊天回合；后台自建自关独立 LLM client；**SSE 断连** teardown **不得** `clear` 仍在跑的 session（detach 续跑）。**显式 user `/stop`** 例外：级联取消协调 drive 与全部在跑 worker，已完成产出保留进收口消息（终态由 `incomplete` / `finish_reason` + 前端状态条呈现；正文不再写括号说明）。→ 见代码: `runtime/coordination/session.py` `cancel_coordination_on_user_stop` / `release_turn_coordination`、`runtime/turn_runs.py` `stop`、`runtime/turn_interrupt.py`。
 
 **异步团队产出投递（批次 1）✅**：执行升格为对话级实体，回合只是观察窗口。四支柱：
 
@@ -204,7 +206,7 @@ CEO 收尾从「写综述」升级为「**先对账拼图边、再核验原始�
 - **第一道（4b）· 语义边界对账**：在三处接缝先对「拼不拼得上」——**只查冲突 / 缺口 / 重复，不评每块好不好**：① `format_for_ceo`（合并前；CEO 自判「相互依赖、要拼到一起」才查，独立并行跳过）；② `supervised.py::format_bind_boundary`（定稿下游前对上游，catch-early）；③ `format_scope_boundary`（队员报偏离时主动查兄弟接缝——即「`escalate scope` 等举手」的**主动版**）。对出问题就地续派/`replan`/`ask_user`，别在概览里糊过去。判据同便签墙：块间有没有共享接口 / 相互依赖。
 - **第二道（4a）· 成品对照原始目标 + 完工判定**（实证 ROI 最高）：写概览前对照【用户原始请求 + 各 task 的任务描述与 `deliverable`】逐条核验「实质达成」，给明确**完工判定**——未达成就 `delegate`（冷委派或带现场续派）/`replan` 补、别假装收工；已达成就收口、别空转。直接对治 MAST 实测两大失败（不认终止条件 / 过早终止），其「加高层目标验证 +15.6%」是全表 ROI 最高的单点干预。
 - **一处覆盖两条收尾路径**：改 `ceo_format.py::format_for_ceo` 即同时盖正常终态综述（`drive.py`）与 `replan(stop)` 收尾（`supervised.py::finalize_stopped`）；【团队便签】（便签墙 `active_notes`）正是 4b 的现成输入（见 [`Agent协作模式.md` §波内共享上下文](/docs/03-AI核心/Agent协作模式.md)）。
-- **暂不建（开放项）**：高风险「**独立验证回合**」（换一双眼睛复核）人 2026-06-30 明确**暂不建**——它是唯一「新机制 + 每高风险回合真成本」项（不像 4a/4b 是可退提示词），且 4a 已 inline 覆盖；走「先开度量数据闸门、证明 CEO 自检确实漏了『自己批自己』再建」。→ 远期项见 [`../06-规划/远期规划.md` §2.5](/docs/06-规划/远期规划.md)。
+- **暂不建（开放项）**：高风险「**独立验证回合**」（换一双眼睛复核）人 2026-06-30 明确**暂不建**——它是唯一「新机制 + 每高风险回合真成本」项（不像 4a/4b 是可退提示词），且 4a 已 inline 覆盖；走「先开度量数据闸门、证明 CEO 自检确实漏了『自己批自己』再建」。→ 远期项见 远期规划 §2.5（详细提案不在公开仓 / 维护者本地）。
 
 → 见代码：`runtime/delegate/ceo_format.py`（`format_for_ceo`）、`runtime/delegate/supervised.py`（`format_bind_boundary` / `format_scope_boundary` / `finalize_stopped`）。
 
@@ -237,17 +239,17 @@ CEO 收尾从「写综述」升级为「**先对账拼图边、再核验原始�
 
 - **纯加法、不加子系统**：`runtime/runs/playbooks.py` 一个小注册表（`name → builder(slots) → tasks[]`，纯函数），产出就是 `build_run_plan` 已吃的 tasks 形状，故实例化出的 playbook 走**与手搓完全相同**的管线（`build_run_plan → drive → executor → ceo_format`）。
 - **注册表形状（可选快捷）**：① `research_report`（N×调研 →〔可选 checkpoint〕提纲 → 写作）② `build_feature`（后端接口 →〔前端页面 ‖ 测试〕并行，接口契约经便签墙广播）③ **`build_website`**（文案 → 设计契约 → 骨架+契约 → N×分区补丁 → 独立 QA；营销官网确定性骨架，默认 `coordination=wall`）＋ **`build_website_verify`**（第二段整页/视觉 QA-only）＋ **`build_toolshed` ✅**（同五波；控制台/工具台 dense；pack `tool_dense`）④ `compare_options` ⑤ **`multi_lens_research`（MLR）**（并行异构透镜 + 汇总员 → 命题卡）。非建站具名 playbook **保留可选快捷展开**（纯加法、不强迫）。
-- **playbook 二分 ✅**：建站 / 落地页 / 营销【必须】`build_website`；控制台 / 后台 / 工具台 dense【必须】`build_toolshed`。其余自由组队：**可不传 playbook**，直接手写 `tasks`（`playbook_none_reason` 可选，不强制）。具名形状与 `tasks` **二选一**展开；未知名 / 缺必填槽 / 二者同传 → 校验报错。任务书只传事实输入（品牌 / 受众 / 素材 / 用户明示偏好），禁自拟视觉施工图。声明入结构化日志 `delegate.playbook_declaration`（记是否走了建站流水线）。**已撤**：全局「每次必填模板或 none+理由」；调研 none 预算收紧（`research_none_stricter_budget` / `tighten_handwritten_research_budgets`）；教法「优先 research_report / build_feature / multi_lens_research」。
+- **playbook 二分 ✅**：建站 / 落地页 / 营销【必须】`build_website`；控制台 / 后台 / 工具台 dense【必须】`build_toolshed`。其余自由组队：**可不传 playbook**，直接手写 `tasks`（`playbook_none_reason` 可选，不强制）。具名形状与 `tasks` **二选一**展开；未知名 / 缺必填槽 / 二者同传 → 校验报错。任务书只传事实输入（品牌 / 受众 / 素材 / 用户明示偏好），禁自拟视觉施工图。声明入结构化日志 `delegate.playbook_declaration`（记是否走了建站流水线）。**已撤**：全局「每次必填模板或 none+理由」；调研 none 预算收紧；全局教法「优先 research_report / build_feature / multi_lens_research」。**软偏好回潮（非硬锁）**：仅成篇多角取证报告 → 宜 `research_report`（见下教法口径）。
 - **建站意图硬闸（方案 C）✅**：绿场建站 / 工具台意图下**机制拒绝** `playbook_id="none"` / 缺省手写 tasks 旁路（机读拒调 + 引导改用 `build_website` 或 `build_toolshed`），堵住「`consult_skill` miss → none + 内容/前端两节点」绕过 P1 管线。意图信号 = 用户原文 ∪ 本拍 tasks / `playbook_none_reason` / `playbook_args` 的**构建向**匹配（做/建…+官网/落地页/website… **或** 控制台/工具台/admin…；审计任务里裸提「官网」不触发）；**续派禁 none（修订 7）**：用户「继续完成 / 补全分区…」类短句 + call 呈建站形（官网/HTML/CSS/`build_website`…）→ 同样拦 `none`（引导改用 `build_website` / `build_toolshed` / `build_website_verify`）；纯「继续」改配置、审计 followup 豁免仍有效。误伤策略：本拍若为审计/修复框定且 call 自身无绿场构建意图 → 豁免。能力目录注册系统 Skill `build_website` / `build_toolshed`，`consult_skill` 可命中。**提示面 A1 ✅**：CEO 常驻 / 能力目录 / delegate schema / `team_orchestration_advanced` 只留 consult 指针；程序权威在 skill body + `ask_user_kickoff` style 硬约束；机制拒文保留。回归锚：`trace_id=7b39eb17c4314f1cbf76a3c84d2c365e`。→ 见代码: `runtime/delegate/playbook_declaration.py`、`runtime/runs/website_style.py`（`is_site_build_intent` / `is_website_continuation_intent`）、`runtime/skills.py`。
 - **软件薄 HTML 窄硬拒 ✅**：做软件 / 应用意图下禁止「单前端 + 单 HTML / 仅因单文件缩成 1 worker」旁路（质量兜底，非系统锁）；可手写多角色工程拆分或选用可选形状 `build_feature`——**不**文案强推「优先」。用户开工卡已确认交付形态时可豁免。回归锚：`trace_id=0483b9ecd2734d3daafd142b05cafd98`。→ 见代码: `runtime/runs/software_app.py`。
 - **`build_website` 落盘契约 ✅**：五波次不可减（copy→design→skeleton→sections→assemble→qa）——① **文案恒单 worker** 落 `site/copy.md`（**取消双文案分裂**，修订 7）；文案首步 **visual thesis + 文案先行**，注入 anti-slop 黑名单（与扫描指纹同源）；验收用结构化 `required_sections`（禁高 `min_length` 冒充质量）② **设计契约**节点 `depends_on` 文案节点，落 `site/DESIGN.md`（色板 tokens / 字体 / 间距 / 对比度策略 / 禁止项 / **用户选定风格 id**）；骨架与分区只读 DESIGN，禁散写 hex ③ 骨架工程师 `depends_on=["design"]`，落 `site/index.html` + CSS/JS 空壳 + `site/CONTRACT.md`（class/组件契约，便签广播）；**P1b** 骨架从内置营销 catalog 选自搭空壳（任务书注入 id/路径/摘要 + 壳正文），CONTRACT 记 catalog 指针；骨架 `web_quality_scan`+`soft_exempt`（只跑 DESIGN/语法 hard）④ 分区 worker 按**确定性相邻分组**持有分区（见下条；**实现宽≤2**），仅 `str_replace`/`file_append` 补丁既有骨架、只读 DESIGN + 文案（禁整文件重写、禁单 worker 包整站、**禁另起 nav/button 等基础 UI**）；任务书强制 catalog 指针；`web_quality_scan` 门禁（**不做**「必须用了某壳」硬闸）⑤ 独立 QA 回读全部产物核 HTML↔CSS↔JS 接缝 + 前端质量扫描；**P1c** QA 默认 `visual_critic`：hard 通过后多视口截图 → 独立 `VisionReader` critic（对照 DESIGN + anti-slop），critical 至多 2 轮定向回炉，其后 partial；无 browser / 无 vision → 明示未目验、禁谎称视觉 QA 通过。**质检预算（修订 4）**：同对话底线=分区落盘时自动检查；整页/视觉验收可同波，油尽则 `qa_deferred_budget` 诚实 defer → `delivery_status.actions` 发 `website_verify`（prompt 续派 `playbook=build_website_verify`）+ 桌面完成条件卡一键发送——**禁止**再加大 `delivery_reserve` 当主修复。全节点 `form=files`。教训：CEO 手糊「内容→前端」两节点无 QA → 烂页；GEO 官网 8 段满扇出 + 单文案 worker 预算逼顶。
-- **前端质量门禁 `web_quality_scan` ✅**（独立于 placeholder_scan / web_seam）：硬失败 = 浅层语法损坏（未闭合标签 / 坏 CSS 声明）+ 编造联系方式指纹（假 400 电话 / 假 ICP / 占位邮箱）+ **填充分阶段**未替换 catalog `{{…}}`（骨架 soft_exempt 放过空壳；分区/QA 硬拦）+ **P1a DESIGN 对账**（缺 `site/DESIGN.md` / 缺「用户选定风格 id」/ 实现散色 ⊈ DESIGN tokens；**`var(--token, #fallback)` 默认色不计散色**）→ `contract.retry`；软 = anti-slop 视觉指纹，最多回炉一次后降为 warning（用户明示风格可 `web_quality_soft_exempt` / 按 label 豁免；**P1a 不改 soft_accept 语义**）。纯静态、零新依赖、禁浏览器。→ 见代码: `runtime/runs/web_quality_scan.py`、`web_quality_rules.py`、`website_style.py`。**风格双闸 ✅**：建站 kickoff `ask_user` 强制非空 `style_options`（id=`s0/s1…`，否则拒调）；resume **结构化 wire**——显式 `style_id`（优先）或 `selected` 中合法 `sN` 记账，**禁止**纯 note/散文模糊匹配独过闸；非法 `style_id` 拒收；`build_website` / `build_toolshed` 无记账则拒调（`full_auto` 窄豁免落默认风格）。对话级 ledger 持久化 ✅（`website_style_confirmed` journal fact + `turn_paused.website_style` 再水化；memory 仅热缓存）。**P1b 营销 section catalog ✅**（`runtime/runs/website_catalog/marketing/` 10 壳；playbook 注入空壳正文 + `_shared.css` + CONTRACT 起步表；骨架豁免 DESIGN placeholder；禁令复述不误伤 lorem；扫描不做壳硬闸）。**工具台 dense（`tool_dense`）+ `build_toolshed` ✅**：独立 playbook **`build_toolshed`**（同五波；pack `tool_dense` + anti-slop `domain=tool`；首批 8 壳）；**`build_website` 营销-only**（v1 不开 pack 槽）；CEO 路由 = 落地页/官网/营销 → `build_website`，控制台/后台/工具台/SaaS admin → `build_toolshed`（结构化 id）；手写旁路硬拒覆盖两类意图（`is_site_build_intent`）。→ [`建站前端质量P1定案` · 修订 5–6](/docs/06-规划/建站前端质量P1定案.md)。**P1c 截图·VLM critic ✅**（`deliverable.visual_critic` + `website_visual_critic.py`；复用 `VisionReader` / browser session `set_content`+`set_viewport`；产物 `site/VISUAL_CRITIC.json`；无能力 → 未目验）。
+- **前端质量门禁 `web_quality_scan` ✅**（独立于 placeholder_scan / web_seam）：硬失败 = 浅层语法损坏（未闭合标签 / 坏 CSS 声明）+ 编造联系方式指纹（假 400 电话 / 假 ICP / 占位邮箱）+ **填充分阶段**未替换 catalog `{{…}}`（骨架 soft_exempt 放过空壳；分区/QA 硬拦）+ **P1a DESIGN 对账**（缺 `site/DESIGN.md` / 缺「用户选定风格 id」/ 实现散色 ⊈ DESIGN tokens；**`var(--token, #fallback)` 默认色不计散色**）→ `contract.retry`；软 = anti-slop 视觉指纹，最多回炉一次后降为 warning（用户明示风格可 `web_quality_soft_exempt` / 按 label 豁免；**P1a 不改 soft_accept 语义**）。纯静态、零新依赖、禁浏览器。→ 见代码: `runtime/runs/web_quality_scan.py`、`web_quality_rules.py`、`website_style.py`。**风格双闸 ✅**：建站 kickoff `ask_user` 强制非空 `style_options`（id=`s0/s1…`，否则拒调）；resume **结构化 wire**——显式 `style_id`（优先）或 `selected` 中合法 `sN` 记账，**禁止**纯 note/散文模糊匹配独过闸；非法 `style_id` 拒收；`build_website` / `build_toolshed` 无记账则拒调（`full_auto` 窄豁免落默认风格）。对话级 ledger 持久化 ✅（`website_style_confirmed` journal fact + `turn_paused.website_style` 再水化；memory 仅热缓存）。**P1b 营销 section catalog ✅**（`runtime/runs/website_catalog/marketing/` 10 壳；playbook 注入空壳正文 + `_shared.css` + CONTRACT 起步表；骨架豁免 DESIGN placeholder；禁令复述不误伤 lorem；扫描不做壳硬闸）。**工具台 dense（`tool_dense`）+ `build_toolshed` ✅**：独立 playbook **`build_toolshed`**（同五波；pack `tool_dense` + anti-slop `domain=tool`；首批 8 壳）；**`build_website` 营销-only**（v1 不开 pack 槽）；CEO 路由 = 落地页/官网/营销 → `build_website`，控制台/后台/工具台/SaaS admin → `build_toolshed`（结构化 id）；手写旁路硬拒覆盖两类意图（`is_site_build_intent`）。→ 建站前端质量 P1 定案（详细提案不在公开仓 / 维护者本地）。**P1c 截图·VLM critic ✅**（`deliverable.visual_critic` + `website_visual_critic.py`；复用 `VisionReader` / browser session `set_content`+`set_viewport`；产物 `site/VISUAL_CRITIC.json`；无能力 → 未目验）。
 - **playbook 扇出粒度与超限口径 ✅**：**不再静默截断丢弃**，按 slot 语义分三种——① `build_website` / `build_toolshed` sections **确定性分组**（`_adaptive_partition_slots`，不给 CEO 粒度旋钮）：N≤3 一比一；N≥4 相邻两段一组后再按 **`_BUILD_WEBSITE_SECTION_MAX_WIDTH=2`** 折叠（**不改**全局 `MAX_PLAYBOOK_FANOUT=6`，调研/compare 仍用 6）；② 覆盖面语义 slot（`research_report` angles、MLR lenses）超限**折叠合并**（`_fold_fanout_slots`；MLR 折叠只并尾部、保首透镜独占公共底料分工）；③ `compare_options` options 超 6 **显式拒绝**引导收敛短名单（一选项一评估员的客观性不可折叠）。①② 均产出 `playbook_note` 随 delegate 结果尾注回显 CEO / 用户。教训：GEO 官网传 8 段，「常见 FAQ」「底部 CTA」被无告警丢掉。→ 见代码: `runtime/runs/playbooks.py`。
 - **MLR 落盘契约 ✅**：四透镜与汇总员均 `form=files`——完整报告写 `research/{透镜}透镜报告.md`、`research/汇总与命题卡.md`（handoff 结构化摘要照旧，落盘叠加不替代）。**命题保真**：用户原话机制注入汇总员任务；命题卡教法禁抬升 / 偏移辩题。目录约定见 [`双模式工作区.md`](/docs/02-架构/双模式工作区.md)。
 - **透镜检索分工 ✅**：四透镜检索去重靠任务书级**静态分工**（`playbooks.py::_lens_retrieval_division`）——首透镜兼任公共底料负责人（查全时间线 / 主体 / 概况），其余透镜简要确认、预算专攻本透镜独有缺口；并行结构未动。**路由钉子**：CEO 常驻核心钉「对抗入口·按意图分流」（点名开辩 → `debate`；调研 → MLR），防路由被垂直 Skill 正文锁死（教训见 [`工具与能力系统.md` §二·摘要正文漂移](/docs/03-AI核心/工具与能力系统.md)）。
 - **单源不漂移**：schema 的 enum / 槽位说明 + `team_orchestration_advanced` skill 清单都从注册表**单源生成**。
 - **防僵化绊线**：只固化高频形状，不做万能模板引擎；要分支 / 条件 / 每次结构都不同 = 照常手写 `tasks`。
-- **教法口径（对照学形状）✅**：playbook listing 嵌进 skill 时是**形状词汇的可实例化示例**——对照学形状，勿「是就直接套」；形态贴合时可设 `playbook` + `playbook_args` 生成骨架（与手写 `tasks` 二选一），否则按词汇手写。建站「必须」保留；**不**文案强推调研/功能/MLR「优先」。自检：换个主题，形状还一模一样吗？还一样就错了。
+- **教法口径（对照学形状）✅**：playbook listing 嵌进 skill 时是**形状词汇的可实例化示例**——对照学形状，勿「是就直接套」；形态贴合时可设 `playbook` + `playbook_args` 生成骨架（与手写 `tasks` 二选一），否则按词汇手写。建站「必须」保留；功能/MLR **不**文案强推「优先」。**成篇调研软偏好（非硬锁）**：要落盘的中篇实务/研究报告且尚需 ≥2 可并行取证角 → 常驻路由 + `team_orchestration_advanced` / `long_form_writing` 划界【宜】`research_report`（禁一人自搜+成文；材料已齐扩写仍单写手）。自检：换个主题，形状还一模一样吗？还一样就错了。
 
 → 见代码：`runtime/skills.py`（对照学形状口径）、`runtime/runs/playbooks.py`、`runtime/delegate/playbook_declaration.py`、`tools/builtin/delegate/`。
 
@@ -263,15 +265,15 @@ CEO `delegate` **不声明模型档位**（原 `model_preference{fast,strong}` �
 
 设计理由：① 解耦委派与具体模型名，模型更新不改委派逻辑；② **力度差异由委派协作结构表达**——需要更强推理 / 更高质量时，CEO 用「拆分子任务、加复审节点、`replan` 迭代」等**协作结构**去表达，而非给一个 worker 升档。旧两档（`fast`/`strong`）+ `reasoning_effort` 从 MVP 起即 inert、从不下发 LLM，保留只增认知负担与假象，故整体移除。
 
-**用户统一模型（BYOK）** — 全链路（CEO、worker、辩论辩手）共用该 turn 解析出的一个 OpenAI 兼容上游。用户在「设置·模型配置」维护**多服务商列表**（✅ 2026-07-20：`user_llm_providers`，每行 label + `api_key` + `base_url` + 默认模型，含 DeepSeek / 各家 / OpenRouter 等中转），经 `resolve_conversation_model_selection` / `resolve_turn_model`（`llm/resolve.py`）解析出该 turn 的 `(model, origin, provider_id)`（会话覆盖 `conversation.(model, model_origin, model_provider_id)` 优先于账号默认指针；origin+provider 同时决定凭据与计费路由、仍全团队统一，目录与授权闸见 [平台LLM接入 §二](/docs/05-平台与运维/平台LLM接入.md)），由 `TurnProfiles.model` 单点持有，**不再按角色或质量档 swap**；场景 profile（`ProfileParams`）只按场景（`chat` / `agent` / `memory` / `title` …）分化执行参数（温度/轮数），**不含模型名**，`build_request(model=…)` 显式传入。
+**用户模型组合（主 + 可选 Worker / 后台）** — 默认仍「全队一颗」：CEO、辩论辩手共用该 turn 解析出的**主模型**；组合的 Worker 槽（空 = 跟随主模型）仅在组队时给队员换模型。用户在「设置·模型配置」维护**多服务商列表**与**模型组合**（✅ 2026-07-25：`llm_model_profiles`；账号 `default_model_profile_id`；会话活引用 `model_profile_id`）。`LlmModelProfileService.expand` → `resolve_conversation_model_selection` / `resolve_turn_model`（`llm/resolve.py`）得到主模型 `(model, origin, provider_id)`；目录与授权闸见 [平台LLM接入 §二](/docs/05-平台与运维/平台LLM接入.md)。`resolve_turn_profiles` 把主模型放进 `TurnProfiles.model`；有效且与主模型不同的 Worker 槽写入 `model_overrides["agent"]`（跨服务商时另带 `agent_provider_id`；sidecar 在 `cost_role=member` 时按 Worker 重解析）。辩论经 `cost_role=arena` + 注入 turn main，**不跟 Worker**。**会话选择器只切组合**；不做 per-worker / `delegate` 选档、不做输入框双 picker。场景 profile（`ProfileParams`）只按场景分化执行参数（温度/轮数），**不含模型名**，勿与模型组合混名。
 
-- **被否决：质量档矩阵**（`经济档`/`高质量档`、CEO vs worker 分选 Flash/Pro）——多数用户只想「配一个能用的模型」；内测期 Pro 撤出 ceiling 后机制对用户已无价值。质量档解析链、`/v1/model-modes` API、`conversation.model_mode` 与 `users.default_model_mode` 列**均已永久移除**（迁移 drop 表 + 两列）。
+- **被否决：质量档矩阵**（`经济档`/`高质量档`、CEO vs worker 分选 Flash/Pro）——多数用户只想「配一套能用的模型」；质量档解析链与相关列**均已永久移除**。✅ 模型组合的 Worker/后台槽是组合内可选槽（默认跟随、会话不双 picker），不是质量档矩阵回归。
 - **MVP 约束**：不下发额外推理强度参数，`thinking` 走各家默认行为；⏳ per-provider 推理字段适配、原生 Claude/Gemini provider 见远期。
-- **`supports_tools` soft gate**：BYOK probe 判定「端点是否接受工具调用」，三态持久化（`True` / `False` / `None`）——`tool_calls` 回包 = 强证据 `True`；可判定为拒绝 tools 参数的 4xx = `False`；其余（2xx 无 tool_calls、超时、网络错、429、鉴权失败、模糊错误）一律 `None`，**不再把未知冒充 False**（旧判据「max_tokens=16 且自愿回 tool_calls」对 DeepSeek V4 等 thinking 模型假阴性严重）。探测先试 `tool_choice=required`，遇 400 回退省略 tool_choice，`max_tokens≥256`。结果作 UI 提示 + preflight warning，**不做 hard 400**；运行时降级文案仅在 `supports_tools is False` 时触发，`None` 不触发。
-- **后台 one-shot**（memory / title / compaction）：**用户凭据优先**（2026-07-13 反转，反白嫖语义见 [成本配额与计费 §〇·五](/docs/05-平台与运维/成本配额与计费.md)），模型按账号「后台默认」指针降档（可指向另一家便宜服务商）；keyless 才落 platform key。执行参数照场景 profile 降 temperature / max_tokens。
-- **Provider 路由保留、MVP 不暴露**：`ProviderRouter` 的 `provider/model` 前缀路由供 eval / ⏳ 辩论多模型辩手；MVP 辩论统一用户 model。
+- **`supports_tools` soft gate**：BYOK probe 判定「端点是否接受工具调用」，三态持久化（`True` / `False` / `None`）——`tool_calls` 回包 = 强证据 `True`；可判定为拒绝 tools 参数的 4xx = `False`；其余一律 `None`，**不再把未知冒充 False**。结果作 UI 提示 + preflight warning，**不做 hard 400**。
+- **后台 one-shot**（memory / title / compaction）：**平台优先**（✅ 2026-07-25，见 [平台LLM接入 §二](/docs/05-平台与运维/平台LLM接入.md)）；平台不可用才回落组合 `background` 槽（空 = 跟随主模型）。执行参数照场景 profile 降 temperature / max_tokens。与 Worker 槽正交。
+- **Provider 路由保留、MVP 不暴露**：`ProviderRouter` 的 `provider/model` 前缀路由供 eval / ⏳ 辩论多模型辩手；MVP 辩论统一用户主模型（不跟 Worker 槽）。
 
-→ 见代码：`llm/resolve.py`、`llm/provider_service.py`、`llm/factory.py`、`api/routes/llm_providers.py`；前端见 [`../04-前端/前端UX设计.md` §十三](/docs/04-前端/前端UX设计.md)、[`../04-前端/前端成本呈现.md` §7.4](/docs/04-前端/前端成本呈现.md)。
+→ 见代码：`llm/model_profiles.py`、`llm/resolve.py`、`llm/provider_service.py`、`api/routes/llm_model_profiles.py`；前端见 [`../04-前端/前端UX设计.md` §十三](/docs/04-前端/前端UX设计.md)、[`../04-前端/前端成本呈现.md` §7.4](/docs/04-前端/前端成本呈现.md)。
 
 ### 2.2 `depends_on` — 依赖关系（并行/串行的唯一开关）
 
@@ -304,7 +306,9 @@ CEO `delegate` **不声明模型档位**（原 `model_preference{fast,strong}` �
 >
 > **并行写隔离 / C3 较强文件归属 ✅**：协调会话级归属表（`deliverable.artifacts` 声明即占，完成后仍占；与批次 `WriteCoordinator` 统一一本账）；写时互斥覆盖 `file_write` / `file_append` / `str_replace` / `write_section`（及 delete/move）；祖先交接 / `replaces_run_id` / `continue_from_run_id` / `force` 可移交。`code_execute` 写回本期不硬拦。回滚开关 `engine_file_ownership_v2=false` → 仅未完成启发式 + 批内 write/append claim。非协调批仍为批内守卫。→ 见代码: `workspace/write_claims.py`、`runtime/coordination/append_guard.py`
 >
-> **覆盖写完整性 ✅**：成篇非空目标（≥约 400 字）的 `file_write` 整文件覆盖 → **硬拒绝**并引导 `str_replace` / `file_append`；新建骨架 + 分段 append 不受影响；不足阈值的短文件仍可覆盖（保留完整性软警示）。→ 见代码: `tools/builtin/file_ops.py`
+> **覆盖写完整性 ✅**：成篇非空目标（≥约 400 字）的 `file_write` 整文件覆盖 → **硬拒绝**并引导 `str_replace` /（骨架上的）`file_append`；不足阈值的短文件仍可覆盖（保留完整性软警示）。
+>
+> **Artifact-first Writing ✅**：中等单篇默认一次 `file_write`；写/append 回执 = artifact manifest（验真，禁自产物 body `file_read`）；本 run 已成篇 prose 的同 path 禁再 `file_append`；超长仅「短骨架 → 按节填空」。→ 见代码: `tools/builtin/file_ops.py`、Skill `long_form_writing`
 
 ### 2.4 嵌套委派（一层，默认开）✅ 已落地
 
@@ -343,7 +347,7 @@ worker 的可用工具**不由 CEO 手填**：`delegate` / `replan` 曾有的 ta
 
 ### 2.6.1 `retrieval_budget` — 检索预算（契约字段 + 结构化默认）✅
 
-task 级可选字段：该 worker 本 run 的检索额度（`web_search` / `read_url`）。**结构化默认**（禁止按 role 字符串判定）：无上游调研波 root（非 light · 检索未显式关 0 · 非落盘深研，判据 `is_research_root`——与 worker token 硬顶正交，仅服务检索默认）→ 14（深读与搜索共池后上调；参考区间 12–16）；其余无上游节点（light / 落盘深研 root）→ 8；有上游依赖 ∧ `form=prose`（合成波）→ 0 且**不装配检索工具**；其余下游节点 → 5（含审校核对原文；原 3 偏紧；默认值均标「待观测校准」）；CEO 显式声明恒优先。enforce 在 engine 工具执行层（缓存命中与被拒调用不计费；与 `LoopController` / `team_gate` **正交**，禁止挂接）。预算用尽 → 结构化反馈「基于台账现有证据交付 + 交接标注检索缺口」，缺口经契约缺口块上浮，CEO 以 `continue_from_run_id` 续派显式提额——**无 mid-run 追加通道**（`escalate` 语义不扩，`kind=resource` 属后置另案 → [远期规划 §三·检索与交付后置项](/docs/06-规划/远期规划.md)）。**同轮超订缓解**：剩余槽位 ≤2 且未耗尽时，引擎经既有 reflection 注入一次性告知剩余额度（`engine.retrieval_budget_critical`），减少当轮 fan-out 超订被挡回浪费槽位；耗尽仍走既有 wind_down。设计理由与取舍见 git 历史（检索与交付约束前置提案 §三 A1）。→ 见代码：`runtime/runs/retrieval_budget.py`、`tools/builtin/delegate/schema.py`、`runtime/engine/tool_exec.py`、`runtime/engine/loop.py`。
+task 级可选字段：该 worker 本 run 的检索额度（`web_search` / `read_url`）。**结构化默认**（禁止按 role 字符串判定）：无上游调研波 root（非 light · 检索未显式关 0 · 非落盘深研，判据 `is_research_root`——与 worker token 硬顶正交，仅服务检索默认）→ 14（深读与搜索共池后上调；参考区间 12–16）；其余无上游节点（light / 落盘深研 root）→ 8；有上游依赖 ∧ `form=prose`（合成波）→ 0 且**不装配检索工具**；其余下游节点 → 5（含审校核对原文；原 3 偏紧；默认值均标「待观测校准」）；CEO 显式声明恒优先。enforce 在 engine 工具执行层（缓存命中与被拒调用不计费；与 `LoopController` / `team_gate` **正交**，禁止挂接）。预算用尽 → 结构化反馈「基于台账现有证据交付 + 交接标注检索缺口」，缺口经契约缺口块上浮，CEO 以 `continue_from_run_id` 续派显式提额——**无 mid-run 追加通道**（`escalate` 语义不扩，`kind=resource` 属后置另案 → 远期规划 §三·检索与交付后置项（详细提案不在公开仓 / 维护者本地））。**同轮超订缓解**：剩余槽位 ≤2 且未耗尽时，引擎经既有 reflection 注入一次性告知剩余额度（`engine.retrieval_budget_critical`），减少当轮 fan-out 超订被挡回浪费槽位；耗尽仍走既有 wind_down。设计理由与取舍见 git 历史（检索与交付约束前置提案 §三 A1）。→ 见代码：`runtime/runs/retrieval_budget.py`、`tools/builtin/delegate/schema.py`、`runtime/engine/tool_exec.py`、`runtime/engine/loop.py`。
 
 ### 2.7 `continue_from_run_id` — 带现场续派（同人接续）✅
 
@@ -365,7 +369,7 @@ task 级可选字段：声明该任务由目标 run 的作者**带完整 ReAct �
 
 > 开场引导是 `ask_user`（CEO 唯一的「向用户发问」原语）的一种**内容形态**，不是独立工具。→ 见代码：`tools/builtin/ask_user/`、前端 `CheckpointCard.tsx`。
 
-对「**能做、但用户没说全**」的产出类请求（做网站 / 应用 / 海报 / 文档…，且用合理默认就能开工），CEO 不甩一堵澄清问题墙、也不闷头开干，而是调 `ask_user` 开一张**开工提案卡**开场：用自己的口吻复述目标（`message`）、摊开起步计划与少数高杠杆决策，让想省事的人一键开做、想管的人就地调整。**建站 / 落地页风格双闸 ✅**：kickoff `ask_user` **强制非空** `style_options`（id=`s0/s1…`，否则拒调）；resume 显式 `style_id`（优先）或 `selected` 合法 `sN` **结构化记账**（禁散文 note 独过闸）；`build_website` 无记账则拒调（`AutonomyPolicy.full_auto` 仅建站风格确认窄豁免 → 落默认风格进记账与 DESIGN）。挂点是 `ask_user`（非 `team_preview` / 非强制 `proposal_pick`）。桌面 + 手机同 resume 契约。→ 见代码: `runtime/runs/website_style.py`；ledger 持久化 ✅ / P1b catalog ✅ / **P1c visual critic ✅** → [`建站前端质量P1定案`](/docs/06-规划/建站前端质量P1定案.md)。
+对「**能做、但用户没说全**」的产出类请求（做网站 / 应用 / 海报 / 文档…，且用合理默认就能开工），CEO 不甩一堵澄清问题墙、也不闷头开干，而是调 `ask_user` 开一张**开工提案卡**开场：用自己的口吻复述目标（`message`）、摊开起步计划与少数高杠杆决策，让想省事的人一键开做、想管的人就地调整。**建站 / 落地页风格双闸 ✅**：kickoff `ask_user` **强制非空** `style_options`（id=`s0/s1…`，否则拒调）；resume 显式 `style_id`（优先）或 `selected` 合法 `sN` **结构化记账**（禁散文 note 独过闸）；`build_website` 无记账则拒调（`AutonomyPolicy.full_auto` 仅建站风格确认窄豁免 → 落默认风格进记账与 DESIGN）。挂点是 `ask_user`（非 `team_preview` / 非强制 `proposal_pick`）。桌面 + 手机同 resume 契约。→ 见代码: `runtime/runs/website_style.py`；ledger 持久化 ✅ / P1b catalog ✅ / **P1c visual critic ✅** → 建站前端质量 P1 定案（详细提案不在公开仓 / 维护者本地）。
 
 ### 决策按「影响力」分档（核心设计）
 
@@ -377,7 +381,7 @@ task 级可选字段：声明该任务由目标 run 的作者**带完整 ReAct �
 | 重点问题（主动征询） | `questions` | 真正值得用户拍板的少数高杠杆决策。**每个都预填 `default`**——即便问满上限，想省事的用户一键全默认通过，不退化回问题墙。`kind=choice`（单 / 多选）或 `text`（填一句） | 5 个（对齐 Cursor 2.1 的 3–5）；每问选项 ≤6 |
 | 风格基调 | `style_options` | **仅视觉类产物**（网站 / 海报 / 幻灯）给的风格预设供选基调；非视觉类省略 | 6 |
 
-> 判准：决策选错会不会让用户明显不满、甚至推倒重来？会 → 提为重点问题；不会且有稳妥默认 → 放进起步计划默认掉。拿不准时宁可默认掉，别让卡退回问题墙。CEO 只供语义内容（标签 / 选项 / 默认值），工具负责分配稳定 id 并 cap 尺寸，防失控 prompt 撑爆卡片。
+> 判准：决策选错会不会让用户明显不满、甚至推倒重来？会 → 提为重点问题；不会且有稳妥默认 → 放进起步计划默认掉。拿不准时**中性**：代价高 → 放进 questions（预填 default，一键可过）；代价低 → assumptions 写明。不偏「尽量少问 / 宁可默认」，也不偏「凡事先问」。CEO 只供语义内容（标签 / 选项 / 默认值），工具负责分配稳定 id 并 cap 尺寸，防失控 prompt 撑爆卡片。
 
 ### 统一机制：开场与途中共用 `ask_user`；默认挂起、可选非阻塞（核心设计）
 

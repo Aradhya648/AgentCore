@@ -1,15 +1,13 @@
-import type {
-  LlmDefaultPointer,
-  LlmProviderView,
-} from "@/services/llmProviders";
+import type { ModelProfileSlot } from "@/services/llmModelProfiles";
+import type { LlmProviderView } from "@/services/llmProviders";
 import type { ModelCatalog } from "@/services/models";
 
 /**
- * 账号「聊天默认 / 后台默认」跨服务商选择器的纯逻辑（设置·模型配置）。
+ * 模型组合槽位选择器的纯逻辑（设置·模型配置 · 编辑组合）。
  *
- * 账号默认是一个 `(provider_id, model)` 指针（可跨服务商）。选择器**按服务商分组**呈现候选模型：
- * 每个服务商的候选 = 其 `default_model` ∪ 模型目录里该服务商（`origin=byok` ∧ `provider_id` 命中）
- * 带出的模型；再把当前生效指针的模型并入（即便目录尚未发现），保证现值始终可选。
+ * 槽位是 `(model, origin, provider_id)` 指针。选择器按服务商分组呈现 BYOK 候选，
+ * 并在平台可用时追加「平台额度」分组；每个服务商的候选 = 其 `default_model` ∪
+ * 模型目录里该服务商带出的模型；再把当前槽位模型并入，保证现值始终可选。
  */
 
 export type DefaultModelOption = { model: string; label: string };
@@ -20,38 +18,56 @@ export type DefaultProviderGroup = {
 };
 
 const SEP = "::";
+/**
+ * Select-value / optgroup id for platform-catalog pointers (not a real provider UUID).
+ */
+export const PLATFORM_POINTER_ID = "__platform__";
 
-/** Encode a `(provider_id, model)` pointer into a `<select>` option value. */
-export function encodePointer(providerId: string, model: string): string {
-  return `${providerId}${SEP}${model}`;
-}
-
-/** The `<select>` value for a pointer (empty string = 未设置 / 跟随). */
-export function pointerValue(
-  pointer: LlmDefaultPointer | null | undefined,
+/** Encode a `(provider_id|__platform__, model)` pair or a full slot into a select value. */
+export function encodePointer(
+  providerIdOrSlot: string | ModelProfileSlot,
+  model?: string,
 ): string {
-  return pointer ? encodePointer(pointer.provider_id, pointer.model) : "";
+  if (typeof providerIdOrSlot === "string") {
+    return `${providerIdOrSlot}${SEP}${model ?? ""}`;
+  }
+  const p = providerIdOrSlot;
+  if (p.origin === "platform" || !p.provider_id) {
+    return `${PLATFORM_POINTER_ID}${SEP}${p.model}`;
+  }
+  return `${p.provider_id}${SEP}${p.model}`;
 }
 
-/** Parse a `<select>` option value back into a pointer (null for the empty value). */
-export function decodePointer(value: string): LlmDefaultPointer | null {
+/** The `<select>` value for a slot (empty string = 未设置 / 跟随). */
+export function pointerValue(
+  slot: ModelProfileSlot | null | undefined,
+): string {
+  if (!slot?.model) return "";
+  return encodePointer(slot);
+}
+
+/** Parse a `<select>` option value back into a slot (null for the empty value). */
+export function decodePointer(value: string): ModelProfileSlot | null {
   const idx = value.indexOf(SEP);
   if (idx < 0) return null;
   const provider_id = value.slice(0, idx);
   const model = value.slice(idx + SEP.length);
   if (!provider_id || !model) return null;
-  return { provider_id, model };
+  if (provider_id === PLATFORM_POINTER_ID) {
+    return { origin: "platform", provider_id: null, model };
+  }
+  return { origin: "byok", provider_id, model };
 }
 
 /**
- * Build the per-provider option groups for the account default selectors.
- * `pointers` are the currently-set chat / background指针 — their models are folded
- * into the matching group so the live selection always renders as a valid option.
+ * Build the per-provider option groups for slot selectors.
+ * Includes a 「平台额度」 group when the catalog exposes available `origin=platform` rows.
+ * `slots` are currently-set pointers — their models are folded into the matching group.
  */
 export function buildDefaultProviderGroups(
   providers: LlmProviderView[],
   catalog: ModelCatalog | undefined,
-  ...pointers: (LlmDefaultPointer | null | undefined)[]
+  ...slots: (ModelProfileSlot | null | undefined)[]
 ): DefaultProviderGroup[] {
   const groups: DefaultProviderGroup[] = providers.map((p) => {
     const models: DefaultModelOption[] = [];
@@ -62,8 +78,6 @@ export function buildDefaultProviderGroups(
       seen.add(m);
       models.push({ model: m, label: label?.trim() || m });
     };
-    // Catalog rows first so their display names win; then the provider's own
-    // default_model as a fallback (covers a freshly added / untested provider).
     for (const item of catalog?.models ?? []) {
       if (item.origin === "byok" && item.provider_id === p.id) {
         add(item.id, item.display_name);
@@ -77,11 +91,43 @@ export function buildDefaultProviderGroups(
     };
   });
 
-  for (const pointer of pointers) {
-    if (!pointer?.model) continue;
-    const group = groups.find((g) => g.providerId === pointer.provider_id);
-    if (group && !group.models.some((m) => m.model === pointer.model)) {
-      group.models.unshift({ model: pointer.model, label: pointer.model });
+  const platformModels: DefaultModelOption[] = [];
+  const platformSeen = new Set<string>();
+  for (const item of catalog?.models ?? []) {
+    if (item.origin !== "platform" || item.available === false) continue;
+    const m = item.id.trim();
+    if (!m || platformSeen.has(m)) continue;
+    platformSeen.add(m);
+    platformModels.push({
+      model: m,
+      label: item.display_name?.trim() || m,
+    });
+  }
+  if (platformModels.length > 0) {
+    groups.unshift({
+      providerId: PLATFORM_POINTER_ID,
+      providerLabel: "平台额度",
+      models: platformModels,
+    });
+  }
+
+  for (const slot of slots) {
+    if (!slot?.model) continue;
+    const groupId =
+      slot.origin === "platform" || !slot.provider_id
+        ? PLATFORM_POINTER_ID
+        : slot.provider_id;
+    let group = groups.find((g) => g.providerId === groupId);
+    if (!group && groupId === PLATFORM_POINTER_ID) {
+      group = {
+        providerId: PLATFORM_POINTER_ID,
+        providerLabel: "平台额度",
+        models: [],
+      };
+      groups.unshift(group);
+    }
+    if (group && !group.models.some((m) => m.model === slot.model)) {
+      group.models.unshift({ model: slot.model, label: slot.model });
     }
   }
   return groups;

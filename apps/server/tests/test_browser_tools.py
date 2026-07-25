@@ -15,6 +15,7 @@ from agentcore.tools.builtin.browser import (
     BROWSER_TOOL_CLASSES,
     BrowserNavigateTool,
     BrowserSnapshotTool,
+    BrowserTypeTool,
 )
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registration import AUDIENCE_WORKER_ONLY, ToolSurface, tool_registration
@@ -250,3 +251,30 @@ async def test_missing_url_is_rejected(tmp_path):
     tool = BrowserNavigateTool(registry=_FakeRegistry(session=_FakeSession()))
     result = await tool.execute({}, _ctx(tmp_path))
     assert not result.success and "url" in result.output
+
+
+@pytest.mark.asyncio
+async def test_type_password_blocked_maps_to_tool_result(tmp_path):
+    """Driver password hard-reject → metadata.code=password_blocked, no fill semantics."""
+    session = _FakeSession(
+        BrowserCommandResult(
+            ok=False,
+            data={},
+            error="ValueError: password_blocked: AI 不得填写密码框",
+        )
+    )
+    tool = BrowserTypeTool(registry=_FakeRegistry(session=session))
+    result = await tool.execute({"ref": "e1", "text": "secret"}, _ctx(tmp_path))
+    assert result.success is False
+    assert result.contract_failure is True
+    assert result.metadata.get("code") == "password_blocked"
+    assert "escalate" in (result.output or "")
+    assert "browser_login" in (result.output or "")
+    assert session.sent and session.sent[0].action == "type"
+
+
+def test_browser_type_schema_guides_password_escalate():
+    desc = BrowserTypeTool().schema.description
+    assert "password_blocked" in desc or "password" in desc.lower()
+    assert "browser_login" in desc
+    assert "M0 不支持登录" not in desc

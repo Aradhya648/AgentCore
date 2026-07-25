@@ -115,6 +115,7 @@ async def run_stage_card_debate_pipeline(
             permission_preset=permission_preset,
             llm_credentials=llm_credentials,
             x_client_platform=x_client_platform,
+            profiles=profiles,
         )
         llm = prepared.llm
         bound_execution_id = prepared.bound_execution_id

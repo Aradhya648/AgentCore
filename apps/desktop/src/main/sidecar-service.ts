@@ -889,15 +889,19 @@ export class SidecarManager {
     };
   }
 
-  /** 取消一个在跑的回合（尽力而为；无对应 sidecar 则静默）。 */
+  /**
+   * 取消一个在跑的回合。无对应 sidecar / RPC 失败时抛错，供 FE 可见提示与重试
+   * （勿静默吞——停止未确认时用户需要知道信号没发出去）。
+   */
   async cancel(req: SidecarCancelRequest): Promise<void> {
     const entry = this.entries.get(entryKey(req.rootId, req.subpath));
-    if (!entry) return;
-    try {
-      await entry.client.request("cancel", { turnId: req.turnId });
-    } catch {
-      // 进程已退出 / 回合已结束——取消本就无意义，吞掉。
+    if (!entry) {
+      throw new Error("本地引擎未运行，无法停止");
     }
+    await entry.client.request("cancel", {
+      turnId: req.turnId,
+      ...(req.conversationId ? { conversationId: req.conversationId } : {}),
+    });
   }
 
   /** 用户中途改某个 worker 的方向（队列入队；Step 2 由 scheduler 消费）。 */

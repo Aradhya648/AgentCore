@@ -336,9 +336,15 @@ def _msgs(n: int) -> list[SimpleNamespace]:
     ]
 
 
-def _wire_runner(monkeypatch, *, conv, messages, provider) -> dict:
-    """Point compact_conversation's deps at in-memory fakes; return a recorder dict."""
+def _wire_runner(monkeypatch, *, conv, messages, provider, credentials=...) -> dict:
+    """Point compact_conversation's deps at in-memory fakes; return a recorder dict.
+
+    ``credentials`` defaults to a non-None stub so the runner proceeds to the LLM.
+    Pass ``credentials=None`` to exercise the gate-skip path.
+    """
     rec: dict = {"set": None, "built": False}
+    if credentials is ...:
+        credentials = SimpleNamespace(default_model="flash", source="platform")
 
     monkeypatch.setattr(compaction, "async_session_factory", lambda: _FakeSession())
 
@@ -369,16 +375,16 @@ def _wire_runner(monkeypatch, *, conv, messages, provider) -> dict:
         async def list_after(self, conversation_id, *, after, limit):
             return ([m for m in messages if m.created_at > after], False)
 
-    async def _no_credentials(session, user_id, purpose="platform_internal"):
-        return None
+    async def _resolve(session, user_id, *, purpose="compaction"):
+        return credentials
 
-    def _build(credentials, purpose="platform_internal"):
+    def _build(creds, purpose="platform_internal"):
         rec["built"] = True
         return provider
 
     monkeypatch.setattr(compaction, "ConversationRepository", _FakeConvRepo)
     monkeypatch.setattr(compaction, "MessageRepository", _FakeMsgRepo)
-    monkeypatch.setattr(compaction, "resolve_credentials", _no_credentials)
+    monkeypatch.setattr(compaction, "resolve_and_gate_background", _resolve)
     monkeypatch.setattr(compaction, "build_provider", _build)
     monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
     monkeypatch.setattr(compaction.settings, "billing_mode", "platform", raising=True)
@@ -440,13 +446,13 @@ async def test_compact_conversation_skips_empty_summary(monkeypatch):
 async def test_compact_conversation_byok_without_key_skips_without_watermark(
     monkeypatch,
 ):
-    # BYOK mode + no usable key → skip WITHOUT folding, so it retries once a key is set
-    # (must not advance the watermark or spend an LLM call).
+    # Gate returns None (no platform/BYOK) → skip WITHOUT folding.
     messages = _msgs(30)
     conv = _conv(summary=None, watermark=None)
     provider = _CloseProvider("unused")
-    rec = _wire_runner(monkeypatch, conv=conv, messages=messages, provider=provider)
-    monkeypatch.setattr(compaction.settings, "billing_mode", "byok", raising=True)
+    rec = _wire_runner(
+        monkeypatch, conv=conv, messages=messages, provider=provider, credentials=None
+    )
 
     ok = await compaction.compact_conversation("c1", trigger_input_tokens=500)
 

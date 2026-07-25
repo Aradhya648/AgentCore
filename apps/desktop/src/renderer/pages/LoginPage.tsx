@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui";
 import { LegalDocPane } from "@/pages/legal/LegalDocPane";
 import type { LegalDocId } from "@/pages/legal/types";
@@ -119,10 +120,12 @@ export function LoginPage() {
     <div className="flex h-full w-full items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-xl font-semibold text-foreground">AgentCore</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            你的 Multi-Agent AI 工作台
-          </p>
+          <BrandMark
+            size="md"
+            layout="stack"
+            className="w-full items-center text-foreground"
+          />
+          <p className="mt-2 text-sm text-muted-foreground">协作智能平台</p>
         </div>
 
         <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1">

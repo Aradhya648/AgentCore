@@ -23,6 +23,7 @@ PAPER_PARALLEL_MERGE_DISCIPLINE = (
 DEFAULT_RESEARCH_REPORT_ARTIFACT = "research/报告.md"
 
 # 成篇意图：调研/实务报告 + 成文/字数承诺（与建站意图正交）。
+# 亦覆盖「点名多对象对比 + Markdown/落盘」（竞品对比表等）——team_gate 硬收依赖本谓词。
 _RESEARCH_REPORT_INTENT_RE = re.compile(
     r"(?:"
     r"(?:调研|研究|实务|研究报告|调研报告|分析报告|成篇|成文|写一篇|撰写)"
@@ -32,6 +33,25 @@ _RESEARCH_REPORT_INTENT_RE = re.compile(
     r"(?:写|撰写|完成|交付).{0,16}(?:报告|实务|调研)"
     r"|"
     r"(?:research\s+report|write\s+(?:a\s+)?(?:report|brief))"
+    r"|"
+    r"(?:调研|对比|比较).{0,96}(?:落盘|Markdown|\.md\b|对比表)"
+    r"|"
+    r"(?:整理成|写成|输出).{0,40}(?:对比表|对比报告)"
+    r")",
+    re.IGNORECASE,
+)
+
+# 本地改文件意图：允许极少次 file_list/file_read/grep 摸仓，再催派（与网页独搜分闸）。
+_LOCAL_FILE_EDIT_INTENT_RE = re.compile(
+    r"(?:"
+    r"(?:改|修改|编辑|更新).{0,48}"
+    r"(?:README|\.md\b|\.py\b|\.ya?ml\b|\.json\b|\.ts\b|\.tsx\b|\.js\b|\.toml\b|文件|配置)"
+    r"|"
+    r"(?:在|往).{0,24}(?:README|\.md\b).{0,24}(?:加|加一小节|加上|添加)"
+    r"|"
+    r"(?:把|将).{0,48}(?:改成|改为).{0,24}(?:,|，|。|$)"
+    r"|"
+    r"(?:只改这一行|其余内容别动|别动别的)"
     r")",
     re.IGNORECASE,
 )
@@ -62,11 +82,30 @@ MIN_UPSTREAM_BODY_CHARS = 80
 
 
 def is_research_report_intent(*texts: str) -> bool:
-    """True when text asks for a research / practical long-form write-up."""
+    """True when text asks for a research / practical long-form write-up.
+
+    Includes multi-object compare + Markdown/落盘 deliverables (e.g. competitor
+    tables). Local file tweaks (README 改一小节) must stay False — those use
+    :func:`is_local_file_edit_intent` for the lighter team_gate path.
+    """
     blob = " ".join(t for t in texts if isinstance(t, str) and t.strip())
     if not blob:
         return False
     return bool(_RESEARCH_REPORT_INTENT_RE.search(blob))
+
+
+def is_local_file_edit_intent(*texts: str) -> bool:
+    """True when text asks to edit an existing workspace file (light local recon).
+
+    Orthogonal to :func:`is_research_report_intent`: research/compare-deliverable
+    wins so「调研+落盘」never takes the README-style local gate.
+    """
+    blob = " ".join(t for t in texts if isinstance(t, str) and t.strip())
+    if not blob:
+        return False
+    if is_research_report_intent(blob):
+        return False
+    return bool(_LOCAL_FILE_EDIT_INTENT_RE.search(blob))
 
 
 def has_word_count_commitment(*texts: str) -> bool:

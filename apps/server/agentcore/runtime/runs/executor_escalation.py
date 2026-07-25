@@ -42,11 +42,19 @@ def build_escalation_channel(
         questions: list[dict[str, Any]],
         kind: str = "normal",
         awaiting: str = "user",
+        *,
+        browser_login: bool = False,
     ) -> EscalationOutcome:
         # Cap: count this conversation's already-parked blocking escalates. The check
         # and the suspend's create() run with no await between them (single loop), so
         # the count can't race (设计 §4.7). Over cap ⇒ degrade (proceed on assumption).
-        who = awaiting if awaiting in ("user", "ceo") else "user"
+        # browser_login is always user-facing (human types the password) — never CEO.
+        want_browser_login = bool(browser_login)
+        who = (
+            "user"
+            if want_browser_login
+            else (awaiting if awaiting in ("user", "ceo") else "user")
+        )
         awaiting_ceo = who == "ceo"
 
         # D1: after ask_user soft-stop cancelled a parked worker, CEO may have
@@ -115,21 +123,24 @@ def build_escalation_channel(
                 )
 
         via_user = False
+        suspend_payload: dict[str, Any] = {
+            "escalation_id": escalation_id,
+            "run_id": run_id,
+            "agent_id": agent_id,
+            "question": question,
+            "assumption": assumption,
+            "questions": questions,
+            "kind": esc_kind,
+            "awaiting": who,
+        }
+        if want_browser_login:
+            suspend_payload["browser_login"] = True
         try:
             result = await bridge.suspend(
                 escalation_id,
                 env.conversation_id,
                 kind=InteractionKind.ESCALATION,
-                payload={
-                    "escalation_id": escalation_id,
-                    "run_id": run_id,
-                    "agent_id": agent_id,
-                    "question": question,
-                    "assumption": assumption,
-                    "questions": questions,
-                    "kind": esc_kind,
-                    "awaiting": who,
-                },
+                payload=suspend_payload,
                 timeout=env.escalation_timeout,
                 on_suspended=lambda: env.sink.emit(
                     escalation_required(
@@ -141,6 +152,7 @@ def build_escalation_channel(
                         questions=questions,
                         kind=esc_kind,
                         awaiting=who,
+                        browser_login=want_browser_login or None,
                     )
                 ),
             )

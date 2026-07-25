@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.core.types import new_id
@@ -40,6 +40,36 @@ class FolderRepository:
         await self._session.commit()
         await self._session.refresh(folder)
         return folder
+
+    async def find_active_by_local_binding(
+        self,
+        *,
+        user_id: str,
+        local_root_id: str,
+        local_subpath: str | None,
+    ) -> Folder | None:
+        """Live local project for ``(user, root, subpath)``; empty subpath ≡ NULL.
+
+        Oldest row wins when historical duplicates exist (created_at asc).
+        Lookup treats stored ``""`` as NULL so legacy rows still reuse.
+        """
+        subpath_clause = (
+            or_(Folder.local_subpath.is_(None), Folder.local_subpath == "")
+            if local_subpath is None
+            else Folder.local_subpath == local_subpath
+        )
+        result = await self._session.execute(
+            select(Folder)
+            .where(
+                Folder.user_id == user_id,
+                Folder.deleted_at.is_(None),
+                Folder.local_root_id == local_root_id,
+                subpath_clause,
+            )
+            .order_by(Folder.created_at.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_id(self, folder_id: str, *, user_id: str) -> Folder | None:
         """Owner-scoped fetch (non-owner / unknown id → None → route 404). ``user_id``

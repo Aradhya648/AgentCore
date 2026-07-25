@@ -96,11 +96,11 @@ async def test_list_empty(client, make_invite, byok):
     await register_and_login(client, await make_invite("INV-P-EMPTY"), "provuser1")
     body = (await client.get(_BASE)).json()
     assert body["providers"] == []
-    assert body["default_chat"] is None
+    assert "default_chat" not in body
     assert body["billing_mode"] == "byok"
 
 
-async def test_create_provider_masks_and_becomes_default(client, make_invite, byok):
+async def test_create_provider_masks_and_seeds_profile(client, make_invite, byok):
     await register_and_login(client, await make_invite("INV-P-CREATE"), "provuser2")
     r = await client.post(
         _BASE,
@@ -115,15 +115,20 @@ async def test_create_provider_masks_and_becomes_default(client, make_invite, by
     body = r.json()
     assert body["label"] == "OpenAI"
     assert body["status"] == "unchecked"
-    assert body["masked_key"] == "••••1234"  # last 4 only, never the full key
+    assert body["masked_key"] == "••••1234"
     assert body["base_url"] == "https://api.openai.com/v1"
     assert body["default_model"] == "gpt-4o"
-    assert body["is_default_chat"] is True  # first provider auto-set as chat default
+    assert "is_default_chat" not in body
 
     listed = (await client.get(_BASE)).json()
     assert len(listed["providers"]) == 1
-    assert listed["default_chat"]["provider_id"] == body["id"]
-    assert listed["default_chat"]["model"] == "gpt-4o"
+    assert listed["default_model_profile_id"] is not None
+
+    profiles = (await client.get("/v1/users/me/llm-model-profiles")).json()
+    assert any(p["name"] == "当前配置" and p["is_default"] for p in profiles["data"])
+    default = next(p for p in profiles["data"] if p["is_default"])
+    assert default["main"]["provider_id"] == body["id"]
+    assert default["main"]["model"] == "gpt-4o"
 
 
 async def test_create_provider_requires_api_key(client, make_invite, byok):
@@ -185,46 +190,63 @@ async def test_provider_price_card_roundtrip(client, make_invite, byok):
     assert body["price_output"] == "2.0"
 
 
-async def test_multiple_providers_and_delete_repoints_default(client, make_invite, byok):
+async def test_multiple_providers_and_delete_retargets_profile(client, make_invite, byok):
     await register_and_login(client, await make_invite("INV-P-MULTI"), "provuser7")
     a = (await client.post(_BASE, json={"api_key": "sk-a-1111", "label": "A"})).json()
     b = (await client.post(_BASE, json={"api_key": "sk-b-2222", "label": "B"})).json()
     listed = (await client.get(_BASE)).json()
     assert {p["label"] for p in listed["providers"]} == {"A", "B"}
-    assert listed["default_chat"]["provider_id"] == a["id"]  # first one is the default
+    profile_id = listed["default_model_profile_id"]
+    assert profile_id is not None
 
-    # Delete the default provider → the account default re-points to the survivor.
+    profiles = (await client.get("/v1/users/me/llm-model-profiles")).json()
+    default = next(p for p in profiles["data"] if p["id"] == profile_id)
+    assert default["main"]["provider_id"] == a["id"]
+
+    # Delete the default provider → profile main retargets to the survivor.
     r = await client.delete(f"{_BASE}/{a['id']}")
     assert r.status_code == 200, r.text
     listed = (await client.get(_BASE)).json()
     assert [p["id"] for p in listed["providers"]] == [b["id"]]
-    assert listed["default_chat"]["provider_id"] == b["id"]
+    profiles = (await client.get("/v1/users/me/llm-model-profiles")).json()
+    default = next(p for p in profiles["data"] if p["id"] == profile_id)
+    assert default["main"]["provider_id"] == b["id"]
 
 
-async def test_set_defaults_chat_and_background(client, make_invite, byok):
+async def test_model_profile_crud_and_set_default(client, make_invite, byok):
     await register_and_login(client, await make_invite("INV-P-DEF"), "provuser8")
     a = (await client.post(_BASE, json={"api_key": "sk-a-1111", "default_model": "m-a"})).json()
     b = (await client.post(_BASE, json={"api_key": "sk-b-2222", "default_model": "m-b"})).json()
 
-    r = await client.put(
-        f"{_BASE}/defaults",
+    r = await client.post(
+        "/v1/users/me/llm-model-profiles",
         json={
-            "chat": {"provider_id": b["id"], "model": "m-b"},
-            "background": {"provider_id": a["id"], "model": "m-a"},
+            "name": "双槽",
+            "main": {"origin": "byok", "provider_id": b["id"], "model": "m-b"},
+            "background": {"origin": "byok", "provider_id": a["id"], "model": "m-a"},
+            "set_as_default": True,
         },
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 201, r.text
     body = r.json()
-    assert body["default_chat"] == {"provider_id": b["id"], "model": "m-b"}
-    assert body["default_background"] == {"provider_id": a["id"], "model": "m-a"}
+    assert body["name"] == "双槽"
+    assert body["main"]["provider_id"] == b["id"]
+    assert body["background"]["provider_id"] == a["id"]
+    assert body["is_default"] is True
+
+    listed = (await client.get(_BASE)).json()
+    assert listed["default_model_profile_id"] == body["id"]
 
 
-async def test_set_defaults_rejects_foreign_provider(client, make_invite, byok):
+async def test_model_profile_rejects_foreign_provider(client, make_invite, byok):
     await register_and_login(client, await make_invite("INV-P-DEFBAD"), "provuser9")
     await client.post(_BASE, json={"api_key": "sk-a-1111"})
-    r = await client.put(
-        f"{_BASE}/defaults",
-        json={"chat": {"provider_id": new_id(), "model": "m"}},
+    r = await client.post(
+        "/v1/users/me/llm-model-profiles",
+        json={
+            "name": "坏",
+            "main": {"origin": "byok", "provider_id": new_id(), "model": "m"},
+        },
     )
     assert r.status_code == 422, r.text
 

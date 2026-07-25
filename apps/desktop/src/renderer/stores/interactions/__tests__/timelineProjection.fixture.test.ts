@@ -34,8 +34,12 @@ const TIMELINE_KINDS: InteractionKind[] = [
   "escalation",
 ];
 
-/** Weak-form kinds (D5): marker required; row gated on resolved — not in strong card invariant. */
-const TRACE_KINDS: InteractionKind[] = ["approval", "delegation_authorization"];
+/** Weak-form kinds (D5): marker required; row gated on resolved/orphaned — not in strong card invariant. */
+const TRACE_KINDS: InteractionKind[] = [
+  "approval",
+  "delegation_authorization",
+  "stage_card",
+];
 
 /** Marker step id for a timeline interaction entry, per registry wiring. */
 function markerMatches(step: ProcessStep, kind: InteractionKind, id: string) {
@@ -62,7 +66,8 @@ describe("timeline projection key + marker invariant (fixtures)", () => {
   });
 
   it("covers the timeline fixture families", () => {
-    // Sanity: the families the bug hit (团队预审 / 检查点 / 计划复核 / 非阻塞问).
+    // Sanity: the families the bug hit (团队预审 / 检查点 / 计划复核 / 非阻塞问)
+    // + 弱式痕迹（审批 / 委派授权 / 阶段推进卡）。
     const names = FIXTURES.map((f) => f.name);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -71,10 +76,11 @@ describe("timeline projection key + marker invariant (fixtures)", () => {
         "plan_review_paused",
         "single_agent_non_blocking_ask",
         "multi_agent_legal_war_room",
+        "multi_agent_stage_card_orphaned",
+        "multi_agent_stage_card_start_debate",
       ]),
     );
   });
-
   for (const fx of FIXTURES) {
     it(`${fx.name}: cards resolvable by projection key, every card marked`, () => {
       const cid = `tlp-${fx.name}`;

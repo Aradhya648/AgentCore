@@ -1,6 +1,5 @@
 import { BASE_URL, api } from "@/services/api";
 import { type FolderMeta, toFolder } from "@/services/folders";
-import type { ModelSelection } from "@/services/models";
 import { trashBareConversationScratch } from "@/services/trashBareScratch";
 import { authedFetch, saveBlob } from "@/services/workspaceHttp";
 import type { Conversation } from "@/stores/conversation";
@@ -47,9 +46,7 @@ function toConversation(c: BackendConversation): Conversation {
     permissionPreset:
       (c as { permission_preset?: Conversation["permissionPreset"] })
         .permission_preset ?? "workspace",
-    model: c.model ?? null,
-    modelOrigin: c.model_origin ?? null,
-    modelProviderId: c.model_provider_id ?? null,
+    modelProfileId: c.model_profile_id ?? null,
   };
 }
 
@@ -183,25 +180,16 @@ export async function setConversationArchived(
 }
 
 /**
- * 切换会话使用的聊天模型（会话级模型切换）。传 (id, origin, providerId) 固定本会话模型；
- * 传 `null` 清除覆盖、回落账号默认。`origin === "byok"` 时**必须**带 `model_provider_id`
- * （否则后端 422）；`platform` 时留空。模型不可用 / 越权时后端返 422（由调用方 toast 呈现）。
- * 返回更新后的会话行，`model` / `modelOrigin` / `modelProviderId` 即服务端最终态。
+ * 切换会话使用的模型组合。传 profile id 固定本会话组合（活引用）；
+ * 传 `null` 清除覆盖、跟随账号默认。不可用 / 越权时后端返 422（由调用方 toast 呈现）。
  */
-export async function setConversationModel(
+export async function setConversationModelProfile(
   id: string,
-  selection: ModelSelection | null,
+  profileId: string | null,
 ): Promise<Conversation> {
-  const model = selection?.id.trim() ? selection.id.trim() : null;
-  const model_origin = model && selection ? selection.origin : null;
-  const model_provider_id =
-    model && selection?.origin === "byok"
-      ? (selection.providerId ?? null)
-      : null;
+  const model_profile_id = profileId?.trim() ? profileId.trim() : null;
   const res = await api.patch<BackendConversation>(`/v1/conversations/${id}`, {
-    model,
-    model_origin,
-    model_provider_id,
+    model_profile_id,
   });
   return toConversation(res);
 }

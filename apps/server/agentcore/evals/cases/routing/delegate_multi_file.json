@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_multi_file",
+  "category": "routing",
+  "user_message": "把 utils/ 下的 format_date.py、format_money.py、format_phone.py 三个小工具合并成一个 utils/formatters.py，并更新所有 import，保持行为不变。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "多文件重构落盘：需读写多个路径并保持行为，应委派团队/worker，禁止口头伪交付。"
+}

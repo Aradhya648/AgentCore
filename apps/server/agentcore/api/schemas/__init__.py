@@ -137,12 +137,18 @@ from .handoff import (
     HandoffJobListResponse,
     HandoffJobSummary,
 )
+from .llm_model_profiles import (
+    CreateLlmModelProfileRequest,
+    LlmModelProfileListResponse,
+    LlmModelProfileView,
+    ModelProfileSlot,
+    SetDefaultModelProfileRequest,
+    UpdateLlmModelProfileRequest,
+)
 from .llm_provider import (
     CreateLlmProviderRequest,
-    LlmDefaultPointer,
     LlmProvidersResponse,
     LlmProviderView,
-    SetLlmDefaultsRequest,
     UpdateLlmProviderRequest,
 )
 from .messages import (
@@ -368,8 +374,13 @@ __all__ = [
     "UpdateLlmProviderRequest",
     "LlmProviderView",
     "LlmProvidersResponse",
-    "LlmDefaultPointer",
-    "SetLlmDefaultsRequest",
+    # llm model profiles (模型组合)
+    "ModelProfileSlot",
+    "LlmModelProfileView",
+    "LlmModelProfileListResponse",
+    "CreateLlmModelProfileRequest",
+    "UpdateLlmModelProfileRequest",
+    "SetDefaultModelProfileRequest",
     # model catalog (模型目录)
     "ModelPriceCard",
     "ModelCatalogCurrent",

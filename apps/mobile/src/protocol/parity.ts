@@ -167,7 +167,7 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
   delivery_status: {
     verdict: "ported",
     surface:
-      "TeamView · 完成条件（批次验收缺口/待操作；fold 对齐桌面 DeliveryStatusCard）",
+      "TeamView · 交付验收（批次验收缺口/待操作；fold 对齐桌面 DeliveryStatusCard）",
   },
   user_interjection: {
     verdict: "internal",
@@ -183,8 +183,10 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
     reason: "异步团队转后台：v1 fold no-op；UI 呈现另行委派",
   },
   execution_completed: {
-    verdict: "internal",
-    reason: "后台执行终态：v1 fold no-op；完成后经消息通道刷新",
+    verdict: "ported",
+    surface: "ChatPage · getMessages 短延迟刷新拉入 harvest 终稿",
+    reason:
+      "fold no-op；live SSE 路径触发消息窗刷新（对齐桌面 refreshAfterExecutionCompleted）",
   },
 
   // —— 阻塞交互（审批热路径 PauseCard；冷恢复 ResumeCard）——
@@ -428,7 +430,7 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   DeliveryStatusCard: {
     verdict: "ported",
     surface:
-      "TeamView · 完成条件（C3：批次验收缺口/待操作，完成条件卡为缺口唯一披露；无绑定按钮，云瘦客户端如实提示）",
+      "TeamView · 交付验收（C3：批次验收缺口/待操作，交付验收卡为缺口唯一披露；无绑定按钮，云瘦客户端如实提示）",
   },
   UserInterjectionsPanel: {
     verdict: "simplified",
@@ -645,6 +647,14 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
   },
   "more/UsageSettings": { verdict: "ported", surface: "more/UsageSettings" },
   "more/ModelSettings": { verdict: "ported", surface: "more/ModelSettings" },
+  "more/MoreIndexRedirect": {
+    verdict: "simplified",
+    reason: "桌面 /more 入口按 billing/服务商分流；手机 more 直达模型页",
+  },
+  "more/ProviderSettings": {
+    verdict: "ported",
+    surface: "more/ModelSettings · ProviderForm（手机合页）",
+  },
   "more/AboutSettings": { verdict: "ported", surface: "more/AboutSettings" },
   "more/AccountSettings": {
     verdict: "ported",

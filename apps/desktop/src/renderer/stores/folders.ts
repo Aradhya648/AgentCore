@@ -20,6 +20,14 @@ export function defaultDraftWorkspaceIntent(): DraftWorkspaceIntent {
   return { kind: "quick_cloud" };
 }
 
+/** Viewport rect for anchoring the「新建项目」cascade near a trigger. */
+export type CreateFolderAnchorRect = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
 /**
  * Pure-UI folder state. The folder *list* is server data owned by React Query
  * (see `hooks/useFolders`); only these ephemeral, view-only flags — which a
@@ -33,15 +41,25 @@ interface FoldersUiState {
   draftWorkspaceIntent: DraftWorkspaceIntent;
   /** User-pinned folders shown at the top of workspace pickers. */
   pinnedFolderIds: string[];
-  /** Canonical「新建项目」dialog (command palette, etc.). */
+  /** Canonical「新建项目」cascade (command palette / chip / rail +). */
   createFolderOpen: boolean;
+  /** Optional trigger rect; null → host centers the cascade. */
+  createFolderAnchor: CreateFolderAnchorRect | null;
 
   setPendingRename: (id: string | null) => void;
   setDraftWorkspaceIntent: (intent: DraftWorkspaceIntent) => void;
   resetDraftWorkspaceIntent: () => void;
-  openCreateFolder: () => void;
+  openCreateFolder: (anchorEl?: Element | null) => void;
   closeCreateFolder: () => void;
   togglePinFolder: (id: string) => void;
+}
+
+function rectFromEl(
+  el: Element | null | undefined,
+): CreateFolderAnchorRect | null {
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { top: r.top, left: r.left, width: r.width, height: r.height };
 }
 
 export const useFoldersStore = create<FoldersUiState>()(
@@ -51,13 +69,22 @@ export const useFoldersStore = create<FoldersUiState>()(
       draftWorkspaceIntent: defaultDraftWorkspaceIntent(),
       pinnedFolderIds: [],
       createFolderOpen: false,
+      createFolderAnchor: null,
       setPendingRename: (id) => set({ pendingRenameId: id }),
       setDraftWorkspaceIntent: (intent) =>
         set({ draftWorkspaceIntent: intent }),
       resetDraftWorkspaceIntent: () =>
         set({ draftWorkspaceIntent: defaultDraftWorkspaceIntent() }),
-      openCreateFolder: () => set({ createFolderOpen: true }),
-      closeCreateFolder: () => set({ createFolderOpen: false }),
+      openCreateFolder: (anchorEl) => {
+        // Capture rect before the trigger menu unmounts / reflows.
+        const rect = rectFromEl(anchorEl);
+        set({
+          createFolderOpen: true,
+          createFolderAnchor: rect,
+        });
+      },
+      closeCreateFolder: () =>
+        set({ createFolderOpen: false, createFolderAnchor: null }),
       togglePinFolder: (id) =>
         set((s) => ({
           pinnedFolderIds: s.pinnedFolderIds.includes(id)

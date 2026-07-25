@@ -210,6 +210,81 @@ describe("turn stop lifecycle", () => {
     expect(getRuntime(CID).isGenerating).toBe(false);
   });
 
+  it("terminal completed 仍消费 detached 后的 run_*（D1 后台帧）", () => {
+    beginTurnPreflight(CID);
+    enterTurnStreaming(CID);
+    const mid = useConversationStore.getState().createAssistantMessage(CID);
+    if (!mid) throw new Error("expected assistant message id");
+    useExecutionStore.getState().startExecution(plan, mid);
+    useExecutionStore.getState().recordFrame(
+      {
+        t: 1,
+        kind: "run_started",
+        runId: "r1",
+        agentId: "w1",
+        parentRunId: null,
+        runKind: "agent",
+        continuesRunId: null,
+      },
+      mid,
+    );
+
+    dispatchSSEEvent(
+      {
+        type: "message_end",
+        payload: {
+          finish_reason: "stop",
+          rounds: 1,
+        },
+      } as never,
+      { conversationId: CID, source: "server" },
+    );
+    expect(getTurnPhase(CID)).toBe("completed");
+    // 未结算 worker 时 execution 保持 running（messageStream）
+    expect(execRuntime(useExecutionStore.getState(), mid).status).toBe(
+      "running",
+    );
+
+    dispatchSSEEvent(
+      {
+        type: "execution_detached",
+        payload: {
+          execution_id: plan.id,
+          conversation_id: CID,
+          completed: 0,
+          total: 2,
+          host_turn_id: mid,
+        },
+      } as never,
+      { conversationId: CID, source: "server" },
+    );
+    // 收口后同连接续推（对齐 async_delivery 向量）；不得被 terminal 门禁丢弃。
+    dispatchSSEEvent(
+      {
+        type: "run_completed",
+        payload: {
+          run_id: "r1",
+          agent_id: "w1",
+          output_summary: "调研完成",
+          duration_ms: 100,
+        },
+      } as never,
+      { conversationId: CID, source: "server" },
+    );
+
+    const frames = execRuntime(useExecutionStore.getState(), mid).frames;
+    expect(frames.some((f) => f.kind === "run_completed")).toBe(true);
+    expect(
+      execRuntime(useExecutionStore.getState(), mid).executionDetached,
+    ).toEqual({
+      execution_id: plan.id,
+      conversation_id: CID,
+      completed: 0,
+      total: 2,
+      host_turn_id: mid,
+    });
+  });
+
   it("stopping 态收到 message_end(cancelled) → terminal stopped + exec cancelled", () => {
     beginTurnPreflight(CID);
     enterTurnStreaming(CID);
@@ -297,3 +372,5 @@ describe("stopConversation", () => {
     await expect(stopConversation(CID)).rejects.toThrow("boom");
   });
 });
+
+// Sidecar vs cloud routing: see services/__tests__/stopTurn.test.ts

@@ -9,8 +9,11 @@ on **every** teardown path (explicit end / reap / crash / shutdown / delete).
 D16 接管时机: a takeover may START only when there is NO running turn (``turn_runs`` 判定 —
 an ask_user-paused turn has already收口 out of the registry, so its window is open; a turn
 awaiting a GRANTABLE approval is still running, so it is not) AND a live browser session
-exists. During takeover the ``browser_*`` tools return a busy error (they consult the
-registry mark), and input injection refreshes the session's idle timer.
+exists. **Narrow exception (browser_login):** while a turn is still running, if there is a
+pending ``InteractionKind.ESCALATION`` whose payload has ``browser_login`` truthy, start is
+allowed so the user can complete a login the AI hard-rejected (password never touches AI).
+During takeover the ``browser_*`` tools return a busy error (they consult the registry mark),
+and input injection refreshes the session's idle timer.
 
 Nothing here touches frames or key/text content (D17): the record carries only who/when/why.
 """
@@ -94,10 +97,12 @@ class BrowserTakeoverService:
         registry: BrowserSessionRegistry | None = None,
         store: TakeoverStore | None = None,
         has_running_turn: Callable[[str], bool] | None = None,
+        has_browser_login_pending: Callable[[str], bool] | None = None,
     ) -> None:
         self._registry = registry
         self._store: TakeoverStore = store or _DbTakeoverStore()
         self._has_running_turn = has_running_turn
+        self._has_browser_login_pending = has_browser_login_pending
         # Wire the finalizer so every session drop completes an open takeover record.
         self._reg().set_takeover_finalizer(self._finalize)
 
@@ -115,6 +120,19 @@ class BrowserTakeoverService:
         run = turn_runs.get(conversation_id)
         return run is not None and not run.task.done()
 
+    def _browser_login_pending(self, conversation_id: str) -> bool:
+        """True when a pending ESCALATION asks for user browser login (D16 窄例外)."""
+        if self._has_browser_login_pending is not None:
+            return self._has_browser_login_pending(conversation_id)
+        from agentcore.runtime.interaction import InteractionKind, default_interaction_registry
+
+        for req in default_interaction_registry().list_pending(conversation_id):
+            if req.kind is InteractionKind.ESCALATION and (req.payload or {}).get(
+                "browser_login"
+            ):
+                return True
+        return False
+
     def is_active(self, conversation_id: str) -> bool:
         """True while the conversation's browser is under user takeover (tool/409 gate)."""
         return self._reg().is_taken_over(conversation_id)
@@ -124,6 +142,9 @@ class BrowserTakeoverService:
 
         Precedence: already_active → turn_running → no_session → started. All non-``started``
         outcomes are distinguishable via ``reason`` (no side effects on failure).
+
+        ``turn_running`` is skipped when a pending escalate carries ``browser_login``
+        (login-takeover narrow exception); no_session / started logic still applies.
         """
         reg = self._reg()
         mark = reg.takeover_mark(conversation_id)
@@ -134,7 +155,7 @@ class BrowserTakeoverService:
                 record_id=mark.record_id,
                 started_at=mark.started_at,
             )
-        if self._running(conversation_id):
+        if self._running(conversation_id) and not self._browser_login_pending(conversation_id):
             return TakeoverResult(active=False, reason="turn_running")
         if reg.peek(conversation_id) is None:
             return TakeoverResult(active=False, reason="no_session")

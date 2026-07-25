@@ -156,7 +156,25 @@ class _BrowserToolBase:
             )
 
         if not result.ok:
-            return _error(f"浏览器操作失败：{result.error or '未知错误'}", start)
+            err = result.error or "未知错误"
+            # Driver hard-rejects password fills (DOM-authoritative); map to a
+            # machine-readable ToolResult so the model escalates for user login.
+            if "password_blocked" in err:
+                msg = (
+                    "目标为密码输入框，AI 不得填写。请 escalate(blocking=true, "
+                    "browser_login=true) 让用户接管登录（登录完成后用户会结束接管，"
+                    "你再继续）。"
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output=msg,
+                    error=msg,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    metadata={"code": "password_blocked"},
+                    contract_failure=True,
+                )
+            return _error(f"浏览器操作失败：{err}", start)
 
         return await self._build_result(arguments, context, result, keyframes, want_frame, start)
 
@@ -329,7 +347,9 @@ class BrowserTypeTool(_BrowserToolBase):
             description=(
                 "向当前页面的输入框填入文本。先用 browser_snapshot 获取输入框 ref 与 "
                 "snapshot_version。会替换该输入框已有内容。操作后自动截关键帧。"
-                "注意：M0 不支持登录/凭据场景，请勿输入用户密码等敏感信息。"
+                "遇 password 角色输入框会硬拒（metadata.code=password_blocked）："
+                "请 escalate(blocking=true, browser_login=true) 让用户接管登录，"
+                "勿尝试填写密码。"
             ),
             parameters={
                 "type": "object",

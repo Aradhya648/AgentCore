@@ -8,10 +8,11 @@ guard live in the backend, so the same tools run unchanged against a server or a
 local (desktop) workspace.
 """
 
+import hashlib
 import re
 import time
 from posixpath import basename
-from typing import Any
+from typing import Any, Literal
 
 from agentcore.core.logging import get_logger
 from agentcore.core.types import ToolApproval, ToolCategory
@@ -77,9 +78,9 @@ def substantial_overwrite_rejection(path: str, old_chars: int) -> str:
     """User-facing error when ``file_write`` would clobber a substantial file."""
     return (
         f"拒绝整文件覆盖：`{path}` 已是成篇成品（约 {old_chars} 字，阈值 "
-        f"{_SUBSTANTIAL_FILE_CHARS} 字）。请改用 str_replace 局部修订，或 "
-        "file_append 追加；确需整体换稿时先说明并拆成局部补丁。"
-        "新建空文件骨架 + 分段 append 不受影响。"
+        f"{_SUBSTANTIAL_FILE_CHARS} 字）。请改用 str_replace 局部修订；"
+        "确需整体换稿时先说明并拆成局部补丁。"
+        "超长新建应先短骨架再按节填空；中等单篇一次 file_write 写完。"
     )
 
 
@@ -88,8 +89,8 @@ def substantial_delete_rejection(path: str, old_chars: int) -> str:
     return (
         f"拒绝删除成篇草稿：`{path}` 已有约 {old_chars} 字（阈值 "
         f"{_SUBSTANTIAL_FILE_CHARS} 字）。禁止整篇 delete 后重写长文——"
-        "请用 str_replace 局部修订，或 file_append 按章续写；"
-        "预算不够时停在完整章边界并诚实交接，勿推倒重来。"
+        "请用 str_replace 局部修订；超长续写须先有短骨架再按节 "
+        "file_append / str_replace；预算不够时停在完整章边界并诚实交接，勿推倒重来。"
     )
 
 
@@ -119,7 +120,7 @@ def integrity_nudge_text(
     return (
         f"\n\n[系统提示] 产物疑似不完整（`{path}`：{reason}；"
         f"旧 {old_chars} 字 → 新 {new_chars} 字）。"
-        "请检查后用 str_replace / file_append 补全，或向主管说明需重派。"
+        "请用 str_replace 就地补全（勿再 file_read 回读），或向主管说明需重派。"
         "系统只提示、绝不代派、绝不自动重跑、绝不拦截本次写入。"
     )
 
@@ -159,15 +160,185 @@ def length_nudge_text(*, path: str, chars: int) -> str:
         f"\n\n[系统提示] 本次 file_write 内容较长（`{path}`：约 {approx_tokens} token / "
         f"{chars} 字，阈值 ≈{_WRITE_LENGTH_WARN_TOKENS} token / "
         f"{_WRITE_LENGTH_WARN_CHARS} 字）。"
-        "大产物请改用「骨架 file_write + 分段 file_append」：先写结构/首段，再逐节追加；"
-        "不要指望单次 file_write 一口气写完全文。"
+        "Artifact-first：超长应先短骨架（标题/锚点/`<!-- SECTION: -->`）再按节 "
+        "file_append 或 str_replace 填空；中等单篇应一次写完。"
+        "勿对已成篇正文再同文件 append。"
         "系统只提示、绝不拦截本次写入。"
     )
 
 
-def _mark_landed_files(context: ToolContext) -> None:
-    """Stamp that this run has written at least one file (handoff empty-body gate)."""
+# Skeleton vs prose (Artifact-first Writing) ---------------------------------
+# Explicit outline / website markers always count as skeleton. Otherwise:
+# short stubs are skeleton; short + many headings with thin body = skeleton;
+# substantial body without those cues = prose (locks same-path append this run).
+_SKELETON_SOFT_CHARS = 800
+_MD_HEADING_RE = re.compile(r"(?m)^(#{1,6})\s+(\S.*)$")
+_HTML_HEADING_RE = re.compile(r"(?is)<h([1-6])\b[^>]*>(.*?)</h\1>")
+_SKELETON_MARKER_RE = re.compile(
+    r"<!--\s*(?:SECTION:\S+|OUTLINE)\b",
+    re.IGNORECASE,
+)
+
+
+def has_skeleton_markers(content: str) -> bool:
+    """True when content carries outline / SECTION placeholders."""
+    return bool(_SKELETON_MARKER_RE.search(content or ""))
+
+
+def extract_title_tree(content: str, *, limit: int = 24) -> list[str]:
+    """Cheap heading outline (Markdown ``#`` + HTML ``<hN>``), capped at ``limit``."""
+    text = content or ""
+    items: list[str] = []
+    for match in _MD_HEADING_RE.finditer(text):
+        level = len(match.group(1))
+        title = match.group(2).strip()
+        items.append(f"{'#' * level} {title}")
+        if len(items) >= limit:
+            return items
+    for match in _HTML_HEADING_RE.finditer(text):
+        level = int(match.group(1))
+        title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+        if not title:
+            continue
+        items.append(f"{'#' * level} {title}")
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _heading_count(content: str) -> int:
+    text = content or ""
+    return len(_MD_HEADING_RE.findall(text)) + len(_HTML_HEADING_RE.findall(text))
+
+
+def _prose_body_chars(content: str) -> int:
+    """Rough non-heading body size (strip heading lines / SECTION markers)."""
+    text = content or ""
+    text = _MD_HEADING_RE.sub("", text)
+    text = _HTML_HEADING_RE.sub("", text)
+    text = _SKELETON_MARKER_RE.sub("", text)
+    return len(text.strip())
+
+
+def classify_write_kind(content: str) -> Literal["skeleton", "prose"]:
+    """Classify a ``file_write`` body as skeleton (append-ok) or prose (append-locked)."""
+    text = content or ""
+    stripped = text.strip()
+    if not stripped:
+        return "skeleton"
+    if has_skeleton_markers(text):
+        return "skeleton"
+    if len(stripped) < _SUBSTANTIAL_FILE_CHARS:
+        return "skeleton"
+    headings = _heading_count(text)
+    body = _prose_body_chars(text)
+    if (
+        len(stripped) <= _SKELETON_SOFT_CHARS
+        and headings >= 2
+        and body < max(_SUBSTANTIAL_FILE_CHARS, len(stripped) // 2)
+    ):
+        return "skeleton"
+    if headings >= 3 and body < _SUBSTANTIAL_FILE_CHARS:
+        return "skeleton"
+    return "prose"
+
+
+def is_skeleton_content(content: str) -> bool:
+    """True when ``content`` looks like a fill-in skeleton rather than finished prose."""
+    return classify_write_kind(content) == "skeleton"
+
+
+def content_sha256_short(content: str, *, n: int = 16) -> str:
+    """Short hex prefix of SHA-256 over UTF-8 bytes (manifest field)."""
+    digest = hashlib.sha256((content or "").encode("utf-8")).hexdigest()
+    return digest[:n]
+
+
+def format_artifact_manifest(
+    *,
+    path: str,
+    content: str,
+    bytes_written: int,
+    kind: str,
+    action: str = "write",
+) -> str:
+    """Success receipt = artifact manifest (验真；禁止再 file_read 回读正文)."""
+    lines = len((content or "").splitlines())
+    tree = extract_title_tree(content)
+    tree_block = "\n".join(f"  {t}" for t in tree) if tree else "  （无标题）"
+    preview = _tail_preview(content, max_lines=_APPEND_ECHO_LINES, max_chars=_APPEND_ECHO_CHARS)
+    verb = "已写入" if action == "write" else "已追加"
+    return (
+        f"{verb} {bytes_written} 字节到 {path}\n"
+        f"【artifact manifest】\n"
+        f"path: {path}\n"
+        f"kind: {kind}\n"
+        f"bytes: {bytes_written}\n"
+        f"lines: {lines}\n"
+        f"content_sha256: {content_sha256_short(content)}\n"
+        f"title_tree:\n{tree_block}\n"
+        f"end_preview:\n{preview}\n"
+        "【验真】请以本 manifest 确认落盘；禁止对本文件再 file_read 回读正文。"
+    )
+
+
+def format_cheap_disk_structure(content: str, *, path: str) -> str:
+    """Title tree + line count for self-product ``file_read`` rejection (not a body dump)."""
+    lines = len((content or "").splitlines())
+    tree = extract_title_tree(content)
+    tree_block = "、".join(tree[:12]) if tree else "（无标题）"
+    return f"现盘结构：`{path}` lines={lines}；title_tree: {tree_block}"
+
+
+def prose_append_rejection(path: str) -> str:
+    """Hard reject when appending after a same-run prose ``file_write``."""
+    return (
+        f"拒绝追加：`{path}` 本 run 已落成篇正文（非骨架）。"
+        "中等单篇应一次 file_write 写完；超长应先短骨架再按节 "
+        "file_append / str_replace 填空；修订请用 str_replace。"
+    )
+
+
+def self_product_read_rejection(path: str, structure_note: str) -> str:
+    """Hard reject ``file_read`` of a path already landed this run."""
+    note = (structure_note or "").strip()
+    suffix = f"\n{note}" if note else ""
+    return (
+        f"拒绝 file_read：`{path}` 为本 run 已落盘产物。"
+        "请以写/append 回执中的 artifact manifest 验真，禁止回读正文。"
+        f"{suffix}"
+    )
+
+
+def _norm_rel_path(path: str) -> str:
+    return (path or "").strip().replace("\\", "/")
+
+
+def _mark_landed_files(
+    context: ToolContext,
+    path: str = "",
+    *,
+    kind: str | None = None,
+) -> None:
+    """Stamp landed-files gate + Artifact-first path kind (shared mutable dict).
+
+    ``kind="prose"`` locks same-path append. ``kind="skeleton"`` or omitted keeps
+    append allowed while still blocking self-product ``file_read``. Existing
+    ``prose`` is never downgraded.
+    """
     context.has_landed_files = True
+    path_key = _norm_rel_path(path)
+    if not path_key:
+        return
+    current = context.landed_artifact_kinds.get(path_key)
+    if current == "prose":
+        return
+    if kind == "prose":
+        context.landed_artifact_kinds[path_key] = "prose"
+    elif kind == "skeleton":
+        context.landed_artifact_kinds[path_key] = "skeleton"
+    else:
+        context.landed_artifact_kinds.setdefault(path_key, "skeleton")
 
 
 def write_length_nudge(path: str, content: str) -> str | None:
@@ -204,8 +375,8 @@ def _format_numbered_lines(lines: list[str], start_line: int) -> str:
 
 # 写类工具「回显结果」：worker 写 / 追加 / 替换后，常会为「确认写对没」再花一整轮 read 回读自检
 # （trace 4d715ea0 实测：8 个 append worker 全是 读→追加→回读→handoff，那一轮回读零信息增量）。
-# 行业实践是让写类工具直接把「改动后的结果」回显进回执（Aider / Cursor / Claude Code 均回 diff /
-# 结果片段），使验证在同一轮内完成、免掉那一轮回读。
+# Artifact-first：写/append 成功回执 = artifact manifest（path/bytes/lines/hash/标题树/末段预览），
+# 并硬拒对本 run 已落盘 path 的 body file_read；成篇 prose 后同 path append 亦硬拒。
 # 回显有界（行数 + 字符双上限），大文件不炸 token。
 _APPEND_ECHO_LINES = 12
 _APPEND_ECHO_CHARS = 600
@@ -554,6 +725,8 @@ class FileReadTool:
                 "读取工作区内某个文件的内容（相对路径）。"
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
+                "本 run 已用 file_write / file_append / str_replace 落盘的路径禁止再 "
+                "file_read 回读正文——以写回执 artifact manifest 验真。"
             ),
             parameters={
                 "type": "object",
@@ -594,6 +767,21 @@ class FileReadTool:
         path_key = (rel_path or "").strip().replace("\\", "/")
         using_reread = False
         if path_key:
+            # Artifact-first: never body-read a path this run already landed.
+            # Cheap structure only; does NOT count toward FILE_READ_SAME_PATH_MAX.
+            landed_kind = context.landed_artifact_kinds.get(path_key)
+            if landed_kind is not None:
+                structure = ""
+                try:
+                    disk = await context.backend.read(rel_path)
+                    structure = format_cheap_disk_structure(disk, path=path_key)
+                except WorkspaceError:
+                    structure = f"现盘结构：`{path_key}`（暂不可读）"
+                return _error(
+                    self_product_read_rejection(path_key, structure),
+                    start,
+                    contract_failure=True,
+                )
             prior = int(context.file_read_counts.get(path_key, 0))
             if prior >= FILE_READ_SAME_PATH_MAX:
                 verbatim = context.file_read_verbatim_paths
@@ -690,13 +878,14 @@ class FileWriteTool:
             description=(
                 "把内容写入文件：会创建该文件（含所有上级目录），或【整体覆盖】"
                 "已有文件。用它来【新建】文件。"
-                "【大产物默认】骨架 file_write + 分段 file_append："
-                "先写结构/首段，后续各节用 file_append 追加——"
-                "不要单次一口气塞完整站 HTML / 长文。"
+                "【Artifact-first】中等单篇默认一次写完；超长先短骨架（标题/锚点/"
+                "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空——"
+                "禁止先写成篇正文再同文件 append。"
+                "成功回执为 artifact manifest（以此验真，禁止再 file_read 回读）。"
                 "【修订已有成品】禁止用它全文重写——对已存在成篇非空文件，"
-                "系统会【硬拒绝】整文件覆盖并引导改用 str_replace / file_append"
+                "系统会【硬拒绝】整文件覆盖并引导改用 str_replace"
                 "（反例：惰性「……（中间省略，已保留首尾）……」会残缺交付）。"
-                "只改一部分优先 str_replace；末尾追加用 file_append。"
+                "只改一部分优先 str_replace；骨架填空才用 file_append。"
                 "路径必须是相对于工作区的相对路径。"
             ),
             parameters={
@@ -709,8 +898,8 @@ class FileWriteTool:
                     "content": {
                         "type": "string",
                         "description": (
-                            "要写入的内容。大文件请只放骨架或首段，"
-                            "其余用 file_append 分段追加。"
+                            "要写入的内容。中等单篇一次写完；超长只放短骨架，"
+                            "其余按节 file_append / str_replace 填空。"
                         ),
                     },
                 },
@@ -789,13 +978,17 @@ class FileWriteTool:
             if write_content != content
             else ""
         )
-        # file_write 是整体写入，内容就是你本次提交的全文 → 无需回显（模型已持有），只在回执里
-        # 点明「已落盘、无需回读」即可（见本模块顶部说明）。
-        output = (
-            f"已写入 {written} 字节到 {rel_path}"
-            "（内容即你本次提交的全文，已落盘，无需再读回确认）"
-            f"{anchor_note}"
+        kind = classify_write_kind(write_content)
+        path_key = _norm_rel_path(rel_path)
+        output = format_artifact_manifest(
+            path=rel_path,
+            content=write_content,
+            bytes_written=written,
+            kind=kind,
+            action="write",
         )
+        if anchor_note:
+            output += anchor_note
         if old_content is not None:
             nudge = overwrite_integrity_nudge(rel_path, old_content, write_content)
             if nudge:
@@ -806,8 +999,7 @@ class FileWriteTool:
                     new_chars=len(write_content),
                 )
                 output += nudge
-        # Soft length nudge (independent of overwrite integrity): suggest skeleton +
-        # append for oversized bodies. Never blocks; fires on new files too.
+        # Soft length nudge: Artifact-first guidance for oversized bodies.
         length_nudge = write_length_nudge(rel_path, write_content)
         if length_nudge:
             logger.info(
@@ -817,7 +1009,7 @@ class FileWriteTool:
                 warn_chars=_WRITE_LENGTH_WARN_CHARS,
             )
             output += length_nudge
-        _mark_landed_files(context)
+        _mark_landed_files(context, path_key, kind=kind)
         return ToolResult(
             tool_call_id="",
             success=True,
@@ -841,9 +1033,11 @@ class FileAppendTool:
             description=(
                 "在文件【末尾追加】内容：文件不存在则创建（含上级目录）；已存在则在"
                 "末尾拼接，不重写全文。"
-                "大产物默认写法的后半段：骨架已用 file_write 落盘后，用本工具逐节追加"
-                "（整站 HTML / 长文 / 多章节文档）。"
-                "若要【整体覆盖】或新建首段/骨架，用 file_write；若要改中间某段，用 "
+                "仅用于骨架填空 / 建站 SECTION 壳：短骨架或 `<!-- SECTION: -->` 落盘后"
+                "按节追加。禁止对「本 run 已 file_write 成篇正文」再 append——"
+                "中篇应一次写完，修订用 str_replace。"
+                "成功回执为 artifact manifest（以此验真，禁止再 file_read 回读）。"
+                "若要【整体覆盖】或中等单篇一次成文，用 file_write；改中间某段用 "
                 "str_replace。路径必须是相对于工作区的相对路径。"
             ),
             parameters={
@@ -875,12 +1069,33 @@ class FileAppendTool:
         if not rel_path:
             return _error("path 不能为空：请提供工作区内的相对文件路径（如 report.md）", start)
 
+        path_key = _norm_rel_path(rel_path)
+        if context.landed_artifact_kinds.get(path_key) == "prose":
+            return _error(
+                prose_append_rejection(rel_path),
+                start,
+                contract_failure=True,
+            )
+
         denied, release_on_fail = _claim_write_path(
             context, rel_path, event="file_append.collision", start=start
         )
         if denied is not None:
             return denied
         coordinator = context.write_coordinator
+
+        # Pre-read: missing → create-via-append (allowed); existing skeleton → fill-in.
+        old_content: str | None = None
+        try:
+            old_content = await context.backend.read(rel_path)
+        except PathNotFound:
+            old_content = None
+        except WorkspaceError:
+            old_content = None
+
+        # Disk already looks like finished prose and this run wrote it as prose
+        # is handled above. If disk is prose but not locked this run (扩写 / 他 run
+        # 骨架)，仍放行。若本 run 未登记且盘上已是成篇、又无骨架标记——仍放行扩写。
 
         try:
             appended = await context.backend.append(rel_path, content)
@@ -900,20 +1115,34 @@ class FileAppendTool:
                 coordinator.release(rel_path, context.run_id)
             return _error(f"追加文件失败：{e}", start)
 
-        _mark_landed_files(context)
+        try:
+            merged = await context.backend.read(rel_path)
+        except WorkspaceError:
+            merged = (old_content or "") + (content or "")
+
+        if old_content is None:
+            # Created via append: classify the new body (skeleton fill-in vs prose dump).
+            kind = classify_write_kind(merged)
+        elif is_skeleton_content(old_content) or has_skeleton_markers(old_content):
+            kind = "skeleton"
+        elif path_key not in context.landed_artifact_kinds:
+            # Pre-existing non-skeleton (扩写): land for read-reject, keep append-ok.
+            kind = "skeleton"
+        else:
+            kind = context.landed_artifact_kinds.get(path_key) or "skeleton"
+
+        output = format_artifact_manifest(
+            path=rel_path,
+            content=merged,
+            bytes_written=appended,
+            kind=kind,
+            action="append",
+        )
+        _mark_landed_files(context, path_key, kind=kind)
         return ToolResult(
             tool_call_id="",
             success=True,
-            # 回显合并后的文件末尾：append 只写增量、模型上下文里没有合并后的全文，故把「文件当前
-            # 末尾」当场给它，免得它为「看看追加落对没」再花一轮 read 回读（见本模块顶部说明）。
-            output=(
-                f"已追加 {appended} 字节到 {rel_path}（已落盘，无需再读回确认）。文件当前末尾：\n"
-                + _tail_preview(
-                    await context.backend.read(rel_path),
-                    max_lines=_APPEND_ECHO_LINES,
-                    max_chars=_APPEND_ECHO_CHARS,
-                )
-            ),
+            output=output,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
@@ -1193,7 +1422,7 @@ class StrReplaceTool:
             echo = "。改动落点（已落盘，无需再读回确认）：\n" + _format_numbered_lines(
                 region.lines, region.start_line
             )
-        _mark_landed_files(context)
+        _mark_landed_files(context, rel_path)
         return ToolResult(
             tool_call_id="",
             success=True,
@@ -1377,7 +1606,7 @@ class WriteSectionTool:
                 coordinator.release(rel_path, context.run_id)
             return _error(f"写入文件失败：{e}", start)
 
-        _mark_landed_files(context)
+        _mark_landed_files(context, rel_path)
         src = f"（来自 `{from_file}`）" if from_file else ""
         return ToolResult(
             tool_call_id="",

@@ -36,7 +36,7 @@ from agentcore.conversation.export import (
     conversation_to_json,
     conversation_to_markdown,
 )
-from agentcore.core.errors import NotFoundError, ValidationError
+from agentcore.core.errors import NotFoundError
 from agentcore.core.logging import get_logger
 from agentcore.db.models import Conversation
 from agentcore.db.repositories import (
@@ -278,51 +278,20 @@ async def update_conversation(
         )
         if updated:
             conv = updated
-    # 会话级模型切换: explicit non-empty (model, origin, provider_id) must be in the
-    # user's catalog AND available — else 422; dual null clears the override. Validated
-    # here (write choke point) so the turn resolver / inference proxy trust the value.
-    # For byok origin, provider_id pins the exact 服务商 (the same model id may exist
-    # under several providers, so it must be explicit / carried from the stored value).
-    if "model" in fields or "model_origin" in fields or "model_provider_id" in fields:
-        if "model" in fields:
-            chosen = (body.model or "").strip() or None
-        else:
-            chosen = (conv.model or "").strip() or None
-        if chosen is None and "model" in fields:
-            updated = await repo.set_model(
-                conversation_id, None, user_id=user.user_id, model_origin=None
-            )
-            if updated:
-                conv = updated
-        elif chosen is not None:
-            if "model_origin" in fields:
-                origin = body.model_origin
-            elif conv.model_origin in ("byok", "platform"):
-                origin = conv.model_origin
-            else:
-                origin = None
-            if origin is None:
-                raise ValidationError("设置模型时必须同时指定 model_origin")
-            if "model_provider_id" in fields:
-                provider_id = body.model_provider_id
-            else:
-                provider_id = conv.model_provider_id
-            provider_id = provider_id if origin == "byok" else None
-            from agentcore.llm.catalog import validate_model_choice
+    # 会话级模型组合: explicit profile_id pins a combination; null clears → account default.
+    if "model_profile_id" in fields:
+        profile_id = body.model_profile_id
+        if profile_id is not None:
+            from agentcore.llm.model_profiles import LlmModelProfileService
 
-            if not await validate_model_choice(
-                repo._session, user.user_id, chosen, origin, provider_id
-            ):
-                raise ValidationError("所选模型不可用或不在你的模型目录中")
-            updated = await repo.set_model(
-                conversation_id,
-                chosen,
-                user_id=user.user_id,
-                model_origin=origin,
-                model_provider_id=provider_id,
+            await LlmModelProfileService(repo._session).ensure_profile_usable(
+                user.user_id, profile_id
             )
-            if updated:
-                conv = updated
+        updated = await repo.set_model_profile(
+            conversation_id, profile_id, user_id=user.user_id
+        )
+        if updated:
+            conv = updated
     return ConversationSummary.model_validate(conv)
 
 

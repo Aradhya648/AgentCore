@@ -25,6 +25,8 @@ import { FeedbackSettings } from "@/pages/more/FeedbackSettings";
 import { ImPrivacySettings } from "@/pages/more/ImPrivacySettings";
 import { MemorySettings } from "@/pages/more/MemorySettings";
 import { ModelSettings } from "@/pages/more/ModelSettings";
+import { MoreIndexRedirect } from "@/pages/more/MoreIndexRedirect";
+import { ProviderSettings } from "@/pages/more/ProviderSettings";
 import { ShortcutsSettings } from "@/pages/more/ShortcutsSettings";
 import { UsageSettings } from "@/pages/more/UsageSettings";
 import { TownLauncherPage } from "@/pages/simulation/TownLauncherPage";
@@ -101,9 +103,10 @@ export const router = createHashRouter([
         path: "more",
         element: <MorePage />,
         children: [
-          // Opening 设置 lands on the first page (模型配置); there is no overview.
-          { index: true, element: <Navigate to="/more/model" replace /> },
+          // Opening 设置：platform / 已有平台或服务商 → 模型；byok 空接 → 服务商。
+          { index: true, element: <MoreIndexRedirect /> },
           { path: "model", element: <ModelSettings /> },
+          { path: "providers", element: <ProviderSettings /> },
           { path: "memory", element: <MemorySettings /> },
           { path: "autonomy", element: <AutonomySettings /> },
           { path: "account", element: <AccountSettings /> },

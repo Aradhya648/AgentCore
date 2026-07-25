@@ -226,10 +226,18 @@ async function main() {
         });
       }
       const frameSel = shot.k === null ? "full" : String(shot.k);
+      // Seed always lands on #/preview first (`data-preview-scenario`). With
+      // SHOOT_ZOOM, PreviewPage then navigates to turn-detail — wait for that
+      // URL so we don't screenshot a no-op canvas (假绿).
       await page.waitForSelector(
         `[data-preview-scenario="${shot.name}"][data-preview-frame="${frameSel}"]`,
         { timeout: 15_000 },
       );
+      if (ZOOM) {
+        await page.waitForURL(/#\/conversations\/preview-.*\/turn\//, {
+          timeout: 10_000,
+        });
+      }
       // Let any in-flight client-side navigation from the prior frame scrub settle.
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       await page.evaluate(() => document.fonts?.ready).catch(() => {});

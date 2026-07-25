@@ -978,11 +978,10 @@ def tally_scores(rounds: Sequence[RoundResult]) -> dict[str, RoundScore]:
 
 
 def _form_label(form: DebateForm) -> str:
-    return {
-        DebateForm.DEBATE: "正反辩论",
-        DebateForm.RED_TEAM: "红队挑刺",
-        DebateForm.ROUNDTABLE: "多方圆桌",
-    }.get(form, str(form))
+    # 展示名单源 = constants.FORM_LABELS（lazy：本模块保持 stdlib-only 顶层 import）。
+    from agentcore.runtime.debate.constants import FORM_LABELS
+
+    return FORM_LABELS.get(form, str(form))
 
 
 def _severity_label(sev: str) -> str:

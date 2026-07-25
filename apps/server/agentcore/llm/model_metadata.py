@@ -130,12 +130,6 @@ _METADATA: dict[str, ModelMeta] = {
         capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
         context_length=128_000,
     ),
-    "claude-4.8": ModelMeta(
-        display_name="Claude 4.8",
-        vendor="Anthropic",
-        capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
-        context_length=200_000,
-    ),
 }
 
 # Vendor guesses by leading provider prefix / substring for unknown ids, so a

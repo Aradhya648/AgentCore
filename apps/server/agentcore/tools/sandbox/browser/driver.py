@@ -85,6 +85,8 @@ def _modifier_bitmask(mods) -> int:
     return bits
 
 # Interactive-element selector for the ref-annotated snapshot (click/type targets).
+# Password fields are labeled role=password; their ``value`` is NEVER included in name
+# (AI must never see or type passwords — login goes through user takeover).
 _SNAPSHOT_JS = r"""
 (version) => {
   const sel = [
@@ -102,14 +104,29 @@ _SNAPSHOT_JS = r"""
     n++;
     const ref = 'e' + n;
     el.setAttribute('data-acref', ref);
-    const role = el.getAttribute('role') || el.tagName.toLowerCase();
-    let name = (el.getAttribute('aria-label') || el.textContent
-      || el.getAttribute('placeholder') || el.value || '')
-      .trim().replace(/\s+/g, ' ').slice(0, 100);
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+    const isPassword = type === 'password' || ac.includes('password');
+    const role = isPassword ? 'password' : (el.getAttribute('role') || el.tagName.toLowerCase());
+    // Password: never leak value into the snapshot name (DOM-as-source-of-truth).
+    const nameSrc = isPassword
+      ? (el.getAttribute('aria-label') || el.getAttribute('placeholder') || '')
+      : (el.getAttribute('aria-label') || el.textContent
+        || el.getAttribute('placeholder') || el.value || '');
+    let name = nameSrc.trim().replace(/\s+/g, ' ').slice(0, 100);
     out.push(`[${ref}] ${role}${name ? ': ' + name : ''}`);
     if (n >= 200) break;
   }
   return out.join('\n');
+}
+"""
+
+# Evaluated on the resolved element before fill — DOM type/autocomplete is authoritative.
+_IS_PASSWORD_JS = r"""
+(el) => {
+  const type = (el.getAttribute('type') || '').toLowerCase();
+  const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+  return type === 'password' || ac.includes('password');
 }
 """
 
@@ -185,9 +202,15 @@ class Driver:
         return await self._page_state(capture=bool(req.get("capture", True)))
 
     async def type(self, req: dict) -> dict:
-        await self._resolve_ref(req).fill(
-            req.get("text", ""), timeout=int(req.get("timeout_ms", 8000))
-        )
+        loc = self._resolve_ref(req)
+        # Hard-reject password fields (DOM-authoritative). Host maps ``password_blocked``
+        # in the error string to a machine-readable ToolResult; never fill.
+        if await loc.evaluate(_IS_PASSWORD_JS):
+            raise ValueError(
+                "password_blocked: AI 不得填写密码框；"
+                "请 escalate(blocking=true, browser_login=true) 让用户接管登录"
+            )
+        await loc.fill(req.get("text", ""), timeout=int(req.get("timeout_ms", 8000)))
         return await self._page_state(capture=bool(req.get("capture", True)))
 
     async def scroll(self, req: dict) -> dict:

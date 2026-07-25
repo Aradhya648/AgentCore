@@ -1,5 +1,12 @@
-import { MemorySection, type MemoryScope } from "@/components/files/fileWorkbench/MemorySection";
-import { RuleSection, type RuleScope } from "@/components/files/fileWorkbench/RuleSection";
+import { BrandMarkIcon } from "@/components/brand/BrandMark";
+import {
+  type MemoryScope,
+  MemorySection,
+} from "@/components/files/fileWorkbench/MemorySection";
+import {
+  type RuleScope,
+  RuleSection,
+} from "@/components/files/fileWorkbench/RuleSection";
 import {
   loadAgentCoreCollapsed,
   loadAgentCoreExpanded,
@@ -8,7 +15,7 @@ import {
 } from "@/components/files/fileWorkbench/storage";
 import { cn } from "@/lib/utils";
 import { AGENTCORE_ROOT_NAME } from "@/services/documents";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 /** Which convention-tree layer: GLOBAL (cloud root) or one project's. */
@@ -150,7 +157,7 @@ export function AgentCoreSection({
           <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
         )}
         {scope.kind === "global" ? (
-          <Sparkles size={14} className="shrink-0 text-primary" />
+          <BrandMarkIcon size={14} />
         ) : sectionOpen ? (
           <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
         ) : (

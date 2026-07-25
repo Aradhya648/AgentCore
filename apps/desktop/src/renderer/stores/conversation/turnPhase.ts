@@ -42,6 +42,11 @@ export function allowsStreamingMutations(phase: TurnPhase): boolean {
 /**
  * stopping：诚实过渡态——继续消费 run_*（含级联终态帧），正文/工具突变仍挡；
  * 仅后端 message_end/error 才定格。terminal：放行下一回合 message_start + 无害 meta。
+ *
+ * terminal 也放行 run_*：对齐云端 / sidecar D1——`message_end` 后 sink 仍可为 live
+ * detached drive 续推 `run_completed` / `run_tool_progress`（conformance
+ * `async_delivery`：detached → message_end → run_completed → execution_completed）。
+ * 若挡掉，协作图会冻在收口前快照，直到（若有）execution_completed 刷新。
  */
 export function allowsSseEvent(phase: TurnPhase, eventType: string): boolean {
   if (phase === "idle" || phase === "preflight" || phase === "streaming") {
@@ -51,8 +56,11 @@ export function allowsSseEvent(phase: TurnPhase, eventType: string): boolean {
   if (eventType === "message_start" && isTerminalPhase(phase)) {
     return true;
   }
-  // 停止中：run_* 必须入折（否则乐观门会冻在旧快照）；迟到 message_start 不得复活。
-  if (phase === "stopping" && eventType.startsWith("run_")) {
+  // stopping + terminal：run_* 必须入折（停止级联 / 异步团队后台帧）。
+  if (
+    (phase === "stopping" || isTerminalPhase(phase)) &&
+    eventType.startsWith("run_")
+  ) {
     return true;
   }
   return (

@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from agentcore.core.logging import get_logger
+from agentcore.runtime.costing import ROLE_ARENA
 from agentcore.runtime.debate.constants import WITNESS_TOOLS
 from agentcore.runtime.debate.cross_exam_parse import (
     build_cross_exam_exchanges,
@@ -472,6 +473,7 @@ def make_witness_runner(
                         base_tool_context=tool._base_tool_context,
                         execution_id=execution_id,
                         profile_set=tool._profile_set,
+                        cost_role=ROLE_ARENA,
                         approval_gate=worker_gate,
                         round_no=round_no,
                         side_key=f"{WITNESS_SIDE_KEY_PREFIX}{key}",
@@ -512,7 +514,9 @@ def make_witness_runner(
                 )
                 continue
             rev_spec = replace(session.spec, run_id=wit_run_id, agent_id=wit_run_id)
-            tool._acc.add_run(rev_spec, state, parent_run_id=seat.seat_run_id)
+            tool._acc.add_run(
+                rev_spec, state, parent_run_id=seat.seat_run_id, role=ROLE_ARENA
+            )
             if state.phase is RunPhase.COMPLETED and (state.content or "").strip():
                 # 席位 session 延展；不碰透镜 recall_count（豁免）。
                 session.transcript = state.transcript

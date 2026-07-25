@@ -1,0 +1,24 @@
+{
+  "id": "collab_xd_portfolio_pipeline",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "帮我建一个个人作品集站：先定信息架构和文案大纲，再出视觉风格板，最后用 HTML/CSS/JS 实现首页+作品列表两页并落盘。阶段要衔接一致，但别按『策划/设计/前端』默认三人堆工种——能少则少。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "多阶段站点仍属跨域合成倾向：少派（≤2）+ 可有浅流水线；对照并行调研的高扇出桶。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 60 } }
+  ],
+  "expected_shape": {
+    "min_workers": 1,
+    "max_workers": 2,
+    "min_roles": 1
+  },
+  "milestones": [
+    { "id": "ia", "desc": "有信息架构或文案大纲要点", "weight": 1 },
+    { "id": "pages", "desc": "首页+作品列表有可打开的 HTML/CSS/JS 交付意图", "weight": 2 }
+  ]
+}

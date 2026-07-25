@@ -10,6 +10,7 @@ import { net, BrowserWindow, app, ipcMain, protocol, shell } from "electron";
 import icon from "../../resources/icon.png?asset";
 import { registerAgentTownIpc } from "./agenttown-service";
 import { registerFsIpc } from "./fs-service";
+import { registerLocalStoreIpc } from "./local-store";
 import { registerLogIpc } from "./log-service";
 import { registerNotificationIpc } from "./notification-service";
 import { registerOutboxIpc } from "./outbox-writeback";
@@ -260,6 +261,7 @@ app.whenReady().then(() => {
   registerFsIpc();
   registerSidecarIpc();
   registerOutboxIpc();
+  registerLocalStoreIpc();
   registerTerminalIpc();
   registerProcessIpc();
   registerPtyIpc();

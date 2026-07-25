@@ -31,10 +31,6 @@ class Conversation(Base):
             "permission_preset in ('observe', 'workspace', 'full_trust')",
             name="ck_conversations_permission_preset",
         ),
-        CheckConstraint(
-            "model_origin is null or model_origin in ('platform', 'byok')",
-            name="ck_conversations_model_origin",
-        ),
     )
 
     id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
@@ -71,24 +67,11 @@ class Conversation(Base):
     deep_research_auto_debate_count: Mapped[int] = mapped_column(
         Integer, server_default=text("0")
     )
-    # Session-level main-chat model override (会话级模型切换 MVP). NULL = inherit the
-    # account's resolved model. When set it is the TOP priority in
-    # ``llm/resolve.py::resolve_turn_model`` for THIS conversation's user-facing turns
-    # only (workers / debate fallback unchanged). Validated against the user's model
-    # catalog at write time (crud.py PATCH), so the turn resolver / inference proxy trust
-    # the stored value without re-probing. Not retroactive — already-sent messages keep
-    # the model they ran on.
-    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # Credential origin for ``model`` when set: byok (user key) or platform (operator key).
-    # NULL with a non-null ``model`` is legacy — resolved at read time (has key → byok).
-    model_origin: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # The BYOK provider this override runs on (user_llm_providers.id; app-level FK).
-    # Only meaningful when model_origin=byok — pins the exact 服务商 so the same model
-    # id can live under multiple providers. NULL on a byok override is legacy / pre-
-    # multi-provider: resolution falls back to the account's sole/default provider.
-    # A dangling id (provider deleted) silently falls back to the account default too
-    # (never a hard failure). platform overrides leave this NULL.
-    model_provider_id: Mapped[str | None] = mapped_column(
+    # Session-level model combination pin (模型组合). NULL = follow account
+    # ``users.default_model_profile_id``. Live reference into ``llm_model_profiles``
+    # (or a virtual system preset id). Expanded at turn time via
+    # ``llm/model_profiles.py`` → main / worker / background slots.
+    model_profile_id: Mapped[str | None] = mapped_column(
         PG_UUID(as_uuid=False), nullable=True
     )
     # Project this conversation was born into; NULL = 裸聊 (ungrouped). App-level FK

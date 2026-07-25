@@ -12,10 +12,10 @@ import {
   replayFixtureStreamed,
 } from "@/preview/replay";
 import { getRuntime, useConversationStore } from "@/stores/conversation";
-import { useUIStore } from "@/stores/ui";
+import { type TurnDetailView, turnDetailPath, useUIStore } from "@/stores/ui";
 import { MessageSquare, Moon, Network, Play, Radio, Sun } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const convIdFor = (name: string) => `preview-${name}`;
 
@@ -27,6 +27,7 @@ const convIdFor = (name: string) => `preview-${name}`;
  */
 export function PreviewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const cancelRef = useRef<(() => void) | null>(null);
 
   // Scenario selection is URL-driven (`#/preview?s=<name>`) so the screenshot
@@ -181,32 +182,41 @@ export function PreviewPage() {
     };
   }, [selected, frame, scenarios]);
 
-  // Drop the synthetic slice when leaving so it never lingers as the active
-  // conversation.
+  // Drop the synthetic slice when leaving preview — but keep it when `?zoom=`
+  // navigates into that preview conversation's turn-detail route (seed must survive).
   useEffect(() => {
     return () => {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (hash.startsWith("/conversations/preview-")) return;
       useConversationStore.getState().switchConversation(null);
     };
   }, []);
 
-  // After replay lands, honor `?zoom=` — production uses turn-detail route;
-  // preview still calls the UI-store stub until preview is rewired.
+  // After replay lands, honor `?zoom=` by navigating to the real turn-detail route
+  // (`turnDetailPath`) — same as production 放大态, so SHOOT_ZOOM is no longer a no-op.
   // biome-ignore lint/correctness/useExhaustiveDependencies: frame is an intentional re-run key — re-focus after each replay frame lands.
   useEffect(() => {
     if (view !== "canvas" || !zoom || !selected) return;
-    const focusView =
-      zoom === "compare" || zoom === "revisions" ? "compare" : undefined;
+    const focusView: TurnDetailView | undefined =
+      zoom === "compare" || zoom === "revisions"
+        ? "compare"
+        : zoom === "debate"
+          ? "debate"
+          : zoom === "graph"
+            ? "graph"
+            : undefined;
     const t = setTimeout(() => {
-      const msgs = getRuntime(convIdFor(selected)).messages;
+      const cid = convIdFor(selected);
+      const msgs = getRuntime(cid).messages;
       const turn =
         [...msgs].reverse().find((m) => m.executionId != null) ??
         [...msgs].reverse().find((m) => m.role === "assistant");
       if (turn) {
-        useUIStore.getState().requestCanvasFocus(turn.id, false, focusView);
+        navigate(turnDetailPath(cid, turn.id, focusView), { replace: true });
       }
     }, 120);
     return () => clearTimeout(t);
-  }, [view, zoom, selected, frame]);
+  }, [view, zoom, selected, frame, navigate]);
 
   // Apply the URL-selected preview theme by toggling the root `.dark` class (the
   // same mechanism as the app's `applyTheme`), so the replayed surface — and

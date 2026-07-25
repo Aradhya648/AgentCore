@@ -3,6 +3,7 @@ import {
   useConversations,
 } from "@/hooks/useConversations";
 import { useFolders } from "@/hooks/useFolders";
+import { dedupeFoldersByLocalBinding } from "@/services/folders";
 import { UNGROUPED_KEY } from "@/stores/folders";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -19,12 +20,20 @@ import {
  */
 export function useConversationRouting() {
   const location = useLocation();
-  const folders = useFolders();
+  const foldersAll = useFolders();
+  const folders = useMemo(
+    () => dedupeFoldersByLocalBinding(foldersAll),
+    [foldersAll],
+  );
 
   const [selected, setSelected] = useState<string>(ALL_KEY);
   const [flashId, setFlashId] = useState<string | null>(null);
 
-  const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
+  // Full id set (incl. historical duplicate bindings) so filters / deep-links keep working.
+  const folderIds = useMemo(
+    () => new Set(foldersAll.map((f) => f.id)),
+    [foldersAll],
+  );
 
   // A folder hit from global search jumps here via navigation state.
   // biome-ignore lint/correctness/useExhaustiveDependencies: location.key is the intentional per-navigation trigger.

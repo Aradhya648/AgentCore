@@ -1,7 +1,9 @@
 /**
  * L3「团队浏览器」M2 接管客户端 (services/browserTakeover.ts) 单测：
  * - REST：start/end/input/list 端点 + body 形；空批不发；wire→narrow 映射。
- * - start 失败语义：turn_running / no_session / already_active → zh 文案（+ 回落）。
+ * - start 成败靠 body.reason（200）：started|already_active 成功；其余 throw TakeoverStartError。
+ * - list 读 `data`（非旧 `takeovers`）。
+ * - start 失败语义：turn_running / no_session / already_active → zh 文案（+ 回落；兼容 ApiError.code）。
  * - 坐标换算 toFrameSpace：object-contain 缩放 + 信箱留白 + 钳制 + 非法尺寸兜底。
  * - 输入批处理 createInputBatcher：定时 flush、move 合并、commit 立即 flush、stop 收口、发失败吞掉。
  * - 修饰键 modifiersOf / 时长成文 formatTakeoverDuration。
@@ -27,6 +29,7 @@ vi.mock("@/services/api", async (importOriginal) => {
 import { ApiError, api } from "@/services/api";
 import {
   type BrowserInputEvent,
+  TakeoverStartError,
   createInputBatcher,
   endBrowserTakeover,
   formatTakeoverDuration,
@@ -42,7 +45,10 @@ const mockPost = vi.mocked(api.post);
 const mockGet = vi.mocked(api.get);
 
 beforeEach(() => {
-  mockPost.mockReset().mockResolvedValue({ ok: true });
+  mockPost.mockReset().mockResolvedValue({
+    active: true,
+    reason: "started",
+  });
   mockGet.mockReset();
 });
 
@@ -51,12 +57,45 @@ afterEach(() => {
 });
 
 describe("browserTakeover · REST", () => {
-  it("starts a takeover with {action:'start'}", async () => {
-    await startBrowserTakeover("conv-42");
+  it("starts a takeover and treats reason=started as success", async () => {
+    const state = await startBrowserTakeover("conv-42");
     expect(mockPost).toHaveBeenCalledWith(
       "/v1/conversations/conv-42/browser/takeover",
       { action: "start" },
     );
+    expect(state).toEqual({ active: true, reason: "started" });
+  });
+
+  it("treats reason=already_active as success (idempotent start)", async () => {
+    mockPost.mockResolvedValue({
+      active: true,
+      reason: "already_active",
+      started_at: "2026-07-25T00:00:00Z",
+    });
+    const state = await startBrowserTakeover("conv-42");
+    expect(state.reason).toBe("already_active");
+    expect(state.active).toBe(true);
+  });
+
+  it("throws TakeoverStartError when reason is a start failure", async () => {
+    mockPost.mockResolvedValue({ active: false, reason: "turn_running" });
+    await expect(startBrowserTakeover("c1")).rejects.toEqual(
+      expect.objectContaining({
+        name: "TakeoverStartError",
+        reason: "turn_running",
+      }),
+    );
+  });
+
+  it("throws on no_session / not_active reasons", async () => {
+    mockPost.mockResolvedValue({ active: false, reason: "no_session" });
+    await expect(startBrowserTakeover("c1")).rejects.toBeInstanceOf(
+      TakeoverStartError,
+    );
+    mockPost.mockResolvedValue({ active: false, reason: "not_active" });
+    await expect(startBrowserTakeover("c1")).rejects.toMatchObject({
+      reason: "not_active",
+    });
   });
 
   it("ends a takeover with {action:'end'} (idempotent)", async () => {
@@ -84,9 +123,9 @@ describe("browserTakeover · REST", () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it("lists takeovers, mapping snake_case wire → narrow records", async () => {
+  it("lists takeovers from `data`, mapping snake_case wire → narrow records", async () => {
     mockGet.mockResolvedValue({
-      takeovers: [
+      data: [
         {
           id: "t1",
           started_at: "2026-07-20T10:00:00Z",
@@ -122,7 +161,19 @@ describe("takeoverStartErrorMessage", () => {
   const withCode = (code: string) =>
     new ApiError(409, JSON.stringify({ error: { code } }));
 
-  it("maps the pinned start-failure codes", () => {
+  it("maps TakeoverStartError reason strings", () => {
+    expect(
+      takeoverStartErrorMessage(new TakeoverStartError("turn_running")),
+    ).toContain("回合");
+    expect(
+      takeoverStartErrorMessage(new TakeoverStartError("no_session")),
+    ).toContain("没有进行中");
+    expect(takeoverStartErrorMessage("not_active")).toContain(
+      "没有进行中的接管",
+    );
+  });
+
+  it("maps the pinned start-failure codes (legacy ApiError.path)", () => {
     expect(takeoverStartErrorMessage(withCode("turn_running"))).toContain(
       "回合",
     );

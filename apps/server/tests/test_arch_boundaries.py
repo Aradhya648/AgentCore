@@ -93,11 +93,13 @@ def test_api_routes_do_not_execute() -> None:
 def test_llm_gateway_does_not_import_db() -> None:
     """The LLM gateway is a pure outbound adapter — no DB/business coupling.
 
-    The only exemptions are the credential bridge (``provider_service`` /
-    ``resolve``), which intentionally read user-scoped providers from the DB to
-    resolve BYOK creds.
+    Exemptions are intentional llm↔db bridges:
+    - ``provider_service`` / ``resolve`` — BYOK credential resolution
+    - ``model_profiles`` — named profile CRUD + expand (slots → live selections)
+    - ``factory`` — ``build_turn_router`` may open a session to inject a cross-provider
+      worker (agent provider_id ≠ chat provider)
     """
-    bridge = {"provider_service.py", "resolve.py"}
+    bridge = {"provider_service.py", "resolve.py", "model_profiles.py", "factory.py"}
     files = [f for f in _py_files("llm") if f.name not in bridge]
     assert _violations(files, ("agentcore.db",)) == {}
 

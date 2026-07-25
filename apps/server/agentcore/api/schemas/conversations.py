@@ -38,11 +38,8 @@ class ConversationSummary(BaseModel):
     permission_preset: PermissionPreset = PermissionPreset.WORKSPACE
     # 深度研究自治（会话级旗标；full_trust 蕴含同效，见 runtime.deep_research_auto）。
     deep_research_auto: bool = False
-    # 会话级主对话模型覆盖（会话级模型切换）。None = 继承账号解析出的模型。
-    model: str | None = None
-    model_origin: Literal["byok", "platform"] | None = None
-    # 该覆盖锁定的 BYOK 服务商（多服务商列表）。仅 origin=byok 有意义；None = 回落账号默认服务商。
-    model_provider_id: str | None = None
+    # 会话级模型组合（模型组合配置）。None = 跟随账号默认组合。
+    model_profile_id: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -60,13 +57,8 @@ class UpdateConversationRequest(BaseModel):
     archived: bool | None = None
     # 深度研究自治：省略 = 不变；显式 true/false 切换会话旗标（设置页 UI 另批）。
     deep_research_auto: bool | None = None
-    # 会话级模型切换：省略 = 不变；显式字符串 + model_origin = 切换主对话模型（须 ∈ 目录
-    # 且 available，否则 422）；双 null = 清除覆盖，回到继承账号模型。
-    model: str | None = None
-    model_origin: Literal["byok", "platform"] | None = None
-    # origin=byok 时锁定的 BYOK 服务商 id（多服务商）；随 (model, origin) 一起校验入目录。
-    # 省略时同一 model 若跨多服务商存在会 422（须显式指明服务商）。
-    model_provider_id: str | None = None
+    # 会话级模型组合：省略 = 不变；显式 uuid = 挂组合；显式 null = 清除，跟随账号默认。
+    model_profile_id: str | None = None
 
 
 class PermissionPresetUpdate(BaseModel):
@@ -91,6 +83,9 @@ class CreateFolderRequest(BaseModel):
         if self.mode == "local":
             if not self.local_root_id:
                 raise ValueError("local 模式必须提供 local_root_id")
+            # Empty string ≡ unbound-at-root; store as NULL for stable reuse lookup.
+            if self.local_subpath == "":
+                self.local_subpath = None
         elif self.local_root_id is not None or self.local_subpath is not None:
             raise ValueError("cloud 模式不能绑定本地路径")
         return self

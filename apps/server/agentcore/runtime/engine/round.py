@@ -163,12 +163,8 @@ async def run_llm_round(
                 on_reset=on_reset,
             )
         except Exception as e:
-            logger.error(
-                "llm.call_failed",
-                round=round_idx,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
+            # ``llm.call_failed`` is emitted by the leaf ``observe_provider`` fence
+            # (or stream_closed on consumer cancel). Avoid a second emit here.
             if raise_on_error:
                 raise
             code, message, context = error_fields_for(

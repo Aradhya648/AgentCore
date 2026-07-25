@@ -283,7 +283,7 @@ def test_shape_matches_check_is_diagnostic():
 
 def test_collab_shapes_suite_loads_and_lints():
     cases = load_cases(suite="collab_shapes")
-    assert len(cases) == 7
+    assert len(cases) == 14
     ids = {c.id for c in cases}
     assert ids == {
         "collab_p1_multi_object_compare",
@@ -293,6 +293,13 @@ def test_collab_shapes_suite_loads_and_lints():
         "collab_p5_creative_options",
         "collab_p6_review_diagnose",
         "collab_p7_composite_plan",
+        "collab_par_frontend_stack",
+        "collab_par_km_tools",
+        "collab_solo_config_line",
+        "collab_solo_essay_file",
+        "collab_xd_design_to_api",
+        "collab_xd_meeting_notes_synth",
+        "collab_xd_portfolio_pipeline",
     }
     for c in cases:
         assert c.path == "team"

@@ -7,7 +7,7 @@ rebuild failure returns ``None`` so the sweeper falls through to existing salvag
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import agentcore.runtime.pipeline as pipeline_pkg
 from agentcore.config import settings
@@ -25,7 +25,6 @@ from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import BoardRepository, ConversationRepository
 from agentcore.llm.credentials import bind_credential_pricing_context
 from agentcore.llm.profiles import turn_profiles_for_turn
-from agentcore.llm.provider.protocol import LLMProvider
 from agentcore.llm.resolve import resolve_credentials
 from agentcore.memory import assemble_turn_rules, default_memory_store, load_memory_topics
 from agentcore.runtime.context import build_workspace_context
@@ -111,8 +110,8 @@ async def production_crash_delegate_factory(
         profiles = turn_profiles_for_turn(profile_set, llm_credentials)
         bind_credential_pricing_context(llm_credentials)
         # mypy Protocol/async-gen mismatch (prepare/resume are quarantined; this module is not).
-        llm = pipeline_pkg.build_router_around(
-            cast(LLMProvider, pipeline_pkg.build_provider(llm_credentials))
+        llm = await pipeline_pkg.build_turn_router(
+            llm_credentials, user_id=user_id, profiles=profiles
         )
 
         backend = build_turn_backend(

@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_md_article",
+  "category": "routing",
+  "user_message": "写一篇面向初学者、约 1500 字的科普文，讲什么是向量数据库、解决什么问题、典型应用场景，用 Markdown 存成文件。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "成篇科普且要求落盘：CEO 无写文件工具，应委派 worker 写并存文件，而非把长文粘进回复。"
+}

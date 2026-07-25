@@ -1,9 +1,9 @@
 """BYOK LLM provider configuration (多服务商列表, llm/provider_service.py) schemas.
 
 A user configures a LIST of OpenAI-compatible providers (each: label + key + endpoint +
-default model + optional price card). The account picks a chat / background default
-(each a ``(provider_id, model)`` pointer, possibly cross-provider); conversations may
-override + pin a provider per turn.
+default model + optional price card). Account / conversation model selection uses
+**model combination profiles** (see ``llm_model_profiles`` schemas) — not bare
+per-slot pointers on this response.
 """
 
 from datetime import datetime
@@ -83,32 +83,21 @@ class LlmProviderView(BaseModel):
     price_cache_hit: str | None = None
     price_cache_miss: str | None = None
     price_output: str | None = None
-    is_default_chat: bool = False
-    is_default_background: bool = False
     # Transient message from the connectivity test (POST .../test) only.
     message: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
-class LlmDefaultPointer(BaseModel):
-    """An account default pointer: which provider + which model."""
-
-    provider_id: str
-    model: str = Field(max_length=200)
-
-
 class LlmProvidersResponse(BaseModel):
-    """The full 设置·模型配置 state: provider list + account pointers + deployment caps.
+    """The full 设置·模型配置 state: provider list + deployment caps.
 
-    The deployment-level fields (``billing_mode`` / ``platform_available`` /
-    ``platform_model`` / ``free_tier_active``) moved here from the retired per-key
-    status contract — they describe the account/deployment, not any one provider.
+    Account default combination lives on ``/users/me/llm-model-profiles``
+    (``default_model_profile_id``).
     """
 
     providers: list[LlmProviderView]
-    default_chat: LlmDefaultPointer | None = None
-    default_background: LlmDefaultPointer | None = None
+    default_model_profile_id: str | None = None
     billing_mode: str = Field(
         default="byok",
         description=(
@@ -130,15 +119,3 @@ class LlmProvidersResponse(BaseModel):
             "platform credentials are available (keyless users can chat on free quota)"
         ),
     )
-
-
-class SetLlmDefaultsRequest(BaseModel):
-    """Set the account chat / background default pointers.
-
-    Tri-state via ``model_fields_set``: an omitted field is left unchanged; ``chat``
-    must be a pointer when present; ``background`` present + null clears it (background
-    then follows chat).
-    """
-
-    chat: LlmDefaultPointer | None = None
-    background: LlmDefaultPointer | None = None

@@ -1,8 +1,8 @@
+import { purgeConversationRuntimeState } from "@/lib/purgeConversationRuntimeState";
 import { dispatchSSEEvent, flushPendingContent } from "@/services/sse/dispatch";
 import { useConversationStore } from "@/stores/conversation";
 import { enterTurnStreaming } from "@/stores/conversation/turnPhaseActions";
 import { useExecutionStore } from "@/stores/execution";
-import { usePausedTurnStore } from "@/stores/pausedTurns";
 import type { SSEEvent } from "@/types/events";
 import { type FoldReplaySource, foldEventsFrom } from "./source";
 
@@ -23,11 +23,10 @@ function seedSlice(conversationId: string, userPrompt?: string): void {
   const store = useConversationStore.getState();
   // Fresh slice each time so re-playing the same fixture starts clean.
   store.dropConversationRuntime(conversationId);
-  // 挂起即收口 (②): a paused fixture's message_end(paused) surfaces a resume entry into
-  // the (conversation-scoped) paused-turns sibling store; reset it alongside the runtime
-  // so a re-replay (StrictMode's dev double-invoke, or re-cutting a frame) starts clean
-  // instead of stacking a stale resume card from the prior run's assistant message.
-  usePausedTurnStore.getState().clear(conversationId);
+  // Align delete-conversation cleanup: pausedTurns + InteractionStore (+ siblings).
+  // Without clearing interactions, re-replay / frame scrub stacks stale stage_card /
+  // approval entries from the prior run (shoot 假绿 / Dock 叠卡).
+  purgeConversationRuntimeState(conversationId);
   // Execution frames key by the vector's FIXED server message id, so a re-replay
   // (StrictMode double-invoke) would APPEND a second copy of every frame — doubling
   // worker output text and escalation cards. The preview page hosts one fixture at a

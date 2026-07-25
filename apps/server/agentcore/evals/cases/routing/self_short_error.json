@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_short_error",
+  "category": "routing",
+  "user_message": "终端里出现 `ModuleNotFoundError: No module named 'requests'`，这是什么意思？",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "短错误释义：说明含义与常见处理即可，不落盘、不委派改环境。"
+}

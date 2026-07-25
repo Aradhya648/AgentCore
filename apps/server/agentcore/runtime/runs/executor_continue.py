@@ -124,6 +124,7 @@ async def continue_run(
     evidence_ledger: object | None = None,
     check_evidence_ledger: bool = False,
     allowed_ledger_ids: frozenset[str] | None = None,
+    cost_role: str = "member",
 ) -> RunState:
     """续写 a saved worker session under the continuation's log scope.
 
@@ -141,12 +142,15 @@ async def continue_run(
     在立论续写 / 质询 / 结辩全 beat 启用；结辩经 ``allowed_ledger_ids`` 传入本方历轮已引用并集。
     辩论检索 token 顶取统一 ``engine_worker_token_ceiling``（≤0 关闭；显式
     ``spec.token_ceiling`` 优先）。
+
+    ``cost_role`` defaults to ``member`` (组队 revise / 续派); debate callers pass
+    ``arena`` so sidecar proxy + model fallback keep the turn main model.
     """
     with log_context(
         run_id=continuation_run_id,
         agent_id=continuation_run_id,
         depth=session.spec.depth,
-        cost_role="member",
+        cost_role=cost_role,
         persona=(session.spec.role or "").strip() or None,
         parent_run_id=(
             parent_run_id
@@ -175,6 +179,7 @@ async def continue_run(
             evidence_ledger=evidence_ledger,
             check_evidence_ledger=check_evidence_ledger,
             allowed_ledger_ids=allowed_ledger_ids,
+            cost_role=cost_role,
         )
 
 
@@ -200,6 +205,7 @@ async def _continue_run_scoped(
     evidence_ledger: object | None = None,
     check_evidence_ledger: bool = False,
     allowed_ledger_ids: frozenset[str] | None = None,
+    cost_role: str = "member",
 ) -> RunState:
     """续写 a saved worker session: same author, extended transcript, new run id."""
     profiles = profile_set or default_profile_set()
@@ -231,7 +237,11 @@ async def _continue_run_scoped(
     priced_model: str | None = None
     try:
         profile = profiles.agent()
-        priced_model = spec.model or profiles.model_for("agent")
+        from agentcore.runtime.costing import resolve_run_models
+
+        priced_model, request_model = resolve_run_models(
+            profiles, spec.model, cost_role=cost_role
+        )
         from agentcore.runtime.runs.retrieval_budget import RETRIEVAL_TOOL_NAMES
         from agentcore.tools.protocol import RetrievalBudgetState
 
@@ -312,7 +322,7 @@ async def _continue_run_scoped(
                 sink=sink,
                 tool_ctx=tool_ctx,
                 profile=profile,
-                turn_model=priced_model,
+                turn_model=request_model,
                 allowed_tools=allowed_tools if do_research else [],
                 run_id=continuation_run_id,
                 agent_id=agent_id,
@@ -348,7 +358,7 @@ async def _continue_run_scoped(
                 sink=sink,
                 tool_ctx=tool_ctx,
                 profile=profile,
-                turn_model=priced_model,
+                turn_model=request_model,
                 allowed_tools=allowed_tools,
                 run_id=continuation_run_id,
                 agent_id=agent_id,

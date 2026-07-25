@@ -38,11 +38,17 @@ export const sharedSpaceKeys = {
 /** 设置·模型配置的服务商列表（`GET /v1/users/me/llm-providers`）。 */
 export const llmProviderKeys = {
   all: ["llm-providers"] as const,
-  /** The user's BYOK provider list + account default pointers + deployment caps. */
+  /** The user's BYOK provider list + deployment caps. */
   list: ["llm-providers", "list"] as const,
 };
 
-/** 会话级模型切换用的模型目录（`GET /v1/users/me/models`）。 */
+/** 账号模型组合（`GET /v1/users/me/llm-model-profiles`）。 */
+export const llmModelProfileKeys = {
+  all: ["llm-model-profiles"] as const,
+  list: ["llm-model-profiles", "list"] as const,
+};
+
+/** 槽位编辑用的模型目录（`GET /v1/users/me/models`）。 */
 export const modelKeys = {
   all: ["models"] as const,
   /** The user's selectable model catalog + current account model. */

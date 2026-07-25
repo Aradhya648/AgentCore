@@ -473,8 +473,9 @@ def format_light_repair_feedback(
     return (
         "你上一次的产出只差格式补全（缺章节 / 篇幅不足 / 缺关键词），"
         f"不必重新调查：\n{items}{coverage}{prior_block}\n\n"
-        "请直接输出补全后的【完整最终产出】（或对落盘文件 str_replace / file_write 补齐后 "
-        "handoff）；不要重新检索、不要道歉、不要附带说明。"
+        "请对已落盘文件用 str_replace（或局部 file_append 填骨架空位）就地补齐后 "
+        "handoff；禁止再 file_read 回读自产物正文验真。"
+        "不要重新检索、不要道歉、不要附带说明。"
     )
 
 

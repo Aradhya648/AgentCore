@@ -93,9 +93,14 @@ async def _resolve_inference_credentials(
     user: User,
     *,
     conversation_id: str | None = None,
+    cost_role: str | None = None,
 ) -> ModelConfig:
     from agentcore.db.repositories import ConversationRepository
-    from agentcore.llm.resolve import resolve_account_default_model
+    from agentcore.llm.resolve import (
+        resolve_account_default_model,
+        resolve_account_worker_selection,
+    )
+    from agentcore.runtime.costing import ROLE_MEMBER
 
     conv = None
     if conversation_id:
@@ -106,6 +111,19 @@ async def _resolve_inference_credentials(
         selection = await resolve_conversation_model_selection(session, conv, user.user_id)
     else:
         selection = await resolve_account_default_model(session, user.user_id)
+
+    # Delegated workers (member): profile worker slot when set (else follow main).
+    # Captain / arena / product-chrome roles keep the conversation main model.
+    if cost_role == ROLE_MEMBER:
+        worker = await resolve_account_worker_selection(
+            session, user.user_id, conv=conv
+        )
+        if worker is not None and (
+            worker.model != selection.model
+            or worker.origin != selection.origin
+            or worker.provider_id != selection.provider_id
+        ):
+            selection = worker
 
     credentials = await preflight_llm_credentials(
         session=session,
@@ -126,6 +144,7 @@ async def _resolve_inference_credentials(
             price_cache_miss=credentials.price_cache_miss,
             price_output=credentials.price_output,
             background_model=credentials.background_model,
+            provider_id=credentials.provider_id,
         )
     else:
         # Per-model platform credential (运营中转「一 key 一模型」): the selected model's
@@ -300,7 +319,11 @@ async def inference_chat_completions(
 
         try:
             cfg = await _resolve_inference_credentials(
-                session, cost_repo, user, conversation_id=conversation_id
+                session,
+                cost_repo,
+                user,
+                conversation_id=conversation_id,
+                cost_role=attribution.get("role"),
             )
         except BYOKKeyMissingError as e:
             return JSONResponse(

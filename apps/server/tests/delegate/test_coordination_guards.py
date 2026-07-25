@@ -584,12 +584,14 @@ async def test_merge_partial_skip_lists_merged_and_skipped():
 # --- C: user_stop cascade ---------------------------------------------------
 
 
-def test_user_stop_copy_says_stopped_not_disconnect():
+def test_user_stop_body_keeps_stream_without_chrome_notes():
+    """Interrupt closer writes captain text only; stop chrome is metadata + UI."""
     body = compose_interrupt_body("partial", reason=TurnInterruptReason.USER_STOP)
-    assert "已停止" in body
+    assert body == "partial"
+    assert "已停止" not in body
     assert "连接中断" not in body
     empty = compose_interrupt_body("", reason=TurnInterruptReason.USER_STOP)
-    assert "已停止" in empty
+    assert empty == ""
 
 
 async def test_user_stop_cancels_drive_and_release_clears():

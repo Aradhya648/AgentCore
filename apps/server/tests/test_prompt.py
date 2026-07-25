@@ -229,21 +229,42 @@ def test_core_states_coordinator_tool_boundary():
 
 
 def test_core_teaches_split_criterion_over_count():
-    # 协作优先重设计阶段 2：组队门槛 = 可分解或质量面；形状从任务自然结构推导。
-    # 判据仍是结构（独立可并行 / 专长 / 多部件），NOT 任务数量；旧「能就不拆」已推翻。
+    # 路由清晰化：按活的自然缝拆人；第一拍一句定方向；短文落盘单人。
     hint = _CEO_CORE_HINT
-    assert "独立" in hint and "并行" in hint and "专长" in hint
-    assert "不是你能不能写" in hint  # 判据=结构，「我自己写更快」不构成直答理由
-    assert "拿不准也组队" in hint
+    assert "独立" in hint and "并行" in hint
+    assert "自然缝" in hint
+    assert "不是你能不能写" in hint  # 判据=结构，「我自己写更快」不构成自己答理由
+    assert "拿不准先少派" in hint
     assert "可分解" in hint and "质量面" in hint
     assert "finalize=true" in hint and "机械单步" in hint
-    # 路由前置自检（替代 long_content 事后丢稿闸门）：一句话判定，正文禁内部术语/工具名。
-    assert "路由自检" in hint
-    assert "一句话" in hint
+    # 成篇调研软偏好：多角取证宜 research_report，禁一人自搜+成文
+    assert "成篇调研报告" in hint
+    assert 'playbook="research_report"' in hint or "research_report" in hint
+    assert "一人包办" in hint or "自搜+成文" in hint
+    # 路由第一拍：一句定方向，禁止思考里先干完。
+    assert "路由·第一拍" in hint or "第一拍" in hint
+    assert "只写一句" in hint or "十字以内" in hint
     assert "禁止长篇路由推演" in hint
+    assert "完整设计" in hint  # 禁思考里先写完整设计
     assert "已认可协作方案" in hint or "禁止再开" in hint
     assert "内部术语" in hint
     assert "内部工具名" in hint
+    assert "短文" in hint and "存文件" in hint
+    assert "勿先" in hint and "ask_user_kickoff" in hint
+    assert "糊建站" in hint or "做个网站" in hint
+    assert "开卡最小字段" in hint
+    assert "提案体" in hint or "至少其一" in hint
+    assert "style_options" in hint
+    assert "先设计再实现" in hint
+    assert "只留方向句" in hint
+    assert "1 人两段" in hint or "一人两段" in hint
+    assert "规格已齐" in hint
+    assert "问还是派·中性" in hint or "不偏" in hint
+    # P3 路由探针硬错对治：贴码写回强制派、点名实体扇出、非糊多阶段勿开卡。
+    assert "写回" in hint and "必须" in hint and "delegate" in hint
+    assert "至少 N 人" in hint or "tasks 至少" in hint
+    assert "非糊" in hint
+    assert "写完这句立刻" in hint or "禁止第二句" in hint
     # 按场面 consult：与能力目录 preamble 同强度（禁「可选 vs 必先查」对打）。
     from agentcore.runtime.skills import CONSULT_TEAM_ORCH_BY_SCENE
 
@@ -252,12 +273,12 @@ def test_core_teaches_split_criterion_over_count():
     assert "先 `consult_skill(team_orchestration_advanced)` 再规划" not in hint
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "形状词汇" in skill
-    assert "实质任务默认组队" in skill
+    assert "实质任务该派就派" in skill or "自然缝" in skill
     assert "教学示例形状" in skill and "对照学形状" in skill
     assert "免手搓" not in skill  # 旧「是就直接套 / 免手搓」广告口径已撤
     assert "并列对象分组" in skill and "独立多透镜诊断" in skill
     assert "实现+独立验证" in skill  # 构建轻档双人底线
-
+    assert "跨域合成" in skill or "按工种" in skill
 
 def test_catalog_preamble_matches_core_consult_intensity():
     """核与能力目录 preamble 共用同一句按场面强度。"""

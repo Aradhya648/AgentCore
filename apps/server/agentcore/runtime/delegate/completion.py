@@ -139,6 +139,38 @@ def validate_completion_against_forms(
     )
 
 
+def validate_cold_start_explore_deliverables(
+    plan: RunPlan,
+    *,
+    explicit_criteria: Any = None,
+) -> str | None:
+    """Hard-reject ``form=files`` / ``artifacts`` while cold-start explore is pending.
+
+    Default explore path must use prose; project profile is written by the CEO via
+    ``update_project_profile``, not by worker file landings. Explicit top-level
+    ``completion_criteria`` of kind ``files_written`` is an intentional override
+    (进阶：探索批也要落盘) — then file-landing deliverables are allowed.
+    Returns CEO-facing error text, or ``None`` when the batch is fine.
+    """
+    if explicit_criteria is not None:
+        parsed = parse_completion_criteria(explicit_criteria)
+        if parsed is not None and parsed.kind == "files_written":
+            return None
+    for node in plan.nodes:
+        d = node.deliverable
+        if d is None:
+            continue
+        if d.form == "files" or bool(d.artifacts):
+            return (
+                "冷启动探索未完成：探路委派须用 deliverable.form=prose"
+                "（禁止 form=files / artifacts）。"
+                "项目画像由 CEO 调用 update_project_profile 写入；"
+                "探索收尾（画像写入成功）后再用 form=files 做交付批。"
+                "若本批确需落盘验收，请显式声明顶层 completion_criteria=files_written。"
+            )
+    return None
+
+
 def plan_mentions_binary_artifact(plan: RunPlan) -> bool:
     """True when any worker task/objective reads like a binary / playable deliverable."""
     for node in plan.nodes:
@@ -286,12 +318,17 @@ def execution_capability_warning(
 def resolve_completion_with_source(
     raw: Any,
     plan: RunPlan | None = None,
+    *,
+    suppress_structured_files_written: bool = False,
 ) -> ResolvedCompletion:
     """Resolve criteria with provenance.
 
     Priority (explicit beats structured; omit = unenforced):
-    1. CEO explicit ``completion_criteria`` (top-level / hoisted)
+    1. CEO explicit ``completion_criteria`` (top-level / hoisted) — always binds,
+       including during cold-start explore.
     2. Structured deliverable signals: ``artifacts`` or ``form=files`` → ``files_written``
+       (skipped when ``suppress_structured_files_written``, e.g. cold-start explore
+       pending — only explicit criteria bind then).
     3. Otherwise → unenforced (including all-prose and run-flavoured task text)
 
     Task-text run/open/install hints never bind criteria (提案 B1); they only feed
@@ -301,6 +338,8 @@ def resolve_completion_with_source(
         return ResolvedCompletion(parse_completion_criteria(raw), "explicit")
     if plan is None:
         return ResolvedCompletion(None, None)
+    if suppress_structured_files_written:
+        return ResolvedCompletion(None, None)
     if plan_declares_artifacts(plan) or plan_declares_files_form(plan):
         return ResolvedCompletion(CompletionCriteria(kind="files_written"), "structured")
     return ResolvedCompletion(None, None)
@@ -309,13 +348,19 @@ def resolve_completion_with_source(
 def resolve_completion_criteria(
     raw: Any,
     plan: RunPlan | None = None,
+    *,
+    suppress_structured_files_written: bool = False,
 ) -> CompletionCriteria | None:
     """Parse explicit criteria, or infer from structured deliverable signals.
 
     See :func:`resolve_completion_with_source` for priority. Never binds criteria
     from task text; never auto-infers ``files_written`` for an all-prose batch.
     """
-    return resolve_completion_with_source(raw, plan).criteria
+    return resolve_completion_with_source(
+        raw,
+        plan,
+        suppress_structured_files_written=suppress_structured_files_written,
+    ).criteria
 
 
 def format_resolved_acceptance_echo(resolved: ResolvedCompletion) -> str:
@@ -469,7 +514,10 @@ def check_delegate_completion(
     gaps: list[str] = []
     if criteria.kind == "files_written":
         if not any(_worker_files_written(s) for s in completed):
-            gaps.append("尚无 worker 将产物写入工作区（需要 file_write / str_replace 落盘）")
+            from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
+
+            tools = format_file_landing_tools_slash()
+            gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
     elif criteria.kind == "code_verified":
         if not any(_run_verified_in_transcript(s.transcript) for s in completed):
             gaps.append(

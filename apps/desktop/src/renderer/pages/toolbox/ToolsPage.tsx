@@ -3,6 +3,7 @@ import { ToolCard } from "@/components/tools/ToolCard";
 import { CATEGORY_META, CATEGORY_ORDER } from "@/components/tools/catalogMeta";
 import { CatalogIconShell } from "@/components/ui";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
+import { useModels } from "@/hooks/useModels";
 import { catalogCategoryColorVar } from "@/lib/catalogColors";
 import {
   TOOLS_GATE_HINT,
@@ -14,8 +15,9 @@ import { defaultChatSupportsTools } from "@/services/llmProviders";
 /** 工具箱「能力」组 → 工具：Agent 可调用的动作工具，按类分组，每个工具可展开调用参数。 */
 export function ToolsPage() {
   const { data: llmProviders } = useLlmProviders();
+  const { data: modelCatalog } = useModels();
   const showToolsHint = needsToolsGateHint(
-    defaultChatSupportsTools(llmProviders),
+    defaultChatSupportsTools(llmProviders, modelCatalog?.current?.provider_id),
   );
 
   return (

@@ -1,0 +1,107 @@
+// @vitest-environment jsdom
+/**
+ * EscalationCard · browser_login 薄切片：
+ * - pending + browserLogin → 标题「需要你登录」+ CTA「打开浏览器直播」
+ * - 主操作「已登录，继续」走 decideEscalation answer（不 auto-resume）
+ * - 「打开浏览器直播」调 openBrowserLive(conversationId)
+ */
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { RunEscalation } from "@/stores/execution";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EscalationCard } from "../EscalationCard";
+
+const openBrowserLive = vi.fn();
+const decideEscalation = vi.fn();
+
+vi.mock("@/stores/sidePanel", () => ({
+  useSidePanelStore: {
+    getState: () => ({ openBrowserLive }),
+  },
+}));
+
+vi.mock("@/services/escalation", () => ({
+  decideEscalation: (...args: unknown[]) => decideEscalation(...args),
+}));
+
+vi.mock("@/lib/toast", () => ({
+  notifyError: vi.fn(),
+}));
+
+afterEach(cleanup);
+
+beforeEach(() => {
+  openBrowserLive.mockReset();
+  decideEscalation.mockReset().mockResolvedValue("ok");
+});
+
+const loginEsc: RunEscalation = {
+  id: "esc-login",
+  question: "请先登录目标站点",
+  assumption: "用户已登录",
+  blocking: true,
+  status: "pending",
+  answer: null,
+  kind: "normal",
+  questions: [],
+  browserLogin: true,
+};
+
+function renderCard(esc: RunEscalation = loginEsc) {
+  const cardProps = {
+    escalation: esc,
+    role: "研究员",
+    conversationId: "conv-1",
+    interactive: true as const,
+  };
+  return render(
+    <MemoryRouter>
+      <TooltipProvider>
+        <EscalationCard {...cardProps} />
+      </TooltipProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("EscalationCard · browser_login", () => {
+  it("shows 需要你登录 and the open-live CTA", () => {
+    renderCard();
+    expect(screen.getByText(/需要你登录/)).toBeTruthy();
+    expect(screen.getByText("打开浏览器直播")).toBeTruthy();
+    expect(screen.getByText("已登录，继续")).toBeTruthy();
+    expect(screen.getByText("按假设继续")).toBeTruthy();
+    expect(screen.getByText("请先登录目标站点")).toBeTruthy();
+  });
+
+  it("opens the browser live panel on CTA click", () => {
+    renderCard();
+    fireEvent.click(screen.getByText("打开浏览器直播"));
+    expect(openBrowserLive).toHaveBeenCalledWith("conv-1");
+  });
+
+  it("resolves with answer「已登录，继续」on primary click", async () => {
+    renderCard();
+    await act(async () => {
+      fireEvent.click(screen.getByText("已登录，继续"));
+    });
+    expect(decideEscalation).toHaveBeenCalledWith("conv-1", "esc-login", {
+      kind: "answer",
+      answer: "已登录，继续",
+    });
+  });
+
+  it("does not use the browser-login chrome for a normal pending escalate", () => {
+    renderCard({ ...loginEsc, browserLogin: undefined });
+    expect(screen.queryByText(/需要你登录/)).toBeNull();
+    expect(screen.queryByText("打开浏览器直播")).toBeNull();
+    expect(screen.getByText(/请你拍板/)).toBeTruthy();
+  });
+});

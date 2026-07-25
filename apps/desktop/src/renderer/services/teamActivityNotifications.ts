@@ -19,6 +19,9 @@ import { usePausedTurnStore } from "@/stores/pausedTurns";
  * 挂起收口（finish_reason=paused → isGenerating↓）不是「已完成」：完成通道跳过仍有
  * pausedTurns 的对话；挂起感知统一走 pausedTurns 订阅（team_preview → 等待确认后开工；
  * ask_user / plan_review → 等待确认后继续）。
+ *
+ * 幕终推进卡（stage_card pending，非冷挂起）：完成通道同样跳过「已完成」，感知走
+ * InteractionStore 订阅（「需要你确认推进」）。
  */
 
 /** 从会话缓存解析标题（非 React 调用）——缺（未加载 / 已删）时返回 null，调用方据此静默。 */
@@ -84,11 +87,36 @@ function notifyAwaitingDecision(conversationId: string): void {
   void showNativeNotification("AgentCore", message, { conversationId });
 }
 
+/** 幕终阶段推进卡：对齐 approval / kickoff 通道。 */
+function notifyStageAdvance(conversationId: string): void {
+  if (!shouldNotify(conversationId)) return;
+  const title = titleOf(conversationId);
+  if (!title) return;
+  const message = `「${title}」需要你确认推进`;
+  notifyInfo(message, {
+    action: { label: "去处理", onClick: () => jumpTo(conversationId) },
+  });
+  void showNativeNotification("AgentCore", message, { conversationId });
+}
+
 function pendingApprovalIds(): string[] {
   const out: string[] = [];
   for (const e of useInteractionStore.getState().byId.values()) {
     if (
       e.kind === "approval" &&
+      (e.status === "pending" || e.status === "submitting")
+    ) {
+      out.push(e.id);
+    }
+  }
+  return out;
+}
+
+function pendingStageCardIds(): string[] {
+  const out: string[] = [];
+  for (const e of useInteractionStore.getState().byId.values()) {
+    if (
+      e.kind === "stage_card" &&
       (e.status === "pending" || e.status === "submitting")
     ) {
       out.push(e.id);
@@ -108,14 +136,28 @@ function conversationHasPausedTurn(conversationId: string): boolean {
     .pending.some((p) => p.conversationId === conversationId);
 }
 
+function conversationHasPendingStageCard(conversationId: string): boolean {
+  for (const e of useInteractionStore.getState().byId.values()) {
+    if (
+      e.conversationId === conversationId &&
+      e.kind === "stage_card" &&
+      (e.status === "pending" || e.status === "submitting")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Start the ambient cross-conversation notifier. Returns an unsubscribe fn (AppShell
  * calls it on unmount). Idempotent per call — each invocation owns its own subscriptions.
  */
 export function startTeamActivityNotifications(): () => void {
-  // Seed with approvals / pauses already pending at startup so a reconnect
-  // replay doesn't re-toast prompts the user already knows about.
+  // Seed with approvals / stage cards / pauses already pending at startup so a
+  // reconnect replay doesn't re-toast prompts the user already knows about.
   const notifiedApprovals = new Set<string>(pendingApprovalIds());
+  const notifiedStageCards = new Set<string>(pendingStageCardIds());
   const notifiedPauses = new Set<string>(pendingPauseIds());
 
   const unsubConversation = useConversationStore.subscribe((state, prev) => {
@@ -131,6 +173,8 @@ export function startTeamActivityNotifications(): () => void {
         // finalizeLastMessage; by this microtask the frame is already there.
         // Skip「已完成」— pause perception is the pausedTurns channel only.
         if (conversationHasPausedTurn(id)) return;
+        // 幕终推进卡：turn 正常收口但仍待用户确认推进——勿误报「已完成」。
+        if (conversationHasPendingStageCard(id)) return;
         const latest = useConversationStore.getState().byId[id];
         const failed = latest ? runtimeHasError(latest) : failedAtBoundary;
         notifyTurnEnd(id, failed);
@@ -138,18 +182,27 @@ export function startTeamActivityNotifications(): () => void {
     }
   });
 
-  const unsubApproval = useInteractionStore.subscribe((state) => {
+  const unsubInteractions = useInteractionStore.subscribe((state) => {
     for (const e of state.byId.values()) {
-      if (e.kind !== "approval") continue;
       if (e.status !== "pending" && e.status !== "submitting") continue;
-      if (notifiedApprovals.has(e.id)) continue;
-      notifiedApprovals.add(e.id);
-      notifyApproval(e.conversationId);
+      if (e.kind === "approval") {
+        if (notifiedApprovals.has(e.id)) continue;
+        notifiedApprovals.add(e.id);
+        notifyApproval(e.conversationId);
+      } else if (e.kind === "stage_card") {
+        if (notifiedStageCards.has(e.id)) continue;
+        notifiedStageCards.add(e.id);
+        notifyStageAdvance(e.conversationId);
+      }
     }
-    // Prune settled ids so the dedup set tracks only live prompts (stays bounded).
-    const live = new Set(pendingApprovalIds());
+    // Prune settled ids so the dedup sets track only live prompts (stay bounded).
+    const liveApprovals = new Set(pendingApprovalIds());
     for (const seen of notifiedApprovals) {
-      if (!live.has(seen)) notifiedApprovals.delete(seen);
+      if (!liveApprovals.has(seen)) notifiedApprovals.delete(seen);
+    }
+    const liveStageCards = new Set(pendingStageCardIds());
+    for (const seen of notifiedStageCards) {
+      if (!liveStageCards.has(seen)) notifiedStageCards.delete(seen);
     }
   });
 
@@ -172,7 +225,7 @@ export function startTeamActivityNotifications(): () => void {
 
   return () => {
     unsubConversation();
-    unsubApproval();
+    unsubInteractions();
     unsubPaused();
   };
 }

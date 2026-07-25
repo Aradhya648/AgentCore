@@ -68,9 +68,18 @@ def _prov_row(**kw):
 
 @pytest.mark.asyncio
 async def test_resolve_account_default_with_provider(monkeypatch):
-    row = _prov_row(default_model="my-model")
-    _mock_provider_default(
-        monkeypatch, user=SimpleNamespace(user_id="u1", default_chat_provider_id=None), row=row
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="my-model", origin="byok", provider_id="p1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
     )
     sel = await resolve_account_default_model(MagicMock(), "u1")
     assert sel.model == "my-model"
@@ -80,10 +89,18 @@ async def test_resolve_account_default_with_provider(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resolve_account_default_without_provider(monkeypatch):
-    monkeypatch.setattr(settings, "platform_model", "plat-model")
-    monkeypatch.setattr(settings, "billing_mode", "platform")  # platform selectable
-    _mock_provider_default(
-        monkeypatch, user=SimpleNamespace(user_id="u1", default_chat_provider_id=None), row=None
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="bal",
+        name="5.2",
+        kind="system",
+        main=ModelSelection(model="plat-model", origin="platform", provider_id=None),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
     )
     sel = await resolve_account_default_model(MagicMock(), "u1")
     assert sel.model == "plat-model"
@@ -93,6 +110,9 @@ async def test_resolve_account_default_without_provider(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resolve_model_config_prefers_provider(monkeypatch):
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "platform_model", "gpt-5")
     row = _prov_row(default_model="user-flash")
@@ -103,8 +123,22 @@ async def test_resolve_model_config_prefers_provider(monkeypatch):
         source="user",
         provider_id="p1",
     )
-    _mock_provider_default(
-        monkeypatch, user=SimpleNamespace(user_id="u1", default_chat_provider_id=None), row=row
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="user-flash", origin="byok", provider_id="p1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
+    monkeypatch.setattr(
+        "agentcore.db.repositories.UserLlmProviderRepository",
+        lambda _s: SimpleNamespace(
+            get=AsyncMock(return_value=row),
+            first_for_user=AsyncMock(return_value=row),
+        ),
     )
     monkeypatch.setattr("agentcore.llm.resolve._decrypt_provider", lambda _r, _u: user_creds)
     cfg = await resolve_model_config(MagicMock(), "u1", "chat")
@@ -170,3 +204,104 @@ async def test_gate_platform_origin_enforces_quota(monkeypatch):
     assert result is None
     enforce.assert_awaited_once()
     assert enforce.await_args.kwargs["free_tier"] is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_gate_background_platform_enforces_quota(monkeypatch):
+    from agentcore.billing.gate import resolve_and_gate_background
+    from agentcore.llm.resolve import ModelConfig
+
+    monkeypatch.setattr(settings, "billing_mode", "platform")
+    cfg = ModelConfig(
+        model="flash",
+        base_url="https://p.example/v1",
+        api_key="sk-platform",
+        source="platform",
+        purpose="title",
+    )
+    with (
+        patch(
+            "agentcore.billing.gate.resolve_model_config",
+            AsyncMock(return_value=cfg),
+        ),
+        patch("agentcore.billing.gate.is_platform_available", return_value=True),
+        patch(
+            "agentcore.billing.gate.UserRepository",
+            lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=_user())),
+        ),
+        patch(
+            "agentcore.billing.gate.user_has_provider",
+            AsyncMock(return_value=True),
+        ),
+        patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
+    ):
+        result = await resolve_and_gate_background(MagicMock(), "u1", purpose="title")
+    assert result is not None
+    assert result.source == "platform"
+    assert result.api_key == "sk-platform"
+    enforce.assert_awaited_once()
+    assert enforce.await_args.kwargs["free_tier"] is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_gate_background_quota_exceeded_returns_none(monkeypatch):
+    from agentcore.billing.gate import resolve_and_gate_background
+    from agentcore.core.errors import QuotaExceededError
+    from agentcore.llm.resolve import ModelConfig
+
+    monkeypatch.setattr(settings, "billing_mode", "platform")
+    cfg = ModelConfig(
+        model="flash",
+        base_url="https://p.example/v1",
+        api_key="sk-platform",
+        source="platform",
+        purpose="title",
+    )
+    with (
+        patch(
+            "agentcore.billing.gate.resolve_model_config",
+            AsyncMock(return_value=cfg),
+        ),
+        patch("agentcore.billing.gate.is_platform_available", return_value=True),
+        patch(
+            "agentcore.billing.gate.UserRepository",
+            lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=_user())),
+        ),
+        patch(
+            "agentcore.billing.gate.user_has_provider",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "agentcore.billing.gate.enforce_quota",
+            AsyncMock(side_effect=QuotaExceededError("exhausted")),
+        ),
+    ):
+        result = await resolve_and_gate_background(MagicMock(), "u1", purpose="memory")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_gate_background_byok_fallback_skips_quota(monkeypatch):
+    from agentcore.billing.gate import resolve_and_gate_background
+    from agentcore.llm.resolve import ModelConfig
+
+    cfg = ModelConfig(
+        model="user-flash",
+        base_url="https://user.example/v1",
+        api_key="sk-user",
+        source="byok",
+        purpose="title",
+        provider_id="p1",
+    )
+    with (
+        patch(
+            "agentcore.billing.gate.resolve_model_config",
+            AsyncMock(return_value=cfg),
+        ),
+        patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
+    ):
+        result = await resolve_and_gate_background(MagicMock(), "u1", purpose="title")
+    assert result is not None
+    assert result.source == "user"
+    assert result.api_key == "sk-user"
+    enforce.assert_not_awaited()

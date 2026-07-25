@@ -74,11 +74,11 @@ describe("connectivityEscalationSuffix", () => {
   it("stays quiet on the first failure, escalates from the second message", () => {
     expect(connectivityEscalationSuffix("LLM_TIMEOUT", "m1")).toBeNull();
     expect(connectivityEscalationSuffix("LLM_TIMEOUT", "m2")).toContain(
-      "设置 · 模型配置",
+      "设置 · 服务商",
     );
     // Same message id must not re-count.
     expect(connectivityEscalationSuffix("LLM_TIMEOUT", "m2")).toContain(
-      "设置 · 模型配置",
+      "设置 · 服务商",
     );
   });
 

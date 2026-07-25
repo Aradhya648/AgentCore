@@ -1,7 +1,7 @@
 """Model catalog (模型目录): unified BYOK + platform model list.
 
-Backs 会话级模型切换: the compose UI lists these (each row tagged with origin),
-greys out unavailable rows, and PATCHes ``conversations.model`` + ``model_origin``.
+Backs **组合槽位编辑**（设置页选 main/worker/background 时列目录）；会话输入框只选
+模型组合（``model_profile_id``），不再 PATCH 裸 ``conversations.model*``。
 All routes are scoped to the authenticated user ("me").
 """
 

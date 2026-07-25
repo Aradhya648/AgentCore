@@ -11,6 +11,7 @@
  * 导航，真正的拍板卡仍归聊天流 / 画布指挥台既有面（不与其重复）。
  */
 
+import { escalationRowKindLabel } from "@/components/graph/agentNode/shared";
 import type { Execution, RunNode } from "@/stores/execution";
 
 export type GraphPendingKind =
@@ -39,12 +40,9 @@ export interface PendingInteractionRef {
   id: string;
 }
 
-function escalationKindTag(
-  kind: RunNode["escalations"][number]["kind"],
-): string {
-  if (kind === "scope") return "（职责偏离）";
-  if (kind === "dep") return "（缺输入）";
-  return "";
+function escalationKindTag(esc: RunNode["escalations"][number]): string {
+  const label = escalationRowKindLabel(esc);
+  return label ? `（${label}）` : "";
 }
 
 /**
@@ -75,7 +73,7 @@ export function collectGraphPendingDecisions(
         runId: r.id,
         actId: r.actId ?? "act-1",
         title: roleOf(r),
-        detail: `待你拍板${escalationKindTag(e.kind)}`,
+        detail: `待你拍板${escalationKindTag(e)}`,
       });
     }
     if (r.checkpoint?.status === "pending") {

@@ -222,6 +222,28 @@ export function ProcessTimeline({
   );
   const processSummary = formatProcessSummary(reasoningCount, toolCount);
 
+  // 协作图应在 CEO 回复下方: when prose only exists as fallbackContent (no content
+  // step), slot it before the first team/graph_append marker — never after the
+  // whole timeline (that put the graph above the CEO lead-in).
+  const fallbackBeforeTeamIdx =
+    !hasContentStep && fallbackContent
+      ? nodes.findIndex((n) => n.kind === "team" || n.kind === "graph_append")
+      : -1;
+  const showFallbackAfter =
+    !hasContentStep && Boolean(fallbackContent) && fallbackBeforeTeamIdx < 0;
+
+  const renderFallback = (key: string) => (
+    <Markdown
+      key={key}
+      content={fallbackContent}
+      citations={citations}
+      citationToDisplay={citationToDisplay}
+      knownLedgerIds={knownLedgerIds}
+      evidenceLedger={evidenceLedger}
+      isStreaming={isStreaming}
+    />
+  );
+
   const renderNode = (node: TimelineNode, i: number) => {
     const live = isStreaming && i === nodes.length - 1;
     const nodeKey = nodeKeys[i];
@@ -312,6 +334,10 @@ export function ProcessTimeline({
   return (
     <div className="space-y-2">
       {nodes.map((node, i) => {
+        const prefix =
+          i === fallbackBeforeTeamIdx
+            ? renderFallback("fallback-before-team")
+            : null;
         if (shouldCollapseProcess) {
           const isFirstProcess =
             isProcessNode(node) && !nodes.slice(0, i).some(isProcessNode);
@@ -320,20 +346,23 @@ export function ProcessTimeline({
             if (isProcessNode(node)) {
               if (!isFirstProcess) return null;
               return (
-                <button
-                  key="process-summary"
-                  type="button"
-                  onClick={toggleProcess}
-                  className="inline-flex items-center gap-1 text-sm text-muted-foreground"
-                >
-                  {processSummary}
-                  <ChevronRight className="size-4 shrink-0" aria-hidden />
-                </button>
+                <Fragment key={`sum-${nodeKeys[i]}`}>
+                  {prefix}
+                  <button
+                    type="button"
+                    onClick={toggleProcess}
+                    className="inline-flex items-center gap-1 text-sm text-muted-foreground"
+                  >
+                    {processSummary}
+                    <ChevronRight className="size-4 shrink-0" aria-hidden />
+                  </button>
+                </Fragment>
               );
             }
           } else if (isFirstProcess) {
             return (
               <Fragment key="process-expanded">
+                {prefix}
                 <button
                   type="button"
                   onClick={toggleProcess}
@@ -347,20 +376,19 @@ export function ProcessTimeline({
             );
           }
         }
+        if (prefix) {
+          return (
+            <Fragment key={`wrap-${nodeKeys[i]}`}>
+              {prefix}
+              {renderNode(node, i)}
+            </Fragment>
+          );
+        }
         return renderNode(node, i);
       })}
       {/* 无 team 标记的图兜底已移除（时间线一期）：多 Agent 回合必有 `team` 标记
           （live 盖章 + reload journal 补齐），图只在标记槽渲染。 */}
-      {!hasContentStep && fallbackContent && (
-        <Markdown
-          content={fallbackContent}
-          citations={citations}
-          citationToDisplay={citationToDisplay}
-          knownLedgerIds={knownLedgerIds}
-          evidenceLedger={evidenceLedger}
-          isStreaming={isStreaming}
-        />
-      )}
+      {showFallbackAfter && renderFallback("fallback-after")}
       {isStreaming && composingTool && (
         <ComposingToolLine tool={composingTool} />
       )}

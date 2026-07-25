@@ -71,9 +71,9 @@ describe("parseSearchHits · code_search", () => {
     });
     expect(segs[1]).toEqual({ type: "plain", text: "  def helper():" });
     expect(hasSearchHits(segs)).toBe(true);
-    expect(searchHitPathLabel(segs[0] as Extract<(typeof segs)[0], { type: "hit" }>)).toBe(
-      "lib/util.py:12-40",
-    );
+    expect(
+      searchHitPathLabel(segs[0] as Extract<(typeof segs)[0], { type: "hit" }>),
+    ).toBe("lib/util.py:12-40");
   });
 
   it("keeps empty-result tip as plain", () => {

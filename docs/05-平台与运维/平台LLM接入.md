@@ -28,7 +28,7 @@ skip_if:
 | **多厂商 provider 路由** | model 串带 `厂商/` 前缀 | 豆包 / Moonshot / 智谱 等（见 §四） |
 | **platform 平台凭据** | 免费档 fallback（无 key 用户 ∧ `PLATFORM_FREE_TIER_ENABLED`）/ 用户显式偏好 platform / `billing_mode=platform` 全员代付 | `PLATFORM_*` 三项（免费档 = DeepSeek 官方 `deepseek-v4-flash`） |
 
-> **BYOK 服务商去向**（曾反复踩坑）：每用户自带**多服务商列表**（`user_llm_providers` 表，每行一个端点：label + AES-256-GCM 密文 key + base_url + 该服务商默认模型 + 服务商级价卡 + 连通状态），账号级 chat/后台默认各是一对 `(provider_id, model)` 指针（落 `users` 表，可跨服务商），会话覆盖再加 `conversations.model_provider_id` 锁定具体服务商。key **AES 加密存 Postgres**、按 turn 解密注入（`llm/resolve.py::resolve_user_llm_credentials(provider_id=…)` + `security/keys.py`），**不在 `.env`**。BYOK 模式下 `chat` 回合无任何服务商、又无 platform 回退（免费档关闭或平台凭据未配）时返 `402 LLM_KEY_REQUIRED`——新开的 `uv run` / 离线脚本 / `dev` 账号都够不到用户凭据，须先给账号加一个 BYOK 服务商（`POST /v1/users/me/llm-providers` 或桌面「设置 · 模型配置」；dev 便利工具 `scripts/set_dev_llm_key.py`）。
+> **BYOK 服务商去向**（曾反复踩坑）：每用户自带**多服务商列表**（`user_llm_providers` 表，每行一个端点：label + AES-256-GCM 密文 key + base_url + 该服务商默认模型 + 服务商级价卡 + 连通状态）。账号/会话选的是**模型组合**（`llm_model_profiles` + `users.default_model_profile_id` + `conversations.model_profile_id`），组合展开为 `{main, worker?, background?}` 槽位，每槽 `(model, origin, provider_id)`（`provider_id` 有值=byok；空 + model 有值=platform；Worker/后台空槽 = 跟随主模型）。key **AES 加密存 Postgres**、按 turn 解密注入（`llm/resolve.py::resolve_user_llm_credentials(provider_id=…)` + `security/keys.py`），**不在 `.env`**。BYOK 模式下 `chat` 回合无任何服务商、又无 platform 回退（免费档关闭或平台凭据未配）时返 `402 LLM_KEY_REQUIRED`——须先加 BYOK 服务商（`POST /v1/users/me/llm-providers` 或「设置 · 模型配置」；dev 便利 `scripts/set_dev_llm_key.py`）。旧账号三指针列与会话 `model*` 列已硬切 drop（迁移 `d7a1c4e9f2b8`）。
 >
 > 计费口径（**per-model origin 路由**（✅ 统一模型目录后取代 per-user `billing_preference`）、免费档 gate fallback、call 级凭据来源算价）→ [`成本配额与计费.md` §〇·五](/docs/05-平台与运维/成本配额与计费.md)。
 
@@ -36,22 +36,27 @@ skip_if:
 
 ## 二、模型与凭据解析（服务端权威）
 
+**模型组合（✅ 2026-07-25；预置 2026-07-25 收口为两档）**：用户选「一组用法」而非裸模型。CRUD `/v1/users/me/llm-model-profiles`；`PUT …/default` 设账号默认；会话 `PATCH` 只认 `model_profile_id`（null = 跟随账号默认；**活引用**——改组合定义后引用该组合的会话下一 turn 用新展开）。系统预置两档「5.2」/「Grok 4.5」（虚拟 id，main 固定 `origin=platform` + 对应 model id；worker/后台跟随主模型；模型不在平台目录则该档隐藏，expand 回落 5.2）。账号未设默认 → 回落 **5.2** 预置（不跟 `settings.platform_model`）。展开后仍走下方 `resolve_*`；场景 `ProfileParams`（温度/轮数）与模型组合无关。明确不做：质量档矩阵、角色→模型矩阵、输入框双 picker、旧三档启发式/兼容映射。
+
 `llm/resolve.py` 是所有调用点的单一解析入口：
 
 - **`resolve_model_config(purpose)`**：SELECTION/ADVISORY（解析凭据与模型名，授权归 gate）。
-  - **一切 purpose 都用户 key 优先**（含后台档 `title` / `memory` / `compaction` / `followups`），无 key 才落 platform 凭据（免费档用户的后台调用因此按来源真实入账、吃免费档额度；都无 → `None` → 402）。**2026-07-13 反转**：原「后台档有 platform 时无条件优先 platform 省钱」在无平台 key 的部署下从未生效过（死代码），而免费档一配平台 key 即激活——BYOK 用户后台调用会翻到平台烧钱、且有 key 跳配额 = 白嫖不设限，并破坏「有 key 用户零变化」承诺，故反转为用户 key 优先。（原「按用户偏好 platform/byok 分叉」已随 `billing_preference` 退役——用户面主对话凭据现按 per-turn origin 走 gate，见下「统一模型目录」。）
-  - **平台代付总闸 `platform_billing_selectable`**（`billing/preference.py`）：`billing_mode=platform` 部署恒可选；BYOK 部署仅免费档开启时可选。关闭时目录不列 platform 行、已存 platform 覆盖静默回落账号默认、无 key 用户 resolve 出 `origin=byok` → gate 402 引导配 key（与免费档关闭旧语义逐字节一致）。
-  - **后台模型降档（✅ 2026-07-15）**：后台档解析优先账号级**后台默认指针** `(provider_id, model)`（可指向另一个更便宜的服务商，`PUT /users/me/llm-providers/defaults`）→ 未设则跟随 chat 服务商 + `platform_background_model`（部署级，默认空=跟随）→ chat 模型（`_model_for_purpose`）。指针可整体换服务商；未设时只降模型不换凭据。动机：BYOK 用户把 chat `default_model` 配成贵模型时，标题/记忆等后台调用会跟着烧贵模型。
-  - **BYOK 价卡贯穿**：用户自填单价（`price_cache_hit/miss/output`）与 `background_model` 随 `LLMCredentials` 解析、经 log context 贯穿到 `calculate_cost` 全部计价点（云管线 `prepare.py` 与推理代理 `proxy.py` 同路），供 BYOK 估算金额（见 [成本配额与计费 §〇·五](/docs/05-平台与运维/成本配额与计费.md)）。
-- **平台模型常量**：`deepseek-v4-flash` / `deepseek-v4-pro`（`llm/profiles.py`）；`settings.platform_model` 默认 `deepseek-v4-flash`，仅在 platform 模式作上游模型名（GPT/gpt-4o 平台档已废弃）。
-- **`resolve_turn_model` / `resolve_conversation_model_selection`**：解析该 turn 的上游 model。**优先级**：`conversation.(model, model_origin)`（会话覆盖）→ 账号默认（`resolve_account_default_model`：有 key → BYOK `default_model`/byok，否则 `platform_model`/platform）→ 兜底 `deepseek-v4-flash`。会话覆盖仅**主对话 turn** 线程：云端主路经 `conversation/common.py::resolve_turn_profiles`；**桌面 sidecar 路**经 `api/routes/inference/proxy.py` 按 owner 校验后重解析（推理代理对每次代理调用权威重解析，云端单点不足以让桌面生效），worker/辩论回落逻辑不变。**旧数据兜底**：`model` 非空但 `model_origin` NULL → 有服务商视为 byok、否则 platform；origin=byok 且 `model_provider_id` NULL（旧行）→ 保留模型、按账号默认服务商解析；origin=byok 但锁定的服务商已删 / 账号已无服务商 → 覆盖静默失效、回落账号默认（不硬失败；删除服务商同理）。
+  - **主对话（chat）用户 key 优先**；无 key 才落 platform 凭据。
+  - **后台档（`title` / `memory` / `compaction` / `followups`）平台优先**（✅ 2026-07-25，对齐 Cursor 等行业「产品壳子走平台」）：有平台凭据即走平台 + **必过 `enforce_quota`**（有 BYOK key 也不跳闸，防白嫖）；平台不可用才回落组合展开的后台槽 / 主模型服务商。调用点经 `billing/gate.py::resolve_and_gate_background`（配额耗尽返回 `None`，best-effort 降级，不 429 主回合）。**历史**：2026-07-13 曾反转为用户 key 优先；内测计费翻转后主路已是平台额度，再翻回平台优先并强制过闸。
+  - **平台代付总闸 `platform_billing_selectable`**（`billing/preference.py`）：`billing_mode=platform` 部署恒可选；BYOK 部署仅免费档开启时可选。关闭时目录不列 platform 行、已存 platform 槽静默回落、无 key 用户 resolve 出 `origin=byok` → gate 402 引导配 key。
+  - **后台模型降档（✅）**：平台优先路径用 `platform_background_model`（部署级，默认空=跟随 `platform_model`）；仅平台不可用回落时才看组合 `background` 槽（空 = 跟随主模型）。
+  - **Worker 槽（✅）**：组合 `worker` 空 = 跟随本 turn 主模型；非空则 `resolve_turn_profiles` 填 `TurnProfiles.model_overrides["agent"]`；跨 origin / 跨服务商时设 `agent_provider_id` 并由 `build_turn_router` 注入 extras。Sidecar 在 `cost_role=member` 时按 Worker 槽重解析；captain / 辩论（`cost_role=arena` + 注入 turn main）仍跟主模型。删 BYOK 服务商时指向它的槽静默失效 → 跟随主模型。
+  - **槽位可指平台（✅）**：写组合时 platform 槽须 `platform_billing_selectable` ∧ 模型 ∈ 平台目录。
+  - **BYOK 价卡贯穿**：用户自填单价与服务商默认模型随 `LLMCredentials` 解析、经 log context 贯穿到 `calculate_cost`（云管线 `prepare.py` 与推理代理 `proxy.py` 同路），见 [成本配额与计费 §〇·五](/docs/05-平台与运维/成本配额与计费.md)。
+- **平台模型常量**：`deepseek-v4-flash` / `deepseek-v4-pro`（`llm/profiles.py`）；`settings.platform_model` 默认 `deepseek-v4-flash`。
+- **`resolve_turn_model` / `resolve_conversation_model_selection`**：先经 `LlmModelProfileService.expand` 取会话 `model_profile_id`（否则账号 `default_model_profile_id`，再否则系统 5.2 预置）的 **main** 槽 → `(model, origin, provider_id)`；再兜底 `deepseek-v4-flash`。云端主路经 `conversation/common.py::resolve_turn_profiles`（同函数再叠 Worker 覆盖）；**桌面 sidecar 路**经 `api/routes/inference/proxy.py` 权威重解析（`cost_role=member` 走 Worker 槽）。
 
-**统一模型目录（`llm/catalog.py` · ✅ 2026-07-20 取代「模型来源」账号级二分，2026-07-20 升级多服务商）**：`GET /v1/users/me/models` 返回 `{ current: {id, origin, provider_id}, byok_configured, models[] }`，每项含 `origin`（byok|platform）+ `provider_id`/`provider_label`（byok 行）+ 显示名/厂商/能力标签/上下文/单价/`available`，`(id, origin, provider_id)` 为唯一键——**同一 model id 可同时挂在多个服务商下**（各是独立选项）。**多 BYOK 服务商与平台模型混排在同一目录**（每个 active 服务商各自发现模型 + 平台模型集），供前端 `ModelPicker` 按服务商分组渲染。**行业对齐（Cherry Studio / LobeChat / Cursor）：「来源」是模型的属性而非用户预先要做的全局选择**——原 `users.billing_preference` 列、`PUT /users/me/llm-key/billing-preference` 端点、设置页「模型来源」二分卡片均已退役（迁移 drop；顺带消灭「切源后已有会话覆盖不重验」「切源后目录缓存不刷新」两个边界 bug，移动端无需补开关即天然对齐）。
+**统一模型目录（`llm/catalog.py` · ✅）**：`GET /v1/users/me/models` 返回 `{ current: {id, origin, provider_id}, byok_configured, models[] }`，`(id, origin, provider_id)` 为唯一键。多 BYOK 与平台混排，供**设置页编辑组合槽位**选模型（输入框不再列裸模型）。「来源」是模型属性——原账号级 `billing_preference` 已退役。
 
-- **BYOK 行**：对**每个 active 服务商**各自代理其端点 OpenAI 标准 `GET /models`（`openai_compatible.py::list_models`）**自动发现**真实模型 id（按 `(provider_id, base_url)` 各测各的、缓存 ~10min；上游失败**优雅降级**到该服务商已配模型、绝不 500），再由 `llm/model_metadata.py` **增强**显示字段——发现决定「有哪些」、元数据只做美化，**禁止硬编码可选清单替代发现**（否则退回两端预设漂移老问题）。
-- **platform 行 / keyless 用户**：运营方平台模型集（不打上游）。keyless 分支（`llm/catalog.py`）：**有平台补贴**（`platform_billing_selectable` ∧ 平台凭据可用）→ 目录仅平台行；**无补贴** → `models=[]` 空目录，前端 `ModelPicker` 空态 + 设置·模型配置 CTA（「接入自己的 Key 解锁更多」）。**产品决策**：空目录 + 设置 CTA 是有意 UX——不再塞置灰「配 key 解锁」引导行（旧 `origin=byok, available=false` guide rows 已退役，见 §〇·六 F7）。
-- **会话覆盖授权点**：`validate_model_choice`——PATCH `conversations.(model, model_origin, model_provider_id)`（`api/routes/conversations/crud.py`；model 非空时 origin 必填，byok 时 provider_id 随 (id,origin) 一起校验）校验 `(id, origin, provider_id)` ∈ 目录且 `available`，否则 422；resolve 侧信任已存值不重探。
-- **凭据/计费按 origin 路由**：`billing/gate.py::preflight_llm_credentials(model_origin=…)` 按**本回合所选模型的 origin** 分叉（byok → 用户 key 不查配额；platform → 平台 key + 免费档限额）——闸语义不变，触发依据从已删的账号偏好换成 per-turn origin。
+- **BYOK 行**：对每个 active 服务商代理 `GET /models` 自动发现（缓存 ~10min；失败降级到已配模型、不 500），`llm/model_metadata.py` 只做美化——**禁止硬编码可选清单替代发现**。
+- **platform 行 / keyless**：有补贴 → 仅平台行；无补贴 → `models=[]`，设置页 CTA「接入自己的 Key」。
+- **组合 / 槽位授权点**：写组合槽与目录校验走 `validate_model_choice`；会话只校验 `model_profile_id` 归属/存在；resolve 信任已展开槽位。
+- **凭据/计费按 origin 路由**：`preflight_llm_credentials(model_origin=…)` 按本回合实际 origin 分叉（byok 不查配额；platform 走过闸）。
 
 ---
 

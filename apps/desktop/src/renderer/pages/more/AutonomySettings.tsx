@@ -1,5 +1,6 @@
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { notifyError, notifySuccess } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import { api } from "@/services/api";
 import {
   PERMISSION_PRESET_LABELS,
@@ -106,28 +107,35 @@ export function AutonomySettings() {
             className="animate-spin text-muted-foreground/50"
           />
         ) : (
-          OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              disabled={pending}
-              onClick={() => void onSelect(option.value)}
-              className={
-                option.value === policy
-                  ? "flex w-full items-start gap-3 rounded-xl border border-primary/40 bg-primary/5 px-4 py-3 text-left"
-                  : "flex w-full items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left hover:bg-accent/40"
-              }
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">
-                  {option.label}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {option.description}
-                </p>
-              </div>
-            </button>
-          ))
+          OPTIONS.map((option) => {
+            const selected = option.value === policy;
+            return (
+              <button
+                type="button"
+                key={option.value}
+                aria-pressed={selected}
+                disabled={pending}
+                onClick={() => {
+                  if (!pending) void onSelect(option.value);
+                }}
+                className={cn(
+                  "flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left disabled:pointer-events-none disabled:opacity-60",
+                  selected
+                    ? "border-primary/40 bg-primary/5"
+                    : "transition-colors hover:border-primary/40 hover:bg-accent/40",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">
+                    {option.label}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {option.description}
+                  </p>
+                </div>
+              </button>
+            );
+          })
         )}
       </section>
     </div>

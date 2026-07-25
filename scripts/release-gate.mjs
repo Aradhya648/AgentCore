@@ -220,6 +220,14 @@ async function main() {
       ["run", "python", "scripts/check_schema_gate.py"],
       { cwd: SERVER },
     );
+    // Workspace hide rules are dual-sourced (Python _paths ↔ desktop
+    // workspaceIgnore). Fail loudly when only one side is edited.
+    run(
+      "workspace ignore parity",
+      "uv",
+      ["run", "python", "scripts/check_workspace_ignore_parity.py"],
+      { cwd: SERVER },
+    );
     runLogged(
       "pytest (unit)",
       "uv",

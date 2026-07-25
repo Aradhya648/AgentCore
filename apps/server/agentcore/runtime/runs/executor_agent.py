@@ -52,6 +52,7 @@ def build_agent_executor(
     evidence_ledger: object | None = None,
     turn_evidence_ledger: object | None = None,
     batch_completion_criteria: object | None = None,
+    cost_role: str = "member",
 ) -> RunExecutor:
     """Build a :class:`RunExecutor` bound to one turn's wiring.
 
@@ -108,6 +109,7 @@ def build_agent_executor(
         evidence_ledger=evidence_ledger,
         turn_evidence_ledger=turn_evidence_ledger,
         batch_completion_criteria=batch_completion_criteria,  # type: ignore[arg-type]
+        cost_role=cost_role,
     )
 
     async def execute(spec: RunSpec, completed: Mapping[str, RunState]) -> RunState:
@@ -116,7 +118,7 @@ def build_agent_executor(
             run_id=spec.run_id,
             agent_id=agent_id,
             depth=spec.depth,
-            cost_role="member",
+            cost_role=cost_role,
             persona=(spec.role or "").strip() or None,
             parent_run_id=spec.parent_run_id or None,
         ):

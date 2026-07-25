@@ -489,6 +489,151 @@ async def test_read_url_requires_url():
     assert "url" in result.error
 
 
+# --- read_url: GitHub api.github.com fast path ---
+
+
+def test_parse_github_page_url_repo_tree_blob():
+    from agentcore.tools.builtin.web.github_page import (
+        _GithubBlobPage,
+        _GithubRepoPage,
+        parse_github_page_url,
+    )
+
+    root = parse_github_page_url("https://github.com/octo/demo")
+    assert isinstance(root, _GithubRepoPage)
+    assert root.owner == "octo" and root.repo == "demo" and root.ref is None
+
+    tree = parse_github_page_url("https://www.github.com/octo/demo/tree/main/src")
+    assert isinstance(tree, _GithubRepoPage)
+    assert tree.ref == "main"
+
+    blob = parse_github_page_url("https://github.com/octo/demo/blob/main/src/a.py")
+    assert isinstance(blob, _GithubBlobPage)
+    assert blob.ref == "main" and blob.path == "src/a.py"
+
+    assert parse_github_page_url("https://github.com/octo/demo/issues/1") is None
+    assert parse_github_page_url("https://gist.github.com/octo/abc") is None
+    assert parse_github_page_url("https://example.com/octo/demo") is None
+
+
+async def test_read_url_github_repo_root_via_api(monkeypatch):
+    import base64
+
+    readme_b64 = base64.b64encode(b"# Demo\nHello from README.\n").decode()
+    api_calls: list[str] = []
+
+    async def _allow(_url: str):
+        return None
+
+    async def _fake_request(_client, _method, url, **_kwargs):
+        api_calls.append(url)
+        if url == "https://api.github.com/repos/octo/demo":
+            return httpx.Response(
+                200,
+                json={
+                    "full_name": "octo/demo",
+                    "private": False,
+                    "visibility": "public",
+                    "default_branch": "main",
+                    "description": "A demo repo",
+                    "html_url": "https://github.com/octo/demo",
+                },
+                request=httpx.Request("GET", url),
+            )
+        if url == "https://api.github.com/repos/octo/demo/readme":
+            return httpx.Response(
+                200,
+                json={
+                    "path": "README.md",
+                    "encoding": "base64",
+                    "content": readme_b64,
+                },
+                request=httpx.Request("GET", url),
+            )
+        raise AssertionError(f"unexpected URL (HTML must not be hit): {url}")
+
+    monkeypatch.setattr(read_url_mod, "_classify_url", _allow)
+    monkeypatch.setattr(read_url_mod, "_safe_request", _fake_request)
+
+    result = await ReadUrlTool().execute(
+        {"url": "https://github.com/octo/demo"}, _ctx()
+    )
+    assert result.success is True
+    body = json.loads(result.output)
+    assert body["title"] == "octo/demo"
+    assert "private: false" in body["content"]
+    assert "visibility: public" in body["content"]
+    assert "Hello from README." in body["content"]
+    assert all(u.startswith("https://api.github.com/") for u in api_calls)
+    assert result.citations[0]["snippet"] == "A demo repo"
+
+
+async def test_read_url_github_blob_via_api(monkeypatch):
+    import base64
+
+    file_b64 = base64.b64encode(b"print('hi')\n").decode()
+
+    async def _allow(_url: str):
+        return None
+
+    async def _fake_request(_client, _method, url, **_kwargs):
+        assert "api.github.com" in url
+        assert "/contents/src/app.py" in url
+        assert "ref=main" in url
+        return httpx.Response(
+            200,
+            json={
+                "type": "file",
+                "encoding": "base64",
+                "content": file_b64,
+                "path": "src/app.py",
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(read_url_mod, "_classify_url", _allow)
+    monkeypatch.setattr(read_url_mod, "_safe_request", _fake_request)
+
+    result = await ReadUrlTool().execute(
+        {"url": "https://github.com/octo/demo/blob/main/src/app.py"}, _ctx()
+    )
+    assert result.success is True
+    body = json.loads(result.output)
+    assert "print('hi')" in body["content"]
+    assert "path: src/app.py" in body["content"]
+    assert body["title"] == "octo/demo/src/app.py"
+
+
+async def test_read_url_github_api_failure_falls_back_to_html(monkeypatch):
+    html = (
+        "<html><head><title>HTML fallback</title>"
+        '<meta name="description" content="from html">'
+        "</head><body><p>HTML body</p></body></html>"
+    )
+
+    async def _allow(_url: str):
+        return None
+
+    async def _fake_request(_client, _method, url, **_kwargs):
+        if "api.github.com" in url:
+            return httpx.Response(
+                404, json={"message": "Not Found"}, request=httpx.Request("GET", url)
+            )
+        assert url == "https://github.com/octo/demo"
+        return httpx.Response(200, html=html, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(read_url_mod, "_classify_url", _allow)
+    monkeypatch.setattr(read_url_mod, "_safe_request", _fake_request)
+
+    result = await ReadUrlTool().execute(
+        {"url": "https://github.com/octo/demo"}, _ctx()
+    )
+    assert result.success is True
+    body = json.loads(result.output)
+    assert body["title"] == "HTML fallback"
+    assert body["content"] == "HTML body"
+
+
 async def test_web_search_requires_query():
     result = await WebSearchTool().execute({"query": "  "}, _ctx())
     assert result.success is False

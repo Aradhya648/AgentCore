@@ -1,5 +1,9 @@
-import { Button } from "@/components/ui";
+import { Card } from "@/components/ui";
+import { Switch } from "@/components/ui/Switch";
+import { hasLocalEngine } from "@/lib/capabilities";
 import { type Theme, resolveDark } from "@/lib/theme";
+import { cn } from "@/lib/utils";
+import { clearSidecarHealth } from "@/services/sidecarHealth";
 import { useUIStore } from "@/stores/ui";
 import { Check, type LucideIcon, Monitor, Moon, Sun } from "lucide-react";
 import { SettingsHeader } from "./SettingsHeader";
@@ -33,7 +37,7 @@ const THEME_OPTIONS: ThemeOption[] = [
 ];
 
 /**
- * 外观设置（/more/appearance）— 主题选择。
+ * 外观设置（/more/appearance）— 主题选择；桌面有本地引擎时附带本地引擎开关。
  *
  * 写入共享的 `useUIStore.theme`（持久化到 localStorage），应用由 `lib/theme.ts`
  * 统一收口（AppShell 的 `useApplyTheme` 切 root `.dark` 类、`系统`档随 OS 跟随），
@@ -63,6 +67,8 @@ export function AppearanceSettings() {
           ))}
         </div>
       </section>
+
+      {hasLocalEngine() && <LocalEngineToggle />}
     </div>
   );
 }
@@ -85,13 +91,16 @@ function ThemeRow({
       : null;
 
   return (
-    <Button
-      variant="ghost"
-      onClick={onSelect}
+    <button
+      type="button"
       aria-pressed={selected}
-      className={`h-auto w-full justify-start gap-3 rounded-xl border bg-card px-3 py-2.5 text-left font-normal ${
-        selected ? "border-primary" : "border-border hover:bg-accent"
-      }`}
+      onClick={onSelect}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left",
+        selected
+          ? "border-primary"
+          : "transition-colors hover:border-primary/40 hover:bg-accent/40",
+      )}
     >
       <span
         className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
@@ -110,6 +119,28 @@ function ThemeRow({
         </span>
       </span>
       {selected && <Check size={16} className="shrink-0 text-primary" />}
-    </Button>
+    </button>
+  );
+}
+
+function LocalEngineToggle() {
+  const enabled = useUIStore((s) => s.sidecarEnabled);
+  const setEnabled = useUIStore((s) => s.setSidecarEnabled);
+  const onToggle = (v: boolean): void => {
+    setEnabled(v);
+    if (v) clearSidecarHealth();
+  };
+  return (
+    <Card className="mt-6 flex items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm text-foreground">本地引擎</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          绑定本机本地文件夹的对话默认在你的电脑上运行（直连本地磁盘、更快），启动失败会自动切回
+          云端。裸聊与云端项目仍走云；AI
+          推理仍在云端，断网时不可用。关闭后全部走云端。
+        </p>
+      </div>
+      <Switch checked={enabled} onCheckedChange={onToggle} label="本地引擎" />
+    </Card>
   );
 }

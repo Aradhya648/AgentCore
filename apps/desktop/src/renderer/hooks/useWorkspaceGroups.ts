@@ -1,6 +1,10 @@
 import { useConversations } from "@/hooks/useConversations";
 import { useFolders } from "@/hooks/useFolders";
-import type { FolderMeta } from "@/services/folders";
+import {
+  type FolderMeta,
+  dedupeFoldersByLocalBinding,
+  localFolderBindingKey,
+} from "@/services/folders";
 import type { Conversation } from "@/stores/conversation";
 import { useMemo } from "react";
 
@@ -32,18 +36,46 @@ function byPinnedThenRecency(a: Conversation, b: Conversation): number {
  * (干净二分零重复). Conversations whose folder isn't in `folders` (e.g. mid-deletion)
  * are skipped; the delete flow unbinds them to 裸聊 so they resurface in「快速对话」.
  */
+/**
+ * Map each folder id → the canonical (first / oldest) id for its local binding.
+ * Cloud folders map to themselves. Used so sidebar groups don't duplicate the
+ * same local path when historical duplicate rows exist.
+ */
+function canonicalFolderIds(folders: FolderMeta[]): Map<string, string> {
+  const keptByBinding = new Map<string, string>();
+  const canonical = new Map<string, string>();
+  for (const f of folders) {
+    if (f.mode === "local" && f.localRootId) {
+      const key = localFolderBindingKey(f.localRootId, f.localSubpath);
+      const kept = keptByBinding.get(key);
+      if (kept) {
+        canonical.set(f.id, kept);
+      } else {
+        keptByBinding.set(key, f.id);
+        canonical.set(f.id, f.id);
+      }
+    } else {
+      canonical.set(f.id, f.id);
+    }
+  }
+  return canonical;
+}
+
 export function buildWorkspaceGroups(
   conversations: Conversation[],
   folders: FolderMeta[],
 ): WorkspaceGroup[] {
+  const displayFolders = dedupeFoldersByLocalBinding(folders);
+  const canonical = canonicalFolderIds(folders);
   const byFolder = new Map<string, Conversation[]>();
   for (const c of conversations) {
     if (!c.folderId) continue; // 裸聊 — belongs to「快速对话」, not a group
-    const arr = byFolder.get(c.folderId);
+    const folderId = canonical.get(c.folderId) ?? c.folderId;
+    const arr = byFolder.get(folderId);
     if (arr) arr.push(c);
-    else byFolder.set(c.folderId, [c]);
+    else byFolder.set(folderId, [c]);
   }
-  const folderById = new Map(folders.map((f) => [f.id, f]));
+  const folderById = new Map(displayFolders.map((f) => [f.id, f]));
   const result: WorkspaceGroup[] = [];
   for (const [folderId, convs] of byFolder) {
     const folder = folderById.get(folderId);

@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_quick_list",
+  "category": "routing",
+  "user_message": "列出三条写好 commit message 的实用建议，每条一句话。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "极短清单自答：无落盘、无调研广度，CEO 直接列三条。"
+}

@@ -1,4 +1,4 @@
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, Card } from "@/components/ui";
 import {
   Dialog,
   DialogContent,
@@ -149,7 +149,7 @@ export function LoginSessionsSection() {
         )}
       </div>
 
-      <div className="mt-3 rounded-xl border border-border bg-card p-4">
+      <Card className="mt-3 p-4">
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 size={16} className="animate-spin" />
@@ -187,7 +187,7 @@ export function LoginSessionsSection() {
         {actionError && (
           <p className="mt-3 text-xs text-destructive">{actionError}</p>
         )}
-      </div>
+      </Card>
 
       <ConfirmRevokeDialog
         target={confirm}

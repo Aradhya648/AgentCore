@@ -60,12 +60,15 @@ export function WorkspaceGroups() {
               onToggleExpanded={() => setSection(folder.id, !expanded)}
             />
             {expanded && (
-              <div className="space-y-0.5 pl-2">
+              // Same icon column as group header / 裸聊 / top nav — no nested
+              // indent (status dots & cloud icons must share that axis).
+              <div className="space-y-0.5">
                 {convs.slice(0, MAX_PER_GROUP).map((c) => (
                   <ConversationItem
                     key={c.id}
                     conversation={c}
                     groupIsLocal={groupIsLocal}
+                    className="px-2"
                   />
                 ))}
                 {overflow > 0 && (
@@ -75,7 +78,7 @@ export function WorkspaceGroups() {
                         state: { focusFolderId: folder.id },
                       })
                     }
-                    className="h-8 px-3 text-xs text-sidebar-foreground/50 hover:text-sidebar-foreground"
+                    className="h-8 px-2 text-xs text-sidebar-foreground/50 hover:text-sidebar-foreground"
                   >
                     <MoreHorizontal size={13} className="shrink-0" />
                     更多（{overflow}）

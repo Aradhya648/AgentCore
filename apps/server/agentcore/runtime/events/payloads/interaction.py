@@ -12,6 +12,7 @@ from pydantic import Field
 
 from agentcore.runtime.approvals import ApprovalDecision, DelegationAuthorizationDecision
 from agentcore.runtime.checkpoints import AskCheckpointIntent, CheckpointDecision
+from agentcore.runtime.debate.types import DebateForm
 from agentcore.runtime.events.payloads._base import WirePayload, absent
 from agentcore.runtime.events.payloads.run import EscalationKind
 from agentcore.runtime.events.payloads.shared import MotionCardSide
@@ -240,7 +241,7 @@ class StageCardRequiredPayload(WirePayload):
     conversation_id: str
     motion: str
     sides: list[MotionCardSide]
-    form: Literal["debate", "red_team", "roundtable"]
+    form: DebateForm
     rationale: str
     fact_pointers: list[str] = Field(default_factory=list)
     thorough: bool = True
@@ -284,6 +285,10 @@ class EscalationRequiredPayload(WirePayload):
     kind: EscalationKind | None = absent("旧流缺字段时前端按 `normal`。与 blocking 轴正交。")
     awaiting: Literal["user", "ceo"] | None = absent(
         "谁在仲裁：user=经典可答卡；ceo=协调模式等主管。旧流缺字段按 user。"
+    )
+    browser_login: bool | None = absent(
+        "true=用户可在回合仍 running 时接管浏览器完成登录（D16 窄例外）。"
+        "旧流缺字段按 false。"
     )
 
 

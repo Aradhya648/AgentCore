@@ -294,7 +294,7 @@ export function TeamView({
           running + active note → default open; finished/stopped → collapsed「团队便签 N」. Remount
           via key when the default flips so turn completion re-applies the collapsed default. */}
         {/* 交付状态（能力闸门与交付诚实性 · C3）：缺口 / 待用户操作的诚实对账，镜像桌面
-          DeliveryStatusCard（完成条件卡为缺口唯一披露；delivered 不出卡）。手机为云瘦
+          DeliveryStatusCard（交付验收卡为缺口唯一披露；delivered 不出卡）。手机为云瘦
           客户端，bind_local_folder 行动项按提示行如实呈现（无本地绑定通道）。 */}
         {deliveryStatus && deliveryStatus.state !== "delivered" && (
           <DeliverySection status={deliveryStatus} />
@@ -332,15 +332,32 @@ const GAP_REASON_LABEL: Record<string, string> = {
   qa_deferred_budget: "验收推迟",
 };
 
-/** 完成条件区块（批次验收 / completion_criteria；partial / blocked）：
- *  与 finish_guard「引用/格式核验后已重写」chip 分流——此处是完成条件未满足、团队可能重派。
- *  C3：完成条件卡为缺口唯一披露；partial / blocked 强调色由头部状态徽标承接（对齐桌面）。 */
+/** Action kinds that mean the user/team can continue or redispatch this batch
+ *  (对齐桌面 DeliveryStatusCard；同缺口 escalate 未进 payload → 无续派 CTA 时隐藏 hint)。 */
+const REDISPATCH_ACTION_KINDS = new Set([
+  "bind_local_folder",
+  "website_verify",
+  "continue_writing",
+  "continue_skipped_runs",
+]);
+
+function mayShowRedispatchHint(status: DeliveryStatusPayload): boolean {
+  return (status.actions ?? []).some((a) =>
+    REDISPATCH_ACTION_KINDS.has(a.kind),
+  );
+}
+
+/** 交付验收区块（批次验收 / completion_criteria；partial / blocked）：
+ *  与 finish_guard「引用/格式核验后已重写」chip 分流——此处是交付验收未过；「团队可能重派」
+ *  仅在 actions 含可续派 kind 时显示（非 unmet 恒显）。
+ *  C3：交付验收卡为缺口唯一披露；partial / blocked 强调色由头部状态徽标承接（对齐桌面）。 */
 function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
   const blocked = status.state === "blocked";
   const gaps = status.gaps ?? [];
   const actions = status.actions ?? [];
+  const showRedispatchHint = mayShowRedispatchHint(status);
   // 诚实披露卡：默认展开（不套产物卡「>4 收起」阈值）；收起仅折叠 gap 明细与 actions，头部
-  // （完成条件 + 状态徽标 + summary + 团队可能重派）恒可见。手机无折叠持久化（对齐本端
+  // （交付验收 + 状态徽标 + summary + 条件性「团队可能重派」）恒可见。手机无折叠持久化（对齐本端
   // FileArtifactsCard 的整行开合 + chevron），本地 state 即可。
   const [expanded, setExpanded] = useState(true);
   return (
@@ -350,14 +367,16 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
         className="delivery-head"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span className="delivery-title">完成条件</span>
+        <span className="delivery-title">交付验收</span>
         <span
           className={`delivery-state ${blocked ? "is-blocked" : "is-partial"}`}
         >
           {blocked ? "未满足" : "部分未满足"}
         </span>
         <span className="delivery-summary">{status.summary}</span>
-        <span className="delivery-hint">团队可能重派</span>
+        {showRedispatchHint ? (
+          <span className="delivery-hint">团队可能重派</span>
+        ) : null}
         {expanded ? (
           <ChevronUp size={15} className="delivery-go" aria-hidden />
         ) : (

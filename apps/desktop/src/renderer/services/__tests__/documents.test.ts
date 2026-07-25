@@ -72,7 +72,14 @@ describe("documents client", () => {
         ];
       }
       if (url === "/v1/documents?parent_id=rules-g") {
-        return [node({ id: "g", folder_id: null, name: "全局.md", parent_id: "rules-g" })];
+        return [
+          node({
+            id: "g",
+            folder_id: null,
+            name: "全局.md",
+            parent_id: "rules-g",
+          }),
+        ];
       }
       if (url === "/v1/documents?parent_id=ac-p") {
         return [

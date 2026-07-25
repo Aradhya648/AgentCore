@@ -1,10 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Tests for 设置·模型配置 (multi-provider list page).
- *
- * Renders the platform-quota card + one card per BYOK provider (label, masked key, default
- * model, default badges), removes a provider through a confirm, and exposes the two
- * cross-provider account-default selectors grouped by provider.
+ * Tests for 设置·模型 (model combinations / account default profile).
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,35 +11,38 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/hooks/useLlmProviders", () => ({ useLlmProviders: vi.fn() }));
-vi.mock("@/hooks/useModels", () => ({ useModels: vi.fn() }));
-vi.mock("@/services/llmProviders", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/services/llmProviders")>()),
-  deleteLlmProvider: vi.fn(() => Promise.resolve({ status: "ok" })),
-  testLlmProvider: vi.fn(() => Promise.resolve({})),
-  setLlmDefaults: vi.fn(),
+vi.mock("@/hooks/useLlmModelProfiles", () => ({
+  useLlmModelProfiles: vi.fn(),
 }));
-vi.mock("@/lib/capabilities", () => ({ hasLocalEngine: () => false }));
-// The provider add/edit form pulls in write-side services; stub it to a marker.
-vi.mock("@/components/llm/ModelKeyForm", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/components/llm/ModelKeyForm")>();
-  return {
-    ...actual,
-    ModelKeyForm: () => <div data-testid="provider-form" />,
-  };
-});
+vi.mock("@/hooks/useModels", () => ({ useModels: vi.fn() }));
+vi.mock("@/services/llmModelProfiles", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/llmModelProfiles")>()),
+  createLlmModelProfile: vi.fn(),
+  updateLlmModelProfile: vi.fn(),
+  deleteLlmModelProfile: vi.fn(() => Promise.resolve({ status: "ok" })),
+  setDefaultLlmModelProfile: vi.fn(),
+}));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useLlmModelProfiles } from "@/hooks/useLlmModelProfiles";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
 import { ApiError } from "@/services/api";
+import type { LlmModelProfileListResponse } from "@/services/llmModelProfiles";
+import {
+  createLlmModelProfile,
+  deleteLlmModelProfile,
+  setDefaultLlmModelProfile,
+} from "@/services/llmModelProfiles";
 import type { LlmProvidersResponse } from "@/services/llmProviders";
-import { deleteLlmProvider } from "@/services/llmProviders";
 import { ModelSettings } from "../ModelSettings";
 
 const useLlmProvidersMock = vi.mocked(useLlmProviders);
+const useProfilesMock = vi.mocked(useLlmModelProfiles);
 const useModelsMock = vi.mocked(useModels);
 
 function providersResponse(
@@ -59,8 +58,6 @@ function providersResponse(
         status: "active",
         masked_key: "••••abcd",
         supports_tools: true,
-        is_default_chat: true,
-        is_default_background: false,
       },
       {
         id: "p2",
@@ -69,16 +66,42 @@ function providersResponse(
         default_model: "gpt-4o",
         status: "unchecked",
         masked_key: "••••wxyz",
-        is_default_chat: false,
-        is_default_background: false,
       },
     ],
-    default_chat: { provider_id: "p1", model: "deepseek-v4-pro" },
-    default_background: null,
+    default_model_profile_id: "sys-52",
     billing_mode: "byok",
     platform_available: false,
     platform_model: null,
     free_tier_active: false,
+    ...over,
+  };
+}
+
+function profilesResponse(
+  over: Partial<LlmModelProfileListResponse> = {},
+): LlmModelProfileListResponse {
+  return {
+    default_model_profile_id: "sys-52",
+    data: [
+      {
+        id: "sys-52",
+        name: "5.2",
+        kind: "system",
+        is_default: true,
+        main: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
+        worker: null,
+        background: null,
+      },
+      {
+        id: "user-mine",
+        name: "办公",
+        kind: "user",
+        is_default: false,
+        main: { origin: "byok", provider_id: "p2", model: "gpt-4o" },
+        worker: null,
+        background: null,
+      },
+    ],
     ...over,
   };
 }
@@ -91,11 +114,24 @@ function mockProviders(data: LlmProvidersResponse | undefined): void {
   } as unknown as ReturnType<typeof useLlmProviders>);
 }
 
+function mockProfiles(data: LlmModelProfileListResponse | undefined): void {
+  useProfilesMock.mockReturnValue({
+    data,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useLlmModelProfiles>);
+}
+
 function renderPage() {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <ModelSettings />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <TooltipProvider>
+          <ModelSettings />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -131,62 +167,199 @@ beforeEach(() => {
     isError: false,
     refetch: vi.fn(),
   } as unknown as ReturnType<typeof useModels>);
-  vi.mocked(deleteLlmProvider).mockClear();
+  mockProfiles(profilesResponse());
+  vi.mocked(deleteLlmModelProfile).mockClear();
+  vi.mocked(setDefaultLlmModelProfile).mockClear();
+  vi.mocked(createLlmModelProfile).mockClear();
 });
 
 afterEach(cleanup);
 
-describe("ModelSettings (multi-provider)", () => {
-  it("renders one card per provider with masked key, default model and default badge", () => {
+describe("ModelSettings (profiles)", () => {
+  it("renders model combinations without provider key cards", () => {
     mockProviders(providersResponse());
     renderPage();
-    expect(screen.getByText("DeepSeek")).toBeTruthy();
-    expect(screen.getByText("OpenAI")).toBeTruthy();
-    expect(screen.getByText("••••abcd")).toBeTruthy();
-    expect(screen.getByText("默认模型 deepseek-v4-pro")).toBeTruthy();
-    // The「聊天默认」badge (on the default provider's card) — the string also appears as
-    // the chat-default selector label below, so assert at least one occurrence.
-    expect(screen.getAllByText("聊天默认").length).toBeGreaterThan(0);
+    expect(screen.getByText("模型组合")).toBeTruthy();
+    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("办公")).toBeTruthy();
+    expect(screen.getByText("默认组合")).toBeTruthy();
+    expect(screen.queryByText("••••abcd")).toBeNull();
+    expect(screen.queryByRole("button", { name: "添加服务商" })).toBeNull();
   });
 
-  it("shows the read-only platform quota card when the deployment offers platform models", () => {
+  it("shows a compact platform status line with link to providers", () => {
     mockProviders(
       providersResponse({
+        providers: [],
         platform_available: true,
         platform_model: "deepseek-v4-flash",
+        billing_mode: "platform",
+        free_tier_active: true,
+      }),
+    );
+    mockProfiles(
+      profilesResponse({
+        data: [
+          {
+            id: "sys-52",
+            name: "5.2",
+            kind: "system",
+            is_default: true,
+            main: {
+              origin: "platform",
+              provider_id: null,
+              model: "deepseek-v4-flash",
+            },
+            worker: null,
+            background: null,
+          },
+        ],
       }),
     );
     renderPage();
-    expect(screen.getByText("平台额度")).toBeTruthy();
-    expect(screen.getByText("默认平台模型 deepseek-v4-flash")).toBeTruthy();
+    expect(screen.getByText(/平台免费额度/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "接入服务商" })).toBeTruthy();
+    expect(screen.queryByText("平台额度")).toBeNull();
   });
 
-  it("confirms then deletes a provider", async () => {
+  it("sets a user profile as the account default", async () => {
+    vi.mocked(setDefaultLlmModelProfile).mockResolvedValue({
+      id: "user-mine",
+      name: "办公",
+      kind: "user",
+      is_default: true,
+      main: { origin: "byok", provider_id: "p2", model: "gpt-4o" },
+    });
+    mockProviders(providersResponse());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "设为默认" }));
+    await waitFor(() =>
+      expect(setDefaultLlmModelProfile).toHaveBeenCalledWith("user-mine"),
+    );
+  });
+
+  it("copies a system preset into a user profile", async () => {
+    vi.mocked(createLlmModelProfile).mockResolvedValue({
+      id: "user-copy",
+      name: "5.2 副本",
+      kind: "user",
+      is_default: false,
+      main: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
+    });
+    mockProviders(providersResponse());
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "复制" })[0]);
+    await waitFor(() =>
+      expect(createLlmModelProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "5.2 副本",
+          main: {
+            origin: "byok",
+            provider_id: "p1",
+            model: "deepseek-v4-pro",
+          },
+          set_as_default: false,
+        }),
+      ),
+    );
+  });
+
+  it("deletes a user profile after confirm", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mockProviders(providersResponse());
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "删除" })[1]);
-    expect(confirmSpy).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
     await waitFor(() =>
-      expect(vi.mocked(deleteLlmProvider)).toHaveBeenCalledWith("p2"),
+      expect(deleteLlmModelProfile).toHaveBeenCalledWith("user-mine"),
     );
     confirmSpy.mockRestore();
   });
 
-  it("offers cross-provider default selectors grouped by provider", () => {
-    mockProviders(providersResponse());
-    const { container } = renderPage();
-    expect(screen.getByText("账号默认模型")).toBeTruthy();
-    const optgroups = container.querySelectorAll("optgroup");
-    const labels = [...optgroups].map((g) => g.getAttribute("label"));
-    expect(labels).toContain("DeepSeek");
-    expect(labels).toContain("OpenAI");
-  });
-
-  it("renders the add-provider affordance", () => {
+  it("does not offer delete on system presets", () => {
     mockProviders(providersResponse());
     renderPage();
-    expect(screen.getByRole("button", { name: "添加服务商" })).toBeTruthy();
+    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("预置")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(1);
+  });
+
+  it("opens the create editor from 新建 with worker slot folded", () => {
+    mockProviders(providersResponse());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.getByText("新建组合", { selector: "p" })).toBeTruthy();
+    expect(screen.getByText("主模型（必填）")).toBeTruthy();
+    expect(screen.getByText("Worker 模型")).toBeTruthy();
+    expect(screen.getAllByText(/（跟随主模型）/).length).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(screen.queryByText(/辩论用主模型/)).toBeNull();
+  });
+
+  it("shows combinations for keyless platform users", () => {
+    useModelsMock.mockReturnValue({
+      data: {
+        byok_configured: false,
+        current: { id: "platform-flash", origin: "platform" },
+        models: [
+          {
+            id: "platform-flash",
+            origin: "platform",
+            display_name: "Flash (平台)",
+            vendor: "Platform",
+            capabilities: [],
+            available: true,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useModels>);
+    mockProviders(
+      providersResponse({
+        providers: [],
+        platform_available: true,
+        platform_model: "platform-flash",
+        billing_mode: "platform",
+        free_tier_active: true,
+      }),
+    );
+    mockProfiles(
+      profilesResponse({
+        data: [
+          {
+            id: "sys-52",
+            name: "5.2",
+            kind: "system",
+            is_default: true,
+            main: {
+              origin: "platform",
+              provider_id: null,
+              model: "platform-flash",
+            },
+            worker: null,
+            background: null,
+          },
+        ],
+      }),
+    );
+    renderPage();
+    expect(screen.getByText("模型组合")).toBeTruthy();
+    expect(screen.getByText("5.2")).toBeTruthy();
+  });
+
+  it("shows empty CTA to providers when byok has no providers or platform", () => {
+    mockProviders(
+      providersResponse({
+        providers: [],
+        platform_available: false,
+        billing_mode: "byok",
+      }),
+    );
+    renderPage();
+    expect(screen.getByRole("button", { name: "接入服务商" })).toBeTruthy();
+    expect(screen.queryByText("模型组合")).toBeNull();
   });
 
   it("surfaces ADMIN_PRODUCT_FORBIDDEN instead of a generic load failure", () => {

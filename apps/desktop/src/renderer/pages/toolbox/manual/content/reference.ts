@@ -160,9 +160,14 @@ export const referenceChapter: ManualChapterContent = {
           type: "settingsRows",
           rows: [
             {
-              label: "模型配置",
-              desc: "选择团队使用的模型，或自带 Key（BYOK）",
+              label: "模型",
+              desc: "账号默认组合与组合管理",
               to: APP_PATHS.more.model,
+            },
+            {
+              label: "服务商",
+              desc: "平台额度说明，或自带 Key（BYOK）",
+              to: APP_PATHS.more.providers,
             },
             {
               label: "AI 记忆",
@@ -353,10 +358,10 @@ export const referenceChapter: ManualChapterContent = {
                   text: [
                     "想用自己的模型？自带 Key（BYOK）——在 ",
                     {
-                      text: "模型配置",
-                      link: { kind: "go", to: APP_PATHS.more.model },
+                      text: "服务商",
+                      link: { kind: "go", to: APP_PATHS.more.providers },
                     },
-                    " 接 OpenAI / DeepSeek / Kimi / 智谱 / 豆包 / OpenRouter，或填自定义端点；可同时接多家服务商，聊天框里随时切换。每个回合全链路用你选的那一个模型。",
+                    " 接 OpenAI / DeepSeek / Kimi / 智谱 / 豆包 / OpenRouter，或填自定义端点；可同时接多家服务商，在「设置 · 模型」里配组合，聊天框里随时切换。每个回合全链路用你选的那一个模型。",
                   ],
                 },
               ],
@@ -413,8 +418,8 @@ export const referenceChapter: ManualChapterContent = {
                   text: [
                     "去 ",
                     {
-                      text: "设置 · 模型配置",
-                      link: { kind: "go", to: APP_PATHS.more.model },
+                      text: "设置 · 服务商",
+                      link: { kind: "go", to: APP_PATHS.more.providers },
                     },
                     " 核对 Key、base URL 与模型名是否填对；换一家厂商或自定义端点再试。",
                   ],
@@ -473,7 +478,7 @@ export const referenceChapter: ManualChapterContent = {
           items: [
             {
               title: "自带 Key（BYOK）",
-              desc: "平台默认已备额度，打开即用；想用自己的模型可自带 API Key（可选升级），在「设置 · 模型配置」里填写与管理。",
+              desc: "平台默认已备额度，打开即用；想用自己的模型可自带 API Key（可选升级），在「设置 · 服务商」里填写与管理。",
             },
             {
               title: "生成的文件",

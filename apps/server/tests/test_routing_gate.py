@@ -98,6 +98,36 @@ def test_coordination_tools_skipped_even_with_scheme_text():
         assert not verdict.should_escalate, name
 
 
+def test_web_search_snippet_with_contradiction_does_not_escalate():
+    """检索原文含「互相矛盾」≠ 任务本身矛盾 —— 勿误触 Escalation Gate。"""
+    attempts = [ToolAttempt("fp1", "web_search", success=True)]
+    outputs = [
+        "标题：两派观点互相矛盾 / 冲突的要求无法同时满足\n"
+        "摘要：报道称双方需求矛盾，无法同时满足 A 与 B。"
+    ]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs, run_id="r1")
+    assert not verdict.should_escalate
+    assert verdict.layer is ProblemLayer.EXECUTION
+    assert verdict.action == "continue"
+
+
+def test_read_url_body_with_scope_phrase_does_not_escalate():
+    attempts = [ToolAttempt("fp1", "read_url", success=True)]
+    outputs = ["网页正文：有人认为这是职责偏离、与初始计划不符，属于 out of scope。"]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
+    assert not verdict.should_escalate
+
+
+def test_non_retrieval_tool_with_contradiction_still_escalates():
+    """非检索工具输出仍可触发方案层（回归：跳过仅限检索语料）。"""
+    attempts = [ToolAttempt("fp1", "str_replace", success=True)]
+    outputs = ["需求矛盾：无法同时满足 A 与 B"]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
+    assert verdict.should_escalate
+    assert verdict.signals[0].kind is EscalationKind.CONTRADICTION
+    assert verdict.signals[0].tool_name == "str_replace"
+
+
 def test_mixed_attempts_only_scheme_tools_escalate():
     attempts = [
         ToolAttempt("fp1", "code_execute", success=False),

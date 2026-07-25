@@ -1,0 +1,25 @@
+{
+  "id": "collab_par_km_tools",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "请并行调研 Notion、Obsidian、Logseq 在个人知识管理上的定位、核心能力与适合谁，整理成横向对比表并落盘到 research/km-compare.md。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "并行多对象调研落盘：每实体可扇出 + 汇入对比；高 parallel_fanout_min。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "expected_shape": {
+    "min_workers": 4,
+    "parallel_fanout_min": 3,
+    "has_join": true,
+    "min_roles": 2
+  },
+  "milestones": [
+    { "id": "three", "desc": "三家工具均有定位/能力/受众方面的信息", "weight": 2 },
+    { "id": "table", "desc": "横向对比表或等价结构化对照", "weight": 2 }
+  ]
+}

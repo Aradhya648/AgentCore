@@ -1,11 +1,11 @@
 import { useSidePanelStore } from "@/stores/sidePanel";
 import {
+  type SearchHitKind,
+  type SearchHitSegment,
   hasSearchHits,
   parseSearchHits,
   searchHitFileName,
   searchHitPathLabel,
-  type SearchHitKind,
-  type SearchHitSegment,
 } from "./parseSearchHits";
 
 /**

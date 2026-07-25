@@ -1,10 +1,11 @@
-"""Team-gate for the CEO captain ReAct loop (soft nudge + hard stop).
+"""Team-gate for the CEO captain ReAct loop (hard stop after investigation threshold).
 
-Covers investigation trigger, one-shot latch, worker isolation, soft vs hard
-paths, and nudge copy. Scripted fake provider — zero LLM.
+Covers investigation trigger, one-shot latch, worker isolation, hard-stop tool
+strip, research shape copy, and local-edit threshold. Scripted fake provider —
+zero LLM.
 
 long_content post-hoc discard was removed; solo-collapse defense for early long
-answers is prompt-side「路由自检」（see test_prompt / _CEO_CORE_HINT）.
+answers is prompt-side「路由·第一拍」（see test_prompt / _CEO_CORE_HINT）.
 """
 
 from __future__ import annotations
@@ -19,9 +20,8 @@ from agentcore.runtime.engine import react_loop
 from agentcore.runtime.engine.governance import (
     create_loop_controller,
     maybe_inject_team_gate,
-    pre_delegate_recon_intent_clear,
     team_gate_hard_stop_prompt,
-    team_gate_nudge_prompt,
+    team_gate_local_edit_prompt,
 )
 from agentcore.runtime.events import EventSink
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
@@ -108,7 +108,7 @@ def _team_gate_msgs(messages: list[LLMMessage]) -> list[LLMMessage]:
         for m in messages
         if m.role == "user"
         and m.content
-        and ("组队门槛复核" in m.content or "探路已达硬上限" in m.content)
+        and "探路已达硬上限" in m.content
     ]
 
 
@@ -134,39 +134,192 @@ async def _run_captain(
     return content, messages
 
 
-def test_nudge_copy_cites_threshold_keywords():
-    text = team_gate_nudge_prompt()
-    assert "可分解" in text
-    assert "质量面" in text
-    assert "delegate" in text
-    assert "闲聊" in text
-    assert "单点事实" in text
-    assert "追问" in text
-
-
 def test_hard_stop_copy_strips_and_steers_delegate():
     text = team_gate_hard_stop_prompt()
     assert "硬上限" in text
     assert "调查类工具已收回" in text
     assert "delegate" in text
+    assert "归类理由" in text
+    assert "禁止再搜" in text
+    assert "组队意图已明确" not in text
+    assert "research_report" not in text  # 默认无成篇形状句
 
 
-def test_pre_delegate_recon_intent_requires_settlement():
-    plan = LLMMessage(
-        role="assistant",
-        content="完整协作方案：四路并行调研 + 汇总分工。",
+def test_team_gate_research_shape_copy_when_flagged():
+    hard = team_gate_hard_stop_prompt(research_shape=True)
+    assert "成篇调研形状" in hard
+    assert "research_report" in hard
+    assert "禁止" in hard and "一人" in hard
+
+
+def test_hard_stop_research_intent_injects_shape():
+    controller = create_loop_controller(frozenset({"search", "read_url"}))
+    controller._investigation_calls = 3
+    disabled: set[str] = set()
+    messages = [
+        LLMMessage(
+            role="user",
+            content="写一篇起诉第三者立案实务研究报告，4000–6000 字落盘",
+        ),
+        LLMMessage(role="assistant", content="协作方案与团队分工如下……"),
+        LLMMessage(role="user", content="认可"),
+    ]
+    assert (
+        maybe_inject_team_gate(
+            controller,
+            messages=messages,
+            run_id="r",
+            round_idx=0,
+            role="captain",
+            disabled_tools=disabled,
+            investigation_tools=frozenset({"search", "read_url"}),
+        )
+        is True
     )
-    assert pre_delegate_recon_intent_clear([plan, LLMMessage(role="user", content="认可")])
-    assert not pre_delegate_recon_intent_clear(
-        [plan, LLMMessage(role="user", content="再帮我查一下背景")]
+    gates = [m.content or "" for m in messages if m.role == "user" and "探路已达硬上限" in (m.content or "")]
+    assert len(gates) == 1
+    assert "research_report" in gates[0]
+    assert "成篇调研形状" in gates[0]
+
+
+def test_soft_gate_non_research_skips_shape():
+    """开放问答：≥3 硬收并剥工具，但不追加成篇形状句。"""
+    controller = create_loop_controller(frozenset({"search"}))
+    controller._investigation_calls = 3
+    disabled: set[str] = set()
+    messages = [LLMMessage(role="user", content="查一下 X 和 Y 的区别")]
+    assert maybe_inject_team_gate(
+        controller,
+        messages=messages,
+        run_id="r",
+        round_idx=0,
+        role="captain",
+        disabled_tools=disabled,
+        investigation_tools=frozenset({"search"}),
     )
-    assert pre_delegate_recon_intent_clear(
-        [LLMMessage(role="tool", content="用户确认：按你提出的方向继续。")]
+    hard = next(m.content or "" for m in messages if "探路已达硬上限" in (m.content or ""))
+    assert "research_report" not in hard
+    assert "成篇调研形状" not in hard
+    assert disabled == {"search"}
+
+
+def test_research_intent_forces_hard_stop_and_shape():
+    """成篇调研意图：闸门走硬停 + 形状句。"""
+    controller = create_loop_controller(frozenset({"search", "read_url"}))
+    controller._investigation_calls = 3
+    disabled: set[str] = set()
+    messages = [
+        LLMMessage(
+            role="user",
+            content="写一篇起诉第三者立案实务研究报告，4000 字 Markdown 落盘",
+        )
+    ]
+    assert maybe_inject_team_gate(
+        controller,
+        messages=messages,
+        run_id="r",
+        round_idx=0,
+        role="captain",
+        disabled_tools=disabled,
+        investigation_tools=frozenset({"search", "read_url"}),
     )
-    # No plan + no ask_user settle → soft path (open-ended 直答 research).
-    assert not pre_delegate_recon_intent_clear(
-        [LLMMessage(role="user", content="帮我查一下天气")]
+    assert disabled == {"search", "read_url"}
+    hard = next(m.content or "" for m in messages if "探路已达硬上限" in (m.content or ""))
+    assert "research_report" in hard
+
+
+def test_competitor_compare_intent_forces_hard_stop_and_shape():
+    """竞品对比落盘：须硬停卸调查工具 + 成篇形状句。"""
+    controller = create_loop_controller(frozenset({"web_search", "read_url"}))
+    controller._investigation_calls = 3
+    disabled: set[str] = set()
+    messages = [
+        LLMMessage(
+            role="user",
+            content=(
+                "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
+                "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 research/km-compare.md。"
+            ),
+        )
+    ]
+    assert maybe_inject_team_gate(
+        controller,
+        messages=messages,
+        run_id="r",
+        round_idx=0,
+        role="captain",
+        disabled_tools=disabled,
+        investigation_tools=frozenset({"web_search", "read_url"}),
     )
+    assert disabled == {"web_search", "read_url"}
+    hard = next(m.content or "" for m in messages if "探路已达硬上限" in (m.content or ""))
+    assert "成篇调研形状" in hard
+    assert "research_report" in hard
+
+
+def test_local_edit_prompt_urges_delegate_not_research_shape():
+    text = team_gate_local_edit_prompt()
+    assert "本地改文件" in text
+    assert "delegate" in text
+    assert "research_report" not in text
+
+
+def test_local_file_edit_fires_after_two_local_peeks():
+    """改 README：本地摸仓 ≥2 次后硬催派并卸调查工具（阈低于网页独搜）。"""
+    tools = frozenset({"file_list", "file_read", "grep", "web_search"})
+    controller = create_loop_controller(tools)
+    controller._investigation_calls = 2
+    controller._local_recon_calls = 2
+    disabled: set[str] = set()
+    messages = [
+        LLMMessage(
+            role="user",
+            content=(
+                "帮我改一下项目根目录的 README.md：在最上面加一小节「快速开始」，"
+                "写三条安装命令，其余内容别动。"
+            ),
+        )
+    ]
+    assert maybe_inject_team_gate(
+        controller,
+        messages=messages,
+        run_id="r",
+        round_idx=0,
+        role="captain",
+        disabled_tools=disabled,
+        investigation_tools=tools,
+    )
+    assert disabled == tools
+    hard = next(m.content or "" for m in messages if "本地改文件探路已够" in (m.content or ""))
+    assert "delegate" in hard
+    assert "research_report" not in hard
+
+
+def test_local_file_edit_below_threshold_no_gate():
+    tools = frozenset({"file_list", "file_read"})
+    controller = create_loop_controller(tools)
+    controller._investigation_calls = 1
+    controller._local_recon_calls = 1
+    disabled: set[str] = set()
+    messages = [
+        LLMMessage(
+            role="user",
+            content="帮我改一下项目根目录的 README.md：加一小节快速开始。",
+        )
+    ]
+    assert (
+        maybe_inject_team_gate(
+            controller,
+            messages=messages,
+            run_id="r",
+            round_idx=0,
+            role="captain",
+            disabled_tools=disabled,
+            investigation_tools=tools,
+        )
+        is False
+    )
+    assert disabled == set()
 
 
 def test_hard_stop_disables_investigation_tools_when_intent_clear():
@@ -194,6 +347,7 @@ def test_hard_stop_disables_investigation_tools_when_intent_clear():
 
 
 def test_soft_path_keeps_tools_without_team_intent():
+    """开放问答无组队意图：≥3 仍硬收剥工具（无 soft）。"""
     controller = create_loop_controller(frozenset({"search"}))
     controller._investigation_calls = 3
     disabled: set[str] = set()
@@ -210,14 +364,14 @@ def test_soft_path_keeps_tools_without_team_intent():
         )
         is True
     )
-    assert disabled == set()
-    assert any("组队门槛复核" in (m.content or "") for m in messages)
+    assert disabled == {"search"}
+    assert any("探路已达硬上限" in (m.content or "") for m in messages)
 
 
 @pytest.mark.asyncio
 async def test_investigation_threshold_fires_once_for_captain():
-    # ≥3 investigation calls then continue → soft gate once (no team intent);
-    # subsequent rounds stay quiet; tools remain (soft path).
+    # ≥3 investigation calls → hard gate once; tools stripped so 4th search
+    # cannot execute; subsequent rounds stay quiet.
     search = _StubTool(name="search")
     provider = _ScriptedProvider(
         [
@@ -233,9 +387,8 @@ async def test_investigation_threshold_fires_once_for_captain():
     assert content == "ok"
     gates = _team_gate_msgs(messages)
     assert len(gates) == 1
-    assert "可分解" in (gates[0].content or "")
-    assert "质量面" in (gates[0].content or "")
-    assert search.calls == 4  # soft path did not strip tools
+    assert "探路已达硬上限" in (gates[0].content or "")
+    assert search.calls == 3  # hard path stripped tools — 4th must not execute
 
 
 @pytest.mark.asyncio

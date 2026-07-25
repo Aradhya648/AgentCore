@@ -177,9 +177,14 @@ def test_sidecar_runs_a_turn_on_the_local_dir(tmp_path, monkeypatch):
             ],
         ]
     )
-    # The engine builds its provider internally — swap it for the scripted one
-    # (mirrors the eval harness note: team path has no provider injection seam).
-    monkeypatch.setattr("agentcore.runtime.pipeline.build_provider", lambda *a, **k: provider)
+    # The engine builds its provider via build_turn_router — swap that seam for the
+    # scripted one (mirrors the eval harness note: team path has no provider injection seam).
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(
+        "agentcore.runtime.pipeline.build_turn_router", _fake_build_turn_router
+    )
 
     sent, write_line = _recorder()
     server = SidecarServer(write_line)

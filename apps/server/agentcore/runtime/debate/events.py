@@ -107,6 +107,7 @@ def account_moderator(
     """主持人节点收尾：emit run_completed（耗时 + 成本 + 「N 轮·收敛归因」概览，团队图据此
     标完成），并把主持人自身 LLM 调用（议题 / 裁判 / 小结 / 简报）折算成一条主持人节点账目。"""
     from agentcore.llm.pricing import calculate_cost
+    from agentcore.runtime.costing import ROLE_ARENA
     from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
 
     usage = moderator.usage
@@ -139,5 +140,7 @@ def account_moderator(
         cost=asdict(cost),
         rounds=moderator.llm_rounds,
     )
-    tool._acc.add_run_cost(spec, state, parent_run_id=tool._captain_run_id)
+    tool._acc.add_run_cost(
+        spec, state, parent_run_id=tool._captain_run_id, role=ROLE_ARENA
+    )
     tool._acc.add_usage(usage.as_dict())

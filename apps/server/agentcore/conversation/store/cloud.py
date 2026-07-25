@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from sqlalchemy.exc import IntegrityError
 
+from agentcore.billing.gate import resolve_and_gate_background
 from agentcore.config import settings
 from agentcore.conversation.common import generate_followups as mint_followups
 from agentcore.conversation.common import generate_title as mint_title
@@ -33,7 +34,7 @@ from agentcore.db.repositories import (
     TurnStreamStateRepository,
 )
 from agentcore.llm.factory import build_provider
-from agentcore.llm.resolve import LLMCredentials, resolve_credentials
+from agentcore.llm.resolve import LLMCredentials
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
 from agentcore.memory.consolidation import schedule_consolidation
 from agentcore.runtime.events import (
@@ -55,16 +56,11 @@ _SKIP_DERIVED_FINISH = frozenset(
         FinishReason.CANCELLED.value,
     }
 )
-_INCOMPLETE_NOTE = (
-    "（已停止，本回合未完成。下面是已完成队员的产出，已为你保留；如需继续，可重新发送消息。）"
-)
-_INCOMPLETE_SUFFIX = "\n\n（已停止，本回合未完成——以上为已生成部分；如需继续，可重新发送消息。）"
 
 
 def _incomplete_body(content: str) -> str:
-    """Match CloudStore.salvage incomplete copy (empty → note, else suffix)."""
-    streamed = (content or "").strip()
-    return f"{streamed}{_INCOMPLETE_SUFFIX}" if streamed else _INCOMPLETE_NOTE
+    """Streamed captain text only; interrupt chrome is metadata + UI, not body copy."""
+    return (content or "").strip()
 
 
 def _usage_metadata(
@@ -194,7 +190,7 @@ class CloudStore:
     ) -> None:
         """Persist a cancelled turn's already-streamed reply + finished work."""
         streamed = (content or "").strip()
-        body = f"{streamed}{_INCOMPLETE_SUFFIX}" if streamed else _INCOMPLETE_NOTE
+        body = streamed
         if not message_id:
             logger.warning(
                 "chat.incomplete_persist_skipped",
@@ -559,9 +555,11 @@ class CloudStore:
             model: str | None = None
             try:
                 async with async_session_factory() as session:
-                    bg_credentials = await resolve_credentials(
-                        session, user_id, "platform_internal"
+                    bg_credentials = await resolve_and_gate_background(
+                        session, user_id, purpose="followups"
                     )
+                if bg_credentials is None:
+                    raise RuntimeError("background credentials unavailable")
                 model = resolve_user_model(bg_credentials)
                 provider = build_provider(bg_credentials, purpose="platform_internal")
             except Exception as e:
@@ -738,9 +736,14 @@ class CloudStore:
                 usage_metadata["error_code"] = err_code
 
         # Settle whenever the turn has a terminal/pause surface — including empty
-        # ERROR (soft-fail / first-turn crash). Happy-path empty end_turn still skips
-        # (no orphan row for a no-op reply). Cancelled salvage may have empty streamed
-        # text but still needs the incomplete note.
+        # ERROR (soft-fail / first-turn crash) and empty bubble with process state
+        # (runs/journal — aligns with cloud live: process projection must land).
+        # True no-op (no orphan row): empty body AND no process state AND not
+        # paused/incomplete/failed. Desktop deletes outbox only on assistant id or noop.
+        has_process_state = bool(
+            (isinstance(runs, dict) and bool(runs))
+            or (isinstance(journal, list) and len(journal) > 0)
+        )
         should_settle = bool(
             message_id
             and (
@@ -748,8 +751,11 @@ class CloudStore:
                 or is_paused
                 or is_incomplete
                 or terminal_status == MESSAGE_STATUS_FAILED
+                or has_process_state
             )
         )
+        # Intentional skip — client may delete outbox; never a silent "200 + null id".
+        noop = bool(message_id) and not should_settle
         if should_settle:
             async with async_session_factory() as session:
                 # D7: idempotent merge upsert (no early-return when rows already exist).
@@ -809,6 +815,7 @@ class CloudStore:
                 "assistant_message_id": assistant_message_id,
                 "title": None,
                 "followups": None,
+                "noop": noop,
             }
 
         async with async_session_factory() as session:
@@ -849,15 +856,31 @@ class CloudStore:
                             ),
                         )
                     ) is not None
-            provider = build_provider(llm_credentials)
+            provider = None
+            model: str | None = None
             try:
-                if needs_title:
+                async with async_session_factory() as session:
+                    bg_credentials = await resolve_and_gate_background(
+                        session, user_id, purpose="title" if needs_title else "followups"
+                    )
+                if bg_credentials is None:
+                    raise RuntimeError("background credentials unavailable")
+                model = resolve_user_model(bg_credentials)
+                provider = build_provider(bg_credentials, purpose="platform_internal")
+            except Exception as e:
+                logger.warning(
+                    "chat.local_derived_provider_unavailable",
+                    conversation_id=conversation_id,
+                    error=str(e),
+                )
+            try:
+                if needs_title and provider is not None:
                     minted = await mint_title(
                         provider=provider,
                         conversation_id=conversation_id,
                         user_message=user_message,
                         assistant_reply=assistant_content,
-                        model=resolve_user_model(llm_credentials),
+                        model=model,
                     )
                     title = minted.title
                     if title:
@@ -865,13 +888,13 @@ class CloudStore:
                             await ConversationRepository(session).update_title_unscoped(
                                 conversation_id, title
                             )
-                if wants_followups:
+                if wants_followups and provider is not None:
                     followups = await mint_followups(
                         provider=provider,
                         conversation_id=conversation_id,
                         user_message=user_message,
                         assistant_reply=assistant_content,
-                        model=resolve_user_model(llm_credentials),
+                        model=model,
                         motion_card=None if stage_emitted else motion_card,
                     )
                     if followups and assistant_message_id:
@@ -883,7 +906,8 @@ class CloudStore:
                             )
                         minted_followups = followups
             finally:
-                await provider.close()
+                if provider is not None:
+                    await provider.close()
 
         schedule_consolidation(conversation_id)
 
@@ -899,6 +923,7 @@ class CloudStore:
             "assistant_message_id": assistant_message_id,
             "title": title,
             "followups": minted_followups,
+            "noop": noop,
         }
 
 

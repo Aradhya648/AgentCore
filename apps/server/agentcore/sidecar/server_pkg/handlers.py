@@ -235,7 +235,7 @@ class HandlerMixin:
         # the meantime. Spawning a task lets ``respond`` / ``cancel`` be serviced by
         # the read loop while the turn runs.
         task = asyncio.create_task(self._run_turn(request_id, turn_id, params))
-        self._turns[turn_id] = task
+        self._register_turn(turn_id, task, conversation_id=conversation_id)
 
     async def _reject_if_tape_bound_local(
         self, request_id: Any, conversation_id: str
@@ -369,7 +369,7 @@ class HandlerMixin:
                 style_id=style_id or None,
             )
         )
-        self._turns[message_id] = task
+        self._register_turn(message_id, task, conversation_id=conversation_id)
 
     async def _on_continue_after_decision(
         self, request_id: Any, params: dict[str, Any]
@@ -497,7 +497,7 @@ class HandlerMixin:
                 style_id=style_id or None,
             )
         )
-        self._turns[message_id] = task
+        self._register_turn(message_id, task, conversation_id=conversation_id)
 
     async def _on_list_paused(self, request_id: Any, params: dict[str, Any]) -> None:
         """A conversation's pending durable pauses, as resume-card summaries.
@@ -514,13 +514,30 @@ class HandlerMixin:
         await self._reply(request_id, {"data": summaries})
 
     async def _on_cancel(self, request_id: Any, params: dict[str, Any]) -> None:
+        """Explicit user stop — same cascade semantics as cloud ``POST …/stop``.
+
+        Marks coordination ``user_stopped`` and cancels the drive / in-flight workers
+        *before* ``task.cancel()``, so ``release_turn_coordination`` clears instead of
+        detach-and-continue. SSE disconnect must NOT use this path.
+        """
         turn_id = str(params.get("turnId") or "")
+        conversation_id = (
+            str(params.get("conversationId") or "").strip()
+            or self._turn_conversations.get(turn_id, "")
+        )
+        cascaded = False
+        if conversation_id:
+            from agentcore.runtime.coordination.session import (
+                cancel_coordination_on_user_stop,
+            )
+
+            cascaded = cancel_coordination_on_user_stop(conversation_id)
         task = self._turns.get(turn_id)
         if task is not None and not task.done():
             task.cancel()
             await self._reply(request_id, {"cancelled": True})
         else:
-            await self._reply(request_id, {"cancelled": False})
+            await self._reply(request_id, {"cancelled": cascaded})
 
     async def _on_run_redirect(self, request_id: Any, params: dict[str, Any]) -> None:
         from agentcore.runtime.runs.redirect_queue import enqueue_redirect, peek_redirect_count

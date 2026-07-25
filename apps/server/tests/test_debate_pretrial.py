@@ -282,6 +282,21 @@ def test_investigator_task_teaches_body_notes_and_source_policy():
     assert "不算证据" in task
     assert payload["group"] == f"pretrial:investigators:{side.key}"
     assert payload["search_policy"] == "debate_evidence"
+    assert "model" not in payload
+
+
+def test_investigator_task_injects_turn_main():
+    cfg = _config()
+    side = cfg.sides[0]
+    payload = investigator_task_payload(
+        config=cfg,
+        side=side,
+        task=parse_order_tasks(["查判决书"])[0],
+        index=0,
+        retrieval_budget=6,
+        turn_model="main-pro",
+    )
+    assert payload["model"] == "main-pro"
 
 
 @pytest.mark.asyncio

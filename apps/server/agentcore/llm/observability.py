@@ -1,11 +1,11 @@
-"""LLM-call observability: the single emit point for ``llm.call`` and the
-optional ``llm.request`` / ``llm.response`` body capture.
+"""LLM-call observability: the single emit point for ``llm.call`` /
+``llm.call_failed`` and optional ``llm.request`` / ``llm.response`` body capture.
 
-Why a shared helper: a finished LLM call has full metrics in exactly two places —
-``OpenAICompatibleProvider.complete`` (one-shot: memory / title) and
-``engine._stream_llm_round`` (streaming: chat / worker). Both call
-:func:`log_llm_call`, so every call — including any future caller — lands one
-uniform ``llm.call`` line, attributed by ``scenario`` / ``model`` and (via
+Why a shared helper: production leaves are wrapped by
+:func:`agentcore.llm.call_fence.observe_provider` (from ``build_provider``), which
+calls :func:`log_llm_call` / :func:`log_llm_call_failed` so every path — turn
+router leaf, background unary, sidecar ``inference/proxy`` — lands one uniform
+line, attributed by ``scenario`` / ``model`` / ``attempt`` and (via
 ``contextvars``) by ``trace_id`` / ``conversation_id`` / worker identity. This is
 the per-call layer the round/turn aggregates (``react.round_end`` /
 ``chat.turn_complete``) cannot give: per-model latency, finish_reason, and the
@@ -86,6 +86,7 @@ def log_llm_call(
     tool_names: list[str] | None = None,
     credential_source: str | None = None,
     provider_name: str | None = None,
+    attempt: int = 1,
 ) -> None:
     """Emit one ``llm.call`` metrics line (+ optional bodies when enabled).
 
@@ -120,6 +121,7 @@ def log_llm_call(
         finish_reason=finish_reason or "stop",
         latency_ms=latency_ms,
         stream=stream,
+        attempt=max(1, int(attempt)),
         input_tokens=u.input_tokens,
         output_tokens=u.output_tokens,
         reasoning_tokens=u.reasoning_tokens,
@@ -172,3 +174,29 @@ def log_llm_call(
             content=_clip(_redact(content or ""), _BODY_MAX_CHARS),
             reasoning=_clip(_redact(reasoning or ""), _BODY_MAX_CHARS),
         )
+
+
+def log_llm_call_failed(
+    *,
+    scenario: str,
+    model: str,
+    latency_ms: int,
+    error: str,
+    stream: bool,
+    attempt: int = 1,
+    error_type: str | None = None,
+) -> None:
+    """Emit one ``llm.call_failed`` line (observation only — no metering / retry)."""
+    extra: dict[str, Any] = {}
+    if error_type:
+        extra["error_type"] = error_type
+    logger.error(
+        "llm.call_failed",
+        scenario=scenario,
+        model=model,
+        latency_ms=latency_ms,
+        attempt=max(1, int(attempt)),
+        stream=stream,
+        error=error,
+        **extra,
+    )

@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand/BrandMark";
 import { WindowControls } from "@/components/layout/WindowControls";
 import { WindowFrameMenu } from "@/components/layout/WindowFrameMenu";
 import { IconButton, TitleBarSearchTrigger } from "@/components/ui";
@@ -22,8 +23,8 @@ export function TitleBar() {
         className={`flex items-center gap-2 px-3 transition-[width] duration-200 ${collapsed ? "w-14" : "w-60"}`}
       >
         {!collapsed && (
-          <span className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-sidebar-foreground [-webkit-app-region:no-drag]">
-            AgentCore
+          <span className="flex flex-1 items-center gap-1.5 text-sidebar-foreground [-webkit-app-region:no-drag]">
+            <BrandMark size="sm" />
             {import.meta.env.DEV && (
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                 DEV

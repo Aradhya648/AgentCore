@@ -24,6 +24,7 @@ import {
   FACE_ARTIFACT_CAP,
   FACE_CARD_MAX_HEIGHT,
   basename,
+  escalationKindLabel,
   isDebateAgentNode,
   statusFaceLabel,
 } from "./shared";
@@ -236,7 +237,7 @@ function AgentNodeMeta({
           <ArrowUp size={10} />
           待你拍板
           {d.escalationKind && d.escalationKind !== "normal"
-            ? ` · ${d.escalationKind === "scope" ? "职责偏离" : "缺输入"}`
+            ? ` · ${escalationKindLabel(d.escalationKind)}`
             : ""}
           {(d.escalationPending ?? 0) > 1 ? ` ${d.escalationPending}` : ""}
         </span>
@@ -248,7 +249,7 @@ function AgentNodeMeta({
         p.visibleFaceBadges.has("escalation") && (
           <span className={`${graphBadgeMuted} whitespace-nowrap`}>
             <ArrowUp size={10} />
-            {d.escalationKind === "scope" ? "职责偏离" : "缺输入"}
+            {escalationKindLabel(d.escalationKind)}
           </span>
         )}
       <AgentNodeStatusLine d={d} p={p} />

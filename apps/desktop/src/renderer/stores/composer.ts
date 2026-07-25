@@ -197,3 +197,17 @@ registerConversationUiClearer((conversationId) => {
   persistDrafts(next);
   lastPersisted = next;
 });
+
+/** @internal vitest — reload drafts from uiStorage without `vi.resetModules` (hangs on the conversation graph). */
+export function __reloadComposerDraftsForTests(): void {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  lastPersisted = null;
+  useComposerDraftStore.setState({
+    drafts: loadDrafts(),
+    fillToken: 0,
+    dockFlipToken: 0,
+  });
+}

@@ -89,8 +89,11 @@ class _ScriptedProvider:
 def _patch_seams(monkeypatch, provider: _ScriptedProvider, store: FileMemoryStore) -> None:
     """Swap ONLY the LLM provider + memory store; keep the REAL toolset assembly (which is
     what wires ``board_ops``). Patch each seam WHERE IT IS LOOKED UP (see the consult e2e)."""
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
-    monkeypatch.setattr(pipeline, "build_router_around", lambda p: p)
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
     monkeypatch.setattr("agentcore.runtime.resolve.prepare.default_memory_store", lambda: store)
     # No live client on a resume test → keep the loop free of the approval gate.
     monkeypatch.setattr(settings, "approval_gate_enabled", False)

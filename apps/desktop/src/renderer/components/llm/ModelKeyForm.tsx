@@ -1,4 +1,4 @@
-import { Button, IconButton } from "@/components/ui";
+import { Button, Card, IconButton, Input } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import {
   type ByokProviderId,
@@ -16,8 +16,9 @@ import {
   updateLlmProvider,
 } from "@/services/llmProviders";
 import { ExternalLink, Eye, EyeOff, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
+/** Shared chrome for `<select>` (no L2 Select yet). */
 export const MODEL_CONFIG_INPUT_CLASS =
   "h-8 w-full rounded-lg border border-input bg-background px-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
 
@@ -78,8 +79,8 @@ export type ModelKeyFormProps = {
 };
 
 /**
- * BYOK 服务商表单 — 设置·模型配置的「添加服务商」/「编辑服务商」共用单一真相源。
- * 厂商预设 → label / Key / Base URL / 默认模型（+ 可选价卡）；新增走 `createLlmProvider`、
+ * BYOK 服务商表单 — 设置·服务商的「添加服务商」/「编辑服务商」共用单一真相源。
+ * 厂商预设 → label / Key / Base URL / 回落模型（+ 可选价卡）；新增走 `createLlmProvider`、
  * 编辑走 `updateLlmProvider`（省略 api_key 保留已存密文）。后台默认模型已上移为账号级指针，
  * 不在本表单（见设置页的「后台任务模型」选择器）。
  */
@@ -98,6 +99,14 @@ export function ModelKeyForm({
   hideTestHint = false,
 }: ModelKeyFormProps) {
   const isEdit = !!providerId;
+  const formId = useId();
+  const labelId = `${formId}-label`;
+  const apiKeyId = `${formId}-api-key`;
+  const baseUrlId = `${formId}-base-url`;
+  const defaultModelId = `${formId}-default-model`;
+  const priceCacheMissId = `${formId}-price-cache-miss`;
+  const priceOutputId = `${formId}-price-output`;
+  const priceCacheHitId = `${formId}-price-cache-hit`;
   const [apiKey, setApiKey] = useState("");
   const [providerPreset, setProviderPreset] = useState<ByokProviderId>(() =>
     resolveByokProviderFromConfig(initialBaseUrl),
@@ -233,7 +242,7 @@ export function ModelKeyForm({
       : MODEL_OTHER_VALUE;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <Card className="p-4">
       <p className="text-sm font-medium text-foreground">
         {isEdit ? "编辑服务商" : "添加服务商"}
       </p>
@@ -257,31 +266,33 @@ export function ModelKeyForm({
             </p>
           )}
         </label>
-        <label className="block">
+        <label className="block" htmlFor={labelId}>
           <span className="text-xs text-muted-foreground">名称</span>
-          <input
+          <Input
+            id={labelId}
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="如 DeepSeek、火山方舟"
             autoComplete="off"
             spellCheck={false}
-            className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS} font-sans`}
+            className="mt-1 w-full"
           />
         </label>
-        <label className="block">
+        <label className="block" htmlFor={apiKeyId}>
           <span className="text-xs text-muted-foreground">
             API Key{isEdit ? "（可选）" : ""}
           </span>
           <div className="relative mt-1">
-            <input
+            <Input
+              id={apiKeyId}
               type={reveal ? "text" : "password"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={isEdit ? "留空则保留已保存的 Key" : "sk-..."}
               autoComplete="off"
               spellCheck={false}
-              className={`${MODEL_CONFIG_INPUT_CLASS} pl-2 pr-9`}
+              className="w-full pr-9 font-mono"
             />
             <SimpleTooltip label={reveal ? "隐藏" : "显示"}>
               <IconButton
@@ -294,9 +305,10 @@ export function ModelKeyForm({
             </SimpleTooltip>
           </div>
         </label>
-        <label className="block">
+        <label className="block" htmlFor={baseUrlId}>
           <span className="text-xs text-muted-foreground">Base URL</span>
-          <input
+          <Input
+            id={baseUrlId}
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
@@ -307,13 +319,13 @@ export function ModelKeyForm({
             }
             autoComplete="off"
             spellCheck={false}
-            className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+            className="mt-1 w-full font-mono"
           />
         </label>
         <div>
           {useModelSelect ? (
             <label className="block">
-              <span className="text-xs text-muted-foreground">默认模型名</span>
+              <span className="text-xs text-muted-foreground">回落模型名</span>
               <select
                 value={modelSelectValue}
                 onChange={(e) => selectModelOption(e.target.value)}
@@ -328,29 +340,30 @@ export function ModelKeyForm({
               </select>
             </label>
           ) : (
-            <label className="block">
-              <span className="text-xs text-muted-foreground">默认模型名</span>
-              <input
+            <label className="block" htmlFor={defaultModelId}>
+              <span className="text-xs text-muted-foreground">回落模型名</span>
+              <Input
+                id={defaultModelId}
                 type="text"
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
                 placeholder="model-name"
                 autoComplete="off"
                 spellCheck={false}
-                className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                className="mt-1 w-full font-mono"
               />
             </label>
           )}
           {useModelSelect &&
             (customModelMode || modelSelectValue === MODEL_OTHER_VALUE) && (
-              <input
+              <Input
                 type="text"
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
                 placeholder={preset?.defaultModel ?? "model-name"}
                 autoComplete="off"
                 spellCheck={false}
-                className={`mt-2 ${MODEL_CONFIG_INPUT_CLASS}`}
+                className="mt-2 w-full font-mono"
               />
             )}
         </div>
@@ -372,9 +385,10 @@ export function ModelKeyForm({
                 估算；全空则清除价卡。
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                <label className="block">
+                <label className="block" htmlFor={priceCacheMissId}>
                   <span className="text-xs text-muted-foreground">输入价</span>
-                  <input
+                  <Input
+                    id={priceCacheMissId}
                     type="text"
                     inputMode="decimal"
                     value={priceCacheMiss}
@@ -382,12 +396,13 @@ export function ModelKeyForm({
                     placeholder="如 0.28"
                     autoComplete="off"
                     spellCheck={false}
-                    className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                    className="mt-1 w-full font-mono"
                   />
                 </label>
-                <label className="block">
+                <label className="block" htmlFor={priceOutputId}>
                   <span className="text-xs text-muted-foreground">输出价</span>
-                  <input
+                  <Input
+                    id={priceOutputId}
                     type="text"
                     inputMode="decimal"
                     value={priceOutput}
@@ -395,14 +410,15 @@ export function ModelKeyForm({
                     placeholder="如 0.42"
                     autoComplete="off"
                     spellCheck={false}
-                    className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                    className="mt-1 w-full font-mono"
                   />
                 </label>
-                <label className="block">
+                <label className="block" htmlFor={priceCacheHitId}>
                   <span className="text-xs text-muted-foreground">
                     缓存命中价（可选）
                   </span>
-                  <input
+                  <Input
+                    id={priceCacheHitId}
                     type="text"
                     inputMode="decimal"
                     value={priceCacheHit}
@@ -410,7 +426,7 @@ export function ModelKeyForm({
                     placeholder="缺省=输入价"
                     autoComplete="off"
                     spellCheck={false}
-                    className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS}`}
+                    className="mt-1 w-full font-mono"
                   />
                 </label>
               </div>
@@ -457,6 +473,6 @@ export function ModelKeyForm({
           保存后建议点「测试连接」确认可用，并查看是否支持工具调用。
         </p>
       )}
-    </div>
+    </Card>
   );
 }

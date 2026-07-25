@@ -229,7 +229,8 @@ delegate **授权并开工（可带嘱咐）** / **停止**；debate **授权开
 [安全权限与治理 §三](/docs/05-平台与运维/安全权限与治理.md)）。挂起条件、跳过规则、与
 `plan_review` / `ask_user` 边界见 [`编排器与CEO主Agent.md` §五](/docs/03-AI核心/编排器与CEO主Agent.md)。
 Interaction kind = `team_preview`（payload ``primitive`` 判别）；事件 `team_preview_required` /
-`team_preview_resolved`；前端 `TeamPreviewCard` + durable resume。
+`team_preview_resolved`；前端 `TeamPreviewCard` + durable resume。**冷启动探索幕**复用同一开工卡
+（调研队 `delegate`，不另立 Explore kind）——见 [编排器 · 冷启动探索幕](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
 **完整 Preflight Audit（⏳ 未实现）**：有界预检环（每轮最多 N 次 audit）+ 可编辑改 DAG / 换人换边 + Agent 实体化绑定 + 设置项 opt-out——待审计回归落地；本批不是审计环。
 

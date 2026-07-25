@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// 完成条件卡（批次验收 / completion_criteria）：delivery_status 的缺口 / 待操作渲染契约。
+// 交付验收卡（批次验收 / completion_criteria）：delivery_status 的缺口 / 待操作渲染契约。
 import type { DeliveryStatusPayload } from "@/types/events";
 import {
   cleanup,
@@ -102,11 +102,11 @@ const partial: DeliveryStatusPayload = {
 describe("DeliveryStatusCard", () => {
   it("renders partial state with gaps and bind action button", () => {
     render(<DeliveryStatusCard status={partial} conversationId="c1" />);
-    expect(screen.getByText("完成条件")).toBeTruthy();
+    expect(screen.getByText("交付验收")).toBeTruthy();
     expect(screen.getByText("部分未满足")).toBeTruthy();
     expect(screen.getByText("团队可能重派")).toBeTruthy();
     expect(screen.getByText("已交付 2 个文件；1 项缺口")).toBeTruthy();
-    // 缺口仅由完成条件卡的明细行披露一次（无独立摘要行）。
+    // 缺口仅由交付验收卡的明细行披露一次（无独立摘要行）。
     expect(screen.getByText(/course\.pptx 未生成/)).toBeTruthy();
     expect(screen.queryByTestId("delivery-gaps-lead")).toBeNull();
     // 已知 bind_local_folder 行动项 → 真按钮（复用 ask_user 卡的绑定通路）。
@@ -129,11 +129,33 @@ describe("DeliveryStatusCard", () => {
         conversationId="c1"
       />,
     );
+    expect(screen.getByText("交付验收")).toBeTruthy();
     expect(screen.getByText("未满足")).toBeTruthy();
-    expect(screen.getByText("团队可能重派")).toBeTruthy();
+    // 未知 kind ≠ 已知续派 CTA → 不谎称「团队可能重派」。
+    expect(screen.queryByText("团队可能重派")).toBeNull();
     expect(screen.getByText("未来的提示行")).toBeTruthy();
     // 未知 kind 不渲染绑定按钮（向前兼容：按普通提示行呈现）——头部折叠按钮不算行动项。
     expect(screen.queryByRole("button", { name: "绑定本地文件夹" })).toBeNull();
+  });
+
+  it("hides redispatch hint when unmet has no continue/redispatch actions", () => {
+    render(
+      <DeliveryStatusCard
+        status={{
+          execution_id: "exec-2b",
+          state: "blocked",
+          summary: "未能交付：1 项缺口",
+          delivered_files: [],
+          gaps: [
+            { role: "验收", description: "尚无 worker 成功运行 code_execute" },
+          ],
+          actions: [],
+        }}
+        conversationId="c1"
+      />,
+    );
+    expect(screen.getByText("交付验收")).toBeTruthy();
+    expect(screen.queryByText("团队可能重派")).toBeNull();
   });
 
   it("renders nothing for delivered state (清单由产出文件卡承载)", () => {
@@ -166,13 +188,13 @@ describe("DeliveryStatusCard", () => {
     expect(screen.getByRole("button", { name: "绑定本地文件夹" })).toBeTruthy();
 
     // 整行头部即折叠开关。
-    const header = screen.getByRole("button", { name: /完成条件/ });
+    const header = screen.getByRole("button", { name: /交付验收/ });
     fireEvent.click(header);
 
     // 收起：gap 明细与 actions 区消失，头部（标题 + 状态徽标 + 团队可能重派）仍在。
     expect(screen.queryByText(/course\.pptx 未生成/)).toBeNull();
     expect(screen.queryByRole("button", { name: "绑定本地文件夹" })).toBeNull();
-    expect(screen.getByText("完成条件")).toBeTruthy();
+    expect(screen.getByText("交付验收")).toBeTruthy();
     expect(screen.getByText("部分未满足")).toBeTruthy();
     expect(screen.getByText("团队可能重派")).toBeTruthy();
 
@@ -204,6 +226,8 @@ describe("DeliveryStatusCard", () => {
     expect(screen.getAllByText("预算触顶").length).toBeGreaterThanOrEqual(1);
     // 描述仅在缺口明细行披露一次（摘要行已删除）。
     expect(screen.getAllByText(/token 预算触顶/).length).toBe(1);
+    // 无续派 CTA → 不显「团队可能重派」。
+    expect(screen.queryByText("团队可能重派")).toBeNull();
   });
 
   it("bind_local_folder success auto-sends continue turn", async () => {
@@ -264,6 +288,7 @@ describe("DeliveryStatusCard", () => {
       />,
     );
     expect(screen.getByText("验收推迟")).toBeTruthy();
+    expect(screen.getByText("团队可能重派")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "续派页面验收" }));
     await waitFor(() => {
       expect(addMessage).toHaveBeenCalled();

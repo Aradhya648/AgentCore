@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui";
+import { Button, Card, Input, Textarea } from "@/components/ui";
 import { notifySuccess } from "@/lib/toast";
 import { ApiError, api } from "@/services/api";
 import { Loader2 } from "lucide-react";
@@ -29,8 +29,8 @@ const CATEGORY_OPTIONS = [
   { value: "other", label: "其他" },
 ] as const;
 
-const INPUT_CLASS =
-  "w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+const SELECT_CLASS =
+  "h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring";
 
 function errMsg(e: unknown, fallback: string): string {
   return e instanceof ApiError ? (e.serverMessage ?? fallback) : fallback;
@@ -153,7 +153,7 @@ export function FeedbackSettings() {
         <label className="block">
           <span className="mb-1 block text-xs text-muted-foreground">分类</span>
           <select
-            className={INPUT_CLASS}
+            className={SELECT_CLASS}
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
@@ -165,10 +165,11 @@ export function FeedbackSettings() {
           </select>
         </label>
 
-        <label className="block">
+        <label className="block" htmlFor="feedback-title">
           <span className="mb-1 block text-xs text-muted-foreground">标题</span>
-          <input
-            className={INPUT_CLASS}
+          <Input
+            id="feedback-title"
+            className="w-full"
             value={title}
             maxLength={200}
             placeholder="简要描述问题或建议"
@@ -176,12 +177,13 @@ export function FeedbackSettings() {
           />
         </label>
 
-        <label className="block">
+        <label className="block" htmlFor="feedback-description">
           <span className="mb-1 block text-xs text-muted-foreground">
             详细描述
           </span>
-          <textarea
-            className={`${INPUT_CLASS} resize-none`}
+          <Textarea
+            id="feedback-description"
+            className="w-full text-sm"
             rows={4}
             value={description}
             maxLength={5000}
@@ -228,32 +230,33 @@ export function FeedbackSettings() {
         ) : (
           <ul className="mt-3 space-y-3">
             {feedbackList.map((item) => (
-              <li
-                key={item.id}
-                className="rounded-xl border border-border bg-surface p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`rounded-lg px-2 py-0.5 text-xs font-medium ${categoryBadgeClass(item.category)}`}
-                  >
-                    {categoryLabel(item.category)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {statusLabel(item.status)}
-                  </span>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {formatDate(item.created_at)}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm font-medium text-foreground">
-                  {item.title}
-                </p>
-                {item.admin_reply && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">回复：</span>
-                    {item.admin_reply}
+              <li key={item.id}>
+                <Card className="p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-lg px-2 py-0.5 text-xs font-medium ${categoryBadgeClass(item.category)}`}
+                    >
+                      {categoryLabel(item.category)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {statusLabel(item.status)}
+                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {formatDate(item.created_at)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    {item.title}
                   </p>
-                )}
+                  {item.admin_reply && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        回复：
+                      </span>
+                      {item.admin_reply}
+                    </p>
+                  )}
+                </Card>
               </li>
             ))}
           </ul>

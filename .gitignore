@@ -105,6 +105,8 @@ apps/server/_tmp_*
 apps/server/tmp_*
 # Cursor IDE local config / AI rules (kept on disk, not published)
 .cursor/
+# Planning / proposal drafts (maintainer-local; not published — keep on disk)
+docs/06-规划/
 # Cursor agent transcripts (local IDE); never ship
 agent-transcripts/
 # Real production secrets (created on the server from production.env.example)

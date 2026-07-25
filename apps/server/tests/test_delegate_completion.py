@@ -489,3 +489,68 @@ def test_b2_injects_acceptance_into_deliverable_context_block():
     )
     research_bodies = {b.channel: b.body for b in research_blocks}
     assert "本批验收" not in (research_bodies.get("deliverable") or "")
+
+
+def test_suppress_structured_skips_form_files_inference():
+    """Cold-start explore pending: no auto files_written from form=files."""
+    plan = RunPlan(
+        nodes=[
+            RunSpec(
+                run_id="w1",
+                task="摸清项目",
+                deliverable=Deliverable(form="files", requires_files=True),
+            )
+        ]
+    )
+    suppressed = resolve_completion_with_source(
+        None, plan, suppress_structured_files_written=True
+    )
+    assert suppressed.criteria is None
+    assert suppressed.source is None
+    # Explicit still binds.
+    explicit = resolve_completion_with_source(
+        "files_written", plan, suppress_structured_files_written=True
+    )
+    assert explicit.criteria is not None
+    assert explicit.criteria.kind == "files_written"
+    assert explicit.source == "explicit"
+
+
+def test_suppress_structured_skips_artifacts_inference():
+    plan = RunPlan(
+        nodes=[
+            RunSpec(
+                run_id="w1",
+                task="摸清项目",
+                deliverable=Deliverable(artifacts=["notes.md"]),
+            )
+        ]
+    )
+    assert (
+        resolve_completion_with_source(
+            None, plan, suppress_structured_files_written=True
+        ).criteria
+        is None
+    )
+    # Without suppress, structured still binds (建站回归).
+    normal = resolve_completion_with_source(None, plan)
+    assert normal.criteria is not None
+    assert normal.criteria.kind == "files_written"
+    assert normal.source == "structured"
+
+
+def test_files_written_gap_lists_landing_tools_from_serialize():
+    """Gap tool list must share serialize._FILE_PRODUCT_ARG + code_execute write-back."""
+    from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
+
+    criteria = parse_completion_criteria("files_written")
+    ok, gaps = check_delegate_completion(criteria, {"a": _run()})
+    assert not ok
+    expected = format_file_landing_tools_slash()
+    assert expected in gaps[0]
+    assert "file_write" in gaps[0]
+    assert "file_append" in gaps[0]
+    assert "str_replace" in gaps[0]
+    assert "write_section" in gaps[0]
+    assert "file_move" in gaps[0]
+    assert "code_execute" in gaps[0]

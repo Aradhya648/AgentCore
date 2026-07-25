@@ -1,3 +1,4 @@
+import { CreateFolderCascadePanel } from "@/components/folders/CreateFolderMenu";
 import { Button, SearchField } from "@/components/ui";
 import {
   Popover,
@@ -10,15 +11,16 @@ import {
   useWorkspaceModeState,
 } from "@/components/workspace/WorkspaceModeControl";
 import { useGroupedConversations } from "@/hooks/useConversations";
-import { useCreateFolder } from "@/hooks/useFolders";
-import { pickLocalFolderRoot } from "@/lib/bindLocalFolder";
 import { hasLocalFiles } from "@/lib/capabilities";
-import { notifyError, notifySuccess } from "@/lib/toast";
 import { ensureDefaultContainerRoot } from "@/services/defaultWorkspace";
-import type { FolderMeta } from "@/services/folders";
+import {
+  type FolderMeta,
+  dedupeFoldersByLocalBinding,
+} from "@/services/folders";
 import { type DraftWorkspaceIntent, useFoldersStore } from "@/stores/folders";
 import {
   Check,
+  ChevronLeft,
   Cloud,
   FolderOpen,
   HardDrive,
@@ -29,7 +31,7 @@ import { type ReactNode, useMemo, useState } from "react";
 
 /**
  * Always-on「在哪工作」chip in the turn composer.
- * Draft: single menu (quick local / cloud / projects / create / open folder).
+ * Draft: single menu (quick local / cloud / projects / create).
  * Bound conversation: read-only status (+ backup when local).
  */
 export function ComposerWorkspaceChip({
@@ -50,19 +52,26 @@ function BoundChip({ conversationId }: { conversationId: string }) {
   if (!state) {
     return (
       <span className="inline-flex h-7 items-center gap-1 px-1.5 text-xs text-muted-foreground">
-        <Loader2 size={12} className="animate-spin" />
-        工作区…
+        <Loader2 size={12} className="animate-spin" />…
       </span>
     );
   }
+
+  const boundTitle = state.effective.viaProject
+    ? state.effective.isLocal
+      ? "本地工作区"
+      : "云端工作区"
+    : state.effective.isLocal
+      ? "本机草稿"
+      : "云端草稿";
 
   return (
     <Popover open={pop} onOpenChange={setPop}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          aria-label="工作区"
-          title={state.effective.isLocal ? "本地工作区" : "云端工作区"}
+          aria-label={boundTitle}
+          title={boundTitle}
           className="h-auto min-w-0 max-w-[200px] shrink gap-1 px-1.5 py-1 text-xs font-normal text-muted-foreground hover:text-foreground"
         >
           <WorkspaceModeTrigger
@@ -104,17 +113,16 @@ function folderLocationHint(f: FolderMeta): string {
 
 function DraftChip() {
   const [pop, setPop] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
+  /** Same popover handoff — avoid close→open race that swallows CreateFolderMenu. */
+  const [view, setView] = useState<"pick" | "create">("pick");
   const intent = useFoldersStore((s) => s.draftWorkspaceIntent);
   const setIntent = useFoldersStore((s) => s.setDraftWorkspaceIntent);
-  const openCreate = useFoldersStore((s) => s.openCreateFolder);
-  const createFolder = useCreateFolder();
   const isDesktop = hasLocalFiles();
 
   const grouped = useGroupedConversations().data;
   const folders = useMemo(() => {
-    const list = grouped?.folders ?? [];
+    const list = dedupeFoldersByLocalBinding(grouped?.folders ?? []);
     return isDesktop ? list : list.filter((f) => f.mode === "cloud");
   }, [grouped?.folders, isDesktop]);
 
@@ -126,41 +134,26 @@ function DraftChip() {
 
   const { icon, text } = draftLabel(intent, folders);
 
+  const closePick = () => {
+    setPop(false);
+    setQuery("");
+    setView("pick");
+  };
+
   const pickQuickLocal = () => {
     setIntent({ kind: "quick_local" });
     void ensureDefaultContainerRoot();
-    setPop(false);
+    closePick();
   };
 
   const pickQuickCloud = () => {
     setIntent({ kind: "quick_cloud" });
-    setPop(false);
+    closePick();
   };
 
   const pickProject = (id: string) => {
     setIntent({ kind: "project", folderId: id });
-    setPop(false);
-  };
-
-  const openLocalAsProject = async () => {
-    setBusy(true);
-    try {
-      const result = await pickLocalFolderRoot();
-      if (!result.ok) return;
-      const folder = await createFolder.mutateAsync({
-        name: result.root.name,
-        mode: "local",
-        localRootId: result.root.id,
-        localSubpath: null,
-      });
-      setIntent({ kind: "project", folderId: folder.id });
-      notifySuccess(`已创建项目「${folder.name}」`);
-      setPop(false);
-    } catch (e) {
-      notifyError(e, "创建项目失败");
-    } finally {
-      setBusy(false);
-    }
+    closePick();
   };
 
   return (
@@ -168,7 +161,10 @@ function DraftChip() {
       open={pop}
       onOpenChange={(o) => {
         setPop(o);
-        if (!o) setQuery("");
+        if (!o) {
+          setQuery("");
+          setView("pick");
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -188,91 +184,103 @@ function DraftChip() {
           <span className="min-w-0 truncate">{text}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-0">
-        <div className="border-b border-border px-3 py-2.5">
-          <div className="text-xs font-medium text-foreground">在哪工作</div>
-          <div className="text-xs text-muted-foreground">
-            {isDesktop
-              ? "你的文件在哪，AI 就在哪干活；没给文件，就在云上干"
-              : "Web 默认云端草稿；仅云项目可选"}
-          </div>
-        </div>
-        <div className="max-h-[360px] overflow-y-auto p-1.5">
-          <DraftRow
-            icon={<Cloud size={14} />}
-            label="快速对话"
-            hint="云端草稿（默认）"
-            selected={intent.kind === "quick_cloud"}
-            onClick={pickQuickCloud}
-            disabled={busy}
-          />
-          {isDesktop ? (
-            <DraftRow
-              icon={<HardDrive size={14} />}
-              label="本机草稿"
-              hint="落本机容器，走本地引擎"
-              selected={intent.kind === "quick_local"}
-              onClick={pickQuickLocal}
-              disabled={busy}
-            />
-          ) : null}
-
-          <div className="my-1 border-t border-border" />
-          <div className="px-2.5 pt-1 pb-1 text-xs text-muted-foreground">
-            项目
-          </div>
-          <div className="mx-2.5 mb-1">
-            <SearchField
-              value={query}
-              onValueChange={setQuery}
-              placeholder="筛选项目…"
-              aria-label="筛选项目"
-              inputClassName="text-xs"
-            />
-          </div>
-          {filtered.map((f) => (
-            <DraftRow
-              key={f.id}
-              icon={<FolderOpen size={14} />}
-              label={f.name}
-              hint={folderLocationHint(f)}
-              selected={intent.kind === "project" && intent.folderId === f.id}
-              onClick={() => pickProject(f.id)}
-              disabled={busy}
-            />
-          ))}
-          {filtered.length === 0 && (
-            <p className="px-2.5 py-2 text-xs text-muted-foreground">
-              {query.trim() ? "没有匹配的项目" : "还没有项目"}
-            </p>
-          )}
-
-          <div className="my-1 border-t border-border" />
-          <DraftRow
-            icon={<Plus size={14} />}
-            label="新建项目…"
-            onClick={() => {
-              openCreate();
-              setPop(false);
-            }}
-            disabled={busy}
-          />
-          {isDesktop && (
-            <DraftRow
-              icon={<FolderOpen size={14} />}
-              label="打开本地文件夹…"
-              hint="以该文件夹创建项目"
-              onClick={() => void openLocalAsProject()}
-              disabled={busy}
-            />
-          )}
-          {busy && (
-            <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground">
-              <Loader2 size={14} className="animate-spin" />
-              处理中…
+      <PopoverContent
+        side="bottom"
+        align="start"
+        // Keep side when switching pick→create (taller cascade); flip feels like a jump.
+        avoidCollisions={false}
+        className={view === "create" ? "w-auto p-0" : "w-72 p-0"}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {view === "create" ? (
+          <div>
+            <div className="flex items-center gap-1 border-b border-border px-1 py-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs font-normal text-muted-foreground"
+                onClick={() => setView("pick")}
+              >
+                <ChevronLeft size={14} />
+                在哪工作
+              </Button>
+              <span className="px-1 text-xs font-medium text-foreground">
+                新建项目
+              </span>
             </div>
-          )}
-        </div>
+            <CreateFolderCascadePanel onClose={closePick} />
+          </div>
+        ) : (
+          <>
+            <div className="border-b border-border px-3 py-2.5">
+              <div className="text-xs font-medium text-foreground">
+                在哪工作
+              </div>
+              {!isDesktop ? (
+                <div className="text-xs text-muted-foreground">
+                  Web 默认云端草稿；仅云项目可选
+                </div>
+              ) : null}
+            </div>
+            <div className="max-h-[360px] overflow-y-auto p-1.5">
+              <DraftRow
+                icon={<Cloud size={14} />}
+                label="快速对话"
+                hint="云端草稿（默认）"
+                selected={intent.kind === "quick_cloud"}
+                onClick={pickQuickCloud}
+              />
+              {isDesktop ? (
+                <DraftRow
+                  icon={<HardDrive size={14} />}
+                  label="本机草稿"
+                  hint="落本机容器，走本地引擎"
+                  selected={intent.kind === "quick_local"}
+                  onClick={pickQuickLocal}
+                />
+              ) : null}
+
+              <div className="my-1 border-t border-border" />
+              <div className="mx-2.5 mb-1 flex items-center gap-2 pt-1">
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  项目
+                </span>
+                <SearchField
+                  value={query}
+                  onValueChange={setQuery}
+                  placeholder="筛选…"
+                  aria-label="筛选项目"
+                  className="min-w-0 flex-1"
+                  inputClassName="text-xs"
+                />
+              </div>
+              {filtered.map((f) => (
+                <DraftRow
+                  key={f.id}
+                  icon={<FolderOpen size={14} />}
+                  label={f.name}
+                  hint={folderLocationHint(f)}
+                  selected={
+                    intent.kind === "project" && intent.folderId === f.id
+                  }
+                  onClick={() => pickProject(f.id)}
+                />
+              ))}
+              {filtered.length === 0 && (
+                <p className="px-2.5 py-2 text-xs text-muted-foreground">
+                  {query.trim() ? "没有匹配的项目" : "还没有项目"}
+                </p>
+              )}
+
+              <div className="my-1 border-t border-border" />
+              <DraftRow
+                icon={<Plus size={14} />}
+                label="新建项目…"
+                onClick={() => setView("create")}
+              />
+            </div>
+          </>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -284,20 +292,17 @@ function DraftRow({
   hint,
   selected,
   onClick,
-  disabled,
 }: {
   icon: ReactNode;
   label: string;
   hint?: string;
   selected?: boolean;
   onClick: () => void;
-  disabled?: boolean;
 }) {
   return (
     <Button
       variant="ghost"
       onClick={onClick}
-      disabled={disabled}
       className="h-auto w-full justify-start gap-2 px-2.5 py-1.5 text-left text-xs font-medium"
       icon={<span className="shrink-0 text-muted-foreground">{icon}</span>}
     >

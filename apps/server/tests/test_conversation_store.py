@@ -588,8 +588,7 @@ async def test_finalize_local_persists_raw_journal_when_runs_missing(monkeypatch
     assert upserted["metadata"]["status"] == MESSAGE_STATUS_INCOMPLETE
     assert upserted["metadata"]["incomplete"] is True
     assert upserted["metadata"]["finish_reason"] == "cancelled"
-    assert "已停止" in upserted["content"]
-    assert "连接中断" not in upserted["content"]
+    assert upserted["content"] == "partial"
     assert len(journal_calls) == 1
     assert journal_calls[0]["entries"] == facts
 
@@ -642,6 +641,11 @@ async def test_finalize_local_mints_followups(monkeypatch):
     monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(
+        cloud_mod,
+        "resolve_and_gate_background",
+        AsyncMock(return_value=SimpleNamespace()),
+    )
     monkeypatch.setattr(
         cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=AsyncMock())
     )

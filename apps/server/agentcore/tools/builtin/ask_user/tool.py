@@ -42,6 +42,15 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def kickoff_requires_proposal_body_error() -> str:
+    """拒调文案：kickoff 仅 message（或 assumptions/questions 皆空）时回灌模型。"""
+    return (
+        "开工提案卡（kickoff）必须带提案体：assumptions 与 questions 至少其一非空。"
+        "解不出意图请写正文澄清，勿调 ask_user；"
+        "能复述目标后再带 assumptions（默认可逆）和/或 questions（高杠杆）开卡。"
+    )
+
+
 @dataclass
 class AskUserTool:
     """The CEO's asking primitive: surface a card, suspend, resume on the answer.
@@ -113,7 +122,8 @@ class AskUserTool:
         # Schema layer (工具面瘦身): short trigger. HOW → ask_user_kickoff / ask_user_midtask.
         questions_desc = (
             "可选：要用户拍板的问题（最多 5）。开场预填 default；途中关键岔路通常不填。"
-            "choice 可配 detail / recommended。用法见 consult_skill。"
+            "开工提案卡须与 assumptions 至少其一非空。choice 可配 detail / recommended。"
+            "用法见 consult_skill。"
         )
         tool_desc = (
             "向用户发问（唯一问用户原语）。默认 blocking 暂停回合；"
@@ -161,8 +171,8 @@ class AskUserTool:
                     "assumptions": {
                         "type": "array",
                         "description": (
-                            "可选（开场）：低影响默认可逆决策（只读陈列）。"
-                            "高杠杆放 questions。"
+                            "可选：低影响默认可逆决策（只读陈列）。"
+                            "开工提案卡须与 questions 至少其一非空；高杠杆放 questions。"
                         ),
                         "items": {
                             "type": "object",
@@ -394,6 +404,20 @@ class AskUserTool:
                         "请直接 delegate 开干，或推进既定计划；途中岔路再用 ask_user。"
                     ),
                 )
+        # Kickoff 提案体硬闸：须 assumptions 或 questions 非空（可与建站 style_options 闸叠加）。
+        # message-only / 两者皆空 → 拒调；途中 decision 与显式 card 不受本闸约束。
+        if intent == "kickoff" and card is None and not assumptions and not questions:
+            logger.info(
+                "ask_user.kickoff_proposal_rejected",
+                conversation_id=self.conversation_id,
+                reason="empty_proposal_body",
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=kickoff_requires_proposal_body_error(),
+            )
         required = checkpoint_required(
             checkpoint_id=checkpoint_id,
             conversation_id=self.conversation_id,

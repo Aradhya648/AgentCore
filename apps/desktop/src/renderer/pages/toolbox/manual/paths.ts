@@ -16,6 +16,7 @@ export const APP_PATHS = {
   },
   more: {
     model: "/more/model",
+    providers: "/more/providers",
     memory: "/more/memory",
     autonomy: "/more/autonomy",
     usage: "/more/usage",

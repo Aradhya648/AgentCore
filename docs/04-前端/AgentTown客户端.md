@@ -4,7 +4,7 @@ code: apps/town/
 related:
   - docs/02-架构/项目结构.md
   - docs/03-AI核心/运行时总览.md
-  - docs/06-规划/多AI模拟愿景.md
+  - docs/01-产品/产品路线图摘要.md
 ---
 
 # AgentTown 客户端
@@ -21,7 +21,7 @@ related:
 | 后端 | 与 AgentCore Desktop 共用账号和 `simulation/` 服务 |
 | 主入口 | Windows 独立应用；WebGL 构建作为传播入口演进 |
 | Desktop | 仅写会话文件并启动 AgentTown，不内嵌 3D 世界 |
-| 核心体验 | 观察小镇、跟踪居民、推进 tick、回放、注入预设事件；⏳ 节目模式（AI 恋综唯一观看壳，2026-07-13 定案 → [AI 恋综场景提案](/docs/06-规划/AI恋综场景提案.md) §3.9） |
+| 核心体验 | 观察小镇、跟踪居民、推进 tick、回放、注入预设事件；⏳ 节目模式（AI 恋综唯一观看壳，2026-07-13 定案 → [AgentTown 客户端](/docs/04-前端/AgentTown客户端.md)（恋综提案全文：详细提案不在公开仓 / 维护者本地） §3.9） |
 
 AgentTown 不包含 LLM、不在本地推算世界状态，也不重写 Python WorldEngine。后端模拟现状见 [运行时总览](/docs/03-AI核心/运行时总览.md#ai-小镇模拟)。
 
@@ -209,7 +209,7 @@ Unity DTO 对未知字段和缺失的可选字段保持向前兼容；事件名�
 
 ### ⏳ 已确认但未收口
 
-- 恋综节目模式：离线第 3 期已落地 ✅（`Assets/Scripts/Show/`——节目 chrome 五面、CinematicDirector、竞猜/翻牌/期结卡、自由机位、`?episode=` 深链，manifest 经 OfflineShowBuilder 合成帧仍走 `ApplySnapshot` 单路径）；⏳ 服务端节目 API 接入与整季排播（定案与推进见 [AI 恋综场景提案](/docs/06-规划/AI恋综场景提案.md)）；
+- 恋综节目模式：离线第 3 期已落地 ✅（`Assets/Scripts/Show/`——节目 chrome 五面、CinematicDirector、竞猜/翻牌/期结卡、自由机位、`?episode=` 深链，manifest 经 OfflineShowBuilder 合成帧仍走 `ApplySnapshot` 单路径）；⏳ 服务端节目 API 接入与整季排播（定案与推进见 [AgentTown 客户端](/docs/04-前端/AgentTown客户端.md)（恋综提案全文：详细提案不在公开仓 / 维护者本地））；
 - 真 LLM 连续运行与“值得观看”的产品验证；
 - token 过期后的刷新联调；
 - Unity CI、Windows 安装包和公开 WebGL 发布；
@@ -229,7 +229,7 @@ Unity DTO 对未知字段和缺失的可选字段保持向前兼容；事件名�
 
 ## 13. 后续治理
 
-后续场景与产品路线见 [多 AI 模拟愿景](/docs/06-规划/多AI模拟愿景.md)，AI 恋综传播入口见 [AI 恋综场景提案](/docs/06-规划/AI恋综场景提案.md)。未通过真 LLM 观看验证前，不把 Offline/scripted 演示结果表述为真实涌现质量。
+后续场景与产品路线见 [运行时总览 · AI 小镇](/docs/03-AI核心/运行时总览.md#ai-小镇模拟)、[AgentTown 客户端](/docs/04-前端/AgentTown客户端.md)（愿景细节：详细提案不在公开仓 / 维护者本地），AI 恋综传播入口见 [AgentTown 客户端](/docs/04-前端/AgentTown客户端.md)（恋综提案全文：详细提案不在公开仓 / 维护者本地）。未通过真 LLM 观看验证前，不把 Offline/scripted 演示结果表述为真实涌现质量。
 
 ## 14. 当前验收基线
 

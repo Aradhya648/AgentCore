@@ -294,7 +294,13 @@ async def finalize_successful_drive(
     absorb_children(tool)
     new_citations = tool._acc.citations[citations_before:]
 
-    resolved = resolve_completion_with_source(completion_criteria, plan)
+    resolved = resolve_completion_with_source(
+        completion_criteria,
+        plan,
+        suppress_structured_files_written=bool(
+            tool._base_tool_context.cold_start_explore_pending
+        ),
+    )
     criteria = resolved.criteria
     if criteria is not None:
         criteria_ok, gaps = check_delegate_completion(criteria, results)

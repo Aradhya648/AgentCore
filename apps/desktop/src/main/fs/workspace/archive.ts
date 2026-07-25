@@ -38,6 +38,20 @@ export async function opArchive(
   args: Record<string, unknown>,
 ): Promise<WorkspaceOpResult> {
   const useIgnore = args.ignore !== false; // 默认 true
+  // Optional workspace subpath (项目子目录 / 裸聊 conversations/<id>)：只打包该子树，
+  // zip 条目用工作区相对路径（剥掉 directory 前缀），与 LocalWorkspace 前缀口径一致。
+  const rawDir = typeof args.directory === "string" ? args.directory : "";
+  const directory = rawDir.replace(/^\/+|\/+$/g, "");
+  if (
+    directory === ".." ||
+    directory.startsWith("../") ||
+    directory.includes("/../") ||
+    directory.endsWith("/..")
+  ) {
+    return opErr("OutsideWorkspace", directory);
+  }
+  const walkRootAbs = directory ? join(root.absPath, directory) : root.absPath;
+  // Ignore rules stay rooted at the authorized FS root (.gitignore at bind root).
   const ig = useIgnore ? await loadIgnore(root.absPath) : null;
   const zip = new JSZip();
   let fileCount = 0;
@@ -45,7 +59,8 @@ export async function opArchive(
   let truncated = false;
   let stop = false;
 
-  const walk = async (absDir: string, relFromRoot: string): Promise<void> => {
+  /** ``relFromWalk`` = path under the walk root (= workspace-relative when scoped). */
+  const walk = async (absDir: string, relFromWalk: string): Promise<void> => {
     if (stop) return;
     let dirents: import("node:fs").Dirent[];
     try {
@@ -56,12 +71,16 @@ export async function opArchive(
     for (const d of dirents) {
       if (stop) break;
       if (d.isSymbolicLink()) continue; // 不跟随链接，防逃逸/环路
-      const childRel = relFromRoot ? `${relFromRoot}/${d.name}` : d.name;
+      const childRelWalk = relFromWalk ? `${relFromWalk}/${d.name}` : d.name;
+      // Ignore matcher sees container-relative paths (under the bind root).
+      const childRelRoot = directory
+        ? `${directory}/${childRelWalk}`
+        : childRelWalk;
       if (d.isDirectory()) {
-        if (ig?.ignores(`${childRel}/`)) continue; // 命中目录规则 → 跳整棵子树
-        await walk(join(absDir, d.name), childRel);
+        if (ig?.ignores(`${childRelRoot}/`)) continue; // 命中目录规则 → 跳整棵子树
+        await walk(join(absDir, d.name), childRelWalk);
       } else if (d.isFile()) {
-        if (ig?.ignores(childRel)) continue;
+        if (ig?.ignores(childRelRoot)) continue;
         if (fileCount >= ARCHIVE_MAX_FILES) {
           truncated = true;
           stop = true;
@@ -78,7 +97,7 @@ export async function opArchive(
           stop = true;
           break;
         }
-        zip.file(childRel, buf);
+        zip.file(childRelWalk, buf);
         fileCount++;
         totalBytes += buf.length;
       }
@@ -86,7 +105,7 @@ export async function opArchive(
   };
 
   try {
-    await walk(root.absPath, "");
+    await walk(walkRootAbs, "");
     const archive = await zip.generateAsync({
       type: "base64",
       compression: "DEFLATE",

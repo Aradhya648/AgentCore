@@ -1,4 +1,4 @@
-import { Button, IconButton } from "@/components/ui";
+import { Button, Card, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { agentColorVar } from "@/lib/agentIdentity";
@@ -115,10 +115,10 @@ function ErrorState({
   onRetry: () => void;
 }) {
   return (
-    <div className="mt-6 flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border py-16 text-center">
+    <Card className="mt-6 flex flex-col items-center justify-center gap-3 border-dashed py-16 text-center">
       <p className="text-sm text-muted-foreground">{message}</p>
       <Button onClick={onRetry}>重试</Button>
-    </div>
+    </Card>
   );
 }
 
@@ -134,12 +134,12 @@ function RefreshErrorBanner({
   onRetry: () => void;
 }) {
   return (
-    <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2.5">
+    <Card className="mt-6 flex items-center justify-between gap-3 border-destructive/40 bg-destructive/10 px-4 py-2.5">
       <p className="text-xs text-destructive">{message}</p>
       <Button variant="neutral" onClick={onRetry}>
         重试
       </Button>
-    </div>
+    </Card>
   );
 }
 
@@ -270,13 +270,16 @@ type Summary = NonNullable<
  */
 function ByokNote() {
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/30 px-4 py-3">
+    <Card
+      variant="muted"
+      className="flex items-start gap-2.5 bg-muted/30 px-4 py-3"
+    >
       <KeyRound size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
       <p className="text-xs text-muted-foreground">
         当前为「自带 Key」模式：对话走你配置的模型与端点，平台不设上限。下方以
         token 为主；有估算价时显示 ≈¥（按社区价目/自填单价，非上游账单）。
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -438,7 +441,7 @@ function RolePayroll({
           ? "按社区价目/自填单价估算，非上游账单。多 Agent 按角色拆分。"
           : "多 Agent 团队按角色拆分的花销，竞品的单 Agent 做不到。"}
       </p>
-      <div className="mt-3 rounded-xl border border-border bg-card">
+      <Card className="mt-3">
         {lines.map((line, i) => {
           const nano = estimated ? line.cost_estimated_total : line.cost_total;
           return (
@@ -467,7 +470,7 @@ function RolePayroll({
             </div>
           );
         })}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -531,7 +534,7 @@ function UsageDetail({
   });
 
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <Card>
       {rows.map((row, i) => (
         <div
           key={row.label}
@@ -543,6 +546,6 @@ function UsageDetail({
           <span className="tabular-nums text-foreground">{row.value}</span>
         </div>
       ))}
-    </div>
+    </Card>
   );
 }

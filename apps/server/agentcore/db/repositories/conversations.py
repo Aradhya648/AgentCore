@@ -84,32 +84,41 @@ class ConversationRepository:
         await self._session.refresh(conv)
         return conv
 
-    async def set_model(
+    async def set_model_profile(
         self,
         conversation_id: str,
-        model: str | None,
+        model_profile_id: str | None,
         *,
         user_id: str,
-        model_origin: str | None = None,
-        model_provider_id: str | None = None,
     ) -> Conversation | None:
-        """Owner-scoped set/clear of the session model override (会话级模型切换).
+        """Owner-scoped set/clear of the session model combination pin.
 
-        ``model=None`` clears the override (``model_origin`` + ``model_provider_id``)
-        so the conversation inherits the account's resolved model. A non-null model is
-        validated against the user's catalog by the caller (crud.py PATCH) before it
-        reaches here; ``model_provider_id`` pins the exact BYOK 服务商 (NULL for a
-        platform override). Returns None if the conversation is missing / not owned.
+        ``None`` clears the pin so the conversation follows the account default
+        profile. A non-null id is validated by the caller (crud PATCH) before it
+        reaches here.
         """
         conv = await self.get_by_id(conversation_id, user_id=user_id)
         if not conv:
             return None
-        conv.model = model
-        conv.model_origin = model_origin
-        conv.model_provider_id = model_provider_id if model is not None else None
+        conv.model_profile_id = model_profile_id
         await self._session.commit()
         await self._session.refresh(conv)
         return conv
+
+    async def clear_model_profile_refs(self, user_id: str, profile_id: str) -> int:
+        """Null out conversation pins that reference a deleted profile."""
+        from sqlalchemy import update as sa_update
+
+        result = await self._session.execute(
+            sa_update(Conversation)
+            .where(
+                Conversation.user_id == user_id,
+                Conversation.model_profile_id == profile_id,
+            )
+            .values(model_profile_id=None)
+        )
+        await self._session.commit()
+        return int(result.rowcount or 0)
 
     async def set_deep_research_auto(
         self, conversation_id: str, enabled: bool, *, user_id: str

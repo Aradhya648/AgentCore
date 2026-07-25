@@ -306,15 +306,64 @@ async def test_resolve_provider_credentials_bad_cipher_returns_none(monkeypatch)
     assert await resolve_user_llm_credentials(MagicMock(), "u1", provider_id="prov-1") is None
 
 
-async def test_resolve_model_config_byok_with_background_pointer(monkeypatch):
-    """chat → chat provider's model; background → the account background pointer's model."""
+async def test_resolve_model_config_byok_with_background_slot(monkeypatch):
+    """Without platform key, background falls back to the account profile background slot."""
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    monkeypatch.setattr(settings, "platform_api_key", "")
+    user_creds = LLMCredentials(
+        api_key="sk-user",
+        base_url="https://user.example/v1",
+        default_model="user-flash",
+        source="user",
+        provider_id="prov-1",
+    )
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="user-flash", origin="byok", provider_id="prov-1"),
+        background=ModelSelection(model="user-bg", origin="byok", provider_id="prov-1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
+    monkeypatch.setattr(
+        "agentcore.db.repositories.UserLlmProviderRepository",
+        lambda _s: SimpleNamespace(
+            get=AsyncMock(return_value=_provider_row(default_model="user-flash")),
+            first_for_user=AsyncMock(return_value=_provider_row()),
+        ),
+    )
+    monkeypatch.setattr("agentcore.llm.resolve._decrypt_provider", lambda _r, _u: user_creds)
+    chat = await resolve_model_config(MagicMock(), "u1", "chat")
+    title = await resolve_model_config(MagicMock(), "u1", "title")
+    assert chat is not None and chat.source == "byok" and chat.model == "user-flash"
+    assert title is not None and title.source == "byok" and title.model == "user-bg"
+    assert chat.api_key == "sk-user"
+    assert chat.provider_id == "prov-1"
+
+
+async def test_resolve_model_config_background_platform_beats_profile_slot(monkeypatch):
+    """Platform key present → background ignores BYOK profile background slot."""
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    user = SimpleNamespace(
-        user_id="u1",
-        default_chat_provider_id="prov-1",
-        default_chat_model="user-flash",
-        default_background_provider_id="prov-1",
-        default_background_model="user-bg",
+    monkeypatch.setattr(settings, "platform_model", "platform-flash")
+    monkeypatch.setattr(settings, "platform_background_model", "platform-bg")
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="user-flash", origin="byok", provider_id="prov-1"),
+        background=ModelSelection(model="user-bg", origin="byok", provider_id="prov-1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
     )
     row = _provider_row(default_model="user-flash")
     user_creds = LLMCredentials(
@@ -325,10 +374,6 @@ async def test_resolve_model_config_byok_with_background_pointer(monkeypatch):
         provider_id="prov-1",
     )
     monkeypatch.setattr(
-        "agentcore.db.repositories.UserRepository",
-        lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=user)),
-    )
-    monkeypatch.setattr(
         "agentcore.db.repositories.UserLlmProviderRepository",
         lambda _s: SimpleNamespace(
             get=AsyncMock(return_value=row),
@@ -336,9 +381,8 @@ async def test_resolve_model_config_byok_with_background_pointer(monkeypatch):
         ),
     )
     monkeypatch.setattr("agentcore.llm.resolve._decrypt_provider", lambda _r, _u: user_creds)
-    chat = await resolve_model_config(MagicMock(), "u1", "chat")
     title = await resolve_model_config(MagicMock(), "u1", "title")
-    assert chat is not None and chat.source == "byok" and chat.model == "user-flash"
-    assert title is not None and title.model == "user-bg"
-    assert chat.api_key == "sk-user"
-    assert chat.provider_id == "prov-1"
+    assert title is not None
+    assert title.source == "platform"
+    assert title.model == "platform-bg"
+    assert title.api_key == "sk-platform"

@@ -25,7 +25,8 @@ const OPTIONS: SidecarPermissionPreset[] = [
 /**
  * Composer permission-mode badge — sits beside {@link ModelPicker}.
  * New chats: picks the user's default (AutonomySettings → 新会话默认).
- * Existing chats: reads / writes conversation.permissionPreset (升档需确认).
+ * Existing chats: reads / writes conversation.permissionPreset
+ * (升到「完全信任」需确认；只观察→开工授权直接切)。
  */
 export function PermissionPresetBadge({ disabled }: { disabled?: boolean }) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
@@ -68,16 +69,6 @@ export function PermissionPresetBadge({ disabled }: { disabled?: boolean }) {
       next === "full_trust" &&
       !window.confirm(
         "切换到「完全信任」后，AI 将与你同权执行命令（含本地运行代码）。确定继续？",
-      )
-    ) {
-      return;
-    }
-    if (
-      !isPermissionDowngrade(preset, next) &&
-      next === "workspace" &&
-      preset === "observe" &&
-      !window.confirm(
-        "升档到「开工授权」后，开工卡可一次授权写文件等能力。确定继续？",
       )
     ) {
       return;

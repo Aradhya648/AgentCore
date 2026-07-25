@@ -10,7 +10,7 @@ skip_if:
 
 # UI Pattern 索引
 
-> **状态**：✅ 已落地（primitive 层 + lint 门禁）
+> **状态**：✅ L1/L2 基建 + lint 门禁；推进卡入规；品牌最小包（BrandMark）；设置/对话管理触达收编。边界与否决见下文「桌面 UI 统一」。
 >
 > 配色与布局硬规则见 `.cursor/rules/color-tokens.mdc`、`desktop-layout.mdc`；产品 IA 见 [`前端UX设计.md`](前端UX设计.md)。
 
@@ -20,7 +20,7 @@ skip_if:
 |---|---|---|
 | **L1 Token** | `packages/design-tokens/src/tokens.css` | OKLCH 语义色、动画、侧栏/身份色板（desktop/mobile 共用包） |
 | **L2 Primitive** | `apps/desktop/src/renderer/components/ui/` | Button、Card、Badge 等可复用原子组件 |
-| **L3 Pattern** | 组合 primitive 的产品级壳（见下表） | 裁决卡、状态条、列表行等 |
+| **L3 Pattern** | 组合 primitive 的产品级壳（见下表） | 裁决卡、推进卡、状态条、列表行等 |
 
 ## L2 Primitive 一览
 
@@ -45,14 +45,16 @@ Radix overlay（dialog / popover / tooltip 等）仍在 `components/ui/`，与 p
 | Pattern | 典型场景 | 实现指针 |
 |---|---|---|
 | **DecisionCard** | ask_user / plan_review / approval / escalation | `DecisionCard` + `Button`；`CheckpointCard` / `PlanReviewCard` / `ApprovalPrompt` / `EscalationCard` |
+| **推进卡（StageCard）** | 阶段推进 · 建议开辩（三键 + 可选嘱咐） | `StageCard.tsx` + L2 `Button` / `Input` / `Textarea`；**不**并 DecisionCard |
 | **StatusStrip** | 协作图状态条 | `StatusStrip.tsx`（`InlineTeamGraph` 消费） |
 | **PatternCardHeader** | 后台任务卡头栏 | `BackgroundTaskCard.tsx` |
-| **SurfaceRow** | 侧栏对话项、文件树行 | `ConversationItem.tsx`、`FileTreeRow.tsx` |
+| **SurfaceRow** | 侧栏对话项、文件树行、对话管理行、设置导航 | `ConversationItem.tsx`、`FileTreeRow.tsx`、`ConversationManageRow.tsx`、`SurfaceNavLink` |
 | **ToolLine** | 过程时间线工具行 / 组 | `ToolLine.tsx`（`ProcessTimeline` 消费） |
 | **FinishReasonChip** | 回合非正常收尾 chip | `finish-reason-chip.tsx` |
 | **PanelShell** | 右侧面板、指挥台 | `SidePanel.tsx`、`CanvasDecisionPanel.tsx` |
 | **SearchField** | 页内列表/树筛选、Popover 选项过滤 | `search-field.tsx`（`field` / `plain`） |
 | **SearchTrigger** / **TitleBarSearchTrigger** | 全局搜索与命令面板入口（侧栏 / TitleBar 各一假输入，同开 `CommandPalette`） | `search-trigger.tsx` + `CommandPalette.tsx` |
+| **BrandMark** | 登录 / 不可用 / TitleBar / 侧栏 / 关于字标 | `components/brand/BrandMark.tsx`（`font-brand` 仅 Latin wordmark） |
 
 新交互卡片应优先复用 **DecisionCard + Button**，并确保聊天与画布双视图可共用（见 `CanvasDecisionPanel.tsx`）。
 
@@ -81,7 +83,7 @@ node scripts/check-ui-tokens.mjs --src apps/desktop/src/renderer
 node scripts/check-ui-tokens.mjs --src apps/mobile/src
 ```
 
-禁止：`rounded-md/sm/2xl`、自定义 px 字号（10/11/13）、Tailwind 调色板类、hex 任意色。已接入两端 `pnpm lint` 与 CI。
+禁止：`rounded-md/sm/2xl`、自定义 px 字号（10/11/13）、Tailwind 调色板类、hex 任意色。桌面另拦 CSS 旁路：`font-size: Npx`、非规格 `border-radius: Npx`（仅允许 8 / 12 / 9999）。已接入两端 `pnpm lint` 与 CI。
 
 桌面 `pnpm lint` 另跑 `scripts/check-no-localstorage.mjs`（业务禁直碰 `localStorage`，统一走 `lib/uiStorage.ts`，见 [`前端技术与架构.md` §9.11](/docs/04-前端/前端技术与架构.md)）。
 
@@ -96,16 +98,37 @@ node scripts/check-ui-tokens.mjs --src apps/mobile/src
 
 ## 迁移策略
 
-**touch-it-adopt-it 已完成**：renderer 内交互控件已统一为 `Button` / `IconButton` / `SurfaceRowButton` / `Switch`。新代码默认用 primitive。
+**触达即收编（adopt-as-you-touch）**：新代码默认用 `Button` / `IconButton` / `SurfaceRowButton` / `Switch` / `Input` / `Textarea` / `DecisionCard` / `Card` 等 primitive。旧面改到哪收到哪；**不**专项全仓清扫裸 `<button>`。
 
-### 不可改为 `<button>` 的例外（HTML 结构约束）
+设置内容区多行面板优先 `Card` + 统一间距；单行列表跟 `SurfaceRow` 家族（含对话管理行）。尚无 L2 的 `<select>` / 结构例外 checkbox·隐藏 file 可保留，样式对齐 Input。
+
+### 登记例外（可裸控件 / 独立密度；新增须进本表）
 
 | 位置 | 原因 |
 |---|---|
-| `AgentNode` 图节点 | 复合块（icon + 多行 + badge），用 `div role="button"` |
+| `AgentNode` 图节点 | 复合块（icon + 多行 + badge），可用 `div role="button"`；图上微标密度另档 |
 | `ui/button.tsx` 等 | primitive 实现本身 |
+| `StatusStrip` Recovery 文字链 | 故意弱操作，非实心 CTA |
+| 辩论赛事页（`debate/arena/*`） | **长期域例外**——记分牌/剧本/终审另一 IA；不强制入 Decision/推进卡族 |
+| 白板工具条（`whiteboard/*`） | **长期域例外**——画布工具密度 |
+| `StageCard`（推进卡） | ✅ 独立 L3 Pattern（语义 Tailwind + L2）；**不**并 DecisionCard（推进 ≠ 裁决） |
 
 `ConversationItem` 已采用方案 B：`SurfaceRow` + 标题区 `role="button"` + 并列 `IconButton`。
+
+### 桌面 UI 统一（as-built · 2026-07-25）
+
+主战场仅桌面；他端只共享 `@agentcore/design-tokens`，不追组件统一（admin 手同步 token；promo/town 独立）。
+
+| 不变量 | 说明 |
+|---|---|
+| 推进卡 ⊥ 裁决卡 | StageCard 独立 L3；禁硬并 DecisionCard |
+| 品牌位字体 | 正文系统栈；仅 `BrandMark` Latin wordmark 用 `font-brand`（Space Grotesk 自托管） |
+| 品牌文案 | 登录副标题「协作智能平台」；关于理念「协作，是更高级的智能。」；空态可保留行动问句 + 协作副句。权威句 → [产品定位与品牌](/docs/01-产品/产品定位与品牌.md) |
+| CSS lint | 桌面 `check-ui-tokens` 另拦 `font-size: Npx`、非规格 `border-radius`（仅 8/12/9999） |
+
+**否决**：跨端共享业务 React 组件；全仓一次收编裸 button；缺新品牌规范前重开 surface/primary 大改色；为统一而统一辩论室/白板。
+
+→ 字标 `components/brand/BrandMark.tsx`；品牌资产 `assets/brand/`。
 
 ---
 
@@ -227,6 +250,8 @@ L2/L3 共享的 Tailwind 类组合 → `apps/desktop/src/renderer/components/ui/
 **禁止**：`text-[10px]`、`text-[11px]`、`text-[13px]`、`text-lg` 及任何自定义像素值。
 
 对话页空状态欢迎语（无消息时的引导 hero）使用 `text-2xl`（24px）为专用例外——空屏中唯一的视觉落点，需更强召唤力。其余场景一律不得超过 `text-xl`。
+
+**品牌位字体例外**：正文保持系统字体栈；仅字标 / wordmark（`BrandMark` · `font-brand` · Space Grotesk 自托管 woff2）用展示字体。中文副句仍走系统栈。禁全站换字体。→ `components/brand/BrandMark.tsx`。
 
 ### 圆角层级（严格 3 级）
 

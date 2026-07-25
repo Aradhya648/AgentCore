@@ -2,8 +2,8 @@
 
 > 与 `scripts/poc_browser_gvisor`（探路用的**同形副本**）不同：本目录直接驱动 **产品模块**
 > （`agentcore/tools/sandbox/browser/*`、`runtime/browser/*`、`tools/builtin/browser.py`），
-> 在真 `runsc` + 真产品镜像上验证整条服务端浏览器栈。这是提案（`docs/06-规划/内置浏览器与Agent浏览器提案.md`
-> D9–D18）落地后此前唯一未验证的环节——产品宿主侧编排从未在 gVisor 里跑过，`Dockerfile` 的
+> 在真 `runsc` + 真产品镜像上验证整条服务端浏览器栈。这是内置浏览器 / Agent 浏览器能力
+> 落地后此前唯一未验证的环节——产品宿主侧编排从未在 gVisor 里跑过，`Dockerfile` 的
 > `INSTALL_BROWSER=1` 层也从未构建过。
 >
 > 宿主 Windows + Docker Desktop（linux engine）。所有步骤需 `--privileged` 容器。

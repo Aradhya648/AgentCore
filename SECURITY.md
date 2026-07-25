@@ -17,4 +17,4 @@ Include:
 - Steps to reproduce or a proof of concept if available
 - Your preferred contact for follow-up
 
-We will acknowledge receipt when possible and coordinate a fix before any public disclosure.
+We will acknowledge receipt when possible and aim to respond within a few business days. We coordinate a fix before any public disclosure.

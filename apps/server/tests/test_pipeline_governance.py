@@ -93,14 +93,18 @@ def _patch_pipeline(monkeypatch, provider: _ScriptedProvider, registry: ToolRegi
     react_loop, LoopController governance, finish-mapping, message_end, runs payload)
     stays REAL.
 
-    Patch each seam WHERE IT IS LOOKED UP (pytest convention): ``run_chat_pipeline``
-    reads ``build_provider`` off the package facade (``pipeline_pkg.build_provider`` —
-    a deliberate package-level seam in run.py), but it imports ``default_memory_store``
+    Patch each seam WHERE IT IS LOOKED UP (pytest convention): ``prepare_chat_turn``
+    (via ``run_chat_pipeline``) reads ``build_turn_router`` off the package facade
+    (``pipeline_pkg.build_turn_router``), but it imports ``default_memory_store``
     and ``_assemble_ceo_toolset`` by name into the ``pipeline.run`` submodule and calls
     them as locals — so those two must be patched on ``run``, not on the package
     (patching the facade would silently miss the local call, and the facade doesn't even
     re-export ``default_memory_store``)."""
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
 
     class _FakeStore:
         async def load(self, _user_id: str, _path: str, scope: str | None = None) -> str:

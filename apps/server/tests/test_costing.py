@@ -76,6 +76,40 @@ def test_member_run_cost_defaults_agent_id_to_run_id():
     assert row.parent_run_id is None
 
 
+def test_arena_run_cost_uses_arena_role():
+    from agentcore.runtime.costing import ROLE_ARENA, arena_run_cost
+
+    spec = RunSpec(run_id="mod-1", task="主持辩论", agent_id="mod-1", role="主持人")
+    state = RunState(
+        model=DEEPSEEK_V4_PRO,
+        usage={"input": 10, "output": 5},
+        cost={"input": 1, "cached": 0, "output": 2, "total": 3},
+    )
+    row = arena_run_cost(spec, state, parent_run_id="cap-1")
+    assert row.role == ROLE_ARENA
+    assert row.persona == "主持人"
+    assert row.parent_run_id == "cap-1"
+
+
+def test_resolve_run_models_arena_falls_back_to_main_not_worker():
+    from agentcore.llm.profiles import TurnProfiles
+    from agentcore.runtime.costing import ROLE_ARENA, ROLE_MEMBER, resolve_run_models
+
+    profiles = TurnProfiles(
+        model="main-pro",
+        model_overrides={"agent": "worker-flash"},
+    )
+    priced, request = resolve_run_models(profiles, "", cost_role=ROLE_ARENA)
+    assert priced == "main-pro"
+    assert request == "main-pro"
+    priced_m, request_m = resolve_run_models(profiles, "", cost_role=ROLE_MEMBER)
+    assert priced_m == "worker-flash"
+    assert request_m == "worker-flash"
+    # Explicit spec.model still wins (Phase 3 / injected main).
+    priced_x, _ = resolve_run_models(profiles, "injected-main", cost_role=ROLE_ARENA)
+    assert priced_x == "injected-main"
+
+
 def test_captain_run_cost_from_state_reads_priced_state():
     # The captain is now a real Run node priced once in the executor (onto
     # state.cost); this builder reads that verbatim (no re-price) and stamps the

@@ -12,6 +12,7 @@ from drifting apart (one place to add a resource when the data model grows).
 from agentcore.db.repositories import (
     ConversationRepository,
     ConversationShareRepository,
+    LlmModelProfileRepository,
     UserLlmProviderRepository,
 )
 from agentcore.shared_spaces.service import SharedSpaceService
@@ -27,12 +28,13 @@ async def cleanup_account_resources(
     llm_providers: UserLlmProviderRepository,
     assets: AssetStorage,
     shared_spaces: SharedSpaceService | None = None,
+    llm_profiles: LlmModelProfileRepository | None = None,
 ) -> None:
     """Reclaim everything a 注销 account owns outside the auth domain.
 
     Soft-deletes the user's conversations (the retention sweeper later reclaims their
     workspaces), revokes every public share link the user created (no shared snapshot
-    outlives the account), drops all BYOK providers (no ciphertext outlives it), removes
+    outlives the account), drops all BYOK providers + model profiles, removes
     the avatar object, and cascades shared-space ownership / membership (owner →
     delete spaces + disk; member → drop membership rows + pending invites).
     ``avatar_key`` must be captured by the caller *before* the user row is anonymized
@@ -43,6 +45,14 @@ async def cleanup_account_resources(
     await conversations.soft_delete_all_for_user(user_id)
     await shares.revoke_all_for_user(user_id)
     await llm_providers.delete_all_for_user(user_id)
+    if llm_profiles is not None:
+        await llm_profiles.delete_all_for_user(user_id)
+    else:
+        # Callers that haven't been updated yet — still reclaim via a fresh session repo
+        # only when the shared session is on the conversations repo.
+        from agentcore.db.repositories.llm_profiles import LlmModelProfileRepository as _Repo
+
+        await _Repo(conversations._session).delete_all_for_user(user_id)
     if avatar_key:
         await assets.delete(avatar_key)
     if shared_spaces is not None:

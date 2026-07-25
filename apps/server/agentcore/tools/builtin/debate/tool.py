@@ -616,7 +616,8 @@ class DebateTool:
             execution_id = self._base_tool_context.execution_id or new_id()
 
         moderator_run_id = f"debate_{new_id()}"
-        moderator_model = self._profile_set.model_for("agent")
+        # 辩论跟主模型（定案）：不用 worker 默认 override。
+        moderator_model = self._profile_set.model
         graph_parent = self._debate_graph_parent_run_id or self._captain_run_id
 
         try:

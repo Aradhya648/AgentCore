@@ -1,0 +1,25 @@
+{
+  "id": "collab_xd_design_to_api",
+  "category": "team",
+  "mast": "2.5",
+  "user_message": "先根据「待办事项」画一版简洁 REST API 设计（资源、动词、状态码），再按设计实现一份 FastAPI 骨架，路由要能跑起来，代码放 api/todos/。设计与实现要互相一致，最后合成可交付目录。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "跨域合成·设计+实现：少派（≤2），勿拆成设计师/后端/文档三工种。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 60 } }
+  ],
+  "expected_shape": {
+    "min_workers": 1,
+    "max_workers": 2,
+    "min_roles": 1
+  },
+  "milestones": [
+    { "id": "design", "desc": "有 REST 资源/动词/状态码设计要点", "weight": 1 },
+    { "id": "impl", "desc": "有 FastAPI 骨架代码或等价可运行结构", "weight": 2 },
+    { "id": "consistent", "desc": "设计与实现口径一致", "weight": 1 }
+  ]
+}

@@ -1,4 +1,5 @@
 import { EscalationCard } from "@/components/chat/EscalationCard";
+import { escalationRowKindLabel } from "@/components/graph/agentNode/shared";
 import type { RunEscalation, RunNode } from "@/stores/execution";
 import { ArrowUp } from "lucide-react";
 import { Section } from "./shared";
@@ -58,8 +59,7 @@ export function EscalationSection({
  * working under its assumption, so this is read-only — the CEO resolves it at synthesis.
  * A「阻断性」flag marks one where a wrong guess would void the product. */
 function RaisedEscalationRow({ esc }: { esc: RunEscalation }) {
-  const kindLabel =
-    esc.kind === "scope" ? "职责偏离" : esc.kind === "dep" ? "缺输入" : null;
+  const kindLabel = escalationRowKindLabel(esc);
   return (
     <div className="rounded-lg border border-border bg-muted/40 px-2.5 py-2 text-xs">
       <div className="flex items-center gap-1.5 font-medium text-muted-foreground">

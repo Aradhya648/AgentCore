@@ -30,6 +30,7 @@ from agentcore.tools.builtin.web._net import (
     note_failure,
     note_success,
 )
+from agentcore.tools.builtin.web.github_page import try_fetch_github_page
 from agentcore.tools.builtin.web.source_domains import default_source_domain_registry
 from agentcore.tools.builtin.web.url_cache import (
     UrlCacheEntry,
@@ -421,6 +422,7 @@ class ReadUrlTool:
         if context.on_phase:
             host = (urlparse(url).hostname or "").lower()
             context.on_phase("blocked" if circuit_remaining(host) > 0 else "fetching")
+        used_github_api = False
         try:
             # PinnedIPTransport: connect to the IP we validated, closing the DNS-rebinding
             # TOCTOU between the per-hop classify_url check and httpx's own resolution.
@@ -432,9 +434,24 @@ class ReadUrlTool:
                 follow_redirects=False,
                 transport=PinnedIPTransport(verify=False),
             ) as client:
-                resp = await _safe_request(client, "GET", url, headers=headers)
-                resp.raise_for_status()
-                html = resp.text
+                # github.com/{owner}/{repo} (root/tree/blob): prefer api.github.com so a
+                # HTML connect timeout is not misread as "private repo". Match miss or
+                # API failure → fall through to the HTML path below (same SSRF/breaker).
+                github_page = await try_fetch_github_page(
+                    client, url, max_chars, safe_request=_safe_request
+                )
+                if github_page is not None:
+                    title, text, description = github_page
+                    used_github_api = True
+                else:
+                    resp = await _safe_request(client, "GET", url, headers=headers)
+                    resp.raise_for_status()
+                    html = resp.text
+                    # 工具执行阶段进度: fetched — now parse/extract the main text (可感知的第二段，
+                    # 长页面抽取有耗时). Signals「正在提取正文」.
+                    if context.on_phase:
+                        context.on_phase("reading")
+                    title, text, description = _extract_page(html, max_chars)
         except Exception as e:
             reason = describe_net_error(e)
             logger.warning("tool.read_url_error", url=url, error=reason, error_repr=repr(e))
@@ -465,11 +482,9 @@ class ReadUrlTool:
                 metadata={_POLICY_FAILURE: True} if policy else {},
             )
 
-        # 工具执行阶段进度: fetched — now parse/extract the main text (可感知的第二段，长页面
-        # 抽取有耗时). Signals「正在提取正文」.
-        if context.on_phase:
+        # GitHub API path has no HTML extract leg; still advance the phase row once.
+        if context.on_phase and used_github_api:
             context.on_phase("reading")
-        title, text, description = _extract_page(html, max_chars)
         snippet = _make_snippet(description, text)
         site = site_of(url)
         if cache is not None:

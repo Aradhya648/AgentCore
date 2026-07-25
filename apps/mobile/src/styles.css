@@ -3133,8 +3133,8 @@ dialog.sheet::backdrop {
   color: var(--muted);
 }
 
-/* 会话级模型切换 · 选择器 (ModelPicker bottom sheet). A scrollable, vendor-grouped list of
-   the user's catalog; unavailable rows grey out and route to 模型配置. */
+/* 会话级模型组合 · 选择器 (ModelPicker bottom sheet). Lists account combinations;
+   「管理组合」routes to 设置·模型配置. */
 .model-sheet {
   display: flex;
   flex-direction: column;

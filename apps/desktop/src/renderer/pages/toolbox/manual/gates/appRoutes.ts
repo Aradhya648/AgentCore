@@ -31,6 +31,7 @@ export const APP_STATIC_ROUTES: readonly string[] = [
   "/simulation/town",
   "/more",
   APP_PATHS.more.model,
+  APP_PATHS.more.providers,
   APP_PATHS.more.memory,
   APP_PATHS.more.autonomy,
   "/more/account",

@@ -175,11 +175,26 @@ async def assemble_ceo_turn(
     # — the same invariant the old per-hint gating enforced. The advanced「怎么做」
     # detail no longer rides every turn; the CEO pulls it via consult_skill.
     ceo_tool_names = {schema.name for schema in chat_tools.list_all()}
+    explore_reason: str | None = None
+    if memory_enabled and folder_id:
+        from agentcore.memory.explore_profile import project_profile_explore_reason
+
+        explore_reason = await project_profile_explore_reason(
+            run_mod.default_memory_store(),
+            prepared.base_tool_context.user_id,
+            folder_id,
+        )
+    # Sink explore-pending into ToolContext so delegate can suppress structured
+    # files_written inference / hard-reject form=files（prompt 块 delegate 读不到）。
+    # Cleared in-place by update_project_profile on successful write.
+    if explore_reason:
+        prepared.base_tool_context.cold_start_explore_pending = True
     chat_system_prompt = compose_ceo_chat_prompt(
         prepared.system_prompt,
         skill_registry=prepared.skill_registry,
         ceo_tool_names=ceo_tool_names,
         memory_topics=prepared.memory_topics,
+        cold_start_explore=explore_reason or False,
     )
     # Real-time workspace overview (工作区上下文): a compact, newest-first listing of
     # the files already on disk in this conversation's workspace, so the CEO can

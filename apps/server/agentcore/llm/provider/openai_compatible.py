@@ -33,7 +33,6 @@ from agentcore.llm.errors import (
     upstream_client_error,
     upstream_error,
 )
-from agentcore.llm.observability import log_llm_call
 from agentcore.llm.provider.protocol import (
     BACKOFF_MULTIPLIER,
     CONNECT_INITIAL_BACKOFF,
@@ -255,7 +254,8 @@ class OpenAICompatibleProvider:
                 usage=usage.as_dict(),
                 diagnosis=empty_diagnosis,
             )
-        response = LLMResponse(
+        # Success / failure metrics: ``observe_provider`` fence (build_provider).
+        return LLMResponse(
             content=content,
             reasoning_content=message.get("reasoning_content"),
             tool_calls=tool_calls,
@@ -266,22 +266,6 @@ class OpenAICompatibleProvider:
             empty_diagnosis=empty_diagnosis,
             empty_raw_preview=raw_body_preview if empty_diagnosis else None,
         )
-        log_llm_call(
-            scenario=request.scenario,
-            model=response.model,
-            usage=usage,
-            finish_reason=response.finish_reason,
-            latency_ms=latency_ms,
-            stream=False,
-            messages=request.messages,
-            content=response.content,
-            reasoning=response.reasoning_content,
-            tool_names=[tc.function.name for tc in response.tool_calls]
-            if response.tool_calls
-            else None,
-            provider_name=self._name,
-        )
-        return response
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
         """Parse-and-retry stream: retry loop sees semantic commit state in-place.

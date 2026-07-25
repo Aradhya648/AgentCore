@@ -1,22 +1,12 @@
 // @vitest-environment jsdom
 /**
- * Render + interaction tests for the mobile 会话级模型切换 selector (ModelPicker).
- *
- * The native <dialog> shell (Modal) is stubbed to a passthrough — jsdom has no showModal —
- * so these assertions focus on the picker's own logic: origin grouping, BYOK sub-grouping by
- * SERVICE PROVIDER (provider_label), capability/price hints, the greyed unavailable → 模型配置
- * route, (id, origin, provider_id) selection, and the 跟随账号默认 clear row.
+ * Render + interaction tests for the mobile 会话级模型组合 selector (ModelPicker).
  */
+import type { LlmModelProfileListResponse } from "@/api/modelProfiles";
 import type { ModelCatalog } from "@/api/models";
 import { ModelPicker } from "@/components/ModelPicker";
 import { MODEL_CONFIG_PATH } from "@/lib/errors";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +23,47 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+const PROFILES: LlmModelProfileListResponse = {
+  default_model_profile_id: "00000000-0000-4000-8000-000000000011",
+  data: [
+    {
+      id: "00000000-0000-4000-8000-000000000011",
+      name: "5.2",
+      kind: "system",
+      main: { origin: "platform", model: "5.2", provider_id: null },
+      worker: null,
+      background: null,
+      is_default: true,
+    },
+    {
+      id: "prof-user-1",
+      name: "写作强档",
+      kind: "user",
+      main: {
+        origin: "byok",
+        model: "deepseek-v4-pro",
+        provider_id: "prov-deepseek",
+      },
+      worker: {
+        origin: "byok",
+        model: "gpt-4o",
+        provider_id: "prov-openai",
+      },
+      background: null,
+      is_default: false,
+    },
+    {
+      id: "prof-implicit",
+      name: "隐式组合",
+      kind: "implicit",
+      main: { origin: "platform", model: "platform-flash", provider_id: null },
+      worker: null,
+      background: null,
+      is_default: false,
+    },
+  ],
+};
+
 const CATALOG: ModelCatalog = {
   byok_configured: true,
   current: {
@@ -42,38 +73,34 @@ const CATALOG: ModelCatalog = {
   },
   models: [
     {
-      id: "deepseek-v4-pro",
-      origin: "byok",
-      provider_id: "prov-deepseek",
-      provider_label: "DeepSeek",
-      display_name: "DeepSeek V4 Pro",
-      vendor: "DeepSeek",
-      capabilities: ["tools", "reasoning"],
-      context_length: 128000,
-      price: { cache_hit: "0.1", cache_miss: "0.28", output: "0.42" },
+      id: "5.2",
+      origin: "platform",
+      display_name: "5.2",
+      vendor: "Platform",
+      capabilities: [],
+      context_length: null,
+      price: null,
       available: true,
     },
     {
-      id: "deepseek-v4-flash",
-      origin: "byok",
-      provider_id: "prov-deepseek",
-      provider_label: "DeepSeek",
-      display_name: "DeepSeek V4 Flash",
-      vendor: "DeepSeek",
-      capabilities: ["tools"],
-      context_length: 64000,
+      id: "platform-flash",
+      origin: "platform",
+      display_name: "Flash (平台)",
+      vendor: "Platform",
+      capabilities: [],
+      context_length: null,
       price: null,
       available: true,
     },
     {
       id: "deepseek-v4-pro",
-      origin: "platform",
-      provider_id: null,
-      provider_label: null,
+      origin: "byok",
+      provider_id: "prov-deepseek",
+      provider_label: "DeepSeek",
       display_name: "DeepSeek V4 Pro",
       vendor: "DeepSeek",
-      capabilities: ["tools", "reasoning"],
-      context_length: 128000,
+      capabilities: [],
+      context_length: null,
       price: null,
       available: true,
     },
@@ -84,13 +111,26 @@ const CATALOG: ModelCatalog = {
       provider_label: "OpenAI",
       display_name: "GPT-4o",
       vendor: "OpenAI",
-      capabilities: ["vision", "tools"],
-      context_length: 128000,
+      capabilities: [],
+      context_length: null,
       price: null,
-      available: false,
+      available: true,
     },
   ],
 };
+
+vi.mock("@/api/modelProfiles", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/modelProfiles")>();
+  return {
+    ...actual,
+    useModelProfiles: () => ({
+      data: PROFILES,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 
 vi.mock("@/api/models", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/models")>();
@@ -110,106 +150,78 @@ afterEach(() => {
   mockNavigate.mockReset();
 });
 
-describe("ModelPicker (mobile)", () => {
-  it("groups models by origin then service provider with capability, context and price hints", () => {
+describe("ModelPicker (mobile profiles)", () => {
+  it("lists combinations with 主 · Worker summary and hides implicit profiles", () => {
     render(
       <ModelPicker
-        conversationModel={null}
+        conversationProfileId={null}
         onSelect={vi.fn()}
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByText("自带 Key")).toBeTruthy();
-    expect(screen.getByText("平台模型")).toBeTruthy();
-    // BYOK sub-grouped by provider_label; the OpenAI provider group heading is present.
-    expect(screen.getByText("OpenAI")).toBeTruthy();
-    expect(screen.getAllByText("DeepSeek").length).toBeGreaterThanOrEqual(1);
-    const proRow = within(
-      screen.getByTestId("model-row-deepseek-v4-pro-byok-prov-deepseek"),
-    );
-    expect(proRow.getByText("DeepSeek V4 Pro")).toBeTruthy();
-    expect(proRow.getByText("工具")).toBeTruthy();
-    expect(proRow.getByText("推理")).toBeTruthy();
-    expect(proRow.getByText("128K 上下文")).toBeTruthy();
-    expect(proRow.getByText("输入 $0.28 / 输出 $0.42 /1M")).toBeTruthy();
-    expect(
-      within(
-        screen.getByTestId("model-row-deepseek-v4-pro-platform"),
-      ).getByText("平台额度"),
-    ).toBeTruthy();
+    expect(screen.getByText("选择模型组合")).toBeTruthy();
+    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("写作强档")).toBeTruthy();
+    expect(screen.getByText("5.2 · 跟随主模型")).toBeTruthy();
+    expect(screen.getByText("DeepSeek V4 Pro · GPT-4o")).toBeTruthy();
+    expect(screen.queryByText("隐式组合")).toBeNull();
+    expect(screen.queryByText("跟随账号默认")).toBeNull();
   });
 
-  it("highlights the account model (by provider) when the conversation has no override", () => {
+  it("highlights the account default when the conversation has no override", () => {
     render(
       <ModelPicker
-        conversationModel={null}
+        conversationProfileId={null}
         onSelect={vi.fn()}
         onClose={vi.fn()}
       />,
     );
     expect(
-      screen.getByTestId("model-row-deepseek-v4-pro-byok-prov-deepseek")
+      screen.getByTestId("profile-row-00000000-0000-4000-8000-000000000011")
         .className,
     ).toContain("model-row-selected");
-    expect(screen.queryByText("跟随账号默认模型")).toBeNull();
   });
 
-  it("selects an available model by (id, origin, provider_id)", () => {
+  it("selects a concrete profile id", () => {
     const onSelect = vi.fn();
     render(
       <ModelPicker
-        conversationModel={null}
+        conversationProfileId={null}
         onSelect={onSelect}
         onClose={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByTestId("model-row-deepseek-v4-flash-byok-prov-deepseek"),
-    );
-    expect(onSelect).toHaveBeenCalledWith({
-      id: "deepseek-v4-flash",
-      origin: "byok",
-      providerId: "prov-deepseek",
-    });
+    fireEvent.click(screen.getByTestId("profile-row-prof-user-1"));
+    expect(onSelect).toHaveBeenCalledWith("prof-user-1");
   });
 
-  it("routes an unavailable model to 模型配置 instead of selecting it", () => {
+  it("offers 跟随账号默认 to clear an override", () => {
     const onSelect = vi.fn();
+    render(
+      <ModelPicker
+        conversationProfileId="prof-user-1"
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("profile-row-prof-user-1").className).toContain(
+      "model-row-selected",
+    );
+    fireEvent.click(screen.getByTestId("profile-row-follow-default"));
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it("routes 管理组合 to 模型配置", () => {
     const onClose = vi.fn();
     render(
       <ModelPicker
-        conversationModel={null}
-        onSelect={onSelect}
+        conversationProfileId={null}
+        onSelect={vi.fn()}
         onClose={onClose}
       />,
     );
-    const locked = screen.getByTestId("model-row-gpt-4o-byok-prov-openai");
-    expect(locked.className).toContain("model-row-disabled");
-    expect(screen.getByText("需配置 API Key · 去配置")).toBeTruthy();
-    fireEvent.click(locked);
-    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("profile-manage"));
     expect(onClose).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith(MODEL_CONFIG_PATH);
-  });
-
-  it("offers 跟随账号默认 to clear an override and highlights the override row", () => {
-    const onSelect = vi.fn();
-    render(
-      <ModelPicker
-        conversationModel={{
-          id: "deepseek-v4-flash",
-          origin: "byok",
-          providerId: "prov-deepseek",
-        }}
-        onSelect={onSelect}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(
-      screen.getByTestId("model-row-deepseek-v4-flash-byok-prov-deepseek")
-        .className,
-    ).toContain("model-row-selected");
-    fireEvent.click(screen.getByText("跟随账号默认模型"));
-    expect(onSelect).toHaveBeenCalledWith(null);
   });
 });

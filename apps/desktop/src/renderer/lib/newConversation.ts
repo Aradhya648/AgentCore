@@ -1,3 +1,5 @@
+import { isReadOnlyOffline } from "@/lib/offlineMode";
+import { notifyError } from "@/lib/toast";
 import { ensureDefaultContainerRoot } from "@/services/defaultWorkspace";
 import { useConversationStore } from "@/stores/conversation";
 import { useFoldersStore } from "@/stores/folders";
@@ -11,12 +13,18 @@ import type { NavigateFunction } from "react-router-dom";
  * - 传 folderId：项目草稿（出生定终身继承项目工作区）
  * - `opts.cloud`：显式云端草稿（与默认同）
  * - `opts.local`：显式本机草稿（容器根 + sidecar）
+ *
+ * N4-A：只读离线时硬禁用（无法创建/发送）。
  */
 export function startNewConversation(
   navigate: NavigateFunction,
   folderId?: string | null,
   opts?: { cloud?: boolean; local?: boolean },
 ): void {
+  if (isReadOnlyOffline()) {
+    notifyError("离线时无法新建对话，请恢复连接后再试");
+    return;
+  }
   const foldersStore = useFoldersStore.getState();
   if (opts?.local) {
     foldersStore.setDraftWorkspaceIntent({ kind: "quick_local" });

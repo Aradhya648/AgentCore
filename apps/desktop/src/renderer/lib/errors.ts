@@ -103,7 +103,7 @@ export function formatAssistantErrorMessage(error: {
 }
 
 /**
- * Codes whose primary remedy is opening 设置·模型配置 (auth / balance / key missing).
+ * Codes whose primary remedy is opening 设置·服务商 (auth / balance / key missing).
  * Extends {@link KEY_CONFIG_ERROR_CODES} with balance so the bubble offers「去设置」.
  */
 const SETTINGS_ERROR_CODES: readonly string[] = [
@@ -184,7 +184,7 @@ export function connectivityEscalationSuffix(
   if (isClientSideLlmRejection(opts)) return null;
   const n = noteSessionConnectivityFailure(code, messageId);
   if (n < 2) return null;
-  return "\n\n多次连接失败。请到「设置 · 模型配置」检查 Base URL / API Key 与网络后重试。";
+  return "\n\n多次连接失败。请到「设置 · 服务商」检查 Base URL / API Key 与网络后重试。";
 }
 
 /** Test helper — clear session connectivity counters. */
@@ -248,12 +248,12 @@ export function errorActionForCode(
   code: string | undefined,
 ): ErrorAction | null {
   if (code !== undefined && SETTINGS_ERROR_CODES.includes(code)) {
-    return { label: "去设置", href: "/more/model" };
+    return { label: "去设置", href: "/more/providers" };
   }
   // 平台额度耗尽 (QUOTA_EXCEEDED, 成本配额与计费 §〇·六 F6): 主文案是等重置 / 联系管理员，
   // 这里补一个「接入自己的 Key」次级出口 —— byok 回合不查配额, 是真正的绕过路径。
   if (code === "QUOTA_EXCEEDED") {
-    return { label: "接入自己的 Key", href: "/more/model" };
+    return { label: "接入自己的 Key", href: "/more/providers" };
   }
   return null;
 }
@@ -319,7 +319,7 @@ function resolveMessage(f: ErrorFacts): string {
   if (f.code === "LLM_KEY_REQUIRED") {
     return (
       f.serverMessage ??
-      "请先在「设置 · 模型配置」中填入你的 API Key，再发起对话。"
+      "请先在「设置 · 服务商」中填入你的 API Key，再发起对话。"
     );
   }
   if (f.code === "ADMIN_PRODUCT_FORBIDDEN") {

@@ -1,5 +1,5 @@
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
-import { escalationKindLabel } from "@/components/graph/agentNode/shared";
+import { escalationRowKindLabel } from "@/components/graph/agentNode/shared";
 import { Button, DecisionCard, DecisionCardIcon } from "@/components/ui";
 import { interactiveCheckpointTone } from "@/components/ui/tone-presets";
 import { notifyError } from "@/lib/toast";
@@ -10,13 +10,16 @@ import {
 import { submitInteractionFeedback } from "@/services/interactionSubmit";
 import { type RunEscalation, useMessageExecution } from "@/stores/execution";
 import { useInteractionStore } from "@/stores/interactions";
+import { useSidePanelStore } from "@/stores/sidePanel";
 import {
   ArrowRight,
   Check,
   Clock,
   HelpCircle,
   Loader2,
+  LogIn,
   Megaphone,
+  Radio,
 } from "lucide-react";
 import { useState } from "react";
 import { OrphanedInteractionCard } from "./OrphanedInteractionCard";
@@ -27,11 +30,8 @@ import {
   useAskAnswer,
 } from "./ask/AskUserFields";
 
-function escalationKindTag(
-  kind: RunEscalation["kind"] | undefined,
-): string | null {
-  if (!kind || kind === "normal") return null;
-  return escalationKindLabel(kind);
+function escalationKindTag(esc: RunEscalation): string | null {
+  return escalationRowKindLabel(esc);
 }
 
 export function EscalationCard({
@@ -58,6 +58,16 @@ export function EscalationCard({
   ) {
     return <ResolvedEscalation escalation={escalation} role={role} />;
   }
+  // browser_login must stay user-facing (password); check before awaiting=ceo.
+  if (escalation.status === "pending" && escalation.browserLogin) {
+    return (
+      <PendingBrowserLoginEscalation
+        escalation={escalation}
+        role={role}
+        conversationId={conversationId}
+      />
+    );
+  }
   // D1: CEO arbitration pending — visible but not user-answerable.
   if (escalation.status === "pending" && escalation.awaiting === "ceo") {
     return <AwaitingCeoEscalation escalation={escalation} role={role} />;
@@ -71,6 +81,126 @@ export function EscalationCard({
       role={role}
       conversationId={conversationId}
     />
+  );
+}
+
+function useEscalationSubmit(
+  conversationId: string | null,
+  escalationId: string | null,
+) {
+  const [submitting, setSubmitting] = useState<
+    EscalationUserDecision["kind"] | null
+  >(null);
+  const busy = submitting !== null;
+
+  const send = (decision: EscalationUserDecision) => {
+    if (busy || !conversationId || !escalationId) return;
+    setSubmitting(decision.kind);
+    decideEscalation(conversationId, escalationId, decision)
+      .then((result) => {
+        if (result === "orphaned" || result === "busy") {
+          notifyError(submitInteractionFeedback(result));
+          setSubmitting(null);
+        }
+        // ok: SSE escalation_resolved settles the card
+      })
+      .catch((err) => {
+        notifyError(err, "提交失败");
+        setSubmitting(null);
+      });
+  };
+
+  return { submitting, busy, send };
+}
+
+/** 浏览器登录等待 escalate：不 auto-resume；用户接管登录后点「已登录，继续」resolve。 */
+function PendingBrowserLoginEscalation({
+  escalation,
+  role,
+  conversationId,
+}: {
+  escalation: RunEscalation;
+  role: string;
+  conversationId: string | null;
+}) {
+  const { submitting, busy, send } = useEscalationSubmit(
+    conversationId,
+    escalation.id,
+  );
+
+  return (
+    <DecisionCard tone="primary" animate>
+      <div className="flex items-start gap-2">
+        <DecisionCardIcon tone="primary">
+          <LogIn size={16} />
+        </DecisionCardIcon>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <p className="min-w-0 flex-1 text-xs font-medium text-primary">
+              {role} · 需要你登录
+              {escalationKindTag(escalation)
+                ? ` · ${escalationKindTag(escalation)}`
+                : ""}
+            </p>
+            <ManualHelpLink to={MANUAL_HELP.control} />
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            在直播里完成登录后，点「已登录，继续」
+          </p>
+          <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
+            {escalation.question}
+          </p>
+          {escalation.assumption ? (
+            <p className="mt-2 rounded-lg bg-card/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+              未答则按此继续：{escalation.assumption}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-6">
+        {conversationId && (
+          <Button
+            variant="neutral"
+            disabled={busy}
+            onClick={() =>
+              useSidePanelStore.getState().openBrowserLive(conversationId)
+            }
+            icon={<Radio size={13} />}
+          >
+            打开浏览器直播
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          disabled={busy}
+          onClick={() => send({ kind: "answer", answer: "已登录，继续" })}
+          icon={
+            submitting === "answer" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Check size={13} />
+            )
+          }
+        >
+          已登录，继续
+        </Button>
+        <Button
+          variant="neutral"
+          disabled={busy}
+          onClick={() => send({ kind: "use_assumption" })}
+          icon={
+            submitting === "use_assumption" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <ArrowRight size={13} />
+            )
+          }
+        >
+          按假设继续
+        </Button>
+      </div>
+    </DecisionCard>
   );
 }
 
@@ -95,32 +225,15 @@ function PendingEscalation({
   };
   const ans = useAskAnswer(content);
   const tone = interactiveCheckpointTone.primary;
-  const [submitting, setSubmitting] = useState<
-    EscalationUserDecision["kind"] | null
-  >(null);
-  const busy = submitting !== null;
+  const { submitting, busy, send } = useEscalationSubmit(
+    conversationId,
+    escalation.id,
+  );
   const hasStructured = escalation.questions.length > 0;
   // composeAnswer flattens picks + note into one readable string (a worker reads it like the
   // CEO does); for a free-text escalate it is just the note. 提交 needs a non-empty answer.
   const composed = ans.compose("decision");
   const canSubmit = composed.trim().length > 0;
-
-  const send = (decision: EscalationUserDecision) => {
-    if (busy || !conversationId || !escalation.id) return;
-    setSubmitting(decision.kind);
-    decideEscalation(conversationId, escalation.id, decision)
-      .then((result) => {
-        if (result === "orphaned" || result === "busy") {
-          notifyError(submitInteractionFeedback(result));
-          setSubmitting(null);
-        }
-        // ok: SSE escalation_resolved settles the card
-      })
-      .catch((err) => {
-        notifyError(err, "提交失败");
-        setSubmitting(null);
-      });
-  };
 
   return (
     <DecisionCard tone="primary" animate>
@@ -132,8 +245,8 @@ function PendingEscalation({
           <div className="flex items-center gap-1">
             <p className="min-w-0 flex-1 text-xs font-medium text-primary">
               {role} · 请你拍板
-              {escalationKindTag(escalation.kind)
-                ? ` · ${escalationKindTag(escalation.kind)}`
+              {escalationKindTag(escalation)
+                ? ` · ${escalationKindTag(escalation)}`
                 : ""}
             </p>
             <ManualHelpLink to={MANUAL_HELP.control} />
@@ -221,8 +334,8 @@ function AwaitingCeoEscalation({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-muted-foreground">
             {role} · 等待主管仲裁
-            {escalationKindTag(escalation.kind)
-              ? ` · ${escalationKindTag(escalation.kind)}`
+            {escalationKindTag(escalation)
+              ? ` · ${escalationKindTag(escalation)}`
               : ""}
           </p>
           <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
@@ -286,8 +399,8 @@ function RaisedEscalation({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-muted-foreground">
             {role} · 边干边上报（无需你拍板）
-            {escalationKindTag(escalation.kind)
-              ? ` · ${escalationKindTag(escalation.kind)}`
+            {escalationKindTag(escalation)
+              ? ` · ${escalationKindTag(escalation)}`
               : ""}
           </p>
           <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">

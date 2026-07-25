@@ -138,3 +138,49 @@ async def test_snapshot_local_rejects_empty_archive(monkeypatch):
     with pytest.raises(WorkspaceIOError):
         await task
     assert provider.captured is None
+
+
+async def test_snapshot_local_passes_subpath_directory(monkeypatch):
+    """ARCHIVE args must scope to LocalBinding.subpath (workspace-relative zip)."""
+    provider = _FakeProvider()
+    monkeypatch.setattr("agentcore.workspace.handoff.build_storage_provider", lambda: provider)
+    sink = EventSink()
+    task = asyncio.create_task(
+        snapshot_local(
+            user_id="u1",
+            folder_id=None,
+            conversation_id=CONV,
+            binding=LocalBinding(
+                root_id="root-1", root_label="proj", subpath="conversations/c1"
+            ),
+            sink=sink,
+        )
+    )
+    event = await _await_request(sink)
+    assert event.payload["op"] == WorkspaceOp.ARCHIVE
+    assert event.payload["args"] == {
+        "ignore": True,
+        "directory": "conversations/c1",
+    }
+    settled = default_interaction_registry().resolve(
+        event.payload["request_id"],
+        {"ok": True, "value": {"archive": _zip_b64({"a.txt": "ok"})}},
+        conversation_id=CONV,
+    )
+    assert settled
+    await task
+
+
+def test_handoff_routes_use_turn_routing_binding():
+    """Handoff routes must share turn-routing binding (folder inherit / container).
+
+    Guard against regressing to ``conv.local_root_id``-only resolution, which
+    422s local project chats and container 裸聊 while the UI still offers 后台云端.
+    """
+    from pathlib import Path
+
+    from agentcore.api.routes.conversations import handoff as handoff_routes
+
+    src = Path(handoff_routes.__file__).read_text(encoding="utf-8")
+    assert "resolve_local_binding" in src
+    assert "resolve_conversation_local_binding" not in src

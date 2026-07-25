@@ -38,6 +38,7 @@ from .devices import PushDeviceRepository
 from .documents import DocumentRepository
 from .feedback import FeedbackRepository
 from .folders import FolderRepository
+from .llm_profiles import LlmModelProfileRepository
 from .memory_updates import MemoryUpdateRepository
 from .messages import MessageRepository
 from .runs import (
@@ -75,6 +76,7 @@ __all__ = [
     "FolderRepository",
     "HandoffJobRepository",
     "InviteRepository",
+    "LlmModelProfileRepository",
     "MemoryUpdateRepository",
     "MessageRepository",
     "PausedTurnRepository",

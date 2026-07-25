@@ -7,6 +7,7 @@ import contextlib
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agentcore.billing.gate import resolve_and_gate_background
 from agentcore.core.log_context import log_context
 from agentcore.core.logging import get_logger
 from agentcore.core.text import clip_preview
@@ -15,9 +16,10 @@ from agentcore.db.models import Conversation
 from agentcore.db.repositories import ConversationRepository, UserRepository
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.factory import build_provider
-from agentcore.llm.profiles import TurnProfiles, default_turn_profiles
+from agentcore.llm.profiles import TurnProfiles
 from agentcore.llm.provider.protocol import LLMProvider
 from agentcore.llm.resolve import (
+    resolve_account_worker_selection,
     resolve_conversation_model_selection,
     resolve_credentials,
     resolve_turn_model,
@@ -177,33 +179,40 @@ async def _mint_title_background(
                 return
 
         async with async_session_factory() as session:
-            credentials = await resolve_credentials(session, user_id, "platform_internal")
-        model = resolve_turn_model(credentials)
-        provider = build_provider(credentials, purpose="platform_internal")
-        try:
-            # Cloud early path: first user message only — do not wait for assistant reply.
-            minted = await generate_title(
-                provider=provider,
-                conversation_id=conversation_id,
-                user_message=user_message,
-                assistant_reply="",
-                model=model,
+            credentials = await resolve_and_gate_background(
+                session, user_id, purpose="title"
             )
-        finally:
-            await provider.close()
+        if credentials is None:
+            # No platform/BYOK key or platform quota exhausted — degrade to truncation.
+            minted_title = fallback_title(user_message)
+        else:
+            model = resolve_turn_model(credentials)
+            provider = build_provider(credentials, purpose="platform_internal")
+            try:
+                # Cloud early path: first user message only — do not wait for assistant reply.
+                minted = await generate_title(
+                    provider=provider,
+                    conversation_id=conversation_id,
+                    user_message=user_message,
+                    assistant_reply="",
+                    model=model,
+                )
+            finally:
+                await provider.close()
+            minted_title = minted.title
 
-        if not minted.title:
+        if not minted_title:
             return
 
         async with async_session_factory() as session:
             updated = await ConversationRepository(session).update_title_if_empty(
-                conversation_id, minted.title
+                conversation_id, minted_title
             )
         if updated is None:
             return
 
         with contextlib.suppress(Exception):
-            sink.emit(title_generated(minted.title, conversation_id=conversation_id))
+            sink.emit(title_generated(minted_title, conversation_id=conversation_id))
     except Exception as e:
         logger.warning(
             "chat.title_schedule_failed",
@@ -309,14 +318,35 @@ async def resolve_turn_profiles(
 ) -> TurnProfiles:
     """Resolve model + static profiles for this turn.
 
-    Threads the conversation's session-level model override (``conversations.model``)
-    into ``resolve_turn_model`` so a switched model wins for the cloud main chat turn
-    (会话级模型切换); ``None`` inherits the account model as before.
+    Expands the conversation's model combination profile (or account default) into
+    main + optional worker override. Empty worker slot → workers follow main.
+    Cross-origin / cross-provider worker credentials land in ``agent_provider_id``.
     """
+    from agentcore.llm.profiles import PLATFORM_PROVIDER_SENTINEL
+
     if credentials is None:
         credentials = await resolve_credentials(session, user_id, "user_facing")
     selection = await resolve_conversation_model_selection(session, conv, user_id)
-    return default_turn_profiles(model=selection.model)
+    overrides: dict[str, str] = {}
+    agent_provider_id: str | None = None
+    worker = await resolve_account_worker_selection(session, user_id, conv=conv)
+    if worker is not None and (
+        worker.model != selection.model
+        or worker.origin != selection.origin
+        or worker.provider_id != selection.provider_id
+    ):
+        overrides["agent"] = worker.model
+        if worker.origin != selection.origin or worker.provider_id != selection.provider_id:
+            agent_provider_id = (
+                PLATFORM_PROVIDER_SENTINEL
+                if worker.origin == "platform"
+                else worker.provider_id
+            )
+    return TurnProfiles(
+        model=selection.model,
+        model_overrides=overrides,
+        agent_provider_id=agent_provider_id,
+    )
 
 
 # Legacy name used by conversation service exports.

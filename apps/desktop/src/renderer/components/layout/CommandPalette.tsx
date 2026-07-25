@@ -25,6 +25,7 @@ import {
   listBookmarks,
 } from "@/services/bookmarks";
 import { fetchDemoTapeCatalog } from "@/services/demoTape";
+import { dedupeFoldersByLocalBinding } from "@/services/folders";
 import { jumpToMessage } from "@/services/messages";
 import {
   type SearchItem,
@@ -257,7 +258,11 @@ export function CommandPalette() {
   const switchConversation = useConversationStore((s) => s.switchConversation);
   const navigate = useNavigate();
 
-  const folders = useFolders();
+  const foldersAll = useFolders();
+  const folders = useMemo(
+    () => dedupeFoldersByLocalBinding(foldersAll),
+    [foldersAll],
+  );
   const [query, setQuery] = useState("");
   const [bookmarksMode, setBookmarksMode] = useState(false);
   // 搜索结果过滤 (方向 4): time + workspace facets, applied to backend search only.

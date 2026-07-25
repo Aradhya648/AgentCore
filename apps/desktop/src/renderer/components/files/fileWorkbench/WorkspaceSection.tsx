@@ -72,6 +72,7 @@ export function WorkspaceSection({
   onOpenFile,
   flashing,
   projectRail,
+  offlineCloud = false,
 }: {
   ws: WorkspaceInfo;
   source: FileSource | null;
@@ -82,11 +83,13 @@ export function WorkspaceSection({
   flashing: boolean;
   /** Project-only rail children (记忆 → 规则), rendered above the file tree when expanded. */
   projectRail?: ReactNode;
+  /** N4-A: cloud workspace while read-only offline — grey + hint, keep visible. */
+  offlineCloud?: boolean;
 }) {
   const conversationId = conversationIdOf(ws.wsId);
   const folderId = folderIdOf(ws.wsId);
   const isLocal = ws.location === "local";
-  const localUnavailable = isLocal && !source;
+  const localUnavailable = isLocal && !source && !offlineCloud;
   const navigate = useNavigate();
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -304,6 +307,7 @@ export function WorkspaceSection({
       className={cn(
         "group flex items-center rounded-lg pr-1 text-sm",
         flashing && "ring-2 ring-inset ring-primary",
+        offlineCloud && "opacity-60",
       )}
     >
       <Button
@@ -337,7 +341,7 @@ export function WorkspaceSection({
           </IconButton>
         </div>
       ) : (
-        source && (
+        source?.caps.edit && (
           <div className="hidden shrink-0 items-center group-hover:flex">
             <IconButton
               title="新建文件"
@@ -367,7 +371,11 @@ export function WorkspaceSection({
     </div>
   );
 
-  const tree = localUnavailable ? (
+  const tree = offlineCloud ? (
+    <div className="py-1 pl-7 text-xs text-muted-foreground">
+      离线时云端工作区不可用，仅可浏览本地文件夹。
+    </div>
+  ) : localUnavailable ? (
     <div className="py-1 pl-7 text-xs text-muted-foreground/70">
       本地项目的文件在你电脑上，请在桌面端查看。
     </div>
@@ -399,7 +407,7 @@ export function WorkspaceSection({
         >
           <ContextMenuTrigger asChild>{header}</ContextMenuTrigger>
           <ContextMenuContent className="min-w-44">
-            {!localUnavailable && source && (
+            {!localUnavailable && !offlineCloud && source?.caps.edit && (
               <>
                 <ContextMenuItem onSelect={() => requestTreeAction("file")}>
                   <FilePlus size={14} className="shrink-0" />
@@ -433,7 +441,7 @@ export function WorkspaceSection({
                 <span className="flex-1 truncate">打开对话</span>
               </ContextMenuItem>
             )}
-            {!localUnavailable && source && (
+            {!localUnavailable && !offlineCloud && source?.caps.edit && (
               <ContextMenuItem
                 variant="danger"
                 onSelect={() => void clearWorkspaceFiles()}

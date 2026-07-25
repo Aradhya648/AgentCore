@@ -91,8 +91,8 @@ export interface AgentNodeData {
   checkpoint?: RunCheckpoint | null;
   escalationPending?: number;
   escalationRaised?: number;
-  /** 节点上最严重的 escalate kind（scope > dep > normal），驱动角标文案。 */
-  escalationKind?: "normal" | "scope" | "dep" | null;
+  /** 节点上最严重的升级展示类（真 scope > 需求矛盾 > dep > normal）。 */
+  escalationKind?: EscalationDisplayKind | null;
   /** Review/QC output flagged by {@link detectReviewConcern} (中间可见性 phase-1). */
   reviewConcern?: ReviewConcernLevel | null;
   /** Failure reason from `run_failed` — drives face「模型中断/调用失败」+ peek. */
@@ -373,20 +373,51 @@ export function revisedBadge(kind: PlanRevisionKind): {
   return { label: "方向已校准", hint: "CEO 据中途发现调整了这一步的方向" };
 }
 
+export type EscalationDisplayKind =
+  | "normal"
+  | "scope"
+  | "dep"
+  | "contradiction";
+
+/** Gate maps contradiction → wire `kind=scope`; question carries「需求矛盾」文案. */
+export function isContradictionEscalation(e: {
+  kind?: string;
+  question?: string;
+}): boolean {
+  if (e.kind != null && e.kind !== "scope") return false;
+  return /需求矛盾|存在矛盾|互相矛盾|conflicting\s+requirements/i.test(
+    e.question ?? "",
+  );
+}
+
 export function escalationKindLabel(
-  kind: "normal" | "scope" | "dep" | undefined,
+  kind: EscalationDisplayKind | undefined,
 ): string {
+  if (kind === "contradiction") return "需求矛盾";
   if (kind === "scope") return "职责偏离";
   if (kind === "dep") return "缺输入";
   return "普通";
 }
 
-/** Pick the most severe escalate kind on a run (scope > dep > normal). */
+/** Label for one escalation row (prefer question-side contradiction over wire scope). */
+export function escalationRowKindLabel(esc: {
+  kind?: "normal" | "scope" | "dep";
+  question?: string;
+}): string | null {
+  if (isContradictionEscalation(esc)) return "需求矛盾";
+  if (!esc.kind || esc.kind === "normal") return null;
+  return escalationKindLabel(esc.kind);
+}
+
+/** Pick the most severe escalate kind on a run (true scope > contradiction > dep > normal). */
 export function pickEscalationKind(
-  escalations: { kind?: "normal" | "scope" | "dep" }[],
-): "normal" | "scope" | "dep" | null {
+  escalations: { kind?: "normal" | "scope" | "dep"; question?: string }[],
+): EscalationDisplayKind | null {
   if (escalations.length === 0) return null;
-  if (escalations.some((e) => e.kind === "scope")) return "scope";
+  const scopeOnes = escalations.filter((e) => e.kind === "scope");
+  if (scopeOnes.some((e) => !isContradictionEscalation(e))) return "scope";
+  if (scopeOnes.some((e) => isContradictionEscalation(e)))
+    return "contradiction";
   if (escalations.some((e) => e.kind === "dep")) return "dep";
   return "normal";
 }

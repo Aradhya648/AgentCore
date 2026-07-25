@@ -98,15 +98,17 @@ export function OnboardingPreviewPage() {
             className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto py-10"
             data-composer-dock="center"
           >
-            <div className="mx-auto flex w-full max-w-3xl flex-col">
-              <DraftEmptyState
-                previewKind={
-                  current.kind === "empty-starter-chips"
-                    ? "starter_chips"
-                    : "returning"
-                }
-              />
-              <MessageInput className="px-4 pb-2 pt-4" />
+            <div className="relative mx-auto w-full max-w-3xl">
+              <div className="absolute inset-x-0 bottom-full mb-6">
+                <DraftEmptyState
+                  previewKind={
+                    current.kind === "empty-starter-chips"
+                      ? "starter_chips"
+                      : "returning"
+                  }
+                />
+              </div>
+              <MessageInput className="px-4 pb-2" />
             </div>
           </div>
         )}

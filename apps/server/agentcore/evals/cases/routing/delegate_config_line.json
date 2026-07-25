@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_config_line",
+  "category": "routing",
+  "user_message": "把配置文件 config.yaml 里的 `debug: false` 改成 `debug: true`，只改这一行，别动别的。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "机械单步改文件：即便改动极小，活的产出是文件变更，应委派（可单 worker），禁止只在聊天里口述。"
+}

@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 /**
- * Unit tests for the mobile model-catalog helpers: the 当前模型 badge label resolution and
- * the 新对话继承上次选择 last-used memory (localStorage-backed, best-effort). Covers the
- * multi-provider (id, origin, provider_id) pick upgrade.
+ * Unit tests for model catalog helpers + model-profile display / last-used memory.
  */
-import type { ModelCatalog } from "@/api/models";
 import {
-  clearLastModel,
-  conversationModelPick,
-  getLastModel,
-  modelDisplayLabel,
-  setLastModel,
-} from "@/api/models";
+  clearLastModelProfileId,
+  getLastModelProfileId,
+  profileDisplayLabel,
+  profileSlotsSummary,
+  setLastModelProfileId,
+  slotDisplayName,
+} from "@/api/modelProfiles";
+import type { ModelCatalog } from "@/api/models";
+import { modelDisplayLabel } from "@/api/models";
 import { afterEach, describe, expect, it } from "vitest";
 
 const CATALOG: ModelCatalog = {
@@ -46,15 +46,27 @@ const CATALOG: ModelCatalog = {
       price: null,
       available: true,
     },
+    {
+      id: "gpt-4o",
+      origin: "byok",
+      provider_id: "prov-openai",
+      provider_label: "OpenAI",
+      display_name: "GPT-4o",
+      vendor: "OpenAI",
+      capabilities: [],
+      context_length: null,
+      price: null,
+      available: true,
+    },
   ],
 };
 
 afterEach(() => {
-  clearLastModel();
+  clearLastModelProfileId();
 });
 
-describe("modelDisplayLabel", () => {
-  it("maps an override (id, origin) to its catalog display name", () => {
+describe("modelDisplayLabel (slot catalog)", () => {
+  it("maps a pick (id, origin) to its catalog display name", () => {
     expect(
       modelDisplayLabel(CATALOG, { id: "deepseek-v4-pro", origin: "byok" }),
     ).toBe("DeepSeek V4 Pro");
@@ -64,10 +76,6 @@ describe("modelDisplayLabel", () => {
         origin: "platform",
       }),
     ).toBe("DeepSeek V4 Pro (平台)");
-  });
-
-  it("falls back to the account model (catalog.current) with no override", () => {
-    expect(modelDisplayLabel(CATALOG, null)).toBe("DeepSeek V4 Pro");
   });
 
   it("returns the raw id for an id not in the catalog", () => {
@@ -81,59 +89,104 @@ describe("modelDisplayLabel", () => {
   });
 });
 
-describe("conversationModelPick", () => {
-  it("builds a pick from conversation fields", () => {
-    expect(conversationModelPick("gpt-4o", "platform")).toEqual({
-      id: "gpt-4o",
-      origin: "platform",
-    });
-    expect(conversationModelPick("gpt-4o", null)).toEqual({
-      id: "gpt-4o",
-      origin: "byok",
-    });
-    expect(conversationModelPick(null, "platform")).toBeNull();
+describe("profileSlotsSummary", () => {
+  it("shows 主 · Worker and 跟随主模型 when worker is empty", () => {
+    expect(
+      profileSlotsSummary(CATALOG, {
+        id: "p1",
+        name: "5.2",
+        kind: "system",
+        main: {
+          origin: "byok",
+          model: "deepseek-v4-pro",
+          provider_id: "prov-deepseek",
+        },
+        worker: null,
+        background: null,
+        is_default: true,
+      }),
+    ).toBe("DeepSeek V4 Pro · 跟随主模型");
+
+    expect(
+      profileSlotsSummary(CATALOG, {
+        id: "p2",
+        name: "写作",
+        kind: "user",
+        main: {
+          origin: "byok",
+          model: "deepseek-v4-pro",
+          provider_id: "prov-deepseek",
+        },
+        worker: {
+          origin: "byok",
+          model: "gpt-4o",
+          provider_id: "prov-openai",
+        },
+        background: null,
+        is_default: false,
+      }),
+    ).toBe("DeepSeek V4 Pro · GPT-4o");
   });
 
-  it("tags the BYOK provider when one is present", () => {
+  it("falls back to raw model id via slotDisplayName", () => {
     expect(
-      conversationModelPick("deepseek-v4-pro", "byok", "prov-deepseek"),
-    ).toEqual({
-      id: "deepseek-v4-pro",
-      origin: "byok",
-      providerId: "prov-deepseek",
-    });
-    // A platform pick never carries a providerId even if one is (spuriously) passed.
-    expect(conversationModelPick("gpt-4o", "platform", "prov-x")).toEqual({
-      id: "gpt-4o",
-      origin: "platform",
-    });
+      slotDisplayName(CATALOG, {
+        origin: "platform",
+        model: "unknown-x",
+        provider_id: null,
+      }),
+    ).toBe("unknown-x");
   });
 });
 
-describe("last-used model (新对话继承上次选择)", () => {
-  it("round-trips a concrete (id, origin) pick and clears back to null", () => {
-    expect(getLastModel()).toBeNull();
-    setLastModel({ id: "gpt-4o", origin: "platform" });
-    expect(getLastModel()).toEqual({ id: "gpt-4o", origin: "platform" });
-    clearLastModel();
-    expect(getLastModel()).toBeNull();
+describe("profileDisplayLabel", () => {
+  const list = {
+    default_model_profile_id: "def",
+    data: [
+      {
+        id: "def",
+        name: "5.2",
+        kind: "system" as const,
+        main: {
+          origin: "platform" as const,
+          model: "deepseek-v4-pro",
+          provider_id: null,
+        },
+        worker: null,
+        background: null,
+        is_default: true,
+      },
+      {
+        id: "u1",
+        name: "写作强档",
+        kind: "user" as const,
+        main: {
+          origin: "byok" as const,
+          model: "gpt-4o",
+          provider_id: "prov-openai",
+        },
+        worker: null,
+        background: null,
+        is_default: false,
+      },
+    ],
+  };
+
+  it("prefers the conversation override name", () => {
+    expect(profileDisplayLabel(list, "u1")).toBe("写作强档");
   });
 
-  it("round-trips a BYOK pick with its provider_id", () => {
-    setLastModel({
-      id: "deepseek-v4-pro",
-      origin: "byok",
-      providerId: "prov-deepseek",
-    });
-    expect(getLastModel()).toEqual({
-      id: "deepseek-v4-pro",
-      origin: "byok",
-      providerId: "prov-deepseek",
-    });
+  it("falls back to the account default name", () => {
+    expect(profileDisplayLabel(list, null)).toBe("5.2");
   });
+});
 
-  it("discards legacy plain-id records", () => {
-    localStorage.setItem("agentcore.mobile.lastModel", "legacy-id-only");
-    expect(getLastModel()).toBeNull();
+describe("last-used model profile", () => {
+  it("round-trips a profile id and clears back to null", () => {
+    expect(getLastModelProfileId()).toBeNull();
+    setLastModelProfileId("prof-1");
+    expect(getLastModelProfileId()).toBe("prof-1");
+    clearLastModelProfileId();
+    expect(getLastModelProfileId()).toBeNull();
   });
 });

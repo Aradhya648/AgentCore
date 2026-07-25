@@ -26,9 +26,12 @@ from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
 # Structural role categories (mirror the DB CheckConstraint). A turn's run tree
 # produces captain + member; ``title`` / ``memory`` tag the off-turn background
 # LLM calls (标题生成 / 记忆整合) so their spend rolls into account/conversation
-# totals without polluting the per-message team payroll. ``arena`` is reserved.
+# totals without polluting the per-message team payroll. ``arena`` tags debate
+# runs (主持人 / 辩手 / 取证员 / 证人续写) so spend shows as「辩论」and sidecar
+# proxy keeps the turn main model (never Worker).
 ROLE_CAPTAIN = "captain"
 ROLE_MEMBER = "member"
+ROLE_ARENA = "arena"
 ROLE_TITLE = "title"
 ROLE_MEMORY = "memory"
 # ``vision`` tags a board_read 读图 sub-call (AI协作白板.md §九.4): an in-turn tool-layer
@@ -103,12 +106,20 @@ def _split_cost(cost: dict) -> tuple[dict[str, int | str], int, int, str]:
     if credential_source == "user":
         return body, 0, total, currency
     return body, total, 0, currency
-def member_run_cost(spec: RunSpec, state: RunState, *, parent_run_id: str | None) -> RunCost:
-    """A delegated worker's ledger row, read off its terminal :class:`RunState`.
+def member_run_cost(
+    spec: RunSpec,
+    state: RunState,
+    *,
+    parent_run_id: str | None,
+    role: str = ROLE_MEMBER,
+) -> RunCost:
+    """A child-run ledger row, read off its terminal :class:`RunState`.
+
     The executor already priced this run onto ``state.cost``; this only reshapes
     it into a ledger row (no re-pricing). ``parent_run_id`` is the delegating
-    captain's run id, so the turn's run tree is reconstructable. ``persona`` is
-    the worker's human-facing role label from the plan (调研员 / 写作 / …).
+    captain / moderator run id. ``persona`` is the human-facing role label from
+    the plan (调研员 / 主持人 / …). Default ``role`` is ``member`` (组队
+    ``delegate``); debate callers pass :data:`ROLE_ARENA`.
     """
     body, billed, estimated, currency = _split_cost(state.cost)
     persona = (spec.role or "").strip() or None
@@ -116,7 +127,7 @@ def member_run_cost(spec: RunSpec, state: RunState, *, parent_run_id: str | None
         run_id=spec.run_id,
         parent_run_id=parent_run_id,
         agent_id=spec.agent_id or spec.run_id,
-        role=ROLE_MEMBER,
+        role=role,
         persona=persona,
         model=state.model,
         tokens=dict(state.usage),
@@ -127,6 +138,35 @@ def member_run_cost(spec: RunSpec, state: RunState, *, parent_run_id: str | None
         rounds=state.rounds,
         duration_ms=state.duration_ms,
     )
+
+
+def arena_run_cost(
+    spec: RunSpec, state: RunState, *, parent_run_id: str | None
+) -> RunCost:
+    """Debate-path ledger row (``role=arena``) — same reshape as :func:`member_run_cost`."""
+    return member_run_cost(spec, state, parent_run_id=parent_run_id, role=ROLE_ARENA)
+
+
+def resolve_run_models(
+    profiles: Any,
+    spec_model: str,
+    *,
+    cost_role: str,
+) -> tuple[str, str]:
+    """``(priced_model, request_model)`` for an agent / continuation run.
+
+    ``arena`` (辩论) falls back to the turn **main** model — never Worker
+    ``model_for("agent")``. Explicit ``spec.model`` (injected main, or Phase 3
+    per-side) still wins.
+    """
+    if cost_role == ROLE_ARENA:
+        model = spec_model or profiles.model
+        return model, model
+    priced = spec_model or profiles.model_for("agent")
+    request = spec_model or profiles.route_model_for("agent")
+    return priced, request
+
+
 def captain_run_cost_from_state(run_id: str, state: RunState) -> RunCost:
     """The CEO root run's ledger row, read off its terminal :class:`RunState`.
     The captain is now a real Run node executed through the run executor (it owns
@@ -380,13 +420,23 @@ class WorkerResultAccumulator:
         """Fold one run's (or sub-team's) short-key token usage into the total."""
         for key in self.usage:
             self.usage[key] += usage.get(key, 0)
-    def add_run_cost(self, spec: RunSpec, state: RunState, *, parent_run_id: str | None) -> None:
-        """Append a member ledger row for a run that metered LLM usage.
+    def add_run_cost(
+        self,
+        spec: RunSpec,
+        state: RunState,
+        *,
+        parent_run_id: str | None,
+        role: str = ROLE_MEMBER,
+    ) -> None:
+        """Append a ledger row for a run that metered LLM usage.
         Runs that never hit the LLM (skipped / failed before any call) carry no
         usage and are not billed, mirroring the old delegate/revise guard.
+        Debate callers pass ``role=ROLE_ARENA``;组队 ``delegate`` keeps default member.
         """
         if state.usage:
-            self.run_ledger.append(member_run_cost(spec, state, parent_run_id=parent_run_id))
+            self.run_ledger.append(
+                member_run_cost(spec, state, parent_run_id=parent_run_id, role=role)
+            )
     def add_citations(self, state: RunState) -> None:
         """Merge a COMPLETED run's web sources into the shared card (de-duped/capped).
         Only COMPLETED runs contribute — a hard-failed worker's output is discarded
@@ -394,14 +444,21 @@ class WorkerResultAccumulator:
         """
         if state.phase is RunPhase.COMPLETED and state.citations:
             merge_citations(self.citations, state.citations)
-    def add_run(self, spec: RunSpec, state: RunState, *, parent_run_id: str | None) -> None:
-        """Fold one finished member run end-to-end: usage + ledger row + citations.
+    def add_run(
+        self,
+        spec: RunSpec,
+        state: RunState,
+        *,
+        parent_run_id: str | None,
+        role: str = ROLE_MEMBER,
+    ) -> None:
+        """Fold one finished child run end-to-end: usage + ledger row + citations.
         The convenience the ``revise`` path uses (one run per call). ``delegate``
         folds a batch through the granular adders so it can also stage this call's
-        usage for the result metadata.
+        usage for the result metadata. Debate passes ``role=ROLE_ARENA``.
         """
         self.add_usage(state.usage)
-        self.add_run_cost(spec, state, parent_run_id=parent_run_id)
+        self.add_run_cost(spec, state, parent_run_id=parent_run_id, role=role)
         self.add_citations(state)
     def merge(self, other: WorkerResultAccumulator) -> None:
         """Fold another accumulator into this one (a nested sub-team's roll-up).

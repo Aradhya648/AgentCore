@@ -129,6 +129,8 @@ export function BrowserLivePanel({
     useState<BrowserLiveConnection>("connecting");
   const [takeover, setTakeover] = useState<TakeoverPhase>("idle");
   const [takeoverError, setTakeoverError] = useState<string | null>(null);
+  /** 用户点「归还控制」后的短提示：登录完成后在对话里发「继续」（不 auto-resume）。 */
+  const [continueHint, setContinueHint] = useState(false);
   // Track the live object URL outside React state so the cleanup / next-frame swap can
   // revoke the previous one synchronously (state is async, and a stale closure would leak).
   const frameUrlRef = useRef<string | null>(null);
@@ -186,19 +188,26 @@ export function BrowserLivePanel({
     }
   }, [conversationId]);
 
-  // 归还控制（按钮 / 会话结束自动）：收口 + 复位可见态。
-  const returnControl = useCallback(() => {
-    if (!takeoverActiveRef.current) return;
-    setTakeover("ending");
-    endTakeoverCore();
-    setTakeover("idle");
-    setTakeoverError(null);
-  }, [endTakeoverCore]);
+  // 归还控制：收口 + 复位可见态。`showContinueHint` 仅用户点「归还控制」时开（会话结束
+  // / 卸载不提示）；提示文案引导用户在对话里发「继续」，**不** auto-resume / auto-resolve。
+  const returnControl = useCallback(
+    (opts?: { showContinueHint?: boolean }) => {
+      if (!takeoverActiveRef.current) return;
+      setTakeover("ending");
+      endTakeoverCore();
+      setTakeover("idle");
+      setTakeoverError(null);
+      if (opts?.showContinueHint) setContinueHint(true);
+    },
+    [endTakeoverCore],
+  );
 
   const beginTakeover = useCallback(async () => {
     setTakeoverError(null);
+    setContinueHint(false);
     setTakeover("starting");
     try {
+      // 200 + reason：started|already_active 成功；其余 reason 抛 TakeoverStartError。
       await startBrowserTakeover(conversationId);
       takeoverStartRef.current = new Date().toISOString();
       takeoverActiveRef.current = true;
@@ -207,13 +216,13 @@ export function BrowserLivePanel({
       );
       setTakeover("active");
     } catch (err) {
-      // start 失败（turn_running / no_session / already_active …）→ 复位 + 显因。
+      // start 失败（turn_running / no_session / …）→ 复位 + 显因。
       setTakeover("idle");
       setTakeoverError(takeoverStartErrorMessage(err));
     }
   }, [conversationId]);
 
-  // 会话结束时若仍在接管 → 自动归还（服务端会话已亡，end 幂等无副作用）。
+  // 会话结束时若仍在接管 → 自动归还（服务端会话已亡，end 幂等无副作用；不弹「继续」提示）。
   useEffect(() => {
     if (status === "session_closed" && takeoverActiveRef.current) {
       returnControl();
@@ -348,7 +357,7 @@ export function BrowserLivePanel({
           </span>
           <button
             type="button"
-            onClick={returnControl}
+            onClick={() => returnControl({ showContinueHint: true })}
             className="ml-auto shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             归还控制
@@ -388,6 +397,13 @@ export function BrowserLivePanel({
         <div className="flex shrink-0 items-center gap-1.5 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
           <MonitorOff size={13} className="shrink-0" />
           {takeoverError}
+        </div>
+      )}
+
+      {continueHint && !takeoverError && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-primary/20 bg-primary/5 px-3 py-1.5 text-xs text-foreground">
+          <Hand size={13} className="shrink-0 text-primary" />
+          登录完成后，在对话里发送「继续」
         </div>
       )}
 

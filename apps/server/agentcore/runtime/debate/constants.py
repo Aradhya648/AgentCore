@@ -53,8 +53,18 @@ QUICK_DEBATER_HINT = (
     "（至多 1 次必要取证），只把你【最有力的 1 个论点】讲透即可——不深挖、不多角度铺开。"
 )
 
-FORM_LABELS = {
+# 展示名：键必须穷尽 DebateForm（权威成员集）；漏键 / 多键在 import 时炸。
+FORM_LABELS: dict[DebateForm, str] = {
     DebateForm.DEBATE: "正反辩论",
     DebateForm.RED_TEAM: "红队挑刺",
     DebateForm.ROUNDTABLE: "多方圆桌",
 }
+if set(FORM_LABELS) != set(DebateForm):
+    missing = set(DebateForm) - set(FORM_LABELS)
+    extra = set(FORM_LABELS) - set(DebateForm)
+    raise RuntimeError(
+        f"FORM_LABELS must cover DebateForm exactly; missing={missing!r} extra={extra!r}"
+    )
+
+# 工具 schema / 派生面共用的 wire 成员序（= DebateForm 声明序）。
+DEBATE_FORM_VALUES: tuple[str, ...] = tuple(m.value for m in DebateForm)

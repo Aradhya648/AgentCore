@@ -3,6 +3,7 @@ import {
   isExecutionHarvestMessage,
 } from "@/lib/executionHarvest";
 import { ensureTimelineMarkersFromJournal } from "@/lib/foldMessageLane";
+import { promoteScalarContentIntoProcess } from "@/lib/processTimeline";
 import { api } from "@/services/api";
 import { surfaceResumeFromAssistant } from "@/services/resume";
 import {
@@ -221,10 +222,18 @@ export function toMessage(m: BackendMessage): Message {
   // 必有时间线标记」holds on reload — the bottom-stack fallback is gone, an unmarked
   // card would silently vanish. Dedup no-ops when the persisted process already
   // carries them (the normal case).
-  const process: ProcessStep[] | undefined =
+  // 协作图应在 CEO 回复下方: if mid-run hydrate left narration on `content` while
+  // process only has team/markers (stream_segments / outbox edge), promote into a
+  // content step before the first team marker.
+  const markedProcess: ProcessStep[] | undefined =
     events.length > 0
       ? ensureTimelineMarkersFromJournal(baseProcess, events)
       : baseProcess;
+  const contentText = m.content ?? "";
+  const process: ProcessStep[] | undefined =
+    m.role === "assistant" && contentText
+      ? promoteScalarContentIntoProcess(markedProcess, contentText)
+      : markedProcess;
   // On reload the row `id` IS the server message_id. Stamp `serverMessageId` so
   // resume guards (`isClientOnlyResumeKey`) match the live path (message_start stamp)
   // and do not treat a hydrated assistant as client-only.
@@ -243,7 +252,7 @@ export function toMessage(m: BackendMessage): Message {
     id: m.id,
     ...(role === "assistant" ? { serverMessageId: m.id } : {}),
     role,
-    content: m.content ?? "",
+    content: contentText,
     reasoning: m.reasoning_content ?? undefined,
     // 关联气泡↔日志: replay the turn's trace_id so a reloaded bubble's「复制诊断信息」
     // includes it for log_timeline.py --trace.

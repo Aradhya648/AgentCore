@@ -97,4 +97,33 @@ describe("buildWorkspaceGroups (方案B 项目分组)", () => {
     // the most recent folders survive the cap
     expect(groups[0].folder.id).toBe(`f${folders.length - 1}`);
   });
+
+  it("merges conversations under duplicate local bindings into the oldest folder", () => {
+    const folders: FolderMeta[] = [
+      {
+        id: "oldest",
+        name: "Oldest",
+        mode: "local",
+        localRootId: "root-1",
+        localSubpath: null,
+      },
+      {
+        id: "dup",
+        name: "Dup",
+        mode: "local",
+        localRootId: "root-1",
+        localSubpath: null,
+      },
+    ];
+    const groups = buildWorkspaceGroups(
+      [
+        conv("a", { folderId: "oldest", at: "2026-01-01T00:00:00Z" }),
+        conv("b", { folderId: "dup", at: "2026-02-01T00:00:00Z" }),
+      ],
+      folders,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].folder.id).toBe("oldest");
+    expect(groups[0].convs.map((c) => c.id)).toEqual(["b", "a"]);
+  });
 });

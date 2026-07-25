@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from typing import TYPE_CHECKING
 
 from agentcore.core.logging import get_logger
+from agentcore.runtime.costing import ROLE_ARENA
 from agentcore.runtime.debate import (
     ClosingStatement,
     CrossExamExchange,
@@ -177,9 +178,16 @@ async def first_round(
 
     sides = list(sides)
     mat_suffix = f"\n\n{materials}" if (materials or "").strip() else ""
+    turn_model = tool._profile_set.model
     tasks_raw = [
         debater_task(
-            config, side, idx, round_no=1, focus=focus, interjections=interjections
+            config,
+            side,
+            idx,
+            round_no=1,
+            focus=focus,
+            interjections=interjections,
+            turn_model=turn_model,
         )
         for idx, side in enumerate(sides)
     ]
@@ -236,6 +244,7 @@ async def first_round(
         sink=tool._sink,
         base_tool_context=tool._base_tool_context,
         profile_set=tool._profile_set,
+        cost_role=ROLE_ARENA,
         system_prompt=tool._system_prompt,
         user_message=tool._user_message,
         execution_id=execution_id,
@@ -283,7 +292,9 @@ async def first_round(
     for side, node in zip(sides, plan.nodes, strict=False):
         state = results.get(node.run_id)
         if state is not None:
-            tool._acc.add_run(node, state, parent_run_id=moderator_run_id)
+            tool._acc.add_run(
+                node, state, parent_run_id=moderator_run_id, role=ROLE_ARENA
+            )
         if state and state.phase is RunPhase.COMPLETED and state.content.strip():
             tool._debater_sessions[side.key] = RunSession(
                 run_id=node.run_id,
@@ -419,6 +430,7 @@ async def next_round(
                 base_tool_context=tool._base_tool_context,
                 execution_id=execution_id,
                 profile_set=tool._profile_set,
+                cost_role=ROLE_ARENA,
                 approval_gate=worker_gate,
                 # 单一轮次投影: carry this side's TRUE round onto the continuation's run_started
                 # (辩论逐轮), so every fold reads 第几轮 from the wire, not a version number.
@@ -450,7 +462,9 @@ async def next_round(
             turns.append(failed_turn(side, revision_run_id, beat=beat))
             continue
         rev_spec = replace(session.spec, run_id=revision_run_id, agent_id=revision_run_id)
-        tool._acc.add_run(rev_spec, state, parent_run_id=moderator_run_id)
+        tool._acc.add_run(
+            rev_spec, state, parent_run_id=moderator_run_id, role=ROLE_ARENA
+        )
         if state.phase is RunPhase.COMPLETED and state.content.strip():
             # 续写成功：把延展后的 transcript 提交回 session，供下一轮再续写。
             session.transcript = state.transcript
@@ -522,6 +536,7 @@ def make_cross_exam_runner(
                     base_tool_context=tool._base_tool_context,
                     execution_id=execution_id,
                     profile_set=tool._profile_set,
+                    cost_role=ROLE_ARENA,
                     approval_gate=worker_gate,
                     round_no=round_no,
                     side_key=side_key,
@@ -555,6 +570,7 @@ def make_cross_exam_runner(
                         base_tool_context=tool._base_tool_context,
                         execution_id=execution_id,
                         profile_set=tool._profile_set,
+                        cost_role=ROLE_ARENA,
                         approval_gate=worker_gate,
                         round_no=round_no,
                         side_key=side_key,
@@ -614,14 +630,16 @@ def make_cross_exam_runner(
                 )
                 continue
             rev_spec = replace(session.spec, run_id=cx_run_id, agent_id=cx_run_id)
-            tool._acc.add_run(rev_spec, state, parent_run_id=moderator_run_id)
+            tool._acc.add_run(
+                rev_spec, state, parent_run_id=moderator_run_id, role=ROLE_ARENA
+            )
             if repair_state is not None:
                 repair_run_id, repair_run_state = repair_state
                 repair_spec = replace(
                     session.spec, run_id=repair_run_id, agent_id=repair_run_id
                 )
                 tool._acc.add_run(
-                    repair_spec, repair_run_state, parent_run_id=moderator_run_id
+                    repair_spec, repair_run_state, parent_run_id=moderator_run_id, role=ROLE_ARENA
                 )
             if state.phase is RunPhase.COMPLETED and state.content.strip():
                 # 作答成功：延展后的 transcript 提交回 session，下一轮立论续写在其之上（带质询记忆）。
@@ -715,6 +733,7 @@ def make_closing_runner(
                     base_tool_context=tool._base_tool_context,
                     execution_id=execution_id,
                     profile_set=tool._profile_set,
+                    cost_role=ROLE_ARENA,
                     approval_gate=worker_gate,
                     round_no=final_round_no,
                     side_key=side.key,
@@ -745,7 +764,9 @@ def make_closing_runner(
                 )
                 continue
             rev_spec = replace(session.spec, run_id=closing_run_id, agent_id=closing_run_id)
-            tool._acc.add_run(rev_spec, state, parent_run_id=moderator_run_id)
+            tool._acc.add_run(
+                rev_spec, state, parent_run_id=moderator_run_id, role=ROLE_ARENA
+            )
             if state.phase is RunPhase.COMPLETED and state.content.strip():
                 # 结辩成功：延展后的 transcript 提交回 session（结辩是本方 transcript 的最后一段）。
                 session.transcript = state.transcript

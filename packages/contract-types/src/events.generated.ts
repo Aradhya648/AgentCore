@@ -362,7 +362,7 @@ export interface StageCardRequiredPayload {
   conversation_id: string;
   motion: string;
   sides: MotionCardSide[];
-  form: "debate" | "red_team" | "roundtable";
+  form: DebateForm;
   rationale: string;
   fact_pointers?: string[];
   thorough?: boolean;
@@ -555,6 +555,8 @@ export interface EscalationRequiredPayload {
   kind?: EscalationKind;
   /** 谁在仲裁：user=经典可答卡；ceo=协调模式等主管。旧流缺字段按 user。 */
   awaiting?: "user" | "ceo";
+  /** true=用户可在回合仍 running 时接管浏览器完成登录（D16 窄例外）。旧流缺字段按 false。 */
+  browser_login?: boolean;
 }
 
 /** 阻塞式求决策 settlement. Emitted by the suspending tool's awaiter ONLY; journaled.
@@ -748,6 +750,9 @@ export interface CostBreakdown {
   estimated_total?: number;
 }
 
+/** 辩论形态成员集单源（``runtime.debate.types.DebateForm``）；wire / schema / 标签键同集。 */
+export type DebateForm = "debate" | "red_team" | "roundtable";
+
 /** One participant on a handoff ``motion_card`` (thin stance, not an argument list). */
 export interface MotionCardSide {
   key: string;
@@ -761,7 +766,7 @@ export interface MotionCard {
   sides: MotionCardSide[];
   fact_pointers: string[];
   rationale: string;
-  form: "debate" | "red_team" | "roundtable";
+  form: DebateForm;
 }
 
 /** 完工交接简报 — every field optional; absent when the worker did not call `handoff`. */
@@ -1062,7 +1067,7 @@ export interface DebateBriefInfo {
 export interface DebateResultPayload {
   execution_id: string;
   moderator_run_id: string;
-  form: "debate" | "red_team" | "roundtable";
+  form: DebateForm;
   motion: string;
   stop_reason: string;
   opening?: string;
@@ -1084,7 +1089,7 @@ export interface DebateRoundStartedPayload {
   cross_exam_enabled?: boolean;
   opening?: string;
   /** Form signal for live status; absent on older wire. */
-  form?: "debate" | "red_team" | "roundtable";
+  form?: DebateForm;
 }
 
 export interface DebateRoundPayload extends DebateRoundInfo {

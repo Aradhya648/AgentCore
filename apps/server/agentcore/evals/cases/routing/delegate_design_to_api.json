@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_design_to_api",
+  "category": "routing",
+  "user_message": "先根据「待办事项」画一版简洁 REST API 设计（资源、动词、状态码），再按设计实现一份 FastAPI 骨架，路由要能跑起来，代码放 api/todos/。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "设计+实现并落盘目录：实质可运行交付，应委派；跨域合成形状由 collab_shapes 另测少派。"
+}

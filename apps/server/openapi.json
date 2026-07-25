@@ -3404,7 +3404,7 @@
             "title": "Message Count",
             "type": "integer"
           },
-          "model": {
+          "model_profile_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -3413,33 +3413,7 @@
                 "type": "null"
               }
             ],
-            "title": "Model"
-          },
-          "model_origin": {
-            "anyOf": [
-              {
-                "enum": [
-                  "byok",
-                  "platform"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Origin"
-          },
-          "model_provider_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Provider Id"
+            "title": "Model Profile Id"
           },
           "permission_preset": {
             "$ref": "#/components/schemas/PermissionPreset",
@@ -3742,6 +3716,49 @@
           }
         },
         "title": "CreateInviteRequest",
+        "type": "object"
+      },
+      "CreateLlmModelProfileRequest": {
+        "properties": {
+          "background": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "main": {
+            "$ref": "#/components/schemas/ModelProfileSlot"
+          },
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "set_as_default": {
+            "default": false,
+            "title": "Set As Default",
+            "type": "boolean"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "main"
+        ],
+        "title": "CreateLlmModelProfileRequest",
         "type": "object"
       },
       "CreateLlmProviderRequest": {
@@ -5915,24 +5932,112 @@
         "title": "KeyInputEvent",
         "type": "object"
       },
-      "LlmDefaultPointer": {
-        "description": "An account default pointer: which provider + which model.",
+      "LlmModelProfileListResponse": {
         "properties": {
-          "model": {
-            "maxLength": 200,
-            "title": "Model",
-            "type": "string"
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/LlmModelProfileView"
+            },
+            "title": "Data",
+            "type": "array"
           },
-          "provider_id": {
-            "title": "Provider Id",
-            "type": "string"
+          "default_model_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model Profile Id"
           }
         },
         "required": [
-          "provider_id",
-          "model"
+          "data"
         ],
-        "title": "LlmDefaultPointer",
+        "title": "LlmModelProfileListResponse",
+        "type": "object"
+      },
+      "LlmModelProfileView": {
+        "properties": {
+          "background": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "system",
+              "user",
+              "implicit"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "main": {
+            "$ref": "#/components/schemas/ModelProfileSlot"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "main"
+        ],
+        "title": "LlmModelProfileView",
         "type": "object"
       },
       "LlmProviderView": {
@@ -5961,16 +6066,6 @@
           "id": {
             "title": "Id",
             "type": "string"
-          },
-          "is_default_background": {
-            "default": false,
-            "title": "Is Default Background",
-            "type": "boolean"
-          },
-          "is_default_chat": {
-            "default": false,
-            "title": "Is Default Chat",
-            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -6071,7 +6166,7 @@
         "type": "object"
       },
       "LlmProvidersResponse": {
-        "description": "The full 设置·模型配置 state: provider list + account pointers + deployment caps.\n\nThe deployment-level fields (``billing_mode`` / ``platform_available`` /\n``platform_model`` / ``free_tier_active``) moved here from the retired per-key\nstatus contract — they describe the account/deployment, not any one provider.",
+        "description": "The full 设置·模型配置 state: provider list + deployment caps.\n\nAccount default combination lives on ``/users/me/llm-model-profiles``\n(``default_model_profile_id``).",
         "properties": {
           "billing_mode": {
             "default": "byok",
@@ -6079,25 +6174,16 @@
             "title": "Billing Mode",
             "type": "string"
           },
-          "default_background": {
+          "default_model_profile_id": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/LlmDefaultPointer"
+                "type": "string"
               },
               {
                 "type": "null"
               }
-            ]
-          },
-          "default_chat": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LlmDefaultPointer"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            ],
+            "title": "Default Model Profile Id"
           },
           "free_tier_active": {
             "default": false,
@@ -7276,6 +7362,43 @@
         "title": "ModelPriceCard",
         "type": "object"
       },
+      "ModelProfileSlot": {
+        "description": "One slot in a model combination (main / worker / background).",
+        "properties": {
+          "model": {
+            "maxLength": 200,
+            "title": "Model",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Credential origin: byok (user key) or platform (operator catalog)",
+            "enum": [
+              "byok",
+              "platform"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "BYOK provider id when origin=byok; must be null for platform",
+            "title": "Provider Id"
+          }
+        },
+        "required": [
+          "origin",
+          "model"
+        ],
+        "title": "ModelProfileSlot",
+        "type": "object"
+      },
       "MountSharedSpaceRequest": {
         "description": "Mount a shared space into a cloud conversation as ``shared/<alias>/``.",
         "properties": {
@@ -7887,7 +8010,7 @@
         "type": "object"
       },
       "RecordTurnResponse": {
-        "description": "The persisted ids for a recorded local turn (the desktop reconciles its\noptimistic user/assistant bubbles against these; ``title`` is set only when this\nturn minted the conversation's first title; ``followups`` mirrors the live\n``followups_generated`` chips when this turn minted them).",
+        "description": "The persisted ids for a recorded local turn (the desktop reconciles its\noptimistic user/assistant bubbles against these; ``title`` is set only when this\nturn minted the conversation's first title; ``followups`` mirrors the live\n``followups_generated`` chips when this turn minted them).\n\n``noop=True`` means the server intentionally skipped an assistant row (empty\nbody + no process state). Desktop may delete the outbox only when\n``assistant_message_id`` is set **or** ``noop`` is True — never on a bare null id\nwhen the turn carried runs/journal/segments.",
         "properties": {
           "assistant_message_id": {
             "anyOf": [
@@ -7913,6 +8036,11 @@
               }
             ],
             "title": "Followups"
+          },
+          "noop": {
+            "default": false,
+            "title": "Noop",
+            "type": "boolean"
           },
           "title": {
             "anyOf": [
@@ -9049,31 +9177,18 @@
         "title": "SessionSummary",
         "type": "object"
       },
-      "SetLlmDefaultsRequest": {
-        "description": "Set the account chat / background default pointers.\n\nTri-state via ``model_fields_set``: an omitted field is left unchanged; ``chat``\nmust be a pointer when present; ``background`` present + null clears it (background\nthen follows chat).",
+      "SetDefaultModelProfileRequest": {
         "properties": {
-          "background": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LlmDefaultPointer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "chat": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LlmDefaultPointer"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "profile_id": {
+            "description": "User combination id or system preset id",
+            "title": "Profile Id",
+            "type": "string"
           }
         },
-        "title": "SetLlmDefaultsRequest",
+        "required": [
+          "profile_id"
+        ],
+        "title": "SetDefaultModelProfileRequest",
         "type": "object"
       },
       "SetMessageFeedbackRequest": {
@@ -11034,7 +11149,7 @@
             ],
             "title": "Deep Research Auto"
           },
-          "model": {
+          "model_profile_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -11043,33 +11158,7 @@
                 "type": "null"
               }
             ],
-            "title": "Model"
-          },
-          "model_origin": {
-            "anyOf": [
-              {
-                "enum": [
-                  "byok",
-                  "platform"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Origin"
-          },
-          "model_provider_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Provider Id"
+            "title": "Model Profile Id"
           },
           "pinned": {
             "anyOf": [
@@ -11176,6 +11265,55 @@
           }
         },
         "title": "UpdateFolderRequest",
+        "type": "object"
+      },
+      "UpdateLlmModelProfileRequest": {
+        "description": "Partial update. Omitted fields unchanged; explicit null on worker/background clears\nthe slot (follow_main).",
+        "properties": {
+          "background": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "main": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfileSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "UpdateLlmModelProfileRequest",
         "type": "object"
       },
       "UpdateLlmProviderRequest": {
@@ -13206,6 +13344,91 @@
         "summary": "Overview",
         "tags": [
           "admin",
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/simulation/show/episodes/{episode_id}/publish": {
+      "patch": {
+        "description": "发布态门禁（draft → review → published）。仅管理后台 Admin。",
+        "operationId": "patch_episode_publish_v1_admin_simulation_show_episodes__episode_id__publish_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "episode_id",
+            "required": true,
+            "schema": {
+              "title": "Episode Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchShowEpisodePublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShowEpisodeSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Episode Publish",
+        "tags": [
           "admin"
         ]
       }
@@ -17813,7 +18036,7 @@
     },
     "/v1/conversations/{conversation_id}/handoff/jobs/{job_id}/apply": {
       "post": {
-        "description": "Apply a finished handoff's selected changes back to the local workspace (P2e / e3).\n\nThe last leg of the 本地→云 round trip: the user's per-file decisions (take cloud /\nkeep local, with the locally-observed hash) are replayed onto their machine over\nthe channel. Streams SSE: ``workspace_op_required`` (WRITE_BYTES / DELETE) the\nbound desktop fulfils, then a ``handoff_apply_done`` with the per-file outcomes.\nThe conflict gate is server-authoritative — a file that diverged locally since the\nbase is refused (status ``conflict``) unless its selection ``force``\\s it.\n\n404 if the conversation is not owned or the job is unknown / from another source;\n409 while the job has not succeeded yet; 422 when the conversation is not in local\nmode (nothing local to apply onto).",
+        "description": "Apply a finished handoff's selected changes back to the local workspace (P2e / e3).\n\nThe last leg of the 本地→云 round trip: the user's per-file decisions (take cloud /\nkeep local, with the locally-observed hash) are replayed onto their machine over\nthe channel. Streams SSE: ``workspace_op_required`` (WRITE_BYTES / DELETE) the\nbound desktop fulfils, then a ``handoff_apply_done`` with the per-file outcomes.\nThe conflict gate is server-authoritative — a file that diverged locally since the\nbase is refused (status ``conflict``) unless its selection ``force``\\s it.\n\nBinding resolution matches turn routing (``resolve_local_binding``).\n404 if the conversation is not owned or the job is unknown / from another source;\n409 while the job has not succeeded yet; 422 when the conversation is not in local\nmode (nothing local to apply onto).",
         "operationId": "apply_handoff_job_v1_conversations__conversation_id__handoff_jobs__job_id__apply_post",
         "parameters": [
           {
@@ -19852,7 +20075,7 @@
         ]
       },
       "post": {
-        "description": "Take a manual snapshot of the workspace (a ``label`` keeps it as a version).",
+        "description": "Take a manual snapshot of the workspace (a ``label`` keeps it as a version).\n\nLocal-mode conversations are refused (409) — same gate as\n``POST /v1/workspaces/{ws_id}/snapshots``; use handoff ARCHIVE instead.",
         "operationId": "create_conversation_snapshot_v1_conversations__conversation_id__snapshots_post",
         "parameters": [
           {
@@ -20019,7 +20242,7 @@
     },
     "/v1/conversations/{conversation_id}/snapshots/{snapshot_id}/restore": {
       "post": {
-        "description": "Restore the workspace to a snapshot (overwrites current files).",
+        "description": "Restore the workspace to a snapshot (overwrites current files).\n\nLocal-mode conversations are refused (409) — restore would rewrite the unused\nserver-side mirror, not the user's machine.",
         "operationId": "restore_conversation_snapshot_v1_conversations__conversation_id__snapshots__snapshot_id__restore_post",
         "parameters": [
           {
@@ -21437,7 +21660,7 @@
     },
     "/v1/conversations/{conversation_id}/workspace/handoff": {
       "post": {
-        "description": "Snapshot a local-mode workspace to the cloud over the channel (双模式工作区 P2e / e1).\n\nLocal-mode files live on the user's machine, so the post-turn OSS backup skips\nthem; this is the explicit, on-demand 本地→云 snapshot (§四). Streams SSE: a\n``workspace_op_required`` (the ARCHIVE op) the bound desktop fulfils, then a\n``handoff_snapshot_done`` carrying the new snapshot id (it lands in the same\nsnapshot list / restore / download as cloud-mode versions). 422 when the\nconversation is not in local mode — a cloud workspace already snapshots itself,\nand there is nothing on the user's disk to fetch.",
+        "description": "Snapshot a local-mode workspace to the cloud over the channel (双模式工作区 P2e / e1).\n\nLocal-mode files live on the user's machine, so the post-turn OSS backup skips\nthem; this is the explicit, on-demand 本地→云 snapshot (§四). Streams SSE: a\n``workspace_op_required`` (the ARCHIVE op) the bound desktop fulfils, then a\n``handoff_snapshot_done`` carrying the new snapshot id (it lands in the same\nsnapshot list / restore / download as cloud-mode versions). 422 when the\nconversation is not in local mode — a cloud workspace already snapshots itself,\nand there is nothing on the user's disk to fetch.\n\nBinding resolution matches turn routing (``resolve_local_binding``): project\nchats inherit the folder bind; 裸聊 uses ``local_root_id`` or container root.",
         "operationId": "handoff_local_workspace_v1_conversations__conversation_id__workspace_handoff_post",
         "parameters": [
           {
@@ -21510,7 +21733,7 @@
     },
     "/v1/conversations/{conversation_id}/workspace/handoff/dispatch": {
       "post": {
-        "description": "Hand a task off to a cloud team seeded from the local workspace (P2e / e2).\n\nThe 本地→云 交接 (§四): snapshot the user's local files, then run an Agent team on\nthat snapshot in the cloud — autonomously, in the background — so a parallel team\nis not bottlenecked by the single desktop channel. Streams SSE: a\n``workspace_op_required`` (the ARCHIVE op) the bound desktop fulfils, then a\n``handoff_job_started`` carrying the job id; the cloud run continues detached\nafter the stream closes (poll ``GET …/handoff/jobs`` for its status). 422 when\nthe conversation is not in local mode (nothing local to hand off).\n\nGated like ``send_message`` (it spends tokens): rate limit → ownership → quota.",
+        "description": "Hand a task off to a cloud team seeded from the local workspace (P2e / e2).\n\nThe 本地→云 交接 (§四): snapshot the user's local files, then run an Agent team on\nthat snapshot in the cloud — autonomously, in the background — so a parallel team\nis not bottlenecked by the single desktop channel. Streams SSE: a\n``workspace_op_required`` (the ARCHIVE op) the bound desktop fulfils, then a\n``handoff_job_started`` carrying the job id; the cloud run continues detached\nafter the stream closes (poll ``GET …/handoff/jobs`` for its status). 422 when\nthe conversation is not in local mode (nothing local to hand off).\n\nBinding resolution matches turn routing (``resolve_local_binding``).\nGated like ``send_message`` (it spends tokens): rate limit → ownership → quota.",
         "operationId": "dispatch_handoff_job_v1_conversations__conversation_id__workspace_handoff_dispatch_post",
         "parameters": [
           {
@@ -22999,7 +23222,7 @@
         ]
       },
       "post": {
-        "description": "Create a tree node (always ``ai_maintained=false`` — user-owned).\n\nA child inherits its parent's ``folder_id`` scope; a root node takes the requested scope.",
+        "description": "Create a tree node (always ``ai_maintained=false`` — user-owned).\n\nA child inherits its parent's ``folder_id`` scope; a root node takes the requested scope.\nNew ``role='rule'`` documents with no parent land under ``AgentCore/规则/`` (§5.0).",
         "operationId": "create_document_v1_documents_post",
         "parameters": [
           {
@@ -23734,6 +23957,7 @@
         ]
       },
       "post": {
+        "description": "Create a project, or reuse an existing live local binding (HTTP 200).\n\nLocal mode is unique per ``(user_id, local_root_id, local_subpath)`` — same\npath re-open returns the existing row (VS Code / Cursor workspace reuse).\nCloud projects are unchanged (duplicate names allowed).",
         "operationId": "create_folder_v1_folders_post",
         "parameters": [
           {
@@ -28013,91 +28237,6 @@
         ]
       }
     },
-    "/v1/simulation/show/episodes/{episode_id}/publish": {
-      "patch": {
-        "description": "发布态门禁位（draft → review → published）。生产环境应再加 admin 鉴权。",
-        "operationId": "patch_episode_publish_v1_simulation_show_episodes__episode_id__publish_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "episode_id",
-            "required": true,
-            "schema": {
-              "title": "Episode Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PatchShowEpisodePublishRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShowEpisodeSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Patch Episode Publish",
-        "tags": [
-          "simulation-show"
-        ]
-      }
-    },
     "/v1/simulation/show/episodes/{episode_id}/quiz": {
       "post": {
         "operationId": "post_episode_quiz_v1_simulation_show_episodes__episode_id__quiz_post",
@@ -28600,9 +28739,450 @@
         ]
       }
     },
+    "/v1/users/me/llm-model-profiles": {
+      "get": {
+        "operationId": "list_model_profiles_v1_users_me_llm_model_profiles_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModelProfileListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Model Profiles",
+        "tags": [
+          "llm-model-profiles"
+        ]
+      },
+      "post": {
+        "operationId": "create_model_profile_v1_users_me_llm_model_profiles_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLlmModelProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModelProfileView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Model Profile",
+        "tags": [
+          "llm-model-profiles"
+        ]
+      }
+    },
+    "/v1/users/me/llm-model-profiles/default": {
+      "put": {
+        "operationId": "set_default_model_profile_v1_users_me_llm_model_profiles_default_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDefaultModelProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModelProfileView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Default Model Profile",
+        "tags": [
+          "llm-model-profiles"
+        ]
+      }
+    },
+    "/v1/users/me/llm-model-profiles/{profile_id}": {
+      "delete": {
+        "operationId": "delete_model_profile_v1_users_me_llm_model_profiles__profile_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Model Profile",
+        "tags": [
+          "llm-model-profiles"
+        ]
+      },
+      "get": {
+        "operationId": "get_model_profile_v1_users_me_llm_model_profiles__profile_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModelProfileView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Model Profile",
+        "tags": [
+          "llm-model-profiles"
+        ]
+      },
+      "patch": {
+        "operationId": "update_model_profile_v1_users_me_llm_model_profiles__profile_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLlmModelProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModelProfileView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Model Profile",
+        "tags": [
+          "llm-model-profiles"
+        ]
+      }
+    },
     "/v1/users/me/llm-providers": {
       "get": {
-        "description": "The user's BYOK providers + account default pointers + deployment capabilities.",
+        "description": "The user's BYOK providers + deployment capabilities.",
         "operationId": "list_llm_providers_v1_users_me_llm_providers_get",
         "parameters": [
           {
@@ -28740,85 +29320,9 @@
         ]
       }
     },
-    "/v1/users/me/llm-providers/defaults": {
-      "put": {
-        "description": "Set the account chat / background default model pointers (each provider+model).",
-        "operationId": "set_llm_defaults_v1_users_me_llm_providers_defaults_put",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetLlmDefaultsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LlmProvidersResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Llm Defaults",
-        "tags": [
-          "llm-providers"
-        ]
-      }
-    },
     "/v1/users/me/llm-providers/{provider_id}": {
       "delete": {
-        "description": "Remove a provider (account pointers + conversation overrides fall back cleanly).",
+        "description": "Remove a provider (profile slots referencing it fall back cleanly).",
         "operationId": "delete_llm_provider_v1_users_me_llm_providers__provider_id__delete",
         "parameters": [
           {

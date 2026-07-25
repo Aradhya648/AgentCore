@@ -96,7 +96,7 @@ describe("resolveEffectiveWorkspace (chip status source)", () => {
     expect(ws.rootId).toBe("root-bound");
     expect(ws.rootName).toBe("MyRepo");
     expect(ws.viaContainer).toBe(false);
-    expect(formatWorkspaceChipLabel(ws)).toBe("草稿 · 本地");
+    expect(formatWorkspaceChipLabel(ws)).toBe("本机草稿");
   });
 
   it("labels project inheritance as 项目名 · 本地", () => {
@@ -118,16 +118,16 @@ describe("resolveEffectiveWorkspace (chip status source)", () => {
     });
     expect(ws.isLocal).toBe(true);
     expect(ws.viaContainer).toBe(true);
-    expect(formatWorkspaceChipLabel(ws)).toBe("草稿 · 本地");
+    expect(formatWorkspaceChipLabel(ws)).toBe("本机草稿");
   });
 
-  it("shows 草稿 · 云 when neither bind nor container is set", () => {
+  it("shows 快速对话 when neither bind nor container is set", () => {
     const ws = resolveEffectiveWorkspace({
       binding: cloud,
       localContainerRootId: null,
       roots,
     });
     expect(ws.isLocal).toBe(false);
-    expect(formatWorkspaceChipLabel(ws)).toBe("草稿 · 云");
+    expect(formatWorkspaceChipLabel(ws)).toBe("快速对话");
   });
 });

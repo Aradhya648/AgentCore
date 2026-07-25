@@ -1,28 +1,26 @@
 // @vitest-environment jsdom
+import { uiGet, uiSet } from "@/lib/uiStorage";
+import {
+  __reloadComposerDraftsForTests,
+  draftKeyFor,
+  useComposerDraftStore,
+} from "@/stores/composer";
+import { useConversationStore } from "@/stores/conversation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Per-conversation composer drafts (统一输入框草稿): keyed storage + 回填 + the
- * localStorage persistence layer (text survives a restart, attachments stay
- * session-only, cap keeps the map bounded). The store module is a singleton that
- * loads persisted drafts at import, so each test re-imports it fresh.
+ * persistence layer (text survives a restart via uiStorage, attachments stay
+ * session-only, cap keeps the map bounded).
+ *
+ * Avoid `vi.resetModules()` + dynamic import of `@/stores/conversation` — the
+ * conversation graph hangs under module reset in this package.
  */
 
-const KEY = "agentcore:composer-drafts";
-
-async function freshStore() {
-  vi.resetModules();
-  const [{ useComposerDraftStore, draftKeyFor }, { useConversationStore }] =
-    await Promise.all([
-      import("@/stores/composer"),
-      import("@/stores/conversation"),
-    ]);
-  return { useComposerDraftStore, draftKeyFor, useConversationStore };
-}
+const STORAGE_LEAF = "composer-drafts";
 
 function persisted(): Record<string, { value: string; updatedAt: number }> {
-  const raw = localStorage.getItem(KEY);
-  return raw ? JSON.parse(raw) : {};
+  return uiGet(STORAGE_LEAF) ?? {};
 }
 
 const attachment = {
@@ -36,8 +34,14 @@ const attachment = {
 };
 
 beforeEach(() => {
-  vi.useFakeTimers();
-  localStorage.clear();
+  vi.useRealTimers();
+  uiSet(STORAGE_LEAF, undefined);
+  useComposerDraftStore.setState({
+    drafts: {},
+    fillToken: 0,
+    dockFlipToken: 0,
+  });
+  useConversationStore.setState({ currentConversationId: null });
 });
 
 afterEach(() => {
@@ -45,8 +49,7 @@ afterEach(() => {
 });
 
 describe("composer draft store", () => {
-  it("keys drafts by conversation and drops emptied entries", async () => {
-    const { useComposerDraftStore } = await freshStore();
+  it("keys drafts by conversation and drops emptied entries", () => {
     const s = useComposerDraftStore.getState();
 
     s.setValue("c1", "给团队的指令");
@@ -61,9 +64,7 @@ describe("composer draft store", () => {
     expect(useComposerDraftStore.getState().drafts.c2?.value).toBe("另一条");
   });
 
-  it("fill appends into the ACTIVE conversation's draft and bumps the focus token", async () => {
-    const { useComposerDraftStore, useConversationStore, draftKeyFor } =
-      await freshStore();
+  it("fill appends into the ACTIVE conversation's draft and bumps the focus token", () => {
     useConversationStore.setState({ currentConversationId: "c9" });
 
     const s = useComposerDraftStore.getState();
@@ -84,34 +85,39 @@ describe("composer draft store", () => {
     ).toBe("草稿聊天");
   });
 
-  it("persists draft TEXT (debounced) and restores it on a fresh import; attachments stay session-only", async () => {
-    const first = await freshStore();
-    first.useComposerDraftStore.getState().setValue("c1", "重启后还在");
-    first.useComposerDraftStore.getState().setAttachments("c1", [attachment]);
+  it("persists draft TEXT (debounced) and restores it on reload; attachments stay session-only", () => {
+    vi.useFakeTimers();
+    useComposerDraftStore.getState().setValue("c1", "重启后还在");
+    useComposerDraftStore.getState().setAttachments("c1", [attachment]);
     vi.advanceTimersByTime(400);
 
     expect(persisted().c1?.value).toBe("重启后还在");
     expect(persisted().c1).not.toHaveProperty("attachments");
 
-    const second = await freshStore();
-    const restored = second.useComposerDraftStore.getState().drafts.c1;
+    useComposerDraftStore.setState({
+      drafts: {},
+      fillToken: 0,
+      dockFlipToken: 0,
+    });
+    __reloadComposerDraftsForTests();
+    const restored = useComposerDraftStore.getState().drafts.c1;
     expect(restored?.value).toBe("重启后还在");
     expect(restored?.attachments).toEqual([]);
   });
 
-  it("clears the persisted entry once the draft is sent (emptied)", async () => {
-    const { useComposerDraftStore } = await freshStore();
+  it("clears the persisted entry once the draft is sent (emptied)", () => {
+    vi.useFakeTimers();
     useComposerDraftStore.getState().setValue("c1", "要发送的");
     vi.advanceTimersByTime(400);
     expect(persisted().c1?.value).toBe("要发送的");
 
     useComposerDraftStore.getState().setValue("c1", "");
     vi.advanceTimersByTime(400);
-    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(uiGet(STORAGE_LEAF)).toBeUndefined();
   });
 
-  it("caps persistence to the most recently edited drafts", async () => {
-    const { useComposerDraftStore } = await freshStore();
+  it("caps persistence to the most recently edited drafts", () => {
+    vi.useFakeTimers();
     const s = useComposerDraftStore.getState();
     for (let i = 0; i < 35; i++) {
       vi.setSystemTime(1000 + i);
@@ -125,9 +131,11 @@ describe("composer draft store", () => {
     expect(saved.c4).toBeUndefined(); // oldest five dropped
   });
 
-  it("ignores a corrupt persisted payload", async () => {
-    localStorage.setItem(KEY, "{not json");
-    const { useComposerDraftStore } = await freshStore();
+  it("ignores a corrupt persisted payload", () => {
+    // Bypass uiSet (which JSON.stringifies) to plant invalid JSON under the
+    // same namespaced key the store reads.
+    localStorage.setItem(`agentcore:${STORAGE_LEAF}`, "{not json");
+    __reloadComposerDraftsForTests();
     expect(useComposerDraftStore.getState().drafts).toEqual({});
   });
 });

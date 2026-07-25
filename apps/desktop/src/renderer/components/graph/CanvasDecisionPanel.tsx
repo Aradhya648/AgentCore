@@ -4,6 +4,7 @@ import { ConversationDecisionPrompts } from "@/components/chat/ConversationDecis
 import { EscalationCards } from "@/components/chat/EscalationCard";
 import { PlanReviewCard } from "@/components/chat/PlanReviewCard";
 import { RetryBanner } from "@/components/chat/RetryBanner";
+import { StageCardDock } from "@/components/chat/StageCardDock";
 import { RecoveryActions } from "@/components/chat/StatusStrip";
 import { isTurnRecoverable } from "@/lib/turnRecoverable";
 import {
@@ -47,23 +48,25 @@ export { isTurnRecoverable };
  * unified side panel for width — the 指挥台 is a fixed second tab in that one side
  * panel (after 「工作区」, §十). It renders the SAME cards the chat surfaces do
  * ({@link CheckpointCard} / {@link PlanReviewCard} / {@link EscalationCards} /
- * {@link ApprovalPrompt} / {@link ResumePrompt} / {@link RetryBanner} /
- * {@link RecoveryActions} / {@link BackgroundTaskCard}), reused verbatim, so a
- * decision read / made / 救火 / 应用 here is identical to one in chat and folds
- * through the very same service + SSE (no second data path — 设计 §二 单一数据源).
+ * {@link ApprovalPrompt} / {@link ResumePrompt} / {@link StageCardDock} /
+ * {@link RetryBanner} / {@link RecoveryActions} / {@link BackgroundTaskCard}),
+ * reused verbatim, so a decision read / made / 救火 / 应用 here is identical to
+ * one in chat and folds through the very same service + SSE (no second data path
+ * — 设计 §二 单一数据源).
  *
  * Why every scope lives here: in canvas mode `ChatView` + `InlineTeamGraph` +
  * `MessageList` are unmounted, so their conversation-level approval / resume /
- * transport-retry prompts, the team strip's 救火行, and the timeline's 后台云端任务
- * cards would be invisible (unactionable) without this. The turn-level cards +
- * recovery scope to the focused turn (`message` + projected `execution`); approval /
- * resume / RetryBanner / 后台任务 are self-contained (own store + active conversation)
- * so they ride along regardless of `message`. `interactive` is the focused turn's
- * live, non-terminal state; a reloaded / ended turn renders its cards as passive
- * records. {@link useCommandRegion} derives all of this live from stores (the canvas
- * only publishes `active` + the focused message id via {@link useCommandPanelStore})
- * and owns the auto-surface; 后台云端任务 是 非阻塞的「另一类」, so it renders last and
- * never inflates the 待你拍板 decision count.
+ * stage_card Dock / transport-retry prompts, the team strip's 救火行, and the
+ * timeline's 后台云端任务 cards would be invisible (unactionable) without this.
+ * The turn-level cards + recovery scope to the focused turn (`message` + projected
+ * `execution`); approval / resume / stage_card / RetryBanner / 后台任务 are
+ * self-contained (own store + active conversation) so they ride along regardless
+ * of `message`. `interactive` is the focused turn's live, non-terminal state; a
+ * reloaded / ended turn renders its cards as passive records. {@link useCommandRegion}
+ * derives all of this live from stores (the canvas only publishes `active` + the
+ * focused message id via {@link useCommandPanelStore}) and owns the auto-surface;
+ * 后台云端任务 是 非阻塞的「另一类」, so it renders last and never inflates the
+ * 待你拍板 decision count.
  */
 
 /** Count of UNANSWERED boss decisions on ONE turn — 工作者上报 (escalation) +, by default,
@@ -125,7 +128,7 @@ export interface CommandRegionData {
   conversationId: string | null;
   /** Focused turn is live & non-terminal — its cards are actionable vs passive records. */
   interactive: boolean;
-  /** Pending DECISION count for the tab badge (turn-level + conversation-level approval/resume). */
+  /** Pending DECISION count for the tab badge (turn-level + conversation-level approval/resume/stage_card). */
   pending: number;
   /**
    * Tab-strip badge: decisions + 救火 + 后台任务 — anything that auto-surfaced the dock
@@ -174,6 +177,22 @@ export function useCommandRegion(): CommandRegionData {
     }
     return n;
   });
+  // 阶段推进卡：对话级跨回合 Dock（与聊天 StageCardDock 同口径），幕终 pending 须进指挥台
+  // badge / pending（前端UX设计.md §6.2 · REL-SC-01）。
+  const stageCardCount = useInteractionStore((s) => {
+    if (!conversationId) return 0;
+    let n = 0;
+    for (const e of s.byId.values()) {
+      if (
+        e.conversationId === conversationId &&
+        e.kind === "stage_card" &&
+        (e.status === "pending" || e.status === "submitting")
+      ) {
+        n++;
+      }
+    }
+    return n;
+  });
   const resumeCount = usePausedTurnStore(
     (s) => s.pending.filter((p) => p.conversationId === conversationId).length,
   );
@@ -185,7 +204,7 @@ export function useCommandRegion(): CommandRegionData {
     includeDebate: false,
     conversationId,
   });
-  const pending = turnDecisions + approvalCount + resumeCount;
+  const pending = turnDecisions + approvalCount + resumeCount + stageCardCount;
   const firefighting = !!convError || isTurnRecoverable(execution);
   // 后台云端任务 是 非阻塞的「另一类」: it keeps the region present but never inflates the
   // 待你拍板 badge (`pending`); the tab-strip badge (`badge`) includes it so the user
@@ -290,6 +309,8 @@ export function CommandPanelBody({
           conversation). They bring their own mx-4 mb-2 gutter, so the turn-level
           cards below match with px-4 and the mb-2 supplies the inter-group gap. */}
       <ConversationDecisionPrompts />
+      {/* 阶段推进卡 Dock：与聊天 StageCardDock 同组件；画布卸载 ChatView 后仍可操作。 */}
+      <StageCardDock />
       {/* Turn-level: scoped to the focused turn's message + execution. */}
       <div className="space-y-2 px-4">
         {checkpoints.map((cp) => (

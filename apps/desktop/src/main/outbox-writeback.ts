@@ -169,6 +169,53 @@ export function fillFromCaptainStreamSegments(record: OutboxRecord): boolean {
   );
 }
 
+/** True when the turn carried process projection (must not treat null assistant as success). */
+export function recordHasProcessState(record: OutboxRecord): boolean {
+  const runs = record.runs;
+  if (runs && typeof runs === "object" && Object.keys(runs).length > 0) {
+    return true;
+  }
+  const journal = record.journal;
+  if (
+    journal &&
+    typeof journal === "object" &&
+    Object.keys(journal).length > 0
+  ) {
+    return true;
+  }
+  const segs = record.stream_segments;
+  if (segs && typeof segs === "object") {
+    for (const entry of Object.values(segs)) {
+      if (
+        entry &&
+        typeof entry === "object" &&
+        String(entry.text || "").trim()
+      ) {
+        return true;
+      }
+    }
+  }
+  return !!(record.reasoning_content || "").trim();
+}
+
+/**
+ * Delete outbox only when assistant truly landed, or server explicitly marked noop.
+ * HTTP 200 + `assistant_message_id==null` with process state is a false ack.
+ */
+export function shouldDeleteOutboxAfterAck(
+  body: {
+    assistant_message_id?: string | null;
+    noop?: boolean | null;
+  },
+  record: OutboxRecord,
+): boolean {
+  if (body.assistant_message_id) return true;
+  if (body.noop === true) return true;
+  // Legacy servers omit `noop`: empty true-no-op (no process) may still delete.
+  if (!recordHasProcessState(record)) return true;
+  return false;
+}
+
 function toRecordTurnBody(record: OutboxRecord): Record<string, unknown> {
   const body: Record<string, unknown> = {
     user_message: record.user_message || "",
@@ -359,6 +406,9 @@ async function drainOutboxDetailed(opts?: {
         continue;
       }
 
+      // Align with salvage / unsynced projection: promote captain segments before POST.
+      fillFromCaptainStreamSegments(record);
+
       const path = `/v1/conversations/${record.conversation_id}/local-turns`;
       let result: { ok: boolean; status: number; body: unknown };
       try {
@@ -391,7 +441,18 @@ async function drainOutboxDetailed(opts?: {
         assistant_message_id?: string | null;
         title?: string | null;
         followups?: string[] | null;
+        noop?: boolean | null;
       };
+      if (!shouldDeleteOutboxAfterAck(body, record)) {
+        // False ack: process state present but assistant never landed — keep recoverable.
+        console.error(
+          "[outbox] false ack (null assistant + process) → dead-letter",
+          record.user_message_id,
+          body,
+        );
+        await moveToDeadLetter(record, result.status || 200);
+        continue;
+      }
       const payload: OutboxSyncedPayload = {
         conversationId: record.conversation_id,
         userMessageId: record.user_message_id,
@@ -460,6 +521,57 @@ export async function listInterruptedAfterDecision(
   return out;
 }
 
+async function readDeadLetterRecords(): Promise<OutboxRecord[]> {
+  const dir = deadLetterDir();
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const records: OutboxRecord[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json") || name.endsWith(".tmp")) continue;
+    try {
+      const raw = await readFile(join(dir, name), "utf-8");
+      const data = JSON.parse(raw) as OutboxRecord;
+      if (data?.user_message_id && data.conversation_id) records.push(data);
+    } catch {
+      // torn / unreadable — skip
+    }
+  }
+  return records;
+}
+
+function toUnsyncedSummary(
+  record: OutboxRecord,
+  phase: SidecarUnsyncedTurnSummary["phase"],
+): SidecarUnsyncedTurnSummary {
+  const view: OutboxRecord = {
+    ...record,
+    stream_segments: record.stream_segments,
+  };
+  fillFromCaptainStreamSegments(view);
+  return {
+    user_message_id: view.user_message_id,
+    user_message: view.user_message || "",
+    message_id: view.message_id ?? null,
+    trace_id: view.trace_id || "",
+    phase,
+    updated_at: view.updated_at ?? 0,
+    content: view.content || "",
+    reasoning_content: view.reasoning_content ?? null,
+    citations: (view.citations as SidecarCitation[]) || [],
+    runs: (view.runs as SidecarRunsPayload) ?? null,
+    finish_reason: view.finish_reason ?? null,
+    input_tokens: view.input_tokens ?? 0,
+    output_tokens: view.output_tokens ?? 0,
+    reasoning_tokens: view.reasoning_tokens ?? 0,
+    cache_hit_tokens: view.cache_hit_tokens ?? 0,
+    cache_miss_tokens: view.cache_miss_tokens ?? 0,
+  };
+}
+
 export async function listUnsyncedSummaries(
   conversationId: string,
 ): Promise<SidecarUnsyncedTurnSummary[]> {
@@ -469,29 +581,17 @@ export async function listUnsyncedSummaries(
     if (record.conversation_id !== conversationId) continue;
     if (record.phase !== PHASE_OPEN && record.phase !== PHASE_READY) continue;
     // Mutate a shallow copy so we don't rewrite the on-disk open record here.
-    const view: OutboxRecord = {
-      ...record,
-      stream_segments: record.stream_segments,
-    };
-    fillFromCaptainStreamSegments(view);
-    out.push({
-      user_message_id: view.user_message_id,
-      user_message: view.user_message || "",
-      message_id: view.message_id ?? null,
-      trace_id: view.trace_id || "",
-      phase: view.phase === PHASE_READY ? "ready" : "open",
-      updated_at: view.updated_at ?? 0,
-      content: view.content || "",
-      reasoning_content: view.reasoning_content ?? null,
-      citations: (view.citations as SidecarCitation[]) || [],
-      runs: (view.runs as SidecarRunsPayload) ?? null,
-      finish_reason: view.finish_reason ?? null,
-      input_tokens: view.input_tokens ?? 0,
-      output_tokens: view.output_tokens ?? 0,
-      reasoning_tokens: view.reasoning_tokens ?? 0,
-      cache_hit_tokens: view.cache_hit_tokens ?? 0,
-      cache_miss_tokens: view.cache_miss_tokens ?? 0,
-    });
+    out.push(
+      toUnsyncedSummary(
+        record,
+        record.phase === PHASE_READY ? "ready" : "open",
+      ),
+    );
+  }
+  // Permanent writeback failures stay recoverable on the unsynced surface.
+  for (const record of await readDeadLetterRecords()) {
+    if (record.conversation_id !== conversationId) continue;
+    out.push(toUnsyncedSummary(record, "dead"));
   }
   out.sort((a, b) => a.updated_at - b.updated_at);
   return out;
@@ -512,6 +612,13 @@ export async function flushTurn(
     const records = await readOutboxRecords();
     const still = records.find((r) => r.user_message_id === userMessageId);
     if (!still) {
+      // Moved to dead-letter (false ack / permanent 4xx) — not a successful sync.
+      const dead = (await readDeadLetterRecords()).find(
+        (r) => r.user_message_id === userMessageId,
+      );
+      if (dead) {
+        return { ok: false, error: "writeback_dead" };
+      }
       // Already drained by a concurrent poll — treat as success (idempotent).
       const conversationId =
         lastConversationId || recentSyncedConversation.get(userMessageId) || "";

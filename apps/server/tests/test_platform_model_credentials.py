@@ -18,7 +18,11 @@ from agentcore.billing.preference import is_platform_available
 from agentcore.config import settings
 from agentcore.config.platform import parse_platform_model_credentials
 from agentcore.core.errors import PlatformBillingUnavailableError
-from agentcore.llm.resolve import platform_llm_credentials, resolve_model_config
+from agentcore.llm.resolve import (
+    ModelSelection,
+    platform_llm_credentials,
+    resolve_model_config,
+)
 
 _OVERRIDE = (
     '{"grok-4.5": {"api_key": "sk-grok-key", "base_url": "https://relay.example/openai/v1"}}'
@@ -211,6 +215,16 @@ def _mock_keyless(monkeypatch):
             get=AsyncMock(return_value=None),
             first_for_user=AsyncMock(return_value=None),
             count_for_user=AsyncMock(return_value=0),
+        ),
+    )
+    # Account default is now profile-expand (not users.default_chat_*); stub the
+    # selection so MagicMock sessions don't enter LlmModelProfileService → DB.
+    monkeypatch.setattr(
+        "agentcore.llm.resolve.resolve_account_default_model",
+        AsyncMock(
+            return_value=ModelSelection(
+                model="grok-4.5", origin="platform", provider_id=None
+            )
         ),
     )
 

@@ -3,6 +3,8 @@ import { useFolders } from "@/hooks/useFolders";
 import { useConversationWorkspace } from "@/hooks/useWorkspaces";
 import { hasInAppPreview, hasLocalFiles } from "@/lib/capabilities";
 import { type FileSource, baseName } from "@/lib/fileSource";
+import { useReadOnlyOffline } from "@/lib/offlineMode";
+import { asReadOnlyFileSource } from "@/services/sources/readOnlyFileSource";
 import {
   createWorkspaceSource,
   resolveConversationLocalFileSource,
@@ -56,6 +58,7 @@ function withCloudPreviewEntries(
 export function useConversationFileSource(
   conversationId: string | null,
 ): FileSource | null {
+  const offline = useReadOnlyOffline();
   const ws = useConversationWorkspace(conversationId);
   const fsAvailable = hasLocalFiles();
   const conversations = useConversations();
@@ -93,7 +96,15 @@ export function useConversationFileSource(
 
   return useMemo(() => {
     const base = ((): FileSource | null => {
-      if (ws) return resolveWorkspaceSource(ws, fsAvailable);
+      if (ws) {
+        // N4-A: cloud workspaces unavailable offline (hub greys them; side panel too).
+        if (offline && ws.location === "cloud") return null;
+        const src = resolveWorkspaceSource(ws, fsAvailable);
+        if (offline && src && ws.location === "local") {
+          return asReadOnlyFileSource(src);
+        }
+        return src;
+      }
       if (!conversationId) return null;
 
       const awaitingLocal =
@@ -103,8 +114,9 @@ export function useConversationFileSource(
       if (awaitingLocal) return null;
 
       if (localFallback && typeof localFallback !== "string") {
-        return localFallback;
+        return offline ? asReadOnlyFileSource(localFallback) : localFallback;
       }
+      if (offline) return null;
       if (folder && folder.mode === "cloud") {
         return resolveWorkspaceSource(
           {
@@ -129,5 +141,6 @@ export function useConversationFileSource(
     needsLocalFallback,
     localFallback,
     folder,
+    offline,
   ]);
 }

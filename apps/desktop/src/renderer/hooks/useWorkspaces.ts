@@ -3,20 +3,27 @@ import { getFolders } from "@/hooks/useFolders";
 import { queryClient } from "@/lib/queryClient";
 import { workspaceKeys } from "@/lib/queryKeys";
 import { bareConversationScratchSubpath } from "@/services/bareScratchPath";
+import { cacheShellMeta } from "@/services/offlineCache";
 import { type WorkspaceInfo, listWorkspaces } from "@/services/workspaces";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 /**
  * The user's workspaces as React Query data — `GET /v1/workspaces` may include
  * `folder:<id>` (project shared space) and `conv:<id>` (bare scratch).
  */
 export function useWorkspaces() {
-  return useQuery({
+  const q = useQuery({
     queryKey: workspaceKeys.list,
     queryFn: listWorkspaces,
     staleTime: 30_000,
   });
+  // N4-A: cache workspace rail so offline file hub can show local + grey cloud.
+  useEffect(() => {
+    if (!q.data) return;
+    void cacheShellMeta({ workspaces: q.data });
+  }, [q.data]);
+  return q;
 }
 
 /**

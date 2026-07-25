@@ -44,13 +44,8 @@ const EMPTY_INTERJECTIONS: readonly UserInterjection[] = [];
 
 /**
  * The multi-agent turn's primary surface, embedded in the assistant message
- * above its answer: a compact status strip (lifecycle + cost + recovery) over
- * the live collaboration graph. It is the in-chat "team界面" that replaced the
- * old free-floating `TaskCard` + auto-opening detail panel + permanent graph
- * overlay — one graph, one place (前端UX设计.md §三).
- *
- * The strip can collapse the graph away (the answer stays right below), and the
- * canvas height adapts to team size so a small team does not float in a big box.
+ * at the `team` marker slot (below the CEO lead-in content step): a compact
+ * status strip (lifecycle + cost + recovery) over the live collaboration graph.
  *
  * Per-message (§9.3): keyed by the assistant message id, so live and reloaded
  * (historical) multi-agent turns render identically — the live turn streams into

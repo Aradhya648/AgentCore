@@ -35,10 +35,10 @@ const GAP_REASON_LABEL: Record<string, string> = {
 };
 
 /**
- * 「完成条件」卡（批次验收 / completion_criteria）—— 渲染 `delivery_status` 的结构化对账：
- * 完成条件缺口 + 待用户操作（如绑定本地文件夹 / 续派整页验收 / 续写 / 续跑跳过节点）。与 finish_guard 的
- * 「引用/格式核验后已重写」chip 是两回事——本卡表示批次验收未过，团队可能重派。
- * 挂在答复正文下方、「本回合产出文件」卡上方。
+ * 「交付验收」卡（批次验收 / completion_criteria）—— 渲染 `delivery_status` 的结构化对账：
+ * 交付缺口 + 待用户操作（如绑定本地文件夹 / 续派整页验收 / 续写 / 续跑跳过节点）。与 finish_guard 的
+ * 「引用/格式核验后已重写」chip 是两回事——本卡表示批次交付验收未过；跑完生命周期仍由 StatusStrip /
+ * 节点绿勾表达。挂在答复正文下方、「本回合产出文件」卡上方。
  *
  * C3 职责分离：结构化 gaps 是缺口唯一可信源，本卡是缺口的唯一披露面——综述正文不承担
  * 缺口披露，避免「正文乐观、卡片悲观」割裂。partial / blocked 的强调色由卡片头部
@@ -48,7 +48,24 @@ const GAP_REASON_LABEL: Record<string, string> = {
  * 本卡只在有诚实缺口要交代（partial / blocked）时出现，避免重复噪音。
  * `actions` 里已知的 `bind_local_folder` / `website_verify` / `continue_writing` /
  * `continue_skipped_runs` 渲染为真按钮；未知 kind 按普通提示行渲染（契约向前兼容）。
+ * 「团队可能重派」仅在 actions 含上述可续派 kind 时显示——验收 unmet 不恒显；同缺口
+ * escalate 收口未进 payload，无续派 CTA 时降级隐藏（勿谎称可能重派）。
  */
+
+/** Action kinds that mean the user/team can continue or redispatch this batch. */
+const REDISPATCH_ACTION_KINDS = new Set([
+  "bind_local_folder",
+  "website_verify",
+  "continue_writing",
+  "continue_skipped_runs",
+]);
+
+/** True when payload actions express a continue / redispatch path. */
+export function mayShowRedispatchHint(status: DeliveryStatusPayload): boolean {
+  return (status.actions ?? []).some((a) =>
+    REDISPATCH_ACTION_KINDS.has(a.kind),
+  );
+}
 
 const STATE_META: Record<
   "partial" | "blocked",
@@ -284,7 +301,7 @@ export function DeliveryStatusCard({
   turnKey?: string;
 }) {
   // 诚实披露卡：默认展开（不套产物卡「>4 收起」阈值），收起仅折叠 gap 明细与 actions，
-  // 头部（图标 + 完成条件 + 状态徽标 + summary + 团队可能重派）恒可见。
+  // 头部（图标 + 交付验收 + 状态徽标 + summary + 条件性「团队可能重派」）恒可见。
   // 恒在早退前调用以稳定 hook 顺序（state 可能在 partial/blocked/delivered 间切换）。
   const [expanded, setExpanded] = usePersistentDisclosure(
     turnKey ? `${turnKey}:delivery` : null,
@@ -295,6 +312,7 @@ export function DeliveryStatusCard({
   const meta = STATE_META[status.state];
   const gaps = status.gaps ?? [];
   const actions = status.actions ?? [];
+  const showRedispatchHint = mayShowRedispatchHint(status);
 
   return (
     <div
@@ -312,7 +330,7 @@ export function DeliveryStatusCard({
             className={`shrink-0 ${statusAccentText[meta.tone]}`}
           />
           <span className="shrink-0 text-sm font-medium text-foreground">
-            完成条件
+            交付验收
           </span>
           <span
             className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs leading-none ${statusPillSoft[meta.tone]}`}
@@ -322,9 +340,11 @@ export function DeliveryStatusCard({
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {status.summary}
           </span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            团队可能重派
-          </span>
+          {showRedispatchHint && (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              团队可能重派
+            </span>
+          )}
           {expanded ? (
             <ChevronUp size={15} className="shrink-0 text-muted-foreground" />
           ) : (

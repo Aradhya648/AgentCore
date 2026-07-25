@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 /**
- * Shared UI token lint gate (color-tokens.mdc).
+ * Shared UI token lint gate (color-tokens.mdc / desktop-layout.mdc).
  *
  * Usage:
  *   node scripts/check-ui-tokens.mjs --src apps/desktop/src/renderer
  *   node scripts/check-ui-tokens.mjs --src apps/mobile/src
+ *
+ * Desktop also gates raw CSS font-size/border-radius px bypasses
+ * (A-phase: StageCard-style second skins). Mobile keeps Tailwind-only rules
+ * until a separate mobile density pass.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -46,6 +50,36 @@ const BASE_RULES = [
   },
 ];
 
+/** Allowed CSS border-radius px (desktop-layout 3-tier + pill). */
+const ALLOWED_RADIUS_PX = new Set([8, 12, 9999]);
+
+/**
+ * Desktop-only CSS bypass rules (raw px that escape Tailwind class lint).
+ * @type {{ id: string; hint: string; match: (line: string) => boolean }[]}
+ */
+const DESKTOP_CSS_RULES = [
+  {
+    id: "css-font-size-px",
+    hint: "CSS font-size px bypass — use Tailwind text-xs/sm/base/xl (or rem)",
+    match(line) {
+      return /font-size\s*:\s*\d+(?:\.\d+)?px\b/.test(line);
+    },
+  },
+  {
+    id: "css-border-radius-px",
+    hint: "CSS border-radius px must be 8 (lg), 12 (xl), or 9999 (pill)",
+    match(line) {
+      if (!/border-radius\s*:/.test(line)) return false;
+      const re = /(\d+(?:\.\d+)?)px\b/g;
+      let m;
+      while ((m = re.exec(line)) !== null) {
+        if (!ALLOWED_RADIUS_PX.has(Number(m[1]))) return true;
+      }
+      return false;
+    },
+  },
+];
+
 function parseArgs(argv) {
   let src = "";
   for (let i = 2; i < argv.length; i++) {
@@ -57,7 +91,7 @@ function parseArgs(argv) {
     console.error("usage: check-ui-tokens.mjs --src <directory>");
     process.exit(2);
   }
-  return { srcDir: join(ROOT, src) };
+  return { src, srcDir: join(ROOT, src) };
 }
 
 async function walk(dir) {
@@ -75,8 +109,8 @@ async function walk(dir) {
   return out;
 }
 
-const { srcDir } = parseArgs(process.argv);
-const rules = BASE_RULES;
+const { src, srcDir } = parseArgs(process.argv);
+const isDesktop = /(^|[/\\])desktop([/\\]|$)/.test(src.replace(/\\/g, "/"));
 
 /** @type {{ file: string; line: number; rule: string; hint: string; text: string }[]} */
 const violations = [];
@@ -84,9 +118,10 @@ const violations = [];
 for (const file of await walk(srcDir)) {
   const content = await readFile(file, "utf8");
   const lines = content.split("\n");
+  const isCss = file.endsWith(".css");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    for (const rule of rules) {
+    for (const rule of BASE_RULES) {
       if (rule.re.test(line)) {
         violations.push({
           file: relative(ROOT, file),
@@ -95,6 +130,19 @@ for (const file of await walk(srcDir)) {
           hint: rule.hint,
           text: line.trim().slice(0, 120),
         });
+      }
+    }
+    if (isDesktop && isCss) {
+      for (const rule of DESKTOP_CSS_RULES) {
+        if (rule.match(line)) {
+          violations.push({
+            file: relative(ROOT, file),
+            line: i + 1,
+            rule: rule.id,
+            hint: rule.hint,
+            text: line.trim().slice(0, 120),
+          });
+        }
       }
     }
   }

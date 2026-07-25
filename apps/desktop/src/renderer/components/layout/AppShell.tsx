@@ -13,7 +13,7 @@ import { useUsageStore } from "@/stores/usage";
 import { useEffect, useRef } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ShareConversationDialog } from "../conversation/ShareConversationDialog";
-import { CreateFolderDialog } from "../folders/CreateFolderDialog";
+import { CreateFolderMenuHost } from "../folders/CreateFolderMenu";
 import { Sidebar } from "../sidebar/Sidebar";
 import { CommandPalette } from "./CommandPalette";
 import { OutdatedClientBanner } from "./OutdatedClientBanner";
@@ -123,7 +123,7 @@ export function AppShell() {
 
       <CommandPalette />
       <ShareConversationDialog />
-      <CreateFolderDialog />
+      <CreateFolderMenuHost />
     </div>
   );
 }

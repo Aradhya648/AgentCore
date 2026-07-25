@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 from agentcore.core.logging import get_logger
+from agentcore.runtime.costing import ROLE_ARENA
 from agentcore.runtime.debate.constants import (
     DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
     INVESTIGATOR_TOOLS,
@@ -313,6 +314,7 @@ def investigator_task_payload(
     task: EvidenceTask,
     index: int,
     retrieval_budget: int,
+    turn_model: str = "",
 ) -> dict[str, Any]:
     """取证员 task：只检索/只读，交付证据笔记，无发言、无成稿。"""
     dossier = (config.research_dossier_index or "").strip()
@@ -335,7 +337,7 @@ def investigator_task_payload(
         "与辩题无关的工具站、商城、词典条目不算证据。\n"
         "禁止正式发言、禁止收工汇报、禁止为对方写剧本。"
     )
-    return {
+    payload: dict[str, Any] = {
         "id": f"inv_{side.key}_{index}",
         "role": f"取证·{side.name}",
         "task": body,
@@ -352,6 +354,10 @@ def investigator_task_payload(
         # 无成稿：检索笔记即交付物
         "research_then_draft": False,
     }
+    main = (turn_model or "").strip()
+    if main:
+        payload["model"] = main
+    return payload
 
 
 async def _persist_investigator_notes(
@@ -427,6 +433,7 @@ async def run_investigators(
     sides_by_key = {s.key: s for s in config.sides}
     tasks_raw: list[dict[str, Any]] = []
     meta: list[tuple[str, int, str, EvidenceTask]] = []  # side, idx, parent, task
+    turn_model = tool._profile_set.model
 
     for order in orders:
         side = sides_by_key.get(order.side_key)
@@ -443,6 +450,7 @@ async def run_investigators(
                     task=task,
                     index=idx,
                     retrieval_budget=retrieval_budget,
+                    turn_model=turn_model,
                 )
             )
             meta.append((side.key, idx, parent, task))
@@ -496,6 +504,7 @@ async def run_investigators(
         sink=tool._sink,
         base_tool_context=tool._base_tool_context,
         profile_set=tool._profile_set,
+        cost_role=ROLE_ARENA,
         system_prompt=tool._system_prompt,
         user_message=tool._user_message,
         execution_id=execution_id,
@@ -522,7 +531,7 @@ async def run_investigators(
         if info is None or node is None:
             return
         sk, idx, parent, task = info
-        tool._acc.add_run(node, state, parent_run_id=parent)
+        tool._acc.add_run(node, state, parent_run_id=parent, role=ROLE_ARENA)
         notes = investigator_delivery_notes(state)
         ok = investigator_delivery_ok(state)
         if ok:
@@ -580,7 +589,7 @@ async def run_investigators(
         if outcome is None:
             state = results.get(node.run_id)
             if state is not None:
-                tool._acc.add_run(node, state, parent_run_id=parent)
+                tool._acc.add_run(node, state, parent_run_id=parent, role=ROLE_ARENA)
             notes = investigator_delivery_notes(state)
             ok = investigator_delivery_ok(state)
             if ok:

@@ -324,6 +324,29 @@ class DelegateTool:
             none_reason=(none_reason[:120] if none_reason else ""),
         )
 
+        # 点名 N 实体对比却少派：提示词易被合理化绕开 → 窄硬闸（force 可旁路）。
+        from agentcore.runtime.delegate.named_entity_fanout import (
+            check_named_entity_fanout,
+        )
+
+        fanout_error = check_named_entity_fanout(
+            arguments,
+            user_message=self._user_message or "",
+        )
+        if fanout_error:
+            logger.info(
+                "delegate.named_entity_fanout_rejected",
+                task_count=len(arguments.get("tasks") or []),
+                force=bool(arguments.get("force")),
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=fanout_error,
+                contract_failure=True,
+            )
+
         # 拆·playbook 固化 (§2.1): a固化形状 instantiates the whole tasks array, then flows through
         # the SAME pipeline below as a hand-written one (纯加法). playbook XOR tasks — expanding a
         # playbook AND passing tasks is ambiguous, so reject rather than silently pick one.
@@ -518,6 +541,7 @@ class DelegateTool:
             format_resolved_acceptance_echo,
             hoist_task_completion_criteria,
             resolve_completion_with_source,
+            validate_cold_start_explore_deliverables,
             validate_completion_against_forms,
             validate_execution_capability,
         )
@@ -537,6 +561,28 @@ class DelegateTool:
                 contract_failure=True,
             )
 
+        # 冷启动探索未完成：默认探路须 prose；禁止 form=files / artifacts（画像由 CEO
+        # update_project_profile 写）。显式 files_written 为进阶覆盖。旗标在 assemble
+        # 置位、画像写入成功后清除。
+        explore_pending = bool(self._base_tool_context.cold_start_explore_pending)
+        if explore_pending:
+            explore_form_err = validate_cold_start_explore_deliverables(
+                plan,
+                explicit_criteria=completion_criteria,
+            )
+            if explore_form_err:
+                logger.info(
+                    "delegate.cold_start_explore_rejected",
+                    reason="files_or_artifacts",
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=explore_form_err,
+                    contract_failure=True,
+                )
+
         form_conflict = validate_completion_against_forms(
             completion_criteria,
             plan,
@@ -553,7 +599,12 @@ class DelegateTool:
         # 委派前能力闸（能力闸门与交付诚实性）：resolved code_verified（显式 / 结构化，
         # 与收尾验收同一解析；文案不再绑定）撞上「无执行环境」硬拒；剩余启发命中
         # （运行/二进制文案）只软警告、不拦截。能力判定复用 code_execution_enabled_for。
-        resolved_acceptance = resolve_completion_with_source(completion_criteria, plan)
+        # 冷启动探索未完成时抑制 form/artifacts→files_written 推断（仅显式生效）。
+        resolved_acceptance = resolve_completion_with_source(
+            completion_criteria,
+            plan,
+            suppress_structured_files_written=explore_pending,
+        )
         acceptance_echo = format_resolved_acceptance_echo(resolved_acceptance)
         capability_error = validate_execution_capability(
             completion_criteria,

@@ -122,8 +122,10 @@ async def resume_chat_pipeline(
 
     bind_credential_pricing_context(llm_credentials)
     # 真·多模型辩手：同 run.py，回合 llm = DeepSeek 默认外包一层 ProviderRouter（resume 也可能
-    # 续跑含多模型辩手的辩论）。无前缀照走默认、零行为变化；路由器生命周期由下方 llm.close() 释放。
-    llm = pipeline_pkg.build_router_around(pipeline_pkg.build_provider(llm_credentials))
+    # 续跑含多模型辩手的辩论）。Cross-provider Worker 默认经 build_turn_router 注入。
+    llm = await pipeline_pkg.build_turn_router(
+        llm_credentials, user_id=suspension.user_id, profiles=profiles
+    )
     # Republish history so a re-pause DURING the settle (a downstream checkpoint while
     # resume_plan runs) captures it into the fresh frame — symmetric with the live turn
     # (Phase 2 ⑤). Reset in finally.

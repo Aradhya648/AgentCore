@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_thanks",
+  "category": "routing",
+  "user_message": "谢谢你刚才帮我理清思路，辛苦了。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "致谢类闲聊：直接礼貌回应，不该组队。"
+}

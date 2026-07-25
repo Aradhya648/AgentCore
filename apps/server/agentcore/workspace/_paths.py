@@ -6,7 +6,11 @@ these directly — they go through ``ServerWorkspace`` — so this is the single
 audited place where user-supplied paths are resolved against the root.
 
 Ignore rules are **two-tier** (双模式工作区 · 系统文件隐藏), aligned with
-desktop ``apps/desktop/src/main/fs/workspaceIgnore.ts``:
+desktop ``apps/desktop/src/main/fs/workspaceIgnore.ts``.
+
+Parity gate (edit both sides or CI fails)::
+
+    uv run python scripts/check_workspace_ignore_parity.py
 
 * **System noise** — hidden from both AI and user file UI (``.agentcore`` /
   ``.git`` / ``node_modules`` / caches / ``*.db`` / ``*.pyc`` …).
@@ -18,7 +22,7 @@ desktop ``apps/desktop/src/main/fs/workspaceIgnore.ts``:
 from pathlib import Path
 
 # --- System noise (AI + user UI) ---
-# Directory set = union with desktop ``LIST_FILES_SKIP_DIRS``. Keep in sync.
+# Directory set ↔ desktop ``LIST_FILES_SKIP_DIRS`` (parity gate).
 IGNORED_DIRS: frozenset[str] = frozenset(
     {
         ".agentcore",
@@ -59,7 +63,7 @@ SYSTEM_IGNORED_FILE_SUFFIXES: frozenset[str] = frozenset(
 )
 
 # --- AI noise (AI views only; user UI must still show these) ---
-# Keep in sync with desktop ``AI_NOISE_FILE_SUFFIXES``.
+# ↔ desktop ``AI_NOISE_FILE_SUFFIXES`` (parity gate).
 AI_NOISE_FILE_SUFFIXES: frozenset[str] = frozenset(
     {
         ".class",

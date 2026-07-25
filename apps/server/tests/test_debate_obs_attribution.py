@@ -66,7 +66,7 @@ def test_moderator_complete_json_binds_run_attribution():
     assert parsed["run_id"] == "debate_mod1"
     assert parsed["agent_id"] == "debate_mod1"
     assert parsed["parent_run_id"] == "ceo_run"
-    assert parsed["role"] == "member"
+    assert parsed["role"] == "arena"
     assert parsed["persona"] == "主持人"
     assert mod.usage.input_tokens == 3
     assert mod.llm_rounds == 1

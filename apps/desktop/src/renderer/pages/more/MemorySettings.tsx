@@ -1,3 +1,4 @@
+import { Card } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
 import { notifyError, notifySuccess } from "@/lib/toast";
 import { getMemory, setMemoryEnabled } from "@/services/memory";
@@ -51,7 +52,7 @@ export function MemorySettings() {
       />
 
       <section className="mt-6">
-        <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3">
+        <Card className="flex items-start justify-between gap-4 px-4 py-3">
           <div className="min-w-0">
             <h2 className="text-sm font-medium text-foreground">
               启用 AI 记忆
@@ -74,7 +75,7 @@ export function MemorySettings() {
               label="启用 AI 记忆"
             />
           )}
-        </div>
+        </Card>
       </section>
     </div>
   );

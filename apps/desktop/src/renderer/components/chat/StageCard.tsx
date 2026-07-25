@@ -1,3 +1,4 @@
+import { Button, Input, Textarea } from "@/components/ui";
 import { bumpConversationCache } from "@/hooks/useConversations";
 import {
   StreamError,
@@ -5,6 +6,7 @@ import {
   isRetriableStreamError,
   streamErrorAction,
 } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 import { resolveStageCardConversation } from "@/services/streamConversation";
 import { finalizeGeneratingIfNeeded, isAbort } from "@/services/turns/helpers";
 import { getRuntime, useConversationStore } from "@/stores/conversation";
@@ -14,7 +16,8 @@ import {
   useInteractionStore,
 } from "@/stores/interactions";
 /**
- * 阶段推进卡（批 B）：命题卡升级为可操作交互。
+ * L3 推进卡 Pattern：阶段推进（建议开辩）可操作交互。
+ * 独立于 DecisionCard（推进 ≠ 裁决）；壳用语义 Tailwind，控件用 L2。
  * 三键「按此开辩 / 先补充调研 / 调整命题」+ 可选开赛嘱咐；调整命题 = 改写后仍 start_debate。
  */
 import { useState } from "react";
@@ -24,6 +27,9 @@ const FORM_LABEL: Record<string, string> = {
   red_team: "红队审查",
   roundtable: "圆桌讨论",
 };
+
+const shellClass =
+  "rounded-xl border border-border bg-card p-3 text-sm text-foreground";
 
 export function StageCard({ entry }: { entry: InteractionEntry }) {
   const p = entry.payload;
@@ -42,17 +48,19 @@ export function StageCard({ entry }: { entry: InteractionEntry }) {
 
   if (entry.status === "orphaned") {
     return (
-      <div className="stage-card stage-card--orphaned" data-testid="stage-card">
-        <div className="stage-card__title">阶段推进卡已失效</div>
-        <p className="stage-card__hint">你已继续对话，此开辩入口不再可用。</p>
+      <div className={cn(shellClass, "opacity-70")} data-testid="stage-card">
+        <div className="font-semibold">阶段推进卡已失效</div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          你已继续对话，此开辩入口不再可用。
+        </p>
       </div>
     );
   }
   if (entry.status === "resolved") {
     const decision = String(entry.resolution?.decision ?? "");
     return (
-      <div className="stage-card stage-card--resolved" data-testid="stage-card">
-        <div className="stage-card__title">
+      <div className={cn(shellClass, "opacity-70")} data-testid="stage-card">
+        <div className="font-semibold">
           {decision === "research_first" ? "已选择先补充调研" : "已按此开辩"}
         </div>
       </div>
@@ -120,12 +128,14 @@ export function StageCard({ entry }: { entry: InteractionEntry }) {
   }
 
   return (
-    <div className="stage-card" data-testid="stage-card">
-      <div className="stage-card__eyebrow">阶段推进 · 建议开辩</div>
-      <div className="stage-card__motion">
+    <div className={shellClass} data-testid="stage-card">
+      <div className="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground">
+        阶段推进 · 建议开辩
+      </div>
+      <div className="mb-2 font-semibold whitespace-pre-wrap">
         {editing ? (
-          <textarea
-            className="stage-card__motion-input"
+          <Textarea
+            className="w-full resize-y"
             value={motionDraft}
             onChange={(e) => setMotionDraft(e.target.value)}
             rows={2}
@@ -135,25 +145,32 @@ export function StageCard({ entry }: { entry: InteractionEntry }) {
           <strong>{motion}</strong>
         )}
       </div>
-      <ul className="stage-card__sides">
+      <ul className="mb-2 list-disc space-y-0.5 pl-4">
         {sides.map((s) => {
           const row = s as { key?: string; name?: string; stance?: string };
           return (
             <li key={String(row.key)}>
-              <span className="stage-card__side-name">{row.name}</span>
-              <span className="stage-card__side-stance">{row.stance}</span>
+              <span className="mr-1.5 font-semibold">{row.name}</span>
+              <span className="text-muted-foreground">{row.stance}</span>
             </li>
           );
         })}
       </ul>
-      <div className="stage-card__meta">
+      <div className="mb-2 text-xs text-muted-foreground">
         {FORM_LABEL[form] ?? form} · {thorough ? "认真辩透" : "快速对碰"} · 上限{" "}
         {maxRounds} 轮
       </div>
-      {rationale ? <p className="stage-card__rationale">{rationale}</p> : null}
-      <label className="stage-card__note">
+      {rationale ? (
+        <p className="mb-2 text-xs text-muted-foreground">{rationale}</p>
+      ) : null}
+      <label
+        className="mb-2 block text-xs text-muted-foreground"
+        htmlFor="stage-debate-note"
+      >
         <span>开赛嘱咐（可选）</span>
-        <input
+        <Input
+          id="stage-debate-note"
+          className="mt-1 w-full"
           type="text"
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -161,11 +178,10 @@ export function StageCard({ entry }: { entry: InteractionEntry }) {
           disabled={busy}
         />
       </label>
-      {error ? <p className="stage-card__error">{error}</p> : null}
-      <div className="stage-card__actions">
-        <button
-          type="button"
-          className="stage-card__btn stage-card__btn--primary"
+      {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
           disabled={busy}
           onClick={() =>
             void submit(
@@ -175,18 +191,18 @@ export function StageCard({ entry }: { entry: InteractionEntry }) {
           }
         >
           按此开辩
-        </button>
-        <button
-          type="button"
-          className="stage-card__btn"
+        </Button>
+        <Button
+          variant="neutral"
+          className="border border-border"
           disabled={busy}
           onClick={() => void submit("research_first")}
         >
           先补充调研
-        </button>
-        <button
-          type="button"
-          className="stage-card__btn"
+        </Button>
+        <Button
+          variant="neutral"
+          className="border border-border"
           disabled={busy}
           onClick={() => {
             setEditing((v) => !v);
@@ -195,7 +211,7 @@ export function StageCard({ entry }: { entry: InteractionEntry }) {
           }}
         >
           {editing ? "取消调整" : "调整命题"}
-        </button>
+        </Button>
       </div>
     </div>
   );

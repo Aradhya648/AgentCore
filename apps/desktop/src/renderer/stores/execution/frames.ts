@@ -175,6 +175,8 @@ export type RunFrame =
       // builder always sets it (`?? []`); optional so hand-built fixtures may omit it.
       questions?: AskQuestion[];
       awaiting?: "user" | "ceo";
+      /** Wire `browser_login` — 登录等待 escalate；缺省 false。 */
+      browserLogin?: boolean;
     }
   | {
       // 阻塞式求决策 settlement.
@@ -444,6 +446,7 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
           p.kind === "scope" || p.kind === "dep" ? p.kind : "normal",
         questions: p.questions ?? [],
         awaiting: p.awaiting === "ceo" ? "ceo" : "user",
+        ...(p.browser_login === true ? { browserLogin: true as const } : {}),
       };
     }
     case "escalation_resolved": {

@@ -737,6 +737,51 @@ describe("projectExecution (fold)", () => {
     ]);
   });
 
+  it("folds browser_login onto RunEscalation.browserLogin", () => {
+    const frames: RunFrame[] = [
+      started("agent-1", "run-1"),
+      {
+        t: 2,
+        kind: "escalation_required",
+        escalationId: "esc-login",
+        runId: "run-1",
+        agentId: "agent-1",
+        question: "请在浏览器里登录后再继续",
+        assumption: "用户已登录",
+        escalationKind: "normal",
+        browserLogin: true,
+      },
+    ];
+    const esc = projectExecution(plan, frames, "running").runs.find(
+      (s) => s.id === "run-1",
+    )?.escalations[0];
+    expect(esc).toMatchObject({
+      id: "esc-login",
+      status: "pending",
+      browserLogin: true,
+      question: "请在浏览器里登录后再继续",
+    });
+  });
+
+  it("frameFromEvent maps wire browser_login → frame.browserLogin", () => {
+    const frame = frameFromEvent({
+      type: "escalation_required",
+      timestamp: "t",
+      payload: {
+        escalation_id: "e1",
+        run_id: "run-1",
+        agent_id: "agent-1",
+        question: "登录",
+        assumption: "已登",
+        browser_login: true,
+      },
+    } as SSEEvent);
+    expect(frame).toMatchObject({
+      kind: "escalation_required",
+      browserLogin: true,
+    });
+  });
+
   it("folds a blocking escalate timed_out: status timed_out, answer stays null", () => {
     const frames: RunFrame[] = [
       started("agent-1", "run-1"),

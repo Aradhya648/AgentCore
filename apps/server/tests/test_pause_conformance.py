@@ -148,7 +148,10 @@ async def test_pause_journal_projects_to_captain_transcript():
                             index=0,
                             id="call_ask",
                             function_name="ask_user",
-                            arguments_delta=f'{{"message": "{user_message}"}}',
+                            arguments_delta=(
+                                f'{{"message": "{user_message}", '
+                                f'"assumptions": [{{"label": "默认", "value": "A"}}]}}'
+                            ),
                         )
                     ]
                 )
@@ -263,7 +266,10 @@ async def test_pause_journal_after_completed_tool_round():
                             index=0,
                             id="call_ask",
                             function_name="ask_user",
-                            arguments_delta=f'{{"message": "{user_message}"}}',
+                            arguments_delta=(
+                                f'{{"message": "{user_message}", '
+                                f'"assumptions": [{{"label": "默认", "value": "A"}}]}}'
+                            ),
                         )
                     ]
                 )

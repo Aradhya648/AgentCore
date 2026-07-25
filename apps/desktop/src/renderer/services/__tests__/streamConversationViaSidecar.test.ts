@@ -358,10 +358,73 @@ describe("resumeConversationViaSidecar", () => {
     // for it guarantees the stop button is wired before we press it.
     await vi.waitFor(() => expect(resumeMock).toHaveBeenCalled());
     ac.abort();
-    expect(cancelMock).toHaveBeenCalledWith({ rootId: "r1", turnId: "m-asst" });
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ rootId: "r1", turnId: "m-asst" }),
+    );
 
     // The cancelled RPC then rejects; the abort wins → AbortError, no error banner.
     rejectResume(new Error("turn cancelled"));
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DOMException);
+    expect((err as DOMException).name).toBe("AbortError");
+    expect(flushTurnMock).not.toHaveBeenCalled();
+  });
+
+  it("maps honest stop (phase stopping, signal intact) to AbortError", async () => {
+    // Production stopGeneration does NOT abort AbortSignal — it sets turnPhase
+    // stopping and sidecar cancel; startTurn/resume then reject with turn cancelled.
+    seedOriginalUserBubble("c1", "u-orig", "原始问题");
+
+    let rejectResume: (e: unknown) => void = () => {};
+    resumeMock.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectResume = reject;
+        }),
+    );
+
+    const ac = new AbortController();
+    const p = resumeConversationViaSidecar({
+      ...baseRequest,
+      signal: ac.signal,
+    });
+    p.catch(() => {});
+
+    await vi.waitFor(() => expect(resumeMock).toHaveBeenCalled());
+    // Honest stop mid-flight: phase → stopping, signal stays live.
+    useConversationStore.getState().setTurnPhase("stopping", "c1");
+    expect(ac.signal.aborted).toBe(false);
+    rejectResume(
+      new Error(
+        "Error invoking remote method 'sidecar:resume': Error: turn cancelled",
+      ),
+    );
+
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DOMException);
+    expect((err as DOMException).name).toBe("AbortError");
+    expect(flushTurnMock).not.toHaveBeenCalled();
+  });
+
+  it("maps turn-cancelled reject to AbortError even after message_end left phase stopped", async () => {
+    // FIFO: message_end(cancelled) → completeTurnPhase(stopped) before RPC reject.
+    seedOriginalUserBubble("c1", "u-orig", "原始问题");
+
+    let rejectResume: (e: unknown) => void = () => {};
+    resumeMock.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectResume = reject;
+        }),
+    );
+
+    const p = resumeConversationViaSidecar(baseRequest);
+    p.catch(() => {});
+
+    await vi.waitFor(() => expect(resumeMock).toHaveBeenCalled());
+    useConversationStore.getState().setTurnPhase("stopped", "c1");
+    rejectResume(new Error("turn cancelled"));
+
     const err = await p.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DOMException);
     expect((err as DOMException).name).toBe("AbortError");

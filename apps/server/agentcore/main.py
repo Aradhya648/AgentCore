@@ -25,6 +25,7 @@ from agentcore.api.routes import (
     files,
     folders,
     inference,
+    llm_model_profiles,
     llm_providers,
     memory,
     messages,
@@ -419,6 +420,7 @@ app.include_router(files.router, prefix="/v1")
 app.include_router(folders.router, prefix="/v1")
 app.include_router(inference.router, prefix="/v1")
 app.include_router(llm_providers.router, prefix="/v1")
+app.include_router(llm_model_profiles.router, prefix="/v1")
 app.include_router(memory.router, prefix="/v1")
 app.include_router(messages.router, prefix="/v1")
 app.include_router(model_catalog.router, prefix="/v1")

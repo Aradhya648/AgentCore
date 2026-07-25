@@ -215,36 +215,14 @@ class UserRepository:
         )
         await self._session.commit()
 
-    async def set_llm_defaults(
-        self,
-        user_id: str,
-        *,
-        chat_provider_id: str | None | object = _UNSET,
-        chat_model: str | None | object = _UNSET,
-        background_provider_id: str | None | object = _UNSET,
-        background_model: str | None | object = _UNSET,
+    async def set_default_model_profile(
+        self, user_id: str, profile_id: str | None
     ) -> None:
-        """Patch the account-level BYOK default model pointers (平台LLM接入.md 多服务商).
-
-        Each dimension is a ``(provider_id, model)`` pair pointing into
-        ``user_llm_providers``; ``_UNSET`` leaves it unchanged and an explicit ``None``
-        clears it. Used by the provider-defaults endpoint, provider creation (auto-set
-        the first provider as chat default), and the delete-provider fallback (clear a
-        pointer to a removed provider). Cross-provider is allowed.
-        """
-        values: dict[str, object | None] = {}
-        if chat_provider_id is not _UNSET:
-            values["default_chat_provider_id"] = chat_provider_id
-        if chat_model is not _UNSET:
-            values["default_chat_model"] = chat_model
-        if background_provider_id is not _UNSET:
-            values["default_background_provider_id"] = background_provider_id
-        if background_model is not _UNSET:
-            values["default_background_model"] = background_model
-        if not values:
-            return
+        """Set the account default model combination (模型组合)."""
         await self._session.execute(
-            update(User).where(User.user_id == user_id).values(**values)
+            update(User)
+            .where(User.user_id == user_id)
+            .values(default_model_profile_id=profile_id)
         )
         await self._session.commit()
 

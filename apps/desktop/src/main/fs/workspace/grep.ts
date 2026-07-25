@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { WorkspaceOpResult } from "@shared/ipc-contract";
 import {
-  GREP_MAX_FILE_BYTES,
   GREP_MAX_FILES,
+  GREP_MAX_FILE_BYTES,
   GREP_MAX_RESULTS_CAP,
 } from "../constants";
 import { realInside, resolveLexical, toReason } from "../pathGuard";
@@ -22,8 +22,8 @@ import {
   LIST_FILES_SKIP_DIRS,
   SYSTEM_IGNORED_FILE_SUFFIXES,
 } from "../workspaceIgnore";
-import { resolveRgBinary } from "./rgBinary";
 import { opErr, opOk, toPosix, trimLine } from "./result";
+import { resolveRgBinary } from "./rgBinary";
 
 const FILE_ARG_CHUNK = 200;
 
@@ -147,10 +147,17 @@ function parseCountLine(line: string): { path: string; count: number } | null {
 }
 
 async function validateRegexp(rg: string, pattern: string): Promise<void> {
-  const probe = join(tmpdir(), `agentcore-rg-probe-${process.pid}-${Date.now()}.txt`);
+  const probe = join(
+    tmpdir(),
+    `agentcore-rg-probe-${process.pid}-${Date.now()}.txt`,
+  );
   await fs.writeFile(probe, "", "utf8");
   try {
-    const ran = await runRg(rg, ["--regexp", pattern, "--", probe], dirname(probe));
+    const ran = await runRg(
+      rg,
+      ["--regexp", pattern, "--", probe],
+      dirname(probe),
+    );
     handleRgStatus(ran.code, ran.stderr);
   } finally {
     await fs.unlink(probe).catch(() => undefined);
@@ -320,9 +327,7 @@ export async function opGrep(
           text: trimLine(x.text),
         };
       })
-      .sort(
-        (a, b) => a.path.localeCompare(b.path) || a.line_no - b.line_no,
-      );
+      .sort((a, b) => a.path.localeCompare(b.path) || a.line_no - b.line_no);
 
     let truncated = scanTruncated;
     let hits = parsedHits;

@@ -1,13 +1,9 @@
-import {
-  ModelKeyForm,
-  modelConfigApiErrorMessage,
-} from "@/components/llm/ModelKeyForm";
-import { ToolsCapabilityBadge } from "@/components/llm/ToolsCapabilityBadge";
-import { Button } from "@/components/ui";
-import { Switch } from "@/components/ui/Switch";
+import { modelConfigApiErrorMessage } from "@/components/llm/ModelKeyForm";
+import { Button, Card, IconButton } from "@/components/ui";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+import { useLlmModelProfiles } from "@/hooks/useLlmModelProfiles";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
-import { hasLocalEngine } from "@/lib/capabilities";
 import {
   type DefaultProviderGroup,
   buildDefaultProviderGroups,
@@ -15,133 +11,67 @@ import {
   encodePointer,
   pointerValue,
 } from "@/lib/llmDefaults";
-import { llmProviderKeys, modelKeys } from "@/lib/queryKeys";
 import {
-  type LlmProviderView,
-  type LlmProvidersResponse,
-  deleteLlmProvider,
-  setLlmDefaults,
-  testLlmProvider,
-} from "@/services/llmProviders";
-import { clearSidecarHealth } from "@/services/sidecarHealth";
-import { useUIStore } from "@/stores/ui";
+  llmModelProfileKeys,
+  llmProviderKeys,
+  modelKeys,
+} from "@/lib/queryKeys";
+import { cn } from "@/lib/utils";
+import {
+  type CreateLlmModelProfileInput,
+  type LlmModelProfileView,
+  type ModelProfileSlot,
+  createLlmModelProfile,
+  deleteLlmModelProfile,
+  profileSlotSummary,
+  setDefaultLlmModelProfile,
+  updateLlmModelProfile,
+} from "@/services/llmModelProfiles";
+import type { LlmProviderView } from "@/services/llmProviders";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Copy,
   Loader2,
   Plus,
-  ShieldCheck,
-  Sparkles,
-  XCircle,
+  Star,
+  Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { SettingsHeader } from "./SettingsHeader";
 
 /**
- * 模型配置 (/more/model) — 自带 Key（BYOK）多服务商列表页。
+ * 模型 (/more/model) — 账号默认组合 + 组合 CRUD。
  *
- * 平台代付部署（billing_mode === "platform"）下不配服务商也可用平台额度发起对话，接入服务商
- * 为高级选项（按你的端点自担费用）；BYOK 部署仍需至少一个服务商。文案按部署级 billing_mode /
- * platform_available 门控。数据源为 `GET /v1/users/me/llm-providers`（{@link useLlmProviders}）。
+ * 组合 = `{ main, worker?, background? }`；账号默认组合与会话引用见
+ * `/v1/users/me/llm-model-profiles`。凭据与测连见 `/more/providers`。
  */
 export function ModelSettings() {
   const { data: response, isLoading, isError, error } = useLlmProviders();
   const { data: catalog } = useModels();
   const queryClient = useQueryClient();
 
-  // 添加 / 编辑表单态：null = 仅列表；add = 新增；edit = 编辑某服务商。
-  const [form, setForm] = useState<
-    { mode: "add" } | { mode: "edit"; provider: LlmProviderView } | null
-  >(null);
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [testMessage, setTestMessage] = useState<Record<string, string | null>>(
-    {},
-  );
-  const [cardError, setCardError] = useState<Record<string, string | null>>({});
-  const [defaultsPending, setDefaultsPending] = useState(false);
-
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: llmProviderKeys.list });
     void queryClient.invalidateQueries({ queryKey: modelKeys.catalog });
+    void queryClient.invalidateQueries({ queryKey: llmModelProfileKeys.list });
   };
 
-  const runTest = async (providerId: string) => {
-    setTestingId(providerId);
-    setCardError((s) => ({ ...s, [providerId]: null }));
-    try {
-      const view = await testLlmProvider(providerId);
-      setTestMessage((s) => ({ ...s, [providerId]: view.message ?? null }));
-    } catch (e) {
-      setCardError((s) => ({
-        ...s,
-        [providerId]: modelConfigApiErrorMessage(e, "测试失败，请重试"),
-      }));
-    } finally {
-      setTestingId(null);
-      // Pull the persisted status / supports_tools the probe just wrote.
-      refresh();
-    }
-  };
-
-  const onSavedProvider = (view: LlmProviderView) => {
-    setForm(null);
-    refresh();
-    // Auto-probe on save so the card shows connectivity + tool support at once.
-    void runTest(view.id);
-  };
-
-  const removeProvider = async (provider: LlmProviderView) => {
-    if (!response) return;
-    const remaining = response.providers.length - 1;
-    const softFallback = remaining > 0 || response.platform_available;
-    const confirmMsg = softFallback
-      ? `删除服务商「${providerName(provider)}」？账号默认与会话覆盖会自动回落到其他服务商或平台额度，不会中断对话。`
-      : `删除服务商「${providerName(provider)}」？这是唯一的服务商，删除后将无法发起对话，直到重新接入。`;
-    if (!window.confirm(confirmMsg)) return;
-    setCardError((s) => ({ ...s, [provider.id]: null }));
-    try {
-      await deleteLlmProvider(provider.id);
-      if (form?.mode === "edit" && form.provider.id === provider.id) {
-        setForm(null);
-      }
-      refresh();
-    } catch (e) {
-      setCardError((s) => ({
-        ...s,
-        [provider.id]: modelConfigApiErrorMessage(e, "删除失败，请重试"),
-      }));
-    }
-  };
-
-  const applyDefaults = async (
-    patch: Parameters<typeof setLlmDefaults>[0],
-  ): Promise<void> => {
-    setDefaultsPending(true);
-    try {
-      const next = await setLlmDefaults(patch);
-      queryClient.setQueryData<LlmProvidersResponse>(
-        llmProviderKeys.list,
-        next,
-      );
-      void queryClient.invalidateQueries({ queryKey: modelKeys.catalog });
-    } catch (e) {
-      window.alert(modelConfigApiErrorMessage(e, "设置默认模型失败，请重试"));
-    } finally {
-      setDefaultsPending(false);
-    }
-  };
-
-  const platformMode = response?.billing_mode === "platform";
   const providers = response?.providers ?? [];
+  const platformAvailable = response?.platform_available ?? false;
+  const platformMode = response?.billing_mode === "platform";
+  const canEditProfiles = providers.length > 0 || platformAvailable;
 
   return (
     <div>
       <SettingsHeader
-        title="模型配置"
+        title="模型"
         description={
-          platformMode
-            ? "接入你自己的 OpenAI 兼容服务商（可配置多个）。不接入也可用平台额度发起对话；接入后按你的端点自担费用。Key 经 AES 加密存储，仅回显后 4 位。"
-            : "接入你自己的 OpenAI 兼容服务商（可配置多个）。Key 经 AES 加密存储，仅回显后 4 位；未接入则无法发起对话。"
+          platformMode || platformAvailable
+            ? "选择账号默认组合（主模型 + 可选 Worker / 后台）。可用平台额度直接对话，也可接入服务商。"
+            : "选择账号默认组合（主模型 + 可选 Worker / 后台）。需先接入服务商。"
         }
       />
 
@@ -156,332 +86,579 @@ export function ModelSettings() {
         </p>
       ) : (
         <div className="mt-6 space-y-4">
-          {response.platform_available && (
-            <PlatformQuotaCard response={response} />
-          )}
+          <PlatformStatusLine
+            platformAvailable={platformAvailable}
+            freeTierActive={response.free_tier_active}
+            platformModel={response.platform_model ?? null}
+            hasProviders={providers.length > 0}
+          />
 
-          {providers.map((provider) =>
-            form?.mode === "edit" && form.provider.id === provider.id ? (
-              <ModelKeyForm
-                key={provider.id}
-                providerId={provider.id}
-                initialLabel={provider.label}
-                initialBaseUrl={provider.base_url}
-                initialModel={provider.default_model}
-                initialPriceCacheHit={provider.price_cache_hit}
-                initialPriceCacheMiss={provider.price_cache_miss}
-                initialPriceOutput={provider.price_output}
-                hideTestHint
-                onSaved={onSavedProvider}
-                onCancel={() => setForm(null)}
-              />
-            ) : (
-              <ProviderCard
-                key={provider.id}
-                provider={provider}
-                testing={testingId === provider.id}
-                testMessage={testMessage[provider.id]}
-                actionError={cardError[provider.id]}
-                onTest={() => void runTest(provider.id)}
-                onEdit={() => setForm({ mode: "edit", provider })}
-                onDelete={() => void removeProvider(provider)}
-              />
-            ),
-          )}
-
-          {providers.length === 0 && form?.mode !== "add" && (
-            <EmptyProviders onAdd={() => setForm({ mode: "add" })} />
-          )}
-
-          {form?.mode === "add" ? (
-            <ModelKeyForm
-              hideTestHint
-              onSaved={onSavedProvider}
-              onCancel={() => setForm(null)}
-            />
-          ) : form === null && providers.length > 0 ? (
-            <Button
-              variant="neutral"
-              size="md"
-              icon={<Plus size={14} />}
-              onClick={() => setForm({ mode: "add" })}
-            >
-              添加服务商
-            </Button>
-          ) : null}
-
-          {providers.length > 0 && (
-            <DefaultSelectors
-              response={response}
+          {canEditProfiles ? (
+            <ModelProfilesSection
+              providers={providers}
               catalog={catalog}
-              pending={defaultsPending}
-              onSetChat={(pointer) => void applyDefaults({ chat: pointer })}
-              onSetBackground={(pointer) =>
-                void applyDefaults({ background: pointer })
-              }
+              onChanged={refresh}
             />
+          ) : (
+            <EmptyProfilesCta />
           )}
-
-          <InfoNote />
         </div>
-      )}
-
-      {hasLocalEngine() && <LocalEngineToggle />}
-    </div>
-  );
-}
-
-function providerName(provider: LlmProviderView): string {
-  return provider.label?.trim() || hostFromBaseUrl(provider.base_url);
-}
-
-function hostFromBaseUrl(url: string | null | undefined): string {
-  const trimmed = url?.trim();
-  if (!trimmed) return "";
-  try {
-    return new URL(trimmed).host;
-  } catch {
-    return trimmed;
-  }
-}
-
-/** 平台额度卡（部署开启平台模型时，只读）。 */
-function PlatformQuotaCard({ response }: { response: LlmProvidersResponse }) {
-  return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-border bg-card px-4 py-3">
-      <Sparkles size={16} className="mt-0.5 shrink-0 text-primary" />
-      <div className="min-w-0 space-y-1">
-        <p className="flex items-center gap-2 text-sm text-foreground">
-          平台额度
-          <span className="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
-            无需配置
-          </span>
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {response.free_tier_active
-            ? "当前用平台免费额度运行，无需接入自己的模型；"
-            : "未接入自己的模型时，对话默认走平台额度运行；"}
-          接入下方服务商后可切换到自己的模型（按你的端点自担费用）。
-        </p>
-        {response.platform_model && (
-          <p className="font-mono text-xs text-muted-foreground">
-            默认平台模型 {response.platform_model}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatusBadge({
-  status,
-  message,
-  testing,
-}: {
-  status: string;
-  message?: string | null;
-  testing?: boolean;
-}) {
-  if (testing) {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 size={14} className="animate-spin" />
-        测试中…
-      </span>
-    );
-  }
-  if (status === "active") {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-success">
-        <CheckCircle2 size={14} />
-        连接正常
-      </span>
-    );
-  }
-  if (status === "error") {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-destructive">
-        <XCircle size={14} />
-        {message ?? "连接失败"}
-      </span>
-    );
-  }
-  return <span className="text-xs text-muted-foreground">未测试</span>;
-}
-
-function ProviderCard({
-  provider,
-  testing,
-  testMessage,
-  actionError,
-  onTest,
-  onEdit,
-  onDelete,
-}: {
-  provider: LlmProviderView;
-  testing: boolean;
-  testMessage?: string | null;
-  actionError?: string | null;
-  onTest: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const host = hostFromBaseUrl(provider.base_url);
-  const busy = testing;
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-sm font-medium text-foreground">
-              {providerName(provider)}
-            </p>
-            {provider.is_default_chat && <DefaultBadge>聊天默认</DefaultBadge>}
-            {provider.is_default_background && (
-              <DefaultBadge>后台默认</DefaultBadge>
-            )}
-          </div>
-          {host && (
-            <p className="truncate font-mono text-xs text-muted-foreground">
-              {host}
-            </p>
-          )}
-          <p className="font-mono text-sm text-foreground">
-            {provider.masked_key ?? "已配置"}
-          </p>
-          <p className="font-mono text-xs text-foreground">
-            默认模型 {provider.default_model}
-          </p>
-          {(provider.price_cache_miss || provider.price_output) && (
-            <p className="text-xs text-muted-foreground">
-              单价 输入 {provider.price_cache_miss ?? "—"} / 输出{" "}
-              {provider.price_output ?? "—"}
-              {provider.price_cache_hit
-                ? ` / 缓存 ${provider.price_cache_hit}`
-                : ""}{" "}
-              USD/1M
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <StatusBadge
-              status={provider.status}
-              message={testMessage}
-              testing={testing}
-            />
-            <ToolsCapabilityBadge supportsTools={provider.supports_tools} />
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
-          <Button
-            variant="neutral"
-            size="md"
-            disabled={busy}
-            icon={
-              testing ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : undefined
-            }
-            onClick={onTest}
-          >
-            测试连接
-          </Button>
-          <Button variant="neutral" size="md" disabled={busy} onClick={onEdit}>
-            编辑
-          </Button>
-          <Button variant="danger" size="md" disabled={busy} onClick={onDelete}>
-            删除
-          </Button>
-        </div>
-      </div>
-      {actionError && (
-        <p className="mt-3 text-xs text-destructive">{actionError}</p>
       )}
     </div>
   );
 }
 
-function DefaultBadge({ children }: { children: React.ReactNode }) {
+function EmptyProfilesCta() {
+  const navigate = useNavigate();
   return (
-    <span className="rounded bg-primary/10 px-1 py-0.5 text-xs text-primary">
-      {children}
-    </span>
-  );
-}
-
-function EmptyProviders({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border py-12 text-center">
+    <Card className="flex flex-col items-center justify-center gap-3 border-dashed py-8 text-center">
       <p className="text-sm text-muted-foreground">
-        还没有接入任何服务商。接入后，你端点发现的模型会出现在聊天框的模型选择器中。
+        还没有可用模型。先接入服务商。
       </p>
-      <Button size="md" icon={<Plus size={14} />} onClick={onAdd}>
-        添加服务商
+      <Button
+        size="sm"
+        icon={<Plus size={14} />}
+        onClick={() => navigate("/more/providers")}
+      >
+        接入服务商
       </Button>
-    </div>
+    </Card>
+  );
+}
+
+function PlatformStatusLine({
+  platformAvailable,
+  freeTierActive,
+  platformModel,
+  hasProviders,
+}: {
+  platformAvailable: boolean;
+  freeTierActive: boolean;
+  platformModel: string | null;
+  hasProviders: boolean;
+}) {
+  if (!platformAvailable && hasProviders) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        已接入服务商。{" "}
+        <Link
+          to="/more/providers"
+          className="text-primary underline-offset-2 hover:underline"
+        >
+          管理服务商
+        </Link>
+      </p>
+    );
+  }
+  if (!platformAvailable) return null;
+
+  const status = freeTierActive ? "可用平台免费额度" : "可用平台额度";
+  const modelHint = platformModel ? ` · ${platformModel}` : "";
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {status}
+      {modelHint}。{" "}
+      <Link
+        to="/more/providers"
+        className="text-primary underline-offset-2 hover:underline"
+      >
+        {hasProviders ? "管理服务商" : "接入服务商"}
+      </Link>
+    </p>
   );
 }
 
 /**
- * 账号默认模型与后台任务模型两个跨服务商选择器（按服务商分组）。设账号级 chat / 后台默认指针
- * `(provider_id, model)`；后台可选「跟随聊天默认」清除。
+ * 模型组合列表 + 编辑：主必填；Worker / 后台默认跟随、可展开选模型。
+ * 系统预置不可删，可设默认 / 复制为用户组合；用户组合可新建 / 改名 / 删。
  */
-function DefaultSelectors({
-  response,
+function ModelProfilesSection({
+  providers,
   catalog,
-  pending,
-  onSetChat,
-  onSetBackground,
+  onChanged,
 }: {
-  response: LlmProvidersResponse;
+  providers: LlmProviderView[];
   catalog: ReturnType<typeof useModels>["data"];
-  pending: boolean;
-  onSetChat: (pointer: { provider_id: string; model: string }) => void;
-  onSetBackground: (
-    pointer: { provider_id: string; model: string } | null,
-  ) => void;
+  onChanged: () => void;
 }) {
-  const groups = buildDefaultProviderGroups(
-    response.providers,
-    catalog,
-    response.default_chat,
-    response.default_background,
+  const {
+    data: profileList,
+    isLoading,
+    isError,
+    error,
+  } = useLlmModelProfiles();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const catalogModels = catalog?.models ?? [];
+  const manageable = useMemo(
+    () =>
+      (profileList?.data ?? []).filter(
+        (p) => p.kind === "system" || p.kind === "user",
+      ),
+    [profileList],
   );
 
+  const groups = buildDefaultProviderGroups(
+    providers,
+    catalog,
+    ...manageable.flatMap((p) => [p.main, p.worker, p.background]),
+  );
+
+  const seedMain = (): ModelProfileSlot | null => {
+    const cur = catalog?.current;
+    if (cur?.id) {
+      return {
+        origin: cur.origin,
+        provider_id: cur.provider_id ?? null,
+        model: cur.id,
+      };
+    }
+    const first = catalogModels.find((m) => m.available !== false);
+    if (!first) return null;
+    return {
+      origin: first.origin,
+      provider_id: first.provider_id ?? null,
+      model: first.id,
+    };
+  };
+
+  const withPending = async (fn: () => Promise<void>) => {
+    setPending(true);
+    setActionError(null);
+    try {
+      await fn();
+      onChanged();
+    } catch (e) {
+      setActionError(modelConfigApiErrorMessage(e, "操作失败，请重试"));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const onSetDefault = (profile: LlmModelProfileView) =>
+    withPending(async () => {
+      await setDefaultLlmModelProfile(profile.id);
+    });
+
+  const onDelete = (profile: LlmModelProfileView) => {
+    if (profile.kind !== "user") return;
+    if (
+      !window.confirm(
+        `删除组合「${profile.name}」？引用该组合的会话将回落账号默认。`,
+      )
+    )
+      return;
+    void withPending(async () => {
+      await deleteLlmModelProfile(profile.id);
+      if (editingId === profile.id) setEditingId(null);
+    });
+  };
+
+  const onCopy = (profile: LlmModelProfileView) =>
+    withPending(async () => {
+      const created = await createLlmModelProfile({
+        name: `${profile.name} 副本`,
+        main: profile.main,
+        worker: profile.worker ?? null,
+        background: profile.background ?? null,
+        set_as_default: false,
+      });
+      setEditingId(created.id);
+      setCreating(false);
+    });
+
+  const onCreate = () => {
+    const main = seedMain();
+    if (!main) {
+      setActionError("暂无可用模型，请先接入服务商或等待平台目录加载");
+      return;
+    }
+    setCreating(true);
+    setEditingId(null);
+  };
+
+  const onSaveCreate = (draft: ProfileDraft) =>
+    withPending(async () => {
+      if (!draft.main) throw new Error("主模型必填");
+      const created = await createLlmModelProfile({
+        name: draft.name.trim() || "未命名组合",
+        main: draft.main,
+        worker: draft.worker,
+        background: draft.background,
+        set_as_default: false,
+      } satisfies CreateLlmModelProfileInput);
+      setCreating(false);
+      setEditingId(created.id);
+    });
+
+  const onSaveEdit = (profile: LlmModelProfileView, draft: ProfileDraft) =>
+    withPending(async () => {
+      if (profile.kind !== "user") return;
+      if (!draft.main) throw new Error("主模型必填");
+      await updateLlmModelProfile(profile.id, {
+        name: draft.name.trim() || profile.name,
+        main: draft.main,
+        worker: draft.worker,
+        background: draft.background,
+      });
+    });
+
   return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
-      <p className="text-sm font-medium text-foreground">账号默认模型</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        聊天与后台任务（标题、记忆等）分别使用哪个服务商的模型，可跨服务商选择。
-      </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="block" htmlFor="account-default-chat">
-          <span className="text-xs text-muted-foreground">聊天默认</span>
-          <ProviderModelSelect
-            id="account-default-chat"
-            groups={groups}
-            value={pointerValue(response.default_chat)}
-            disabled={pending}
-            onChange={(value) => {
-              const pointer = decodePointer(value);
-              if (pointer) onSetChat(pointer);
-            }}
-          />
-        </label>
-        <label className="block" htmlFor="account-default-background">
-          <span className="text-xs text-muted-foreground">后台任务模型</span>
-          <ProviderModelSelect
-            id="account-default-background"
-            groups={groups}
-            value={pointerValue(response.default_background)}
-            disabled={pending}
-            followLabel="跟随聊天默认"
-            onChange={(value) => onSetBackground(decodePointer(value))}
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            用于标题、记忆等后台任务的便宜模型；留空则跟随聊天默认。
+    <section>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">模型组合</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            主模型必填；Worker / 后台可留空跟随。改定义后下一回合生效。
           </p>
-        </label>
+        </div>
+        <Button
+          variant="neutral"
+          size="sm"
+          icon={<Plus size={14} />}
+          disabled={pending}
+          onClick={onCreate}
+        >
+          新建
+        </Button>
       </div>
+
+      {isLoading ? (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 size={14} className="animate-spin" />
+          加载组合…
+        </div>
+      ) : isError ? (
+        <p className="mt-3 text-xs text-destructive">
+          {modelConfigApiErrorMessage(error, "加载组合失败")}
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {creating && (
+            <ProfileEditor
+              title="新建组合"
+              groups={groups}
+              initial={{
+                name: "未命名组合",
+                main: seedMain(),
+                worker: null,
+                background: null,
+              }}
+              pending={pending}
+              onCancel={() => setCreating(false)}
+              onSave={(draft) => void onSaveCreate(draft)}
+            />
+          )}
+
+          {manageable.map((profile) =>
+            editingId === profile.id && profile.kind === "user" ? (
+              <ProfileEditor
+                key={profile.id}
+                title={`编辑「${profile.name}」`}
+                groups={groups}
+                initial={{
+                  name: profile.name,
+                  main: profile.main,
+                  worker: profile.worker ?? null,
+                  background: profile.background ?? null,
+                }}
+                pending={pending}
+                onCancel={() => setEditingId(null)}
+                onSave={(draft) => void onSaveEdit(profile, draft)}
+              />
+            ) : (
+              <ProfileListRow
+                key={profile.id}
+                profile={profile}
+                summary={profileSlotSummary(profile, catalogModels)}
+                pending={pending}
+                onEdit={() => {
+                  setCreating(false);
+                  setEditingId(profile.id);
+                }}
+                onSetDefault={() => void onSetDefault(profile)}
+                onCopy={() => void onCopy(profile)}
+                onDelete={() => onDelete(profile)}
+              />
+            ),
+          )}
+
+          {manageable.length === 0 && !creating && (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              暂无组合
+            </p>
+          )}
+        </div>
+      )}
+
+      {actionError && (
+        <p className="mt-3 text-xs text-destructive">{actionError}</p>
+      )}
+    </section>
+  );
+}
+
+type ProfileDraft = {
+  name: string;
+  main: ModelProfileSlot | null;
+  worker: ModelProfileSlot | null;
+  background: ModelProfileSlot | null;
+};
+
+function ProfileListRow({
+  profile,
+  summary,
+  pending,
+  onEdit,
+  onSetDefault,
+  onCopy,
+  onDelete,
+}: {
+  profile: LlmModelProfileView;
+  summary: string;
+  pending: boolean;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onCopy: () => void;
+  onDelete: () => void;
+}) {
+  const isUser = profile.kind === "user";
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2",
+        profile.is_default ? "border-primary/40 bg-primary/5" : "border-border",
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm text-foreground">{profile.name}</p>
+            {profile.is_default && (
+              <span className="rounded bg-primary/10 px-1 py-0.5 text-xs text-primary">
+                默认组合
+              </span>
+            )}
+            {profile.kind === "system" && (
+              <span className="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
+                预置
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {summary}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {!profile.is_default && (
+            <SimpleTooltip label="设为默认">
+              <IconButton
+                size="sm"
+                aria-label="设为默认"
+                disabled={pending}
+                onClick={onSetDefault}
+              >
+                <Star size={14} />
+              </IconButton>
+            </SimpleTooltip>
+          )}
+          <SimpleTooltip label="复制">
+            <IconButton
+              size="sm"
+              aria-label="复制"
+              disabled={pending}
+              onClick={onCopy}
+            >
+              <Copy size={14} />
+            </IconButton>
+          </SimpleTooltip>
+          {isUser ? (
+            <>
+              <Button
+                variant="neutral"
+                size="sm"
+                disabled={pending}
+                onClick={onEdit}
+              >
+                编辑
+              </Button>
+              <SimpleTooltip label="删除">
+                <IconButton
+                  size="sm"
+                  aria-label="删除"
+                  disabled={pending}
+                  onClick={onDelete}
+                >
+                  <Trash2 size={14} />
+                </IconButton>
+              </SimpleTooltip>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileEditor({
+  title,
+  groups,
+  initial,
+  pending,
+  onCancel,
+  onSave,
+}: {
+  title: string;
+  groups: DefaultProviderGroup[];
+  initial: ProfileDraft;
+  pending: boolean;
+  onCancel: () => void;
+  onSave: (draft: ProfileDraft) => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [main, setMain] = useState(initial.main);
+  const [worker, setWorker] = useState(initial.worker);
+  const [background, setBackground] = useState(initial.background);
+  const [workerOpen, setWorkerOpen] = useState(!!initial.worker);
+  const [bgOpen, setBgOpen] = useState(!!initial.background);
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-muted/20 px-3 py-3">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <label className="block" htmlFor="profile-name">
+        <span className="text-xs text-muted-foreground">名称</span>
+        <input
+          id="profile-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={pending}
+          className="mt-1 h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
+        />
+      </label>
+      <label className="block" htmlFor="profile-main">
+        <span className="text-xs text-muted-foreground">主模型（必填）</span>
+        <ProviderModelSelect
+          id="profile-main"
+          groups={groups}
+          value={pointerValue(main)}
+          disabled={pending}
+          onChange={(value) => setMain(decodePointer(value))}
+        />
+      </label>
+
+      <OptionalSlot
+        label="Worker 模型"
+        hint="组队队员用；辩论用主模型。留空则跟随主模型。"
+        open={workerOpen}
+        onToggle={() => {
+          setWorkerOpen((v) => {
+            if (v) setWorker(null);
+            return !v;
+          });
+        }}
+        value={pointerValue(worker)}
+        groups={groups}
+        pending={pending}
+        followLabel="跟随主模型"
+        onChange={(value) => setWorker(decodePointer(value))}
+      />
+
+      <OptionalSlot
+        label="后台任务模型"
+        hint="标题、记忆等后台任务；留空则跟随主模型。"
+        open={bgOpen}
+        onToggle={() => {
+          setBgOpen((v) => {
+            if (v) setBackground(null);
+            return !v;
+          });
+        }}
+        value={pointerValue(background)}
+        groups={groups}
+        pending={pending}
+        followLabel="跟随主模型"
+        onChange={(value) => setBackground(decodePointer(value))}
+      />
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button
+          variant="neutral"
+          size="sm"
+          disabled={pending}
+          onClick={onCancel}
+        >
+          取消
+        </Button>
+        <Button
+          size="sm"
+          disabled={pending || !main}
+          icon={
+            pending ? <Loader2 size={14} className="animate-spin" /> : undefined
+          }
+          onClick={() =>
+            onSave({
+              name,
+              main,
+              worker: workerOpen ? worker : null,
+              background: bgOpen ? background : null,
+            })
+          }
+        >
+          保存
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function OptionalSlot({
+  label,
+  hint,
+  open,
+  onToggle,
+  value,
+  groups,
+  pending,
+  followLabel,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  open: boolean;
+  onToggle: () => void;
+  value: string;
+  groups: DefaultProviderGroup[];
+  pending: boolean;
+  followLabel: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-1 text-left text-xs text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span>{label}</span>
+        {!open && <span className="ml-1 opacity-70">（{followLabel}）</span>}
+      </button>
+      {open ? (
+        <>
+          <ProviderModelSelect
+            groups={groups}
+            value={value}
+            disabled={pending}
+            followLabel={followLabel}
+            onChange={onChange}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -498,7 +675,6 @@ function ProviderModelSelect({
   groups: DefaultProviderGroup[];
   value: string;
   disabled?: boolean;
-  /** When set, offer an empty「跟随」option (background selector). */
   followLabel?: string;
   onChange: (value: string) => void;
 }) {
@@ -532,43 +708,5 @@ function ProviderModelSelect({
         </optgroup>
       ))}
     </select>
-  );
-}
-
-function LocalEngineToggle() {
-  const enabled = useUIStore((s) => s.sidecarEnabled);
-  const setEnabled = useUIStore((s) => s.setSidecarEnabled);
-  const onToggle = (v: boolean): void => {
-    setEnabled(v);
-    if (v) clearSidecarHealth();
-  };
-  return (
-    <div className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-sm text-foreground">本地引擎</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          绑定本机本地文件夹的对话默认在你的电脑上运行（直连本地磁盘、更快），启动失败会自动切回
-          云端。裸聊与云端项目仍走云；AI
-          推理仍在云端，断网时不可用。关闭后全部走云端。
-        </p>
-      </div>
-      <Switch checked={enabled} onCheckedChange={onToggle} label="本地引擎" />
-    </div>
-  );
-}
-
-function InfoNote() {
-  return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/30 px-4 py-3">
-      <ShieldCheck
-        size={16}
-        className="mt-0.5 shrink-0 text-muted-foreground"
-      />
-      <p className="text-xs text-muted-foreground">
-        你的 Key 仅用于你自己的对话，经 AES-256-GCM 加密存储，服务端只显示后 4
-        位、不会回传完整内容。聊天、委派、辩论均使用此处配置的模型；平台只统计
-        token 用量、不代为计价。
-      </p>
-    </div>
   );
 }

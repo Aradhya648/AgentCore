@@ -99,6 +99,21 @@ _CODE_EXECUTE_WRITTEN_MARKER_RE = re.compile(
     r"<!--agentcore:written_files:(.*?)-->", re.DOTALL
 )
 
+
+def file_landing_tool_names() -> tuple[str, ...]:
+    """Ordered tool names that count toward ``files_touched`` / files_written gaps.
+
+    Single source for gap copy + transcript harvest: ``_FILE_PRODUCT_ARG`` keys plus
+    ``code_execute`` write-back. Callers must not hard-code a subset.
+    """
+    return (*_FILE_PRODUCT_ARG.keys(), _CODE_EXECUTE_TOOL_NAME)
+
+
+def format_file_landing_tools_slash() -> str:
+    """Slash-joined landing-tool names for CEO-facing files_written gap copy."""
+    return " / ".join(file_landing_tool_names())
+
+
 # 工具失败机器尾注 (生产方见 runtime/engine/tool_exec.py · TOOL_FAILED_MARKER):
 # file 工具通道按「执行成功口径」记账——assistant 调用只记 path 意图，须等同 tool_call_id
 # 的 tool result **且无此失败尾注** 才计入 files_touched。LLMMessage 无独立 success 字段，

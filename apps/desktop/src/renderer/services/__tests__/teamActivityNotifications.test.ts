@@ -3,6 +3,7 @@ import { getConversations } from "@/hooks/useConversations";
 import { notifyInfo } from "@/lib/toast";
 import { startTeamActivityNotifications } from "@/services/teamActivityNotifications";
 import { useConversationStore } from "@/stores/conversation";
+import { useInteractionStore } from "@/stores/interactions";
 import { type PendingResume, usePausedTurnStore } from "@/stores/pausedTurns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -99,6 +100,7 @@ describe("startTeamActivityNotifications", () => {
     getConversationsMock.mockReturnValue([]);
     useConversationStore.setState({ currentConversationId: OTHER, byId: {} });
     usePausedTurnStore.getState().clear();
+    useInteractionStore.getState().clear();
     window.location.hash = `#/conversations/${OTHER}`;
     stop = startTeamActivityNotifications();
   });
@@ -106,6 +108,7 @@ describe("startTeamActivityNotifications", () => {
   afterEach(() => {
     stop();
     usePausedTurnStore.getState().clear();
+    useInteractionStore.getState().clear();
     useConversationStore.setState({ currentConversationId: null, byId: {} });
   });
 
@@ -174,6 +177,29 @@ describe("startTeamActivityNotifications", () => {
 
     const messages = notifyInfoMock.mock.calls.map((c) => String(c[0]));
     expect(messages).toContain("「开工」等待你确认后才会开工");
+    expect(messages.some((m) => m.includes("已完成"))).toBe(false);
+  });
+
+  it("幕终 pending stage_card 不弹已完成，弹需要你确认推进", async () => {
+    seedTitle(CID, "调研收口");
+    setGenerating(CID, true);
+    useInteractionStore.getState().upsertRequired({
+      kind: "stage_card",
+      conversationId: CID,
+      messageId: "msg-sc",
+      payload: {
+        stage_card_id: "sc-1",
+        motion: "命题",
+        form: "debate",
+      },
+    });
+    setGenerating(CID, false);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const messages = notifyInfoMock.mock.calls.map((c) => String(c[0]));
+    expect(messages).toContain("「调研收口」需要你确认推进");
     expect(messages.some((m) => m.includes("已完成"))).toBe(false);
   });
 

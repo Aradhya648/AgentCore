@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui";
+import { Button, Card, Input } from "@/components/ui";
 import {
   Dialog,
   DialogContent,
@@ -25,9 +25,6 @@ import { SettingsHeader } from "./SettingsHeader";
 // Mirror of the server's avatar_upload_max_bytes so an oversized pick fails fast,
 // before a pointless round-trip.
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
-
-const INPUT_CLASS =
-  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
 
 /** Prefer the backend's user-facing message (`{error:{message}}`) over a generic
  *  fallback so the form echoes exactly why a request was rejected. */
@@ -74,9 +71,7 @@ function Section({
       {description && (
         <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       )}
-      <div className="mt-3 rounded-xl border border-border bg-card p-4">
-        {children}
-      </div>
+      <Card className="mt-3 p-4">{children}</Card>
     </section>
   );
 }
@@ -230,34 +225,37 @@ function ProfileSection() {
       description="显示名会展示给团队成员；邮箱用于后续找回密码（可选）。"
     >
       <div className="space-y-3">
-        <label className="block">
+        <label className="block" htmlFor="account-profile-username">
           <span className="mb-1 block text-xs text-muted-foreground">
             用户名
           </span>
-          <input
-            className={`${INPUT_CLASS} opacity-60`}
+          <Input
+            id="account-profile-username"
+            className="w-full opacity-60"
             value={user?.username ?? ""}
             disabled
           />
         </label>
-        <label className="block">
+        <label className="block" htmlFor="account-profile-display-name">
           <span className="mb-1 block text-xs text-muted-foreground">
             显示名
           </span>
-          <input
-            className={INPUT_CLASS}
+          <Input
+            id="account-profile-display-name"
+            className="w-full"
             value={displayName}
             maxLength={200}
             placeholder="你的显示名"
             onChange={(e) => setDisplayName(e.target.value)}
           />
         </label>
-        <label className="block">
+        <label className="block" htmlFor="account-profile-email">
           <span className="mb-1 block text-xs text-muted-foreground">
             邮箱（可选）
           </span>
-          <input
-            className={INPUT_CLASS}
+          <Input
+            id="account-profile-email"
+            className="w-full"
             type="email"
             value={email}
             maxLength={255}
@@ -330,36 +328,39 @@ function PasswordSection() {
       description="修改后，除当前设备外的所有登录都会失效。"
     >
       <div className="space-y-3">
-        <label className="block">
+        <label className="block" htmlFor="account-password-current">
           <span className="mb-1 block text-xs text-muted-foreground">
             当前密码
           </span>
-          <input
-            className={INPUT_CLASS}
+          <Input
+            id="account-password-current"
+            className="w-full"
             type="password"
             value={current}
             autoComplete="current-password"
             onChange={(e) => setCurrent(e.target.value)}
           />
         </label>
-        <label className="block">
+        <label className="block" htmlFor="account-password-new">
           <span className="mb-1 block text-xs text-muted-foreground">
             新密码（至少 8 位）
           </span>
-          <input
-            className={INPUT_CLASS}
+          <Input
+            id="account-password-new"
+            className="w-full"
             type="password"
             value={next}
             autoComplete="new-password"
             onChange={(e) => setNext(e.target.value)}
           />
         </label>
-        <label className="block">
+        <label className="block" htmlFor="account-password-confirm">
           <span className="mb-1 block text-xs text-muted-foreground">
             确认新密码
           </span>
-          <input
-            className={INPUT_CLASS}
+          <Input
+            id="account-password-confirm"
+            className="w-full"
             type="password"
             value={confirm}
             autoComplete="new-password"
@@ -398,7 +399,7 @@ function DangerSection() {
       <p className="mt-1 text-xs text-muted-foreground">
         注销后账户将被停用并匿名化，且无法恢复。
       </p>
-      <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+      <Card className="mt-3 flex items-center justify-between gap-4 border-destructive/40 bg-destructive/5 p-4">
         <div className="min-w-0">
           <p className="text-sm text-foreground">注销账户</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -413,7 +414,7 @@ function DangerSection() {
         >
           注销账户
         </Button>
-      </div>
+      </Card>
       <DeleteAccountDialog open={open} onOpenChange={setOpen} />
     </section>
   );
@@ -464,8 +465,8 @@ function DeleteAccountDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="px-5">
-          <input
-            className={INPUT_CLASS}
+          <Input
+            className="w-full"
             type="password"
             value={password}
             placeholder="当前密码"

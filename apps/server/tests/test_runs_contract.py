@@ -164,6 +164,8 @@ def test_format_light_repair_feedback_carries_prior_and_skips_reinvestigate():
     assert "缺少必备章节" in fb
     assert "草稿缺章" in fb
     assert "不要重新检索" in fb
+    assert "str_replace" in fb
+    assert "file_read" in fb  # 禁止再 file_read 自产物
     assert format_light_repair_feedback(
         check_contract("ok 内容", None), prior_content="x"
     ) == ""

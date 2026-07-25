@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_two_concept",
+  "category": "routing",
+  "user_message": "Python 里 list 和 tuple 有什么区别？",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "单点概念对比：几句话可答清，CEO 直答，过度编排优先判失败。"
+}

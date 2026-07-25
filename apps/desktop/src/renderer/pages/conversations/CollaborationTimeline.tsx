@@ -1,4 +1,4 @@
-import { SectionLabel } from "@/components/ui";
+import { Card, SectionLabel } from "@/components/ui";
 import { conversationKeys } from "@/lib/queryKeys";
 import { filesFocusState } from "@/pages/conversations/constants";
 import {
@@ -62,8 +62,9 @@ export function CollaborationTimelinePanel({
   const loading = timelineQ.isLoading;
 
   return (
-    <div
-      className="mb-3 shrink-0 rounded-xl border border-border bg-card/40 p-3"
+    <Card
+      variant="muted"
+      className="mb-3 shrink-0 bg-card/40 p-3"
       data-testid="collaboration-timeline"
     >
       <div className="flex items-start gap-3">
@@ -135,7 +136,7 @@ export function CollaborationTimelinePanel({
             )}
         </aside>
       </div>
-    </div>
+    </Card>
   );
 }
 

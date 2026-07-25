@@ -29,8 +29,6 @@ const SAVED: LlmProviderView = {
   base_url: "https://api.deepseek.com",
   default_model: "deepseek-v4-flash",
   status: "unchecked",
-  is_default_chat: true,
-  is_default_background: false,
 };
 
 afterEach(cleanup);

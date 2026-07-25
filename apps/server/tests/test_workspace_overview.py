@@ -35,6 +35,8 @@ async def test_empty_workspace_yields_guidance_hint():
     out = await build_workspace_overview(_FakeBackend([]))
     assert out.startswith("<workspace_file_index>")
     assert "工作区当前为空" in out
+    assert "会话云端草稿" in out
+    assert "不是本机或已打开的仓库项目" in out
     assert "file_list" in out
     # Environment mismatch guidance moved to ``<workspace_context>`` — no guessing prose.
     assert "云端/本地工作区未对齐" not in out

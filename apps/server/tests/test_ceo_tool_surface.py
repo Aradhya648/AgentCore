@@ -125,6 +125,48 @@ def test_promote_on_coordination_adds_full_surface():
         current_execution_id.reset(token)
 
 
+def test_ensure_before_llm_installs_wait_when_coordination_live():
+    """验收钉：协调已活 → 进入 LLM 前 wait 已在工具面（prepare / mid-turn 对齐）。"""
+    from agentcore.runtime.resolve.ceo_surface import ensure_coordination_surface_before_llm
+
+    eid = "exec-ensure-before-llm"
+    token = current_execution_id.set(eid)
+    try:
+        _activate_coordination(eid)
+        reg = ToolRegistry()
+        delegate = _fake_delegate()
+        reg.register(delegate)
+        assert "wait" not in reg.names
+
+        assert ensure_coordination_surface_before_llm(reg) is True
+        assert "wait" in reg.names
+        assert set(reg.names) >= COORDINATION_GATED_TOOLS
+        # 再次调用不重复注册
+        assert ensure_coordination_surface_before_llm(reg) is False
+        assert "wait" in reg.names
+    finally:
+        clear_active_coordination()
+        current_execution_id.reset(token)
+
+
+def test_assembled_coordination_live_offers_wait_on_tool_defs():
+    """协调已活时 assemble 路径的 OpenAI 工具面含 wait（与 ensure 同一验收）。"""
+    eid = "exec-assembly"
+    token = current_execution_id.set(eid)
+    try:
+        _activate_coordination(eid)
+        reg = _assemble()
+        assert "wait" in reg.names
+        defs = reg.get_openai_definitions()
+        names = {
+            (d.get("function") or {}).get("name") or d.get("name") for d in defs
+        }
+        assert "wait" in names
+    finally:
+        clear_active_coordination()
+        current_execution_id.reset(token)
+
+
 def test_always_on_tools_not_in_gated_set():
     """delegate / ask_user / debate 常驻——不得进协调闸集合。"""
     for name in ("delegate", "ask_user", "debate", "consult_skill"):

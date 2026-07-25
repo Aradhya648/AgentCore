@@ -44,23 +44,28 @@ class EpisodeRecord:
 
 @dataclass
 class ScopeMemoryMeta:
-    """Per-(user, scope) sidecar: digested episode ids + last semantic success time."""
+    """Per-(user, scope) sidecar: digested episode ids + last semantic success time.
+
+    ``explore_workspace_key`` records the workspace identity last written by the
+    cold-start explore act (过期再探); absent on legacy scopes.
+    """
 
     digested_ids: set[str]
     last_semantic_at: datetime | None
+    explore_workspace_key: str | None = None
 
     def to_json(self) -> str:
-        return json.dumps(
-            {
-                "digested_ids": sorted(self.digested_ids),
-                "last_semantic_at": (
-                    self.last_semantic_at.astimezone(UTC).isoformat()
-                    if self.last_semantic_at
-                    else None
-                ),
-            },
-            ensure_ascii=False,
-        )
+        payload: dict = {
+            "digested_ids": sorted(self.digested_ids),
+            "last_semantic_at": (
+                self.last_semantic_at.astimezone(UTC).isoformat()
+                if self.last_semantic_at
+                else None
+            ),
+        }
+        if self.explore_workspace_key:
+            payload["explore_workspace_key"] = self.explore_workspace_key
+        return json.dumps(payload, ensure_ascii=False)
 
 
 def _parse_meta(raw: str) -> ScopeMemoryMeta:
@@ -80,7 +85,13 @@ def _parse_meta(raw: str) -> ScopeMemoryMeta:
                 last = last.replace(tzinfo=UTC)
         except ValueError:
             last = None
-    return ScopeMemoryMeta(digested_ids=digested, last_semantic_at=last)
+    key_raw = data.get("explore_workspace_key")
+    key = str(key_raw).strip() if isinstance(key_raw, str) and key_raw.strip() else None
+    return ScopeMemoryMeta(
+        digested_ids=digested,
+        last_semantic_at=last,
+        explore_workspace_key=key,
+    )
 
 
 def _render_episode_body(*, conversation_id: str, summary: str, created_at: str) -> str:

@@ -311,12 +311,14 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                 "忠于调研事实与来源、不杜撰。"
                 f"【主文件】整篇落盘到 `{main_path}`（验收只认这一路径）；"
                 f"{PAPER_PARALLEL_MERGE_DISCIPLINE}"
-                "【成篇落盘纪律】① 先按提纲落盘骨架（标题+各章小标题，可用一次短 "
-                "file_write）；② 再按章用 file_append 逐章写完再写下一章——"
-                "一章内写完再进入下一章；③ 预算/token 不够写完下一章时，"
-                "停在完整章边界，handoff 标明已完成章节与待续章节，勿在章中部截断；"
-                "④ 禁止整篇 file_delete 后重写长文，也禁止对已成篇草稿 "
-                "file_write 全文覆盖——修订用 str_replace，扩写用 file_append。"
+                "【成篇落盘纪律·Artifact-first】① 首写必须是短骨架（标题+各章小标题/"
+                "锚点，一次短 file_write）——禁止首写半章散文再 append；② 再按章用 "
+                "file_append 或 str_replace 填空，一章写完再下一章；③ 中等篇幅可一次 "
+                "file_write 写完全文；④ 预算/token 不够写完下一章时，停在完整章边界，"
+                "handoff 标明已完成章节与待续章节，勿在章中部截断；⑤ 禁止整篇 "
+                "file_delete 后重写长文，也禁止对已成篇草稿 file_write 全文覆盖——"
+                "修订用 str_replace；⑥ 写回执即 artifact manifest，禁止再对本文件 "
+                "file_read 回读正文验真。"
             ),
             "depends_on": ["outline"],
             "deliverable": {

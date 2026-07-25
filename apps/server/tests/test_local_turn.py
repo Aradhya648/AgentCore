@@ -6,7 +6,8 @@ status + journal, no cost ledger. All DB collaborators are faked (镜像 ``test_
 Covered:
 
 * a full turn persists the user + assistant messages AND the turn journal;
-* an empty reply persists only the user row;
+* an empty reply with no process state persists only the user row (noop);
+* an empty reply with journal/runs still settles the assistant (+ journal);
 * an empty ERROR still settles the assistant row (failed + error_code);
 * **no cost ledger is ever written**;
 * the user row is pinned to the client-minted id;
@@ -17,6 +18,7 @@ Covered:
 """
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -127,6 +129,14 @@ def _patch_persistence(
         "schedule_consolidation",
         lambda cid: consolidation_calls.append(cid),
     )
+    # Local derived mint (title/followups) now goes through billing gate; fake
+    # session has no execute — stub gate like test_early_title / test_compaction.
+    monkeypatch.setattr(
+        cloud_mod,
+        "resolve_and_gate_background",
+        AsyncMock(return_value=SimpleNamespace()),
+    )
+    monkeypatch.setattr(cloud_mod, "resolve_user_model", lambda *_a, **_k: "m")
     monkeypatch.setattr(
         cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=_noop_close)
     )
@@ -201,7 +211,60 @@ async def test_record_local_turn_empty_reply_skips_assistant_and_journal(monkeyp
     assert not any(e[0] == "journal" for e in events)
     assert not any(e[0] == "title" for e in events)  # no title mint
     assert result["assistant_message_id"] is None
+    assert result["noop"] is True
     assert result["title"] == "已有标题"  # echo existing title (D7 merge response)
+
+
+async def test_record_local_turn_empty_with_journal_settles(monkeypatch):
+    """Empty bubble + journal process state must settle (align cloud live)."""
+    events: list = []
+    _patch_persistence(monkeypatch, events, existing_title="已有标题")
+
+    result = await record_local_turn(
+        conversation_id="c1",
+        user_id="u1",
+        user_message="hi",
+        assistant_content="",
+        journal=[
+            {"kind": "run_started", "payload": {"id": "r1"}, "ts": "t0"},
+            {"kind": "run_completed", "payload": {"id": "r1"}, "ts": None},
+        ],
+        user_message_id=_USER_MSG_ID,
+        message_id="m-journal",
+        trace_id=_TRACE,
+        finish_reason="end_turn",
+    )
+
+    assert ("upsert", "assistant", "c1") in events
+    assert any(e[0] == "journal" for e in events)
+    assert result["assistant_message_id"] == "assistant-id"
+    assert result["noop"] is False
+
+
+async def test_record_local_turn_empty_with_runs_settles(monkeypatch):
+    """Empty bubble + runs display payload must settle assistant + journal."""
+    events: list = []
+    _patch_persistence(monkeypatch, events, existing_title="已有标题")
+
+    result = await record_local_turn(
+        conversation_id="c1",
+        user_id="u1",
+        user_message="hi",
+        assistant_content="",
+        runs={
+            "events": [{"type": "run_started", "run_id": "r1"}],
+            "finish_reason": "end_turn",
+            "process": [{"kind": "team", "label": "调研"}],
+        },
+        user_message_id=_USER_MSG_ID,
+        message_id="m-runs",
+        trace_id=_TRACE,
+        finish_reason="end_turn",
+    )
+
+    assert ("upsert", "assistant", "c1") in events
+    assert result["assistant_message_id"] == "assistant-id"
+    assert result["noop"] is False
 
 
 async def test_record_local_turn_empty_error_settles_assistant(monkeypatch):
@@ -232,6 +295,7 @@ async def test_record_local_turn_empty_error_settles_assistant(monkeypatch):
     assert usage[2]["status"] == "failed"
     assert usage[2]["error_code"] == ErrorCode.LLM_TIMEOUT
     assert result["assistant_message_id"] == "assistant-id"
+    assert result["noop"] is False
 
 
 async def test_record_local_turn_records_no_cost_ledger(monkeypatch):

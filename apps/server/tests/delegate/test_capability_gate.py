@@ -301,3 +301,134 @@ async def test_execute_rejects_conflicting_task_completion_criteria():
     )
     assert result.success is False
     assert "冲突" in (result.error or "")
+
+
+# ── 冷启动探索：验收绑定按意图 ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_form_files_while_explore_pending():
+    base = local_ctx()
+    base.cold_start_explore_pending = True
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=base,
+        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "调研",
+                    "task": "摸清项目结构",
+                    "deliverable": {"form": "files"},
+                }
+            ],
+            "coordinate": False,
+        },
+        base,
+    )
+    assert result.success is False
+    assert "update_project_profile" in (result.error or "")
+    assert "prose" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_execute_prose_explore_batch_does_not_auto_files_written():
+    base = local_ctx()
+    base.cold_start_explore_pending = True
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=base,
+        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "调研",
+                    "task": "摸清项目结构与技术栈",
+                    "deliverable": {"form": "prose"},
+                }
+            ],
+            "coordinate": False,
+        },
+        base,
+    )
+    assert result.success is True
+    assert "本批验收：未启用" in result.output
+
+
+@pytest.mark.asyncio
+async def test_execute_form_files_infers_after_explore_cleared():
+    """画像写入后同回合交付批恢复结构化推断（建站回归）。"""
+    base = local_ctx()
+    base.cold_start_explore_pending = False
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=base,
+        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "前端",
+                    "task": "写静态宣传站",
+                    "deliverable": {"form": "files"},
+                }
+            ],
+            "coordinate": False,
+        },
+        base,
+    )
+    assert result.success is True
+    assert "本批验收：files_written（结构化交付声明）" in result.output
+
+
+@pytest.mark.asyncio
+async def test_execute_explicit_criteria_still_binds_during_explore():
+    """显式 files_written 在探索未完成时仍可强制，并放行配套 form=files。"""
+    base = local_ctx()
+    base.cold_start_explore_pending = True
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=base,
+        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "调研",
+                    "task": "摸清项目并落盘 brief",
+                    "deliverable": {"form": "files"},
+                }
+            ],
+            "completion_criteria": "files_written",
+            "coordinate": False,
+        },
+        base,
+    )
+    assert result.success is True
+    assert "本批验收：files_written（显式声明）" in result.output

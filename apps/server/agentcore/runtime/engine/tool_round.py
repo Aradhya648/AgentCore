@@ -99,6 +99,12 @@ async def handle_tool_calls_round(
         messages,
         investigation_tools=controller.investigation_tool_names,
     )
+    # Team-gate / circuit-breaker strip from defs; also deny at execute so a
+    # scripted or rogue tool_call cannot land after hard-stop.
+    exec_allowed = allowed_tool_names
+    if disabled_tools:
+        base = list(tools.names) if allowed_tool_names is None else list(allowed_tool_names)
+        exec_allowed = [n for n in base if n not in disabled_tools]
     tool_results, terminal, attempts = await execute_tools(
         tool_calls,
         tools,
@@ -111,7 +117,7 @@ async def handle_tool_calls_round(
         ledger_registrant=ledger_registrant,
         run_id=run_id,
         role=role,
-        allowed_tool_names=allowed_tool_names,
+        allowed_tool_names=exec_allowed,
     )
     messages.extend(tool_results)
     if gate_escalation_sink is not None and role == "worker":

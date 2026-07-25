@@ -239,7 +239,11 @@ async def execute_agent_node(
     lead_subteam: LeadSubteam | None = None
     try:
         profile = env.profiles.agent()
-        priced_model = spec.model or env.profiles.model_for("agent")
+        from agentcore.runtime.costing import resolve_run_models
+
+        priced_model, request_model = resolve_run_models(
+            env.profiles, spec.model, cost_role=env.cost_role
+        )
         tool_ctx = replace(
             env.base_tool_context,
             run_id=spec.run_id,
@@ -576,7 +580,7 @@ async def execute_agent_node(
                     sink=env.sink,
                     tool_ctx=tool_ctx,
                     profile=pass_profile,
-                    turn_model=priced_model,
+                    turn_model=request_model,
                     allowed_tools=pass_allowed,
                     run_id=spec.run_id,
                     agent_id=agent_id,
@@ -604,7 +608,7 @@ async def execute_agent_node(
                     sink=env.sink,
                     tool_ctx=tool_ctx,
                     profile=pass_profile,
-                    turn_model=priced_model,
+                    turn_model=request_model,
                     allowed_tools=pass_allowed,
                     run_id=spec.run_id,
                     agent_id=agent_id,

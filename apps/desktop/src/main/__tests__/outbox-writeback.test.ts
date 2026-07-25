@@ -40,6 +40,7 @@ import {
   flushTurn,
   isPermanentHttpFailure,
   outboxDir,
+  shouldDeleteOutboxAfterAck,
 } from "../outbox-writeback";
 
 const dir = () => outboxDir();
@@ -368,6 +369,99 @@ describe("drainOutbox", () => {
     expect(status.pending).toHaveLength(1);
     expect(status.pending[0]?.phase).toBe("open");
   });
+
+  it("ready drain fills captain stream_segments into POST body", async () => {
+    writeReady("u-ready-segs", {
+      content: "",
+      reasoning_content: null,
+      stream_segments: {
+        "captain:content": { text: "from segments", generation: 0 },
+        "captain:reasoning": { text: "think", generation: 0 },
+      },
+    });
+    h.bearerPostJson.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        user_message_id: "u-ready-segs",
+        assistant_message_id: "m1",
+        title: null,
+        noop: false,
+      },
+    });
+    await drainOutbox();
+    expect(h.bearerPostJson).toHaveBeenCalledOnce();
+    const body = h.bearerPostJson.mock.calls[0]?.[1] as {
+      content?: string;
+      reasoning_content?: string | null;
+    };
+    expect(body.content).toBe("from segments");
+    expect(body.reasoning_content).toBe("think");
+  });
+
+  it("false ack (null assistant + process) does not delete — dead-letters", async () => {
+    writeReady("u-false", {
+      content: "",
+      runs: { events: [], finish_reason: "end_turn", process: [] },
+    });
+    h.bearerPostJson.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        user_message_id: "u-false",
+        assistant_message_id: null,
+        title: null,
+        noop: false,
+      },
+    });
+    const status = await drainOutbox();
+    expect(existsSync(join(dir(), "u-false.json"))).toBe(false);
+    expect(existsSync(join(deadLetterDir(), "u-false.json"))).toBe(true);
+    expect(status.pending).toEqual([]);
+  });
+
+  it("explicit noop ack deletes empty true-no-op without process", async () => {
+    writeReady("u-noop", { content: "", runs: null, journal: undefined });
+    h.bearerPostJson.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        user_message_id: "u-noop",
+        assistant_message_id: null,
+        title: null,
+        noop: true,
+      },
+    });
+    await drainOutbox();
+    expect(existsSync(join(dir(), "u-noop.json"))).toBe(false);
+    expect(existsSync(join(deadLetterDir(), "u-noop.json"))).toBe(false);
+  });
+
+  it("listUnsyncedSummaries includes dead-letter as phase=dead", async () => {
+    const { listUnsyncedSummaries } = await import("../outbox-writeback");
+    mkdirSync(deadLetterDir(), { recursive: true });
+    writeFileSync(
+      join(deadLetterDir(), "u-dead.json"),
+      JSON.stringify({
+        schema_version: 1,
+        user_message_id: "u-dead",
+        conversation_id: "c1",
+        message_id: "m-dead",
+        trace_id: "a".repeat(32),
+        user_message: "hello",
+        content: "stuck body",
+        phase: "ready",
+        updated_at: 100,
+        finish_reason: "end_turn",
+      }),
+      "utf-8",
+    );
+    const unsynced = await listUnsyncedSummaries("c1");
+    expect(unsynced).toHaveLength(1);
+    expect(unsynced[0]?.user_message_id).toBe("u-dead");
+    expect(unsynced[0]?.phase).toBe("dead");
+    expect(unsynced[0]?.content).toBe("stuck body");
+  });
 });
 
 describe("writeback failure classification", () => {
@@ -390,5 +484,41 @@ describe("writeback failure classification", () => {
     expect(computeBackoffDelayMs(2, noJitter)).toBe(4_000);
     expect(computeBackoffDelayMs(3, noJitter)).toBe(8_000);
     expect(computeBackoffDelayMs(10, noJitter)).toBe(5 * 60_000);
+  });
+
+  it("shouldDeleteOutboxAfterAck requires assistant id, noop, or legacy empty", () => {
+    const withRuns = {
+      user_message_id: "u",
+      conversation_id: "c",
+      runs: { events: [] },
+    };
+    const empty = {
+      user_message_id: "u",
+      conversation_id: "c",
+    };
+    expect(
+      shouldDeleteOutboxAfterAck(
+        { assistant_message_id: "m1", noop: false },
+        withRuns,
+      ),
+    ).toBe(true);
+    expect(
+      shouldDeleteOutboxAfterAck(
+        { assistant_message_id: null, noop: true },
+        empty,
+      ),
+    ).toBe(true);
+    expect(
+      shouldDeleteOutboxAfterAck(
+        { assistant_message_id: null, noop: false },
+        withRuns,
+      ),
+    ).toBe(false);
+    expect(
+      shouldDeleteOutboxAfterAck(
+        { assistant_message_id: null, noop: false },
+        empty,
+      ),
+    ).toBe(true);
   });
 });

@@ -1,0 +1,24 @@
+{
+  "id": "collab_solo_essay_file",
+  "category": "team",
+  "mast": "1.2",
+  "user_message": "写一篇约 800 字的短文《为什么本地优先软件又火了》，Markdown 存成 essays/local-first.md。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "单人落盘短文：finalize 单 worker 合法；形状期望 max_workers≤2（常见 1）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 40 } }
+  ],
+  "expected_shape": {
+    "min_workers": 1,
+    "max_workers": 2,
+    "min_roles": 1
+  },
+  "milestones": [
+    { "id": "essay", "desc": "成篇短文有实质内容（非空壳标题）", "weight": 2 },
+    { "id": "path", "desc": "意图落盘到 essays/local-first.md 或等价路径", "weight": 1 }
+  ]
+}

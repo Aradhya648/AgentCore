@@ -47,6 +47,31 @@ def test_research_report_intent_and_word_count():
     assert not is_research_report_intent("把超时改成 30s")
 
 
+def test_research_report_intent_covers_competitor_compare_deliverable():
+    """竞品对比「调研+Markdown 落盘」须命中成篇/对比意图（team_gate 硬收）。"""
+    from agentcore.runtime.runs.research_quality import is_local_file_edit_intent
+
+    competitor = (
+        "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
+        "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 research/km-compare.md。"
+    )
+    lawsuit = (
+        "写一篇关于起诉第三者如何才能立案的实务研究，婚姻家事领域，实务指南，"
+        "中等篇幅 4000–6000 字，Markdown 落盘。"
+    )
+    readme = (
+        "帮我改一下项目根目录的 README.md：在最上面加一小节「快速开始」，"
+        "写三条安装命令，其余内容别动。"
+    )
+    assert is_research_report_intent(competitor)
+    assert is_research_report_intent(lawsuit)
+    assert not is_research_report_intent("今天天气怎么样，随便聊聊")
+    assert not is_research_report_intent(readme)
+    assert is_local_file_edit_intent(readme)
+    assert not is_local_file_edit_intent(competitor)
+    assert not is_local_file_edit_intent("随便聊聊")
+
+
 def test_paper_parallel_merge_discipline_constant():
     from agentcore.runtime.runs.research_quality import (
         DEFAULT_RESEARCH_REPORT_ARTIFACT,

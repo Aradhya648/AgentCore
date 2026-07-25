@@ -44,7 +44,17 @@ export function resolveRgBinary(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const fromSrc = join(here, "..", "..", "..", "..", "resources", "rg", name);
   if (existsSync(fromSrc)) return fromSrc;
-  const fromServer = join(here, "..", "..", "..", "..", "..", "server", "bin", name);
+  const fromServer = join(
+    here,
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "server",
+    "bin",
+    name,
+  );
   if (existsSync(fromServer)) return fromServer;
 
   return null;

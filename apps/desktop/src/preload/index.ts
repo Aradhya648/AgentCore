@@ -10,6 +10,12 @@ import {
   type StageAttachmentDest,
   type StagedAttachment,
 } from "@shared/ipc-contract";
+import {
+  LOCAL_STORE_CHANNELS,
+  type LocalStoreApi,
+  type LocalStoreConversationPayload,
+  type LocalStorePutShellMeta,
+} from "@shared/local-store-contract";
 import { LOG_CHANNELS, type LogApi } from "@shared/log-contract";
 import {
   NOTIFICATION_CHANNELS,
@@ -197,6 +203,18 @@ const sidecarApi: SidecarApi = {
   },
 };
 
+const localStoreApi: LocalStoreApi = {
+  hasCache: () => ipcRenderer.invoke(LOCAL_STORE_CHANNELS.hasCache),
+  getSnapshot: () => ipcRenderer.invoke(LOCAL_STORE_CHANNELS.getSnapshot),
+  getConversation: (id: string) =>
+    ipcRenderer.invoke(LOCAL_STORE_CHANNELS.getConversation, id),
+  putOpenedConversation: (payload: LocalStoreConversationPayload) =>
+    ipcRenderer.invoke(LOCAL_STORE_CHANNELS.putOpenedConversation, payload),
+  putShellMeta: (meta: LocalStorePutShellMeta) =>
+    ipcRenderer.invoke(LOCAL_STORE_CHANNELS.putShellMeta, meta),
+  clear: () => ipcRenderer.invoke(LOCAL_STORE_CHANNELS.clear),
+};
+
 const outboxApi: OutboxApi = {
   flush: () => ipcRenderer.invoke(OUTBOX_CHANNELS.flush),
   flushTurn: (req) => ipcRenderer.invoke(OUTBOX_CHANNELS.flushTurn, req),
@@ -304,6 +322,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld("fsApi", fsApi);
     contextBridge.exposeInMainWorld("sidecarApi", sidecarApi);
     contextBridge.exposeInMainWorld("outboxApi", outboxApi);
+    contextBridge.exposeInMainWorld("localStoreApi", localStoreApi);
     contextBridge.exposeInMainWorld("updaterApi", updaterApi);
     contextBridge.exposeInMainWorld("logApi", logApi);
     contextBridge.exposeInMainWorld("terminalApi", terminalApi);
@@ -324,6 +343,8 @@ if (process.contextIsolated) {
   window.sidecarApi = sidecarApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.outboxApi = outboxApi;
+  // @ts-ignore - 非隔离环境下直接挂载
+  window.localStoreApi = localStoreApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.updaterApi = updaterApi;
   // @ts-ignore - 非隔离环境下直接挂载

@@ -1,6 +1,7 @@
 import { SectionLabel, SurfaceNavLink } from "@/components/ui";
 import {
   Brain,
+  Cpu,
   Gauge,
   Info,
   KeyRound,
@@ -25,13 +26,15 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// Settings are grouped by intent rather than a flat list: 模型 (the BYOK key +
-// which models the team uses, kept adjacent), 账户 (spend, members), 偏好 (UI),
-// 关于. Opening 设置 (/more) redirects to the first page (模型配置).
+// Settings are grouped by intent: 模型 (组合) + 服务商 (Key) adjacent; 账户 /
+// 偏好 / 关于. Opening /more 落点见 MoreIndexRedirect。
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "模型",
-    items: [{ icon: KeyRound, label: "模型配置", path: "/more/model" }],
+    items: [
+      { icon: Cpu, label: "模型", path: "/more/model" },
+      { icon: KeyRound, label: "服务商", path: "/more/providers" },
+    ],
   },
   {
     label: "AI",

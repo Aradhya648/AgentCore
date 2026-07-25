@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui";
 
 interface ServiceUnavailablePageProps {
@@ -17,7 +18,11 @@ export function ServiceUnavailablePage({
   return (
     <div className="flex h-full w-full items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm text-center">
-        <h1 className="text-xl font-semibold text-foreground">AgentCore</h1>
+        <BrandMark
+          size="md"
+          layout="stack"
+          className="w-full items-center text-foreground"
+        />
         <p className="mt-2 text-sm text-muted-foreground">服务暂时不可用</p>
         <p className="mt-4 text-sm text-destructive">{reason}</p>
         <Button className="mt-6 h-10 w-full" onClick={onRetry}>

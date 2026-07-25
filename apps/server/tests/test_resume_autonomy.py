@@ -85,8 +85,12 @@ def _ask_frame() -> AskUserSuspension:
 
 
 def _patch_seams(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: _ScriptedProvider())
-    monkeypatch.setattr(pipeline, "build_router_around", lambda p: p)
+    provider = _ScriptedProvider()
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
     # The point under test: the gate IS constructed (flag on) — with the caller's policy.
     monkeypatch.setattr(settings, "approval_gate_enabled", True)
     monkeypatch.setattr(resume_pipeline_mod, "ApprovalGate", _RecordingGate)

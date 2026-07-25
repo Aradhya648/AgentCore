@@ -35,7 +35,6 @@ vi.mock("@/services/browserTakeover", async (importOriginal) => {
   };
 });
 
-import { ApiError } from "@/services/api";
 import type {
   BrowserLiveClient,
   BrowserLiveHandlers,
@@ -71,7 +70,10 @@ beforeEach(() => {
     captured = handlers;
     return { stop: stopSpy } satisfies BrowserLiveClient;
   });
-  mockStartTakeover.mockReset().mockResolvedValue(undefined);
+  mockStartTakeover.mockReset().mockResolvedValue({
+    active: true,
+    reason: "started",
+  });
   mockEndTakeover.mockReset().mockResolvedValue(undefined);
   mockSendInput.mockReset().mockResolvedValue(undefined);
   useBrowserTakeoverStore.setState({ byConversation: {} });
@@ -209,10 +211,9 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(screen.queryByText("接管")).toBeNull();
   });
 
-  it("surfaces a start failure (turn_running) and stays idle", async () => {
-    mockStartTakeover.mockRejectedValue(
-      new ApiError(409, JSON.stringify({ error: { code: "turn_running" } })),
-    );
+  it("surfaces a start failure (turn_running reason) and stays idle", async () => {
+    const { TakeoverStartError } = await import("@/services/browserTakeover");
+    mockStartTakeover.mockRejectedValue(new TakeoverStartError("turn_running"));
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
     await clickAsync("接管");
@@ -223,7 +224,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(screen.queryByText("归还控制")).toBeNull();
   });
 
-  it("returns control: ends the takeover and records it in the store", async () => {
+  it("returns control: ends the takeover, records it, and shows the continue hint", async () => {
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
     await clickAsync("接管");
@@ -235,9 +236,11 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(records[0].endedAt).not.toBeNull();
     // Chrome returns to the normal live header.
     expect(screen.queryByText("归还控制")).toBeNull();
+    // 不 auto-resume：只提示用户在对话里发「继续」。
+    expect(screen.getByText("登录完成后，在对话里发送「继续」")).toBeTruthy();
   });
 
-  it("auto-returns control when the session closes mid-takeover", async () => {
+  it("auto-returns control when the session closes mid-takeover (no continue hint)", async () => {
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
     await clickAsync("接管");
@@ -251,6 +254,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(useBrowserTakeoverStore.getState().byConversation.c1).toHaveLength(
       1,
     );
+    expect(screen.queryByText("登录完成后，在对话里发送「继续」")).toBeNull();
   });
 
   it("best-effort ends the takeover on unmount", async () => {

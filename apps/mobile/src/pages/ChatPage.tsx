@@ -5,18 +5,16 @@ import {
   createConversation,
   getConversation,
   getMessages,
-  setConversationModel,
+  setConversationModelProfile,
 } from "@/api/conversations";
 import { sendMidFlightMessage } from "@/api/midFlight";
 import {
-  type ModelPick,
-  clearLastModel,
-  conversationModelPick,
-  getLastModel,
-  modelDisplayLabel,
-  setLastModel,
-  useModels,
-} from "@/api/models";
+  clearLastModelProfileId,
+  getLastModelProfileId,
+  profileDisplayLabel,
+  setLastModelProfileId,
+  useModelProfiles,
+} from "@/api/modelProfiles";
 import { resolveStageCardStream } from "@/api/stageCard";
 import {
   attachStream,
@@ -54,6 +52,10 @@ import {
   fileArtifactsFromProcess,
   mergeArtifacts,
 } from "@/lib/fileArtifacts";
+import {
+  createHarvestRefreshScheduler,
+  dropSettledLiveTurns,
+} from "@/lib/refreshAfterExecutionCompleted";
 import {
   STOPPED_LABEL,
   STOP_FAILED_MESSAGE,
@@ -694,12 +696,11 @@ export function ChatPage() {
   const [error, setError] = useState<ChatError | null>(null);
   /** Session permission mode label (只观察 / 开工授权 / 完全信任). */
   const [permissionLabel, setPermissionLabel] = useState<string | null>(null);
-  // 会话级模型切换 (对齐桌面): this conversation's model override (null = follow the account
-  // model). A draft seeds it from the last-used pick (新对话继承上次选择). The 当前模型 badge
-  // above the composer shows it; tapping opens the ModelPicker sheet.
-  const [currentModel, setCurrentModel] = useState<ModelPick | null>(null);
+  // 会话级模型组合 (对齐桌面): conversation override profile id (null = follow account default).
+  // A draft seeds from last-used profile. Badge shows the combination name; tap opens picker.
+  const [currentProfileId, setCurrentProfileId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { data: modelCatalog } = useModels();
+  const { data: modelProfiles } = useModelProfiles();
   // Files staged for the next send: their text rides the body (composer 附件). A pick that
   // can't be read as text (image / binary) surfaces `attachError` and isn't staged.
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
@@ -723,6 +724,22 @@ export function ChatPage() {
   // Offline consolidation post-dates the turn — bump this gen to cancel in-flight polls on
   // conversation switch / unmount (mobile has no memory_updated firehose).
   const memoryPollGenRef = useRef(0);
+  // REL-002: execution_completed → short-delay getMessages retries for harvest 终稿.
+  // Cancel on conversation switch (leave/reopen still loads via the effect below).
+  const harvestRefreshRef = useRef(
+    createHarvestRefreshScheduler(async (cid, isCurrent) => {
+      const {
+        messages,
+        hasMoreBefore: more,
+        memoryUpdates: mem,
+      } = await getMessages(cid);
+      if (!isCurrent()) return;
+      setHistory(messages);
+      setHasMoreBefore(more);
+      setMemoryUpdates(mem);
+      setTurns((t) => dropSettledLiveTurns(t));
+    }),
+  );
   // The controller for the stream currently held open (send / reattach). Conversation
   // switch aborts it; 用户停止 does NOT — keep SSE until backend message_end (诚实过渡).
   const abortRef = useRef<AbortController | null>(null);
@@ -828,6 +845,10 @@ export function ChatPage() {
       // the thread-tail card so the user does not have to leave and reopen the chat.
       scheduleMemoryPoll(conversationId);
     }
+    // REL-002: 后台执行终态 — fold no-op；经 getMessages 拉入 harvest 终稿（短延迟重试）。
+    if (conversationId && event.type === "execution_completed") {
+      harvestRefreshRef.current.schedule(conversationId);
+    }
   };
 
   // Pull the latest window's memory_updates into the thread-tail card. Best-effort; a
@@ -864,8 +885,9 @@ export function ChatPage() {
   // (执行与请求解耦 C1 · slice 1b): rejoin it and 续看 it finish.
   // biome-ignore lint/correctness/useExhaustiveDependencies: effect 按会话(conversationId/navigate)生命周期挂载重连 run；clearStopping 等仅作副作用调用，列入依赖会破坏重挂载语义
   useEffect(() => {
-    // Cancel any in-flight memory-update polls from the previous conversation.
+    // Cancel any in-flight memory-update polls / harvest refreshes from the previous conversation.
     memoryPollGenRef.current += 1;
+    harvestRefreshRef.current.cancel();
     if (!conversationId) {
       // Draft (直接对话): no server conversation yet — ready to type, nothing to load.
       setHistory([]);
@@ -877,9 +899,9 @@ export function ChatPage() {
       setHasMoreBefore(false);
       setMemoryUpdates([]);
       setPermissionLabel(null);
-      // 新对话继承上次选择: seed the draft's model from the last-used pick (localStorage);
+      // 新对话继承上次选择: seed the draft's profile from last-used (localStorage);
       // applied to the conversation on first send (startDraft).
-      setCurrentModel(getLastModel());
+      setCurrentProfileId(getLastModelProfileId());
       return;
     }
     setHistory(null);
@@ -891,7 +913,7 @@ export function ChatPage() {
     setHasMoreBefore(false);
     setMemoryUpdates([]);
     setPermissionLabel(null);
-    setCurrentModel(null);
+    setCurrentProfileId(null);
     let cancelled = false;
     void getConversation(conversationId)
       .then((c) => {
@@ -904,9 +926,7 @@ export function ChatPage() {
               ? "完全信任"
               : "开工授权",
         );
-        setCurrentModel(
-          conversationModelPick(c.model, c.model_origin, c.model_provider_id),
-        );
+        setCurrentProfileId(c.model_profile_id ?? null);
       })
       .catch(() => {
         /* best-effort */
@@ -1003,6 +1023,7 @@ export function ChatPage() {
     // run keeps going detached (slice 1a); reopening reattaches.
     return () => {
       cancelled = true;
+      harvestRefreshRef.current.cancel();
       abortRef.current?.abort();
       midFlightAbortRef.current?.abort();
       clearStopping();
@@ -1137,32 +1158,28 @@ export function ChatPage() {
     composerInputRef.current?.focus();
   }
 
-  // 会话级模型切换: apply a pick from the ModelPicker. A concrete id is remembered as
-  // last-used (新对话继承上次选择); clearing (跟随账号默认) forgets it. An open conversation is
-  // PATCHed now (reflecting the authoritative returned model); a draft just holds it locally
-  // until startDraft applies it to the freshly-created conversation.
-  async function onSelectModel(pick: ModelPick | null) {
+  // 会话级模型组合: apply a profile from the ModelPicker. A concrete id is remembered as
+  // last-used; clearing (跟随账号默认) forgets it. An open conversation is PATCHed now;
+  // a draft just holds it locally until startDraft applies it.
+  async function onSelectProfile(profileId: string | null) {
     setPickerOpen(false);
-    if (pick) setLastModel(pick);
-    else clearLastModel();
+    if (profileId) setLastModelProfileId(profileId);
+    else clearLastModelProfileId();
     if (!conversationId) {
-      setCurrentModel(pick);
+      setCurrentProfileId(profileId);
       return;
     }
-    const previous = currentModel;
-    setCurrentModel(pick);
+    const previous = currentProfileId;
+    setCurrentProfileId(profileId);
     try {
-      const updated = await setConversationModel(conversationId, pick);
-      setCurrentModel(
-        conversationModelPick(
-          updated.model,
-          updated.model_origin,
-          updated.model_provider_id,
-        ),
+      const updated = await setConversationModelProfile(
+        conversationId,
+        profileId,
       );
+      setCurrentProfileId(updated.model_profile_id ?? null);
     } catch (e) {
-      setCurrentModel(previous);
-      setError({ text: e instanceof Error ? e.message : "切换模型失败" });
+      setCurrentProfileId(previous);
+      setError({ text: e instanceof Error ? e.message : "切换模型组合失败" });
     }
   }
 
@@ -1177,13 +1194,13 @@ export function ChatPage() {
     setSending(true);
     try {
       const id = await createConversation();
-      // 新对话继承上次选择: apply the draft's chosen model before its first turn streams
-      // (best-effort — a failure just falls back to the account model).
-      if (currentModel) {
+      // 新对话继承上次选择: apply the draft's chosen profile before its first turn streams
+      // (best-effort — a failure just falls back to the account default).
+      if (currentProfileId) {
         try {
-          await setConversationModel(id, currentModel);
+          await setConversationModelProfile(id, currentProfileId);
         } catch {
-          /* non-fatal: the first turn runs on the account model */
+          /* non-fatal: the first turn runs on the account default */
         }
       }
       pendingFirstSend = { id, text, attachments: outgoing };
@@ -1662,9 +1679,9 @@ export function ChatPage() {
     }
   }
 
-  // 当前模型 badge label: the conversation's override → account model → placeholder.
+  // 当前组合 badge: conversation override → account default → placeholder.
   const modelLabel =
-    modelDisplayLabel(modelCatalog, currentModel) ?? "默认模型";
+    profileDisplayLabel(modelProfiles, currentProfileId) ?? "默认组合";
 
   return (
     <div className="screen">
@@ -1981,7 +1998,7 @@ export function ChatPage() {
           className="model-badge"
           onClick={() => setPickerOpen(true)}
           disabled={history === null || busy}
-          aria-label={`当前模型：${modelLabel}，点击切换`}
+          aria-label={`当前模型组合：${modelLabel}，点击切换`}
         >
           <Bot size={14} aria-hidden />
           <span className="model-badge-name">{modelLabel}</span>
@@ -2056,8 +2073,8 @@ export function ChatPage() {
 
       {pickerOpen && (
         <ModelPicker
-          conversationModel={currentModel}
-          onSelect={(m) => void onSelectModel(m)}
+          conversationProfileId={currentProfileId}
+          onSelect={(id) => void onSelectProfile(id)}
           onClose={() => setPickerOpen(false)}
         />
       )}

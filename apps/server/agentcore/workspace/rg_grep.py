@@ -340,10 +340,10 @@ async def run_grep_rg(
 
     parsed_hits: list[tuple[str, int, str]] = []
     for ln in lines:
-        parsed = _parse_line_hit(ln)
-        if not parsed:
+        hit = _parse_line_hit(ln)
+        if not hit:
             continue
-        raw_path, lineno, text = parsed
+        raw_path, lineno, text = hit
         if single_file:
             rel = model_path(search_root)
         else:

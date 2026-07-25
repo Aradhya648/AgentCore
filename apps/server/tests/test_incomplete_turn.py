@@ -220,7 +220,7 @@ async def test_persist_incomplete_writes_cancelled_message(monkeypatch):
         journal=journal, content="", conversation_id="conv", trace_id="trace", message_id="m1"
     )
 
-    assert updated["content"]  # a non-empty explanatory note
+    assert updated["content"] == ""
     assert "runs" not in updated
     assert updated["metadata"]["status"] == turn_persistence.MESSAGE_STATUS_INCOMPLETE
     assert updated["metadata"]["incomplete"] is True
@@ -236,8 +236,8 @@ async def test_persist_incomplete_writes_cancelled_message(monkeypatch):
 
 
 async def test_persist_incomplete_keeps_streamed_reply(monkeypatch):
-    """When the CEO had already streamed a reply, the salvaged message KEEPS that text
-    (marked cut-off) instead of a bare「已停止」note (停止别白干)."""
+    """When the CEO had already streamed a reply, the salvaged message keeps that text
+    without appending stop chrome (chrome is metadata + UI)."""
     updated: dict = {}
 
     class FakeRepo:

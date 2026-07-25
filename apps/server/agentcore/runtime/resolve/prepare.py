@@ -32,6 +32,7 @@ from agentcore.tools.builtin.consult_memory import ConsultMemoryTool
 from agentcore.tools.builtin.consult_skill import ConsultSkillTool
 from agentcore.tools.builtin.delegate import DelegateTool
 from agentcore.tools.builtin.remember import RememberTool
+from agentcore.tools.builtin.update_project_profile import UpdateProjectProfileTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registry import ToolRegistry
 from agentcore.workspace.attachment_parse import truncate_for_prompt
@@ -167,9 +168,10 @@ def _assemble_ceo_toolset(
     )
 
     # Injection == execution gate for the coord tools (active_coordination):
-    # idle chat drops replan + the coordination suite; they come back mid-turn
-    # via promote_coordination_surface_if_needed (tool_round) when a session
-    # starts or a supervised wave yield arms replan.
+    # idle chat drops replan + the coordination suite. When a session is already
+    # live at assemble time, register here so the first LLM round offers wait.
+    # Mid-turn / pre-LLM: promote_coordination_surface_if_needed (tool_round +
+    # ensure_coordination_surface_before_llm) when a session starts later.
     register_coordination_surface(
         chat_tools,
         delegate_tool=delegate_tool,
@@ -196,6 +198,16 @@ def _assemble_ceo_toolset(
         # — inferred preferences still go through offline consolidation). Wired alongside
         # consult_memory so the CEO surfaces the memory affordances together.
         chat_tools.register(RememberTool(folder_id=folder_id))
+        # Explore-act close-out: project ``画像.md`` mid-turn write (§1.5 product exception).
+        # Only when the conversation is bound to a project — bare chat has no project layer.
+        if folder_id:
+            chat_tools.register(
+                UpdateProjectProfileTool(
+                    folder_id=folder_id,
+                    store=mem_store,
+                    prompt_holders=[delegate_tool, debate_tool],
+                )
+            )
     if checkpoint_enabled:
         # 结构化挂起 2b: arm the ask_user pause with the SAME durable closures as the
         # delegate plan_review — message_id keys the frame, the turn-level constants

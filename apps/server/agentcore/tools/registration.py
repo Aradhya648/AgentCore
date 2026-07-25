@@ -151,6 +151,7 @@ def _load_declared_tools() -> tuple[type, ...]:
     from agentcore.tools.builtin.replan import ReplanTool
     from agentcore.tools.builtin.terminal import TerminalTool
     from agentcore.tools.builtin.test_run import TestRunTool
+    from agentcore.tools.builtin.update_project_profile import UpdateProjectProfileTool
     from agentcore.tools.builtin.web.read_url import ReadUrlTool
     from agentcore.tools.builtin.web.search import WebSearchTool
 
@@ -196,6 +197,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         ConsultSkillTool,
         ConsultMemoryTool,
         RememberTool,
+        UpdateProjectProfileTool,
         AskUserTool,
         BoardOpsTool,
         BoardReadTool,

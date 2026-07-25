@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_casual_followup",
+  "category": "routing",
+  "user_message": "哈哈懂了。那你平时更喜欢咖啡还是茶？",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "闲聊跟进：偏好问答，直答一句，禁止委派。"
+}

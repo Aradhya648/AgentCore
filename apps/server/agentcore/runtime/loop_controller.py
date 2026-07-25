@@ -271,6 +271,8 @@ class LoopController:
         # and can't guillotine a worker after a single fan-out. Both feed the finalize log.
         self._investigation_calls = 0
         self._investigation_rounds = 0
+        # Local file peeks only (file_list / file_read / grep) — team_gate local-edit path.
+        self._local_recon_calls = 0
         # Over-investigation safety net (收敛治理, 保险丝): absolute round ceiling plus
         # progress-aware spinning on repeated same-target reads. ``finalize_rounds <= 0``
         # disables the absolute cap; ``spin_rounds <= 0`` disables spinning detection.
@@ -511,6 +513,8 @@ class LoopController:
                 self._investigation_calls += 1
                 round_investigated = True
                 inv_fps.add(attempt.fingerprint)
+                if attempt.tool_name in {"file_list", "file_read", "grep"}:
+                    self._local_recon_calls += 1
         # Rounds, not raw calls, drive the safety net: a parallel batch of N reads in one
         # round bumps this once, so fanning out can't guillotine the worker.
         if round_investigated:
@@ -650,6 +654,11 @@ class LoopController:
     def investigation_calls(self) -> int:
         """Cumulative read-only investigation calls this run (finalize-log diagnostic)."""
         return self._investigation_calls
+
+    @property
+    def local_recon_calls(self) -> int:
+        """Cumulative local peek calls (file_list / file_read / grep) this run."""
+        return self._local_recon_calls
 
     @property
     def investigation_rounds(self) -> int:

@@ -122,9 +122,15 @@ interface Props {
   conversation: Conversation;
   /** When set, row only shows a cloud icon if this chat differs from the group default. */
   groupIsLocal?: boolean;
+  /** Extra SurfaceRow classes (e.g. `px-2` to match workspace group headers). */
+  className?: string;
 }
 
-export function ConversationItem({ conversation, groupIsLocal }: Props) {
+export function ConversationItem({
+  conversation,
+  groupIsLocal,
+  className,
+}: Props) {
   const [hovered, setHovered] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -355,6 +361,7 @@ export function ConversationItem({ conversation, groupIsLocal }: Props) {
             <SurfaceRow
               variant="sidebar"
               active={isActive}
+              className={className}
               onMouseEnter={() => {
                 setHovered(true);
                 if (!suppressPreview) {
@@ -389,21 +396,29 @@ export function ConversationItem({ conversation, groupIsLocal }: Props) {
                   }
                 }}
               >
-                {status && (
-                  <SimpleTooltip
-                    label={status === "running" ? "执行中" : "等你决策"}
-                  >
-                    <span
-                      aria-label={status === "running" ? "执行中" : "等你决策"}
-                      className={`size-1.5 shrink-0 rounded-full ${
-                        status === "running"
-                          ? "animate-pulse bg-primary"
-                          : "bg-primary ring-2 ring-primary/25"
-                      }`}
-                    />
-                  </SimpleTooltip>
-                )}
-                {showCloudIcon && <ConversationCloudIcon />}
+                {/* Always reserve the group-header icon slot (size-3.5) so
+                    titles share one column whether the row shows status, cloud,
+                    or neither. */}
+                <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                  {status ? (
+                    <SimpleTooltip
+                      label={status === "running" ? "执行中" : "等你决策"}
+                    >
+                      <span
+                        aria-label={
+                          status === "running" ? "执行中" : "等你决策"
+                        }
+                        className={`size-1.5 rounded-full ${
+                          status === "running"
+                            ? "animate-pulse bg-primary"
+                            : "bg-primary ring-2 ring-primary/25"
+                        }`}
+                      />
+                    </SimpleTooltip>
+                  ) : (
+                    showCloudIcon && <ConversationCloudIcon />
+                  )}
+                </span>
                 <span className="min-w-0 flex-1 truncate">
                   {conversation.title}
                 </span>

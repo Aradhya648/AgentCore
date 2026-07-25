@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
 import { hasAutoUpdater } from "@/lib/capabilities";
@@ -157,6 +158,14 @@ export function AboutSettings() {
 
   return (
     <div>
+      <div className="mb-8">
+        <BrandMark size="md" className="text-foreground" />
+        <p className="mt-4 text-base font-medium text-foreground">
+          协作，是更高级的智能。
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">协作智能平台</p>
+      </div>
+
       <SettingsHeader
         title="关于 AgentCore"
         description="版本信息与构建溯源。"

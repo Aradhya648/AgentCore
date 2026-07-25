@@ -82,10 +82,10 @@ linux:
     - AppImage
   category: Utility
 
-# electron-updater 发布目标：安装包发公开发布仓、源码仓保持私有（部署与运维.md §7.6）。
-# CI（.github/workflows/release-desktop.yml）经 `--publish always` 推草稿 release。
-# owner/repo 指向公开发布仓（与源码仓 Lawofall/AgentCore 分离）；该仓需人工先建好，
-# 跨仓发布凭据走 secrets.RELEASE_GH_TOKEN（默认 GITHUB_TOKEN 无跨仓写权）。
+# electron-updater 发布目标：安装包发公开发布仓（部署与运维.md §7.6）。
+# 源码仓 Lawofall/AgentCore 已公开（MIT）；双仓是发布产物分工，不是为了藏源码。
+# owner/repo 指向公开发布仓 AgentCore-releases；跨仓发布凭据走 secrets.RELEASE_GH_TOKEN
+# （默认 GITHUB_TOKEN 无跨仓写权）。Win 本地 / Mac GHA 均先 draft 再人工转正。
 # ⚠️ releaseType 必须保持 draft：CI 先在发布仓建空草稿，再让 electron-builder 并行
 # 上传到同一草稿，规避「多产物并行各自创建 → 重复草稿、资产拆散」竞态
 # （electron-builder#6676）。改成 release 会与预建的 draft 类型冲突 → 资产被全部跳过

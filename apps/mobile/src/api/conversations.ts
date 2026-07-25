@@ -1,5 +1,4 @@
 import { apiFetch } from "@/api/client";
-import type { ModelPick } from "@/api/models";
 // Conversation REST for the mobile client (前端技术与架构 §七 · 会话管理).
 //
 // Bearer-authenticated reads/writes over the same cloud endpoints the desktop uses
@@ -17,12 +16,8 @@ import type {
 
 type Schemas = components["schemas"];
 
-/** A conversation row from the list/detail endpoints (server-shaped). `model_provider_id`
- *  (added by the multi-provider contract) is augmented locally so this typechecks whether or
- *  not contract-rest-types has been regenerated yet (desktop block owns that). */
-export type ConversationSummary = Schemas["ConversationSummary"] & {
-  model_provider_id?: string | null;
-};
+/** A conversation row from the list/detail endpoints (server-shaped). */
+export type ConversationSummary = Schemas["ConversationSummary"];
 
 /** An assistant message's persisted replay payload (schemas.py RunsPayload).
  *  `events` is a MULTI-agent turn's ordered run/tool SSE journal (empty `[]` for a
@@ -111,33 +106,20 @@ export async function renameConversation(
   return (await res.json()) as ConversationSummary;
 }
 
-/** Switch this conversation's model (会话级模型切换). Pass a (id, origin, providerId) pick to
- *  override the account model for the conversation, or null to clear the override and fall
- *  back to the account model. A BYOK pick MUST carry its provider (`model_provider_id`) or the
- *  backend 422s; platform picks leave it empty. The backend validates the pick against the
- *  user's catalog (unavailable / not owned → 422); we surface its message so the UI can guide
- *  to 模型配置. Returns the updated summary (`model` + `model_origin` + `model_provider_id`
- *  are authoritative). */
-export async function setConversationModel(
+/** Switch this conversation's model combination. Pass a profile id to override the account
+ *  default, or null to follow the account default. Returns the updated summary
+ *  (`model_profile_id` is authoritative). */
+export async function setConversationModelProfile(
   id: string,
-  pick: ModelPick | null,
+  profileId: string | null,
 ): Promise<ConversationSummary> {
-  const body =
-    pick != null
-      ? {
-          model: pick.id,
-          model_origin: pick.origin,
-          model_provider_id:
-            pick.origin === "byok" ? (pick.providerId ?? null) : null,
-        }
-      : { model: null, model_origin: null, model_provider_id: null };
   const res = await apiFetch(`/v1/conversations/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ model_profile_id: profileId }),
   });
   if (!res.ok) {
-    let message = `切换模型失败 (${res.status})`;
+    let message = `切换模型组合失败 (${res.status})`;
     try {
       const body = (await res.json()) as { error?: { message?: string } };
       if (body.error?.message) message = body.error.message;

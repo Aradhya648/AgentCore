@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from agentcore.core.text import truncate_head_tail
@@ -114,8 +115,14 @@ def _resolve_git_cwd(context: ToolContext) -> str | None:
     """Return the absolute workspace root for git, when available."""
     root = getattr(context.backend, "root", None)
     if root is not None:
-        return str(root)
+        # Always absolute so GIT_CEILING_DIRECTORIES matches the process cwd.
+        return str(Path(root).resolve())
     return None
+
+
+def _workspace_has_local_git(cwd: str) -> bool:
+    """True only when ``.git`` exists *inside* the workspace root (no parent climb)."""
+    return (Path(cwd) / ".git").exists()
 
 
 def _is_ceo_context(context: ToolContext) -> bool:
@@ -130,8 +137,17 @@ def _is_ceo_context(context: ToolContext) -> bool:
 async def _run_git(
     args: list[str], *, cwd: str, timeout: float = _GIT_TIMEOUT
 ) -> tuple[str, str, int]:
-    """Run git command, return (stdout, stderr, exit_code)."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    """Run git command, return (stdout, stderr, exit_code).
+
+    ``GIT_CEILING_DIRECTORIES`` is set to the workspace root so discovery never
+    climbs into a parent repo (e.g. workspace nested under the host monorepo).
+    """
+    ceiling = str(Path(cwd).resolve())
+    env = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CEILING_DIRECTORIES": ceiling,
+    }
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
@@ -160,12 +176,20 @@ async def _git_failure(
     return _error(detail, start)
 
 
+_NO_LOCAL_REPO_MSG = (
+    "当前工作区内没有 Git 仓库（仅识别工作区根下的 .git；不会上溯到父目录仓库）"
+)
+
+
 async def _ensure_git_repo(cwd: str, start: float) -> ToolResult | None:
+    # Fast path: refuse before any git discovery that could surface a parent repo.
+    if not _workspace_has_local_git(cwd):
+        return _error(_NO_LOCAL_REPO_MSG, start)
     stdout, stderr, code = await _run_git(
         ["rev-parse", "--is-inside-work-tree"], cwd=cwd
     )
     if code != 0 or stdout.strip() != "true":
-        detail = (stderr or stdout or "当前工作区不是 Git 仓库").strip()
+        detail = (stderr or stdout or _NO_LOCAL_REPO_MSG).strip()
         return _error(detail, start)
     return None
 

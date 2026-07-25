@@ -299,26 +299,35 @@ def escalation_required(
     questions: list[dict[str, Any]] | None = None,
     kind: str = "normal",
     awaiting: str = "user",
+    browser_login: bool | None = None,
 ) -> SSEEvent:
     """``question`` is the worker's headline ask; ``questions`` is the optional
     structured-fork list (同 ask_user 的 questions) the card renders as choice/text so
     the user one-taps a decision instead of free-typing. Journaled, so the structured
     prompt replays inline on reload. ``kind`` is the escalate taxonomy
     (normal / scope / dep), orthogonal to blocking. ``awaiting`` is ``user`` (经典可答卡)
-    or ``ceo`` (协调模式等主管仲裁，初始不作为用户可答卡)."""
+    or ``ceo`` (协调模式等主管仲裁，初始不作为用户可答卡).
+    ``browser_login`` (narrow D16 exception): when true, the pending escalate allows
+    user browser takeover while the turn is still running. Absent/false on old streams.
+    """
     who = awaiting if awaiting in ("user", "ceo") else "user"
+    payload: dict[str, Any] = {
+        "escalation_id": escalation_id,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "question": question,
+        "assumption": assumption,
+        "questions": questions or [],
+        "kind": kind if kind in ("normal", "scope", "dep") else "normal",
+        "awaiting": who,
+    }
+    # Absent-forward-compat: only emit when explicitly true (old clients ignore unknown;
+    # generators omit false so old journals stay bit-identical).
+    if browser_login is True:
+        payload["browser_login"] = True
     return SSEEvent(
         type=EventType.ESCALATION_REQUIRED,
-        payload={
-            "escalation_id": escalation_id,
-            "run_id": run_id,
-            "agent_id": agent_id,
-            "question": question,
-            "assumption": assumption,
-            "questions": questions or [],
-            "kind": kind if kind in ("normal", "scope", "dep") else "normal",
-            "awaiting": who,
-        },
+        payload=payload,
     )
 
 

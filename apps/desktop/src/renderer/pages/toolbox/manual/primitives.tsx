@@ -279,9 +279,14 @@ export function BoundaryTable({
 
 const DEFAULT_SETTINGS_ROWS: { label: string; desc: string; to: string }[] = [
   {
-    label: "模型配置",
-    desc: "选择团队使用的模型，或自带 Key（BYOK）",
+    label: "模型",
+    desc: "账号默认组合与组合管理",
     to: APP_PATHS.more.model,
+  },
+  {
+    label: "服务商",
+    desc: "平台额度说明，或自带 Key（BYOK）",
+    to: APP_PATHS.more.providers,
   },
   {
     label: "AI 记忆",

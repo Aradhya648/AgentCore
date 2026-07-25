@@ -8,6 +8,9 @@ Cancel-path incomplete close funnels through
 :func:`agentcore.runtime.turn_interrupt.close_turn_interrupted`.
 """
 
+from __future__ import annotations
+
+import contextlib
 from typing import Any
 
 from agentcore.config import settings
@@ -22,7 +25,7 @@ from agentcore.conversation.store import (
 from agentcore.core.logging import get_logger
 from agentcore.llm.resolve import LLMCredentials
 from agentcore.runtime.engine import join_segments
-from agentcore.runtime.events import EventSink
+from agentcore.runtime.events import EventSink, FinishReason, message_end
 from agentcore.runtime.facts import current_fact_log, pre_pause_from_journal
 from agentcore.runtime.turn_interrupt import TurnInterruptReason, close_turn_interrupted
 from agentcore.workspace.protocol import WorkspaceBackend
@@ -151,7 +154,14 @@ async def close_user_stop_turn(
 
     Same spawn gates as :func:`salvage_incomplete_turn`, but awaited so ``/stop``
     finishes the durable write before releasing the lease.
+
+    Always emits live ``message_end(cancelled)`` first so an attached SSE client can
+    leave ``stopping`` (durable persist may still skip on empty / open-pause turns).
     """
+    # Live confirmation before durable close — FE confirms stop on this frame.
+    if not sink._closed:
+        with contextlib.suppress(Exception):
+            sink.emit(message_end(FinishReason.CANCELLED))
     if not settings.incomplete_turn_persist_enabled:
         return False
     if not message_id:

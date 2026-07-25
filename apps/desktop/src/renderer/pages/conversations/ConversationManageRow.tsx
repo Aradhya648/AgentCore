@@ -1,4 +1,4 @@
-import { Badge, IconButton } from "@/components/ui";
+import { Badge, IconButton, Input, SurfaceRow } from "@/components/ui";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -65,8 +65,8 @@ type Props = {
 };
 
 /**
- * Management-page conversation row — denser than sidebar {@link ConversationItem}.
- * Reuses the same mutation hooks / menus; does not share sidebar compact styles.
+ * Management-page conversation row — SurfaceRow family (same chrome as sidebar),
+ * taller for title + preview. Reuses sidebar mutation hooks / menus.
  */
 export function ConversationManageRow({
   conversation,
@@ -217,8 +217,8 @@ export function ConversationManageRow({
 
   if (editing) {
     return (
-      <div className="flex min-h-14 items-center rounded-xl border border-border bg-accent/40 px-3">
-        <input
+      <SurfaceRow className="min-h-14 gap-2 bg-accent/40 px-3">
+        <Input
           ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -239,22 +239,22 @@ export function ConversationManageRow({
             }
             commitEdit();
           }}
-          className="h-8 min-w-0 flex-1 bg-transparent px-1 text-sm font-semibold text-foreground focus:outline-none"
+          className="min-w-0 flex-1 border-0 bg-transparent px-1 font-semibold shadow-none focus:border-transparent focus:ring-0"
         />
-      </div>
+      </SurfaceRow>
     );
   }
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
+        <SurfaceRow
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => {
             setHovered(false);
             if (!moreOpen) setConfirmingDelete(false);
           }}
-          className="group relative flex min-h-14 items-stretch gap-3 rounded-xl border border-border/60 bg-card/50 px-3 py-2.5 transition-colors hover:border-border hover:bg-accent/60"
+          className="group relative min-h-14 items-stretch gap-3 px-3 py-2.5 hover:bg-accent/60"
         >
           {/* biome-ignore lint/a11y/useSemanticElements: 行内有 DropdownMenuTrigger 真 button，可点击区不可再套 button。 */}
           <div
@@ -457,7 +457,7 @@ export function ConversationManageRow({
               {conversation.messageCount} 条
             </Badge>
           </div>
-        </div>
+        </SurfaceRow>
       </ContextMenuTrigger>
 
       <ContextMenuContent className="min-w-52">

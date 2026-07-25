@@ -3,11 +3,13 @@
 import asyncio
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.api.dependencies import (
     AuthUser,
     get_conversation_repo,
     get_cost_event_repo,
+    get_db,
     get_handoff_job_repo,
 )
 from agentcore.api.schemas import (
@@ -19,9 +21,9 @@ from agentcore.api.schemas import (
     HandoffJobSummary,
 )
 from agentcore.api.sse import sse_response
+from agentcore.conversation.common import resolve_local_binding
 from agentcore.conversation.quota import QuotaLimits, enforce_quota
 from agentcore.conversation.rate_limit import enforce_user_message_rate_limit
-from agentcore.conversation.scratch import resolve_conversation_local_binding
 from agentcore.conversation.service import dispatch_handoff
 from agentcore.core.error_codes import ErrorCode
 from agentcore.core.errors import ConflictError, NotFoundError, ValidationError
@@ -94,6 +96,7 @@ async def handoff_local_workspace(
     conversation_id: str,
     user: AuthUser,
     conv_repo: ConversationRepository = Depends(get_conversation_repo),
+    session: AsyncSession = Depends(get_db),
 ):
     """Snapshot a local-mode workspace to the cloud over the channel (双模式工作区 P2e / e1).
 
@@ -104,13 +107,12 @@ async def handoff_local_workspace(
     snapshot list / restore / download as cloud-mode versions). 422 when the
     conversation is not in local mode — a cloud workspace already snapshots itself,
     and there is nothing on the user's disk to fetch.
+
+    Binding resolution matches turn routing (``resolve_local_binding``): project
+    chats inherit the folder bind; 裸聊 uses ``local_root_id`` or container root.
     """
     conv = await _get_owned_conversation(conversation_id, user.user_id, conv_repo)
-    binding = resolve_conversation_local_binding(
-        local_root_id=conv.local_root_id,
-        local_subpath=conv.local_subpath,
-        label="workspace",
-    )
+    binding = await resolve_local_binding(session, conv)
     if binding is None:
         raise ValidationError("该对话不是本地模式")
 
@@ -118,6 +120,8 @@ async def handoff_local_workspace(
     task = asyncio.create_task(
         _run_handoff(
             user_id=user.user_id,
+            # Handoff base snapshots are keyed by source conversation (not the
+            # project folder), so they never collide with cloud project snapshots.
             folder_id=None,
             conversation_id=conversation_id,
             binding=binding,
@@ -134,6 +138,7 @@ async def dispatch_handoff_job(
     user: AuthUser,
     conv_repo: ConversationRepository = Depends(get_conversation_repo),
     cost_repo: CostEventRepository = Depends(get_cost_event_repo),
+    session: AsyncSession = Depends(get_db),
 ):
     """Hand a task off to a cloud team seeded from the local workspace (P2e / e2).
 
@@ -145,17 +150,14 @@ async def dispatch_handoff_job(
     after the stream closes (poll ``GET …/handoff/jobs`` for its status). 422 when
     the conversation is not in local mode (nothing local to hand off).
 
+    Binding resolution matches turn routing (``resolve_local_binding``).
     Gated like ``send_message`` (it spends tokens): rate limit → ownership → quota.
     """
     await enforce_user_message_rate_limit(user.user_id)
     conv = await _get_owned_conversation(conversation_id, user.user_id, conv_repo)
     await enforce_quota(cost_repo, user.user_id, limits=QuotaLimits.for_user(user))
 
-    binding = resolve_conversation_local_binding(
-        local_root_id=conv.local_root_id,
-        local_subpath=conv.local_subpath,
-        label="workspace",
-    )
+    binding = await resolve_local_binding(session, conv)
     if binding is None:
         raise ValidationError("该对话不是本地模式")
 
@@ -164,6 +166,7 @@ async def dispatch_handoff_job(
         dispatch_handoff(
             conversation_id=conversation_id,
             user_id=user.user_id,
+            # Base snapshot keyed by source conversation (see handoff snapshot).
             folder_id=None,
             binding=binding,
             task=body.task,
@@ -333,6 +336,7 @@ async def apply_handoff_job(
     user: AuthUser,
     conv_repo: ConversationRepository = Depends(get_conversation_repo),
     job_repo: HandoffJobRepository = Depends(get_handoff_job_repo),
+    session: AsyncSession = Depends(get_db),
 ):
     """Apply a finished handoff's selected changes back to the local workspace (P2e / e3).
 
@@ -343,6 +347,7 @@ async def apply_handoff_job(
     The conflict gate is server-authoritative — a file that diverged locally since the
     base is refused (status ``conflict``) unless its selection ``force``\\s it.
 
+    Binding resolution matches turn routing (``resolve_local_binding``).
     404 if the conversation is not owned or the job is unknown / from another source;
     409 while the job has not succeeded yet; 422 when the conversation is not in local
     mode (nothing local to apply onto).
@@ -354,11 +359,7 @@ async def apply_handoff_job(
     if job.status != "succeeded" or not job.result_snapshot_id:
         raise ConflictError("交接任务尚未产出结果")
 
-    binding = resolve_conversation_local_binding(
-        local_root_id=conv.local_root_id,
-        local_subpath=conv.local_subpath,
-        label="workspace",
-    )
+    binding = await resolve_local_binding(session, conv)
     if binding is None:
         raise ValidationError("该对话不是本地模式")
 

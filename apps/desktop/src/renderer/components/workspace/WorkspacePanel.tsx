@@ -72,8 +72,8 @@ export function WorkspaceMode() {
       <EmptyHint
         inline
         icon={<FolderOpen size={26} className="text-muted-foreground/40" />}
-        title="尚无工作区"
-        hint="发送第一条消息后，这个对话的项目空间就会出现在这里。"
+        title="云端草稿"
+        hint="发送第一条消息后，快速对话产生的文件会出现在这里。"
       />
     );
   }

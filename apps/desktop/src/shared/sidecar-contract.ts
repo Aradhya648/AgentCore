@@ -320,6 +320,8 @@ export interface SidecarCancelRequest {
   /** 工作区子路径（同 `SidecarStartTurnRequest.subpath`）：寻址按 root+subpath 起的进程。 */
   subpath?: string;
   turnId: string;
+  /** 会话 id：sidecar cancel 级联 ``cancel_coordination_on_user_stop`` 用（与云 `/stop` 同语义）。 */
+  conversationId?: string;
 }
 
 /** 用户中途改某个 worker 的方向（中间可见性 Phase 2a）。 */
@@ -350,7 +352,8 @@ export interface SidecarUnsyncedTurnSummary {
   user_message: string;
   message_id: string | null;
   trace_id: string;
-  phase: "open" | "ready";
+  /** `dead` = permanent writeback failure (dead-letter/), still recoverable in UI. */
+  phase: "open" | "ready" | "dead";
   updated_at: number;
   content: string;
   reasoning_content: string | null;

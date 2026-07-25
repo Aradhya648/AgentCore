@@ -16,9 +16,9 @@ import type {
 import { BookOpen, Brain, FileCode2, FileText, Terminal } from "lucide-react";
 import { useMemo } from "react";
 import { Favicon } from "../Favicon";
+import { SearchHitResult } from "./SearchHitResult";
 import { type DiffLine, lineDiff } from "./diff";
 import { isSearchHitTool } from "./parseSearchHits";
-import { SearchHitResult } from "./SearchHitResult";
 
 /** Normalized data a tool result renders from, shared by the single-agent process
  * panel (ProcessToolRow) and the multi-agent run detail (RunDetailBody): the call

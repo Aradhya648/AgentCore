@@ -82,9 +82,14 @@ def _make_registry(**kw):
     return BrowserSessionRegistry(factory=factory, **kw)
 
 
-def _service(reg, store, *, running: bool = False) -> BrowserTakeoverService:
+def _service(
+    reg, store, *, running: bool = False, browser_login_pending: bool = False
+) -> BrowserTakeoverService:
     return BrowserTakeoverService(
-        registry=reg, store=store, has_running_turn=lambda _cid: running
+        registry=reg,
+        store=store,
+        has_running_turn=lambda _cid: running,
+        has_browser_login_pending=lambda _cid: browser_login_pending,
     )
 
 
@@ -125,6 +130,57 @@ async def test_start_turn_running_blocks_takeover():
     assert not res.active and res.reason == "turn_running"
     assert store.records == {}
     assert not reg.is_taken_over("c1")
+
+
+@pytest.mark.asyncio
+async def test_start_running_with_browser_login_pending_allows_takeover():
+    """D16 narrow exception: pending escalate(browser_login) skips turn_running."""
+    reg, store = _make_registry(), FakeStore()
+    svc = _service(reg, store, running=True, browser_login_pending=True)
+    await reg.acquire(_req("c1"))
+    res = await svc.start("c1", "u1")
+    assert res.active and res.reason == "started" and res.record_id == "rec1"
+    assert reg.is_taken_over("c1")
+
+
+@pytest.mark.asyncio
+async def test_start_running_without_browser_login_flag_still_turn_running():
+    reg, store = _make_registry(), FakeStore()
+    svc = _service(reg, store, running=True, browser_login_pending=False)
+    await reg.acquire(_req("c1"))
+    res = await svc.start("c1", "u1")
+    assert not res.active and res.reason == "turn_running"
+    assert store.records == {}
+
+
+@pytest.mark.asyncio
+async def test_start_uses_interaction_registry_for_browser_login_gate():
+    """Default pending probe reads InteractionRegistry (no injectable stub)."""
+    import agentcore.runtime.interaction as interaction_mod
+    from agentcore.runtime.interaction import InteractionKind, InteractionRegistry
+
+    reg, store = _make_registry(), FakeStore()
+    bridge = InteractionRegistry()
+    bridge.create(
+        "esc-login",
+        "c1",
+        kind=InteractionKind.ESCALATION,
+        payload={"browser_login": True, "question": "请登录"},
+    )
+    svc = BrowserTakeoverService(
+        registry=reg,
+        store=store,
+        has_running_turn=lambda _cid: True,
+        has_browser_login_pending=None,  # force default registry path
+    )
+    prev = interaction_mod._registry
+    interaction_mod._registry = bridge
+    try:
+        await reg.acquire(_req("c1"))
+        res = await svc.start("c1", "u1")
+        assert res.active and res.reason == "started"
+    finally:
+        interaction_mod._registry = prev
 
 
 @pytest.mark.asyncio

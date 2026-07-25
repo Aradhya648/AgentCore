@@ -21,7 +21,7 @@ function summaryToBackendMessages(
 ): BackendMessage[] {
   const created = createdAtIso(u.updated_at);
   const status =
-    u.phase === "ready" ? ("complete" as const) : ("incomplete" as const);
+    u.phase === "open" ? ("incomplete" as const) : ("complete" as const);
   const hasUsage =
     u.input_tokens ||
     u.output_tokens ||
@@ -119,7 +119,7 @@ export function projectUnsyncedTurns(
       store.addMessage(msg, conversationId);
       existing.add(row.id);
     }
-    if (u.phase === "ready") {
+    if (u.phase === "ready" || u.phase === "dead") {
       store.setTurnSyncStatus(
         u.user_message_id,
         "synced_pending",

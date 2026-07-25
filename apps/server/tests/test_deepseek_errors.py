@@ -210,7 +210,7 @@ def test_build_payload_clean_openai_for_non_deepseek_tool_turns():
             ),
             LLMMessage(role="tool", content="skill body", tool_call_id="tooluse_abc"),
         ],
-        model="claude-4.8",
+        model="gpt-4o",
     )
     payload = provider._build_payload(req, stream=True)
     assistant = next(m for m in payload["messages"] if m["role"] == "assistant")

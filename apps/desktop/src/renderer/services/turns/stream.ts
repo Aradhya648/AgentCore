@@ -24,7 +24,9 @@ import { traceTurnEnd, traceTurnMilestone } from "@/services/turnTrace";
 import { getRuntime, useConversationStore } from "@/stores/conversation";
 import {
   beginTurnPreflight,
+  completeTurnPhase,
   enterTurnStreaming,
+  getTurnPhase,
   throwIfCannotOpenStream,
 } from "@/stores/conversation/turnPhaseActions";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
@@ -208,6 +210,10 @@ export async function sendTurn(spec: SendTurnSpec): Promise<void> {
     traceTurnEnd(conversationId, "ok");
   } catch (err) {
     if (isAbort(err)) {
+      // 诚实停止：RPC 可能在 message_end 之前 reject；保底离开 stopping，避免挡新开流。
+      if (getTurnPhase(conversationId) === "stopping") {
+        completeTurnPhase(conversationId, "stopped");
+      }
       finalizeGeneratingIfNeeded(conversationId);
       traceTurnEnd(conversationId, "abort");
       return;

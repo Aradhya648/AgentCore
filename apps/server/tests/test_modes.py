@@ -36,5 +36,31 @@ def test_turn_profiles_model_overrides():
     assert ps.model_for("memory") == "base"
 
 
+def test_turn_profiles_route_model_for_cross_provider_agent():
+    ps = TurnProfiles(
+        model="ceo",
+        model_overrides={"agent": "worker"},
+        agent_provider_id="prov-w",
+    )
+    assert ps.model_for("agent") == "worker"
+    assert ps.route_model_for("agent") == "prov-w/worker"
+    assert ps.route_model_for("chat") == "ceo"
+    # Same provider as turn → no prefix.
+    assert ps.route_model_for("agent", turn_provider_id="prov-w") == "worker"
+
+
+def test_turn_profiles_route_model_for_platform_agent():
+    from agentcore.llm.profiles import PLATFORM_PROVIDER_SENTINEL
+
+    ps = TurnProfiles(
+        model="ceo",
+        model_overrides={"agent": "flash"},
+        agent_provider_id=PLATFORM_PROVIDER_SENTINEL,
+    )
+    assert ps.route_model_for("agent", turn_provider_id="prov-w") == (
+        f"{PLATFORM_PROVIDER_SENTINEL}/flash"
+    )
+
+
 def test_get_profile_falls_back_to_chat():
     assert get_profile("unknown").name == "chat"

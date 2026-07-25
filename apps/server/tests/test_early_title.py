@@ -182,7 +182,7 @@ async def test_mint_writes_fallback_and_emits_when_llm_fails(monkeypatch):
     monkeypatch.setattr(common, "ConversationRepository", _ConvRepo)
     monkeypatch.setattr(
         common,
-        "resolve_credentials",
+        "resolve_and_gate_background",
         AsyncMock(return_value=SimpleNamespace()),
     )
     monkeypatch.setattr(common, "resolve_turn_model", lambda _c: "flash")
@@ -242,7 +242,7 @@ async def test_mint_emits_best_effort_when_sink_closed(monkeypatch):
     monkeypatch.setattr(common, "ConversationRepository", _ConvRepo)
     monkeypatch.setattr(
         common,
-        "resolve_credentials",
+        "resolve_and_gate_background",
         AsyncMock(return_value=SimpleNamespace()),
     )
     monkeypatch.setattr(common, "resolve_turn_model", lambda _c: "flash")

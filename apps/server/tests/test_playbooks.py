@@ -49,6 +49,12 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     assert "单主文件" in by_id["write"]["task"]
     assert "research/报告.md" in by_id["write"]["task"]
     assert "research/报告.md" in by_id["review"]["task"]
+    # Artifact-first writer brief: skeleton first; ban half-chapter prose then append.
+    write_task = by_id["write"]["task"]
+    assert "短骨架" in write_task or "首写必须是短骨架" in write_task
+    assert "禁止首写半章散文" in write_task
+    assert "artifact manifest" in write_task or "禁止再对本文件" in write_task
+    assert "file_read" in write_task
     # each angle is named into its researcher's task so the fan-out doesn't run blind/overlapping.
     assert "选型" in by_id["research_1"]["task"]
     assert "read_notes" in by_id["research_1"]["task"]

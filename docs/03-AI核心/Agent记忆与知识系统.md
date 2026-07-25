@@ -110,7 +110,9 @@ AgentCore/
 - **偏好须明示 ✅**：情景沉淀与语义巩固 prompt 均约束——偏好只能来自用户**明示或纠正**，禁止从任务题材推断（如「用户在测法律案」≠「偏好法律分析」）；`偏好.md` 升格须摘要带明示证据。
 - **重写防丢双闸**：空重写不可清空文件；重写若静默丢弃过多既有条目（保留率 < 50%）整体拒绝落盘，episodes 留待下轮重试；真变更以 bullet 级 diff 记 `memory_updates` 审计（即 diff 卡片数据源）。
 - **巩固失败不推进**：LLM 解析失败/超时 → episodes **不标记已消化**，下轮触发自动重试；成功（含无变更）才标记，防止同批情景被反复合并。
-- **显式记住例外**：用户明确要求记住的内容经 CEO `remember` 工具**直写语义层、立即生效**，不等巩固——用户显式意图无需「时间证明持久性」。工具描述已约束「仅用户清楚说记住时用；推测偏好交给离线巩固」；与 `consult_memory` 同受 `memory_enabled` 总开关闸。
+- **显式记住例外**：用户明确要求记住的内容经 CEO `remember` 工具**直写语义层、立即生效**，不等巩固——用户显式意图无需「时间证明持久性」。工具描述已约束「仅用户清楚说记住时用；推测偏好交给离线巩固」；与 `consult_memory` 同受 `memory_enabled` 总开关闸。注意：`remember` 落的是**用户规则**（`ai_maintained=false`），不是画像。
+- **巩固冷启动（`_is_cold_start`）**：仅当**全局** `偏好.md` 与 `画像.md` 皆空时，巩固抽取降门槛——与产品「冷启动探索幕」（闸看**项目**画像）**正交、禁混名**。
+- **冷启动探索幕写画像（§1.5 产品例外）✅**：有项目 + 实质请求且（项目 `画像.md` 空 **或** 探索侧车 `explore_workspace_key` 与当前绑定不一致）时，CEO 组队探索后经 `update_project_profile` **中途直写项目** `画像.md`（`ai_maintained=true`，小节合并 + CAS），并写入 `_memory_meta.json` 的 `explore_workspace_key`（本地 `local:<root>:<subpath>` / 云端 `folder:<id>`）；可选 `topics`（≤3）整文件写入项目 `主题/<slug>.md`（on_demand）；禁止经 `remember` 落成规则。旧画像无 key 不强制重探。与巩固冷启动正交。→ 见代码: `memory/explore_profile.py`、`memory/episodic.py`（`ScopeMemoryMeta`）、`tools/builtin/update_project_profile.py`；编排见 [编排器 · 冷启动探索幕](/docs/03-AI核心/编排器与CEO主Agent.md)。
 - **不做静默写入**（产品决策 2026-07）：两层写入都有前端通知，分级呈现（情景轻提示 / 语义 diff 卡片），事件契约 `memory_updated` 带 `kind: episodic|semantic`。
 - **测试账号不豁免**：记忆功能本身需要被测试。
 
@@ -165,7 +167,7 @@ AgentCore/
 - **跨 turn 历史**：只回放 user/assistant 文本——见 [`执行引擎架构设计.md` §三](/docs/03-AI核心/执行引擎架构设计.md) 历史重建原则。
 - **委派预算（参考）**：基底摘要 ~2500 字符、链合成上限 ~6000 字符；**深度 `depth ≤ 2`**（`MAX_DELEGATION_DEPTH`）；单次 `delegate` 最多 20 个子任务（`MAX_DELEGATION_TASKS`，整批拒绝 + 分批指引）、树内并发上限默认 12（配置项 `engine_max_parallel_delegations`，回落常量 `MAX_PARALLEL_DELEGATIONS`，超额排队）。
 
-详述与预算表见 [`../06-规划/远期规划.md`](/docs/06-规划/远期规划.md)。
+详述与预算表见 远期规划（详细提案不在公开仓 / 维护者本地）。
 
 ---
 
@@ -300,7 +302,7 @@ BASE 100 → RUNTIME_CONTEXT 200 → MEMORY 300 → CEO_CORE 400
 | 刻意不做 prompt RAG | **否决**纯向量 chunk 注入 system prompt；嵌入 / 调用图为可选后手，不上自动装配链 |
 | 存储 | 工作区旁 `.agentcore/index/`（`code_search.db`，gitignore）。云端与 sidecar（`ServerWorkspace`）直连盘；云遥控桌面的 `LocalWorkspace` 经通道读文件、索引缓存在服务端 `data_dir/code_index/`（✅ 2026-07-23）。 |
 
-→ 见代码：`tools/builtin/code_search.py`、`workspace/indexing/`；工具契约见 [工具与能力系统](/docs/03-AI核心/工具与能力系统.md)。前端 CommandPalette Tier 3 语义检索为另一层（见 [远期规划 §三](/docs/06-规划/远期规划.md)）。
+→ 见代码：`tools/builtin/code_search.py`、`workspace/indexing/`；工具契约见 [工具与能力系统](/docs/03-AI核心/工具与能力系统.md)。前端 CommandPalette Tier 3 语义检索为另一层（见 远期规划 §三（详细提案不在公开仓 / 维护者本地））。
 
 ### 5.7 Document 子系统第一期边界（✅ server + 前端规则入口均已落地）
 

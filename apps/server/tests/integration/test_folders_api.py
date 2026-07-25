@@ -121,6 +121,98 @@ async def test_create_rejects_local_dir_field(client, make_invite):
     assert r.status_code == 422, r.text
 
 
+async def test_create_local_folder_reuses_same_binding(client, make_invite):
+    """Same (root, subpath) POST returns the existing row with HTTP 200."""
+    code = await make_invite("INV-F-REUSE")
+    await register_and_login(client, code, "folderreuse")
+
+    body = {
+        "name": "First",
+        "mode": "local",
+        "local_root_id": _ROOT,
+        "local_subpath": "apps",
+    }
+    r1 = await client.post("/v1/folders", json=body)
+    assert r1.status_code == 201, r1.text
+    first = r1.json()
+
+    r2 = await client.post(
+        "/v1/folders",
+        json={**body, "name": "Second Attempt"},
+    )
+    assert r2.status_code == 200, r2.text
+    reused = r2.json()
+    assert reused["id"] == first["id"]
+    assert reused["name"] == first["name"]  # original name kept
+    assert reused["local_root_id"] == _ROOT
+    assert reused["local_subpath"] == "apps"
+
+    listed = (await client.get("/v1/folders")).json()
+    assert len(listed) == 1
+
+
+async def test_create_local_folder_different_subpath_is_distinct(client, make_invite):
+    """Different subpaths under the same root remain separate projects."""
+    code = await make_invite("INV-F-SUB")
+    await register_and_login(client, code, "foldersub")
+
+    r_a = await client.post(
+        "/v1/folders",
+        json={
+            "name": "A",
+            "mode": "local",
+            "local_root_id": _ROOT,
+            "local_subpath": "apps",
+        },
+    )
+    assert r_a.status_code == 201, r_a.text
+    r_b = await client.post(
+        "/v1/folders",
+        json={
+            "name": "B",
+            "mode": "local",
+            "local_root_id": _ROOT,
+            "local_subpath": "packages",
+        },
+    )
+    assert r_b.status_code == 201, r_b.text
+    assert r_a.json()["id"] != r_b.json()["id"]
+
+    listed = (await client.get("/v1/folders")).json()
+    assert {f["id"] for f in listed} == {r_a.json()["id"], r_b.json()["id"]}
+
+
+async def test_create_local_folder_empty_subpath_normalizes_for_reuse(
+    client, make_invite
+):
+    """Empty-string local_subpath normalizes to NULL and reuses root binding."""
+    code = await make_invite("INV-F-EMPTYSUB")
+    await register_and_login(client, code, "folderemptysub")
+
+    r1 = await client.post(
+        "/v1/folders",
+        json={
+            "name": "Root Bind",
+            "mode": "local",
+            "local_root_id": _ROOT,
+            "local_subpath": "",
+        },
+    )
+    assert r1.status_code == 201, r1.text
+    assert r1.json()["local_subpath"] is None
+
+    r2 = await client.post(
+        "/v1/folders",
+        json={
+            "name": "Again",
+            "mode": "local",
+            "local_root_id": _ROOT,
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["id"] == r1.json()["id"]
+
+
 async def test_grouped_reflects_birth_membership(client, make_invite):
     code = await make_invite("INV-F2")
     await register_and_login(client, code, "folderuser2")

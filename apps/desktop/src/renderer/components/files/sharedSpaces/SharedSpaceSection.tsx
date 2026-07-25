@@ -60,6 +60,7 @@ export function SharedSpaceSection({
   onToggle,
   onOpenFile,
   flashing,
+  offlineUnavailable = false,
 }: {
   space: SharedSpaceSummary;
   source: FileSource | null;
@@ -68,6 +69,8 @@ export function SharedSpaceSection({
   onToggle: () => void;
   onOpenFile: (path: string, name: string) => void;
   flashing: boolean;
+  /** N4-A: grey + hint while read-only offline (shared spaces are cloud-only). */
+  offlineUnavailable?: boolean;
 }) {
   const meId = useAuthStore((s) => s.user?.id ?? null);
   const canWrite = canWriteSharedSpace(space.my_role);
@@ -204,6 +207,7 @@ export function SharedSpaceSection({
       className={cn(
         "group flex items-center rounded-lg pr-1 text-sm",
         flashing && "ring-2 ring-inset ring-primary",
+        offlineUnavailable && "opacity-60",
       )}
     >
       <Button
@@ -263,7 +267,11 @@ export function SharedSpaceSection({
     </div>
   );
 
-  const tree = source ? (
+  const tree = offlineUnavailable ? (
+    <div className="py-1 pl-7 text-xs text-muted-foreground">
+      离线时共享空间不可用，仅可浏览本地文件夹。
+    </div>
+  ) : source ? (
     <FileTree
       ref={treeRef}
       source={source}
@@ -370,6 +378,7 @@ export function ProjectsRailHeader({
 }) {
   const [createSharedOpen, setCreateSharedOpen] = useState(false);
   const openCreateFolder = useFoldersStore((s) => s.openCreateFolder);
+  const plusRef = useRef<HTMLSpanElement>(null);
 
   return (
     <>
@@ -378,13 +387,21 @@ export function ProjectsRailHeader({
           项目
         </span>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <UiIconButton aria-label="新建" title="新建">
-              <Plus size={13} />
-            </UiIconButton>
-          </DropdownMenuTrigger>
+          <span ref={plusRef} className="inline-flex">
+            <DropdownMenuTrigger asChild>
+              <UiIconButton aria-label="新建" title="新建">
+                <Plus size={13} />
+              </UiIconButton>
+            </DropdownMenuTrigger>
+          </span>
           <DropdownMenuContent align="end" className="min-w-40">
-            <DropdownMenuItem onSelect={() => openCreateFolder()}>
+            <DropdownMenuItem
+              onSelect={() => {
+                const anchor = plusRef.current;
+                // After DropdownMenu dismiss; microtask is too early (same click).
+                window.setTimeout(() => openCreateFolder(anchor), 0);
+              }}
+            >
               <FolderPlus size={14} className="shrink-0" />
               <span className="flex-1 truncate">新建项目…</span>
             </DropdownMenuItem>

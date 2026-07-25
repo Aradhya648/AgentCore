@@ -20,18 +20,40 @@ vi.mock("@/hooks/useLlmProviders", () => ({
           default_model: "deepseek-test",
           status: "active",
           supports_tools: true,
-          is_default_chat: true,
-          is_default_background: false,
         },
       ],
-      default_chat: { provider_id: "p1", model: "deepseek-test" },
-      default_background: null,
+      default_model_profile_id: "sys-52",
       billing_mode: "byok",
       platform_available: false,
       platform_model: null,
       free_tier_active: false,
     },
     isLoading: false,
+  }),
+}));
+vi.mock("@/hooks/useLlmModelProfiles", () => ({
+  useLlmModelProfiles: () => ({
+    data: {
+      default_model_profile_id: "sys-52",
+      data: [
+        {
+          id: "sys-52",
+          name: "5.2",
+          kind: "system",
+          is_default: true,
+          main: {
+            origin: "byok",
+            provider_id: "p1",
+            model: "deepseek-test",
+          },
+          worker: null,
+          background: null,
+        },
+      ],
+    },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
   }),
 }));
 vi.mock("@/hooks/useFolders", () => ({
@@ -171,7 +193,7 @@ describe("TurnComposer variants", () => {
       container.querySelector('[data-composer-variant="card"]'),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "更多选项" })).toBeNull();
-    expect(screen.getByLabelText(/模型：/)).toBeTruthy();
+    expect(screen.getByLabelText(/模型组合：/)).toBeTruthy();
     expect(screen.getByLabelText("附加本机文件")).toBeTruthy();
   });
 
@@ -183,10 +205,10 @@ describe("TurnComposer variants", () => {
     expect(screen.getByRole("button", { name: "更多选项" })).toBeTruthy();
     expect(screen.getByLabelText("附加本机文件")).toBeTruthy();
     // Badges live inside the popover — not in the bar until opened.
-    expect(screen.queryByLabelText(/模型：/)).toBeNull();
+    expect(screen.queryByLabelText(/模型组合：/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "更多选项" }));
-    expect(await screen.findByLabelText(/模型：/)).toBeTruthy();
+    expect(await screen.findByLabelText(/模型组合：/)).toBeTruthy();
     expect(screen.getByLabelText(/权限模式/)).toBeTruthy();
     expect(screen.getByLabelText("在哪工作")).toBeTruthy();
   });
@@ -206,6 +228,22 @@ describe("TurnComposer variants", () => {
     renderComposer("bar");
     const more = screen.getByRole("button", { name: "更多选项" });
     expect(more.querySelector(".bg-destructive")).toBeTruthy();
+  });
+
+  it("N4-A: offline hard-disables 发送 even with draft text", async () => {
+    useServerHealthStore.setState({
+      status: "offline",
+      reason: "unreachable",
+      justRecovered: false,
+    });
+    const { useComposerDraftStore } = await import("@/stores/composer");
+    useComposerDraftStore.getState().setValue("__draft__", "hello offline");
+    renderComposer("bar");
+    const send = screen.getByRole("button", { name: "发送" });
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText(/可浏览已缓存的对话与本地文件；发送已禁用/),
+    ).toBeTruthy();
   });
 
   it("generating: bar exposes 发送插话 + 停止生成 side by side", () => {

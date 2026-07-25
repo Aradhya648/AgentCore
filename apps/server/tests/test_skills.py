@@ -227,6 +227,8 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "教学示例形状" in body and "对照学形状" in body
     assert "免手搓" not in body  # 旧广告口径已撤
     assert "research_report" in body  # listing still present as teaching examples
+    assert "成篇调研软偏好" in body
+    assert "材料已齐" in body
 
 
 def test_team_orchestration_skill_teaches_delegate_knobs():
@@ -452,6 +454,7 @@ def test_ask_user_kickoff_skill_teaches_impact_tiered_proposal_card():
     assert "style_options" in body
     assert "影响" in body  # 影响力分档
     assert "开工提案卡" in body
+    assert "提案体" in body or "至少其一" in body
     assert "已确认勿再开" in body or "禁止再开开工提案卡" in body
     assert "checkpoint_after" not in body
 
@@ -523,25 +526,33 @@ def test_verify_and_fix_skill_teaches_test_run_loop():
     assert "escalate" in body
 
 
-def test_long_form_writing_skill_teaches_segmented_append():
+def test_long_form_writing_skill_teaches_skeleton_fill():
     skill = build_system_skill_registry().get("long_form_writing")
     assert skill.requires_tools == ("delegate",)
     body = skill.body
     assert "file_write" in body
     assert "file_append" in body
     assert "大纲" in body
+    assert "骨架" in body
+    assert "Artifact-first" in body or "骨架填空" in body
+    assert "file_read 抽查" not in body
+    assert "manifest" in body or "禁止再对本文件 file_read" in body
     # B1 轻教法：明文把关 → checkpoint_after / research_report；自主确认才可对话式。
     assert "明文要求" in body
     assert "checkpoint_after" in body
     assert "research_report" in body
+    # 与 research_report 划界：多角取证勿塌成单写手
+    assert "划界" in body
+    assert "材料已齐" in body
     assert "纯聊天" in body
     assert "自主确认" in body or "轻量" in body
     # 论文并行拆章：单主文件 + 合并责任（禁各写各的就交）；不误伤多产物。
-    assert "单主文件" in body or "同一主文件" in body
+    assert "单主文件" in body or "同一主文件" in body or "最终主文件" in body
     assert "合并责任" in body or "merge" in body.lower()
     assert "各写各的" in body
     assert "建站" in body
     assert "单主文件" in skill.summary or "合并" in skill.summary
+    assert "骨架" in skill.summary or "一次写完" in skill.summary
 
 
 def test_deep_multi_lens_research_listed_and_gated_on_delegate():

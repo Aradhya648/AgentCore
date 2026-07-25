@@ -78,13 +78,13 @@ export function resolveEffectiveWorkspace(opts: {
 /**
  * Chip / mode-bar label:
  * - project: 「项目名 · 本地|云端」
- * - bare local: 「草稿 · 本地」
- * - bare cloud: 「草稿 · 云」
+ * - bare local: 「本机草稿」
+ * - bare cloud: 「快速对话」（与 draft chip 对齐）
  */
 export function formatWorkspaceChipLabel(ws: EffectiveWorkspace): string {
   if (ws.viaProject && ws.projectName) {
     return `${ws.projectName} · ${ws.isLocal ? "本地" : "云端"}`;
   }
-  if (ws.isLocal) return "草稿 · 本地";
-  return "草稿 · 云";
+  if (ws.isLocal) return "本机草稿";
+  return "快速对话";
 }

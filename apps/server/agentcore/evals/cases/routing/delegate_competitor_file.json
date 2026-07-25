@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_competitor_file",
+  "category": "routing",
+  "user_message": "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 research/km-compare.md。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "多对象调研且要求落盘对比表：应委派（可并行扇出），CEO 不应串行独写长文充数。"
+}

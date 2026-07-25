@@ -88,6 +88,16 @@ def register_coordination_surface(
         chat_tools.register(QueueUserMessageTool(sink=sink))
 
 
+def ensure_coordination_surface_before_llm(chat_tools: ToolRegistry) -> bool:
+    """Before an LLM round: install gated tools when coordination is already live.
+
+    Closes the one-beat gap where a coordination brief tells the CEO to call
+    ``wait`` but the registry still lacks it (hint ahead of tool-surface).
+    Same registration path as :func:`promote_coordination_surface_if_needed`.
+    """
+    return promote_coordination_surface_if_needed(chat_tools)
+
+
 def promote_coordination_surface_if_needed(chat_tools: ToolRegistry) -> bool:
     """Mid-turn: add gated tools when coordination is live or replan is executable.
 

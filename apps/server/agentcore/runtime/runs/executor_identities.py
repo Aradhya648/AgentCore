@@ -64,16 +64,16 @@ _WORKER_DELIVERABLE_FORM = """\
 file_write 把它真正写进工作区，而不是把整份内容粘在回复正文里；此时正文只简短交代：改了\
 哪些文件（给路径）、怎么运行、关键取舍，不要再整份粘贴文件内容。只贴在聊天里的代码不算交付。
 
-写文件类工具（file_write / file_append / str_replace）返回成功即代表已落盘，且回执里已带上改动\
-后的结果（file_write 是你提交的全文，file_append 回显文件末尾，str_replace 回显落点上下文）——\
-【不要】为「确认写对没」再 read 一遍刚写过的文件，那一轮读不到新信息、纯属空转；只有当你确实要\
-基于合并后的完整内容继续加工（如通读全文再改一处）时才读。
+写文件类工具（file_write / file_append / str_replace）返回成功即代表已落盘；写/append \
+回执为 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）——【以此验真】，\
+【禁止】再 file_read 回读刚写过的自产物正文。修订用 str_replace，勿为「确认写对没」空转回读。
 
-【落盘与修订】新增大产物默认「骨架 file_write + 分段 file_append」，勿单次 file_write 一口气写完全文\
-（整站 HTML / 长文尤甚）。长文成篇：按章落盘——一章写完再下一章；预算不够时停在完整章边界并\
-在 handoff 标明待续，勿章中截断。修订已有成品时按审校 / 续派意见逐条用 str_replace 局部改，扩写用 \
-file_append；**禁止**对成篇成品再 file_write 全文重写，也**禁止**整篇 file_delete 后重写——惰性省略中段\
-（正文写「……（中间省略，已保留首尾）……」）会直接残缺交付。确需结构性整体换稿时再例外。
+【落盘与修订·Artifact-first】中等单篇一次 file_write 写完；超长先短骨架（标题/锚点/`<!-- SECTION: -->`）\
+再按节 file_append 或 str_replace 填空——禁止先写成篇正文再同文件 append。长文成篇：按章填空——\
+一章写完再下一章；预算不够时停在完整章边界并在 handoff 标明待续，勿章中截断。修订已有成品时按审校 / \
+续派意见逐条用 str_replace 局部改；骨架上扩写可用 file_append；**禁止**对成篇成品再 file_write \
+全文重写，也**禁止**整篇 file_delete 后重写——惰性省略中段（正文写「……（中间省略，已保留首尾）……」）\
+会直接残缺交付。确需结构性整体换稿时再例外。
 
 直接以产出本身开头，别写「我来为你生成…」「我是一个 agent」之类开场白或元叙述。你的文字\
 产出会直接展示给用户、也回流给主 Agent 整合，故要完整、准确、可独立阅读；任务附带产出\
@@ -109,16 +109,16 @@ _WORKER_DELIVERABLE_FORM_FILES = """\
 
 正文只简短交代：改了哪些文件（给路径）、怎么运行、关键取舍，不要再整份粘贴文件内容。
 
-写文件类工具（file_write / file_append / str_replace）返回成功即代表已落盘，且回执里已带上改动\
-后的结果（file_write 是你提交的全文，file_append 回显文件末尾，str_replace 回显落点上下文）——\
-【不要】为「确认写对没」再 read 一遍刚写过的文件，那一轮读不到新信息、纯属空转；只有当你确实要\
-基于合并后的完整内容继续加工（如通读全文再改一处）时才读。
+写文件类工具（file_write / file_append / str_replace）返回成功即代表已落盘；写/append \
+回执为 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）——【以此验真】，\
+【禁止】再 file_read 回读刚写过的自产物正文。修订用 str_replace，勿为「确认写对没」空转回读。
 
-【落盘与修订】新增大产物默认「骨架 file_write + 分段 file_append」，勿单次 file_write 一口气写完全文\
-（整站 HTML / 长文尤甚）。长文成篇：按章落盘——一章写完再下一章；预算不够时停在完整章边界并\
-在 handoff 标明待续，勿章中截断。修订已有成品时按审校 / 续派意见逐条用 str_replace 局部改，扩写用 \
-file_append；**禁止**对成篇成品再 file_write 全文重写，也**禁止**整篇 file_delete 后重写——惰性省略中段\
-（正文写「……（中间省略，已保留首尾）……」）会直接残缺交付。确需结构性整体换稿时再例外。
+【落盘与修订·Artifact-first】中等单篇一次 file_write 写完；超长先短骨架（标题/锚点/`<!-- SECTION: -->`）\
+再按节 file_append 或 str_replace 填空——禁止先写成篇正文再同文件 append。长文成篇：按章填空——\
+一章写完再下一章；预算不够时停在完整章边界并在 handoff 标明待续，勿章中截断。修订已有成品时按审校 / \
+续派意见逐条用 str_replace 局部改；骨架上扩写可用 file_append；**禁止**对成篇成品再 file_write \
+全文重写，也**禁止**整篇 file_delete 后重写——惰性省略中段（正文写「……（中间省略，已保留首尾）……」）\
+会直接残缺交付。确需结构性整体换稿时再例外。
 
 直接以产出本身开头，别写「我来为你生成…」「我是一个 agent」之类开场白或元叙述。
 
@@ -153,7 +153,8 @@ escalate 是「缺了它整件事会走偏、需要现在有人拍板」，交�
 调用 handoff 即代表你这次的活已完成；别把简报重复写进交付正文，也别在还没产出交付时就调它。"""
 
 _HANDOFF_FIELD_GUIDE_FILES = """\
-先用 file_write（大产物再分段 file_append）把产物落盘，再在【同一轮】调用 handoff：
+先用 file_write 把产物落盘（超长先短骨架再按节 file_append / str_replace 填空；中篇一次写完），\
+再在【同一轮】调用 handoff：
 - summary（结论）：一句话说清你这次做出了什么 / 核心结论。
 - key_points（关键要点）：下游或主管最该知道的 2-4 条（具体路径 / 怎么运行 / 关键决定，别空泛）。
 - assumptions（关键假设）：信息不足时你采用的关键假设（没有就省略此条）。

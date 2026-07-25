@@ -106,8 +106,15 @@ async def test_nonblocking_without_any_default_is_rejected():
 
 async def test_blocking_defaults_true_and_fails_without_durable_frame():
     # D11：无 transcript/saver 时不再走窄兜底 suspend，显式失败。
+    # 带 questions 以越过 kickoff 提案体硬闸，专测持久化失败路径。
     tool = _tool()
-    res = await tool.execute({"message": "A 还是 B?"}, _ctx())
+    res = await tool.execute(
+        {
+            "message": "A 还是 B?",
+            "questions": [{"prompt": "A 还是 B?", "options": ["A", "B"]}],
+        },
+        _ctx(),
+    )
     assert res.success is False
     assert "持久化" in (res.output or "")
 

@@ -33,6 +33,7 @@ from .conversations import (
 from .devices import PushDeviceRow
 from .documents import Document
 from .feedback import FeedbackRow
+from .llm_profiles import LlmModelProfile
 from .runs import (
     HandoffJob,
     PausedTurnRow,
@@ -65,6 +66,7 @@ __all__ = [
     "Folder",
     "HandoffJob",
     "Invite",
+    "LlmModelProfile",
     "MemoryUpdateRow",
     "Message",
     "MessageBookmark",

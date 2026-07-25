@@ -1,13 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Tests for the input-box model picker (会话级模型切换).
+ * Tests for the input-box model profile picker (模型组合).
  *
- * The picker's data source is the model catalog (`GET /v1/users/me/models`) — it lists
- * catalog models with the platform group flat (no per-vendor sub-headers) and the BYOK
- * group by 服务商 (provider_label), greys out unavailable ones with an unlock guide,
- * switches the active
- * conversation via PATCH with (id, origin, provider_id), inherits the last-used pick on a
- * fresh chat, and still truthfully echoes the last-actually-ran model.
+ * Lists system + user combinations, follows account default, PATCHes
+ * `model_profile_id`, inherits last-used profile on a fresh chat, and links to
+ * settings for management.
  */
 
 import {
@@ -20,13 +17,16 @@ import {
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/hooks/useLlmModelProfiles", () => ({
+  useLlmModelProfiles: vi.fn(),
+}));
 vi.mock("@/hooks/useModels", () => ({ useModels: vi.fn() }));
 vi.mock("@/hooks/useConversations", () => ({
   useConversations: vi.fn(() => []),
   patchConversationCache: vi.fn(),
 }));
 vi.mock("@/services/conversations", () => ({
-  setConversationModel: vi.fn(),
+  setConversationModelProfile: vi.fn(),
 }));
 vi.mock("@/lib/toast", () => ({
   notifySuccess: vi.fn(),
@@ -38,77 +38,66 @@ import {
   patchConversationCache,
   useConversations,
 } from "@/hooks/useConversations";
+import { useLlmModelProfiles } from "@/hooks/useLlmModelProfiles";
 import { useModels } from "@/hooks/useModels";
 import { __setUiStorageBackendForTests } from "@/lib/uiStorage";
-import { setConversationModel } from "@/services/conversations";
-import { type ModelCatalog, setLastUsedModel } from "@/services/models";
+import { setConversationModelProfile } from "@/services/conversations";
+import type { LlmModelProfileListResponse } from "@/services/llmModelProfiles";
+import { setLastUsedProfileId } from "@/services/models";
 import { useConversationStore } from "@/stores/conversation";
 import type { Conversation } from "@/stores/conversation";
-import { useTurnModelStore } from "@/stores/turnModel";
 import { ModelPicker } from "../ModelPicker";
 
+const useProfilesMock = vi.mocked(useLlmModelProfiles);
 const useModelsMock = vi.mocked(useModels);
 const useConversationsMock = vi.mocked(useConversations);
-const setConversationModelMock = vi.mocked(setConversationModel);
+const setProfileMock = vi.mocked(setConversationModelProfile);
 
-function catalog(over: Partial<ModelCatalog> = {}): ModelCatalog {
+function profiles(
+  over: Partial<LlmModelProfileListResponse> = {},
+): LlmModelProfileListResponse {
   return {
-    byok_configured: true,
-    current: {
-      id: "deepseek-v4-pro",
-      origin: "byok",
-      provider_id: "p-deepseek",
-    },
-    models: [
+    default_model_profile_id: "sys-52",
+    data: [
       {
-        id: "deepseek-v4-pro",
-        origin: "byok",
-        display_name: "DeepSeek V4 Pro",
-        vendor: "DeepSeek",
-        provider_id: "p-deepseek",
-        provider_label: "DeepSeek",
-        capabilities: ["tools", "reasoning"],
-        context_length: 128000,
-        price: { cache_miss: "0.14", output: "0.28", cache_hit: null },
-        available: true,
+        id: "sys-52",
+        name: "5.2",
+        kind: "system",
+        is_default: true,
+        main: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
+        worker: null,
+        background: null,
       },
       {
-        id: "gpt-4o",
-        origin: "byok",
-        display_name: "GPT-4o",
-        vendor: "OpenAI",
-        provider_id: "p-openai",
-        provider_label: "OpenAI",
-        capabilities: ["vision", "tools"],
-        context_length: 128000,
-        price: null,
-        available: true,
+        id: "sys-grok",
+        name: "Grok 4.5",
+        kind: "system",
+        is_default: false,
+        main: { origin: "byok", provider_id: "p2", model: "gpt-4o" },
+        worker: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
+        background: null,
       },
       {
-        id: "o3",
-        origin: "byok",
-        display_name: "o3",
-        vendor: "OpenAI",
-        provider_id: "p-openai",
-        provider_label: "OpenAI",
-        capabilities: ["reasoning"],
-        context_length: 200000,
-        price: null,
-        available: false,
+        id: "user-mine",
+        name: "办公",
+        kind: "user",
+        is_default: false,
+        main: { origin: "platform", provider_id: null, model: "flash" },
+        worker: null,
+        background: null,
       },
     ],
     ...over,
   };
 }
 
-function mockModels(data: ModelCatalog | undefined, opts = {}): void {
-  useModelsMock.mockReturnValue({
+function mockProfiles(data: LlmModelProfileListResponse | undefined): void {
+  useProfilesMock.mockReturnValue({
     data,
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
-    ...opts,
-  } as unknown as ReturnType<typeof useModels>);
+  } as unknown as ReturnType<typeof useLlmModelProfiles>);
 }
 
 function conv(partial: Partial<Conversation> & { id: string }): Conversation {
@@ -144,9 +133,45 @@ beforeEach(() => {
     keys: () => [...store.keys()],
   });
   useConversationStore.setState({ currentConversationId: null, byId: {} });
-  useTurnModelStore.setState({ byConversation: {} });
   useConversationsMock.mockReturnValue([]);
-  setConversationModelMock.mockReset();
+  useModelsMock.mockReturnValue({
+    data: {
+      byok_configured: true,
+      current: { id: "deepseek-v4-pro", origin: "byok", provider_id: "p1" },
+      models: [
+        {
+          id: "deepseek-v4-pro",
+          origin: "byok",
+          display_name: "DeepSeek V4 Pro",
+          vendor: "DeepSeek",
+          provider_id: "p1",
+          capabilities: [],
+          available: true,
+        },
+        {
+          id: "gpt-4o",
+          origin: "byok",
+          display_name: "GPT-4o",
+          vendor: "OpenAI",
+          provider_id: "p2",
+          capabilities: [],
+          available: true,
+        },
+        {
+          id: "flash",
+          origin: "platform",
+          display_name: "Flash",
+          vendor: "Platform",
+          capabilities: [],
+          available: true,
+        },
+      ],
+    },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useModels>);
+  setProfileMock.mockReset();
   vi.mocked(patchConversationCache).mockReset();
 });
 
@@ -156,172 +181,78 @@ afterEach(() => {
 });
 
 describe("ModelPicker", () => {
-  it("shows the account's current model on a fresh conversation", () => {
-    mockModels(catalog());
+  it("shows the account default profile on a fresh conversation", () => {
+    mockProfiles(profiles());
     renderPicker();
-    expect(screen.getByText("DeepSeek V4 Pro")).toBeTruthy();
+    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText(/DeepSeek V4 Pro · 跟随主模型/)).toBeTruthy();
   });
 
-  it("shows the conversation's model override over the account default", () => {
+  it("shows the conversation's profile override over the account default", () => {
     useConversationStore.setState({ currentConversationId: "c1", byId: {} });
     useConversationsMock.mockReturnValue([
-      conv({
-        id: "c1",
-        model: "gpt-4o",
-        modelOrigin: "byok",
-        modelProviderId: "p-openai",
-      }),
+      conv({ id: "c1", modelProfileId: "sys-grok" }),
     ]);
-    mockModels(catalog());
+    mockProfiles(profiles());
     renderPicker();
-    expect(screen.getByText("GPT-4o")).toBeTruthy();
+    expect(screen.getByText("Grok 4.5")).toBeTruthy();
   });
 
-  it("truthfully echoes the last actually-ran model when there is no override", () => {
+  it("lists system + user profiles and a manage link", () => {
+    mockProfiles(profiles());
+    renderPicker();
+    fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
+    expect(screen.getByText("跟随账号默认")).toBeTruthy();
+    expect(screen.getByText("系统预置")).toBeTruthy();
+    expect(screen.getByText("我的组合")).toBeTruthy();
+    expect(screen.getByText("管理组合…")).toBeTruthy();
+    // No bare model catalog rows.
+    expect(screen.queryByText("自带 Key")).toBeNull();
+  });
+
+  it("persists the pick via PATCH model_profile_id", async () => {
     useConversationStore.setState({ currentConversationId: "c1", byId: {} });
-    useConversationsMock.mockReturnValue([conv({ id: "c1", model: null })]);
-    useTurnModelStore.setState({ byConversation: { c1: "gpt-4o" } });
-    mockModels(catalog());
-    renderPicker();
-    expect(screen.getByText("GPT-4o")).toBeTruthy();
-    expect(screen.queryByText("DeepSeek V4 Pro")).toBeNull();
-  });
-
-  it("lists catalog models grouped by origin then 服务商 and greys unavailable ones", () => {
-    mockModels(catalog());
-    renderPicker();
-    fireEvent.click(screen.getByRole("button", { name: /模型：/ }));
-    expect(screen.getByText("自带 Key")).toBeTruthy();
-    // BYOK group headers are the provider labels (not vendor guesses).
-    expect(screen.getByText("OpenAI")).toBeTruthy();
-    expect(screen.getByText("DeepSeek")).toBeTruthy();
-    expect(screen.getByText("接入自己的 Key 解锁")).toBeTruthy();
-  });
-
-  it("persists the pick to the active conversation via PATCH with (origin, provider_id)", async () => {
-    useConversationStore.setState({ currentConversationId: "c1", byId: {} });
-    useConversationsMock.mockReturnValue([conv({ id: "c1", model: null })]);
-    mockModels(catalog());
-    setConversationModelMock.mockResolvedValue(
-      conv({
-        id: "c1",
-        model: "gpt-4o",
-        modelOrigin: "byok",
-        modelProviderId: "p-openai",
-      }),
+    useConversationsMock.mockReturnValue([
+      conv({ id: "c1", modelProfileId: null }),
+    ]);
+    mockProfiles(profiles());
+    setProfileMock.mockResolvedValue(
+      conv({ id: "c1", modelProfileId: "user-mine" }),
     );
 
     renderPicker();
-    fireEvent.click(screen.getByRole("button", { name: /模型：/ }));
-    fireEvent.click(screen.getByText("GPT-4o"));
+    fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
+    fireEvent.click(screen.getByText("办公"));
 
     await waitFor(() =>
-      expect(setConversationModelMock).toHaveBeenCalledWith("c1", {
-        id: "gpt-4o",
-        origin: "byok",
-        providerId: "p-openai",
-      }),
+      expect(setProfileMock).toHaveBeenCalledWith("c1", "user-mine"),
     );
     expect(patchConversationCache).toHaveBeenCalledWith("c1", {
-      model: "gpt-4o",
-      modelOrigin: "byok",
-      modelProviderId: "p-openai",
+      modelProfileId: "user-mine",
     });
   });
 
-  it("does not PATCH an unavailable model (guides to key setup instead)", () => {
+  it("clears the override when following account default", async () => {
     useConversationStore.setState({ currentConversationId: "c1", byId: {} });
-    useConversationsMock.mockReturnValue([conv({ id: "c1", model: null })]);
-    mockModels(catalog());
+    useConversationsMock.mockReturnValue([
+      conv({ id: "c1", modelProfileId: "user-mine" }),
+    ]);
+    mockProfiles(profiles());
+    setProfileMock.mockResolvedValue(conv({ id: "c1", modelProfileId: null }));
 
     renderPicker();
-    fireEvent.click(screen.getByRole("button", { name: /模型：/ }));
-    fireEvent.click(screen.getByText("o3"));
+    fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
+    fireEvent.click(screen.getByText("跟随账号默认"));
 
-    expect(setConversationModelMock).not.toHaveBeenCalled();
-  });
-
-  it("inherits the last-used (id, origin, provider_id) as the suggestion on a new chat", () => {
-    setLastUsedModel({ id: "gpt-4o", origin: "byok", providerId: "p-openai" });
-    mockModels(catalog());
-    renderPicker();
-    expect(screen.getByText("GPT-4o")).toBeTruthy();
-  });
-
-  it("shows a 平台额度 badge on platform rows when the same id exists under BYOK", () => {
-    mockModels(
-      catalog({
-        byok_configured: false,
-        current: { id: "deepseek-v4-pro", origin: "platform" },
-        models: [
-          {
-            id: "deepseek-v4-pro",
-            origin: "platform",
-            display_name: "DeepSeek V4 Pro",
-            vendor: "DeepSeek",
-            capabilities: [],
-            context_length: 128000,
-            price: null,
-            available: true,
-          },
-          {
-            id: "deepseek-v4-pro",
-            origin: "byok",
-            display_name: "DeepSeek V4 Pro",
-            vendor: "DeepSeek",
-            provider_id: "p-deepseek",
-            provider_label: "DeepSeek",
-            capabilities: [],
-            context_length: 128000,
-            price: null,
-            available: false,
-          },
-        ],
-      }),
+    await waitFor(() =>
+      expect(setProfileMock).toHaveBeenCalledWith("c1", null),
     );
-    renderPicker();
-    fireEvent.click(screen.getByRole("button", { name: /模型：/ }));
-    expect(screen.getByText("平台额度")).toBeTruthy();
-    expect(screen.getByText("平台模型")).toBeTruthy();
   });
 
-  it("renders the platform group flat — no per-vendor sub-headers", () => {
-    mockModels(
-      catalog({
-        byok_configured: false,
-        current: { id: "5.2", origin: "platform" },
-        models: [
-          {
-            id: "5.2",
-            origin: "platform",
-            display_name: "5.2",
-            vendor: "平台中转",
-            capabilities: ["tools", "reasoning"],
-            context_length: 128000,
-            price: { cache_miss: "2.50", output: "10.00", cache_hit: null },
-            available: true,
-          },
-          {
-            id: "grok-4.5",
-            origin: "platform",
-            display_name: "Grok 4.5",
-            vendor: "xAI",
-            capabilities: ["tools", "reasoning"],
-            context_length: 256000,
-            price: { cache_miss: "3.00", output: "15.00", cache_hit: null },
-            available: true,
-          },
-        ],
-      }),
-    );
+  it("inherits the last-used profile id as the suggestion on a new chat", () => {
+    setLastUsedProfileId("sys-grok");
+    mockProfiles(profiles());
     renderPicker();
-    fireEvent.click(screen.getByRole("button", { name: /模型：/ }));
-    // One「平台模型」origin header, models listed flat underneath.
-    expect(screen.getByText("平台模型")).toBeTruthy();
-    expect(screen.getAllByText("5.2").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Grok 4.5").length).toBeGreaterThan(0);
-    // No vendor sub-headers (the whole point of flattening the platform group).
-    expect(screen.queryByText("平台中转")).toBeNull();
-    expect(screen.queryByText("xAI")).toBeNull();
+    expect(screen.getByText("Grok 4.5")).toBeTruthy();
   });
 });

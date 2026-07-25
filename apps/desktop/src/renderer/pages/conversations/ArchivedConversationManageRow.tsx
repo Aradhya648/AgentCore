@@ -1,4 +1,4 @@
-import { Badge, IconButton } from "@/components/ui";
+import { Badge, IconButton, SurfaceRow } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import {
   useDeleteConversation,
@@ -69,13 +69,13 @@ export function ArchivedConversationManageRow({
   };
 
   return (
-    <div
+    <SurfaceRow
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
         setHovered(false);
         setConfirmingDelete(false);
       }}
-      className="group relative flex min-h-14 items-stretch gap-3 rounded-xl border border-border/60 bg-card/50 px-3 py-2.5 transition-colors hover:border-border hover:bg-accent/60"
+      className="group relative min-h-14 items-stretch gap-3 px-3 py-2.5 hover:bg-accent/60"
     >
       {/* biome-ignore lint/a11y/useSemanticElements: 行内有 IconButton，可点击区不可再套 button。 */}
       <div
@@ -174,6 +174,6 @@ export function ArchivedConversationManageRow({
           {conversation.messageCount} 条
         </Badge>
       </div>
-    </div>
+    </SurfaceRow>
   );
 }

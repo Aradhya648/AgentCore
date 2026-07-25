@@ -1,0 +1,12 @@
+{
+  "id": "routing_delegate_readme_tweak",
+  "category": "routing",
+  "user_message": "帮我改一下项目根目录的 README.md：在最上面加一小节「快速开始」，写三条安装命令，其余内容别动。",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" }
+  ],
+  "rubric": "单文件就地修改：交付形态是改仓库文件，应委派 worker 落盘改写。"
+}

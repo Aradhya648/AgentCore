@@ -5,7 +5,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Brand display face — Latin wordmark only (Space Grotesk, OFL). Body stays system stack. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/brand/fonts/space-grotesk-latin-500-normal.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/brand/fonts/space-grotesk-latin-600-normal.woff2")
+    format("woff2");
+}
+
 @theme inline {
+  --font-brand: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -562,114 +582,4 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Noto Sans SC", sans-serif;
-}
-
-/* 阶段推进卡（批 B）— 命题卡升级为可操作交互 */
-.stage-card {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
-  padding: 12px 14px;
-  background: var(--card, #fafafa);
-  font-size: 13px;
-  line-height: 1.45;
-}
-.stage-card--orphaned,
-.stage-card--resolved {
-  opacity: 0.72;
-}
-.stage-card__eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--muted-foreground, #6b7280);
-  margin-bottom: 6px;
-}
-.stage-card__title {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.stage-card__hint {
-  margin: 0;
-  color: var(--muted-foreground, #6b7280);
-  font-size: 12px;
-}
-.stage-card__motion {
-  font-weight: 600;
-  margin-bottom: 8px;
-  white-space: pre-wrap;
-}
-.stage-card__motion-input {
-  width: 100%;
-  resize: vertical;
-  margin-bottom: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border, #d1d5db);
-  border-radius: 6px;
-  font: inherit;
-}
-.stage-card__sides {
-  margin: 0 0 8px;
-  padding-left: 1.1em;
-}
-.stage-card__sides li {
-  margin-bottom: 2px;
-}
-.stage-card__side-name {
-  font-weight: 600;
-  margin-right: 6px;
-}
-.stage-card__side-stance {
-  color: var(--muted-foreground, #4b5563);
-}
-.stage-card__meta {
-  font-size: 12px;
-  color: var(--muted-foreground, #6b7280);
-  margin-bottom: 8px;
-}
-.stage-card__rationale {
-  margin: 0 0 8px;
-  color: var(--muted-foreground, #4b5563);
-  font-size: 12px;
-}
-.stage-card__note {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: var(--muted-foreground, #6b7280);
-}
-.stage-card__note input,
-.stage-card__note-input {
-  width: 100%;
-  margin-top: 4px;
-  padding: 6px 8px;
-  border: 1px solid var(--border, #d1d5db);
-  border-radius: 6px;
-  font: inherit;
-}
-.stage-card__error {
-  margin: 0 0 8px;
-  color: var(--destructive, #b91c1c);
-  font-size: 12px;
-}
-.stage-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.stage-card__btn {
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border, #d1d5db);
-  background: var(--background, #fff);
-  font: inherit;
-  cursor: pointer;
-}
-.stage-card__btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.stage-card__btn--primary {
-  background: var(--primary, #111827);
-  color: var(--primary-foreground, #fff);
-  border-color: transparent;
 }

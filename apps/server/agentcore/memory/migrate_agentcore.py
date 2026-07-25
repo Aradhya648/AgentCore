@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from agentcore.core.logging import get_logger
 from agentcore.db.models import Document
@@ -50,7 +51,7 @@ async def _scopes_needing_attention(
     Also includes scopes that already have an ``AgentCore/`` root so a half-migrated scope
     (AgentCore present, rules still top-level) still gets a pass.
     """
-    conditions = [
+    conditions: list[ColumnElement[bool]] = [
         Document.deleted_at.is_(None),
         Document.kind.in_(("folder", "document")),
     ]

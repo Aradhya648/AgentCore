@@ -180,8 +180,9 @@ def _patch_resume_terminal(monkeypatch, *, pre_pause: str) -> EventSink:
         ),
     )
     # Real bind_recorder (needs a ContextVar Token for finally reset).
-    monkeypatch.setattr(resume_mod.pipeline_pkg, "build_provider", lambda *_a, **_k: llm)
-    monkeypatch.setattr(resume_mod.pipeline_pkg, "build_router_around", lambda p: p)
+    monkeypatch.setattr(
+        resume_mod.pipeline_pkg, "build_turn_router", AsyncMock(return_value=llm)
+    )
     monkeypatch.setattr(
         "agentcore.db.base.async_session_factory",
         MagicMock(side_effect=RuntimeError("no db")),

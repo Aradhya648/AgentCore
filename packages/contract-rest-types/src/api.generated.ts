@@ -317,6 +317,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/simulation/show/episodes/{episode_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Episode Publish
+         * @description 发布态门禁（draft → review → published）。仅管理后台 Admin。
+         */
+        patch: operations["patch_episode_publish_v1_admin_simulation_show_episodes__episode_id__publish_patch"];
+        trace?: never;
+    };
     "/v1/admin/system": {
         parameters: {
             query?: never;
@@ -1429,6 +1449,7 @@ export interface paths {
          *     The conflict gate is server-authoritative — a file that diverged locally since the
          *     base is refused (status ``conflict``) unless its selection ``force``\s it.
          *
+         *     Binding resolution matches turn routing (``resolve_local_binding``).
          *     404 if the conversation is not owned or the job is unknown / from another source;
          *     409 while the job has not succeeded yet; 422 when the conversation is not in local
          *     mode (nothing local to apply onto).
@@ -1948,6 +1969,9 @@ export interface paths {
         /**
          * Create Conversation Snapshot
          * @description Take a manual snapshot of the workspace (a ``label`` keeps it as a version).
+         *
+         *     Local-mode conversations are refused (409) — same gate as
+         *     ``POST /v1/workspaces/{ws_id}/snapshots``; use handoff ARCHIVE instead.
          */
         post: operations["create_conversation_snapshot_v1_conversations__conversation_id__snapshots_post"];
         delete?: never;
@@ -1988,6 +2012,9 @@ export interface paths {
         /**
          * Restore Conversation Snapshot
          * @description Restore the workspace to a snapshot (overwrites current files).
+         *
+         *     Local-mode conversations are refused (409) — restore would rewrite the unused
+         *     server-side mirror, not the user's machine.
          */
         post: operations["restore_conversation_snapshot_v1_conversations__conversation_id__snapshots__snapshot_id__restore_post"];
         delete?: never;
@@ -2260,6 +2287,9 @@ export interface paths {
          *     snapshot list / restore / download as cloud-mode versions). 422 when the
          *     conversation is not in local mode — a cloud workspace already snapshots itself,
          *     and there is nothing on the user's disk to fetch.
+         *
+         *     Binding resolution matches turn routing (``resolve_local_binding``): project
+         *     chats inherit the folder bind; 裸聊 uses ``local_root_id`` or container root.
          */
         post: operations["handoff_local_workspace_v1_conversations__conversation_id__workspace_handoff_post"];
         delete?: never;
@@ -2289,6 +2319,7 @@ export interface paths {
          *     after the stream closes (poll ``GET …/handoff/jobs`` for its status). 422 when
          *     the conversation is not in local mode (nothing local to hand off).
          *
+         *     Binding resolution matches turn routing (``resolve_local_binding``).
          *     Gated like ``send_message`` (it spends tokens): rate limit → ownership → quota.
          */
         post: operations["dispatch_handoff_job_v1_conversations__conversation_id__workspace_handoff_dispatch_post"];
@@ -2578,6 +2609,7 @@ export interface paths {
          * @description Create a tree node (always ``ai_maintained=false`` — user-owned).
          *
          *     A child inherits its parent's ``folder_id`` scope; a root node takes the requested scope.
+         *     New ``role='rule'`` documents with no parent land under ``AgentCore/规则/`` (§5.0).
          */
         post: operations["create_document_v1_documents_post"];
         delete?: never;
@@ -2695,7 +2727,14 @@ export interface paths {
         /** List Folders */
         get: operations["list_folders_v1_folders_get"];
         put?: never;
-        /** Create Folder */
+        /**
+         * Create Folder
+         * @description Create a project, or reuse an existing live local binding (HTTP 200).
+         *
+         *     Local mode is unique per ``(user_id, local_root_id, local_subpath)`` — same
+         *     path re-open returns the existing row (VS Code / Cursor workspace reuse).
+         *     Cloud projects are unchanged (duplicate names allowed).
+         */
         post: operations["create_folder_v1_folders_post"];
         delete?: never;
         options?: never;
@@ -3592,26 +3631,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/simulation/show/episodes/{episode_id}/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Patch Episode Publish
-         * @description 发布态门禁位（draft → review → published）。生产环境应再加 admin 鉴权。
-         */
-        patch: operations["patch_episode_publish_v1_simulation_show_episodes__episode_id__publish_patch"];
-        trace?: never;
-    };
     "/v1/simulation/show/episodes/{episode_id}/quiz": {
         parameters: {
             query?: never;
@@ -3728,6 +3747,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/users/me/llm-model-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Model Profiles */
+        get: operations["list_model_profiles_v1_users_me_llm_model_profiles_get"];
+        put?: never;
+        /** Create Model Profile */
+        post: operations["create_model_profile_v1_users_me_llm_model_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/users/me/llm-model-profiles/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Default Model Profile */
+        put: operations["set_default_model_profile_v1_users_me_llm_model_profiles_default_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/users/me/llm-model-profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model Profile */
+        get: operations["get_model_profile_v1_users_me_llm_model_profiles__profile_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Model Profile */
+        delete: operations["delete_model_profile_v1_users_me_llm_model_profiles__profile_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Model Profile */
+        patch: operations["update_model_profile_v1_users_me_llm_model_profiles__profile_id__patch"];
+        trace?: never;
+    };
     "/v1/users/me/llm-providers": {
         parameters: {
             query?: never;
@@ -3737,7 +3810,7 @@ export interface paths {
         };
         /**
          * List Llm Providers
-         * @description The user's BYOK providers + account default pointers + deployment capabilities.
+         * @description The user's BYOK providers + deployment capabilities.
          */
         get: operations["list_llm_providers_v1_users_me_llm_providers_get"];
         put?: never;
@@ -3746,26 +3819,6 @@ export interface paths {
          * @description Add an OpenAI-compatible provider (key encrypted at rest; status 'unchecked').
          */
         post: operations["create_llm_provider_v1_users_me_llm_providers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/users/me/llm-providers/defaults": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Llm Defaults
-         * @description Set the account chat / background default model pointers (each provider+model).
-         */
-        put: operations["set_llm_defaults_v1_users_me_llm_providers_defaults_put"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3784,7 +3837,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Llm Provider
-         * @description Remove a provider (account pointers + conversation overrides fall back cleanly).
+         * @description Remove a provider (profile slots referencing it fall back cleanly).
          */
         delete: operations["delete_llm_provider_v1_users_me_llm_providers__provider_id__delete"];
         options?: never;
@@ -5786,12 +5839,8 @@ export interface components {
              * @default 0
              */
             message_count: number;
-            /** Model */
-            model?: string | null;
-            /** Model Origin */
-            model_origin?: ("byok" | "platform") | null;
-            /** Model Provider Id */
-            model_provider_id?: string | null;
+            /** Model Profile Id */
+            model_profile_id?: string | null;
             /** @default workspace */
             permission_preset: components["schemas"]["PermissionPreset"];
             /**
@@ -5900,6 +5949,19 @@ export interface components {
         CreateInviteRequest: {
             /** Expires In Days */
             expires_in_days?: number | null;
+        };
+        /** CreateLlmModelProfileRequest */
+        CreateLlmModelProfileRequest: {
+            background?: components["schemas"]["ModelProfileSlot"] | null;
+            main: components["schemas"]["ModelProfileSlot"];
+            /** Name */
+            name: string;
+            /**
+             * Set As Default
+             * @default false
+             */
+            set_as_default: boolean;
+            worker?: components["schemas"]["ModelProfileSlot"] | null;
         };
         /**
          * CreateLlmProviderRequest
@@ -6866,15 +6928,36 @@ export interface components {
              */
             type: "down" | "up";
         };
-        /**
-         * LlmDefaultPointer
-         * @description An account default pointer: which provider + which model.
-         */
-        LlmDefaultPointer: {
-            /** Model */
-            model: string;
-            /** Provider Id */
-            provider_id: string;
+        /** LlmModelProfileListResponse */
+        LlmModelProfileListResponse: {
+            /** Data */
+            data: components["schemas"]["LlmModelProfileView"][];
+            /** Default Model Profile Id */
+            default_model_profile_id?: string | null;
+        };
+        /** LlmModelProfileView */
+        LlmModelProfileView: {
+            background?: components["schemas"]["ModelProfileSlot"] | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "system" | "user" | "implicit";
+            main: components["schemas"]["ModelProfileSlot"];
+            /** Name */
+            name: string;
+            /** Updated At */
+            updated_at?: string | null;
+            worker?: components["schemas"]["ModelProfileSlot"] | null;
         };
         /**
          * LlmProviderView
@@ -6889,16 +6972,6 @@ export interface components {
             default_model: string;
             /** Id */
             id: string;
-            /**
-             * Is Default Background
-             * @default false
-             */
-            is_default_background: boolean;
-            /**
-             * Is Default Chat
-             * @default false
-             */
-            is_default_chat: boolean;
             /** Label */
             label: string;
             /** Masked Key */
@@ -6923,11 +6996,10 @@ export interface components {
         };
         /**
          * LlmProvidersResponse
-         * @description The full 设置·模型配置 state: provider list + account pointers + deployment caps.
+         * @description The full 设置·模型配置 state: provider list + deployment caps.
          *
-         *     The deployment-level fields (``billing_mode`` / ``platform_available`` /
-         *     ``platform_model`` / ``free_tier_active``) moved here from the retired per-key
-         *     status contract — they describe the account/deployment, not any one provider.
+         *     Account default combination lives on ``/users/me/llm-model-profiles``
+         *     (``default_model_profile_id``).
          */
         LlmProvidersResponse: {
             /**
@@ -6936,8 +7008,8 @@ export interface components {
              * @default byok
              */
             billing_mode: string;
-            default_background?: components["schemas"]["LlmDefaultPointer"] | null;
-            default_chat?: components["schemas"]["LlmDefaultPointer"] | null;
+            /** Default Model Profile Id */
+            default_model_profile_id?: string | null;
             /**
              * Free Tier Active
              * @description True when this user has no BYOK provider, free tier is enabled, and platform credentials are available (keyless users can chat on free quota)
@@ -7490,6 +7562,25 @@ export interface components {
             output?: string | null;
         };
         /**
+         * ModelProfileSlot
+         * @description One slot in a model combination (main / worker / background).
+         */
+        ModelProfileSlot: {
+            /** Model */
+            model: string;
+            /**
+             * Origin
+             * @description Credential origin: byok (user key) or platform (operator catalog)
+             * @enum {string}
+             */
+            origin: "byok" | "platform";
+            /**
+             * Provider Id
+             * @description BYOK provider id when origin=byok; must be null for platform
+             */
+            provider_id?: string | null;
+        };
+        /**
          * MountSharedSpaceRequest
          * @description Mount a shared space into a cloud conversation as ``shared/<alias>/``.
          */
@@ -7808,12 +7899,22 @@ export interface components {
          *     optimistic user/assistant bubbles against these; ``title`` is set only when this
          *     turn minted the conversation's first title; ``followups`` mirrors the live
          *     ``followups_generated`` chips when this turn minted them).
+         *
+         *     ``noop=True`` means the server intentionally skipped an assistant row (empty
+         *     body + no process state). Desktop may delete the outbox only when
+         *     ``assistant_message_id`` is set **or** ``noop`` is True — never on a bare null id
+         *     when the turn carried runs/journal/segments.
          */
         RecordTurnResponse: {
             /** Assistant Message Id */
             assistant_message_id?: string | null;
             /** Followups */
             followups?: string[] | null;
+            /**
+             * Noop
+             * @default false
+             */
+            noop: boolean;
             /** Title */
             title?: string | null;
             /** User Message Id */
@@ -8365,17 +8466,13 @@ export interface components {
             /** User Agent */
             user_agent?: string | null;
         };
-        /**
-         * SetLlmDefaultsRequest
-         * @description Set the account chat / background default pointers.
-         *
-         *     Tri-state via ``model_fields_set``: an omitted field is left unchanged; ``chat``
-         *     must be a pointer when present; ``background`` present + null clears it (background
-         *     then follows chat).
-         */
-        SetLlmDefaultsRequest: {
-            background?: components["schemas"]["LlmDefaultPointer"] | null;
-            chat?: components["schemas"]["LlmDefaultPointer"] | null;
+        /** SetDefaultModelProfileRequest */
+        SetDefaultModelProfileRequest: {
+            /**
+             * Profile Id
+             * @description User combination id or system preset id
+             */
+            profile_id: string;
         };
         /**
          * SetMessageFeedbackRequest
@@ -9300,12 +9397,8 @@ export interface components {
             archived?: boolean | null;
             /** Deep Research Auto */
             deep_research_auto?: boolean | null;
-            /** Model */
-            model?: string | null;
-            /** Model Origin */
-            model_origin?: ("byok" | "platform") | null;
-            /** Model Provider Id */
-            model_provider_id?: string | null;
+            /** Model Profile Id */
+            model_profile_id?: string | null;
             /** Pinned */
             pinned?: boolean | null;
             /** Title */
@@ -9335,6 +9428,18 @@ export interface components {
         UpdateFolderRequest: {
             /** Name */
             name?: string | null;
+        };
+        /**
+         * UpdateLlmModelProfileRequest
+         * @description Partial update. Omitted fields unchanged; explicit null on worker/background clears
+         *     the slot (follow_main).
+         */
+        UpdateLlmModelProfileRequest: {
+            background?: components["schemas"]["ModelProfileSlot"] | null;
+            main?: components["schemas"]["ModelProfileSlot"] | null;
+            /** Name */
+            name?: string | null;
+            worker?: components["schemas"]["ModelProfileSlot"] | null;
         };
         /**
          * UpdateLlmProviderRequest
@@ -10212,6 +10317,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_episode_publish_v1_admin_simulation_show_episodes__episode_id__publish_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchShowEpisodePublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowEpisodeSummary"];
                 };
             };
             /** @description Validation Error */
@@ -16990,45 +17134,6 @@ export interface operations {
             };
         };
     };
-    patch_episode_publish_v1_simulation_show_episodes__episode_id__publish_patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                episode_id: string;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchShowEpisodePublishRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShowEpisodeSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     post_episode_quiz_v1_simulation_show_episodes__episode_id__quiz_post: {
         parameters: {
             query?: never;
@@ -17274,6 +17379,222 @@ export interface operations {
             };
         };
     };
+    list_model_profiles_v1_users_me_llm_model_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModelProfileListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_model_profile_v1_users_me_llm_model_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLlmModelProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModelProfileView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_default_model_profile_v1_users_me_llm_model_profiles_default_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDefaultModelProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModelProfileView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_profile_v1_users_me_llm_model_profiles__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModelProfileView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_model_profile_v1_users_me_llm_model_profiles__profile_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_model_profile_v1_users_me_llm_model_profiles__profile_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLlmModelProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModelProfileView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_llm_providers_v1_users_me_llm_providers_get: {
         parameters: {
             query?: never;
@@ -17331,43 +17652,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LlmProviderView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_llm_defaults_v1_users_me_llm_providers_defaults_put: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetLlmDefaultsRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LlmProvidersResponse"];
                 };
             };
             /** @description Validation Error */

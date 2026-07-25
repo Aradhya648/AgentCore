@@ -2,15 +2,16 @@ import {
   patchConversationCache,
   upsertConversationFront,
 } from "@/hooks/useConversations";
+import { isReadOnlyOffline } from "@/lib/offlineMode";
 import { notifyError } from "@/lib/toast";
 import { api } from "@/services/api";
 import {
   provisionalConversationTitle,
-  setConversationModel,
+  setConversationModelProfile,
 } from "@/services/conversations";
 import { ensureDefaultContainerRoot } from "@/services/defaultWorkspace";
 import { loadLatestWindow } from "@/services/messages";
-import { getLastUsedModel } from "@/services/models";
+import { getLastUsedProfileId } from "@/services/models";
 import { resolveDefaultPermissionPreset } from "@/services/permissionPreset";
 import type { OutgoingAttachment } from "@/services/streamConversation";
 import { sendTurn } from "@/services/turns";
@@ -53,6 +54,12 @@ export function useComposerSend({
   const handleSend = useCallback(async () => {
     const trimmed = value.trim();
     if (!trimmed) return;
+
+    // N4-A：只读离线硬禁用（按钮已 disabled；此处兜底防键盘/程序化触发）。
+    if (isReadOnlyOffline()) {
+      notifyError("离线时无法发送，请恢复连接后再试");
+      return;
+    }
 
     const activeConvId = useConversationStore.getState().currentConversationId;
 
@@ -130,8 +137,8 @@ export function useComposerSend({
       if (intent.kind === "quick_local") {
         localContainerRootId = await ensureDefaultContainerRoot();
       }
-      // 新会话继承上次在聊天里选的 (id, origin)（会话级模型切换）：目录 last-used 作默认建议。
-      const inheritedModel = getLastUsedModel();
+      // 新会话继承上次在聊天里选的组合 id（会话级组合引用）：last_profile_id 作默认建议。
+      const inheritedProfileId = getLastUsedProfileId();
       try {
         const permissionPreset = await resolveDefaultPermissionPreset();
         const conv = await api.post<{
@@ -158,28 +165,22 @@ export function useComposerSend({
               | "workspace"
               | "full_trust"
               | undefined) ?? permissionPreset,
-          model: inheritedModel?.id ?? null,
-          modelOrigin: inheritedModel?.origin ?? null,
-          modelProviderId: inheritedModel?.providerId ?? null,
+          modelProfileId: inheritedProfileId,
         });
-        // Persist the inherited model onto the new conversation BEFORE the first
-        // turn so it actually runs on it (当前回合起生效). Best-effort: an
-        // unavailable/stale pick 422s → clear the optimistic override, fall back
-        // to the account default; never block the send.
-        if (inheritedModel) {
+        // Persist the inherited profile onto the new conversation BEFORE the first
+        // turn so it actually runs on it. Best-effort: stale id 422s → clear and
+        // follow account default; never block the send.
+        if (inheritedProfileId) {
           try {
-            const updated = await setConversationModel(conv.id, inheritedModel);
+            const updated = await setConversationModelProfile(
+              conv.id,
+              inheritedProfileId,
+            );
             patchConversationCache(conv.id, {
-              model: updated.model ?? null,
-              modelOrigin: updated.modelOrigin ?? null,
-              modelProviderId: updated.modelProviderId ?? null,
+              modelProfileId: updated.modelProfileId ?? null,
             });
           } catch {
-            patchConversationCache(conv.id, {
-              model: null,
-              modelOrigin: null,
-              modelProviderId: null,
-            });
+            patchConversationCache(conv.id, { modelProfileId: null });
           }
         }
         // 首发落地动画：仅在草稿 promote 成新对话时武装 dock-flip（中间→底栏）。切换到

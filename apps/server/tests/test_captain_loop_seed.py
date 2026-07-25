@@ -367,6 +367,6 @@ async def test_react_loop_controller_seed_skips_team_gate():
         for m in messages
         if m.role == "user"
         and m.content
-        and ("组队门槛复核" in m.content or "收尾前审计复核" in m.content)
+        and ("探路已达硬上限" in m.content or "收尾前审计复核" in m.content)
     ]
     assert nudges == []

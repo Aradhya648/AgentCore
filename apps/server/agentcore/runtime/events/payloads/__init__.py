@@ -179,6 +179,14 @@ TS_EXPORTS: tuple[TsExport, ...] = (
 
     TsInterface(run.UsageBreakdown),
     TsInterface(run.CostBreakdown),
+    TsAlias(
+        "DebateForm",
+        shared.DebateForm,
+        doc=(
+            "辩论形态成员集单源（``runtime.debate.types.DebateForm``）；"
+            "wire / schema / 标签键同集。"
+        ),
+    ),
     TsInterface(shared.MotionCardSide),
     TsInterface(shared.MotionCard),
     TsInterface(run.RunDebrief),

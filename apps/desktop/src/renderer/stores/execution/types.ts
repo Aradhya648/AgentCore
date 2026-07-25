@@ -234,6 +234,12 @@ export interface RunEscalation {
   arbitrated_by?: "user" | "ceo";
   /** 仅 arbitrated_by=ceo：是否经 ask_user 转交用户。 */
   via_user?: boolean;
+  /**
+   * 浏览器登录等待 escalate（wire `browser_login`）。pending 时 EscalationCard 呈现
+   * 「需要你登录」+ 打开直播 CTA；主操作仍是 resolve「已登录，继续」。Desktop-local —
+   * 不进 conformance ProjectedTurn（golden 无此字段）。缺省 / false = 普通拍板卡。
+   */
+  browserLogin?: boolean;
 }
 
 /** 团队便签墙 (§2.2 通): one note a worker broadcast to its CONCURRENT siblings via `post_note`

@@ -51,11 +51,26 @@ class SidecarServer(HandlerMixin, TurnExecutionMixin):
         # turn_id → running task, so ``cancel`` can reach an in-flight turn. A resume
         # registers under its message_id, so a cancel during resume reaches it too.
         self._turns: dict[str, asyncio.Task[None]] = {}
+        # turn_id → conversation_id (cancel cascades coordination without FE always
+        # repeating conversationId; cleared with ``_turns``).
+        self._turn_conversations: dict[str, str] = {}
         # Fire-and-forget sends spawned during cancellation; kept referenced so
         # they are not garbage-collected before they flush.
         self._pending_sends: set[asyncio.Task[None]] = set()
         # Flipped by ``shutdown`` so the process loop can exit cleanly.
         self.shutdown_requested = asyncio.Event()
+
+    def _register_turn(
+        self, turn_id: str, task: asyncio.Task[None], *, conversation_id: str
+    ) -> None:
+        self._turns[turn_id] = task
+        cid = (conversation_id or "").strip()
+        if cid:
+            self._turn_conversations[turn_id] = cid
+
+    def _unregister_turn(self, turn_id: str) -> None:
+        self._turns.pop(turn_id, None)
+        self._turn_conversations.pop(turn_id, None)
 
     async def handle_line(self, line: str) -> None:
         """Parse and dispatch one inbound line. Never raises (loop-safe)."""

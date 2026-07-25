@@ -1,0 +1,84 @@
+# AgentCore 后端（apps/server）
+
+FastAPI 后端：HTTP / SSE API、多 Agent **runtime 执行引擎**、LLM 网关、工具与记忆、认证与计费等平台能力。Python 包入口为 `agentcore`。
+
+## 何时读这里
+
+- 改 API、编排、工具、DB、认证、部署后端 → 从本目录动手
+- 只改桌面 / 手机渲染层 → 见 [`apps/desktop`](../desktop/README.md) / [`apps/mobile`](../mobile/README.md)
+
+## 文档入口
+
+| 主题 | 文档 |
+|------|------|
+| clone 后跑通（权威步骤） | [`docs/02-架构/本地开发.md`](../../docs/02-架构/本地开发.md) |
+| 分层与模块边界 | [`后端架构`](../../docs/02-架构/后端架构.md)、[`项目结构`](../../docs/02-架构/项目结构.md) |
+| REST / SSE / Store 契约 | [`核心接口定义`](../../docs/02-架构/核心接口定义.md) |
+| DAG / CEO / Run / SSE | [`运行时总览`](../../docs/03-AI核心/运行时总览.md) |
+| 任务路由总表 | [`docs/索引.md`](../../docs/索引.md) |
+
+## 目录速览
+
+```text
+agentcore/
+  api/          # 路由薄层（不在 handler 里驱动 runtime / 建 LLM）
+  runtime/      # 执行核心：pipeline、journal、events、调度…
+  llm/          # 网关本体（纯）+ 凭据服务（可碰 DB）
+  tools/        # 内置工具与编排原语（delegate / debate / …）
+  conversation/ # 对话与流式入口等业务
+  memory/       # 记忆与知识
+  db/           # ORM / 仓储地基
+  config/       # 按域拆分的 settings
+scripts/        # 开发与运维脚本（启动、seed、dump OpenAPI…）
+tests/          # pytest（含架构边界测试）
+```
+
+硬约束（调用方向、路由不干执行层的活）→ [`项目结构` §二](../../docs/02-架构/项目结构.md)。实现细节以代码与专题文档为准。
+
+## 本地启动
+
+前置：Docker Compose 已起（Postgres / Redis / SearXNG）、本目录 `uv sync`、`.env` 已从 `.env.example` 配好（至少 `ENCRYPTION_KEY`）。完整说明见本地开发 §1–§2。
+
+```bash
+# 仓库根
+docker compose -f deploy/docker-compose.dev.yml up -d
+
+cd apps/server
+cp .env.example .env
+uv sync
+uv run alembic upgrade head   # DEBUG=true 时启动也会自动迁移
+uv run python -m agentcore    # 默认 0.0.0.0:8000
+```
+
+Windows 推荐清树启动（避免孤儿 reload worker）：
+
+```powershell
+powershell -File apps/server/scripts/start-dev-server.ps1
+```
+
+开发账号：`uv run python scripts/seed_dev_user.py`（默认 `dev` / `devpassword`）。  
+管理员：`uv run python scripts/create_admin.py <username>`。
+
+**长时间真跑多 Agent 前**：`.env` 设 `AGENTCORE_RELOAD=false`，避免 WatchFiles 打断回合。
+
+## 常用命令
+
+在 `apps/server` 或经根脚本：
+
+| 命令 | 作用 |
+|------|------|
+| `uv run python -m agentcore` | 启动 API |
+| `uv run alembic upgrade head` | 应用迁移 |
+| `uv run pytest --ignore=tests/integration` | 单元测试 |
+| `uv run python scripts/dump_openapi.py` | 导出 OpenAPI（前端 `gen:types` 上游） |
+| 仓库根 `pnpm test:server:unit` | 同上单元测试的快捷入口 |
+| 仓库根 `pnpm gen:types` | 同步跨端 REST / 事件类型 |
+| 仓库根 `pnpm release:gate --only backend` | 仅跑门禁后端段 |
+
+改 OpenAPI / EventType / InteractionKind 后：根目录 `pnpm gen:types`，若动了 SSE / fold 再 `pnpm conformance`。
+
+## 测试与门禁
+
+- 架构 import 边界：`tests/test_arch_boundaries.py`
+- 发布前：仓库根 `pnpm release:gate`（与 CI 同构）
+- 贡献约定：[`CONTRIBUTING.md`](../../CONTRIBUTING.md)

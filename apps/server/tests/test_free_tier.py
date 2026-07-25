@@ -257,10 +257,7 @@ async def test_enforce_quota_free_tier_flag_uses_conversion_message():
 def _byok_user(**kw):
     defaults = {
         "user_id": "u1",
-        "default_chat_provider_id": "p1",
-        "default_chat_model": "user-flash",
-        "default_background_provider_id": None,
-        "default_background_model": None,
+        "default_model_profile_id": "prof-1",
     }
     defaults.update(kw)
     return SimpleNamespace(**defaults)
@@ -297,11 +294,15 @@ def _mock_provider_repos(monkeypatch, *, user, row):
 
 
 @pytest.mark.asyncio
-async def test_d6_background_prefers_user_key(monkeypatch):
+async def test_background_prefers_platform_even_with_byok(monkeypatch):
+    """Product chrome is platform-first; chat stays BYOK when the user has a key."""
     from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
 
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "platform_model", "platform-flash")
+    monkeypatch.setattr(settings, "platform_background_model", "")
     user_creds = LLMCredentials(
         api_key="sk-user",
         base_url="https://user.example/v1",
@@ -309,16 +310,31 @@ async def test_d6_background_prefers_user_key(monkeypatch):
         source="user",
         provider_id="p1",
     )
+    expanded = ExpandedProfile(
+        profile_id="prof-1",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="user-flash", origin="byok", provider_id="p1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
     session = MagicMock()
     _mock_provider_repos(monkeypatch, user=_byok_user(), row=_provider_row())
     monkeypatch.setattr(
         "agentcore.llm.resolve._decrypt_provider", lambda _row, _uid: user_creds
     )
-    for purpose in ("title", "memory", "compaction", "followups", "chat"):
+    for purpose in ("title", "memory", "compaction", "followups"):
         cfg = await resolve_model_config(session, "u1", purpose)
         assert cfg is not None
-        assert cfg.source == "byok"
-        assert cfg.api_key == "sk-user"
+        assert cfg.source == "platform"
+        assert cfg.api_key == "sk-platform"
+        assert cfg.model == "platform-flash"
+    chat = await resolve_model_config(session, "u1", "chat")
+    assert chat is not None
+    assert chat.source == "byok"
+    assert chat.api_key == "sk-user"
 
 
 @pytest.mark.asyncio
@@ -328,13 +344,50 @@ async def test_d6_background_falls_back_to_platform_when_no_key(monkeypatch):
     session = MagicMock()
     _mock_provider_repos(
         monkeypatch,
-        user=_byok_user(default_chat_provider_id=None, default_chat_model=None),
+        user=_byok_user(default_model_profile_id=None),
         row=None,
     )
     cfg = await resolve_model_config(session, "u1", "title")
     assert cfg is not None
     assert cfg.source == "platform"
     assert cfg.api_key == "sk-platform"
+
+
+@pytest.mark.asyncio
+async def test_background_falls_back_to_byok_when_platform_missing(monkeypatch):
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    monkeypatch.setattr(settings, "platform_api_key", "")
+    monkeypatch.setattr(settings, "platform_model", "platform-flash")
+    user_creds = LLMCredentials(
+        api_key="sk-user",
+        base_url="https://user.example/v1",
+        default_model="user-flash",
+        source="user",
+        provider_id="p1",
+    )
+    expanded = ExpandedProfile(
+        profile_id="prof-1",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="user-flash", origin="byok", provider_id="p1"),
+        background=ModelSelection(model="user-flash", origin="byok", provider_id="p1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
+    session = MagicMock()
+    _mock_provider_repos(monkeypatch, user=_byok_user(), row=_provider_row())
+    monkeypatch.setattr(
+        "agentcore.llm.resolve._decrypt_provider", lambda _row, _uid: user_creds
+    )
+    cfg = await resolve_model_config(session, "u1", "title")
+    assert cfg is not None
+    assert cfg.source == "byok"
+    assert cfg.api_key == "sk-user"
 
 
 # --- free_tier_active signal ---
@@ -358,13 +411,15 @@ async def test_llm_providers_status_exposes_free_tier_active(monkeypatch):
     monkeypatch.setattr(settings, "billing_mode", "byok")
     service = LlmProviderService(MagicMock())
     service._users = MagicMock()
-    service._users.get_by_id = AsyncMock(return_value=_user())
+    service._users.get_by_id = AsyncMock(
+        return_value=SimpleNamespace(user_id="u1", default_model_profile_id=None)
+    )
     service._repo = MagicMock()
     service._repo.list_for_user = AsyncMock(return_value=[])  # keyless
     view = await service.list_providers("u1")
     assert view.free_tier_active is True
     assert view.providers == []
-    assert view.default_chat is None
+    assert view.default_model_profile_id is None
 
 
 @pytest.mark.asyncio

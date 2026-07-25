@@ -77,6 +77,10 @@ _SKIP_TOOLS = frozenset(
     {"escalate", "post_note", "read_notes", "amend_note", "handoff", "delegate"}
 )
 
+# 检索语料全文（网页 snippet / 深读正文）可含方案层词，但不代表本任务矛盾。
+# 只跳过对该工具 *输出* 的 scheme 匹配；模型自述仍走 escalate 工具通道。
+_SCHEME_SKIP_OUTPUT_TOOLS = frozenset({"web_search", "read_url"})
+
 
 def evaluate_after_tools(
     *,
@@ -96,6 +100,16 @@ def evaluate_after_tools(
         if attempt.tool_name in _SKIP_TOOLS:
             continue
         text = outputs[idx] if idx < len(outputs) else ""
+        # 检索语料：不扫 tool 输出做方案层词；失败仍按执行层自愈。
+        if attempt.tool_name in _SCHEME_SKIP_OUTPUT_TOOLS:
+            if not attempt.success:
+                logger.debug(
+                    "routing.gate.execution_layer",
+                    run_id=run_id,
+                    tool=attempt.tool_name,
+                    policy_failure=attempt.policy_failure,
+                )
+            continue
         blob = f"{attempt.tool_name}\n{text}"
 
         scheme = _match_scheme(blob)

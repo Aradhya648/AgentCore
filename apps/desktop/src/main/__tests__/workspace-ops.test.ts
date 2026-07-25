@@ -406,6 +406,23 @@ describe("executeWorkspaceOp (本地工作区写类 op，P2b)", () => {
       expect(res.truncated).toBe(false);
     });
 
+    it("packs only a workspace subdirectory when directory is set", async () => {
+      await run("write", { path: "outside.txt", content: "OUT" });
+      await run("write", { path: "ws/a.txt", content: "A" });
+      await run("write", { path: "ws/nested/b.txt", content: "B" });
+      const res = valOf(await run("archive", { directory: "ws" })) as {
+        archive: string;
+        file_count: number;
+      };
+      expect(await archiveNames(res.archive)).toEqual([
+        "a.txt",
+        "nested/b.txt",
+      ]);
+      expect(res.file_count).toBe(2);
+      const zip = await JSZip.loadAsync(res.archive, { base64: true });
+      expect(await zip.file("a.txt")?.async("string")).toBe("A");
+    });
+
     it("with ignore:false packs everything (node_modules + gitignored)", async () => {
       await run("write", { path: ".gitignore", content: "secret.txt\n" });
       await run("write", { path: "secret.txt", content: "S" });

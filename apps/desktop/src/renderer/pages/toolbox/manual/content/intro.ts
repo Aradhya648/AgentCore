@@ -81,8 +81,8 @@ export const introChapter: ManualChapterContent = {
               desc: [
                 "平台默认给你额度，打开就能用——无需先配 key。想用自己的模型？去 ",
                 {
-                  text: "设置 · 模型配置",
-                  link: { kind: "go", to: APP_PATHS.more.model },
+                  text: "设置 · 服务商",
+                  link: { kind: "go", to: APP_PATHS.more.providers },
                 },
                 " 接入自己的 API Key 是可选进阶（自担费用）。",
               ],

@@ -27,86 +27,90 @@ from .outcome import RoundOutcome
 logger = get_logger(__name__)
 
 # Team-gate (协作优先): investigation-only, captain-only, one shot per run.
-# Soft nudge when team intent is unclear; hard-stop (strip investigation tools)
-# when pre-delegate recon intent is already clear. long_content 事后丢稿闸门已撤：
-# 改由 CEO 提示词「路由自检」在展开前显式表态（见 prompt._CEO_CORE_HINT）。
+# ≥ TEAM_GATE_INVESTIGATION_THRESHOLD investigation tools → always hard-stop
+# (strip investigation tools). No soft nudge. long_content 事后丢稿闸门已撤：
+# 改由 CEO 提示词「路由·第一拍」在展开前显式表态（见 prompt._CEO_CORE_HINT）。
 TEAM_GATE_INVESTIGATION_THRESHOLD = 3
-
-# Assistant already outlined a collaboration plan → further search is pre-delegate recon.
-_TEAM_PLAN_MARKERS = ("协作", "团队", "分工", "委派", "delegate")
-_TEAM_SHAPE_MARKERS = ("方案", "worker", "调研", "队员", "拓扑", "扇出", "并行")
-
-
-def team_gate_nudge_prompt() -> str:
-    """Soft gate: force a threshold re-check, still allow true 直答 + further tools."""
-    return (
-        "[系统提示] 组队门槛复核：对照【委派】门槛线——"
-        "可分解（多对象/多角度/多阶段/多部件/多风格）或质量面敏感（成篇/构建/决策/审查）——"
-        "重新判定。够门槛请立即 delegate；坚持直答须先给出归类理由（闲聊/单点事实/追问）。"
-    )
+# 本地改文件：允许多摸 1～2 次 file_list/file_read/grep，再硬催派（与网页独搜分阈）。
+TEAM_GATE_LOCAL_EDIT_THRESHOLD = 2
+LOCAL_RECON_TOOLS = frozenset({"file_list", "file_read", "grep"})
 
 
-def team_gate_hard_stop_prompt() -> str:
+# 闸后形状（B）：成篇调研意图命中时追加——治「立刻 delegate」塌成 none+单人。
+_TEAM_GATE_RESEARCH_SHAPE = (
+    "【成篇调研形状】用户要落盘的中篇实务/研究报告且可多角取证 → "
+    "下一拍 delegate【宜】`playbook=\"research_report\"`（`playbook_args`：topic + angles）"
+    "或手写同构（≥2 角并行调研 → 提纲 → 撰稿）；"
+    "【禁止】`playbook=none` 单 task 一人包办自搜+成文。"
+    "材料已齐仅扩写 / 短文落盘不适用本条。"
+)
+
+
+def team_gate_hard_stop_prompt(*, research_shape: bool = False) -> str:
     """Hard gate: investigation tools stripped; delegate or answer, no more recon."""
     n = TEAM_GATE_INVESTIGATION_THRESHOLD
-    return (
+    text = (
         f"[系统提示] 探路已达硬上限（{n} 次）：调查类工具已收回。"
-        "组队意图已明确——请立即 delegate；若坚持直答，直接作答并给出归类理由"
+        "请立即 delegate；若坚持直答，直接作答并给出归类理由"
         "（闲聊/单点事实/追问），禁止再搜 / 再读。"
+    )
+    if research_shape:
+        text += _TEAM_GATE_RESEARCH_SHAPE
+    return text
+
+
+def team_gate_local_edit_prompt() -> str:
+    """Hard gate for local file-edit recon: strip tools after a short peek."""
+    n = TEAM_GATE_LOCAL_EDIT_THRESHOLD
+    return (
+        f"[系统提示] 本地改文件探路已够（已摸仓 ≥{n} 次）：调查类工具已收回。"
+        "请立即 delegate 队员改文件；禁止继续 file_list / file_read / grep 空转。"
     )
 
 
-def _latest_human_user_text(messages: list[LLMMessage]) -> str:
-    for msg in reversed(messages):
+def _research_shape_from_messages(messages: list[LLMMessage]) -> bool:
+    """True when any real user turn asks for a research / practical long-form write-up.
+
+    Must not key off the *latest* user line alone — kickoff settle ("认可" / continue)
+    would otherwise erase the original research-report intent after ask_user.
+    """
+    from agentcore.runtime.kickoff import is_short_affirmation
+    from agentcore.runtime.runs.research_quality import is_research_report_intent
+
+    chunks: list[str] = []
+    for msg in messages:
         if msg.role != "user" or not msg.content:
             continue
         text = msg.content.strip()
-        if text.startswith("[系统提示]"):
+        if not text or text.startswith("[系统提示]"):
             continue
-        return text
-    return ""
-
-
-def _messages_have_team_plan(messages: list[LLMMessage]) -> bool:
-    for msg in messages:
-        if msg.role != "assistant" or not msg.content:
+        if is_short_affirmation(text):
             continue
-        text = msg.content
-        if any(m in text for m in _TEAM_PLAN_MARKERS) and any(
-            m in text for m in _TEAM_SHAPE_MARKERS
-        ):
-            return True
-    return False
+        chunks.append(text)
+    return is_research_report_intent(*chunks)
 
 
-def _ask_user_settled_in_messages(messages: list[LLMMessage]) -> bool:
-    """True when a prior ask_user result already settled kickoff-class decisions."""
-    for msg in messages:
-        if msg.role not in ("tool", "user") or not msg.content:
-            continue
-        text = msg.content
-        if text.startswith("用户确认：") or text.startswith("用户选择："):
-            return True
-        if text.startswith("用户答复：") and "请据此继续" in text:
-            return True
-    return False
-
-
-def pre_delegate_recon_intent_clear(messages: list[LLMMessage]) -> bool:
-    """True when further investigation is pre-delegate recon (safe to hard-stop).
-
-    Hard path when the user already settled kickoff-class decisions (ask_user result
-    in the window), or verbally affirmed a collaboration plan already on screen.
-    Pure 直答 research without that framing stays on the soft nudge path.
-    """
+def _local_edit_from_messages(messages: list[LLMMessage]) -> bool:
+    """True when any real user turn asks to tweak an existing workspace file."""
     from agentcore.runtime.kickoff import is_short_affirmation
+    from agentcore.runtime.runs.research_quality import is_local_file_edit_intent
 
-    if _ask_user_settled_in_messages(messages):
-        return True
-    if not _messages_have_team_plan(messages):
-        return False
-    user_text = _latest_human_user_text(messages)
-    return bool(user_text and is_short_affirmation(user_text))
+    chunks: list[str] = []
+    for msg in messages:
+        if msg.role != "user" or not msg.content:
+            continue
+        text = msg.content.strip()
+        if not text or text.startswith("[系统提示]"):
+            continue
+        if is_short_affirmation(text):
+            continue
+        chunks.append(text)
+    return is_local_file_edit_intent(*chunks)
+
+
+def _local_recon_call_count(controller: LoopController) -> int:
+    """Run-scoped local peek count (file_list / file_read / grep)."""
+    return int(controller.local_recon_calls)
 
 
 def maybe_inject_team_gate(
@@ -122,26 +126,60 @@ def maybe_inject_team_gate(
 ) -> bool:
     """Inject the team-gate once for the CEO captain. Returns True if injected.
 
-    Soft path: nudge only (tools stay). Hard path (pre-delegate recon intent clear):
-    strip investigation tools so the model must delegate or answer — aligns runtime
-    with prompt「探路硬上限 = 3」without blocking open-ended 直答 research.
+    Investigation path: after :data:`TEAM_GATE_INVESTIGATION_THRESHOLD` investigation
+    tool calls, always strip investigation tools and inject hard-stop copy
+    (delegate or 直答+归类理由; no more recon). ``research_shape`` only controls
+    whether the research-report shape sentence is appended.
+
+    Local file-edit intent is a separate light hard path: after
+    :data:`TEAM_GATE_LOCAL_EDIT_THRESHOLD` local peeks, strip tools and催派 — not the
+    web-solo-search knife.
     """
     if role != "captain" or controller.team_gate_fired or controller.has_delegated:
         return False
+
+    research_shape = _research_shape_from_messages(messages)
+    local_edit = (not research_shape) and _local_edit_from_messages(messages)
+    local_calls = _local_recon_call_count(controller)
+
+    if local_edit:
+        if local_calls < TEAM_GATE_LOCAL_EDIT_THRESHOLD:
+            return False
+        controller.mark_team_gate_fired()
+        if disabled_tools is not None and investigation_tools:
+            disabled_tools.update(investigation_tools)
+        nudge = team_gate_local_edit_prompt()
+        logger.info(
+            "engine.team_gate_nudge",
+            trigger=trigger,
+            round=round_idx,
+            investigation_calls=controller.investigation_calls,
+            local_recon_calls=local_calls,
+            hard_stop=True,
+            research_shape=False,
+            local_edit=True,
+        )
+        messages.append(LLMMessage(role="user", content=nudge))
+        record_turn_fact(
+            NoteFact(role="user", content=nudge, reason="team_gate", run_id=run_id).to_fact()
+        )
+        return True
+
     if controller.investigation_calls < TEAM_GATE_INVESTIGATION_THRESHOLD:
         return False
 
     controller.mark_team_gate_fired()
-    hard = pre_delegate_recon_intent_clear(messages)
-    if hard and disabled_tools is not None and investigation_tools:
+    if disabled_tools is not None and investigation_tools:
         disabled_tools.update(investigation_tools)
-    nudge = team_gate_hard_stop_prompt() if hard else team_gate_nudge_prompt()
+    nudge = team_gate_hard_stop_prompt(research_shape=research_shape)
     logger.info(
         "engine.team_gate_nudge",
         trigger=trigger,
         round=round_idx,
         investigation_calls=controller.investigation_calls,
-        hard_stop=hard,
+        hard_stop=True,
+        research_shape=research_shape,
+        local_edit=False,
     )
     messages.append(LLMMessage(role="user", content=nudge))
     record_turn_fact(

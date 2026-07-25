@@ -1,4 +1,7 @@
-"""节目 API：期列表 / manifest / 竞猜提交与结算 / 发布态门禁。"""
+"""节目 API：期列表 / manifest / 竞猜提交与结算。
+
+发布态写接口见 ``admin/simulation_show``（``PATCH /v1/admin/simulation/show/.../publish``）。
+"""
 
 from __future__ import annotations
 
@@ -6,20 +9,18 @@ from fastapi import APIRouter, Query
 
 from agentcore.api.dependencies import AuthUser
 from agentcore.api.schemas.show import (
-    PatchShowEpisodePublishRequest,
     ShowEpisodeListResponse,
     ShowEpisodeSummary,
     ShowManifestResponse,
     ShowQuizSettlementResponse,
     SubmitShowQuizRequest,
 )
-from agentcore.core.errors import AuthorizationError, NotFoundError, ValidationError
+from agentcore.core.errors import AuthorizationError, NotFoundError
 from agentcore.simulation.service import simulation_enabled
 from agentcore.simulation.show.catalog import (
     get_manifest,
     get_meta,
     list_episodes,
-    set_publish_status,
     submit_quiz,
 )
 from agentcore.simulation.show.models import QuizSubmission
@@ -90,20 +91,3 @@ async def post_episode_quiz(
     except KeyError as exc:
         raise NotFoundError("期不存在") from exc
     return ShowQuizSettlementResponse.model_validate(settlement.model_dump())
-
-
-@router.patch("/episodes/{episode_id}/publish", response_model=ShowEpisodeSummary)
-async def patch_episode_publish(
-    episode_id: str,
-    body: PatchShowEpisodePublishRequest,
-    user: AuthUser,
-):
-    """发布态门禁位（draft → review → published）。生产环境应再加 admin 鉴权。"""
-    _require_simulation_enabled()
-    try:
-        meta = set_publish_status(episode_id, body.publish_status)
-    except KeyError as exc:
-        raise NotFoundError("期不存在") from exc
-    except ValueError as exc:
-        raise ValidationError(str(exc)) from exc
-    return ShowEpisodeSummary.model_validate(meta.model_dump())

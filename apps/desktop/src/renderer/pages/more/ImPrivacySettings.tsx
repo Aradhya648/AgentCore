@@ -1,6 +1,7 @@
-import { Button } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
 import { notifyError, notifySuccess } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import {
   type DirectorySettings,
   type WhoCanDm,
@@ -79,7 +80,7 @@ export function ImPrivacySettings() {
       />
 
       <section className="mt-6 space-y-6">
-        <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3">
+        <Card className="flex items-start justify-between gap-4 px-4 py-3">
           <div className="min-w-0">
             <h2 className="text-sm font-medium text-foreground">可被搜索</h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -100,7 +101,7 @@ export function ImPrivacySettings() {
               label="可被搜索"
             />
           )}
-        </div>
+        </Card>
 
         <div>
           <h2 className="text-sm font-medium text-foreground">谁可以私信我</h2>
@@ -133,15 +134,19 @@ function DmOptionRow({
   onSelect: () => void;
 }) {
   return (
-    <Button
-      variant="ghost"
+    <button
+      type="button"
+      aria-pressed={selected}
       disabled={disabled}
-      onClick={onSelect}
-      className={`h-auto w-full justify-start gap-3 rounded-xl border px-4 py-3 text-left font-normal ${
+      onClick={() => {
+        if (!disabled) onSelect();
+      }}
+      className={cn(
+        "flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left disabled:pointer-events-none disabled:opacity-60",
         selected
           ? "border-primary/40 bg-primary/5"
-          : "border-border bg-card hover:bg-accent"
-      }`}
+          : "transition-colors hover:border-primary/40 hover:bg-accent/40",
+      )}
     >
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-foreground">
@@ -154,6 +159,6 @@ function DmOptionRow({
       {selected && (
         <Check size={16} className="shrink-0 text-primary" aria-hidden />
       )}
-    </Button>
+    </button>
   );
 }

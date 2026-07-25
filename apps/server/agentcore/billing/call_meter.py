@@ -21,9 +21,10 @@ logger = get_logger(__name__)
 
 _BACKGROUND_ROLES = frozenset({"title", "memory"})
 
-# Proxy-forwarded unary calls still emit ``llm.call`` (latency obs) via
-# provider.complete → log_llm_call, but billing must be ``proxy_spend`` only —
-# otherwise one physical upstream call lands two ``cost_calls`` rows.
+# Proxy-forwarded unary calls still emit ``llm.call`` (latency obs) via the
+# ``observe_provider`` fence around ``build_provider``, but billing must be
+# ``proxy_spend`` only — otherwise one physical upstream call lands two
+# ``cost_calls`` rows.
 PROXY_LLM_SCENARIO = "inference.proxy"
 
 # board_read vision: ``log_llm_call`` is observability-only; ``BoardReadTool``

@@ -20,6 +20,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
+from agentcore.billing.gate import resolve_and_gate_background
 from agentcore.config import settings
 from agentcore.conversation.history import load_recent_history
 from agentcore.conversation.store.merge import (
@@ -41,7 +42,6 @@ from agentcore.db.repositories import (
     UserRepository,
 )
 from agentcore.llm.factory import build_provider
-from agentcore.llm.resolve import resolve_credentials
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
 from agentcore.memory.episodic import (
     LLMEpisodicSummarizer,
@@ -80,7 +80,8 @@ _ABNORMAL_STATUSES = frozenset(
         MESSAGE_STATUS_RUNNING,
     }
 )
-# Salvage chrome from cloud incomplete persist — not a real assistant settlement.
+# Historical interrupt body chrome (writers stopped appending these). Kept so
+# older rows still skip memory consolidation when metadata is thin.
 _INCOMPLETE_NOTE = (
     "（已停止，本回合未完成。下面是已完成队员的产出，已为你保留；如需继续，可重新发送消息。）"
 )
@@ -91,6 +92,7 @@ _INCOMPLETE_NOTE_LEGACY = (
 _INCOMPLETE_SUFFIX_LEGACY = (
     "（连接中断，本回合未完成——以上为已生成部分；如需继续，可重新发送消息。）"
 )
+_INTERRUPTED_NOTE_LEGACY = "（已中断，可重试）"
 
 
 def abnormal_turn_skip_reason(
@@ -120,9 +122,10 @@ def abnormal_turn_skip_reason(
     if not body:
         return "empty_assistant"
     if (
-        body in (_INCOMPLETE_NOTE, _INCOMPLETE_NOTE_LEGACY)
+        body in (_INCOMPLETE_NOTE, _INCOMPLETE_NOTE_LEGACY, _INTERRUPTED_NOTE_LEGACY)
         or body.endswith(_INCOMPLETE_SUFFIX)
         or body.endswith(_INCOMPLETE_SUFFIX_LEGACY)
+        or body.endswith(_INTERRUPTED_NOTE_LEGACY)
     ):
         # Incomplete salvage note alone (or only chrome after a blank stream).
         cleaned = (
@@ -130,6 +133,7 @@ def abnormal_turn_skip_reason(
             .replace(_INCOMPLETE_NOTE, "")
             .replace(_INCOMPLETE_SUFFIX_LEGACY, "")
             .replace(_INCOMPLETE_NOTE_LEGACY, "")
+            .replace(_INTERRUPTED_NOTE_LEGACY, "")
             .strip()
         )
         if not cleaned:
@@ -260,7 +264,7 @@ async def run_semantic_for_scope(
         oldest_undigested_at=oldest,
     ):
         return False
-    if credentials is None and settings.billing_mode == "byok":
+    if credentials is None:
         return False
 
     model = resolve_user_model(credentials)
@@ -374,9 +378,11 @@ async def consolidate_conversation(
                     conversation_id,
                     max_messages=settings.memory_consolidation_window_messages,
                 )
-                credentials = await resolve_credentials(session, user_id, "platform_internal")
+                credentials = await resolve_and_gate_background(
+                    session, user_id, purpose="memory"
+                )
 
-            if window and credentials is None and settings.billing_mode == "byok":
+            if window and credentials is None:
                 return False
 
             wrote_episodic = False

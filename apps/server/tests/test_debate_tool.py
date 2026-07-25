@@ -705,7 +705,7 @@ def _gate() -> ApprovalGate:
 
 
 def test_side_model_parsed_but_not_injected_into_debater_task():
-    """MVP 统一用户 model：sides[].model 仍解析保留（Phase 3 多模型辩手），但不注入 task。"""
+    """MVP：sides[].model 仍解析保留（Phase 3），但不注入；turn_model 才写入 model。"""
     sides, err = parse_sides(
         [
             {
@@ -725,6 +725,39 @@ def test_side_model_parsed_but_not_injected_into_debater_task():
     t_b = debater_task(cfg, sides[1], 1, round_no=1, focus="智商")
     assert "model" not in t_a
     assert "model" not in t_b
+
+
+def test_debater_task_injects_turn_main_ignores_side_and_worker():
+    """Worker≠main 时辩手 task.model = turn 主模型；sides[].model 仍不注入。"""
+    from agentcore.runtime.runs import build_run_plan
+
+    sides, err = parse_sides(
+        [
+            {
+                "key": "a",
+                "name": "豆包",
+                "stance": "我最聪明",
+                "model": "doubao/side-only-model",
+            },
+            {"key": "b", "name": "DeepSeek", "stance": "我才最聪明", "model": "ds/side-b"},
+        ]
+    )
+    assert err == ""
+    cfg = DebateConfig(motion="谁更聪明", form=DebateForm.DEBATE, sides=sides)
+    turn_main = "main-pro-model"
+    t_a = debater_task(
+        cfg, sides[0], 0, round_no=1, focus="智商", turn_model=turn_main
+    )
+    t_b = debater_task(
+        cfg, sides[1], 1, round_no=1, focus="智商", turn_model=turn_main
+    )
+    assert t_a["model"] == turn_main
+    assert t_b["model"] == turn_main
+    assert t_a["model"] != sides[0].model
+    assert t_b["model"] != sides[1].model
+    plan, errors = build_run_plan([t_a, t_b], valid_tools=set(), id_prefix="mod_r1")
+    assert errors == []
+    assert all(node.model == turn_main for node in plan.nodes)
 
 
 def test_quick_mode_injects_concise_hint_thorough_does_not():

@@ -67,7 +67,6 @@ PLATFORM_GPT_4O = "gpt-4o"
 # ledger/quota only (名义记账, F4 要求目录模型必须有 curated 价卡). 名义参考价、运营可调.
 PLATFORM_RELAY_52 = "5.2"  # 平台默认；名义按 gpt-4o 档
 PLATFORM_RELAY_GROK_45 = "grok-4.5"  # 名义参考 community grok-3 档
-PLATFORM_RELAY_CLAUDE_48 = "claude-4.8"  # 名义参考 community claude-sonnet-4 档
 
 # USD per 1M tokens. DeepSeek: docs/03-AI核心/DeepSeek-V4-API参考.md §三 (authoritative);
 # cache_hit is ~50× cheaper than cache_miss — splitting input by hit/miss is what keeps
@@ -125,13 +124,6 @@ _PRICING: dict[str, dict[str, Decimal]] = {
     # (community_prices.json: cache_hit $1.50/1M, input $3.00/1M, output $15.00/1M).
     PLATFORM_RELAY_GROK_45: {
         "cache_hit": Decimal("1.50"),
-        "cache_miss": Decimal("3.00"),
-        "output": Decimal("15.00"),
-    },
-    # Platform relay "claude-4.8" — 名义参考价、运营可调. References community claude-sonnet-4
-    # (cache_hit $0.30/1M, input $3.00/1M, output $15.00/1M).
-    PLATFORM_RELAY_CLAUDE_48: {
-        "cache_hit": Decimal("0.30"),
         "cache_miss": Decimal("3.00"),
         "output": Decimal("15.00"),
     },

@@ -2,6 +2,7 @@
 
 import type { AgentTownApi } from "@shared/agenttown-contract";
 import type { FsApi } from "@shared/ipc-contract";
+import type { LocalStoreApi } from "@shared/local-store-contract";
 import type { LogApi } from "@shared/log-contract";
 import type { NotificationApi } from "@shared/notification-contract";
 import type { OutboxApi } from "@shared/outbox-contract";
@@ -27,6 +28,8 @@ declare global {
     sidecarApi: SidecarApi;
     /** Main-process outbox writeback + auth refresh (Electron only). */
     outboxApi?: OutboxApi;
+    /** N4-A 只读离线：opened-conversation cache under userData/local-store (Electron only). */
+    localStoreApi?: LocalStoreApi;
     /** Electron preload 注入；纯浏览器 / 单测环境可能缺失。 */
     updaterApi?: UpdaterApi;
     /** 结构化产品日志（落主进程 desktop.jsonl）；纯浏览器 / 单测环境可能缺失。 */

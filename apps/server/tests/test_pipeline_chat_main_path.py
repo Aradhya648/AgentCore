@@ -86,7 +86,10 @@ class _StubTool:
 
 
 def _patch_pipeline(monkeypatch, provider, registry: ToolRegistry) -> None:
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
 
     class _FakeStore:
         async def load(self, _user_id: str, _path: str, scope: str | None = None) -> str:

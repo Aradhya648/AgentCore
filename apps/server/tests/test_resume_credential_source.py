@@ -91,8 +91,11 @@ async def test_resume_binds_byok_credential_source_into_log_context(monkeypatch)
     """BYOK resume must leave ambient credential_source=user for the CEO LLM call."""
     clear_log_context()
     provider = _CapturingProvider()
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
-    monkeypatch.setattr(pipeline, "build_router_around", lambda p: p)
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
 
     result = await pipeline.resume_chat_pipeline(
         suspension=_ask_frame(),
@@ -112,8 +115,11 @@ async def test_resume_binds_byok_credential_source_into_log_context(monkeypatch)
 async def test_resume_without_creds_binds_platform_like_prepare(monkeypatch):
     clear_log_context()
     provider = _CapturingProvider()
-    monkeypatch.setattr(pipeline, "build_provider", lambda *a, **k: provider)
-    monkeypatch.setattr(pipeline, "build_router_around", lambda p: p)
+
+    async def _fake_build_turn_router(*_a, **_k):
+        return provider
+
+    monkeypatch.setattr(pipeline, "build_turn_router", _fake_build_turn_router)
 
     await pipeline.resume_chat_pipeline(
         suspension=_ask_frame(),

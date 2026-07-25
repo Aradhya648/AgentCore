@@ -47,10 +47,10 @@ interface Props {
 }
 
 /**
- * Sidebar「项目」group header: expand/collapse + cloud/local icon + project
- * actions (view / browse / archive-all / delete). Right-click and hover「⋯」
- * share the same menu;「归档全部对话」maps to batch conversation archive (no
- * `Folder.archived`).
+ * Sidebar「项目」group header: left icon slot (cloud/local; hover overlays
+ * chevron for collapse) + name + hover「+」new chat in project +「⋯».
+ * Right-click and hover「⋯」share the same menu;「归档全部对话」maps to
+ * batch conversation archive (no `Folder.archived`).
  */
 export function WorkspaceGroupHeader({
   folder,
@@ -224,11 +224,22 @@ export function WorkspaceGroupHeader({
                 }
               }}
             >
-              <GroupWorkspaceModeIcon isLocal={groupIsLocal} />
+              <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
+                <span className="absolute inset-0 flex items-center justify-center opacity-100 transition-opacity group-hover:pointer-events-none group-hover:opacity-0">
+                  <GroupWorkspaceModeIcon isLocal={groupIsLocal} />
+                </span>
+                <ChevronRight
+                  size={14}
+                  aria-hidden
+                  className={`absolute text-sidebar-foreground/40 opacity-0 transition-[opacity,transform] group-hover:opacity-100 ${
+                    expanded ? "rotate-90" : ""
+                  }`}
+                />
+              </span>
               <span className="min-w-0 flex-1 truncate">{folder.name}</span>
             </div>
             <span
-              className={`flex shrink-0 items-center ${
+              className={`flex shrink-0 items-center gap-0.5 ${
                 moreOpen
                   ? "opacity-100"
                   : "opacity-0 transition-opacity group-hover:opacity-100"
@@ -254,16 +265,19 @@ export function WorkspaceGroupHeader({
                   {dropdownItems}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <IconButton
+                tone="sidebar"
+                aria-label="在此项目新建对话"
+                title="在此项目新建对话"
+                className={rowActionClass}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  newChatInProject();
+                }}
+              >
+                <Plus size={13} />
+              </IconButton>
             </span>
-            <ChevronRight
-              size={14}
-              aria-hidden
-              className={`shrink-0 text-sidebar-foreground/40 transition-[opacity,transform] ${
-                expanded
-                  ? "rotate-90 opacity-100"
-                  : "opacity-0 group-hover:opacity-100"
-              }`}
-            />
           </SurfaceRow>
         </ContextMenuTrigger>
         <ContextMenuContent className="min-w-52">

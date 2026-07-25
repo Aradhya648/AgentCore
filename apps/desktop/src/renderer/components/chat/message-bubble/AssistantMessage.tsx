@@ -265,8 +265,9 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
   };
 
   // 回合正文（时间线或答案）：对话页恒为传统聊天平铺（单 Agent 回合不再退化成 CEO 节点卡——
-  // 那条「图主界面化」第一刀已撤，图相关体验只在画布；多 Agent 回合仍在答案上方内嵌
-  // 团队协作图）。回合级附件（收到的上下文 / 错误卡 / 产物 / 引用 / 检查点 / 操作行）随后平铺。
+  // 那条「图主界面化」第一刀已撤，图相关体验只在画布；多 Agent 回合协作图内嵌在
+  // `team` 标记槽——CEO 导语 content 步之下（协作图时间线落点））。
+  // 回合级附件（收到的上下文 / 错误卡 / 产物 / 引用 / 检查点 / 操作行）随后平铺。
   const turnBody = hasProcess ? (
     <ProcessTimeline
       process={message.process ?? []}

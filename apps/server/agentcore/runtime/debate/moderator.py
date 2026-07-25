@@ -574,12 +574,12 @@ class Moderator:
 
         if not self._run_id:
             return await _call()
-        # cost_role=member + persona=主持人：与 account_moderator → member_run_cost 落账口径对齐，
-        # 便于 proxy cost_calls 与回合 run 聚合按同一 run_id 对上（不改金额，只修血缘）。
+        # cost_role=arena + persona=主持人：与 account_moderator → arena 落账口径对齐，
+        # sidecar proxy 保持主模型（不跟 Worker）；proxy cost_calls 与回合 run 聚合按同一 run_id。
         with log_context(
             run_id=self._run_id,
             agent_id=self._run_id,
-            cost_role="member",
+            cost_role="arena",
             persona="主持人",
             parent_run_id=self._parent_run_id,
         ):

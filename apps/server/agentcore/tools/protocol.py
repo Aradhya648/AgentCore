@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from agentcore.core.text import truncate_head_tail
 from agentcore.core.types import ToolApproval, ToolCategory, ToolEffect
@@ -64,10 +64,10 @@ class EscalationChannel:
     """
 
     armed: bool
-    # ``request(question, assumption, questions, kind, awaiting="user")``
-    request: Callable[
-        [str, str, list[dict[str, Any]], str, str], Awaitable[EscalationOutcome]
-    ]
+    # ``request(question, assumption, questions, kind, awaiting="user",
+    # browser_login=False)`` — trailing ``browser_login`` is optional for
+    # backward-compatible mocks (defaults False on the production channel).
+    request: Callable[..., Awaitable[EscalationOutcome]]
 
 
 @dataclass(frozen=True)
@@ -309,6 +309,17 @@ class ToolContext:
     file_read_reread_issued: dict[str, bool] = field(default_factory=dict)
     # R1：各 path 剩余再读次数（共享可变 dict）。engine 授额时写入；成功再读时工具扣减。
     file_read_reread_remaining: dict[str, int] = field(default_factory=dict)
+    # Artifact-first Writing：本 run 已落盘 path → ``skeleton`` | ``prose``（共享可变 dict；
+    # ``dataclasses.replace`` 浅拷贝与 ``file_read_counts`` 同模式）。``prose`` = 成篇正文，
+    # 同 path 后续 ``file_append`` 硬拒；任一类均禁止再 ``file_read`` 回读正文。
+    landed_artifact_kinds: dict[str, Literal["skeleton", "prose"]] = field(
+        default_factory=dict
+    )
+    # 冷启动探索幕未完成（本回合有 explore 原因且尚未成功 ``update_project_profile``）。
+    # assemble 在注入 ``<cold_start_explore>`` 时置 True；画像写入成功后清 False。
+    # Delegate 读此旗标：抑制 form/artifacts→files_written 推断，并硬拒 form=files/artifacts。
+    # 与 deep_research_auto_debate_count 同模式——CEO base ToolContext 上就地翻转。
+    cold_start_explore_pending: bool = False
 
 
 @dataclass

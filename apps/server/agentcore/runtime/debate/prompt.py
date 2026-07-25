@@ -299,11 +299,14 @@ def debater_task(
     round_no: int,
     focus: str,
     interjections: Sequence[UserInterjection] = (),
+    turn_model: str = "",
 ) -> dict[str, Any]:
     """构造首轮单个辩手的 task dict（build_run_plan 入参）。
 
     两阶段契约：``task`` = 检索阶段（证据笔记）；``draft_brief`` / ``draft_system`` = 成稿阶段。
     ``interjections`` 为开赛嘱咐等首轮预注入的全场/定向用户插话；空则零行为变化。
+    ``turn_model`` = 本 turn 主模型；非空时写入 ``model``（云端双保险，不跟 Worker）。
+    Phase 3 ``sides[].model`` 仍忽略。
     """
     quick_suffix = "" if config.policy.thorough else f"\n{QUICK_DEBATER_HINT}"
     bg_block = _background_block(config)
@@ -351,10 +354,10 @@ def debater_task(
         )
 
         payload["retrieval_budget"] = DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER
-    # 真·多模型辩手（Phase 3）：side.model 仍解析入库，但 MVP 全链路统一用户 model，
-    # per-side override 在 debater_task 中忽略（见 辩论编排设计.md §7.5）。
-    # if side.model:
-    #     payload["model"] = side.model
+    # 注入 turn 主模型（Worker≠main 时云端不跟 Worker）；仍忽略 sides[].model（Phase 3）。
+    main = (turn_model or "").strip()
+    if main:
+        payload["model"] = main
     # stance 仅正反 2 方有意义（builder 只认 pro/con，display-only）。
     if config.form is DebateForm.DEBATE and len(config.sides) == 2:
         payload["stance"] = "pro" if idx == 0 else "con"

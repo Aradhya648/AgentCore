@@ -180,8 +180,8 @@ export function ChatView() {
         )}
       </div>
 
-      {/* Composer dock: empty draft → absolute center block (greeting/chips + input);
-          in-session → bottom bar. First send FLIPs input center→bottom. */}
+      {/* Composer dock: empty draft → input at viewport center, greeting/chips
+          above it; in-session → bottom bar. First send FLIPs input center→bottom. */}
       <div
         className={
           centerComposer
@@ -192,12 +192,14 @@ export function ChatView() {
       >
         <div
           className={
-            centerComposer
-              ? "mx-auto flex w-full max-w-3xl flex-col"
-              : undefined
+            centerComposer ? "relative mx-auto w-full max-w-3xl" : undefined
           }
         >
-          {centerComposer && <DraftEmptyState />}
+          {centerComposer && (
+            <div className="absolute inset-x-0 bottom-full mb-6">
+              <DraftEmptyState />
+            </div>
+          )}
           {hasMessages && (
             <>
               <ConversationDecisionPrompts />
@@ -209,7 +211,7 @@ export function ChatView() {
           )}
           <div ref={composerFlipRef}>
             <MessageInput
-              className={centerComposer ? "px-4 pb-2 pt-8" : undefined}
+              className={centerComposer ? "px-4 pb-2" : undefined}
               variant={centerComposer ? "card" : "bar"}
             />
           </div>

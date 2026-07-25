@@ -1,0 +1,16 @@
+# Default owner for this repository
+* @Lawofall
+
+# Core product surfaces
+/apps/server/ @Lawofall
+/apps/desktop/ @Lawofall
+/apps/mobile/ @Lawofall
+/apps/admin/ @Lawofall
+/apps/website/ @Lawofall
+
+# Shared packages & contracts
+/packages/ @Lawofall
+
+# CI / community automation
+/.github/workflows/ @Lawofall
+/.github/ @Lawofall

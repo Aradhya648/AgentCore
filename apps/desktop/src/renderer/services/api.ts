@@ -318,11 +318,76 @@ export function bootstrapRequest<T>(
   return request<T>(path, options, false, BOOTSTRAP_TIMEOUT_MS);
 }
 
+/**
+ * Like {@link request}, but also returns the HTTP status (for idempotent
+ * create-or-reuse endpoints that distinguish 200 vs 201).
+ */
+async function requestWithStatus<T>(
+  path: string,
+  options: RequestInit = {},
+  retry = false,
+): Promise<{ data: T; status: number }> {
+  const url = `${BASE_URL}${path}`;
+  const method = (options.method ?? "GET").toUpperCase();
+  const fetchInit: RequestInit = {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...clientHeaders(),
+      ...csrfHeaders(method),
+      ...options.headers,
+    },
+    ...options,
+  };
+  let response: Response;
+  try {
+    response = await fetch(url, fetchInit);
+  } catch (cause) {
+    if (!isAuthPath(path)) onServiceUnavailable?.();
+    throw new NetworkError(cause);
+  }
+
+  captureCsrf(response);
+
+  if (response.ok) {
+    return { data: (await response.json()) as T, status: response.status };
+  }
+
+  if (response.status === 401 && !isAuthPath(path)) {
+    if (!retry) {
+      const outcome = await tryRefresh();
+      if (outcome === "renewed") {
+        return requestWithStatus<T>(path, options, true);
+      }
+      if (outcome === "transient") {
+        onServiceUnavailable?.();
+      } else {
+        notifyUnauthorized({ reason: "refresh_auth_dead", path });
+      }
+    } else {
+      notifyUnauthorized({ reason: "replay_still_401", path });
+    }
+  }
+
+  if (response.status >= 500 && !isAuthPath(path)) {
+    onServiceUnavailable?.();
+  }
+
+  throw new ApiError(response.status, await response.text(), response.headers);
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
 
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  /** POST that surfaces status (200 reuse vs 201 create). */
+  postWithStatus: <T>(path: string, body?: unknown) =>
+    requestWithStatus<T>(path, {
       method: "POST",
       body: body ? JSON.stringify(body) : undefined,
     }),

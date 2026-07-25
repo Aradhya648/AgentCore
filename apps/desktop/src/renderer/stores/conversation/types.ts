@@ -107,19 +107,11 @@ export interface Conversation {
   /** Session permission mode (observe | workspace | full_trust). */
   permissionPreset?: "observe" | "workspace" | "full_trust";
   /**
-   * 会话级模型覆盖（会话级模型切换）：非空即「本会话固定跑这个模型」，从当前回合起生效；
-   * null/缺省 = 跟随账号默认（`ModelCatalogResponse.current`）。源自 `ConversationSummary.model`，
+   * 会话级模型组合引用：非空即「本会话固定用这个组合」（活引用，改组合定义下一 turn 生效）；
+   * null/缺省 = 跟随账号默认组合。源自 `ConversationSummary.model_profile_id`，
    * 由输入框的 {@link import("@/components/chat/message-input/ModelPicker").ModelPicker} 写入。
    */
-  model?: string | null;
-  /** 与 `model` 成对的凭据来源（byok / platform）；清除覆盖时一并 null。 */
-  modelOrigin?: ("byok" | "platform") | null;
-  /**
-   * 与 `model` 成对、当 `modelOrigin === "byok"` 时**必填**的服务商 id（多服务商消歧）：
-   * 同一模型 id 可在多个 BYOK 服务商下重复出现。源自 `ConversationSummary.model_provider_id`；
-   * platform / 清除覆盖时为 null。
-   */
-  modelProviderId?: string | null;
+  modelProfileId?: string | null;
 }
 
 export interface MessageAttachmentMeta {

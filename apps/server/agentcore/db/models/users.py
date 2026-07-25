@@ -81,20 +81,12 @@ class User(Base):
     autonomy_policy: Mapped[str] = mapped_column(
         String(20), default="first_grant", server_default=text("'first_grant'")
     )
-    # --- BYOK 账号级默认模型指针 (平台LLM接入.md · 多服务商列表) ---
-    # chat 主对话默认与后台档默认各是一对 (provider_id, model)，可跨服务商：指针挑选
-    # 「哪个服务商 + 哪个模型」作账号默认。provider_id 是 user_llm_providers.id 的
-    # app-level FK（无 DB 约束，按仓库惯例）。全 NULL = 无 BYOK 服务商（回落平台/免费档）。
-    # 指向的服务商被删除时解析静默回落到用户唯一/首个服务商，不硬失败。后台指针缺省 =
-    # 跟随 chat 默认（platform_background_model 仅对平台路径生效）。
-    default_chat_provider_id: Mapped[str | None] = mapped_column(
+    # --- 账号默认模型组合 (模型组合配置 · llm_model_profiles) ---
+    # 指向用户组合或系统预置虚拟 id（5.2 / Grok 4.5）。NULL = 解析时回落系统「5.2」预置。
+    # 活引用：改组合定义 → 下一 turn 用新展开。与场景 ProfileParams（温度等）无关。
+    default_model_profile_id: Mapped[str | None] = mapped_column(
         PG_UUID(as_uuid=False), nullable=True
     )
-    default_chat_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    default_background_provider_id: Mapped[str | None] = mapped_column(
-        PG_UUID(as_uuid=False), nullable=True
-    )
-    default_background_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

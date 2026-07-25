@@ -47,8 +47,8 @@ _MULTI_LENS_COURTROOM_TRIGGERS_JOINED = "/".join(MULTI_LENS_COURTROOM_TRIGGERS)
 
 # Shared with ``prompt._CEO_CORE_HINT`` — same intensity, no「可选 vs 必先查」对打.
 CONSULT_TEAM_ORCH_BY_SCENE = (
-    "按场面：多人 / 套 playbook / 没把握 → 必查 `team_orchestration_advanced`；"
-    "单人、事清楚、可 finalize 直出 → 可不查"
+    "按场面：建站/工具台套 playbook、或拿不准怎么拆 → 必查 `team_orchestration_advanced`；"
+    "常见对比 / 单人落盘 / 提问卡 → 直接做不必查；单人事清楚可 finalize → 可不查"
 )
 
 
@@ -106,11 +106,16 @@ class SkillRegistry:
 
 _TEAM_ORCHESTRATION_ADVANCED = """\
 <team_orchestration_advanced>
-实质任务默认组队。先想形状再拆任务——教的是【词汇 + 组合】，不是成品模板。\
-自检：换个主题，形状还一模一样吗？还一样就错了。
+实质任务该派就派。按活的**自然缝**拆人，不按工种表凑人；能少则少，真并行再多；\
+拿不准先少派。先想形状再拆任务——教的是【词汇 + 组合】，不是成品模板。\
+自检：换个主题，形状还一模一样吗？还一样就错了。\
+「调研+写码+点评+合成一篇」这类跨域合成流水线 → 常见 1～2 人，勿默认每人一种专长。\
+「先设计再实现」小CRUD/骨架 → 默认 1 人两段（先交设计验收再实现）；设计很重或要点名评审再升 2 人串。
 
 形状词汇（按任务结构选、可组合）：
-- 并列对象分组：每对象一员（重档升 lead 内拆维度），尾挂横向汇总
+- 并列对象分组：每对象一员（重档升 lead 内拆维度），尾挂横向汇总；\
+用户点名 ≥2 个实体对比 / 选型 → **tasks 人数 ≥ 实体数**（可 +1 汇总），禁止 1 人包办；\
+禁止以「综合写一份更合适」降到单人
 - 角度扇出：N 角度并行调研 / 产出，汇入下游
 - 证据驱动流水线：调研 → 结构定稿（主拍板）→ 产出
 - 独立审查：审查者 ≠ 作者，产出结构化问题清单
@@ -126,14 +131,16 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 让用户挑一个 → 中选深化
 
 组合：多对象+成篇 → 分组×流水线；构建+并行模块 → 契约共享面+独立验证；\
-审查要改 → 接有界返工环；结论真冲突 → 局部辩论。
+审查要改 → 接有界返工环；结论真冲突 → 局部辩论；跨域合成一篇 → 少派串起，勿按工种堆人。
 
 三档：默认中档。轻=保底（构建类轻档也要「实现+独立验证」双人）；\
-重=任务规模大或用户点名才上。控税靠选档，不靠默认单干。
+重=任务规模大或用户点名才上。控税靠选档与按缝拆人，不靠默认单干、也不按工种凑满。
 
 教学示例形状（playbook）：下列是词汇表的可实例化示例——对照学形状，勿「是就直接套」。\
 形态贴合时可设 `playbook` + `playbook_args` 生成骨架（与手写 tasks 二选一）；否则按词汇手写。\
 【自由组队】非建站可不声明 playbook，直接手写 `tasks`。\
+【成篇调研软偏好】要落盘的中篇实务/研究报告且尚需 ≥2 可并行取证角 → 形态贴合时【宜】\
+`research_report`（禁止一人自搜+成文）；材料已齐扩写 / 短文落盘仍单人。非硬锁。\
 建站 / 工具台硬约束见 consult `build_website` / `build_toolshed`（勿在此复读全文）。\
 可用：""" + _PLAYBOOK_LISTING + """。槽位见 `delegate` 的 playbook_args。
 
@@ -407,14 +414,17 @@ task 正文写清续干指令（改哪里 / 新任务是什么）；可与 depen
 
 _ASK_USER_KICKOFF = """\
 <ask_user_kickoff>
-开场引导：用 `ask_user` 开一张「开工提案卡」。触发线索（命中即【默认先开卡】、别凭猜直接 delegate）：\
+开场引导：用 `ask_user` 开一张「开工提案卡」。触发线索（命中即【立刻开卡】、别凭猜直接 delegate；\
+**勿先** `consult_skill(ask_user_kickoff)` 再开——本段供字段拿不准时查阅）：\
 用户给的是【一句话级 / 笼统】的需求，且产物是网站 / 应用 / 海报 / 幻灯 / 报告 / 分析 / 文档 / 设计这类\
 「有多种合理做法、做错要返工」的实质交付物——这类「能做、但关键决策还没说全」（用合理默认就能开工）的\
 请求，不要追问一堵问题墙，而是用 ask_user 开卡来开场：在 `message` 里用你自己的口吻复述你理解的目标、\
 点明你已备好一套起步计划可一键开做（不在此展开具体方案），再把决策一次摊给用户——想省事的人一键开做\
 （全用默认），想管的人就地调整。\
+【提案体硬闸】开工提案卡须 `assumptions` 与 `questions` 至少其一非空——仅 message 的澄清问句拒调：\
+解不出意图写正文，能复述目标再带提案体开卡（途中 decision 不受此闸）。\
 【建站 / 落地页 / 控制台】提案卡【必须】非空 `style_options`（2–3 个风格方向，气质对照如「极简编辑感 / 暖色人文 / \
-深色科技」）——机制硬闸：缺则拒调；选定风格 id 结构化记账并写入 `site/DESIGN.md`；勿只给单一默认皮。\
+深色科技」）——机制硬闸：缺则拒调（可与提案体闸叠加）；选定风格 id 结构化记账并写入 `site/DESIGN.md`；勿只给单一默认皮。\
 【做软件 / 应用 / 工具软件】提案卡【必须】把「技术栈 / 交付形态」放进 `questions`（高杠杆），\
 【禁止】塞进 `assumptions` 用「拿不准宁可默认」吞掉——选项至少覆盖：可运行单页原型 / 本地多文件小工具 / \
 前后端应用 / 仅方案文档。用户选「基础版 / 风格方向」【不等于】默许「单 HTML」；未问清交付形态前\
@@ -454,8 +464,9 @@ default）。`card="proposal_pick"` 是执行途中「N 个候选方案挑一个
 不是聊天里的一段文本。
 
 判断「高影响还是低影响」的准绳：这个决策一旦选错，用户会不会明显不满意、甚至要推倒重来？会→提为重点\
-问题；不会、且你有稳妥默认→放进起步计划默认掉。拿不准时宁可默认掉——【但】软件 / 应用的交付形态\
-例外：拿不准也必须进 questions，禁止默认成单 HTML。
+问题；不会、且你有稳妥默认→放进起步计划默认掉。拿不准时【中性】：若选错代价高 → 放进 questions\
+（预填 default，一键可过）；若代价低 → 放进 assumptions 并写明。不偏「尽量少问」，也不偏「凡事先问」。\
+软件 / 应用的交付形态例外：拿不准也必须进 questions，禁止默认成单 HTML。
 </ask_user_kickoff>"""
 
 _ASK_USER_MIDTASK = """\
@@ -538,27 +549,33 @@ _VERIFY_AND_FIX = """\
 
 _LONG_FORM_WRITING = """\
 <long_form_writing>
-## 长文分段写作
+## 长文骨架填空（Artifact-first）
 
-用户要产出超长单文档（报告、论文、综述、长 README、多章节手册）时，不要指望一次 \
-file_write 写完全文——分段落盘更稳、也更省上下文。
+用户要产出超长单文档（报告、论文、综述、长 README、多章节手册）时：中等单篇一次 \
+file_write 写完；超长不要先写成篇正文再同文件 append——先短骨架再按节填空。
+
+【与 research_report 划界】尚需广度取证且可拆 ≥2 独立角（实务研究 / 多源调研成文）→ \
+先走 `research_report`（或同构 N 角调研→提纲→撰稿），**不要**用本 skill 的单写手一人包办\
+自搜+成文。本 skill 单写手留给：材料已齐只扩写、用户已给大纲、改稿续写、短中篇无多角取证。
 
 推荐编排：
 1. 确认大纲（章节标题 + 每节要点）：用户明文要求把关 → 委派计划给提纲步设 \
 `checkpoint_after=true`（或 `research_report` playbook），走结构化 durable 卡，勿纯聊天代卡；\
 自主确认场景（用户未明文 / 任务轻量）才可对话式或自确认，必要时 ask_user。
-2. 单写手：第一节用 file_write 创建【主文件】并写入首段；后续各节用 \
-file_append 逐段追加到【同一主文件】。
+2. 单写手：先用一次短 file_write 落【主文件】骨架（标题/锚点，或 `<!-- OUTLINE -->` / \
+章节小标题）；再按节用 file_append 或 str_replace 填空。中等篇幅直接一次 file_write \
+成文，勿无骨架分段 append。
 3. 多 worker 并行拆章（论文/综述/长报告允许）：各章可写到临时路径以免并发冲突，\
 但【必须】在同一次 delegate 里写死——① 最终主文件同一路径（各章 brief + \
 `deliverable.artifacts` 均指向它）；② 合并责任（末尾 merge worker `depends_on` 各章，\
 或你 CEO 收口合并进主文件）。验收只认合并后的那一篇；禁止「各写各的章节文件就交」。
-4. 收尾前 file_read 抽查主文件首尾与目录衔接；改中间某段用 str_replace，不要 \
+4. 写/append 成功回执即 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）\
+——以此验真，禁止再对本文件 file_read 回读正文；改中间某段用 str_replace，不要 \
 file_write 覆盖全文。
 
 纪律：
 - 追加前确认 path 与主文件一致；每节 content 自行带好段落分隔（如 leading `\\n\\n`）。
-- 单节仍过长时，再拆成多轮 file_append，不要硬塞万行单次调用。
+- 单节仍过长时，再拆成多轮 file_append / str_replace，不要硬塞万行单次调用。
 - 本门禁仅约束「一篇成文」交付；调研透镜多报告、代码多文件、建站 site/ 多产物【不】套用。
 </long_form_writing>"""
 
@@ -692,11 +709,14 @@ _BUILD_WEBSITE = f"""\
 槽位：{_BUILD_WEBSITE_PLAYBOOK.slots}
 
 开工顺序：
-1. 若尚未确认风格：先 `ask_user` 开工提案卡，**必带**非空 `style_options`（id=`s0/s1…`）。
-2. 用户确认后调 `delegate`：`playbook="build_website"`；`playbook_args.site` 填站点简述，\
-可选 `sections` / `stack` / `audience`——**只传事实输入**（品牌 / 受众 / 素材 / 用户明示偏好），\
-【禁止】自拟视觉施工图（配色 / 动效 / 板块清单交给 playbook）。
-3. playbook 展开流水线不可减（文案 → DESIGN.md → 骨架+契约 → 分区独立片段 → assemble 组装 → 独立 QA），\
+1. 关键未齐（类型/受众/风格等）或用户只说「做个网站」→ **立刻** `ask_user` 开工提案卡，\
+**必带**非空 `style_options`（id=`s0/s1…`）。**勿先** consult 本 skill 再开卡。
+2. **规格已齐**（用户已点名风格/站点类型/交付范围等）→ **直接** `delegate(playbook="build_website", …)`，\
+**勿先** consult；`playbook_args.site` 等只填用户已给事实，\
+【禁止】自拟视觉施工图（配色 / 动效 / 板块清单交给 playbook）。槽位拿不准再查本 skill。
+3. 糊需求经用户确认后：若尚未读过本指引再 `consult_skill(build_website)`，然后调 `delegate`：\
+`playbook="build_website"`；`playbook_args` 规则同上。
+4. playbook 展开流水线不可减（文案 → DESIGN.md → 骨架+契约 → 分区独立片段 → assemble 组装 → 独立 QA），\
 含 `web_quality_scan` / 风格记账 / catalog / visual critic；勿自行减波；\
 分区禁并行 str_replace 同一 index.html（只写 `site/sections/sN.*`，由 assemble 单写者注入）。
 
@@ -737,8 +757,9 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="build_website",
         summary=(
-            "建站/落地页/营销官网：必须 playbook=build_website（禁止 none 手糊两节点）；"
-            "先 ask_user 选风格再委派；五波含 DESIGN/质量闸；控制台勿用本 skill"
+            "建站/落地页/营销官网：糊→先 ask_user；规格已齐→可直接 "
+            "playbook=build_website（禁止 none 手糊）；"
+            "五波含 DESIGN/质量闸；控制台勿用本 skill"
         ),
         body=_BUILD_WEBSITE,
         requires_tools=("delegate",),
@@ -813,7 +834,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="long_form_writing",
         summary=(
-            "超长单文档分段落盘：大纲优先；可并行拆章但验收须单主文件+合并责任"
+            "超长单文档骨架填空：大纲优先；中篇一次写完；可并行拆章但验收须单主文件+合并责任"
         ),
         body=_LONG_FORM_WRITING,
         requires_tools=("delegate",),
@@ -879,8 +900,10 @@ def render_skill_directory(registry: SkillRegistry, tool_names: set[str]) -> str
     lines = [
         "<能力目录>",
         "下列进阶能力的完整指引未常驻；要用到时，先用 `consult_skill(name)` 把指引拉回来再执行"
-        f"（纯对话式回答自己答即可，无需 consult；组队进阶：{CONSULT_TEAM_ORCH_BY_SCENE}；"
-        "建站 / 落地页 / 营销官网先 consult `build_website`；"
+        f"（纯对话式回答自己答即可，无需 consult；提问卡直接 ask_user、不必先查；"
+        f"组队进阶：{CONSULT_TEAM_ORCH_BY_SCENE}；"
+        "糊建站 /「做个网站」先 ask_user，确认后再 consult `build_website`；"
+        "规格已齐的落地页/作品集可直接 delegate(playbook=build_website)，不必先查；"
         "控制台 / 后台 / 工具台 dense 先 consult `build_toolshed`；"
         "做软件禁止单前端单 HTML 薄旁路（可手写多角色或选用 build_feature）：",
     ]

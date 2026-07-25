@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from agentcore.runtime.debate.types import DebateForm
 from agentcore.runtime.events.payloads._base import WirePayload, absent
 
 
@@ -223,7 +224,7 @@ class DebateBriefInfo(WirePayload):
 class DebateResultPayload(WirePayload):
     execution_id: str
     moderator_run_id: str
-    form: Literal["debate", "red_team", "roundtable"]
+    form: DebateForm
     motion: str
     stop_reason: str
     opening: str = ""
@@ -252,7 +253,7 @@ class DebateRoundStartedPayload(WirePayload):
     # 收场 debate_result.opening 仍是权威。缺字段（老 journal）→ ""。
     opening: str = ""
     # 形态信号供 live 状态条；缺字段（老事件）→ 前端可回退 group 前缀推断。
-    form: Literal["debate", "red_team", "roundtable"] | None = absent(
+    form: DebateForm | None = absent(
         "Form signal for live status; absent on older wire."
     )
 

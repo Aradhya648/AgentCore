@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from agentcore.core.errors import ValidationError
 from agentcore.llm import catalog
 from agentcore.llm.catalog import (
     reset_discovery_cache_for_tests,
@@ -311,12 +310,24 @@ def _mock_resolve_repos(monkeypatch, *, user=None, provider_by_id=None, first=No
 
 async def test_platform_selection_passes_through_to_turn(monkeypatch):
     from agentcore.conversation.common import resolve_turn_profiles
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
 
-    monkeypatch.setattr("agentcore.llm.resolve.settings.billing_mode", "platform")
-    monkeypatch.setattr("agentcore.llm.resolve.settings.platform_model", "deepseek-v4-flash")
-    monkeypatch.setattr("agentcore.llm.resolve.settings.platform_api_key", "sk-platform")
-    _mock_resolve_repos(monkeypatch, user=None, count=0)
-    conv = SimpleNamespace(model="deepseek-v4-pro", model_origin="platform", model_provider_id=None)
+    expanded = ExpandedProfile(
+        profile_id="sys",
+        name="5.2",
+        kind="system",
+        main=ModelSelection(model="deepseek-v4-pro", origin="platform", provider_id=None),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
+    conv = SimpleNamespace(model_profile_id="sys")
 
     sel = await resolve_conversation_model_selection(None, conv, "u1")
     assert sel.model == "deepseek-v4-pro"
@@ -327,95 +338,186 @@ async def test_platform_selection_passes_through_to_turn(monkeypatch):
     assert profiles.model == "deepseek-v4-pro"
 
 
-async def test_byok_override_pins_live_provider(monkeypatch):
-    row = _prov("p1")
-    _mock_resolve_repos(monkeypatch, user=SimpleNamespace(user_id="u1"), provider_by_id={"p1": row})
-    conv = SimpleNamespace(model="picked", model_origin="byok", model_provider_id="p1")
+async def test_resolve_turn_profiles_no_worker_slot_follows_main(monkeypatch):
+    """worker 空槽 → model_overrides 无 agent；CEO/worker 同 model。"""
+    from agentcore.conversation.common import resolve_turn_profiles
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="main-model", origin="byok", provider_id="p1"),
+        worker=None,
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    conv = SimpleNamespace(model_profile_id="p")
+    creds = LLMCredentials(api_key="sk", base_url="https://x", default_model="main-model")
+    profiles = await resolve_turn_profiles(None, conv, "u1", credentials=creds)
+    assert profiles.model == "main-model"
+    assert "agent" not in profiles.model_overrides
+    assert profiles.model_for("agent") == "main-model"
+    assert profiles.agent_provider_id is None
+
+
+async def test_resolve_turn_profiles_worker_slot_overrides_agent(monkeypatch):
+    """配了 worker 槽 → model_for(agent)=worker；model_for(chat) 仍为主模型。"""
+    from agentcore.conversation.common import resolve_turn_profiles
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="ceo-pro", origin="byok", provider_id="p1"),
+        worker=ModelSelection(model="worker-flash", origin="byok", provider_id="p2"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    conv = SimpleNamespace(model_profile_id="p")
+    creds = LLMCredentials(api_key="sk", base_url="https://x", default_model="ceo-pro")
+    profiles = await resolve_turn_profiles(None, conv, "u1", credentials=creds)
+    assert profiles.model == "ceo-pro"
+    assert profiles.model_for("chat") == "ceo-pro"
+    assert profiles.model_for("agent") == "worker-flash"
+    assert profiles.agent_provider_id == "p2"
+    assert profiles.route_model_for("agent") == "p2/worker-flash"
+
+
+async def test_resolve_turn_profiles_worker_platform_with_byok_main(monkeypatch):
+    """主 byok、worker platform → agent_provider_id=platform 哨兵。"""
+    from agentcore.conversation.common import resolve_turn_profiles
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.profiles import PLATFORM_PROVIDER_SENTINEL
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="ceo-pro", origin="byok", provider_id="p1"),
+        worker=ModelSelection(
+            model="deepseek-v4-flash", origin="platform", provider_id=None
+        ),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    conv = SimpleNamespace(model_profile_id="p")
+    creds = LLMCredentials(
+        api_key="sk", base_url="https://x", default_model="ceo-pro", provider_id="p1"
+    )
+    profiles = await resolve_turn_profiles(None, conv, "u1", credentials=creds)
+    assert profiles.model_for("agent") == "deepseek-v4-flash"
+    assert profiles.agent_provider_id == PLATFORM_PROVIDER_SENTINEL
+    assert profiles.route_model_for("agent", turn_provider_id="p1") == (
+        f"{PLATFORM_PROVIDER_SENTINEL}/deepseek-v4-flash"
+    )
+
+
+async def test_resolve_account_default_from_profile(monkeypatch):
+    """账号默认组合展开为主槽。"""
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection, resolve_account_default_model
+
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="deepseek-v4-pro", origin="platform", provider_id=None),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
+    sel = await resolve_account_default_model(None, "u1")
+    assert sel.origin == "platform"
+    assert sel.provider_id is None
+    assert sel.model == "deepseek-v4-pro"
+
+
+async def test_resolve_turn_profiles_dangling_worker_follows_main(monkeypatch):
+    """worker 槽展开为 None（删服务商后）→ 跟随主模型。"""
+    from agentcore.conversation.common import resolve_turn_profiles
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="p",
+        name="当前配置",
+        kind="user",
+        main=ModelSelection(model="ceo-pro", origin="byok", provider_id="p1"),
+        worker=None,
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    conv = SimpleNamespace(model_profile_id="p")
+    creds = LLMCredentials(api_key="sk", base_url="https://x", default_model="ceo-pro")
+    profiles = await resolve_turn_profiles(None, conv, "u1", credentials=creds)
+    assert profiles.model_for("agent") == "ceo-pro"
+    assert "agent" not in profiles.model_overrides
+
+
+async def test_conversation_profile_pin_expands_main(monkeypatch):
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    expanded = ExpandedProfile(
+        profile_id="imp",
+        name="会话覆盖",
+        kind="implicit",
+        main=ModelSelection(model="picked", origin="byok", provider_id="p1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    conv = SimpleNamespace(model_profile_id="imp")
     sel = await resolve_conversation_model_selection(None, conv, "u1")
     assert sel.model == "picked"
     assert sel.origin == "byok"
     assert sel.provider_id == "p1"
 
 
-async def test_byok_override_deleted_provider_falls_back(monkeypatch):
-    """删除服务商后：pinned provider gone → silent full fallback to account default."""
-    _mock_resolve_repos(monkeypatch, user=SimpleNamespace(user_id="u1"), provider_by_id={})
-    monkeypatch.setattr(
-        "agentcore.llm.resolve.resolve_account_default_model",
-        AsyncMock(
-            return_value=ModelSelection(model="acct-model", origin="byok", provider_id="p2")
-        ),
+async def test_dangling_profile_falls_back_via_expand(monkeypatch):
+    """展开侧对悬空 pin 回落到账号/系统默认。"""
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
+
+    fallback = ExpandedProfile(
+        profile_id="bal",
+        name="5.2",
+        kind="system",
+        main=ModelSelection(model="acct-model", origin="byok", provider_id="p2"),
     )
-    conv = SimpleNamespace(model="pinned", model_origin="byok", model_provider_id="dead")
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=fallback),
+    )
+    conv = SimpleNamespace(model_profile_id="dead")
     sel = await resolve_conversation_model_selection(None, conv, "u1")
     assert sel.model == "acct-model"
     assert sel.provider_id == "p2"
 
 
-async def test_legacy_conversation_null_provider_keeps_model_on_default(monkeypatch):
-    """origin=byok, provider_id NULL (legacy) → keep model on the account default provider."""
-    row = _prov("p1")
-    _mock_resolve_repos(
-        monkeypatch,
-        user=SimpleNamespace(user_id="u1", default_chat_provider_id=None),
-        first=row,
-        count=1,
-    )
-    conv = SimpleNamespace(model="legacy-model", model_origin="byok", model_provider_id=None)
-    sel = await resolve_conversation_model_selection(None, conv, "u1")
-    assert sel.model == "legacy-model"
-    assert sel.origin == "byok"
-    assert sel.provider_id == "p1"
-
-
-async def test_legacy_conversation_origin_none_with_provider(monkeypatch):
-    row = _prov("p1")
-    _mock_resolve_repos(
-        monkeypatch,
-        user=SimpleNamespace(user_id="u1", default_chat_provider_id=None),
-        first=row,
-        count=1,
-    )
-    conv = SimpleNamespace(model="legacy-model", model_origin=None, model_provider_id=None)
-    sel = await resolve_conversation_model_selection(None, conv, "u1")
-    assert sel.model == "legacy-model"
-    assert sel.origin == "byok"
-    assert sel.provider_id == "p1"
-
-
-async def test_legacy_conversation_byok_without_key_falls_back(monkeypatch):
-    monkeypatch.setattr("agentcore.llm.resolve.settings.platform_model", "plat")
-    monkeypatch.setattr("agentcore.llm.resolve.settings.billing_mode", "platform")
-    _mock_resolve_repos(monkeypatch, user=SimpleNamespace(user_id="u1"), count=0)
-    conv = SimpleNamespace(model="stale-byok", model_origin="byok", model_provider_id=None)
-    sel = await resolve_conversation_model_selection(None, conv, "u1")
-    assert sel.model == "plat"
-    assert sel.origin == "platform"
-
-
 # --- conversation PATCH (crud) -----------------------------------------------
 
 
-async def test_patch_conversation_requires_origin(monkeypatch):
-    from agentcore.api.routes.conversations import crud
-    from agentcore.api.schemas import UpdateConversationRequest
-
-    conv = SimpleNamespace(id="c1", model=None, model_origin=None, model_provider_id=None)
-
-    class _Repo:
-        _session = None
-
-        async def get_by_id(self, _cid, *, user_id):
-            return conv
-
-    body = UpdateConversationRequest(model="deepseek-v4-flash")
-    with pytest.raises(ValidationError):
-        await crud.update_conversation(
-            "c1", body, SimpleNamespace(user_id="u1"), repo=_Repo()
-        )
-
-
-async def test_patch_conversation_persists_model_origin_and_provider(monkeypatch):
+async def test_patch_conversation_persists_model_profile_id(monkeypatch):
     from datetime import datetime
 
     from agentcore.api.routes.conversations import crud
@@ -434,9 +536,7 @@ async def test_patch_conversation_persists_model_origin_and_provider(monkeypatch
         archived=False,
         permission_preset="workspace",
         deep_research_auto=False,
-        model=None,
-        model_origin=None,
-        model_provider_id=None,
+        model_profile_id=None,
     )
 
     class _Repo:
@@ -445,34 +545,70 @@ async def test_patch_conversation_persists_model_origin_and_provider(monkeypatch
         async def get_by_id(self, _cid, *, user_id):
             return conv
 
-        async def set_model(self, _cid, model, *, user_id, model_origin, model_provider_id):
-            written["model"] = model
-            written["model_origin"] = model_origin
-            written["model_provider_id"] = model_provider_id
-            conv.model = model
-            conv.model_origin = model_origin
-            conv.model_provider_id = model_provider_id
+        async def set_model_profile(self, _cid, model_profile_id, *, user_id):
+            written["model_profile_id"] = model_profile_id
+            conv.model_profile_id = model_profile_id
             return conv
 
     monkeypatch.setattr(
-        "agentcore.llm.catalog.validate_model_choice", AsyncMock(return_value=True)
+        "agentcore.llm.model_profiles.LlmModelProfileService.ensure_profile_usable",
+        AsyncMock(return_value=None),
     )
-    body = UpdateConversationRequest(
-        model="shared-model", model_origin="byok", model_provider_id="p1"
-    )
+    body = UpdateConversationRequest(model_profile_id="prof-1")
     result = await crud.update_conversation(
         "c1", body, SimpleNamespace(user_id="u1"), repo=_Repo()
     )
-    assert written == {"model": "shared-model", "model_origin": "byok", "model_provider_id": "p1"}
-    assert result.model == "shared-model"
-    assert result.model_provider_id == "p1"
+    assert written == {"model_profile_id": "prof-1"}
+    assert result.model_profile_id == "prof-1"
+
+
+async def test_patch_conversation_clears_model_profile_id(monkeypatch):
+    from datetime import datetime
+
+    from agentcore.api.routes.conversations import crud
+    from agentcore.api.schemas import UpdateConversationRequest
+
+    conv = SimpleNamespace(
+        id="c1",
+        title="t",
+        updated_at=datetime.now(),
+        created_at=datetime.now(),
+        message_count=0,
+        folder_id=None,
+        local_container_root_id=None,
+        pinned=False,
+        archived=False,
+        permission_preset="workspace",
+        deep_research_auto=False,
+        model_profile_id="prof-1",
+    )
+
+    class _Repo:
+        _session = None
+
+        async def get_by_id(self, _cid, *, user_id):
+            return conv
+
+        async def set_model_profile(self, _cid, model_profile_id, *, user_id):
+            conv.model_profile_id = model_profile_id
+            return conv
+
+    body = UpdateConversationRequest(model_profile_id=None)
+    # Explicit null is in model_fields_set.
+    assert "model_profile_id" in body.model_fields_set
+    result = await crud.update_conversation(
+        "c1", body, SimpleNamespace(user_id="u1"), repo=_Repo()
+    )
+    assert result.model_profile_id is None
 
 
 # --- inference proxy authoritative re-resolution ------------------------------
 
 
-async def test_inference_proxy_uses_conversation_provider(monkeypatch):
+async def test_inference_proxy_uses_conversation_profile(monkeypatch):
     from agentcore.api.routes import inference
+    from agentcore.llm.model_profiles import ExpandedProfile
+    from agentcore.llm.resolve import ModelSelection
 
     creds = LLMCredentials(
         api_key="sk", base_url="https://api.deepseek.com", default_model="account-model"
@@ -485,17 +621,27 @@ async def test_inference_proxy_uses_conversation_provider(monkeypatch):
         return creds
 
     monkeypatch.setattr(inference.proxy, "preflight_llm_credentials", _fake_preflight)
-    row = _prov("p1")
-    _mock_resolve_repos(monkeypatch, user=SimpleNamespace(user_id="u1"), provider_by_id={"p1": row})
+    expanded = ExpandedProfile(
+        profile_id="imp",
+        name="会话",
+        kind="implicit",
+        main=ModelSelection(model="picked-model", origin="byok", provider_id="p1"),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand_for_conversation",
+        AsyncMock(return_value=expanded),
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles.LlmModelProfileService.expand",
+        AsyncMock(return_value=expanded),
+    )
 
     class _ConvRepo:
         def __init__(self, _session):
             pass
 
         async def get_by_id(self, cid, *, user_id):
-            return SimpleNamespace(
-                id=cid, model="picked-model", model_origin="byok", model_provider_id="p1"
-            )
+            return SimpleNamespace(id=cid, model_profile_id="imp")
 
     monkeypatch.setattr("agentcore.db.repositories.ConversationRepository", _ConvRepo)
     cfg = await inference._resolve_inference_credentials(

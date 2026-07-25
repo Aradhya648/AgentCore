@@ -106,3 +106,47 @@ def test_modifier_bitmask_accepts_int_list_and_rejects_bool():
     assert _modifier_bitmask(["shift"]) == 8
     assert _modifier_bitmask(["Meta", "Alt"]) == 5  # meta(4) | alt(1)
     assert _modifier_bitmask(True) == 0  # bool is not a real bitmask
+
+
+class _FakeLocator:
+    """Minimal Playwright-like locator for Driver.type password gate (no Chromium)."""
+
+    def __init__(self, *, is_password: bool) -> None:
+        self.is_password = is_password
+        self.filled: str | None = None
+
+    async def evaluate(self, _js):
+        return self.is_password
+
+    async def fill(self, text: str, timeout: int = 0) -> None:
+        self.filled = text
+
+
+@pytest.mark.asyncio
+async def test_type_hard_rejects_password_without_fill():
+    d = Driver()
+    loc = _FakeLocator(is_password=True)
+
+    def _resolve(_req):
+        return loc
+
+    d._resolve_ref = _resolve  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="password_blocked"):
+        await d.type({"ref": "e1", "text": "hunter2"})
+    assert loc.filled is None
+
+
+@pytest.mark.asyncio
+async def test_type_fills_non_password():
+    d = Driver()
+    loc = _FakeLocator(is_password=False)
+    d._resolve_ref = lambda _req: loc  # type: ignore[method-assign]
+
+    async def _page_state(*, capture):
+        return {"final_url": "u", "title": "t"}
+
+    d._page_state = _page_state  # type: ignore[method-assign]
+
+    res = await d.type({"ref": "e2", "text": "hello"})
+    assert loc.filled == "hello"
+    assert res["final_url"] == "u"

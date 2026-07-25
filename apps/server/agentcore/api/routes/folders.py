@@ -6,7 +6,7 @@ conversations in place (keeps ``folder_id``); workspace binding is set at
 create and is immutable thereafter.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.api.dependencies import AuthUser, get_db, get_folder_repo
@@ -35,8 +35,26 @@ router = APIRouter(prefix="/folders", tags=["folders"])
 async def create_folder(
     body: CreateFolderRequest,
     user: AuthUser,
+    response: Response,
     repo: FolderRepository = Depends(get_folder_repo),
 ):
+    """Create a project, or reuse an existing live local binding (HTTP 200).
+
+    Local mode is unique per ``(user_id, local_root_id, local_subpath)`` — same
+    path re-open returns the existing row (VS Code / Cursor workspace reuse).
+    Cloud projects are unchanged (duplicate names allowed).
+    """
+    if body.mode == "local":
+        assert body.local_root_id is not None  # validated by CreateFolderRequest
+        existing = await repo.find_active_by_local_binding(
+            user_id=user.user_id,
+            local_root_id=body.local_root_id,
+            local_subpath=body.local_subpath,
+        )
+        if existing is not None:
+            response.status_code = 200
+            return FolderSummary.from_folder(existing)
+
     folder = await repo.create(
         user_id=user.user_id,
         name=body.name,

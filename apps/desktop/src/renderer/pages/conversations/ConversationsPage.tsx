@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  Card,
   IconButton,
   SearchField,
   SectionLabel,
@@ -319,7 +320,7 @@ export function ConversationsPage() {
               )}
 
               {bulk.selectMode && bulk.selectedIds.size > 0 && (
-                <div className="sticky bottom-0 mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+                <Card className="sticky bottom-0 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 shadow-sm">
                   <span className="text-sm text-muted-foreground">
                     已选 {bulk.selectedIds.size} 项
                   </span>
@@ -365,7 +366,7 @@ export function ConversationsPage() {
                       永久删除
                     </Button>
                   )}
-                </div>
+                </Card>
               )}
             </div>
           </section>

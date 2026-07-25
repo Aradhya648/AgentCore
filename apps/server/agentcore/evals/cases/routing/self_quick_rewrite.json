@@ -1,0 +1,13 @@
+{
+  "id": "routing_self_quick_rewrite",
+  "category": "routing",
+  "user_message": "把下面这句话改得更口语一点，并顺便译成自然的英文：「协作，是更高级的智能。」",
+  "path": "team",
+  "mode": "economy",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "NotDelegated" },
+    { "name": "MaxRounds", "args": { "budget": 3 } }
+  ],
+  "rubric": "单点改写+翻译、未要求落盘：直接给出结果，不组队。"
+}

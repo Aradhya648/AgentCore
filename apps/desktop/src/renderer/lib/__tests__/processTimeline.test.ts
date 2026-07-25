@@ -5,6 +5,7 @@ import {
   dropTrailingContentSteps,
   groupToolRuns,
   isOrchestrationTool,
+  promoteScalarContentIntoProcess,
 } from "@/lib/processTimeline";
 import type { ProcessStep } from "@/types/events";
 import { describe, expect, it } from "vitest";
@@ -254,5 +255,32 @@ describe("appendStageCardStep", () => {
       { kind: "stage_card", stage_card_id: "sc1" },
     ]);
     expect(appendStageCardStep(once, "sc1")).toBe(once);
+  });
+});
+
+describe("promoteScalarContentIntoProcess", () => {
+  it("inserts scalar CEO lead-in before the first team marker", () => {
+    expect(
+      promoteScalarContentIntoProcess(
+        [reasoning("想"), team("exec1")],
+        "这是个很有意思的方向",
+      ),
+    ).toEqual([
+      reasoning("想"),
+      content("这是个很有意思的方向"),
+      team("exec1"),
+    ]);
+  });
+
+  it("no-ops when a content step already exists (same ref)", () => {
+    const process = [content("导语"), team("exec1")];
+    expect(promoteScalarContentIntoProcess(process, "导语")).toBe(process);
+  });
+
+  it("appends when there is no team marker yet", () => {
+    expect(promoteScalarContentIntoProcess([reasoning("想")], "导语")).toEqual([
+      reasoning("想"),
+      content("导语"),
+    ]);
   });
 });

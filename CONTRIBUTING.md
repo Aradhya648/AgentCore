@@ -1,34 +1,76 @@
-# Contributing to AgentCore
+# 参与贡献（Contributing）
 
-Thank you for considering a contribution. [`Lawofall/AgentCore`](https://github.com/Lawofall/AgentCore) is the single product repository (see README · Open source). While the repo is still private, development continues here; after it goes Public, Issues and PRs land on the same URL.
+感谢关注 AgentCore。[`Lawofall/AgentCore`](https://github.com/Lawofall/AgentCore) 是对外公开的产品仓库（见根 [README](./README.md)）。欢迎在该地址提 Issue 与 Pull Request。
 
-## Ways to help
+## 怎么帮忙
 
-- Bug reports and feature ideas via GitHub Issues (once Public—or with collaborator access today)
-- Pull requests for behavior and docs changes; start with focused diffs
-- Security reports via [SECURITY.md](./SECURITY.md) — not public Issues
+- 通过 [GitHub Issues](https://github.com/Lawofall/AgentCore/issues) 报 Bug、提想法
+- 提交行为或文档的 PR；请保持改动聚焦
+- 安全漏洞按 [SECURITY.md](./SECURITY.md) 私下报告——不要开公开 Issue
 
-Large cross-cutting changes: please open an Issue first.
+跨模块、影响面大的改动：请先开 Issue 对齐。
 
-## Development setup
+## 建议阅读顺序
 
-Follow [`docs/02-架构/本地开发.md`](./docs/02-架构/本地开发.md).
+按角色选一条即可。设计文档总入口与任务路由全表权威：[`docs/索引.md`](./docs/索引.md)。跨工具 AI 最短入口：[`AGENTS.md`](./AGENTS.md)。根 README 只给最短跑通与常用子集指针；包级命令见各 `apps/*/README`。
 
-Minimum for backend work:
+1. [`README.md`](./README.md) — 产品定位、最短跑通、仓库地图  
+2. [`docs/02-架构/本地开发.md`](./docs/02-架构/本地开发.md) — clone 后跑通  
+3. 按方向深入：
+   - 后端 / runtime → [`apps/server/README.md`](./apps/server/README.md) → [`运行时总览`](./docs/03-AI核心/运行时总览.md)
+   - 桌面 → [`apps/desktop/README.md`](./apps/desktop/README.md) → [`前端地图`](./docs/04-前端/前端地图.md)
+   - 手机 → [`apps/mobile/README.md`](./apps/mobile/README.md) → [`前端技术` §七](./docs/04-前端/前端技术与架构.md)
+   - 管理后台 → [`apps/admin/README.md`](./apps/admin/README.md) → [`管理员后台`](./docs/05-平台与运维/管理员后台.md)
+4. 术语不确定时查 [`术语表`](./docs/01-产品/术语表.md)
+
+公开设计权威在 `docs/01`–`05`（⏳ = 已确认未落地，以代码与文内短指针为准；详细提案不在公开仓）。本地 `.cursor/rules/` 是开发用 AI 行为规则（How，gitignore）；贡献者可不读。规划草案若在维护者机器上的 `docs/06-规划/`，不会出现在公开 clone。
+
+## 开发环境
+
+完整步骤见 [`docs/02-架构/本地开发.md`](./docs/02-架构/本地开发.md)。
+
+后端最小集：
 
 ```bash
 docker compose -f deploy/docker-compose.dev.yml up -d
 cd apps/server && uv sync
 ```
 
-## Pull requests
+前端 / monorepo 包：在**仓库根**执行 `pnpm install`（勿只在子包单独装）。
 
-1. Keep changes focused; prefer small PRs with a clear problem statement.
-2. Add or update tests for behavior changes in `apps/server`.
-3. Do not commit secrets, local `.env`, `data/`, or scratch `tmp_*` / `_tmp_*` files.
-4. Do not commit under `.cursor/` — AI editor rules stay private to the product repo.
-5. Match existing code style; run the relevant server tests before submitting.
+## Pull Request
 
-## License
+1. 改动聚焦；小 PR + 说清要解决的问题。
+2. `apps/server` 行为变更请补或更新测试。
+3. 不要提交密钥、本地 `.env` / `.env.local`、`data/`，或临时 `tmp_*` / `_tmp_*` 文件。
+4. `.cursor/` 与 `docs/06-规划/` 已在 `.gitignore`；勿强行 `git add -f`。AI 规则在本地 `.cursor/rules/`，贡献者一般不必改；规划草案仅维护者本地。
+5. 风格与现有代码一致；提交前跑下面的检查。
 
-By contributing, you agree that your contributions are licensed under the [MIT License](./LICENSE).
+### 提交前检查
+
+尽量跑与 CI 同构的本地门禁：
+
+```bash
+pnpm release:gate
+```
+
+迭代时可缩小范围（正式发布仍需完整通过）：
+
+- `pnpm release:gate --only <段>` — 只跑一段（`backend` | `contracts` | `desktop` | `mobile` | `admin`）
+- `pnpm release:gate --from <段>` — 从某段起跑到结束
+
+按区域自测：
+
+```bash
+# 后端单元测试（跳过 integration）
+pnpm test:server:unit
+
+# 桌面端单元测试
+pnpm --filter agentcore-desktop test
+```
+
+改了 OpenAPI / SSE / fold：仓库根 `pnpm gen:types`，再 `pnpm conformance`。
+
+## 许可证
+
+提交即表示你同意贡献内容按 [MIT License](./LICENSE) 授权。

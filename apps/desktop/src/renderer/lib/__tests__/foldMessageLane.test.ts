@@ -4,6 +4,7 @@ import {
   foldContentDelta,
   foldContentReset,
   foldReasoningDelta,
+  foldTeamMarker,
   foldToolUseEnd,
   foldToolUsePhase,
   foldToolUseStart,
@@ -222,6 +223,21 @@ describe("ensureTimelineMarkersFromJournal", () => {
         host_message_id: "m1",
         added_count: 1,
       },
+    ]);
+  });
+});
+
+describe("foldTeamMarker", () => {
+  it("promotes scalar CEO lead-in before stamping team (图在回复下方)", () => {
+    const base = messageLaneFromMessage({
+      content: "这是个很有意思的方向",
+      process: [{ kind: "reasoning", text: "想一下" }],
+    });
+    const next = foldTeamMarker(base, "exec1");
+    expect(next.process).toEqual([
+      { kind: "reasoning", text: "想一下" },
+      { kind: "content", text: "这是个很有意思的方向" },
+      { kind: "team", execution_id: "exec1" },
     ]);
   });
 });

@@ -9,6 +9,7 @@ from agentcore.runtime.debate import DebateForm, DebateSide
 from agentcore.runtime.debate.constants import (
     CLOSING_LENGTH_HINT,
     CX_LENGTH_HINT,
+    DEBATE_FORM_VALUES,
     DEBATE_OUTPUT_LIMIT,
     DEBATER_TOOLS,
     FORM_LABELS,
@@ -83,7 +84,7 @@ DEBATE_PARAMETERS = {
         },
         "form": {
             "type": "string",
-            "enum": ["debate", "red_team", "roundtable"],
+            "enum": list(DEBATE_FORM_VALUES),
             "description": (
                 "debate=正反攻防（并行波+质询+结辩）；"
                 "red_team=红队挑刺（finding 台账+攻→应→复三拍+门决；被审方标 is_subject）；"

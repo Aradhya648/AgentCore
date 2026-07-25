@@ -257,6 +257,35 @@ async def test_execute_tools_unknown_tool_suggests_alias():
     assert write_tool.calls == 0
 
 
+async def test_execute_tools_wait_not_found_no_fuzzy_to_unrelated():
+    """协调闸 wait 未装配：诚实文案，勿 fuzzy 成 git 等无关工具。"""
+    from agentcore.llm.provider.protocol import ToolCall, ToolCallFunction
+
+    git_tool = _StubTool("git")
+    reg = ToolRegistry()
+    reg.register(git_tool)
+    # "wait" is close to nothing useful; without the gate, difflib may still
+    # suggest unrelated short names depending on registry contents.
+    reg.register(_StubTool("web_search"))
+    sink = EventSink()
+    messages, terminal, attempts = await execute_tools(
+        [ToolCall(id="c1", function=ToolCallFunction(name="wait", arguments="{}"))],
+        reg,
+        _context(),
+        sink,
+        run_id="r1",
+    )
+
+    assert terminal is None
+    assert attempts[0].success is False
+    content = messages[0].content or ""
+    assert "wait" in content
+    assert "未装配" in content
+    assert "你是否想用" not in content
+    assert "git" not in content.lower()
+    assert git_tool.calls == 0
+
+
 def test_registry_suggest_names_alias_and_close_match():
     reg = ToolRegistry()
     reg.register(_StubTool("web_search"))
