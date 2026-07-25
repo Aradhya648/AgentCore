@@ -752,10 +752,6 @@ def test_multi_lens_research_custom_lenses():
 def test_multi_lens_research_folds_lenses_with_note_keeps_base_owner():
     """lenses 超扇出：折叠进末节点带 note；首透镜仍独占公共底料分工。"""
     from agentcore.runtime.runs.playbooks import MAX_PLAYBOOK_FANOUT, collect_playbook_notes
-    from agentcore.runtime.runs.retrieval_budget import (
-        DEFAULT_RETRIEVAL_BUDGET_LENS_BASE,
-        DEFAULT_RETRIEVAL_BUDGET_LENS_GAP,
-    )
 
     n = MAX_PLAYBOOK_FANOUT + 2
     lenses = [f"透镜{i}" for i in range(n)]
@@ -774,20 +770,14 @@ def test_multi_lens_research_folds_lenses_with_note_keeps_base_owner():
     # First lens remains single primary base owner (fold only hits the last slot).
     assert by_id["lens_0"]["role"] == "透镜0视角"
     assert "负责人" in by_id["lens_0"]["task"] or "查全" in by_id["lens_0"]["task"]
-    assert by_id["lens_0"]["retrieval_budget"] == DEFAULT_RETRIEVAL_BUDGET_LENS_BASE
-    assert by_id[f"lens_{MAX_PLAYBOOK_FANOUT - 1}"]["retrieval_budget"] == (
-        DEFAULT_RETRIEVAL_BUDGET_LENS_GAP
-    )
+    # playbook 不再显式写 retrieval_budget；统一默认由 builder 填。
+    assert "retrieval_budget" not in by_id["lens_0"]
+    assert "retrieval_budget" not in by_id[f"lens_{MAX_PLAYBOOK_FANOUT - 1}"]
     assert "负责人" not in last["task"]
 
 
 def test_multi_lens_research_lens_retrieval_division():
     """教法：首透镜查全公共底料；其余透镜简要确认、预算盯独有缺口；并行无运行时依赖。"""
-    from agentcore.runtime.runs.retrieval_budget import (
-        DEFAULT_RETRIEVAL_BUDGET_LENS_BASE,
-        DEFAULT_RETRIEVAL_BUDGET_LENS_GAP,
-    )
-
     tasks, errors = expand_playbook(
         "multi_lens_research", {"topic": "LV 诉茉莉奶白商标案"}
     )
@@ -799,16 +789,14 @@ def test_multi_lens_research_lens_retrieval_division():
     assert "时间线" in base and "主体" in base
     assert "负责人" in base or "查全" in base
     assert "并行" in base or "互不等待" in base
-    assert by_id["lens_0"]["retrieval_budget"] == DEFAULT_RETRIEVAL_BUDGET_LENS_BASE
-    assert str(DEFAULT_RETRIEVAL_BUDGET_LENS_BASE) in base
+    assert "retrieval_budget" not in by_id["lens_0"]
     for lid in ("lens_1", "lens_2", "lens_3"):
         task = by_id[lid]["task"]
         assert "检索分工" in task
         assert "简要确认" in task
         assert "独有" in task
         assert "负责人" not in task  # 非首透镜不背公共底料全责
-        assert by_id[lid]["retrieval_budget"] == DEFAULT_RETRIEVAL_BUDGET_LENS_GAP
-        assert str(DEFAULT_RETRIEVAL_BUDGET_LENS_GAP) in task
+        assert "retrieval_budget" not in by_id[lid]
     # 汇总员任务不动（命题保真已定案；本条只改透镜）
     synth = by_id["synthesizer"]["task"]
     assert "检索分工" not in synth
@@ -817,11 +805,8 @@ def test_multi_lens_research_lens_retrieval_division():
 
 
 def test_multi_lens_research_lens_budgets_survive_build_run_plan():
-    """透镜差异化 retrieval_budget 经 builder 保留（CEO 显式优先于结构化默认）。"""
-    from agentcore.runtime.runs.retrieval_budget import (
-        DEFAULT_RETRIEVAL_BUDGET_LENS_BASE,
-        DEFAULT_RETRIEVAL_BUDGET_LENS_GAP,
-    )
+    """透镜无显式预算时经 builder 得统一默认。"""
+    from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 
     tasks, errors = expand_playbook(
         "multi_lens_research", {"topic": "T", "lenses": ["法律", "品牌商业"]}
@@ -830,8 +815,8 @@ def test_multi_lens_research_lens_budgets_survive_build_run_plan():
     plan, plan_errors = build_run_plan(tasks, id_prefix="pb_mlr_budget")
     assert plan_errors == []
     by_role = {n.role: n for n in plan.nodes}
-    assert by_role["法律视角"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET_LENS_BASE
-    assert by_role["品牌商业视角"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET_LENS_GAP
+    assert by_role["法律视角"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
+    assert by_role["品牌商业视角"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
 
 
 def test_multi_lens_research_files_form_builds_run_plan_with_artifacts():

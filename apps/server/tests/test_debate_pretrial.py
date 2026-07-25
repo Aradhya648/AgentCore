@@ -241,7 +241,9 @@ async def test_pretrial_budget_symmetry_pads_before_spawn(monkeypatch: pytest.Mo
         complete_json=uneven,
     )
     assert captured["counts"] == [2, 2]
-    assert captured["budget"] == 6
+    from agentcore.runtime.debate.constants import DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET
+
+    assert captured["budget"] == DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET
     assert result.fallback_self_search is True
     assert result.evidence_ready is False
 

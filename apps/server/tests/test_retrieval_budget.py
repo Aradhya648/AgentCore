@@ -14,12 +14,8 @@ from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.builder import build_run_plan
 from agentcore.runtime.runs.retrieval_budget import (
     BUDGET_EXHAUSTED_FEEDBACK,
+    DEFAULT_RETRIEVAL_BUDGET,
     DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER,
-    DEFAULT_RETRIEVAL_BUDGET_DOWNSTREAM,
-    DEFAULT_RETRIEVAL_BUDGET_LENS_BASE,
-    DEFAULT_RETRIEVAL_BUDGET_LENS_GAP,
-    DEFAULT_RETRIEVAL_BUDGET_RESEARCH,
-    DEFAULT_RETRIEVAL_BUDGET_ROOT,
     RETRIEVAL_BUDGET_CRITICAL_REMAINING,
     RETRIEVAL_TOOL_NAMES,
     charges_retrieval_budget,
@@ -55,42 +51,32 @@ def _spec(
     )
 
 
-def test_structured_default_research_root_no_deps():
-    """无上游 standard 调研波 root → research 额度（替代旧 ROOT=8）。"""
-    assert default_retrieval_budget(_spec()) == DEFAULT_RETRIEVAL_BUDGET_RESEARCH
-    assert DEFAULT_RETRIEVAL_BUDGET_RESEARCH == 14
-
-
-def test_structured_default_research_default_is_only_for_research_tier():
-    """检索 research 额度仅命中 research 档；light / 落盘深研 root 与下游一律不动。"""
-    # research root（standard、无上游、非落盘、检索未显式关）→ research 额度
-    assert default_retrieval_budget(_spec()) == DEFAULT_RETRIEVAL_BUDGET_RESEARCH
-    assert default_retrieval_budget(_spec(form="prose")) == DEFAULT_RETRIEVAL_BUDGET_RESEARCH
-    # light root → 仍给 ROOT(8)
+def test_structured_default_unified_non_prose():
+    """任意非 prose → 统一默认 14（root / light / files / 下游同额）。"""
+    assert DEFAULT_RETRIEVAL_BUDGET == 14
+    assert default_retrieval_budget(_spec()) == DEFAULT_RETRIEVAL_BUDGET
     assert (
         default_retrieval_budget(_spec(), complexity_hint="light")
-        == DEFAULT_RETRIEVAL_BUDGET_ROOT
+        == DEFAULT_RETRIEVAL_BUDGET
     )
-    # 落盘深研 root（files 交付 → 归 deep 档、非研究档）→ ROOT(8)
-    assert default_retrieval_budget(_spec(form="files")) == DEFAULT_RETRIEVAL_BUDGET_ROOT
-    # 下游默认不变
-    assert default_retrieval_budget(_spec(deps=["u"], form="prose")) == 0
+    assert default_retrieval_budget(_spec(form="files")) == DEFAULT_RETRIEVAL_BUDGET
     assert (
-        default_retrieval_budget(_spec(deps=["u"])) == DEFAULT_RETRIEVAL_BUDGET_DOWNSTREAM
+        default_retrieval_budget(_spec(deps=["u"], form="files"))
+        == DEFAULT_RETRIEVAL_BUDGET
     )
+    assert default_retrieval_budget(_spec(deps=["u"])) == DEFAULT_RETRIEVAL_BUDGET
 
 
-def test_debate_and_lens_budget_constants_are_tiered():
-    """辩手有案卷 / 透镜负责人 vs 缺口：分层常数收紧且负责人 > 缺口。"""
-    # 有案卷残搜：2026-07-22 复测校准为 2（不再绑 ROOT//2）
+def test_structured_default_prose_is_zero():
+    """form=prose → 0（硬例外；含无上游 root 与下游合成波）。"""
+    assert default_retrieval_budget(_spec(form="prose")) == 0
+    assert default_retrieval_budget(_spec(deps=["up"], form="prose")) == 0
+
+
+def test_debate_dossier_narrow_exception_constant():
+    """有案卷辩手残搜 2：窄硬例外，不是结构猜档。"""
     assert DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER == 2
-    assert DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER < DEFAULT_RETRIEVAL_BUDGET_ROOT
-    assert DEFAULT_RETRIEVAL_BUDGET_LENS_GAP == DEFAULT_RETRIEVAL_BUDGET_DOWNSTREAM
-    assert DEFAULT_RETRIEVAL_BUDGET_LENS_BASE > DEFAULT_RETRIEVAL_BUDGET_LENS_GAP
-    assert DEFAULT_RETRIEVAL_BUDGET_LENS_BASE <= DEFAULT_RETRIEVAL_BUDGET_ROOT
-    assert DEFAULT_RETRIEVAL_BUDGET_DOWNSTREAM == 5
-    assert DEFAULT_RETRIEVAL_BUDGET_RESEARCH >= 12
-    assert DEFAULT_RETRIEVAL_BUDGET_RESEARCH <= 16
+    assert DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER < DEFAULT_RETRIEVAL_BUDGET
 
 
 def test_retrieval_budget_critical_helpers():
@@ -106,23 +92,6 @@ def test_retrieval_budget_critical_helpers():
     assert "仅剩 2" in prompt
     assert "14" in prompt
     assert "扇出" in prompt
-
-
-def test_structured_default_prose_downstream_is_zero():
-    assert (
-        default_retrieval_budget(_spec(deps=["up"], form="prose")) == 0
-    )
-
-
-def test_structured_default_other_downstream_is_small():
-    assert (
-        default_retrieval_budget(_spec(deps=["up"], form="files"))
-        == DEFAULT_RETRIEVAL_BUDGET_DOWNSTREAM
-    )
-    assert (
-        default_retrieval_budget(_spec(deps=["up"]))
-        == DEFAULT_RETRIEVAL_BUDGET_DOWNSTREAM
-    )
 
 
 def test_build_plan_applies_defaults_and_strips_search_for_prose_downstream():
@@ -142,8 +111,7 @@ def test_build_plan_applies_defaults_and_strips_search_for_prose_downstream():
     )
     assert errors == []
     by_role = {n.role: n for n in plan.nodes}
-    # 无上游调研波 root → research 默认，非旧 ROOT(8)
-    assert by_role["研究员"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET_RESEARCH
+    assert by_role["研究员"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
     assert by_role["写手"].retrieval_budget == 0
     writer_tools = by_role["写手"].tools
     assert writer_tools is not None
@@ -153,7 +121,7 @@ def test_build_plan_applies_defaults_and_strips_search_for_prose_downstream():
 
 
 def test_build_plan_explicit_zero_on_root_strips_tools_and_stays_zero():
-    """CEO 在无上游 root 显式 retrieval_budget=0 → 保持 0 且剥离检索工具（不升研究默认）。"""
+    """CEO 在无上游 root 显式 retrieval_budget=0 → 保持 0 且剥离检索工具。"""
     plan, errors = build_run_plan(
         [{"role": "研究员", "task": "只用现有材料成文", "retrieval_budget": 0}],
         valid_tools={"web_search", "read_url", "file_read"},

@@ -4,8 +4,9 @@
 **不做**按任务规格的四档启发式分档。CEO 显式 ``timeout_ms`` / 预置 ``token_ceiling``
 恒优先（已写入则不动）。
 
-共享谓词（``is_research_root`` / ``is_deep_deliverable`` 等）仍供检索预算、定向检索
-工具面、delegate 复杂度改写复用——与本模块的统一 backstop 回填正交。
+共享谓词（``is_research_root`` / ``is_deep_deliverable`` 等）仍供定向检索工具面、
+delegate 复杂度改写等复用——与本模块的统一 token/超时 backstop 回填正交。
+检索预算已改为统一单值默认，不再经 ``is_research_root`` 分档。
 """
 
 from __future__ import annotations
@@ -146,16 +147,13 @@ def is_research_root(
     has_upstream: bool,
     retrieval_budget: int | None,
 ) -> bool:
-    """True when a dispatch is a research-wave root (for retrieval budget defaults).
+    """True when a dispatch is a research-wave root (结构谓词，供别用).
 
     调研波 root 判据：无上游依赖（``has_upstream`` 为 False）+ 检索预算非显式 0 +
-    ``complexity_hint`` ≠ light。落盘深研（:func:`is_deep_deliverable`）两头信号都有时
-    排除——检索默认仍走 ROOT 额度而非 research 额度。
+    ``complexity_hint`` ≠ light。落盘深研（:func:`is_deep_deliverable`）排除。
 
-    ``retrieval_budget`` 取**解析后**的值（检索预算在 worker 预算之前应用）：无上游节点的结构化
-    默认恒 > 0，故解析值为 0 只可能来自 CEO 显式 0 → 判非研究 root；``None``（尚未填默认）视作未
-    显式关 0、仍可命中——供 :mod:`~agentcore.runtime.runs.retrieval_budget` 在填默认前复用同一
-    判据（单一判据、两模块共用，避免漂移）。
+    **不再**参与检索预算默认分档（检索已统一为单值 + 硬例外）。
+    ``retrieval_budget`` 取解析后值：显式 0 → 判非研究 root；``None`` 视作未显式关 0。
     """
     if complexity_hint == "light":
         return False

@@ -1092,18 +1092,13 @@ def _lens_retrieval_division(lens: str, *, is_base_owner: bool) -> str:
     """Static retrieval-division pedagogy for one parallel lens task (no runtime deps).
 
     Lenses run in parallel and must not assume peer reports exist yet. Division is
-    task-text + explicit ``retrieval_budget`` on the task (base owner higher, gap
-    lenses tighter) — see :mod:`retrieval_budget` constants.
+    task-text only（职责分工）；检索额度走统一默认，playbook **不**再显式写入
+    base/gap 两档 ``retrieval_budget``。
 
     Folded overflow always lands in the *last* slot (see ``_fold_fanout_slots``), so
     ``is_base_owner`` remains index-0 only — first slot stays a single primary lens
     owning the shared factual base; merged last-slot workers stay gap lenses.
     """
-    from agentcore.runtime.runs.retrieval_budget import (
-        DEFAULT_RETRIEVAL_BUDGET_LENS_BASE,
-        DEFAULT_RETRIEVAL_BUDGET_LENS_GAP,
-    )
-
     shared = (
         "【检索分工】多路并行、互不等待彼此产物——分工写在任务书里，勿假定可先读其它透镜报告；"
         f"本路报告落盘 `{_MULTI_LENS_RESEARCH_DIR}/` 供汇总与后续幕消费。"
@@ -1113,16 +1108,13 @@ def _lens_retrieval_division(lens: str, *, is_base_owner: bool) -> str:
             f"{shared}"
             f"【本路·{lens}·公共基础事实负责人】时间线 / 双方主体 / 事件概况等公共底料由本路查全"
             "并写入报告；同时深挖本透镜独有角度与证据。其余透镜只做底料简要确认——"
-            "勿指望他们补全公共底料。"
-            f"本路检索预算合计最多 {DEFAULT_RETRIEVAL_BUDGET_LENS_BASE} 次"
-            " web_search/read_url（高于缺口透镜；用尽后基于已有证据交付）。"
+            "勿指望他们补全公共底料。用尽检索预算后基于已有证据交付。"
         )
     return (
         f"{shared}"
         f"【本路·{lens}·独有缺口】公共基础事实（时间线 / 主体 / 事件概况）以简要确认为限，"
-        "勿重复深挖全案底料；检索预算集中在本透镜独有角度、主张、证据与来源缺口。"
-        f"本路检索预算合计最多 {DEFAULT_RETRIEVAL_BUDGET_LENS_GAP} 次"
-        " web_search/read_url（已收紧；禁止把预算耗在重复搜公共底料上）。"
+        "勿重复深挖全案底料；检索预算集中在本透镜独有角度、主张、证据与来源缺口——"
+        "禁止把预算耗在重复搜公共底料上。"
     )
 
 
@@ -1188,10 +1180,6 @@ def _multi_lens_research(args: dict[str, Any]) -> tuple[list[dict[str, Any]], li
 
     lens_ids = [f"lens_{i}" for i in range(len(lens_slots))]
     tasks: list[dict[str, Any]] = []
-    from agentcore.runtime.runs.retrieval_budget import (
-        DEFAULT_RETRIEVAL_BUDGET_LENS_BASE,
-        DEFAULT_RETRIEVAL_BUDGET_LENS_GAP,
-    )
 
     for i, (lid, parts) in enumerate(zip(lens_ids, lens_slots, strict=True)):
         merged = len(parts) > 1
@@ -1230,12 +1218,6 @@ def _multi_lens_research(args: dict[str, Any]) -> tuple[list[dict[str, Any]], li
                 "name": f"【{label}】透镜调研报告（已落盘 {artifact}）",
                 "artifacts": [artifact],
             },
-            # 半格机制：负责人略高、缺口透镜收紧（复用 retrieval_budget，不新造系统）。
-            "retrieval_budget": (
-                DEFAULT_RETRIEVAL_BUDGET_LENS_BASE
-                if is_base
-                else DEFAULT_RETRIEVAL_BUDGET_LENS_GAP
-            ),
         }
         if lens_fold_note and merged:
             task_body["playbook_note"] = lens_fold_note

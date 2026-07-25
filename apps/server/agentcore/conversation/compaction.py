@@ -210,7 +210,9 @@ async def compact_conversation(
         try:
             summary = await _summarize(provider, old_summary, fold_msgs, model=model)
         finally:
-            await provider.close()
+            close = getattr(provider, "close", None)
+            if close is not None:
+                await close()
 
         # Empty output (timeout / error / refusal): leave the stored state intact and
         # let the next over-threshold turn retry — never persist a blank summary.

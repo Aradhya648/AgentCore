@@ -80,13 +80,13 @@ def test_build_plan_applies_unified_backstop_regardless_of_shape():
 
 
 def test_build_plan_research_root_still_gets_research_retrieval():
-    """检索预算机制不动：调研波 root 仍拿 research 检索额度。"""
+    """非 prose worker 拿统一检索默认（与 token 硬顶同构）。"""
     plan, errors = build_run_plan(
         [
             {
                 "role": "数据研究员",
                 "task": "深度调研并成篇汇报",
-                "deliverable": {"form": "prose", "name": "调研报告"},
+                "deliverable": {"form": "files", "name": "调研报告", "artifacts": ["research/r.md"]},
             }
         ],
         complexity_hint="standard",
@@ -95,9 +95,9 @@ def test_build_plan_research_root_still_gets_research_retrieval():
     node = plan.nodes[0]
     assert node.token_ceiling == 600_000
     assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
-    from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET_RESEARCH
+    from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 
-    assert node.retrieval_budget == DEFAULT_RETRIEVAL_BUDGET_RESEARCH
+    assert node.retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
 
 
 def test_explicit_timeout_ms_wins_over_backstop():
@@ -120,7 +120,7 @@ def test_explicit_timeout_ms_wins_over_backstop():
 
 
 def test_is_research_root_predicate():
-    """共享判据（检索预算）：逐条件核对。"""
+    """共享结构谓词（不再驱动检索默认分档）：逐条件核对。"""
     assert is_research_root("standard", None, has_upstream=False, retrieval_budget=10)
     assert is_research_root("standard", None, has_upstream=False, retrieval_budget=None)
     assert not is_research_root("light", None, has_upstream=False, retrieval_budget=10)

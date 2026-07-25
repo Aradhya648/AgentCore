@@ -630,9 +630,11 @@ def test_deep_multi_lens_research_teaches_parallel_lenses_and_motion_card():
     assert "简要确认" in body
     assert "独有" in body
     assert "并行" in body
-    # 半格机制：负责人 vs 缺口透镜差异化 retrieval_budget
-    assert "retrieval_budget" in body
-    assert "收紧" in body or "略高" in body
+    # 检索额度统一默认（不再半格差异化）
+    assert "统一默认" in body or "同额" in body
+    assert "半格" not in body
+    assert "略高" not in body
+    assert "差异化" not in body
 
 
 def test_deep_multi_lens_research_summary_intent_routing():

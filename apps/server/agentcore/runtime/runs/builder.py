@@ -199,8 +199,8 @@ def build_run_plan(
     sub-workers come out one level deeper. The executor reads ``depth`` to enforce
     the nesting cap.
 
-    ``complexity_hint`` feeds retrieval-budget defaults
-    (:mod:`agentcore.runtime.runs.retrieval_budget`); worker token/timeout backstop
+    ``complexity_hint`` is forwarded to retrieval-budget apply for API compat
+    (defaults are unified; hint no longer tiers). Worker token/timeout backstop
     is applied uniformly afterward (:mod:`agentcore.runtime.runs.worker_budget`).
     """
     if not tasks_raw:
@@ -388,8 +388,7 @@ def build_added_nodes(
 
     apply_retrieval_budgets_to_specs(specs, valid_tools=valid_tools, complexity_hint="standard")
     apply_directed_search_tools_to_specs(specs, valid_tools=valid_tools)
-    # replan add：token/超时走统一 backstop；检索额度仍由 complexity_hint=standard +
-    # is_research_root 判据决定（见 retrieval_budget）。
+    # replan add：token/超时走统一 backstop；检索额度走统一默认 + 硬例外。
     apply_worker_budgets_to_specs(specs)
     return specs, []
 

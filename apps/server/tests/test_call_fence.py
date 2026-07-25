@@ -81,9 +81,8 @@ async def test_fence_complete_failure_emits_llm_call_failed():
         side_effect=LLMUpstreamError("boom", upstream_status=502, retry_attempts=2)
     )
     provider = observe_provider(leaf)
-    with capture_logs() as caps:
-        with pytest.raises(LLMUpstreamError):
-            await provider.complete(_req())
+    with capture_logs() as caps, pytest.raises(LLMUpstreamError):
+        await provider.complete(_req())
     failed = next(c for c in caps if c.get("event") == "llm.call_failed")
     assert failed["scenario"] == "chat"
     assert failed["model"] == DEEPSEEK_V4_FLASH
@@ -115,10 +114,9 @@ async def test_fence_stream_failure_emits_llm_call_failed():
             raise LLMUpstreamError("stream-down", upstream_status=503, retry_attempts=0)
 
     provider = observe_provider(_BoomLeaf())
-    with capture_logs() as caps:
-        with pytest.raises(LLMUpstreamError):
-            async for _ in provider.stream(_req()):
-                pass
+    with capture_logs() as caps, pytest.raises(LLMUpstreamError):
+        async for _ in provider.stream(_req()):
+            pass
     failed = next(c for c in caps if c.get("event") == "llm.call_failed")
     assert failed["stream"] is True
     assert failed["attempt"] == 1

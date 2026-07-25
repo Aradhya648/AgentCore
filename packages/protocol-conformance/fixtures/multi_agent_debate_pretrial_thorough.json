@@ -153,7 +153,7 @@
           }
         ],
         "investigator_count_per_side": 1,
-        "retrieval_budget_per_investigator": 6
+        "retrieval_budget_per_investigator": 14
       },
       "timestamp": "2026-01-01T00:00:00.007Z"
     },

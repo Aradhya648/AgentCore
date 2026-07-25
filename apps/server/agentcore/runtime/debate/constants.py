@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agentcore.runtime.debate.types import DebateForm
+from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 
 DEBATE_OUTPUT_LIMIT = 16000
 
@@ -20,8 +21,8 @@ INVESTIGATOR_TOOLS = WITNESS_TOOLS
 MAX_INVESTIGATORS_PER_SIDE = 2
 # 主辩点单每方任务硬顶。
 MAX_EVIDENCE_ORDER_TASKS = 3
-# 取证员 per-run 检索预算（各方同额；待实测校准）。
-DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET = 6
+# 取证员 per-run 检索预算（各方同额；对齐统一默认）。
+DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET = DEFAULT_RETRIEVAL_BUDGET
 
 # 辩手发言长度指引：旧观测里单方动辄数千 token（一条就几十秒），既拖慢又稀释论点。引导「宁深
 # 勿长」——聚焦最有力的少数论点，显著降低每轮墙钟与 token。首轮立论与后续轮续写都注入。

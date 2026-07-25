@@ -110,7 +110,7 @@ def _multi_agent_debate_pretrial_thorough() -> list[SSEEvent]:
             sides=sides_wire,
             orders=orders_wire,
             investigator_count_per_side=1,
-            retrieval_budget_per_investigator=6,
+            retrieval_budget_per_investigator=14,
         ),
         run_plan(
             execution_id="exec_pt",

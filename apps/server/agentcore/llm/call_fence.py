@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any
 
 from agentcore.core.errors import AgentCoreError
 from agentcore.llm.observability import log_llm_call, log_llm_call_failed
@@ -111,9 +111,7 @@ class ObservingLLMProvider:
         aborted = False
         outcome = "open"
         try:
-            # Protocol types ``async def stream`` as Coroutine→AsyncIterator; real
-            # leaves are async generators (call returns the iterator, no await).
-            async for chunk in cast(AsyncIterator[LLMChunk], self._inner.stream(request)):
+            async for chunk in self._inner.stream(request):
                 if chunk.aborted:
                     aborted = True
                 if chunk.stream_reset:
@@ -190,8 +188,7 @@ def observe_provider(provider: LLMProvider) -> LLMProvider:
     """Wrap ``provider`` once (idempotent)."""
     if isinstance(provider, ObservingLLMProvider):
         return provider
-    # Same async-generator vs Protocol Coroutine mismatch as ``stream`` above.
-    return cast(LLMProvider, ObservingLLMProvider(provider))
+    return ObservingLLMProvider(provider)
 
 
 def unwrap_provider(provider: Any) -> Any:
