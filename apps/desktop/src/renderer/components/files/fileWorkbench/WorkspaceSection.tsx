@@ -1,6 +1,6 @@
+import { ClearScratchDialog } from "@/components/files/ClearScratchDialog";
 import { FileTree, type FileTreeHandle } from "@/components/files/FileTree";
 import { IconButton } from "@/components/files/parts";
-import { ClearScratchDialog } from "@/components/files/ClearScratchDialog";
 import {
   DeleteFolderDialog,
   archiveConversationsBeforeDelete,

@@ -8,11 +8,11 @@ import {
   isMarkdownPath,
   parentDir,
 } from "@/lib/fileSource";
+import { convertMdToDocx } from "@/services/workspaces";
 import type {
   FsErrorCode,
   FilePreview as LocalPreview,
 } from "@shared/ipc-contract";
-import { convertMdToDocx } from "@/services/workspaces";
 
 /** Map the local IPC preview shape into the unified result. */
 function adaptPreview(p: LocalPreview): FilePreviewResult {
@@ -282,11 +282,15 @@ export function createLocalRootSource(
       // Collect relative image srcs (same heuristic as server collect_image_srcs).
       const imgRe = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
       const images: Record<string, string | null> = {};
-      let m: RegExpExecArray | null;
-      while ((m = imgRe.exec(doc)) !== null) {
+      let m = imgRe.exec(doc);
+      while (m !== null) {
         const src = m[1]?.trim();
-        if (!src || src in images) continue;
+        if (!src || src in images) {
+          m = imgRe.exec(doc);
+          continue;
+        }
         if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(src) || src.startsWith("data:")) {
+          m = imgRe.exec(doc);
           continue;
         }
         let cleaned = src.replace(/\\/g, "/");
@@ -307,16 +311,18 @@ export function createLocalRootSource(
           }
           stack.push(p);
         }
-        if (src in images) continue;
-        const wsImg = stack.join("/");
-        const rb = await window.fsApi.workspaceOp(rootId, "read_bytes", {
-          path: inPath(wsImg),
-        });
-        if (rb.ok && typeof rb.value === "string") {
-          images[src] = rb.value;
-        } else {
-          images[src] = null;
+        if (!(src in images)) {
+          const wsImg = stack.join("/");
+          const rb = await window.fsApi.workspaceOp(rootId, "read_bytes", {
+            path: inPath(wsImg),
+          });
+          if (rb.ok && typeof rb.value === "string") {
+            images[src] = rb.value;
+          } else {
+            images[src] = null;
+          }
         }
+        m = imgRe.exec(doc);
       }
 
       const converted = await convertMdToDocx({
@@ -325,7 +331,9 @@ export function createLocalRootSource(
         sourceName: baseName(path),
       });
       const outName = converted.suggestedFilename;
-      const outPath = parentDir(path) ? `${parentDir(path)}/${outName}` : outName;
+      const outPath = parentDir(path)
+        ? `${parentDir(path)}/${outName}`
+        : outName;
       const wb = await window.fsApi.workspaceOp(rootId, "write_bytes", {
         path: inPath(outPath),
         data: converted.docxBase64,

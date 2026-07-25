@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from docx import Document
+from docx import Document as DocumentFactory
+from docx.document import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml.ns import qn
@@ -118,7 +119,7 @@ def convert_markdown_to_docx(
     """
     image_map = dict(images or {})
     warnings: list[str] = []
-    doc = Document()
+    doc = DocumentFactory()
     _apply_document_defaults(doc)
 
     tokens = _MD.parse(markdown or "")

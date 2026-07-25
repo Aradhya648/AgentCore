@@ -110,7 +110,11 @@ export async function convertMdToDocx(input: {
   markdown: string;
   images: Record<string, string | null>;
   sourceName: string;
-}): Promise<{ docxBase64: string; warnings: string[]; suggestedFilename: string }> {
+}): Promise<{
+  docxBase64: string;
+  warnings: string[];
+  suggestedFilename: string;
+}> {
   const res = await api.post<{
     docx_base64: string;
     warnings: string[];

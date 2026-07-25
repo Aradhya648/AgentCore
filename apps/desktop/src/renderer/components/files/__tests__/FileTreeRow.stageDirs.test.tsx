@@ -57,6 +57,7 @@ function renderDir(path: string, name: string, fileCount: number) {
     onMoveInto: noop,
     onUpload: noop,
     onDropTarget: noop,
+    onReloadDir: noop,
   };
   return render(
     <TooltipProvider>

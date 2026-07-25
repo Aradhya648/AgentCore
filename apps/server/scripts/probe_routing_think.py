@@ -469,9 +469,9 @@ def _spin_counts_for_gate(
     }:
         return False
     only_long = set(spinish) <= {"长"}
-    if only_long and (act == "ASK" or fa == "ASK" or fa.startswith("ASK")):
-        return False
-    return True
+    return not (
+        only_long and (act == "ASK" or fa == "ASK" or fa.startswith("ASK"))
+    )
 
 
 def _expect_match(expect: str, action: str, delegate_summary: dict[str, object] | None) -> str:

@@ -124,7 +124,11 @@ export function DeleteFolderDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="neutral" size="md" onClick={() => handleOpenChange(false)}>
+          <Button
+            variant="neutral"
+            size="md"
+            onClick={() => handleOpenChange(false)}
+          >
             取消
           </Button>
           <Button

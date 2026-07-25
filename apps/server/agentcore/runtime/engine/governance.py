@@ -133,7 +133,8 @@ def _user_intent_chunks(messages: list[LLMMessage]) -> list[str]:
 def exec_verify_ask_prompt() -> str:
     """Hard gate: missing exec/browser/local_open or unclear artifact → ask_user only."""
     return (
-        "[系统提示] 能力策略：用户要跑/修或打开验证，当前缺执行/浏览器/本机打开能力或可验产物路径不清。"
+        "[系统提示] 能力策略：用户要跑/修或打开验证，"
+        "当前缺执行/浏览器/本机打开能力或可验产物路径不清。"
         "探路与委派工具已收回。请立即 ask_user（绑定/授权/请用户指路径或附文件）；"
         "禁止委派/翻目录冒充。"
     )

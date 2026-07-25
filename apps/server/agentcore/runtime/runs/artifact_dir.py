@@ -121,9 +121,7 @@ def is_acceptance_only_artifact_pattern(path: str) -> bool:
     if not p:
         return True
     # Exact stage dir (``AgentCore/文档/research``) — shared dossier namespace.
-    if stage_dir_covering(p) == p:
-        return True
-    return False
+    return stage_dir_covering(p) == p
 
 
 def is_file_ownership_path(path: str) -> bool:

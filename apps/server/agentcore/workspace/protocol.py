@@ -176,9 +176,17 @@ class WorkspaceBackend(Protocol):
 
     location: Literal["server", "local"]
     root_label: str  # human-facing root name for relative-path rendering
-    dirty: bool  # True once any mutating op (write/replace/execute) ran this turn,
-    # so the caller can snapshot only workspaces a turn actually touched (决策⑥:
-    # 改过文件的任务才后台备份). Read-only ops (read/list/grep) never set it.
+
+    @property
+    def dirty(self) -> bool:
+        """True once any mutating op (write/replace/execute) ran this turn.
+
+        Read-only on the Protocol (implementations expose ``@property`` over
+        an internal flag). Callers snapshot only workspaces a turn actually
+        touched (决策⑥: 改过文件的任务才后台备份). Read-only ops
+        (read/list/grep) never set it.
+        """
+        ...
 
     async def read(self, path: str) -> str:
         """Return the UTF-8 text content of ``path``.

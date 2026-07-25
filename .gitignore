@@ -172,6 +172,9 @@ _*_timeline.txt
 apps/server/data/
 data/
 
+# Eval fixture workspaces may grow AgentCore/ trash when a probe mutates them
+apps/server/agentcore/evals/fixtures/**/.agentcore/
+
 # Cursor 对话存档（PChat 生成的上下文归档，不应进入代码仓库）
 杂项/
 

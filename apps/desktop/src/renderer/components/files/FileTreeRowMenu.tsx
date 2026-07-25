@@ -128,33 +128,31 @@ export function FileTreeRowMenu({
             <FileText size={14} className="shrink-0" />
             <span className="flex-1 truncate">打开</span>
           </ContextMenuItem>
-          {canMutate &&
-            isMarkdownPath(node.path) &&
-            source.exportMdToDocx && (
-              <ContextMenuItem
-                onSelect={() => {
-                  void (async () => {
-                    try {
-                      const result = await source.exportMdToDocx?.(node.path);
-                      if (!result) return;
-                      onReloadDir(parentDir(node.path));
-                      if (result.warnings.length > 0) {
-                        notifySuccess(
-                          `已导出 ${baseName(result.path)}（${result.warnings.length} 条警告）`,
-                        );
-                      } else {
-                        notifySuccess(`已导出 ${baseName(result.path)}`);
-                      }
-                    } catch (e) {
-                      notifyActionError("导出 Word 失败", e);
+          {canMutate && isMarkdownPath(node.path) && source.exportMdToDocx && (
+            <ContextMenuItem
+              onSelect={() => {
+                void (async () => {
+                  try {
+                    const result = await source.exportMdToDocx?.(node.path);
+                    if (!result) return;
+                    onReloadDir(parentDir(node.path));
+                    if (result.warnings.length > 0) {
+                      notifySuccess(
+                        `已导出 ${baseName(result.path)}（${result.warnings.length} 条警告）`,
+                      );
+                    } else {
+                      notifySuccess(`已导出 ${baseName(result.path)}`);
                     }
-                  })();
-                }}
-              >
-                <FileType size={14} className="shrink-0" />
-                <span className="flex-1 truncate">导出 Word</span>
-              </ContextMenuItem>
-            )}
+                  } catch (e) {
+                    notifyActionError("导出 Word 失败", e);
+                  }
+                })();
+              }}
+            >
+              <FileType size={14} className="shrink-0" />
+              <span className="flex-1 truncate">导出 Word</span>
+            </ContextMenuItem>
+          )}
         </>
       )}
       {hasOsGroup && (
