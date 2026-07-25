@@ -964,21 +964,27 @@ async def execute_agent_node(
         )
         warnings = _apply_cutoff_reasons(cutoff_reasons, warnings=warnings)
         delivery_gaps = _delivery_gaps_from_warnings(warnings, debrief)
-        # 成篇质量：有下游 + 空正文且无落盘 → 失败，避免写作节点吃空壳上游。
-        from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+        # 成篇质量：有下游 + 空正文且无成篇 prose 落盘 → 失败（与 handoff 工具闸同口径）。
+        # 认 tool_ctx.landed_artifact_kinds（跨 replace 存活）；勿用 has_landed_files /
+        # 泛 files_touched（骨架落盘会误豁免）。
+        from agentcore.runtime.runs.research_quality import (
+            MIN_UPSTREAM_BODY_CHARS,
+            upstream_body_floor_satisfied,
+        )
 
-        if (
-            node_has_dependents(env.plan, spec.run_id)
-            and len((content or "").strip()) < MIN_UPSTREAM_BODY_CHARS
-            and not touched
+        body_chars = len((content or "").strip())
+        if node_has_dependents(env.plan, spec.run_id) and not upstream_body_floor_satisfied(
+            body_chars=body_chars,
+            landed_artifact_kinds=tool_ctx.landed_artifact_kinds,
         ):
             reason = (
-                f"空交付不得进入下游：正文不足 {MIN_UPSTREAM_BODY_CHARS} 字且无落盘文件"
+                f"空交付不得进入下游：正文不足 {MIN_UPSTREAM_BODY_CHARS} 字"
+                "且无成篇落盘（prose；骨架/空文件不算）"
             )
             logger.info(
                 "handoff.empty_body_blocked",
                 run_id=spec.run_id,
-                body_chars=len((content or "").strip()),
+                body_chars=body_chars,
             )
             env.sink.emit(run_failed(spec.run_id, agent_id, reason, debrief=debrief))
             return RunState(

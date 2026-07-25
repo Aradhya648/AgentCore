@@ -21,6 +21,7 @@ from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registry import ToolRegistry
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 
 class _RealFileWriteTool:
@@ -119,8 +120,10 @@ async def test_file_deliverable_sections_and_length_read_from_written_file(tmp_p
     reg = ToolRegistry()
     reg.register(_RealFileWriteTool())
     paper = "# 方法\n" + "详实的方法论描述。" * 12 + "\n\n# 结论\n" + "扎实可信的结论。" * 12
+    # Role「研究员」→ artifact_dir defaults to RESEARCH_DIR; write under that prefix.
+    paper_path = f"{RESEARCH_DIR}/paper.md"
     # The chat note deliberately lacks the sections and is short.
-    provider = _WriteThenTerseProse("paper.md", paper, "论文已写入 paper.md")
+    provider = _WriteThenTerseProse(paper_path, paper, f"论文已写入 {paper_path}")
     executor = build_agent_executor(
         plan=plan,
         llm=provider,
@@ -137,4 +140,4 @@ async def test_file_deliverable_sections_and_length_read_from_written_file(tmp_p
     # Sections + min_length are satisfied by the FILE, so no contract shortfall / retry.
     assert state.warnings == []
     assert provider.calls == 2
-    assert state.files_touched == ["paper.md"]
+    assert state.files_touched == [paper_path]

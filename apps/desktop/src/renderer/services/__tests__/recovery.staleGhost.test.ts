@@ -35,7 +35,6 @@ const emptyRecovery = {
   cloudLive: false,
   pausedCount: 0,
   unsynced: [],
-  interruptedAfterDecision: [],
 };
 
 function seedRunningAssistant(): void {

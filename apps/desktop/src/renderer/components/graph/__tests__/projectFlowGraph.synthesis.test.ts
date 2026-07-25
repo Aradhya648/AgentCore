@@ -211,11 +211,14 @@ describe("projectFlowNodes · captain synthesis preview", () => {
     });
 
     const captain = nodes.find((n) => n.id === "captain");
+    const waitCaption = "等待「撰写员」(1/2) · 已等 15s";
     expect(captain?.data).toMatchObject({
       variant: "captain",
       status: "running",
-      statusCaption: "等待「撰写员」(1/2) · 已等 15s",
-      preview: "等待「撰写员」(1/2) · 已等 15s",
+      statusCaption: waitCaption,
     });
+    // Pure wait: preview must stay empty (or at least not echo waitCaption).
+    expect(captain?.data.preview ?? "").toBe("");
+    expect(String(captain?.data.preview ?? "")).not.toBe(waitCaption);
   });
 });

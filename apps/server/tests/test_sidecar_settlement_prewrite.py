@@ -12,7 +12,6 @@ from agentcore.conversation.store.outbox import OutboxStore, journal_entries_fro
 from agentcore.runtime.suspension import AskUserSuspension
 from agentcore.sidecar.paused_store import LocalPausedTurnStore
 from agentcore.sidecar.settlement_prewrite import (
-    extract_resume_frame_from_entries,
     outbox_has_settlement_for_frame,
     prewrite_sidecar_resume_settlement,
 )
@@ -75,7 +74,12 @@ async def test_sidecar_settlement_prewrite_embeds_resume_frame(tmp_path) -> None
     record = outbox.find_record_by_message_id("m1")
     assert record is not None
     entries = journal_entries_from_map(record.get("journal")) or []
-    assert extract_resume_frame_from_entries(entries) is not None
+    assert any(
+        isinstance((e.get("payload") or {}).get("resume_frame"), dict)
+        and (e.get("payload") or {}).get("resume_frame", {}).get("frame")
+        for e in entries
+        if isinstance(e, dict)
+    )
     # Idempotent re-prewrite does not fan out rows.
     await prewrite_sidecar_resume_settlement(
         outbox,

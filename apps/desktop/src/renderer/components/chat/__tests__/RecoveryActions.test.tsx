@@ -55,9 +55,9 @@ beforeEach(() => {
   runRegenerate.mockReset();
 });
 
-function mount(hasFailedRuns: boolean) {
+function mount(hasFailedRuns: boolean, scope = "asst-1") {
   return render(
-    <ExecutionScopeContext.Provider value="asst-1">
+    <ExecutionScopeContext.Provider value={scope}>
       <RecoveryActions hasFailedRuns={hasFailedRuns} />
     </ExecutionScopeContext.Provider>,
   );
@@ -75,10 +75,11 @@ describe("RecoveryActions · inline links", () => {
     expect(runRetryFailed).toHaveBeenCalledWith("user-1");
   });
 
-  it("full failure / stopped shows only regenerate", () => {
+  it("full failure / stopped shows only regenerate (no frameless 继续)", () => {
     mount(false);
     expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "重试失败项" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "继续" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(runRegenerate).toHaveBeenCalledWith("user-1");
   });

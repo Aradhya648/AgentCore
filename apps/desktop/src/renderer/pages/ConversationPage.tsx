@@ -28,7 +28,6 @@ import {
   getRuntime,
   useConversationStore,
 } from "@/stores/conversation";
-import { useInterruptedAfterDecisionStore } from "@/stores/interruptedAfterDecision";
 import { WORKSPACE_TAB_ID, useSidePanelStore } from "@/stores/sidePanel";
 import { useUIStore } from "@/stores/ui";
 import { MessageSquare, Network, PanelRight } from "lucide-react";
@@ -146,22 +145,12 @@ export function ConversationPage() {
             branch: useLocal ? "local" : "cloud",
           });
           if (useLocal) {
-            // Order: project unsynced → interrupted_after_decision → attach live.
+            // Order: project unsynced → attach live.
             projectUnsyncedTurns(id, recovery.unsynced);
-            useInterruptedAfterDecisionStore
-              .getState()
-              .setForConversation(id, recovery.interruptedAfterDecision);
-            if (
-              recovery.sidecarLive &&
-              recovery.pausedCount === 0 &&
-              recovery.interruptedAfterDecision.length === 0
-            ) {
+            if (recovery.sidecarLive && recovery.pausedCount === 0) {
               void attachSidecarTurn(id);
             }
           } else {
-            useInterruptedAfterDecisionStore
-              .getState()
-              .setForConversation(id, []);
             // Cloud session: P4 hydrate — refresh before ghost when empty
             // (stale recovery vs cold-pause race · settleCloudRunningAssistant).
             const last = win.messages.at(-1);

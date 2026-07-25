@@ -233,7 +233,7 @@ describe("drainOutbox", () => {
     ]);
   });
 
-  it("salvageOpen retains settled non-terminal open rows (D2 retain-open)", async () => {
+  it("salvageOpen promotes settled open rows as cancelled (no retain-open)", async () => {
     const { recoverLocalPersistence } = await import("../outbox-writeback");
     writeReady("u-retain", {
       phase: "open",
@@ -256,15 +256,67 @@ describe("drainOutbox", () => {
         },
       },
     });
+    h.bearerPostJson.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        user_message_id: "u-retain",
+        assistant_message_id: "m1",
+        title: null,
+      },
+    });
 
     await recoverLocalPersistence();
-    expect(h.bearerPostJson).not.toHaveBeenCalled();
-    const record = readRecord("u-retain");
-    expect(record.phase).toBe("open");
-    expect(record.finish_reason).toBeNull();
+    expect(h.bearerPostJson).toHaveBeenCalledOnce();
+    const body = h.bearerPostJson.mock.calls[0]?.[1] as {
+      finish_reason?: string;
+    };
+    expect(body.finish_reason).toBe("cancelled");
+    expect(existsSync(join(dir(), "u-retain.json"))).toBe(false);
   });
 
-  it("ready terminal turns with settlement still writeback (retain only for open)", async () => {
+  it("salvageOpen promotes journal-only open rows (no content text)", async () => {
+    const { recoverLocalPersistence } = await import("../outbox-writeback");
+    writeReady("u-journal-only", {
+      phase: "open",
+      content: "",
+      finish_reason: null,
+      journal: {
+        "0": {
+          kind: "team_preview_resolved",
+          payload: {
+            checkpoint_id: "tp1",
+            decision: "continue",
+            resume_frame: { frame: { kind: "team_preview" } },
+          },
+        },
+        "1": { kind: "run_started", payload: { id: "r1" } },
+      },
+    });
+    h.bearerPostJson.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        user_message_id: "u-journal-only",
+        assistant_message_id: "m1",
+        title: null,
+      },
+    });
+
+    await recoverLocalPersistence();
+    expect(h.bearerPostJson).toHaveBeenCalledOnce();
+    const body = h.bearerPostJson.mock.calls[0]?.[1] as {
+      finish_reason?: string;
+      journal?: unknown[];
+    };
+    expect(body.finish_reason).toBe("cancelled");
+    expect(Array.isArray(body.journal) && body.journal.length).toBeGreaterThan(
+      0,
+    );
+    expect(existsSync(join(dir(), "u-journal-only.json"))).toBe(false);
+  });
+
+  it("ready terminal turns with settlement still writeback", async () => {
     writeReady("u-done", {
       phase: "ready",
       finish_reason: "end_turn",

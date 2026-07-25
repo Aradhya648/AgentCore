@@ -226,8 +226,7 @@ export function FileBrowser({
           <p className="muted hint">（空文件夹）</p>
         )}
         {children.map((node) => {
-          const stage =
-            cwd === "" && node.isDir ? stageDirMeta(node.path) : null;
+          const stage = node.isDir ? stageDirMeta(node.path) : null;
           const stageCaption =
             stage && tree
               ? stageDirCaption(

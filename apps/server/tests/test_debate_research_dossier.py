@@ -29,13 +29,13 @@ class _FakeBackend:
 async def test_list_research_artifact_paths_files_only():
     backend = _FakeBackend(
         [
-            DirEntry(path="research/法律透镜报告.md", is_dir=False),
-            DirEntry(path="research/子目录", is_dir=True),
-            DirEntry(path="research/汇总与命题卡.md", is_dir=False),
+            DirEntry(path="AgentCore/文档/research/法律透镜报告.md", is_dir=False),
+            DirEntry(path="AgentCore/文档/research/子目录", is_dir=True),
+            DirEntry(path="AgentCore/文档/research/汇总与命题卡.md", is_dir=False),
         ]
     )
     paths = await list_research_artifact_paths(backend)  # type: ignore[arg-type]
-    assert set(paths) == {"research/法律透镜报告.md", "research/汇总与命题卡.md"}
+    assert set(paths) == {"AgentCore/文档/research/法律透镜报告.md", "AgentCore/文档/research/汇总与命题卡.md"}
     assert await workspace_has_research_artifacts(backend) is True  # type: ignore[arg-type]
 
 
@@ -48,24 +48,24 @@ async def test_list_research_missing_dir_is_empty():
 
 def test_format_research_dossier_index_shape():
     assert format_research_dossier_index([]) == ""
-    text = format_research_dossier_index(["research/a.md", "research/b.md"])
-    assert text.startswith("【工作区案卷索引·research/】")
+    text = format_research_dossier_index(["AgentCore/文档/research/a.md", "AgentCore/文档/research/b.md"])
+    assert text.startswith("【工作区案卷索引·AgentCore/文档/research/】")
     assert "非全文" in text
     assert "file_read" in text
     assert "选读" in text or "勿无差别" in text
-    assert "- research/a.md" in text
-    assert "- research/b.md" in text
+    assert "- AgentCore/文档/research/a.md" in text
+    assert "- AgentCore/文档/research/b.md" in text
 
 
 def test_format_research_dossier_index_file_hints():
     from agentcore.runtime.debate.research_dossier import dossier_file_hint
 
-    hint = dossier_file_hint("research/法律透镜报告.md", "# 法律要点\n\n正文……")
+    hint = dossier_file_hint("AgentCore/文档/research/法律透镜报告.md", "# 法律要点\n\n正文……")
     assert "法律" in hint
     assert "字" in hint
     text = format_research_dossier_index(
-        ["research/法律透镜报告.md"],
-        file_hints={"research/法律透镜报告.md": hint},
+        ["AgentCore/文档/research/法律透镜报告.md"],
+        file_hints={"AgentCore/文档/research/法律透镜报告.md": hint},
     )
     assert "法律透镜报告.md（" in text
     assert "法律要点" in text
@@ -77,8 +77,8 @@ async def test_server_workspace_research_listing(tmp_path):
     from agentcore.tools.sandbox.subprocess import SubprocessSandbox
     from agentcore.workspace.server import ServerWorkspace
 
-    research = tmp_path / "research"
-    research.mkdir()
+    research = tmp_path / "AgentCore" / "文档" / "research"
+    research.mkdir(parents=True)
     (research / "法律透镜报告.md").write_text("lens", encoding="utf-8")
     (research / "汇总与命题卡.md").write_text("synth", encoding="utf-8")
 
@@ -87,5 +87,5 @@ async def test_server_workspace_research_listing(tmp_path):
     assert any(p.endswith("法律透镜报告.md") for p in paths)
     assert any("汇总与命题卡.md" in p for p in paths)
     idx = format_research_dossier_index(paths)
-    assert "【工作区案卷索引·research/】" in idx
+    assert "【工作区案卷索引·AgentCore/文档/research/】" in idx
     assert await workspace_has_research_artifacts(ws) is True

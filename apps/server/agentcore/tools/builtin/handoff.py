@@ -287,12 +287,33 @@ class HandoffTool:
                 error=_MOTION_CARD_MISSING_TIP,
             )
         # 成篇质量：有下游依赖时禁止空 body 交接（避免写作节点吃到「上游空白」）。
-        # 已落盘文件的上游（form=files）豁免正文地板。
-        if context.handoff_requires_body and not context.has_landed_files:
-            from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+        # 豁免认 landed_artifact_kinds 中的 prose（跨 replace 存活）；骨架/空落盘不算。
+        # 勿依赖 has_landed_files bool——经 dataclasses.replace 会丢。
+        if context.handoff_requires_body:
+            from agentcore.runtime.runs.research_quality import (
+                MIN_UPSTREAM_BODY_CHARS,
+                upstream_body_floor_satisfied,
+            )
 
             body_chars = _body_chars(context)
-            if body_chars < MIN_UPSTREAM_BODY_CHARS:
+            if not upstream_body_floor_satisfied(
+                body_chars=body_chars,
+                landed_artifact_kinds=context.landed_artifact_kinds,
+            ):
+                kinds = context.landed_artifact_kinds or {}
+                only_skeleton = bool(kinds) and all(v == "skeleton" for v in kinds.values())
+                land_hint = (
+                    "已落盘的是骨架/提纲（skeleton），不算成篇交付；请补写实质正文并 "
+                    "file_write/file_append 成 prose，或在本轮写出至少 "
+                    f"{MIN_UPSTREAM_BODY_CHARS} 字正文后再 handoff。"
+                    if only_skeleton
+                    else (
+                        f"本轮正文仅 {body_chars} 字（至少 {MIN_UPSTREAM_BODY_CHARS} 字，"
+                        "或先落盘成篇 prose 产物后再交；骨架/空文件不算）。"
+                        "请先写完调研正文并落盘，或在本轮写出足够正文后再调用 handoff——"
+                        "禁止空壳简报进入写作任务。"
+                    )
+                )
                 logger.info(
                     "worker.handoff",
                     run_id=context.run_id,
@@ -301,18 +322,13 @@ class HandoffTool:
                     body_chars=body_chars,
                     has_motion_card=card is not None,
                     rejected="empty_body",
+                    only_skeleton=only_skeleton,
                 )
                 return ToolResult(
                     tool_call_id="",
                     success=False,
                     output="",
-                    error=(
-                        f"空交付不得交接：有下游队员依赖你的产出，但本轮正文仅 "
-                        f"{body_chars} 字（至少 {MIN_UPSTREAM_BODY_CHARS} 字，"
-                        "或先用 file_write/file_append 落盘后再交）。"
-                        "请先写完调研/提纲正文，再在同一轮调用 handoff——"
-                        "禁止空壳简报进入写作任务。"
-                    ),
+                    error=f"空交付不得交接：有下游队员依赖你的产出，但{land_hint}",
                     contract_failure=True,
                 )
         logger.info(

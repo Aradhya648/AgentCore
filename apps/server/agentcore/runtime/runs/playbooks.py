@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentcore.runtime.runs.web_quality_rules import anti_slop_prompt_block
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 # Cap the slot-driven fan-out (调研子方向 / 待比较选项) so a playbook can't silently balloon a
 # batch;
@@ -216,8 +217,9 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
     The doc's own named example (调研→提纲→checkpoint→写作→审校); mirrors the 进阶 skill「调研驱动的
     大型交付，让结构跟着证据走」as a one-call shape.
 
-    成篇验收钉死单一主文件（``output_path`` / 默认 ``research/报告.md``）；若 CEO 手写并行拆章，
-    须另加 merge 步并把各章 brief 写死同一路径——见 ``PAPER_PARALLEL_MERGE_DISCIPLINE``。
+    成篇验收钉死单一主文件（``output_path`` / 默认 ``AgentCore/文档/research/报告.md``）；
+    若 CEO 手写并行拆章，须另加 merge 步并把各章 brief 写死同一路径——见
+    ``PAPER_PARALLEL_MERGE_DISCIPLINE``。
     """
     from agentcore.runtime.runs.research_quality import (
         PAPER_PARALLEL_MERGE_DISCIPLINE,
@@ -1074,7 +1076,7 @@ def _organize_folder(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
 _DEFAULT_MULTI_LENSES = ("法律", "品牌商业", "舆情公关", "文化社会")
 
 # 幕 1 案卷目录：各透镜报告 + 汇总与命题卡（多幕共享；辩论阶段将读这些文件）。
-_MULTI_LENS_RESEARCH_DIR = "research"
+_MULTI_LENS_RESEARCH_DIR = RESEARCH_DIR
 _SYNTHESIZER_ARTIFACT = f"{_MULTI_LENS_RESEARCH_DIR}/汇总与命题卡.md"
 
 
@@ -1160,7 +1162,7 @@ def _multi_lens_research(args: dict[str, Any]) -> tuple[list[dict[str, Any]], li
     Companion shape for ``deep_multi_lens_research`` skill: parallel heterogeneous lenses
     then a synthesizer that cross-checks and may suggest a debate motion — not a compare table.
 
-    幕 1 产物以 ``form=files`` + ``artifacts`` 落盘 ``research/``（各透镜自写报告 +
+    幕 1 产物以 ``form=files`` + ``artifacts`` 落盘 ``AgentCore/文档/research/``（各透镜自写报告 +
     汇总员写「汇总与命题卡」）。开工授权（delegation grant）覆盖整次委派的
     file_mutation 工具面，四路并行写文件不会额外弹授权卡；handoff / motion_card
     链路照旧，落盘是叠加。
@@ -1266,7 +1268,7 @@ PLAYBOOKS: dict[str, Playbook] = {
             "超过扇出上限时末尾自动折叠到最后一节点并标注、不丢弃) / "
             "checkpoint(可选,成纲后写作前暂停过目,默认 true) / audience(可选,读者) / "
             "deliverable(可选,产出形态) / "
-            "output_path(可选,成篇主文件路径,默认 research/报告.md；验收只认此路径)"
+            "output_path(可选,成篇主文件路径,默认 AgentCore/文档/research/报告.md；验收只认此路径)"
         ),
         build=_research_report,
     ),
@@ -1343,7 +1345,7 @@ PLAYBOOKS: dict[str, Playbook] = {
         name="multi_lens_research",
         summary=(
             "异质透镜并行调研→汇总交叉验证（可产 motion_card 建议开辩；"
-            "调研报告落盘 research/；默认法律/品牌商业/舆情公关/文化社会）"
+            "调研报告落盘 AgentCore/文档/research/；默认法律/品牌商业/舆情公关/文化社会）"
         ),
         slots=(
             "topic(必填,主题/事件) / lenses(可选,透镜名数组；"

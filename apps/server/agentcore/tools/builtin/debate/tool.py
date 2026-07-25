@@ -870,7 +870,7 @@ class DebateTool:
                     payload=result_payload,
                 )
             )
-            # 双产物机制性落盘（案卷 ``debate/``）；失败不阻断收口，路径附 CEO 输出尾部。
+            # 双产物机制性落盘（案卷 ``AgentCore/文档/debate/``）；失败不阻断收口，路径附 CEO 输出尾部。
             from agentcore.runtime.debate.persist import (
                 artifact_stamp,
                 format_artifact_footer,

@@ -110,8 +110,6 @@ class SidecarServer(HandlerMixin, TurnExecutionMixin):
             await self._on_respond(request_id, params)
         elif method == "resume":
             await self._on_resume(request_id, params)
-        elif method == "continueAfterDecision":
-            await self._on_continue_after_decision(request_id, params)
         elif method == "listPaused":
             await self._on_list_paused(request_id, params)
         elif method == "cancel":

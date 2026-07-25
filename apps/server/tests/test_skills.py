@@ -536,7 +536,10 @@ def test_long_form_writing_skill_teaches_skeleton_fill():
     assert "骨架" in body
     assert "Artifact-first" in body or "骨架填空" in body
     assert "file_read 抽查" not in body
-    assert "manifest" in body or "禁止再对本文件 file_read" in body
+    assert "manifest" in body
+    assert "code_execute" in body
+    assert "handoff" in body
+    assert "禁止" in body and "file_read" in body
     # B1 轻教法：明文把关 → checkpoint_after / research_report；自主确认才可对话式。
     assert "明文要求" in body
     assert "checkpoint_after" in body
@@ -573,7 +576,7 @@ def test_deep_multi_lens_research_teaches_parallel_lenses_and_motion_card():
     assert "motion_card" in body
     assert "handoff" in body
     # 幕 1 案卷落盘：research/ + form=files / artifacts（叠加 handoff，不替代）
-    assert "research/" in body
+    assert "AgentCore/文档/research/" in body
     assert "透镜报告" in body
     assert "汇总与命题卡" in body
     assert "form=files" in body or "form\": \"files\"" in body or "`form=files`" in body

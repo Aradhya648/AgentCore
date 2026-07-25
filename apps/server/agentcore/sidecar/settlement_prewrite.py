@@ -2,8 +2,8 @@
 
 Mirrors cloud ``prewrite_cold_resume_settlement`` against the local OutboxStore:
 durable ``*_resolved`` lands in the outbox journal **before** the paused frame is
-consumed. The settlement payload carries ``resume_frame`` so a later frameless
-continue can rebuild the suspension after the frame file is gone.
+consumed. The settlement payload may embed ``resume_frame`` as audit/control
+metadata (frameless continue-after-decision was abolished).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def resume_frame_blob(
     note: str,
     selected: list[str],
 ) -> dict[str, Any]:
-    """Control metadata needed to rebuild a suspension without the paused file."""
+    """Settlement control metadata embedded alongside ``*_resolved``."""
     return {
         "frame": suspension.to_json(),
         "history": list(suspension.history),
@@ -121,19 +121,3 @@ def outbox_has_settlement_for_frame(
         if (resolved_kind, checkpoint_id) in settlement_keys_in_entries(entries):
             return True
     return False
-
-
-def extract_resume_frame_from_entries(
-    entries: list[dict[str, Any]] | None,
-) -> dict[str, Any] | None:
-    """Latest ``resume_frame`` blob embedded in a settlement payload, if any."""
-    found: dict[str, Any] | None = None
-    for entry in entries or []:
-        kind = str(entry.get("kind") or entry.get("type") or "")
-        if not kind.endswith("_resolved"):
-            continue
-        payload = dict(entry.get("payload") or {})
-        blob = payload.get("resume_frame")
-        if isinstance(blob, dict) and blob.get("frame"):
-            found = blob
-    return found

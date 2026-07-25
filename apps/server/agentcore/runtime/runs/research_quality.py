@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
+
 # 论文/综述/长文成篇：允许并行拆章起草，但最终验收必须单一主文件（定案：
 # 禁的是「并行拆章无合并门禁」，不是双文件本身；调研/代码/建站多产物不受本条约束）。
 PAPER_PARALLEL_MERGE_DISCIPLINE = (
@@ -20,7 +22,7 @@ PAPER_PARALLEL_MERGE_DISCIPLINE = (
 )
 
 # research_report 默认成篇路径（可被 playbook_args.output_path 覆盖）。
-DEFAULT_RESEARCH_REPORT_ARTIFACT = "research/报告.md"
+DEFAULT_RESEARCH_REPORT_ARTIFACT = f"{RESEARCH_DIR}/报告.md"
 
 # 成篇意图：调研/实务报告 + 成文/字数承诺（与建站意图正交）。
 # 亦覆盖「点名多对象对比 + Markdown/落盘」（竞品对比表等）——team_gate 硬收依赖本谓词。
@@ -79,6 +81,29 @@ _REVIEW_ROLE_MARKERS = (
 
 # handoff：有下游时正文地板（chars）；与 MIN_HANDOFF_SUMMARY 正交。
 MIN_UPSTREAM_BODY_CHARS = 80
+
+
+def has_landed_prose_artifact(kinds: object) -> bool:
+    """True when this run already landed at least one ``prose`` artifact.
+
+    Reads ``ToolContext.landed_artifact_kinds`` (shared mutable dict that survives
+    ``dataclasses.replace``). Skeleton / empty landings do **not** count — only
+    prose exempts the upstream body floor at handoff / executor completion.
+    """
+    if not isinstance(kinds, dict) or not kinds:
+        return False
+    return any(v == "prose" for v in kinds.values())
+
+
+def upstream_body_floor_satisfied(
+    *,
+    body_chars: int,
+    landed_artifact_kinds: object,
+) -> bool:
+    """Upstream deliverable floor: enough streamed prose, or a landed prose file."""
+    if int(body_chars or 0) >= MIN_UPSTREAM_BODY_CHARS:
+        return True
+    return has_landed_prose_artifact(landed_artifact_kinds)
 
 
 def is_research_report_intent(*texts: str) -> bool:

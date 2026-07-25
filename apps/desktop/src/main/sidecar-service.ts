@@ -1,22 +1,4 @@
 import { spawn } from "node:child_process";
-/**
- * Sidecar 服务（主进程）—— 拉起并驱动本机 Python 引擎进程。
- *
- * 双模式工作区 / 远期规划 §一.1：sidecar 是跑在用户机器上的 `python -m agentcore.sidecar`，
- * **托管同一个运行时引擎**。本模块是它在 Electron 主进程这一侧的对接层：
- *
- * - `SidecarClient` —— 在一条「传输」之上实现 stdio JSON-RPC（行分帧、id 配对、通知派发、
- *   断开清理）。它**不直接依赖 child_process**（构造时注入 `Transport`），故可脱离 Electron
- *   单测（呼应 fs-service 把 `executeWorkspaceOp` 与 electron 解耦）。
- * - `SidecarManager` —— 每个授权根懒拉起一个 sidecar（`Map<rootId, …>`），把回合事件路由回
- *   发起的 renderer，并管理 cancel / respond / 退出清理。
- * - `registerSidecarIpc` —— 注册 `sidecar:*` IPC handler，桥接 renderer ↔ 管理器。
- *
- * 事件回流：sidecar 的 `turn/event` 通知里的 `event` 与服务端 SSE 同形状，故主进程**原样**
- * 经 `sidecar:event` 推给 renderer，renderer 再喂给同一个 `dispatchSSEEvent`——云 / 本地
- * 两条链路共用一套事件处理。
- */
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -25,7 +7,6 @@ import {
   type SidecarAttachRequest,
   type SidecarAttachResponse,
   type SidecarCancelRequest,
-  type SidecarContinueAfterDecisionRequest,
   type SidecarDebateSteerRequest,
   type SidecarInference,
   type SidecarPausedTurn,
@@ -48,11 +29,7 @@ import { getStoredRoot } from "./fs-service";
 import { listSessionRoots } from "./fs/roots";
 import { assertShape } from "./ipc-validate";
 import { logDesktop } from "./log-service";
-import {
-  listInterruptedAfterDecision,
-  listUnsyncedSummaries,
-  sidecarDataDir,
-} from "./outbox-writeback";
+import { listUnsyncedSummaries, sidecarDataDir } from "./outbox-writeback";
 import { SidecarEventBuffer } from "./sidecar-event-buffer";
 
 // 本地回合的审批门（双模式工作区 / 远期规划 §一）。开启后，sidecar 引擎对 worker 的「碰真实
@@ -725,21 +702,15 @@ export class SidecarManager {
   }
 
   /**
-   * Local recovery query: live turn + outbox unsynced + paused frames +
-   * interrupted_after_decision (D2 journal fold). Zero spawn.
+   * Local recovery query: live turn + outbox unsynced + paused frames. Zero spawn.
    */
   async recovery(
     req: SidecarRecoveryRequest,
   ): Promise<SidecarRecoveryResponse> {
     const live = this.findLiveTurn(req.conversationId);
-    const liveMessageId =
-      live?.turn.kind === "resume"
-        ? live.turn.messageId
-        : (live?.turnId ?? null);
-    const [unsynced, paused, interruptedAfterDecision] = await Promise.all([
+    const [unsynced, paused] = await Promise.all([
       listUnsyncedSummaries(req.conversationId),
       readLocalPausedSummaries(req.conversationId),
-      listInterruptedAfterDecision(req.conversationId, liveMessageId),
     ]);
     // Exclude the live turn's open row — D5 projects ready + dead-open only;
     // live content comes from attach replay.
@@ -762,7 +733,6 @@ export class SidecarManager {
         live_running: live !== null,
         unsynced_count: filtered.length,
         paused_count: paused.length,
-        interrupted_after_decision_count: interruptedAfterDecision.length,
       },
     });
     return {
@@ -770,71 +740,7 @@ export class SidecarManager {
       ...(live ? { turnId: live.turnId } : {}),
       unsynced: filtered,
       paused,
-      interruptedAfterDecision,
     };
-  }
-
-  /**
-   * Frameless continue after settlement (D2 · 方案 A). Same event routing as resume.
-   */
-  async continueAfterDecision(
-    wc: WebContents,
-    req: SidecarContinueAfterDecisionRequest,
-    workspaceRoot: string,
-    inference: SidecarInference | undefined,
-  ): Promise<SidecarTurnResult> {
-    const entry = this.ensure(
-      req.rootId,
-      req.subpath ?? "",
-      workspaceRoot,
-      inference,
-    );
-    await entry.ready;
-
-    // 与 renderer `continueAfterDecisionViaSidecar` 对齐：续跑也跑 LLM，须有 trace；
-    // 契约上可选，缺省时主进程兜底生成，保证 ActiveTurn / RPC / attach 同源。
-    const traceId = req.traceId ?? randomUUID().replace(/-/g, "");
-
-    this.turns.set(req.messageId, {
-      wc,
-      conversationId: req.conversationId,
-      rootId: req.rootId,
-      subpath: req.subpath ?? "",
-      kind: "resume",
-      traceId,
-      userMessageId: req.userMessageId,
-      messageId: req.messageId,
-      buffer: new SidecarEventBuffer(),
-      hasAttached: false,
-      attaching: false,
-    });
-    try {
-      const sessionRoots = listSessionRoots(req.conversationId);
-      const externalMounts = sessionRoots
-        .filter((r) => r.alias && r.absPath)
-        .map((r) => ({
-          alias: r.alias as string,
-          rootId: r.id,
-          label: r.name,
-          absPath: r.absPath,
-        }));
-      const result = await entry.client.request("continueAfterDecision", {
-        conversationId: req.conversationId,
-        messageId: req.messageId,
-        userMessageId: req.userMessageId,
-        traceId,
-        permissionPreset: req.permissionPreset,
-        ...(inference ? { inference } : {}),
-        ...(externalMounts.length > 0 ? { externalMounts } : {}),
-      });
-      this.emitSyntheticTerminalIfNeeded(req.messageId, "message_end");
-      return result as SidecarTurnResult;
-    } catch (err) {
-      this.emitSyntheticTerminalIfNeeded(req.messageId, "error", err);
-      throw err;
-    } finally {
-      this.turns.delete(req.messageId);
-    }
   }
 
   /**
@@ -1166,33 +1072,6 @@ export function registerSidecarIpc(): void {
         req.subpath,
       );
       return manager.resume(e.sender, req, workspaceRoot, req.inference);
-    },
-  );
-
-  ipcMain.handle(
-    SIDECAR_CHANNELS.continueAfterDecision,
-    async (
-      e,
-      req: SidecarContinueAfterDecisionRequest,
-    ): Promise<SidecarTurnResult> => {
-      assertShape(
-        SIDECAR_CHANNELS.continueAfterDecision,
-        req,
-        ["rootId", "conversationId", "messageId"],
-        ["subpath", "userMessageId", "traceId", "permissionPreset"],
-      );
-      const root = await getStoredRoot(req.rootId);
-      if (!root) throw new Error("本地目录未授权或已移除");
-      const workspaceRoot = await resolveWorkspaceRoot(
-        root.absPath,
-        req.subpath,
-      );
-      return manager.continueAfterDecision(
-        e.sender,
-        req,
-        workspaceRoot,
-        req.inference,
-      );
     },
   );
 

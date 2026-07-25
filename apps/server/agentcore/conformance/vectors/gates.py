@@ -651,7 +651,7 @@ def _team_preview_resolved_continue() -> list[SSEEvent]:
 def _decision_then_kill() -> list[SSEEvent]:
     """决策后杀进程：settlement 已落、无终态 → fold 无 pending gate，status=running。
 
-    验收（回合恢复状态机收口）：重启投影不得出现待授权卡；对应 UI「已授权 · 执行中断」。
+    验收（回合恢复状态机收口）：重启投影不得出现待授权卡；对应 UI 救火「继续」（已决策·执行中断）。
     """
     return [
         *_team_preview_finalized()[:-1],
@@ -697,7 +697,7 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
     "team_preview_finalized": ("团队预审：首波前挂起收口（finish_reason=paused）", _team_preview_finalized),
     "team_preview_resolved_continue": ("团队预审：开做后跑完首波", _team_preview_resolved_continue),
     "decision_then_kill": (
-        "恢复收口：决策后杀进程 → fold 无待授权、status=running（已授权·执行中断）",
+        "恢复收口：决策后杀进程 → fold 无待授权、status=running（已决策·执行中断 / 救火继续）",
         _decision_then_kill,
     ),
     "decision_then_second_gate_then_kill": (

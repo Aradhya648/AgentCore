@@ -33,7 +33,7 @@ vi.mock("@/api/collaborationTimeline", async (importOriginal) => {
           ],
           dossier_refs: [
             {
-              path: "research/法律透镜报告.md",
+              path: "AgentCore/文档/research/法律透镜报告.md",
               sources: ["file_read"] as ("dossier_inject" | "file_read")[],
             },
           ],

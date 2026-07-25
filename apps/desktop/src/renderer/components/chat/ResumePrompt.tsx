@@ -12,15 +12,12 @@ import {
   submitInteractionFeedback,
 } from "@/services/interactionSubmit";
 import type { PlanReviewUserDecision } from "@/services/planReview";
-import { runContinueAfterDecision } from "@/services/turns";
 import { useConversationStore } from "@/stores/conversation";
 import { usePersistentDisclosure } from "@/stores/disclosure";
 import { useInteractionStore } from "@/stores/interactions";
-import { useInterruptedAfterDecisionStore } from "@/stores/interruptedAfterDecision";
 import { type PendingResume, usePausedTurnStore } from "@/stores/pausedTurns";
 import type { CeoReviewSummary } from "@/types/events";
 import type { InteractionKind } from "@/types/interactionExt";
-import type { SidecarInterruptedAfterDecision } from "@shared/sidecar-contract";
 import {
   ArrowRight,
   Check,
@@ -31,7 +28,6 @@ import {
   Loader2,
   OctagonX,
   Pencil,
-  Play,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -42,25 +38,16 @@ import { TEAM_PRIMITIVE_META } from "./decision";
 /** 把关意见默认只露前 N 条风险；其余与建议一并折叠（方案 A 渐进披露）。 */
 const CEO_REVIEW_TOP_RISKS = 2;
 
-const EMPTY_INTERRUPTED: SidecarInterruptedAfterDecision[] = [];
-
+/** Cold-path pending cards only (`ask_user` / `plan_review` / `team_preview`). */
 export function ResumePrompt() {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const pending = usePausedTurnStore((s) => s.pending);
-  const interrupted = useInterruptedAfterDecisionStore((s) =>
-    conversationId
-      ? (s.byConversation[conversationId] ?? EMPTY_INTERRUPTED)
-      : EMPTY_INTERRUPTED,
-  );
   const byId = useInteractionStore((s) => s.byId);
   const visible = pending.filter((p) => p.conversationId === conversationId);
-  if (visible.length === 0 && interrupted.length === 0) return null;
+  if (visible.length === 0) return null;
 
   return (
     <div className="mx-4 mb-2 space-y-2">
-      {interrupted.map((item) => (
-        <InterruptedAfterDecisionCard key={item.messageId} item={item} />
-      ))}
       {visible.map((turn) => {
         const entry = byId.get(turn.checkpointId);
         if (entry?.status === "orphaned") {
@@ -75,53 +62,6 @@ export function ResumePrompt() {
         return <ResumeCard key={turn.messageId} turn={turn} />;
       })}
     </div>
-  );
-}
-
-function InterruptedAfterDecisionCard({
-  item,
-}: {
-  item: SidecarInterruptedAfterDecision;
-}) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <DecisionCard tone="neutral" animate className="mx-0">
-      <div className="flex items-start gap-2">
-        <DecisionCardIcon tone="neutral">
-          <Play size={16} />
-        </DecisionCardIcon>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-muted-foreground">
-            已授权 · 执行中断
-          </p>
-          <p className="mt-0.5 text-sm text-foreground">
-            你的决定已保存，执行在中途停下。可一键从决策点继续（将重跑决策之后的步骤）。
-          </p>
-        </div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-6">
-        <Button
-          variant="primary"
-          icon={
-            busy ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Play size={13} />
-            )
-          }
-          disabled={busy}
-          onClick={() => {
-            if (busy) return;
-            setBusy(true);
-            void runContinueAfterDecision(item.messageId)
-              .catch((err) => notifyError(err, "继续失败"))
-              .finally(() => setBusy(false));
-          }}
-        >
-          一键继续
-        </Button>
-      </div>
-    </DecisionCard>
   );
 }
 

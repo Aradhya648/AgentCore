@@ -2,7 +2,7 @@
   "id": "collab_par_km_tools",
   "category": "team",
   "mast": "2.5",
-  "user_message": "请并行调研 Notion、Obsidian、Logseq 在个人知识管理上的定位、核心能力与适合谁，整理成横向对比表并落盘到 research/km-compare.md。",
+  "user_message": "请并行调研 Notion、Obsidian、Logseq 在个人知识管理上的定位、核心能力与适合谁，整理成横向对比表并落盘到 AgentCore/文档/research/km-compare.md。",
   "path": "team",
   "mode": "economy",
   "_note": "并行多对象调研落盘：每实体可扇出 + 汇入对比；高 parallel_fanout_min。",

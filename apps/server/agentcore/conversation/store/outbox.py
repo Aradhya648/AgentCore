@@ -482,25 +482,8 @@ class OutboxStore:
                 key = str(entry.get("seq", i))
                 if key not in journal_map:
                     journal_map[key] = entry
-            # D2: settlement prewrite without a terminal finish → keep open so
-            # frameless continue still has local journal + resume_frame.
-            retain_open = False
-            for existing_entry in journal_map.values():
-                if not isinstance(existing_entry, dict):
-                    continue
-                kind = str(existing_entry.get("kind") or existing_entry.get("type") or "")
-                if not kind.endswith("_resolved"):
-                    continue
-                payload = existing_entry.get("payload")
-                if isinstance(payload, dict) and isinstance(payload.get("resume_frame"), dict):
-                    retain_open = True
-                    break
-            if retain_open:
-                ops = record.setdefault("ops", [])
-                if "salvage_retain_open" not in ops:
-                    ops.append("salvage_retain_open")
-                return
-            # Align with CloudStore.salvage: cancelled + incomplete (not failed/error).
+            # User stop / cancel = normal incomplete end: seal cancelled + READY so
+            # writeback can project the produced journal. No frameless retain-open.
             record["finish_reason"] = "cancelled"
             record["phase"] = PHASE_READY
             ops = record.setdefault("ops", [])

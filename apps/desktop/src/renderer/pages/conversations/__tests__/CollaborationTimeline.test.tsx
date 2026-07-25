@@ -42,7 +42,7 @@ vi.mock("@/services/collaborationTimeline", async (importOriginal) => {
           ],
           dossier_refs: [
             {
-              path: "research/法律透镜报告.md",
+              path: "AgentCore/文档/research/法律透镜报告.md",
               sources: ["dossier_inject", "file_read"] as (
                 | "dossier_inject"
                 | "file_read"
@@ -57,8 +57,8 @@ vi.mock("@/services/collaborationTimeline", async (importOriginal) => {
 
 vi.mock("@/services/workspaces", () => ({
   wsListFiles: vi.fn(async () => [
-    { path: "research/法律透镜报告.md", isDir: false },
-    { path: "debate/brief.md", isDir: false },
+    { path: "AgentCore/文档/research/法律透镜报告.md", isDir: false },
+    { path: "AgentCore/文档/debate/brief.md", isDir: false },
   ]),
 }));
 

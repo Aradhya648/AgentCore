@@ -17,7 +17,7 @@ export const STOP_BUTTON_LABEL = "停止";
 export const STOP_FAILED_MESSAGE = "停止请求失败，引擎可能仍在运行";
 export const STOP_UNCONFIRMED_MESSAGE = "停止未确认，可重试";
 export const STOP_RETRY_LABEL = "重试停止";
-/** 用户主动停止后的终态文案（与 interrupted「已中断」区分）。 */
+/** 用户主动停止后的终态文案（团队 summarize / 状态条；气泡不再出 chip）。 */
 export const STOPPED_LABEL = "已停止";
 
 /**

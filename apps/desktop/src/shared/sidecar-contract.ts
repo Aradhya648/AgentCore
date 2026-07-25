@@ -373,15 +373,6 @@ export interface SidecarRecoveryRequest {
   conversationId: string;
 }
 
-/** 已授权 · 执行中断（D2：journal fold 无 pending + 未终态 + 无活执行）。 */
-export interface SidecarInterruptedAfterDecision {
-  messageId: string;
-  userMessageId: string;
-  conversationId: string;
-  settledKind: "ask_user" | "plan_review" | "team_preview";
-  checkpointId: string;
-}
-
 export interface SidecarRecoveryResponse {
   liveRunning: boolean;
   /** 活回合键（startTurn=`turnId`，resume=`messageId`）。 */
@@ -389,23 +380,6 @@ export interface SidecarRecoveryResponse {
   unsynced: SidecarUnsyncedTurnSummary[];
   /** 本机冷路挂起帧（与原 listPaused 同源；一次 IPC 拿全本地事实）。 */
   paused: SidecarPausedTurn[];
-  /**
-   * Journal-fold 派生的「已授权 · 执行中断」列表（不得用 unsynced 非空作前提）。
-   * 二次挂起时 fold 有新 pending → 本列表为空，只显示新决策卡。
-   */
-  interruptedAfterDecision: SidecarInterruptedAfterDecision[];
-}
-
-/** 无帧续跑（D2）：按 outbox settlement / resume_frame 从决策点重跑。 */
-export interface SidecarContinueAfterDecisionRequest {
-  rootId: string;
-  subpath?: string;
-  conversationId: string;
-  messageId: string;
-  userMessageId?: string;
-  traceId?: string;
-  inference?: SidecarInference;
-  permissionPreset?: string;
 }
 
 /** 重绑本窗口并取回缓冲事件快照（零 await 段在主进程 handler 内）。 */
@@ -442,7 +416,6 @@ export const SIDECAR_CHANNELS = {
   runRedirect: "sidecar:runRedirect",
   debateSteer: "sidecar:debateSteer",
   resume: "sidecar:resume",
-  continueAfterDecision: "sidecar:continueAfterDecision",
   probe: "sidecar:probe",
   recovery: "sidecar:recovery",
   attach: "sidecar:attach",
@@ -468,14 +441,10 @@ export interface SidecarApi {
   /** 续跑一个持久挂起的本地回合；Promise 在续跑结束时 resolve（同 `startTurn` 携最终结果，
    * 过程事件经 `onEvent` 推来）。 */
   resume(req: SidecarResumeRequest): Promise<SidecarTurnResult>;
-  /** 无帧续跑：已决策执行中断后的一键继续（方案 A · 从决策点重跑）。 */
-  continueAfterDecision(
-    req: SidecarContinueAfterDecisionRequest,
-  ): Promise<SidecarTurnResult>;
   /** 探活一个 root 的 sidecar（拉起 + initialize 握手即返回，不跑回合）。成功 = 本机环境能起
    * 本地引擎（握手成功的进程留存、被首个回合复用）；失败 reject（诊断经 `onStatus` 推送）。 */
   probe(req: SidecarProbeRequest): Promise<void>;
-  /** 查询本地恢复面（活回合 + 未同步 outbox + 挂起帧 + interruptedAfterDecision）；零 spawn。 */
+  /** 查询本地恢复面（活回合 + 未同步 outbox + 挂起帧）；零 spawn。 */
   recovery(req: SidecarRecoveryRequest): Promise<SidecarRecoveryResponse>;
   /** 重绑本窗口并取回缓冲事件快照 + 续流；`attached:false` 时走投影/ghost 降级。 */
   attach(req: SidecarAttachRequest): Promise<SidecarAttachResponse>;

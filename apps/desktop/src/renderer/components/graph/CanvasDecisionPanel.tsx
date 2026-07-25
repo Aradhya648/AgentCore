@@ -274,6 +274,7 @@ export function CommandPanelBody({
   );
 
   const recoverable = isTurnRecoverable(execution);
+  const showRecovery = recoverable && !!message;
   const failedCount =
     execution?.runs.filter((r) => r.status === "failed").length ?? 0;
   const recoveryNotice =
@@ -286,10 +287,11 @@ export function CommandPanelBody({
   return (
     <div className="h-full overflow-y-auto py-3">
       {/* 救火 (firefighting): conversation-level transport error + focused turn's
-          inline recovery link (retry-failed XOR regenerate). 「忽略」is implicit on
-          the next user turn. RecoveryActions retries under this turn's ExecutionScope. */}
+          inline recovery link (retry-failed XOR regenerate). 「忽略」is
+          implicit on the next user turn. RecoveryActions under this turn's
+          ExecutionScope. */}
       <RetryBanner />
-      {recoverable && message && (
+      {showRecovery && message && (
         <ExecutionScopeContext.Provider value={assistantProjectionId(message)}>
           <div className="mx-4 mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
             <div className="flex items-start gap-2 text-xs text-destructive">

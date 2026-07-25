@@ -97,8 +97,8 @@ def test_artifact_stamp_from_moderator_run_id():
 
 def test_artifact_paths_chinese_under_debate_dir():
     paths = artifact_paths(motion="该不该做 X？", stamp="abcd1234")
-    assert paths.brief.startswith("debate/")
-    assert paths.narrative.startswith("debate/")
+    assert paths.brief.startswith("AgentCore/文档/debate/")
+    assert paths.narrative.startswith("AgentCore/文档/debate/")
     assert paths.brief.endswith(".md")
     assert "决策简报" in paths.brief
     assert "交锋叙事线" in paths.narrative
@@ -123,9 +123,9 @@ def test_render_files_share_ceo_homologous_content():
 def test_render_files_act1_crosslink_header():
     result = _result()
     brief_md = render_brief_file(
-        result, act1_summary_path="research/汇总与命题卡.md"
+        result, act1_summary_path="AgentCore/文档/research/汇总与命题卡.md"
     )
-    assert "**幕1 汇总**：`research/汇总与命题卡.md`" in brief_md
+    assert "**幕1 汇总**：`AgentCore/文档/research/汇总与命题卡.md`" in brief_md
 
 
 async def test_persist_writes_both_files(tmp_path: Path):
@@ -150,16 +150,16 @@ async def test_persist_writes_both_files(tmp_path: Path):
 
 
 async def test_persist_act1_crosslink_when_synthesizer_exists(tmp_path: Path):
-    research = tmp_path / "research"
-    research.mkdir()
+    research = tmp_path / "AgentCore" / "文档" / "research"
+    research.mkdir(parents=True)
     (research / "汇总与命题卡.md").write_text("synth", encoding="utf-8")
     backend = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
     paths = await persist_debate_artifacts(backend, _result(), stamp="a1b2c3d4")
     assert paths is not None
     brief_text = (tmp_path / paths.brief).read_text(encoding="utf-8")
     narrative_text = (tmp_path / paths.narrative).read_text(encoding="utf-8")
-    assert "**幕1 汇总**：`research/汇总与命题卡.md`" in brief_text
-    assert "**幕1 汇总**：`research/汇总与命题卡.md`" in narrative_text
+    assert "**幕1 汇总**：`AgentCore/文档/research/汇总与命题卡.md`" in brief_text
+    assert "**幕1 汇总**：`AgentCore/文档/research/汇总与命题卡.md`" in narrative_text
 
 
 async def test_persist_multi_debate_does_not_clobber(tmp_path: Path):
@@ -188,7 +188,7 @@ async def test_persist_failure_degrades_without_raising(tmp_path: Path):
     backend = _Boom(root=tmp_path, sandbox=SubprocessSandbox())
     paths = await persist_debate_artifacts(backend, _result(), stamp="deadbeef")
     assert paths is None
-    debate_dir = tmp_path / "debate"
+    debate_dir = tmp_path / "AgentCore" / "文档" / "debate"
     assert not debate_dir.exists() or not any(debate_dir.iterdir())
 
 
@@ -204,5 +204,5 @@ async def test_persist_narrative_fail_cleans_brief_half_write(tmp_path: Path):
     backend = _NarrativeBoom(root=tmp_path, sandbox=SubprocessSandbox())
     paths = await persist_debate_artifacts(backend, _result(), stamp="cafebabe")
     assert paths is None
-    debate_dir = tmp_path / "debate"
+    debate_dir = tmp_path / "AgentCore" / "文档" / "debate"
     assert not debate_dir.exists() or not any(debate_dir.iterdir())

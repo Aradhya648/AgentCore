@@ -16,6 +16,7 @@
     "shoot:conversations": "node scripts/shoot-conversations.mjs",
     "shoot:capability-packs": "node scripts/shoot-capability-packs.mjs",
     "shoot:graph-probe": "node scripts/shoot-graph-probe.mjs",
+    "shoot:graph-missing": "node scripts/shoot-graph-missing.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts",
     "smoke:webapp": "node scripts/smoke-webapp.mjs",
     "smoke:webapp:ci": "node scripts/smoke-webapp.mjs --boot",

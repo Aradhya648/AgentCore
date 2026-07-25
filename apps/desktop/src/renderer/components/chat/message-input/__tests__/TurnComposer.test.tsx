@@ -117,11 +117,11 @@ vi.mock("@/components/chat/message-input/useComposerDrop", () => ({
   useComposerDrop: () => ({
     dragOver: false,
     dropError: null,
+    clearDropError: vi.fn(),
     handleDragOver: vi.fn(),
     handleDragLeave: vi.fn(),
     handleDrop: vi.fn(),
     handlePaste: vi.fn(),
-    disposeDropTimer: vi.fn(),
   }),
 }));
 vi.mock("@/components/chat/message-input/useComposerSend", () => ({

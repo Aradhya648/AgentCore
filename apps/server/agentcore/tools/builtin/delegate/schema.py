@@ -27,6 +27,13 @@ TASK_DELIVERABLE_SCHEMA: dict[str, object] = {
         "output_format": {"type": "string", "enum": ["text", "json"]},
         "requires_files": {"type": "boolean"},
         "artifacts": {"type": "array", "items": {"type": "string"}},
+        "artifact_dir": {
+            "type": "string",
+            "description": (
+                "案卷落盘目录（可选；省略时运行时按 stage_dirs 对调研/审查类 form=files 填默认）。"
+                "worker 只定文件名。"
+            ),
+        },
         "strict": {
             "type": "boolean",
             "description": "不达标：true=硬退；false=软接受。",

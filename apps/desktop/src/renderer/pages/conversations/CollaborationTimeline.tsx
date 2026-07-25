@@ -1,5 +1,6 @@
 import { Card, SectionLabel } from "@/components/ui";
 import { conversationKeys } from "@/lib/queryKeys";
+import { DEBATE_DIR, RESEARCH_DIR } from "@/lib/stageDirs";
 import { filesFocusState } from "@/pages/conversations/constants";
 import {
   type CollaborationTimelineItem,
@@ -13,10 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FileText, GitBranch, Network } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-function stageFiles(
-  paths: string[],
-  prefix: "research/" | "debate/",
-): string[] {
+function stageFiles(paths: string[], prefix: string): string[] {
   return paths
     .filter((p) => p.replace(/\\/g, "/").startsWith(prefix) && !p.endsWith("/"))
     .map((p) => p.replace(/\\/g, "/"))
@@ -44,8 +42,8 @@ export function CollaborationTimelinePanel({
       const files = await wsListFiles(`folder:${folderId}`, true);
       const paths = files.filter((f) => !f.isDir).map((f) => f.path);
       return {
-        research: stageFiles(paths, "research/"),
-        debate: stageFiles(paths, "debate/"),
+        research: stageFiles(paths, `${RESEARCH_DIR}/`),
+        debate: stageFiles(paths, `${DEBATE_DIR}/`),
       };
     },
     // Local / preview may 409 or miss auth — keep last good data (incl. preview seed).
@@ -120,12 +118,12 @@ export function CollaborationTimelinePanel({
             <SectionLabel>阶段产物</SectionLabel>
           </div>
           <DossierGroup
-            label="research/"
+            label={`${RESEARCH_DIR}/`}
             paths={research}
             onOpen={() => navigate("/files", filesFocusState(null, folderId))}
           />
           <DossierGroup
-            label="debate/"
+            label={`${DEBATE_DIR}/`}
             paths={debate}
             onOpen={() => navigate("/files", filesFocusState(null, folderId))}
           />
@@ -209,7 +207,9 @@ function TimelineRow({
                   title={`${ref.path} · ${dossierSourceLabel(ref.sources)}`}
                 >
                   <span className="truncate">
-                    {ref.path.replace(/^research\//, "")}
+                    {ref.path.startsWith(`${RESEARCH_DIR}/`)
+                      ? ref.path.slice(RESEARCH_DIR.length + 1)
+                      : ref.path}
                   </span>
                   <span className="shrink-0 opacity-70">
                     {dossierSourceLabel(ref.sources)}

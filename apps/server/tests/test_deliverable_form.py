@@ -106,7 +106,10 @@ def test_identity_form_prose_has_no_file_write_guidance():
     assert "str_replace" in files
     assert "Artifact-first" in files or "短骨架" in files
     assert "中间省略" in files or "落盘与修订" in files
-    assert "禁止再 file_read" in files or "artifact manifest" in files
+    assert "artifact manifest" in files
+    assert "code_execute" in files
+    assert "handoff" in files
+    assert "禁止" in files and "file_read" in files
 
     # omit = legacy two-way
     assert "可独立阅读的文字" in omitted
@@ -367,7 +370,8 @@ def test_cold_start_rejects_artifacts():
     )
     assert errs == []
     assert plan.nodes[0].deliverable is not None
-    assert plan.nodes[0].deliverable.artifacts == ["brief.md"]
+    # 调研语义 → 裸文件名迁入案卷目录；冷启动仍因 artifacts 非空而拒。
+    assert plan.nodes[0].deliverable.artifacts == ["AgentCore/文档/research/brief.md"]
     err = validate_cold_start_explore_deliverables(plan)
     assert err is not None
     assert "update_project_profile" in err

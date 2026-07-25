@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from agentcore.workspace.stage_dirs import DEBATE_DIR, RESEARCH_DIR, REVIEWS_DIR
+
 if TYPE_CHECKING:
     from agentcore.workspace.protocol import WorkspaceBackend
 
@@ -29,11 +31,16 @@ def build_workspace_context(
     desktop_online: bool,
     code_execute_enabled: bool | None = None,
     terminal_enabled: bool | None = None,
+    browser_enabled: bool | None = None,
 ) -> str:
     """Render the ``<workspace_context>`` block for this turn's backend + client.
 
     Always returns a non-empty block when ``backend`` is set (environment is a fact,
     even for an empty cloud scratch). ``backend is None`` → ``""`` (caller omits).
+
+    Capability line uses the same predicates as worker registry assembly
+    (``code_execution_enabled_for`` / ``browser_execution_enabled_for``); optional
+    ``*_enabled`` overrides are for tests / probes only — not a second truth source.
     """
     if backend is None:
         return ""
@@ -119,10 +126,27 @@ def build_workspace_context(
 
         exec_on = code_execution_enabled_for(backend)
     term_on = is_local if terminal_enabled is None else terminal_enabled
+    browser_on = browser_enabled
+    if browser_on is None:
+        from agentcore.tools.builtin import browser_execution_enabled_for
+
+        browser_on = browser_execution_enabled_for(backend)
+    # local_open = 本机工作区可让用户直接打开产物（非 L3 浏览器工具；与 location 同事实）。
+    local_open_on = is_local
     caps: list[str] = []
     caps.append(f"code_execute={'已装配' if exec_on else '未装配'}")
     caps.append(f"terminal={'已装配' if term_on else '未装配'}")
+    caps.append(f"browser={'已装配' if browser_on else '未装配'}")
+    caps.append(f"local_open={'已装配' if local_open_on else '未装配'}")
     capability_line = "本回合执行能力：" + "；".join(caps) + "。"
+
+    # 案卷布局（始终可见）：三行出口 + 一句边界。只陈述路径事实，不注入文档正文进 <rules>。
+    dossier_research_line = f"案卷出口·调研/讨论：`{RESEARCH_DIR}/`"
+    dossier_debate_line = f"案卷出口·辩论副产物：`{DEBATE_DIR}/`"
+    dossier_reviews_line = f"案卷出口·审查：`{REVIEWS_DIR}/`"
+    dossier_boundary_line = (
+        "案卷边界：讨论/调研/审查类交付写此树；用户工程源码仍写业务路径。"
+    )
 
     body = "\n".join(
         [
@@ -130,6 +154,10 @@ def build_workspace_context(
             identity_line,
             reach_line,
             artifact_line,
+            dossier_research_line,
+            dossier_debate_line,
+            dossier_reviews_line,
+            dossier_boundary_line,
             desktop_line,
             grant_line,
             mounts_line,

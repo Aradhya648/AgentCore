@@ -2,6 +2,7 @@
  * Host contract (Provider / fit / overflow) → `graphHost.tsx`. */
 
 import { fitWidthBox } from "@/lib/elk-layout";
+import { isGraphTraceEnabled, traceGraphViewport } from "@/services/graphTrace";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "./constants";
@@ -13,6 +14,11 @@ interface UseGraphViewportOptions {
   fitMode: GraphFitMode;
   /** Content bbox from computeLayout (origin pinned near padding; no dead band). */
   bbox: { width: number; height: number } | null;
+  /**
+   * When fitMode=width and visual content spills above y=0 (soft-centered tall
+   * cards), shift viewport by `-originY * zoom` so the overhang stays in view.
+   */
+  originY?: number;
   layoutReady: boolean;
   onMeasure?: (m: { height: number; overflowing: boolean }) => void;
 }
@@ -20,6 +26,7 @@ interface UseGraphViewportOptions {
 export function useGraphViewport({
   fitMode,
   bbox,
+  originY = 0,
   layoutReady,
   onMeasure,
 }: UseGraphViewportOptions) {
@@ -62,15 +69,13 @@ export function useGraphViewport({
     const el = containerRef.current;
     if (!el) return;
     setColWidth(el.clientWidth);
-    if (fitMode === "contain") setColHeight(el.clientHeight);
+    setColHeight(el.clientHeight);
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       const w = rect?.width ?? 0;
       if (w > 0) setColWidth(w);
-      if (fitMode === "contain") {
-        const h = rect?.height ?? 0;
-        if (h > 0) setColHeight(h);
-      }
+      const h = rect?.height ?? 0;
+      if (h > 0) setColHeight(h);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -86,23 +91,48 @@ export function useGraphViewport({
     ) {
       return;
     }
-    // bbox is the placed-content footprint (computeLayout normalizes origin).
-    // Never assume a phantom band above y=0 — pin overflow to the content top.
+    // bbox = layout footprint, or computeVisualBbox for width (measure→ELK lag).
+    // Target host height from fitWidthBox; if the container is still catching up
+    // (e.g. height transition), further shrink zoom to the *actual* pane so
+    // nodes are never clipped — graphHost: zoom first, never hide via overflow.
     const fit = fitWidthBox(bbox.width, bbox.height, colWidth);
-    const x = Math.max(0, (colWidth - fit.renderedWidth) / 2);
-    const y =
-      fit.renderedHeight <= fit.height
-        ? (fit.height - fit.renderedHeight) / 2
-        : 0;
+    const availH = colHeight > 0 ? Math.min(colHeight, fit.height) : fit.height;
+    const zoom =
+      bbox.height > 0 ? Math.min(fit.zoom, availH / bbox.height) : fit.zoom;
+    const renderedW = bbox.width * zoom;
+    const renderedH = bbox.height * zoom;
+    const x = Math.max(0, (colWidth - renderedW) / 2);
+    const yBase = renderedH <= availH ? (availH - renderedH) / 2 : 0;
+    const y = yBase - originY * zoom;
     const animate = viewportSettledRef.current && !prefersReducedMotion();
     rfInstance.setViewport(
-      { x, y, zoom: fit.zoom },
+      { x, y, zoom },
       animate ? { duration: 200 } : undefined,
     );
     viewportSettledRef.current = true;
     setOverflowing(fit.overflowing);
+    if (isGraphTraceEnabled()) {
+      traceGraphViewport({
+        fitMode,
+        overflowing: fit.overflowing,
+        zoom,
+        renderedH,
+        fitH: fit.height,
+        bboxH: bbox.height,
+        colWidth,
+      });
+    }
     onMeasure?.({ height: fit.height, overflowing: fit.overflowing });
-  }, [fitMode, rfInstance, bbox, colWidth, layoutReady, onMeasure]);
+  }, [
+    fitMode,
+    rfInstance,
+    bbox,
+    originY,
+    colWidth,
+    colHeight,
+    layoutReady,
+    onMeasure,
+  ]);
 
   useEffect(() => {
     if (

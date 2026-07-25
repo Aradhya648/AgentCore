@@ -134,7 +134,7 @@ class DebateConfig:
     # 用户插话：主持人定首轮焦点可见、首轮辩手 prompt 可见、verbatim 进 rounds[0].user_interjections。
     # 不覆写 motion / 不改 sides。
     kickoff_ask: str = ""
-    # 工作区 research/ 案卷文件索引（开工时机制性探测后填入；空串 = 无案卷，不注入）。
+    # 工作区 AgentCore/文档/research/ 案卷文件索引（开工时机制性探测后填入；空串 = 无案卷，不注入）。
     # 仅文本通道：辩手底料 / 主持人议题 brief；非 wire 事件字段。
     research_dossier_index: str = ""
     # 庭前取证已汇流（§二之二）：True → 首轮辩手检索预算按有案卷下调，引用台账为主。

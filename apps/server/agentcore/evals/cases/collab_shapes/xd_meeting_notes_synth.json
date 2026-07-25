@@ -2,7 +2,7 @@
   "id": "collab_xd_meeting_notes_synth",
   "category": "team",
   "mast": "2.5",
-  "user_message": "我想做「AI 会议纪要」方向：一边调研市面三款产品，一边给一段 Python 录音转写样例代码，再请人点评一下产品交互设计，最后合成一篇完整 Markdown 报告落盘到 research/ai-meeting-notes.md。",
+  "user_message": "我想做「AI 会议纪要」方向：一边调研市面三款产品，一边给一段 Python 录音转写样例代码，再请人点评一下产品交互设计，最后合成一篇完整 Markdown 报告落盘到 AgentCore/文档/research/ai-meeting-notes.md。",
   "path": "team",
   "mode": "economy",
   "_note": "跨域合成桶：调研+写码+点评+合成一篇。产品判据=少派（常见 1～2 人），禁按工种堆人。强制 max_workers≤2。",

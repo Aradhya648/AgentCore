@@ -206,9 +206,10 @@ CEO 收尾从「写综述」升级为「**先对账拼图边、再核验原始�
 - **第一道（4b）· 语义边界对账**：在三处接缝先对「拼不拼得上」——**只查冲突 / 缺口 / 重复，不评每块好不好**：① `format_for_ceo`（合并前；CEO 自判「相互依赖、要拼到一起」才查，独立并行跳过）；② `supervised.py::format_bind_boundary`（定稿下游前对上游，catch-early）；③ `format_scope_boundary`（队员报偏离时主动查兄弟接缝——即「`escalate scope` 等举手」的**主动版**）。对出问题就地续派/`replan`/`ask_user`，别在概览里糊过去。判据同便签墙：块间有没有共享接口 / 相互依赖。
 - **第二道（4a）· 成品对照原始目标 + 完工判定**（实证 ROI 最高）：写概览前对照【用户原始请求 + 各 task 的任务描述与 `deliverable`】逐条核验「实质达成」，给明确**完工判定**——未达成就 `delegate`（冷委派或带现场续派）/`replan` 补、别假装收工；已达成就收口、别空转。直接对治 MAST 实测两大失败（不认终止条件 / 过早终止），其「加高层目标验证 +15.6%」是全表 ROI 最高的单点干预。
 - **一处覆盖两条收尾路径**：改 `ceo_format.py::format_for_ceo` 即同时盖正常终态综述（`drive.py`）与 `replan(stop)` 收尾（`supervised.py::finalize_stopped`）；【团队便签】（便签墙 `active_notes`）正是 4b 的现成输入（见 [`Agent协作模式.md` §波内共享上下文](/docs/03-AI核心/Agent协作模式.md)）。
-- **暂不建（开放项）**：高风险「**独立验证回合**」（换一双眼睛复核）人 2026-06-30 明确**暂不建**——它是唯一「新机制 + 每高风险回合真成本」项（不像 4a/4b 是可退提示词），且 4a 已 inline 覆盖；走「先开度量数据闸门、证明 CEO 自检确实漏了『自己批自己』再建」。→ 远期项见 远期规划 §2.5（详细提案不在公开仓 / 维护者本地）。
+- **`audit_gate`（引擎旁路）✅ 已落地**：与 4a/4b **分层**——4a/4b 是收尾提示自检；`audit_gate` 是质量敏感成品上的「换人审」激励/硬闸。软门（`audit_gate_nudge`）：captain、首批 substantial、尚未 fire 时注入一次 nudge（成篇/构建/审查类宜派审计者≠作者；可给归类理由后直接交付；**系统绝不代派**）。硬门：`research_report` / 计划呈长文·字数承诺等信号，且批内尚未含审校路径时挡 `end_turn`。协调 `all_completed` 亦可再提醒。用户无独立「审计」UI 卡——文案进 CEO 消息旁路，终稿不得粘贴系统提示。
+- **暂不建（开放项）≠ 否定 audit_gate**：人 2026-06-30 否决的是高风险「**独立验证回合子系统**」（每高风险回合强制新机制 + 真成本、与 4a 叠床）。**不等于**禁止引擎旁路式审计门；现状用 `audit_gate` 软/硬门覆盖「换一双眼睛」激励，不另起验证子系统。若未来要升格为强制独立回合，须先有度量证明 CEO 自检系统性漏「自己批自己」。→ 远期项见维护者本地规划（不在公开仓）。
 
-→ 见代码：`runtime/delegate/ceo_format.py`（`format_for_ceo`）、`runtime/delegate/supervised.py`（`format_bind_boundary` / `format_scope_boundary` / `finalize_stopped`）。
+→ 见代码：`runtime/delegate/ceo_format.py`（`format_for_ceo`）、`runtime/delegate/supervised.py`（`format_bind_boundary` / `format_scope_boundary` / `finalize_stopped`）、`runtime/engine/governance.py`（`audit_gate_*` / `maybe_inject_audit_gate`）。
 
 ### execute 流程（概念）
 
@@ -308,7 +309,7 @@ CEO `delegate` **不声明模型档位**（原 `model_preference{fast,strong}` �
 >
 > **覆盖写完整性 ✅**：成篇非空目标（≥约 400 字）的 `file_write` 整文件覆盖 → **硬拒绝**并引导 `str_replace` /（骨架上的）`file_append`；不足阈值的短文件仍可覆盖（保留完整性软警示）。
 >
-> **Artifact-first Writing ✅**：中等单篇默认一次 `file_write`；写/append 回执 = artifact manifest（验真，禁自产物 body `file_read`）；本 run 已成篇 prose 的同 path 禁再 `file_append`；超长仅「短骨架 → 按节填空」。→ 见代码: `tools/builtin/file_ops.py`、Skill `long_form_writing`
+> **Artifact-first Writing ✅**：中等单篇默认一次 `file_write`；写/append 回执 = artifact manifest（作者验真，禁自产物 body `file_read`；下游/CEO 可读他人落盘）；本 run 已成篇 prose 的同 path 禁再 `file_append`；超长仅「短骨架 → 按节填空」。→ 见代码: `tools/builtin/file_ops.py`、Skill `long_form_writing`
 
 ### 2.4 嵌套委派（一层，默认开）✅ 已落地
 

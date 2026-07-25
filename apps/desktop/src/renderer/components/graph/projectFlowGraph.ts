@@ -12,7 +12,12 @@ import {
   pickCostMoney,
   tailText,
 } from "@/lib/format";
+import { placedNodeY } from "@/lib/graphMetrics";
 import { detectReviewConcern } from "@/lib/reviewConcern";
+import {
+  isGraphTraceEnabled,
+  traceGraphProjection,
+} from "@/services/graphTrace";
 import type { Execution, RunNode, RunStatus } from "@/stores/execution";
 import { debateBeatFromContext } from "@/stores/execution";
 import type { GraphEdge } from "@/stores/graph";
@@ -200,7 +205,7 @@ export function projectFlowNodes({
     // → offset ~0. Before that, soft-center in the cold NODE_HEIGHT slot so
     // taller cards don't only spill downward into the next peer.
     const layoutH = nodeSizes[id]?.height ?? NODE_HEIGHT;
-    return { x: slot.x, y: slot.y + (layoutH - h) / 2 };
+    return { x: slot.x, y: placedNodeY(slot.y, layoutH, h) };
   };
 
   const workerRuns = execution.runs.filter((r) => r.id !== captainRun?.id);
@@ -210,6 +215,8 @@ export function projectFlowNodes({
   const subTeams = scene.subTeams;
   const runById = new Map(execution.runs.map((r) => [r.id, r]));
   const nodes: Node[] = [];
+  const missingPosIds: string[] = [];
+  const foldedIds: string[] = [];
 
   const rootGroupIds = new Set(
     groups
@@ -261,13 +268,19 @@ export function projectFlowNodes({
 
   for (const [i, run] of workerRuns.entries()) {
     // 质询/复攻/crux 折进同轮宿主，不独立成图节点。
-    if (isDebateFoldedBeatRun(run)) continue;
+    if (isDebateFoldedBeatRun(run)) {
+      foldedIds.push(run.id);
+      continue;
+    }
 
     const unit = foldInfo.unitOf.get(run.id) ?? run.id;
     const isFoldedChild = foldInfo.folded.has(run.id);
     const unitExpanded =
       foldInfo.debateUnits.has(unit) || expandedUnits.has(unit);
-    if (isFoldedChild && !unitExpanded) continue;
+    if (isFoldedChild && !unitExpanded) {
+      foldedIds.push(run.id);
+      continue;
+    }
 
     // Which compound this run renders in — the scene's single「接续链归盒」
     // conclusion (revisions already resolved to their box). Never re-walked here.
@@ -279,7 +292,10 @@ export function projectFlowNodes({
     let pos: { x: number; y: number } | undefined;
     if (group) {
       const absPos = positions[run.id];
-      if (!absPos) continue;
+      if (!absPos) {
+        missingPosIds.push(run.id);
+        continue;
+      }
       pos = {
         x: absPos.x - group.x,
         y: absPos.y - group.y,
@@ -287,7 +303,10 @@ export function projectFlowNodes({
     } else {
       pos = placed(run.id);
     }
-    if (!pos) continue;
+    if (!pos) {
+      missingPosIds.push(run.id);
+      continue;
+    }
 
     // Debate beats (质询/复攻/crux) folded into this round host — the scene's
     // single conclusion; we only resolve ids → run data here.
@@ -496,6 +515,8 @@ export function projectFlowNodes({
           !answerPreview && sinkStatus === "running" && !waitCaption
             ? (captainSynthesisPreview ?? "").trim()
             : "";
+        // Pure wait: statusCaption carries the short wait line; do not also
+        // fall preview back to the same waitCaption (duplicate identical rows).
         nodes.push({
           id: captainRun.id,
           type: "captain",
@@ -505,7 +526,7 @@ export function projectFlowNodes({
             status: sinkStatus,
             statusCaption: waitCaption || undefined,
             label: "",
-            preview: answerPreview || synthPreview || waitCaption,
+            preview: answerPreview || synthPreview,
             handleDirection,
             enterIndex: workerRuns.length + 1,
             focused: !!finalAnswer && litEndpointMessageId === finalAnswer.id,
@@ -514,7 +535,34 @@ export function projectFlowNodes({
               : undefined,
           },
         } as Node);
+      } else {
+        missingPosIds.push(captainRun.id);
       }
+    }
+  }
+
+  if (isGraphTraceEnabled()) {
+    // 首帧 ELK 未就绪时 positions 空是预期，不记成缺节点。
+    if (Object.keys(positions).length === 0) {
+      return nodes;
+    }
+    const agentNodeIds = nodes
+      .filter((n) => n.type === "agent" || n.type === "captain")
+      .map((n) => n.id);
+    const runIds = execution.runs.map((r) => r.id);
+    const expectedVisible = runIds.filter((id) => !foldedIds.includes(id));
+    const gap =
+      missingPosIds.length > 0 ||
+      expectedVisible.some((id) => !agentNodeIds.includes(id));
+    if (gap) {
+      traceGraphProjection({
+        runIds,
+        agentNodeIds,
+        missingPosIds: [...missingPosIds],
+        foldedIds: [...foldedIds],
+        posKeyCount: Object.keys(positions).length,
+        layoutReady: true,
+      });
     }
   }
 

@@ -505,6 +505,7 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='engine.coordination_listen'),
     EventSpec(name='engine.debate_gate_nudge'),
     EventSpec(name='engine.degraded'),
+    EventSpec(name='engine.exec_verify_gate_nudge'),
     EventSpec(name='engine.finish_guard_rework'),
     EventSpec(name='engine.force_finalize_failed'),
     EventSpec(name='engine.force_finalize_hard_failed'),
@@ -583,7 +584,6 @@ EVENTS: list[EventSpec] = [
         name='llm.call',
         description='单次 LLM 调用（latency/tokens/cost_nano）',
         fields={
-            'attempt': FieldType('int'),
             'cost_nano': FieldType('int'),
             'finish_reason': FieldType('str'),
             'input_tokens': FieldType('int'),
@@ -597,14 +597,10 @@ EVENTS: list[EventSpec] = [
     ),
     EventSpec(
         name='llm.call_failed',
-        description='单次 LLM 调用失败（围栏观测；不重试）',
+        description='',
         fields={
-            'attempt': FieldType('int'),
             'error': FieldType('str'),
-            'latency_ms': FieldType('int'),
-            'model': FieldType('str'),
             'scenario': FieldType('str'),
-            'stream': FieldType('bool'),
         },
     ),
     EventSpec(name='llm.call_retried'),

@@ -2,26 +2,21 @@ import { Badge } from "@/components/ui/badge";
 import {
   AlertTriangle,
   CircleOff,
-  CircleSlash,
   type LucideIcon,
   Repeat,
   TrendingDown,
 } from "lucide-react";
 
+/**
+ * Abnormal finish reasons that still warrant a bubble chip.
+ * `cancelled` / `interrupted` intentionally omitted — partial body (or team
+ * StatusStrip「已停止」) is the terminal signal; no “saved” reassurance chip
+ * (对齐主流对话 AI · 前端UX设计.md §三).
+ */
 export const FINISH_REASON_META: Record<
   string,
   { label: string; Icon: LucideIcon; tone: "muted" }
 > = {
-  cancelled: {
-    label: "已中断 · 已保存完成的部分",
-    Icon: CircleSlash,
-    tone: "muted",
-  },
-  interrupted: {
-    label: "已中断，可重试",
-    Icon: CircleSlash,
-    tone: "muted",
-  },
   max_rounds: {
     label: "已达最大轮次 · 提前收尾",
     Icon: Repeat,

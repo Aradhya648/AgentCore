@@ -237,6 +237,9 @@ def build_run_plan(
         apply_retrieval_budgets(plan, valid_tools=valid_tools, complexity_hint=complexity_hint)
         apply_directed_search_tools(plan, valid_tools=valid_tools)
         apply_worker_budgets(plan)
+        from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_plan
+
+        apply_artifact_dir_to_plan(plan)
     return plan, errors
 
 
@@ -390,6 +393,9 @@ def build_added_nodes(
     apply_directed_search_tools_to_specs(specs, valid_tools=valid_tools)
     # replan add：token/超时走统一 backstop；检索额度走统一默认 + 硬例外。
     apply_worker_budgets_to_specs(specs)
+    from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_specs
+
+    apply_artifact_dir_to_specs(specs)
     return specs, []
 
 
@@ -820,9 +826,16 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
     if form == "prose":
         requires_files = False
         artifacts = []  # path reconciliation meaningless for prose delivery
+        artifact_dir = ""
     else:
         requires_files = (
             bool(raw.get("requires_files", False)) or bool(artifacts) or form == "files"
+        )
+        artifact_dir_raw = raw.get("artifact_dir", "")
+        artifact_dir = (
+            artifact_dir_raw.replace("\\", "/").strip().rstrip("/")
+            if isinstance(artifact_dir_raw, str)
+            else ""
         )
     web_seam_scope = raw.get("web_seam_scope", "")
     if not isinstance(web_seam_scope, str):
@@ -848,6 +861,7 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
         form=form,  # type: ignore[arg-type]
         requires_files=requires_files,
         artifacts=artifacts,
+        artifact_dir=artifact_dir,
         web_seam_scope=web_seam_scope.strip(),
         placeholder_hard_exempt=placeholder_hard_exempt,
         placeholder_hard_exempt_artifacts=placeholder_hard_exempt_artifacts,
@@ -871,6 +885,7 @@ def _deliverable_has_content(deliverable: Deliverable) -> bool:
         or deliverable.output_format == "json"
         or deliverable.requires_files
         or deliverable.artifacts
+        or deliverable.artifact_dir
         or deliverable.web_quality_scan
         or deliverable.visual_critic
     )

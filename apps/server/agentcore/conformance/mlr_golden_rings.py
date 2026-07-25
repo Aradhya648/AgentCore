@@ -16,6 +16,11 @@ from agentcore.runtime.debate.research_dossier import format_research_dossier_in
 from agentcore.runtime.runs.retrieval_budget import (
     DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER,
 )
+from agentcore.workspace.stage_dirs import (
+    DEBATE_PREFIX,
+    RESEARCH_DIR,
+    RESEARCH_PREFIX,
+)
 
 RingStatus = Literal["PASS", "FAIL", "N/A"]
 
@@ -28,11 +33,11 @@ BASELINE_DEBATER_SEARCHES = 56
 SEARCH_BUDGET_PER_RUN = DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER
 
 EXPECTED_RESEARCH_FILES: tuple[str, ...] = (
-    "research/法律透镜报告.md",
-    "research/品牌商业透镜报告.md",
-    "research/舆情公关透镜报告.md",
-    "research/文化社会透镜报告.md",
-    "research/汇总与命题卡.md",
+    f"{RESEARCH_DIR}/法律透镜报告.md",
+    f"{RESEARCH_DIR}/品牌商业透镜报告.md",
+    f"{RESEARCH_DIR}/舆情公关透镜报告.md",
+    f"{RESEARCH_DIR}/文化社会透镜报告.md",
+    f"{RESEARCH_DIR}/汇总与命题卡.md",
 )
 
 _SEARCH_TOOLS = frozenset({"web_search", "read_url"})
@@ -549,13 +554,13 @@ def collect_metrics(bundle: GoldenBundle) -> dict[str, Any]:
             blob = str(args.get("path") or args.get("file") or args.get("target") or "")
             if not blob:
                 blob = str(args)
-            if "research/" in blob.replace("\\", "/"):
+            if RESEARCH_PREFIX in blob.replace("\\", "/"):
                 file_read_research += 1
 
     research_paths = [
         p.replace("\\", "/")
         for p in bundle.workspace_files
-        if p.replace("\\", "/").startswith("research/")
+        if p.replace("\\", "/").startswith(RESEARCH_PREFIX)
     ]
     dossier_index = format_research_dossier_index(research_paths)
     dossier_index_len = len(dossier_index)
@@ -820,7 +825,7 @@ def evaluate_rings(bundle: GoldenBundle) -> GoldenReport:
         },
     )
 
-    debate_files = [p for p in files if p.startswith("debate/")]
+    debate_files = [p for p in files if p.startswith(DEBATE_PREFIX)]
     has_brief = any("决策简报" in p for p in debate_files)
     has_narrative = any("交锋叙事线" in p for p in debate_files)
     brief_skeleton: dict[str, bool] = {}

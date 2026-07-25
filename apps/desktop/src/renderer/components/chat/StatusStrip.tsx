@@ -618,16 +618,18 @@ function userMessageIdForAssistant(
 }
 
 /**
- * Shared failure-recovery row: inline text links (retry-failed XOR regenerate).
- * 「忽略」is implicit — starting a new turn dismisses recoverable projections.
- * Reused by failure / partial-failure / stopped strips, empty-interrupted salvage,
- * and the canvas 指挥台 ({@link CanvasDecisionPanel}).
+ * Shared failure-recovery row: inline text links.
+ * Priority: retry-failed XOR regenerate. 「忽略」is implicit — starting a new
+ * turn dismisses recoverable projections. Reused by failure / partial-failure /
+ * stopped strips and the canvas 指挥台 ({@link CanvasDecisionPanel}).
+ * Empty interrupted (no assistant body) does **not** mount this row at message
+ * level — re-ask via a new turn.
  */
 export function RecoveryActions({
   hasFailedRuns = false,
 }: {
   /** When true, show only "重试失败项" (retry-failed); otherwise only "重试"
-   * (full regenerate). Never stack both. */
+   * (full regenerate). */
   hasFailedRuns?: boolean;
 }) {
   const isGenerating = useActiveGenerating();

@@ -390,7 +390,7 @@ async def test_execute_tools_denies_tool_outside_allowlist():
     reg.register(read)
     sink = EventSink()
     messages, terminal, attempts = await execute_tools(
-        [_call("c1", "file_write", '{"path":"research/x.md","content":"n"}')],
+        [_call("c1", "file_write", '{"path":"AgentCore/文档/research/x.md","content":"n"}')],
         reg,
         _ctx(),
         sink,
@@ -551,6 +551,67 @@ async def test_execute_end_ok_omits_reason():
     assert len(ends) == 1
     assert ends[0]["status"] == "ok"
     assert "reason" not in ends[0]
+
+
+@pytest.mark.asyncio
+async def test_same_batch_handoff_waits_for_sibling_write(tmp_path: Path):
+    """同批 file_write+handoff：handoff 须在 write 之后执行，才能看到 prose stamp。"""
+    import asyncio
+    import json
+
+    from agentcore.tools.builtin.file_ops import FileWriteTool
+    from agentcore.tools.builtin.handoff import HandoffTool
+
+    order: list[str] = []
+    prose = "# 报告\n\n" + ("这是实质正文段落。" * 50)
+    assert len(prose) >= 400
+
+    class _SlowWrite(FileWriteTool):
+        async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+            order.append("write_start")
+            await asyncio.sleep(0.05)
+            result = await super().execute(arguments, context)
+            order.append("write_end")
+            return result
+
+    class _OrderHandoff(HandoffTool):
+        async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+            order.append("handoff")
+            return await super().execute(arguments, context)
+
+    reg = ToolRegistry()
+    reg.register(_SlowWrite())
+    reg.register(_OrderHandoff())
+    ctx = ToolContext(
+        execution_id="e",
+        run_id="s",
+        agent_id="a",
+        backend=ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox()),
+        user_id="u",
+        handoff_requires_body=True,
+        round_content_chars=0,
+    )
+    write_args = json.dumps({"path": "notes.md", "content": prose}, ensure_ascii=False)
+    handoff_args = json.dumps({"summary": "调研已落盘"}, ensure_ascii=False)
+    # handoff listed first — without phasing it would race ahead of slow write.
+    messages, terminal, attempts = await execute_tools(
+        [
+            _call("c_h", "handoff", handoff_args),
+            _call("c_w", "file_write", write_args),
+        ],
+        reg,
+        ctx,
+        EventSink(),
+        run_id="r1",
+    )
+    assert order[:2] == ["write_start", "write_end"]
+    assert order[-1] == "handoff"
+    assert attempts[0].success is True  # handoff (call order)
+    assert attempts[1].success is True  # write
+    assert terminal is not None
+    assert terminal.success is True
+    assert ctx.landed_artifact_kinds.get("notes.md") == "prose"
+    assert len(messages) == 2
 
 
 async def test_test_run_maps_sandbox_error_to_failed_result(monkeypatch: pytest.MonkeyPatch):

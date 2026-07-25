@@ -179,7 +179,7 @@ def _outside_workspace_msg(path: str) -> str:
     fix with a concrete example instead of a bare "out of range"."""
     return (
         f"路径 '{path}' 超出了工作区范围。请改用相对工作区根目录的【相对路径】"
-        "（不要用 /workspace/... 这类绝对路径），例如 research/report.md。"
+        "（不要用 /workspace/... 这类绝对路径），例如 AgentCore/文档/research/report.md。"
     )
 
 

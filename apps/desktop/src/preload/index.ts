@@ -150,14 +150,14 @@ const fsApi: FsApi = {
     } catch {
       return Promise.resolve({
         ok: false as const,
-        reason: "无法解析拖入文件的本机路径",
+        reason: "无法读取拖入的文件，请改用回形针选择",
         code: "invalid" as const,
       } satisfies FsResult<StagedAttachment>);
     }
     if (!absPath) {
       return Promise.resolve({
         ok: false as const,
-        reason: "无法解析拖入文件的本机路径",
+        reason: "无法读取拖入的文件，请改用回形针选择",
         code: "invalid" as const,
       } satisfies FsResult<StagedAttachment>);
     }
@@ -182,8 +182,6 @@ const sidecarApi: SidecarApi = {
   runRedirect: (req) => ipcRenderer.invoke(SIDECAR_CHANNELS.runRedirect, req),
   debateSteer: (req) => ipcRenderer.invoke(SIDECAR_CHANNELS.debateSteer, req),
   resume: (req) => ipcRenderer.invoke(SIDECAR_CHANNELS.resume, req),
-  continueAfterDecision: (req) =>
-    ipcRenderer.invoke(SIDECAR_CHANNELS.continueAfterDecision, req),
   probe: (req) => ipcRenderer.invoke(SIDECAR_CHANNELS.probe, req),
   recovery: (req) => ipcRenderer.invoke(SIDECAR_CHANNELS.recovery, req),
   attach: (req) => ipcRenderer.invoke(SIDECAR_CHANNELS.attach, req),

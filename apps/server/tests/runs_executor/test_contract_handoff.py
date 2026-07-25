@@ -394,6 +394,11 @@ async def test_strict_degraded_handoff_fails_not_completed():
     reg.register(_FileWriteTool())
     # Write artifact so contract exists, but never call handoff → degraded synth
     # after handoff correction shot still empty → Wave3 C blocks COMPLETED.
+    # Stream past MIN_UPSTREAM_BODY_CHARS so the prose-落地空交付闸不抢先于
+    # degraded_handoff（骨架 HTML 不算 prose 豁免）。
+    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+
+    body_pad = "分区正文填充。" * ((MIN_UPSTREAM_BODY_CHARS // 7) + 1)
     rounds = [
         [
             LLMChunk(
@@ -410,7 +415,14 @@ async def test_strict_degraded_handoff_fails_not_completed():
                 ]
             )
         ],
-        [LLMChunk(delta_content="分区片段已写入 site/sections/s0.html，含英雄区结构与文案键位。")],
+        [
+            LLMChunk(
+                delta_content=(
+                    "分区片段已写入 site/sections/s0.html，含英雄区结构与文案键位。"
+                    + body_pad
+                )
+            )
+        ],
         [LLMChunk(delta_content="纠正轮仍未提交合格 handoff，保持已落盘片段不变。")],
     ]
     provider = _ScriptedRounds(rounds)

@@ -2,7 +2,6 @@ import { DeliveryStatusCard } from "@/components/chat/DeliveryStatusCard";
 import { FileArtifactsCard } from "@/components/chat/FileArtifactsCard";
 import { Markdown } from "@/components/chat/Markdown";
 import { SourceCards } from "@/components/chat/SourceCards";
-import { RecoveryActions } from "@/components/chat/StatusStrip";
 import { TurnWarningBanner } from "@/components/chat/TurnWarningBanner";
 import { CollapsibleSpeech } from "@/components/chat/debate/CollapsibleSpeech";
 import { Button, IconButton } from "@/components/ui";
@@ -16,7 +15,6 @@ import { FinishReasonChip } from "@/components/ui/finish-reason-chip";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { buildCitationDisplayMap } from "@/lib/citationDisplayMap";
 import { copyText } from "@/lib/clipboard";
-import { isEmptyInterruptedAssistant } from "@/lib/composerContinueHint";
 import {
   connectivityEscalationSuffix,
   degradedFinishChipLabel,
@@ -40,17 +38,12 @@ import { formatSupportDiagnosticText } from "@/lib/supportDiagnostics";
 import { notifySuccess } from "@/lib/toast";
 import { runRegenerate } from "@/services/turns";
 import {
-  type Message,
   assistantProjectionId,
   getActiveRuntime,
   useActiveGenerating,
   useConversationStore,
 } from "@/stores/conversation";
-import {
-  ExecutionScopeContext,
-  useExecutionStore,
-  useMessageExecution,
-} from "@/stores/execution";
+import { useExecutionStore, useMessageExecution } from "@/stores/execution";
 import { useMessageInteractionCards } from "@/stores/interactions";
 import { useUsageStore } from "@/stores/usage";
 import type { ProcessStep } from "@/types/events";
@@ -101,28 +94,6 @@ function MultiAgentFileArtifacts({
         turnKey={messageId}
       />
     </>
-  );
-}
-
-/**
- * Empty interrupted salvage: no body to continue via「继续」— surface the same
- * inline 救火「重试」(regenerate) as StatusStrip RecoveryActions. Continuable
- * truncations (cancelled / interrupted-with-body / max_rounds) use the composer
- * placeholder instead of a button.
- */
-function EmptyInterruptedRecovery({ message }: { message: Message }) {
-  const isGenerating = useActiveGenerating();
-  const isLast = useConversationStore((s) => {
-    const rt = s.currentConversationId ? s.byId[s.currentConversationId] : null;
-    return rt?.messages.at(-1)?.id === message.id;
-  });
-  if (!isLast || isGenerating || !isEmptyInterruptedAssistant(message)) {
-    return null;
-  }
-  return (
-    <ExecutionScopeContext.Provider value={assistantProjectionId(message)}>
-      <RecoveryActions />
-    </ExecutionScopeContext.Provider>
   );
 }
 
@@ -359,7 +330,6 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
         <TurnWarningBanner message={message.turnWarning} />
       )}
       {turnBody}
-      <EmptyInterruptedRecovery message={message} />
       {displayError && (
         <div className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />

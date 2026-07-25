@@ -452,7 +452,6 @@ function AssistantBubble({
       ? COST_UNPRICED_LABEL
       : null;
   const turnWarning = p.turnWarning;
-  const stopped = p.status === "cancelled";
   return (
     <div className="bubble assistant">
       {turnWarning && <div className="turn-warning">{turnWarning}</div>}
@@ -463,7 +462,6 @@ function AssistantBubble({
           ）
         </div>
       )}
-      {stopped && <div className="finish-chip muted">{STOPPED_LABEL}</div>}
       {empty ? (
         <span className="muted">
           {live ? (turnQueued ? "等待上一回合结束…" : "…") : ""}
@@ -641,10 +639,6 @@ function HistoryAssistant({
       ref={columnBilled == null ? ref : undefined}
     >
       {turnWarning && <div className="turn-warning">{turnWarning}</div>}
-      {stopped && <div className="finish-chip muted">{STOPPED_LABEL}</div>}
-      {interrupted && !stopped && (
-        <div className="finish-chip muted">已中断，可重试</div>
-      )}
       {streaming && !m.content && !m.reasoning_content && !process?.length ? (
         <span className="muted">…</span>
       ) : (

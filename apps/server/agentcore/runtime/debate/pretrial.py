@@ -26,6 +26,7 @@ from agentcore.runtime.debate.constants import (
     MAX_INVESTIGATORS_PER_SIDE,
 )
 from agentcore.runtime.debate.moderator_common import _parse_json_object
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 if TYPE_CHECKING:
     from agentcore.runtime.debate.evidence_ledger import EvidenceLedger
@@ -368,7 +369,7 @@ async def _persist_investigator_notes(
     notes: str,
     ledger: EvidenceLedger,
 ) -> None:
-    """证据笔记落 research/ + 提交场级台账（side_key=本方）。"""
+    """证据笔记落 ``AgentCore/文档/research/`` + 提交场级台账（side_key=本方）。"""
     text = (notes or "").strip()
     if not text:
         return
@@ -385,7 +386,7 @@ async def _persist_investigator_notes(
             site=side.name,
             side_key=side.key,
             tier="unknown",
-            dossier_path=f"research/庭前·{side.name}·{index + 1}.md",
+            dossier_path=f"{RESEARCH_DIR}/庭前·{side.name}·{index + 1}.md",
             dossier_label=side.name,
         )
     else:
@@ -402,7 +403,7 @@ async def _persist_investigator_notes(
                 tier=str(entry.get("tier") or "unknown"),
             )
     backend = tool._base_tool_context.backend
-    path = f"research/庭前·{side.name}·{index + 1}.md"
+    path = f"{RESEARCH_DIR}/庭前·{side.name}·{index + 1}.md"
     try:
         await backend.write(path, text)
     except Exception:  # noqa: BLE001

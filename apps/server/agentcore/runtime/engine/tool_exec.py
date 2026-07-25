@@ -708,7 +708,32 @@ async def execute_tools(
         async with sem:
             return await _run_one(tc)
 
-    quads = await asyncio.gather(*[_bounded(tc) for tc in tool_calls])
+    # Same-batch handoff after writes: ``landed_artifact_kinds`` is a shared dict, but
+    # parallel gather can still let handoff observe an empty stamp if it races ahead of
+    # file_write/file_append. Run non-handoff tools first (still parallel among
+    # themselves), then handoff — message order stays call-list order below.
+    def _is_handoff_call(tc: ToolCall) -> bool:
+        return sanitize_tool_name(tc.function.name or "") == "handoff"
+
+    has_handoff = any(_is_handoff_call(tc) for tc in tool_calls)
+    has_non_handoff = any(not _is_handoff_call(tc) for tc in tool_calls)
+    if has_handoff and has_non_handoff:
+        by_id: dict[
+            str, tuple[LLMMessage, ToolResult | None, ToolAttempt, list[dict[str, Any]]]
+        ] = {}
+        first = [tc for tc in tool_calls if not _is_handoff_call(tc)]
+        second = [tc for tc in tool_calls if _is_handoff_call(tc)]
+        for tc, quad in zip(
+            first, await asyncio.gather(*[_bounded(tc) for tc in first]), strict=True
+        ):
+            by_id[tc.id] = quad
+        for tc, quad in zip(
+            second, await asyncio.gather(*[_bounded(tc) for tc in second]), strict=True
+        ):
+            by_id[tc.id] = quad
+        quads = [by_id[tc.id] for tc in tool_calls]
+    else:
+        quads = await asyncio.gather(*[_bounded(tc) for tc in tool_calls])
 
     # 挂起即收口 (②): a SUSPEND terminal leaves its call PENDING — the suspended tool_call
     # gets NO result message AND NO §8.3 tool_call fact (recorded below), so the resumed

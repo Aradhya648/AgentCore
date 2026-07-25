@@ -29,6 +29,7 @@ from agentcore.runtime.debate.match_ledger import (
 from agentcore.runtime.debate.speech_parse import parse_speech_arguments
 from agentcore.runtime.debate.types import LedgerEvent
 from agentcore.runtime.runs.types import ContextBlock
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 # 后续轮把【对手上一轮发言】喂回本辩手时，每份的头尾截断上限。多方圆桌每轮要塞 N-1 份对手
 # 全文，不裁会让 prompt 暴涨、烧钱且稀释焦点（主持人侧 judge/brief 早已 _clip，唯独喂辩手没裁）。
@@ -87,13 +88,13 @@ def _background_block(config: DebateConfig) -> str:
         "引用其中事实时，【沿用清单中的【已核实·#eN】台账 id】——不得把本底料本身包装成新的"
         "【已核实】来源；清单未写明为既定事实的未决 / 推断状态（如「表示将上诉」≠「已进入二审」）"
         "不得改写成既定事实。"
-        "先读案卷（research/）取证，独立检索仅补案卷没有的缺口；引用案卷内容须标注文件来源。\n"
+        f"先读案卷（{RESEARCH_DIR}/）取证，独立检索仅补案卷没有的缺口；引用案卷内容须标注文件来源。\n"
         f"{clipped}\n"
     )
 
 
 def _research_dossier_block(config: DebateConfig) -> str:
-    """首轮可选案卷索引块：工作区 research/ 有文件时注入（文件列表 + 取证纪律，不注全文）。"""
+    """首轮可选案卷索引块：工作区有案卷文件时注入（文件列表 + 取证纪律，不注全文）。"""
     idx = (config.research_dossier_index or "").strip()
     if not idx:
         return ""
@@ -319,7 +320,7 @@ def debater_task(
         "【案卷优先·选读】按本轮议题焦点选读案卷（看索引字数/摘要），勿全量通读；"
         "补搜前须声明案卷缺口；禁重复搜案卷已覆盖的基础事实。"
         if has_dossier
-        else "优先用 file_read / file_list / grep 阅读工作区 research/ 案卷（若有）；"
+        else f"优先用 file_read / file_list / grep 阅读工作区 {RESEARCH_DIR}/ 案卷（若有）；"
     )
     research_task = (
         f"{_situation_header(config, side, focus=focus, ask_block=ask_block)}\n\n"

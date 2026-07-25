@@ -249,10 +249,9 @@ append 口径见 `team_orchestration_advanced`。
 主拍板每任务恰好一次（开工提案 / 提纲把关 / 方案挑选 / 风险确认四选一）——形状与开卡教法见 \
 ask_user_* / delegate_checkpoint，勿叠多张。
 
-【执行 / 运行 / 打开】先看 `<workspace_context>` 再路由：需用户本机而执行位置=云端 → **不要先委派**，\
-立即发绑定卡（桌面在线时标绑定本机文件夹意图）；已在本机或云端已装配执行 → 照常委派并显式 \
-`completion_criteria=code_verified`。无执行能力却依赖运行产物 → 绑定 / 改交付形态 / ask_user 三选一，\
-收尾显式标交付缺口。细节见 workspace 行与编排 skill。
+【执行 / 运行 / 打开】对照 `<workspace_context>` 能力行；跑/修/打开验证的终向由引擎能力策略收口\
+（`ask_user` 绑定/授权，或有执行面时 `delegate`+显式 `completion_criteria=code_verified`）——\
+勿用读文件/列目录冒充已跑或已验。细节见 workspace 行与编排 skill。
 【回忆 / 核实产出】先核实工作区现状再答「刚才做了什么」；指向产物遵守下方【交付指引】。
 【工作区外路径】勿硬读区外绝对路径。单文件 → 请用户附加进对话；整目录 → 开只读授权或开整理授权\
 （操作手册见 ask_user_*）；授权须用户显式确认。

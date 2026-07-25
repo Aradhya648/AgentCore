@@ -573,9 +573,35 @@ def describe_deliverable(deliverable: Deliverable | None) -> str:
         lines.append(f"- 篇幅不超过 {deliverable.max_length} 字")
     # prose form never surfaces file-landing requirements (even if a stale flag slipped in).
     if deliverable.form != "prose":
+        if deliverable.artifact_dir:
+            lines.append(
+                f"- 案卷落盘目录：`{deliverable.artifact_dir}/`（系统约定；你只定文件名，"
+                "必须写入此目录，勿写到工作区根或其他路径）"
+            )
         if deliverable.artifacts:
-            listed = "、".join(f"`{p}`" for p in deliverable.artifacts)
-            lines.append(f"- 必须把以下交付物路径写入工作区（可用目录或通配）：{listed}")
+            # Directory-only gate already covered by artifact_dir line — skip redundant
+            # listing when artifacts is exactly the dir prefix.
+            dir_prefix = (
+                f"{deliverable.artifact_dir.rstrip('/')}/" if deliverable.artifact_dir else ""
+            )
+            listed_paths = [
+                p
+                for p in deliverable.artifacts
+                if p
+                and (
+                    not dir_prefix
+                    or (
+                        p.replace("\\", "/").rstrip("/") + "/" != dir_prefix
+                        and p.replace("\\", "/") != dir_prefix.rstrip("/")
+                    )
+                )
+            ]
+            if listed_paths:
+                listed = "、".join(f"`{p}`" for p in listed_paths)
+                lines.append(f"- 必须把以下交付物路径写入工作区（可用目录或通配）：{listed}")
+            elif not deliverable.artifact_dir:
+                listed = "、".join(f"`{p}`" for p in deliverable.artifacts)
+                lines.append(f"- 必须把以下交付物路径写入工作区（可用目录或通配）：{listed}")
         elif deliverable.requires_files:
             lines.append(
                 "- 必须调用 file_write / str_replace / file_append 把产物写进工作区"

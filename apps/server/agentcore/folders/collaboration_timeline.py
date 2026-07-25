@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.db.models import Conversation, TurnJournalRow
+from agentcore.workspace.stage_dirs import RESEARCH_DIR, RESEARCH_PREFIX
 
 DossierSource = Literal["dossier_inject", "file_read"]
 
@@ -27,7 +28,6 @@ _KIND_FALLBACK_TITLE: dict[str, str] = {
 }
 
 _FILE_READ_TOOLS = frozenset({"file_read"})
-_RESEARCH_PREFIX = "research/"
 
 
 @dataclass
@@ -96,7 +96,7 @@ def _norm_path(raw: str) -> str:
 
 def _is_research_path(path: str) -> bool:
     p = _norm_path(path)
-    return bool(p) and (p == "research" or p.startswith(_RESEARCH_PREFIX))
+    return bool(p) and (p == RESEARCH_DIR or p.startswith(RESEARCH_PREFIX))
 
 
 def _tool_name(payload: dict[str, Any]) -> str:
@@ -114,10 +114,9 @@ def _file_read_path(payload: dict[str, Any]) -> str:
         return _norm_path(blob)
     # Rare: path embedded in stringified args
     fallback = str(args) if args else ""
-    if "research/" in fallback.replace("\\", "/"):
-        # Best-effort extract first research/… token
-        norm = fallback.replace("\\", "/")
-        i = norm.find("research/")
+    norm = fallback.replace("\\", "/")
+    if RESEARCH_PREFIX in norm:
+        i = norm.find(RESEARCH_PREFIX)
         if i >= 0:
             frag = norm[i:].split()[0].strip("'\",)}")
             return _norm_path(frag)
@@ -229,7 +228,7 @@ def extract_dossier_refs(entries: list[dict[str, Any]]) -> list[DossierRef]:
         if not _is_research_path(p):
             return
         # Normalize directory-only to skip; keep file paths
-        if p.rstrip("/") == "research":
+        if p.rstrip("/") == RESEARCH_DIR:
             return
         sources_by_path.setdefault(p, set()).add(source)
 

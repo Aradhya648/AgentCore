@@ -1,4 +1,4 @@
-"""辩论双产物落盘 —— 收口时机制性写入案子工作区 ``debate/``。
+"""辩论双产物落盘 —— 收口时机制性写入案子工作区 ``AgentCore/文档/debate/``。
 
 与 journal / UI 同源：决策简报与交锋叙事线 L1 用 :mod:`types` 的同一套渲染。
 落盘失败只记警告，不阻断收口主流程；成功路径供 CEO 输出尾部引用。
@@ -18,10 +18,9 @@ from agentcore.runtime.debate.types import (
     _stop_label,
 )
 from agentcore.workspace.protocol import WorkspaceBackend
+from agentcore.workspace.stage_dirs import DEBATE_DIR
 
 logger = get_logger(__name__)
-
-DEBATE_DIR = "debate"
 _BRIEF_NAME = "决策简报"
 _NARRATIVE_NAME = "交锋叙事线"
 # 文件名非法字符（含路径分隔与 Windows 保留符）；空白压掉以保持短可读。
@@ -47,7 +46,7 @@ def artifact_stamp(moderator_run_id: str) -> str:
 
 
 def artifact_paths(*, motion: str, stamp: str) -> DebateArtifactPaths:
-    """命名：``debate/{产物名}·{辩题短语}·{场次}.md``。"""
+    """命名：``AgentCore/文档/debate/{产物名}·{辩题短语}·{场次}.md``。"""
     slug = _motion_slug(motion)
     token = (stamp or "").strip() or "场次"
     stem = f"{slug}·{token}"

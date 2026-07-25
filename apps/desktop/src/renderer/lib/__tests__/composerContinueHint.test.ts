@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   COMPOSER_CONTINUE_PLACEHOLDER,
   isContinuableAssistant,
-  isEmptyInterruptedAssistant,
 } from "../composerContinueHint";
 
 function msg(
@@ -37,15 +36,10 @@ describe("composerContinueHint", () => {
     );
   });
 
-  it("rejects empty interrupted for continue (goes to regenerate salvage)", () => {
+  it("rejects empty interrupted (no composer continue; re-ask via new turn)", () => {
     expect(
       isContinuableAssistant(msg({ finishReason: "interrupted", content: "" })),
     ).toBe(false);
-    expect(
-      isEmptyInterruptedAssistant(
-        msg({ finishReason: "interrupted", content: "" }),
-      ),
-    ).toBe(true);
   });
 
   it("rejects streaming / end_turn / non-assistant", () => {

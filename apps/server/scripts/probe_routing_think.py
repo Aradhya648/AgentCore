@@ -36,9 +36,11 @@ from agentcore.evals.eval_modes import KNOWN_MODELS, resolve_profile_set
 from agentcore.llm.factory import build_provider
 from agentcore.llm.profiles import build_request
 from agentcore.llm.provider.protocol import LLMMessage, TokenUsage
+from agentcore.runtime.context import build_workspace_context
 from agentcore.runtime.engine.governance import (
     LOCAL_RECON_TOOLS,
     create_loop_controller,
+    maybe_inject_exec_verify_gate,
     maybe_inject_team_gate,
     resolve_openai_tool_defs,
 )
@@ -81,6 +83,9 @@ class Scenario:
     bucket: str  # DIRECT / ASK / DELEGATE / DELEGATE_MULTI / CALIBRATE / BIND_OR_ASK / …
     user_message: str
     expect: str  # DIRECT | ASK | DELEGATE | DELEGATE_MULTI | DELEGATE_SOLO | CALIBRATE | …
+    # 覆盖生产能力行（None=按 backend 谓词；探针默认可显式钉死缺能力 / 有能力路径）
+    code_execute: bool | None = None
+    browser: bool | None = None
 
 
 SCENARIOS: list[Scenario] = [
@@ -171,7 +176,7 @@ SCENARIOS: list[Scenario] = [
         "competitor_abc",
         "DELEGATE",
         "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
-        "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 research/km-compare.md。",
+        "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 AgentCore/文档/research/km-compare.md。",
         "DELEGATE",
     ),
     Scenario(
@@ -235,7 +240,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         "research_materials_ready",
         "DELEGATE_SOLO",
-        "工作区 research/notes.md 已整理好要点与法条摘录。请据此写成约 4000 字实务指南"
+        "工作区 AgentCore/文档/research/notes.md 已整理好要点与法条摘录。请据此写成约 4000 字实务指南"
         "落盘为 report.md，不要再联网检索，材料已齐只扩写。",
         "DELEGATE_SOLO",
     ),
@@ -259,18 +264,31 @@ SCENARIOS: list[Scenario] = [
         "做一个待办 App，平台先做 Web，功能就增删改查和勾选完成，样式随便简洁点就行。",
         "CALIBRATE",
     ),
-    # ── BIND_OR_ASK ×2 ────────────────────────────────────────
+    # ── BIND_OR_ASK ×2（缺执行/浏览器 → 能力策略收口 ASK）────────────────
     Scenario(
         "bind_run_script",
         "BIND_OR_ASK",
         "帮我跑一下 scripts/smoke_test.py，看看报什么错，有问题就修。",
         "BIND_OR_ASK",
+        code_execute=False,
+        browser=False,
     ),
     Scenario(
         "bind_open_verify",
         "BIND_OR_ASK",
         "刚才做好的那个页面，你能在本地直接打开浏览器帮我验证一下能不能用吗？",
         "BIND_OR_ASK",
+        code_execute=False,
+        browser=False,
+    ),
+    # 有执行能力路径：跑脚本 → 能力策略收口 DELEGATE
+    Scenario(
+        "run_script_with_exec",
+        "DELEGATE",
+        "帮我跑一下 scripts/smoke_test.py，看看报什么错，有问题就修。",
+        "DELEGATE",
+        code_execute=True,
+        browser=False,
     ),
     # ── DEBATE_OR_DELEGATE ×2 ─────────────────────────────────
     Scenario(
@@ -461,18 +479,34 @@ def _expect_match(expect: str, action: str, delegate_summary: dict[str, object] 
     return "matched" if ok else "mismatch"
 
 
-async def _build_ceo_context(mode: str):
-    """复用 pipeline 真实装配，返回 (provider, profile, model, ceo_prompt, tool_defs, …)。"""
+async def _build_ceo_context(
+    mode: str,
+    *,
+    code_execute: bool | None = None,
+    browser: bool | None = None,
+):
+    """复用 pipeline 真实装配，返回 (provider, profile, model, ceo_prompt, tool_defs, …)。
+
+    ``workspace_context`` 与 prepare 同形注入；``code_execute`` / ``browser`` 覆盖能力行
+    （测缺能力 ASK / 有能力 DELEGATE 分叉）。
+    """
     provider = build_provider(None)
     profiles = resolve_profile_set(mode, custom_modes={}, ceiling=frozenset(KNOWN_MODELS))
     chat_profile = profiles.get("chat")
     chat_model = profiles.model_for("chat")
-    base = assemble_system_prompt()
     skill_registry = build_system_skill_registry()
 
     root = Path(tempfile.mkdtemp(prefix="probe-routing-"))
     _seed_probe_workspace(root)
     backend = ServerWorkspace(root=root, sandbox=SubprocessSandbox())
+    # 与 prepare 同形：显式 workspace_context（能力行可覆盖，供 BIND / 有执行分叉）
+    workspace_facts = build_workspace_context(
+        backend,
+        desktop_online=True,
+        code_execute_enabled=code_execute,
+        browser_enabled=browser,
+    )
+    base = assemble_system_prompt(workspace_context=workspace_facts)
     ctx = ToolContext(
         execution_id=new_id(), run_id=new_id(), agent_id="probe", backend=backend, user_id="probe"
     )
@@ -503,6 +537,18 @@ async def _build_ceo_context(mode: str):
         base, skill_registry=skill_registry, ceo_tool_names=ceo_tool_names
     )
     tool_defs = resolve_openai_tool_defs(chat_tools, None, set())
+    # 闸用能力：覆盖优先，否则跟 backend 谓词（与 workspace 行一致）
+    from agentcore.tools.builtin import (
+        browser_execution_enabled_for,
+        code_execution_enabled_for,
+    )
+
+    gate_code = (
+        code_execute if code_execute is not None else code_execution_enabled_for(backend)
+    )
+    gate_browser = (
+        browser if browser is not None else browser_execution_enabled_for(backend)
+    )
     return (
         provider,
         chat_profile,
@@ -512,6 +558,8 @@ async def _build_ceo_context(mode: str):
         sorted(ceo_tool_names),
         chat_tools,
         ctx,
+        gate_code,
+        gate_browser,
     )
 
 
@@ -536,7 +584,7 @@ def _seed_probe_workspace(root: Path) -> None:
         "def avg(nums):\n    return sum(nums) / len(nums)\n\nprint(avg([]))\n",
         encoding="utf-8",
     )
-    research = root / "research"
+    research = root / "AgentCore" / "文档" / "research"
     research.mkdir(parents=True, exist_ok=True)
     (research / "notes.md").write_text(
         "# 已整理要点\n\n- 立案登记制要点\n- 案由与管辖摘录\n- 证据清单草稿\n",
@@ -613,6 +661,8 @@ async def _run_one(
     max_rounds: int,
     *,
     quiet: bool,
+    code_execute: bool = False,
+    browser: bool = False,
 ) -> SampleResult:
     """跑到终向决策；consult_skill / 只读探路会执行续跑。"""
     messages = [
@@ -630,6 +680,20 @@ async def _run_one(
     gate_controller = create_loop_controller(inv_tools)
     disabled_tools: set[str] = set()
     live_tool_defs = tool_defs
+    # 跑/打开验证：首轮前注入能力策略（与 react_loop 同形）
+    if maybe_inject_exec_verify_gate(
+        gate_controller,
+        messages=messages,
+        run_id=str(ctx.run_id or "probe"),
+        round_idx=0,
+        role="captain",
+        code_execute=code_execute,
+        browser=browser,
+        disabled_tools=disabled_tools,
+        investigation_tools=inv_tools,
+    ):
+        trail.append("exec_verify_gate")
+        live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
 
     def _pack(
         action: str,
@@ -805,6 +869,21 @@ async def _run_one(
                     gate_controller._investigation_calls += 1
                     if name in LOCAL_RECON_TOOLS:
                         gate_controller._local_recon_calls += 1
+            if maybe_inject_exec_verify_gate(
+                gate_controller,
+                messages=messages,
+                run_id=str(ctx.run_id or "probe"),
+                round_idx=r,
+                role="captain",
+                code_execute=code_execute,
+                browser=browser,
+                disabled_tools=disabled_tools,
+                investigation_tools=inv_tools,
+            ):
+                trail.append("exec_verify_gate")
+                live_tool_defs = resolve_openai_tool_defs(
+                    chat_tools, None, disabled_tools
+                )
             if maybe_inject_team_gate(
                 gate_controller,
                 messages=messages,
@@ -832,6 +911,19 @@ async def _run_one(
                 gate_controller._investigation_calls += 1
                 if name in LOCAL_RECON_TOOLS:
                     gate_controller._local_recon_calls += 1
+        if maybe_inject_exec_verify_gate(
+            gate_controller,
+            messages=messages,
+            run_id=str(ctx.run_id or "probe"),
+            round_idx=r,
+            role="captain",
+            code_execute=code_execute,
+            browser=browser,
+            disabled_tools=disabled_tools,
+            investigation_tools=inv_tools,
+        ):
+            trail.append("exec_verify_gate")
+            live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
         if maybe_inject_team_gate(
             gate_controller,
             messages=messages,
@@ -951,23 +1043,75 @@ async def main_async(args: argparse.Namespace) -> None:
     out_path = Path(args.out) if args.out else _default_out_path()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    provider, profile, chat_model, ceo_prompt, tool_defs, names, chat_tools, ctx = (
-        await _build_ceo_context(args.mode)
-    )
+    # 默认能力行：云端缺执行/浏览器（与多数 BIND 场景对齐）；有覆盖的场景按需重建。
+    (
+        provider,
+        profile,
+        chat_model,
+        default_ceo_prompt,
+        default_tool_defs,
+        names,
+        default_chat_tools,
+        default_ctx,
+        default_gate_code,
+        default_gate_browser,
+    ) = await _build_ceo_context(args.mode, code_execute=False, browser=False)
     if not args.quiet:
+        assert "<workspace_context>" in default_ceo_prompt
         print(
             f"模型档: {args.mode}  chat.model={chat_model}  "
             f"thinking={profile.thinking}  最多 {args.rounds} 轮"
         )
-        print(f"CEO 提示词长度: {len(ceo_prompt)} 字符  |  装配工具({len(names)}): {', '.join(names)}")
+        print(f"CEO 提示词长度: {len(default_ceo_prompt)} 字符  |  装配工具({len(names)}): {', '.join(names)}")
         print(f"场景数: {len(selected)}  每场景采样: {args.samples}  输出: {out_path}")
         print("=" * 96)
 
     scenario_rows: list[dict[str, object]] = []
     flat_for_confusion: list[dict[str, object]] = []
     tot_in = tot_out = 0
+    # 按能力覆盖缓存 (code_execute, browser) → context bundle
+    ctx_cache: dict[tuple[bool, bool], tuple] = {
+        (False, False): (
+            default_ceo_prompt,
+            default_tool_defs,
+            default_chat_tools,
+            default_ctx,
+            default_gate_code,
+            default_gate_browser,
+        )
+    }
 
     for sc in selected:
+        run_code = False if sc.code_execute is None else bool(sc.code_execute)
+        run_browser = False if sc.browser is None else bool(sc.browser)
+        caps_key = (run_code, run_browser)
+        if caps_key not in ctx_cache:
+            (
+                _p,
+                _pr,
+                _m,
+                ceo_prompt,
+                tool_defs,
+                _n,
+                chat_tools,
+                ctx,
+                gate_code,
+                gate_browser,
+            ) = await _build_ceo_context(
+                args.mode,
+                code_execute=run_code,
+                browser=run_browser,
+            )
+            ctx_cache[caps_key] = (
+                ceo_prompt,
+                tool_defs,
+                chat_tools,
+                ctx,
+                gate_code,
+                gate_browser,
+            )
+        ceo_prompt, tool_defs, chat_tools, ctx, run_code, run_browser = ctx_cache[caps_key]
+
         sample_payloads: list[dict[str, object]] = []
         for i in range(args.samples):
             try:
@@ -982,6 +1126,8 @@ async def main_async(args: argparse.Namespace) -> None:
                     sc.user_message,
                     args.rounds,
                     quiet=args.quiet,
+                    code_execute=run_code,
+                    browser=run_browser,
                 )
             except Exception as exc:  # noqa: BLE001 — 探针容错，单场景上游失败不整跑中断
                 result = SampleResult(

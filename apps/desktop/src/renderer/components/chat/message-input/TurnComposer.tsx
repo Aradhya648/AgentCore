@@ -32,6 +32,7 @@ import {
   Plus,
   Send,
   Square,
+  X,
 } from "lucide-react";
 import type { SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -303,8 +304,10 @@ export function TurnComposer({
       const text = e.target.value;
       setValue(text);
       mention.syncMention(text, e.target.selectionStart ?? text.length);
+      // Soft drop errors dismiss on next edit (industry: ephemeral, not form-sticky).
+      if (drop.dropError) drop.clearDropError();
     },
-    [mention, setValue],
+    [drop, mention, setValue],
   );
 
   const removeAttachment = useCallback(
@@ -337,16 +340,6 @@ export function TurnComposer({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [voice.isSupported, voice.toggle]);
-
-  useEffect(() => {
-    return () => {
-      // 回合 AbortController 挂在会话 slice 上，由 stop 按钮 / sendTurn 自己管理。
-      // 勿在组件卸载时 abort：首条消息会从 `/` navigate 到 `/conversations/:id`，
-      // 两个 ConversationPage 实例会卸载再挂载 MessageInput——若此处 abort 会把
-      // 刚发出的 POST 掐断（DB 0 消息 + UI 僵尸「正在思考」）。
-      drop.disposeDropTimer();
-    };
-  }, [drop]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
@@ -514,9 +507,20 @@ export function TurnComposer({
         </div>
       )}
       {drop.dropError && (
-        <div className="px-3 pt-2 text-xs text-destructive">
-          {drop.dropError}
-        </div>
+        <output
+          aria-live="polite"
+          className="flex items-start gap-2 px-3 pt-2 text-xs text-destructive"
+        >
+          <span className="min-w-0 flex-1">{drop.dropError}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded-lg p-0.5 text-destructive/70 hover:bg-destructive/10 hover:text-destructive focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="关闭提示"
+            onClick={drop.clearDropError}
+          >
+            <X size={12} />
+          </button>
+        </output>
       )}
       {menuOpen && (
         <MentionMenu

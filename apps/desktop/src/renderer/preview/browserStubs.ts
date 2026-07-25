@@ -95,11 +95,7 @@ const sidecarApi: SidecarApi = {
     liveRunning: false,
     unsynced: [],
     paused: [],
-    interruptedAfterDecision: [],
   }),
-  continueAfterDecision: async () => {
-    throw new Error("preview: continueAfterDecision unavailable");
-  },
   attach: async () => ({ attached: false }),
   turnFilesDiff: async () => ({
     message_id: "",

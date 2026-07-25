@@ -115,7 +115,7 @@ def test_dossier_refs_from_inject_and_file_read():
                 "delta": [
                     {
                         "side_key": "dossier",
-                        "dossier_path": "research/法律透镜报告.md",
+                        "dossier_path": "AgentCore/文档/research/法律透镜报告.md",
                         "dossier_label": "法律",
                     },
                     {
@@ -131,7 +131,7 @@ def test_dossier_refs_from_inject_and_file_read():
             "ts": _ts(3),
             "payload": {
                 "tool_name": "file_read",
-                "arguments": {"path": "research/汇总与命题卡.md"},
+                "arguments": {"path": "AgentCore/文档/research/汇总与命题卡.md"},
             },
         },
         {
@@ -140,7 +140,7 @@ def test_dossier_refs_from_inject_and_file_read():
             "ts": _ts(4),
             "payload": {
                 "tool_name": "file_read",
-                "arguments": {"path": "debate/brief.md"},  # 非 research → 忽略
+                "arguments": {"path": "AgentCore/文档/debate/brief.md"},  # 非 research → 忽略
             },
         },
         {
@@ -149,15 +149,15 @@ def test_dossier_refs_from_inject_and_file_read():
             "ts": _ts(5),
             "payload": {
                 "tool_name": "file_read",
-                "arguments": {"path": "research/法律透镜报告.md"},  # 与 inject 合并
+                "arguments": {"path": "AgentCore/文档/research/法律透镜报告.md"},  # 与 inject 合并
             },
         },
     ]
     refs = extract_dossier_refs(entries)
     by_path = {r.path: r.sources for r in refs}
-    assert by_path["research/法律透镜报告.md"] == ["dossier_inject", "file_read"]
-    assert by_path["research/汇总与命题卡.md"] == ["file_read"]
-    assert "debate/brief.md" not in by_path
+    assert by_path["AgentCore/文档/research/法律透镜报告.md"] == ["dossier_inject", "file_read"]
+    assert by_path["AgentCore/文档/research/汇总与命题卡.md"] == ["file_read"]
+    assert "AgentCore/文档/debate/brief.md" not in by_path
 
 
 def test_latest_execution_wins_when_multiple():
@@ -219,7 +219,7 @@ def test_project_item_includes_dossier_refs():
                 "entries": [
                     {
                         "side_key": "dossier",
-                        "dossier_path": "research/品牌商业透镜报告.md",
+                        "dossier_path": "AgentCore/文档/research/品牌商业透镜报告.md",
                     }
                 ]
             },
@@ -234,5 +234,5 @@ def test_project_item_includes_dossier_refs():
     assert item is not None
     assert item.host_turn_id == "t1"
     assert item.acts[0].title == "多视角调研"
-    assert item.dossier_refs[0].path == "research/品牌商业透镜报告.md"
+    assert item.dossier_refs[0].path == "AgentCore/文档/research/品牌商业透镜报告.md"
     assert item.dossier_refs[0].sources == ["dossier_inject"]

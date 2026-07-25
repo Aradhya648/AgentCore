@@ -56,13 +56,15 @@ function formatWaitElapsed(elapsedSec: number | undefined): string {
 }
 
 /**
- * Live ``coordination_wait`` copy for StatusStrip / StreamingIndicator / CEO sink.
- * Optional ``waitingRoles`` / ``elapsedSec`` enrich the heartbeat without new wire fields.
+ * Live ``coordination_wait`` copy for StatusStrip / StreamingIndicator (long form).
+ * Global only — member names stay on graph worker nodes / captain short caption.
+ * ``waitingRoles`` kept in opts for call-site compat; Strip no longer embeds them.
  */
 export function coordinationWaitLabel(
   wait: Pick<CoordinationWaitPayload, "completed" | "total"> | null | undefined,
   opts?: {
     elapsedSec?: number;
+    /** @deprecated Strip uses global copy only; ignored. */
     waitingRoles?: string[];
   },
 ): string | null {
@@ -73,13 +75,6 @@ export function coordinationWaitLabel(
     Math.min(wait.completed, total || wait.completed),
   );
   const elapsed = formatWaitElapsed(opts?.elapsedSec);
-  const roles = (opts?.waitingRoles ?? []).filter(Boolean);
-  if (roles.length === 1) {
-    return `等待「${roles[0]}」完成 (${completed}/${total})${elapsed}…`;
-  }
-  if (roles.length > 1) {
-    return `等待团队成员完成 (${completed}/${total}) · ${roles.join("、")}${elapsed}…`;
-  }
   return `等待团队成员完成 (${completed}/${total})${elapsed}…`;
 }
 

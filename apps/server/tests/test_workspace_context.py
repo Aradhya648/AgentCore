@@ -49,12 +49,21 @@ def test_cloud_scratch_facts():
     assert "本机草稿" in out
     assert "code_execute=未装配" in out
     assert "terminal=未装配" in out
+    assert "browser=未装配" in out
+    assert "local_open=未装配" in out
     # 产物出口纠偏：文件在云端、可在「文件」面板查看/下载；禁止再引导用户去本机「双击打开」
     assert "产物出口" in out
     assert "不在用户本机" in out
     assert "双击打开" in out
     # 旧「云端临时空间」短标签已换成诚实草稿口径
     assert "工作区身份：云端临时空间" not in out
+    # 案卷布局（始终可见）：三行出口 + 边界
+    assert "案卷出口·调研/讨论：`AgentCore/文档/research/`" in out
+    assert "案卷出口·辩论副产物：`AgentCore/文档/debate/`" in out
+    assert "案卷出口·审查：`AgentCore/文档/reviews/`" in out
+    assert "讨论/调研/审查类交付写此树" in out
+    assert "用户工程源码仍写业务路径" in out
+
 
 def test_local_remote_channel_facts():
     out = build_workspace_context(
@@ -62,13 +71,28 @@ def test_local_remote_channel_facts():
         desktop_online=True,
         code_execute_enabled=True,
         terminal_enabled=True,
+        browser_enabled=False,
     )
     assert "执行位置：用户本机（经桌面通道遥控）" in out
     assert "本地目录（根标签 `MyProject`）" in out
     assert "code_execute=已装配" in out
     assert "terminal=已装配" in out
+    assert "browser=未装配" in out
+    assert "local_open=已装配" in out
     assert "bind_local_folder" not in out  # already local — no bind nudge
     assert "产物出口" in out  # 产物出口事实对本地会话同样注入
+
+
+def test_browser_capability_override():
+    out = build_workspace_context(
+        _FakeBackend("server"),
+        desktop_online=True,
+        code_execute_enabled=True,
+        terminal_enabled=False,
+        browser_enabled=True,
+    )
+    assert "browser=已装配" in out
+    assert "local_open=未装配" in out
 
 
 def test_sidecar_local_without_channel():

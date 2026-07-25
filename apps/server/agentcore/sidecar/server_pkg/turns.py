@@ -239,7 +239,6 @@ class TurnExecutionMixin:
         user_message_id: str = "",
         external_mounts: list | dict | None = None,
         *,
-        frame_claimed: bool = True,
         style_id: str | None = None,
     ) -> None:
         """Rebuild + finish a durably-paused turn; stream events; reply when done.
@@ -247,11 +246,9 @@ class TurnExecutionMixin:
         D1: settlement is prewritten to the local outbox journal **before** the
         pipeline; on success the claimed frame is consumed immediately
         (:meth:`confirm_claim`). Pipeline failure after that does **not** restore
-        the frame — projection becomes interrupted_after_decision (D2).
-        ``frame_claimed=False`` is the frameless continue path (D2): settlement +
-        resume_frame already live in the outbox journal.
+        the frame (decision card stays settled; user continues via a new message).
         """
-        assert self._root is not None  # guarded by _on_resume / continueAfterDecision
+        assert self._root is not None  # guarded by _on_resume
         turn_id = suspension.message_id
         conversation_id = suspension.conversation_id
         user_message = suspension.user_message or ""
@@ -266,7 +263,7 @@ class TurnExecutionMixin:
         backend = self._make_backend(external_mounts=external_mounts)
         saver, deleter = self._suspension_hooks()
         outbox = self._outbox_store
-        settlement_durable = not frame_claimed  # frameless path already settled
+        settlement_durable = False
         if outbox is not None:
             outbox.bind_turn(
                 conversation_id=conversation_id,
@@ -286,7 +283,7 @@ class TurnExecutionMixin:
             )
 
         # D1: prewrite settlement → confirm_claim before any pipeline work.
-        if frame_claimed and outbox is not None:
+        if outbox is not None:
             try:
                 from agentcore.sidecar.settlement_prewrite import (
                     prewrite_sidecar_resume_settlement,
@@ -323,7 +320,7 @@ class TurnExecutionMixin:
             if self._paused_store is not None:
                 await self._paused_store.confirm_claim(turn_id)
             settlement_durable = True
-        elif frame_claimed and outbox is None:
+        else:
             # No outbox ⇒ cannot durable-prewrite; keep legacy confirm-on-success.
             settlement_durable = False
 
@@ -424,7 +421,7 @@ class TurnExecutionMixin:
             with contextlib.suppress(Exception):
                 await pump
             logger.error("sidecar.resume_failed", turn_id=turn_id, error=str(e), exc_info=True)
-            # After settlement, failure is interrupted_after_decision — not a frame retry.
+            # After settlement, failure does not restore the frame for retry.
             err_code = (
                 protocol.INTERNAL_ERROR if settlement_durable else protocol.RESUME_RETRYABLE
             )

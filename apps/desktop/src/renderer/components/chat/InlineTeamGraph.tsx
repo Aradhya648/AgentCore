@@ -237,7 +237,7 @@ function GraphArea({
 
   return (
     <div
-      className="w-full select-none border-t border-border transition-[height] duration-200 motion-reduce:transition-none"
+      className="w-full select-none border-t border-border"
       style={{ height }}
     >
       <GraphView

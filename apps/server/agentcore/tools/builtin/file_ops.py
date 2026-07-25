@@ -262,7 +262,7 @@ def format_artifact_manifest(
     kind: str,
     action: str = "write",
 ) -> str:
-    """Success receipt = artifact manifest (验真；禁止再 file_read 回读正文)."""
+    """Success receipt = artifact manifest（作者以此验真，勿再 file_read 回读正文）。"""
     lines = len((content or "").splitlines())
     tree = extract_title_tree(content)
     tree_block = "\n".join(f"  {t}" for t in tree) if tree else "  （无标题）"
@@ -278,12 +278,13 @@ def format_artifact_manifest(
         f"content_sha256: {content_sha256_short(content)}\n"
         f"title_tree:\n{tree_block}\n"
         f"end_preview:\n{preview}\n"
-        "【验真】请以本 manifest 确认落盘；禁止对本文件再 file_read 回读正文。"
+        "【验真】请以本 manifest 确认落盘；作者禁止对本文件再 file_read 回读正文"
+        "（防空转；下游读者不受此限）。"
     )
 
 
 def format_cheap_disk_structure(content: str, *, path: str) -> str:
-    """Title tree + line count for self-product ``file_read`` rejection (not a body dump)."""
+    """Title tree + line count for author self-product ``file_read`` rejection (not a body dump)."""
     lines = len((content or "").splitlines())
     tree = extract_title_tree(content)
     tree_block = "、".join(tree[:12]) if tree else "（无标题）"
@@ -300,12 +301,13 @@ def prose_append_rejection(path: str) -> str:
 
 
 def self_product_read_rejection(path: str, structure_note: str) -> str:
-    """Hard reject ``file_read`` of a path already landed this run."""
+    """Hard reject author ``file_read`` of a path they landed（防作者空转，非防读者）。"""
     note = (structure_note or "").strip()
     suffix = f"\n{note}" if note else ""
     return (
-        f"拒绝 file_read：`{path}` 为本 run 已落盘产物。"
-        "请以写/append 回执中的 artifact manifest 验真，禁止回读正文。"
+        f"拒绝 file_read：`{path}` 为你本 run 已落盘产物。"
+        "请以写/append 回执中的 artifact manifest 验真，禁止作者回读正文"
+        "（防空转；下游非作者可读）。"
         f"{suffix}"
     )
 
@@ -323,13 +325,17 @@ def _mark_landed_files(
     """Stamp landed-files gate + Artifact-first path kind (shared mutable dict).
 
     ``kind="prose"`` locks same-path append. ``kind="skeleton"`` or omitted keeps
-    append allowed while still blocking self-product ``file_read``. Existing
-    ``prose`` is never downgraded.
+    append allowed while still blocking the **author**'s self-product ``file_read``
+    （防作者空转验真，非防下游读者）. Existing ``prose`` is never downgraded.
+    First writer of ``path`` is recorded in ``landed_artifact_authors`` (setdefault).
     """
     context.has_landed_files = True
     path_key = _norm_rel_path(path)
     if not path_key:
         return
+    author = (context.agent_id or "").strip()
+    if author:
+        context.landed_artifact_authors.setdefault(path_key, author)
     current = context.landed_artifact_kinds.get(path_key)
     if current == "prose":
         return
@@ -558,7 +564,7 @@ def _outside_workspace_msg(path: str, *, location: str | None = None) -> str:
     """
     relative_fix = (
         "请改用相对工作区根目录的【相对路径】"
-        "（不要用 /workspace/... 这类绝对路径），例如 research/report.md。"
+        "（不要用 /workspace/... 这类绝对路径），例如 AgentCore/文档/research/report.md。"
     )
     if location == "server":
         return (
@@ -642,9 +648,11 @@ def _claim_write_path(
 def _maybe_inject_research_ledger_anchors(
     rel_path: str, content: str, context: ToolContext
 ) -> str:
-    """``research/`` 落盘时若正文无 ``#rN``，用本 worker 台账条目补脚注（一层兜底）。"""
+    """案卷 ``research/`` 落盘时若正文无 ``#rN``，用本 worker 台账条目补脚注（一层兜底）。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
     norm = (rel_path or "").replace("\\", "/").lstrip("./")
-    if not norm.startswith("research/") or not norm.endswith(".md"):
+    if not norm.startswith(RESEARCH_PREFIX) or not norm.endswith(".md"):
         return content
     try:
         from agentcore.runtime.debate.research_dossier import (
@@ -725,8 +733,9 @@ class FileReadTool:
                 "读取工作区内某个文件的内容（相对路径）。"
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
-                "本 run 已用 file_write / file_append / str_replace 落盘的路径禁止再 "
-                "file_read 回读正文——以写回执 artifact manifest 验真。"
+                "你本人本 run 已用 file_write / file_append / str_replace 落盘的路径"
+                "禁止再 file_read 回读正文（防作者空转——以写回执 artifact manifest 验真；"
+                "下游非作者可读）。"
             ),
             parameters={
                 "type": "object",
@@ -767,10 +776,13 @@ class FileReadTool:
         path_key = (rel_path or "").strip().replace("\\", "/")
         using_reread = False
         if path_key:
-            # Artifact-first: never body-read a path this run already landed.
-            # Cheap structure only; does NOT count toward FILE_READ_SAME_PATH_MAX.
+            # Artifact-first: author must not body-read a path they landed
+            # （防作者空转验真，非防读者）. Non-author agents in the same execution
+            # may read. Cheap structure only; does NOT count toward FILE_READ_SAME_PATH_MAX.
             landed_kind = context.landed_artifact_kinds.get(path_key)
-            if landed_kind is not None:
+            author_id = context.landed_artifact_authors.get(path_key) or ""
+            self_agent = (context.agent_id or "").strip()
+            if landed_kind is not None and author_id and author_id == self_agent:
                 structure = ""
                 try:
                     disk = await context.backend.read(rel_path)
@@ -881,7 +893,8 @@ class FileWriteTool:
                 "【Artifact-first】中等单篇默认一次写完；超长先短骨架（标题/锚点/"
                 "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空——"
                 "禁止先写成篇正文再同文件 append。"
-                "成功回执为 artifact manifest（以此验真，禁止再 file_read 回读）。"
+                "成功回执为 artifact manifest（作者以此验真，禁止再 file_read 回读；"
+                "防空转，下游读者不受此限）。"
                 "【修订已有成品】禁止用它全文重写——对已存在成篇非空文件，"
                 "系统会【硬拒绝】整文件覆盖并引导改用 str_replace"
                 "（反例：惰性「……（中间省略，已保留首尾）……」会残缺交付）。"
@@ -930,7 +943,8 @@ class FileWriteTool:
             return denied
         coordinator = context.write_coordinator
 
-        # 幕1 案卷落盘锚：research/ 下若正文无 #rN，用本回合台账条目写脚注（一层兜底）。
+        # 幕1 案卷落盘锚：AgentCore/文档/research/ 下若正文无 #rN，
+        # 用本回合台账条目写脚注（一层兜底）。
         write_content = _maybe_inject_research_ledger_anchors(
             rel_path, content, context
         )
@@ -1036,7 +1050,8 @@ class FileAppendTool:
                 "仅用于骨架填空 / 建站 SECTION 壳：短骨架或 `<!-- SECTION: -->` 落盘后"
                 "按节追加。禁止对「本 run 已 file_write 成篇正文」再 append——"
                 "中篇应一次写完，修订用 str_replace。"
-                "成功回执为 artifact manifest（以此验真，禁止再 file_read 回读）。"
+                "成功回执为 artifact manifest（作者以此验真，禁止再 file_read 回读；"
+                "防空转，下游读者不受此限）。"
                 "若要【整体覆盖】或中等单篇一次成文，用 file_write；改中间某段用 "
                 "str_replace。路径必须是相对于工作区的相对路径。"
             ),

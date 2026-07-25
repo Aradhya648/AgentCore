@@ -759,7 +759,7 @@ async def test_debater_allowlist_blocks_file_write_at_execute():
     reg.register(_GrantableTool("escalate"))
     provider = _ToolCallThenContent(
         "file_write",
-        '{"path":"research/证据笔记.md","content":"should-not-land"}',
+        '{"path":"AgentCore/文档/research/证据笔记.md","content":"should-not-land"}',
         "DONE",
     )
     executor = build_agent_executor(

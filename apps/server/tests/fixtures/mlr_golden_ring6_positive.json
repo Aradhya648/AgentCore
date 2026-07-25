@@ -800,7 +800,7 @@
         "tool_call_id": "fr1",
         "tool_name": "file_read",
         "arguments": {
-          "path": "research/汇总与命题卡.md"
+          "path": "AgentCore/文档/research/汇总与命题卡.md"
         },
         "run_id": "debate_mod_sc_r1_pro"
       }
@@ -811,7 +811,7 @@
         "tool_call_id": "fr2",
         "tool_name": "file_read",
         "arguments": {
-          "path": "research/法律透镜报告.md"
+          "path": "AgentCore/文档/research/法律透镜报告.md"
         },
         "run_id": "debate_mod_sc_r1_con"
       }
@@ -829,13 +829,13 @@
     }
   ],
   "workspace_files": [
-    "research/法律透镜报告.md",
-    "research/品牌商业透镜报告.md",
-    "research/舆情公关透镜报告.md",
-    "research/文化社会透镜报告.md",
-    "research/汇总与命题卡.md",
-    "debate/决策简报·终止联名·abcd1234.md",
-    "debate/交锋叙事线·终止联名·abcd1234.md"
+    "AgentCore/文档/research/法律透镜报告.md",
+    "AgentCore/文档/research/品牌商业透镜报告.md",
+    "AgentCore/文档/research/舆情公关透镜报告.md",
+    "AgentCore/文档/research/文化社会透镜报告.md",
+    "AgentCore/文档/research/汇总与命题卡.md",
+    "AgentCore/文档/debate/决策简报·终止联名·abcd1234.md",
+    "AgentCore/文档/debate/交锋叙事线·终止联名·abcd1234.md"
   ],
   "message_costs": {
     "m1": {

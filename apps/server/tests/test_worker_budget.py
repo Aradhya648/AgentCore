@@ -86,7 +86,7 @@ def test_build_plan_research_root_still_gets_research_retrieval():
             {
                 "role": "数据研究员",
                 "task": "深度调研并成篇汇报",
-                "deliverable": {"form": "files", "name": "调研报告", "artifacts": ["research/r.md"]},
+                "deliverable": {"form": "files", "name": "调研报告", "artifacts": ["AgentCore/文档/research/r.md"]},
             }
         ],
         complexity_hint="standard",

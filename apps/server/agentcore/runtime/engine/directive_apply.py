@@ -252,6 +252,12 @@ async def apply_loop_directive(
                     tool_defs = resolve_openai_tool_defs(
                         tools, allowed_tool_names, disabled_tools
                     )
+                from agentcore.tools.builtin import (
+                    browser_execution_enabled_for,
+                    code_execution_enabled_for,
+                )
+
+                backend = tool_context.backend
                 _ = govern_after_tools(
                     outcome=RoundOutcome(
                         content=coordination.content,
@@ -267,6 +273,10 @@ async def apply_loop_directive(
                     run_id=run_id,
                     breaker_message=breaker.message,
                     role=role,
+                    disabled_tools=disabled_tools,
+                    investigation_tools=controller.investigation_tool_names,
+                    code_execute=code_execution_enabled_for(backend),
+                    browser=browser_execution_enabled_for(backend),
                 )
                 return DirectiveApplyResult(
                     action="continue",

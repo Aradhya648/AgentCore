@@ -31,6 +31,7 @@ from agentcore.runtime.coordination.session import (
     MAX_COORDINATION_BUDGET,
 )
 from agentcore.runtime.runs.playbooks import PLAYBOOKS, available_playbooks
+from agentcore.workspace.stage_dirs import RESEARCH_DIR, REVIEWS_DIR
 
 # playbook 降级为形状词汇教学示例（协作优先重设计阶段 2）：listing 仍嵌进 skill，口径改为对照学形状。
 _PLAYBOOK_LISTING = available_playbooks()
@@ -171,7 +172,8 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 `web_search`。审查默认是中间产物、注入下游或供你汇总：prose 批不设 `requires_files`。
 - 结构化交付走文件通道（仅当下游真需字段级机械合并时才用 JSON）：worker 把 JSON 写入工作区文件，\
 契约验「文件存在 + 可解析」。形态示例：\
-`deliverable: { "form": "files", "output_format": "json", "artifacts": ["reviews/legal.json"], \
+`deliverable: { "form": "files", "output_format": "json", "artifacts": ["\
+""" + f"{REVIEWS_DIR}/legal.json" + """"], \
 "name": "JSON 对象，必含 problems（含 severity/description/evidence）/ suggestions / score（0–10）" }`\
 ——`artifacts` 对账路径存在，`output_format=json` 校验该文件可解析；聊天正文不必再贴一份 JSON。\
 【禁止】把 `output_format=json` 与 `required_sections` 混用（后者是 Markdown 小标题语义，混用会假失败）。
@@ -245,8 +247,8 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 任务——【必须】显式设 `completion_criteria=code_verified`（硬要求；引擎【不】从任务文案推断验收，\
 省略 = 本批不强制）。引擎校验 worker 是否用 `code_execute` / `test_run` 在工作区实际跑通；\
 纯写文件、只需阅读编辑不必启动进程的——`files_written`（常配合 `deliverable.form=files`）。\
-**任务核心是「执行 / 运行代码」时，验收标准必须含执行成功证据（`code_verified`），禁止只验 \
-`files_written`——落盘≠跑通。**\
+跑/修/打开验证类终向由引擎能力策略收口（对照 `<workspace_context>`）；验收须含执行成功证据 \
+（`code_verified`），禁止只验 `files_written`。\
 别混用：能跑才算完的活别只验「写了文件」；全员 prose 的批次别设 `files_written`。\
 `type=custom`【不被引擎验证】——设了也不会机械验收，却可能误导你以为已加闸；需要可验证完成条件时用 \
 `files_written` / `code_verified`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
@@ -570,8 +572,8 @@ file_write 写完；超长不要先写成篇正文再同文件 append——先�
 `deliverable.artifacts` 均指向它）；② 合并责任（末尾 merge worker `depends_on` 各章，\
 或你 CEO 收口合并进主文件）。验收只认合并后的那一篇；禁止「各写各的章节文件就交」。
 4. 写/append 成功回执即 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）\
-——以此验真，禁止再对本文件 file_read 回读正文；改中间某段用 str_replace，不要 \
-file_write 覆盖全文。
+——以此验真，禁止为质检再 code_execute / file_read 回读正文；下一步仅 str_replace \
+（局部改）或同轮 handoff，不要 file_write 覆盖全文。
 
 纪律：
 - 追加前确认 path 与主文件一致；每节 content 自行带好段落分隔（如 leading `\\n\\n`）。
@@ -620,7 +622,7 @@ _DEEP_MULTI_LENS_RESEARCH = """\
 同一次 `delegate` 派出【异质透镜】并行调研 + 一名汇总分析师 `depends_on` 全部透镜：
 - 默认四透镜（按题材可换，保持【异质】——别派四个同质「调研员」）：法律 / 品牌商业 / 舆情公关 / 文化社会。
 - 每路只深挖本透镜：关键事实 / 证据 / 来源；完整报告以 `form=files` + `artifacts` 落盘\
-`research/{透镜名}透镜报告.md`（如 `research/法律透镜报告.md`）；内容=完整调研报告，\
+`""" + f"{RESEARCH_DIR}/{{透镜名}}透镜报告.md" + """`（如 `""" + f"{RESEARCH_DIR}/法律透镜报告.md" + """`）；内容=完整调研报告，\
 不是 handoff 摘要复制。正文引用须就地标台账 id（#rN，与工具「[已登记来源]」一致），\
 使落盘文件可溯源到调研台账。关键数字 / 关键结论旁须有 #rN 或显式待核实语，勿裸写无出处主张；\
 不强迫辩词式【已核实·#eN】二分格式。handoff 结构化简报照旧（精炼结论 + 证据指针）——落盘是叠加、不得替代。
@@ -630,11 +632,11 @@ _DEEP_MULTI_LENS_RESEARCH = """\
 检索额度走统一默认（各路同额）；手写 tasks 时须把本条检索分工写进各透镜任务书\
 （playbook 已内嵌）。
 - 汇总分析师交叉验证四路：标【共识】/【冲突】/【分歧】；冲突须点明是事实缺口还是价值对立；\
-完整综述落盘 `research/汇总与命题卡.md`（可先 file_read 各透镜报告）；\
+完整综述落盘 `""" + f"{RESEARCH_DIR}/汇总与命题卡.md" + """`（可先 file_read 各透镜报告）；\
 继承上游关键数字 / 结论须保留 #rN 或待核实语，勿抹成既定事实；\
 `motion_card` 仍走 handoff 结构化字段（见第三节），落盘不替代该对象。
 形态贴合时可选用 `playbook="multi_lens_research"` + `playbook_args`（槽位 topic / lenses）；\
-手写 tasks 时须把下方「命题卡」纪律、`research/` 落盘契约与上条检索分工写进各路任务书\
+手写 tasks 时须把下方「命题卡」纪律、`""" + f"{RESEARCH_DIR}/" + """` 落盘契约与上条检索分工写进各路任务书\
 （`deliverable.form=files` + `artifacts`）。
 
 【二、CEO 纪律：禁止自搜替代四路】

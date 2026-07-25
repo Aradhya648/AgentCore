@@ -67,7 +67,7 @@ def test_frame_round_injects_research_dossier_agenda_hint():
         DebateSide(key="con", name="反方", stance="反对"),
     ]
     idx = format_research_dossier_index(
-        ["research/法律透镜报告.md", SYNTHESIZER_FILE]
+        ["AgentCore/文档/research/法律透镜报告.md", SYNTHESIZER_FILE]
     )
     cfg = DebateConfig(
         motion="该不该做 X",
@@ -80,7 +80,7 @@ def test_frame_round_injects_research_dossier_agenda_hint():
     focus, opening = asyncio.run(frame_round(cap, cfg, []))
     assert focus == "成本净影响"
     assert opening == "开场白占位"
-    assert "【工作区案卷索引·research/】" in cap.user
+    assert "【工作区案卷索引·AgentCore/文档/research/】" in cap.user
     assert SYNTHESIZER_FILE in cap.user
     assert "分歧作议程" in cap.user or "议程线索" in cap.user
 

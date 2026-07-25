@@ -1,6 +1,6 @@
 {
   "name": "decision_then_kill",
-  "description": "恢复收口：决策后杀进程 → fold 无待授权、status=running（已授权·执行中断）",
+  "description": "恢复收口：决策后杀进程 → fold 无待授权、status=running（已决策·执行中断 / 救火继续）",
   "events": [
     {
       "type": "message_start",

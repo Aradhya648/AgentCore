@@ -220,7 +220,13 @@ async def handle_tool_calls_round(
     )
     if breaker.refresh_tool_defs or surface_changed:
         tool_defs = resolve_openai_tool_defs(tools, allowed_tool_names, disabled_tools)
-    gate_before = controller.team_gate_fired
+    gate_before = controller.team_gate_fired or controller.exec_verify_gate_fired
+    from agentcore.tools.builtin import (
+        browser_execution_enabled_for,
+        code_execution_enabled_for,
+    )
+
+    backend = tool_context.backend
     directive = govern_after_tools(
         outcome,
         controller,
@@ -231,9 +237,11 @@ async def handle_tool_calls_round(
         role=role,
         disabled_tools=disabled_tools,
         investigation_tools=controller.investigation_tool_names,
+        code_execute=code_execution_enabled_for(backend),
+        browser=browser_execution_enabled_for(backend),
     )
-    # Hard team-gate may have stripped investigation tools — refresh defs for next round.
-    if controller.team_gate_fired and not gate_before:
+    # Hard team-gate / exec-verify may have stripped investigation tools — refresh defs.
+    if (controller.team_gate_fired or controller.exec_verify_gate_fired) and not gate_before:
         tool_defs = resolve_openai_tool_defs(tools, allowed_tool_names, disabled_tools)
     return ToolRoundResult(
         outcome=outcome,

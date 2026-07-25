@@ -22,8 +22,8 @@ from agentcore.workspace.server import ServerWorkspace
 
 
 def test_dossier_label_from_path():
-    assert dossier_label_from_path("research/法律透镜报告.md") == "法律"
-    assert dossier_label_from_path("research/汇总与命题卡.md") == "汇总"
+    assert dossier_label_from_path("AgentCore/文档/research/法律透镜报告.md") == "法律"
+    assert dossier_label_from_path("AgentCore/文档/research/汇总与命题卡.md") == "汇总"
 
 
 def test_extract_anchors_from_inline_and_footer():
@@ -65,8 +65,8 @@ def test_ensure_anchors_appends_footer_when_missing():
 
 @pytest.mark.asyncio
 async def test_preregister_research_dossier_maps_r_to_e(tmp_path: Path):
-    research = tmp_path / "research"
-    research.mkdir()
+    research = tmp_path / "AgentCore" / "文档" / "research"
+    research.mkdir(parents=True)
     (research / "法律透镜报告.md").write_text(
         "条款原文#r1。\n\n## 来源台账锚\n\n"
         "- #r1 · https://court.example/x · 合同\n",
@@ -78,9 +78,9 @@ async def test_preregister_research_dossier_maps_r_to_e(tmp_path: Path):
     led = EvidenceLedger()
     idx = await preregister_research_dossier(led, ws)
 
-    assert "【工作区案卷索引·research/】" in idx
+    assert "【工作区案卷索引·AgentCore/文档/research/】" in idx
     assert "【案卷预登记台账·引用须用下列 #eN】" in idx
-    assert "research/法律透镜报告.md" in idx
+    assert "AgentCore/文档/research/法律透镜报告.md" in idx
     assert led.ids  # 至少一条
     legal = next(
         e for e in led.all_entries() if e.get("dossier_path", "").endswith("法律透镜报告.md")
@@ -110,15 +110,15 @@ async def test_preregister_no_research_is_noop(tmp_path: Path):
 async def test_workspace_has_synthesizer(tmp_path: Path):
     ws = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
     assert await workspace_has_synthesizer(ws) is False
-    research = tmp_path / "research"
-    research.mkdir()
+    research = tmp_path / "AgentCore" / "文档" / "research"
+    research.mkdir(parents=True)
     (research / "汇总与命题卡.md").write_text("x", encoding="utf-8")
     assert await workspace_has_synthesizer(ws) is True
 
 
 def test_format_index_with_ledger_lines():
     text = format_research_dossier_index(
-        ["research/a.md"],
+        ["AgentCore/文档/research/a.md"],
         ledger_lines=["- research/a.md → #e1（幕1 #r1）"],
     )
     assert "案卷预登记台账" in text

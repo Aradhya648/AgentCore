@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,10 @@ from agentcore.runtime.loop_controller import LoopController
 from agentcore.runtime.runs.plan import RunPlan
 from agentcore.runtime.runs.research_quality import (
     MIN_UPSTREAM_BODY_CHARS,
+    has_landed_prose_artifact,
     has_word_count_commitment,
     is_research_report_intent,
+    upstream_body_floor_satisfied,
 )
 from agentcore.runtime.runs.types import Deliverable, RunPhase, RunSpec, RunState
 from agentcore.tools.builtin.file_ops import FileDeleteTool, FileWriteTool
@@ -28,6 +31,9 @@ from agentcore.tools.builtin.handoff import HandoffTool
 from agentcore.tools.protocol import RetrievalBudgetState, ToolContext, ToolResult
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
+
+_PROSE_BODY = "# 报告\n\n" + ("这是实质正文段落。" * 50)
+_SKELETON_BODY = "# 报告\n\n## 一\n\n## 二\n\n<!-- OUTLINE -->\n"
 
 
 def _ctx(tmp_path: Path, **kwargs) -> ToolContext:
@@ -53,7 +59,7 @@ def test_research_report_intent_covers_competitor_compare_deliverable():
 
     competitor = (
         "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
-        "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 research/km-compare.md。"
+        "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 AgentCore/文档/research/km-compare.md。"
     )
     lawsuit = (
         "写一篇关于起诉第三者如何才能立案的实务研究，婚姻家事领域，实务指南，"
@@ -174,25 +180,91 @@ async def test_file_delete_allows_tiny(tmp_path: Path):
     assert not (tmp_path / "stub.txt").exists()
 
 
+def test_upstream_body_floor_predicate():
+    assert upstream_body_floor_satisfied(body_chars=MIN_UPSTREAM_BODY_CHARS, landed_artifact_kinds={})
+    assert not upstream_body_floor_satisfied(body_chars=10, landed_artifact_kinds={})
+    assert not upstream_body_floor_satisfied(
+        body_chars=0, landed_artifact_kinds={"a.md": "skeleton"}
+    )
+    assert has_landed_prose_artifact({"a.md": "prose"})
+    assert upstream_body_floor_satisfied(
+        body_chars=0, landed_artifact_kinds={"a.md": "prose"}
+    )
+
+
 @pytest.mark.asyncio
 async def test_handoff_rejects_empty_body_when_required(tmp_path: Path):
     ctx = _ctx(tmp_path, handoff_requires_body=True, round_content_chars=10)
     result = await HandoffTool().execute({"summary": "结论够长" * 10}, ctx)
     assert result.success is False
     assert "空交付不得交接" in (result.error or "")
+    assert "prose" in (result.error or "")
     assert result.contract_failure is True
 
 
 @pytest.mark.asyncio
-async def test_handoff_allows_empty_body_when_files_landed(tmp_path: Path):
+async def test_handoff_allows_empty_body_when_prose_landed(tmp_path: Path):
+    """手工 stamp prose kinds（同 ctx）仍应放行；bool 豁免路径已退役。"""
     ctx = _ctx(
         tmp_path,
         handoff_requires_body=True,
         round_content_chars=0,
-        has_landed_files=True,
+        landed_artifact_kinds={"notes.md": "prose"},
     )
-    result = await HandoffTool().execute({"summary": "已落盘提纲"}, ctx)
+    result = await HandoffTool().execute({"summary": "已落盘调研"}, ctx)
     assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_handoff_rejects_empty_body_when_only_skeleton_landed(tmp_path: Path):
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        round_content_chars=0,
+        landed_artifact_kinds={"outline.md": "skeleton"},
+        has_landed_files=True,  # bool 不得单独豁免
+    )
+    result = await HandoffTool().execute({"summary": "骨架已落盘"}, ctx)
+    assert result.success is False
+    assert "空交付不得交接" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_handoff_prose_landed_survives_replace_empty_body(tmp_path: Path):
+    """生产路径：多轮 replace + file_write 置位后，下一轮空 body handoff 应成功。"""
+    assert len(_PROSE_BODY) >= 400
+    base = _ctx(tmp_path, handoff_requires_body=True)
+    # tool_round stamps round_content_chars; tool_exec replace()s again per call.
+    write_round = replace(base, round_content_chars=12)
+    write_ctx = replace(write_round)
+    written = await FileWriteTool().execute(
+        {"path": "miro-research.md", "content": _PROSE_BODY}, write_ctx
+    )
+    assert written.success is True
+    assert write_ctx.landed_artifact_kinds.get("miro-research.md") == "prose"
+    # Shared dict survives; bool on replace-copy does not propagate to base.
+    assert base.landed_artifact_kinds.get("miro-research.md") == "prose"
+    assert base.has_landed_files is False
+    handoff_ctx = replace(base, round_content_chars=0)
+    assert handoff_ctx.has_landed_files is False
+    result = await HandoffTool().execute({"summary": "Miro 调研已落盘"}, handoff_ctx)
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_handoff_skeleton_write_after_replace_still_blocks(tmp_path: Path):
+    base = _ctx(tmp_path, handoff_requires_body=True)
+    write_ctx = replace(replace(base, round_content_chars=0))
+    written = await FileWriteTool().execute(
+        {"path": "outline.md", "content": _SKELETON_BODY}, write_ctx
+    )
+    assert written.success is True
+    assert base.landed_artifact_kinds.get("outline.md") == "skeleton"
+    handoff_ctx = replace(base, round_content_chars=0)
+    result = await HandoffTool().execute({"summary": "提纲已落盘"}, handoff_ctx)
+    assert result.success is False
+    assert "空交付不得交接" in (result.error or "")
+    assert "skeleton" in (result.error or "") or "骨架" in (result.error or "")
 
 
 @pytest.mark.asyncio

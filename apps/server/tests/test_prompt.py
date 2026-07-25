@@ -416,14 +416,19 @@ def test_core_teaches_delegate_point_dont_answer():
 
 
 def test_core_teaches_execution_and_recall_routing():
-    # 环境事实驱动：本机任务在云端时立即发绑定卡；已在本机则委派验收；核实产出。
+    # 短指针：跑/修/打开验证终向由引擎能力策略收口；对照 workspace 能力行。
     hint = _CEO_CORE_HINT
     assert "【执行 / 运行 / 打开】" in hint
     assert "workspace_context" in hint
-    assert "不要先委派" in hint
-    assert "绑定" in hint
-    assert "立即发" in hint
+    assert "能力策略" in hint
+    assert "ask_user" in hint
     assert "completion_criteria=code_verified" in hint
+    assert "delegate" in hint
+    assert "读文件" in hint or "列目录" in hint
+    assert "冒充已跑或已验" in hint
+    # 不再叠长禁令散文
+    assert "不要先读完口述" not in hint
+    assert "禁止 DIRECT" not in hint
     assert "【回忆 / 核实产出】" in hint
     assert "口头拒绝" not in hint or "交付缺口" in hint
 
@@ -449,10 +454,10 @@ def test_core_worker_capability_follows_workspace_facts():
 
 
 def test_core_teaches_delivery_honesty_when_no_execution():
-    # 云端无执行环境时的交付形态对齐：不设 code_verified、出路、收尾显式标交付缺口。
+    # 云端无执行环境：核心短钩子点 code_verified；交付缺口细节在编排 skill。
     hint = _CEO_CORE_HINT
-    assert "交付缺口" in hint
     assert "code_verified" in hint
+    assert "能力策略" in hint
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "不要设" in skill or "显式声明会被硬拒" in skill
     assert "未运行验证" in skill or "交付缺口" in skill
@@ -474,6 +479,7 @@ def test_core_teaches_delivery_path_by_workspace_type():
 
 def test_skill_teaches_environment_capability_constraint():
     # 编排 skill：无执行环境时不设 code_verified（显式会被硬拒）、改交付形态、显式标缺口。
+    # 轻对齐：跑/验终向由引擎能力策略收口。
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "环境能力约束" in skill
     assert "code_execute=未装配" in skill
@@ -484,6 +490,9 @@ def test_skill_teaches_environment_capability_constraint():
     assert "不】从任务文案推断" in skill or "不从任务文案推断" in skill
     assert "执行成功证据" in skill
     assert "禁止只验" in skill
+    assert "能力策略" in skill
+    assert "冒充已跑或已验" not in skill  # 长禁令已收回，改由引擎闸
+    assert "打开浏览器验证" not in skill or "能力策略" in skill
 
 
 def test_shared_base_teaches_delivery_baseline():

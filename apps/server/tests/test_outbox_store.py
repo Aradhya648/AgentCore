@@ -148,8 +148,8 @@ def test_begin_turn_idempotent(tmp_path):
     assert record["ops"].count("begin_turn") == 1
 
 
-def test_salvage_retains_open_when_settlement_has_resume_frame(tmp_path):
-    """D2 retain-open: settled but non-terminal → do not salvage→ready."""
+def test_salvage_seals_ready_when_settlement_has_resume_frame(tmp_path):
+    """User stop after settlement: seal cancelled + READY (no frameless retain-open)."""
     store = OutboxStore(tmp_path / "outbox")
     store.bind_turn(
         conversation_id="c1",
@@ -187,14 +187,14 @@ def test_salvage_retains_open_when_settlement_has_resume_frame(tmp_path):
         return json.loads((tmp_path / "outbox" / "u1.json").read_text(encoding="utf-8"))
 
     record = _drive(run())
-    assert record["phase"] == PHASE_OPEN
-    assert "salvage_retain_open" in record["ops"]
-    assert "salvage" not in record["ops"]
-    assert record.get("finish_reason") in (None, "")
+    assert record["phase"] == PHASE_READY
+    assert "salvage" in record["ops"]
+    assert "salvage_retain_open" not in record.get("ops", [])
+    assert record.get("finish_reason") == "cancelled"
 
 
-def test_salvage_retains_open_even_when_later_gate_pending(tmp_path):
-    """Conservative retain: settlement wins even if a later cold gate is pending."""
+def test_salvage_seals_ready_even_when_later_gate_pending(tmp_path):
+    """Salvage seals READY even if journal also has a later cold gate."""
     store = OutboxStore(tmp_path / "outbox")
     store.bind_turn(
         conversation_id="c1",
@@ -242,8 +242,10 @@ def test_salvage_retains_open_even_when_later_gate_pending(tmp_path):
         return json.loads((tmp_path / "outbox" / "u1.json").read_text(encoding="utf-8"))
 
     record = _drive(run())
-    assert record["phase"] == PHASE_OPEN
-    assert "salvage_retain_open" in record["ops"]
+    assert record["phase"] == PHASE_READY
+    assert record.get("finish_reason") == "cancelled"
+    assert "salvage" in record["ops"]
+    assert "salvage_retain_open" not in record.get("ops", [])
 
 
 def test_salvage_marks_ready(tmp_path):

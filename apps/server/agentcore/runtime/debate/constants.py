@@ -8,7 +8,7 @@ from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 DEBATE_OUTPUT_LIMIT = 16000
 
 # 辩手最小权限工具集（least-privilege）：取证类（查资料 / 读网页）+ 只读文件三件套
-# （消费幕1 research/ 案卷），不给写文件 / 代码 / 委派 / 提问等副作用工具——辩手职责是论证
+# （消费幕1 AgentCore/文档/research/ 案卷），不给写文件 / 代码 / 委派 / 提问等副作用工具——辩手职责是论证
 # 而非动手改东西。首轮经 task 的 tools 字段成为 allow-list，后续轮经 session.spec 自动沿用。
 DEBATER_TOOLS = ("web_search", "read_url", "file_read", "file_list", "grep")
 

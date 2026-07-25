@@ -447,10 +447,10 @@ def test_brief_prompt_includes_research_dossier_index():
     """收场简报：有案卷索引则注入（文本通道，非新事件字段）。"""
     from agentcore.runtime.debate.research_dossier import format_research_dossier_index
 
-    idx = format_research_dossier_index(["research/汇总与命题卡.md"])
+    idx = format_research_dossier_index(["AgentCore/文档/research/汇总与命题卡.md"])
     user = _brief_user_prompt(research_dossier_index=idx)
-    assert "【工作区案卷索引·research/】" in user
-    assert "research/汇总与命题卡.md" in user
+    assert "【工作区案卷索引·AgentCore/文档/research/】" in user
+    assert "AgentCore/文档/research/汇总与命题卡.md" in user
     assert "工作区案卷索引" not in _brief_user_prompt()
 
 

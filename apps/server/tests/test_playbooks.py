@@ -45,10 +45,10 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     assert by_id["outline"]["checkpoint_after"] is True
     assert by_id["write"]["deliverable"]["requires_files"] is True
     assert by_id["write"]["deliverable"]["form"] == "files"
-    assert by_id["write"]["deliverable"]["artifacts"] == ["research/报告.md"]
+    assert by_id["write"]["deliverable"]["artifacts"] == ["AgentCore/文档/research/报告.md"]
     assert "单主文件" in by_id["write"]["task"]
-    assert "research/报告.md" in by_id["write"]["task"]
-    assert "research/报告.md" in by_id["review"]["task"]
+    assert "AgentCore/文档/research/报告.md" in by_id["write"]["task"]
+    assert "AgentCore/文档/research/报告.md" in by_id["review"]["task"]
     # Artifact-first writer brief: skeleton first; ban half-chapter prose then append.
     write_task = by_id["write"]["task"]
     assert "短骨架" in write_task or "首写必须是短骨架" in write_task
@@ -667,10 +667,10 @@ def test_multi_lens_research_default_four_lenses_plus_synthesizer():
     assert roles == {"法律视角", "品牌商业视角", "舆情公关视角", "文化社会视角"}
     # 幕 1 案卷：各透镜自写 research/{透镜}透镜报告.md（form=files + artifacts）
     expected_lens_artifacts = {
-        "research/法律透镜报告.md",
-        "research/品牌商业透镜报告.md",
-        "research/舆情公关透镜报告.md",
-        "research/文化社会透镜报告.md",
+        "AgentCore/文档/research/法律透镜报告.md",
+        "AgentCore/文档/research/品牌商业透镜报告.md",
+        "AgentCore/文档/research/舆情公关透镜报告.md",
+        "AgentCore/文档/research/文化社会透镜报告.md",
     }
     for lid in lens_ids:
         d = by_id[lid]["deliverable"]
@@ -687,9 +687,9 @@ def test_multi_lens_research_default_four_lenses_plus_synthesizer():
     # 汇总员落盘汇总与命题卡；motion_card 仍走 handoff
     synth_d = by_id["synthesizer"]["deliverable"]
     assert synth_d["form"] == "files"
-    assert synth_d["artifacts"] == ["research/汇总与命题卡.md"]
+    assert synth_d["artifacts"] == ["AgentCore/文档/research/汇总与命题卡.md"]
     synth_task = by_id["synthesizer"]["task"]
-    assert "research/汇总与命题卡.md" in synth_task
+    assert "AgentCore/文档/research/汇总与命题卡.md" in synth_task
     assert "file_write" in synth_task
     assert "motion_card" in synth_task
     assert "handoff" in synth_task
@@ -746,7 +746,7 @@ def test_multi_lens_research_custom_lenses():
     assert set(by_id["synthesizer"]["depends_on"]) == {"lens_0", "lens_1", "lens_2"}
     assert by_id["lens_1"]["role"] == "伦理视角"
     assert "伦理" in by_id["lens_1"]["task"]
-    assert by_id["lens_1"]["deliverable"]["artifacts"] == ["research/伦理透镜报告.md"]
+    assert by_id["lens_1"]["deliverable"]["artifacts"] == ["AgentCore/文档/research/伦理透镜报告.md"]
 
 
 def test_multi_lens_research_folds_lenses_with_note_keeps_base_owner():
@@ -832,11 +832,11 @@ def test_multi_lens_research_files_form_builds_run_plan_with_artifacts():
     assert legal.deliverable is not None
     assert legal.deliverable.form == "files"
     assert legal.deliverable.requires_files is True
-    assert legal.deliverable.artifacts == ["research/法律透镜报告.md"]
+    assert legal.deliverable.artifacts == ["AgentCore/文档/research/法律透镜报告.md"]
     synth = by_role["汇总分析师"]
     assert synth.deliverable is not None
     assert synth.deliverable.form == "files"
-    assert synth.deliverable.artifacts == ["research/汇总与命题卡.md"]
+    assert synth.deliverable.artifacts == ["AgentCore/文档/research/汇总与命题卡.md"]
 
 
 def test_multi_lens_research_requires_topic():

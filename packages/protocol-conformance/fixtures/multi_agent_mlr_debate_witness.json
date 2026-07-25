@@ -928,12 +928,12 @@
             "id": "#e2",
             "url": "https://court.example/contract",
             "title": "法律 · #r1",
-            "snippet": "案卷 research/法律透镜报告.md · 幕1 #r1",
+            "snippet": "案卷 AgentCore/文档/research/法律透镜报告.md · 幕1 #r1",
             "site": "法律",
             "date": "",
             "tier": "unknown",
             "side_key": "dossier",
-            "dossier_path": "research/法律透镜报告.md",
+            "dossier_path": "AgentCore/文档/research/法律透镜报告.md",
             "origin_id": "#r1",
             "dossier_label": "法律"
           }
@@ -1121,12 +1121,12 @@
             "id": "#e2",
             "url": "https://court.example/contract",
             "title": "法律 · #r1",
-            "snippet": "案卷 research/法律透镜报告.md · 幕1 #r1",
+            "snippet": "案卷 AgentCore/文档/research/法律透镜报告.md · 幕1 #r1",
             "site": "法律",
             "date": "",
             "tier": "unknown",
             "side_key": "dossier",
-            "dossier_path": "research/法律透镜报告.md",
+            "dossier_path": "AgentCore/文档/research/法律透镜报告.md",
             "origin_id": "#r1",
             "dossier_label": "法律"
           }
@@ -2014,12 +2014,12 @@
           "id": "#e2",
           "url": "https://court.example/contract",
           "title": "法律 · #r1",
-          "snippet": "案卷 research/法律透镜报告.md · 幕1 #r1",
+          "snippet": "案卷 AgentCore/文档/research/法律透镜报告.md · 幕1 #r1",
           "site": "法律",
           "date": "",
           "tier": "unknown",
           "side_key": "dossier",
-          "dossier_path": "research/法律透镜报告.md",
+          "dossier_path": "AgentCore/文档/research/法律透镜报告.md",
           "origin_id": "#r1",
           "dossier_label": "法律"
         }

@@ -189,7 +189,7 @@ function fileArtifactScene(): WhiteboardScene {
     runs: [
       mkRun("r1", "a1", "completed", {
         outputSummary: "报告已写入工作区，含结论与附录",
-        outputFiles: ["research/竞品分析.md"],
+        outputFiles: ["AgentCore/文档/research/竞品分析.md"],
       }),
     ],
   });

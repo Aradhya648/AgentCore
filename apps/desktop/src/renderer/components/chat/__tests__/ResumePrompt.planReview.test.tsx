@@ -38,16 +38,6 @@ vi.mock("@/stores/interactions", () => ({
     sel({ byId: new Map() }),
 }));
 
-vi.mock("@/stores/interruptedAfterDecision", () => ({
-  useInterruptedAfterDecisionStore: (
-    sel: (s: { byConversation: Record<string, unknown[]> }) => unknown,
-  ) => sel({ byConversation: {} }),
-}));
-
-vi.mock("@/services/turns", () => ({
-  runContinueAfterDecision: vi.fn(),
-}));
-
 vi.mock("@/stores/disclosure", async () => {
   const { useState } = await import("react");
   return {

@@ -66,7 +66,8 @@ file_write 把它真正写进工作区，而不是把整份内容粘在回复正
 
 写文件类工具（file_write / file_append / str_replace）返回成功即代表已落盘；写/append \
 回执为 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）——【以此验真】，\
-【禁止】再 file_read 回读刚写过的自产物正文。修订用 str_replace，勿为「确认写对没」空转回读。
+【禁止】为质检再 code_execute / file_read（含回读刚写自产物正文）。下一步仅 \
+str_replace（局部修订）或同轮 handoff，勿为空转自检。
 
 【落盘与修订·Artifact-first】中等单篇一次 file_write 写完；超长先短骨架（标题/锚点/`<!-- SECTION: -->`）\
 再按节 file_append 或 str_replace 填空——禁止先写成篇正文再同文件 append。长文成篇：按章填空——\
@@ -111,7 +112,8 @@ _WORKER_DELIVERABLE_FORM_FILES = """\
 
 写文件类工具（file_write / file_append / str_replace）返回成功即代表已落盘；写/append \
 回执为 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）——【以此验真】，\
-【禁止】再 file_read 回读刚写过的自产物正文。修订用 str_replace，勿为「确认写对没」空转回读。
+【禁止】为质检再 code_execute / file_read（含回读刚写自产物正文）。下一步仅 \
+str_replace（局部修订）或同轮 handoff，勿为空转自检。
 
 【落盘与修订·Artifact-first】中等单篇一次 file_write 写完；超长先短骨架（标题/锚点/`<!-- SECTION: -->`）\
 再按节 file_append 或 str_replace 填空——禁止先写成篇正文再同文件 append。长文成篇：按章填空——\

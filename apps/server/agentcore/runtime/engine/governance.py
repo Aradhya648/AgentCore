@@ -113,6 +113,111 @@ def _local_recon_call_count(controller: LoopController) -> int:
     return int(controller.local_recon_calls)
 
 
+def _user_intent_chunks(messages: list[LLMMessage]) -> list[str]:
+    """Real user turns only (skip system nudges / short affirmations)."""
+    from agentcore.runtime.kickoff import is_short_affirmation
+
+    chunks: list[str] = []
+    for msg in messages:
+        if msg.role != "user" or not msg.content:
+            continue
+        text = msg.content.strip()
+        if not text or text.startswith("[系统提示]"):
+            continue
+        if is_short_affirmation(text):
+            continue
+        chunks.append(text)
+    return chunks
+
+
+def exec_verify_ask_prompt() -> str:
+    """Hard gate: missing exec/browser or unclear artifact → ask_user only."""
+    return (
+        "[系统提示] 能力策略：用户要跑/修或打开验证，当前缺执行/浏览器能力或可验产物路径不清。"
+        "探路工具已收回。请立即 ask_user（绑定/授权/请用户指路径或附文件）；"
+        "禁止直答，禁止用读文件/列目录收口。"
+    )
+
+
+def exec_verify_delegate_prompt() -> str:
+    """Hard gate: has capability → delegate + code_verified only."""
+    return (
+        "[系统提示] 能力策略：用户要跑/修或打开验证，且本回合已装配对应执行能力。"
+        "探路工具已收回。请立即 delegate，并显式 completion_criteria=code_verified；"
+        "禁止直答或翻目录收口。"
+    )
+
+
+def maybe_inject_exec_verify_gate(
+    controller: LoopController,
+    *,
+    messages: list[LLMMessage],
+    run_id: str,
+    round_idx: int,
+    role: str,
+    code_execute: bool,
+    browser: bool,
+    disabled_tools: set[str] | None = None,
+    investigation_tools: frozenset[str] | None = None,
+) -> bool:
+    """Inject run/open-verify capability strategy once. Returns True if injected.
+
+    Fires immediately on narrow intent (no recon threshold): strips investigation
+    tools and steers terminal to ``ask_user`` or ``delegate``+code_verified.
+    """
+    if (
+        role != "captain"
+        or controller.exec_verify_gate_fired
+        or controller.has_delegated
+        or controller.team_gate_fired
+    ):
+        return False
+
+    chunks = _user_intent_chunks(messages)
+    if not chunks:
+        return False
+
+    from agentcore.runtime.runs.exec_verify import (
+        has_clear_verifiable_artifact_path,
+        is_open_browser_verify_intent,
+        is_run_fix_script_intent,
+        resolve_exec_verify_terminal,
+    )
+
+    run_fix = is_run_fix_script_intent(*chunks)
+    open_verify = is_open_browser_verify_intent(*chunks)
+    clear_path = has_clear_verifiable_artifact_path(*chunks)
+    terminal = resolve_exec_verify_terminal(
+        run_fix=run_fix,
+        open_verify=open_verify,
+        code_execute=code_execute,
+        browser=browser,
+        clear_artifact_path=clear_path,
+    )
+    if terminal is None:
+        return False
+
+    controller.mark_exec_verify_gate_fired()
+    if disabled_tools is not None and investigation_tools:
+        disabled_tools.update(investigation_tools)
+    nudge = exec_verify_delegate_prompt() if terminal == "delegate" else exec_verify_ask_prompt()
+    logger.info(
+        "engine.exec_verify_gate_nudge",
+        round=round_idx,
+        terminal=terminal,
+        run_fix=run_fix,
+        open_verify=open_verify,
+        code_execute=code_execute,
+        browser=browser,
+        clear_artifact_path=clear_path,
+    )
+    messages.append(LLMMessage(role="user", content=nudge))
+    record_turn_fact(
+        NoteFact(role="user", content=nudge, reason="exec_verify_gate", run_id=run_id).to_fact()
+    )
+    return True
+
+
 def maybe_inject_team_gate(
     controller: LoopController,
     *,
@@ -627,6 +732,8 @@ def govern_after_tools(
     role: str = "",
     disabled_tools: set[str] | None = None,
     investigation_tools: frozenset[str] | None = None,
+    code_execute: bool = False,
+    browser: bool = False,
 ) -> LoopDirective:
     """Run post-tool convergence governance and return the next directive.
 
@@ -669,6 +776,17 @@ def govern_after_tools(
         messages.append(LLMMessage(role="user", content=reflection))
         record_turn_fact(
             NoteFact(role="user", content=reflection, reason="nudge", run_id=run_id).to_fact()
+        )
+        maybe_inject_exec_verify_gate(
+            controller,
+            messages=messages,
+            run_id=run_id,
+            round_idx=round_idx,
+            role=role,
+            code_execute=code_execute,
+            browser=browser,
+            disabled_tools=disabled_tools,
+            investigation_tools=investigation_tools,
         )
         maybe_inject_team_gate(
             controller,
@@ -715,13 +833,24 @@ def govern_after_tools(
         return Finalize(reason="convergence")
 
     if breaker_message is None and controller.reflection_due(round_idx):
-        review = progress_review_prompt(round_idx + 1)
-        logger.info("engine.reflection_inject", round=round_idx)
+        review = progress_review_prompt(round_idx + 1, role=role)
+        logger.info("engine.reflection_inject", round=round_idx, role=role or "")
         messages.append(LLMMessage(role="user", content=review))
         record_turn_fact(
             NoteFact(role="user", content=review, reason="reflection", run_id=run_id).to_fact()
         )
 
+    maybe_inject_exec_verify_gate(
+        controller,
+        messages=messages,
+        run_id=run_id,
+        round_idx=round_idx,
+        role=role,
+        code_execute=code_execute,
+        browser=browser,
+        disabled_tools=disabled_tools,
+        investigation_tools=investigation_tools,
+    )
     maybe_inject_team_gate(
         controller,
         messages=messages,

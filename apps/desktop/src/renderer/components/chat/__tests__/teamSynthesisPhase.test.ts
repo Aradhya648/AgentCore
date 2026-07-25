@@ -139,19 +139,19 @@ describe("teamSynthesisPhase", () => {
     );
   });
 
-  it("coordinationWaitLabel includes waiting role and elapsed", () => {
+  it("coordinationWaitLabel includes elapsed without member roles", () => {
     expect(
       coordinationWaitLabel(
         { completed: 1, total: 2 },
         { waitingRoles: ["撰写员"], elapsedSec: 45 },
       ),
-    ).toBe("等待「撰写员」完成 (1/2) · 已等 45s…");
+    ).toBe("等待团队成员完成 (1/2) · 已等 45s…");
     expect(
       coordinationWaitLabel(
         { completed: 0, total: 2 },
         { waitingRoles: ["研究员", "撰写员"], elapsedSec: 12 },
       ),
-    ).toBe("等待团队成员完成 (0/2) · 研究员、撰写员 · 已等 12s…");
+    ).toBe("等待团队成员完成 (0/2) · 已等 12s…");
   });
 
   it("coordinationWaitCaptainCaption stays short", () => {

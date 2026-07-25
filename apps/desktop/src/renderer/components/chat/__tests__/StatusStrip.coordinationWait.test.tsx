@@ -109,17 +109,22 @@ describe("StatusStrip · coordination_wait", () => {
     const execution = projectExecution(plan, oneDoneFrames, "running");
     renderStrip(execution);
 
-    // 标题行保留一行等待摘要（等待文案 + n/m 进度 + 还差哪些角色）。
+    // 标题行：全局等待态 + n/m 进度（不含成员名；成员细节只靠图上 worker 节点）。
     expect(screen.getByTestId("status-strip-coordination-wait")).toBeTruthy();
     expect(
       screen.getByTestId("status-strip-running-title").textContent,
-    ).toMatch(/等待「撰写员」完成 \(1\/2\)/);
+    ).toMatch(/等待团队成员完成 \(1\/2\)/);
+    expect(
+      screen.getByTestId("status-strip-running-title").textContent,
+    ).not.toMatch(/撰写员|研究员/);
 
     // 协调等待分支整体移除：不再内联渲染成员状态列表 / 协调等待徽标 / 重复 headline，
     // 成员级细节改由协作图节点承担。
     expect(screen.queryByTestId("team-synthesis-preview")).toBeNull();
     expect(screen.queryByText("协调等待")).toBeNull();
     expect(screen.queryByTestId("coordination-wait-workers")).toBeNull();
+    expect(screen.queryByText("撰写员")).toBeNull();
+    expect(screen.queryByText("研究员")).toBeNull();
   });
 
   it("keeps waitStartedAt across heartbeats", () => {

@@ -71,7 +71,6 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
       turnId: "turn-1",
       unsynced: [],
       paused: [],
-      interruptedAfterDecision: [],
     }));
     apiGet.mockResolvedValue({
       live_running: false,
@@ -97,7 +96,6 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
       liveRunning: false,
       unsynced: [unsyncedSummary()],
       paused: [],
-      interruptedAfterDecision: [],
     }));
     apiGet.mockResolvedValue({
       live_running: false,
@@ -130,7 +128,6 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
           pending: [],
         },
       ],
-      interruptedAfterDecision: [],
     }));
     apiGet.mockRejectedValue(new Error("network down"));
 
@@ -160,7 +157,6 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
           pending: [],
         },
       ],
-      interruptedAfterDecision: [],
     }));
     apiGet.mockResolvedValue({
       live_running: false,
@@ -205,7 +201,6 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
           pending: [],
         },
       ],
-      interruptedAfterDecision: [],
     }));
     apiGet.mockResolvedValue({
       live_running: false,
@@ -356,14 +351,13 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
 });
 
 describe("shouldHydrateLocalRecovery", () => {
-  it("is true for sidecar live / unsynced / interrupted_after_decision", () => {
+  it("is true for sidecar live / unsynced / paused", () => {
     expect(
       shouldHydrateLocalRecovery({
         sidecarLive: false,
         cloudLive: true,
         pausedCount: 0,
         unsynced: [],
-        interruptedAfterDecision: [],
       }),
     ).toBe(false);
     expect(
@@ -372,24 +366,14 @@ describe("shouldHydrateLocalRecovery", () => {
         cloudLive: false,
         pausedCount: 0,
         unsynced: [],
-        interruptedAfterDecision: [],
       }),
     ).toBe(true);
     expect(
       shouldHydrateLocalRecovery({
         sidecarLive: false,
         cloudLive: false,
-        pausedCount: 0,
+        pausedCount: 1,
         unsynced: [],
-        interruptedAfterDecision: [
-          {
-            messageId: "m1",
-            userMessageId: "u1",
-            conversationId: CID,
-            settledKind: "team_preview",
-            checkpointId: "tp1",
-          },
-        ],
       }),
     ).toBe(true);
   });

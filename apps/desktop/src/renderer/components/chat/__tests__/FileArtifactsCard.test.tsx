@@ -64,13 +64,21 @@ describe("FileArtifactsCard stage labels", () => {
     vi.mocked(useConversationFileSource).mockReturnValue(null);
   });
 
-  it("research/debate 路径显示案卷标签，普通路径零噪音", () => {
+  it("AgentCore/文档/research/debate 路径显示案卷标签，普通路径零噪音", () => {
     renderCard(
       <FileArtifactsCard
         conversationId="c1"
         artifacts={[
-          { path: "research/brief.md", name: "brief.md", op: "write" },
-          { path: "debate/round.md", name: "round.md", op: "write" },
+          {
+            path: "AgentCore/文档/research/brief.md",
+            name: "brief.md",
+            op: "write",
+          },
+          {
+            path: "AgentCore/文档/debate/round.md",
+            name: "round.md",
+            op: "write",
+          },
           { path: "src/main.ts", name: "main.ts", op: "write" },
         ]}
       />,
@@ -78,7 +86,7 @@ describe("FileArtifactsCard stage labels", () => {
     expect(screen.getByText("调研案卷")).toBeTruthy();
     expect(screen.getByText("辩论产物")).toBeTruthy();
     expect(
-      screen.getByTitle("在文件页查看案卷 research/brief.md"),
+      screen.getByTitle("在文件页查看案卷 AgentCore/文档/research/brief.md"),
     ).toBeTruthy();
     expect(screen.getByTitle("在工作区预览 src/main.ts")).toBeTruthy();
     // 普通文件不应出现案卷标签（仅两处约定标签）

@@ -3,11 +3,15 @@ import {
   type Dispatch,
   type SetStateAction,
   useCallback,
+  useEffect,
   useRef,
   useState,
 } from "react";
 import { type PendingAttachment, readDroppedFile } from "./composerAttachments";
 import { stageDroppedFileAttachment } from "./resideAttachment";
+
+/** Soft attach errors: auto-dismiss (Slack / Linear style), not sticky form validation. */
+const DROP_ERROR_MS = 4000;
 
 export function useComposerDrop(
   isGenerating: boolean,
@@ -19,10 +23,30 @@ export function useComposerDrop(
   const [dropError, setDropError] = useState<string | null>(null);
   const dropErrorTimer = useRef<number | null>(null);
 
+  const clearDropError = useCallback(() => {
+    if (dropErrorTimer.current) {
+      window.clearTimeout(dropErrorTimer.current);
+      dropErrorTimer.current = null;
+    }
+    setDropError(null);
+  }, []);
+
   const flashDropError = useCallback((msg: string) => {
     setDropError(msg);
     if (dropErrorTimer.current) window.clearTimeout(dropErrorTimer.current);
-    dropErrorTimer.current = window.setTimeout(() => setDropError(null), 3000);
+    dropErrorTimer.current = window.setTimeout(() => {
+      dropErrorTimer.current = null;
+      setDropError(null);
+    }, DROP_ERROR_MS);
+  }, []);
+
+  // Timer lives in the hook: only clear on unmount. Do NOT wire this to a
+  // recreated `drop` object in the parent — that cancelled auto-dismiss on every
+  // setDropError re-render and left the red banner stuck.
+  useEffect(() => {
+    return () => {
+      if (dropErrorTimer.current) window.clearTimeout(dropErrorTimer.current);
+    };
   }, []);
 
   const attachDroppedFile = useCallback(
@@ -110,6 +134,8 @@ export function useComposerDrop(
       e.preventDefault();
       setDragOver(false);
       if (isGenerating) return;
+      // New drop attempt: clear prior soft error so feedback matches this action.
+      clearDropError();
       const dropped: File[] = [];
       let sawDir = false;
       const items = Array.from(e.dataTransfer.items ?? []);
@@ -129,20 +155,16 @@ export function useComposerDrop(
       for (const f of dropped) await attachDroppedFile(f);
       if (sawDir) flashDropError("文件夹请用 @ 引用，拖拽仅支持文件");
     },
-    [isGenerating, attachDroppedFile, flashDropError],
+    [isGenerating, attachDroppedFile, clearDropError, flashDropError],
   );
-
-  const disposeDropTimer = useCallback(() => {
-    if (dropErrorTimer.current) window.clearTimeout(dropErrorTimer.current);
-  }, []);
 
   return {
     dragOver,
     dropError,
+    clearDropError,
     handleDragOver,
     handleDragLeave,
     handleDrop,
     handlePaste,
-    disposeDropTimer,
   };
 }

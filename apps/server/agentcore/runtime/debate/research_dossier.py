@@ -1,4 +1,4 @@
-"""工作区幕 1 调研案卷（``research/``）——辩论开工探测、台账锚与索引文案。
+"""工作区幕 1 调研案卷（``AgentCore/文档/research/``）——辩论开工探测、台账锚与索引文案。
 
 案卷由 ``multi_lens_research`` playbook 落盘；辩论侧只读索引（文件列表 + 一行说明），
 全文由辩手 ``file_read`` 自取。开赛时把案卷内 ``#rN`` 锚预登记进场级 ``#eN`` 台账
@@ -14,13 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 from agentcore.runtime.citations import extract_ledger_ref_ids
 from agentcore.workspace.protocol import NotADirectory, PathNotFound, WorkspaceError
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 if TYPE_CHECKING:
     from agentcore.runtime.debate.evidence_ledger import EvidenceLedger
     from agentcore.workspace.protocol import WorkspaceBackend
 
-# 与 playbooks._MULTI_LENS_RESEARCH_DIR 对齐（辩论侧只读常量，避免反向依赖 playbooks）。
-RESEARCH_DIR = "research"
 # 汇总文件名（议程提示用；不强制文件必须存在）。
 SYNTHESIZER_FILE = f"{RESEARCH_DIR}/汇总与命题卡.md"
 
@@ -130,7 +129,7 @@ def ensure_research_file_anchors(
 
 
 async def list_research_artifact_paths(backend: WorkspaceBackend) -> list[str]:
-    """列出 ``research/`` 下的文件路径（workspace-relative）；目录不存在或空 → ``[]``。"""
+    """列出 ``AgentCore/文档/research/`` 下文件路径；目录不存在或空 → ``[]``。"""
     try:
         entries = await backend.list(RESEARCH_DIR, "*")
     except (PathNotFound, NotADirectory):
@@ -196,7 +195,7 @@ def format_research_dossier_index(
         bullet_lines.append(f"- {p}" + (f"（{hint}）" if hint else ""))
     lines = "\n".join(bullet_lines)
     block = (
-        "【工作区案卷索引·research/】\n"
+        f"【工作区案卷索引·{RESEARCH_DIR}/】\n"
         "幕1 多视角调研产物已落盘（下列为文件列表+字数/摘要，非全文；"
         "按本轮议题选读相关文件，用 file_read 按路径自取——勿无差别全量通读）。\n"
         f"{lines}"
@@ -215,7 +214,7 @@ async def preregister_research_dossier(
     ledger: EvidenceLedger,
     backend: WorkspaceBackend,
 ) -> str:
-    """开赛案卷预登记：读 ``research/`` 文件 → 抽 ``#rN`` 锚 → 登记进场级台账 → 返回索引。
+    """开赛案卷预登记：读案卷文件 → 抽 ``#rN`` 锚 → 登记进场级台账 → 返回索引。
 
     无案卷 → 空串（零行为）。文件无锚时仍登记「整文件」一条（一层兜底，可溯源到路径）。
     """

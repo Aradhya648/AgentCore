@@ -2771,7 +2771,8 @@ export interface paths {
          * Get Collaboration Timeline
          * @description 项目协作时间线（读时聚合）：有 execution 的会话 + 幕序列摘要 + 案卷引用条.
          *
-         *     零写路径。案卷快照（research/ / debate/ 文件列表）复用工作区文件 API，不在此返回。
+         *     零写路径。案卷快照（AgentCore/文档/research/ / debate/ 文件列表）复用工作区
+         *     文件 API，不在此返回。
          */
         get: operations["get_collaboration_timeline_v1_folders__folder_id__collaboration_timeline_get"];
         put?: never;

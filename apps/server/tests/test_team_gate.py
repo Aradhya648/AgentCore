@@ -238,7 +238,7 @@ def test_competitor_compare_intent_forces_hard_stop_and_shape():
             role="user",
             content=(
                 "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
-                "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 research/km-compare.md。"
+                "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 AgentCore/文档/research/km-compare.md。"
             ),
         )
     ]

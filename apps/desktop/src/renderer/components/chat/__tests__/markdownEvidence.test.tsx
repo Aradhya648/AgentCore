@@ -89,7 +89,7 @@ describe("Markdown evidence badges (render seam)", () => {
         site: "法律",
         tier: "unknown",
         side_key: "dossier",
-        dossier_path: "research/法律透镜报告.md",
+        dossier_path: "AgentCore/文档/research/法律透镜报告.md",
         origin_id: "#r1",
         dossier_label: "法律",
       },

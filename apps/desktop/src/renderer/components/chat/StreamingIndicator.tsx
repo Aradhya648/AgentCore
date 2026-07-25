@@ -20,7 +20,10 @@ export function StreamingIndicator() {
 
   let text = "Replying…";
   if (execution && execution.status === "running") {
-    if (waitLabel) {
+    const hasInlineGraph = execution.planType !== "single_agent";
+    // 有 InlineTeamGraph/StatusStrip 时等待态已由顶栏承载，底部不再复述同一 waitLabel；
+    // 无图场景（单 Agent）仍可用 waitLabel 作唯一心跳。
+    if (waitLabel && !hasInlineGraph) {
       text = waitLabel;
     } else if (isTeamSynthesizing(execution)) {
       text = teamSynthesisPhaseLabel(execution);
@@ -32,7 +35,7 @@ export function StreamingIndicator() {
       // 团队/辩论回合的内嵌协作图卡片已承载辩题与逐 Agent 状态，底部条只留
       // 「谁在动」的心跳、不再复述辩题（避免与画布三重复述同一句）。单 Agent
       // 回复无画布，这条是唯一「还活着」信号，仍保留完整任务摘要。
-      if (execution.planType !== "single_agent") {
+      if (hasInlineGraph) {
         text = role
           ? `${role} 正在工作`
           : execution.planType === "debate"

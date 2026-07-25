@@ -36,6 +36,7 @@ from .governance import (
     decide_llm_failure,
     maybe_inject_audit_gate,
     maybe_inject_debate_gate,
+    maybe_inject_exec_verify_gate,
     maybe_inject_turn_token_budget_gate,
     resolve_openai_tool_defs,
 )
@@ -283,6 +284,26 @@ async def react_loop(
 
     investigation_tools = classify_investigation_tools(tools, allowed_tool_names)
     controller = create_loop_controller(investigation_tools, seed=controller_seed)
+    # 跑/打开验证：意图命中则在首轮 LLM 前硬收探路工具（仿 team_gate，零阈值）。
+    if role == "captain":
+        from agentcore.tools.builtin import (
+            browser_execution_enabled_for,
+            code_execution_enabled_for,
+        )
+
+        backend = tool_context.backend
+        if maybe_inject_exec_verify_gate(
+            controller,
+            messages=messages,
+            run_id=run_id or "",
+            round_idx=0,
+            role=role,
+            code_execute=code_execution_enabled_for(backend),
+            browser=browser_execution_enabled_for(backend),
+            disabled_tools=disabled_tools,
+            investigation_tools=investigation_tools,
+        ):
+            tool_defs = _resolve_tool_defs()
     active_model: str | None = base_model
     finish_guard_reworks = 0
     ceiling_reason = "max_rounds"

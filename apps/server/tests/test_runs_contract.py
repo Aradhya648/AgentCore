@@ -205,12 +205,12 @@ def test_describe_deliverable_json_file_channel():
         Deliverable(
             form="files",
             output_format="json",
-            artifacts=["reviews/legal.json"],
+            artifacts=["AgentCore/文档/reviews/legal.json"],
             name="结构化审查",
         )
     )
     assert "JSON" in desc
-    assert "reviews/legal.json" in desc
+    assert "AgentCore/文档/reviews/legal.json" in desc
     assert "文件存在" in desc or "可解析" in desc
 
 

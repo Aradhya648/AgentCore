@@ -1048,6 +1048,24 @@ async def test_reflection_injected_on_long_run_cadence():
     assert any("已进行 7 轮" in (m.content or "") for m in reviews)
 
 
+async def test_reflection_skipped_when_progress_tools_succeed():
+    # Cadence would fire at round_idx 3 / 6, but successful file_write each round is
+    # recent progress → no reflection inject. file_append is also a progress tool;
+    # this pins the skip wiring through govern_after_tools.
+    rounds: list[list[LLMChunk]] = [
+        [_tool_chunk("file_write", '{"p": "%d"}' % i)] for i in range(8)
+    ]
+    rounds.append([_content_chunk("final")])
+    provider = _ScriptedProvider(rounds)
+    (content, *_), messages = await _run(
+        provider, _StubTool(name="file_write", category=ToolCategory.EXECUTION), max_rounds=20
+    )
+
+    assert content == "final"
+    reviews = [m for m in messages if m.role == "user" and m.content and "进度复盘" in m.content]
+    assert reviews == []
+
+
 async def test_productive_round_resets_unproductive_streak():
     # A round that produces content (even alongside a failing tool) breaks the streak,
     # so an intermittent failure run is NOT early-stopped as unproductive.

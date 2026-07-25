@@ -43,8 +43,8 @@ _TOPIC = "品牌是否应立即终止争议代言联名"
 
 _RESEARCH_FILES = list(EXPECTED_RESEARCH_FILES)
 _DEBATE_FILES = [
-    "debate/决策简报·终止联名·abcd1234.md",
-    "debate/交锋叙事线·终止联名·abcd1234.md",
+    "AgentCore/文档/debate/决策简报·终止联名·abcd1234.md",
+    "AgentCore/文档/debate/交锋叙事线·终止联名·abcd1234.md",
 ]
 
 _SERVER_ROOT = Path(__file__).resolve().parents[1]
@@ -166,13 +166,13 @@ def _enrich_stage_card_positive() -> list:
         tool_use_start(
             "fr1",
             "file_read",
-            {"path": "research/汇总与命题卡.md"},
+            {"path": "AgentCore/文档/research/汇总与命题卡.md"},
             run_id="debate_mod_sc_r1_pro",
         ),
         tool_use_start(
             "fr2",
             "file_read",
-            {"path": "research/法律透镜报告.md"},
+            {"path": "AgentCore/文档/research/法律透镜报告.md"},
             run_id="debate_mod_sc_r1_con",
         ),
         tool_use_start(

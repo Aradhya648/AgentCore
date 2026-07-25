@@ -11,6 +11,12 @@ import {
 } from "@/lib/elk-layout";
 import type { ElkGraphLayout } from "@/lib/graph-layout-utils";
 import { computeLayoutHints } from "@/lib/layoutHints";
+import {
+  isGraphTraceEnabled,
+  traceGraphHeightRelayout,
+  traceGraphLayoutOk,
+  traceGraphStructure,
+} from "@/services/graphTrace";
 import type { Execution } from "@/stores/execution";
 import type { GraphEdge, GraphLayout } from "@/stores/graph";
 import type { NodeChange } from "@xyflow/react";
@@ -148,6 +154,8 @@ export function useGraphLayout(
   nodeHeightsRef.current = nodeHeights;
   const nodeSizesRef = useRef(nodeSizes);
   nodeSizesRef.current = nodeSizes;
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
 
   const setLayout = useCallback(
     (
@@ -195,6 +203,9 @@ export function useGraphLayout(
   useEffect(() => {
     if (!structuralKey) {
       hasShownLayoutRef.current = false;
+      if (isGraphTraceEnabled()) {
+        traceGraphStructure({ cleared: true });
+      }
       setLayout({}, []);
       setBbox(null);
       setNodeSizes({});
@@ -212,6 +223,16 @@ export function useGraphLayout(
       setLayoutReady(false);
     }
     setLayoutError(null);
+    if (isGraphTraceEnabled()) {
+      const prevPosIds = Object.keys(positionsRef.current);
+      traceGraphStructure({
+        gen,
+        structuralKey: structuralKey.slice(0, 120),
+        keepOldLayout: hasShownLayoutRef.current,
+        prevPosCount: prevPosIds.length,
+        prevPosIds,
+      });
+    }
 
     const onOk = (
       nextPositions: Record<string, { x: number; y: number }>,
@@ -224,6 +245,17 @@ export function useGraphLayout(
     ) => {
       if (cancelled || gen !== layoutGenRef.current) return;
       hasShownLayoutRef.current = true;
+      if (isGraphTraceEnabled()) {
+        const sceneIds =
+          sceneRef.current?.nodeIds.slice() ?? Object.keys(nextPositions);
+        traceGraphLayoutOk({
+          phase: "structure",
+          gen,
+          posIds: Object.keys(nextPositions),
+          sceneIds,
+          bbox: { width, height },
+        });
+      }
       setLayout(nextPositions, nextEdges);
       setBbox({ width, height });
       setNodeSizes(sizeMap);
@@ -339,6 +371,14 @@ export function useGraphLayout(
     const timer = setTimeout(() => {
       if (cancelled || gen !== layoutGenRef.current) return;
 
+      if (isGraphTraceEnabled()) {
+        traceGraphHeightRelayout({
+          gen,
+          measuredIds: Object.keys(heights),
+          sizeIds: sizeIds.slice(),
+        });
+      }
+
       const onOk = (
         nextPositions: Record<string, { x: number; y: number }>,
         nextEdges: GraphEdge[],
@@ -349,6 +389,17 @@ export function useGraphLayout(
         cards: ActCardLayout[],
       ) => {
         if (cancelled || gen !== layoutGenRef.current) return;
+        if (isGraphTraceEnabled()) {
+          const sceneIds =
+            sceneRef.current?.nodeIds.slice() ?? Object.keys(nextPositions);
+          traceGraphLayoutOk({
+            phase: "height-relayout",
+            gen,
+            posIds: Object.keys(nextPositions),
+            sceneIds,
+            bbox: { width, height },
+          });
+        }
         setLayout(nextPositions, nextEdges);
         setBbox({ width, height });
         setNodeSizes(sizeMap);

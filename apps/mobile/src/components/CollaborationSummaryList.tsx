@@ -3,6 +3,7 @@ import {
   fetchCollaborationTimeline,
   formatActChain,
 } from "@/api/collaborationTimeline";
+import { RESEARCH_DIR } from "@/lib/stageDirs";
 // 项目协作时间线 · 手机降级：文字摘要列表（会话 + 幕序列），无可缩放大图。
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -65,7 +66,11 @@ export function CollaborationSummaryList({ wsId }: { wsId: string }) {
         {items?.map((it) => {
           const chain = formatActChain(it.acts);
           const refs = (it.dossier_refs ?? [])
-            .map((r) => r.path.replace(/^research\//, ""))
+            .map((r) =>
+              r.path.startsWith(`${RESEARCH_DIR}/`)
+                ? r.path.slice(RESEARCH_DIR.length + 1)
+                : r.path,
+            )
             .join("、");
           return (
             <li key={it.conversation_id}>

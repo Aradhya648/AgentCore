@@ -25,13 +25,8 @@ import {
   type OutboxStatusSnapshot,
   type OutboxSyncedPayload,
 } from "@shared/outbox-contract";
-import {
-  deriveInterruptedAfterDecision,
-  shouldRetainOpenForContinue,
-} from "@shared/recoveryFold";
 import type {
   SidecarCitation,
-  SidecarInterruptedAfterDecision,
   SidecarRunsPayload,
   SidecarUnsyncedTurnSummary,
 } from "@shared/sidecar-contract";
@@ -367,17 +362,10 @@ async function drainOutboxDetailed(opts?: {
       // Body may come from content, or (D6 hard-kill) captain stream_segments when
       // content was never checkpointed. Regular polling must NOT promote open rows.
       if (salvageOpen && record.phase === PHASE_OPEN) {
-        // D2: settled-but-unterminated turns keep open so frameless continue still
-        // has local journal + resume_frame (do not salvage→ready→sync-delete).
-        if (
-          shouldRetainOpenForContinue({
-            finishReason: record.finish_reason,
-            journal: record.journal as Record<string, unknown> | undefined,
-          })
-        ) {
-          continue;
-        }
-        const salvageable = fillFromCaptainStreamSegments(record);
+        // Abandoned open rows (incl. post-settlement user stop / hard kill):
+        // promote → ready cancelled when there is text or process journal.
+        const hasText = fillFromCaptainStreamSegments(record);
+        const salvageable = hasText || recordHasProcessState(record);
         if (salvageable) {
           record.phase = PHASE_READY;
           // Align with CloudStore.salvage / OutboxStore.salvage: cancelled + incomplete.
@@ -489,38 +477,6 @@ export async function statusSnapshot(): Promise<OutboxStatusSnapshot> {
   return { pending };
 }
 
-/**
- * Project outbox records for a conversation into recovery summaries (D3/D5).
- *
- * Fills empty open-phase bodies from captain stream_segments. Does **not**
- * promote open→ready (that stays in startup salvage). Caller filters out the
- * live turn's open row when attaching.
- */
-/**
- * Journal-fold projection of interrupted_after_decision for a conversation (D2).
- * Uses outbox journal facts — not ``unsynced.length``.
- */
-export async function listInterruptedAfterDecision(
-  conversationId: string,
-  liveMessageId?: string | null,
-): Promise<SidecarInterruptedAfterDecision[]> {
-  const records = await readOutboxRecords();
-  const out: SidecarInterruptedAfterDecision[] = [];
-  for (const record of records) {
-    if (record.conversation_id !== conversationId) continue;
-    const hit = deriveInterruptedAfterDecision({
-      conversationId,
-      userMessageId: record.user_message_id,
-      messageId: record.message_id,
-      finishReason: record.finish_reason,
-      journal: record.journal as Record<string, unknown> | undefined,
-      liveMessageId,
-    });
-    if (hit) out.push(hit);
-  }
-  return out;
-}
-
 async function readDeadLetterRecords(): Promise<OutboxRecord[]> {
   const dir = deadLetterDir();
   let names: string[];
@@ -572,6 +528,13 @@ function toUnsyncedSummary(
   };
 }
 
+/**
+ * Project outbox records for a conversation into recovery summaries (D3/D5).
+ *
+ * Fills empty open-phase bodies from captain stream_segments. Does **not**
+ * promote open→ready (that stays in startup salvage). Caller filters out the
+ * live turn's open row when attaching.
+ */
 export async function listUnsyncedSummaries(
   conversationId: string,
 ): Promise<SidecarUnsyncedTurnSummary[]> {

@@ -14,10 +14,7 @@ import {
   usePausedTurnStore,
 } from "@/stores/pausedTurns";
 import type { components } from "@/types/api.generated";
-import type {
-  SidecarInterruptedAfterDecision,
-  SidecarUnsyncedTurnSummary,
-} from "@shared/sidecar-contract";
+import type { SidecarUnsyncedTurnSummary } from "@shared/sidecar-contract";
 
 type PausedTurnSummary = components["schemas"]["PausedTurnSummary"];
 type TurnRecoveryResponse = components["schemas"]["TurnRecoveryResponse"];
@@ -37,21 +34,11 @@ export interface ConversationRecovery {
   unsynced: SidecarUnsyncedTurnSummary[];
   /** Sidecar-only: live turn key when `sidecarLive`. */
   turnId?: string;
-  /**
-   * D2: journal-fold「已授权 · 执行中断」(not gated on unsynced non-empty —
-   * materials may live only in retained open outbox / merged journal).
-   */
-  interruptedAfterDecision: SidecarInterruptedAfterDecision[];
 }
 
-/** Local hydrate path when main-process facts say so (D6 二次修订 + D2). */
+/** Local hydrate path when main-process facts say so (D6 二次修订). */
 export function shouldHydrateLocalRecovery(r: ConversationRecovery): boolean {
-  return (
-    r.sidecarLive ||
-    r.unsynced.length > 0 ||
-    r.pausedCount > 0 ||
-    r.interruptedAfterDecision.length > 0
-  );
+  return r.sidecarLive || r.unsynced.length > 0 || r.pausedCount > 0;
 }
 
 function hydratePendingInteractions(
@@ -143,7 +130,6 @@ export async function loadRecovery(
         cloudLive: cloud.cloudLive,
         pausedCount: cloud.paused.length,
         unsynced: [],
-        interruptedAfterDecision: [],
       };
     } catch {
       return {
@@ -151,7 +137,6 @@ export async function loadRecovery(
         cloudLive: false,
         pausedCount: 0,
         unsynced: [],
-        interruptedAfterDecision: [],
       };
     }
   }
@@ -159,7 +144,6 @@ export async function loadRecovery(
   let sidecarLive = false;
   let turnId: string | undefined;
   let unsynced: SidecarUnsyncedTurnSummary[] = [];
-  let interruptedAfterDecision: SidecarInterruptedAfterDecision[] = [];
   let sidecarPaused: PausedTurnSummary[] = [];
   let cloudLive = false;
   let cloudPaused: PausedTurnSummary[] = [];
@@ -170,7 +154,6 @@ export async function loadRecovery(
       sidecarLive = recovery.liveRunning;
       turnId = recovery.turnId;
       unsynced = recovery.unsynced ?? [];
-      interruptedAfterDecision = recovery.interruptedAfterDecision ?? [];
       sidecarPaused = (recovery.paused ?? []) as unknown as PausedTurnSummary[];
     })
     .catch(() => {
@@ -204,7 +187,6 @@ export async function loadRecovery(
     pausedCount: merged.length,
     unsynced,
     turnId,
-    interruptedAfterDecision,
   };
 }
 

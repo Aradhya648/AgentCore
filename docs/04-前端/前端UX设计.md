@@ -73,7 +73,7 @@ skip_if:
 - **本地同步态 `synced_pending` ✅**：静默成功、显式失败；不进 SSE。→ 见代码: `message-bubble/SyncStatusHint.tsx`
 - **保序持久化**：`process_*` 渐进落 journal；纯散文不扩展。→ [执行引擎 §8.3](/docs/03-AI核心/执行引擎架构设计.md)
 - **实时行 / 等待态 ✅**：transport-only，重载不保留。→ 见代码: `ToolLine.tsx`
-- **结束原因 chip / 内联错误卡 ✅**：非正常收尾中性灰 chip；错误卡直播 SSE、重载自 `turn_end.error`；大众可见「复制诊断信息」。→ 见代码: `lib/errors.ts`
+- **结束原因 chip / 内联错误卡 ✅**：`max_rounds` / `degraded` / `unproductive` / `error` 等非正常收尾出中性灰 chip；**`cancelled` / `interrupted` 不出 chip**（正文定格或团队状态条「已停止」即终态，对齐主流对话 AI）。错误卡直播 SSE、重载自 `turn_end.error`；大众可见「复制诊断信息」。→ 见代码: `finish-reason-chip.tsx`、`lib/errors.ts`
 
 | 形态 | 何时 | 职责 |
 |------|------|------|
@@ -134,9 +134,9 @@ skip_if:
 | 场景 | 唯一动作 |
 |---|---|
 | 部分失败（有 worker `failed`） | **重试失败项** → `runRetryFailed`（后端 `retry-failed`，复用已成功 worker） |
-| 整轮失败 / 已停止 / 空 interrupted 救火 | **重试** → `runRegenerate` |
+| 整轮失败 / 已停止 | **重试** → `runRegenerate` |
 
-不堆叠「全部重新生成」与「重试失败项」；**无显式「忽略/放弃」**——用户发起新 turn 时隐式收口（`recovery_ignored` 审计 + `clearExecution`）。
+不堆叠「全部重新生成」与「重试失败项」；**无显式「忽略/放弃」**——用户发起新 turn 时隐式收口（`recovery_ignored` 审计 + `clearExecution`）。**否决**「已决策·执行中断」救火「继续」/ 无帧 `continueAfterDecision`（用户停止 = 本轮结束；续聊走输入框新消息）。**否决**消息级空 `interrupted` 救火「重试」（无正文时不挂 regenerate 文字链——对齐主流：重说/发新消息；`cancelled` / `interrupted` **不出** finishReason chip）。
 
 状态条尾部为一级图标按钮：执行中给「停止」、已完成/已停止给「回放」（切画布放大态自动播放时间轴），外加常驻的折叠 /「在画布打开」；不设 `[···]` 菜单——整轮重新执行统一交给消息级「重新生成」与救火行。内嵌图块在 `run_plan` 首次挂载时播放一次入场动画（`animate-task-card-enter`，遵循 `prefers-reduced-motion`，见 `styles/globals.css`）。
 
@@ -148,9 +148,9 @@ skip_if:
 
 **face 徽标预算 +「待你拍板」行动条（✅ · 方案 C）**：功能徽标同屏 ≤2（待拍板 > 异常 > 过程性）；行动条**仅 ≥2 项待决**出现、只导航不建卡。**否决**只加行动条不减徽标。→ 见代码: `components/graph/agentNode/faceBudget.ts`
 
-**救火行 `RecoveryActions`（✅ · 克制形态）**：按场景只出一条文字链接；经 `userMessageIdForAssistant(ExecutionScope)` 锚定本回合用户消息（找不到才回落 `lastUserMessageId()`）。放弃语义改隐式：`sendTurn` 入口调用 `dismissRecoverableExecutions`（`acceptRunOutcome(..., reason: recovery_ignored)` + `clearExecution`）。→ 见代码 `StatusStrip.tsx`、`services/turns/dismissRecovery.ts`；后端契约见 [执行引擎 §retry-failed](/docs/03-AI核心/执行引擎架构设计.md)
+**救火行 `RecoveryActions`（✅ · 克制形态）**：按场景只出一条文字链接（重试失败项 XOR 重试）；经 `userMessageIdForAssistant(ExecutionScope)` 锚定本回合用户消息（找不到才回落 `lastUserMessageId()`）。放弃语义改隐式：`sendTurn` 入口调用 `dismissRecoverableExecutions`（`acceptRunOutcome(..., reason: recovery_ignored)` + `clearExecution`）。→ 见代码 `StatusStrip.tsx`、`services/turns/dismissRecovery.ts`；后端契约见 [执行引擎 §retry-failed](/docs/03-AI核心/执行引擎架构设计.md)
 
-**续写可发现性（✅ · 无语法糖按钮）**：**否决**消息下「继续生成」一键按钮（只是替用户发字面「继续」）。末条助手消息为 `cancelled` / `interrupted`（有正文）/ `max_rounds` 时，输入框 placeholder 提示「可输入「继续」接着说…」；空 `interrupted`（无正文）并入救火行「重试」（regenerate）。`InterruptedAfterDecision` 一键继续 / `RunConfirmPrompt` / `RetryBanner` / run-redirect 保留不动。
+**续写可发现性（✅ · 无语法糖按钮）**：**否决**消息下「继续生成」一键按钮（只是替用户发字面「继续」）。末条助手消息为 `cancelled` / `interrupted`（有正文）/ `max_rounds` 时，输入框 placeholder 提示「可输入「继续」接着说…」；空 `interrupted`（无正文）**不**挂消息级「重试」——续聊走输入框新消息（与主流一致）；**`cancelled` / `interrupted` 不出 finishReason chip**（正文定格即终态；团队回合另有状态条「已停止」）。**否决**「已授权 · 执行中断 / 一键继续」无帧续跑（`InterruptedAfterDecision` / `continueAfterDecision` / 本地 `salvage_retain_open`）：用户停止 = 本轮正常结束并保留已产出；还想接着干 → 输入框发新消息。`RunConfirmPrompt` / `RetryBanner` / run-redirect 保留不动。
 
 **出现时机规则**（核心决策）：
 
@@ -374,7 +374,7 @@ skip_if:
 画布一旦成为管团队的地方，检查点 / 发问 / 审批 / 续跑 / 救火这些**老板权力**必须能就地行使（一个「掌管团队」的视图不可能只读）。落地**不**逐个塞进节点，而是把指挥台收口为**统一侧面板（§十）顶部的可折叠常驻区** `CommandRegion`（面板标题「指挥台」，徽标计待裁决数；不再单开第二个右坞，取舍见 §6.3）：
 
 - **双作用域同处一面**：回合级（`ask_user` 检查点 / `plan_review` / 工作者上报 / **救火行**）随**聚焦回合**的 message + 投影执行渲染；对话级（工具放行 approval / 待恢复续跑 resume / **传输错误重试 `RetryBanner`** / **后台云端任务 `BackgroundTaskCard`**）自带 store + 当前对话自渲染。画布模式下 `ChatView` / `InlineTeamGraph` / `MessageList` 未挂载，其对话级卡片、救火行与时间线内的后台任务卡本会**消失且无法操作**——故必须在统一侧面板的指挥台区（`CommandRegion`）承载。
-- **救火**（失败重试）：聚焦回合终态有失败（整轮崩 / 部分失败 / 已停止）时，指挥台渲染聊天同款 `RecoveryActions`（行内文字链接：部分失败只出 **重试失败项**，否则只出 **重试**；无显式忽略——新 turn 隐式收口）；外加对话级 `RetryBanner`（发送 / 续跑 / 重生成断流的传输错误重试）。聚焦节点头另挂一枚「待救火」红牌。
+- **救火**（失败重试 / 已决策·执行中断续跑）：聚焦回合终态有失败（整轮崩 / 部分失败 / 已停止）或 interrupted store 命中时，指挥台渲染聊天同款 `RecoveryActions`（行内文字链接：interrupted → **继续**；部分失败只出 **重试失败项**，否则只出 **重试**；无显式忽略——新 turn 隐式收口）；外加对话级 `RetryBanner`（发送 / 续跑 / 重生成断流的传输错误重试）。聚焦节点头另挂一枚「待救火」红牌。
 - **后台云端任务**（非阻塞 · 跨对话的「另一类」）：本地模式对话的云端交接任务（`BackgroundTaskCard`，§十）原按时间戳并入聊天时间线；画布无时间线，故收进指挥台**末尾**（卡片自带派发 / 运行 / 失败状态 + 完成后「查看并应用」内联评审）。**不计入「待你拍板」**（非决策、不污染节点徽标），但其存在 / 新到一项会自动浮出指挥台；轮询同步由常驻的 `ConversationCanvas` 驱动（指挥台收起时仍刷新，故计数能反过来浮出面板）。发起侧：画布命令栏 `CanvasCommandBar` 也带「后台云端」开关（仅本地模式对话亮出），可在画布里直接派发，走与聊天**同一** `dispatchBackgroundTask` 通路、结果即落本指挥台。
 - **逐字复用聊天同款卡片**（`CheckpointCard` / `PlanReviewCard` / `EscalationCard` / `ApprovalPrompt` / `ResumePrompt` / `RetryBanner` / `RecoveryActions` / `BackgroundTaskCard`，§三），操作经**同一**服务 + SSE 折叠（守单一数据源、不开第二条通路）；决策提示卡（审批 / 委派授权 / 续跑）经 `ConversationDecisionPrompts` **单挂载**——Chat 与画布互斥复用同一实例，消灭「同屏两套可操作卡」；`interactive` 取聚焦回合 `isStreaming`，重载 / 已结束回合的卡片呈被动记录。
 - **数据来源（画布→面板桥）**：转 focus 是画布概念，故 `ConversationCanvas` 经 `stores/commandPanel.ts` 只发布「画布已挂载 `active`」+「聚焦团队回合 id」；区自己从执行 / **InteractionStore（§三统一交互模型）** / resume / 后台任务各 store **现取**派生（单一数据源、不拷快照）、自管自动浮出。`active` 是画布专属门——聊天模式恒 false 故区不出现（聊天的决策本就内联在消息流）。
@@ -468,7 +468,7 @@ skip_if:
 
 **交付状态卡（掐断透明化 · C3 职责分离 ✅）**：`delivery_status` 在 partial / blocked 时出 `DeliveryStatusCard`（正文下、产物卡上；`delivered` 不出卡、由产物卡承载）。**结构化 `gaps` 是缺口唯一可信源**——综述正文不再承担缺口披露；完成条件卡是缺口的唯一披露面（逐条 gap 明细），partial / blocked 的强调色由卡片头部（图标 + 状态徽标）承接，避免「正文乐观、卡片悲观」。缺口行可选 `reason` 徽标——已知 `token_budget`（预算触顶）/ `worker_timeout`（运行超时）/ `degraded_handoff`（降级交接）；未知 reason 忽略（向前兼容）。整卡可折叠（整行头部开合 + chevron，对齐产出文件卡）——诚实披露卡**默认展开**（不套产物卡「>4 收起」阈值），收起仅折叠 gap 明细与行动项、头部恒可见；桌面折叠偏好按回合持久化（`usePersistentDisclosure`），手机为本地会话态。手机 TeamView `DeliverySection` 同口径（徽标 + 可折叠）。→ 见代码 `DeliveryStatusCard.tsx`、`TeamView.tsx`；后端 [`编排器 §交付状态`](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
-**案卷徽章与阶段目录（✅ 2026-07-19）**：文件树对约定阶段目录（`research/` / `debate/`，目录语义见 [`双模式工作区.md` §五](/docs/02-架构/双模式工作区.md)）出根级**案卷徽章**（「调研案卷 / 辩论产物 · N 件」，中性口径不写幕号）；产物卡带案卷标签 +「在文件页查看案卷」跳转。路径→元信息走可扩展表 `lib/stageDirs.ts`（双端同构）；无案卷目录的工作区零噪音。**否决**阶段视图 Tab（超一层、与「复用文件树心智」冲突）。→ 见代码 `components/files/FileTreeRow.tsx`、`lib/stageDirs.ts`。
+**案卷徽章与阶段目录（✅）**：文件树对约定阶段目录出**案卷徽章**（「调研案卷 / 辩论产物 / 审查 · N 件」，中性口径不写幕号）；产物卡带案卷标签 +「在文件页查看案卷」跳转。路径→元信息走可扩展表 `lib/stageDirs.ts`（双端同构）；前缀 `AgentCore/文档/{research,debate,reviews}/`（见 [`双模式工作区.md` §五](/docs/02-架构/双模式工作区.md)）。无案卷目录的工作区零噪音。**否决**阶段视图 Tab（超一层、与「复用文件树心智」冲突）。→ 见代码 `components/files/FileTreeRow.tsx`、`lib/stageDirs.ts`。
 
 **项目级协作时间线（✅ 2026-07-19）**：跨会话的项目协作视图 = **读时聚合**——`GET /v1/folders/{id}/collaboration-timeline`（会话 + 幕摘要 + 案卷引用条）；桌面 `/conversations` 项目筛选态顶部 `CollaborationTimeline` 面板、手机工作区文件页文字摘要；阶段产物复用工作区文件 API。**否决**项目级 execution 实体与单张跨会话大图（不造第二真相源，幕拼线靠读时聚合）。→ 见代码 `pages/conversations/CollaborationTimeline.tsx`、`services/collaborationTimeline.ts`、后端 `api/routes/folders.py`。
 

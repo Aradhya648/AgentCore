@@ -19,15 +19,4 @@ export function isContinuableAssistant(
   return message.content.length > 0;
 }
 
-/** Empty interrupted salvage — no body to continue; retry via regenerate. */
-export function isEmptyInterruptedAssistant(
-  message: Message | undefined | null,
-): boolean {
-  if (!message || message.role !== "assistant" || message.isStreaming) {
-    return false;
-  }
-  const finishReason = message.finishReason ?? message.runs?.finishReason;
-  return finishReason === "interrupted" && message.content.length === 0;
-}
-
 export const COMPOSER_CONTINUE_PLACEHOLDER = "可输入「继续」接着说…";

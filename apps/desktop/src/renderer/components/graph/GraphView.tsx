@@ -7,6 +7,8 @@ import { useCoordinationWaitChrome } from "@/components/chat/useCoordinationWait
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { useTurnAudit } from "@/hooks/useTurnAudit";
 import { resolveEffectiveGraphLayout } from "@/lib/graph-layout-utils";
+import { computeVisualBbox } from "@/lib/graphMetrics";
+import { isGraphTraceEnabled, traceGraphDomClip } from "@/services/graphTrace";
 import { useConversationStore } from "@/stores/conversation";
 import { useDisclosureStore } from "@/stores/disclosure";
 import {
@@ -157,8 +159,21 @@ export function GraphView({
     expandedUnits,
     focusedActId,
   );
+  // fitMode=width: drive fit / onMeasure from current visual footprint (measured
+  // heights) so the embed does not wait on secondary ELK — graphHost contract.
+  const fitBbox = useMemo(() => {
+    if (!bbox) return null;
+    if (fitMode !== "width") return { ...bbox, originY: 0 };
+    return computeVisualBbox(positions, nodeSizes, nodeHeights, bbox);
+  }, [fitMode, bbox, positions, nodeSizes, nodeHeights]);
   const { containerRef, rfRef, overflowing, fitView, centerNode, onInit } =
-    useGraphViewport({ fitMode, bbox, layoutReady, onMeasure });
+    useGraphViewport({
+      fitMode,
+      bbox: fitBbox,
+      originY: fitBbox?.originY ?? 0,
+      layoutReady,
+      onMeasure,
+    });
   const handleDirection =
     effectiveLayoutKind === "leftright"
       ? ("horizontal" as const)
@@ -402,6 +417,49 @@ export function GraphView({
         .join(" "),
     }));
   }, [projected, morphing]);
+
+  // Dev：RF DOM 相对容器裁切采样（区分「投影丢」vs「看得见但被裁」）。
+  useEffect(() => {
+    if (!isGraphTraceEnabled() || !layoutReady || fitMode !== "width") return;
+    const el = containerRef.current;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      const flow = el.querySelector(".react-flow");
+      if (!flow) return;
+      const c0 = flow.getBoundingClientRect();
+      const nodes = [...el.querySelectorAll(".react-flow__node")].map(
+        (nodeEl) => {
+          const r = nodeEl.getBoundingClientRect();
+          return {
+            id: nodeEl.getAttribute("data-id") ?? "",
+            top: r.top,
+            bottom: r.bottom,
+            left: r.left,
+            right: r.right,
+          };
+        },
+      );
+      const clippedIds = nodes
+        .filter((n) => n.id && n.top < c0.bottom && n.bottom > c0.bottom + 1)
+        .map((n) => n.id);
+      const fullyInsideCount = nodes.filter(
+        (n) =>
+          n.top >= c0.top &&
+          n.bottom <= c0.bottom &&
+          n.left >= c0.left &&
+          n.right <= c0.right,
+      ).length;
+      if (clippedIds.length > 0) {
+        traceGraphDomClip({
+          rfNodeIds: nodes.map((n) => n.id).filter(Boolean),
+          clippedIds,
+          fullyInsideCount,
+          containerH: Math.round(c0.height),
+        });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [containerRef.current, layoutReady, fitMode]);
 
   const flowEdges = projected?.edges ?? [];
   const laneBands = projected?.lanes ?? [];

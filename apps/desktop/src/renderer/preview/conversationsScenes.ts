@@ -186,14 +186,14 @@ export function buildCollaborationTimelineMock(folderId: string) {
         ],
         dossier_refs: [
           {
-            path: "research/法律透镜报告.md",
+            path: "AgentCore/文档/research/法律透镜报告.md",
             sources: ["dossier_inject", "file_read"] as (
               | "dossier_inject"
               | "file_read"
             )[],
           },
           {
-            path: "research/汇总与命题卡.md",
+            path: "AgentCore/文档/research/汇总与命题卡.md",
             sources: ["file_read"] as ("dossier_inject" | "file_read")[],
           },
         ],

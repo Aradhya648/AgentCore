@@ -145,7 +145,17 @@ async def test_dag_file_writing_upstream_passes_pointer_downstream():
                 ]
             )
         ],
-        [LLMChunk(delta_content="已生成 data/out.csv")],
+        # Pad past MIN_UPSTREAM_BODY_CHARS so empty_body_blocked does not fire before
+        # files_touched can flow into the downstream prompt.
+            [
+                LLMChunk(
+                    delta_content=(
+                        "已生成 data/out.csv。"
+                        "上游构建器已将数据集写入工作区，下游可用 file_read 按路径读取完整内容后继续分析。"
+                        "表头与样例行已落盘，请据此完成统计分析。"
+                    )
+                )
+            ],
         # s2: final answer (single round)
         [LLMChunk(delta_content="分析完成")],
     ]

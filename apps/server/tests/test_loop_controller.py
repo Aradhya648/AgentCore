@@ -406,6 +406,65 @@ def test_progress_review_prompt_is_anchored_to_round():
     assert "已进行 4 轮" in msg
 
 
+def test_progress_review_prompt_role_split():
+    captain = progress_review_prompt(4, role="captain")
+    worker = progress_review_prompt(4, role="worker")
+    default = progress_review_prompt(4)
+
+    assert "对照用户目标" in captain
+    assert "再委派" in captain or "委派" in captain
+    assert "收尾" in captain
+    assert "直接给最终答案" not in captain
+    assert "直接给出最终答案" not in captain
+
+    assert "落盘" in worker
+    assert "handoff" in worker
+    assert "禁止直接给最终答案" in worker
+    assert "file_read" in worker
+    # Default (no role / empty) uses worker copy — solo & leaf workers.
+    assert "handoff" in default
+    assert "禁止直接给最终答案" in default
+    assert captain != worker
+
+
+def test_reflection_skips_when_recent_progress():
+    c = LoopController(reflection_start_round=3, reflection_interval=3)
+    # Cadence round with a successful file_write → skip.
+    c.record([_ok("w", "file_write")])
+    assert c.has_recent_progress()
+    assert not c.reflection_due(3)
+
+    # Next non-progress round still within「近轮」window → still skip.
+    c.record([_ok("r", "web_search")])
+    assert c.has_recent_progress()
+    assert not c.reflection_due(6)
+
+    # Two non-progress rounds later → cadence may fire again.
+    c.record([_ok("r2", "web_search")])
+    assert not c.has_recent_progress()
+    assert c.reflection_due(6)
+
+
+def test_file_append_counts_as_progress_for_reflection_skip():
+    c = LoopController(reflection_start_round=3, reflection_interval=3)
+    c.record([_ok("a", "file_append")])
+    assert c.has_recent_progress()
+    assert not c.reflection_due(3)
+
+
+def test_failed_progress_tool_does_not_skip_reflection():
+    c = LoopController(reflection_start_round=3, reflection_interval=3)
+    c.record([_fail("w", "file_write")])
+    assert not c.has_recent_progress()
+    assert c.reflection_due(3)
+
+
+def test_progress_tools_include_append_and_handoff():
+    from agentcore.runtime.loop_controller import PROGRESS_TOOLS
+
+    assert {"file_write", "file_append", "handoff", "delegate", "ask_user"} <= PROGRESS_TOOLS
+
+
 # --- over-investigation safety net (收敛治理, 保险丝: finalize-only runaway backstop) ---
 #
 # The soft nudge that once lived here was removed: a 3-sample A/B showed it was ignored

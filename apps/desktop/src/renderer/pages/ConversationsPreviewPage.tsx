@@ -27,8 +27,11 @@ function seedPreviewCaches() {
     buildCollaborationTimelineMock(PREVIEW_FOLDER_ID),
   );
   queryClient.setQueryData(["folder-dossier-snapshot", PREVIEW_FOLDER_ID], {
-    research: ["research/法律透镜报告.md", "research/汇总与命题卡.md"],
-    debate: ["debate/brief.md"],
+    research: [
+      "AgentCore/文档/research/法律透镜报告.md",
+      "AgentCore/文档/research/汇总与命题卡.md",
+    ],
+    debate: ["AgentCore/文档/debate/brief.md"],
   });
 }
 

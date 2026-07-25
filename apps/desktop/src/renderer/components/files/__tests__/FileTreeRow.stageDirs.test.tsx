@@ -68,12 +68,12 @@ function renderDir(path: string, name: string, fileCount: number) {
 }
 
 describe("FileTreeRow stage dir badges", () => {
-  it("research/debate 显示徽章副文案，普通目录零噪音", () => {
-    const { unmount } = renderDir("research", "research", 2);
+  it("AgentCore/文档/research/debate 显示徽章副文案，普通目录零噪音", () => {
+    const { unmount } = renderDir("AgentCore/文档/research", "research", 2);
     expect(screen.getByText("调研案卷 · 2 件")).toBeTruthy();
     unmount();
 
-    renderDir("debate", "debate", 1);
+    renderDir("AgentCore/文档/debate", "debate", 1);
     expect(screen.getByText("辩论产物 · 1 件")).toBeTruthy();
     // 同屏再渲普通目录不应出徽章
     renderDir("src", "src", 3);

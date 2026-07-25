@@ -220,7 +220,7 @@ async def test_quick_debate_returns_dual_products_non_terminal(tmp_path: Path):
     assert "先小步验证再决定" in result.output  # brief.recommendation
     # 收口机制性落盘 + CEO 尾部路径可引用
     assert "【工作区落盘】" in result.output
-    debate_files = list((tmp_path / "debate").glob("*.md"))
+    debate_files = list((tmp_path / "AgentCore" / "文档" / "debate").glob("*.md"))
     assert len(debate_files) == 2
     names = {p.name for p in debate_files}
     assert any(n.startswith("决策简报") for n in names)
@@ -900,10 +900,10 @@ def test_debater_task_injects_research_dossier_index():
 
     sides = [DebateSide("pro", "正方", "支持"), DebateSide("con", "反方", "反对")]
     idx = format_research_dossier_index(
-        ["research/法律透镜报告.md", "research/汇总与命题卡.md"]
+        ["AgentCore/文档/research/法律透镜报告.md", "AgentCore/文档/research/汇总与命题卡.md"]
     )
-    assert "【工作区案卷索引·research/】" in idx
-    assert "research/法律透镜报告.md" in idx
+    assert "【工作区案卷索引·AgentCore/文档/research/】" in idx
+    assert "AgentCore/文档/research/法律透镜报告.md" in idx
 
     from agentcore.runtime.runs.retrieval_budget import (
         DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER,
@@ -922,8 +922,8 @@ def test_debater_task_injects_research_dossier_index():
     task = payload["task"]
     brief = opening_draft_brief(cfg, sides[0], focus="焦点")
     for text in (task, brief):
-        assert "【工作区案卷索引·research/】" in text
-        assert "research/法律透镜报告.md" in text
+        assert "【工作区案卷索引·AgentCore/文档/research/】" in text
+        assert "AgentCore/文档/research/法律透镜报告.md" in text
         assert "file_read" in text
         assert "【已核实·#eN】" in text
         assert "案卷预登记" in text or "预登记进场级台账" in text

@@ -25,11 +25,11 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 
 
-def _ctx(workspace: Path) -> ToolContext:
+def _ctx(workspace: Path, *, agent_id: str = "a") -> ToolContext:
     return ToolContext(
         execution_id="e",
         run_id="s",
-        agent_id="a",
+        agent_id=agent_id,
         backend=ServerWorkspace(root=workspace, sandbox=SubprocessSandbox()),
         user_id="u",
     )
@@ -117,7 +117,7 @@ async def test_outside_workspace_error_is_actionable(tmp_path: Path):
     assert result.success is False
     assert "超出了工作区范围" in result.error
     assert "相对路径" in result.error
-    assert "research/report.md" in result.error
+    assert "AgentCore/文档/research/report.md" in result.error
     assert "bind_local_folder" in result.error
     assert "勿用纯文本" in result.error
 
@@ -298,12 +298,13 @@ async def test_write_skeleton_then_append_allowed(tmp_path: Path):
 
 
 async def test_file_read_rejects_self_product(tmp_path: Path):
-    """本 run 已落盘路径的 body file_read → contract_failure；不计成功读次数。"""
+    """作者写后 body file_read → contract_failure；不计成功读次数。"""
     ctx = _ctx(tmp_path)
     w = await FileWriteTool().execute(
         {"path": "out.md", "content": "# Title\n\n## Sec\n"}, ctx
     )
     assert w.success is True
+    assert ctx.landed_artifact_authors.get("out.md") == "a"
     blocked = await FileReadTool().execute({"path": "out.md"}, ctx)
     assert blocked.success is False
     assert blocked.contract_failure is True
@@ -311,6 +312,36 @@ async def test_file_read_rejects_self_product(tmp_path: Path):
     assert "artifact manifest" in (blocked.error or "") or "现盘结构" in (blocked.error or "")
     assert "title_tree" in (blocked.error or "")
     assert ctx.file_read_counts.get("out.md", 0) == 0
+
+
+async def test_file_read_allows_non_author_same_execution(tmp_path: Path):
+    """同 execution 共享 landed 表时，非作者可读作者已落盘 path。"""
+    from dataclasses import replace
+
+    author_ctx = _ctx(tmp_path, agent_id="writer")
+    w = await FileWriteTool().execute(
+        {"path": "shared.md", "content": "# Shared\n\nbody for downstream\n"},
+        author_ctx,
+    )
+    assert w.success is True
+    assert author_ctx.landed_artifact_kinds.get("shared.md") is not None
+
+    # Downstream / CEO share the same mutable landed dicts (replace shallow-copy).
+    reader_ctx = replace(author_ctx, agent_id="ceo", run_id="ceo-run")
+    assert reader_ctx.landed_artifact_kinds is author_ctx.landed_artifact_kinds
+    assert reader_ctx.landed_artifact_authors is author_ctx.landed_artifact_authors
+
+    allowed = await FileReadTool().execute({"path": "shared.md"}, reader_ctx)
+    assert allowed.success is True
+    assert "body for downstream" in allowed.output
+    assert reader_ctx.file_read_counts.get("shared.md", 0) == 1
+
+    # Author still blocked（共享计数器不因拒读递增）.
+    counts_before = int(author_ctx.file_read_counts.get("shared.md", 0))
+    blocked = await FileReadTool().execute({"path": "shared.md"}, author_ctx)
+    assert blocked.success is False
+    assert blocked.contract_failure is True
+    assert int(author_ctx.file_read_counts.get("shared.md", 0)) == counts_before
 
 
 # --- file_write overwrite integrity nudge ---

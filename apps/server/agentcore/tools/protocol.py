@@ -289,11 +289,13 @@ class ToolContext:
     # ``handoff`` can log ``body_chars`` (deliverable) separately from ``chars`` (summary).
     # ``None`` when unset (CEO / tests / tools that do not need it).
     round_content_chars: int | None = None
-    # 成篇交接：有下游依赖时 handoff 须带非空交付正文（或已落盘文件）；由 worker
+    # 成篇交接：有下游依赖时 handoff 须带非空交付正文（或已落盘 prose）；由 worker
     # executor 按 DAG 写入。False/默认 = 叶节点或不强制。
     handoff_requires_body: bool = False
     # True when this run already landed at least one file (file_write / append /
-    # str_replace). Lets handoff accept file-form upstreams with short prose.
+    # str_replace) on the *current* ToolContext object. Best-effort same-ctx
+    # signal only — ``dataclasses.replace`` drops this bool. Handoff / executor
+    # body-floor exemption must read ``landed_artifact_kinds`` (prose) instead.
     has_landed_files: bool = False
     # Wave3 B：本 run 内各相对路径成功 ``file_read`` 次数（共享可变 dict；
     # ``dataclasses.replace`` 浅拷贝仍指向同一计数器）。超 ``FILE_READ_SAME_PATH_MAX``
@@ -309,12 +311,16 @@ class ToolContext:
     file_read_reread_issued: dict[str, bool] = field(default_factory=dict)
     # R1：各 path 剩余再读次数（共享可变 dict）。engine 授额时写入；成功再读时工具扣减。
     file_read_reread_remaining: dict[str, int] = field(default_factory=dict)
-    # Artifact-first Writing：本 run 已落盘 path → ``skeleton`` | ``prose``（共享可变 dict；
-    # ``dataclasses.replace`` 浅拷贝与 ``file_read_counts`` 同模式）。``prose`` = 成篇正文，
-    # 同 path 后续 ``file_append`` 硬拒；任一类均禁止再 ``file_read`` 回读正文。
+    # Artifact-first Writing：本 execution 已落盘 path → ``skeleton`` | ``prose``（共享可变
+    # dict；``dataclasses.replace`` 浅拷贝与 ``file_read_counts`` 同模式）。``prose`` = 成篇
+    # 正文，同 path 后续 ``file_append`` 硬拒。配 ``landed_artifact_authors``：仅**作者**
+    # agent 禁 ``file_read`` 回读正文（防作者空转验真，非防下游读者）。
     landed_artifact_kinds: dict[str, Literal["skeleton", "prose"]] = field(
         default_factory=dict
     )
+    # path → 首次落盘该 path 的 ``agent_id``（共享可变 dict，与 kinds 同生命周期）。
+    # ``file_read`` 仅当 ``context.agent_id`` 命中此表才硬拒 body 回读。
+    landed_artifact_authors: dict[str, str] = field(default_factory=dict)
     # 冷启动探索幕未完成（本回合有 explore 原因且尚未成功 ``update_project_profile``）。
     # assemble 在注入 ``<cold_start_explore>`` 时置 True；画像写入成功后清 False。
     # Delegate 读此旗标：抑制 form/artifacts→files_written 推断，并硬拒 form=files/artifacts。

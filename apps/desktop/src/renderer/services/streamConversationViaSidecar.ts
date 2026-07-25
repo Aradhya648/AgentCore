@@ -201,52 +201,6 @@ export async function streamConversationViaSidecar({
  * 形态与一次普通本地回合完全一致，故复用同一套事件分发与回写。事件路由 / cancel 键用
  * message_id（一回合至多一个持久挂起）。
  */
-/**
- * 无帧续跑（D2 · 方案 A）：outbox settlement 已 durable、paused 帧已消费后的一键继续。
- */
-export async function continueAfterDecisionViaSidecar({
-  conversationId,
-  rootId,
-  subpath,
-  messageId,
-  userMessageId,
-  signal,
-}: {
-  conversationId: string;
-  rootId: string;
-  subpath?: string;
-  messageId: string;
-  userMessageId?: string;
-  signal?: AbortSignal;
-}): Promise<SidecarTurnResult> {
-  const inference = (await resolveSidecarInference()) ?? undefined;
-  const permissionPreset =
-    await resolveConversationPermissionPreset(conversationId);
-  const traceId = newTraceId();
-  throwIfCannotOpenStream(conversationId, signal);
-  return runSidecarTurn({
-    conversationId,
-    rootId,
-    subpath,
-    turnId: messageId,
-    signal,
-    usedFallback: inference === undefined,
-    failMessage: "本地引擎未能从决策点继续，请重试",
-    invoke: () =>
-      window.sidecarApi.continueAfterDecision({
-        rootId,
-        subpath,
-        conversationId,
-        messageId,
-        traceId,
-        userMessageId,
-        inference,
-        permissionPreset,
-      }),
-    writeBack: () => persistAndReconcile(conversationId, userMessageId ?? ""),
-  });
-}
-
 export async function resumeConversationViaSidecar({
   conversationId,
   rootId,

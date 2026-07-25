@@ -103,6 +103,10 @@ class Deliverable:
     # auto-implies ``requires_files``, and a batch that declares any artifacts
     # auto-enables completion acceptance. Omit = no path enforcement.
     artifacts: list[str] = field(default_factory=list)
+    # Dossier landing directory (workspace-relative, no trailing slash). Runtime may
+    # fill from ``stage_dirs`` when form=files / files_written is dossier-semantic;
+    # worker picks filenames under this dir. Acceptance uses ``artifacts`` prefix.
+    artifact_dir: str = ""
     # When set (e.g. ``site/``), the contract gate cross-checks HTML↔CSS↔JS seams
     # across ALL web files under this workspace prefix — not only this run's batch.
     # Used by build_website QA to catch integrated orphan selectors after parallel
