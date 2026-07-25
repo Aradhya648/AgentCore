@@ -118,14 +118,25 @@ def _download(url: str, timeout: int = 600) -> bytes:
     raise last_err
 
 
+def _parse_sha256_payload(raw: str) -> str:
+    """Extract a hex digest from GNU ``hash  name`` or CertUtil-style files."""
+    for token in raw.replace("\r", "\n").split():
+        t = token.strip().lower()
+        if len(t) == 64 and all(c in "0123456789abcdef" for c in t):
+            return t
+    raise SystemExit(f"no sha256 digest found in checksum payload: {raw[:200]!r}")
+
+
 def _verify(data: bytes, url: str) -> None:
     expected = os.environ.get("RG_SHA256", "")
     if expected == "skip":
         return
     if not expected:
         sha_url = url + ".sha256"
-        raw = _download(sha_url, timeout=120).decode().strip()
-        expected = raw.split()[0]
+        raw = _download(sha_url, timeout=120).decode(errors="replace").strip()
+        expected = _parse_sha256_payload(raw)
+    else:
+        expected = expected.strip().lower()
     actual = hashlib.sha256(data).hexdigest()
     if actual != expected:
         raise SystemExit(f"ripgrep sha256 mismatch: {actual} != {expected}")
