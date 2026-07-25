@@ -148,6 +148,9 @@ def fetch_to(out_path: Path, *, target: str | None = None) -> Path:
 
 
 def _server_bin() -> Path:
+    # Docker copies this script to /fetch_ripgrep.py (no repo parents); only
+    # --install-server walks parents[1]. Keep help text static so argparse
+    # construction stays safe at filesystem root.
     return Path(__file__).resolve().parents[1] / "bin" / _exe_name()
 
 
@@ -166,12 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--install-server",
         action="store_true",
-        help=f"install to {_server_bin()}",
+        help="install to apps/server/bin/rg(.exe)",
     )
     parser.add_argument(
         "--install-desktop",
         action="store_true",
-        help=f"install to {_desktop_bin()}",
+        help="install to apps/desktop/resources/rg/rg(.exe)",
     )
     parser.add_argument(
         "--target",
