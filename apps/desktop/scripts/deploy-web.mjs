@@ -19,7 +19,7 @@
  * (run `pnpm install` first on a fresh clone — skipped to avoid the electron postinstall).
  * VITE_API_URL is pinned same-origin by apps/desktop/.env.production, so no override here.
  */
-import { copyFileSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
   REPO_ROOT,
@@ -30,18 +30,46 @@ import {
   sshScript,
 } from "../../../deploy/scripts/load-deploy-env.mjs";
 
+function loadDotEnvFile(path) {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = val;
+  }
+}
+
+loadDeployEnv();
+// Bake/gate URL: apps/desktop/.env.production pins VITE_API_URL (same-origin).
+loadDotEnvFile(join(REPO_ROOT, "apps/desktop/.env.production"));
+
 // Same-origin API the built SPA calls. Prefer baked .env.production; override for forks.
-const APP_HOST = process.env.AGENTCORE_APP_HOST || "app.example.com";
 const API_URL =
   process.env.AGENTCORE_APP_API_URL ||
   process.env.VITE_API_URL ||
-  `https://${APP_HOST}/api`;
+  `https://${process.env.AGENTCORE_APP_HOST || "app.example.com"}/api`;
+let APP_HOST = process.env.AGENTCORE_APP_HOST?.trim() || "";
+if (!APP_HOST || APP_HOST === "app.example.com") {
+  try {
+    APP_HOST = new URL(API_URL).hostname;
+  } catch {
+    APP_HOST = "app.example.com";
+  }
+}
 const WEB_ROOT = "/opt/agentcore/web";
 const DESKTOP_DIR = join(REPO_ROOT, "apps/desktop");
 const DIST = join(DESKTOP_DIR, "dist-web");
 const TARBALL = join(REPO_ROOT, "web-dist.tgz");
-
-loadDeployEnv();
 
 // Guard against shipping a frontend newer than the live backend (前后端版本漂移) —
 // runs before the build so a mismatch fails fast (see the 记忆·主题 404 incident).
