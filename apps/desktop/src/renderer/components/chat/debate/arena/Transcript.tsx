@@ -15,6 +15,7 @@ import { UserInterjection } from "./UserInterjection";
 import { WitnessExamSection } from "./WitnessExamSection";
 import { roundAnchorId, speakerAnchorId } from "./anchors";
 import {
+  DEBATE_SPLIT_GRID,
   type DebateArenaLayout,
   partitionSides,
 } from "./debateLayoutPreference";
@@ -101,6 +102,7 @@ export function Transcript({
         <PretrialSection
           pretrial={model.pretrial}
           moderatorModel={moderatorModel}
+          layoutMode={layoutMode}
         />
       ) : null}
 
@@ -176,7 +178,7 @@ export function Transcript({
                 subtopic={focusText || round.focus}
               />
             ) : useSplit ? (
-              <div className="grid grid-cols-2 items-start gap-4">
+              <div className={DEBATE_SPLIT_GRID}>
                 {(() => {
                   const { pro, con } = partitionSides(
                     speechSides,

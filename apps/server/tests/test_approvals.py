@@ -264,7 +264,13 @@ async def test_approve_always_sweeps_pending_same_tool():
 async def test_approve_always_files_grants_whole_class():
     """'本轮内允许所有文件改动' grants the file-mutation class for the turn (so a LATER
     write/edit/delete/move auto-approves) and sweeps every already-suspended file-op
-    call — while code_execute, outside the class, stays separately gated."""
+    call — while code_execute, outside the class, stays separately gated.
+
+    Uses always_ask so session file-trust does not short-circuit the file cards
+    (that path is covered by test_session_file_trust_*).
+    """
+    from agentcore.core.types import AutonomyPolicy
+
     reg = InteractionRegistry()
     sink = EventSink()
     file_ops = frozenset(
@@ -285,6 +291,7 @@ async def test_approve_always_files_grants_whole_class():
         registry=reg,
         timeout_seconds=5.0,
         file_op_tools=file_ops,
+        autonomy_policy=AutonomyPolicy.ALWAYS_ASK,
     )
 
     # A file_write (the clicked card), a parallel str_replace, and a code_execute.
@@ -761,6 +768,63 @@ async def test_kickoff_grant_via_gate_api():
     assert decision2 is ApprovalDecision.APPROVE
 
 
+async def test_kickoff_grant_covers_terminal_start():
+    """B · 开工已授执行类后，同 execution 的 terminal start 静默（不逐次弹门）。"""
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = _gate(sink, reg)
+    gate.grant_delegation("exec-1")
+
+    first = await gate.authorize(
+        tool_name="terminal",
+        tool_call_id="term-1",
+        arguments={"subcommand": "start", "command": "pnpm dev"},
+        execution_id="exec-1",
+    )
+    second = await gate.authorize(
+        tool_name="terminal",
+        tool_call_id="term-2",
+        arguments={"subcommand": "start", "command": "pnpm build"},
+        execution_id="exec-1",
+    )
+    assert first is ApprovalDecision.APPROVE
+    assert second is ApprovalDecision.APPROVE
+    assert _drain(sink) == []
+
+
+async def test_approve_once_still_reprompts_terminal():
+    """用户主动「允许一次」后，同工具仍可再次出卡（能力保留）。"""
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = _gate(sink, reg, timeout_seconds=5.0)
+
+    resolver = asyncio.create_task(
+        _resolve_when_ready(reg, "term-1", ApprovalDecision.APPROVE, "conv-1")
+    )
+    first = await gate.authorize(
+        tool_name="terminal",
+        tool_call_id="term-1",
+        arguments={"subcommand": "start", "command": "a"},
+        execution_id="exec-1",
+    )
+    await resolver
+    assert first is ApprovalDecision.APPROVE
+    assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
+
+    resolver2 = asyncio.create_task(
+        _resolve_when_ready(reg, "term-2", ApprovalDecision.APPROVE, "conv-1")
+    )
+    second = await gate.authorize(
+        tool_name="terminal",
+        tool_call_id="term-2",
+        arguments={"subcommand": "start", "command": "b"},
+        execution_id="exec-1",
+    )
+    await resolver2
+    assert second is ApprovalDecision.APPROVE
+    assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
+
+
 async def test_delegation_grant_skips_code_execute_approval():
     reg = InteractionRegistry()
     sink = EventSink()
@@ -837,6 +901,135 @@ def test_delegation_grantable_tool_names_includes_execution_and_file_ops():
     assert "terminal" in names
     assert "git" in names
     assert "file_write" in names
+
+
+async def test_session_file_trust_skips_mkdir_under_first_grant():
+    """开工授权：文件改动类会话信任，不必等开工卡（对齐 Composer 心智）。"""
+    from agentcore.core.types import AutonomyPolicy
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+    )
+
+    decision = await gate.authorize(
+        tool_name="mkdir",
+        tool_call_id="mk-1",
+        arguments={"path": "AgentCore/文档/research/设计"},
+    )
+    assert decision is ApprovalDecision.APPROVE
+    assert _drain(sink) == []
+
+
+async def test_session_file_trust_still_prompts_permanent_delete():
+    """永久删除不在会话文件信任内——仍出审批卡。"""
+    from agentcore.core.types import AutonomyPolicy
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+    )
+
+    resolver = asyncio.create_task(
+        _resolve_when_ready(reg, "del-1", ApprovalDecision.APPROVE, "conv-1")
+    )
+    decision = await gate.authorize(
+        tool_name="file_delete",
+        tool_call_id="del-1",
+        arguments={"path": "tmp.txt", "permanent": True},
+    )
+    await resolver
+    assert decision is ApprovalDecision.APPROVE
+    assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
+
+
+async def test_session_file_trust_does_not_cover_code_execute():
+    """执行类仍需开工卡 / 逐次审批，不被文件会话信任短路。"""
+    from agentcore.core.types import AutonomyPolicy
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+    )
+
+    resolver = asyncio.create_task(
+        _resolve_when_ready(reg, "ce-1", ApprovalDecision.APPROVE, "conv-1")
+    )
+    decision = await gate.authorize(
+        tool_name="code_execute",
+        tool_call_id="ce-1",
+        arguments={"code": "print(1)"},
+    )
+    await resolver
+    assert decision is ApprovalDecision.APPROVE
+    assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
+
+
+async def test_observe_policy_ignores_session_file_trust():
+    """只观察：文件会话信任关闭，mkdir 仍出卡。"""
+    from agentcore.core.types import AutonomyPolicy
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        autonomy_policy=AutonomyPolicy.ALWAYS_ASK,
+    )
+
+    resolver = asyncio.create_task(
+        _resolve_when_ready(reg, "mk-1", ApprovalDecision.APPROVE, "conv-1")
+    )
+    decision = await gate.authorize(
+        tool_name="mkdir",
+        tool_call_id="mk-1",
+        arguments={"path": "docs"},
+    )
+    await resolver
+    assert decision is ApprovalDecision.APPROVE
+    assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
+
+
+def test_kickoff_tools_lists_execution_class_only():
+    """开工卡能力半边只列执行类（文件改动已由会话档信任）。"""
+    from agentcore.runtime.kickoff.pause import kickoff_tools
+    from agentcore.tools.registration import execution_class_tool_names
+
+    assert kickoff_tools(show_capabilities=False) == []
+    shown = kickoff_tools(show_capabilities=True)
+    assert shown == sorted(execution_class_tool_names())
+    assert "mkdir" not in shown
+    assert "file_write" not in shown
+    assert "code_execute" in shown
 
 
 def test_terminal_start_requires_approval_like_git_writes():

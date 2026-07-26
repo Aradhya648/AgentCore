@@ -181,6 +181,7 @@ export async function runResume(
   note: string,
   selected: string[] = [],
   styleId: string | null | undefined = null,
+  formatId: string | null | undefined = null,
 ): Promise<void> {
   const store = useConversationStore.getState();
   const conversationId = store.currentConversationId;
@@ -217,9 +218,14 @@ export async function runResume(
 
   /** Banner「重试」：错误已在 runResume 内 setError；吞掉 rejection 避免未处理 Promise。 */
   const retryResume = () => {
-    void runResume(resumeMessageId, decision, note, selected, styleId).catch(
-      () => {},
-    );
+    void runResume(
+      resumeMessageId,
+      decision,
+      note,
+      selected,
+      styleId,
+      formatId,
+    ).catch(() => {});
   };
 
   const raiseSidecarUnavailable = (detail: string | null) => {
@@ -298,6 +304,7 @@ export async function runResume(
         note,
         selected,
         styleId: styleId ?? undefined,
+        formatId: formatId ?? undefined,
         userMessage: pendingSnapshot.userMessage,
         userMessageId,
         signal: ac.signal,
@@ -310,6 +317,7 @@ export async function runResume(
         note,
         selected,
         styleId: styleId ?? undefined,
+        formatId: formatId ?? undefined,
         signal: ac.signal,
       });
     }

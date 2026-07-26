@@ -21,6 +21,7 @@ delegate/debate 干跑开关——真实规划路径照走，首个 ``run_plan``
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import time
 from dataclasses import replace
@@ -326,10 +327,13 @@ class EvalHarness:
         return team_outcome(result, sink, latency_ms=_ms(t0))
 
     def _fixture_root(self, case: EvalCase) -> Path:
-        """用例的工作区现场：指定 fixture → ``fixtures/<name>``（须存在）；否则一次性临时目录。"""
+        """用例的工作区现场：指定 fixture → 拷贝到临时目录再挂（源只读）；否则一次性临时目录。"""
         if case.workspace_fixture:
             root = self._fixtures_dir / case.workspace_fixture
             if not root.is_dir():
                 raise EvalConfigError(f"[{case.id}] workspace_fixture 目录不存在: {root}")
-            return root
+            # copytree 隔离：worker 原地改文件不得污染仓内 fixtures（否则后续用例 FN）。
+            dest = Path(tempfile.mkdtemp(prefix="agentcore-eval-"))
+            shutil.copytree(root, dest, dirs_exist_ok=True)
+            return dest
         return Path(tempfile.mkdtemp(prefix="agentcore-eval-"))

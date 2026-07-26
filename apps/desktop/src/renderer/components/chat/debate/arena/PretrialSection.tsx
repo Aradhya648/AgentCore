@@ -1,6 +1,11 @@
 import { Badge } from "@/components/ui";
 import type { DebatePretrialView } from "../model";
 import { ModeratorIdentity } from "./ModeratorIdentity";
+import {
+  DEBATE_SPLIT_GRID,
+  type DebateArenaLayout,
+  partitionSides,
+} from "./debateLayoutPreference";
 
 const SKIP_LABEL: Record<string, string> = {
   fast: "快速档 · 已跳过庭前取证",
@@ -24,15 +29,19 @@ const STATUS_BADGE: Record<
 export function PretrialSection({
   pretrial,
   moderatorModel,
+  layoutMode = "stack",
 }: {
   pretrial: DebatePretrialView;
   moderatorModel?: string | null;
+  /** 与立论/质询一致：并排偏好下宽主列左右对照，窄主列自动单栏。 */
+  layoutMode?: DebateArenaLayout;
 }) {
   const statusMeta = STATUS_BADGE[pretrial.status] ?? STATUS_BADGE.running;
   const skipLine =
     pretrial.status === "skipped" && pretrial.skipReason
       ? (SKIP_LABEL[pretrial.skipReason] ?? "已跳过庭前取证")
       : null;
+  const useSplit = layoutMode === "split" && pretrial.sides.length === 2;
 
   return (
     <div className="space-y-3">
@@ -61,12 +70,35 @@ export function PretrialSection({
       </div>
 
       {pretrial.sides.length > 0 && pretrial.status !== "skipped" ? (
-        <div className="space-y-2">
-          {pretrial.sides.map((side) => (
-            <SideBlock key={side.sideKey} side={side} />
-          ))}
-        </div>
+        useSplit ? (
+          <SplitPretrialColumns sides={pretrial.sides} />
+        ) : (
+          <div className="space-y-2">
+            {pretrial.sides.map((side) => (
+              <SideBlock key={side.sideKey} side={side} />
+            ))}
+          </div>
+        )
       ) : null}
+    </div>
+  );
+}
+
+function SplitPretrialColumns({
+  sides,
+}: {
+  sides: DebatePretrialView["sides"];
+}) {
+  const { pro, con, others } = partitionSides(sides, (s) => s.sideKey);
+  return (
+    <div className="space-y-2">
+      <div className={DEBATE_SPLIT_GRID}>
+        <div className="min-w-0">{pro ? <SideBlock side={pro} /> : null}</div>
+        <div className="min-w-0">{con ? <SideBlock side={con} /> : null}</div>
+      </div>
+      {others.map((side) => (
+        <SideBlock key={side.sideKey} side={side} />
+      ))}
     </div>
   );
 }
@@ -85,7 +117,7 @@ function SideBlock({
 
   return (
     <div
-      className="rounded-xl border border-border bg-muted/30 px-3 py-2"
+      className="min-w-0 rounded-xl border border-border bg-muted/30 px-3 py-2"
       style={{ borderLeftColor: side.colorVar, borderLeftWidth: 3 }}
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -97,9 +129,9 @@ function SideBlock({
         <span className="text-xs text-muted-foreground">{progressLabel}</span>
       </div>
       {side.tasks.length > 0 ? (
-        <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+        <ul className="mt-1.5 space-y-1 text-xs leading-snug text-muted-foreground">
           {side.tasks.map((t) => (
-            <li key={t.query} className="truncate">
+            <li key={t.query} className="break-words">
               {t.purpose ? `${t.purpose} · ` : ""}
               {t.query}
             </li>

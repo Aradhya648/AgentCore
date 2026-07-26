@@ -736,6 +736,7 @@
         "assumptions": [],
         "questions": [],
         "style_options": [],
+        "format_options": [],
         "intent": "decision"
       },
       "timestamp": "2026-01-01T00:00:06.225Z"

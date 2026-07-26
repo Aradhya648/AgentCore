@@ -408,6 +408,74 @@ describe("GraphTeamPreview", () => {
     expect(screen.getByText("最关心成本谁买单")).toBeTruthy();
   });
 
+  it("debate 开赛卡有模型字段时展示三方署名", () => {
+    renderCard(
+      <GraphTeamPreview
+        preview={makeDebatePreview({
+          sides: [
+            {
+              key: "pro",
+              name: "正方",
+              stance: "应推广",
+              model: "doubao/seed-2.0",
+              origin: "platform",
+            },
+            {
+              key: "con",
+              name: "反方",
+              stance: "暂缓",
+              model: "deepseek/deepseek-v4-flash",
+              origin: "platform",
+            },
+          ],
+          moderatorModel: "deepseek/deepseek-v4-pro",
+          moderatorOrigin: "platform",
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("graph-team-preview"));
+    const line = screen.getByTestId("debate-roster-line");
+    expect(line.textContent).toBe("正方 豆包 · 反方 DeepSeek · 裁判 DeepSeek");
+  });
+
+  it("debate 开赛卡无模型字段时不展示跨模型署名（同模型场零噪声）", () => {
+    renderCard(<GraphTeamPreview preview={makeDebatePreview()} />);
+    fireEvent.click(screen.getByTestId("graph-team-preview"));
+    expect(screen.queryByTestId("debate-roster-line")).toBeNull();
+    expect(screen.queryByText(/正方 豆包/)).toBeNull();
+    expect(screen.getByText("正方")).toBeTruthy();
+    expect(screen.getByText("反方")).toBeTruthy();
+  });
+
+  it("debate 开赛卡展示消歧候选列表", () => {
+    renderCard(
+      <GraphTeamPreview
+        preview={makeDebatePreview({
+          modelCandidates: [
+            {
+              model: "deepseek-chat",
+              origin: "byok",
+              provider_id: "ds",
+              label: "DeepSeek Chat",
+              side_key: "con",
+            },
+            {
+              model: "deepseek-coder",
+              origin: "byok",
+              provider_id: "ds2",
+              label: "DeepSeek Coder",
+            },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("graph-team-preview"));
+    const box = screen.getByTestId("debate-model-candidates");
+    expect(box.textContent).toMatch(/消歧失败/);
+    expect(box.textContent).toMatch(/DeepSeek Chat/);
+    expect(box.textContent).toMatch(/byok\/deepseek-chat/);
+  });
+
   it("delegate：ghost 触发器默认关闭，点开 Popover 显示队员分工/嘱咐", () => {
     renderCard(
       <GraphTeamPreview preview={makePreview({ note: "先出竞品对照表" })} />,

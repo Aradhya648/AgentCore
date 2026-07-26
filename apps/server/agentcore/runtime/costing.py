@@ -147,6 +147,27 @@ def arena_run_cost(
     return member_run_cost(spec, state, parent_run_id=parent_run_id, role=ROLE_ARENA)
 
 
+def _priced_model_from_route(route_or_model: str) -> str:
+    """Strip router prefixes (``platform/`` or BYOK ``provider_id/``) for ledger lookup.
+
+    Vendor-prefixed ids (``doubao/...``) stay intact — they are curated pricing keys.
+    """
+    raw = (route_or_model or "").strip()
+    if "/" not in raw:
+        return raw
+    prefix, _, rest = raw.partition("/")
+    if not rest:
+        return raw
+    from agentcore.llm.pricing import _VENDOR_PREFIXES
+    from agentcore.llm.profiles import PLATFORM_PROVIDER_SENTINEL
+
+    if prefix == PLATFORM_PROVIDER_SENTINEL:
+        return rest
+    if prefix in _VENDOR_PREFIXES:
+        return raw
+    return rest
+
+
 def resolve_run_models(
     profiles: Any,
     spec_model: str,
@@ -157,13 +178,15 @@ def resolve_run_models(
 
     ``arena`` (辩论) falls back to the turn **main** model — never Worker
     ``model_for("agent")``. Explicit ``spec.model`` (injected main, or Phase 3
-    per-side) still wins.
+    per-side route key) still wins for the request; pricing strips router prefixes.
     """
     if cost_role == ROLE_ARENA:
-        model = spec_model or profiles.model
-        return model, model
-    priced = spec_model or profiles.model_for("agent")
-    request = spec_model or profiles.route_model_for("agent")
+        request = spec_model or profiles.model
+        return _priced_model_from_route(request), request
+    if spec_model:
+        return _priced_model_from_route(spec_model), spec_model
+    priced = profiles.model_for("agent")
+    request = profiles.route_model_for("agent")
     return priced, request
 
 

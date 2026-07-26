@@ -392,6 +392,16 @@ def debate_arguments_from_card(
             args["max_rounds"] = max_rounds
     except (TypeError, ValueError):
         pass
+    # §7.5：开赛卡上已消歧的裁判三元组（用户点名或系统默认），resume 原样带回。
+    mod_model = str(card.get("moderator_model") or "").strip()
+    if mod_model:
+        args["moderator_model"] = mod_model
+        mod_origin = str(card.get("moderator_origin") or "").strip()
+        if mod_origin:
+            args["moderator_origin"] = mod_origin
+        mod_provider = str(card.get("moderator_provider_id") or "").strip()
+        if mod_provider:
+            args["moderator_provider_id"] = mod_provider
     note_text = (note or "").strip()
     if note_text:
         args["_kickoff_ask"] = note_text

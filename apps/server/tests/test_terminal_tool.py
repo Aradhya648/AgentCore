@@ -194,6 +194,7 @@ async def test_start_emits_process_start_op_and_formats_result():
     }
     assert result.success
     assert "process_id: p1" in result.output
+    assert "【就绪判定】wait_for 已命中" in result.output
     assert result.display == {
         "subcommand": "start",
         "process_id": "p1",
@@ -201,6 +202,49 @@ async def test_start_emits_process_start_op_and_formats_result():
         "output": "Listening on :3000\n",
         "matched": True,
     }
+
+
+async def test_start_long_running_requires_wait_for():
+    channel, registry, sink = _channel()
+    tool = TerminalTool()
+    result = await tool.execute(
+        {"subcommand": "start", "command": "npm run dev"},
+        _ctx(channel),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert result.metadata.get("code") == "wait_for_required"
+    assert "wait_for" in (result.error or "")
+    assert sink._queue.empty()  # noqa: SLF001 — must not open the channel
+
+
+async def test_start_matched_false_forbids_ready_claim():
+    channel, registry, sink = _channel()
+    tool = TerminalTool()
+    response = {
+        "ok": True,
+        "value": {
+            "process_id": "p1",
+            "status": "running",
+            "output": "still compiling…\n",
+            "matched": False,
+        },
+    }
+    result, _event = await _round_trip(
+        tool.execute(
+            {
+                "subcommand": "start",
+                "command": "npm run dev",
+                "wait_for": "Local:",
+            },
+            _ctx(channel),
+        ),
+        sink,
+        registry,
+        response,
+    )
+    assert result.success
+    assert "禁止宣称已就绪" in result.output
 
 
 async def test_read_stop_list_op_shapes():

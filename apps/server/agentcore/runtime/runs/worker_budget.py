@@ -1,6 +1,6 @@
 """派单时为 worker 回填统一 token 顶与墙钟超时 backstop.
 
-全局 ``engine_worker_token_ceiling``（默认 600k）与统一墙钟 600s 是防失控安全阀，
+全局 ``engine_worker_token_ceiling``（默认 1M）与统一墙钟 600s 是防失控安全阀，
 **不做**按任务规格的四档启发式分档。CEO 显式 ``timeout_ms`` / 预置 ``token_ceiling``
 恒优先（已写入则不动）。
 
@@ -20,19 +20,28 @@ if TYPE_CHECKING:
 __all__ = [
     "DIRECTED_SEARCH_DISCIPLINE",
     "DIRECTED_SEARCH_TOOL_NAMES",
+    "LIGHT_REPAIR_MAX_ROUNDS",
     "WORKER_TIMEOUT_BACKSTOP_S",
     "apply_directed_search_tools",
     "apply_directed_search_tools_to_specs",
+    "apply_light_round_budgets",
     "apply_worker_budgets",
     "apply_worker_budgets_to_specs",
+    "blocks_light_complexity",
     "ensure_directed_search_tools",
     "is_deep_deliverable",
     "is_directed_search_role",
     "is_research_root",
+    "is_short_write_posture",
+    "should_enable_zero_write",
 ]
 
 # 统一墙钟 backstop（原 deep 档值）；CEO 显式 timeout_ms 恒优先。
 WORKER_TIMEOUT_BACKSTOP_S = 600
+
+# Repair / light posture: short ReAct ceiling (encoding closed-loop phase 4).
+# Distinct from contract ``light_repair`` (format-only pass inside executor_node).
+LIGHT_REPAIR_MAX_ROUNDS = 6
 
 # 审查 / 调查类 worker：定向检索工具（复用现有 grep / code_search，不新造）。
 # CEO 若手搓 least-privilege 成 ``file_list``+``file_read``，builder 会补回这些工具，
@@ -75,6 +84,58 @@ def is_deep_deliverable(deliverable: Deliverable | None) -> bool:
     if deliverable.artifacts:
         return True
     return deliverable.min_length >= _LONG_FORM_MIN_LENGTH
+
+
+def blocks_light_complexity(deliverable: Deliverable | None) -> bool:
+    """True when deliverable must not keep ``complexity_hint=light``.
+
+    Long-form research (min_length ≥ 3k) still blocks light. File landing alone
+    (``requires_files`` / ``form=files`` / ``artifacts``) does **not** — repair /
+    single-file runtime fixes may be light + requires_files.
+    """
+    if deliverable is None:
+        return False
+    return deliverable.min_length >= _LONG_FORM_MIN_LENGTH
+
+
+def apply_light_round_budgets(
+    plan: RunPlan,
+    *,
+    complexity_hint: str,
+) -> None:
+    """Stamp short ``max_rounds`` on nodes when the batch is light posture."""
+    if complexity_hint != "light":
+        return
+    for spec in plan.nodes:
+        if spec.max_rounds is None:
+            spec.max_rounds = LIGHT_REPAIR_MAX_ROUNDS
+
+
+def is_short_write_posture(*, max_rounds: int | None) -> bool:
+    """True when light / repair round budget is stamped (or CEO explicit short cap).
+
+    ``complexity_hint=light`` and ``repair_code`` both stamp ``max_rounds`` via
+    :func:`apply_light_round_budgets` / playbook builders. Standard files workers
+    leave ``max_rounds=None`` (profile default) — not short-write posture.
+    """
+    return max_rounds is not None and max_rounds > 0
+
+
+def should_enable_zero_write(
+    *,
+    files_expected: bool,
+    short_write_posture: bool | None = None,
+    max_rounds: int | None = None,
+) -> bool:
+    """Gate for zero-write thrashing: files landing expected AND short-write posture.
+
+    Pass either ``short_write_posture`` or ``max_rounds`` (stamped light/repair budget).
+    Standard + files large-repo workers keep zero_write off; they still rely on
+    convergence_spin / max_rounds / contract. Do not widen with recon exemptions.
+    """
+    if short_write_posture is None:
+        short_write_posture = is_short_write_posture(max_rounds=max_rounds)
+    return bool(files_expected and short_write_posture)
 
 
 def is_directed_search_role(role: str) -> bool:
@@ -204,4 +265,4 @@ def _settings_default_token_ceiling() -> int:
             return ceiling
     except Exception:  # noqa: BLE001 — settings optional in unit stubs
         pass
-    return 600_000
+    return 1_000_000

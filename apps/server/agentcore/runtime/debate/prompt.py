@@ -306,8 +306,7 @@ def debater_task(
 
     两阶段契约：``task`` = 检索阶段（证据笔记）；``draft_brief`` / ``draft_system`` = 成稿阶段。
     ``interjections`` 为开赛嘱咐等首轮预注入的全场/定向用户插话；空则零行为变化。
-    ``turn_model`` = 本 turn 主模型；非空时写入 ``model``（云端双保险，不跟 Worker）。
-    Phase 3 ``sides[].model`` 仍忽略。
+    ``turn_model`` = 本 turn 主模型（空 side 回退）；side 非空三元组优先注入路由键（§7.5）。
     """
     quick_suffix = "" if config.policy.thorough else f"\n{QUICK_DEBATER_HINT}"
     bg_block = _background_block(config)
@@ -355,10 +354,12 @@ def debater_task(
         )
 
         payload["retrieval_budget"] = DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER
-    # 注入 turn 主模型（Worker≠main 时云端不跟 Worker）；仍忽略 sides[].model（Phase 3）。
-    main = (turn_model or "").strip()
-    if main:
-        payload["model"] = main
+    # §7.5：side 非空 → 路由键；空 → turn 主模型（不跟 Worker）。
+    from agentcore.runtime.debate.models import side_route_model
+
+    route = side_route_model(side, turn_model=turn_model)
+    if route:
+        payload["model"] = route
     # stance 仅正反 2 方有意义（builder 只认 pro/con，display-only）。
     if config.form is DebateForm.DEBATE and len(config.sides) == 2:
         payload["stance"] = "pro" if idx == 0 else "con"

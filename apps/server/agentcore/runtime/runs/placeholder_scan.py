@@ -361,9 +361,10 @@ def scan_placeholder_signals(
     if soft_hits:
         listed = _format_hit_lines(soft_hits, budget=_MAX_HITS_LISTED)
         detail = "；".join(listed)
+        # Soft only — delivery_status marks severity=warning; keep copy short (no
+        # repeated「请核实后删除…」boilerplate on the acceptance card).
         warnings.append(
-            f"交付正文含未核实/示例自注（警告，不阻断验收，{len(soft_hits)} 处）：{detail}。"
-            "请核实后删除自注，或确认可由 CEO / 下游接手处置。"
+            f"含待核实/示例自注（{len(soft_hits)} 处）：{detail}。"
         )
     return PlaceholderScanResult(
         failures=failures,

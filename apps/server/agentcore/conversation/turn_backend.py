@@ -103,6 +103,27 @@ def build_turn_backend(
     attach = getattr(backend, "attach_external_mounts", None)
     if mounts and callable(attach):
         attach(mounts)
+        # Cloud grants carry root_id only (no abs_path). Attach a per-op channel so
+        # ServerWorkspace can reach the desktop for ``external/`` without flipping
+        # location to local (worker_gate stays off).
+        if getattr(backend, "location", None) == "server" and any(
+            not m.abs_path for m in mounts.values()
+        ):
+            from agentcore.config import settings
+            from agentcore.runtime.interaction import default_interaction_registry
+            from agentcore.workspace.channel import WorkspaceChannel
+
+            attach_ch = getattr(backend, "attach_external_channel", None)
+            if callable(attach_ch):
+                attach_ch(
+                    WorkspaceChannel(
+                        sink=sink,
+                        conversation_id=conversation_id,
+                        registry=default_interaction_registry(),
+                        timeout_seconds=settings.workspace_op_timeout_seconds,
+                        root_id="",
+                    )
+                )
 
     shared = shared_mount_store.mounts_as_dict(conversation_id)
     if shared:

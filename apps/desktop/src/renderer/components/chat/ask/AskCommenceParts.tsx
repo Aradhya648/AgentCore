@@ -18,6 +18,8 @@ export type AskAnswerState = {
   otherText: Record<string, string>;
   styleId: string | null;
   setStyleId: (id: string | null) => void;
+  formatId: string | null;
+  setFormatId: (id: string | null) => void;
   note: string;
   setNote: (v: string) => void;
   toggleChoice: (q: AskQuestion, opt: string) => void;
@@ -103,6 +105,43 @@ export function StylePills({
             variant="ghost"
             disabled={disabled}
             onClick={() => !disabled && answer.setStyleId(active ? null : s.id)}
+            className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
+              active ? tone.optActive : tone.optIdle
+            }`}
+          >
+            {s.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function FormatPills({
+  content,
+  answer,
+  disabled,
+  tone = COMMENCE_TONE,
+}: {
+  content: AskUserContent;
+  answer: Pick<AskAnswerState, "formatId" | "setFormatId">;
+  disabled: boolean;
+  tone?: AskTone;
+}) {
+  if (content.formatOptions.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">形态</span>
+      {content.formatOptions.map((s) => {
+        const active = s.id === answer.formatId;
+        return (
+          <Button
+            key={s.id}
+            variant="ghost"
+            disabled={disabled}
+            onClick={() =>
+              !disabled && answer.setFormatId(active ? null : s.id)
+            }
             className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
               active ? tone.optActive : tone.optIdle
             }`}

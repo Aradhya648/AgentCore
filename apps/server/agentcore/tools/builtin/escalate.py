@@ -343,7 +343,14 @@ class EscalateTool:
         # (Blocking+CEO path already posted inside the channel; this covers non-blocking.)
         try:
             from agentcore.runtime.coordination.bridge import post_escalation_to_coordination
+            from agentcore.workspace.write_claims import ownership_escalation_hints
 
+            hints = ownership_escalation_hints(
+                escalator_run_id=context.run_id,
+                question=question,
+                execution_id=context.execution_id,
+                write_ancestors=context.write_ancestors,
+            )
             post_escalation_to_coordination(
                 run_id=context.run_id,
                 role=context.agent_role or "",
@@ -353,6 +360,13 @@ class EscalateTool:
                 blocking=blocking,
                 source="escalate",
                 execution_id=context.execution_id,
+                ownership_paths=hints.get("ownership_paths"),
+                lock_owner_run_id=str(hints.get("lock_owner_run_id") or ""),
+                escalator_is_lock_owner_nested_child=hints.get(
+                    "escalator_is_lock_owner_nested_child"
+                ),
+                ownership_kind=hints.get("ownership_kind"),
+                owner_status=hints.get("owner_status"),
             )
         except Exception:  # noqa: BLE001
             logger.warning("worker.escalate.coordination_route_failed", run_id=context.run_id)

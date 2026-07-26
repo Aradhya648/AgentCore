@@ -92,10 +92,14 @@ def instantiate_declared(
     cls: type,
     *,
     location: Literal["server", "local"] | None = None,
+    languages: tuple[str, ...] | list[str] | None = None,
 ) -> Any:
     """Zero-arg (or location-aware) construction for builtin / worker-only / board tools."""
     reg = tool_registration(cls)
     if reg.needs_location:
+        # ``languages`` only applies to ``code_execute`` (probe-trimmed local surface).
+        if languages is not None:
+            return cls(location=location, languages=languages)  # type: ignore[call-arg]
         return cls(location=location)  # type: ignore[call-arg]
     return cls()  # type: ignore[call-arg]
 

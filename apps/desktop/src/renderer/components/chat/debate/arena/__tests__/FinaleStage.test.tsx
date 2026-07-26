@@ -129,6 +129,51 @@ describe("FinaleStage 钻取惯例", () => {
     expect(screen.getByText("主持人终审")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /主持人终审/ })).toBeNull();
   });
+
+  it("wire 有模型字段时简报抬头署三方", () => {
+    render(
+      <FinaleStage
+        model={settledBriefModel({
+          moderatorModel: "deepseek/deepseek-v4-pro",
+          moderatorOrigin: "platform",
+          sides: [
+            {
+              key: "pro",
+              name: "正方",
+              stance: "pro",
+              model: "doubao/seed-2.0",
+              origin: "platform",
+              is_subject: false,
+            },
+            {
+              key: "con",
+              name: "反方",
+              stance: "con",
+              model: "deepseek/deepseek-v4-flash",
+              origin: "platform",
+              is_subject: false,
+            },
+          ],
+        })}
+        execution={executionWith([moderatorRun()])}
+        messageId="m1"
+      />,
+    );
+    expect(screen.getByTestId("debate-roster-line").textContent).toBe(
+      "正方 豆包 · 反方 DeepSeek · 裁判 DeepSeek",
+    );
+  });
+
+  it("wire 无模型字段时不展示跨模型署名", () => {
+    render(
+      <FinaleStage
+        model={settledBriefModel()}
+        execution={executionWith([moderatorRun()])}
+        messageId="m1"
+      />,
+    );
+    expect(screen.queryByTestId("debate-roster-line")).toBeNull();
+  });
 });
 
 describe("FinaleStage 三区布局", () => {

@@ -355,9 +355,11 @@ def investigator_task_payload(
         # 无成稿：检索笔记即交付物
         "research_then_draft": False,
     }
-    main = (turn_model or "").strip()
-    if main:
-        payload["model"] = main
+    from agentcore.runtime.debate.models import side_route_model
+
+    route = side_route_model(side, turn_model=turn_model)
+    if route:
+        payload["model"] = route
     return payload
 
 
@@ -487,6 +489,8 @@ async def run_investigators(
             agent_id=investigator_run_id(moderator_run_id, sk, idx),
             parent_run_id=parent,
             role=f"取证·{sides_by_key[sk].name}",
+            # builder 不解析 task 级 retrieval_budget；内部取证额度在此补写。
+            retrieval_budget=retrieval_budget,
         )
         for node, (sk, idx, parent, _task) in zip(plan.nodes, meta, strict=False)
     ]

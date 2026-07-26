@@ -6,7 +6,9 @@ import {
   DecisionCardIcon,
   Textarea,
 } from "@/components/ui";
+import { SimpleTooltip } from "@/components/ui/tooltip";
 import { notifyError } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import {
   submitInteraction,
   submitInteractionFeedback,
@@ -28,15 +30,17 @@ import {
   Loader2,
   OctagonX,
   Pencil,
-  ShieldCheck,
   Users,
 } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { AskUserCard } from "./CheckpointCard";
+import { formatCrossModelRosterLine } from "./debate/model";
 import { TEAM_PRIMITIVE_META } from "./decision";
 
-/** 把关意见默认只露前 N 条风险；其余与建议一并折叠（方案 A 渐进披露）。 */
+/** 把关意见默认只露前 N 条风险；其余与建议一并折叠（A+ 渐进披露）。 */
 const CEO_REVIEW_TOP_RISKS = 2;
+/** 结论超过此长度（或含换行）默认三行截断，可展开全文。 */
+const CONCLUSION_CLAMP_CHARS = 60;
 
 /** Cold-path pending cards only (`ask_user` / `plan_review` / `team_preview`). */
 export function ResumePrompt() {
@@ -117,48 +121,66 @@ function useColdSubmit(turn: PendingResume) {
   return { submitting, busy, send };
 }
 
-function ReviewedSteps({
+/** 产出摘要 + 下游预览：一行 meta，无内嵌边框盒。 */
+function PlanReviewMeta({
   turn,
   disclosureKey,
 }: {
   turn: PendingResume;
   disclosureKey: string;
 }) {
-  const [open, setOpen] = usePersistentDisclosure(
+  const [stepsOpen, setStepsOpen] = usePersistentDisclosure(
     `${disclosureKey}:steps`,
     false,
   );
+  const hasSteps = turn.steps.length > 0;
+  const hasPending = turn.pending.length > 0;
+  if (!hasSteps && !hasPending) return null;
+
   const roles = turn.steps.map((s) => s.role).filter(Boolean);
-  const preview =
-    roles.length > 0 ? roles.join(" · ") : `${turn.steps.length} 步已完成`;
+  const stepsPreview =
+    roles.length > 0 ? roles.join(" · ") : `${turn.steps.length} 步`;
 
   return (
-    <div className="mt-2 rounded-lg border border-border bg-card/60">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        data-testid="plan-review-steps-toggle"
-        className="flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left"
-      >
-        <ChevronRight
-          size={13}
-          className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
-        />
-        <span className="shrink-0 text-xs font-medium text-foreground">
-          已完成产出
-        </span>
-        {!open && (
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            {preview}
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {hasSteps && (
+          <button
+            type="button"
+            onClick={() => setStepsOpen((v) => !v)}
+            aria-expanded={stepsOpen}
+            data-testid="plan-review-steps-toggle"
+            className="inline-flex max-w-full cursor-pointer items-center gap-1 text-left hover:text-foreground"
+          >
+            <ChevronRight
+              size={13}
+              className={cn(
+                "shrink-0 transition-transform",
+                stepsOpen && "rotate-90",
+              )}
+            />
+            <span className="shrink-0 font-medium text-foreground/80">
+              产出
+            </span>
+            {!stepsOpen && (
+              <span className="min-w-0 truncate">· {stepsPreview}</span>
+            )}
+          </button>
+        )}
+        {hasPending && (
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <ArrowRight size={13} className="shrink-0" />
+            <span>下游</span>
+            {turn.pending.map((n) => (
+              <Badge key={n.run_id} tone="muted">
+                {n.role}
+              </Badge>
+            ))}
           </span>
         )}
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {open ? "收起" : "展开摘要"}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-1.5 border-t border-border px-2.5 py-1.5">
+      </div>
+      {stepsOpen && hasSteps && (
+        <div className="mt-1.5 space-y-1.5 border-l-2 border-border/70 pl-2.5">
           {turn.steps.map((s) => (
             <div key={s.run_id}>
               <p className="text-xs font-medium text-foreground">{s.role}</p>
@@ -175,24 +197,9 @@ function ReviewedSteps({
   );
 }
 
-function PendingPreview({ turn }: { turn: PendingResume }) {
-  if (turn.pending.length === 0) return null;
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      <ArrowRight size={13} className="shrink-0 text-muted-foreground" />
-      <span className="text-xs text-muted-foreground">继续后将运行</span>
-      {turn.pending.map((n) => (
-        <Badge key={n.run_id} tone="muted">
-          {n.role}
-        </Badge>
-      ))}
-    </div>
-  );
-}
-
 /**
- * 主 Agent 暂停前的把关意见——方案 A：结论常显；风险最多露 Top N；
- * 其余风险与建议默认折叠（计数可扫）。仅拍板中心展示。
+ * 把关风险 / 建议——A+：无内嵌边框；结论在卡头；Top N 风险常显；
+ * 其余风险与建议进同一「详情」。
  */
 function CeoReviewBlock({
   review,
@@ -213,26 +220,9 @@ function CeoReviewBlock({
     : review.risks.slice(0, CEO_REVIEW_TOP_RISKS);
   const hiddenRiskCount = Math.max(0, riskCount - CEO_REVIEW_TOP_RISKS);
 
-  const countBits: string[] = [];
-  if (riskCount > 0) countBits.push(`${riskCount} 风险`);
-  if (suggestionCount > 0) countBits.push(`${suggestionCount} 建议`);
-
   return (
-    <div
-      data-testid="ceo-review-summary"
-      className="mt-2 rounded-lg border border-border bg-muted/40 px-2.5 py-2"
-    >
-      <p className="flex flex-wrap items-center gap-1 text-xs font-medium text-foreground">
-        <ShieldCheck size={13} className="shrink-0 text-muted-foreground" />主
-        Agent 把关意见
-        {countBits.length > 0 && (
-          <span className="font-normal text-muted-foreground">
-            · {countBits.join(" · ")}
-          </span>
-        )}
-      </p>
-      {/* 结论已上提到卡头 hero，此处只留风险 / 建议，避免双份长文。 */}
-      <CeoReviewList label="风险点" items={visibleRisks} />
+    <div data-testid="ceo-review-summary" className="mt-2">
+      <CeoReviewList label="风险" items={visibleRisks} />
       {open && <CeoReviewList label="建议" items={review.suggestions} />}
       {hasMore && (
         <button
@@ -240,20 +230,20 @@ function CeoReviewBlock({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           data-testid="ceo-review-more-toggle"
-          className="mt-1.5 flex items-center gap-1 text-xs text-primary"
+          className="mt-1 flex items-center gap-1 text-xs text-primary"
         >
           <ChevronRight
             size={13}
-            className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+            className={cn("shrink-0 transition-transform", open && "rotate-90")}
           />
           {open
             ? "收起详情"
             : `${[
-                hiddenRiskCount > 0 ? `另 ${hiddenRiskCount} 项风险` : null,
-                suggestionCount > 0 ? `${suggestionCount} 项建议` : null,
+                hiddenRiskCount > 0 ? `另 ${hiddenRiskCount} 风险` : null,
+                suggestionCount > 0 ? `${suggestionCount} 建议` : null,
               ]
                 .filter(Boolean)
-                .join(" · ")} · 展开`}
+                .join(" · ")} · 详情`}
         </button>
       )}
     </div>
@@ -263,8 +253,8 @@ function CeoReviewBlock({
 function CeoReviewList({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
-    <div className="mt-1.5">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <div className="mt-1 first:mt-0">
+      <p className="text-xs font-medium text-foreground/80">{label}</p>
       <ul className="mt-0.5 space-y-0.5">
         {items.map((item) => (
           <li key={item} className="flex gap-1 text-xs text-muted-foreground">
@@ -279,8 +269,36 @@ function CeoReviewList({ label, items }: { label: string; items: string[] }) {
   );
 }
 
+function ConclusionHero({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > CONCLUSION_CLAMP_CHARS || text.includes("\n");
+  return (
+    <div className="mt-1">
+      <p
+        className={cn(
+          "whitespace-pre-wrap text-sm text-foreground",
+          !open && long && "line-clamp-3",
+        )}
+      >
+        {text}
+      </p>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="mt-0.5 text-xs text-primary"
+          data-testid="plan-review-conclusion-toggle"
+        >
+          {open ? "收起" : "展开全文"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
   const [note, setNote] = useState("");
+  const [noteExpanded, setNoteExpanded] = useState(false);
   const { submitting, busy, send } = useColdSubmit(turn);
 
   const spinnerOr = (
@@ -298,6 +316,19 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
   const rolesLabel =
     reviewedRoles.length > 0 ? `「${reviewedRoles.join("、")}」` : "这一步";
   const disclosureKey = turn.checkpointId;
+  const gateHint = turn.ceoReview?.source === "llm";
+
+  const continueBtn = (
+    <Button
+      variant="primary"
+      icon={spinnerOr("continue", <Check size={13} />)}
+      disabled={busy}
+      onClick={() => send("continue", [], note.trim())}
+      aria-label={gateHint ? "继续。继续后，把关要点将发给下游" : undefined}
+    >
+      继续
+    </Button>
+  );
 
   return (
     <DecisionCard tone="primary" animate className="mx-0">
@@ -307,18 +338,14 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
         </DecisionCardIcon>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-primary">
-            等你确认 · 计划复核 · 确认后才会继续
+            计划复核 · 等你确认
           </p>
-          <p className="mt-0.5 text-sm text-foreground">
-            {rolesLabel}已完成。等待你确认后，下游才会开工
-            {turn.ceoReview?.conclusion ? "：" : "。"}
+          <p className="mt-0.5 text-sm font-medium text-foreground">
+            {rolesLabel}已完成
           </p>
           {turn.ceoReview?.conclusion && (
-            <p className="mt-0.5 line-clamp-2 text-sm text-foreground">
-              {turn.ceoReview.conclusion}
-            </p>
+            <ConclusionHero text={turn.ceoReview.conclusion} />
           )}
-          <ReviewedSteps turn={turn} disclosureKey={disclosureKey} />
           {turn.ceoReview &&
             (turn.ceoReview.risks.length > 0 ||
               turn.ceoReview.suggestions.length > 0) && (
@@ -327,37 +354,24 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
                 disclosureKey={disclosureKey}
               />
             )}
-          <PendingPreview turn={turn} />
-
-          {turn.ceoReview?.source === "llm" && (
-            <p
-              className="mt-2 text-xs text-muted-foreground"
-              data-testid="plan-review-gate-notes-hint"
-            >
-              继续后，把关要点将发给下游
-            </p>
-          )}
+          <PlanReviewMeta turn={turn} disclosureKey={disclosureKey} />
 
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
+            onFocus={() => setNoteExpanded(true)}
+            onBlur={() => {
+              if (!note.trim()) setNoteExpanded(false);
+            }}
             disabled={busy}
-            rows={2}
-            placeholder="可选 · 备注（调整时作为对下游的指示；停止时作为收尾备注）"
-            className="mt-2 w-full border-border bg-card/70 focus:border-primary/60"
+            rows={noteExpanded || note.trim() ? 2 : 1}
+            placeholder="可选备注（调整时必填）"
+            className="mt-2.5 w-full border-border bg-card/70 focus:border-primary/60"
           />
         </div>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-6">
-        <Button
-          variant="primary"
-          icon={spinnerOr("continue", <Check size={13} />)}
-          disabled={busy}
-          onClick={() => send("continue", [], note.trim())}
-        >
-          继续
-        </Button>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5 pl-6">
         <Button
           variant="neutral"
           icon={spinnerOr("adjust", <Pencil size={13} />)}
@@ -374,6 +388,19 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
         >
           停止
         </Button>
+        <span className="ml-auto" />
+        {gateHint ? (
+          <SimpleTooltip label="继续后，把关要点将发给下游">
+            <span
+              className="inline-flex"
+              data-testid="plan-review-gate-notes-hint"
+            >
+              {continueBtn}
+            </span>
+          </SimpleTooltip>
+        ) : (
+          continueBtn
+        )}
       </div>
     </DecisionCard>
   );
@@ -481,12 +508,52 @@ function TeamPreviewDebateBody({ turn }: { turn: PendingResume }) {
     });
   };
 
+  const rosterLine = formatCrossModelRosterLine(turn.sides, {
+    model: turn.moderatorModel,
+    origin: turn.moderatorOrigin,
+  });
+
   return (
     <div className="mt-2 space-y-1.5">
       {turn.motion && (
         <p className="whitespace-pre-wrap text-sm text-foreground">
           {turn.motion}
         </p>
+      )}
+      {rosterLine && (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="debate-roster-line"
+        >
+          {rosterLine}
+        </p>
+      )}
+      {turn.sameModelDebate && (
+        <p className="text-xs text-muted-foreground">同模型辩论</p>
+      )}
+      {turn.modelCandidates && turn.modelCandidates.length > 0 && (
+        <div
+          className="rounded-lg border border-border bg-card/60 px-2.5 py-1.5"
+          data-testid="debate-model-candidates"
+        >
+          <p className="text-xs font-medium text-foreground">
+            模型消歧失败 · 请从目录候选重选（勿再问「是不是当前主模型」）
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {turn.modelCandidates.map((c, i) => (
+              <li
+                key={`${c.origin}-${c.model}-${c.provider_id ?? ""}-${i}`}
+                className="text-xs text-muted-foreground"
+              >
+                {c.label || c.model}
+                {" · "}
+                {c.origin}/{c.model}
+                {c.provider_id ? `（provider=${c.provider_id}）` : ""}
+                {c.side_key ? ` · ${c.side_key}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {turn.sides.map((s) => {
         const open = expanded.has(s.key);
@@ -636,6 +703,9 @@ function TeamPreviewResumeCard({ turn }: { turn: PendingResume }) {
 
               {showCapabilities && (
                 <div className="mt-2">
+                  <p className="mb-1 text-xs text-muted-foreground">
+                    工作区写入已由「开工授权」信任；以下为执行类。
+                  </p>
                   <button
                     type="button"
                     onClick={() => setCapsOpen((v) => !v)}
@@ -649,7 +719,7 @@ function TeamPreviewResumeCard({ turn }: { turn: PendingResume }) {
                       }`}
                     />
                     <span className="shrink-0 text-xs font-medium text-foreground">
-                      将授权的能力范围
+                      将授权的执行能力
                     </span>
                     {!capsOpen && (
                       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
@@ -722,7 +792,13 @@ function AskUserResumeCard({ turn }: { turn: PendingResume }) {
       intent={turn.intent}
       disclosureKey={turn.checkpointId}
       conversationId={turn.conversationId}
-      onSubmit={async (decision, note, selected = [], styleId = null) => {
+      onSubmit={async (
+        decision,
+        note,
+        selected = [],
+        styleId = null,
+        formatId = null,
+      ) => {
         const result = await submitInteraction({
           id: turn.checkpointId,
           kind: "ask_user",
@@ -733,6 +809,7 @@ function AskUserResumeCard({ turn }: { turn: PendingResume }) {
             note,
             selected,
             styleId,
+            formatId,
           },
         });
         if (result !== "ok") {

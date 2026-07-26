@@ -4,9 +4,11 @@
  * `plan_review_required.ceo_review` 渲染进 ResumePrompt；absent（旧帧 / 无摘要）
  * 不渲染摘要区（不留空壳）。
  *
- * 方案 A 渐进披露：产出摘要默认折叠；把关常显计数 + Top2 风险，建议与其余风险折叠。
+ * A+ 渐进披露：结论卡头常显（长文可展开）；产出/下游一行 meta；风险 Top2 常显，
+ * 其余风险与建议进同一「详情」；llm 下发提示收进继续按钮 tooltip。
  */
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResumePrompt } from "../ResumePrompt";
@@ -46,6 +48,14 @@ vi.mock("@/stores/disclosure", async () => {
   };
 });
 
+function renderPrompt() {
+  return render(
+    <TooltipProvider>
+      <ResumePrompt />
+    </TooltipProvider>,
+  );
+}
+
 function makePlanReview(over: Record<string, unknown> = {}) {
   return {
     messageId: "m1",
@@ -71,6 +81,7 @@ function makePlanReview(over: Record<string, unknown> = {}) {
     assumptions: [],
     questions: [],
     styleOptions: [],
+    formatOptions: [],
     intent: "decision",
     origin: "server",
     ...over,
@@ -93,12 +104,12 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
         },
       }),
     ];
-    render(<ResumePrompt />);
+    renderPrompt();
 
     const block = screen.getByTestId("ceo-review-summary");
     expect(block).toBeTruthy();
-    expect(screen.getByText("主 Agent 把关意见")).toBeTruthy();
-    expect(screen.getByText(/3 风险/)).toBeTruthy();
+    expect(screen.getByText("风险")).toBeTruthy();
+    expect(screen.getByText(/另 1 风险/)).toBeTruthy();
     expect(screen.getByText(/1 建议/)).toBeTruthy();
     // 结论在 hero（非把关块内重复）
     expect(screen.getByText("方案整体可行，建议放行下游。")).toBeTruthy();
@@ -110,12 +121,13 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     expect(screen.queryByText("先小流量灰度")).toBeNull();
     expect(screen.getByTestId("ceo-review-more-toggle")).toBeTruthy();
 
-    expect(
-      screen.getByText("等你确认 · 计划复核 · 确认后才会继续"),
-    ).toBeTruthy();
+    expect(screen.getByText("计划复核 · 等你确认")).toBeTruthy();
+    expect(screen.getByText("「调研」已完成")).toBeTruthy();
     // 产出摘要默认折叠：角色名可扫，全文不可见
-    expect(screen.getByText("调研")).toBeTruthy();
+    expect(screen.getByText(/· 调研/)).toBeTruthy();
     expect(screen.queryByText("方案就绪")).toBeNull();
+    expect(screen.getByText("下游")).toBeTruthy();
+    expect(screen.getByText("执行")).toBeTruthy();
   });
 
   it("展开把关详情后可见其余风险与建议", () => {
@@ -128,7 +140,7 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
         },
       }),
     ];
-    render(<ResumePrompt />);
+    renderPrompt();
 
     fireEvent.click(screen.getByTestId("ceo-review-more-toggle"));
     expect(screen.getByText("风险丙")).toBeTruthy();
@@ -138,7 +150,7 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
 
   it("展开产出摘要后可见 step summary", () => {
     pendingRef.current = [makePlanReview()];
-    render(<ResumePrompt />);
+    renderPrompt();
 
     expect(screen.queryByText("方案就绪")).toBeNull();
     fireEvent.click(screen.getByTestId("plan-review-steps-toggle"));
@@ -147,18 +159,15 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
 
   it("absent（旧帧无 ceo_review）不渲染摘要区", () => {
     pendingRef.current = [makePlanReview()];
-    render(<ResumePrompt />);
+    renderPrompt();
 
     expect(screen.queryByTestId("ceo-review-summary")).toBeNull();
-    expect(screen.queryByText("主 Agent 把关意见")).toBeNull();
     expect(screen.queryByTestId("plan-review-gate-notes-hint")).toBeNull();
-    expect(
-      screen.getByText("等你确认 · 计划复核 · 确认后才会继续"),
-    ).toBeTruthy();
+    expect(screen.getByText("计划复核 · 等你确认")).toBeTruthy();
     expect(screen.getByText("继续")).toBeTruthy();
   });
 
-  it("llm 把关时明示继续后把关要点将发给下游", () => {
+  it("llm 把关时继续按钮携带下发提示", () => {
     pendingRef.current = [
       makePlanReview({
         ceoReview: {
@@ -169,9 +178,13 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
         },
       }),
     ];
-    render(<ResumePrompt />);
+    renderPrompt();
     expect(screen.getByTestId("plan-review-gate-notes-hint")).toBeTruthy();
-    expect(screen.getByText("继续后，把关要点将发给下游")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "继续。继续后，把关要点将发给下游",
+      }),
+    ).toBeTruthy();
   });
 
   it("deterministic 把关不显示下发提示", () => {
@@ -185,7 +198,7 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
         },
       }),
     ];
-    render(<ResumePrompt />);
+    renderPrompt();
     expect(screen.queryByTestId("plan-review-gate-notes-hint")).toBeNull();
   });
 
@@ -199,7 +212,7 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
         },
       }),
     ];
-    render(<ResumePrompt />);
+    renderPrompt();
 
     expect(screen.getByText("一切顺利，直接放行。")).toBeTruthy();
     expect(screen.queryByTestId("ceo-review-summary")).toBeNull();
@@ -215,13 +228,33 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
         },
       }),
     ];
-    render(<ResumePrompt />);
+    renderPrompt();
 
     expect(screen.getByTestId("ceo-review-summary")).toBeTruthy();
-    expect(screen.getByText("风险点")).toBeTruthy();
+    expect(screen.getByText("风险")).toBeTruthy();
     expect(screen.getByText("依赖外部接口稳定性")).toBeTruthy();
     expect(screen.queryByText("建议")).toBeNull();
-    // ≤2 风险且无建议 → 无「展开」
+    // ≤2 风险且无建议 → 无「详情」
     expect(screen.queryByTestId("ceo-review-more-toggle")).toBeNull();
+  });
+
+  it("长结论默认截断，可展开全文", () => {
+    const long =
+      "这是一段足够长的把关结论，用来验证默认三行截断与展开全文交互是否可用。" +
+      "后续仍有补充说明，确保超过长度阈值后会出现展开入口，便于用户查看完整意见。";
+    expect(long.length).toBeGreaterThan(60);
+    pendingRef.current = [
+      makePlanReview({
+        ceoReview: {
+          conclusion: long,
+          risks: [],
+          suggestions: [],
+        },
+      }),
+    ];
+    renderPrompt();
+    expect(screen.getByTestId("plan-review-conclusion-toggle")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("plan-review-conclusion-toggle"));
+    expect(screen.getByText("收起")).toBeTruthy();
   });
 });

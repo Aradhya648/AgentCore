@@ -32,6 +32,48 @@ const META_VERSION = 1 as const;
 
 type MetaFile = LocalStoreSnapshot;
 
+/**
+ * Serialize every meta.json read-modify-write.
+ *
+ * The renderer fires cacheShellMeta / cacheOpenedConversation from independent,
+ * unawaited effects (auth, workspaces, conversations), so the IPC handlers
+ * interleave. Without this queue two defects show up: the shared `meta.json.tmp`
+ * is written twice and renamed twice (ENOENT / EPERM on Windows), and — silently,
+ * the worse one — a `readMeta` → mutate → write pair that straddles another
+ * writer drops that writer's patch entirely.
+ *
+ * Not reentrant: take it at the public-function boundary only, never inside
+ * writeMetaAtomic. Read-only paths (getSnapshot / hasCache / getConversation)
+ * stay lock-free — atomic rename means they always see a complete file.
+ */
+let metaChain: Promise<unknown> = Promise.resolve();
+
+function withMetaLock<T>(fn: () => Promise<T>): Promise<T> {
+  // then(fn, fn): a rejected predecessor must not stall the queue.
+  const run = metaChain.then(fn, fn);
+  metaChain = run.catch(() => undefined);
+  return run;
+}
+
+let tmpSeq = 0;
+
+/** Unique temp path — a shared one lets a second instance steal our rename. */
+function tmpPathFor(target: string): string {
+  tmpSeq += 1;
+  return `${target}.${process.pid}-${tmpSeq}.tmp`;
+}
+
+async function writeFileAtomic(target: string, data: string): Promise<void> {
+  const tmp = tmpPathFor(target);
+  try {
+    await writeFile(tmp, data, "utf-8");
+    await rename(tmp, target);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
+}
+
 function rootDir(): string {
   return join(app.getPath("userData"), "local-store");
 }
@@ -85,9 +127,7 @@ function emptyMeta(): MetaFile {
 
 async function writeMetaAtomic(meta: MetaFile): Promise<void> {
   await ensureDirs();
-  const tmp = `${metaPath()}.tmp`;
-  await writeFile(tmp, JSON.stringify(meta, null, 2), "utf-8");
-  await rename(tmp, metaPath());
+  await writeFileAtomic(metaPath(), JSON.stringify(meta, null, 2));
 }
 
 function shellOf(meta: MetaFile): LocalStoreShellMeta {
@@ -147,58 +187,63 @@ async function applyEviction(meta: MetaFile): Promise<MetaFile> {
 async function putOpenedConversation(
   payload: LocalStoreConversationPayload,
 ): Promise<LocalStoreShellMeta> {
-  await ensureDirs();
-  const size = byteSizeOf(payload);
-  const openedAt = Date.now();
-  const row: LocalStoreConversationMeta = {
-    ...payload.conversation,
-    openedAt,
-    byteSize: size,
-  };
-  const toWrite: LocalStoreConversationPayload = {
-    ...payload,
-    conversation: row,
-  };
-  const tmp = `${convPath(row.id)}.tmp`;
-  await writeFile(tmp, JSON.stringify(toWrite), "utf-8");
-  await rename(tmp, convPath(row.id));
+  return withMetaLock(async () => {
+    await ensureDirs();
+    const size = byteSizeOf(payload);
+    const openedAt = Date.now();
+    const row: LocalStoreConversationMeta = {
+      ...payload.conversation,
+      openedAt,
+      byteSize: size,
+    };
+    const toWrite: LocalStoreConversationPayload = {
+      ...payload,
+      conversation: row,
+    };
+    await writeFileAtomic(convPath(row.id), JSON.stringify(toWrite));
 
-  let meta = await readMeta();
-  meta = {
-    ...meta,
-    conversations: [row, ...meta.conversations.filter((c) => c.id !== row.id)],
-  };
-  meta = await applyEviction(meta);
-  await writeMetaAtomic(meta);
-  return shellOf(meta);
+    let meta = await readMeta();
+    meta = {
+      ...meta,
+      conversations: [
+        row,
+        ...meta.conversations.filter((c) => c.id !== row.id),
+      ],
+    };
+    meta = await applyEviction(meta);
+    await writeMetaAtomic(meta);
+    return shellOf(meta);
+  });
 }
 
 async function putShellMeta(
   patch: LocalStorePutShellMeta,
 ): Promise<LocalStoreShellMeta> {
-  let meta = await readMeta();
-  if (patch.user !== undefined) meta = { ...meta, user: patch.user };
-  if (patch.folders) meta = { ...meta, folders: patch.folders };
-  if (patch.workspaces) meta = { ...meta, workspaces: patch.workspaces };
-  if (patch.conversations) {
-    // Only refresh meta for conversations already in the opened cache — never
-    // inflate the index with the full online list (N4-A: opened-only, max 20).
-    const byId = new Map(patch.conversations.map((c) => [c.id, c]));
-    meta = {
-      ...meta,
-      conversations: meta.conversations.map((old) => {
-        const fresh = byId.get(old.id);
-        if (!fresh) return old;
-        return {
-          ...fresh,
-          openedAt: old.openedAt,
-          byteSize: old.byteSize,
-        };
-      }),
-    };
-  }
-  await writeMetaAtomic(meta);
-  return shellOf(meta);
+  return withMetaLock(async () => {
+    let meta = await readMeta();
+    if (patch.user !== undefined) meta = { ...meta, user: patch.user };
+    if (patch.folders) meta = { ...meta, folders: patch.folders };
+    if (patch.workspaces) meta = { ...meta, workspaces: patch.workspaces };
+    if (patch.conversations) {
+      // Only refresh meta for conversations already in the opened cache — never
+      // inflate the index with the full online list (N4-A: opened-only, max 20).
+      const byId = new Map(patch.conversations.map((c) => [c.id, c]));
+      meta = {
+        ...meta,
+        conversations: meta.conversations.map((old) => {
+          const fresh = byId.get(old.id);
+          if (!fresh) return old;
+          return {
+            ...fresh,
+            openedAt: old.openedAt,
+            byteSize: old.byteSize,
+          };
+        }),
+      };
+    }
+    await writeMetaAtomic(meta);
+    return shellOf(meta);
+  });
 }
 
 async function getConversation(
@@ -224,11 +269,14 @@ async function getSnapshot(): Promise<LocalStoreSnapshot | null> {
 }
 
 async function clearAll(): Promise<void> {
-  try {
-    await rm(rootDir(), { recursive: true, force: true });
-  } catch {
-    /* ok */
-  }
+  // Under the lock: an in-flight write must not recreate meta.json after the rm.
+  await withMetaLock(async () => {
+    try {
+      await rm(rootDir(), { recursive: true, force: true });
+    } catch {
+      /* ok */
+    }
+  });
 }
 
 /** Register IPC handlers (call once from app.whenReady). */
@@ -255,17 +303,21 @@ export type { LocalStoreApi, LocalStoreUser };
 
 /** Sweep orphan conversation files not listed in meta (best-effort). */
 export async function sweepOrphanLocalStoreFiles(): Promise<void> {
-  try {
-    await ensureDirs();
-    const meta = await readMeta();
-    const keep = new Set(meta.conversations.map((c) => c.id));
-    const files = await readdir(convDir());
-    for (const f of files) {
-      if (!f.endsWith(".json")) continue;
-      const id = f.slice(0, -".json".length);
-      if (!keep.has(id)) await deleteConvFile(id);
+  // Under the lock: a conversation being written right now is not yet in meta,
+  // and deleting it mid-write would orphan the index row instead of the file.
+  await withMetaLock(async () => {
+    try {
+      await ensureDirs();
+      const meta = await readMeta();
+      const keep = new Set(meta.conversations.map((c) => c.id));
+      const files = await readdir(convDir());
+      for (const f of files) {
+        if (!f.endsWith(".json")) continue;
+        const id = f.slice(0, -".json".length);
+        if (!keep.has(id)) await deleteConvFile(id);
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
-  }
+  });
 }

@@ -121,6 +121,23 @@ def _preview_value_max(tool_name: str, key: str) -> int:
     return _PREVIEW_VALUE_MAX
 
 
+def _is_permanent_delete(tool_name: str, arguments: dict[str, Any]) -> bool:
+    """True when the call permanently deletes (still requires an approval card)."""
+    if tool_name == "file_delete":
+        return bool(arguments.get("permanent"))
+    if tool_name == "file_batch":
+        ops = arguments.get("operations")
+        if not isinstance(ops, list):
+            return False
+        return any(
+            isinstance(op, dict)
+            and str(op.get("op") or "").strip().lower() == "delete"
+            and bool(op.get("permanent"))
+            for op in ops
+        )
+    return False
+
+
 def _preview_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Bound large string values so the approval SSE event stays small."""
     preview: dict[str, Any] = {}
@@ -179,7 +196,7 @@ class ApprovalGate:
     delegation_grantable_tools: frozenset[str] = frozenset()
     # Capability-authorization posture (能力授权维度). ``always_ask`` forces every
     # GRANTABLE call through the card; ``first_grant`` / ``full_auto`` honor
-    # kickoff-issued delegation grants.
+    # kickoff-issued delegation grants and session file-mutation trust.
     autonomy_policy: AutonomyPolicy = AutonomyPolicy.FIRST_GRANT
     _granted: set[str] = field(default_factory=set)
     # Tools the user (or timeout→deny) refused this turn — later calls skip the card.
@@ -192,6 +209,20 @@ class ApprovalGate:
         if not execution_id or tool_name not in self.delegation_grantable_tools:
             return False
         return execution_id in self._delegation_grants
+
+    def _session_file_trust_covers(self, tool_name: str, arguments: dict[str, Any]) -> bool:
+        """workspace / full_trust: trust file-mutation class without awaiting kickoff.
+
+        Aligns Composer「开工授权」with industry accept-edits: reversible workspace
+        writes (incl. ``mkdir`` / git writes) skip per-call cards. ``observe`` never.
+        Permanent deletes still prompt. Execution-class tools are not in
+        ``file_op_tools`` and still need kickoff / turn grant / per-call.
+        """
+        if self.autonomy_policy is AutonomyPolicy.ALWAYS_ASK:
+            return False
+        if tool_name not in self.file_op_tools:
+            return False
+        return not _is_permanent_delete(tool_name, arguments)
 
     def grant_delegation(self, execution_id: str) -> None:
         """Record a kickoff grant so medium-risk tools skip per-call for this delegation."""
@@ -222,14 +253,16 @@ class ApprovalGate:
         A kickoff grant (``grant_delegation`` / continue on the开工卡) short-circuits
         medium-risk tools for THAT ``execution_id`` before the per-turn grant or
         per-call prompt — unless ``autonomy_policy`` is ``always_ask``.
+        Under ``first_grant`` / ``full_auto``, the file-mutation class is also
+        session-trusted (no kickoff required; permanent deletes still prompt).
         ``APPROVE_ALWAYS`` also whitelists ``tool_name`` for the rest of the turn;
         ``APPROVE_ALWAYS_FILES`` whitelists the whole ``file_op_tools`` class.
         A prior ``DENY`` for ``tool_name`` this turn short-circuits without re-prompting.
 
-        ``force=True`` (safety circuit breaker): skip kickoff / turn grants so
-        catastrophic shapes still require a human click even under ``full_trust``.
-        Turn-wide grants from a forced card are refused (one-shot only) so a single
-        click cannot silently clear sibling destructive prompts.
+        ``force=True`` (safety circuit breaker): skip kickoff / turn / session-file
+        grants so catastrophic shapes still require a human click even under
+        ``full_trust``. Turn-wide grants from a forced card are refused (one-shot
+        only) so a single click cannot silently clear sibling destructive prompts.
         """
         if not force and self._delegation_covers(execution_id, tool_name):
             logger.debug(
@@ -237,6 +270,10 @@ class ApprovalGate:
                 tool=tool_name,
                 execution_id=execution_id,
             )
+            return ApprovalDecision.APPROVE
+
+        if not force and self._session_file_trust_covers(tool_name, arguments):
+            logger.debug("approval.session_file_trust", tool=tool_name)
             return ApprovalDecision.APPROVE
 
         if not force and tool_name in self._granted:

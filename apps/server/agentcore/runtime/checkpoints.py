@@ -63,7 +63,9 @@ class CheckpointResponse:
     answer (no longer folded into ``note``), so ``CONTINUE`` carries the pick
     too. Empty when the ask offered no options or the user chose none.
     ``style_id`` is the structured website style pick (``s0``/``s1``/…) when the
-    kickoff card offered ``style_options``.
+    kickoff card offered ``style_options``. ``format_id`` is the structured
+    presentation delivery pick (``f0``/``f1``/…) when the card offered
+    ``format_options``.
     """
 
     decision: CheckpointDecision
@@ -71,3 +73,5 @@ class CheckpointResponse:
     selected: list[str] = field(default_factory=list)
     # Structured website style pick (ask_user kickoff); empty when absent.
     style_id: str = ""
+    # Structured presentation format pick (ask_user kickoff); empty when absent.
+    format_id: str = ""

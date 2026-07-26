@@ -2,6 +2,7 @@ import type { ErrorAction } from "@/lib/errors";
 import type { ExecutionJournal } from "@/stores/execution";
 import type {
   AskAssumption,
+  AskFormatOption,
   AskQuestion,
   AskStyleOption,
   CeoReviewSummary,
@@ -24,6 +25,8 @@ export interface CheckpointDisplay {
   assumptions: AskAssumption[];
   questions: AskQuestion[];
   styleOptions: AskStyleOption[];
+  /** Presentation format presets (演讲/PPT 等交付形态)；缺省 []. */
+  formatOptions: AskFormatOption[];
   intent: CheckpointIntent;
   status: "pending" | "resolved";
   decision: CheckpointDecision | null;
@@ -38,6 +41,7 @@ export interface NonBlockingAskDisplay {
   assumptions: AskAssumption[];
   questions: AskQuestion[];
   styleOptions: AskStyleOption[];
+  formatOptions: AskFormatOption[];
 }
 
 export interface PlanReviewDisplay {
@@ -64,6 +68,19 @@ export interface TeamPreviewSideDisplay {
   name: string;
   stance: string;
   is_subject?: boolean;
+  /** Phase 3：该方辩手模型 id；缺省 = 同模型场，不展示跨模型行。 */
+  model?: string;
+  origin?: "platform" | "byok";
+  provider_id?: string;
+}
+
+/** §7.5 D：消歧候选目录行（开赛卡展示；旧帧缺省）。 */
+export interface ModelCandidateDisplay {
+  model: string;
+  origin: "platform" | "byok";
+  provider_id?: string;
+  label?: string;
+  side_key?: string;
 }
 
 export type KickoffPrimitive = "delegate" | "debate";
@@ -84,6 +101,14 @@ export interface TeamPreviewDisplay {
   offerResearchFirst: boolean;
   /** Debate kickoff: elevate research-first as visual primary (缺省 false). */
   researchFirstRecommended: boolean;
+  /** Phase 3：裁判模型；缺省不展示跨模型署名。 */
+  moderatorModel?: string;
+  moderatorOrigin?: "platform" | "byok";
+  moderatorProviderId?: string;
+  /** Phase 3：目录只剩一模型时开赛卡明示同模型降级。 */
+  sameModelDebate?: boolean;
+  /** §7.5 D：消歧候选；缺省不展示。 */
+  modelCandidates?: ModelCandidateDisplay[];
   status: "pending" | "resolved";
   decision: CheckpointDecision | null;
   note: string;

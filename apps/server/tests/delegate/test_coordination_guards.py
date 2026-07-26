@@ -222,6 +222,102 @@ async def test_secondary_isomorphic_delegate_rejected():
     clear_active_coordination("e")
 
 
+# --- B1b: thrash rebrand cold-delegate ---------------------------------------
+
+
+async def test_thrash_rebrand_cold_delegate_rejected_continue_and_force():
+    """Cold similar task after thrash → reject; continue_from / force pass."""
+    from agentcore.runtime.coordination.thrash import (
+        ThrashRecord,
+        clear_thrash_registry,
+        note_thrashing_worker,
+    )
+    from agentcore.runtime.events import EventSink
+    from tests.delegate.conftest import ctx, tool
+    from tests.delegate.test_coordination_secondary_delegate import _SlowWorkers
+
+    clear_thrash_registry()
+    clear_active_coordination()
+    sink = EventSink()
+    t = tool(_SlowWorkers(["ok"], delay=0.05), sink=sink)
+    t._conversation_id = "thrash-conv"
+
+    note_thrashing_worker(
+        "thrash-conv",
+        ThrashRecord(
+            run_id="prior-thrash",
+            task="修复 TopBar 缺少 named export",
+            artifacts=("src/TopBar.tsx",),
+            role="工程师",
+        ),
+    )
+
+    cold = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "修码员",
+                    "task": "修复 TopBar named export 缺失",
+                    "deliverable": {
+                        "form": "files",
+                        "requires_files": True,
+                        "artifacts": ["src/TopBar.tsx"],
+                    },
+                }
+            ],
+            "coordinate": False,
+        },
+        ctx(),
+    )
+    assert cold.success is False
+    assert "触顶换马甲" in (cold.error or "")
+    assert "continue_from_run_id=`prior-thrash`" in (cold.error or "")
+    assert cold.contract_failure is True
+
+    cont = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "修码员",
+                    "task": "修复 TopBar named export 缺失",
+                    "continue_from_run_id": "prior-thrash",
+                    "deliverable": {
+                        "form": "files",
+                        "requires_files": True,
+                        "artifacts": ["src/TopBar.tsx"],
+                    },
+                }
+            ],
+            "coordinate": False,
+        },
+        ctx(),
+    )
+    # continue_from may still fail session lookup; admission must not thrash-reject.
+    assert "触顶换马甲" not in (cont.error or "")
+
+    forced = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "新人",
+                    "task": "修复 TopBar named export 缺失",
+                    "deliverable": {
+                        "form": "files",
+                        "requires_files": True,
+                        "artifacts": ["src/TopBar.tsx"],
+                    },
+                }
+            ],
+            "coordinate": False,
+            "force": True,
+        },
+        ctx(),
+    )
+    assert forced.success is True
+    clear_thrash_registry("thrash-conv")
+    clear_active_coordination()
+
+
 # --- B2: merge run_id collision receipts ------------------------------------
 
 
@@ -848,7 +944,8 @@ def test_session_ownership_snapshot_roundtrip():
     assert isinstance(ledger, WriteCoordinator)
     ledger.declare("f.md", "w1", frozenset())
     snap = session.snapshot()
-    assert snap.file_ownership.get("f.md") == "w1"
+    assert snap.file_ownership.get("_v") == 2
+    assert snap.file_ownership.get("owners", {}).get("f.md") == "w1"
     restored = CoordinationSession.from_snapshot(snap)
     assert restored.ensure_file_ownership().owner_of("f.md") == "w1"
 
@@ -1044,3 +1141,105 @@ def test_try_start_sibling_reject_creates_no_session():
     assert started is not None
     assert started.success is False
     assert active_coordination("e-sib-pre") is None
+
+
+def test_nested_declare_transfers_paths_from_parent_not_all():
+    """Nested child artifacts ⊆ parent-owned → path-level handoff; other parent paths stay."""
+    from agentcore.runtime.coordination.append_guard import (
+        declare_nested_drive_artifacts,
+        declare_plan_artifacts,
+    )
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace import write_claims as wc
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    parent_plan = _plan(
+        RunSpec(
+            run_id="backend-fix",
+            role="后端补齐",
+            task="占位",
+            deliverable=Deliverable(
+                artifacts=[
+                    "src/storage/db.ts",
+                    "src/storage/index.ts",
+                    "src/tools/base-tool.ts",
+                ]
+            ),
+        )
+    )
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(parent_plan, ownership)
+    assert ownership.owner_of("src/storage/db.ts") == "backend-fix"
+    assert ownership.owner_of("src/tools/base-tool.ts") == "backend-fix"
+
+    child_plan = _plan(
+        RunSpec(
+            run_id="storage",
+            role="存储层",
+            task="写 storage",
+            parent_run_id="backend-fix",
+            depth=1,
+            deliverable=Deliverable(
+                artifacts=["src/storage/db.ts", "src/storage/index.ts"]
+            ),
+        ),
+        RunSpec(
+            run_id="tools",
+            role="工具系统",
+            task="写 tools",
+            parent_run_id="backend-fix",
+            depth=1,
+            deliverable=Deliverable(artifacts=["src/tools/base-tool.ts"]),
+        ),
+    )
+    tool = MagicMock()
+    tool._depth = 1
+    tool._delegate_force = False
+
+    original = wc.resolve_write_coordinator
+    wc.resolve_write_coordinator = lambda **_kwargs: ownership  # type: ignore[assignment]
+    try:
+        conflicts = declare_nested_drive_artifacts(
+            tool, child_plan, execution_id="e-nested"
+        )
+    finally:
+        wc.resolve_write_coordinator = original
+
+    assert conflicts == []
+    assert ownership.owner_of("src/storage/db.ts") == "storage"
+    assert ownership.owner_of("src/storage/index.ts") == "storage"
+    assert ownership.owner_of("src/tools/base-tool.ts") == "tools"
+
+
+def test_nested_declare_skipped_at_depth_zero():
+    from agentcore.runtime.coordination.append_guard import declare_nested_drive_artifacts
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace import write_claims as wc
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    ownership = WriteCoordinator()
+    ownership.declare("a.md", "lead", frozenset())
+    plan = _plan(
+        RunSpec(
+            run_id="child",
+            role="子",
+            task="写",
+            parent_run_id="lead",
+            depth=0,
+            deliverable=Deliverable(artifacts=["a.md"]),
+        )
+    )
+    tool = MagicMock()
+    tool._depth = 0
+    tool._delegate_force = False
+
+    original = wc.resolve_write_coordinator
+    wc.resolve_write_coordinator = lambda **_kwargs: ownership  # type: ignore[assignment]
+    try:
+        conflicts = declare_nested_drive_artifacts(tool, plan, execution_id="e0")
+    finally:
+        wc.resolve_write_coordinator = original
+
+    assert conflicts == []
+    # Depth 0 skipped — ownership unchanged.
+    assert ownership.owner_of("a.md") == "lead"

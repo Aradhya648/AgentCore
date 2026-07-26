@@ -10,6 +10,20 @@ const STORAGE_KEY = "debate-arena-layout";
 /** 赛事页外层容器宽度（记分牌 + 剧本主列共用）。 */
 export const DEBATE_ARENA_PAGE_MAX = "max-w-7xl";
 
+/**
+ * 赛事页建立容器查询上下文——并排栅格按**主列实际宽度**塌缩，而非视口。
+ * 辩论室嵌在侧栏 + 右坞之间，viewport media 会误判。
+ */
+export const DEBATE_ARENA_CONTAINER = "@container";
+
+/**
+ * 并排栅格：窄主列单栏；容器 ≥ `@3xl`（48rem）才左右对开。
+ * 注意：Tailwind 容器断点 `@md`=28rem，远小于视口 `md`=48rem——必须用 `@3xl`，
+ * 否则侧栏+右坞把主列压到 ~500px 时仍强制两列。`debate-split-grid` 供测试定位。
+ */
+export const DEBATE_SPLIT_GRID =
+  "debate-split-grid grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2";
+
 export function loadDebateArenaLayout(): DebateArenaLayout {
   return uiGet<string>(STORAGE_KEY) === "stack" ? "stack" : "split";
 }

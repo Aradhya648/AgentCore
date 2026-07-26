@@ -1654,6 +1654,11 @@ button.link {
   background: color-mix(in srgb, var(--error) 14%, transparent);
 }
 
+.delivery-state.is-notes {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
 .delivery-summary {
   flex: 1;
   min-width: 0;

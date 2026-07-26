@@ -153,6 +153,7 @@ async def assemble_ceo_turn(
         skill_registry=prepared.skill_registry,
         memory_enabled=memory_enabled,
         folder_id=folder_id,
+        has_memory_topics=bool(prepared.memory_topics),
         autonomy_policy=autonomy_policy,
         # Same live-user gate as ask_user itself, plus desktop-only: web/mobile omit.
         advertise_bind_local_folder=checkpoint_enabled

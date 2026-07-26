@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   FILE_OP_TOOLS,
   autoApproveSiblings,
+  isExecutionTool,
   isFileOpTool,
 } from "../../services/approvals";
 import type { ApprovalRequiredPayload } from "../../types/events";
@@ -192,5 +193,21 @@ describe("autoApproveSiblings (本轮内都允许 batch放行)", () => {
         "approve",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("isExecutionTool (工具审批 A+B · 主 CTA 偏向 turn grant)", () => {
+  it("covers terminal / code_execute / test_run", () => {
+    expect(isExecutionTool("terminal")).toBe(true);
+    expect(isExecutionTool("code_execute")).toBe(true);
+    expect(isExecutionTool("test_run")).toBe(true);
+  });
+
+  it("excludes file-op tools", () => {
+    expect(isExecutionTool("file_write")).toBe(false);
+    expect(isExecutionTool("git")).toBe(false);
+    for (const name of FILE_OP_TOOLS) {
+      expect(isExecutionTool(name)).toBe(false);
+    }
   });
 });

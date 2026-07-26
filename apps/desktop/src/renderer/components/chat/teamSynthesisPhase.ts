@@ -103,8 +103,16 @@ export function coordinationWaitCaptainCaption(
 /**
  * All workers finished while the turn is still running — CEO synthesis /
  * proposal_pick gap. Matches {@link deriveCaptainStatus}'s "running" sink.
+ *
+ * ``turnTerminal``: message_end already closed the chat turn (turnPhase
+ * completed/stopped/failed) while execution.status may still be stuck
+ * ``running`` — never show the synthesis spinner after the turn is over.
  */
-export function isTeamSynthesizing(execution: Execution): boolean {
+export function isTeamSynthesizing(
+  execution: Execution,
+  opts?: { turnTerminal?: boolean },
+): boolean {
+  if (opts?.turnTerminal) return false;
   if (execution.status !== "running") return false;
   const { completed, total } = workerProgress(execution);
   return total > 0 && completed >= total;

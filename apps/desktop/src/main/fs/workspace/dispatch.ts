@@ -4,6 +4,7 @@ import type { StoredRoot } from "../roots";
 import { ensureReady, getRoot } from "../roots";
 import { opArchive } from "./archive";
 import { opExecute } from "./exec";
+import { probeAvailableLanguages } from "./execCodec";
 import { opGrep } from "./grep";
 import {
   opProcessList,
@@ -12,7 +13,7 @@ import {
   opProcessStop,
 } from "./process";
 import { opIndexFiles, opList, opListTree, opRead, opReadLines } from "./read";
-import { opErr } from "./result";
+import { opErr, opOk } from "./result";
 import {
   opAppend,
   opCopy,
@@ -36,6 +37,7 @@ const ORGANIZE_ALLOWED_OPS = new Set<WorkspaceOpName>([
   "list_tree",
   "index_files",
   "grep",
+  "probe_exec",
   "process_read",
   "process_list",
   "process_stop",
@@ -211,6 +213,9 @@ export async function executeWorkspaceOp(
         return await opGrep(root, args);
       case "execute":
         return await opExecute(root, args);
+      case "probe_exec":
+        // PATH / Git Bash probe — independent of the bound root contents.
+        return opOk({ languages: probeAvailableLanguages() });
       case "archive":
         return await opArchive(root, args);
       case "process_start":

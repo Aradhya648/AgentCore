@@ -15,11 +15,18 @@ class EngineSettings(BaseModel):
     engine_reflection_start_round: int = 3
     engine_reflection_interval: int = 3
     # Absolute investigation-round ceiling (safety net). Progress-aware spinning detection
-    # normally triggers earlier; this is the hard backstop.
-    engine_convergence_finalize_rounds: int = 30
+    # normally triggers earlier; this is the hard backstop. Must be ≤ worker agent
+    # max_rounds (28) or the cap never fires before the loop exits.
+    engine_convergence_finalize_rounds: int = 24
     # Consecutive investigation-only rounds re-reading the same targets before finalize.
     engine_convergence_spin_rounds: int = 3
+    # Files-expected workers: investigation-only rounds with zero landing writes before
+    # mid-loop FINALIZE (thrashing). 0 = disabled. Landing intent (write attempt) resets.
+    engine_zero_write_finalize_rounds: int = 7
     engine_finish_guard_max_reworks: int = 2
+    # C2 概览契约：本回合已发 delivery_status 时，CEO 终稿超过此字数 → finish_guard 回炉压缩。
+    # 细节已在交付卡 / 产物卡 / run 详情；气泡只做索引。≤0 关闭。无交付卡的 prose 回合不设顶。
+    engine_ceo_overview_max_chars: int = 1000
 
     # Captain (CEO) ReAct ceiling — higher than chat default (16) because coordination
     # mode (team events, synthesis, follow-up delegate for audit/revision) burns rounds.
@@ -56,14 +63,14 @@ class EngineSettings(BaseModel):
     # 上下文瘦身,这只是防失控的安全阀。每轮末比对累计 input+output tokens,到顶即收口。
     # 经 ``apply_worker_budgets`` 统一回填到各 worker；CEO 显式 ``token_ceiling`` 优先。
     # ≤0 关闭 (CEO/solo 路径不传此上限,保持 0)。
-    engine_worker_token_ceiling: int = 600_000
+    engine_worker_token_ceiling: int = 1_000_000
     # 用户回合 turn 级累计 token 硬顶（CEO + 全树 worker，含续派）：触顶后禁新
     # delegate / debate / 新波派发，在飞跑完不 cancel。与 per-worker 顶正交。≤0 关闭。
-    engine_turn_token_ceiling: int = 3_600_000
+    engine_turn_token_ceiling: int = 6_000_000
     # 嵌套子团队（depth≥1）准入拨付信封：开工时从父剩余原子预留
     # min(本值, 父剩余)；子 DAG 波内只看信封触顶，中途不以父顶砍子尾。
     # 消耗仍计入回合总量。≤0 关闭并回退「全树共父顶」现状。
-    engine_nested_turn_token_ceiling: int = 1_500_000
+    engine_nested_turn_token_ceiling: int = 2_500_000
     # Turn 交付预留（对齐 worker wind_down）：spent ≥ ceiling − reserve 时只放行
     # ``ceiling_priority`` 节点（如 build_website QA），未开跑的次要节点软跳过以便依赖汇合。
     # 默认 200k（够一次 QA/目验；不随 worker 顶同步抬）；≤0 或

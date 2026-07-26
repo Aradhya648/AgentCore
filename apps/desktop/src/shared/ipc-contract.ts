@@ -119,6 +119,8 @@ export type FsWriteResult =
  *
  * ``archive`` 不对应任何 backend 方法——它是本地→云交接（P2e / e1）专用 op：把整个绑定
  * 根打包成单个归档（套用忽略规则）交服务端暂存并快照，由 handoff 编排直接下发。
+ * ``probe_exec`` 同样不是 backend 方法——回合准备时探测本机 code_execute 可用解释器，
+ * 供服务端裁剪工具 schema（坏 WSL bash 等不进 enum）。
  */
 export type WorkspaceOpName =
   | "read"
@@ -137,6 +139,7 @@ export type WorkspaceOpName =
   | "replace"
   | "grep"
   | "execute"
+  | "probe_exec"
   | "archive"
   | "process_start"
   | "process_read"

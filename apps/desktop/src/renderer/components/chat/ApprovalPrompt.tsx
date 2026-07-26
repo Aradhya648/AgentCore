@@ -12,16 +12,24 @@ import {
 } from "@/components/chat/codeExecuteApproval";
 import { Badge, Button, DecisionCard, DecisionCardIcon } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
+import {
+  getConversations,
+  patchConversationCache,
+} from "@/hooks/useConversations";
 import { notifyError } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import {
   decideApproval,
+  isExecutionTool,
   isFileOpTool,
   supportsTurnGrant,
 } from "@/services/approvals";
+import { setConversationPermissionPreset } from "@/services/permissionPreset";
 import { useConversationStore } from "@/stores/conversation";
 import {
   type ApprovalView,
   isToolGranted,
+  useInteractionStore,
   useOrphanedApprovals,
   usePendingApprovals,
 } from "@/stores/interactions";
@@ -50,12 +58,17 @@ const TOOL_LABELS: Record<string, string> = {
   mkdir: "创建目录",
   file_batch: "批量文件操作",
   code_execute: "执行代码",
+  test_run: "运行测试",
+  terminal: "终端",
   desktop_notify: "系统通知",
 };
 
 const HIGHLIGHT_PLUGINS: ComponentPropsWithoutRef<
   typeof ReactMarkdown
 >["rehypePlugins"] = [[rehypeHighlight, { ignoreMissing: true }]];
+
+/** Consecutive same-tool approval prompts before nudging full_trust. */
+const FULL_TRUST_HINT_AFTER = 3;
 
 function toolLabel(name: string): string {
   return TOOL_LABELS[name] ?? name;
@@ -87,6 +100,10 @@ function primaryArg(
     const purpose = args.purpose;
     if (typeof purpose === "string" && purpose.trim()) return purpose.trim();
   }
+  if (toolName === "terminal") {
+    const cmd = args.command;
+    if (typeof cmd === "string" && cmd.trim()) return cmd.trim();
+  }
   for (const key of [
     "path",
     "file_path",
@@ -103,7 +120,29 @@ function primaryArg(
   return null;
 }
 
-export function ApprovalPrompt() {
+/** Count approval cards (any status except orphaned) for a tool this conversation. */
+function countToolApprovals(conversationId: string, toolName: string): number {
+  let n = 0;
+  for (const e of useInteractionStore.getState().byId.values()) {
+    if (e.conversationId !== conversationId) continue;
+    if (e.kind !== "approval") continue;
+    if (e.status === "orphaned") continue;
+    if (String(e.payload.tool_name ?? "") !== toolName) continue;
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * Pending tool-approval surface — composer-dock strip (Chat / 画布指挥台同实例).
+ * Visually fuses with MessageInput when ``attached`` (Chat bottom bar).
+ */
+export function ApprovalPrompt({
+  attached = false,
+}: {
+  /** True when stacked flush above the chat composer (同底栏一体). */
+  attached?: boolean;
+}) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const pending = usePendingApprovals(conversationId);
   const orphaned = useOrphanedApprovals(conversationId);
@@ -113,7 +152,10 @@ export function ApprovalPrompt() {
   if (visible.length === 0 && orphaned.length === 0) return null;
 
   return (
-    <div className="mx-4 mb-2 space-y-2">
+    <div
+      className={cn("space-y-2", attached ? "px-0" : "mx-4 mb-2")}
+      data-approval-dock={attached ? "composer" : "panel"}
+    >
       {orphaned.map((o) => (
         <OrphanedInteractionCard
           key={o.id}
@@ -122,7 +164,11 @@ export function ApprovalPrompt() {
         />
       ))}
       {visible.map((approval) => (
-        <ApprovalCard key={approval.approvalId} approval={approval} />
+        <ApprovalCard
+          key={approval.approvalId}
+          approval={approval}
+          attached={attached}
+        />
       ))}
     </div>
   );
@@ -132,15 +178,27 @@ export function ApprovalPrompt() {
 export function ApprovalCard({
   approval,
   onDecide: onDecideProp,
+  attached = false,
 }: {
   approval: ApprovalView;
   onDecide?: (decision: ApprovalDecision) => void;
+  attached?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [clicked, setClicked] = useState<ApprovalDecision | null>(null);
+  const [trustBusy, setTrustBusy] = useState(false);
+  const [presetOverride, setPresetOverride] = useState<
+    "observe" | "workspace" | "full_trust" | null
+  >(null);
+  const preset =
+    presetOverride ??
+    getConversations().find((c) => c.id === approval.conversationId)
+      ?.permissionPreset;
 
   const isCodeExecute = approval.toolName === "code_execute";
   const isFileBatch = approval.toolName === "file_batch";
+  const isExecution = isExecutionTool(approval.toolName);
+  const preferTurnGrant = isExecution && supportsTurnGrant(approval.toolName);
   const headline = primaryArg(approval.toolName, approval.arguments);
   const argEntries = Object.entries(approval.arguments);
   const busy = approval.resolving;
@@ -149,6 +207,15 @@ export function ApprovalCard({
     typeof approval.arguments.circuit_breaker_hint === "string"
       ? approval.arguments.circuit_breaker_hint.trim()
       : "";
+
+  const sameToolCount = useMemo(
+    () => countToolApprovals(approval.conversationId, approval.toolName),
+    [approval.conversationId, approval.toolName],
+  );
+  const showFullTrustHint =
+    sameToolCount >= FULL_TRUST_HINT_AFTER &&
+    preset !== "full_trust" &&
+    !circuitBreakerHint;
 
   const batchOps = useMemo(() => {
     if (!isFileBatch) return [];
@@ -205,6 +272,27 @@ export function ApprovalCard({
     });
   };
 
+  const switchFullTrust = () => {
+    if (trustBusy || !approval.conversationId) return;
+    if (
+      !window.confirm(
+        "切换到「完全信任」后，AI 将与你同权执行命令（含本地运行代码）。确定继续？",
+      )
+    ) {
+      return;
+    }
+    setTrustBusy(true);
+    void setConversationPermissionPreset(approval.conversationId, "full_trust")
+      .then((saved) => {
+        patchConversationCache(approval.conversationId, {
+          permissionPreset: saved,
+        });
+        setPresetOverride(saved);
+      })
+      .catch((err) => notifyError(err, "切换失败"))
+      .finally(() => setTrustBusy(false));
+  };
+
   const spinnerOr = (decision: ApprovalDecision, icon: React.ReactNode) =>
     busy && clicked === decision ? (
       <Loader2 size={13} className="animate-spin" />
@@ -212,8 +300,37 @@ export function ApprovalCard({
       icon
     );
 
+  const onceButton = (
+    <Button
+      variant={preferTurnGrant ? "neutral" : "primary"}
+      icon={spinnerOr("approve", <Check size={13} />)}
+      disabled={busy}
+      onClick={() => onDecide("approve")}
+    >
+      允许一次
+    </Button>
+  );
+  const turnGrantButton = supportsTurnGrant(approval.toolName) ? (
+    <Button
+      variant={preferTurnGrant ? "primary" : "neutral"}
+      icon={spinnerOr("approve_always", <CheckCheck size={13} />)}
+      disabled={busy}
+      onClick={() => onDecide("approve_always")}
+    >
+      本轮内都允许
+    </Button>
+  ) : null;
+
   return (
-    <DecisionCard tone="primary" animate className="mx-0">
+    <DecisionCard
+      tone="primary"
+      animate={!attached}
+      className={cn(
+        "mx-0",
+        attached &&
+          "mt-0 rounded-b-none rounded-t-xl border-b-0 shadow-none animate-none",
+      )}
+    >
       <div className="flex items-start gap-2">
         <DecisionCardIcon tone="primary">
           <ShieldAlert size={16} />
@@ -268,6 +385,20 @@ export function ApprovalCard({
               安全熔断升格审批（启发式兜底，并非完整拦截）：{circuitBreakerHint}
             </p>
           )}
+          {showFullTrustHint && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              同类审批较频繁。可切换为
+              <button
+                type="button"
+                className="mx-0.5 text-primary underline-offset-2 hover:underline"
+                disabled={trustBusy}
+                onClick={switchFullTrust}
+              >
+                完全信任
+              </button>
+              （下一回合生效；熔断仍在）。
+            </p>
+          )}
           {argEntries.length > 0 && (
             <Button
               variant="ghost"
@@ -311,23 +442,16 @@ export function ApprovalCard({
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-6">
-        <Button
-          variant="primary"
-          icon={spinnerOr("approve", <Check size={13} />)}
-          disabled={busy}
-          onClick={() => onDecide("approve")}
-        >
-          允许一次
-        </Button>
-        {supportsTurnGrant(approval.toolName) && (
-          <Button
-            variant="neutral"
-            icon={spinnerOr("approve_always", <CheckCheck size={13} />)}
-            disabled={busy}
-            onClick={() => onDecide("approve_always")}
-          >
-            本轮内都允许
-          </Button>
+        {preferTurnGrant ? (
+          <>
+            {turnGrantButton}
+            {onceButton}
+          </>
+        ) : (
+          <>
+            {onceButton}
+            {turnGrantButton}
+          </>
         )}
         {isFileOp && (
           <Button

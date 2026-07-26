@@ -21,7 +21,12 @@ from agentcore.llm.provider.openai_compatible import (
     _parse_retry_after,
     _retry_wait,
 )
-from agentcore.llm.provider.protocol import LLMMessage, LLMRequest
+from agentcore.llm.provider.protocol import (
+    TURN_CONNECT_INITIAL_BACKOFF,
+    TURN_CONNECT_MAX_RETRIES,
+    LLMMessage,
+    LLMRequest,
+)
 
 
 def _ok_body() -> dict:
@@ -58,10 +63,16 @@ async def _mock_provider(handler) -> OpenAICompatibleProvider:
     return provider
 
 
-def _req() -> LLMRequest:
+def _req(scenario: str = "title") -> LLMRequest:
+    """Default to a one-shot scenario — the fail-fast connect budget.
+
+    ``chat`` / ``agent`` carry a whole turn and get the sustained connect chain
+    (:func:`connect_retry_policy`), asserted separately below.
+    """
     return LLMRequest(
         messages=[LLMMessage(role="user", content="hi")],
         model=DEEPSEEK_V4_FLASH,
+        scenario=scenario,
     )
 
 
@@ -168,6 +179,73 @@ async def test_complete_connect_timeout_fails_fast(monkeypatch):
         assert calls["n"] == _CONNECT_MAX_RETRIES
         assert sleeps == [_CONNECT_INITIAL_BACKOFF]
         assert calls["n"] < _MAX_RETRIES
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("scenario", ["chat", "agent"])
+async def test_connect_error_gets_sustained_budget_for_turn_scale(scenario, monkeypatch):
+    """A dropped turn costs a whole run — connect failures retry with a real chain.
+
+    Regression: a ~20s upstream outage killed a 4-worker delegate turn because the
+    fail-fast budget (2 attempts / 1s flat) gave up inside 5 seconds.
+    """
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    async def fake_sleep(sec: float) -> None:
+        sleeps.append(sec)
+
+    monkeypatch.setattr("agentcore.llm.provider.openai_compatible.asyncio.sleep", fake_sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("All connection attempts failed")
+
+    provider = await _mock_provider(handler)
+    try:
+        with pytest.raises(LLMUpstreamError):
+            await provider.complete(_req(scenario))
+        assert calls["n"] == TURN_CONNECT_MAX_RETRIES
+        # Exponential, not the flat 1s that used to compress 3 retries into ~5s.
+        assert sleeps == [
+            TURN_CONNECT_INITIAL_BACKOFF,
+            TURN_CONNECT_INITIAL_BACKOFF * 2,
+            TURN_CONNECT_INITIAL_BACKOFF * 4,
+        ]
+        assert sum(sleeps) > _CONNECT_INITIAL_BACKOFF * _CONNECT_MAX_RETRIES
+    finally:
+        await provider.close()
+
+
+async def test_stream_connect_error_gets_sustained_budget_for_turn_scale(monkeypatch):
+    """Same policy on the streaming path (workers stream; complete() is the one-shot path)."""
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    async def fake_sleep(sec: float) -> None:
+        sleeps.append(sec)
+
+    monkeypatch.setattr("agentcore.llm.provider.openai_compatible.asyncio.sleep", fake_sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < TURN_CONNECT_MAX_RETRIES:
+            raise httpx.ConnectError("All connection attempts failed")
+        body = _sse_line("recovered") + "data: [DONE]\n"
+        return httpx.Response(200, content=body.encode())
+
+    provider = await _mock_provider(handler)
+    try:
+        # Recovers on the last attempt the budget allows — the whole chain is usable.
+        chunks = [c async for c in provider.stream(_req("agent"))]
+        assert any(c.delta_content == "recovered" for c in chunks)
+        assert calls["n"] == TURN_CONNECT_MAX_RETRIES
+        assert sleeps == [
+            TURN_CONNECT_INITIAL_BACKOFF,
+            TURN_CONNECT_INITIAL_BACKOFF * 2,
+            TURN_CONNECT_INITIAL_BACKOFF * 4,
+        ]
     finally:
         await provider.close()
 

@@ -135,6 +135,10 @@ export const referenceChapter: ManualChapterContent = {
               desc: "右侧面板「终端」tab：你的交互 shell、后台进程与执行记录——长任务可观测、可停。",
             },
             {
+              title: "右坞团队浏览器",
+              desc: "团队浏览器仅云端隔离环境可用；本地工作区不会出现侧栏「浏览器」tab。云端会话里 AI 用浏览器时，右侧会出现该 tab，可看直播、接管登录。",
+            },
+            {
               title: "文件工作台",
               desc: "在文件页直接看、改、整理产物。",
             },

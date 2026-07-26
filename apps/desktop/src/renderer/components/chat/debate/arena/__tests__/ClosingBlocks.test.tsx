@@ -135,14 +135,14 @@ describe("ClosingBlocks 布局", () => {
       />,
     );
 
-    expect(container.querySelector(".grid.grid-cols-2")).toBeTruthy();
+    expect(container.querySelector(".debate-split-grid")).toBeTruthy();
     expect(screen.getByRole("button", { name: /支持方/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /反对方/ })).toBeTruthy();
   });
 
   it("stack（默认）时不产生两列容器", () => {
     const { container } = renderClosings(closingView(), executionWith([]));
-    expect(container.querySelector(".grid.grid-cols-2")).toBeNull();
+    expect(container.querySelector(".debate-split-grid")).toBeNull();
   });
 
   it("split 时 key 非 pro/con 也按 stance 分列并排（自定 key 回归）", () => {
@@ -173,7 +173,7 @@ describe("ClosingBlocks 布局", () => {
       />,
     );
 
-    expect(container.querySelector(".grid.grid-cols-2")).toBeTruthy();
+    expect(container.querySelector(".debate-split-grid")).toBeTruthy();
     expect(screen.getByRole("button", { name: /原告方/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /被告方/ })).toBeTruthy();
   });

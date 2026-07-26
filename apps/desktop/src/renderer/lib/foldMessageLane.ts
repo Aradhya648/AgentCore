@@ -283,6 +283,133 @@ export function foldTeamPreviewMarker(
   );
 }
 
+/** Process steps that mirror journal content/reasoning/tool lanes (not markers). */
+function isSettledProcessStep(step: ProcessStep): boolean {
+  return (
+    step.kind === "content" ||
+    step.kind === "reasoning" ||
+    step.kind === "tool" ||
+    step.kind === "rework"
+  );
+}
+
+/** Markers whose product order sits before `team` (insertBeforeTeam). */
+function isBeforeTeamMarker(step: ProcessStep): boolean {
+  return (
+    step.kind === "team_preview" || step.kind === "delegation_authorization"
+  );
+}
+
+/**
+ * Fold journal events before `endExclusive` into the settled (non-marker) prefix
+ * length that should precede a `team` / `graph_append` slot.
+ */
+function foldSettledPrefix(
+  events: ReadonlyArray<{ type: string; payload?: unknown }>,
+  endExclusive: number,
+): { count: number; sawSettledEvent: boolean } {
+  let steps: ProcessStep[] = [];
+  let sawSettledEvent = false;
+  for (let i = 0; i < endExclusive; i++) {
+    const ev = events[i];
+    const payload = (ev.payload ?? {}) as Record<string, unknown>;
+    switch (ev.type) {
+      case "content_delta": {
+        const delta = typeof payload.delta === "string" ? payload.delta : "";
+        if (!delta) break;
+        sawSettledEvent = true;
+        steps = appendContentStep(steps, delta);
+        break;
+      }
+      case "reasoning_delta": {
+        const delta = typeof payload.delta === "string" ? payload.delta : "";
+        if (!delta) break;
+        sawSettledEvent = true;
+        steps = appendReasoningStep(steps, delta);
+        break;
+      }
+      case "content_reset": {
+        sawSettledEvent = true;
+        const cleared = dropTrailingContentSteps(steps);
+        steps =
+          payload.reason === "finish_guard"
+            ? appendReworkStep(cleared)
+            : cleared;
+        break;
+      }
+      case "tool_use_start": {
+        const next = appendToolStep(
+          steps,
+          payload as unknown as ToolUseStartPayload,
+        );
+        if (next !== steps) sawSettledEvent = true;
+        steps = next;
+        break;
+      }
+      case "tool_use_end": {
+        const next = resolveToolStep(
+          steps,
+          payload as unknown as ToolUseEndPayload,
+        );
+        if (next) steps = next;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return { count: steps.length, sawSettledEvent };
+}
+
+/**
+ * Journal-relative insert index for a missing `team` / `graph_append` marker.
+ *
+ * Counts settled steps implied by events before the marker, then maps that onto
+ * the persisted process (skipping any already-present markers in between). When
+ * the journal slice has no settled events but process already carries content
+ * (minimal test / truncated events), falls back to append — same as legacy.
+ *
+ * `advancePastBeforeTeam`: after the settled prefix, skip `team_preview` /
+ * `delegation_authorization` so product order stays 开工卡 → 协作图.
+ */
+function journalMarkerInsertIndex(
+  process: ProcessStep[],
+  events: ReadonlyArray<{ type: string; payload?: unknown }>,
+  endExclusive: number,
+  advancePastBeforeTeam: boolean,
+): number {
+  const { count, sawSettledEvent } = foldSettledPrefix(events, endExclusive);
+  // No content_delta/tool slice before the marker, but process already has settled
+  // steps (progressive ``process_*`` journals omit deltas from ``runs.events``):
+  // - ``team`` (advancePastBeforeTeam): pin at start — post-plan 进展/终稿 must stay
+  //   below the graph (legacy missing ``process_team`` hydrate).
+  // - ``graph_append``: keep append — intro content often precedes the anchor.
+  if (!sawSettledEvent && process.some(isSettledProcessStep)) {
+    return advancePastBeforeTeam ? 0 : process.length;
+  }
+  let insertAt: number;
+  if (count <= 0) {
+    insertAt = 0;
+  } else {
+    let seen = 0;
+    insertAt = process.length;
+    for (let i = 0; i < process.length; i++) {
+      if (!isSettledProcessStep(process[i])) continue;
+      seen++;
+      if (seen === count) {
+        insertAt = i + 1;
+        break;
+      }
+    }
+  }
+  if (advancePastBeforeTeam) {
+    while (insertAt < process.length && isBeforeTeamMarker(process[insertAt])) {
+      insertAt++;
+    }
+  }
+  return insertAt;
+}
+
 /** Reload 补标记（时间线一期）: backfill every positional marker the journal implies
  * into a persisted `process[]` — `run_plan` → `team`，`*_required` → registry marker
  * (insertBeforeTeam 语义由 appendTeamPreviewStep 内建)。保证不变量「有交互卡必有时间线
@@ -290,13 +417,17 @@ export function foldTeamPreviewMarker(
  *
  * 纯补标记：绝不吞正文 —— absorbTrailingContent 只属于 live 时刻（事件到来时尾部
  * content 是同回合被吞的草稿）；重载的 process 是终态，resolved 后 CEO 的收尾正文
- * 必须保留。全部 append* 自带 dedup no-op，后端已写标记时原样返回。 */
+ * 必须保留。全部 append* 自带 dedup no-op，后端已写标记时原样返回。
+ *
+ * `team` / `graph_append` 按 journal 相对时序插入（禁止一律尾部 append），避免队后
+ * 进展/终稿 content 被挤到图上方。 */
 export function ensureTimelineMarkersFromJournal(
   process: ProcessStep[] | undefined,
   events: ReadonlyArray<{ type: string; payload?: unknown }>,
 ): ProcessStep[] {
   let steps = process ?? [];
-  for (const ev of events) {
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i];
     const payload = (ev.payload ?? {}) as Record<string, unknown>;
     if (ev.type === "graph_append") {
       const executionId = payload.execution_id;
@@ -315,6 +446,7 @@ export function ensureTimelineMarkersFromJournal(
         typeof hostMessageId === "string" &&
         hostMessageId
       ) {
+        const at = journalMarkerInsertIndex(steps, events, i, false);
         steps = appendGraphAppendStep(
           steps,
           executionId,
@@ -323,6 +455,7 @@ export function ensureTimelineMarkersFromJournal(
           actId,
           actKind,
           authorizedBy,
+          at,
         );
       }
       continue;
@@ -332,7 +465,8 @@ export function ensureTimelineMarkersFromJournal(
       if (payload.host_message_id) continue;
       const executionId = payload.execution_id;
       if (typeof executionId === "string" && executionId) {
-        steps = appendTeamStep(steps, executionId);
+        const at = journalMarkerInsertIndex(steps, events, i, true);
+        steps = appendTeamStep(steps, executionId, at);
       }
       continue;
     }

@@ -389,6 +389,23 @@ async def test_agentcore_layout_migration_idempotent(session_factory):
     assert stats2.rules_moved == 0
 
 
+async def test_agentcore_layout_migration_default_factory(session_factory, monkeypatch):
+    """No-arg call resolves the default session factory (the boot path).
+
+    Regression: every other test injects ``session_factory=``, so the ``is None``
+    branch was never executed and a wrong module path there (``agentcore.db.session``)
+    silently no-op'd the migration on every real boot — swallowed by the best-effort
+    ``except`` in ``main.lifespan``.
+    """
+    import agentcore.db.base as db_base
+    from agentcore.memory.migrate_agentcore import migrate_agentcore_layout
+
+    monkeypatch.setattr(db_base, "async_session_factory", session_factory)
+
+    stats = await migrate_agentcore_layout()
+    assert stats.scopes_failed == 0
+
+
 async def test_injectable_rules_skip_stray_outside_convention(session_factory):
     """With AgentCore/规则/ present, a top-level stray always-rule is not injectable."""
     from agentcore.db.repositories.documents import USER_RULES_DOC_NAME

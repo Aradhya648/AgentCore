@@ -118,6 +118,17 @@ describe("teamSynthesisPhase", () => {
     expect(isTeamSynthesizing(e)).toBe(false);
   });
 
+  it("not synthesizing when turnPhase is already terminal but status stuck running", () => {
+    const e = exec({
+      status: "running",
+      runs: [
+        run({ id: "w1", status: "completed" }),
+        run({ id: "w2", status: "completed" }),
+      ],
+    });
+    expect(isTeamSynthesizing(e, { turnTerminal: true })).toBe(false);
+  });
+
   it("captainSynthesisPreviewText prefers draft body over headline", () => {
     expect(
       captainSynthesisPreviewText({

@@ -527,6 +527,55 @@ async def test_record_local_turn_cancelled_incomplete_persists_journal(monkeypat
     assert result["title"] is None
 
 
+async def test_record_local_turn_prefers_progressive_journal_over_runs(monkeypatch):
+    """Local finalize: non-empty progressive journal is sole fact source (not runs 投影)."""
+    events: list = []
+    journal_entries: list = []
+    _patch_persistence(monkeypatch, events, existing_title="已有标题")
+
+    async def _capture_journal(_session, **kw):
+        events.append(("journal", kw.get("message_id")))
+        journal_entries.append(kw.get("entries"))
+
+    monkeypatch.setattr(cloud_mod, "persist_turn_journal", _capture_journal)
+
+    progressive = [
+        {"kind": "llm_call", "payload": {"model": "m", "round": 1}, "ts": "t0"},
+        {
+            "kind": "run_completed",
+            "payload": {"run_id": "r1", "agent_id": "w1", "output_summary": "done"},
+            "ts": "t1",
+        },
+    ]
+    # Display runs omit execution-only facts (llm_call) — old path would drop them.
+    display_runs = {
+        "events": [
+            {"type": "run_started", "payload": {"run_id": "r1", "agent_id": "w1"}},
+            {
+                "type": "run_completed",
+                "payload": {"run_id": "r1", "agent_id": "w1", "output_summary": "done"},
+            },
+        ],
+        "finish_reason": "end_turn",
+    }
+    result = await record_local_turn(
+        conversation_id="c1",
+        user_id="u1",
+        user_message="hi",
+        assistant_content="ok",
+        runs=display_runs,
+        journal=progressive,
+        user_message_id=_USER_MSG_ID,
+        message_id="m-prog-journal",
+        trace_id=_TRACE,
+        finish_reason=FinishReason.END_TURN.value,
+    )
+
+    assert ("journal", "assistant-id") in events
+    assert journal_entries == [progressive]
+    assert result["assistant_message_id"] == "assistant-id"
+
+
 async def test_record_local_turn_persists_followups(monkeypatch):
     events: list = []
     _patch_persistence(monkeypatch, events, existing_title="已有标题")

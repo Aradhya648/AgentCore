@@ -388,7 +388,9 @@ async def test_emit_updates_in_memory_journal_when_writer_sealed(monkeypatch) ->
         sink = EventSink()
         sink.emit(_plan())
         await writer.flush()
-        assert written == [None]
+        # run_plan DURABLE + progressive process_team (both before seal).
+        assert len(written) >= 1
+        sealed_at = len(written)
 
         await writer.seal()
         required = team_preview_required(
@@ -403,7 +405,7 @@ async def test_emit_updates_in_memory_journal_when_writer_sealed(monkeypatch) ->
         journal = sink.execution_journal()
         assert journal is not None
         assert journal[-1]["type"] == EventType.TEAM_PREVIEW_REQUIRED.value
-        assert written == [None]
+        assert len(written) == sealed_at
         assert writer.schedule_append({"kind": "x"}) is None
     finally:
         current_journal_writer.reset(token)

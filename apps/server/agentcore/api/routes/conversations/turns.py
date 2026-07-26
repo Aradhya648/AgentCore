@@ -237,6 +237,7 @@ async def resume_message(
 
     ``body.selected`` carries the user's ask_user picks (ignored for plan_review).
     ``body.style_id`` is the structured website style pick when present.
+    ``body.format_id`` is the structured presentation format pick when present.
     Gated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota
     — all BEFORE settlement/claim, so a refused turn keeps its resumable frame.
     """
@@ -293,6 +294,7 @@ async def resume_message(
                 note=body.note,
                 selected=body.selected,
                 style_id=(body.style_id or "").strip(),
+                format_id=(body.format_id or "").strip(),
             ),
             sink=sink,
             llm_credentials=preflight.credentials,

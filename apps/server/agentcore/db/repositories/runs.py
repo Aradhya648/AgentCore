@@ -562,6 +562,39 @@ class TurnJournalRepository:
         payload = row[0]
         return dict(payload) if isinstance(payload, dict) else None
 
+    async def find_latest_presentation_format(
+        self, *, conversation_id: str
+    ) -> dict | None:
+        """Newest ``presentation_format_confirmed`` payload for ``conversation_id``.
+
+        Cold rehydrate for presentation delivery after process restart / new turn when
+        the hot cache is empty. Returns the raw journal payload dict or ``None``.
+        """
+        from sqlalchemy import text
+
+        cid = (conversation_id or "").strip()
+        if not cid:
+            return None
+        result = await self._session.execute(
+            text(
+                """
+                SELECT payload
+                FROM turn_journal
+                WHERE conversation_id = :cid
+                  AND kind = 'presentation_format_confirmed'
+                  AND COALESCE(payload->>'format_id', '') != ''
+                ORDER BY created_at DESC, seq DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": cid},
+        )
+        row = result.first()
+        if not row or row[0] is None:
+            return None
+        payload = row[0]
+        return dict(payload) if isinstance(payload, dict) else None
+
     async def find_latest_mlr_execution(self, *, conversation_id: str) -> str | None:
         """Newest MLR-shaped team graph: ``multi_agent`` ``run_plan`` containing a synthesizer run.
 

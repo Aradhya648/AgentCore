@@ -45,6 +45,8 @@ class AgentExecutorEnv:
     note_wall: NoteWall | None
     collaboration: bool
     team_brief: str | None
+    # B2: CEO 本回合探路短摘要（根委派注入 worker 开局；嵌套为空）。
+    captain_recon: str | None
     write_coordinator: WriteCoordinator
     ancestors_by_id: Mapping[str, frozenset[str]]
     conversation_id: str

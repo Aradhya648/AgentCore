@@ -53,7 +53,7 @@ describe("AutonomySettings", () => {
     );
     expect(screen.getByText("只观察")).toBeTruthy();
     expect(screen.getByText("完全信任")).toBeTruthy();
-    expect(screen.getByText(/新会话默认：开工卡一次授权/)).toBeTruthy();
+    expect(screen.getByText(/新会话默认：信任工作区写入/)).toBeTruthy();
 
     const selected = screen.getByRole("radio", {
       name: /开工授权/,

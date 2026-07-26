@@ -123,6 +123,8 @@ async def react_loop(
     cutoff_reason_sink: list[str] | None = None,
     controller_seed: Mapping[str, Any] | None = None,
     tool_failure_sink: list[dict[str, Any]] | None = None,
+    files_expected: bool = False,
+    short_write_posture: bool = False,
 ) -> tuple[str, str, TokenUsage, int]:
     """Run the ReAct loop.
 
@@ -287,7 +289,12 @@ async def react_loop(
         base_model = settings.platform_model
 
     investigation_tools = classify_investigation_tools(tools, allowed_tool_names)
-    controller = create_loop_controller(investigation_tools, seed=controller_seed)
+    controller = create_loop_controller(
+        investigation_tools,
+        seed=controller_seed,
+        files_expected=files_expected,
+        short_write_posture=short_write_posture,
+    )
     # 跑/打开验证：意图命中则在首轮 LLM 前硬收探路工具（仿 team_gate，零阈值）。
     if role == "captain":
         from agentcore.tools.builtin import (

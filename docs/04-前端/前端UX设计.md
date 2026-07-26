@@ -172,7 +172,7 @@ skip_if:
 
 **检查点卡片（已落地 · 挂起即收口 Phase 3）**：CEO 调 `ask_user`（默认 `blocking=true`）暂停回合、请用户拍板。**内联 `CheckpointCard` 只渲染已决记录**（pending 即 finalize 回合、内联不渲染，CEO 正文保持可见），可操作面统一落在下方 `ResumePrompt`（复用同一 `AskUserCard` 答题体）。**语气**：卡壳统一中性灰（`neutral`，被动记录姿态）、行动信号收敛在 Footer 主 CTA（品牌蓝）；kickoff 走 V2 Brief+Choose（选项 `primary` 选中态）。原「途中味琥珀 `warning`」已随 warning 语义槽位退役（见 `ui/tone-presets.ts`）。历史回合只读。
 
-**开工提案卡瘦身（✅）**：开工提案卡（`ask_user` 开场形态；勿与 `team_preview` 开工卡混称，两卡区分见[术语表](/docs/01-产品/术语表.md)）= **带预填的短表单**，选项必须默认全部可见；渐进披露只用于过目型材料。决策材料紧凑单行；非决策材料（brief/计划 chips/补充框）收纳折叠。**否决**：题目 accordion（曾落地当日回滚）、大内容外置侧栏、Wizard 一题一答。→ 见代码: `ask/AskCommenceKickoff.tsx`
+**开工提案卡瘦身（✅）**：开工提案卡（`ask_user` 开场形态；勿与 `team_preview` 开工卡混称，两卡区分见[术语表](/docs/01-产品/术语表.md)）= **带预填的短表单**，选项必须默认全部可见；渐进披露只用于过目型材料。决策材料紧凑单行；非决策材料（brief/计划 chips/补充框）收纳折叠。视觉类并列 `style_options`（风格基调）；演讲/PPT 类并列 `format_options`（交付形态：pptx / marp / outline），continue 上行 `format_id`（与 `style_id` 同形）。**否决**：题目 accordion（曾落地当日回滚）、大内容外置侧栏、Wizard 一题一答。→ 见代码: `ask/AskCommenceKickoff.tsx`
 
 **专用拍板卡两变体（`intent` 判别，2026-07 阶段 3 第 3 件）**：同一 `checkpoint_required` 管线按 `intent` 渲染专用形态，不新增交互 kind——**方案挑选卡**（`intent=proposal_pick`）：候选以「方案墙」卡片阵呈现（方案名 + 一行取舍 + 推荐徽章），单选提交；**风险确认卡**（`intent=risk_ack`）：勾选清单，解析 label 的「[高]/[中]/[低]」前缀做严重度强调（无前缀回退普通行），多选提交，选中项由 CEO 转定向修订。未知 / 缺省 intent 完全走既有 kickoff/decision 渲染；移动端不做专用 UI，自然降级为普通选择卡。
 
@@ -205,6 +205,8 @@ skip_if:
 ## 四、辩论/审查范式
 
 > ✅ **已落地**：辩论从「`stance`/`round` 展示标记 + CEO 手搓 DAG」升级为「**主持人（Moderator）驱动的逐轮交锋 → 决策简报 + 交锋叙事线双产物**」。完整编排（主持人循环 / 三形态 / 收敛 / 逐轮交互 / 补轮 / 站队会话内态）见 [`辩论编排设计.md`](/docs/03-AI核心/辩论编排设计.md) §六–§七；本节聚焦**前端呈现**。
+>
+> ✅ **真·多模型辩手（Phase 3）**：开赛卡 / 简报「正方 X · 反方 Y · 裁判 Z」署名（`rosterAttribution`）；记分牌与终审头靠 **run 实际 model** 徽章；同模型场零噪声——权威见 [`辩论编排设计.md §7.5`](/docs/03-AI核心/辩论编排设计.md)。
 >
 > ✅ **前端重构已落地（2026-07-06）**：交锋叙事前端从「IM 群聊单流」**重建为「辩论室：赛事页」**——记分牌 + 阶段化剧本主列 + 终审舞台三层结构；live 与收场仍是同一条 `toDebateModel` 归一流、无 phase 切换。主视图 `DebateArena`，右坞「辩论裁判台」已解散。行为契约见 §4.1，组件去向见 §4.1b。
 
@@ -456,7 +458,7 @@ skip_if:
 
 **清空本对话产物（✅ 已确定 · 仅云端 `conv:` scratch）**：根右键「清空本对话产物…」——立刻抹本对话云 scratch 下全部文件，**保留对话**；空后从 `/files` 列表摘掉。正式 Dialog（非 `window.confirm`）：说明保留对话 + 云端不可恢复。该对话 `isGenerating` 时菜单项禁用并标注「对话进行中」。**否决**项目根 / 本地任意根 / `shared:` 的「一键清空」——与「删项目不碰本地盘」「文件是资产」定案冲突，且行业（ChatGPT/Claude/Cursor）亦不提供抹整棵用户工程树；项目文件靠树内单删，不要整个项目则走删除项目/彻底删除。本地本机草稿 scratch 同样不出根级清空（树内单删或删对话）。→ 见代码 `components/files/ClearScratchDialog.tsx`、`fileWorkbench/WorkspaceSection.tsx`。
 
-**审批 UX（写操作）**：只读时尝试写引导开启；可写时写前弹审批（可「本轮内都允许」按同名工具、或「本轮内允许所有文件改动」按整类一次放行——类成员单源 = 后端 `approval_class_tool_names()`（文件改动五工具 ∪ `git` 写入），依赖工具审批两态的 `grantable` 级别，避免 N 次写/改/删 = N 次弹窗）。
+**审批 UX（写操作）**：会话档「开工授权 / 完全信任」下工作区文件改动类**默认免逐次卡**（永久删仍问；越界执行拒绝）；「只观察」写前仍弹。未信任档或永久删等仍可「本轮内都允许」/「本轮内允许所有文件改动」（类成员单源 = 后端 `approval_class_tool_names()`）。执行类仍走开工卡或逐次审批。
 
 **对话落点表达（✅ 项目=工作区 · 单一「在哪工作」入口）**：草稿输入框工具行只挂一个 `ComposerWorkspaceChip`。菜单：快速对话（= 云端草稿·桌面/web 默认）/ 本机草稿（桌面显式·落本机容器走本地引擎）/ 项目列表（名称+位置副文）/ 新建项目…。选定后 chip 显示单一事实（如「快速对话」/「项目名 · 本地」）。草稿意向为判别联合 `draftWorkspaceIntent`（quick_local / quick_cloud / project）。**新建项目**（桌面）锚点级联菜单（左栏三行）：本机文件夹（右栏搜索 + `listRoots` 路径列表，底部分隔「打开其他文件夹…」；点选或系统选完即建，名=目录名）/ 本机空白（命名 → `~/Documents/AgentCore/<名>`）/ 云端空白（命名）；Web 仅云端空白命名。入口统一（chip「新建项目…」、侧栏项目区 `+`、命令面板「新建项目」）锚定触发按钮。已建会话只读展示工作区；无会话级「绑定/断开」；不支持事后移入/「在项目中继续」。**否决**：菜单并列「打开本地文件夹…」（与新建终点重复，能力在「本机文件夹」右栏底）；大 Dialog 填表。**B4** 附件提示 `DraftWorkspaceAssignPrompt` 仍适配新 store。→ 见代码 `ComposerWorkspaceChip.tsx`、`CreateFolderMenu.tsx`、`DraftWorkspaceAssignPrompt.tsx`、`stores/folders.ts`。
 
@@ -468,7 +470,7 @@ skip_if:
 
 **回合内文件呈现（✅ 已落地）**：**文件产物内联卡**——回合若写了文件，答复正文下方挂一张 `FileArtifactsCard` 列出本回合产物，点行经 `useSidePanelStore` 在工作区面板预览，HTML 产物在会话具备内置浏览器能力时直达「完整预览」tab（单 Agent 取 `process`、多 Agent 取 execution 投影，去重合并）。**A1 / A1+ / A2′ 查看改动 ✅**：卡头「查看改动」只读——云端优先 `GET …/messages/{id}/files/diff`（回合开始 labeled 基线 vs 此刻树）；**本地会话**走 sidecar `turnFilesDiff` / `restoreTurnBaseline`（工作区旁 `.agentcore/baselines/{message_id}.zip`，不经云盘）；无基线 / 失败降级工具参数预览。有基线时出「回退到本回合开始」（确认后云 `restore_snapshot` / 本机 unzip 整树覆盖）。**否决**默认预写暂存。→ 见代码 `FileArtifactsCard.tsx`、`TurnFileChangesReview.tsx`、`workspace/turn_baseline.py`、`workspace/turn_diff.py`；定案 [前端 UX §九](/docs/04-前端/前端UX设计.md)（定案全文：详细提案不在公开仓 / 维护者本地）。
 
-**交付状态卡（掐断透明化 · C3 职责分离 ✅）**：`delivery_status` 在 partial / blocked 时出 `DeliveryStatusCard`（正文下、产物卡上；`delivered` 不出卡、由产物卡承载）。**结构化 `gaps` 是缺口唯一可信源**——综述正文不再承担缺口披露；完成条件卡是缺口的唯一披露面（逐条 gap 明细），partial / blocked 的强调色由卡片头部（图标 + 状态徽标）承接，避免「正文乐观、卡片悲观」。缺口行可选 `reason` 徽标——已知 `token_budget`（预算触顶）/ `worker_timeout`（运行超时）/ `degraded_handoff`（降级交接）；未知 reason 忽略（向前兼容）。整卡可折叠（整行头部开合 + chevron，对齐产出文件卡）——诚实披露卡**默认展开**（不套产物卡「>4 收起」阈值），收起仅折叠 gap 明细与行动项、头部恒可见；桌面折叠偏好按回合持久化（`usePersistentDisclosure`），手机为本地会话态。手机 TeamView `DeliverySection` 同口径（徽标 + 可折叠）。→ 见代码 `DeliveryStatusCard.tsx`、`TeamView.tsx`；后端 [`编排器 §交付状态`](/docs/03-AI核心/编排器与CEO主Agent.md)。
+**交付状态卡（掐断透明化 · C3 职责分离 ✅）**：`delivery_status` 在 partial / blocked / notes 时出 `DeliveryStatusCard`（正文下、产物卡上；`delivered` 不出卡、由产物卡承载）。**结构化 `gaps` 是缺口唯一可信源**——综述正文不再承担缺口披露；完成条件卡是缺口的唯一披露面。零落盘（worker 契约 + 批次 `files_written`）合并为一条 `files_not_landed`；CEO `finish_guard` 在 `blocked` 且无落盘时拦截假完成话术，避免「正文乐观、卡片悲观」。`severity=warning`（待核实/示例自注）不单独撑起 partial/blocked，仅有 soft 时 state=`notes`（徽标「有备注」轻提醒）；blocking 缺口才标「部分未满足 / 未满足」。摘要分开写未完成与待核实（如「已交付 N 个文件；成篇未写完；另有 M 处待核实备注」）；soft 行聚合为一条可展开明细，桌面可「打开相关文件」。成篇未写完改由**对话框接着说**（已撤 `continue_writing` 一键按钮）；仍保留 `bind_local_folder` / `website_verify` / `continue_skipped_runs`。缺口行可选 `reason` 徽标——已知 `token_budget`（预算触顶）/ `worker_timeout`（运行超时）/ `degraded_handoff`（降级交接）/ `unverified_note`（待核实）/ `files_not_landed`（未落盘）；未知 reason 忽略（向前兼容）。整卡可折叠（整行头部开合 + chevron，对齐产出文件卡）——诚实披露卡**默认展开**（不套产物卡「>4 收起」阈值），收起仅折叠 gap 明细与行动项、头部恒可见；桌面折叠偏好按回合持久化（`usePersistentDisclosure`），手机为本地会话态。手机 TeamView `DeliverySection` 同口径（徽标 + 可折叠；待核实聚合，无打开文件绑定）。→ 见代码 `DeliveryStatusCard.tsx`、`TeamView.tsx`；后端 [`编排器 §交付状态`](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
 **案卷徽章与阶段目录（✅）**：文件树对约定阶段目录出**案卷徽章**（「调研案卷 / 辩论产物 / 审查 · N 件」，中性口径不写幕号）；产物卡带案卷标签 +「在文件页查看案卷」跳转。路径→元信息走可扩展表 `lib/stageDirs.ts`（双端同构）；前缀 `AgentCore/文档/{research,debate,reviews}/`（见 [`双模式工作区.md` §五](/docs/02-架构/双模式工作区.md)）。无案卷目录的工作区零噪音。**否决**阶段视图 Tab（超一层、与「复用文件树心智」冲突）。→ 见代码 `components/files/FileTreeRow.tsx`、`lib/stageDirs.ts`。
 
@@ -565,7 +567,7 @@ skip_if:
 
 → 见代码: 桌面 `components/chat/message-input/ModelPicker.tsx`（组合选择器）、手机同契约；后端见 [平台LLM接入 §二](/docs/05-平台与运维/平台LLM接入.md)、[编排器 §2.1](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
-**设置 · 自主度（✅）**：三档 `always_ask` / `first_grant` / `full_auto`；管开工卡 ∪ GRANTABLE；不动拍板节点。→ 见代码: `pages/more/AutonomySettings.tsx`；权威见 [安全权限与治理 §三](/docs/05-平台与运维/安全权限与治理.md)。
+**设置 · 自主度（✅）**：三档 `always_ask` / `first_grant` / `full_auto`；`first_grant`（开工授权）会话信任文件改动类，开工卡只确认组队 + 执行类；`full_auto` 跳过开工卡。不动拍板节点。→ 见代码: `pages/more/AutonomySettings.tsx`；权威见 [安全权限与治理 §三](/docs/05-平台与运维/安全权限与治理.md)。
 
 ---
 

@@ -11,10 +11,11 @@ Regression:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from agentcore.runtime.runs.playbooks import PLAYBOOKS, available_playbooks
 from agentcore.runtime.runs.software_app import (
+    is_software_app_intent,
     software_none_path_blocked,
     software_thin_html_rejected_message,
 )
@@ -27,6 +28,8 @@ from agentcore.runtime.runs.website_style import (
 
 _PLAYBOOK_NONE = "none"
 
+DeclarationRejectGate = Literal["website", "software", "empty", "unknown"]
+
 _EMPTY_DELEGATE_MSG = (
     "delegate 须传手写 `tasks`，或具名 `playbook`/`playbook_id` + `playbook_args`。"
     f"建站 / 落地页 / 营销官网【必须】用 `playbook=\"build_website\"`；"
@@ -35,15 +38,46 @@ _EMPTY_DELEGATE_MSG = (
     "其余任务自由组队：按任务手写 tasks 即可，形状词仅供对照（可选快捷展开）。"
 )
 
-_WEBSITE_NONE_REJECTED_MSG = (
+_WEBSITE_NONE_REJECTED_PREFIX = (
     "建站 / 落地页 / 营销官网 / 控制台 / 工具台意图下禁止 `playbook_id=\"none\"`"
+)
+
+_WEBSITE_NONE_REJECTED_MSG = (
+    f"{_WEBSITE_NONE_REJECTED_PREFIX}"
     "（或缺省手写 tasks 旁路）。"
     "营销落地页必须使用 `playbook=\"build_website\"`；"
     "控制台 / 后台 / 工具台 dense 必须使用 `playbook=\"build_toolshed\"`"
     f"+ `playbook_args`。可用：{available_playbooks()}。"
     "任务书只传事实输入；禁止手糊「内容→前端」两节点绕过 P1 质量管线。"
+    "非建站 / 非控制台任务勿走此路径——手写 tasks 即可。"
     "可先 `consult_skill(\"build_website\")` 或 `consult_skill(\"build_toolshed\")` 拉回用法。"
 )
+
+
+def website_none_rejected_message() -> str:
+    """Stable reject copy for site / toolshed ``none`` bypass (probe / tests)."""
+    return _WEBSITE_NONE_REJECTED_MSG
+
+
+def is_website_none_rejected(error: str | None) -> bool:
+    """True when ``error`` is the website / toolshed none-path reject message."""
+    if not error:
+        return False
+    return error.startswith(_WEBSITE_NONE_REJECTED_PREFIX) or error == _WEBSITE_NONE_REJECTED_MSG
+
+
+def declaration_reject_gate(error: str | None) -> DeclarationRejectGate:
+    """Classify a declaration reject for logging / probes (website|software|empty|unknown)."""
+    if not error:
+        return "unknown"
+    if is_website_none_rejected(error):
+        return "website"
+    soft = software_thin_html_rejected_message()
+    if error == soft or error.startswith(soft[:24]):
+        return "software"
+    if error == _EMPTY_DELEGATE_MSG or error.startswith("delegate 须传手写"):
+        return "empty"
+    return "unknown"
 
 
 def _call_intent_blob(arguments: dict[str, Any]) -> str:
@@ -82,8 +116,13 @@ def website_none_path_blocked(
     / ``playbook_args`` — construction-oriented regex
     （``is_site_build_intent`` = marketing OR toolshed）.
 
-    **Continuation gate**: user「继续完成 / 补全分区…」+ call blob 呈建站形
-    （官网 / HTML/CSS / ``build_website``…）→ also block ``none``（禁手糊整站续作）。
+    **Continuation gate**: user「继续完成官网 / 补全分区…」+ call blob 呈建站形
+    （官网 / ``build_website`` / ``index.html``…）→ also block ``none``（禁手糊整站续作）。
+    Continuation phrases alone（「继续完成项目的开发」）do **not** trip without a
+    site / toolshed anchor.
+
+    **Software priority**: when ``is_software_app_intent`` and not site build,
+    do **not** block here — ``software_none_path_blocked`` owns thin-HTML rejects.
 
     **Mis-injury strategy**: mid-turn audit / fix after a site exists is exempt when
     the *call payload* is follow-up-framed (审计/修复/…) **and** does not itself
@@ -92,12 +131,17 @@ def website_none_path_blocked(
     a clear「做官网」/「做控制台」user turn still rejects (closes the hand-write bypass).
     """
     call_blob = _call_intent_blob(arguments)
+    user = user_message or ""
     if is_website_followup_exempt(call_blob) and not is_site_build_intent(call_blob):
         return False
-    if is_site_build_intent(user_message or "", call_blob):
+    # Software / app framing wins over the website continuation gate; true site
+    # greenfield still hard-blocks below (is_software_app_intent already False then).
+    if is_software_app_intent(user, call_blob) and not is_site_build_intent(user, call_blob):
+        return False
+    if is_site_build_intent(user, call_blob):
         return True
     return bool(
-        is_website_continuation_intent(user_message or "")
+        is_website_continuation_intent(user)
         and is_website_shaped_call(call_blob)
     )
 

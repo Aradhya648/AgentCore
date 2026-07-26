@@ -1,3 +1,4 @@
+import { formatCrossModelRosterLine } from "@/components/chat/debate/model";
 import { shouldHostPreviewInGraph } from "@/components/chat/debatePreviewPlacement";
 import {
   ResolvedDecisionRecord,
@@ -105,6 +106,11 @@ export function DebateBody({ preview }: { preview: TeamPreviewDisplay }) {
         ? "认真辩透"
         : "快速对碰";
 
+  const rosterLine = formatCrossModelRosterLine(preview.sides, {
+    model: preview.moderatorModel,
+    origin: preview.moderatorOrigin,
+  });
+
   return (
     <div className="mt-2 space-y-1.5">
       {preview.motion && (
@@ -113,6 +119,41 @@ export function DebateBody({ preview }: { preview: TeamPreviewDisplay }) {
         </p>
       )}
       <p className="text-xs text-muted-foreground">{budget}</p>
+      {rosterLine && (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="debate-roster-line"
+        >
+          {rosterLine}
+        </p>
+      )}
+      {preview.sameModelDebate && (
+        <p className="text-xs text-muted-foreground">同模型辩论</p>
+      )}
+      {preview.modelCandidates && preview.modelCandidates.length > 0 && (
+        <div
+          className="rounded-lg border border-border bg-card/60 px-2.5 py-1.5"
+          data-testid="debate-model-candidates"
+        >
+          <p className="text-xs font-medium text-foreground">
+            模型消歧失败 · 请从目录候选重选（勿再问「是不是当前主模型」）
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {preview.modelCandidates.map((c, i) => (
+              <li
+                key={`${c.origin}-${c.model}-${c.provider_id ?? ""}-${i}`}
+                className="text-xs text-muted-foreground"
+              >
+                {c.label || c.model}
+                {" · "}
+                {c.origin}/{c.model}
+                {c.provider_id ? `（provider=${c.provider_id}）` : ""}
+                {c.side_key ? ` · ${c.side_key}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {preview.sides.map((s) => (
         <div
           key={s.key}

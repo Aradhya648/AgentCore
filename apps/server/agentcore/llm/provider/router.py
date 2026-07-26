@@ -68,3 +68,10 @@ class ProviderRouter:
                 await close()
             except Exception as e:  # noqa: BLE001
                 logger.warning("llm.router.close_failed", error=str(e))
+
+    def register(self, prefix: str, provider: LLMProvider) -> None:
+        """Register (or replace) an extra provider under ``prefix`` for debate multi-model."""
+        key = (prefix or "").strip()
+        if not key:
+            return
+        self._providers[key] = provider

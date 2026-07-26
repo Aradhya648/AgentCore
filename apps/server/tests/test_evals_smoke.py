@@ -5,16 +5,20 @@ per-PR 硬门禁的关键：用**脚本化假 provider** 零成本验证 harness
 - single 路径：真 ``react_loop`` + 脚本化 provider → ``TurnOutcome`` 归一化（含工具调用截获）；
 - ``RecordingSink``：从 ``run_plan``/``tool_use_start`` 事件还原 roster / tool_calls；
 - ``team_outcome`` / ``single_outcome`` 纯映射；
-- runner + report：假 harness 跑两例 → 聚合、判定口径、JSON 序列化。
+- runner + report：假 harness 跑两例 → 聚合、判定口径、JSON 序列化；
+- workspace_fixture：挂副本而非源目录（防夹具污染）。
 """
 
 import asyncio
+from pathlib import Path
+
+import pytest
 
 from agentcore.evals.harness import EvalHarness, single_outcome, team_outcome
 from agentcore.evals.recording_sink import RecordingSink
 from agentcore.evals.report import format_report, report_to_dict
 from agentcore.evals.runner import apply_checks, run_suite
-from agentcore.evals.types import EvalCase, TurnOutcome
+from agentcore.evals.types import EvalCase, EvalConfigError, TurnOutcome
 from agentcore.llm.profiles import ProfileParams
 from agentcore.llm.provider.protocol import LLMChunk, TokenUsage
 from agentcore.runtime.events import (
@@ -58,6 +62,46 @@ class _TraceCapturingProvider:
         self.seen_trace = get_log_value("trace_id")
         self.calls += 1
         yield _content("ok")
+
+
+# --- workspace_fixture 隔离 ----------------------------------------------------
+
+
+def test_fixture_root_copies_workspace_not_source(tmp_path: Path):
+    """有 workspace_fixture 时必须 copytree 到临时目录，源 fixtures 只读不挂。"""
+    fixtures = tmp_path / "fixtures"
+    src = fixtures / "probe"
+    src.mkdir(parents=True)
+    (src / "config.yaml").write_text("debug: false\napp: demo\n", encoding="utf-8")
+    harness = EvalHarness(fixtures_dir=fixtures)
+    case = EvalCase(
+        id="t_fixture_copy",
+        category="qa",
+        user_message="x",
+        path="single",
+        checks=[],
+        workspace_fixture="probe",
+    )
+    root = harness._fixture_root(case)
+
+    assert root.resolve() != src.resolve()
+    assert (root / "config.yaml").read_text(encoding="utf-8") == "debug: false\napp: demo\n"
+    (root / "config.yaml").write_text("debug: true\n", encoding="utf-8")
+    assert (src / "config.yaml").read_text(encoding="utf-8") == "debug: false\napp: demo\n"
+
+
+def test_fixture_root_missing_raises():
+    harness = EvalHarness(fixtures_dir=Path("/nonexistent-fixtures-dir"))
+    case = EvalCase(
+        id="t_missing",
+        category="qa",
+        user_message="x",
+        path="single",
+        checks=[],
+        workspace_fixture="nope",
+    )
+    with pytest.raises(EvalConfigError, match="workspace_fixture 目录不存在"):
+        harness._fixture_root(case)
 
 
 # --- single 路径：真 react_loop + 脚本化 provider ------------------------------

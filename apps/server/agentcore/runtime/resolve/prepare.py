@@ -45,14 +45,16 @@ def _wire_worker_memory_tools(
     *,
     memory_enabled: bool = True,
     folder_id: str | None = None,
+    has_memory_topics: bool = False,
 ) -> None:
-    """Register ``consult_memory`` on the delegated worker toolset when memory is on.
+    """Register ``consult_memory`` on the delegated worker toolset when memory is on
+    AND the turn has at least one consultable TOPIC note.
 
     Same store + project scope as the CEO path (``folder_id`` ⇒ project-then-global
-    resolution). Off ⇒ not wired — the privacy off-ramp's tool half, mirroring
-    ``_assemble_ceo_toolset``.
+    resolution). Off or empty topics ⇒ not wired — mirrors ``_assemble_ceo_toolset``
+    (privacy off-ramp + empty-catalog alignment: no directory ⇒ no tool).
     """
-    if memory_enabled:
+    if memory_enabled and has_memory_topics:
         worker_tools.register(
             ConsultMemoryTool(store=default_memory_store(), folder_id=folder_id)
         )
@@ -82,6 +84,7 @@ def _assemble_ceo_toolset(
     skill_registry: SkillRegistry,
     memory_enabled: bool = True,
     folder_id: str | None = None,
+    has_memory_topics: bool = False,
     autonomy_policy=None,
     advertise_bind_local_folder: bool = False,
 ) -> tuple[DelegateTool, Any, ToolRegistry]:
@@ -184,19 +187,18 @@ def _assemble_ceo_toolset(
     # pull any advanced-mechanism guidance on demand; the always-on 能力目录 in the
     # prompt lists the skills whose required tools are actually wired this turn.
     chat_tools.register(ConsultSkillTool(registry=skill_registry))
-    # consult_memory (记忆文件夹化 §六): CEO-only on-demand recall of a 记忆主题笔记. Gated by
-    # the long-term-memory master switch — off ⇒ not wired, AND the prompt's 记忆主题目录 is
-    # not rendered (compose_ceo_chat_prompt keys the directory on this tool being present),
-    # so a user who turned memory off surfaces zero memory — the same privacy off-ramp as
-    # the core-memory injection (always-injected 画像 already gated in pipeline/run.py).
+    # Memory master switch: off ⇒ no remember / consult_memory / update_project_profile
+    # (privacy off-ramp; always-injected 画像 already gated in pipeline/run.py).
+    # consult_memory is further gated by ``has_memory_topics`` — empty catalog ⇒ no tool
+    # (aligns with「目录为空不渲染」; compose_ceo_chat_prompt keys the directory on this
+    # tool being present). ``remember`` / explore profile stay on whenever memory is on.
     if memory_enabled:
-        # ``folder_id`` lets consult_memory resolve a topic name across BOTH scopes — the
-        # current project's 主题 first, then global (Agent记忆与知识系统 §二).
         mem_store = default_memory_store()
-        chat_tools.register(ConsultMemoryTool(store=mem_store, folder_id=folder_id))
+        if has_memory_topics:
+            # ``folder_id`` ⇒ project-then-global topic resolution (Agent记忆与知识系统 §二).
+            chat_tools.register(ConsultMemoryTool(store=mem_store, folder_id=folder_id))
         # Explicit remember: a user directive is recorded as a USER RULE immediately (§5.7 分流
-        # — inferred preferences still go through offline consolidation). Wired alongside
-        # consult_memory so the CEO surfaces the memory affordances together.
+        # — inferred preferences still go through offline consolidation).
         chat_tools.register(RememberTool(folder_id=folder_id))
         # Explore-act close-out: project ``画像.md`` mid-turn write (§1.5 product exception).
         # Only when the conversation is bound to a project — bare chat has no project layer.

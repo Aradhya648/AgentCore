@@ -31,7 +31,10 @@ from .delegate import (
     _multi_agent_worker_process_timeline,
     _multi_agent_worker_tool,
 )
-from .delivery import _multi_agent_delivery_status_partial
+from .delivery import (
+    _multi_agent_delivery_status_partial,
+    _multi_agent_pptx_promised_md_only,
+)
 from .escalation import (
     _multi_agent_blocking_escalate,
     _multi_agent_blocking_escalate_multi,
@@ -180,6 +183,11 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
         "交付状态结构化：delivery_status DURABLE → deliveryStatus（同 execution_id 保最新；"
         "已交付文件 + 缺口 + bind_local_folder 行动项随卡重建）",
         _multi_agent_delivery_status_partial,
+    ),
+    "multi_agent_pptx_promised_md_only": (
+        "选 pptx 却只落 md/脚本：delivery_status=partial 可见缺口；"
+        "假「PPT 已可打开」经 finish_guard content_reset 回炉为诚实终稿",
+        _multi_agent_pptx_promised_md_only,
     ),
     "multi_agent_team_notes": (
         "多 Agent·通·便签墙：并行队员贴 decision/heads_up/claim 便签，折到 teamNotes（按序去重，与图节点正交）",

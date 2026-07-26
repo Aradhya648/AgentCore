@@ -3,11 +3,17 @@ import {
   teamSynthesisPhaseLabel,
 } from "@/components/chat/teamSynthesisPhase";
 import { useCoordinationWaitChrome } from "@/components/chat/useCoordinationWaitChrome";
-import { useActiveGenerating, useActiveMessages } from "@/stores/conversation";
+import {
+  isTerminalPhase,
+  useActiveGenerating,
+  useActiveMessages,
+  useActiveTurnPhase,
+} from "@/stores/conversation";
 import { useMessageExecution } from "@/stores/execution";
 
 export function StreamingIndicator() {
   const isGenerating = useActiveGenerating();
+  const turnPhase = useActiveTurnPhase();
   const messages = useActiveMessages();
   const last = messages[messages.length - 1];
   const isStreaming = last?.role === "assistant" && last.isStreaming;
@@ -25,7 +31,11 @@ export function StreamingIndicator() {
     // 无图场景（单 Agent）仍可用 waitLabel 作唯一心跳。
     if (waitLabel && !hasInlineGraph) {
       text = waitLabel;
-    } else if (isTeamSynthesizing(execution)) {
+    } else if (
+      isTeamSynthesizing(execution, {
+        turnTerminal: isTerminalPhase(turnPhase),
+      })
+    ) {
       text = teamSynthesisPhaseLabel(execution);
     } else if (executionId) {
       const runningRun = execution.runs.find((r) => r.status === "running");

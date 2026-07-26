@@ -282,15 +282,21 @@ export function execRuntime(
 }
 
 /**
- * True when the projected graph still has a run in pending/running — the CEO's
- * turn ended (message_end) but its team keeps running detached-hosted in the
- * background (coordination.turn_detached). The live handler holds the graph at
- * `running` instead of collapsing it to `completed`; the run-终态 reconcile in
+ * True when the projected graph still has a **non-captain** run in pending/running
+ * — the CEO's turn ended (message_end) but its team keeps running detached-hosted
+ * in the background (coordination.turn_detached). The live handler holds the graph
+ * at `running` instead of collapsing it to `completed`; the run-终态 reconcile in
  * {@link ExecutionState.recordFrame}/{@link ExecutionState.recordFrames} settles
  * it when the last worker's terminal frame lands (delivered via re-attach replay /
- * cross-turn append). No plan or no runs → false (nothing in flight to wait on, so
- * message_end 照常收口). Sibling of the private `runsAllSettled` reconcile check —
- * NOT its exact negation (both are false on a 0-run graph). */
+ * cross-turn append).
+ *
+ * Captain is excluded: its early `run_started` is often dropped (no plan yet), so
+ * a still-pending captain after `end_turn` must not pin「正在生成汇总」forever when
+ * every worker is already terminal. No plan or no worker runs → false (nothing in
+ * flight to wait on, so message_end 照常收口). Sibling of the private
+ * `runsAllSettled` reconcile check — NOT its exact negation (both are false on a
+ * 0-run graph); also differs in that reconcile still counts the captain.
+ */
 export function hasUnsettledRuns(runtime: ExecutionRuntime): boolean {
   if (!runtime.plan) return false;
   const exec = projectExecution(
@@ -303,7 +309,9 @@ export function hasUnsettledRuns(runtime: ExecutionRuntime): boolean {
     runtime.debateOpening,
   );
   return exec.runs.some(
-    (r) => r.status === "pending" || r.status === "running",
+    (r) =>
+      r.kind !== "captain" &&
+      (r.status === "pending" || r.status === "running"),
   );
 }
 

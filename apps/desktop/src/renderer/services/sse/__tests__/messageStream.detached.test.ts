@@ -146,6 +146,46 @@ describe("message_end · detached-hosted graph keeps running", () => {
     expect(rt().status).toBe("completed");
   });
 
+  it("marks completed at message_end when only captain is still pending", () => {
+    // finalize HANDOFF / pre-plan captain run_started drop: workers terminal,
+    // captain never folded — must not pin「正在生成汇总」after end_turn.
+    seedTurn();
+    const withCaptain: ExecutionPlan = {
+      id: "exec-cap",
+      planType: "multi_agent",
+      taskSummary: "写 PPT",
+      agents: [
+        { id: "cap", role: "CEO" },
+        { id: "a1", role: "脚本工程师" },
+      ],
+      runs: [
+        {
+          id: "cap",
+          agentId: "cap",
+          task: "",
+          dependsOn: [],
+          kind: "captain",
+        },
+        { id: "r1", agentId: "a1", task: "写脚本", dependsOn: [] },
+      ],
+    };
+    useExecutionStore.getState().startExecution(withCaptain, MID);
+    useExecutionStore.setState((s) => ({
+      byId: {
+        ...s.byId,
+        [MID]: {
+          ...s.byId[MID],
+          frames: [started("a1", "r1"), completed("a1", "r1")],
+        },
+      },
+    }));
+    expect(rt().status).toBe("running");
+
+    messageEnd();
+
+    expect(rt().status).toBe("completed");
+  });
+
   it("preserves the paused branch: message_end(paused) → paused despite in-flight runs", () => {
     seedTurn();
     const exec = useExecutionStore.getState();

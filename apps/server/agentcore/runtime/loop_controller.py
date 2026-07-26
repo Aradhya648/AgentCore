@@ -55,7 +55,41 @@ DEFAULT_REFLECTION_START_ROUND = 3
 DEFAULT_REFLECTION_INTERVAL = 3
 # Progress tools that reset investigation spinning and suppress periodic reflection
 # when a recent round succeeded (stage advance / delivery / handoff / ask).
-PROGRESS_TOOLS = frozenset({"delegate", "file_write", "file_append", "handoff", "ask_user"})
+# ``str_replace`` / ``write_section`` count: coding repair lands via patch, not only
+# whole-file write.
+PROGRESS_TOOLS = frozenset(
+    {
+        "delegate",
+        "file_write",
+        "file_append",
+        "str_replace",
+        "write_section",
+        "handoff",
+        "ask_user",
+    }
+)
+# Workspace landing tools: success clears zero-write thrashing; any attempt is
+# "落盘意图" and exempts that round from the zero-write clock.
+LANDING_TOOLS = frozenset(
+    {"file_write", "file_append", "str_replace", "write_section", "file_move"}
+)
+
+
+def zero_write_warn_prompt(*, rounds: int) -> str:
+    """Hard steer before zero-write FINALIZE (files-expected investigation idle)."""
+    return (
+        f"[系统提示] 只读空转告警（已连续 {rounds} 轮仅调查、零落盘）："
+        "任务要求写盘交付。请立即 str_replace / file_write 落地，或 handoff 诚实说明阻塞；"
+        "禁止继续换文件通读空转。下一轮仍无落盘将强制收口。"
+    )
+
+
+def zero_write_finalize_prompt(*, rounds: int) -> str:
+    """Injected on zero-write FINALIZE so salvage answers name the idle pattern."""
+    return (
+        f"[系统提示] 只读空转强制收口（连续 {rounds} 轮调查且零落盘）："
+        "请基于已读内容交接当前缺口，勿再展开新调研。"
+    )
 
 
 def progress_review_prompt(round_number: int, *, role: str = "") -> str:
@@ -261,6 +295,7 @@ class LoopController:
         reflection_interval: int = DEFAULT_REFLECTION_INTERVAL,
         convergence_finalize_rounds: int = 0,
         convergence_spin_rounds: int = DEFAULT_THRESHOLD,
+        zero_write_finalize_rounds: int = 0,
         investigation_tools: frozenset[str] = frozenset(),
     ) -> None:
         self._window = window
@@ -287,6 +322,12 @@ class LoopController:
         # disables the absolute cap; ``spin_rounds <= 0`` disables spinning detection.
         self._convergence_finalize_rounds = max(0, convergence_finalize_rounds)
         self._convergence_spin_rounds = max(0, convergence_spin_rounds)
+        # Files-expected zero-write thrashing: investigation-only + no landing success.
+        # ``<= 0`` disables. Landing tool *attempt* (even fail) resets the streak.
+        self._zero_write_finalize_rounds = max(0, zero_write_finalize_rounds)
+        self._zero_write_investigation_rounds = 0
+        self._zero_write_warned = False
+        self._landing_succeeded = False
         self._prev_investigation_fps: frozenset[str] = frozenset()
         self._same_target_investigation_streak = 0
         # B2 empty-response sub-policy: a separate consecutive-empty-round counter.
@@ -520,6 +561,14 @@ class LoopController:
         round_progress = any(
             attempt.success and attempt.tool_name in PROGRESS_TOOLS for attempt in attempts
         )
+        landing_success = any(
+            attempt.success and attempt.tool_name in LANDING_TOOLS for attempt in attempts
+        )
+        landing_attempt = any(attempt.tool_name in LANDING_TOOLS for attempt in attempts)
+        if landing_success:
+            self._landing_succeeded = True
+            self._zero_write_investigation_rounds = 0
+            self._zero_write_warned = False
         if round_progress:
             self._same_target_investigation_streak = 0
             self._prev_investigation_fps = frozenset()
@@ -573,6 +622,22 @@ class LoopController:
                 else:
                     self._same_target_investigation_streak = 0
                 self._prev_investigation_fps = current
+
+        # Zero-write thrashing (files-expected): investigation-only round with no landing
+        # attempt bumps the streak; landing intent/success resets. Non-investigation rounds
+        # (handoff / ask / progress) clear the idle clock without requiring a write.
+        if self._zero_write_finalize_rounds > 0 and not self._landing_succeeded:
+            tool_names = {a.tool_name for a in attempts if a.tool_name}
+            investigation_only = bool(tool_names) and tool_names <= self._investigation_tools
+            if landing_attempt or landing_success:
+                self._zero_write_investigation_rounds = 0
+                self._zero_write_warned = False
+            elif investigation_only:
+                self._zero_write_investigation_rounds += 1
+            elif tool_names:
+                # Mixed / non-investigation activity — not pure read-idle.
+                self._zero_write_investigation_rounds = 0
+                self._zero_write_warned = False
 
     def note_empty_round(self, is_empty: bool) -> None:
         """Track consecutive empty-response rounds (B2).
@@ -715,17 +780,51 @@ class LoopController:
         """Rounds with >=1 read-only investigation call (the safety net's batch-robust clock)."""
         return self._investigation_rounds
 
+    @property
+    def zero_write_finalize_rounds(self) -> int:
+        """Configured zero-write thrashing threshold (0 = disabled)."""
+        return self._zero_write_finalize_rounds
+
+    @property
+    def zero_write_investigation_rounds(self) -> int:
+        """Consecutive investigation-only rounds with no landing write (files-expected)."""
+        return self._zero_write_investigation_rounds
+
+    @property
+    def landing_succeeded(self) -> bool:
+        """True once any landing tool succeeded this run."""
+        return self._landing_succeeded
+
+    def zero_write_warn_due(self) -> bool:
+        """True once at threshold−1 (one-shot); caller injects hard warn then latches."""
+        bar = self._zero_write_finalize_rounds
+        if bar <= 1 or self._landing_succeeded or self._zero_write_warned:
+            return False
+        return self._zero_write_investigation_rounds >= bar - 1
+
+    def mark_zero_write_warned(self) -> None:
+        """Latch the one-shot zero-write warn so it cannot re-fire."""
+        self._zero_write_warned = True
+
     def convergence_action(self) -> Intervention:
-        """Over-investigation finalize: progress-aware spinning, then absolute cap.
+        """Over-investigation finalize: progress-aware spinning, zero-write, absolute cap.
 
         Spinning = consecutive investigation-only rounds re-reading the same targets
         (same tool+args fingerprints, or a subset of the prior round). Reading new
-        files each round does not trip spinning. The absolute ``finalize_rounds`` cap
-        is a hard backstop for true runaways. Either disabled when its threshold <= 0.
+        files each round does not trip spinning. Zero-write (files-expected only)
+        trips when investigation-only rounds accumulate with no landing success.
+        The absolute ``finalize_rounds`` cap is a hard backstop for true runaways.
+        Each path disabled when its threshold <= 0.
         """
         if (
             self._convergence_spin_rounds > 0
             and self._same_target_investigation_streak >= self._convergence_spin_rounds
+        ):
+            return Intervention.FINALIZE
+        if (
+            self._zero_write_finalize_rounds > 0
+            and not self._landing_succeeded
+            and self._zero_write_investigation_rounds >= self._zero_write_finalize_rounds
         ):
             return Intervention.FINALIZE
         if self._convergence_finalize_rounds <= 0:
@@ -744,10 +843,10 @@ class LoopController:
 
         When a hard ceiling (token backstop / max rounds) forces the run to stop —
         as opposed to the model choosing to finish — this routes the finalize: a
-        *thrashing* run (sustained all-failing-no-output rounds, or over-investigation
-        spinning / absolute-cap) should finish DEGRADED and surface an observable
-        signal, while an *on-track* run (made real progress, just ran out of budget)
-        should finalize normally and deliver.
+        *thrashing* run (sustained all-failing-no-output rounds, over-investigation
+        spinning / absolute-cap, or files-expected zero-write idle) should finish
+        DEGRADED and surface an observable signal, while an *on-track* run (made real
+        progress, just ran out of budget) should finalize normally and deliver.
 
         Distinct from the per-round governance triggers (which stop the loop
         mid-run): those already fired earlier if they were going to, so at a natural

@@ -92,3 +92,65 @@ async def test_team_preview_skips_when_seeded():
         call_idx=0,
     )
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_team_preview_skips_light_handwritten():
+    """普通 light 手写任务仍跳过开工卡（早返回，不进 kickoff）。"""
+    class _Tool:
+        _depth = 0
+        _active_playbook = None
+
+    plan = RunPlan(nodes=[RunSpec(run_id="a", agent_id="a", role="r", task="t")])
+    result = await team_preview_before_workers(
+        _Tool(),
+        plan,
+        finalize=False,
+        complexity_hint="light",
+        seed_completed=None,
+        call_idx=0,
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_team_preview_light_organize_folder_does_not_skip(monkeypatch):
+    """organize_folder 即使 light 也要进 team_preview（kickoff grant → GRANTABLE）。"""
+    from agentcore.core.types import AutonomyPolicy
+    from agentcore.runtime.checkpoints import CheckpointDecision
+    from agentcore.runtime.delegate import preview as preview_mod
+
+    await_calls = {"n": 0}
+
+    async def _fake_await(*_a, **_k):
+        await_calls["n"] += 1
+        return CheckpointDecision.CONTINUE
+
+    monkeypatch.setattr(preview_mod, "await_team_preview", _fake_await)
+    monkeypatch.setattr(preview_mod, "should_kickoff", lambda *a, **k: True)
+    monkeypatch.setattr(preview_mod, "should_preview_plan", lambda *a, **k: True)
+    monkeypatch.setattr(preview_mod, "skip_after_confirmed_ask", lambda *_a, **_k: False)
+    monkeypatch.setattr(preview_mod, "needs_capability_auth", lambda *a, **k: False)
+    monkeypatch.setattr(
+        "agentcore.runtime.sandbox_approval.worker_gate_applies", lambda *_a, **_k: False
+    )
+
+    class _Tool:
+        _depth = 0
+        _autonomy_policy = AutonomyPolicy.FIRST_GRANT
+        _active_playbook = "organize_folder"
+        _pending_pause = False
+        _base_tool_context = type("C", (), {"backend": None})()
+        _approval_gate = None
+
+    plan = RunPlan(nodes=[RunSpec(run_id="a", agent_id="a", role="r", task="t")])
+    result = await team_preview_before_workers(
+        _Tool(),
+        plan,
+        finalize=True,
+        complexity_hint="light",
+        seed_completed=None,
+        call_idx=0,
+    )
+    assert result is None
+    assert await_calls["n"] == 1

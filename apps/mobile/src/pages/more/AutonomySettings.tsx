@@ -23,7 +23,7 @@ const OPTIONS: AutonomyOption[] = [
   {
     value: "first_grant",
     label: "开工授权（推荐）",
-    description: "新会话默认：开工卡一次授权本委派所需能力。",
+    description: "新会话默认：信任工作区写入；跑代码/终端仍在开工卡确认。",
   },
   {
     value: "full_auto",

@@ -208,7 +208,7 @@ export function WorkspaceGroupHeader({
         <ContextMenuTrigger asChild>
           <SurfaceRow
             variant="sidebar"
-            className="group h-9 px-2 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+            className="group h-8 px-2 text-sidebar-foreground/70 hover:text-sidebar-foreground"
           >
             {/* biome-ignore lint/a11y/useSemanticElements: 行内嵌 DropdownMenuTrigger 的真 <button>，此可点击区不可套 <button>。 */}
             <div

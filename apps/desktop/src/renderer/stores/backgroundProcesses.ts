@@ -47,6 +47,9 @@ interface BackgroundProcessState {
   showTabFor: (conversationId: string | null) => boolean;
 }
 
+/** 缺席会话的稳定空列表——Zustand getSnapshot 不可每次 `[]` 新引用。 */
+const EMPTY_PROCESSES: BackgroundProcessView[] = [];
+
 function upsert(
   list: BackgroundProcessView[],
   next: BackgroundProcessView,
@@ -270,8 +273,8 @@ export const useBackgroundProcessStore = create<BackgroundProcessState>(
     },
 
     processesFor: (conversationId) => {
-      if (!conversationId) return [];
-      return get().byConversation[conversationId] ?? [];
+      if (!conversationId) return EMPTY_PROCESSES;
+      return get().byConversation[conversationId] ?? EMPTY_PROCESSES;
     },
 
     showTabFor: (conversationId) =>

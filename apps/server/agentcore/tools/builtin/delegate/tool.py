@@ -81,6 +81,19 @@ def _has_deep_deliverable_signal(tasks_raw: list[Any]) -> bool:
     return False
 
 
+def _blocks_explicit_light(tasks_raw: list[Any]) -> bool:
+    """True when explicit light must be ignored (long-form only, not file landing)."""
+    from agentcore.runtime.runs.builder import _parse_deliverable
+    from agentcore.runtime.runs.worker_budget import blocks_light_complexity
+
+    for task in tasks_raw:
+        if not isinstance(task, dict):
+            continue
+        if blocks_light_complexity(_parse_deliverable(task)):
+            return True
+    return False
+
+
 def _should_auto_light_delegate(tasks_raw: list[Any]) -> bool:
     """True when a single dependency-free worker needs no multi-agent coordination.
 
@@ -273,6 +286,7 @@ class DelegateTool:
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         from agentcore.runtime.delegate.playbook_declaration import (
+            declaration_reject_gate,
             resolve_playbook_declaration,
         )
         from agentcore.runtime.runs import build_run_plan
@@ -305,11 +319,13 @@ class DelegateTool:
             user_message=self._user_message or "",
         )
         if decl_error:
+            gate = declaration_reject_gate(decl_error)
             logger.info(
                 "delegate.playbook_declaration_rejected",
                 playbook_id=arguments.get("playbook_id") or arguments.get("playbook"),
                 has_tasks=bool(arguments.get("tasks")),
-                website_build_gate="禁止 playbook_id=\"none\"" in decl_error,
+                gate=gate,
+                website_build_gate=gate == "website",
             )
             return ToolResult(
                 tool_call_id="",
@@ -374,7 +390,6 @@ class DelegateTool:
             # P1a 风格双闸（keyed on build_website / build_toolshed）：须有 ask_user
             # 记账的 style_id；full_auto 窄豁免 → 落默认风格进记账（DESIGN 由 design 节点写入）。
             if playbook in ("build_website", "build_toolshed"):
-                from agentcore.core.types import AutonomyPolicy
                 from agentcore.runtime.runs.website_style import (
                     build_website_missing_style_error,
                     ensure_full_auto_default_style,
@@ -447,6 +462,73 @@ class DelegateTool:
                     contract_failure=True,
                 )
 
+        # 演讲/PPT 交付形态双闸（镜像建站 style）：user 原文呈 presentation 意图须有
+        # format 记账；已确认 pptx 且本回合有 code_execute 时禁止静默改成只交 .md/Marp。
+        # 意图只看 user_message（与 kickoff 同词汇），避免 task 文案里的 pptx 误触发。
+        presentation_format_warning: str | None = None
+        from agentcore.runtime.runs.presentation_format import (
+            ensure_full_auto_default_format,
+            is_pptx_format_confirmation,
+            presentation_intent_from_parts,
+            presentation_missing_format_error,
+            presentation_pptx_no_exec_soft_tip,
+            presentation_pptx_silent_md_error,
+            resolve_format_confirmation,
+            tasks_silently_downgrade_pptx_to_md,
+        )
+        from agentcore.tools.builtin import code_execution_enabled_for
+
+        if presentation_intent_from_parts(self._user_message or ""):
+            cid = (self._conversation_id or "").strip()
+            conf = await resolve_format_confirmation(cid) if cid else None
+            exec_on = code_execution_enabled_for(self._base_tool_context.backend)
+            if conf is None:
+                if self._autonomy_policy is AutonomyPolicy.FULL_AUTO and cid:
+                    conf = ensure_full_auto_default_format(cid, prefer_pptx=exec_on)
+                    logger.info(
+                        "delegate.presentation_format_full_auto_default",
+                        conversation_id=cid,
+                        prefer_pptx=exec_on,
+                        format_id=conf.format_id,
+                    )
+                else:
+                    logger.info(
+                        "delegate.presentation_format_rejected",
+                        conversation_id=cid or None,
+                        autonomy=self._autonomy_policy.value,
+                        reason="missing_format",
+                    )
+                    return ToolResult(
+                        tool_call_id="",
+                        success=False,
+                        output="",
+                        error=presentation_missing_format_error(),
+                        contract_failure=True,
+                    )
+            if is_pptx_format_confirmation(conf):
+                if exec_on and tasks_silently_downgrade_pptx_to_md(tasks_raw):
+                    logger.info(
+                        "delegate.presentation_format_rejected",
+                        conversation_id=cid or None,
+                        reason="pptx_silent_md",
+                        format_id=conf.format_id,
+                    )
+                    return ToolResult(
+                        tool_call_id="",
+                        success=False,
+                        output="",
+                        error=presentation_pptx_silent_md_error(),
+                        contract_failure=True,
+                    )
+                if not exec_on:
+                    presentation_format_warning = presentation_pptx_no_exec_soft_tip()
+                    logger.info(
+                        "delegate.presentation_format_soft_tip",
+                        conversation_id=cid or None,
+                        reason="pptx_no_exec",
+                        format_id=conf.format_id,
+                    )
+
         valid_tools = {s.name for s in self._tools.list_all()}
         complexity_hint = arguments.get("complexity_hint", "standard")
         self._delegate_force = bool(arguments.get("force"))
@@ -455,14 +537,15 @@ class DelegateTool:
             # info 级：档位归责的关键决策事件，debug 级曾导致线上排查只能靠 demo_tape 反推。
             logger.info("delegate.complexity_hint_inferred", hint="light")
         elif complexity_hint == "light" and (
-            _has_wave_boundary_features(tasks_raw) or _has_deep_deliverable_signal(tasks_raw)
+            _has_wave_boundary_features(tasks_raw) or _blocks_explicit_light(tasks_raw)
         ):
-            # 显式 light 与 DAG/波边界或深度交付并存时忽略 light：
-            # 前者避免关掉 on_boundary；后者让预算映射仍可走 standard→deep。
+            # 显式 light 与 DAG/波边界或成篇长文并存时忽略 light：
+            # 前者避免关掉 on_boundary；后者保留成篇调研的 standard 编排。
+            # requires_files / form=files / artifacts  alone 不再挡 light（修码快修）。
             reason = (
                 "wave_boundary_features"
                 if _has_wave_boundary_features(tasks_raw)
-                else "deep_deliverable"
+                else "long_form_deliverable"
             )
             complexity_hint = "standard"
             logger.info(
@@ -486,6 +569,30 @@ class DelegateTool:
                     cap=MAX_WORKER_SUBDELEGATIONS,
                 )
                 return ToolResult(tool_call_id="", success=False, output="", error=msg)
+        # 消费者漏边：task 写明吃同批队友产出但 depends_on 为空 → 拒收入图（force 可旁路）。
+        # playbook 展开后的 tasks 也过闸；有边则自然通过。引擎不猜边改图。
+        from agentcore.runtime.delegate.consumer_deps import (
+            check_consumer_missing_depends,
+        )
+
+        consumer_deps_error = check_consumer_missing_depends(
+            tasks_raw,
+            force=bool(arguments.get("force")),
+        )
+        if consumer_deps_error:
+            logger.info(
+                "delegate.consumer_deps_rejected",
+                task_count=len(tasks_raw),
+                force=bool(arguments.get("force")),
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=consumer_deps_error,
+                contract_failure=True,
+            )
+
         self._calls += 1
         # 冻结本次委派调用的序号：同回合并发的多个 delegate 调用共享 self._calls，若在完成侧
         # 惰性读取会把每个批次的 completed / synthesis 日志都错记到「最后自增到的序号」。这里
@@ -1043,6 +1150,8 @@ class DelegateTool:
             tails: list[str] = [acceptance_echo]
             if capability_warning:
                 tails.append(capability_warning)
+            if presentation_format_warning:
+                tails.append(presentation_format_warning)
             if playbook_notes:
                 tails.extend(playbook_notes)
             if append_to:

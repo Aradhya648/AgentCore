@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * EscalationCard · browser_login 薄切片：
- * - pending + browserLogin → 标题「需要你登录」+ CTA「打开浏览器直播」
+ * - pending + browserLogin → 标题「需要你登录」+ CTA「打开浏览器」
  * - 主操作「已登录，继续」走 decideEscalation answer（不 auto-resume）
- * - 「打开浏览器直播」调 openBrowserLive(conversationId)
+ * - 「打开浏览器」调无参 showBrowser()（tab 恒对当前会话，不传第二份 id）
  */
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -19,12 +19,12 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EscalationCard } from "../EscalationCard";
 
-const openBrowserLive = vi.fn();
+const showBrowser = vi.fn();
 const decideEscalation = vi.fn();
 
 vi.mock("@/stores/sidePanel", () => ({
   useSidePanelStore: {
-    getState: () => ({ openBrowserLive }),
+    getState: () => ({ showBrowser }),
   },
 }));
 
@@ -39,7 +39,7 @@ vi.mock("@/lib/toast", () => ({
 afterEach(cleanup);
 
 beforeEach(() => {
-  openBrowserLive.mockReset();
+  showBrowser.mockReset();
   decideEscalation.mockReset().mockResolvedValue("ok");
 });
 
@@ -72,19 +72,19 @@ function renderCard(esc: RunEscalation = loginEsc) {
 }
 
 describe("EscalationCard · browser_login", () => {
-  it("shows 需要你登录 and the open-live CTA", () => {
+  it("shows 需要你登录 and the open-browser CTA", () => {
     renderCard();
     expect(screen.getByText(/需要你登录/)).toBeTruthy();
-    expect(screen.getByText("打开浏览器直播")).toBeTruthy();
+    expect(screen.getByText("打开浏览器")).toBeTruthy();
     expect(screen.getByText("已登录，继续")).toBeTruthy();
     expect(screen.getByText("按假设继续")).toBeTruthy();
     expect(screen.getByText("请先登录目标站点")).toBeTruthy();
   });
 
-  it("opens the browser live panel on CTA click", () => {
+  it("reveals the browser tab on CTA click", () => {
     renderCard();
-    fireEvent.click(screen.getByText("打开浏览器直播"));
-    expect(openBrowserLive).toHaveBeenCalledWith("conv-1");
+    fireEvent.click(screen.getByText("打开浏览器"));
+    expect(showBrowser).toHaveBeenCalledTimes(1);
   });
 
   it("resolves with answer「已登录，继续」on primary click", async () => {

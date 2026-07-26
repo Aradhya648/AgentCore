@@ -15,13 +15,19 @@ import {
 export function MessageInput({
   className,
   variant = "card",
+  attachedBelowApproval = false,
 }: {
   className?: string;
   variant?: TurnComposerVariant;
+  /** Flush under ApprovalPrompt in the bottom-bar 一体态. */
+  attachedBelowApproval?: boolean;
 }) {
   return (
     <div className={className ?? "px-4 pb-4 pt-2"}>
-      <TurnComposer variant={variant} />
+      <TurnComposer
+        variant={variant}
+        attachedBelowApproval={attachedBelowApproval}
+      />
     </div>
   );
 }

@@ -18,7 +18,7 @@ from agentcore.workspace.external_mounts import (
     uniquify_alias,
 )
 from agentcore.workspace.local import LocalWorkspace
-from agentcore.workspace.protocol import OutsideWorkspace, PathNotFound
+from agentcore.workspace.protocol import OutsideWorkspace, PathNotFound, WorkspaceIOError
 from agentcore.workspace.server import ServerWorkspace
 
 
@@ -239,3 +239,134 @@ def test_grant_store_mode_upgrade():
     )
     assert m2.alias == m.alias
     assert m2.mode == "organize"
+
+
+@pytest.mark.asyncio
+async def test_cloud_server_external_via_channel_read_and_organize():
+    """Cloud ServerWorkspace (no abs_path) routes external ops via per-op root_id."""
+    primary = Path(".")  # unused for external channel path
+
+    class _Sandbox:
+        async def execute(self, req):
+            from agentcore.tools.sandbox.protocol import ExecutionResult
+
+            return ExecutionResult(
+                success=True, stdout="", stderr="", exit_code=0, duration_ms=0
+            )
+
+    channel = AsyncMock(spec=WorkspaceChannel)
+    channel.root_id = ""
+    channel.conversation_id = "c-cloud"
+    channel.request = AsyncMock(return_value="hello-from-desktop")
+
+    ws = ServerWorkspace(primary, _Sandbox(), location="server")
+    assert ws.location == "server"  # worker_gate must stay off
+    ws.attach_external_mounts(
+        {
+            "desk": ExternalMount(
+                alias="desk", root_id="ext-desk", label="桌面", mode="organize"
+            )
+        }
+    )
+    ws.attach_external_channel(channel)
+
+    out = await ws.read("external/desk/a.txt")
+    assert out == "hello-from-desktop"
+    call = channel.request.await_args
+    assert call.args[0] == WorkspaceOp.READ
+    assert call.args[1]["path"] == "a.txt"
+    assert call.kwargs.get("root_id") == "ext-desk"
+
+    channel.request = AsyncMock(return_value=None)
+    await ws.mkdir("external/desk/Docs")
+    mkdir_call = channel.request.await_args
+    assert mkdir_call.args[0] == WorkspaceOp.MKDIR
+    assert mkdir_call.kwargs.get("root_id") == "ext-desk"
+    assert ws.dirty
+
+    with pytest.raises(OutsideWorkspace, match="整理授权|不允许"):
+        await ws.write("external/desk/a.txt", "nope")
+    with pytest.raises(OutsideWorkspace, match="永久删除"):
+        await ws.delete("external/desk/a.txt", permanent=True)
+
+
+@pytest.mark.asyncio
+async def test_cloud_server_external_without_channel_still_hard_rejects(tmp_path: Path):
+    class _Sandbox:
+        async def execute(self, req):
+            from agentcore.tools.sandbox.protocol import ExecutionResult
+
+            return ExecutionResult(
+                success=True, stdout="", stderr="", exit_code=0, duration_ms=0
+            )
+
+    ws = ServerWorkspace(tmp_path, _Sandbox(), location="server")
+    ws.attach_external_mounts(
+        {
+            "desk": ExternalMount(
+                alias="desk", root_id="ext-desk", label="桌面", mode="readonly"
+            )
+        }
+    )
+    with pytest.raises(WorkspaceIOError, match="本机引擎外不可直读"):
+        await ws.read("external/desk/a.txt")
+
+
+@pytest.mark.asyncio
+async def test_cloud_server_unknown_and_primary_paths(tmp_path: Path):
+    """Non-external primary still Path-I/O; unknown external alias still PathNotFound."""
+
+    class _Sandbox:
+        async def execute(self, req):
+            from agentcore.tools.sandbox.protocol import ExecutionResult
+
+            return ExecutionResult(
+                success=True, stdout="", stderr="", exit_code=0, duration_ms=0
+            )
+
+    (tmp_path / "note.txt").write_text("primary", encoding="utf-8")
+    channel = AsyncMock(spec=WorkspaceChannel)
+    channel.root_id = ""
+    channel.conversation_id = "c1"
+    channel.request = AsyncMock(return_value="should-not-be-called")
+
+    ws = ServerWorkspace(tmp_path, _Sandbox(), location="server")
+    ws.attach_external_mounts(
+        {
+            "desk": ExternalMount(
+                alias="desk", root_id="ext-desk", label="桌面", mode="readonly"
+            )
+        }
+    )
+    ws.attach_external_channel(channel)
+
+    assert await ws.read("note.txt") == "primary"
+    channel.request.assert_not_awaited()
+
+    with pytest.raises(PathNotFound):
+        await ws.read("external/missing/x.txt")
+    channel.request.assert_not_awaited()
+
+
+def test_build_turn_backend_attaches_external_channel_for_cloud_grants(tmp_path, monkeypatch):
+    """Cloud turn with grants wires attach_external_channel (root_id-only mounts)."""
+    from agentcore.config import settings
+    from agentcore.conversation.turn_backend import build_turn_backend
+    from agentcore.runtime.events.sink import EventSink
+
+    grant_store.add_grant("conv-cloud", root_id="r-ext", label="桌面", alias_hint="desk")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+
+    backend = build_turn_backend(
+        user_id="u1",
+        conversation_id="conv-cloud",
+        folder_id=None,
+        sink=EventSink(),
+        local_binding=None,
+    )
+    assert isinstance(backend, ServerWorkspace)
+    assert backend.location == "server"
+    assert backend._external_bridge is not None  # noqa: SLF001
+    assert "desk" in backend._mounts  # noqa: SLF001
+    assert backend._mounts["desk"].root_id == "r-ext"  # noqa: SLF001
+    assert backend._mounts["desk"].abs_path is None  # noqa: SLF001

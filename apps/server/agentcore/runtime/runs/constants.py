@@ -112,7 +112,8 @@ CONTEXT_INJECT_CHARS = 2400
 
 # Wave3 B：同一相对路径成功 file_read 次数上限（含不同 offset/limit）。
 # 超限返回可自纠契约拒绝，逼模型吃对话里已有正文，勿空转重读烧预算。
-FILE_READ_SAME_PATH_MAX = 2
+# 同轮并行同 path 多 call 在 execute_tools 扇出去重，只计一次成功读。
+FILE_READ_SAME_PATH_MAX = 5
 
 # CEO 综述输入瘦身: the prose pool shared across a batch's pass_through workers when
 # their products are rendered into the CEO's synthesis input (ceo_format.format_for_ceo).

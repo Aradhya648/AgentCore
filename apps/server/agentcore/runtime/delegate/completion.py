@@ -26,6 +26,20 @@ CriteriaSource = Literal["explicit", "structured", "text_inferred"]
 # Must stay aligned with ``code_execution_enabled_for`` / worker registry execution class.
 _EXECUTION_TOOL_NAMES = frozenset({"code_execute", "test_run", "terminal"})
 
+# D2: TypeScript landings require a real verify signal (not task-text inference).
+_TYPESCRIPT_SUFFIXES = frozenset({".ts", ".tsx"})
+
+# Commands that count as code verification when run via terminal / code_execute.
+_VERIFY_COMMAND_RE = re.compile(
+    r"\b(?:"
+    r"tsc\b|vue-tsc\b|typecheck\b|"
+    r"(?:npm|pnpm|yarn)\s+run\s+(?:test|typecheck|build|lint)\b|"
+    r"(?:npm|pnpm|yarn)\s+test\b|"
+    r"pytest\b|cargo\s+(?:test|check|build)\b|go\s+test\b|"
+    r"(?:mvn|gradlew?)\s+test\b"
+    r")",
+    re.IGNORECASE,
+)
 # Task text hints that imply run/open/install acceptance — non-binding soft warnings
 # only (``execution_capability_warning``). Binding criteria MUST be explicit / structured;
 # never resolve to ``code_verified`` from these hints (提案 B1).
@@ -415,8 +429,9 @@ def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
         )
     if criteria.kind == "code_verified":
         return (
-            "- 本批验收：code_verified（至少一名 worker 须用 code_execute / test_run"
-            "在工作区实际跑通；你持有执行工具且交付为落盘文件时，请在收尾前完成验证）"
+            "- 本批验收：code_verified（至少一名 worker 须用 code_execute / test_run / "
+            "terminal 跑通 verify 形态命令：tsc|typecheck|test|build 等且 exit 0；"
+            "普通脚本/打印不算；你持有执行工具且交付为落盘文件时，请在收尾前完成验证）"
         )
     desc = (criteria.description or "").strip()
     if desc:
@@ -470,10 +485,103 @@ def _test_run_succeeded_in_transcript(transcript: list[LLMMessage]) -> bool:
     return False
 
 
+def _tool_call_args_map(transcript: list[LLMMessage]) -> dict[str, tuple[str, str]]:
+    """Map ``tool_call_id → (tool_name, arguments_json)`` from assistant turns."""
+    out: dict[str, tuple[str, str]] = {}
+    for msg in transcript:
+        if msg.role != "assistant" or not msg.tool_calls:
+            continue
+        for tc in msg.tool_calls:
+            out[tc.id] = (tc.function.name, tc.function.arguments or "")
+    return out
+
+
+def _terminal_verify_succeeded_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """True when a ``terminal`` call ran a verify-shaped command and exited cleanly."""
+    calls = _tool_call_args_map(transcript)
+    for msg in transcript:
+        if msg.role != "tool" or not msg.tool_call_id:
+            continue
+        name, args_json = calls.get(msg.tool_call_id, ("", ""))
+        if name != "terminal":
+            continue
+        if not _VERIFY_COMMAND_RE.search(args_json):
+            continue
+        content = msg.content or ""
+        # Prefer exited 0; also accept matched ready from a one-shot wait_for.
+        if "status: exited" in content and "exit_code: 0" in content:
+            return True
+        if re.search(r"exit_code:\s*0\b", content) and "status: exited" in content:
+            return True
+        # wait_for hit on a verify command (unusual but honest).
+        if ("matched: True" in content or "matched: true" in content) and (
+            "status: running" in content or "status: exited" in content
+        ):
+            return True
+    return False
+
+
+def _code_execute_verify_succeeded_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """``code_execute`` whose code looks like typecheck/test/build and exited 0.
+
+    Requires an explicit ``退出码：0`` (or ``退出码:0``) in the tool result — bare
+    success text or missing exit marker does not count.
+    """
+    calls = _tool_call_args_map(transcript)
+    for msg in transcript:
+        if msg.role != "tool" or not msg.tool_call_id:
+            continue
+        name, args_json = calls.get(msg.tool_call_id, ("", ""))
+        if name != "code_execute":
+            continue
+        if not _VERIFY_COMMAND_RE.search(args_json):
+            continue
+        content = msg.content or ""
+        if re.search(r"退出码[：:]\s*0\b", content):
+            return True
+    return False
+
+
 def _run_verified_in_transcript(transcript: list[LLMMessage]) -> bool:
-    return _code_execute_succeeded_in_transcript(
-        transcript,
-    ) or _test_run_succeeded_in_transcript(transcript)
+    """Honest verify only: test_run / verify-shaped code_execute / terminal.
+
+    Non-verify ``code_execute`` success is intentionally excluded (delivery_status
+    still uses ``_code_execute_succeeded_in_transcript`` for writeback sniffing).
+    """
+    if not transcript:
+        return False
+    if _test_run_succeeded_in_transcript(transcript):
+        return True
+    if _code_execute_verify_succeeded_in_transcript(transcript):
+        return True
+    return _terminal_verify_succeeded_in_transcript(transcript)
+
+
+def _is_typescript_path(path: str) -> bool:
+    from pathlib import PurePosixPath
+
+    suffix = PurePosixPath(path.replace("\\", "/")).suffix.lower()
+    return suffix in _TYPESCRIPT_SUFFIXES
+
+
+def _batch_landed_typescript(completed: list[RunState]) -> bool:
+    """True when any COMPLETED worker landed a ``.ts`` / ``.tsx`` path."""
+    for state in completed:
+        for path in state.files_touched or []:
+            if path and _is_typescript_path(path):
+                return True
+        if state.transcript:
+            for path in _files_from_transcript(state.transcript):
+                if path and _is_typescript_path(path):
+                    return True
+    return False
+
+
+def _verify_gap_message() -> str:
+    return (
+        "尚无 worker 成功验证代码（须 code_execute / test_run / terminal 跑通 "
+        "tsc|typecheck|test|build 等；落盘了 .ts/.tsx 时强制）"
+    )
 
 
 def _worker_files_written(state: RunState) -> bool:
@@ -499,11 +607,10 @@ def check_delegate_completion(
     prose ``content``)—not only workers with non-empty body text. A pure
     file_write / handoff finish with empty streamed content must still be
     checked; with no matching evidence the result is a gap, never a vacuous
-    pass. ``criteria is None`` (omitted) remains unenforced.
+    pass. ``criteria is None`` (omitted) remains unenforced for files/custom,
+    but **TypeScript landings always require a verify signal** (D2 — structured
+    from ``files_touched``, not task-text inference).
     """
-    if criteria is None:
-        return True, []
-
     # Include all COMPLETED workers — empty body is a valid finish mode
     # (落盘 / handoff-only). Filtering on content.strip() used to drop them
     # and vacuous-pass when the filtered set was empty.
@@ -512,21 +619,32 @@ def check_delegate_completion(
         return True, []
 
     gaps: list[str] = []
-    if criteria.kind == "files_written":
-        if not any(_worker_files_written(s) for s in completed):
-            from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
+    if criteria is not None:
+        if criteria.kind == "files_written":
+            if not any(_worker_files_written(s) for s in completed):
+                from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
 
-            tools = format_file_landing_tools_slash()
-            gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
-    elif criteria.kind == "code_verified":
-        if not any(_run_verified_in_transcript(s.transcript) for s in completed):
-            gaps.append(
-                "尚无 worker 成功运行 code_execute / test_run 验证代码",
-            )
-    elif criteria.kind == "custom":
-        # custom is intentionally not engine-verified. Never block completion on it —
-        # a gap here used to mark successful delegates as unfinished. Prefer
-        # files_written / code_verified / deliverable.artifacts instead.
+                tools = format_file_landing_tools_slash()
+                gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
+        elif criteria.kind == "code_verified":
+            if not any(_run_verified_in_transcript(s.transcript) for s in completed):
+                gaps.append(_verify_gap_message())
+        elif criteria.kind == "custom":
+            # custom is intentionally not engine-verified. Never block completion on it —
+            # a gap here used to mark successful delegates as unfinished. Prefer
+            # files_written / code_verified / deliverable.artifacts instead.
+            pass
+
+    # D2: any .ts/.tsx landing → require verify even when criteria omitted /
+    # files_written-only (catches「清单全绿但 tsc 不过」).
+    if _batch_landed_typescript(completed) and not any(
+        _run_verified_in_transcript(s.transcript or []) for s in completed
+    ):
+        msg = _verify_gap_message()
+        if msg not in gaps:
+            gaps.append(msg)
+
+    if criteria is not None and criteria.kind == "custom" and not gaps:
         return True, []
 
     return (not gaps, gaps)

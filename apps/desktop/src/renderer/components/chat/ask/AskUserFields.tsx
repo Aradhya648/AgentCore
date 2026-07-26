@@ -16,6 +16,7 @@ import {
 import { usePersistentDisclosure } from "@/stores/disclosure";
 import type {
   AskAssumption,
+  AskFormatOption,
   AskOption,
   AskQuestion,
   AskStyleOption,
@@ -46,6 +47,7 @@ export interface AskUserContent {
   assumptions: AskAssumption[];
   questions: AskQuestion[];
   styleOptions: AskStyleOption[];
+  formatOptions: AskFormatOption[];
 }
 
 export type AskTone =
@@ -78,6 +80,9 @@ export function useAskAnswer(
   const [otherText, setOtherText] = useState<Record<string, string>>({});
   const [styleId, setStyleId] = useState<string | null>(
     content.styleOptions[0]?.id ?? null,
+  );
+  const [formatId, setFormatId] = useState<string | null>(
+    content.formatOptions[0]?.id ?? null,
   );
   const [note, setNote] = useState("");
 
@@ -122,7 +127,9 @@ export function useAskAnswer(
       (q) =>
         (answers[q.id] ?? []).length > 0 ||
         (otherOn[q.id] && (otherText[q.id] ?? "").trim().length > 0),
-    ).length + (styleId ? 1 : 0);
+    ).length +
+    (styleId ? 1 : 0) +
+    (formatId ? 1 : 0);
 
   const compose = (intent: CheckpointIntent) =>
     composeAnswer(
@@ -131,6 +138,7 @@ export function useAskAnswer(
       otherOn,
       otherText,
       styleId,
+      formatId,
       note,
       intent === "kickoff",
     );
@@ -147,6 +155,7 @@ export function useAskAnswer(
       { ...otherOn, [questionId]: false },
       otherText,
       styleId,
+      formatId,
       note,
       intent === "kickoff",
     );
@@ -157,6 +166,8 @@ export function useAskAnswer(
     otherText,
     styleId,
     setStyleId,
+    formatId,
+    setFormatId,
     note,
     setNote,
     toggleChoice,
@@ -309,6 +320,35 @@ export function AskQuestionFields({
                   disabled={disabled}
                   onClick={() =>
                     !disabled && answer.setStyleId(active ? null : s.id)
+                  }
+                  className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
+                    active ? tone.optActive : tone.optIdle
+                  }`}
+                >
+                  {s.label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {content.formatOptions.length > 0 && (
+        <div>
+          <p className="flex items-center gap-1 text-xs font-medium text-foreground">
+            <SlidersHorizontal size={13} className="text-muted-foreground" />
+            交付形态
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {content.formatOptions.map((s) => {
+              const active = s.id === answer.formatId;
+              return (
+                <Button
+                  key={s.id}
+                  variant="ghost"
+                  disabled={disabled}
+                  onClick={() =>
+                    !disabled && answer.setFormatId(active ? null : s.id)
                   }
                   className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
                     active ? tone.optActive : tone.optIdle
@@ -564,10 +604,10 @@ function QuestionField({
   );
 }
 
-/** Compose the user's picks + style + free note into ONE readable answer the CEO / worker
- * can act on (答复模型 α): each answered question, the chosen style, and any note. Plain
- * text for the LLM; structured ``style_id`` / ``selected`` sN tokens ride the resume wire
- * separately (website style dual-gate — prose alone does not confirm style).
+/** Compose the user's picks + style + format + free note into ONE readable answer the CEO / worker
+ * can act on (答复模型 α): each answered question, the chosen style/format, and any note. Plain
+ * text for the LLM; structured ``style_id`` / ``format_id`` / ``selected`` sN/fN tokens ride the
+ * resume wire separately (dual-gate — prose alone does not confirm style/format).
  * Exported for unit tests (bind_local_folder answer composition). */
 export function composeAnswer(
   content: AskUserContent,
@@ -575,11 +615,16 @@ export function composeAnswer(
   otherOn: Record<string, boolean>,
   otherText: Record<string, string>,
   styleId: string | null,
+  formatId: string | null,
   note: string,
   opening: boolean,
 ): string {
   const trimmed = note.trim();
-  if (content.questions.length === 0 && content.styleOptions.length === 0) {
+  if (
+    content.questions.length === 0 &&
+    content.styleOptions.length === 0 &&
+    content.formatOptions.length === 0
+  ) {
     return trimmed;
   }
   const lines: string[] = [];
@@ -593,6 +638,8 @@ export function composeAnswer(
   }
   const style = content.styleOptions.find((s) => s.id === styleId);
   if (style) lines.push(`· 风格：${style.label}`);
+  const format = content.formatOptions.find((s) => s.id === formatId);
+  if (format) lines.push(`· 形态：${format.label}`);
   if (trimmed) lines.push(`· 补充：${trimmed}`);
   if (lines.length === 0) return trimmed;
   return [opening ? "就按这个方案开做：" : "我的答复：", ...lines].join("\n");

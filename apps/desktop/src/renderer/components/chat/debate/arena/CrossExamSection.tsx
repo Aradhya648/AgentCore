@@ -10,6 +10,7 @@ import type {
 } from "../model";
 import { ModeratorIdentity } from "./ModeratorIdentity";
 import {
+  DEBATE_SPLIT_GRID,
   type DebateArenaLayout,
   partitionSides,
 } from "./debateLayoutPreference";
@@ -88,7 +89,7 @@ function SplitCrossExamColumns({
 
   return (
     <>
-      <div className="grid grid-cols-2 items-start gap-4">
+      <div className={DEBATE_SPLIT_GRID}>
         <div className="min-w-0">
           {pro && (
             <CrossExamSideBlock

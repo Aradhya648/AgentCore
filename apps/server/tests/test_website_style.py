@@ -72,17 +72,26 @@ def test_website_continuation_and_shaped_call():
         is_website_shaped_call,
     )
 
-    assert is_website_continuation_intent("继续完成")
-    assert is_website_continuation_intent("把剩下的分区补全")
+    # Continuation alone is not enough — needs a site / toolshed anchor.
+    assert not is_website_continuation_intent("继续完成")
+    assert not is_website_continuation_intent("讨论继续完成项目的开发")
+    assert is_website_continuation_intent("继续完成官网剩余分区")
+    assert is_website_continuation_intent("把剩下的官网分区补全")
     assert is_website_continuation_intent("接着完成官网")
     assert not is_website_continuation_intent("继续")  # bare 继续 不触发
     assert not is_website_continuation_intent("改一下超时")
 
+    # Strong site signals only — bare HTML/CSS/JS / HTML5 game framing do not count.
     assert is_website_shaped_call("写完官网剩余分区 HTML/CSS/JS")
     assert is_website_shaped_call("playbook=build_website 补全分区")
     assert is_website_shaped_call("落地页 index.html styles.css")
+    assert not is_website_shaped_call("前端 HTML5 游戏画布与卡牌逻辑")
+    assert not is_website_shaped_call("实现 CSS 动画与 JS 交互")
     assert not is_website_shaped_call("把超时配置从 30s 调到 60s")
     assert not is_website_shaped_call("改一行配置")
+    # File-extension paths alone must not look website-shaped.
+    assert not is_website_shaped_call("整理 docs/原型打印卡牌.html")
+    assert not is_website_shaped_call("更新 原型打印卡牌.html 与 notes.css")
 
 
 def test_resolve_style_from_resume_by_explicit_style_id():

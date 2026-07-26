@@ -691,6 +691,7 @@ describe("ask_user cards (统一开场引导 + 途中拍板)", () => {
       },
     ],
     style_options: [{ id: "s0", label: "深色科技" }],
+    format_options: [{ id: "f0", label: "PowerPoint（.pptx）" }],
   });
 
   describe("InteractionStore ask_user + process stamp (live)", () => {
@@ -710,6 +711,7 @@ describe("ask_user cards (统一开场引导 + 途中拍板)", () => {
         id: "c1",
         status: "pending",
         styleOptions: [{ id: "s0", label: "深色科技" }],
+        formatOptions: [{ id: "f0", label: "PowerPoint（.pptx）" }],
       });
       expect(
         rt().messages[0].process?.some((s) => s.kind === "checkpoint"),

@@ -27,10 +27,11 @@ def test_team_position_block_four_dag_shapes():
     # pins each so the「上游越权写最终交付物」fix (an upstream link learns it hands off,
     # not authors the final artifact) and the terminal-ownership boost (a writer learns
     # it IS the final author) can't silently regress. Also pins A1 (递指针 affordance):
-    # the upstream branch — and ONLY it — grants a permission-style, role-suffixed
-    # filename for persisting large intermediates, replacing the residual empty-path
-    # file_write; the terminal author names the final file itself, so it must NOT appear
-    # there or on a pure parallel/solo node.
+    # the upstream branch — and ONLY it — grants intermediate persist guidance:
+    # task-book artifacts (strict) or RESEARCH_DIR + descriptive name (free teams);
+    # never workspace-root findings-<role>.md. Terminal / parallel / solo must NOT get A1.
+    from agentcore.workspace.stage_dirs import RESEARCH_DIR
+
     plan, errs = build_run_plan(
         [
             {"id": "r1", "role": "调研员A", "task": "查A"},
@@ -50,16 +51,17 @@ def test_team_position_block_four_dag_shapes():
     assert "不要自己产出整个最终交付物" in up
     assert "调研员B" in up  # parallel-peer awareness still present
     assert "不一定全是你的活" in up  # request reframed as a team goal, not a mandate
-    # A1: an upstream link that wants to persist a large intermediate is told to give it a
-    # role-suffixed filename (no empty-path file_write) — only on this branch.
-    assert "findings-" in up and "切勿用空路径" in up
+    # A1 free-team path: RESEARCH_DIR + descriptive name; still names the anti-pattern.
+    assert RESEARCH_DIR in up and "自起描述性文件名" in up and "切勿用空路径" in up
+    assert "findings-" in up
+    assert "工作区根" in up
 
     # (2) TERMINAL synthesizer (has upstream, no dependents): told it IS the final author
     #     — reinforces structure ownership (the worker-side L3 lever).
     term = _build_messages(plan, w, {}, "SYS", "原始请求")[1].content or ""
     assert "终端环" in term and "最终交付物" in term
     assert "不要自己产出整个最终交付物" not in term  # not an upstream link
-    assert "findings-" not in term  # A1 is upstream-only; the terminal author names the final file
+    assert "自起描述性文件名" not in term  # A1 is upstream-only
     assert w.sibling_summary == ""  # lone fan-in → no parallel-peer line
 
     # (3) PARALLEL batch (siblings only, no up/down): peer coordination, no flow framing.
@@ -69,7 +71,7 @@ def test_team_position_block_four_dag_shapes():
     par = _build_messages(par_plan, par_plan.by_id("p_1"), {}, "SYS", "原始请求")[1].content or ""
     assert "并行队友" in par
     assert "上游一环" not in par and "终端环" not in par
-    assert "findings-" not in par  # no hand-off → no A1 intermediate-persist hint
+    assert "自起描述性文件名" not in par  # no hand-off → no A1 intermediate-persist hint
 
     # (4) SOLO single worker (no team): no position block, plain request header.
     solo_plan, _ = build_run_plan([{"role": "A", "task": "做A"}], id_prefix="s")
@@ -78,6 +80,33 @@ def test_team_position_block_four_dag_shapes():
     )
     assert "你在团队中的位置" not in solo
     assert "不一定全是你的活" not in solo  # a solo worker IS the whole job
+
+
+def test_team_position_a1_respects_pinned_artifacts():
+    """A1 with task-book artifacts: strict path, not RESEARCH_DIR free naming."""
+    from agentcore.workspace.stage_dirs import RESEARCH_DIR
+
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "r1",
+                "role": "调研员",
+                "task": "查A",
+                "deliverable": {
+                    "form": "files",
+                    "artifacts": [f"{RESEARCH_DIR}/选型调研报告.md"],
+                },
+            },
+            {"id": "w", "role": "写手", "task": "写报告", "depends_on": ["r1"]},
+        ],
+        id_prefix="pin",
+    )
+    assert errs == []
+    up = _build_messages(plan, plan.by_id("pin_r1"), {}, "SYS", "原始请求")[1].content or ""
+    assert "严格按任务书路径" in up
+    assert f"{RESEARCH_DIR}/选型调研报告.md" in up
+    assert "自起描述性文件名" not in up
+    assert "findings-" not in up
 
 
 async def test_context_blocks_channel_sequence_and_single_source():

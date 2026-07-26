@@ -109,6 +109,9 @@ apps/server/tmp_*
 /reviews/
 # Cursor IDE local config / AI rules (kept on disk, not published)
 .cursor/
+# Claude Code local config / skills + CLAUDE.md（导入 .cursor/rules，同为本地；勿入公开树）
+.claude/
+CLAUDE.md
 # Planning / proposal drafts (maintainer-local; not published — keep on disk)
 docs/06-规划/
 # Cursor agent transcripts (local IDE); never ship

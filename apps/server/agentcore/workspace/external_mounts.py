@@ -66,11 +66,12 @@ ORGANIZE_DENIED_OPS: frozenset[str] = frozenset(
 class ExternalMount:
     """One session-scoped directory grant under ``external/<alias>/``.
 
-    ``root_id`` is the desktop authorized-root handle (LocalWorkspace channel).
-    ``abs_path`` is set only where the engine has direct Path I/O (sidecar);
-    cloud LocalWorkspace leaves it ``None`` and lets the desktop resolve.
-    ``mode`` is explicit: never flip a bare ``readonly=False`` (that would also
-    open execute / process_start / archive on the desktop dispatch path).
+    ``root_id`` is the desktop authorized-root handle (LocalWorkspace channel /
+    cloud ServerWorkspace external bridge). ``abs_path`` is set only where the
+    engine has direct Path I/O (sidecar); cloud grants leave it ``None`` and let
+    the desktop resolve via per-op ``root_id``. ``mode`` is explicit: never flip a
+    bare ``readonly=False`` (that would also open execute / process_start /
+    archive on the desktop dispatch path).
     """
 
     alias: str

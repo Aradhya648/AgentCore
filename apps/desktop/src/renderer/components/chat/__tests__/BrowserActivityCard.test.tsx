@@ -30,6 +30,16 @@ vi.mock("@/services/workspace", () => ({
   fetchWorkspaceFileBlob: vi.fn(),
 }));
 
+const showBrowser = vi.fn();
+vi.mock("@/stores/sidePanel", () => ({
+  useSidePanelStore: Object.assign(
+    (selector: (s: { showBrowser: typeof showBrowser }) => unknown) =>
+      selector({ showBrowser }),
+    { getState: () => ({ showBrowser }) },
+  ),
+}));
+
+import { isBrowserTool } from "@/lib/browserActivity";
 import { fetchWorkspaceFileBlob } from "@/services/workspace";
 import {
   BrowserActivityCard,
@@ -37,7 +47,6 @@ import {
   browserResultPeek,
   isBrowserActivityGroup,
   isBrowserDisplay,
-  isBrowserTool,
 } from "../BrowserActivityCard";
 import { ToolLineGroup } from "../ToolLine";
 
@@ -56,6 +65,7 @@ beforeAll(() => {
 beforeEach(() => {
   mockFetch.mockReset();
   mockFetch.mockResolvedValue(new Blob(["jpeg-bytes"], { type: "image/jpeg" }));
+  showBrowser.mockReset();
 });
 
 afterEach(cleanup);
@@ -302,6 +312,39 @@ describe("BrowserResult · 单步富卡", () => {
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith("conv-1", "browser/step-0001.jpg"),
     );
+  });
+
+  it("shows 打开浏览器 CTA and reveals the browser tab on click", () => {
+    render(
+      <BrowserResult
+        display={{
+          kind: "browser",
+          action: "navigate",
+          url: "https://example.com",
+          detail: "打开示例站",
+        }}
+        conversationId="conv-1"
+      />,
+    );
+    const cta = screen.getByText("打开浏览器");
+    expect(cta).toBeTruthy();
+    fireEvent.click(cta);
+    expect(showBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the browser CTA when conversationId is null", () => {
+    render(
+      <BrowserResult
+        display={{
+          kind: "browser",
+          action: "click",
+          url: "https://example.com",
+          detail: "点击链接",
+        }}
+        conversationId={null}
+      />,
+    );
+    expect(screen.queryByText("打开浏览器")).toBeNull();
   });
 
   it("shows a no-frame note when the step carries no key-frame", () => {

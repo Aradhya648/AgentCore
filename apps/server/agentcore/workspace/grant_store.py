@@ -3,6 +3,10 @@
 Grants bind ``conversation_id → alias → ExternalMount`` (desktop ``root_id`` only;
 absolute paths never leave the desktop). Cleared on revoke or conversation delete.
 Not durable across server restarts — session-scoped by product design.
+
+Cloud turns attach a ``WorkspaceChannel`` on ``ServerWorkspace`` so ``external/``
+ops use per-op ``root_id`` (same transport as ``LocalWorkspace``); ``location``
+stays ``server`` (no worker_gate).
 """
 
 from __future__ import annotations

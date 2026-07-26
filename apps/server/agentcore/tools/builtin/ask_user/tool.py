@@ -24,6 +24,7 @@ from agentcore.tools.builtin.ask_user.intent import resolve_ask_checkpoint_inten
 from agentcore.tools.builtin.ask_user.schema import (
     ListArgError,
     normalize_assumptions,
+    normalize_format_options,
     normalize_questions,
     normalize_style_options,
 )
@@ -239,6 +240,22 @@ class AskUserTool:
                             "required": ["label"],
                         },
                     },
+                    "format_options": {
+                        "type": "array",
+                        "description": (
+                            "可选：演讲/PPT 交付形态候选（pptx / marp / outline 等）。"
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {
+                                    "type": "string",
+                                    "description": "交付形态名（如 PowerPoint / Marp / 仅讲稿）。",
+                                },
+                            },
+                            "required": ["label"],
+                        },
+                    },
                     "blocking": {
                         "type": "boolean",
                         "description": (
@@ -304,6 +321,7 @@ class AskUserTool:
                 max_options=card_max_options(card),
             )
             style_options = normalize_style_options(arguments.get("style_options"))
+            format_options = normalize_format_options(arguments.get("format_options"))
         except ListArgError as exc:
             logger.info(
                 "ask_user.list_arg_rejected",
@@ -351,7 +369,9 @@ class AskUserTool:
                 )
 
         if not blocking:
-            return self._post_nonblocking(message, ctx_text, assumptions, questions, style_options)
+            return self._post_nonblocking(
+                message, ctx_text, assumptions, questions, style_options, format_options
+            )
 
         checkpoint_id = new_id()
         from agentcore.runtime.suspension import captain_transcript
@@ -380,6 +400,23 @@ class AskUserTool:
                     success=False,
                     output="",
                     error=website_kickoff_requires_styles_error(),
+                )
+            from agentcore.runtime.runs.presentation_format import (
+                is_presentation_kickoff_text,
+                presentation_kickoff_requires_formats_error,
+            )
+
+            if is_presentation_kickoff_text(message, ctx_text) and not format_options:
+                logger.info(
+                    "ask_user.presentation_format_rejected",
+                    conversation_id=self.conversation_id,
+                    reason="empty_format_options",
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=presentation_kickoff_requires_formats_error(),
                 )
         # Kickoff gate: user already settled high-leverage / collaboration decisions
         # (same-turn checkpoint_resolved OR prior-turn verbal affirm of a plan outline)
@@ -426,6 +463,7 @@ class AskUserTool:
             assumptions=assumptions,
             questions=questions,
             style_options=style_options,
+            format_options=format_options,
             intent=intent,
         )
         # 结构化挂起 2b + D11: persist the durable frame BEFORE finalize. Save success
@@ -456,6 +494,7 @@ class AskUserTool:
                 assumptions=assumptions,
                 questions=questions,
                 style_options=style_options,
+                format_options=format_options,
                 required_event=required,
                 intent=intent,
             )
@@ -499,6 +538,7 @@ class AskUserTool:
         assumptions: list[dict[str, Any]],
         questions: list[dict[str, Any]],
         style_options: list[dict[str, Any]],
+        format_options: list[dict[str, Any]],
     ) -> ToolResult:
         """非阻塞发问 (Cursor 式)：抛出确认但不挂起——CEO 按既定默认续跑，答复后续并入。
 
@@ -533,6 +573,7 @@ class AskUserTool:
                 assumptions=assumptions,
                 questions=questions,
                 style_options=style_options,
+                format_options=format_options,
             )
         )
         logger.info(

@@ -248,7 +248,7 @@ async def migrate_agentcore_layout(
     Safe to call repeatedly. Does not delete sources on failure.
     """
     if session_factory is None:
-        from agentcore.db.session import async_session_factory as _factory
+        from agentcore.db.base import async_session_factory as _factory
 
         session_factory = _factory
 

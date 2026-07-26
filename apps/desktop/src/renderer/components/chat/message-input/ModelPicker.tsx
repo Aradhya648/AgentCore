@@ -36,7 +36,8 @@ import { useNavigate } from "react-router-dom";
  *
  * 数据源：`GET /v1/users/me/llm-model-profiles`。选择即写：已有会话
  * `PATCH … model_profile_id`；新会话先记草稿 + last_profile_id，首发建会话时继承。
- * 传「跟随账号默认」清除覆盖（`null`）。次要一行只读摘要：主 · Worker。
+ * 传「跟随账号默认」清除覆盖（`null`）。触发器单行只显示组合名（与同排徽章等高），
+ * 主 · Worker 摘要在 tooltip 与下拉每一行里。
  */
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -253,9 +254,18 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
   }
 
   const label = displayProfile?.name ?? "选择组合";
-  const tooltip = followingDefault
+  const hint = followingDefault
     ? "跟随账号默认组合（当前回合起生效）"
     : "切换本会话使用的模型组合（当前回合起生效）";
+  // 单行 chip 与同排徽章对齐，主·Worker 摘要退到 tooltip（下拉每行仍常驻）。
+  const tooltip = summary ? (
+    <span className="flex flex-col gap-0.5">
+      <span>{hint}</span>
+      <span className="opacity-70">{summary}</span>
+    </span>
+  ) : (
+    hint
+  );
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -266,24 +276,17 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
           onClick={() => setOpen((v) => !v)}
           aria-label={`模型组合：${label}`}
           aria-expanded={open}
-          className={`inline-flex min-h-8 max-w-48 flex-col items-start justify-center gap-0 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground ${
+          className={`inline-flex h-8 max-w-40 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground ${
             disabled || pending ? "cursor-not-allowed opacity-60" : ""
           }`}
         >
-          <span className="inline-flex max-w-full items-center gap-1">
-            {pending ? (
-              <Loader2 size={14} className="shrink-0 animate-spin" />
-            ) : (
-              <Bot size={14} className="shrink-0" />
-            )}
-            <span className="truncate font-mono">{label}</span>
-            <ChevronDown size={12} className="shrink-0 opacity-60" />
-          </span>
-          {summary && (
-            <span className="max-w-full truncate pl-[18px] text-xs opacity-70">
-              {summary}
-            </span>
+          {pending ? (
+            <Loader2 size={14} className="shrink-0 animate-spin" />
+          ) : (
+            <Bot size={14} className="shrink-0" />
           )}
+          <span className="truncate">{label}</span>
+          <ChevronDown size={12} className="shrink-0 opacity-60" />
         </button>
       </SimpleTooltip>
 

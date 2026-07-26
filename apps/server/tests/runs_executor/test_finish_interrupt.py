@@ -88,6 +88,92 @@ async def test_abort_with_partial_content_also_flags_finish_interrupt():
     assert state.debrief is not None and state.debrief.get("degraded") is True
 
 
+class _RecordingRounds:
+    """Scripted rounds that keep EVERY message of every call, so a test can read the
+    correction prompt the executor appended for the contract retry."""
+
+    def __init__(self, rounds: list[list[LLMChunk]]) -> None:
+        self._rounds = rounds
+        self.calls = 0
+        self.requests: list[list[tuple[str, str]]] = []
+
+    async def stream(self, request):  # noqa: ANN001 - duck-typed for the loop
+        self.requests.append([(m.role, m.content or "") for m in request.messages])
+        chunks = (
+            self._rounds[self.calls]
+            if self.calls < len(self._rounds)
+            else [LLMChunk(delta_content="兜底正文")]
+        )
+        self.calls += 1
+        for chunk in chunks:
+            yield chunk
+
+
+async def test_interrupted_empty_pass_tells_retry_it_was_a_transport_cut():
+    """产出为空 caused by a dropped stream must be attributed as such in the retry prompt.
+
+    Regression (trace d7b537ae): the worker read a bare 「产出为空」 as its own
+    authoring failure — its retry reasoning was "my previous output was empty" — so
+    it re-called handoff with a 0-char body instead of rewriting the prose, and the
+    empty-handoff gate rejected it. Twice.
+    """
+    plan, _ = build_run_plan([{"role": "技术架构师", "task": "出技术方案"}], id_prefix="t")
+    provider = _RecordingRounds(
+        [
+            [LLMChunk(aborted=True)],  # stream cut before any content lands
+            [LLMChunk(delta_content="重写后的完整技术方案正文，覆盖架构与取舍。")],
+        ]
+    )
+    executor = build_agent_executor(
+        plan=plan,
+        llm=provider,
+        tools=ToolRegistry(),
+        sink=EventSink(),
+        base_tool_context=_ctx(),
+        system_prompt="SYS",
+        user_message="req",
+        execution_id="e",
+    )
+    res = await WaveScheduler().run(plan, executor)
+    state = res["t_1"]
+
+    assert provider.calls >= 2, "空产出应触发一次 contract 回炉"
+    retry_prompt = "\n".join(c for _, c in provider.requests[-1])
+    assert "传输中被中断" in retry_prompt
+    assert "不代表你上一轮写得不好" in retry_prompt
+    assert "不要只调用 handoff 交空简报" in retry_prompt
+    assert state.content.strip()
+
+
+async def test_ordinary_contract_retry_keeps_no_interrupt_note():
+    """A genuine shortfall (too short) must NOT be excused as a transport cut."""
+    plan, _ = build_run_plan(
+        [{"role": "A", "task": "做A", "deliverable": {"min_length": 40}}], id_prefix="t"
+    )
+    provider = _RecordingRounds(
+        [
+            [LLMChunk(delta_content="太短")],
+            [LLMChunk(delta_content="这是补齐后的完整正文，长度足够满足契约的最小篇幅要求。")],
+        ]
+    )
+    executor = build_agent_executor(
+        plan=plan,
+        llm=provider,
+        tools=ToolRegistry(),
+        sink=EventSink(),
+        base_tool_context=_ctx(),
+        system_prompt="SYS",
+        user_message="req",
+        execution_id="e",
+    )
+    await WaveScheduler().run(plan, executor)
+
+    assert provider.calls >= 2
+    retry_prompt = "\n".join(c for _, c in provider.requests[-1])
+    assert "传输中被中断" not in retry_prompt
+    assert "少于要求的" in retry_prompt
+
+
 async def test_clean_success_has_no_finish_interrupt_warning():
     """Regression: a normal content answer must not pick up the interrupt warning."""
     plan, _ = build_run_plan([{"role": "分析", "task": "出结论"}], id_prefix="t")

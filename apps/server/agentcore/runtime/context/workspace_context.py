@@ -32,6 +32,7 @@ def build_workspace_context(
     code_execute_enabled: bool | None = None,
     terminal_enabled: bool | None = None,
     browser_enabled: bool | None = None,
+    exec_languages: list[str] | tuple[str, ...] | None = None,
 ) -> str:
     """Render the ``<workspace_context>`` block for this turn's backend + client.
 
@@ -41,6 +42,10 @@ def build_workspace_context(
     Capability line uses the same predicates as worker registry assembly
     (``code_execution_enabled_for`` / ``browser_execution_enabled_for``); optional
     ``*_enabled`` overrides are for tests / probes only — not a second truth source.
+
+    ``exec_languages`` is the probed (local/sidecar) or fixed (cloud) language
+    surface advertised on ``code_execute``; when set and execution is on, a one-line
+    interpreter fact is appended so the model never plans against a missing launcher.
     """
     if backend is None:
         return ""
@@ -140,6 +145,16 @@ def build_workspace_context(
     caps.append(f"local_open={'已装配' if local_open_on else '未装配'}")
     capability_line = "本回合执行能力：" + "；".join(caps) + "。"
 
+    # Prefer explicit languages; else a probe cached on the backend.
+    langs = exec_languages
+    if langs is None:
+        langs = getattr(backend, "_exec_languages", None)
+    interpreters_line: str | None = None
+    if exec_on and langs is not None:
+        from agentcore.tools.sandbox.exec_languages import format_interpreters_line
+
+        interpreters_line = format_interpreters_line(tuple(langs))
+
     # 案卷布局（始终可见）：三行出口 + 一句边界。只陈述路径事实，不注入文档正文进 <rules>。
     dossier_research_line = f"案卷出口·调研/讨论：`{RESEARCH_DIR}/`"
     dossier_debate_line = f"案卷出口·辩论副产物：`{DEBATE_DIR}/`"
@@ -148,20 +163,21 @@ def build_workspace_context(
         "案卷边界：讨论/调研/审查类交付写此树；用户工程源码仍写业务路径。"
     )
 
-    body = "\n".join(
-        [
-            location_line,
-            identity_line,
-            reach_line,
-            artifact_line,
-            dossier_research_line,
-            dossier_debate_line,
-            dossier_reviews_line,
-            dossier_boundary_line,
-            desktop_line,
-            grant_line,
-            mounts_line,
-            capability_line,
-        ]
-    )
+    body_lines = [
+        location_line,
+        identity_line,
+        reach_line,
+        artifact_line,
+        dossier_research_line,
+        dossier_debate_line,
+        dossier_reviews_line,
+        dossier_boundary_line,
+        desktop_line,
+        grant_line,
+        mounts_line,
+        capability_line,
+    ]
+    if interpreters_line is not None:
+        body_lines.append(interpreters_line)
+    body = "\n".join(body_lines)
     return f"<workspace_context>\n{body}\n</workspace_context>"

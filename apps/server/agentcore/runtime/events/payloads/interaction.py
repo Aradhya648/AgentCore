@@ -102,6 +102,11 @@ class AskStyleOption(WirePayload):
     label: str
 
 
+class AskFormatOption(WirePayload):
+    id: str
+    label: str
+
+
 class CheckpointRequiredPayload(WirePayload):
     """The CEO paused the turn on an ask_user checkpoint (blocking)."""
 
@@ -112,6 +117,7 @@ class CheckpointRequiredPayload(WirePayload):
     assumptions: list[AskAssumption]
     questions: list[AskQuestion]
     style_options: list[AskStyleOption]
+    format_options: list[AskFormatOption] = Field(default_factory=list)
     intent: AskCheckpointIntent | None = absent(ts_type="CheckpointIntent")
 
 
@@ -133,6 +139,7 @@ class QuestionPostedPayload(WirePayload):
     assumptions: list[AskAssumption]
     questions: list[AskQuestion]
     style_options: list[AskStyleOption]
+    format_options: list[AskFormatOption] = Field(default_factory=list)
 
 
 class PlanReviewStep(WirePayload):
@@ -191,6 +198,20 @@ class TeamPreviewSide(WirePayload):
     name: str
     stance: str
     is_subject: bool | None = absent()
+    # §7.5 真·多模型：三元组；缺字段（老 journal / 同模型场）→ 前端跟 turn 主模型。
+    model: str | None = absent("该方辩手模型 id。")
+    origin: Literal["platform", "byok"] | None = absent("模型来源。")
+    provider_id: str | None = absent("BYOK 服务商 id；platform 缺省。")
+
+
+class ModelCandidate(WirePayload):
+    """§7.5 D：消歧零/多候选时开赛卡 / 错误载荷中的目录行。"""
+
+    model: str
+    origin: Literal["platform", "byok"]
+    provider_id: str | None = absent()
+    label: str | None = absent()
+    side_key: str | None = absent("触发消歧的参与方 key；缺省=整场。")
 
 
 class TeamPreviewRequiredPayload(WirePayload):
@@ -219,6 +240,17 @@ class TeamPreviewRequiredPayload(WirePayload):
     research_first_recommended: bool | None = absent(
         "辩论开工卡：零调研且用户输入命中多维取证触发词时为 true，"
         "将「先多视角调研再辩」升为视觉主键；缺省视为 false。"
+    )
+    # §7.5 裁判选型；缺字段（老 journal）→ 前端不展示裁判行。
+    moderator_model: str | None = absent("裁判 / 主持人模型 id。")
+    moderator_origin: Literal["platform", "byok"] | None = absent("裁判模型来源。")
+    moderator_provider_id: str | None = absent("裁判 BYOK provider_id。")
+    same_model_debate: bool | None = absent(
+        "目录只剩一模型时为 true，开赛卡明示同模型降级。"
+    )
+    # §7.5 D：消歧零/多候选目录行；缺字段（老 journal）→ 前端不展示候选区。
+    model_candidates: list[ModelCandidate] | None = absent(
+        "模型消歧候选（model/origin/provider_id/label）；旧帧缺省。"
     )
 
 

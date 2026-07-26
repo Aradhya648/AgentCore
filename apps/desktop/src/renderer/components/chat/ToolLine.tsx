@@ -5,14 +5,16 @@ import {
   toolResultPeek,
 } from "@/components/chat/toolResult/ToolResultView";
 import { Badge, Button } from "@/components/ui";
+import { isBrowserTool } from "@/lib/browserActivity";
 import { formatCompact } from "@/lib/format";
 import { runtimeOf, useConversationStore } from "@/stores/conversation";
 import {
   usePersistentDisclosure,
   useStreamAwareDisclosure,
 } from "@/stores/disclosure";
+import { useSidePanelStore } from "@/stores/sidePanel";
 import type { ProcessStep } from "@/types/events";
-import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Radio, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   BrowserActivityCard,
@@ -377,6 +379,7 @@ function DefaultToolLineGroup({
     turnKey != null && groupKey != null ? `${turnKey}:tgrp:${groupKey}` : null,
     isStreaming,
   );
+  const showBrowser = useSidePanelStore((s) => s.showBrowser);
 
   const summary = toolGroupSummary(tools);
   const errorCount = tools.reduce(
@@ -384,30 +387,46 @@ function DefaultToolLineGroup({
     0,
   );
   const running = tools.some((t) => t.status === "running");
+  // 混杂组（含 browser_* + 他工具）走默认壳，无活动卡 CTA——组头挂同款「打开浏览器」/
+  // 「查看直播」，勿在子 ToolLine 再刷。纯 browser ≥2 已由 BrowserActivityCard 接管。
+  const showBrowserCta =
+    conversationId != null && tools.some((t) => isBrowserTool(t.tool_name));
 
   return (
     <div>
-      <Button
-        variant="ghost"
-        onClick={toggleExpanded}
-        className="h-auto w-full justify-start gap-2 px-0 py-0 text-sm text-muted-foreground hover:bg-transparent hover:text-foreground"
-      >
-        <span className="flex items-center gap-2">
-          {running && <ThinkingDots />}
-          <span className="min-w-0 truncate text-left">{summary}</span>
-          {errorCount > 0 && (
-            <Badge tone="destructive" className="shrink-0 font-normal">
-              {errorCount} failed
-            </Badge>
-          )}
-          {!running &&
-            (expanded ? (
-              <ChevronDown size={14} className="shrink-0" />
-            ) : (
-              <ChevronRight size={14} className="shrink-0" />
-            ))}
-        </span>
-      </Button>
+      <div className="flex items-center gap-1.5">
+        <Button
+          variant="ghost"
+          onClick={toggleExpanded}
+          className="h-auto min-w-0 flex-1 justify-start gap-2 px-0 py-0 text-sm text-muted-foreground hover:bg-transparent hover:text-foreground"
+        >
+          <span className="flex items-center gap-2">
+            {running && <ThinkingDots />}
+            <span className="min-w-0 truncate text-left">{summary}</span>
+            {errorCount > 0 && (
+              <Badge tone="destructive" className="shrink-0 font-normal">
+                {errorCount} failed
+              </Badge>
+            )}
+            {!running &&
+              (expanded ? (
+                <ChevronDown size={14} className="shrink-0" />
+              ) : (
+                <ChevronRight size={14} className="shrink-0" />
+              ))}
+          </span>
+        </Button>
+        {showBrowserCta && (
+          <button
+            type="button"
+            onClick={showBrowser}
+            className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+          >
+            <Radio size={12} className="shrink-0" />
+            {running ? "查看直播" : "打开浏览器"}
+          </button>
+        )}
+      </div>
       {expanded && (
         <div className="mt-1.5 space-y-2 pl-3">
           {tools.map((t) => (

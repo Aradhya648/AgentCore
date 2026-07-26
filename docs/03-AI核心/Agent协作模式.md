@@ -79,7 +79,7 @@ Agent 间**不直接通信**——上游产物经调度器中转注入下游；�
 
 worker 唯一的向上通道。`blocking=false`（默认）= 上报后按 `assumption` 继续交付，CEO 收尾纠偏；`run_escalation` SSE 让升级进行中可见。
 
-**阻塞式求决策（`blocking=true`）✅**：worker 撞上「只有用户能定、猜错就作废」的岔路时，经 `ToolContext.escalation` 端口挂起；结算三分——`resolved`（有答复）/ `assumed`（显式按假设继续）/ `timed_out`（仅运维配置了超时上限才出现），后两者都回落 `assumption` 续跑但**对外语义分开**。**不答语义（提问确认交互统一重构 D2）**：默认**无限期等待**（原「超时回落 assumption」已废除），卡片明示「等你拍板 · 不限时」+ 常驻「按假设继续」按钮（用户手动回落，走 `use_assumption` resolve）；required/resolved 入 journal、重启失效翻 `orphaned` 灰态（机制见 [执行引擎 §8.2](/docs/03-AI核心/执行引擎架构设计.md)）。桌面/手机答复按 `escalation_id` 精确落卡。**经典路径（单 worker / 非协调）**：直挂**用户**（复用 `InteractionRegistry` + `ESCALATION` kind）——默认阻塞 `delegate` 下 CEO 停在工具调用上，波内无活着的 CEO，**否决**改挂 CEO（会死锁）。**协调模式例外（✅ D1 / 不变量 B）**：≥2 worker 默认协调时 CEO 波内存活，阻塞 escalate 改挂起等 CEO 的 `resolve_escalation`（初始不发用户可答卡）；偏好/授权/费用类 CEO 须先 `ask_user` 再 resolve（`via_user`）。单 worker **永不**走 `resolve_escalation`。见 [`编排器与CEO主Agent.md` §协调模式](/docs/03-AI核心/编排器与CEO主Agent.md)。
+**阻塞式求决策（`blocking=true`）✅**：worker 撞上「只有用户能定、猜错就作废」的岔路时，经 `ToolContext.escalation` 端口挂起；结算三分——`resolved`（有答复）/ `assumed`（显式按假设继续）/ `timed_out`（仅运维配置了超时上限才出现），后两者都回落 `assumption` 续跑但**对外语义分开**。**不答语义（提问确认交互统一重构 D2）**：默认**无限期等待**（原「超时回落 assumption」已废除），卡片明示「等你拍板 · 不限时」+ 常驻「按假设继续」按钮（用户手动回落，走 `use_assumption` resolve）；required/resolved 入 journal、重启失效翻 `orphaned` 灰态（机制见 [执行引擎 §8.2](/docs/03-AI核心/执行引擎架构设计.md)）。桌面/手机答复按 `escalation_id` 精确落卡。**经典路径（单 worker / 非协调）**：直挂**用户**（复用 `InteractionRegistry` + `ESCALATION` kind）——默认阻塞 `delegate` 下 CEO 停在工具调用上，波内无活着的 CEO，**否决**改挂 CEO（会死锁）。**协调模式例外（✅ D1 / 不变量 B）**：≥2 worker 默认协调时 CEO 波内存活，阻塞 escalate 改挂起等 CEO 的 `resolve_escalation`（初始不发用户可答卡）；偏好/授权/费用类 CEO 须先 `ask_user` 再 resolve（`via_user`）。单 worker **永不**走 `resolve_escalation`。见 [`编排器与CEO主Agent.md` §协调模式](/docs/03-AI核心/编排器与CEO主Agent.md)。**文件归属冲突**：冲突回执区分「仅派发占位未落盘」vs「已写入」并带锁主状态；CEO 简报可提示升级方是否锁主嵌套子；`resolve_escalation(..., transfer_ownership=true, paths=[…])` 路径级移交（非整包）。→ 见 [`编排器 §2.3`](/docs/03-AI核心/编排器与CEO主Agent.md)。
 
 **结构化提问 ✅**：岔路若是干净的 A/B 或多选，worker 可附**结构化 `questions`**（结构同 `ask_user`：choice/text + `options`/`default`，随 `escalation_required` 下发），挂起卡复用 `ask_user` 的问答内核渲染，用户一键拍板而非读散文手敲；纯开放问题则省略、回退自由文本。关键约束：**前端把选项选择拍平成纯文本答复**回填，故后端 resolve 契约（`{answer, use_assumption}`）与挂起恢复路径**保持不变**；`questions` 为 desktop-local（不进 conformance golden），手机应答卡（TeamView `EscalationAnswer`）走自由文本。
 
@@ -223,7 +223,7 @@ CEO 主 Agent、`delegate` 按需委派与 DAG 波次调度——→ 见 [`编�
 
 **薄预览（✅ 已落地）**：开干前否决权——编排层公共 kickoff gate（`runtime/kickoff`）供
 `delegate` / `debate` 共用。delegate：首波前展示即将上场的团队（角色 / 任务摘要 / 依赖 /
-是否辩论）与将授权的能力范围；debate：主持人循环前展示辩题 / 立场 / 轮次预算。开工卡动作：
+是否辩论）与将授权的执行能力；debate：主持人循环前展示辩题 / 立场 / 轮次预算。开工卡动作：
 delegate **授权并开工（可带嘱咐）** / **停止**；debate **授权开赛（可带开赛嘱咐）** /
 **停止**（能力授权合并进卡；受用户自治三档影响，见
 [安全权限与治理 §三](/docs/05-平台与运维/安全权限与治理.md)）。挂起条件、跳过规则、与

@@ -74,6 +74,11 @@ class WorkspaceOp(StrEnum):
     REPLACE = "replace"
     GREP = "grep"
     EXECUTE = "execute"
+    # Probe which code_execute languages have a usable launcher on the user's
+    # machine (PATH / Git Bash). Not a WorkspaceBackend method — issued at turn
+    # prepare so the tool schema can drop unavailable languages (e.g. broken WSL
+    # bash trampoline) before the model ever sees them.
+    PROBE_EXEC = "probe_exec"
     # Local→云 handoff (双模式工作区 P2e / e1): pack the whole bound local root into
     # one archive (respecting ignore rules) so the server can stage + snapshot it.
     # NOT a WorkspaceBackend method — issued directly by the handoff orchestrator

@@ -483,7 +483,8 @@ def format_light_repair_feedback(
         "你上一次的产出只差格式补全（缺章节 / 篇幅不足 / 缺关键词），"
         f"不必重新调查：\n{items}{coverage}{prior_block}\n\n"
         "请对已落盘文件用 str_replace（或局部 file_append 填骨架空位）就地补齐后 "
-        "handoff；禁止再 file_read 回读自产物正文验真。"
+        "handoff；优先以写回执 artifact manifest 验真，勿为空转反复 file_read "
+        "自产物正文。"
         "不要重新检索、不要道歉、不要附带说明。"
     )
 
@@ -529,6 +530,24 @@ def format_feedback(
         f"你上一次的产出未达到以下要求：\n{items}{soft}{coverage}\n"
         "请直接输出修正后的【完整最终产出】（补齐上述差距，其余内容保持原样），"
         "不要解释、不要道歉、不要附带任何说明文字。"
+    )
+
+
+def format_interrupted_pass_note() -> str:
+    """Prefix for a retry whose previous pass died on an LLM transport failure.
+
+    Without it the worker reads a bare 「产出为空」 as its own authoring failure —
+    观测到的真实回归: 一次断流后 worker 的 reasoning 变成「上一轮我写空了」，于是它
+    不重写正文、只是又调了一次 handoff，被空交付门禁挡回，白烧一轮。The pass's
+    finish reason (ERROR / DEGRADED) is the executor's only reliable signal that
+    the round never came back, so it — not the verdict — decides this note.
+    """
+    return (
+        "[系统提示] 上一轮的模型响应在传输中被中断（网络 / 上游断流），"
+        "系统只收到片段甚至完全没收到正文——下面的契约判定是基于这份残缺产出，"
+        "不代表你上一轮写得不好。请把本轮正文完整重写一遍"
+        "（此前已完成的调查结论直接复述，不必重新检索）；"
+        "不要只调用 handoff 交空简报，也不要为此道歉或解释。"
     )
 
 

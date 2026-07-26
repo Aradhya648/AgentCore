@@ -552,6 +552,7 @@ async def resume_chat(
                                 note=response.note,
                                 selected=response.selected,
                                 style_id=response.style_id or None,
+                                format_id=response.format_id or None,
                                 sink=sink,
                                 backend=backend,
                                 history=history[:-1],

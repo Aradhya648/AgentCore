@@ -67,6 +67,7 @@ def build_builtin_registry(
     *,
     include_execution_tools: bool = True,
     location: Literal["server", "local"] | None = None,
+    languages: tuple[str, ...] | list[str] | None = None,
 ) -> ToolRegistry:
     """Register the platform's built-in tools (single source: ``DECLARED_TOOLS``).
 
@@ -79,13 +80,17 @@ def build_builtin_registry(
     that can't run code safely (see ``code_execution_enabled_for``).
 
     ``location`` stamps ``code_execute``'s description to match the turn's backend.
+    ``languages`` trims ``code_execute``'s language enum after a local/sidecar probe
+    (cloud / catalog leave ``None`` → full fixed surface).
     """
     registry = ToolRegistry()
     for cls in declared_tools(surface=ToolSurface.BUILTIN):
         reg = tool_registration(cls)
         if reg.execution_class and not include_execution_tools:
             continue
-        registry.register(instantiate_declared(cls, location=location))
+        registry.register(
+            instantiate_declared(cls, location=location, languages=languages)
+        )
     return registry
 
 
@@ -93,6 +98,7 @@ def build_worker_registry(
     *,
     backend: WorkspaceBackend | None = None,
     permission_preset: "PermissionPreset | None" = None,
+    languages: tuple[str, ...] | list[str] | None = None,
 ) -> ToolRegistry:
     """The delegated worker's toolset: builtins PLUS worker-only declarations.
 
@@ -106,9 +112,17 @@ def build_worker_registry(
     # Browser class needs gVisor cloud ON TOP of the execution-class gate (so OBSERVE
     # still withholds it, and a subprocess "sandbox" never gets a browser).
     include_browser = include_execution and browser_execution_enabled_for(backend)
+    # Prefer explicit languages; else reuse a probe cached on the backend by
+    # ``resolve_exec_languages`` (prepare / resume). Cloud stays untrimmed.
+    resolved_languages = languages
+    if resolved_languages is None and backend is not None:
+        resolved_languages = getattr(backend, "_exec_languages", None)
+    if location != "local":
+        resolved_languages = None
     registry = build_builtin_registry(
         include_execution_tools=include_execution,
         location=location,
+        languages=resolved_languages,
     )
     for cls in declared_tools(surface=ToolSurface.WORKER_ONLY):
         reg = tool_registration(cls)

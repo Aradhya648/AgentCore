@@ -309,9 +309,10 @@ def test_grep_clear_stays_pointer_only_even_with_summary_budget():
 
 def test_apply_file_read_clear_state_grants_only_when_zero_verbatim():
     from agentcore.runtime.engine.tool_clear import apply_file_read_clear_state
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
     body = "X" * 200
-    # Same path read twice (counts will be set to MAX); keep_recent=1 ⇒ one verbatim.
+    # Same path read to MAX; keep_recent=1 ⇒ one verbatim.
     msgs = [LLMMessage(role="user", content="go")]
     msgs += _read_pair("c0", "a.md", body)
     msgs += _read_pair("c1", "a.md", body)
@@ -319,7 +320,7 @@ def test_apply_file_read_clear_state_grants_only_when_zero_verbatim():
     msgs += _read_pair("c3", "c.md", body)
 
     ctx = _context()
-    ctx.file_read_counts["a.md"] = 2
+    ctx.file_read_counts["a.md"] = FILE_READ_SAME_PATH_MAX
     # keep_recent=2 → c2,c3 kept; c0,c1 cleared → a.md zero verbatim → grant
     synced = apply_file_read_clear_state(
         ctx,
@@ -336,7 +337,7 @@ def test_apply_file_read_clear_state_grants_only_when_zero_verbatim():
 
     # Partial clear: keep_recent=3 keeps one a.md verbatim → no grant
     ctx2 = _context()
-    ctx2.file_read_counts["a.md"] = 2
+    ctx2.file_read_counts["a.md"] = FILE_READ_SAME_PATH_MAX
     partial = apply_file_read_clear_state(
         ctx2,
         msgs,
@@ -352,6 +353,7 @@ def test_apply_file_read_clear_state_grants_only_when_zero_verbatim():
 
 def test_apply_file_read_clear_state_sticky_no_second_grant():
     from agentcore.runtime.engine.tool_clear import apply_file_read_clear_state
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
     body = "Y" * 200
     msgs = [LLMMessage(role="user", content="go")]
@@ -362,7 +364,7 @@ def test_apply_file_read_clear_state_sticky_no_second_grant():
     # keep_recent=1 keeps only filler1 → a.md fully cleared → grant once.
 
     ctx = _context()
-    ctx.file_read_counts["a.md"] = 2
+    ctx.file_read_counts["a.md"] = FILE_READ_SAME_PATH_MAX
     first = apply_file_read_clear_state(
         ctx,
         msgs,
@@ -376,7 +378,7 @@ def test_apply_file_read_clear_state_sticky_no_second_grant():
     assert first.file_read_reread_remaining["a.md"] == 1
     # Simulate grant consumed, then another clear cycle — must not re-grant.
     first.file_read_reread_remaining["a.md"] = 0
-    first.file_read_counts["a.md"] = 3
+    first.file_read_counts["a.md"] = FILE_READ_SAME_PATH_MAX + 1
     second = apply_file_read_clear_state(
         first,
         msgs,

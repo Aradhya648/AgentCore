@@ -7,17 +7,37 @@ root, so executed code sees the same files the file tools do.
 
 import json
 import time
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from agentcore.core.errors import SandboxError
 from agentcore.core.types import ToolApproval, ToolCategory
+from agentcore.tools.builtin.long_running import (
+    long_running_command_match,
+    long_running_redirect_message,
+)
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
     AUDIENCE_WORKER_ONLY,
     ToolRegistration,
     ToolSurface,
 )
+from agentcore.tools.sandbox.exec_languages import (
+    ALL_EXEC_LANGUAGES,
+    language_labels,
+)
 from agentcore.tools.sandbox.protocol import ExecutionRequest
+
+# Re-export for existing test imports.
+__all__ = [
+    "CodeExecuteTool",
+    "code_execute_description",
+    "long_running_command_match",
+    "long_running_redirect_message",
+    "render_written_files_marker",
+    "WRITTEN_FILES_MARKER_PREFIX",
+    "WRITTEN_FILES_MARKER_SUFFIX",
+]
 
 # 结构化写回通道 (files_touched 事实口径 · 消费方见 runtime/runs/serialize.py):
 # 下面输出里的「已写回工作区：…」是给模型看的自然语言；这里再追加一行机器可读的结构化
@@ -42,28 +62,56 @@ def render_written_files_marker(paths: list[str]) -> str:
 
 
 _USAGE_TAIL = (
-    "\n用法要点：① 优先用 language=python 或 javascript 直接运行内联代码，"
-    "少用 bash 外壳——bash 在部分主机（如 Windows）可能不可用。② 代码的"
-    "工作目录就是工作区根目录，访问工作区文件请用相对路径（如 fib.py），"
-    "不要假设 /workspace 之类的绝对路径。会话授权的区外目录以 "
-    "`external/<别名>/…` 走文件工具；若代码需真实 OS 路径，读环境变量 "
-    "`AGENTCORE_EXTERNAL_<别名大写>`（由执行环境注入，勿把绝对路径写进回复）。"
-    "③ 抓取网页或调用公开 HTTP API "
-    "优先用 read_url / web_search 工具，不要在代码里发网络请求。"
+    "\n用法要点：① 只跑【会自行退出】的短命令或脚本（如 npm install、pytest、"
+    "一次性 node/python）。【禁止】用本工具启动永不退出的进程（npm run dev / "
+    "vite / next dev / watch / 开发服务器等）——会卡满超时；本地模式请改用 "
+    "terminal（subcommand=start，建议带 wait_for 等 ready 信号）。② 优先用 "
+    "language=python 或 javascript 直接运行内联代码，少用 bash 外壳——bash 在"
+    "部分主机（如 Windows）可能不可用。③ 代码的工作目录就是工作区根目录，访问"
+    "工作区文件请用相对路径（如 fib.py），不要假设 /workspace 之类的绝对路径。"
+    "会话授权的区外目录以 `external/<别名>/…` 走文件工具；若代码需真实 OS 路径，"
+    "读环境变量 `AGENTCORE_EXTERNAL_<别名大写>`（由执行环境注入，勿把绝对路径"
+    "写进回复）。④ 抓取网页或调用公开 HTTP API 优先用 read_url / web_search "
+    "工具，不要在代码里发网络请求。"
+)
+
+# Local-only: short CLI verify (tsc / npm test / build) must not default to bash —
+# Windows PATH bash is often a broken WSL trampoline that hangs until timeout.
+_LOCAL_CLI_HINT = (
+    " 本机短 CLI（npx tsc、npm test、npm run build 等）请优先 "
+    "language=javascript（node 脚本）或 python 直接执行；"
+    "勿默认 language=bash——Windows 上 PATH 的 bash 常是不可用的 WSL 蹦床。"
 )
 
 
-def code_execute_description(location: Literal["server", "local"] | None = None) -> str:
-    """Location-aware tool description (云端沙箱 vs 用户本机)."""
+def _supported_phrase(languages: Sequence[str]) -> str:
+    labels = language_labels(tuple(languages))
+    if not languages:
+        return "当前无可用解释器"
+    return f"支持 {labels}"
+
+
+def code_execute_description(
+    location: Literal["server", "local"] | None = None,
+    *,
+    languages: Sequence[str] | None = None,
+) -> str:
+    """Location-aware tool description (云端沙箱 vs 用户本机).
+
+    ``languages`` trims the advertised surface for local/sidecar probes; ``None``
+    keeps the full catalog phrase (cloud fixed surface / unprobed callers).
+    """
+    langs = tuple(languages) if languages is not None else ALL_EXEC_LANGUAGES
+    support = _supported_phrase(langs)
     if location == "local":
         where = (
-            "在【用户本机】工作区目录中执行代码（支持 Python、JavaScript、Bash），"
+            f"在【用户本机】工作区目录中执行代码（{support}），"
             "可访问工作区内的文件。命令真实跑在用户机器上，除非确有必要，"
             "避免破坏性或不可逆的操作。"
         )
     elif location == "server":
         where = (
-            "在【服务端云端沙箱】工作区目录中执行代码（支持 Python、JavaScript、Bash），"
+            f"在【服务端云端沙箱】工作区目录中执行代码（{support}），"
             "可访问工作区内的文件。沙箱触达不了用户的电脑、本机应用与本机文件。"
             "沙箱 Python 已预装常用文档 / 数据库：python-pptx、python-docx、openpyxl、"
             "pandas、numpy、matplotlib、reportlab、pypdf、Pillow（画图含中文时先设置"
@@ -73,11 +121,15 @@ def code_execute_description(location: Literal["server", "local"] | None = None)
     else:
         # Catalog / unknown backend: stay honest without the old two-way hedge.
         where = (
-            "在当前对话工作区目录中执行代码（支持 Python、JavaScript、Bash），"
+            f"在当前对话工作区目录中执行代码（{support}），"
             "可访问工作区内的文件。具体是云端沙箱还是用户本机，取决于本回合工作区绑定"
             "（见 `<workspace_context>`）。"
         )
-    return where + _USAGE_TAIL
+    tail = _USAGE_TAIL
+    if location == "local" and "bash" in langs:
+        # Schema still advertises bash → keep the WSL "don't default to bash" nudge.
+        tail = _USAGE_TAIL + _LOCAL_CLI_HINT
+    return where + tail
 
 
 def _make_output_callback(context: ToolContext):
@@ -102,14 +154,33 @@ class CodeExecuteTool:
         needs_location=True,
     )
 
-    def __init__(self, *, location: Literal["server", "local"] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        location: Literal["server", "local"] | None = None,
+        languages: Sequence[str] | None = None,
+    ) -> None:
         self._location = location
+        # None → full catalog surface (cloud / tests). Explicit list → probe trim.
+        self._languages: tuple[str, ...] = (
+            tuple(lang for lang in languages if lang in ALL_EXEC_LANGUAGES)
+            if languages is not None
+            else ALL_EXEC_LANGUAGES
+        )
 
     @property
     def schema(self) -> ToolSchema:
+        langs = list(self._languages)
+        default_lang = (
+            "python"
+            if "python" in langs
+            else (langs[0] if langs else "python")
+        )
         return ToolSchema(
             name="code_execute",
-            description=code_execute_description(self._location),
+            description=code_execute_description(
+                self._location, languages=self._languages
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -119,9 +190,9 @@ class CodeExecuteTool:
                     },
                     "language": {
                         "type": "string",
-                        "enum": ["python", "javascript", "bash"],
+                        "enum": langs,
                         "description": "编程语言",
-                        "default": "python",
+                        "default": default_lang,
                     },
                     "timeout_seconds": {
                         "type": "integer",
@@ -157,6 +228,35 @@ class CodeExecuteTool:
                 duration_ms=0,
             )
 
+        if language not in self._languages:
+            avail = "、".join(self._languages) if self._languages else "无"
+            msg = (
+                f"本机未装配 language={language}；可用：{avail}"
+                "（见 `<workspace_context>` 可用解释器）。"
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output=msg,
+                error=msg,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                metadata={"code": "language_unavailable"},
+                contract_failure=True,
+            )
+
+        matched = long_running_command_match(code)
+        if matched is not None:
+            msg = long_running_redirect_message(matched, location=self._location)
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=msg,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                metadata={"code": "long_running_redirect", "matched": matched},
+                contract_failure=True,
+            )
+
         request = ExecutionRequest(
             code=code,
             language=language,
@@ -179,12 +279,17 @@ class CodeExecuteTool:
         except SandboxError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
             msg = e.message or str(e)
+            # Launcher / env start failures are self-correctable (switch language) —
+            # mark contract_failure so the circuit breaker does not burn on them.
+            launcher_fail = "代码执行环境启动失败" in msg
             return ToolResult(
                 tool_call_id="",
                 success=False,
                 output=msg,
                 error=msg,
                 duration_ms=duration_ms,
+                metadata={"code": "launcher_unavailable"} if launcher_fail else {},
+                contract_failure=launcher_fail,
             )
         duration_ms = int((time.monotonic() - start) * 1000)
 
@@ -229,6 +334,14 @@ class CodeExecuteTool:
             # Additive key (only when present) — desktop renders known keys and
             # ignores extras, so old fixtures/tests stay byte-identical.
             display["written_files"] = result.written_files
+
+        # exit 127 + launcher message: environment contract, not a code bug —
+        # allow same-round language switch without burning the circuit breaker.
+        launcher_unavailable = (
+            not result.success
+            and result.exit_code == 127
+            and "代码执行环境启动失败" in (result.stderr or "")
+        )
         return ToolResult(
             tool_call_id="",
             success=result.success,
@@ -236,4 +349,8 @@ class CodeExecuteTool:
             error=None if result.success else f"退出码 {result.exit_code}",
             duration_ms=duration_ms,
             display=display,
+            metadata=(
+                {"code": "launcher_unavailable"} if launcher_unavailable else {}
+            ),
+            contract_failure=launcher_unavailable,
         )

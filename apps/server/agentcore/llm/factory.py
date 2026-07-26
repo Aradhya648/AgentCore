@@ -6,6 +6,7 @@ from agentcore.config import settings
 from agentcore.llm.call_fence import observe_provider
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
+from agentcore.llm.provider.platform import PlatformProvider
 from agentcore.llm.provider.protocol import LLMProvider
 from agentcore.llm.provider.router import ProviderRouter
 from agentcore.llm.resolve import ProviderPurpose, platform_llm_credentials
@@ -15,6 +16,15 @@ _VENDOR_PROVIDERS: dict[str, tuple[str, str]] = {
     "zhipu": ("zhipu_api_key", "zhipu_base_url"),
     "doubao": ("doubao_api_key", "doubao_base_url"),
 }
+
+
+def build_platform_provider(
+    *,
+    purpose: ProviderPurpose = "user_facing",
+) -> LLMProvider:
+    """Platform router leaf: credentials resolved per ``request.model`` (F3 一 key 一模型)."""
+    _ = purpose
+    return observe_provider(PlatformProvider())
 
 
 def build_provider(
@@ -31,6 +41,11 @@ def build_provider(
     platform key when configured (legacy free-tier paths); prefer passing explicit
     credentials from the gate helper so quota skips are not silently re-platformed.
 
+    ``source=platform`` always yields :class:`PlatformProvider` (per-model key
+    resolution). Pre-resolved platform ``api_key`` on ``credentials`` is not frozen
+    into the leaf — the request's model id selects the key at call time so a single
+    ``platform/`` router entry can serve ``5.2`` and ``grok-4.5`` together.
+
     Callers that need ambient call-level pricing should bind
     ``credential_source`` in log context (pipeline / proxy) from ``creds.source``.
 
@@ -41,6 +56,8 @@ def build_provider(
     creds = credentials
     if creds is None:
         creds = platform_llm_credentials()
+    if creds is not None and creds.source == "platform":
+        return build_platform_provider(purpose=purpose)
     if creds is not None:
         leaf: LLMProvider = OpenAICompatibleProvider(
             name=creds.source,
@@ -97,8 +114,8 @@ async def build_turn_router(
     ``profiles.agent_provider_id`` (from ``resolve_turn_profiles``) that differs from the
     turn's chat credentials causes that provider to be registered under its id so
     ``TurnProfiles.route_model_for("agent")`` can dispatch with a ``provider_id/model``
-    prefix. ``PLATFORM_PROVIDER_SENTINEL`` registers ``platform_llm_credentials`` for the
-    worker model. Same-provider BYOK overrides need no extras.
+    prefix. ``PLATFORM_PROVIDER_SENTINEL`` registers :func:`build_platform_provider`
+    (per-model credentials). Same-provider BYOK overrides need no extras.
     """
     from agentcore.db.base import async_session_factory
     from agentcore.llm.profiles import PLATFORM_PROVIDER_SENTINEL, TurnProfiles
@@ -114,10 +131,9 @@ async def build_turn_router(
     ):
         if agent_provider_id == PLATFORM_PROVIDER_SENTINEL:
             worker_model = profiles.model_for("agent")
-            agent_creds = platform_llm_credentials(model=worker_model)
-            if agent_creds is not None:
-                extras[PLATFORM_PROVIDER_SENTINEL] = build_provider(
-                    agent_creds, purpose=purpose
+            if platform_llm_credentials(model=worker_model) is not None:
+                extras[PLATFORM_PROVIDER_SENTINEL] = build_platform_provider(
+                    purpose=purpose
                 )
         elif user_id:
             async with async_session_factory() as session:

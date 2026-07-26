@@ -7722,7 +7722,7 @@
         "type": "object"
       },
       "PausedTurnSummary": {
-        "description": "A turn awaiting resume after a durable plan_review / ask_user / kickoff pause.\n\nSurfaced on conversation reopen so the client can re-render the right resume card\nby ``kind`` and offer the kind-appropriate actions → the resume endpoint\n(kickoff delegate: continue[+嘱咐] / stop; debate: continue / adjust / stop;\nplan_review: continue / adjust / stop; ``per_call`` retained for historical\nresolves only).\n``message_id`` is both the pause key and the id the resumed assistant message will\nreuse, so an optimistic bubble reconciles cleanly.\n\nplan_review carries ``steps`` (the reviewed checkpoint nodes) + ``pending`` (the\ngated downstream); team_preview (开工卡) carries ``primitive`` (``delegate`` /\n``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /\n``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload\n``question`` (the framing / opening line) + ``context`` + the optional opening\ncontent ``assumptions`` / ``questions`` / ``style_options`` (empty for a compact\nmid-task fork). The unused set is empty for the other kinds.",
+        "description": "A turn awaiting resume after a durable plan_review / ask_user / kickoff pause.\n\nSurfaced on conversation reopen so the client can re-render the right resume card\nby ``kind`` and offer the kind-appropriate actions → the resume endpoint\n(kickoff delegate: continue[+嘱咐] / stop; debate: continue / adjust / stop;\nplan_review: continue / adjust / stop; ``per_call`` retained for historical\nresolves only).\n``message_id`` is both the pause key and the id the resumed assistant message will\nreuse, so an optimistic bubble reconciles cleanly.\n\nplan_review carries ``steps`` (the reviewed checkpoint nodes) + ``pending`` (the\ngated downstream); team_preview (开工卡) carries ``primitive`` (``delegate`` /\n``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /\n``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload\n``question`` (the framing / opening line) + ``context`` + the optional opening\ncontent ``assumptions`` / ``questions`` / ``style_options`` / ``format_options``\n(empty for a compact mid-task fork). The unused set is empty for the other kinds.",
         "properties": {
           "assumptions": {
             "items": {
@@ -7745,6 +7745,14 @@
             "default": "",
             "title": "Form",
             "type": "string"
+          },
+          "format_options": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Format Options",
+            "type": "array"
           },
           "intent": {
             "anyOf": [
@@ -7916,7 +7924,7 @@
         "type": "object"
       },
       "PermissionPreset": {
-        "description": "Conversation-level permission mode (会话级权限模式 · 运行时单一真相源).\n\n- ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff\n  does not pre-authorize write capabilities (≈ always_ask + withhold execution)\n- ``workspace`` — kickoff once authorizes grantable set (≈ first_grant; default)\n- ``full_trust`` — skip kickoff; silent auto-grant including local execution\n  (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)",
+        "description": "Conversation-level permission mode (会话级权限模式 · 运行时单一真相源).\n\n- ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff\n  does not pre-authorize write capabilities (≈ always_ask + withhold execution)\n- ``workspace`` — session-trust file-mutation class (no per-call cards; permanent\n  delete still asks); kickoff confirms team + authorizes execution class\n  (≈ first_grant; default)\n- ``full_trust`` — skip kickoff; silent auto-grant including local execution\n  (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)",
         "enum": [
           "observe",
           "workspace",
@@ -8627,10 +8635,23 @@
         "type": "object"
       },
       "ResumeTurnRequest": {
-        "description": "Body for ``POST .../messages/{message_id}/resume`` (结构化挂起 2b).\n\nContinues a turn that paused at a plan_review / ask_user checkpoint and was\nDURABLY persisted (so it survived a client disconnect / server restart — the live\nin-process resolve is the corresponding interaction instead). Same decision\nvocabulary as the live resolve: ``continue`` (proceed — run the gated downstream\nfor plan_review / accept the CEO direction for ask_user), ``adjust`` (inject\n``note`` as a steer, then continue), or ``stop`` (end the turn here). ``selected``\ncarries the option(s) the user picked from an ask_user menu (ignored for\nplan_review; the server drops any pick not actually offered). ``style_id`` is the\nstructured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in\n``selected``. The engine-only ``timeout`` is never sent by a client.",
+        "description": "Body for ``POST .../messages/{message_id}/resume`` (结构化挂起 2b).\n\nContinues a turn that paused at a plan_review / ask_user checkpoint and was\nDURABLY persisted (so it survived a client disconnect / server restart — the live\nin-process resolve is the corresponding interaction instead). Same decision\nvocabulary as the live resolve: ``continue`` (proceed — run the gated downstream\nfor plan_review / accept the CEO direction for ask_user), ``adjust`` (inject\n``note`` as a steer, then continue), or ``stop`` (end the turn here). ``selected``\ncarries the option(s) the user picked from an ask_user menu (ignored for\nplan_review; the server drops any pick not actually offered). ``style_id`` is the\nstructured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in\n``selected``. ``format_id`` is the structured presentation format pick\n(``f0``/``f1``/…); preferred over an ``fN`` token in ``selected``. The engine-only\n``timeout`` is never sent by a client.",
         "properties": {
           "decision": {
             "$ref": "#/components/schemas/CheckpointDecision"
+          },
+          "format_id": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional structured presentation format pick (f0/f1/…). Preferred over scanning selected; ignored when not a presentation kickoff.",
+            "title": "Format Id"
           },
           "note": {
             "default": "",
@@ -12335,7 +12356,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.14"
+    "version": "0.3.15"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -19322,7 +19343,7 @@
     },
     "/v1/conversations/{conversation_id}/messages/{message_id}/resume": {
       "post": {
-        "description": "Continue a durably-paused turn via SSE (结构化挂起 2b ``POST .../resume``).\n\nThe turn paused at a plan_review / ask_user / team_preview checkpoint and lost its\nlive stream (disconnect / restart); only its persisted frame survived.\n\nSettlement 预写 (D8)：① peek frame → ② live-task drain（不 cancel；仍 live ⇒ 409）→\n③ ``*_resolved`` 落库成功 → ④ ``claim_paused_turn`` → ⑤ resume pipeline。settlement\n写失败 ⇒ 5xx、不 claim、frame 保留可重试。Claim 竞争失败按现状 404。settlement 落库后\npipeline 取消/失败 ⇒ interrupted_after_decision（D1：不复活决策卡）。\n\n``body.selected`` carries the user's ask_user picks (ignored for plan_review).\n``body.style_id`` is the structured website style pick when present.\nGated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota\n— all BEFORE settlement/claim, so a refused turn keeps its resumable frame.",
+        "description": "Continue a durably-paused turn via SSE (结构化挂起 2b ``POST .../resume``).\n\nThe turn paused at a plan_review / ask_user / team_preview checkpoint and lost its\nlive stream (disconnect / restart); only its persisted frame survived.\n\nSettlement 预写 (D8)：① peek frame → ② live-task drain（不 cancel；仍 live ⇒ 409）→\n③ ``*_resolved`` 落库成功 → ④ ``claim_paused_turn`` → ⑤ resume pipeline。settlement\n写失败 ⇒ 5xx、不 claim、frame 保留可重试。Claim 竞争失败按现状 404。settlement 落库后\npipeline 取消/失败 ⇒ interrupted_after_decision（D1：不复活决策卡）。\n\n``body.selected`` carries the user's ask_user picks (ignored for plan_review).\n``body.style_id`` is the structured website style pick when present.\n``body.format_id`` is the structured presentation format pick when present.\nGated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota\n— all BEFORE settlement/claim, so a refused turn keeps its resumable frame.",
         "operationId": "resume_message_v1_conversations__conversation_id__messages__message_id__resume_post",
         "parameters": [
           {

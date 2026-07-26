@@ -41,7 +41,12 @@ def test_multi_agent_events_round_trip():
         "turn_end",
     ]
     assert entries[0]["ts"] == "t0"
-    assert runs_from_entries(entries) == runs
+    # Display fold synthesizes a ``team`` marker from ``run_plan`` when progressive
+    # ``process_team`` is absent (legacy / events-only journals).
+    assert runs_from_entries(entries) == {
+        **runs,
+        "process": [{"kind": "team", "execution_id": "e1"}],
+    }
 
 
 def test_single_agent_process_round_trips_with_events_empty():
@@ -322,6 +327,7 @@ def test_execution_sourced_surfaced_turn_keeps_graph_drops_exec_facts():
             {"type": "run_completed", "payload": {"run_id": "w1"}, "timestamp": "t2"},
         ],
         "finish_reason": "end_turn",
+        "process": [{"kind": "team", "execution_id": "e1"}],
     }
 
 

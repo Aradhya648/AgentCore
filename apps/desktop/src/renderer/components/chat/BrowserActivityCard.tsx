@@ -1,4 +1,5 @@
 import { IconButton } from "@/components/ui";
+import { isBrowserTool } from "@/lib/browserActivity";
 import { fetchWorkspaceFileBlob } from "@/services/workspace";
 import { useStreamAwareDisclosure } from "@/stores/disclosure";
 import { useSidePanelStore } from "@/stores/sidePanel";
@@ -33,11 +34,6 @@ function browserActionMeta(action: string): {
     ? action.charAt(0).toUpperCase() + action.slice(1)
     : "Step";
   return { Icon: Globe, label };
-}
-
-/** Whether a tool name is one of the L3 team-browser tools (`browser_*`). */
-export function isBrowserTool(name: string): boolean {
-  return name.startsWith("browser_");
 }
 
 /** True when a tool-group is ≥2 consecutive browser steps → render as one activity card
@@ -368,7 +364,7 @@ export function BrowserActivityCard({
     (src: string, alt: string) => setLightbox({ src, alt }),
     [],
   );
-  const openBrowserLive = useSidePanelStore((s) => s.openBrowserLive);
+  const showBrowser = useSidePanelStore((s) => s.showBrowser);
 
   const steps = browserStepsFromTools(tools);
   const running = tools.some((t) => t.status === "running");
@@ -405,15 +401,17 @@ export function BrowserActivityCard({
             <ChevronRight size={14} className="shrink-0" />
           )}
         </button>
-        {running && conversationId && (
-          // 运行中入口：附着这条会话的实时直播 (提案 D15)。开面板 + 切到「浏览器直播」tab。
+        {/* 揭示右坞「浏览器」tab。**不按 running 收起**：接管默认只能在 turn 之间做，若入口只在
+            运行中出现，用户就必须提前抢点开才有路子接管（沙箱在 turn 后仍存活 idle TTL，页面状态
+            还在，正是最该上手的时刻）。跑着时是直播、停下后是最后一帧/接管入口，故文案随态切。 */}
+        {conversationId && (
           <button
             type="button"
-            onClick={() => openBrowserLive(conversationId)}
+            onClick={showBrowser}
             className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
           >
             <Radio size={12} className="shrink-0" />
-            查看直播
+            {running ? "查看直播" : "打开浏览器"}
           </button>
         )}
       </div>
@@ -458,6 +456,7 @@ export function BrowserResult({
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(
     null,
   );
+  const showBrowser = useSidePanelStore((s) => s.showBrowser);
   const { Icon, label } = browserActionMeta(display.action);
   const alt = frameAlt(display);
   return (
@@ -484,6 +483,18 @@ export function BrowserResult({
             </p>
           )}
         </div>
+        {/* 单步富卡也挂入口：≥2 步活动卡已有 CTA，单步此前无路开浏览器 tab。
+            无可靠 running 信号 → 固定「打开浏览器」（与活动卡 turn 结束后文案一致）。 */}
+        {conversationId && (
+          <button
+            type="button"
+            onClick={showBrowser}
+            className="mt-0.5 flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+          >
+            <Radio size={12} className="shrink-0" />
+            打开浏览器
+          </button>
+        )}
       </div>
       <div className="bg-muted/30 p-2">
         {display.frame ? (

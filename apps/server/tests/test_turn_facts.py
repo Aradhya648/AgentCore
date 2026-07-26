@@ -159,6 +159,8 @@ def test_execution_only_kinds_match_enum():
         "coordination_snapshot",
         # P1a 建站风格双闸：结构化 style_id 确认（resume / full_auto）。
         "website_style_confirmed",
+        # 演讲/PPT 交付形态双闸：结构化 format_id 确认（resume / full_auto）。
+        "presentation_format_confirmed",
         # 回合态挂起归宿: resumable turn-state snapshot (process / controller / content).
         "turn_paused",
     } == EXECUTION_ONLY_KINDS
@@ -291,7 +293,10 @@ def test_display_projection_skips_turn_paused():
     assert runs is not None
     assert [e["type"] for e in runs["events"]] == ["run_plan", "run_completed"]
     assert runs["finish_reason"] == "paused"
-    assert runs["process"] == [{"kind": "content", "text": "步"}]
+    assert runs["process"] == [
+        {"kind": "team", "execution_id": "e1"},
+        {"kind": "content", "text": "步"},
+    ]
     assert pre_pause_from_journal(entries).content == "正文"
 
 
@@ -402,6 +407,7 @@ def test_display_projection_skips_execution_facts():
 
 def test_display_round_trip_unaffected_by_guard():
     # The existing display round-trip (no execution facts) is unchanged by the new skip.
+    # Fold synthesizes ``team`` from ``run_plan`` when progressive process_team is absent.
     runs = {
         "events": [
             {"type": "run_plan", "payload": {"execution_id": "e1"}, "timestamp": "t0"},
@@ -409,4 +415,7 @@ def test_display_round_trip_unaffected_by_guard():
         ],
         "finish_reason": "end_turn",
     }
-    assert runs_from_entries(entries_from_runs(runs)) == runs
+    assert runs_from_entries(entries_from_runs(runs)) == {
+        **runs,
+        "process": [{"kind": "team", "execution_id": "e1"}],
+    }

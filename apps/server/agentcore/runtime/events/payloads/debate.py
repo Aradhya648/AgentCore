@@ -36,9 +36,10 @@ class DebateSideInfo(WirePayload):
     name: str
     stance: str
     is_subject: bool
-    model: str | None = absent(
-        "Display-only model hint on some debate forms; absent on older wire."
-    )
+    # §7.5 真·多模型三元组；缺字段（老 journal / 同模型场）→ 前端跟 run 实际 model。
+    model: str | None = absent("该方辩手模型 id。")
+    origin: Literal["platform", "byok"] | None = absent("模型来源。")
+    provider_id: str | None = absent("BYOK 服务商 id。")
 
 
 class DebateSpeechArgument(WirePayload):
@@ -239,6 +240,11 @@ class DebateResultPayload(WirePayload):
     evidence_ledger: list[EvidenceLedgerEntry] = Field(default_factory=list)
     # 圆桌子题轴；缺字段（老事件）→ []。
     subtopics: list[str] = Field(default_factory=list)
+    # §7.5 裁判选型；缺字段（老 journal）→ 前端忽略。
+    moderator_model: str | None = absent("裁判模型 id。")
+    moderator_origin: Literal["platform", "byok"] | None = absent("裁判模型来源。")
+    moderator_provider_id: str | None = absent("裁判 BYOK provider_id。")
+    same_model_debate: bool | None = absent("同模型降级明示。")
 
 
 class DebateRoundStartedPayload(WirePayload):

@@ -161,6 +161,33 @@ def test_code_execute_description_does_not_overpromise_sandbox():
     assert "云端沙箱" in CodeExecuteTool(location="server").schema.description
 
 
+def test_code_execute_description_routes_long_running_to_terminal():
+    # Long-lived servers must not be waited on via code_execute (60s timeout trap).
+    from agentcore.tools.builtin.code_execute import code_execute_description
+    from agentcore.tools.builtin.terminal import TerminalTool
+
+    ce = code_execute_description("local")
+    assert "禁止" in ce
+    assert "terminal" in ce
+    assert "npm run dev" in ce
+    # Local short-CLI guidance: prefer node/javascript over bash shell.
+    assert "language=javascript" in ce
+    assert "WSL" in ce
+
+    td = TerminalTool().schema.description
+    assert "禁止改走 code_execute" in td
+    assert "wait_for" in td
+    assert "code_execute" in td  # short commands still pointed there
+
+
+def test_code_execute_description_server_omits_local_wsl_hint():
+    from agentcore.tools.builtin.code_execute import code_execute_description
+
+    server = code_execute_description("server")
+    assert "WSL" not in server
+    assert "npx tsc" not in server
+
+
 def test_read_url_description_does_not_overclaim_completeness():
     # read_url caps extracted text at max_chars (default 8000), so a long page is
     # truncated — the description must disclose that and not promise the "complete"

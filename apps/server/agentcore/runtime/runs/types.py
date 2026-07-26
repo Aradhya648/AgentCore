@@ -288,7 +288,8 @@ class RunSpec:
     continue_from_run_id: str | None = None
     # 检索预算（提案 A1）：本 run ``web_search``+``read_url`` 合计次数上限。
     # ``None`` = 未解析（手工构造的 spec / 测试）；经 ``build_run_plan`` /
-    # ``apply_retrieval_budgets`` 后恒为 ``>=0`` 的 int。CEO 显式声明优先于结构化默认。
+    # ``apply_retrieval_budgets`` 后恒为 ``>=0`` 的 int（全员统一默认；CEO 不可配置）。
+    # 辩手有案卷等内部 writer 可在 apply 后覆写为窄例外常量。
     # Enforce 在 engine ``tool_exec``（有 run 身份处），与 LoopController 正交。
     retrieval_budget: int | None = None
     # Per-run web_search posture (结构化信号，禁止靠 prompt 触发)。
@@ -299,6 +300,9 @@ class RunSpec:
     # 回落 ``settings.engine_worker_token_ceiling``）；经 ``apply_worker_budgets`` 后为
     # 显式回填值。辩论 ``research_then_draft`` 与普通 worker 共用此顶。
     token_ceiling: int | None = None
+    # Optional per-node ReAct round cap (repair / light posture). ``None`` = use
+    # the agent profile default (28). Stamped by builder for light / repair_code.
+    max_rounds: int | None = None
     policy: RunPolicy = field(default_factory=RunPolicy)
     # Fan-out awareness: a concise list of the *other* nodes that fanned out from
     # the same point — those sharing this node's exact ``depends_on`` set, i.e. the

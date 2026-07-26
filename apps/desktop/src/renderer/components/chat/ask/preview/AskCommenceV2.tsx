@@ -1,6 +1,6 @@
 /**
- * V2 Brief + Choose — mirrors production kickoff ({@link AskCommenceKickoffBody}).
- * Preview-only shell; submit/stop are no-ops for eyeballing.
+ * V2 Brief + Choose — 已退役的旧生产 kickoff（{@link AskCommenceKickoffBody}），
+ * 留作 v5 的对照。Preview-only shell; submit/stop are no-ops for eyeballing.
  */
 import type { CheckpointUserDecision } from "@/services/checkpoint";
 import { useState } from "react";

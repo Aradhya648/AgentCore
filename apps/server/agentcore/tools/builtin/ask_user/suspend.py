@@ -31,6 +31,7 @@ async def persist_suspension(
     assumptions: list[dict[str, Any]],
     questions: list[dict[str, Any]],
     style_options: list[dict[str, Any]],
+    format_options: list[dict[str, Any]],
     required_event: Any,
     intent: AskCheckpointIntent,
 ) -> bool:
@@ -71,6 +72,7 @@ async def persist_suspension(
             assumptions=assumptions,
             questions=questions,
             style_options=style_options,
+            format_options=format_options,
             intent=intent,
             journal_entries=capture.journal_entries,
             citations=capture.citations,

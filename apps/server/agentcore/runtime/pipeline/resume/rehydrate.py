@@ -59,6 +59,7 @@ class RehydratedTurnState:
     citations: list[dict[str, Any]] = field(default_factory=list)
     evidence_ledger: list[dict[str, Any]] = field(default_factory=list)
     website_style: dict[str, Any] | None = None
+    presentation_format: dict[str, Any] | None = None
     from_turn_paused: bool = False
     fact: TurnPausedFact | None = None
 
@@ -97,6 +98,9 @@ def rehydrate_from_turn_paused(
     evidence_ledger = list(fact.evidence_ledger or [])
     controller = dict(fact.controller) if fact.controller else {}
     website_style = dict(fact.website_style) if fact.website_style else None
+    presentation_format = (
+        dict(fact.presentation_format) if fact.presentation_format else None
+    )
 
     logger.info(
         "pipeline.resume_rehydrated",
@@ -108,6 +112,7 @@ def rehydrate_from_turn_paused(
         evidence_ledger=len(evidence_ledger),
         has_controller=bool(controller),
         has_website_style=bool(website_style),
+        has_presentation_format=bool(presentation_format),
     )
     return RehydratedTurnState(
         pre_pause_content=fact.content or "",
@@ -116,6 +121,7 @@ def rehydrate_from_turn_paused(
         citations=citations,
         evidence_ledger=evidence_ledger,
         website_style=website_style,
+        presentation_format=presentation_format,
         from_turn_paused=True,
         fact=fact,
     )

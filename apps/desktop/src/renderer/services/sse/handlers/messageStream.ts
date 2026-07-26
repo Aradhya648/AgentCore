@@ -195,11 +195,12 @@ export function handleMessageStreamEvent(
         const rt = execRuntime(useExecutionStore.getState(), mid);
         if (rt.plan && rt.status !== "failed") {
           // 后台托管继续跑 (coordination.turn_detached): CEO 回合结束时图内仍有
-          // running/pending run —— 不塌成 completed（否则状态条冻在残缺计数、
+          // running/pending **worker** —— 不塌成 completed（否则状态条冻在残缺计数、
           // finalizeFold 把未跑节点标「未执行」，而其余节点还显示「执行中」）。保持
           // running，交由 recordFrame(s) 的 run 终态 reconcile 在最后一个托管 worker
-          // 终态帧落时收口（经重连回放 / 跨回合追加送达）。paused 收口与「全部 run
-          // 已终态」两条路径不变。
+          // 终态帧落时收口（经重连回放 / 跨回合追加送达）。paused 收口与「工人已终态」
+          // 两条路径不变。Captain 假 pending（pre-plan run_started 被丢）不参与 hold，
+          // 否则 end_turn 后会永久钉在「正在生成汇总」。
           // cancelled/interrupted：后端终态权威，立刻定格（finalizeFold 冻残留 running）。
           const cancelled =
             payload.finish_reason === "cancelled" ||

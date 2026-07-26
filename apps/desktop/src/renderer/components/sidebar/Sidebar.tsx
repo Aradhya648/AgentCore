@@ -108,9 +108,11 @@ export function Sidebar() {
                   ? handleNewConversation()
                   : navigate(item.route)
               }
-              className={`relative text-base ${collapsed ? "justify-center px-0" : ""}`}
+              // 与下方列表同高（h-8）——整条侧栏一个 34px 节奏；导航的层级由分隔线 +
+              // font-medium + 图标承担，不再靠行高撑。
+              className={`relative h-8 font-medium ${collapsed ? "justify-center px-0" : ""}`}
             >
-              <item.icon size={18} className="shrink-0" />
+              <item.icon size={16} className="shrink-0" />
               {!collapsed && <span>{item.label}</span>}
               {showBadge &&
                 (collapsed ? (

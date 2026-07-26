@@ -215,12 +215,14 @@ export async function attachStream(
 
 /** The user's settlement of a durably-paused turn (mirrors backend ResumeTurnRequest).
  *  `note` steers an `adjust`; `selected` carries ask_user picks (ignored for plan_review).
- *  `style_id` is the structured website style pick when present. */
+ *  `style_id` is the structured website style pick when present.
+ *  `format_id` is the structured presentation format pick when present. */
 export interface ResumeTurnBody {
   decision: CheckpointDecision;
   note: string;
   selected: string[];
   style_id?: string;
+  format_id?: string;
 }
 
 /**

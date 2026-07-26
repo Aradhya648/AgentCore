@@ -189,6 +189,8 @@ export interface SidecarResumeRequest {
   selected?: string[];
   /** Structured website style pick (s0/s1/…). */
   styleId?: string;
+  /** Structured presentation format pick (f0/f1/…). */
+  formatId?: string;
   /** 云代理凭据（同 `startTurn`）——续跑要跑 LLM；重启后续跑会新拉起引擎，故须随带。 */
   inference?: SidecarInference;
   /** 本会话当前权限模式（同 `startTurn.permissionPreset`）。 */
@@ -248,6 +250,7 @@ export function buildSidecarResumeRpcParams(
     | "note"
     | "selected"
     | "styleId"
+    | "formatId"
     | "userMessageId"
     | "permissionPreset"
   >,
@@ -261,6 +264,7 @@ export function buildSidecarResumeRpcParams(
     note: req.note,
     selected: req.selected ?? [],
     ...(req.styleId ? { styleId: req.styleId } : {}),
+    ...(req.formatId ? { formatId: req.formatId } : {}),
     ...(req.userMessageId ? { userMessageId: req.userMessageId } : {}),
     ...(inference ? { inference } : {}),
     ...(req.permissionPreset ? { permissionPreset: req.permissionPreset } : {}),

@@ -321,6 +321,7 @@ def test_format_for_ceo_includes_final_synthesis_discipline():
     assert "中间合成草稿" in out and "escalation 原文" in out
     assert "未交付 / 需你操作" in out
     assert "队员终态名册" in out
+    assert "PPT 已落盘" in out and ".pptx" in out
 
 
 def test_worker_products_failed_with_body_surfaces_error_not_pass_through():

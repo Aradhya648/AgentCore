@@ -462,7 +462,15 @@ def test_failed_progress_tool_does_not_skip_reflection():
 def test_progress_tools_include_append_and_handoff():
     from agentcore.runtime.loop_controller import PROGRESS_TOOLS
 
-    assert {"file_write", "file_append", "handoff", "delegate", "ask_user"} <= PROGRESS_TOOLS
+    assert {
+        "file_write",
+        "file_append",
+        "str_replace",
+        "write_section",
+        "handoff",
+        "delegate",
+        "ask_user",
+    } <= PROGRESS_TOOLS
 
 
 # --- over-investigation safety net (收敛治理, 保险丝: finalize-only runaway backstop) ---
@@ -601,3 +609,109 @@ def test_progress_tool_resets_spin_streak():
     c.record([ToolAttempt(fingerprint="d1", tool_name="delegate", success=True)])
     assert c.same_target_investigation_streak == 0
     assert c.convergence_action() is Intervention.CONTINUE
+
+
+# --- zero-write thrashing (files-expected investigation idle) ---
+
+
+def _files_worker(*, zero_write: int = 7, finalize: int = 30) -> LoopController:
+    return LoopController(
+        convergence_finalize_rounds=finalize,
+        convergence_spin_rounds=0,  # isolate zero-write from same-target spin
+        zero_write_finalize_rounds=zero_write,
+        investigation_tools=frozenset({"file_read", "file_list", "grep"}),
+    )
+
+
+def test_zero_write_finalizes_before_max_rounds():
+    c = _files_worker(zero_write=7)
+    for i in range(6):
+        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+        assert c.convergence_action() is Intervention.CONTINUE
+    assert c.zero_write_warn_due()
+    c.record([ToolAttempt(fingerprint="f6", tool_name="file_read", success=True)])
+    assert c.zero_write_investigation_rounds == 7
+    assert c.convergence_action() is Intervention.FINALIZE
+    assert c.is_thrashing()
+
+
+def test_zero_write_disabled_without_threshold():
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=0,
+        investigation_tools=frozenset({"file_read"}),
+    )
+    for i in range(12):
+        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+    assert c.convergence_action() is Intervention.CONTINUE
+    assert not c.is_thrashing()
+
+
+def test_govern_after_tools_zero_write_finalize_is_degraded():
+    """Mid-loop zero_write FINALIZE stamps DEGRADED (aligned with ceiling)."""
+    from agentcore.runtime.engine.directive import Finalize
+    from agentcore.runtime.engine.governance import govern_after_tools
+    from agentcore.runtime.engine.outcome import RoundOutcome
+    from agentcore.runtime.events import FinishReason
+
+    c = _files_worker(zero_write=3)
+    for i in range(3):
+        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+    messages: list = []
+    directive = govern_after_tools(
+        RoundOutcome(
+            content="",
+            reasoning="",
+            usage=None,
+            tool_calls=[],
+            tool_results=[],
+            attempts=[],
+        ),
+        c,
+        messages=messages,
+        round_idx=3,
+        run_id="r1",
+        breaker_message=None,
+    )
+    assert isinstance(directive, Finalize)
+    assert directive.reason == "convergence"
+    assert directive.finish_reason is FinishReason.DEGRADED
+
+
+def test_landing_success_resets_zero_write_streak():
+    c = _files_worker(zero_write=4)
+    for i in range(3):
+        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+    assert c.zero_write_investigation_rounds == 3
+    c.record([ToolAttempt(fingerprint="w", tool_name="str_replace", success=True)])
+    assert c.landing_succeeded
+    assert c.zero_write_investigation_rounds == 0
+    for i in range(3):
+        c.record([ToolAttempt(fingerprint=f"g{i}", tool_name="file_read", success=True)])
+    assert c.convergence_action() is Intervention.CONTINUE  # streak irrelevant after land
+
+
+def test_landing_attempt_exempts_round_from_zero_write():
+    """Failed write is 落盘意图 — does not bump the idle clock."""
+    c = _files_worker(zero_write=3)
+    c.record([ToolAttempt(fingerprint="a", tool_name="file_read", success=True)])
+    c.record([ToolAttempt(fingerprint="b", tool_name="file_read", success=True)])
+    c.record(
+        [
+            ToolAttempt(fingerprint="r", tool_name="file_read", success=True),
+            ToolAttempt(fingerprint="w", tool_name="str_replace", success=False),
+        ]
+    )
+    assert c.zero_write_investigation_rounds == 0
+    assert c.convergence_action() is Intervention.CONTINUE
+
+
+def test_different_targets_still_trip_zero_write():
+    """换文件通读不算 spin，但仍算零写空转。"""
+    c = _files_worker(zero_write=5, finalize=30)
+    for i in range(5):
+        c.record([ToolAttempt(fingerprint=f"path{i}", tool_name="file_read", success=True)])
+    assert c.same_target_investigation_streak == 0
+    assert c.convergence_action() is Intervention.FINALIZE
+    assert c.is_thrashing()

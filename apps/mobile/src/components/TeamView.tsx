@@ -176,7 +176,7 @@ export function TeamView({
   /** 团队便签墙 (§2.2 通): notes workers broadcast to their concurrent siblings this turn. */
   teamNotes?: ProjectedTeamNote[];
   /** 交付状态（`delivery_status`，能力闸门与交付诚实性）：delegate 收尾的结构化交付对账。
-   *  只在有诚实缺口要交代（partial / blocked）时渲染；delivered 由产出文件卡承载。 */
+   *  只在有诚实缺口要交代（partial / blocked / notes）时渲染；delivered 由产出文件卡承载。 */
   deliveryStatus?: DeliveryStatusPayload | null;
   /** Turn lifecycle from ProjectedTurn — drives team-notes default expand/collapse. */
   status?: TurnStatus | null;
@@ -330,14 +330,16 @@ const GAP_REASON_LABEL: Record<string, string> = {
   worker_timeout: "运行超时",
   degraded_handoff: "降级交接",
   qa_deferred_budget: "验收推迟",
+  unverified_note: "待核实",
+  files_not_landed: "未落盘",
 };
 
 /** Action kinds that mean the user/team can continue or redispatch this batch
- *  (对齐桌面 DeliveryStatusCard；同缺口 escalate 未进 payload → 无续派 CTA 时隐藏 hint)。 */
+ *  (对齐桌面 DeliveryStatusCard；同缺口 escalate 未进 payload → 无续派 CTA 时隐藏 hint)。
+ *  成篇未写完改由对话框接着说——已撤 continue_writing。 */
 const REDISPATCH_ACTION_KINDS = new Set([
   "bind_local_folder",
   "website_verify",
-  "continue_writing",
   "continue_skipped_runs",
 ]);
 
@@ -347,19 +349,52 @@ function mayShowRedispatchHint(status: DeliveryStatusPayload): boolean {
   );
 }
 
-/** 交付验收区块（批次验收 / completion_criteria；partial / blocked）：
+function deliveryStateLabel(state: DeliveryStatusPayload["state"]): string {
+  if (state === "blocked") return "未满足";
+  if (state === "notes") return "有备注";
+  return "部分未满足";
+}
+
+function deliveryStateClass(state: DeliveryStatusPayload["state"]): string {
+  if (state === "blocked") return "is-blocked";
+  if (state === "notes") return "is-notes";
+  return "is-partial";
+}
+
+/** 交付验收区块（批次验收 / completion_criteria；partial / blocked / notes）：
  *  与 finish_guard「引用/格式核验后已重写」chip 分流——此处是交付验收未过；「团队可能重派」
  *  仅在 actions 含可续派 kind 时显示（非 unmet 恒显）。
- *  C3：交付验收卡为缺口唯一披露；partial / blocked 强调色由头部状态徽标承接（对齐桌面）。 */
+ *  C3：交付验收卡为缺口唯一披露；partial / blocked 强调色由头部状态徽标承接（对齐桌面）；
+ *  仅 soft 待核实 → notes 轻提醒。手机为云瘦客户端：待核实聚合展示，无「打开相关文件」绑定。 */
 function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
-  const blocked = status.state === "blocked";
   const gaps = status.gaps ?? [];
-  const actions = status.actions ?? [];
-  const showRedispatchHint = mayShowRedispatchHint(status);
+  // 已撤 continue_writing：旧载荷若仍带该 action，过滤掉，避免与对话框续写提示重复。
+  const actions = (status.actions ?? []).filter(
+    (a) => a.kind !== "continue_writing",
+  );
+  const showRedispatchHint = mayShowRedispatchHint({ ...status, actions });
+  const blockingGaps = gaps.filter((g) => g.severity !== "warning");
+  const warningGaps = gaps.filter((g) => g.severity === "warning");
+  const writingIncomplete =
+    status.state === "partial" &&
+    blockingGaps.some(
+      (g) => g.reason === "token_budget" || g.reason === "worker_timeout",
+    );
   // 诚实披露卡：默认展开（不套产物卡「>4 收起」阈值）；收起仅折叠 gap 明细与 actions，头部
   // （交付验收 + 状态徽标 + summary + 条件性「团队可能重派」）恒可见。手机无折叠持久化（对齐本端
   // FileArtifactsCard 的整行开合 + chevron），本地 state 即可。
   const [expanded, setExpanded] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const warnHits = warningGaps.reduce((n, g) => {
+    const m = g.description.match(/（(\d+)\s*处）/);
+    return n + (m ? Number(m[1]) || 1 : 1);
+  }, 0);
+  const warnFiles = new Set(warningGaps.flatMap((g) => g.paths ?? [])).size;
+  const warnSummary =
+    warnHits > 0
+      ? `有 ${warnHits} 处待核实备注${warnFiles ? `（${warnFiles} 个文件）` : ""}`
+      : "";
+
   return (
     <div className="delivery">
       <button
@@ -368,10 +403,8 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="delivery-title">交付验收</span>
-        <span
-          className={`delivery-state ${blocked ? "is-blocked" : "is-partial"}`}
-        >
-          {blocked ? "未满足" : "部分未满足"}
+        <span className={`delivery-state ${deliveryStateClass(status.state)}`}>
+          {deliveryStateLabel(status.state)}
         </span>
         <span className="delivery-summary">{status.summary}</span>
         {showRedispatchHint ? (
@@ -384,7 +417,7 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
         )}
       </button>
       {expanded &&
-        gaps.map((gap, i) => {
+        blockingGaps.map((gap, i) => {
           const reasonLabel =
             gap.reason && GAP_REASON_LABEL[gap.reason]
               ? GAP_REASON_LABEL[gap.reason]
@@ -405,6 +438,39 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
             </div>
           );
         })}
+      {expanded && warnSummary ? (
+        <div className="delivery-row">
+          <button
+            type="button"
+            className="delivery-desc"
+            onClick={() => setNotesOpen((v) => !v)}
+          >
+            {warnSummary}
+            <span className="delivery-hint">
+              {" "}
+              {notesOpen ? "收起" : "展开"}
+            </span>
+          </button>
+          {notesOpen
+            ? warningGaps.map((gap, i) => (
+                <div
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 同上
+                  key={`warn-${i}`}
+                  className="delivery-desc"
+                >
+                  {gap.role}：{gap.description}
+                </div>
+              ))
+            : null}
+        </div>
+      ) : null}
+      {expanded && writingIncomplete ? (
+        <div className="delivery-row delivery-action">
+          <span className="delivery-desc">
+            成篇未写完——请在对话框告诉我接着写（从已完成章节继续；勿删稿重写整篇）
+          </span>
+        </div>
+      ) : null}
       {expanded &&
         actions.map((action, i) => (
           <div

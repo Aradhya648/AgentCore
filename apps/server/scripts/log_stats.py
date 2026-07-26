@@ -375,6 +375,27 @@ def _print_human(
             print(
                 f"  Duration   avg={_avg(durations):.0f}ms  min={min(durations)}  max={max(durations)}"
             )
+        # Phase-0 latency (AI 延迟观测): prepare/assemble wall-clock + captain TTFT.
+        # Nulls omitted (missing path ≠ 0). Not the same as llm.call latency_ms.
+        prepare_vals = [t["prepare_ms"] for t in turn_completes if t.get("prepare_ms") is not None]
+        assemble_vals = [t["assemble_ms"] for t in turn_completes if t.get("assemble_ms") is not None]
+        ttft_r = [
+            t["ttft_reasoning_ms"] for t in turn_completes if t.get("ttft_reasoning_ms") is not None
+        ]
+        ttft_c = [
+            t["ttft_content_ms"] for t in turn_completes if t.get("ttft_content_ms") is not None
+        ]
+        if prepare_vals or assemble_vals or ttft_r or ttft_c:
+            parts: list[str] = []
+            if prepare_vals:
+                parts.append(f"prepare avg={_avg(prepare_vals):.0f}ms")
+            if assemble_vals:
+                parts.append(f"assemble avg={_avg(assemble_vals):.0f}ms")
+            if ttft_r:
+                parts.append(f"ttft_reasoning avg={_avg(ttft_r):.0f}ms")
+            if ttft_c:
+                parts.append(f"ttft_content avg={_avg(ttft_c):.0f}ms")
+            print(f"  Phase-0    {'  '.join(parts)}")
         if rounds:
             print(f"  Rounds     avg={_avg(rounds):.1f}  min={min(rounds)}  max={max(rounds)}")
         print(f"  Tokens     in avg={_avg(in_tok):.0f}  out avg={_avg(out_tok):.0f}")

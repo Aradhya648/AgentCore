@@ -261,6 +261,8 @@ async def _react_and_capture(
     tool_failure_sink: list[dict] | None = None,
     turn_evidence_ledger: object | None = None,
     ledger_registrant: str = "",
+    files_expected: bool = False,
+    short_write_posture: bool = False,
 ) -> tuple[str, str, TokenUsage, int]:
     """Run one ReAct pass over ``messages`` (mutated in place — the loop appends
     each assistant tool-call turn + tool results), then append the final assistant
@@ -340,6 +342,8 @@ async def _react_and_capture(
         finish_override_sink=finish_override_sink,
         cutoff_reason_sink=cutoff_reason_sink,
         tool_failure_sink=tool_failure_sink,
+        files_expected=files_expected,
+        short_write_posture=short_write_posture,
     )
     messages.append(LLMMessage(role="assistant", content=content))
     return content, reasoning, usage, rounds

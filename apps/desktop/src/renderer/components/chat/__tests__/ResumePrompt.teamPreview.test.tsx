@@ -78,6 +78,7 @@ function makeTeamPreview(over: Record<string, unknown> = {}) {
     assumptions: [],
     questions: [],
     styleOptions: [],
+    formatOptions: [],
     intent: "kickoff",
     origin: "server",
     ...over,
@@ -108,7 +109,7 @@ describe("ResumePrompt · team_preview delegate", () => {
     expect(screen.getByText("停止")).toBeTruthy();
     expect(screen.queryByText("逐次审批开工")).toBeNull();
     expect(screen.queryByText("调整")).toBeNull();
-    expect(screen.getByText("将授权的能力范围")).toBeTruthy();
+    expect(screen.getByText("将授权的执行能力")).toBeTruthy();
   });
 
   it("主按钮带非空备注发 continue（非 adjust）", () => {

@@ -110,7 +110,7 @@ export function ViewAllConversations() {
     <div className="px-2 pb-2">
       <SurfaceRowButton
         onClick={() => navigate("/conversations")}
-        className="justify-between text-sidebar-foreground/55 hover:text-sidebar-foreground"
+        className="h-8 justify-between text-sidebar-foreground/55 hover:text-sidebar-foreground"
       >
         <span>查看全部对话</span>
         <ChevronRight size={14} className="shrink-0" />

@@ -21,6 +21,12 @@ if TYPE_CHECKING:
 _RUN_TERMINAL_TYPES = frozenset({EventType.RUN_COMPLETED.value, EventType.RUN_FAILED.value})
 
 
+# ``before_last_team`` process markers (开工卡 / 委派授权): product narrative is
+# 放行 → 协作图. ``run_plan`` may journal ``process_team`` first; fold still inserts
+# these ahead of the last ``team`` so reload order matches live EventSink.
+_BEFORE_LAST_TEAM_PROCESS_KINDS = frozenset({"team_preview", "delegation_authorization"})
+
+
 def _upsert_tool_step(steps: list[dict[str, Any]], step: dict[str, Any]) -> None:
     """Append a tool step, or replace an earlier row with the same ``id`` (last wins).
 
@@ -34,6 +40,77 @@ def _upsert_tool_step(steps: list[dict[str, Any]], step: dict[str, Any]) -> None
                 steps[i] = step
                 return
     steps.append(step)
+
+
+def _has_team_marker(steps: list[dict[str, Any]], execution_id: str) -> bool:
+    return any(
+        s.get("kind") == "team" and s.get("execution_id") == execution_id for s in steps
+    )
+
+
+def _append_process_step(steps: list[dict[str, Any]], step: dict[str, Any]) -> None:
+    """Append a non-tool process step, applying ``before_last_team`` when needed."""
+    kind = step.get("kind")
+    if kind == "team":
+        eid = step.get("execution_id") or ""
+        if eid and _has_team_marker(steps, eid):
+            return
+        steps.append(step)
+        return
+    if kind in _BEFORE_LAST_TEAM_PROCESS_KINDS:
+        for i in range(len(steps) - 1, -1, -1):
+            if steps[i].get("kind") == "team":
+                steps.insert(i, step)
+                return
+    steps.append(step)
+
+
+def _note_team_slot_from_run_plan(
+    slots: dict[str, int],
+    process: list[dict[str, Any]],
+    payload: dict[str, Any],
+) -> None:
+    """Record where a missing ``team`` should sit (index = current process length).
+
+    Applied after the process lane is fully rebuilt so we do not block G1 snapshot
+    hydrate when the journal has ``run_plan`` but no progressive ``process_*``.
+    """
+    if payload.get("host_message_id"):
+        return
+    eid = payload.get("execution_id") or ""
+    if not eid or eid in slots or _has_team_marker(process, eid):
+        return
+    slots[eid] = len(process)
+
+
+def _apply_team_slots_from_run_plans(
+    process: list[dict[str, Any]],
+    slots: dict[str, int],
+) -> None:
+    """Insert deferred ``team`` markers (highest index first so earlier slots stay valid)."""
+    if not slots:
+        return
+    for eid, at in sorted(slots.items(), key=lambda item: item[1], reverse=True):
+        if _has_team_marker(process, eid):
+            continue
+        idx = max(0, min(at, len(process)))
+        process.insert(idx, {"kind": "team", "execution_id": eid})
+
+
+def _reorder_before_last_team_markers(process: list[dict[str, Any]]) -> None:
+    """After deferred ``team`` insert, keep 开工卡 / 授权 ahead of the last team."""
+    markers = [s for s in process if s.get("kind") in _BEFORE_LAST_TEAM_PROCESS_KINDS]
+    if not markers:
+        return
+    rest = [s for s in process if s.get("kind") not in _BEFORE_LAST_TEAM_PROCESS_KINDS]
+    team_idx = next(
+        (i for i in range(len(rest) - 1, -1, -1) if rest[i].get("kind") == "team"),
+        None,
+    )
+    if team_idx is None:
+        process[:] = rest + markers
+        return
+    process[:] = [*rest[:team_idx], *markers, *rest[team_idx:]]
 
 
 def _splice_synthetic_deltas(
@@ -126,6 +203,9 @@ def runs_from_entries(entries: list[dict[str, Any]] | None) -> dict[str, Any] | 
     events: list[dict[str, Any]] = []
     process: list[dict[str, Any]] = []
     run_processes: dict[str, list[dict[str, Any]]] = {}
+    # Legacy journals: ``run_plan`` without ``process_team`` — defer insert until the
+    # process lane is complete (progressive facts or G1 snapshot).
+    team_slots_from_run_plan: dict[str, int] = {}
     finish_reason: str | None = None
     # The 报错回合 outcome (code + message) carried on turn_end, projected back so the
     # bubble rebuilds its inline error card on reload (Tier 2 a). None for a clean turn.
@@ -173,7 +253,7 @@ def runs_from_entries(entries: list[dict[str, Any]] | None) -> dict[str, Any] | 
             if suffix == "tool":
                 _upsert_tool_step(process, payload)
             else:
-                process.append(payload)
+                _append_process_step(process, payload)
         elif kind.startswith(_RUN_PROCESS_PREFIX):
             # Per-run worker timeline (对称 CEO process_ lane). Payload carries run_id
             # plus the ProcessStep fields; strip run_id so the restored step matches
@@ -219,6 +299,10 @@ def runs_from_entries(entries: list[dict[str, Any]] | None) -> dict[str, Any] | 
                 if isinstance(msg, str) and msg.strip():
                     turn_warning = msg
             events.append({"type": kind, "payload": payload, "timestamp": entry.get("ts")})
+            if kind == EventType.RUN_PLAN.value:
+                _note_team_slot_from_run_plan(
+                    team_slots_from_run_plan, process, payload
+                )
     # G1 挂起中重载: no process_* / run_process_* lanes → use last turn_paused snapshot.
     if not process and not run_processes:
         snap = pre_pause_from_journal(entries)
@@ -229,6 +313,8 @@ def runs_from_entries(entries: list[dict[str, Any]] | None) -> dict[str, Any] | 
                 run_processes = {
                     rid: list(steps) for rid, steps in snap.run_processes.items()
                 }
+    _apply_team_slots_from_run_plans(process, team_slots_from_run_plan)
+    _reorder_before_last_team_markers(process)
     if final_outputs:
         events = _splice_synthetic_deltas(events, final_outputs, agent_run_ids)
     # Surface gate (parity with EventSink.execution_journal): idempotent on journals

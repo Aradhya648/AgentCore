@@ -15,6 +15,9 @@ from agentcore.llm.provider.protocol import (
 )
 from agentcore.llm.provider.router import ProviderRouter
 
+# PlatformProvider is imported from agentcore.llm.provider.platform directly
+# (not re-exported here) to avoid credentials ↔ profiles ↔ provider init cycles.
+
 __all__ = [
     "BACKOFF_MULTIPLIER",
     "INITIAL_BACKOFF",

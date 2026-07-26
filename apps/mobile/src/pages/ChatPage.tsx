@@ -1588,6 +1588,7 @@ export function ChatPage() {
     note: string,
     selected: string[] = [],
     styleId: string | null = null,
+    formatId: string | null = null,
   ) {
     if (!conversationId || busy) return;
     setPaused((p) => p.filter((x) => x.message_id !== messageId));
@@ -1610,6 +1611,7 @@ export function ChatPage() {
           note,
           selected,
           ...(styleId ? { style_id: styleId } : {}),
+          ...(formatId ? { format_id: formatId } : {}),
         },
         appendEvent,
         ac.signal,
@@ -1863,13 +1865,14 @@ export function ChatPage() {
           <ResumeCard
             key={p.message_id}
             paused={p}
-            onResume={(decision, note, selected, styleId) =>
+            onResume={(decision, note, selected, styleId, formatId) =>
               void resume(
                 p.message_id,
                 decision,
                 note,
                 selected,
                 styleId ?? null,
+                formatId ?? null,
               )
             }
           />

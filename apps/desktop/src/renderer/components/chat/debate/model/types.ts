@@ -203,6 +203,11 @@ export interface DebateModel {
   motion: string | null;
   stopReason: string | null;
   moderatorRunId: string | null;
+  /** Phase 3：裁判 wire model；缺省 null（同模型场 / 旧 journal）。 */
+  moderatorModel: string | null;
+  moderatorOrigin: "platform" | "byok" | null;
+  /** Phase 3：同模型降级明示（开赛卡 / 简报可选提示）。 */
+  sameModelDebate: boolean;
   narrativeFirst: boolean;
   rounds: DebateRoundModel[];
   brief: DebateBriefInfo | null;

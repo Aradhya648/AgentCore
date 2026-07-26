@@ -72,14 +72,14 @@ export function Scoreboard({
   return (
     <div className="border-b border-border">
       <div className={`mx-auto ${DEBATE_ARENA_PAGE_MAX} px-1 py-3`}>
-        <div className="flex items-start gap-2">
+        <div className="flex flex-wrap items-start gap-2">
           <p
-            className="min-w-0 flex-1 truncate text-base font-medium text-foreground"
+            className="min-w-0 flex-1 basis-48 truncate text-base font-medium text-foreground"
             title={motion}
           >
             {motion}
           </p>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
             {hasPendingSteering && (
               <Button
                 variant="neutral"

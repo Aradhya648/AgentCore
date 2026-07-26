@@ -66,12 +66,13 @@ def test_files_written_requires_workspace_write():
     assert gaps == []
 
 
-def test_code_verified_requires_successful_code_execute():
+def test_code_verified_rejects_bare_code_execute():
+    """Non-verify code_execute must not satisfy code_verified (no compat fallback)."""
     criteria = parse_completion_criteria("code_verified")
     ok, _ = check_delegate_completion(criteria, {"a": _run()})
     assert not ok
 
-    transcript = [
+    bare = [
         LLMMessage(
             role="assistant",
             tool_calls=[
@@ -84,7 +85,151 @@ def test_code_verified_requires_successful_code_execute():
         ),
         LLMMessage(role="tool", content="stdout:\n1\n", tool_call_id="tc1"),
     ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=bare)})
+    assert not ok
+    assert any("验证" in g or "code_execute" in g for g in gaps)
+
+
+def test_code_verified_accepts_verify_shaped_code_execute_exit_zero():
+    criteria = parse_completion_criteria("code_verified")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="code_execute",
+                        arguments='{"code":"npx tsc -b","language":"bash"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="stdout:\n\n\n退出码：0",
+            tool_call_id="tc1",
+        ),
+    ]
     ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    assert ok
+    assert gaps == []
+
+
+def test_code_execute_verify_requires_explicit_exit_zero():
+    """Verify-shaped args without exit 0 (or with non-zero) must gap."""
+    criteria = parse_completion_criteria("code_verified")
+    no_exit = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="code_execute",
+                        arguments='{"code":"npx tsc -b","language":"bash"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(role="tool", content="stdout:\nok\n", tool_call_id="tc1"),
+    ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=no_exit)})
+    assert not ok
+    assert gaps
+
+    nonzero = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc2",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="code_execute",
+                        arguments='{"code":"npx tsc -b","language":"bash"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="stderr:\nerror\n退出码：1",
+            tool_call_id="tc2",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=nonzero)})
+    assert not ok
+    assert gaps
+
+
+def test_typescript_landing_requires_verify_even_when_criteria_omitted():
+    """D2: .ts/.tsx 落盘后，省略 completion_criteria 也不得空过验证。"""
+    ok, gaps = check_delegate_completion(
+        None, {"a": _run(files=["src/canvas/renderer.ts"])}
+    )
+    assert not ok
+    assert any("验证" in g for g in gaps)
+
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="code_execute",
+                        arguments='{"code":"npx tsc -b","language":"bash"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="stdout:\n\n\n退出码：0",
+            tool_call_id="tc1",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(
+        None,
+        {"a": _run(files=["src/canvas/renderer.ts"], transcript=transcript)},
+    )
+    assert ok
+    assert gaps == []
+
+
+def test_terminal_tsc_counts_as_verify():
+    criteria = parse_completion_criteria("code_verified")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="terminal",
+                        arguments='{"subcommand":"start","command":"npx tsc -b"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="process_id: p1\nstatus: exited\nexit_code: 0\noutput:（无）",
+            tool_call_id="tc1",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    assert ok
+    assert gaps == []
+
+
+def test_md_landing_without_verify_still_ok_when_omitted():
+    ok, gaps = check_delegate_completion(None, {"a": _run(files=["notes.md"])})
     assert ok
     assert gaps == []
 
@@ -97,7 +242,7 @@ def test_format_completion_gap_message():
 
 def test_format_gap_names_text_inferred_source_and_decl_hint():
     msg = format_completion_gap_message(
-        ["尚无 worker 成功运行 code_execute / test_run 验证代码"],
+        ["尚无 worker 成功验证代码（须 code_execute / test_run / terminal 跑通"],
         criteria_kind="code_verified",
         source="text_inferred",
     )
@@ -108,7 +253,7 @@ def test_format_gap_names_text_inferred_source_and_decl_hint():
 
 def test_format_gap_escalates_after_same_gap_streak():
     msg = format_completion_gap_message(
-        ["尚无 worker 成功运行 code_execute / test_run 验证代码"],
+        ["尚无 worker 成功验证代码（须 code_execute / test_run / terminal 跑通"],
         criteria_kind="code_verified",
         source="text_inferred",
         escalate=True,

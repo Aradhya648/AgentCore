@@ -90,6 +90,15 @@ class ConsultSkillTool:
             msg = (
                 f"没有名为 '{name}' 的能力。" if name else "缺少 name 参数。"
             ) + f" 可查阅的能力：{available}。"
+            # Known playbook name mistaken for a skill → point at delegate(playbook=…).
+            if name:
+                from agentcore.runtime.runs.playbooks import PLAYBOOKS
+
+                if name in PLAYBOOKS:
+                    msg += (
+                        f" 『{name}』是 playbook 不是 skill，"
+                        f"请用 `delegate(playbook=\"{name}\", …)`。"
+                    )
             logger.info("consult_skill.miss", name=name)
             return ToolResult(tool_call_id="", success=False, output=msg, error=msg)
 

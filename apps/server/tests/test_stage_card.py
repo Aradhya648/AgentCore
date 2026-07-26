@@ -106,6 +106,20 @@ def test_debate_arguments_maps_thorough_and_rounds_from_card():
     assert args["max_rounds"] == 1
 
 
+def test_debate_arguments_maps_moderator_from_card():
+    card = build_stage_card_payload(
+        _valid_card(), conversation_id="c", stage_card_id="sc"
+    )
+    assert card is not None
+    card["moderator_model"] = "deepseek-chat"
+    card["moderator_origin"] = "byok"
+    card["moderator_provider_id"] = "ds"
+    args = debate_arguments_from_card(card)
+    assert args["moderator_model"] == "deepseek-chat"
+    assert args["moderator_origin"] == "byok"
+    assert args["moderator_provider_id"] == "ds"
+
+
 def test_research_first_user_message_mentions_motion():
     text = research_first_user_message(motion="一审判决是否过重")
     assert "一审判决是否过重" in text

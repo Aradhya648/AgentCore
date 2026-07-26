@@ -8,6 +8,7 @@ import { FinaleStage } from "./FinaleStage";
 import { Scoreboard } from "./Scoreboard";
 import { Transcript } from "./Transcript";
 import {
+  DEBATE_ARENA_CONTAINER,
   DEBATE_ARENA_PAGE_MAX,
   type DebateArenaLayout,
   canUseSplitLayout,
@@ -61,7 +62,7 @@ export function DebateArena({
     <EvidenceLedgerProvider ledger={ledgerMap}>
       <div
         ref={scrollRef}
-        className={`mx-auto w-full ${DEBATE_ARENA_PAGE_MAX}`}
+        className={`mx-auto w-full ${DEBATE_ARENA_CONTAINER} ${DEBATE_ARENA_PAGE_MAX}`}
       >
         <Scoreboard
           model={model}
@@ -73,7 +74,7 @@ export function DebateArena({
           onLayoutChange={handleLayoutChange}
         />
         <div
-          className={`px-1 py-4 ${effectiveLayout === "split" ? "w-full" : "mx-auto max-w-3xl"}`}
+          className={`min-w-0 px-1 py-4 ${effectiveLayout === "split" ? "w-full" : "mx-auto max-w-3xl"}`}
         >
           <Transcript
             model={model}

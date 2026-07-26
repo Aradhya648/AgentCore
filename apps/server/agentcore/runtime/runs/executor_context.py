@@ -36,6 +36,7 @@ from agentcore.workspace.sparse_listing import (
     format_remaining_summary,
     partition_sparse_paths,
 )
+from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 logger = get_logger(__name__)
 
@@ -70,13 +71,15 @@ def _format_upstream_absence(
 
 
 def _ancestors_by_id(plan: RunPlan) -> dict[str, frozenset[str]]:
-    """Transitive ``depends_on`` closure per node, for the write-conflict guard.
+    """Write-guard ancestors per node: ``depends_on`` transitive closure ∪ nested parent.
 
-    A node may overwrite a file written by an ancestor it consolidates (a real
-    upstream→downstream handoff), but never one written by an unrelated concurrent
-    sibling. Returns ``run_id -> {all transitive dep run_ids}`` (a missing dep id —
-    pruned plan — is simply skipped). O(nodes + edges)."""
-    out: dict[str, frozenset[str]] = {}
+    A node may overwrite a file owned by an upstream it consolidates (DAG handoff)
+    or by its nested ``parent_run_id`` (lead declared, child executes) — but never
+    one held by an unrelated concurrent sibling. Missing dep ids (pruned plan) are
+    skipped. Immediate ``parent_run_id`` is always included when set, even if that
+    parent is outside this plan (typical nested sub-team). O(nodes + edges).
+    """
+    dep_only: dict[str, set[str]] = {}
     for node in plan.nodes:
         seen: set[str] = set()
         stack = list(node.depends_on)
@@ -88,6 +91,17 @@ def _ancestors_by_id(plan: RunPlan) -> dict[str, frozenset[str]]:
             dep = plan.by_id(dep_id)
             if dep is not None:
                 stack.extend(dep.depends_on)
+        dep_only[node.run_id] = seen
+
+    out: dict[str, frozenset[str]] = {}
+    for node in plan.nodes:
+        seen = set(dep_only[node.run_id])
+        parent = (getattr(node, "parent_run_id", None) or "").strip()
+        if parent:
+            seen.add(parent)
+            # Rare: parent also a node in this plan — inherit its depends_on closure.
+            if parent in dep_only:
+                seen |= dep_only[parent]
         out[node.run_id] = frozenset(seen)
     return out
 
@@ -106,6 +120,7 @@ def _build_messages(
     shared_workspace: bool = False,
     batch_completion_criteria: CompletionCriteria | None = None,
     context_inject: Mapping[str, str] | None = None,
+    captain_recon: str | None = None,
 ) -> list[LLMMessage]:
     """Assemble the worker's OPENING (system, user) messages from its inline role,
     the original request, its upstream dependency products, and its task.
@@ -140,6 +155,7 @@ def _build_messages(
         shared_workspace=shared_workspace,
         batch_completion_criteria=batch_completion_criteria,
         context_inject=context_inject,
+        captain_recon=captain_recon,
     )
     if blocks_sink is not None:
         blocks_sink.extend(blocks)
@@ -162,6 +178,7 @@ def _build_context_blocks(
     shared_workspace: bool = False,
     batch_completion_criteria: CompletionCriteria | None = None,
     context_inject: Mapping[str, str] | None = None,
+    captain_recon: str | None = None,
 ) -> list[ContextBlock]:
     """The ordered :class:`ContextBlock` list a worker's opening user message is rendered
     FROM — the structured single source behind both the prompt and the ``run_context``
@@ -201,6 +218,19 @@ def _build_context_blocks(
                 channel="team_brief",
                 heading="团队共识（主协调为本回合设定，全员遵循）",
                 body=team_brief,
+            )
+        )
+    recon = (captain_recon or "").strip()
+    if recon:
+        from agentcore.runtime.delegate.captain_recon import captain_recon_heading
+
+        blocks.append(
+            ContextBlock(
+                channel="workspace",
+                heading=captain_recon_heading(),
+                body=recon,
+                fidelity="inject",
+                truncated=True,
             )
         )
     # 工作区产物清单: peer products (role-attributed) + sparse pre-existing paths
@@ -365,6 +395,33 @@ def _context_block_payloads(blocks: list[ContextBlock]) -> list[dict[str, Any]]:
     return payloads
 
 
+def _upstream_intermediate_persist_hint(spec: RunSpec) -> str:
+    """A1: where upstream links may park large intermediates for downstream ``file_read``.
+
+    Playbook-pinned ``artifacts`` win (strict task-book paths). Otherwise free-form teams
+    land under ``RESEARCH_DIR`` with a descriptive filename — never workspace-root
+    ``findings-<role>.md``. Does not replace playbook pinning; only guides free teams.
+    """
+    pinned = [
+        p.strip().replace("\\", "/")
+        for p in (spec.deliverable.artifacts if spec.deliverable else [])
+        if isinstance(p, str) and p.strip()
+    ]
+    if pinned:
+        paths = "、".join(f"`{p}`" for p in pinned)
+        return (
+            "中间产物怎么交：零散发现直接写进你的文字产出即可（会自动转交下游）；若产物较大、"
+            "值得落盘供下游 file_read 取用，就调 file_write 并【严格按任务书路径】落盘"
+            f"（{paths}），切勿用空路径或另起工作区根文件名。"
+        )
+    return (
+        "中间产物怎么交：零散发现直接写进你的文字产出即可（会自动转交下游）；若产物较大、"
+        "值得落盘供下游 file_read 取用，就调 file_write，落在"
+        f" `{RESEARCH_DIR}/` 下【自起描述性文件名】"
+        "（勿用工作区根 `findings-<角色>.md`），切勿用空路径。"
+    )
+
+
 def _team_position_block(plan: RunPlan, spec: RunSpec) -> str:
     """The worker's place on the team DAG: its parallel peers and — crucially — where
     its output GOES. Symmetric to :func:`_dep_context_blocks` (which hands a downstream
@@ -374,14 +431,11 @@ def _team_position_block(plan: RunPlan, spec: RunSpec) -> str:
     原始用户请求 ("…保存一份报告…") but, blind to the writer downstream, used to chase the
     final artifact itself (and, lacking a filename, fire empty-path file_write). It now
     learns it is one link that hands off — and, when it does want to PERSIST a large
-    intermediate product for the downstream to ``file_read``, it is told to give it a
-    descriptive, role-suffixed filename (``findings-<role>.md``) instead of firing an
-    empty-path ``file_write`` (the A1 递指针 affordance: lands ONLY on the upstream branch,
-    where the residual empty-path attempts live, and reuses the node's role for a
-    collision-free name that also satisfies the sibling "别撞文件名" directive). A TERMINAL
-    node instead learns it IS the final author (reinforcing structure ownership, the
-    worker-side L3 lever). Blank for a solo single worker (no team → the request simply is
-    its whole job).
+    intermediate product for the downstream to ``file_read``, A1 tells it either the
+    task-book ``artifacts`` path (strict) or ``RESEARCH_DIR`` + a descriptive filename
+    (free teams; never workspace-root ``findings-<role>.md``). A TERMINAL node instead
+    learns it IS the final author (reinforcing structure ownership, the worker-side L3
+    lever). Blank for a solo single worker (no team → the request simply is its whole job).
 
     Branches on shape, in priority order:
       - has dependents    → upstream link: hands off, "别自己产最终交付物" +
@@ -406,9 +460,7 @@ def _team_position_block(plan: RunPlan, spec: RunSpec) -> str:
             f"你的产出去向：你是这条流水线的【上游一环】，你的产出是交给下游【{joined}】的"
             "【中间输入】，由其整合产出团队的最终交付物。做好你这一环、把发现 / 产物交给下游"
             "即可，【不要自己产出整个最终交付物】（如完整报告 / 最终文件）。"
-            "中间产物怎么交：零散发现直接写进你的文字产出即可（会自动转交下游）；若产物较大、"
-            "值得落盘供下游 file_read 取用，就调 file_write 并【自起一个描述性文件名】"
-            "（如 `findings-<你的角色>.md`，带角色后缀以免与并行队友撞名），切勿用空路径。"
+            f"{_upstream_intermediate_persist_hint(spec)}"
         )
     elif upstream:
         joined = "、".join(upstream)

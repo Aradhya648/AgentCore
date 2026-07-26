@@ -377,7 +377,7 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "桌面按 intent 分专用卡（kickoff/proposal_pick/risk_ack/organize_plan + AskUserFields）；手机 PauseCard 仅审批、无 intent 分支，冷路径靠精简 ResumeCard 降级承接（本期不新建手机专用卡 UI）",
+      "桌面按 intent 分专用卡（kickoff/decision/proposal_pick/risk_ack/organize_plan，均 AskCardShell+行式）；手机 PauseCard 仅审批、无 intent 分支，冷路径靠精简 ResumeCard 降级承接（本期不新建手机专用卡 UI）",
   },
   PlanReviewCard: { verdict: "ported", surface: "ResumeCard" },
   TeamPreviewCard: { verdict: "ported", surface: "ResumeCard" },
@@ -474,38 +474,59 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   },
 
   // —— 提问 intent 专用卡（ask/；桌面 CheckpointCard 分支出；手机本期降级 ResumeCard）——
-  "ask/AskCommenceKickoff": {
+  "ask/AskKickoffBody": {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "kickoff 开工提案专用 UI（V2 Brief+Choose）；手机无专用卡，ResumeCard 精简承接",
+      "kickoff 生产卡：AskCardShell + 行式选项；手机无专用卡，ResumeCard 精简承接",
+  },
+  "ask/AskDecisionBody": {
+    verdict: "simplified",
+    surface: "ResumeCard",
+    reason:
+      "decision 生产卡：AskCardShell + 行式选项；手机无专用卡，ResumeCard 精简承接",
+  },
+  "ask/AskCommenceKickoff": {
+    verdict: "internal",
+    reason:
+      "已退役 kickoff V2 Brief+Choose；仅离线预览对照，生产走 AskKickoffBody",
   },
   "ask/ProposalPickBody": {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "proposal_pick 方案墙专用 UI；手机无专用卡，ResumeCard chips 降级承接",
+      "proposal_pick 生产卡：AskCardShell + 行式单选；手机无专用卡，ResumeCard chips 降级承接",
   },
   "ask/RiskAckBody": {
     verdict: "simplified",
     surface: "ResumeCard",
-    reason: "risk_ack 风险确认专用 UI；手机无专用卡，ResumeCard chips 降级承接",
+    reason:
+      "risk_ack 生产卡：AskCardShell + 行式多选；手机无专用卡，ResumeCard chips 降级承接",
   },
   "ask/OrganizePlanBody": {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "organize_plan 整理计划专用 UI；手机无勾选墙，ResumeCard 确认=全保留降级",
+      "organize_plan 生产卡：AskCardShell + 行式多选；手机无勾选墙，ResumeCard 确认=全保留降级",
   },
   "ask/AskUserFields": {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "桌面结构化问答内核（choice/text/其他逃逸）；手机 ResumeCard 内嵌精简问答，无对等 AskUserFields 面",
+      "桌面结构化问答内核（choice/text/其他逃逸 + useAskAnswer）；手机 ResumeCard 内嵌精简问答，无对等 AskUserFields 面",
+  },
+  "ask/AskCardShell": {
+    verdict: "internal",
+    reason: "五种 ask intent 共用卡壳（头/体/底），非独立对等面",
+  },
+  "ask/AskOptionRow": {
+    verdict: "internal",
+    reason: "ask 行式选项组（AskRowGroup），非独立对等面",
   },
   "ask/AskCommenceParts": {
     verdict: "internal",
-    reason: "kickoff 生产共享 chrome（AskCommenceKickoff 拆件，非独立对等面）",
+    reason:
+      "kickoff 预览/退役路径共享 chrome（OptionButton 等）；生产行式卡不再依赖",
   },
   "ask/preview/AskCommenceShared": {
     verdict: "internal",
@@ -517,7 +538,7 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   },
   "ask/preview/AskCommenceV2": {
     verdict: "internal",
-    reason: "ask commence 离线预览变体（开发自检），非用户产品面",
+    reason: "ask commence 离线预览变体（退役 V2 对照），非用户产品面",
   },
   "ask/preview/AskCommenceV3": {
     verdict: "internal",
@@ -526,6 +547,11 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   "ask/preview/AskCommenceV4": {
     verdict: "internal",
     reason: "ask commence 离线预览变体（开发自检），非用户产品面",
+  },
+  "ask/preview/AskCommenceV5": {
+    verdict: "internal",
+    reason:
+      "ask commence 离线预览：挂载生产 AskKickoffBody（行式），非独立产品面",
   },
 
   // —— 有意精简 ——

@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from agentcore.tools.sandbox.exec_languages import (
+    ALL_EXEC_LANGUAGES,
+    format_interpreters_line,
+    probe_host_languages,
+    resolve_exec_languages,
+)
 from agentcore.tools.sandbox.gvisor import GVisorSandbox
 from agentcore.tools.sandbox.protocol import (
     ExecutionRequest,
@@ -9,7 +15,7 @@ from agentcore.tools.sandbox.protocol import (
     SandboxCapabilities,
     SandboxProvider,
 )
-from agentcore.tools.sandbox.subprocess import SubprocessSandbox
+from agentcore.tools.sandbox.subprocess import SubprocessSandbox, probe_available_languages
 
 
 def create_sandbox(
@@ -31,6 +37,7 @@ def create_sandbox(
 
 
 __all__ = [
+    "ALL_EXEC_LANGUAGES",
     "ExecutionRequest",
     "ExecutionResult",
     "GVisorSandbox",
@@ -38,4 +45,8 @@ __all__ = [
     "SandboxProvider",
     "SubprocessSandbox",
     "create_sandbox",
+    "format_interpreters_line",
+    "probe_available_languages",
+    "probe_host_languages",
+    "resolve_exec_languages",
 ]

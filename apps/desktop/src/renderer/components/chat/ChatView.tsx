@@ -5,6 +5,7 @@ import { useComposerDockFlip } from "@/hooks/useComposerDockFlip";
 import { useConversations } from "@/hooks/useConversations";
 import { shouldCenterDraftComposer } from "@/lib/onboarding";
 import { useChatScroll } from "@/lib/useChatScroll";
+import { cn } from "@/lib/utils";
 import {
   loadLatestWindow,
   loadNewerMessages,
@@ -20,8 +21,10 @@ import {
   useActiveMessages,
   useConversationStore,
 } from "@/stores/conversation";
+import { isToolGranted, usePendingApprovals } from "@/stores/interactions";
 import { ArrowDown, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApprovalPrompt } from "./ApprovalPrompt";
 import { ConversationDecisionPrompts } from "./ConversationDecisionPrompts";
 import { ConversationOutline } from "./ConversationOutline";
 import { FindBar } from "./FindBar";
@@ -52,6 +55,14 @@ export function ChatView() {
     hasMessages,
     knownEmptyPersisted,
   });
+  const pendingApprovals = usePendingApprovals(conversationId);
+  // 工具审批 A：底栏态把确认条贴在输入框上方成一体；居中草稿无审批。
+  const fuseApprovalComposer = useMemo(() => {
+    if (!conversationId || centerComposer || !hasMessages) return false;
+    return pendingApprovals.some(
+      (p) => !isToolGranted(conversationId, p.toolName),
+    );
+  }, [centerComposer, conversationId, hasMessages, pendingApprovals]);
   const composerFlipRef = useRef<HTMLDivElement>(null);
   // 落地动画只由首发信号触发（草稿 promote 成新对话），而非被动的居中→底栏翻转——
   // 后者在切换对话时也会发生，正是「输入框一直在跳动」的来源。
@@ -202,17 +213,33 @@ export function ChatView() {
           )}
           {hasMessages && (
             <>
-              <ConversationDecisionPrompts />
+              <ConversationDecisionPrompts
+                omitApproval={fuseApprovalComposer}
+              />
               <RetryBanner />
               <StageCardDock />
               <FollowupChips followups={followups} />
               <StreamingIndicator />
             </>
           )}
-          <div ref={composerFlipRef}>
+          <div
+            ref={composerFlipRef}
+            className={cn(fuseApprovalComposer && "px-4 pb-4")}
+            data-approval-composer-fuse={
+              fuseApprovalComposer ? "true" : undefined
+            }
+          >
+            {fuseApprovalComposer && <ApprovalPrompt attached />}
             <MessageInput
-              className={centerComposer ? "px-4 pb-2" : undefined}
+              className={
+                fuseApprovalComposer
+                  ? "px-0 pb-0 pt-0"
+                  : centerComposer
+                    ? "px-4 pb-2"
+                    : undefined
+              }
               variant={centerComposer ? "card" : "bar"}
+              attachedBelowApproval={fuseApprovalComposer}
             />
           </div>
         </div>

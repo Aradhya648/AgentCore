@@ -70,6 +70,13 @@ export function NonBlockingAskCard({ ask }: { ask: NonBlockingAskDisplay }) {
           </div>
         )}
 
+        {ask.formatOptions.length > 0 && (
+          <div className="text-xs text-muted-foreground">
+            交付形态：
+            {ask.formatOptions.map((s) => s.label).join(" · ")}
+          </div>
+        )}
+
         <p className="text-xs text-muted-foreground">
           不回复我就按默认继续；若要改口，在下方输入框说明即可。
         </p>

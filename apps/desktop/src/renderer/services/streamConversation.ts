@@ -432,6 +432,8 @@ export interface ResumeConversationOptions {
   selected?: string[];
   /** Structured website style pick (s0/s1/…). */
   styleId?: string;
+  /** Structured presentation format pick (f0/f1/…). */
+  formatId?: string;
   signal?: AbortSignal;
 }
 
@@ -442,6 +444,7 @@ export async function resumeConversation({
   note,
   selected = [],
   styleId,
+  formatId,
   signal,
 }: ResumeConversationOptions): Promise<void> {
   const body = JSON.stringify({
@@ -449,6 +452,7 @@ export async function resumeConversation({
     note,
     selected,
     ...(styleId ? { style_id: styleId } : {}),
+    ...(formatId ? { format_id: formatId } : {}),
   });
   await runMessageStream(
     `/v1/conversations/${conversationId}/messages/${messageId}/resume`,

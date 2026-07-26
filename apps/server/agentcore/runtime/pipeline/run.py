@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import time
 
 from agentcore.core.logging import get_logger
 from agentcore.core.types import AutonomyPolicy, PermissionPreset, new_id
@@ -39,6 +40,7 @@ from agentcore.runtime.suspension import (
     turn_evidence_ledger,
     turn_history,
 )
+from agentcore.runtime.turn_latency import get_turn_latency
 from agentcore.workspace.protocol import WorkspaceBackend
 
 # Re-exported so tests can monkeypatch lookup sites on this module (see
@@ -156,9 +158,7 @@ async def run_chat_pipeline(
         captain_run_id=captain_run_id,
         # P2: full_trust turns collect tool side-effects even without delegate.
         delegated=permission_preset is PermissionPreset.FULL_TRUST,
-        permission_preset=(
-            permission_preset.value if permission_preset is not None else None
-        ),
+        permission_preset=(permission_preset.value if permission_preset is not None else None),
     )
     # Session roster write-through (as-built: 成本配额 §三): fire-and-forget on the hot path,
     # flush with audit at turn-end so cross-turn load-on-miss stays durable.
@@ -193,6 +193,8 @@ async def run_chat_pipeline(
     llm = None
 
     try:
+        latency_probe = get_turn_latency()
+        prepare_t0 = time.monotonic()
         prepared = await prepare_fresh_turn(
             conversation_id=conversation_id,
             user_id=user_id,
@@ -207,10 +209,13 @@ async def run_chat_pipeline(
             x_client_platform=x_client_platform,
             profiles=profiles,
         )
+        if latency_probe is not None:
+            latency_probe.mark_prepare(int((time.monotonic() - prepare_t0) * 1000))
         llm = prepared.llm
         bound_execution_id = prepared.bound_execution_id
         execution_id_token = prepared.execution_id_token
 
+        assemble_t0 = time.monotonic()
         assembled = await assemble_ceo_turn(
             prepared=prepared,
             conversation_id=conversation_id,
@@ -232,6 +237,8 @@ async def run_chat_pipeline(
             suspension_deleter=suspension_deleter,
             x_client_platform=x_client_platform,
         )
+        if latency_probe is not None:
+            latency_probe.mark_assemble(int((time.monotonic() - assemble_t0) * 1000))
 
         # --- Phase 3: Execute ---
         sink.emit(message_start(message_id, conversation_id=conversation_id))

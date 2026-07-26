@@ -19,6 +19,9 @@ vi.mock("@/hooks/useLlmModelProfiles", () => ({
   useLlmModelProfiles: vi.fn(),
 }));
 vi.mock("@/hooks/useModels", () => ({ useModels: vi.fn() }));
+vi.mock("@/lib/toast", () => ({
+  notifySuccess: vi.fn(),
+}));
 vi.mock("@/services/llmModelProfiles", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/llmModelProfiles")>()),
   createLlmModelProfile: vi.fn(),
@@ -31,12 +34,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLlmModelProfiles } from "@/hooks/useLlmModelProfiles";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
+import { notifySuccess } from "@/lib/toast";
 import { ApiError } from "@/services/api";
 import type { LlmModelProfileListResponse } from "@/services/llmModelProfiles";
 import {
   createLlmModelProfile,
   deleteLlmModelProfile,
   setDefaultLlmModelProfile,
+  updateLlmModelProfile,
 } from "@/services/llmModelProfiles";
 import type { LlmProvidersResponse } from "@/services/llmProviders";
 import { ModelSettings } from "../ModelSettings";
@@ -171,6 +176,8 @@ beforeEach(() => {
   vi.mocked(deleteLlmModelProfile).mockClear();
   vi.mocked(setDefaultLlmModelProfile).mockClear();
   vi.mocked(createLlmModelProfile).mockClear();
+  vi.mocked(updateLlmModelProfile).mockClear();
+  vi.mocked(notifySuccess).mockClear();
 });
 
 afterEach(cleanup);
@@ -294,6 +301,37 @@ describe("ModelSettings (profiles)", () => {
       2,
     );
     expect(screen.queryByText(/辩论用主模型/)).toBeNull();
+  });
+
+  it("saves an edited user profile, toasts success, and closes the editor", async () => {
+    vi.mocked(updateLlmModelProfile).mockResolvedValue({
+      id: "user-mine",
+      name: "办公",
+      kind: "user",
+      is_default: false,
+      main: { origin: "byok", provider_id: "p2", model: "gpt-4o" },
+      worker: null,
+      background: null,
+    });
+    mockProviders(providersResponse());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    expect(screen.getByText("编辑「办公」")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(updateLlmModelProfile).toHaveBeenCalledWith(
+        "user-mine",
+        expect.objectContaining({
+          name: "办公",
+          main: { origin: "byok", provider_id: "p2", model: "gpt-4o" },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith("已保存「办公」"),
+    );
+    expect(screen.queryByText("编辑「办公」")).toBeNull();
+    expect(screen.getByRole("button", { name: "编辑" })).toBeTruthy();
   });
 
   it("shows combinations for keyless platform users", () => {

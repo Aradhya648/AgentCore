@@ -97,8 +97,10 @@ _WEBSITE_FOLLOWUP_EXEMPT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# User turn: continue / finish remaining site work (not bare「继续」alone).
-_WEBSITE_CONTINUATION_INTENT_RE = re.compile(
+# User turn: continue / finish remaining work (not bare「继续」alone).
+# Alone is NOT enough for the none gate — see :func:`is_website_continuation_intent`
+# (must co-occur with a site / toolshed strong noun).
+_WEBSITE_CONTINUATION_PHRASE_RE = re.compile(
     r"(?:"
     r"继续完成|接着完成|把剩下|补全分区|写完剩下|写完剩余|把剩余|"
     r"完成剩下|完成剩余|接着写完|继续把|把分区写完|"
@@ -109,14 +111,28 @@ _WEBSITE_CONTINUATION_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Site / toolshed anchors that must co-occur with a continuation phrase.
+# Generic「继续完成项目的开发」must not trip the gate.
+_WEBSITE_CONTINUATION_SITE_ANCHOR_RE = re.compile(
+    r"(?:"
+    r"官网|落地页|营销页|建站|网站|站点|首页|landing\s*page|website|web\s*site|"
+    r"控制台|工具台|管理后台|后台系统|运营后台|"
+    r"admin\s*(?:console|panel|dashboard)|toolshed|"
+    r"build_website|build_toolshed|build_website_verify|\bsite/"
+    r")",
+    re.IGNORECASE,
+)
+
 # Call blob looks like site / page construction (broader than greenfield build verbs).
-# Used with continuation intent so「继续完成」+ HTML/CSS 官网 hand-write is blocked.
+# Used with continuation intent so「继续完成官网」+ 建站形 hand-write is blocked.
+# Strong signals only — bare HTML/CSS/JS (incl. HTML5 game framing) do not count;
+# index.html / styles.css / site/ remain explicit positives. File extensions like
+# 卡牌.html alone must not hit.
 _WEBSITE_SHAPED_CALL_RE = re.compile(
     r"(?:"
     r"官网|落地页|营销页|网站|站点|首页|landing\s*page|website|web\s*site|"
     r"控制台|工具台|管理后台|后台系统|"
     r"build_website|build_toolshed|build_website_verify|"
-    r"分区|HTML|CSS|\bJS\b|stylesheet|"
     r"index\.html|styles\.css|main\.js|\bsite/"
     r")",
     re.IGNORECASE,
@@ -219,13 +235,23 @@ def is_website_followup_exempt(*parts: str) -> bool:
 
 
 def is_website_continuation_intent(*parts: str) -> bool:
-    """True when user asks to continue / finish remaining site work (not bare「继续」)."""
+    """True when user asks to continue / finish remaining *site* work.
+
+    Requires a continuation phrase **and** a site / toolshed strong noun in the
+    same blob (or the blob is already site kickoff / build framing). Bare
+    「继续完成项目的开发」does **not** match.
+    """
     blob = " ".join(p for p in parts if p)
-    return bool(blob and _WEBSITE_CONTINUATION_INTENT_RE.search(blob))
+    if not blob or not _WEBSITE_CONTINUATION_PHRASE_RE.search(blob):
+        return False
+    if _WEBSITE_CONTINUATION_SITE_ANCHOR_RE.search(blob):
+        return True
+    # User message already frames a site / toolshed ask (kickoff or greenfield).
+    return is_website_kickoff_text(blob) or is_site_build_intent(blob)
 
 
 def is_website_shaped_call(*parts: str) -> bool:
-    """True when call payload looks like site / page construction (HTML/CSS/官网…)."""
+    """True when call payload looks like site / page construction (官网 / index.html…)."""
     blob = " ".join(p for p in parts if p)
     return bool(blob and _WEBSITE_SHAPED_CALL_RE.search(blob))
 

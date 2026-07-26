@@ -104,8 +104,19 @@ def build_drive_executor(
     session: Any,
 ) -> Callable[[RunSpec, dict], Awaitable[RunState]]:
     """Cold agent executor wrapped with continuation + optional coordination timeouts."""
+    from agentcore.runtime.delegate.captain_recon import resolve_captain_recon_for_delegate
     from agentcore.runtime.runs import build_agent_executor
     from agentcore.runtime.suspension import turn_evidence_ledger as _turn_ledger_var
+
+    captain_recon = resolve_captain_recon_for_delegate(depth=int(getattr(tool, "_depth", 0) or 0))
+    if captain_recon:
+        from agentcore.core.logging import get_logger
+
+        get_logger(__name__).info(
+            "delegate.captain_recon_injected",
+            chars=len(captain_recon),
+            depth=int(getattr(tool, "_depth", 0) or 0),
+        )
 
     cold_executor = build_agent_executor(
         plan=plan,
@@ -127,6 +138,7 @@ def build_drive_executor(
         note_wall=note_wall,
         collaboration=collaboration,
         team_brief=tool._team_brief,
+        captain_recon=captain_recon or None,
         # 回合入口绑定的共享台账（与 CEO 同一对象）；辩论 executor 不经此路径。
         turn_evidence_ledger=_turn_ledger_var.get(),
         batch_completion_criteria=resolve_completion_criteria(completion_criteria, plan),
@@ -200,11 +212,19 @@ def apply_delegation_grant(
     worker_gate: Any,
     seed_completed: dict[str, RunState] | None,
 ) -> bool:
-    """Kickoff grant from resume / full_auto. Returns whether grant was started this call."""
+    """Kickoff grant from resume / full_auto. Returns whether grant was started this call.
+
+    ``True`` means this drive segment owns revoke-on-exit (unless a live coordination
+    session keeps the grant for merge-rearm — see ``drive`` finally).
+    """
     # Kickoff grant: issued by resume (continue/adjust) or full_auto auto-grant.
     # Hot-path ``request_delegation_authorization`` retired — capability auth lives
     # on the durable开工卡 (team_preview) or is silent under full_auto.
-    if worker_gate is None or seed_completed is not None:
+    if worker_gate is None:
+        return False
+    # Mid-plan resume already granted on the kickoff continue path; do not treat as
+    # a fresh segment owner (avoids double-revoke bookkeeping). Still a no-op apply.
+    if seed_completed is not None:
         return False
     from agentcore.core.types import AutonomyPolicy
 
@@ -215,5 +235,7 @@ def apply_delegation_grant(
         if not already:
             worker_gate.grant_delegation(execution_id)
         tool._auto_grant_pending = False  # type: ignore[attr-defined]
-        return True
-    return worker_gate.has_delegation_grant(execution_id)
+        # already=True (e.g. merge-rearm after prior drive kept the grant): not a new
+        # segment owner — caller must not revoke on exit.
+        return not already
+    return False

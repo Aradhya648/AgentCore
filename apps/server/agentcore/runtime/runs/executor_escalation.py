@@ -102,6 +102,14 @@ def build_escalation_channel(
 
             session = active_coordination(env.base_tool_context.execution_id)
             if session is not None and session.active:
+                from agentcore.workspace.write_claims import ownership_escalation_hints
+
+                hints = ownership_escalation_hints(
+                    escalator_run_id=run_id,
+                    question=question,
+                    execution_id=env.base_tool_context.execution_id,
+                    write_ancestors=env.ancestors_by_id.get(run_id, frozenset()),
+                )
                 session.register_arbitration(
                     run_id,
                     escalation_id=escalation_id,
@@ -109,6 +117,11 @@ def build_escalation_channel(
                     question=question,
                     assumption=assumption,
                     kind=esc_kind,
+                    ownership_paths=hints.get("ownership_paths"),
+                    lock_owner_run_id=str(hints.get("lock_owner_run_id") or ""),
+                    escalator_is_lock_owner_nested_child=hints.get(
+                        "escalator_is_lock_owner_nested_child"
+                    ),
                 )
                 post_escalation_to_coordination(
                     run_id=run_id,
@@ -120,6 +133,13 @@ def build_escalation_channel(
                     source="blocking_arbitrate",
                     execution_id=env.base_tool_context.execution_id,
                     escalation_id=escalation_id,
+                    ownership_paths=hints.get("ownership_paths"),
+                    lock_owner_run_id=str(hints.get("lock_owner_run_id") or ""),
+                    escalator_is_lock_owner_nested_child=hints.get(
+                        "escalator_is_lock_owner_nested_child"
+                    ),
+                    ownership_kind=hints.get("ownership_kind"),
+                    owner_status=hints.get("owner_status"),
                 )
 
         via_user = False

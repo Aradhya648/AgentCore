@@ -5,15 +5,25 @@
 artifacts 对账残差)、``completion_criteria`` 未满足、失败 / 未执行节点——汇成一条面向
 用户的 ``delivery_status`` 事件（已交付文件 / 缺口 / 待用户操作），模板拼接、不调 LLM。
 
+用户面零落盘缺口合并为一种 ``files_not_landed``（契约层与批次 ``files_written`` 同源谓词，
+不再并列为两条）；CEO / 工具结果仍可保留分层原文。发射时写入回合
+:data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，禁止与卡矛盾的假完成。
+
 挂在 drive 的各收尾路径旁路（正常终态 / 验收未满足 / 部分失败 stash / replan(stop)），
 永不抛错；纯 prose 成功批次（无落盘文件、无缺口）保持无声，不发事件。
 折叠语义：同 ``execution_id`` 保最新——反映最近一批委派的对账（多批场景下 FileArtifactsCard
 仍是全量文件清单，本事件承载「诚实对账」而非全量枚举）。
+
+严重度：``severity=warning``（待核实/示例自注等）不单独撑起 partial/blocked，
+仅有 warning 时 state=``notes``（轻提醒）；blocking 缺口才标「部分未满足 / 未满足」。
+成篇未写完改由对话框接着说——不再发 ``continue_writing`` 一键按钮。
 """
 
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 from agentcore.runtime.runs.plan import RunPlan
@@ -23,8 +33,44 @@ from agentcore.runtime.turn_token_budget import REASON_QA_DEFERRED, REASON_TURN_
 _MAX_FILES = 24
 _MAX_GAPS = 12
 
+REASON_UNVERIFIED_NOTE = "unverified_note"
+REASON_FILES_NOT_LANDED = "files_not_landed"
+_WRITING_CUTOFF_REASONS = frozenset({"token_budget", "worker_timeout"})
+
+# Per-worker contract + batch files_written criteria share this predicate.
+_ZERO_LANDING_MARKERS = (
+    "未把产物写入工作区",
+    "尚无 worker 将产物写入工作区",
+)
+
+
+@dataclass(frozen=True)
+class DeliveryVerdict:
+    """Turn-scoped delivery reconciliation for CEO finish_guard (not a wire payload)."""
+
+    state: str
+    delivered_files: tuple[str, ...]
+    execution_id: str
+
+
+current_delivery_verdict: ContextVar[DeliveryVerdict | None] = ContextVar(
+    "current_delivery_verdict", default=None
+)
+
+# Soft reminder copy markers (placeholder soft + soft keyword coverage).
+_SOFT_REMINDER_MARKERS = (
+    "不阻断验收",
+    "未核实/示例自注",
+    "待核实/示例自注",
+    "素材覆盖提醒（软）",
+    "契约软提醒",
+)
+
 # build_website task books embed ``站点【…】`` — reuse for verify-action prompt.
 _SITE_BRACKET_RE = re.compile(r"站点【([^】]+)】")
+# 「不阻断验收，3 处」/「自注（3 处）」/ legacy soft copy.
+_SOFT_HIT_COUNT_RE = re.compile(r"(?:不阻断验收，|自注（)(\d+)\s*处")
+_SOFT_PATH_RE = re.compile(r"`([^`]+)`\s*·")
 
 
 def _infer_website_site(plan: RunPlan) -> str:
@@ -39,21 +85,6 @@ def _infer_website_site(plan: RunPlan) -> str:
             if site:
                 return site
     return ""
-
-
-def _continue_writing_action() -> dict[str, str]:
-    """CTA when long-form writing stopped partial (章边界 / 预算) — no auto rewrite."""
-    return {
-        "kind": "continue_writing",
-        "description": (
-            "成篇未写完——点此续写（从已完成章节继续；勿删稿重写整篇）"
-        ),
-        "prompt": (
-            "请续写上一篇未完成的报告：先 file_read 已有草稿，"
-            "从上一完整章之后用 file_append 按章续写；"
-            "禁止 file_delete 后整篇重写。预算不够时仍停在章边界并诚实标 partial。"
-        ),
-    }
 
 
 def _continue_skipped_runs_action(roles: list[str]) -> dict[str, str]:
@@ -115,9 +146,59 @@ def _has_completed_revision(run_id: str, results: dict[str, RunState]) -> bool:
     )
 
 
-def _node_gaps(plan: RunPlan, results: dict[str, RunState]) -> list[dict[str, str]]:
+def _is_soft_reminder(text: str, reason: str = "") -> bool:
+    """True when this gap row is a soft note (待核实等), not a blocking shortfall."""
+    if reason == REASON_UNVERIFIED_NOTE:
+        return True
+    return any(marker in text for marker in _SOFT_REMINDER_MARKERS)
+
+
+def _soft_paths(text: str) -> list[str]:
+    """Extract workspace paths from soft-warning hit lines (``path`` · label · …)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for path in _SOFT_PATH_RE.findall(text or ""):
+        p = path.strip()
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _soft_hit_count(text: str) -> int:
+    """Best-effort hit count from soft warning copy; fall back to 1."""
+    match = _SOFT_HIT_COUNT_RE.search(text or "")
+    if match:
+        try:
+            return max(1, int(match.group(1)))
+        except ValueError:
+            pass
+    return 1
+
+
+def _annotate_gap(
+    role: str,
+    text: str,
+    *,
+    reason: str = "",
+) -> dict[str, Any]:
+    """Build one gap row; soft reminders get severity=warning + optional paths."""
+    item: dict[str, Any] = {"role": role, "description": text}
+    if _is_soft_reminder(text, reason):
+        item["severity"] = "warning"
+        item["reason"] = reason or REASON_UNVERIFIED_NOTE
+        paths = _soft_paths(text)
+        if paths:
+            item["paths"] = paths
+        return item
+    if reason:
+        item["reason"] = reason
+    return item
+
+
+def _node_gaps(plan: RunPlan, results: dict[str, RunState]) -> list[dict[str, Any]]:
     """Terminal-but-undelivered plan nodes → gap rows (failed / skipped / cancelled)."""
-    gaps: list[dict[str, str]] = []
+    gaps: list[dict[str, Any]] = []
     for node in plan.nodes:
         state = results.get(node.run_id)
         if state is None:
@@ -137,11 +218,8 @@ def _node_gaps(plan: RunPlan, results: dict[str, RunState]) -> list[dict[str, st
                 text = str(row.get("description") or "").strip()
                 if not text:
                     continue
-                item: dict[str, str] = {"role": role, "description": text}
                 reason = str(row.get("reason") or "").strip()
-                if reason:
-                    item["reason"] = reason
-                gaps.append(item)
+                gaps.append(_annotate_gap(role, text, reason=reason))
                 emitted = True
             if not emitted:
                 gaps.append({"role": role, "description": "未执行（计划收口时跳过）"})
@@ -150,6 +228,132 @@ def _node_gaps(plan: RunPlan, results: dict[str, RunState]) -> list[dict[str, st
         ):
             gaps.append({"role": role, "description": "未完成（中途取消）"})
     return gaps
+
+
+def _is_blocking(gap: dict[str, Any]) -> bool:
+    return gap.get("severity") != "warning"
+
+
+def _is_zero_landing_text(text: str) -> bool:
+    """True when gap copy is the shared zero-``files_touched`` predicate."""
+    return any(marker in (text or "") for marker in _ZERO_LANDING_MARKERS)
+
+
+def _code_ran_without_writeback(results: dict[str, RunState]) -> bool:
+    """True when a COMPLETED worker ran ``code_execute`` successfully but landed no files."""
+    from agentcore.runtime.delegate.completion import (
+        _code_execute_succeeded_in_transcript,
+        _worker_files_written,
+    )
+
+    for state in results.values():
+        if state is None or state.phase is not RunPhase.COMPLETED:
+            continue
+        if _worker_files_written(state):
+            continue
+        if state.transcript and _code_execute_succeeded_in_transcript(state.transcript):
+            return True
+    return False
+
+
+def _files_not_landed_gap(results: dict[str, RunState]) -> dict[str, Any]:
+    """Single user-facing gap for zero workspace landing (契约 + 批次验收合并投影)."""
+    if _code_ran_without_writeback(results):
+        text = (
+            "未交付：已执行代码但未把产物写回工作区"
+            "（沙箱内文件不算交付；须用写文件工具落盘，或确保脚本执行后写回工作区）"
+        )
+    else:
+        from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
+
+        tools = format_file_landing_tools_slash()
+        text = f"未交付：工作区没有新文件（须用 {tools} 落盘）"
+    return {
+        "role": "验收",
+        "description": text,
+        "reason": REASON_FILES_NOT_LANDED,
+    }
+
+
+def _project_user_gaps(
+    raw_gaps: list[dict[str, Any]],
+    results: dict[str, RunState],
+) -> list[dict[str, Any]]:
+    """Collapse duplicate zero-landing rows into one ``files_not_landed`` gap."""
+    zero: list[dict[str, Any]] = []
+    other: list[dict[str, Any]] = []
+    for gap in raw_gaps:
+        text = str(gap.get("description") or "")
+        if _is_zero_landing_text(text):
+            zero.append(gap)
+        else:
+            other.append(gap)
+    if not zero:
+        return other
+    return [_files_not_landed_gap(results), *other]
+
+
+def _warning_note_stats(warnings: list[dict[str, Any]]) -> tuple[int, int]:
+    """Return (hit_count, distinct_file_count) for soft reminder rows."""
+    hits = 0
+    files: set[str] = set()
+    for gap in warnings:
+        hits += _soft_hit_count(str(gap.get("description") or ""))
+        for path in gap.get("paths") or []:
+            if path:
+                files.add(str(path))
+        if not gap.get("paths"):
+            for path in _soft_paths(str(gap.get("description") or "")):
+                files.add(path)
+    return max(hits, len(warnings) or 0), len(files)
+
+
+def _build_summary(
+    delivered: list[str],
+    blocking: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> str:
+    """Human summary: separate 未完成 vs 待核实; writing cutoff → 成篇未写完."""
+    warn_hits, warn_files = _warning_note_stats(warnings)
+    warn_bit = ""
+    if warn_hits:
+        warn_bit = f"{warn_hits} 处待核实备注"
+        if warn_files:
+            warn_bit += f"（{warn_files} 个文件）"
+
+    if not blocking:
+        if warn_bit:
+            return f"有 {warn_bit}"
+        if delivered:
+            return f"已交付 {len(delivered)} 个文件"
+        return "无交付缺口"
+
+    writing = any(g.get("reason") in _WRITING_CUTOFF_REASONS for g in blocking)
+    other_n = sum(
+        1 for g in blocking if g.get("reason") not in _WRITING_CUTOFF_REASONS
+    )
+
+    if not delivered:
+        if writing and other_n == 0:
+            head = "未能交付：成篇未写完"
+        elif writing:
+            head = f"未能交付：成篇未写完；另有 {other_n} 项未完成"
+        else:
+            head = f"未能交付：{len(blocking)} 项未完成"
+        if warn_bit:
+            return f"{head}；另有 {warn_bit}"
+        return head
+
+    parts: list[str] = [f"已交付 {len(delivered)} 个文件"]
+    if writing:
+        parts.append("成篇未写完")
+        if other_n:
+            parts.append(f"另有 {other_n} 项未完成")
+    else:
+        parts.append(f"{len(blocking)} 项未完成")
+    if warn_bit:
+        parts.append(f"另有 {warn_bit}")
+    return "；".join(parts)
 
 
 def build_delivery_status(
@@ -174,7 +378,7 @@ def build_delivery_status(
 
     delivered = _delivered_files(results)
 
-    gaps: list[dict[str, str]] = []
+    raw_gaps: list[dict[str, Any]] = []
     # ① 契约 / 交接残差（软接受后仍未对齐的声明交付物、degraded 交接、预算/超时掐断…）。
     for role, rows in collect_worker_gaps(plan, results):
         for row in rows:
@@ -186,29 +390,30 @@ def build_delivery_status(
                 reason = ""
             if not text:
                 continue
-            item: dict[str, str] = {"role": role, "description": text}
-            if reason:
-                item["reason"] = reason
-            gaps.append(item)
+            raw_gaps.append(_annotate_gap(role, text, reason=reason))
     # ② 完成验收未满足（completion_criteria 缺口，批次级）。
     for gap in criteria_gaps or []:
         text = str(gap).strip()
         if text:
-            gaps.append({"role": "验收", "description": text})
+            raw_gaps.append({"role": "验收", "description": text})
     # ③ 失败 / 未执行 / 取消的计划节点（热修已接手的取消节点不算缺口）。
-    gaps.extend(_node_gaps(plan, results))
-    gaps = gaps[:_MAX_GAPS]
+    raw_gaps.extend(_node_gaps(plan, results))
+    # 用户面：零落盘（worker 契约 + 批次 files_written）合并为一条 files_not_landed。
+    gaps = _project_user_gaps(raw_gaps, results)[:_MAX_GAPS]
+
+    blocking = [g for g in gaps if _is_blocking(g)]
+    warnings = [g for g in gaps if not _is_blocking(g)]
 
     # 待用户操作：① 无执行环境 → 绑定本地文件夹；② 整页 QA 预算 defer → 一键续派验收；
-    # ③ 成篇 partial（token/超时掐断）→ 续写入口；④ 额度 SKIPPED 未跑节点 → 续跑入口
-    # （勿把纯 turn_token_budget SKIPPED 误挂成篇续写）。
+    # ③ 额度 SKIPPED 未跑节点 → 续跑入口。
+    # 成篇未写完不再挂 continue_writing——改由对话框接着说。
     # ① 判定复用 code_execution_enabled_for 单一真相源（与 worker registry / 委派闸同一谓词）。
     actions: list[dict[str, str]] = []
-    if any(g.get("reason") == REASON_QA_DEFERRED for g in gaps):
+    if any(g.get("reason") == REASON_QA_DEFERRED for g in blocking):
         actions.append(_website_verify_action(_infer_website_site(plan)))
     skipped_budget_roles = [
         str(g.get("role") or "").strip() or "未跑节点"
-        for g in gaps
+        for g in blocking
         if g.get("reason") == REASON_TURN_TOKEN_BUDGET
     ]
     # Dedup role labels while preserving order.
@@ -220,18 +425,14 @@ def build_delivery_status(
             skipped_roles_unique.append(role)
     if skipped_roles_unique:
         actions.append(_continue_skipped_runs_action(skipped_roles_unique))
-    writing_partial = any(
-        g.get("reason") in ("token_budget", "worker_timeout") for g in gaps
-    )
-    if writing_partial and delivered:
-        actions.append(_continue_writing_action())
-    if backend is not None and gaps:
+    if backend is not None and blocking:
         from agentcore.tools.builtin import code_execution_enabled_for
 
         needs_execution = (
             plan_suggests_code_verification(plan)
             or plan_mentions_binary_artifact(plan)
-            or any("code_execute" in g["description"] for g in gaps)
+            or any(g.get("reason") == REASON_FILES_NOT_LANDED for g in blocking)
+            or any("code_execute" in str(g.get("description") or "") for g in blocking)
         )
         if needs_execution and not code_execution_enabled_for(backend):
             actions.append(
@@ -247,15 +448,16 @@ def build_delivery_status(
     if not delivered and not gaps:
         return None
 
-    if not gaps:
+    if not blocking and not warnings:
         state = "delivered"
-        summary = f"已交付 {len(delivered)} 个文件"
+    elif not blocking and warnings:
+        state = "notes"
     elif delivered:
         state = "partial"
-        summary = f"已交付 {len(delivered)} 个文件；{len(gaps)} 项缺口"
     else:
         state = "blocked"
-        summary = f"未能交付：{len(gaps)} 项缺口"
+
+    summary = _build_summary(delivered, blocking, warnings)
 
     return {
         "execution_id": execution_id,
@@ -287,6 +489,13 @@ def maybe_emit_delivery_status(
         )
         if payload is None:
             return
+        current_delivery_verdict.set(
+            DeliveryVerdict(
+                state=str(payload["state"]),
+                delivered_files=tuple(payload.get("delivered_files") or ()),
+                execution_id=execution_id,
+            )
+        )
         from agentcore.runtime.events import delivery_status
 
         sink.emit(delivery_status(**payload))

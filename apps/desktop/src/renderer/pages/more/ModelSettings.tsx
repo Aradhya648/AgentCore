@@ -16,6 +16,7 @@ import {
   llmProviderKeys,
   modelKeys,
 } from "@/lib/queryKeys";
+import { notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
   type CreateLlmModelProfileInput,
@@ -242,6 +243,7 @@ function ModelProfilesSection({
   const onSetDefault = (profile: LlmModelProfileView) =>
     withPending(async () => {
       await setDefaultLlmModelProfile(profile.id);
+      notifySuccess(`已将「${profile.name}」设为默认组合`);
     });
 
   const onDelete = (profile: LlmModelProfileView) => {
@@ -255,6 +257,7 @@ function ModelProfilesSection({
     void withPending(async () => {
       await deleteLlmModelProfile(profile.id);
       if (editingId === profile.id) setEditingId(null);
+      notifySuccess(`已删除「${profile.name}」`);
     });
   };
 
@@ -269,6 +272,7 @@ function ModelProfilesSection({
       });
       setEditingId(created.id);
       setCreating(false);
+      notifySuccess(`已复制为「${created.name}」`);
     });
 
   const onCreate = () => {
@@ -292,19 +296,23 @@ function ModelProfilesSection({
         set_as_default: false,
       } satisfies CreateLlmModelProfileInput);
       setCreating(false);
-      setEditingId(created.id);
+      setEditingId(null);
+      notifySuccess(`已创建「${created.name}」`);
     });
 
   const onSaveEdit = (profile: LlmModelProfileView, draft: ProfileDraft) =>
     withPending(async () => {
       if (profile.kind !== "user") return;
       if (!draft.main) throw new Error("主模型必填");
+      const name = draft.name.trim() || profile.name;
       await updateLlmModelProfile(profile.id, {
-        name: draft.name.trim() || profile.name,
+        name,
         main: draft.main,
         worker: draft.worker,
         background: draft.background,
       });
+      setEditingId(null);
+      notifySuccess(`已保存「${name}」`);
     });
 
   return (

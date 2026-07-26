@@ -141,6 +141,24 @@ def build_turn_paused_fact(
             exc_info=True,
         )
 
+    presentation_format: dict[str, Any] | None = None
+    try:
+        from agentcore.core.log_context import get_log_value
+        from agentcore.runtime.runs.presentation_format import (
+            snapshot_presentation_format_for_pause,
+        )
+
+        presentation_format = snapshot_presentation_format_for_pause(
+            journal_entries_before_trailing,
+            conversation_id=str(get_log_value("conversation_id") or "") or None,
+        )
+    except Exception:
+        logger.warning(
+            "turn_paused.presentation_format_failed",
+            checkpoint_id=checkpoint_id,
+            exc_info=True,
+        )
+
     controller = _controller_seed()
 
     return TurnPausedFact(
@@ -154,6 +172,7 @@ def build_turn_paused_fact(
         evidence_ledger=evidence_ledger,
         controller=controller,
         website_style=website_style,
+        presentation_format=presentation_format,
         extras=dict(extras) if extras else None,
     )
 

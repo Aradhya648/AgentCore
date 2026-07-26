@@ -33,6 +33,7 @@ function resume(conversationId: string, checkpointId: string): PendingResume {
     assumptions: [],
     questions: [],
     styleOptions: [],
+    formatOptions: [],
     intent: "decision",
     origin: "server",
   };

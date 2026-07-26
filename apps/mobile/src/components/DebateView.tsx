@@ -39,6 +39,45 @@ const CONFIDENCE_LABEL: Record<string, string> = {
   low: "低",
 };
 
+/** Phase 3 最小对齐：有 model 才出三方署名；无字段零噪声。 */
+function vendorLabel(model: string | null | undefined): string | null {
+  const m = (model ?? "").trim();
+  if (!m) return null;
+  const byPrefix: Record<string, string> = {
+    doubao: "豆包",
+    kimi: "Kimi",
+    zhipu: "智谱",
+    deepseek: "DeepSeek",
+  };
+  const prefix = m.includes("/") ? m.slice(0, m.indexOf("/")) : "";
+  if (prefix) return byPrefix[prefix] ?? prefix;
+  if (/^deepseek/i.test(m)) return "DeepSeek";
+  if (/^doubao/i.test(m)) return "豆包";
+  if (/^glm/i.test(m)) return "智谱";
+  if (/^kimi/i.test(m)) return "Kimi";
+  return m;
+}
+
+function formatDebateRosterLine(debate: DebateResultPayload): string | null {
+  const hasAny =
+    debate.sides.some((s) => Boolean((s.model ?? "").trim())) ||
+    Boolean((debate.moderator_model ?? "").trim());
+  if (!hasAny) return null;
+  const parts: string[] = [];
+  for (const s of debate.sides) {
+    const label = vendorLabel(s.model);
+    if (!label) continue;
+    parts.push(`${s.name} ${s.origin === "byok" ? `${label}·BYOK` : label}`);
+  }
+  const mod = vendorLabel(debate.moderator_model);
+  if (mod) {
+    parts.push(
+      `裁判 ${debate.moderator_origin === "byok" ? `${mod}·BYOK` : mod}`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 type HandoffKind = "value" | "fact" | "question";
 
 function asHandoffKind(raw: string): HandoffKind {
@@ -60,6 +99,7 @@ export function DebateView({
 }) {
   const brief = <Brief debate={debate} onFill={onFill} />;
   const narrative = <Narrative debate={debate} />;
+  const rosterLine = formatDebateRosterLine(debate);
   return (
     <div className="debate">
       <div className="debate-head">
@@ -69,6 +109,11 @@ export function DebateView({
           {STOP_LABEL[debate.stop_reason] ?? debate.stop_reason}
         </span>
       </div>
+      {rosterLine && (
+        <div className="debate-field" data-testid="debate-roster-line">
+          <span className="debate-field-value">{rosterLine}</span>
+        </div>
+      )}
       <PretrialBlock pretrial={pretrial ?? null} />
       {debate.narrative_first ? (
         <>

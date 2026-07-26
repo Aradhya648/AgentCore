@@ -33,6 +33,47 @@ function optionLabel(o: unknown): string {
   return "";
 }
 
+/** Phase 3 最小对齐：有 model 才出「正方 X · 反方 Y · 裁判 Z」；无字段零噪声。 */
+function vendorLabel(model: string | null | undefined): string | null {
+  const m = (model ?? "").trim();
+  if (!m) return null;
+  const byPrefix: Record<string, string> = {
+    doubao: "豆包",
+    kimi: "Kimi",
+    zhipu: "智谱",
+    deepseek: "DeepSeek",
+  };
+  const prefix = m.includes("/") ? m.slice(0, m.indexOf("/")) : "";
+  if (prefix) return byPrefix[prefix] ?? prefix;
+  if (/^deepseek/i.test(m)) return "DeepSeek";
+  if (/^doubao/i.test(m)) return "豆包";
+  if (/^glm/i.test(m)) return "智谱";
+  if (/^kimi/i.test(m)) return "Kimi";
+  return m;
+}
+
+function formatDebateRosterLine(
+  sides: Array<{ name?: string; model?: string; origin?: string }>,
+  moderatorModel?: string | null,
+  moderatorOrigin?: string | null,
+): string | null {
+  const hasAny =
+    sides.some((s) => Boolean((s.model ?? "").trim())) ||
+    Boolean((moderatorModel ?? "").trim());
+  if (!hasAny) return null;
+  const parts: string[] = [];
+  for (const s of sides) {
+    const label = vendorLabel(s.model);
+    if (!label || !s.name) continue;
+    parts.push(`${s.name} ${s.origin === "byok" ? `${label}·BYOK` : label}`);
+  }
+  const mod = vendorLabel(moderatorModel);
+  if (mod) {
+    parts.push(`裁判 ${moderatorOrigin === "byok" ? `${mod}·BYOK` : mod}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /** All choice option labels across questions — organize_plan confirm = keep-all. */
 export function collectOrganizePlanSelected(
   questions: Array<Record<string, unknown>>,
@@ -65,6 +106,7 @@ export function ResumeCard({
     note: string,
     selected: string[],
     styleId?: string | null,
+    formatId?: string | null,
   ) => void;
 }) {
   const [note, setNote] = useState("");
@@ -78,8 +120,13 @@ export function ResumeCard({
   const questions = asRecords(paused.questions);
   const assumptions = asRecords(paused.assumptions);
   const styleOptions = asRecords(paused.style_options);
+  const formatOptions = asRecords(paused.format_options);
   const [styleId, setStyleId] = useState<string | null>(() => {
     const first = styleOptions[0];
+    return first ? (str(first, "id") ?? null) : null;
+  });
+  const [formatId, setFormatId] = useState<string | null>(() => {
+    const first = formatOptions[0];
     return first ? (str(first, "id") ?? null) : null;
   });
   const isDebateKickoff =
@@ -129,15 +176,24 @@ export function ResumeCard({
         }
       }
     }
-    // Structured style wire (B+A): append sN when styles offered.
+    // Structured style/format wire (B+A): append sN/fN when offered.
     if (styleId && !out.includes(styleId)) out = [...out, styleId];
+    if (formatId && !out.includes(formatId)) out = [...out, formatId];
     return out;
   };
 
   const submit = (decision: CheckpointDecision) => {
-    const pick =
+    const stylePick =
       decision === "continue" && styleOptions.length > 0 ? styleId : null;
-    onResume(decision, note.trim(), collectSelected(decision), pick);
+    const formatPick =
+      decision === "continue" && formatOptions.length > 0 ? formatId : null;
+    onResume(
+      decision,
+      note.trim(),
+      collectSelected(decision),
+      stylePick,
+      formatPick,
+    );
   };
 
   return (
@@ -253,6 +309,35 @@ export function ResumeCard({
           })}
         </div>
       )}
+      {isAskUser && formatOptions.length > 0 && (
+        <div className="ask-chips">
+          {formatOptions.map((s) => {
+            const label = str(s, "label") ?? "";
+            const id = str(s, "id") ?? label;
+            const active = id === formatId;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={active ? "ask-chip ask-chip-active" : "ask-chip"}
+                onClick={() => {
+                  setFormatId(id);
+                  setNote((prev) => {
+                    const line = `形态：${label}`;
+                    if (!prev.trim()) return line;
+                    const lines = prev
+                      .split("\n")
+                      .filter((l) => !l.startsWith("形态："));
+                    return [...lines, line].join("\n");
+                  });
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {isPlanReview && (paused.steps?.length ?? 0) > 0 && (
         <div className="pause-steps">
           {(paused.steps ?? []).map((s, i) => {
@@ -279,6 +364,27 @@ export function ResumeCard({
                 </div>
               </div>
             )}
+            {(() => {
+              const kick = paused as {
+                sides?: Array<{
+                  name?: string;
+                  model?: string;
+                  origin?: string;
+                }>;
+                moderator_model?: string;
+                moderator_origin?: string;
+              };
+              const roster = formatDebateRosterLine(
+                kick.sides ?? [],
+                kick.moderator_model,
+                kick.moderator_origin,
+              );
+              return roster ? (
+                <div className="pause-step" data-testid="debate-roster-line">
+                  <div className="pause-step-summary">{roster}</div>
+                </div>
+              ) : null;
+            })()}
             {(
               (paused as { sides?: Array<Record<string, unknown>> }).sides ?? []
             ).map((s, i) => {

@@ -3,15 +3,16 @@ import { ASK_COMMENCE_MOCK } from "../askCommenceMock";
 import { ASK_COMMENCE_SCENES } from "../askCommenceScenes";
 
 describe("ASK_COMMENCE_SCENES", () => {
-  it("exposes four unique layout variants", () => {
-    expect(ASK_COMMENCE_SCENES).toHaveLength(4);
+  it("exposes five unique layout variants", () => {
+    expect(ASK_COMMENCE_SCENES).toHaveLength(5);
     const ids = ASK_COMMENCE_SCENES.map((s) => s.id);
-    expect(new Set(ids).size).toBe(4);
+    expect(new Set(ids).size).toBe(5);
     expect(ids).toEqual([
       "ask-commence-v1",
       "ask-commence-v2",
       "ask-commence-v3",
       "ask-commence-v4",
+      "ask-commence-v5",
     ]);
   });
 
@@ -31,9 +32,15 @@ describe("ASK_COMMENCE_SCENES", () => {
     );
   });
 
-  it("v2 scene is the production kickoff default reference", () => {
+  it("v2 scene keeps the retired Brief+Choose reference", () => {
     const v2 = ASK_COMMENCE_SCENES.find((s) => s.id === "ask-commence-v2");
     expect(v2).toBeDefined();
     expect(v2?.title.toLowerCase()).toMatch(/brief|choose|v2/i);
+  });
+
+  it("v5 scene mounts the production kickoff body", () => {
+    const v5 = ASK_COMMENCE_SCENES.find((s) => s.id === "ask-commence-v5");
+    expect(v5).toBeDefined();
+    expect(v5?.intent).toMatch(/生产默认/);
   });
 });

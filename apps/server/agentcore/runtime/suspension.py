@@ -25,7 +25,8 @@ union (base :class:`TurnSuspension` + :class:`PlanReviewSuspension` /
 - **ask_user** — the CEO paused mid-loop on its ``ask_user`` checkpoint (the one
   asking primitive — opening 引导 or mid-task fork). Resume maps the user's answer
   to the ``ask_user`` tool result and continues the CEO loop (no plan tail). Carries
-  the card payload (message / context / assumptions / questions / style_options) so
+  the card payload (message / context / assumptions / questions / style_options /
+  format_options) so
   resume can re-emit it.
 
 Every frame shares: the CEO ``transcript`` at the pause (system + history + user +
@@ -359,7 +360,7 @@ class TeamPreviewSuspension(TurnSuspension):
     completed: dict[str, RunState] = field(default_factory=dict)
     # Upcoming workers the user is confirming ({run_id, role, task, depends_on, debate}).
     workers: list[dict[str, Any]] = field(default_factory=list)
-    # GRANTABLE whitelist the kickoff grant would cover（将授权的能力范围；非按计划推算）.
+    # Execution-class tools the kickoff grant covers（将授权的执行能力；文件类由会话档信任）.
     tools: list[str] = field(default_factory=list)
     # Orchestration primitive discriminant (delegate | debate).
     primitive: str = "delegate"
@@ -397,9 +398,9 @@ class AskUserSuspension(TurnSuspension):
     and continues the CEO loop. Carries the unified card payload so resume re-emits the
     full prompt: ``question`` (the framing / opening line — the tool's ``message``),
     ``context`` background, plus the rich opening content ``assumptions`` (起步计划
-    chips), ``questions`` (the askable items, each with kind/options/multiple/default)
-    and ``style_options`` (visual presets). All but ``question`` are empty for a compact
-    mid-task fork.
+    chips), ``questions`` (the askable items, each with kind/options/multiple/default),
+    ``style_options`` (visual presets), and ``format_options`` (presentation delivery
+    forms). All but ``question`` are empty for a compact mid-task fork.
     """
 
     kind: ClassVar[SuspensionKind] = SuspensionKind.ASK_USER
@@ -409,6 +410,7 @@ class AskUserSuspension(TurnSuspension):
     assumptions: list[dict[str, Any]] = field(default_factory=list)
     questions: list[dict[str, Any]] = field(default_factory=list)
     style_options: list[dict[str, Any]] = field(default_factory=list)
+    format_options: list[dict[str, Any]] = field(default_factory=list)
     intent: AskCheckpointIntent = "decision"
 
 
@@ -437,6 +439,7 @@ _EMPTY_SUMMARY_EXTRAS: dict[str, Any] = {
     "assumptions": [],
     "questions": [],
     "style_options": [],
+    "format_options": [],
     "intent": None,
 }
 
@@ -569,6 +572,7 @@ def _ask_user_frame_extras(s: TurnSuspension) -> dict[str, Any]:
         "assumptions": list(s.assumptions),
         "questions": list(s.questions),
         "style_options": list(s.style_options),
+        "format_options": list(s.format_options),
         "intent": s.intent,
     }
 
@@ -580,6 +584,7 @@ def _ask_user_from_extras(data: dict[str, Any]) -> dict[str, Any]:
         "assumptions": list(data.get("assumptions") or []),
         "questions": list(data.get("questions") or []),
         "style_options": list(data.get("style_options") or []),
+        "format_options": list(data.get("format_options") or []),
         "intent": data.get("intent") or "decision",
     }
 
@@ -593,6 +598,7 @@ def _ask_user_summary_extras(s: TurnSuspension) -> dict[str, Any]:
         "assumptions": list(s.assumptions),
         "questions": list(s.questions),
         "style_options": list(s.style_options),
+        "format_options": list(s.format_options),
         "intent": s.intent,
     }
 

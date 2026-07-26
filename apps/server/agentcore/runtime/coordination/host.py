@@ -925,16 +925,19 @@ async def _background_drive(
         raise
     except Exception:  # noqa: BLE001 — never kill the CEO loop via background task
         logger.exception("delegate.coordinate_failed", execution_id=execution_id)
-        session.post(
-            CoordinationEvent(
-                kind=CoordinationEventKind.ALL_COMPLETED,
-                payload={
-                    "completed": len(session.completed_run_ids),
-                    "total": session.total_workers,
-                    "error": "后台调度异常结束，请基于已有结果收口。",
-                },
+        # Align with CancelledError non-soft_stop: scheduling crash is not success.
+        # ALL_COMPLETED would seal a fake「全员完成」into inject/wait.
+        with contextlib.suppress(Exception):
+            session.post(
+                CoordinationEvent(
+                    kind=CoordinationEventKind.DRIVE_CANCELLED,
+                    payload={
+                        "completed": len(session.completed_run_ids),
+                        "total": session.total_workers,
+                        "error": "协调后台调度异常结束，请基于已有结果收口。",
+                    },
+                )
             )
-        )
     finally:
         tool._llm = prior_llm
         if owns_llm:
@@ -996,6 +999,24 @@ def post_worker_progress(
                 },
             )
         )
+        # Mid-graph thrash memory so secondary cold delegate can refuse rebrand
+        # before batch finalize. Fail-soft: thrash accounting must never abort drive.
+        if node is not None:
+            try:
+                from agentcore.runtime.coordination.thrash import (
+                    note_thrashing_worker,
+                    thrash_record_from_node,
+                )
+
+                rec = thrash_record_from_node(node, state)
+                if rec is not None:
+                    note_thrashing_worker(session.conversation_id or "", rec)
+            except Exception:  # noqa: BLE001 — thrash is advisory only
+                logger.exception(
+                    "delegate.thrash_note_failed",
+                    run_id=run_id,
+                    execution_id=execution_id,
+                )
     # Safety net: transcript-harvested escalations that missed the live on_escalate bridge.
     if terminal:
         post_completed_escalations(session, plan, completed, newly=terminal)

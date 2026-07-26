@@ -13,6 +13,7 @@ import type {
   ApprovalRequiredPayload,
   ApprovalResolvedPayload,
   AskAssumption,
+  AskFormatOption,
   AskQuestion,
   AskStyleOption,
   CheckpointRequiredPayload,
@@ -1458,6 +1459,7 @@ export interface NonBlockingAsk {
   assumptions: AskAssumption[];
   questions: AskQuestion[];
   styleOptions: AskStyleOption[];
+  formatOptions: AskFormatOption[];
 }
 
 /**
@@ -1484,6 +1486,7 @@ export function extractAsks(events: SSEEvent[]): NonBlockingAsk[] {
       assumptions: p.assumptions ?? [],
       questions: p.questions ?? [],
       styleOptions: p.style_options ?? [],
+      formatOptions: p.format_options ?? [],
     });
   }
   return order.map((id) => byId.get(id) as NonBlockingAsk);

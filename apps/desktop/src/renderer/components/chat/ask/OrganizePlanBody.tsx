@@ -1,13 +1,19 @@
 /**
- * organize_plan — 整理方案清单：原路径→新路径，默认全选，取消勾选即剔除。
+ * organize_plan — 整理方案清单：行式多选（与 kickoff 同壳）。
+ * 默认全选（seedAllMultiple）；取消勾选即剔除。原路径→新路径进 detail。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
-import { Button } from "@/components/ui";
+import { ASK_INTENT_META } from "@/components/chat/decision";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
 import type { AskOption } from "@/types/events";
-import { Check, FolderTree, Loader2, OctagonX } from "lucide-react";
-import type { AskUserContent } from "./AskUserFields";
-import type { useAskAnswer } from "./AskUserFields";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { AskCardFooter, AskCardShell } from "./AskCardShell";
+import { CommenceNote } from "./AskCommenceParts";
+import { AskRowGroup } from "./AskOptionRow";
+import type { AskUserContent, useAskAnswer } from "./AskUserFields";
+
+const META = ASK_INTENT_META.organize_plan;
 
 function summarizeOps(options: AskOption[]): string {
   let mkdir = 0;
@@ -29,13 +35,22 @@ function summarizeOps(options: AskOption[]): string {
   return parts.length ? parts.join("、") : `${options.length} 项整理操作`;
 }
 
+function optionDetail(option: AskOption): string | undefined {
+  const arrow =
+    option.op === "move" || option.op === "copy"
+      ? `${option.source ?? "?"} → ${option.destination ?? "?"}`
+      : option.path
+        ? `${option.op ?? "op"} ${option.path}`
+        : null;
+  return arrow ?? option.detail;
+}
+
 export function OrganizePlanBody({
   content,
   answer,
   busy,
   submitting,
   caption,
-  cta,
   onContinue,
   onStop,
 }: {
@@ -43,169 +58,104 @@ export function OrganizePlanBody({
   answer: ReturnType<typeof useAskAnswer>;
   busy: boolean;
   submitting: CheckpointUserDecision | null;
-  caption: string;
-  cta: string;
+  caption?: string;
   onContinue: () => void;
   onStop: () => void;
 }) {
   const q = content.questions[0];
   const picked = q ? (answer.answers[q.id] ?? []) : [];
   const overview = q ? summarizeOps(q.options) : "";
+  const [noteOpen, setNoteOpen] = useState(false);
+
+  const subtitleParts = [
+    content.context.trim(),
+    overview ? `总览：${overview}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return (
-    <>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pt-3">
-        <div className="flex items-start gap-1.5">
-          <FolderTree
-            size={14}
-            className="mt-0.5 shrink-0 text-muted-foreground"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1">
-              <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-                {caption}
-              </p>
-              <ManualHelpLink to={MANUAL_HELP.checkpoint} />
-            </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
-              {content.question}
-            </p>
-            {content.context && (
-              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                {content.context}
-              </p>
-            )}
-            {overview && (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                总览：{overview}
-                <span className="ml-1 text-muted-foreground/80">
-                  （敏感命名启发式默认已剔除，可勾回；非安全边界）
-                </span>
-              </p>
-            )}
-          </div>
-        </div>
+    <AskCardShell
+      variant="organize_plan"
+      icon={META.icon}
+      caption={caption ?? META.activeCaption}
+      title={content.question}
+      subtitle={subtitleParts || undefined}
+      extra={<ManualHelpLink to={MANUAL_HELP.checkpoint} />}
+      footer={
+        <AskCardFooter
+          cta={picked.length > 0 ? `${META.cta}（${picked.length}）` : META.cta}
+          ctaIcon={META.ctaIcon}
+          busy={busy}
+          submitting={submitting}
+          onContinue={onContinue}
+          onStop={onStop}
+          ctaDisabled={picked.length === 0}
+          hint="确认后按方案批量执行，不再二次弹审批；完成后可撤销本次 move/mkdir。"
+        />
+      }
+    >
+      <div className="space-y-3">
+        {overview && (
+          <p className="px-2 text-xs text-muted-foreground/80">
+            敏感命名启发式默认已剔除，可勾回；非安全边界
+          </p>
+        )}
 
         {q && (
-          <div className="space-y-1.5" data-ask-variant="organize_plan">
+          <div>
             {q.prompt && (
-              <div className="flex items-center gap-2">
-                <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-                  {q.prompt}
-                </p>
-                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              <p className="px-2 text-xs font-medium leading-snug text-foreground">
+                {q.prompt}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                   取消勾选即剔除
                 </span>
-              </div>
+              </p>
             )}
-            {q.options.map((opt) => (
-              <OrganizeRow
-                key={opt.label}
-                option={opt}
-                active={picked.includes(opt.label)}
-                disabled={busy}
-                onToggle={() => answer.toggleChoice(q, opt.label)}
-              />
-            ))}
+            <AskRowGroup
+              className={q.prompt ? "mt-1" : undefined}
+              multiple
+              rows={q.options.map((opt) => ({
+                key: opt.label,
+                label: opt.label,
+                detail: optionDetail(opt),
+                selected: picked.includes(opt.label),
+                disabled: busy,
+                onSelect: () => answer.toggleChoice(q, opt.label),
+              }))}
+            />
           </div>
         )}
 
-        <textarea
-          value={answer.note}
-          onChange={(e) => answer.setNote(e.target.value)}
-          disabled={busy}
-          rows={2}
-          placeholder="补充说明（可选）"
-          className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/25 focus:outline-none disabled:opacity-40"
-        />
-      </div>
-
-      <div className="shrink-0 space-y-2 px-3 pb-3 pt-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="md"
-            variant="primary"
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            disabled={busy || picked.length === 0}
-            onClick={onContinue}
+        <div className="px-2">
+          <button
+            type="button"
+            onClick={() => setNoteOpen((v) => !v)}
+            aria-expanded={noteOpen}
+            className="flex w-full items-center gap-1.5 text-left"
           >
-            {submitting === "continue" ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Check size={14} />
+            <ChevronRight
+              size={13}
+              className={`shrink-0 text-muted-foreground transition-transform ${
+                noteOpen ? "rotate-90" : ""
+              }`}
+            />
+            <span className="shrink-0 text-xs text-muted-foreground">
+              补充说明
+            </span>
+            {!noteOpen && answer.note.trim() && (
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
+                {answer.note.trim()}
+              </span>
             )}
-            {cta}
-            {picked.length > 0 ? `（${picked.length}）` : ""}
-          </Button>
-          <Button
-            size="md"
-            variant="ghost"
-            disabled={busy}
-            onClick={onStop}
-            className="text-muted-foreground"
-          >
-            {submitting === "stop" ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <OctagonX size={14} />
-            )}
-            停止
-          </Button>
+          </button>
+          {noteOpen && (
+            <div className="mt-1.5 pl-5">
+              <CommenceNote answer={answer} disabled={busy} compact />
+            </div>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          确认后按方案批量执行，不再二次弹审批；完成后可撤销本次 move/mkdir。
-        </p>
       </div>
-    </>
-  );
-}
-
-function OrganizeRow({
-  option,
-  active,
-  disabled,
-  onToggle,
-}: {
-  option: AskOption;
-  active: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}) {
-  const arrow =
-    option.op === "move" || option.op === "copy"
-      ? `${option.source ?? "?"} → ${option.destination ?? "?"}`
-      : option.path
-        ? `${option.op ?? "op"} ${option.path}`
-        : null;
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onToggle}
-      className={`flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:opacity-40 ${
-        active
-          ? "border-foreground/25 bg-accent"
-          : "border-border bg-card hover:bg-accent/50"
-      }`}
-    >
-      <span
-        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-          active
-            ? "border-foreground bg-foreground text-background"
-            : "border-border"
-        }`}
-      >
-        {active ? <Check size={10} /> : null}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm text-foreground">{option.label}</span>
-        {(arrow || option.detail) && (
-          <span className="mt-0.5 block text-xs text-muted-foreground">
-            {arrow ?? option.detail}
-          </span>
-        )}
-      </span>
-    </button>
+    </AskCardShell>
   );
 }

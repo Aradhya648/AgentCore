@@ -173,6 +173,7 @@ def test_schema_exposes_form_enum():
     assert ("role" in deps or "角色名" in deps) and "del_*" in deps
     props_task = DELEGATE_PARAMETERS["properties"]["tasks"]["items"]["properties"]
     assert "require_upstream" in props_task
+    assert "retrieval_budget" not in props_task  # CEO 不可配置；额度走结构化默认
     assert "≥1" in props_task["require_upstream"]["description"] or "全量" in props_task[
         "require_upstream"
     ]["description"]

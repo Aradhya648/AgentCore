@@ -49,6 +49,9 @@ interface UserTerminalState {
   sessionsFor: (conversationId: string | null) => UserTerminalView[];
 }
 
+/** 缺席会话的稳定空列表——Zustand getSnapshot 不可每次 `[]` 新引用。 */
+const EMPTY_SESSIONS: UserTerminalView[] = [];
+
 const UI_OUTPUT_CAP = 1024 * 1024;
 
 function appendOutput(current: string, chunk: string): string {
@@ -299,7 +302,7 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
   },
 
   sessionsFor: (conversationId) => {
-    if (!conversationId) return [];
-    return get().byConversation[conversationId] ?? [];
+    if (!conversationId) return EMPTY_SESSIONS;
+    return get().byConversation[conversationId] ?? EMPTY_SESSIONS;
   },
 }));

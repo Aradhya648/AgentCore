@@ -401,5 +401,6 @@ def test_gate_prompt_copy_short():
     assert paste.startswith("[系统提示]")
     assert len(ask) < 220
     assert len(text_exit) < 260
-    assert len(dele) < 200
+    # dele carries complexity_hint=light / repair_code hard-gate semantics (~216).
+    assert len(dele) < 230
     assert len(paste) < 160

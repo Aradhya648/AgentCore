@@ -64,6 +64,7 @@ describe("composeAnswer with bind_local_folder pick", () => {
       },
     ],
     styleOptions: [],
+    formatOptions: [],
   };
 
   it("puts the folder-annotated option into the composed resolve text", () => {
@@ -76,6 +77,7 @@ describe("composeAnswer with bind_local_folder pick", () => {
       },
       {},
       {},
+      null,
       null,
       "",
       false,

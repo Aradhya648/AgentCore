@@ -96,17 +96,44 @@ async def _wire_continuation_toolset(
     suspension_saver: SuspensionSaver | None,
     suspension_deleter: SuspensionDeleter | None,
     x_client_platform: str | None,
+    has_memory_topics: bool | None = None,
 ) -> ResumedWiring:
     """Shared CEO/worker toolset rebuild for resume and crash redrive (no parallel path)."""
     from agentcore.runtime.pipeline.resume import pipeline as resume_pipeline_mod
 
+    # Reuse a caller-supplied topic signal when the continuation already listed topics
+    # (crash redrive); otherwise list once here for the consult_memory wire gate.
+    # Resolve store via ``resolve.prepare.default_memory_store`` so resume e2e / governance
+    # patches on that seam still apply (same binding ConsultMemoryTool uses).
+    topics_present = has_memory_topics
+    if topics_present is None and memory_enabled:
+        from agentcore.memory import load_memory_topics
+        from agentcore.runtime.resolve.prepare import default_memory_store
+
+        topics_present = bool(
+            await load_memory_topics(
+                default_memory_store(),
+                user_id,
+                folder_id=folder_id,
+                enabled=True,
+            )
+        )
+    elif topics_present is None:
+        topics_present = False
+
+    from agentcore.tools.sandbox.exec_languages import resolve_exec_languages
+
+    exec_languages = await resolve_exec_languages(backend)
     worker_tools = build_worker_registry(
-        backend=backend, permission_preset=permission_preset
+        backend=backend,
+        permission_preset=permission_preset,
+        languages=exec_languages if backend.location == "local" else None,
     )
     _wire_worker_memory_tools(
         worker_tools,
         memory_enabled=memory_enabled,
         folder_id=folder_id,
+        has_memory_topics=topics_present,
     )
     # Same system-skill registry as a fresh turn so the continued CEO loop can
     # still consult_skill (提示词瘦身 P2), including deployment-gated capability
@@ -181,9 +208,11 @@ async def _wire_continuation_toolset(
         shared_workspace=folder_id is not None,
     )
     from agentcore.runtime.coordination.session import current_execution_id
+    from agentcore.runtime.delegate.delivery_status import current_delivery_verdict
 
     bound_execution_id = base_tool_context.execution_id
     execution_id_token = current_execution_id.set(bound_execution_id)
+    current_delivery_verdict.set(None)
     approval_gate = (
         resume_pipeline_mod.ApprovalGate(
             sink=sink,
@@ -209,7 +238,11 @@ async def _wire_continuation_toolset(
     )
     refreshed_base = restamp_workspace_facts(
         base_system_prompt,
-        build_workspace_context(backend, desktop_online=desktop_online),
+        build_workspace_context(
+            backend,
+            desktop_online=desktop_online,
+            exec_languages=exec_languages,
+        ),
     )
     # Look up via ``resume.pipeline`` so any module-level monkeypatch on that
     # submodule (parity with fresh-turn ``pipeline.run`` seams) is honoured.
@@ -237,6 +270,7 @@ async def _wire_continuation_toolset(
         skill_registry=skill_registry,
         folder_id=folder_id,
         memory_enabled=memory_enabled,
+        has_memory_topics=topics_present,
         autonomy_policy=autonomy_policy,
         advertise_bind_local_folder=checkpoint_enabled
         and desktop_client_can_bind(x_client_platform),
@@ -342,6 +376,7 @@ async def wire_crash_turn(
     session_loader: SessionLoader | None,
     suspension_saver: SuspensionSaver | None,
     suspension_deleter: SuspensionDeleter | None,
+    has_memory_topics: bool | None = None,
 ) -> ResumedWiring:
     """Crash-lease sibling of :func:`wire_resume_turn` — same assembly, no suspension.
 
@@ -372,4 +407,5 @@ async def wire_crash_turn(
         suspension_saver=suspension_saver,
         suspension_deleter=suspension_deleter,
         x_client_platform=None,
+        has_memory_topics=has_memory_topics,
     )

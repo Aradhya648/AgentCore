@@ -110,7 +110,7 @@ AgentCore/
 - **偏好须明示 ✅**：情景沉淀与语义巩固 prompt 均约束——偏好只能来自用户**明示或纠正**，禁止从任务题材推断（如「用户在测法律案」≠「偏好法律分析」）；`偏好.md` 升格须摘要带明示证据。
 - **重写防丢双闸**：空重写不可清空文件；重写若静默丢弃过多既有条目（保留率 < 50%）整体拒绝落盘，episodes 留待下轮重试；真变更以 bullet 级 diff 记 `memory_updates` 审计（即 diff 卡片数据源）。
 - **巩固失败不推进**：LLM 解析失败/超时 → episodes **不标记已消化**，下轮触发自动重试；成功（含无变更）才标记，防止同批情景被反复合并。
-- **显式记住例外**：用户明确要求记住的内容经 CEO `remember` 工具**直写语义层、立即生效**，不等巩固——用户显式意图无需「时间证明持久性」。工具描述已约束「仅用户清楚说记住时用；推测偏好交给离线巩固」；与 `consult_memory` 同受 `memory_enabled` 总开关闸。注意：`remember` 落的是**用户规则**（`ai_maintained=false`），不是画像。
+- **显式记住例外**：用户明确要求记住的内容经 CEO `remember` 工具**直写语义层、立即生效**，不等巩固——用户显式意图无需「时间证明持久性」。工具描述已约束「仅用户清楚说记住时用；推测偏好交给离线巩固」；`remember` 受 `memory_enabled` 总开关闸，`consult_memory` 另需本回合确有可查阅主题才装配（空目录不装配、不渲染）。注意：`remember` 落的是**用户规则**（`ai_maintained=false`），不是画像。
 - **巩固冷启动（`_is_cold_start`）**：仅当**全局** `偏好.md` 与 `画像.md` 皆空时，巩固抽取降门槛——与产品「冷启动探索幕」（闸看**项目**画像）**正交、禁混名**。
 - **冷启动探索幕写画像（§1.5 产品例外）✅**：有项目 + 实质请求且（项目 `画像.md` 空 **或** 探索侧车 `explore_workspace_key` 与当前绑定不一致）时，CEO 组队探索后经 `update_project_profile` **中途直写项目** `画像.md`（`ai_maintained=true`，小节合并 + CAS），并写入 `_memory_meta.json` 的 `explore_workspace_key`（本地 `local:<root>:<subpath>` / 云端 `folder:<id>`）；可选 `topics`（≤3）整文件写入项目 `主题/<slug>.md`（on_demand）；禁止经 `remember` 落成规则。旧画像无 key 不强制重探。与巩固冷启动正交。→ 见代码: `memory/explore_profile.py`、`memory/episodic.py`（`ScopeMemoryMeta`）、`tools/builtin/update_project_profile.py`；编排见 [编排器 · 冷启动探索幕](/docs/03-AI核心/编排器与CEO主Agent.md)。
 - **不做静默写入**（产品决策 2026-07）：两层写入都有前端通知，分级呈现（情景轻提示 / 语义 diff 卡片），事件契约 `memory_updated` 带 `kind: episodic|semantic`。
@@ -141,7 +141,7 @@ AgentCore/
 
 **注入前裁剪人面 chrome**：注入时剥 H1 + 说明引用块，**文件本身不动**。→ 见代码: `memory/user_memory.py`
 
-**记忆分层注入**：always 核心全文进 `<rules>`，序 **全局偏好 → 全局画像 → 项目画像**（全局在前护前缀缓存）；跨文件预算紧张时全局优先。on_demand 主题只列目录，`consult_memory` 按需拉全文（项目优先、全局兜底）；与 `memory_enabled` 同闸。→ 见代码: `memory/rules_injection.py`
+**记忆分层注入**：always 核心全文进 `<rules>`，序 **全局偏好 → 全局画像 → 项目画像**（全局在前护前缀缓存）；跨文件预算紧张时全局优先。on_demand 主题只列目录（无主题则不渲染、不装配 `consult_memory`），有主题时按需拉全文（项目优先、全局兜底；错名软 miss、非工具失败）；与 `memory_enabled` 同闸。→ 见代码: `memory/rules_injection.py`
 
 **挂起→恢复接线 ✅**：`folder_id` 与 `memory_enabled` 随挂起帧持久化；旧帧兜底全局/开。→ 见代码: `runtime/suspension.py`
 

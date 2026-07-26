@@ -32,6 +32,7 @@ from agentcore.workspace._paths import (
     is_system_ignored_file_name,
     resolve_safe_path,
 )
+from agentcore.workspace.channel import WorkspaceChannel
 from agentcore.workspace.external_mounts import (
     ExternalMount,
     build_external_env,
@@ -41,6 +42,7 @@ from agentcore.workspace.external_mounts import (
     route_external,
 )
 from agentcore.workspace.indexing.manager import IndexManager
+from agentcore.workspace.local import LocalWorkspace
 from agentcore.workspace.locks import workspace_lock
 from agentcore.workspace.protocol import (
     AlreadyExists,
@@ -110,9 +112,11 @@ class ServerWorkspace:
     there the engine runs ON the user's machine and ``root`` IS their real disk, so a
     delegated worker's ``file_write`` / ``code_execute`` needs the same consent the
     cloud's local mode demands — the gate keys off ``backend.location == "local"``
-    (see ``delegate.py`` worker_gate, ``pipeline.py`` revise_gate). The op surface is
-    identical either way (direct ``Path`` access; never a ``WorkspaceChannel``
-    round-trip — that is ``LocalWorkspace``'s job).
+    (see ``delegate.py`` worker_gate, ``pipeline.py`` revise_gate). Primary-root ops
+    use direct ``Path`` I/O either way. Cloud sessions with W3/organize grants (no
+    ``abs_path``) additionally attach a ``WorkspaceChannel`` and route **only**
+    ``external/<alias>/…`` via per-op ``root_id`` (same transport as
+    ``LocalWorkspace``) — ``location`` stays ``"server"`` so worker_gate stays off.
     """
 
     def __init__(
@@ -131,9 +135,11 @@ class ServerWorkspace:
         # workspaces a turn actually changed (see WorkspaceBackend.dirty).
         self._dirty = False
         self._index_manager: IndexManager | None = None
-        # W3 session read-only mounts (``external/<alias>/…``). Sidecar attaches
-        # abs_path mounts; cloud ServerWorkspace typically leaves this empty.
+        # W3 session mounts (``external/<alias>/…``). Sidecar sets ``abs_path``;
+        # cloud grants carry ``root_id`` only and need ``_external_bridge``.
         self._mounts: dict[str, ExternalMount] = {}
+        # Desktop channel bridge for cloud external-only ops (per-op root_id).
+        self._external_bridge: LocalWorkspace | None = None
         # Shared-space cloud second roots (``shared/<alias>/…``).
         self._shared_mounts: dict[str, SharedMount] = {}
         # Realtime membership gate: space_id → current mount mode, or None if gone.
@@ -148,8 +154,20 @@ class ServerWorkspace:
         return self._dirty
 
     def attach_external_mounts(self, mounts: dict[str, ExternalMount]) -> None:
-        """Attach session-scoped read-only mounts for this turn (W3)."""
+        """Attach session-scoped external mounts for this turn (W3 / organize)."""
         self._mounts = dict(mounts)
+        if self._external_bridge is not None:
+            self._external_bridge.attach_external_mounts(self._mounts)
+
+    def attach_external_channel(self, channel: WorkspaceChannel) -> None:
+        """Attach a desktop channel for cloud ``external/`` ops (root_id only grants).
+
+        Does not flip ``location`` — cloud workers stay ungated; desktop pathGuard +
+        organize whitelist + plan card remain the authorization surface.
+        """
+        bridge = LocalWorkspace(channel, root_label=self.root_label)
+        bridge.attach_external_mounts(self._mounts)
+        self._external_bridge = bridge
 
     def attach_shared_mounts(
         self,
@@ -162,6 +180,28 @@ class ServerWorkspace:
         self._shared_mounts = dict(mounts)
         self._shared_gate = gate
         self._on_shared_mutation = on_mutation
+
+    def _external_needs_channel(self, *paths: str) -> bool:
+        """True when any path is ``external/`` without ``abs_path`` (desktop channel).
+
+        Unknown aliases raise ``PathNotFound`` immediately. Paths with ``abs_path``
+        (sidecar) stay on direct Path I/O.
+        """
+        needs = False
+        for path in paths:
+            if parse_external_path(path) is None:
+                continue
+            routed = route_external(path, self._mounts)
+            if routed is None:
+                raise PathNotFound(path)
+            if not routed.mount.abs_path:
+                needs = True
+        return needs
+
+    def _require_external_bridge(self) -> LocalWorkspace:
+        if self._external_bridge is None:
+            raise WorkspaceIOError("会话授权目录在本机引擎外不可直读")
+        return self._external_bridge
 
     @property
     def root(self) -> Path:
@@ -313,6 +353,8 @@ class ServerWorkspace:
         return self._index_manager
 
     async def read(self, path: str) -> str:
+        if self._external_needs_channel(path):
+            return await self._require_external_bridge().read(path)
         await self._gate_shared(path, write=False)
         target = self._safe(path)
         if not target.exists():
@@ -325,6 +367,10 @@ class ServerWorkspace:
             raise WorkspaceIOError(str(e)) from e
 
     async def write(self, path: str, content: str) -> int:
+        if self._external_needs_channel(path):
+            n = await self._require_external_bridge().write(path, content)
+            self._dirty = True
+            return n
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
             target = self._safe(path, write=True, op="write")
@@ -338,6 +384,10 @@ class ServerWorkspace:
             return len(content)
 
     async def append(self, path: str, content: str) -> int:
+        if self._external_needs_channel(path):
+            n = await self._require_external_bridge().append(path, content)
+            self._dirty = True
+            return n
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
             target = self._safe(path, write=True, op="append")
@@ -359,6 +409,8 @@ class ServerWorkspace:
             return len(content)
 
     async def read_bytes(self, path: str) -> bytes:
+        if self._external_needs_channel(path):
+            return await self._require_external_bridge().read_bytes(path)
         await self._gate_shared(path, write=False)
         target = self._safe(path)
         if not target.exists():
@@ -371,6 +423,10 @@ class ServerWorkspace:
             raise WorkspaceIOError(str(e)) from e
 
     async def write_bytes(self, path: str, data: bytes) -> int:
+        if self._external_needs_channel(path):
+            n = await self._require_external_bridge().write_bytes(path, data)
+            self._dirty = True
+            return n
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
             target = self._safe(path, write=True, op="write_bytes")
@@ -459,6 +515,8 @@ class ServerWorkspace:
             return True, new_ms
 
     async def list(self, directory: str, pattern: str) -> list[DirEntry]:
+        if self._external_needs_channel(directory):
+            return await self._require_external_bridge().list(directory, pattern)
         await self._gate_shared(directory, write=False)
         base = self._safe(directory)
         if not base.is_dir():
@@ -484,6 +542,10 @@ class ServerWorkspace:
     async def read_lines(
         self, path: str, *, offset: int = 1, limit: int | None = None
     ) -> ReadLinesResult:
+        if self._external_needs_channel(path):
+            return await self._require_external_bridge().read_lines(
+                path, offset=offset, limit=limit
+            )
         target = self._safe(path)
         if not target.exists():
             raise PathNotFound(path)
@@ -522,6 +584,13 @@ class ServerWorkspace:
         max_depth: int = 3,
         max_entries: int = 200,
     ) -> TreeResult:
+        if self._external_needs_channel(directory):
+            return await self._require_external_bridge().list_tree(
+                directory,
+                pattern=pattern,
+                max_depth=max_depth,
+                max_entries=max_entries,
+            )
         base = self._safe(directory)
         if not base.is_dir():
             raise NotADirectory(directory)
@@ -607,6 +676,10 @@ class ServerWorkspace:
         return [p for p, _ in collected], truncated
 
     async def mkdir(self, path: str) -> None:
+        if self._external_needs_channel(path):
+            await self._require_external_bridge().mkdir(path)
+            self._dirty = True
+            return
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
             target = self._safe(path, write=True, op="mkdir")
@@ -634,6 +707,10 @@ class ServerWorkspace:
             await self._emit_shared_mutation(path, "dir_created")
 
     async def delete(self, path: str, *, permanent: bool = False) -> None:
+        if self._external_needs_channel(path):
+            await self._require_external_bridge().delete(path, permanent=permanent)
+            self._dirty = True
+            return
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
             target = self._safe(path, write=True, op="delete", permanent=permanent)
@@ -693,6 +770,10 @@ class ServerWorkspace:
             await self._emit_shared_mutation(path, "file_deleted")
 
     async def copy(self, src: str, dst: str) -> None:
+        if self._external_needs_channel(src, dst):
+            await self._require_external_bridge().copy(src, dst)
+            self._dirty = True
+            return
         source = self._safe(src, write=False)
         dest = self._safe(dst, write=True, op="copy")
         src_ext = parse_external_path(src)
@@ -727,6 +808,10 @@ class ServerWorkspace:
         self._dirty = True
 
     async def move(self, src: str, dst: str) -> None:
+        if self._external_needs_channel(src, dst):
+            await self._require_external_bridge().move(src, dst)
+            self._dirty = True
+            return
         source = self._safe(src, write=True, op="move")
         dest = self._safe(dst, write=True, op="move")
         src_ext = parse_external_path(src)
@@ -751,6 +836,12 @@ class ServerWorkspace:
         self._dirty = True
 
     async def replace(self, path: str, old: str, new: str, *, all_: bool) -> ReplaceOutcome:
+        if self._external_needs_channel(path):
+            outcome = await self._require_external_bridge().replace(
+                path, old, new, all_=all_
+            )
+            self._dirty = True
+            return outcome
         target = self._safe(path, write=True, op="replace")
         if not target.exists():
             raise PathNotFound(path)
@@ -792,6 +883,8 @@ class ServerWorkspace:
         # surface immediately. The ripgrep child is awaited with
         # ``create_subprocess_exec`` so a tool-level ``asyncio.wait_for`` /
         # cancellation can kill the process (no silent Python walk fallback).
+        if self._external_needs_channel(query.directory):
+            return await self._require_external_bridge().grep(query)
         base = self._safe(query.directory)
         if not base.exists():
             raise PathNotFound(query.directory)

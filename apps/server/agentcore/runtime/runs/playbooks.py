@@ -211,13 +211,24 @@ _DIRECTED_SEARCH_TASK_HINT = (
 )
 
 
+def _research_angle_artifact(label: str) -> str:
+    """Workspace-relative path for one research_report angle dossier (angle in filename)."""
+    return f"{RESEARCH_DIR}/{label}调研报告.md"
+
+
+_RESEARCH_REPORT_OUTLINE_ARTIFACT = f"{RESEARCH_DIR}/提纲.md"
+_RESEARCH_REPORT_DEFAULT_ANGLE_ARTIFACT = f"{RESEARCH_DIR}/调研报告.md"
+
+
 def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
     """N×并行调研 → 提纲（依赖调研，默认 checkpoint 让用户过目）→ 写作 → 学术审校.
 
     The doc's own named example (调研→提纲→checkpoint→写作→审校); mirrors the 进阶 skill「调研驱动的
     大型交付，让结构跟着证据走」as a one-call shape.
 
-    成篇验收钉死单一主文件（``output_path`` / 默认 ``AgentCore/文档/research/报告.md``）；
+    中间环（各路调研 + 提纲）与终稿同走案卷契约：``form=files`` + 钉死
+    ``AgentCore/文档/research/`` 下路径（角度名入文件名，对齐 MLR ``{透镜}透镜报告.md``；
+    提纲钉 ``提纲.md``）。成篇验收钉死单一主文件（``output_path`` / 默认 ``报告.md``）；
     若 CEO 手写并行拆章，须另加 merge 步并把各章 brief 写死同一路径——见
     ``PAPER_PARALLEL_MERGE_DISCIPLINE``。
     """
@@ -236,6 +247,7 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
     deliverable = _clean_str(args.get("deliverable")) or f"一篇关于【{topic}】的完整报告"
     main_path = research_report_main_artifact(_clean_str(args.get("output_path")) or None)
     fold_hint = f" {angle_fold_note}" if angle_fold_note else ""
+    outline_path = _RESEARCH_REPORT_OUTLINE_ARTIFACT
 
     tasks: list[dict[str, Any]] = []
     if angle_slots:
@@ -243,6 +255,7 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
         for rid, parts in zip(research_ids, angle_slots, strict=True):
             merged = len(parts) > 1
             label = " + ".join(parts)
+            artifact = _research_angle_artifact(label)
             scope = (
                 f"专门调研以下合并子方向：{'、'.join(f'【{p}】' for p in parts)}。"
                 f"本节点职责涵盖上述全部 {len(parts)} 个方向；须全部覆盖，勿只做第一项。"
@@ -261,17 +274,25 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                     "对关键法条、司法解释、判例等权威出处，须用 read_url 核对原文后再引用，"
                     "勿仅凭搜索摘要断言条文或裁判要旨。"
                     "聚焦本子方向、回报精炼结论而非整段原文，别铺开到其它角度。"
+                    f"完整调研要点须用 file_write 落盘到 `{artifact}`"
+                    "（内容=本子方向完整要点 + 来源，不是 handoff 摘要的复制）；"
+                    "handoff 结构化简报照旧，落盘是叠加、不得替代 handoff。"
                     f"{_RESEARCHER_SEARCH_DISCIPLINE}"
                     f"{_RESEARCHER_NOTE_GUIDANCE}"
                     f"{fold_hint}"
                 ),
-                "deliverable": {"name": f"【{label}】方向的调研要点 + 来源"},
+                "deliverable": {
+                    "form": "files",
+                    "name": f"【{label}】方向的调研要点 + 来源（已落盘 {artifact}）",
+                    "artifacts": [artifact],
+                },
             }
             if angle_fold_note and merged:
                 task_body["playbook_note"] = angle_fold_note
             tasks.append(task_body)
     else:
         research_ids = ["research_0"]
+        artifact = _RESEARCH_REPORT_DEFAULT_ANGLE_ARTIFACT
         tasks.append(
             {
                 "id": "research_0",
@@ -283,10 +304,17 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                     "对关键法条、司法解释、判例等权威出处，须用 read_url 核对原文后再引用，"
                     "勿仅凭搜索摘要断言条文或裁判要旨。"
                     "回报精炼结论 + 关键证据指引，别回贴整段原文。"
+                    f"完整调研要点须用 file_write 落盘到 `{artifact}`"
+                    "（内容=本主题完整要点 + 来源，不是 handoff 摘要的复制）；"
+                    "handoff 结构化简报照旧，落盘是叠加、不得替代 handoff。"
                     f"{_RESEARCHER_SEARCH_DISCIPLINE}"
                     f"{_RESEARCHER_NOTE_GUIDANCE}"
                 ),
-                "deliverable": {"name": f"【{topic}】的调研要点 + 来源"},
+                "deliverable": {
+                    "form": "files",
+                    "name": f"【{topic}】的调研要点 + 来源（已落盘 {artifact}）",
+                    "artifacts": [artifact],
+                },
             }
         )
 
@@ -298,9 +326,17 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
             "task": (
                 f"综合上游各路调研，为主题【{topic}】拟一份报告提纲{aud}：列出章节结构与每节要点。"
                 "据证据定结构（别凭空先写死），确保覆盖各调研方向、无重复无缺口。"
+                f"可先 file_read `{RESEARCH_DIR}/` 下各路调研报告取完整要点；"
+                f"结构化提纲须用 file_write 落盘到 `{outline_path}`"
+                "（章节 + 每节要点全文，不是 handoff 摘要复制）；"
+                "handoff 结构化简报照旧，落盘是叠加、不得替代 handoff。"
             ),
             "depends_on": research_ids,
-            "deliverable": {"name": "一份结构化报告提纲（章节 + 每节要点）"},
+            "deliverable": {
+                "form": "files",
+                "name": f"一份结构化报告提纲（已落盘 {outline_path}）",
+                "artifacts": [outline_path],
+            },
             "checkpoint_after": checkpoint,
         }
     )
@@ -427,6 +463,114 @@ def _build_feature(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str
                 },
             }
         )
+    return tasks, []
+
+
+# Repair posture tools: point reads / patch / verify — no全仓 list / web crawl.
+_REPAIR_DIAGNOSE_TOOLS = [
+    "file_read",
+    "grep",
+    "code_search",
+    "code_execute",
+    "handoff",
+    "escalate",
+    "post_note",
+    "read_notes",
+]
+_REPAIR_PATCH_TOOLS = [
+    "file_read",
+    "grep",
+    "str_replace",
+    "file_write",
+    "file_append",
+    "code_execute",
+    "handoff",
+    "escalate",
+    "post_note",
+    "read_notes",
+]
+_REPAIR_VERIFY_TOOLS = [
+    "file_read",
+    "code_execute",
+    "test_run",
+    "handoff",
+    "escalate",
+    "post_note",
+    "read_notes",
+]
+
+
+def _repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """diagnose(短) → patch → verify：本地 runtime / 缺 export 等修码协议。
+
+    硬形状禁止「单人包圆触顶后再换马甲从零读」——三角色分波，验证失败应 escalate /
+    同人续派，勿新开巡读 worker。
+    """
+    problem = _clean_str(
+        args.get("problem") or args.get("error") or args.get("bug") or args.get("issue")
+    )
+    if not problem:
+        return [], ["repair_code 需要 slot『problem』（运行时错误 / 缺 export 等症状）"]
+    target = _clean_str(args.get("target") or args.get("file") or args.get("path"))
+    target_hint = f"优先路径：`{target}`。" if target else "先定位最小相关文件，禁止全仓通读。"
+    artifacts = _clean_str_list(args.get("artifacts"), cap=4)
+    if target and target not in artifacts:
+        artifacts = [target, *artifacts]
+    patch_deliverable: dict[str, Any] = {
+        "name": "已修补的代码文件",
+        "form": "files",
+        "requires_files": True,
+    }
+    if artifacts:
+        patch_deliverable["artifacts"] = artifacts
+
+    tasks: list[dict[str, Any]] = [
+        {
+            "id": "diagnose",
+            "role": "诊断员",
+            "task": (
+                f"短诊断【{problem}】。{target_hint}"
+                "最多读少数相关文件 / grep；输出：根因一句话 + 拟改路径与改法；"
+                "禁止全仓 list、禁止大范围通读、禁止在本步改文件。"
+            ),
+            "tools": list(_REPAIR_DIAGNOSE_TOOLS),
+            "max_rounds": 4,
+            "deliverable": {
+                "name": "短诊断（根因 + 拟改点）",
+                "form": "prose",
+                "min_length": 40,
+            },
+        },
+        {
+            "id": "patch",
+            "role": "修补员",
+            "task": (
+                f"按诊断结果修补【{problem}】。{target_hint}"
+                "用 str_replace 就地改（已有非空代码禁骨架整文件重写）；"
+                "改完自检语法；禁止重新从零巡仓。"
+            ),
+            "depends_on": ["diagnose"],
+            "tools": list(_REPAIR_PATCH_TOOLS),
+            "max_rounds": 6,
+            "deliverable": patch_deliverable,
+        },
+        {
+            "id": "verify",
+            "role": "验证员",
+            "task": (
+                f"验证【{problem}】修补是否生效：用 code_execute / test_run 跑最小复现；"
+                "失败则 escalate 说明缺口，禁止新开巡读或换马甲从零读仓库。"
+            ),
+            "depends_on": ["patch"],
+            "tools": list(_REPAIR_VERIFY_TOOLS),
+            "max_rounds": 4,
+            "deliverable": {
+                "name": "验证结果（通过或失败证据）",
+                "form": "prose",
+                "min_length": 40,
+            },
+        },
+    ]
     return tasks, []
 
 
@@ -1066,7 +1210,7 @@ def _organize_folder(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                 "role": "文件整理助手",
                 "task": task,
                 "tools": tools,
-                "deliverable": {"form": "prose", "name": "整理结果报告"},
+                "deliverable": {"form": "files", "name": "整理结果报告"},
             }
         ],
         [],
@@ -1280,6 +1424,18 @@ PLAYBOOKS: dict[str, Playbook] = {
             "include(可选,['ui','test'] 子集,默认两者都要)"
         ),
         build=_build_feature,
+    ),
+    "repair_code": Playbook(
+        name="repair_code",
+        summary=(
+            "诊断(短)→修补→验证的本地修码协议（runtime 错 / 缺 export；"
+            "短轮次+工具收窄；禁触顶后换马甲从零读）"
+        ),
+        slots=(
+            "problem(必填,错误症状/缺 export 等) / "
+            "target(可选,优先文件路径) / artifacts(可选,落盘路径数组)"
+        ),
+        build=_repair_code,
     ),
     "build_website": Playbook(
         name="build_website",

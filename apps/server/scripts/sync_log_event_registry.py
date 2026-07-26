@@ -39,6 +39,10 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
         "scope_signals": "int",
         "revises": "int",
         "escalations": "int",
+        "prepare_ms": "int",
+        "assemble_ms": "int",
+        "ttft_reasoning_ms": "int",
+        "ttft_content_ms": "int",
     },
     "chat.resume_complete": {
         "finish_reason": "str",
@@ -149,7 +153,7 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
 
 KEY_DESC: dict[str, str] = {
     "chat.turn_start": "回合起点（preview/chars/history）",
-    "chat.turn_complete": "回合收尾（finish_reason/rounds/tokens/delegated）",
+    "chat.turn_complete": "回合收尾（含 Phase-0 延迟：prepare/assemble/ttft_*）",
     "chat.resume_complete": "暂停恢复回合收尾（终态带协作计数；STOP 终结不带）",
     "delegate.started": "编排委派开始（agents/plan/waves）",
     "delegate.completed": "委派批次完成（escalations/scope）",

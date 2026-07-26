@@ -8,6 +8,7 @@ import type { DebateClosingView } from "../model";
 import { SectionHeader } from "./SectionHeader";
 import { closingAnchorId } from "./anchors";
 import {
+  DEBATE_SPLIT_GRID,
   type DebateArenaLayout,
   partitionSides,
 } from "./debateLayoutPreference";
@@ -66,7 +67,7 @@ function SplitClosingColumns({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 items-start gap-4">
+      <div className={DEBATE_SPLIT_GRID}>
         <div className="min-w-0">
           {pro && (
             <ClosingBlock

@@ -163,8 +163,8 @@ async def test_single_worker_deep_deliverable_skips_auto_light(monkeypatch):
     assert not any(name == "delegate.complexity_hint_inferred" for name, _ in spy.events)
 
 
-async def test_explicit_light_with_deep_deliverable_ignored_to_deep_budget(monkeypatch):
-    """显式 light + deep deliverable → ignored 改 standard；token 顶走统一 backstop。"""
+async def test_explicit_light_with_file_deliverable_kept_for_repair(monkeypatch):
+    """显式 light + requires_files/artifacts → 保留 light（修码快修）；缩 max_rounds。"""
     import agentcore.runtime.runs as runs_mod
 
     spy = LogSpy()
@@ -175,7 +175,7 @@ async def test_explicit_light_with_deep_deliverable_ignored_to_deep_budget(monke
     def _capture_build(*args, **kwargs):
         plan, errors = real_build(*args, **kwargs)
         captured["complexity_hint"] = kwargs.get("complexity_hint")
-        captured["token_ceiling"] = plan.nodes[0].token_ceiling if plan.nodes else None
+        captured["max_rounds"] = plan.nodes[0].max_rounds if plan.nodes else None
         return plan, errors
 
     monkeypatch.setattr(runs_mod, "build_run_plan", _capture_build)
@@ -185,7 +185,7 @@ async def test_explicit_light_with_deep_deliverable_ignored_to_deep_budget(monke
             "tasks": [
                 {
                     "role": "工程师",
-                    "task": "写代码并自测落盘",
+                    "task": "修缺 export 并落盘",
                     "deliverable": {"form": "files", "artifacts": ["app.py"]},
                 }
             ],
@@ -193,10 +193,32 @@ async def test_explicit_light_with_deep_deliverable_ignored_to_deep_budget(monke
         },
         ctx(),
     )
+    assert spy.get("delegate.started")["complexity_hint"] == "light"
+    assert not any(name == "delegate.complexity_hint_ignored" for name, _ in spy.events)
+    assert captured["complexity_hint"] == "light"
+    assert captured["max_rounds"] == 6
+
+
+async def test_explicit_light_with_long_form_ignored(monkeypatch):
+    """显式 light + 成篇长文仍忽略 → standard。"""
+    spy = LogSpy()
+    monkeypatch.setattr(delegate_tool_mod, "logger", spy)
+    t = tool(Provider(["OUT"]))
+    await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "写手",
+                    "task": "写长报告",
+                    "deliverable": {"min_length": 3000, "name": "报告"},
+                }
+            ],
+            "complexity_hint": "light",
+        },
+        ctx(),
+    )
     assert spy.get("delegate.started")["complexity_hint"] == "standard"
-    assert spy.get("delegate.complexity_hint_ignored")["reason"] == "deep_deliverable"
-    assert captured["complexity_hint"] == "standard"
-    assert captured["token_ceiling"] == 600_000
+    assert spy.get("delegate.complexity_hint_ignored")["reason"] == "long_form_deliverable"
 
 
 async def test_multi_worker_keeps_standard_complexity_hint(monkeypatch):
@@ -696,6 +718,7 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
     assert set(props["playbook"]["enum"]) == {
         "research_report",
         "build_feature",
+        "repair_code",
         "build_website",
         "build_toolshed",
         "build_website_verify",

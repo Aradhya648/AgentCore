@@ -66,6 +66,72 @@ def test_inject_blocking_escalation_prompts_resolve():
     assert "resolve_escalation" in text
     assert "via_user=true" in text
     assert "ask_user" in text
+    assert "transfer_ownership" in text
+
+
+def test_inject_ownership_conflict_flags_nested_child():
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    text = format_coordination_events(
+        session,
+        [
+            CoordinationEvent(
+                kind=CoordinationEventKind.ESCALATION,
+                payload={
+                    "run_id": "storage",
+                    "role": "存储层",
+                    "kind": "dep",
+                    "question": "写入冲突：`src/storage/db.ts` 已归队友",
+                    "assumption": "等主管移交",
+                    "blocking": True,
+                    "source": "blocking_arbitrate",
+                    "ownership_paths": ["src/storage/db.ts"],
+                    "lock_owner_run_id": "backend-fix",
+                    "escalator_is_lock_owner_nested_child": True,
+                    "ownership_kind": "declared",
+                    "owner_status": "running",
+                },
+            )
+        ],
+    )
+    assert "嵌套子队" in text
+    assert "transfer_ownership=true" in text
+    assert "仅派发占位未落盘" in text
+    assert "backend-fix" in text
+
+
+@pytest.mark.asyncio
+async def test_resolve_escalation_transfer_ownership_paths():
+    clear_active_coordination()
+    session = CoordinationSession(execution_id="e-own", total_workers=2)
+    set_active_coordination(session)
+    ledger = session.ensure_file_ownership()
+    ledger.declare("src/storage/db.ts", "backend-fix", frozenset())
+    ledger.declare("src/tools/base.ts", "backend-fix", frozenset())
+    session.register_arbitration(
+        "storage",
+        escalation_id="esc-1",
+        conversation_id="c1",
+        question="写入冲突：`src/storage/db.ts`",
+        assumption="等移交",
+        ownership_paths=["src/storage/db.ts"],
+        lock_owner_run_id="backend-fix",
+        escalator_is_lock_owner_nested_child=True,
+    )
+    tool = ResolveEscalationTool()
+    result = await tool.execute(
+        {
+            "run_id": "storage",
+            "answer": "路径已移交给你，继续写",
+            "transfer_ownership": True,
+        },
+        _ctx(execution_id="e-own"),
+    )
+    assert result.success is True
+    assert "路径级移交" in result.output
+    assert ledger.owner_of("src/storage/db.ts") == "storage"
+    # Sibling path not in ownership_paths stays with parent.
+    assert ledger.owner_of("src/tools/base.ts") == "backend-fix"
+    clear_active_coordination()
 
 
 @pytest.mark.asyncio

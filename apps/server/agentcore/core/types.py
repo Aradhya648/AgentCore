@@ -50,7 +50,9 @@ class PermissionPreset(StrEnum):
 
     - ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff
       does not pre-authorize write capabilities (≈ always_ask + withhold execution)
-    - ``workspace`` — kickoff once authorizes grantable set (≈ first_grant; default)
+    - ``workspace`` — session-trust file-mutation class (no per-call cards; permanent
+      delete still asks); kickoff confirms team + authorizes execution class
+      (≈ first_grant; default)
     - ``full_trust`` — skip kickoff; silent auto-grant including local execution
       (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)
     """

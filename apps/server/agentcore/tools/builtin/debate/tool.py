@@ -40,6 +40,7 @@ from agentcore.tools.builtin.debate.schema import (
     err,
     parse_background,
     parse_form,
+    parse_moderator_fields,
     parse_sides,
 )
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
@@ -326,6 +327,14 @@ class DebateTool:
             pass
         # `_kickoff_ask` 为 resume 注入的内部键（非 schema / 非 wire），开赛嘱咐进首轮插话管道。
         kickoff_ask = str(arguments.get("_kickoff_ask") or "").strip()
+        mod_model, mod_origin, mod_provider_id, mod_err = parse_moderator_fields(
+            arguments.get("moderator_model"),
+            arguments.get("moderator_origin"),
+            arguments.get("moderator_provider_id"),
+        )
+        if mod_err:
+            clear_turn_keeps_stage_card()
+            return err(mod_err)
         config = DebateConfig(
             motion=motion,
             form=form,
@@ -333,6 +342,74 @@ class DebateTool:
             policy=policy,
             background=parse_background(arguments.get("background")),
             kickoff_ask=kickoff_ask,
+            moderator_model=mod_model,
+            moderator_origin=mod_origin,
+            moderator_provider_id=mod_provider_id,
+        )
+
+        # §7.5：校验非空三元组 + 解析裁判（点名优先；空=系统默认，可同模）。
+        from agentcore.runtime.debate.models import (
+            collect_debate_identities,
+            ensure_debate_route_extras,
+            prepare_debate_model_plan,
+        )
+
+        turn_model = (self._profile_set.model or "").strip()
+        user_id = (self._base_tool_context.user_id or "").strip()
+        cross_model = arguments.get("cross_model", False) is True
+        model_err = ""
+        try:
+            from agentcore.db.base import async_session_factory
+
+            if user_id:
+                async with async_session_factory() as session:
+                    model_err = await prepare_debate_model_plan(
+                        config,
+                        user_id=user_id,
+                        turn_model=turn_model,
+                        session=session,
+                        cross_model=cross_model,
+                    )
+            else:
+                model_err = await prepare_debate_model_plan(
+                    config,
+                    user_id="",
+                    turn_model=turn_model,
+                    session=None,
+                    catalog=None,
+                    cross_model=cross_model,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("debate.model_plan_failed", error=str(exc))
+            model_err = await prepare_debate_model_plan(
+                config,
+                user_id=user_id,
+                turn_model=turn_model,
+                session=None,
+                catalog=None,
+                cross_model=cross_model,
+            )
+        if model_err:
+            clear_turn_keeps_stage_card()
+            candidates = list(getattr(config, "model_candidates", None) or [])
+            if candidates:
+                from agentcore.tools.protocol import ToolResult
+
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output=model_err,
+                    error=model_err,
+                    display={"model_candidates": candidates},
+                    metadata={"model_candidates": candidates},
+                    contract_failure=True,
+                )
+            return err(model_err)
+
+        await ensure_debate_route_extras(
+            self._llm,
+            collect_debate_identities(config, turn_model=turn_model),
+            user_id=user_id or None,
         )
 
         if not skip_kickoff:
@@ -616,8 +693,11 @@ class DebateTool:
             execution_id = self._base_tool_context.execution_id or new_id()
 
         moderator_run_id = f"debate_{new_id()}"
-        # 辩论跟主模型（定案）：不用 worker 默认 override。
-        moderator_model = self._profile_set.model
+        # §7.5：裁判选型（prepare_debate_model_plan）；无则回退 turn 主模型。
+        moderator_model = (
+            (config.moderator_route or "").strip()
+            or (self._profile_set.model or "").strip()
+        )
         graph_parent = self._debate_graph_parent_run_id or self._captain_run_id
 
         try:

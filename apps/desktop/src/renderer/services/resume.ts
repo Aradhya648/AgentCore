@@ -275,6 +275,7 @@ export function surfaceResumeFromAssistant(
       assumptions: cp.assumptions,
       questions: cp.questions,
       styleOptions: cp.styleOptions,
+      formatOptions: cp.formatOptions,
       intent: cp.intent,
     });
     return;
@@ -304,6 +305,7 @@ export function surfaceResumeFromAssistant(
       assumptions: [],
       questions: [],
       styleOptions: [],
+      formatOptions: [],
       intent: "decision",
     });
     return;
@@ -327,11 +329,18 @@ export function surfaceResumeFromAssistant(
       thorough: tp.thorough,
       offerResearchFirst: tp.offerResearchFirst,
       researchFirstRecommended: tp.researchFirstRecommended,
+      ...(tp.moderatorModel ? { moderatorModel: tp.moderatorModel } : {}),
+      ...(tp.moderatorOrigin ? { moderatorOrigin: tp.moderatorOrigin } : {}),
+      ...(tp.moderatorProviderId
+        ? { moderatorProviderId: tp.moderatorProviderId }
+        : {}),
+      ...(tp.sameModelDebate ? { sameModelDebate: true } : {}),
       question: "",
       context: "",
       assumptions: [],
       questions: [],
       styleOptions: [],
+      formatOptions: [],
       // team_preview is the kickoff card — not a mid-turn decision ask.
       intent: "kickoff",
     });

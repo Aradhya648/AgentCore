@@ -87,6 +87,8 @@ export interface ColdSubmitArgs {
   selected?: string[];
   /** Structured website style pick (s0/s1/…); preferred resume wire. */
   styleId?: string | null;
+  /** Structured presentation format pick (f0/f1/…); preferred resume wire. */
+  formatId?: string | null;
 }
 
 /**
@@ -167,6 +169,7 @@ export async function submitInteraction(args: {
       args.cold.note,
       args.cold.selected,
       args.cold.styleId,
+      args.cold.formatId,
     );
     store.markResolved({
       kind: args.kind,
@@ -176,6 +179,7 @@ export async function submitInteraction(args: {
         note: args.cold.note,
         selected: args.cold.selected ?? [],
         style_id: args.cold.styleId ?? null,
+        format_id: args.cold.formatId ?? null,
       },
     });
     return "ok";

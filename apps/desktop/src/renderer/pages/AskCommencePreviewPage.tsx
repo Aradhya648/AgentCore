@@ -2,6 +2,7 @@ import { AskCommenceV1 } from "@/components/chat/ask/preview/AskCommenceV1";
 import { AskCommenceV2 } from "@/components/chat/ask/preview/AskCommenceV2";
 import { AskCommenceV3 } from "@/components/chat/ask/preview/AskCommenceV3";
 import { AskCommenceV4 } from "@/components/chat/ask/preview/AskCommenceV4";
+import { AskCommenceV5 } from "@/components/chat/ask/preview/AskCommenceV5";
 import { ASK_COMMENCE_MOCK } from "@/preview/askCommenceMock";
 import { ASK_COMMENCE_SCENES } from "@/preview/askCommenceScenes";
 import { FlaskConical } from "lucide-react";
@@ -9,10 +10,11 @@ import { useSearchParams } from "react-router-dom";
 
 /**
  * Hidden preview route (`#/preview/ask-commence`) for comparing 开工提案
- * layout variants. V2 mounts the same body as production kickoff
- * (`AskCommenceKickoffBody`); V1/V3/V4 remain A/B references.
+ * layout variants. V5 mounts the current production kickoff body
+ * (`AskKickoffBody`), V2 the retired one it replaced (`AskCommenceKickoffBody`)
+ * — compare those two; V1/V3/V4 remain A/B references.
  *
- * Deep-link: `#/preview/ask-commence?s=ask-commence-v1` (…v2 / v3 / v4).
+ * Deep-link: `#/preview/ask-commence?s=ask-commence-v1` (…v2 / v3 / v4 / v5).
  */
 export function AskCommencePreviewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -95,6 +97,9 @@ export function AskCommencePreviewPage() {
             )}
             {selected === "ask-commence-v4" && (
               <AskCommenceV4 content={ASK_COMMENCE_MOCK} />
+            )}
+            {selected === "ask-commence-v5" && (
+              <AskCommenceV5 content={ASK_COMMENCE_MOCK} />
             )}
           </div>
         </div>

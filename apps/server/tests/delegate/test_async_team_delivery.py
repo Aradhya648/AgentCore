@@ -94,6 +94,75 @@ async def test_pillar_a_closed_sink_persists_run_completed_via_host_writer():
 
 
 @pytest.mark.asyncio
+async def test_pillar_a_closed_sink_persists_without_payload_execution_id():
+    """支柱 A：payload 无 execution_id + ContextVar 清空后，经 conversation 注册表落盘。"""
+    from agentcore.runtime.coordination.session import current_execution_id
+    from agentcore.runtime.journal.writer import current_journal_writer
+
+    writer = _RecordingWriter()
+    session = CoordinationSession(
+        execution_id="exec-a-fallback",
+        total_workers=1,
+        conversation_id="conv-a-fallback",
+    )
+    bind_host_journal(session, writer=writer, turn_id="host-turn")
+    set_active_coordination(session)
+
+    # Simulate turn teardown: journal writer + execution ContextVars reset, but
+    # conversation→execution registry still holds the live session.
+    jw_token = current_journal_writer.set(None)
+    eid_token = current_execution_id.set(None)
+    try:
+        sink = EventSink(conversation_id="conv-a-fallback", message_id="host-turn")
+        sink.close()
+        sink.emit(
+            SSEEvent(
+                type=EventType.RUN_COMPLETED,
+                payload={
+                    "run_id": "r1",
+                    "agent_id": "w1",
+                    "output_summary": "队员正文",
+                    "duration_ms": 10,
+                    "role": "member",
+                    "model": "test",
+                    "usage": {"input": 1, "output": 1, "total": 2},
+                    "cost": {
+                        "input": 0,
+                        "cached": 0,
+                        "output": 0,
+                        "total": 0,
+                        "currency": "USD",
+                    },
+                    # intentionally no execution_id — production hole before fix
+                },
+            )
+        )
+    finally:
+        current_journal_writer.reset(jw_token)
+        current_execution_id.reset(eid_token)
+
+    kinds = [e.get("kind") for e in writer.entries]
+    assert EventType.RUN_COMPLETED.value in kinds
+
+
+def test_run_completed_factory_carries_execution_id_when_set():
+    """生产工厂：非空 execution_id 写入 payload；空串保持旧 fixture 字节兼容。"""
+    from agentcore.runtime.events import run_completed
+
+    with_eid = run_completed(
+        "r1",
+        "w1",
+        output_summary="done",
+        duration_ms=1,
+        execution_id="exec-factory",
+    )
+    assert with_eid.payload["execution_id"] == "exec-factory"
+
+    without = run_completed("r1", "w1", output_summary="done", duration_ms=1)
+    assert "execution_id" not in without.payload
+
+
+@pytest.mark.asyncio
 async def test_pillar_a_fold_rebuilds_member_output_from_journal_facts():
     """支柱 A：message_final + run_completed → fold 拼出队员正文。"""
     events = [

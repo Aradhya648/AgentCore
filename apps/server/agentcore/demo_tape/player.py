@@ -319,6 +319,7 @@ def _build_required_event(
             assumptions=list(payload.get("assumptions") or []),
             questions=list(payload.get("questions") or []),
             style_options=list(payload.get("style_options") or []),
+            format_options=list(payload.get("format_options") or []),
             intent=intent if isinstance(intent, str) else None,
         )
     elif et_name == "plan_review_required":
@@ -611,6 +612,7 @@ def _build_tape_frame(
             assumptions=list(payload.get("assumptions") or []),
             questions=list(payload.get("questions") or []),
             style_options=list(payload.get("style_options") or []),
+            format_options=list(payload.get("format_options") or []),
             intent=intent if isinstance(intent, str) else "decision",
         )
     if kind == "plan_review":

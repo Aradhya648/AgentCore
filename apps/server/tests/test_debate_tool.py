@@ -704,42 +704,42 @@ def _gate() -> ApprovalGate:
     )
 
 
-def test_side_model_parsed_but_not_injected_into_debater_task():
-    """MVP：sides[].model 仍解析保留（Phase 3），但不注入；turn_model 才写入 model。"""
+def test_side_model_injected_as_route_key_when_triple_set():
+    """§7.5：sides 非空三元组 → 注入路由键；空方回退 turn_model。"""
     sides, err = parse_sides(
         [
             {
                 "key": "a",
                 "name": "豆包",
                 "stance": "我最聪明",
-                "model": "doubao/doubao-seed-2-1-turbo-260628",
+                "model": "gpt-4o",
+                "origin": "platform",
             },
             {"key": "b", "name": "DeepSeek", "stance": "我才最聪明"},
         ]
     )
     assert err == ""
-    assert sides[0].model == "doubao/doubao-seed-2-1-turbo-260628"
+    assert sides[0].model == "gpt-4o"
     assert sides[1].model == ""
     cfg = DebateConfig(motion="谁更聪明", form=DebateForm.DEBATE, sides=sides)
-    t_a = debater_task(cfg, sides[0], 0, round_no=1, focus="智商")
-    t_b = debater_task(cfg, sides[1], 1, round_no=1, focus="智商")
-    assert "model" not in t_a
-    assert "model" not in t_b
+    t_a = debater_task(
+        cfg, sides[0], 0, round_no=1, focus="智商", turn_model="turn-main"
+    )
+    t_b = debater_task(
+        cfg, sides[1], 1, round_no=1, focus="智商", turn_model="turn-main"
+    )
+    assert t_a["model"] == "platform/gpt-4o"
+    assert t_b["model"] == "turn-main"
 
 
-def test_debater_task_injects_turn_main_ignores_side_and_worker():
-    """Worker≠main 时辩手 task.model = turn 主模型；sides[].model 仍不注入。"""
+def test_debater_task_empty_side_uses_turn_main_not_worker():
+    """Worker≠main 时：空 side → task.model = turn 主模型。"""
     from agentcore.runtime.runs import build_run_plan
 
     sides, err = parse_sides(
         [
-            {
-                "key": "a",
-                "name": "豆包",
-                "stance": "我最聪明",
-                "model": "doubao/side-only-model",
-            },
-            {"key": "b", "name": "DeepSeek", "stance": "我才最聪明", "model": "ds/side-b"},
+            {"key": "a", "name": "豆包", "stance": "我最聪明"},
+            {"key": "b", "name": "DeepSeek", "stance": "我才最聪明"},
         ]
     )
     assert err == ""
@@ -753,8 +753,6 @@ def test_debater_task_injects_turn_main_ignores_side_and_worker():
     )
     assert t_a["model"] == turn_main
     assert t_b["model"] == turn_main
-    assert t_a["model"] != sides[0].model
-    assert t_b["model"] != sides[1].model
     plan, errors = build_run_plan([t_a, t_b], valid_tools=set(), id_prefix="mod_r1")
     assert errors == []
     assert all(node.model == turn_main for node in plan.nodes)

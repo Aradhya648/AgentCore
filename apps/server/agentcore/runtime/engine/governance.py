@@ -40,8 +40,10 @@ LOCAL_RECON_TOOLS = frozenset({"file_list", "file_read", "grep"})
 _TEAM_GATE_RESEARCH_SHAPE = (
     "【成篇调研形状】用户要落盘的中篇实务/研究报告且可多角取证 → "
     "下一拍 delegate【宜】`playbook=\"research_report\"`（`playbook_args`：topic + angles）"
-    "或手写同构（≥2 角并行调研 → 提纲 → 撰稿）；"
-    "【禁止】`playbook=none` 单 task 一人包办自搜+成文。"
+    "或手写同构（≥2 角并行调研/讨论笔记 → 提纲 → 撰稿；各角与主笔均 "
+    "`form=files`+`artifacts`）；"
+    "【禁止】`playbook=none` 单 task 一人包办自搜+成文；"
+    "【禁止】「角 prose、仅主笔落盘」。"
     "材料已齐仅扩写 / 短文落盘不适用本条。"
 )
 
@@ -64,7 +66,10 @@ def team_gate_local_edit_prompt() -> str:
     n = TEAM_GATE_LOCAL_EDIT_THRESHOLD
     return (
         f"[系统提示] 本地改文件探路已够（已摸仓 ≥{n} 次）：调查类工具已收回。"
-        "请立即 delegate 队员改文件；禁止继续 file_list / file_read / grep 空转。"
+        "请立即 delegate：本地 runtime / 缺 export 等修码用 "
+        "`complexity_hint=light`（可带 requires_files）或 "
+        '`playbook="repair_code"`；禁止 none+满轮巡读、禁止继续 '
+        "file_list / file_read / grep 空转。"
     )
 
 
@@ -154,7 +159,9 @@ def exec_verify_delegate_prompt() -> str:
     return (
         "[系统提示] 能力策略：用户要跑/修或打开验证，且本回合已装配对应执行能力。"
         "探路工具已收回。请立即 delegate，并显式 completion_criteria=code_verified；"
-        "禁止直答或翻目录收口。"
+        "本地 runtime 错 / 单文件修码优先 `complexity_hint=light` 或 "
+        '`playbook="repair_code"`（diagnose→patch→verify），'
+        "禁止直答、翻目录收口或 none+满轮巡读。"
     )
 
 
@@ -617,12 +624,28 @@ def create_loop_controller(
     investigation_tools: frozenset[str],
     *,
     seed: Mapping[str, Any] | None = None,
+    files_expected: bool = False,
+    short_write_posture: bool = False,
 ) -> LoopController:
     """Build per-run convergence controller from engine settings.
 
     ``seed`` restores the five cross-suspension latches (see
     :meth:`LoopController.apply_seed`); omit on a fresh turn.
+    Zero-write thrashing enables only when ``files_expected`` **and**
+    ``short_write_posture`` (light / repair / stamped short ``max_rounds``).
+    Standard files workers keep it off — still bounded by convergence_spin /
+    max_rounds / contract.
     """
+    from agentcore.runtime.runs.worker_budget import should_enable_zero_write
+
+    zero_write = (
+        int(settings.engine_zero_write_finalize_rounds)
+        if should_enable_zero_write(
+            files_expected=files_expected,
+            short_write_posture=short_write_posture,
+        )
+        else 0
+    )
     controller = LoopController(
         empty_threshold=settings.engine_empty_response_threshold,
         tool_failure_warn=settings.engine_tool_failure_warn,
@@ -632,6 +655,7 @@ def create_loop_controller(
         reflection_interval=settings.engine_reflection_interval,
         convergence_finalize_rounds=settings.engine_convergence_finalize_rounds,
         convergence_spin_rounds=settings.engine_convergence_spin_rounds,
+        zero_write_finalize_rounds=zero_write,
         investigation_tools=investigation_tools,
     )
     if seed:
@@ -875,13 +899,54 @@ def govern_after_tools(
         )
         return Finalize(reason="unproductive", finish_reason=FinishReason.UNPRODUCTIVE)
 
+    if breaker_message is None and controller.zero_write_warn_due():
+        from agentcore.runtime.loop_controller import zero_write_warn_prompt
+
+        warn = zero_write_warn_prompt(rounds=controller.zero_write_investigation_rounds)
+        controller.mark_zero_write_warned()
+        logger.info(
+            "engine.zero_write_warn",
+            round=round_idx,
+            zero_write_rounds=controller.zero_write_investigation_rounds,
+        )
+        messages.append(LLMMessage(role="user", content=warn))
+        record_turn_fact(
+            NoteFact(role="user", content=warn, reason="zero_write_warn", run_id=run_id).to_fact()
+        )
+
     if breaker_message is None and controller.convergence_action() is Intervention.FINALIZE:
+        zero_write_cut = (
+            not controller.landing_succeeded
+            and controller.zero_write_finalize_rounds > 0
+            and controller.zero_write_investigation_rounds
+            >= controller.zero_write_finalize_rounds
+        )
+        if zero_write_cut:
+            from agentcore.runtime.loop_controller import zero_write_finalize_prompt
+
+            fin = zero_write_finalize_prompt(
+                rounds=controller.zero_write_investigation_rounds
+            )
+            messages.append(LLMMessage(role="user", content=fin))
+            record_turn_fact(
+                NoteFact(
+                    role="user", content=fin, reason="zero_write_finalize", run_id=run_id
+                ).to_fact()
+            )
         logger.warning(
             "engine.convergence_finalize",
             round=round_idx,
             investigation_rounds=controller.investigation_rounds,
             investigation_calls=controller.investigation_calls,
+            zero_write_rounds=controller.zero_write_investigation_rounds,
+            zero_write_cut=zero_write_cut,
         )
+        # Mid-loop zero_write FINALIZE aligns with ceiling: DEGRADED + same source.
+        if zero_write_cut:
+            return Finalize(
+                reason="convergence",
+                finish_reason=FinishReason.DEGRADED,
+            )
         return Finalize(reason="convergence")
 
     if breaker_message is None and controller.reflection_due(round_idx):

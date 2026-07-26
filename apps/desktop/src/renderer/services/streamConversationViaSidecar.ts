@@ -78,6 +78,8 @@ export interface ResumeViaSidecarOptions {
   selected?: string[];
   /** Structured website style pick (s0/s1/…). */
   styleId?: string;
+  /** Structured presentation format pick (f0/f1/…). */
+  formatId?: string;
   /** 挂起回合的原始用户消息（来自帧）——续跑完成后随回写落库。 */
   userMessage: string;
   /** 挂起时已落库的原始 user 气泡 id（初始发送时的 optimisticUserId）——回写据此对账，
@@ -210,6 +212,7 @@ export async function resumeConversationViaSidecar({
   note,
   selected,
   styleId,
+  formatId,
   userMessageId,
   signal,
 }: ResumeViaSidecarOptions): Promise<SidecarTurnResult> {
@@ -246,6 +249,7 @@ export async function resumeConversationViaSidecar({
           note,
           selected,
           styleId,
+          formatId,
           inference,
           permissionPreset,
         }),

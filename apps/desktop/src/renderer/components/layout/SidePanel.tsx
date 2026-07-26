@@ -10,7 +10,10 @@ import {
 } from "@/components/terminal/TerminalPanel";
 import { Button, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
-import { BrowserLivePanel } from "@/components/workspace/BrowserLivePanel";
+import {
+  BrowserLivePanel,
+  useBrowserRegion,
+} from "@/components/workspace/BrowserLivePanel";
 import { EmbeddedPreview } from "@/components/workspace/EmbeddedPreview";
 import { WorkspaceMode } from "@/components/workspace/WorkspacePanel";
 import {
@@ -23,7 +26,7 @@ import {
   useExecutionStore,
 } from "@/stores/execution";
 import {
-  BROWSER_LIVE_TAB_ID,
+  BROWSER_TAB_ID,
   COMMAND_TAB_ID,
   type DetailTab,
   PREVIEW_TAB_ID,
@@ -87,8 +90,6 @@ export function SidePanel() {
   const closeTab = useSidePanelStore((s) => s.closeTab);
   const previewTab = useSidePanelStore((s) => s.previewTab);
   const closePreview = useSidePanelStore((s) => s.closePreview);
-  const browserLiveTab = useSidePanelStore((s) => s.browserLiveTab);
-  const closeBrowserLive = useSidePanelStore((s) => s.closeBrowserLive);
   const currentConversationId = useConversationStore(
     (s) => s.currentConversationId,
   );
@@ -108,6 +109,8 @@ export function SidePanel() {
   const command = useCommandRegion();
   // 后台进程终端 tab：有存活/曾有进程才出现；不绑画布模式。
   const terminal = useTerminalRegion();
+  // L3 团队浏览器 tab：本会话曾用过浏览器才出现，之后常驻整场（同终端 tab 的条件常驻姿势）。
+  const browser = useBrowserRegion();
 
   const visibleTabs = useMemo(() => {
     const live = new Set(liveTabKey ? liveTabKey.split("\u0001") : []);
@@ -118,15 +121,14 @@ export function SidePanel() {
     activeTabId === COMMAND_TAB_ID ||
     activeTabId === TERMINAL_TAB_ID ||
     activeTabId === PREVIEW_TAB_ID ||
-    activeTabId === BROWSER_LIVE_TAB_ID
+    activeTabId === BROWSER_TAB_ID
       ? null
       : (visibleTabs.find((t) => t.id === activeTabId) ?? null);
   const workspaceActive = activeTabId === WORKSPACE_TAB_ID;
   const commandActive = command.show && activeTabId === COMMAND_TAB_ID;
   const terminalActive = terminal.show && activeTabId === TERMINAL_TAB_ID;
   const previewActive = previewTab !== null && activeTabId === PREVIEW_TAB_ID;
-  const browserLiveActive =
-    browserLiveTab !== null && activeTabId === BROWSER_LIVE_TAB_ID;
+  const browserActive = browser.show && activeTabId === BROWSER_TAB_ID;
 
   // Leaving canvas while on 指挥台: fall back to 工作区 (the tab disappears).
   useEffect(() => {
@@ -142,22 +144,21 @@ export function SidePanel() {
     }
   }, [terminal.show, activeTabId, setActiveTab]);
 
+  // 浏览器 tab 消失时（切到一个没用过浏览器的会话）回落工作区。tab 由会话内容派生，故
+  // 「切换会话即收口」不需要另写一条 effect —— 换会话后 show 转 false 就走这里，SSE 连接
+  // 随组件卸载自行断开。
+  useEffect(() => {
+    if (!browser.show && activeTabId === BROWSER_TAB_ID) {
+      setActiveTab(WORKSPACE_TAB_ID);
+    }
+  }, [browser.show, activeTabId, setActiveTab]);
+
   // 切换会话 → 关闭内置浏览器预览（其内容属旧会话工作区，销毁原生视图 + 回落工作区）。
   useEffect(() => {
     if (previewTab && previewTab.conversationId !== currentConversationId) {
       closePreview();
     }
   }, [previewTab, currentConversationId, closePreview]);
-
-  // 切换会话 → 关闭浏览器直播（直播属旧会话，SSE 连接随组件卸载收口 + 回落工作区）。
-  useEffect(() => {
-    if (
-      browserLiveTab &&
-      browserLiveTab.conversationId !== currentConversationId
-    ) {
-      closeBrowserLive();
-    }
-  }, [browserLiveTab, currentConversationId, closeBrowserLive]);
 
   // Content / simple-turn tabs read message text via narrow slices so a streaming
   // turn (a new `messages` array every tick) never re-renders this dock (收窄订阅).
@@ -245,11 +246,10 @@ export function SidePanel() {
               onClose={closePreview}
             />
           )}
-          {browserLiveTab && (
-            <BrowserLiveTab
-              active={browserLiveActive}
-              onSelect={() => setActiveTab(BROWSER_LIVE_TAB_ID)}
-              onClose={closeBrowserLive}
+          {browser.show && (
+            <BrowserTab
+              active={browserActive}
+              onClick={() => setActiveTab(BROWSER_TAB_ID)}
             />
           )}
           {visibleTabs.map((tab) => (
@@ -305,13 +305,13 @@ export function SidePanel() {
             />
           </div>
         )}
-        {browserLiveTab && browserLiveActive && (
-          // 浏览器直播：仅激活时挂载（切走即卸载 → SSE 断开 → 服务端停播，「无人看零开销」）。key 绑
-          // 会话，换会话即重建、重新附着。
+        {browserActive && browser.conversationId && (
+          // 浏览器：仅激活时挂载（切走即卸载 → SSE 断开 → 服务端停播，「无人看零开销」）——tab 常驻
+          // 不等于正文常挂。key 绑会话，换会话即重建、重新附着。
           <div className="absolute inset-0">
             <BrowserLivePanel
-              key={browserLiveTab.conversationId}
-              conversationId={browserLiveTab.conversationId}
+              key={browser.conversationId}
+              conversationId={browser.conversationId}
             />
           </div>
         )}
@@ -475,40 +475,31 @@ function PreviewTab({
   );
 }
 
-/** L3 团队浏览器「浏览器直播」tab chip：有直播目标才出现；可关闭（关闭即断开 SSE）。 */
-function BrowserLiveTab({
+/**
+ * L3 团队浏览器「浏览器」tab：本会话曾用过浏览器才出现，之后常驻整场、**不可关闭**（随会话切换
+ * 消失，同「终端」tab）。刻意不叫「浏览器直播」——常驻后它在 turn 之间显示的是最后一帧 / 已结束
+ * / 无直播占位，「直播」会变成不准的标签；与「预览」tab 的区分靠图标（Radio vs Globe）。
+ */
+function BrowserTab({
   active,
-  onSelect,
-  onClose,
+  onClick,
 }: {
   active: boolean;
-  onSelect: () => void;
-  onClose: () => void;
+  onClick: () => void;
 }) {
   return (
-    <div
-      className={`group/tab flex shrink-0 items-center rounded-lg ${
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      className={`shrink-0 gap-1.5 px-2.5 py-1 text-sm font-medium ${
         active
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/50"
       }`}
+      icon={<Radio size={14} />}
     >
-      <Button
-        variant="ghost"
-        onClick={onSelect}
-        icon={<Radio size={14} />}
-        className="h-auto rounded-none py-1 pl-2.5 pr-1 text-sm font-normal"
-      >
-        浏览器直播
-      </Button>
-      <IconButton
-        onClick={onClose}
-        aria-label="关闭浏览器直播"
-        className="mr-1 size-5 opacity-0 group-hover/tab:opacity-100"
-      >
-        <X size={12} />
-      </IconButton>
-    </div>
+      浏览器
+    </Button>
   );
 }
 

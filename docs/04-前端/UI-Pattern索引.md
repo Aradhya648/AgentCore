@@ -244,7 +244,7 @@ L2/L3 共享的 Tailwind 类组合 → `apps/desktop/src/renderer/components/ui/
 |---|---|---|---|
 | caption | `text-xs` | 12px | 元数据、badge、时间戳、小按钮 |
 | body | `text-sm` | 14px | 所有正文、表单、按钮、消息 |
-| heading | `text-base` | 16px | 组件标题、导航项 |
+| heading | `text-base` | 16px | 组件标题（侧栏导航项走 body 级，见下） |
 | title | `text-xl` | 20px | 页面标题 |
 
 **禁止**：`text-[10px]`、`text-[11px]`、`text-[13px]`、`text-lg` 及任何自定义像素值。
@@ -270,7 +270,7 @@ L2/L3 共享的 Tailwind 类组合 → `apps/desktop/src/renderer/components/ui/
 | sm | `size-7` (28px) | icon-only 小按钮 |
 | md | `size-8` (32px) | 标准交互按钮 |
 
-导航项使用 `h-9`（36px）为专用例外。
+侧栏（导航 + 项目组 + 对话列表）所有行统一 `h-8`（32px）、标签 `text-sm`、图标 16px——240px 窄栏里不靠尺寸分层：导航的层级由分隔线 + `font-medium` + 图标承担。`SurfaceRow` 的 `sidebar` variant 默认仍是 `h-9`（`/conversations`、工具箱手册等宽版面在用），侧栏各行以 `h-8` 覆盖。
 
 ### UI Primitive 层
 
@@ -280,6 +280,6 @@ L2/L3 共享的 Tailwind 类组合 → `apps/desktop/src/renderer/components/ui/
 
 | 场景 | lucide size | 像素 | 说明 |
 |---|---|---|---|
-| 主导航项 | `size={18}` | 18px | 配合 heading 级 `text-base` |
+| 页面级入口/大图标 | `size={18}` | 18px | 页头、工具箱入口卡片等视觉落点 |
 | body 级按钮/列表 | `size={16}` | 16px | 正文行内图标 |
 | caption 级/辅助 | `size={14}` | 14px | 小按钮、元数据图标 |

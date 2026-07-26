@@ -84,13 +84,36 @@ async def test_rejects_binary_file(tmp_path: Path):
 
 
 async def test_old_string_not_found(tmp_path: Path):
-    (tmp_path / "f.txt").write_text("hello world", encoding="utf-8")
+    (tmp_path / "f.txt").write_text("hello world\nsecond line\n", encoding="utf-8")
     result = await StrReplaceTool().execute(
         {"path": "f.txt", "old_string": "xyz", "new_string": "b"}, _ctx(tmp_path)
     )
     assert result.success is False
     assert "找不到" in result.error
-    assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "hello world"
+    # 阶段3：失败回执必须带回磁盘片段（真源），不能只报「找不到」。
+    assert "磁盘原文" in (result.error or "")
+    assert "hello world" in (result.error or "")
+    assert "禁止用骨架" in (result.error or "")
+    assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "hello world\nsecond line\n"
+
+
+async def test_no_match_includes_fuzzy_near_miss(tmp_path: Path):
+    """Near-miss old_string still gets disk candidates marked non-exact."""
+    (tmp_path / "app.py").write_text(
+        "def add(a, b):\n    return a - b\n", encoding="utf-8"
+    )
+    result = await StrReplaceTool().execute(
+        {
+            "path": "app.py",
+            "old_string": "return a - b;",  # trailing ; drift
+            "new_string": "return a + b",
+        },
+        _ctx(tmp_path),
+    )
+    assert result.success is False
+    assert "找不到" in (result.error or "")
+    assert "非精确" in (result.error or "")
+    assert "return a - b" in (result.error or "")
 
 
 async def test_non_unique_without_replace_all_fails(tmp_path: Path):
@@ -101,6 +124,8 @@ async def test_non_unique_without_replace_all_fails(tmp_path: Path):
     assert result.success is False
     assert "不唯一" in result.error
     assert "2 处" in result.error
+    assert "精确命中" in (result.error or "")
+    assert "x = 1" in (result.error or "")
     # nothing changed
     assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "x = 1\nx = 2\n"
 

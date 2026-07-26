@@ -74,7 +74,7 @@ skip_if:
 
 ## 四、多厂商 provider 路由（真·多模型辩论 / BYOK）
 
-按 **`provider/model` 前缀路由到不同厂商**（`llm/provider/router.py::ProviderRouter` + `llm/provider/openai_compatible.py::OpenAICompatibleProvider`，`llm/factory.py::build_router` 据已配厂商 key 组装；空 key = 不注册、回退默认，普通对话零行为变化）。这是「真·多模型辩手」（辩论各方各自指定模型）的执行支点，见 [`辩论编排设计.md §7.5`](/docs/03-AI核心/辩论编排设计.md)。
+按 **`provider/model` 前缀路由到不同厂商**（`llm/provider/router.py::ProviderRouter` + `llm/provider/openai_compatible.py::OpenAICompatibleProvider`，`llm/factory.py::build_router` 据已配厂商 key 组装；空 key = 不注册、回退默认，普通对话零行为变化）。这是「真·多模型辩手」（辩论各方各自指定模型）的执行支点；**✅ Phase 3 已启用**（三元组身份 + 辩论回合多凭据 extras），见 [`辩论编排设计.md §7.5`](/docs/03-AI核心/辩论编排设计.md)。
 
 **model 串格式（路由约定）**：
 
@@ -102,7 +102,7 @@ skip_if:
 
 `billing_mode=platform` 时全员走 `PLATFORM_*` 三项（OpenAI 兼容端点）；免费档同三项但默认 DeepSeek 官方 flash。改 `PLATFORM_MODEL` / `PLATFORM_BASE_URL` / `PLATFORM_API_KEY` 须重启后端。
 
-**平台目录多模型 + 每模型凭据覆盖**（成本配额与计费 §〇·六 F3）：`PLATFORM_MODELS`（逗号分隔）列出平台目录的多个模型；运营中转「一 key 一模型」时用 `PLATFORM_MODEL_CREDENTIALS`（单行 JSON `{model id → {"api_key"?, "base_url"?}}`）给指定模型绑独立 key / base_url，缺字段回退 `PLATFORM_API_KEY` / `PLATFORM_BASE_URL`，空 = 全部共用默认那把 key。凭据解析单点在 `llm/resolve.py::platform_llm_credentials(model=…)`（命中覆盖表用覆盖 key，否则默认；`build_provider` 据此选对上游，计费仍按 `source=platform` 入账）；三个调用点按本回合模型解析——云管线 `conversations/_helpers.py::_preflight_turn_llm`、sidecar `inference/proxy.py`、后台档 `resolve_model_config`（按 purpose 降档后的模型名）。平台可用性判定（gate 503 与 `billing/preference.py::is_platform_available`）= 默认 key **或**任一覆盖条目有 key。改这两个变量同样须重启后端。
+**平台目录多模型 + 每模型凭据覆盖**（成本配额与计费 §〇·六 F3）：`PLATFORM_MODELS`（逗号分隔）列出平台目录的多个模型；运营中转「一 key 一模型」时用 `PLATFORM_MODEL_CREDENTIALS`（单行 JSON `{model id → {"api_key"?, "base_url"?}}`）给指定模型绑独立 key / base_url，缺字段回退 `PLATFORM_API_KEY` / `PLATFORM_BASE_URL`，空 = 全部共用默认那把 key。凭据解析单点在 `llm/resolve.py::platform_llm_credentials(model=…)`（命中覆盖表用覆盖 key，否则默认；`build_provider` 对 `source=platform` 建 `PlatformProvider`，**每次请求按 `request.model` 取 key**，故 Router 上单个 `platform/` 前缀即可同时服务 `5.2` 与 `grok-4.5`——辩论 `ensure_debate_route_extras` / Worker extras 同路；计费仍按 `source=platform` 入账）；三个调用点按本回合模型解析——云管线 `conversations/_helpers.py::_preflight_turn_llm`、sidecar `inference/proxy.py`、后台档 `resolve_model_config`（按 purpose 降档后的模型名）。平台可用性判定（gate 503 与 `billing/preference.py::is_platform_available`）= 默认 key **或**任一覆盖条目有 key。改这两个变量同样须重启后端。
 
 **Sub2API（可选诊断）**：配 `SUB2API_ADMIN_*` 后，platform 模式 503 时可自动探测账号状态（`sub2api_probe.py`），**非当前上游**。
 

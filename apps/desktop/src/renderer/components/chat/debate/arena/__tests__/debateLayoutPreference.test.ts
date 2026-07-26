@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DebateModel } from "../../model";
 import {
+  DEBATE_SPLIT_GRID,
   canUseSplitLayout,
   loadDebateArenaLayout,
   partitionSides,
@@ -19,12 +20,21 @@ describe("debateLayoutPreference", () => {
     expect(loadDebateArenaLayout()).toBe("stack");
   });
 
+  it("DEBATE_SPLIT_GRID 默认可塌为单栏，宽容器再对开", () => {
+    expect(DEBATE_SPLIT_GRID).toContain("grid-cols-1");
+    expect(DEBATE_SPLIT_GRID).toContain("@3xl:grid-cols-2");
+    expect(DEBATE_SPLIT_GRID).toContain("debate-split-grid");
+  });
+
   it("canUseSplitLayout requires debate form with pro/con", () => {
     const base: DebateModel = {
       form: "debate",
       motion: null,
       stopReason: null,
       moderatorRunId: null,
+      moderatorModel: null,
+      moderatorOrigin: null,
+      sameModelDebate: false,
       narrativeFirst: false,
       rounds: [],
       brief: null,

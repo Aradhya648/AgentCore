@@ -12,6 +12,7 @@ import {
   COMMENCE_TONE,
   ChoiceQuestion,
   CommenceNote,
+  FormatPills,
   OptionButton,
   PlanChips,
   StylePills,
@@ -27,6 +28,7 @@ export {
   PlanChips,
   splitBriefContext,
   StylePills,
+  FormatPills,
 };
 export { COMMENCE_TONE as PREVIEW_TONE };
 

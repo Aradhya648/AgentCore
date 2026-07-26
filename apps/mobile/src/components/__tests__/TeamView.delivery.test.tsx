@@ -74,14 +74,14 @@ describe("TeamView · 交付验收", () => {
         deliveryStatus={{
           execution_id: "e1",
           state: "partial",
-          summary: "已交付 1 个文件；1 项缺口",
+          summary: "已交付 1 个文件；1 项未完成",
           delivered_files: ["a.md"],
           gaps: [{ role: "写作", description: "成篇未写完" }],
           actions: [
             {
-              kind: "continue_writing",
-              description: "点此续写",
-              prompt: "请续写",
+              kind: "continue_skipped_runs",
+              description: "点此续跑未执行节点",
+              prompt: "请续跑",
             },
           ],
         }}

@@ -75,7 +75,7 @@ def test_build_plan_applies_unified_backstop_regardless_of_shape():
     )
     assert errors == []
     for node in plan.nodes:
-        assert node.token_ceiling == 600_000
+        assert node.token_ceiling == 1_000_000
         assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
 
 
@@ -93,7 +93,7 @@ def test_build_plan_research_root_still_gets_research_retrieval():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 600_000
+    assert node.token_ceiling == 1_000_000
     assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
     from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 
@@ -115,7 +115,7 @@ def test_explicit_timeout_ms_wins_over_backstop():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 600_000
+    assert node.token_ceiling == 1_000_000
     assert node.policy.timeout_s == 90  # CEO 显式优先
 
 
@@ -138,6 +138,69 @@ def test_deep_deliverable_signals():
     assert not is_deep_deliverable(Deliverable(min_length=500))
     assert not is_deep_deliverable(Deliverable(form="prose", name="短答"))
     assert not is_deep_deliverable(None)
+
+
+def test_blocks_light_complexity_only_long_form():
+    from agentcore.runtime.runs.worker_budget import blocks_light_complexity
+
+    assert not blocks_light_complexity(Deliverable(form="files", artifacts=["a.py"]))
+    assert not blocks_light_complexity(Deliverable(requires_files=True))
+    assert blocks_light_complexity(Deliverable(min_length=3_000))
+    assert not blocks_light_complexity(None)
+
+
+def test_apply_light_round_budgets_stamps_max_rounds():
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+    from agentcore.runtime.runs.worker_budget import (
+        LIGHT_REPAIR_MAX_ROUNDS,
+        apply_light_round_budgets,
+    )
+
+    plan = RunPlan()
+    plan.add(RunSpec(run_id="a", agent_id="a", agent_name="x", task="t", role="工程师"))
+    apply_light_round_budgets(plan, complexity_hint="standard")
+    assert plan.nodes[0].max_rounds is None
+    apply_light_round_budgets(plan, complexity_hint="light")
+    assert plan.nodes[0].max_rounds == LIGHT_REPAIR_MAX_ROUNDS
+
+
+def test_zero_write_only_for_short_write_posture():
+    """standard + files → zero_write off; light/repair stamped max_rounds → on."""
+    from agentcore.runtime.engine.governance import create_loop_controller
+    from agentcore.runtime.runs.worker_budget import (
+        LIGHT_REPAIR_MAX_ROUNDS,
+        is_short_write_posture,
+        should_enable_zero_write,
+    )
+
+    assert not is_short_write_posture(max_rounds=None)
+    assert is_short_write_posture(max_rounds=LIGHT_REPAIR_MAX_ROUNDS)
+    assert is_short_write_posture(max_rounds=4)
+
+    assert not should_enable_zero_write(files_expected=True, max_rounds=None)
+    assert not should_enable_zero_write(
+        files_expected=False, max_rounds=LIGHT_REPAIR_MAX_ROUNDS
+    )
+    assert should_enable_zero_write(
+        files_expected=True, max_rounds=LIGHT_REPAIR_MAX_ROUNDS
+    )
+    assert should_enable_zero_write(files_expected=True, short_write_posture=True)
+    assert not should_enable_zero_write(files_expected=True, short_write_posture=False)
+
+    # create_loop_controller mirrors the gate (threshold from settings when on).
+    off = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=True,
+        short_write_posture=False,
+    )
+    assert off.zero_write_finalize_rounds == 0
+    on = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=True,
+        short_write_posture=True,
+    )
+    assert on.zero_write_finalize_rounds > 0
 
 
 def test_is_directed_search_role_covers_review_and_investigation():

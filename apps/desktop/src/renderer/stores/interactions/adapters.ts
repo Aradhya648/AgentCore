@@ -8,6 +8,7 @@ import type {
 } from "@/stores/conversation/types";
 import type {
   AskAssumption,
+  AskFormatOption,
   AskQuestion,
   AskStyleOption,
   PlanReviewPending,
@@ -56,6 +57,7 @@ export function entryToCheckpoint(e: InteractionEntry): CheckpointDisplay {
     assumptions: arr<AskAssumption>(p.assumptions),
     questions: arr<AskQuestion>(p.questions),
     styleOptions: arr<AskStyleOption>(p.style_options ?? p.styleOptions),
+    formatOptions: arr<AskFormatOption>(p.format_options ?? p.formatOptions),
     intent: parseCheckpointIntent(p.intent),
     ...settlement,
     selected:
@@ -76,6 +78,7 @@ export function entryToNonBlockingAsk(
     assumptions: arr<AskAssumption>(p.assumptions),
     questions: arr<AskQuestion>(p.questions),
     styleOptions: arr<AskStyleOption>(p.style_options ?? p.styleOptions),
+    formatOptions: arr<AskFormatOption>(p.format_options ?? p.formatOptions),
   };
 }
 
@@ -118,16 +121,69 @@ export function entryToTeamPreview(e: InteractionEntry): TeamPreviewDisplay {
       name: string;
       stance: string;
       is_subject?: boolean;
+      model?: string;
+      origin?: "platform" | "byok";
+      provider_id?: string;
     }>(p.sides).map((s) => ({
       key: s.key,
       name: s.name,
       stance: s.stance,
       ...(s.is_subject ? { is_subject: true } : {}),
+      ...(typeof s.model === "string" && s.model.trim()
+        ? { model: s.model }
+        : {}),
+      ...(s.origin === "platform" || s.origin === "byok"
+        ? { origin: s.origin }
+        : {}),
+      ...(typeof s.provider_id === "string" && s.provider_id
+        ? { provider_id: s.provider_id }
+        : {}),
     })),
     maxRounds: typeof p.max_rounds === "number" ? p.max_rounds : 0,
     thorough: p.thorough !== false,
     offerResearchFirst: Boolean(p.offer_research_first),
     researchFirstRecommended: Boolean(p.research_first_recommended),
+    ...(typeof p.moderator_model === "string" && p.moderator_model.trim()
+      ? { moderatorModel: p.moderator_model }
+      : {}),
+    ...(p.moderator_origin === "platform" || p.moderator_origin === "byok"
+      ? { moderatorOrigin: p.moderator_origin }
+      : {}),
+    ...(typeof p.moderator_provider_id === "string" && p.moderator_provider_id
+      ? { moderatorProviderId: p.moderator_provider_id }
+      : {}),
+    ...(p.same_model_debate ? { sameModelDebate: true } : {}),
+    ...(() => {
+      const raw = p.model_candidates;
+      if (!Array.isArray(raw) || raw.length === 0) return {};
+      const modelCandidates = raw
+        .filter(
+          (c): c is Record<string, unknown> =>
+            !!c &&
+            typeof c === "object" &&
+            typeof (c as { model?: unknown }).model === "string",
+        )
+        .map((c) => {
+          const origin =
+            c.origin === "platform" || c.origin === "byok"
+              ? c.origin
+              : "platform";
+          return {
+            model: String(c.model),
+            origin: origin as "platform" | "byok",
+            ...(typeof c.provider_id === "string" && c.provider_id
+              ? { provider_id: c.provider_id }
+              : {}),
+            ...(typeof c.label === "string" && c.label
+              ? { label: c.label }
+              : {}),
+            ...(typeof c.side_key === "string" && c.side_key
+              ? { side_key: c.side_key }
+              : {}),
+          };
+        });
+      return modelCandidates.length > 0 ? { modelCandidates } : {};
+    })(),
     ...mapEntryResolution(e),
   };
 }

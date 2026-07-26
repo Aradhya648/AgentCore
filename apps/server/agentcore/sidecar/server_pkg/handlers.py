@@ -349,6 +349,7 @@ class HandlerMixin:
         note = str(params.get("note") or "")
         selected = [str(s) for s in (params.get("selected") or [])]
         style_id = str(params.get("styleId") or params.get("style_id") or "").strip()
+        format_id = str(params.get("formatId") or params.get("format_id") or "").strip()
         # Per-turn trace_id (mirrors startTurn): ties this continuation's proxied LLM
         # calls to its write-back so the resumed reply is greppable as one trace.
         trace_id = str(params.get("traceId") or "")
@@ -367,6 +368,7 @@ class HandlerMixin:
                 user_message_id,
                 params.get("externalMounts"),
                 style_id=style_id or None,
+                format_id=format_id or None,
             )
         )
         self._register_turn(message_id, task, conversation_id=conversation_id)

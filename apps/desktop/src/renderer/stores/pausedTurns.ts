@@ -3,6 +3,7 @@ import { parseCheckpointIntent } from "@/lib/checkpointIntent";
 import type { components } from "@/types/api.generated";
 import type {
   AskAssumption,
+  AskFormatOption,
   AskOption,
   AskQuestion,
   AskStyleOption,
@@ -31,8 +32,8 @@ export type ResumeOrigin = "sidecar" | "server";
  *
  * `kind` selects the card the {@link ResumePrompt} renders: plan_review reviews the
  * finished `steps` + gated `pending`; ask_user re-asks the unified card content
- * (`question` + `assumptions` / `questions` / `styleOptions`). The unused set is
- * empty for the other kind.
+ * (`question` + `assumptions` / `questions` / `styleOptions` / `formatOptions`).
+ * The unused set is empty for the other kind.
  */
 export interface PendingResume {
   /** The paused turn's assistant message_id — the resume key, and the id the
@@ -72,6 +73,9 @@ export interface PendingResume {
     name: string;
     stance: string;
     is_subject?: boolean;
+    model?: string;
+    origin?: "platform" | "byok";
+    provider_id?: string;
   }>;
   maxRounds: number;
   thorough: boolean;
@@ -79,6 +83,20 @@ export interface PendingResume {
   offerResearchFirst: boolean;
   /** debate kickoff: elevate research-first as visual primary (缺省 false). */
   researchFirstRecommended: boolean;
+  /** Phase 3：裁判模型；缺省不展示跨模型署名。 */
+  moderatorModel?: string;
+  moderatorOrigin?: "platform" | "byok";
+  moderatorProviderId?: string;
+  /** Phase 3：同模型降级明示。 */
+  sameModelDebate?: boolean;
+  /** §7.5 D：消歧候选目录行。 */
+  modelCandidates?: Array<{
+    model: string;
+    origin: "platform" | "byok";
+    provider_id?: string;
+    label?: string;
+    side_key?: string;
+  }>;
   /** ask_user: the framing / opening line (always shown). */
   question: string;
   /** ask_user: optional supporting background for the question. */
@@ -89,6 +107,8 @@ export interface PendingResume {
   questions: AskQuestion[];
   /** ask_user: 风格预设 (视觉类产物才有). */
   styleOptions: AskStyleOption[];
+  /** ask_user: 交付形态预设 (演讲/PPT 等才有). */
+  formatOptions: AskFormatOption[];
   /** ask_user: kickoff 开工提案 vs decision 途中拍板 — drives card copy. */
   intent: CheckpointIntent;
   /** Where the durable frame lives — drives {@link runResume} sidecar vs server routing. */
@@ -135,6 +155,15 @@ const toSides = (raw: unknown): PendingResume["sides"] =>
           name: String(row.name ?? ""),
           stance: String(row.stance ?? ""),
           ...(row.is_subject ? { is_subject: true as const } : {}),
+          ...(typeof row.model === "string" && row.model.trim()
+            ? { model: row.model }
+            : {}),
+          ...(row.origin === "platform" || row.origin === "byok"
+            ? { origin: row.origin as "platform" | "byok" }
+            : {}),
+          ...(typeof row.provider_id === "string" && row.provider_id
+            ? { provider_id: row.provider_id }
+            : {}),
         };
       })
     : [];
@@ -196,6 +225,14 @@ const toStyleOptions = (
     label: String(s.label ?? ""),
   }));
 
+const toFormatOptions = (
+  raw: PausedTurnSummary["format_options"],
+): AskFormatOption[] =>
+  (raw ?? []).map((s, i) => ({
+    id: String(s.id ?? `f${i}`),
+    label: String(s.label ?? ""),
+  }));
+
 /** One recovery-frame summary tagged with where its durable frame lives. */
 export type PausedTurnEntry = {
   summary: PausedTurnSummary;
@@ -239,6 +276,12 @@ function entryFromSummary(
   s: PausedTurnSummary,
   origin: ResumeOrigin,
 ): PendingResume {
+  // REST 快照尚未列 moderator_* 进 schema；可选字段宽松读（absent → 不透传）。
+  const moderatorModel = (s as { moderator_model?: unknown }).moderator_model;
+  const moderatorOrigin = (s as { moderator_origin?: unknown })
+    .moderator_origin;
+  const moderatorProviderId = (s as { moderator_provider_id?: unknown })
+    .moderator_provider_id;
   return {
     messageId: s.message_id,
     conversationId,
@@ -269,11 +312,55 @@ function entryFromSummary(
       (s as { research_first_recommended?: unknown })
         .research_first_recommended,
     ),
+    ...(typeof moderatorModel === "string" && moderatorModel.trim()
+      ? { moderatorModel }
+      : {}),
+    ...(moderatorOrigin === "platform" || moderatorOrigin === "byok"
+      ? { moderatorOrigin }
+      : {}),
+    ...(typeof moderatorProviderId === "string" && moderatorProviderId
+      ? { moderatorProviderId }
+      : {}),
+    ...((s as { same_model_debate?: unknown }).same_model_debate
+      ? { sameModelDebate: true }
+      : {}),
+    ...(() => {
+      const raw = (s as { model_candidates?: unknown }).model_candidates;
+      if (!Array.isArray(raw) || raw.length === 0) return {};
+      const modelCandidates = raw
+        .filter(
+          (c): c is Record<string, unknown> =>
+            !!c &&
+            typeof c === "object" &&
+            typeof (c as { model?: unknown }).model === "string",
+        )
+        .map((c) => {
+          const origin =
+            c.origin === "platform" || c.origin === "byok"
+              ? c.origin
+              : ("platform" as const);
+          return {
+            model: String(c.model),
+            origin: origin as "platform" | "byok",
+            ...(typeof c.provider_id === "string" && c.provider_id
+              ? { provider_id: c.provider_id }
+              : {}),
+            ...(typeof c.label === "string" && c.label
+              ? { label: c.label }
+              : {}),
+            ...(typeof c.side_key === "string" && c.side_key
+              ? { side_key: c.side_key }
+              : {}),
+          };
+        });
+      return modelCandidates.length > 0 ? { modelCandidates } : {};
+    })(),
     question: s.question ?? "",
     context: s.context ?? "",
     assumptions: toAssumptions(s.assumptions),
     questions: toQuestions(s.questions),
     styleOptions: toStyleOptions(s.style_options),
+    formatOptions: toFormatOptions(s.format_options),
     intent: toIntent((s as { intent?: unknown }).intent),
     origin,
   };

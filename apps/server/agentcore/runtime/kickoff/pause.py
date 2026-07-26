@@ -10,7 +10,7 @@ from agentcore.core.types import new_id
 from agentcore.runtime.checkpoints import CheckpointDecision
 from agentcore.runtime.events import team_preview_required
 from agentcore.runtime.kickoff.summary import KickoffSummary
-from agentcore.tools.builtin import delegation_grantable_tool_names
+from agentcore.tools.registration import execution_class_tool_names
 
 logger = get_logger(__name__)
 
@@ -37,13 +37,15 @@ class KickoffHost(Protocol):
 
 
 def kickoff_tools(*, show_capabilities: bool) -> list[str]:
-    """GRANTABLE whitelist shown on the kickoff card as「将授权的能力范围」.
+    """Execution-class tools shown on the kickoff card as「将授权的执行能力」.
 
-    Empty when AutonomyPolicy hides the capability half (not plan-derived).
+    File-mutation class is session-trusted under workspace / full_trust (开工授权),
+    so the card lists only code / terminal / browser execution. Empty when
+    AutonomyPolicy hides the capability half (not plan-derived).
     """
     if not show_capabilities:
         return []
-    return sorted(delegation_grantable_tool_names())
+    return sorted(execution_class_tool_names())
 
 
 def can_persist_kickoff(host: KickoffHost) -> bool:
@@ -199,6 +201,11 @@ async def await_kickoff(
         thorough=card["thorough"],
         offer_research_first=offer_research_first,
         research_first_recommended=research_first_recommended,
+        moderator_model=str(card.get("moderator_model") or ""),
+        moderator_origin=str(card.get("moderator_origin") or ""),
+        moderator_provider_id=str(card.get("moderator_provider_id") or ""),
+        same_model_debate=bool(card.get("same_model_debate")),
+        model_candidates=list(card.get("model_candidates") or []) or None,
     )
     try:
         saved = await persist_kickoff(

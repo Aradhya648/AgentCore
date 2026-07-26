@@ -276,6 +276,8 @@ def test_journal_entries_for_turn_composes_log_plus_tail_and_projects_gated():
             {"type": "run_completed", "payload": {"run_id": "w1"}, "timestamp": "t1"},
         ],
         "finish_reason": "end_turn",
+        # Display fold synthesizes ``team`` from ``run_plan`` when process_team absent.
+        "process": [{"kind": "team", "execution_id": "e1"}],
     }
 
 

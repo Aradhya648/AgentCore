@@ -289,7 +289,8 @@ async def test_write_marks_landed_files(tmp_path: Path):
     assert ctx.has_landed_files is True
 
 
-def test_delivery_status_continue_writing_action():
+def test_delivery_status_no_continue_writing_action():
+    """成篇未写完：标 partial + 成篇未写完摘要，不再挂 continue_writing 按钮。"""
     plan = RunPlan()
     plan.add(
         RunSpec(
@@ -315,8 +316,9 @@ def test_delivery_status_continue_writing_action():
     payload = build_delivery_status(plan, results, execution_id="e1")
     assert payload is not None
     assert payload["state"] == "partial"
+    assert "成篇未写完" in payload["summary"]
     kinds = {a.get("kind") for a in payload.get("actions") or []}
-    assert "continue_writing" in kinds
+    assert "continue_writing" not in kinds
 
 
 def test_retrieval_empty_streak_helpers():
@@ -330,9 +332,21 @@ def test_retrieval_empty_streak_helpers():
 def test_research_report_write_task_has_chapter_discipline():
     from agentcore.runtime.runs.playbooks import expand_playbook
 
-    tasks, errors = expand_playbook("research_report", {"topic": "X"})
+    tasks, errors = expand_playbook("research_report", {"topic": "X", "angles": ["甲", "乙"]})
     assert not errors
     write = next(t for t in tasks if t["id"] == "write")
     assert "按章" in write["task"]
     assert "file_delete" in write["task"]
     assert "章边界" in write["task"]
+    # 中间环案卷契约：调研 + 提纲 form=files，路径在 RESEARCH_DIR，角度名入文件名。
+    from agentcore.workspace.stage_dirs import RESEARCH_DIR
+
+    research = [t for t in tasks if t["id"].startswith("research_")]
+    assert len(research) == 2
+    for t, angle in zip(research, ["甲", "乙"], strict=True):
+        d = t["deliverable"]
+        assert d["form"] == "files"
+        assert d["artifacts"] == [f"{RESEARCH_DIR}/{angle}调研报告.md"]
+    outline = next(t for t in tasks if t["id"] == "outline")
+    assert outline["deliverable"]["form"] == "files"
+    assert outline["deliverable"]["artifacts"] == [f"{RESEARCH_DIR}/提纲.md"]

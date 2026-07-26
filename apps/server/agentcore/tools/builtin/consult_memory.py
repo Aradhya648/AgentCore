@@ -15,9 +15,11 @@ Gated by the long-term-memory master switch at wiring time (off ⇒ not wired AN
 directory is not rendered), so a user who turned memory off surfaces zero memory — the
 same privacy off-ramp as the core-memory injection.
 
-A wrong / unknown name degrades gracefully (mirrors ``consult_skill``): non-fatal, and
-lists the available topic names so the model can retry — a model typo must never break a
-turn.
+A wrong / unknown name is a soft miss: ``success=True`` (no ``error`` / no red failure),
+lists the available topic names so the model can retry, and still logs
+``consult_memory.miss``. Only a missing / empty ``name`` is a real parameter failure
+(``success=False``). Empty topic libraries never wire this tool (see
+``_assemble_ceo_toolset`` / ``_wire_worker_memory_tools``).
 """
 
 from __future__ import annotations
@@ -150,12 +152,20 @@ class ConsultMemoryTool:
                 body = await self.store.load(context.user_id, topic_path(slug))
                 if body.strip():
                     hit_scope = "global"
+        if not slug:
+            msg = "缺少 name 参数。"
+            available = "、".join(await self._available_topics(context.user_id))
+            if available:
+                msg += f" 可查阅的主题：{available}。"
+            logger.info("consult_memory.miss", name=raw, folder_id=self.folder_id)
+            return ToolResult(tool_call_id="", success=False, output=msg, error=msg)
         if not body.strip():
             available = "、".join(await self._available_topics(context.user_id))
-            head = f"没有名为 '{raw}' 的记忆主题。" if raw else "缺少 name 参数。"
+            head = f"没有名为 '{raw}' 的记忆主题。"
             tail = f" 可查阅的主题：{available}。" if available else " 当前没有任何记忆主题。"
             logger.info("consult_memory.miss", name=raw, folder_id=self.folder_id)
-            return ToolResult(tool_call_id="", success=False, output=head + tail, error=head + tail)
+            # Soft miss: wrong name is informational, not a tool failure (avoids red-error UX).
+            return ToolResult(tool_call_id="", success=True, output=head + tail)
 
         remember_consult(slug, body)
         logger.info("consult_memory.hit", name=slug, scope=hit_scope)

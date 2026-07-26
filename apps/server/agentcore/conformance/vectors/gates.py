@@ -329,6 +329,49 @@ def _risk_ack_checkpoint() -> list[SSEEvent]:
     ]
 
 
+def _presentation_kickoff_format_options() -> list[SSEEvent]:
+    """演讲/PPT 开工卡：强制非空 format_options；resume 以 selected=f0 结构化记账。
+
+    Wire 钉 format_options（pptx / marp / outline）；checkpoint_resolved.selected 含
+    ``f0``——与 presentation_format ledger 的 format_id 同形（resume 记账入口）。
+    对照普通 kickoff（无 format_options）验「演讲意图必须带交付形态选项」。
+    """
+    format_opts = [
+        {
+            "id": "f0",
+            "label": "PowerPoint（.pptx）— 真幻灯片文件；有 code_execute 时推荐",
+        },
+        {
+            "id": "f1",
+            "label": "Marp Markdown 幻灯片 — 无代码执行时推荐",
+        },
+        {
+            "id": "f2",
+            "label": "仅讲稿大纲 — 只要讲稿、不要幻灯片文件",
+        },
+    ]
+    return [
+        message_start("m1", conversation_id=_CONV),
+        content_delta("开始前确认课件交付形态："),
+        checkpoint_required(
+            checkpoint_id="cp_fmt",
+            conversation_id=_CONV,
+            question="这份课件用哪种交付形态？",
+            context="演讲 / PPT 意图：必须选定形态后再开做。",
+            format_options=format_opts,
+            intent="kickoff",
+        ),
+        checkpoint_resolved(
+            checkpoint_id="cp_fmt",
+            decision="continue",
+            note="选 PowerPoint",
+            selected=["f0"],
+        ),
+        content_delta("好，按 PowerPoint（.pptx）推进。"),
+        message_end(FinishReason.END_TURN, input_tokens=1800, output_tokens=140, cost=_COST),
+    ]
+
+
 def _organize_plan_checkpoint() -> list[SSEEvent]:
     """单聊·整理方案卡 (ask_user card=organize_plan)：阻塞挂起，intent=organize_plan，
     恰好 1 个 choice 多选 + options 1–50（原路径→新路径）。"""
@@ -728,4 +771,9 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
     ),
     "risk_ack_checkpoint": ("单聊：风险确认卡 ask_user(card=risk_ack) 挂起（intent=risk_ack）", _risk_ack_checkpoint),
     "organize_plan_checkpoint": ("单聊：整理方案卡 ask_user(card=organize_plan) 挂起（intent=organize_plan）", _organize_plan_checkpoint),
+    "presentation_kickoff_format_options": (
+        "演讲/PPT 开工卡：checkpoint_required 强制非空 format_options；"
+        "resume selected=f0 结构化记账（presentation_format ledger 同形）",
+        _presentation_kickoff_format_options,
+    ),
 }

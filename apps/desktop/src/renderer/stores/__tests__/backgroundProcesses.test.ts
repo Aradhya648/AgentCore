@@ -32,6 +32,15 @@ describe("showTabFor / processesFor", () => {
     expect(store().showTabFor(null)).toBe(false);
   });
 
+  it("returns a stable empty array when conversation is absent", () => {
+    const a = store().processesFor("missing");
+    const b = store().processesFor("missing");
+    const c = store().processesFor(null);
+    expect(a).toEqual([]);
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+  });
+
   it("shows tab once a process is recorded (including exited)", () => {
     store().applyEvent({
       type: "started",

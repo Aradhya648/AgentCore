@@ -57,14 +57,14 @@ describe("ResumeCard · ask_user", () => {
       target: { value: "  选 A  " },
     });
     fireEvent.click(screen.getByText("继续"));
-    expect(onResume).toHaveBeenCalledWith("continue", "选 A", [], null);
+    expect(onResume).toHaveBeenCalledWith("continue", "选 A", [], null, null);
   });
 
   it("停止 submits stop", () => {
     const onResume = vi.fn();
     render(<ResumeCard paused={summary()} onResume={onResume} />);
     fireEvent.click(screen.getByText("停止"));
-    expect(onResume).toHaveBeenCalledWith("stop", "", [], null);
+    expect(onResume).toHaveBeenCalledWith("stop", "", [], null, null);
   });
 
   it("proposal_pick chip 选择映射进 selected", () => {
@@ -92,6 +92,7 @@ describe("ResumeCard · ask_user", () => {
       "continue",
       "方案 A",
       ["方案 A"],
+      null,
       null,
     );
   });
@@ -124,6 +125,7 @@ describe("ResumeCard · ask_user", () => {
       "",
       ["a → b", "删 x"],
       null,
+      null,
     );
   });
 
@@ -147,6 +149,31 @@ describe("ResumeCard · ask_user", () => {
       "风格：简约商务",
       ["s1"],
       "s1",
+      null,
+    );
+  });
+
+  it("format_options continue 直传 format_id 与 selected fN", () => {
+    const onResume = vi.fn();
+    render(
+      <ResumeCard
+        paused={summary({
+          format_options: [
+            { id: "f0", label: "PowerPoint（.pptx）" },
+            { id: "f1", label: "Marp Markdown" },
+          ],
+        })}
+        onResume={onResume}
+      />,
+    );
+    fireEvent.click(screen.getByText("Marp Markdown"));
+    fireEvent.click(screen.getByText("继续"));
+    expect(onResume).toHaveBeenCalledWith(
+      "continue",
+      "形态：Marp Markdown",
+      ["f1"],
+      null,
+      "f1",
     );
   });
 });
@@ -183,7 +210,7 @@ describe("ResumeCard · plan_review", () => {
     });
     expect(adjust.disabled).toBe(false);
     fireEvent.click(adjust);
-    expect(onResume).toHaveBeenCalledWith("adjust", "换个方向", [], null);
+    expect(onResume).toHaveBeenCalledWith("adjust", "换个方向", [], null, null);
   });
 });
 
@@ -217,7 +244,7 @@ describe("ResumeCard · team_preview", () => {
       target: { value: "更简洁" },
     });
     fireEvent.click(screen.getByText("授权并开工"));
-    expect(onResume).toHaveBeenCalledWith("continue", "更简洁", [], null);
+    expect(onResume).toHaveBeenCalledWith("continue", "更简洁", [], null, null);
   });
 
   it("debate 仅开赛 + 停止；嘱咐走 continue", () => {
@@ -245,6 +272,7 @@ describe("ResumeCard · team_preview", () => {
       "continue",
       "最关心成本谁买单",
       [],
+      null,
       null,
     );
   });

@@ -95,6 +95,7 @@ export function TurnComposer({
   allowBackground = true,
   onDispatch,
   variant = "card",
+  attachedBelowApproval = false,
 }: {
   placeholder?: string;
   /** Offer the 后台云端 toggle (still requires a local-mode conversation). */
@@ -106,6 +107,8 @@ export function TurnComposer({
    * `bar` = compact single-row input (chat bottom dock only).
    */
   variant?: TurnComposerVariant;
+  /** Visually fuse with ApprovalPrompt stacked above (工具审批 A · Composer 一体). */
+  attachedBelowApproval?: boolean;
 }) {
   const isBar = variant === "bar";
   const minComposerHeight = isBar
@@ -491,7 +494,11 @@ export function TurnComposer({
 
   return (
     <div
-      className={`relative rounded-xl border bg-card shadow-sm transition-colors ${
+      className={`relative border bg-card shadow-sm transition-colors ${
+        attachedBelowApproval
+          ? "rounded-b-xl rounded-t-none border-t-0"
+          : "rounded-xl"
+      } ${
         drop.dragOver
           ? "border-primary ring-2 ring-primary/40"
           : "border-border"
@@ -500,6 +507,9 @@ export function TurnComposer({
       onDragLeave={drop.handleDragLeave}
       onDrop={drop.handleDrop}
       data-composer-variant={variant}
+      data-composer-attached-approval={
+        attachedBelowApproval ? "true" : undefined
+      }
     >
       {drop.dragOver && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/80 text-sm font-medium text-primary">

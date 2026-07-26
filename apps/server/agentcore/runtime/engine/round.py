@@ -274,11 +274,14 @@ def decide_no_tool_round(
     (``Return`` + DEGRADED) or retry on the same model (``Continue``).
     """
     if outcome.content:
+        from agentcore.runtime.delegate.delivery_status import current_delivery_verdict
+
         reworks = finish_guard(
             final_content,
             citation_count=len(citation_sink or []),
             check_citations=annotate_citations,
             citable_ids=_citable_ids(turn_evidence_ledger),
+            delivery_verdict=current_delivery_verdict.get(),
         )
         max_reworks = finish_guard_max_reworks(
             annotate_citations=annotate_citations,
@@ -319,11 +322,14 @@ def apply_finish_guard_rework(
     ``content_reset`` for the CEO bubble, ``run_output_reset`` for a worker card — so the
     rewrite presents as a clean「违规版 → 修正版」replacement, not an append (统一底线).
     reason=``finish_guard`` is the ONLY reset that folds into the「已按交付规范重写」chip."""
+    from agentcore.runtime.delegate.delivery_status import current_delivery_verdict
+
     reworks = finish_guard(
         final_content,
         citation_count=len(citation_sink or []),
         check_citations=annotate_citations,
         citable_ids=_citable_ids(turn_evidence_ledger),
+        delivery_verdict=current_delivery_verdict.get(),
     )
     steer = format_guard_steer(reworks)
     logger.info(

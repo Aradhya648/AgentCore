@@ -60,6 +60,136 @@ _FILE_EXTENSIONS: dict[str, str] = {
     "bash": ".sh",
 }
 
+# NUL density at/above this → treat the chunk as UTF-16LE (ASCII-range text).
+# WSL / some Win32 tools emit UTF-16LE; naive UTF-8 yields ``w\0s\0l\0…``.
+_NUL_DENSITY_UTF16 = 0.3
+
+_GIT_BASH_CANDIDATES = (
+    r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files (x86)\Git\bin\bash.exe",
+)
+
+_BASH_UNAVAILABLE_HINT = (
+    "本机没有可用的 bash（Windows 上 PATH 的 bash 常是不可用的 WSL 蹦床）。"
+    "请改用 language=javascript 或 python 直接跑代码，不要用 bash 外壳包一层。"
+)
+
+
+def _decode_pipe_bytes(chunk: bytes) -> str:
+    """Decode a subprocess pipe chunk; re-decode as UTF-16LE when NUL-dense."""
+    if len(chunk) >= 4 and chunk.count(0) / len(chunk) >= _NUL_DENSITY_UTF16:
+        try:
+            return chunk.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
+    return chunk.decode("utf-8", errors="replace")
+
+
+def _is_wsl_bash_trampoline(path: str) -> bool:
+    """True when ``path`` is the Windows System32/SysWOW64 WSL bash trampoline."""
+    norm = path.replace("/", "\\").lower()
+    return norm.endswith("\\system32\\bash.exe") or norm.endswith(
+        "\\syswow64\\bash.exe"
+    )
+
+
+def _which_all(cmd: str) -> list[str]:
+    """All PATH hits for ``cmd`` (``shutil.which`` only returns the first)."""
+    path_env = os.environ.get("PATH", "")
+    if not path_env:
+        return []
+    names: list[str]
+    if _IS_WINDOWS:
+        exts = os.environ.get("PATHEXT", ".EXE;.CMD;.BAT").split(";")
+        names = [cmd + ext for ext in exts] + [cmd]
+    else:
+        names = [cmd]
+    found: list[str] = []
+    seen: set[str] = set()
+    for directory in path_env.split(os.pathsep):
+        if not directory:
+            continue
+        for name in names:
+            candidate = os.path.join(directory, name)
+            key = candidate.lower() if _IS_WINDOWS else candidate
+            if key in seen:
+                continue
+            # Windows has no meaningful X_OK; POSIX still requires execute bit.
+            if os.path.isfile(candidate) and (
+                _IS_WINDOWS or os.access(candidate, os.X_OK)
+            ):
+                seen.add(key)
+                found.append(candidate)
+    return found
+
+
+def resolve_bash_launcher() -> str | None:
+    """Resolve a usable bash binary.
+
+    Windows: prefer Git Bash; skip System32 WSL trampoline; else ``None`` (honest
+    reject — never hang on a broken trampoline). Non-Windows: first PATH bash.
+    """
+    if not _IS_WINDOWS:
+        return shutil.which("bash")
+
+    for candidate in _GIT_BASH_CANDIDATES:
+        if os.path.isfile(candidate):
+            return candidate
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local:
+        local_git = os.path.join(local, "Programs", "Git", "bin", "bash.exe")
+        if os.path.isfile(local_git):
+            return local_git
+    for candidate in _which_all("bash"):
+        if not _is_wsl_bash_trampoline(candidate):
+            return candidate
+    return None
+
+
+def _resolve_language_cmd(language: str) -> list[str] | None:
+    """Build argv for ``language``, or ``None`` when the launcher is unavailable.
+
+    Bash is absolutized (skip WSL trampoline). python/node keep bare names so
+    Windows PATHEXT / ``.cmd`` shims still resolve via ``CreateProcess``.
+    """
+    base = list(_LANGUAGE_COMMANDS[language])
+    if language == "bash":
+        bash = resolve_bash_launcher()
+        if bash is None:
+            return None
+        return [bash]
+    if shutil.which(base[0]) is None:
+        return None
+    return base
+
+
+def probe_available_languages() -> tuple[str, ...]:
+    """Which ``code_execute`` languages have a usable launcher on this host.
+
+    Same truth as execute-time resolution — callers trim the tool schema so
+    unavailable languages (e.g. Windows WSL bash trampoline) never appear.
+    """
+    return tuple(
+        lang
+        for lang in ("python", "javascript", "bash")
+        if _resolve_language_cmd(lang) is not None
+    )
+
+
+def _launcher_missing_stderr(language: str, launcher: str) -> str:
+    if language == "bash":
+        return (
+            f"代码执行环境启动失败：找不到可用的命令 {launcher!r}。 "
+            f"{_BASH_UNAVAILABLE_HINT}"
+        )
+    if language == "python":
+        hint = " 请确认 PATH 上有 python 可执行文件。"
+    elif language == "javascript":
+        hint = " 请确认 PATH 上有 node 可执行文件。"
+    else:
+        hint = ""
+    return f"代码执行环境启动失败：找不到命令 {launcher!r}。{hint}"
+
 
 class _CancelledError(Exception):
     """Internal: blocking run aborted because the asyncio caller was cancelled."""
@@ -120,7 +250,7 @@ def _read_pipe(
         chunk = read(2048)
         if not chunk:
             break
-        text = chunk.decode("utf-8", errors="replace")
+        text = _decode_pipe_bytes(chunk)
         buffer.append(text)
         if on_chunk:
             on_chunk(stream_name, text)
@@ -264,25 +394,13 @@ class SubprocessSandbox:
                 duration_ms=0,
             )
 
-        launcher = _LANGUAGE_COMMANDS[request.language][0]
-        if shutil.which(launcher) is None:
-            hint = ""
-            if request.language == "bash":
-                hint = (
-                    " 本机没有可用的 bash（Windows 常见）。请改用 language=python 或 "
-                    "javascript 直接跑代码，不要用 bash 外壳包一层。"
-                )
-            elif request.language == "python":
-                hint = " 请确认 PATH 上有 python 可执行文件。"
-            elif request.language == "javascript":
-                hint = " 请确认 PATH 上有 node 可执行文件。"
+        cmd_prefix = _resolve_language_cmd(request.language)
+        if cmd_prefix is None:
+            launcher = _LANGUAGE_COMMANDS[request.language][0]
             return ExecutionResult(
                 success=False,
                 stdout="",
-                stderr=(
-                    f"代码执行环境启动失败：找不到命令 {launcher!r}。"
-                    f"{hint}"
-                ),
+                stderr=_launcher_missing_stderr(request.language, launcher),
                 exit_code=127,
                 duration_ms=0,
             )
@@ -295,7 +413,7 @@ class SubprocessSandbox:
             code_file = Path(tmpdir) / f"main{ext}"
             code_file.write_text(request.code, encoding="utf-8")
 
-            cmd = _LANGUAGE_COMMANDS[request.language] + [str(code_file)]
+            cmd = cmd_prefix + [str(code_file)]
             cancel_flag = threading.Event()
             done_event = threading.Event()
             proc_holder: dict[str, subprocess.Popen[bytes]] = {}

@@ -214,14 +214,21 @@ async def first_round(
     # run_id 命名统一：首轮辩手改用语义后缀 `_r1_{side.key}`，与后续轮 continue_run 的
     # `_r{n}_{side.key}` 同构。形态专属拍（defense/rebuttal/thread/crux）追加 beat 后缀，
     # 避免同轮多拍撞 id。
-    plan.nodes = [
-        replace(
-            node,
-            run_id=_beat_run_id(moderator_run_id, 1, side.key, beat),
-            agent_id=_beat_run_id(moderator_run_id, 1, side.key, beat),
-        )
-        for side, node in zip(sides, plan.nodes, strict=False)
-    ]
+    # 检索预算：builder 只填全员统一默认；有案卷残搜 2 由 debater_task 写入 payload，
+    # 此处在 apply 之后补写到 RunSpec（CEO/schema 不可配置该字段）。
+    from agentcore.runtime.runs.retrieval_budget import parse_retrieval_budget
+
+    patched: list = []
+    for side, node, raw in zip(sides, plan.nodes, tasks_raw, strict=False):
+        rb = parse_retrieval_budget(raw.get("retrieval_budget"))
+        kwargs: dict = {
+            "run_id": _beat_run_id(moderator_run_id, 1, side.key, beat),
+            "agent_id": _beat_run_id(moderator_run_id, 1, side.key, beat),
+        }
+        if rb is not None:
+            kwargs["retrieval_budget"] = rb
+        patched.append(replace(node, **kwargs))
+    plan.nodes = patched
 
     tool._sink.emit(debater_plan_event(tool, execution_id, moderator_run_id, plan))
     # Plan-only eval: opening debater DAG is on the wire; abort before WaveScheduler.

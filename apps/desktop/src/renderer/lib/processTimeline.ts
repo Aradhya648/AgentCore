@@ -220,21 +220,30 @@ export function promoteScalarContentIntoProcess(
 /** Drop a `team` marker (collaboration graph slot) at the turn's FIRST `run_plan`
  * (统一团队时间线): later same-execution batches merge into one graph, so only one marker
  * per execution. Returns the same reference when already present so callers can no-op.
- * Mirrors the backend `EventSink._accumulate_process`. */
+ * Mirrors the backend `EventSink._accumulate_process`.
+ *
+ * Live path omits `at` (append — content after `run_plan` has not arrived yet).
+ * Hydrate backfill passes `at` = journal-relative slot so post-plan content is not
+ * pushed above the graph. */
 export function appendTeamStep(
   process: ProcessStep[] | undefined,
   executionId: string,
+  at?: number,
 ): ProcessStep[] {
   if (!executionId) return process ?? [];
   if (hasMarker(process, "team", "execution_id", executionId))
     return process ?? [];
-  return [...(process ?? []), { kind: "team", execution_id: executionId }];
+  const steps = process ?? [];
+  const marker: ProcessStep = { kind: "team", execution_id: executionId };
+  return insertStepAt(steps, marker, at);
 }
 
 /** Drop a `graph_append` anchor on the **appending** turn (跨回合同图追加).
  * Dedupes by `execution_id` — one anchor per host graph per append turn.
  * `actId`/`actKind`/`authorizedBy` 为桌面呈现扩展（开新幕文案 / 授权角标）；
- * conformance 导出时剥离。 */
+ * conformance 导出时剥离。
+ *
+ * Optional `at` mirrors {@link appendTeamStep}: hydrate journal-slot insert. */
 export function appendGraphAppendStep(
   process: ProcessStep[] | undefined,
   executionId: string,
@@ -243,10 +252,12 @@ export function appendGraphAppendStep(
   actId?: string | null,
   actKind?: string | null,
   authorizedBy?: string | null,
+  at?: number,
 ): ProcessStep[] {
   if (!executionId || !hostMessageId) return process ?? [];
   if (hasMarker(process, "graph_append", "execution_id", executionId))
     return process ?? [];
+  const steps = process ?? [];
   const step: ProcessStep & {
     act_id?: string;
     act_kind?: string;
@@ -260,7 +271,18 @@ export function appendGraphAppendStep(
   if (actId) step.act_id = actId;
   if (actKind) step.act_kind = actKind;
   if (authorizedBy) step.authorized_by = authorizedBy;
-  return [...(process ?? []), step];
+  return insertStepAt(steps, step, at);
+}
+
+/** Insert `marker` at `at`, or append when `at` is omitted / past the end. */
+function insertStepAt(
+  steps: ProcessStep[],
+  marker: ProcessStep,
+  at?: number,
+): ProcessStep[] {
+  if (at === undefined || at >= steps.length) return [...steps, marker];
+  const idx = Math.max(0, at);
+  return [...steps.slice(0, idx), marker, ...steps.slice(idx)];
 }
 
 /** Drop a `checkpoint` marker (blocking ask_user) at its chronological spot; the card

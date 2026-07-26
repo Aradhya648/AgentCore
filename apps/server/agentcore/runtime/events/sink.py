@@ -416,13 +416,21 @@ class EventSink:
             )
         )
 
-    @staticmethod
-    def _execution_host_writer(event: SSEEvent):
-        """Bound host journal writer for the event's execution, if any."""
-        from agentcore.runtime.coordination.session import active_coordination
+    def _execution_host_writer(self, event: SSEEvent):
+        """Bound host journal writer for the event's execution, if any.
+
+        Resolve order: payload.execution_id → current_execution_id ContextVar →
+        conversation registry (cross-task after turn teardown resets ContextVars).
+        """
+        from agentcore.runtime.coordination.session import (
+            active_coordination,
+            active_coordination_for_conversation,
+        )
 
         eid = str((event.payload or {}).get("execution_id") or "").strip()
         session = active_coordination(eid) if eid else active_coordination()
+        if session is None and self._conversation_id:
+            session = active_coordination_for_conversation(self._conversation_id)
         if session is None:
             return None
         writer = getattr(session, "host_journal_writer", None)
@@ -531,6 +539,54 @@ class EventSink:
         for rid, steps in self._merged_run_processes().items():
             self._process_cursor.persist_new_run_tail(rid, steps)
 
+    def _persist_captain_marker_after_insert(
+        self,
+        marker: dict[str, Any],
+        *,
+        before_last_team: bool,
+    ) -> list[Any]:
+        """Journal a newly inserted captain marker (append or ``before_last_team``).
+
+        Ordinal tail persist covers the common append case. Two compensations:
+
+        - Mid-insert behind the cursor (``team`` already journaled at ``run_plan``,
+          then 开工卡 / 授权 inserts before it): schedule the marker alone and advance
+          the cursor by one so the shifted tail is not re-journaled.
+        - Open tool ahead of the marker holds the cursor (SUSPEND ``ask_user``): schedule
+          the marker and seed past the lane.
+        """
+        from agentcore.runtime.events.process_persist import schedule_process_step
+
+        merged = self.raw_process()
+        kind = marker["kind"]
+        key = next(k for k in marker if k != "kind")
+        marker_idx = next(
+            (
+                i
+                for i, step in enumerate(merged)
+                if step.get("kind") == kind and step.get(key) == marker[key]
+            ),
+            None,
+        )
+        futures: list[Any] = []
+        if (
+            before_last_team
+            and marker_idx is not None
+            and marker_idx < self._process_cursor.captain
+        ):
+            fut = schedule_process_step(marker)
+            if fut is not None:
+                futures.append(fut)
+            self._process_cursor.seed_captain(self._process_cursor.captain + 1)
+        futures.extend(self._process_cursor.persist_new_captain_tail(merged))
+        # Open tool ahead of the marker holds the ordinal cursor — compensate.
+        if marker_idx is not None and self._process_cursor.captain <= marker_idx:
+            fut = schedule_process_step(marker)
+            if fut is not None:
+                futures.append(fut)
+            self._process_cursor.seed_captain(len(merged))
+        return futures
+
     def persist_required_marker(self, event_type: Any, payload: dict[str, Any]) -> None:
         """Insert a pause-anchor marker into the live captain lane and journal it.
 
@@ -545,8 +601,6 @@ class EventSink:
         the lane — same compensation the old always-``seed_captain(len)`` path used,
         but only when ordinal persist could not reach the marker.
         """
-        from agentcore.runtime.events.process_persist import schedule_process_step
-
         spec = _marker_spec_for_required(event_type, payload)
         if spec is None:
             return
@@ -564,21 +618,9 @@ class EventSink:
         if not synthesize_required_marker(self._process, event_type, payload):
             return
 
-        merged = self.raw_process()
-        marker_idx = next(
-            (
-                i
-                for i, step in enumerate(merged)
-                if step.get("kind") == kind and step.get(key) == marker[key]
-            ),
-            None,
+        self._persist_captain_marker_after_insert(
+            marker, before_last_team=before_last_team
         )
-        self._process_cursor.persist_new_captain_tail(merged)
-
-        # Open tool ahead of the marker holds the ordinal cursor — compensate.
-        if marker_idx is not None and self._process_cursor.captain <= marker_idx:
-            schedule_process_step(marker)
-            self._process_cursor.seed_captain(len(merged))
 
     def _accumulate_run_process(self, event: SSEEvent) -> list[Any]:
         """Accumulate a worker run's ProcessStep[] (mirrors captain ``_accumulate_process``)."""
@@ -682,6 +724,11 @@ class EventSink:
             if execution_id and not self._has_marker("team", "execution_id", execution_id):
                 futures.extend(self._persist_closed_captain_text())
                 self._process.append({"kind": "team", "execution_id": execution_id})
+                # Same as other timeline markers: journal at insert so mid-run reload
+                # (workers still running, no captain flush yet) replays ``team``.
+                futures.extend(
+                    self._process_cursor.persist_new_captain_tail(self.raw_process())
+                )
         elif t == EventType.GRAPH_APPEND:
             futures.extend(self._persist_closed_captain_text())
             self._process.append(
@@ -779,9 +826,13 @@ class EventSink:
                 return futures
             futures.extend(self._persist_closed_captain_text())
             _insert_marker_step(self._process, marker, before_last_team=before_last_team)
-            # Middle-insert (before_last_team) breaks pure append ordinals — flush the
-            # full tail so the new marker and any shifted steps are journaled once.
-            futures.extend(self._process_cursor.persist_new_captain_tail(self.raw_process()))
+            # Middle-insert (before_last_team) after an already-journaled ``team`` needs
+            # cursor compensation — shared with persist_required_marker.
+            futures.extend(
+                self._persist_captain_marker_after_insert(
+                    marker, before_last_team=before_last_team
+                )
+            )
         return futures
 
     def seed_journal(self, events: list[dict[str, Any]]) -> None:

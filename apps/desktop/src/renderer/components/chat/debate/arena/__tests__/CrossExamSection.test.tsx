@@ -224,7 +224,7 @@ describe("CrossExamSection 审计清单", () => {
       />,
     );
 
-    expect(container.querySelector(".grid.grid-cols-2")).toBeTruthy();
+    expect(container.querySelector(".debate-split-grid")).toBeTruthy();
     expect(screen.getByRole("button", { name: /原告/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /被告/ })).toBeTruthy();
   });

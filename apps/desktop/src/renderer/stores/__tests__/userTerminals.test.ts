@@ -10,6 +10,16 @@ describe("useUserTerminalStore", () => {
     });
   });
 
+  it("returns a stable empty array when conversation is absent", () => {
+    const store = useUserTerminalStore.getState();
+    const a = store.sessionsFor("missing");
+    const b = store.sessionsFor("missing");
+    const c = store.sessionsFor(null);
+    expect(a).toEqual([]);
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+  });
+
   it("applyEvent started + data + exited", () => {
     const store = useUserTerminalStore.getState();
     store.applyEvent({

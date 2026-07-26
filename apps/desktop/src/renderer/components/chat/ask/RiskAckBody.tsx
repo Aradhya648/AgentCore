@@ -1,14 +1,19 @@
 /**
- * risk_ack — 风险勾选清单：解析 label「[高]/[中]/[低]」前缀做严重度强调；recommended →「建议处理」。
+ * risk_ack — 风险勾选清单：行式多选（与 kickoff 同壳）。
+ * label「[高]/[中]/[低]」前缀解析为右侧灰字严重度；recommended → 灰字「建议处理」（无彩色徽章）。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
-import { Button } from "@/components/ui";
+import { ASK_INTENT_META } from "@/components/chat/decision";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
-import type { AskOption } from "@/types/events";
-import { Check, Loader2, OctagonX, ShieldAlert } from "lucide-react";
-import type { AskUserContent } from "./AskUserFields";
-import type { useAskAnswer } from "./AskUserFields";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { AskCardFooter, AskCardShell } from "./AskCardShell";
+import { CommenceNote } from "./AskCommenceParts";
+import { AskRowGroup } from "./AskOptionRow";
+import type { AskUserContent, useAskAnswer } from "./AskUserFields";
 import { RISK_SEVERITY_META, parseRiskLabel } from "./parseRiskLabel";
+
+const META = ASK_INTENT_META.risk_ack;
 
 export function RiskAckBody({
   content,
@@ -16,7 +21,6 @@ export function RiskAckBody({
   busy,
   submitting,
   caption,
-  cta,
   onContinue,
   onStop,
 }: {
@@ -24,171 +28,97 @@ export function RiskAckBody({
   answer: ReturnType<typeof useAskAnswer>;
   busy: boolean;
   submitting: CheckpointUserDecision | null;
-  caption: string;
-  cta: string;
+  caption?: string;
   onContinue: () => void;
   onStop: () => void;
 }) {
   const q = content.questions[0];
   const picked = q ? (answer.answers[q.id] ?? []) : [];
+  const [noteOpen, setNoteOpen] = useState(false);
 
   return (
-    <>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pt-3">
-        <div className="flex items-start gap-1.5">
-          <ShieldAlert
-            size={14}
-            className="mt-0.5 shrink-0 text-muted-foreground"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1">
-              <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-                {caption}
-              </p>
-              <ManualHelpLink to={MANUAL_HELP.checkpoint} />
-            </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
-              {content.question}
-            </p>
-            {content.context && (
-              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                {content.context}
-              </p>
-            )}
-          </div>
-        </div>
-
+    <AskCardShell
+      variant="risk_ack"
+      icon={META.icon}
+      caption={caption ?? META.activeCaption}
+      title={content.question}
+      subtitle={content.context || undefined}
+      extra={<ManualHelpLink to={MANUAL_HELP.checkpoint} />}
+      footer={
+        <AskCardFooter
+          cta={META.cta}
+          ctaIcon={META.ctaIcon}
+          busy={busy}
+          submitting={submitting}
+          onContinue={onContinue}
+          onStop={onStop}
+        />
+      }
+    >
+      <div className="space-y-3">
         {q && (
-          <div className="space-y-1.5" data-ask-variant="risk_ack">
+          <div>
             {q.prompt && (
-              <div className="flex items-center gap-2">
-                <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-                  {q.prompt}
-                </p>
-                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              <p className="px-2 text-xs font-medium leading-snug text-foreground">
+                {q.prompt}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                   可多选
                 </span>
-              </div>
+              </p>
             )}
-            {q.options.map((opt) => (
-              <RiskRow
-                key={opt.label}
-                option={opt}
-                active={picked.includes(opt.label)}
-                disabled={busy}
-                onToggle={() => answer.toggleChoice(q, opt.label)}
-              />
-            ))}
+            <AskRowGroup
+              className={q.prompt ? "mt-1" : undefined}
+              multiple
+              rows={q.options.map((opt) => {
+                const { severity, text } = parseRiskLabel(opt.label);
+                const hints: string[] = [];
+                if (severity) hints.push(RISK_SEVERITY_META[severity].tag);
+                if (opt.recommended && q.default !== opt.label) {
+                  hints.push("建议处理");
+                }
+                return {
+                  key: opt.label,
+                  label: text,
+                  detail: opt.detail,
+                  hint: hints.length ? hints.join(" · ") : undefined,
+                  selected: picked.includes(opt.label),
+                  disabled: busy,
+                  onSelect: () => answer.toggleChoice(q, opt.label),
+                };
+              })}
+            />
           </div>
         )}
 
-        <textarea
-          value={answer.note}
-          onChange={(e) => answer.setNote(e.target.value)}
-          disabled={busy}
-          rows={2}
-          placeholder="补充说明（可选）"
-          className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/25 focus:outline-none disabled:opacity-40"
-        />
-      </div>
-
-      <div className="shrink-0 space-y-2 px-3 pb-3 pt-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="md"
-            variant="primary"
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            disabled={busy}
-            onClick={onContinue}
-            icon={
-              submitting === "continue" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <ShieldAlert size={14} />
-              )
-            }
+        <div className="px-2">
+          <button
+            type="button"
+            onClick={() => setNoteOpen((v) => !v)}
+            aria-expanded={noteOpen}
+            className="flex w-full items-center gap-1.5 text-left"
           >
-            {cta}
-          </Button>
-          <Button
-            size="md"
-            variant="danger"
-            disabled={busy}
-            onClick={onStop}
-            icon={
-              submitting === "stop" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <OctagonX size={14} />
-              )
-            }
-          >
-            停止
-          </Button>
+            <ChevronRight
+              size={13}
+              className={`shrink-0 text-muted-foreground transition-transform ${
+                noteOpen ? "rotate-90" : ""
+              }`}
+            />
+            <span className="shrink-0 text-xs text-muted-foreground">
+              补充说明
+            </span>
+            {!noteOpen && answer.note.trim() && (
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
+                {answer.note.trim()}
+              </span>
+            )}
+          </button>
+          {noteOpen && (
+            <div className="mt-1.5 pl-5">
+              <CommenceNote answer={answer} disabled={busy} compact />
+            </div>
+          )}
         </div>
       </div>
-    </>
-  );
-}
-
-function RiskRow({
-  option,
-  active,
-  disabled,
-  onToggle,
-}: {
-  option: AskOption;
-  active: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}) {
-  const { severity, text } = parseRiskLabel(option.label);
-  const meta = severity ? RISK_SEVERITY_META[severity] : null;
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onToggle}
-      aria-pressed={active}
-      className={`flex w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-40 ${
-        active
-          ? `bg-muted/60 ${meta?.border ?? "border-foreground/25"}`
-          : `${meta?.border ?? "border-border"} bg-card hover:bg-accent/50`
-      }`}
-    >
-      <span
-        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${
-          active
-            ? "border-foreground/50 bg-foreground text-background"
-            : "border-border bg-transparent"
-        }`}
-        aria-hidden
-      >
-        {active && <Check size={10} strokeWidth={3} />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          {meta && (
-            <span
-              className={`shrink-0 rounded px-1 py-0.5 text-xs font-medium ${meta.chip}`}
-            >
-              {meta.tag}
-            </span>
-          )}
-          <span className="text-sm font-medium text-foreground">{text}</span>
-          {option.recommended && (
-            <span className="shrink-0 text-xs text-muted-foreground">
-              建议处理
-            </span>
-          )}
-        </span>
-        {option.detail && (
-          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-            {option.detail}
-          </span>
-        )}
-      </span>
-    </button>
+    </AskCardShell>
   );
 }

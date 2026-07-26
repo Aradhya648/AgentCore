@@ -280,7 +280,44 @@ async def _drive_body(
             return preview_early
 
     # 同构再委派护栏：活跃协调上角色+任务高度同构 → 结构化拒绝（除非 force）。
+    # 触顶换马甲护栏：近期 thrashing worker + 相似 task/artifacts → 拒冷派（除非 force /
+    # continue_from）。与 isomorphic 同层；不挪用 note_completion_gap。
     force = bool(getattr(tool, "_delegate_force", False))
+    if not force:
+        from agentcore.core.logging import get_logger
+        from agentcore.core.types import ToolEffect
+        from agentcore.runtime.coordination.thrash import (
+            find_thrash_collision,
+            recent_thrash_records,
+            thrash_reject_message,
+        )
+        from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
+        from agentcore.tools.protocol import ToolResult
+
+        cid = str(getattr(tool, "_conversation_id", None) or "")
+        thrash_hit = find_thrash_collision(plan, recent_thrash_records(cid))
+        if thrash_hit is not None:
+            _node, rec = thrash_hit
+            get_logger(__name__).info(
+                "delegate.thrash_rebrand_rejected",
+                execution_id=execution_id,
+                thrash_run_id=rec.run_id,
+                nodes=len(plan.nodes),
+                call=call_idx,
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=thrash_reject_message(rec),
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=0,
+                has_deps=False,
+            )
+
     if merging_into_active and not force:
         from agentcore.core.types import ToolEffect
         from agentcore.runtime.coordination.isomorphic import (
@@ -347,7 +384,12 @@ async def _drive_body(
         if started is not None:
             return started
 
+    # Nested depth≥1 never enters coordination declare — hand off lead-declared
+    # paths to child artifacts before workers write (C3 ownership · parent_run_id).
+    from agentcore.runtime.coordination.append_guard import declare_nested_drive_artifacts
     from agentcore.runtime.runs import BatchMetrics, WaveScheduler, resolve_max_parallel
+
+    declare_nested_drive_artifacts(tool, plan, execution_id=execution_id)
 
     note_wall, collaboration = setup_note_wall(
         tool,
@@ -410,22 +452,28 @@ async def _drive_body(
             # 交付预留：根 depth0 放行 ceiling_priority；嵌套路径关闭（None）。
             priority_reserve_hit=priority_reserve_hit,
         )
+
+        # soft should_stop 默认把未跑尾留给 resume；turn 顶 / 信封是硬停，物化为 SKIPPED。
+        if should_materialise_turn_token_budget_skips():
+            _materialise_turn_token_budget_skips(tool, plan, results)
+            await _attach_light_website_gaps(tool, results)
+
+        results = await redirects.drain_post_wave(
+            results,
+            executor=executor,
+            max_parallel=tool._max_parallel or resolve_max_parallel(),
+            on_skipped=_on_skipped,
+        )
+        redirects.audit_ignored_redirects()
     finally:
+        # Revoke AFTER waves + post-wave drain so late workers still see the grant
+        # (工具审批 A+B · B). Keep grant while coordination session is live (merge-rearm).
         if delegation_started and worker_gate is not None:
-            worker_gate.revoke_delegation(execution_id)
+            from agentcore.runtime.coordination.session import active_coordination
 
-    # soft should_stop 默认把未跑尾留给 resume；turn 顶 / 信封是硬停，物化为 SKIPPED。
-    if should_materialise_turn_token_budget_skips():
-        _materialise_turn_token_budget_skips(tool, plan, results)
-        await _attach_light_website_gaps(tool, results)
-
-    results = await redirects.drain_post_wave(
-        results,
-        executor=executor,
-        max_parallel=tool._max_parallel or resolve_max_parallel(),
-        on_skipped=_on_skipped,
-    )
-    redirects.audit_ignored_redirects()
+            live = active_coordination(execution_id)
+            if live is None or not live.active:
+                worker_gate.revoke_delegation(execution_id)
 
     return await finalize_drive(
         tool,

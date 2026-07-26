@@ -1780,6 +1780,7 @@ export interface paths {
          *
          *     ``body.selected`` carries the user's ask_user picks (ignored for plan_review).
          *     ``body.style_id`` is the structured website style pick when present.
+         *     ``body.format_id`` is the structured presentation format pick when present.
          *     Gated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota
          *     — all BEFORE settlement/claim, so a refused turn keeps its resumable frame.
          */
@@ -7785,8 +7786,8 @@ export interface components {
          *     ``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /
          *     ``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload
          *     ``question`` (the framing / opening line) + ``context`` + the optional opening
-         *     content ``assumptions`` / ``questions`` / ``style_options`` (empty for a compact
-         *     mid-task fork). The unused set is empty for the other kinds.
+         *     content ``assumptions`` / ``questions`` / ``style_options`` / ``format_options``
+         *     (empty for a compact mid-task fork). The unused set is empty for the other kinds.
          */
         PausedTurnSummary: {
             /** Assumptions */
@@ -7805,6 +7806,10 @@ export interface components {
              * @default
              */
             form: string;
+            /** Format Options */
+            format_options?: {
+                [key: string]: unknown;
+            }[];
             /** Intent */
             intent?: ("kickoff" | "decision" | "proposal_pick" | "risk_ack" | "organize_plan") | null;
             kind: components["schemas"]["SuspensionKind"];
@@ -7911,7 +7916,9 @@ export interface components {
          *
          *     - ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff
          *       does not pre-authorize write capabilities (≈ always_ask + withhold execution)
-         *     - ``workspace`` — kickoff once authorizes grantable set (≈ first_grant; default)
+         *     - ``workspace`` — session-trust file-mutation class (no per-call cards; permanent
+         *       delete still asks); kickoff confirms team + authorizes execution class
+         *       (≈ first_grant; default)
          *     - ``full_trust`` — skip kickoff; silent auto-grant including local execution
          *       (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)
          * @enum {string}
@@ -8267,10 +8274,17 @@ export interface components {
          *     carries the option(s) the user picked from an ask_user menu (ignored for
          *     plan_review; the server drops any pick not actually offered). ``style_id`` is the
          *     structured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in
-         *     ``selected``. The engine-only ``timeout`` is never sent by a client.
+         *     ``selected``. ``format_id`` is the structured presentation format pick
+         *     (``f0``/``f1``/…); preferred over an ``fN`` token in ``selected``. The engine-only
+         *     ``timeout`` is never sent by a client.
          */
         ResumeTurnRequest: {
             decision: components["schemas"]["CheckpointDecision"];
+            /**
+             * Format Id
+             * @description Optional structured presentation format pick (f0/f1/…). Preferred over scanning selected; ignored when not a presentation kickoff.
+             */
+            format_id?: string | null;
             /**
              * Note
              * @default

@@ -150,6 +150,9 @@ def test_team_gate_research_shape_copy_when_flagged():
     assert "成篇调研形状" in hard
     assert "research_report" in hard
     assert "禁止" in hard and "一人" in hard
+    # 定案 A：形状句亦禁「角 prose、仅主笔落盘」
+    assert "角 prose" in hard and "仅主笔落盘" in hard
+    assert "form=files" in hard
 
 
 def test_hard_stop_research_intent_injects_shape():

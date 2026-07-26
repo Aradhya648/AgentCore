@@ -17,12 +17,14 @@ const {
   getStateMock,
   setValueMock,
   pickAndBindLocalFolderMock,
+  showFileMock,
 } = vi.hoisted(() => ({
   sendTurnMock: vi.fn(),
   useConversationStoreMock: vi.fn(),
   getStateMock: vi.fn(),
   setValueMock: vi.fn(),
   pickAndBindLocalFolderMock: vi.fn(),
+  showFileMock: vi.fn(),
 }));
 
 vi.mock("@/services/turns", () => ({
@@ -53,6 +55,11 @@ vi.mock("@/stores/composer", () => ({
   },
 }));
 
+vi.mock("@/stores/sidePanel", () => ({
+  useSidePanelStore: (sel: (s: { showFile: typeof showFileMock }) => unknown) =>
+    sel({ showFile: showFileMock }),
+}));
+
 // 折叠开合替身：用会话内 useState 取代持久化 hook（隔离 conversation store / localStorage），
 // 让「点头部收起/展开」在测试里真正切换（对齐 FileArtifactsCard.test 的 disclosure mock）。
 vi.mock("@/stores/disclosure", async () => {
@@ -69,6 +76,7 @@ beforeEach(() => {
   getStateMock.mockReset();
   setValueMock.mockReset();
   pickAndBindLocalFolderMock.mockReset();
+  showFileMock.mockReset();
   useConversationStoreMock.mockImplementation((sel: (s: unknown) => unknown) =>
     sel({ byId: { c1: { isGenerating: false } } }),
   );
@@ -301,16 +309,13 @@ describe("DeliveryStatusCard", () => {
     });
   });
 
-  it("renders continue_writing action as a send button and posts the prompt", async () => {
-    const addMessage = vi.fn();
-    getStateMock.mockReturnValue({ addMessage });
-
+  it("does not render a continue_writing button; hints chat continue instead", () => {
     render(
       <DeliveryStatusCard
         status={{
           execution_id: "exec-6",
           state: "partial",
-          summary: "已交付 1 个文件；1 项缺口",
+          summary: "已交付 1 个文件；成篇未写完",
           delivered_files: ["报告.md"],
           gaps: [
             {
@@ -319,13 +324,13 @@ describe("DeliveryStatusCard", () => {
               reason: "token_budget",
             },
           ],
+          // 旧载荷残留：前端须过滤，不得与对话框提示并排重复。
           actions: [
             {
               kind: "continue_writing",
               description:
                 "成篇未写完——点此续写（从已完成章节继续；勿删稿重写整篇）",
-              prompt:
-                "请续写上一篇未完成的报告：先 file_read 已有草稿，从上一完整章之后用 file_append 按章续写；禁止 file_delete 后整篇重写。预算不够时仍停在章边界并诚实标 partial。",
+              prompt: "请续写",
             },
           ],
         }}
@@ -333,16 +338,51 @@ describe("DeliveryStatusCard", () => {
       />,
     );
     expect(screen.getByText("预算触顶")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "续写" }));
-    await waitFor(() => {
-      expect(addMessage).toHaveBeenCalled();
-      expect(sendTurnMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "c1",
-          content: expect.stringContaining("file_append"),
-        }),
-      );
-    });
+    expect(screen.queryByRole("button", { name: "续写" })).toBeNull();
+    expect(screen.queryByText(/点此续写/)).toBeNull();
+    expect(screen.getByText(/请在对话框告诉我接着写/)).toBeTruthy();
+    expect(screen.queryByText("团队可能重派")).toBeNull();
+  });
+
+  it("aggregates soft notes and opens related files", () => {
+    render(
+      <DeliveryStatusCard
+        status={{
+          execution_id: "exec-notes",
+          state: "notes",
+          summary: "有 3 处待核实备注（2 个文件）",
+          delivered_files: ["a.md", "b.md"],
+          gaps: [
+            {
+              role: "调研员",
+              description:
+                "含待核实/示例自注（2 处）：`a.md` · 待核实 · 「x」；`b.md` · 待核实 · 「y」。",
+              severity: "warning",
+              reason: "unverified_note",
+              paths: ["a.md", "b.md"],
+            },
+            {
+              role: "撰稿人",
+              description:
+                "含待核实/示例自注（1 处）：`a.md` · 示例数据 · 「z」。",
+              severity: "warning",
+              reason: "unverified_note",
+              paths: ["a.md"],
+            },
+          ],
+          actions: [],
+        }}
+        conversationId="c1"
+      />,
+    );
+    expect(screen.getByText("有备注")).toBeTruthy();
+    expect(screen.queryByText("部分未满足")).toBeNull();
+    expect(
+      screen.getAllByText(/有 3 处待核实备注/).length,
+    ).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole("button", { name: /打开相关文件/ }));
+    expect(showFileMock).toHaveBeenCalledWith("a.md", "a.md");
+    expect(showFileMock).toHaveBeenCalledWith("b.md", "b.md");
   });
 
   it("labels turn_token_budget and wires continue_skipped_runs", async () => {

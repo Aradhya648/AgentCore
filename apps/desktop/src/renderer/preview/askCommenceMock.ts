@@ -3,7 +3,7 @@ import type { AskUserContent } from "@/components/chat/ask/AskUserFields";
 /**
  * Shared mock for preview 开工提案 layout variants.
  * Mirrors a rich kickoff ask_user payload (起步计划 + 编号题 + 推荐/默认 + 风格).
- * Production kickoff uses the same V2 Brief + Choose body ({@link AskCommenceKickoffBody}).
+ * Production kickoff mounts the same body as scene v5 ({@link AskKickoffBody}).
  */
 export const ASK_COMMENCE_MOCK: AskUserContent = {
   question: "按这版起步计划开做可以吗？有两处想先跟你对齐。",
@@ -53,13 +53,18 @@ export const ASK_COMMENCE_MOCK: AskUserContent = {
     { id: "s1", label: "活泼产品感" },
     { id: "s2", label: "深色科技" },
   ],
+  formatOptions: [
+    { id: "f0", label: "PowerPoint（.pptx）" },
+    { id: "f1", label: "Marp Markdown" },
+  ],
 };
 
 export type AskCommenceVariantId =
   | "ask-commence-v1"
   | "ask-commence-v2"
   | "ask-commence-v3"
-  | "ask-commence-v4";
+  | "ask-commence-v4"
+  | "ask-commence-v5";
 
 export interface AskCommenceScene {
   id: AskCommenceVariantId;

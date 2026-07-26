@@ -163,12 +163,10 @@ function PendingBrowserLoginEscalation({
           <Button
             variant="neutral"
             disabled={busy}
-            onClick={() =>
-              useSidePanelStore.getState().openBrowserLive(conversationId)
-            }
+            onClick={() => useSidePanelStore.getState().showBrowser()}
             icon={<Radio size={13} />}
           >
-            打开浏览器直播
+            打开浏览器
           </Button>
         )}
         <Button
@@ -222,6 +220,7 @@ function PendingEscalation({
     assumptions: [],
     questions: escalation.questions,
     styleOptions: [],
+    formatOptions: [],
   };
   const ans = useAskAnswer(content);
   const tone = interactiveCheckpointTone.primary;

@@ -1,13 +1,18 @@
 /**
- * proposal_pick — 方案墙：每个候选一张可点选卡（方案名 + 取舍一行 + 推荐徽章）。
+ * proposal_pick — 方案挑选：行式单选（与 kickoff 同壳）。
+ * 方案墙卡片感有意弱化；彩色推荐徽章已删，仅当 recommended ≠ default 时右侧灰字「推荐」。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
-import { Button } from "@/components/ui";
+import { ASK_INTENT_META } from "@/components/chat/decision";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
-import { Layers, Loader2, OctagonX } from "lucide-react";
-import { OptionButton } from "./AskCommenceParts";
-import type { AskUserContent } from "./AskUserFields";
-import type { useAskAnswer } from "./AskUserFields";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { AskCardFooter, AskCardShell } from "./AskCardShell";
+import { CommenceNote } from "./AskCommenceParts";
+import { AskRowGroup } from "./AskOptionRow";
+import type { AskUserContent, useAskAnswer } from "./AskUserFields";
+
+const META = ASK_INTENT_META.proposal_pick;
 
 export function ProposalPickBody({
   content,
@@ -15,7 +20,6 @@ export function ProposalPickBody({
   busy,
   submitting,
   caption,
-  cta,
   onContinue,
   onStop,
 }: {
@@ -23,106 +27,89 @@ export function ProposalPickBody({
   answer: ReturnType<typeof useAskAnswer>;
   busy: boolean;
   submitting: CheckpointUserDecision | null;
-  caption: string;
-  cta: string;
+  caption?: string;
   onContinue: () => void;
   onStop: () => void;
 }) {
   const q = content.questions[0];
   const picked = q ? (answer.answers[q.id] ?? []) : [];
-  const canSubmit = picked.length > 0;
+  const [noteOpen, setNoteOpen] = useState(false);
 
   return (
-    <>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pt-3">
-        <div className="flex items-start gap-1.5">
-          <Layers size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1">
-              <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-                {caption}
-              </p>
-              <ManualHelpLink to={MANUAL_HELP.checkpoint} />
-            </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
-              {content.question}
-            </p>
-            {content.context && (
-              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                {content.context}
-              </p>
-            )}
-          </div>
-        </div>
-
+    <AskCardShell
+      variant="proposal_pick"
+      icon={META.icon}
+      caption={caption ?? META.activeCaption}
+      title={content.question}
+      subtitle={content.context || undefined}
+      extra={<ManualHelpLink to={MANUAL_HELP.checkpoint} />}
+      footer={
+        <AskCardFooter
+          cta={META.cta}
+          ctaIcon={META.ctaIcon}
+          busy={busy}
+          submitting={submitting}
+          onContinue={onContinue}
+          onStop={onStop}
+          ctaDisabled={picked.length === 0}
+        />
+      }
+    >
+      <div className="space-y-3">
         {q && (
-          <div className="grid gap-2" data-ask-variant="proposal_pick">
+          <div>
             {q.prompt && (
-              <p className="text-xs font-medium text-muted-foreground">
+              <p className="px-2 text-xs font-medium leading-snug text-foreground">
                 {q.prompt}
               </p>
             )}
-            {q.options.map((opt) => (
-              <OptionButton
-                key={opt.label}
-                label={opt.label}
-                detail={opt.detail}
-                recommended={opt.recommended}
-                active={picked.includes(opt.label)}
-                disabled={busy}
-                onClick={() => answer.toggleChoice(q, opt.label)}
-                layout="card"
-                size="lg"
-              />
-            ))}
+            <AskRowGroup
+              className={q.prompt ? "mt-1" : undefined}
+              rows={q.options.map((opt) => ({
+                key: opt.label,
+                label: opt.label,
+                detail: opt.detail,
+                hint:
+                  opt.recommended && q.default !== opt.label
+                    ? "推荐"
+                    : undefined,
+                selected: picked.includes(opt.label),
+                disabled: busy,
+                onSelect: () => answer.toggleChoice(q, opt.label),
+              }))}
+            />
           </div>
         )}
 
-        <textarea
-          value={answer.note}
-          onChange={(e) => answer.setNote(e.target.value)}
-          disabled={busy}
-          rows={2}
-          placeholder="补充说明（可选）"
-          className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/25 focus:outline-none disabled:opacity-40"
-        />
-      </div>
-
-      <div className="shrink-0 space-y-2 px-3 pb-3 pt-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="md"
-            variant="primary"
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            disabled={busy || !canSubmit}
-            onClick={onContinue}
-            icon={
-              submitting === "continue" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Layers size={14} />
-              )
-            }
+        <div className="px-2">
+          <button
+            type="button"
+            onClick={() => setNoteOpen((v) => !v)}
+            aria-expanded={noteOpen}
+            className="flex w-full items-center gap-1.5 text-left"
           >
-            {cta}
-          </Button>
-          <Button
-            size="md"
-            variant="danger"
-            disabled={busy}
-            onClick={onStop}
-            icon={
-              submitting === "stop" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <OctagonX size={14} />
-              )
-            }
-          >
-            停止
-          </Button>
+            <ChevronRight
+              size={13}
+              className={`shrink-0 text-muted-foreground transition-transform ${
+                noteOpen ? "rotate-90" : ""
+              }`}
+            />
+            <span className="shrink-0 text-xs text-muted-foreground">
+              补充说明
+            </span>
+            {!noteOpen && answer.note.trim() && (
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
+                {answer.note.trim()}
+              </span>
+            )}
+          </button>
+          {noteOpen && (
+            <div className="mt-1.5 pl-5">
+              <CommenceNote answer={answer} disabled={busy} compact />
+            </div>
+          )}
         </div>
       </div>
-    </>
+    </AskCardShell>
   );
 }

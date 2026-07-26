@@ -237,6 +237,9 @@ def build_run_plan(
         apply_retrieval_budgets(plan, valid_tools=valid_tools, complexity_hint=complexity_hint)
         apply_directed_search_tools(plan, valid_tools=valid_tools)
         apply_worker_budgets(plan)
+        from agentcore.runtime.runs.worker_budget import apply_light_round_budgets
+
+        apply_light_round_budgets(plan, complexity_hint=complexity_hint)
         from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_plan
 
         apply_artifact_dir_to_plan(plan)
@@ -643,10 +646,22 @@ def _inline_spec(
         ceiling_priority=bool(item.get("ceiling_priority")),
         context_inject_files=_str_list(item.get("context_inject_files")),
         require_upstream=bool(item.get("require_upstream")),
-        retrieval_budget=_parse_retrieval_budget(item.get("retrieval_budget")),
+        # 检索额度由 apply_retrieval_budgets 填统一默认；CEO/task 不可配置。
+        # 辩手有案卷等内部窄例外在 build 后补写 RunSpec.retrieval_budget。
+        retrieval_budget=None,
         search_policy=_parse_search_policy(item.get("search_policy")),
+        max_rounds=_parse_max_rounds(item.get("max_rounds")),
         policy=policy,
     )
+
+
+def _parse_max_rounds(raw: Any) -> int | None:
+    """Optional per-task ReAct round cap (repair / light posture)."""
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return None
+    if raw < 1:
+        return None
+    return raw
 
 
 def _parse_replaces_run_id(raw: Any) -> str | None:
@@ -663,13 +678,6 @@ def _parse_continue_from_run_id(raw: Any) -> str | None:
         return None
     cleaned = raw.strip()
     return cleaned or None
-
-
-def _parse_retrieval_budget(raw: Any) -> int | None:
-    """Normalise optional CEO-explicit ``retrieval_budget``; None → structured default."""
-    from agentcore.runtime.runs.retrieval_budget import parse_retrieval_budget
-
-    return parse_retrieval_budget(raw)
 
 
 def _parse_search_policy(raw: Any) -> str:

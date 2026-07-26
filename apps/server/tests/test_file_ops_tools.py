@@ -71,6 +71,49 @@ async def test_write_allows_tiny_overwrite(tmp_path: Path):
     assert (tmp_path / "stub.txt").read_text(encoding="utf-8") == "still small"
 
 
+async def test_write_rejects_non_empty_code_overwrite(tmp_path: Path):
+    """短非空代码文件也不能骨架整写冒充修复（阶段3）。"""
+    body = "export function TopBar() {\n  return <header>App</header>;\n}\n"
+    target = tmp_path / "src" / "TopBar.tsx"
+    target.parent.mkdir(parents=True)
+    target.write_text(body, encoding="utf-8")
+    skeleton = "export function TopBar() {\n  return null;\n}\n"
+    result = await FileWriteTool().execute(
+        {"path": "src/TopBar.tsx", "content": skeleton},
+        _ctx(tmp_path),
+    )
+    assert result.success is False
+    assert "拒绝整文件覆盖" in (result.error or "")
+    assert "非空代码" in (result.error or "")
+    assert "str_replace" in (result.error or "")
+    assert result.contract_failure is True
+    assert target.read_text(encoding="utf-8") == body
+
+
+async def test_write_allows_empty_code_shell(tmp_path: Path):
+    """真·空壳（空白）代码文件仍可用 file_write 写入。"""
+    target = tmp_path / "src" / "NewWidget.tsx"
+    target.parent.mkdir(parents=True)
+    target.write_text("   \n", encoding="utf-8")
+    content = "export function NewWidget() {\n  return null;\n}\n"
+    result = await FileWriteTool().execute(
+        {"path": "src/NewWidget.tsx", "content": content},
+        _ctx(tmp_path),
+    )
+    assert result.success is True
+    assert target.read_text(encoding="utf-8") == content
+
+
+async def test_write_allows_new_code_file(tmp_path: Path):
+    content = "export const x = 1;\n"
+    result = await FileWriteTool().execute(
+        {"path": "src/fresh.ts", "content": content},
+        _ctx(tmp_path),
+    )
+    assert result.success is True
+    assert (tmp_path / "src" / "fresh.ts").read_text(encoding="utf-8") == content
+
+
 async def test_write_rejects_empty_path(tmp_path: Path):
     # A worker that omits/empties ``path`` must get a crisp required-arg error — NOT
     # a backend write onto the workspace root dir (the real-world file_write failure:
@@ -250,11 +293,11 @@ async def test_append_receipt_echoes_merged_tail(tmp_path: Path):
     assert result.success is True
     assert "## Section 2" in result.output  # end_preview / title_tree
     assert "artifact manifest" in result.output
-    assert "禁止对本文件再 file_read" in result.output
+    assert "优先用 manifest 验真" in result.output
 
 
 async def test_write_receipt_notes_persisted(tmp_path: Path):
-    # file_write 回执 = artifact manifest；禁止再 file_read 回读。
+    # file_write 回执 = artifact manifest；优先 manifest 验真（非身份硬闸）。
     result = await FileWriteTool().execute(
         {"path": "report.md", "content": "# Hi\n\n## A\n"}, _ctx(tmp_path)
     )
@@ -262,7 +305,7 @@ async def test_write_receipt_notes_persisted(tmp_path: Path):
     assert "artifact manifest" in result.output
     assert "content_sha256:" in result.output
     assert "title_tree:" in result.output
-    assert "禁止对本文件再 file_read" in result.output
+    assert "优先用 manifest 验真" in result.output
     assert "kind: skeleton" in result.output
 
 
@@ -297,26 +340,25 @@ async def test_write_skeleton_then_append_allowed(tmp_path: Path):
     assert "artifact manifest" in a.output
 
 
-async def test_file_read_rejects_self_product(tmp_path: Path):
-    """作者写后 body file_read → contract_failure；不计成功读次数。"""
+async def test_file_read_allows_author_self_product(tmp_path: Path):
+    """作者写后 body file_read 允许（与读者同 path cap）；计入成功读次数。"""
     ctx = _ctx(tmp_path)
     w = await FileWriteTool().execute(
-        {"path": "out.md", "content": "# Title\n\n## Sec\n"}, ctx
+        {"path": "out.md", "content": "# Title\n\n## Sec\nbody line\n"}, ctx
     )
     assert w.success is True
     assert ctx.landed_artifact_authors.get("out.md") == "a"
-    blocked = await FileReadTool().execute({"path": "out.md"}, ctx)
-    assert blocked.success is False
-    assert blocked.contract_failure is True
-    assert "拒绝 file_read" in (blocked.error or "")
-    assert "artifact manifest" in (blocked.error or "") or "现盘结构" in (blocked.error or "")
-    assert "title_tree" in (blocked.error or "")
-    assert ctx.file_read_counts.get("out.md", 0) == 0
+    ok = await FileReadTool().execute({"path": "out.md"}, ctx)
+    assert ok.success is True
+    assert "body line" in (ok.output or "")
+    assert ctx.file_read_counts.get("out.md", 0) == 1
 
 
-async def test_file_read_allows_non_author_same_execution(tmp_path: Path):
-    """同 execution 共享 landed 表时，非作者可读作者已落盘 path。"""
+async def test_file_read_author_and_reader_share_same_path_cap(tmp_path: Path):
+    """同 execution 共享 landed 表与计数器：作者与读者均受 FILE_READ_SAME_PATH_MAX。"""
     from dataclasses import replace
+
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
     author_ctx = _ctx(tmp_path, agent_id="writer")
     w = await FileWriteTool().execute(
@@ -326,22 +368,31 @@ async def test_file_read_allows_non_author_same_execution(tmp_path: Path):
     assert w.success is True
     assert author_ctx.landed_artifact_kinds.get("shared.md") is not None
 
-    # Downstream / CEO share the same mutable landed dicts (replace shallow-copy).
     reader_ctx = replace(author_ctx, agent_id="ceo", run_id="ceo-run")
     assert reader_ctx.landed_artifact_kinds is author_ctx.landed_artifact_kinds
-    assert reader_ctx.landed_artifact_authors is author_ctx.landed_artifact_authors
+    assert reader_ctx.file_read_counts is author_ctx.file_read_counts
 
     allowed = await FileReadTool().execute({"path": "shared.md"}, reader_ctx)
     assert allowed.success is True
     assert "body for downstream" in allowed.output
     assert reader_ctx.file_read_counts.get("shared.md", 0) == 1
 
-    # Author still blocked（共享计数器不因拒读递增）.
-    counts_before = int(author_ctx.file_read_counts.get("shared.md", 0))
-    blocked = await FileReadTool().execute({"path": "shared.md"}, author_ctx)
-    assert blocked.success is False
-    assert blocked.contract_failure is True
-    assert int(author_ctx.file_read_counts.get("shared.md", 0)) == counts_before
+    # Author may also body-read (no identity gate); shared counter advances.
+    author_ok = await FileReadTool().execute({"path": "shared.md"}, author_ctx)
+    assert author_ok.success is True
+    assert author_ctx.file_read_counts.get("shared.md", 0) == 2
+
+    # Exhaust remaining slots then both hit the same hard cap.
+    while int(author_ctx.file_read_counts.get("shared.md", 0)) < FILE_READ_SAME_PATH_MAX:
+        assert (
+            await FileReadTool().execute({"path": "shared.md"}, author_ctx)
+        ).success is True
+    blocked_author = await FileReadTool().execute({"path": "shared.md"}, author_ctx)
+    blocked_reader = await FileReadTool().execute({"path": "shared.md"}, reader_ctx)
+    assert blocked_author.success is False and blocked_author.contract_failure is True
+    assert blocked_reader.success is False and blocked_reader.contract_failure is True
+    assert "已多次读取" in (blocked_author.error or "")
+    assert "已多次读取" in (blocked_reader.error or "")
 
 
 # --- file_write overwrite integrity nudge ---

@@ -2,14 +2,16 @@
 
 Covers the read side of memory folderization:
 
-1. ``ConsultMemoryTool`` — returns a topic note's full body (CONTINUE) on a hit, and
-   degrades gracefully (non-fatal, lists the available topic names) on an unknown /
-   missing name — a model typo must never break a turn. Name spelling is forgiving
-   (bare slug / 主题/<slug> path / <slug>.md filename all resolve), and the
-   always-injected CORE note (画像) is NOT reachable as a topic.
+1. ``ConsultMemoryTool`` — returns a topic note's full body (CONTINUE) on a hit; a wrong
+   / unknown name is a soft miss (``success=True``, lists available topics, no ``error``);
+   only a missing / empty ``name`` is a real parameter failure. Always-injected CORE
+   (画像) is NOT reachable as a topic. Name spelling is forgiving (bare slug /
+   主题/<slug> path / <slug>.md filename all resolve).
 2. ``render_memory_topic_directory`` + ``compose_ceo_chat_prompt`` — the directory lists
    the user's topic names and rides the CEO prompt ONLY when consult_memory is wired
-   (the memory master switch's live-tool gate, mirroring the skill directory).
+   (memory on AND at least one topic — same live-tool gate as the skill directory).
+3. Assembly — ``consult_memory`` is omitted when memory is off OR the topic catalog is
+   empty (CEO + worker symmetric); ``remember`` still wires whenever memory is on.
 """
 
 from pathlib import Path
@@ -83,23 +85,29 @@ async def test_consult_memory_degrades_on_unknown_name(tmp_path):
     await store.save("u", topic_path("部署流程"), "x")
     await store.save("u", topic_path("项目背景"), "y")
     result = await ConsultMemoryTool(store=store).execute({"name": "不存在的主题"}, _ctx())
-    assert not result.success
-    # Graceful: lists the available topic names so the model can retry (no turn-breaking).
+    # Soft miss: informational output, not a red-error tool failure.
+    assert result.success
+    assert result.error is None
     assert "部署流程" in result.output
     assert "项目背景" in result.output
 
 
 async def test_consult_memory_handles_missing_name_arg(tmp_path):
     store = FileMemoryStore(tmp_path)
+    await store.save("u", topic_path("部署流程"), "x")
     result = await ConsultMemoryTool(store=store).execute({}, _ctx())
     assert not result.success
+    assert result.error
     assert "name" in result.output
 
 
 async def test_consult_memory_reports_when_user_has_no_topics(tmp_path):
+    # Tool-level soft miss if somehow invoked with an empty catalog (assembly omits the
+    # tool when prepare finds no topics — covered by test_assemble_omits_*_empty_topics).
     store = FileMemoryStore(tmp_path)
     result = await ConsultMemoryTool(store=store).execute({"name": "随便"}, _ctx())
-    assert not result.success
+    assert result.success
+    assert result.error is None
     assert "没有任何记忆主题" in result.output
 
 
@@ -109,7 +117,8 @@ async def test_consult_memory_cannot_reach_core_note(tmp_path):
     store = FileMemoryStore(tmp_path)
     await store.save("u", CORE_MEMORY_FILE, "## 沟通偏好\n- 用中文\n")
     result = await ConsultMemoryTool(store=store).execute({"name": "画像"}, _ctx())
-    assert not result.success
+    assert result.success
+    assert "画像" in result.output or "没有任何记忆主题" in result.output
 
 
 async def test_consult_memory_is_per_user(tmp_path):
@@ -117,7 +126,10 @@ async def test_consult_memory_is_per_user(tmp_path):
     await store.save("alice", topic_path("私密"), "alice note")
     # Bob asking for Alice's topic name misses — the store is addressed by user_id.
     result = await ConsultMemoryTool(store=store).execute({"name": "私密"}, _ctx("bob"))
-    assert not result.success
+    assert result.success
+    assert result.error is None
+    assert "alice note" not in result.output
+    assert "没有名为" in result.output
 
 
 # --- scope-aware recall (project + global, Agent记忆与知识系统 §二) -----------------
@@ -156,7 +168,8 @@ async def test_consult_memory_miss_lists_both_scopes(tmp_path):
     await store.save("u", topic_path("项目主题"), "p", scope="F1")
     tool = ConsultMemoryTool(store=store, folder_id="F1")
     result = await tool.execute({"name": "不存在"}, _ctx())
-    assert not result.success
+    assert result.success
+    assert result.error is None
     assert "全局主题" in result.output
     assert "项目主题" in result.output
 
@@ -207,12 +220,18 @@ def test_ceo_prompt_lists_topic_directory_only_when_consult_memory_wired():
 # --- assembly wiring: folder_id → consult_memory project scope (resume folder_id 缺口) ---
 
 
-def _assemble_chat_tools(*, folder_id: str | None, memory_enabled: bool = True):
+def _assemble_chat_tools(
+    *,
+    folder_id: str | None,
+    memory_enabled: bool = True,
+    has_memory_topics: bool = True,
+):
     """Run the real CEO toolset assembly and return its chat ToolRegistry.
 
     The SAME ``_assemble_ceo_toolset`` a fresh turn and a 2b resume call — the resume now
     passes the frame's ``folder_id`` (Agent记忆与知识系统 §二), so this pins that a
     non-None folder_id scopes consult_memory to that project rather than global-only.
+    ``has_memory_topics`` mirrors the prepare-phase catalog signal (empty ⇒ omit tool).
     """
     from agentcore.llm.profiles import default_turn_profiles as default_profile_set
     from agentcore.runtime.events import EventSink
@@ -242,6 +261,7 @@ def _assemble_chat_tools(*, folder_id: str | None, memory_enabled: bool = True):
         skill_registry=build_system_skill_registry(),
         memory_enabled=memory_enabled,
         folder_id=folder_id,
+        has_memory_topics=has_memory_topics,
     )
     return chat_tools
 
@@ -262,6 +282,16 @@ def test_assemble_omits_consult_memory_when_memory_off():
     # Master switch off ⇒ not wired at all (privacy off-ramp); folder_id is irrelevant.
     chat_tools = _assemble_chat_tools(folder_id="F1", memory_enabled=False)
     assert chat_tools.get_optional("consult_memory") is None
+
+
+def test_assemble_omits_consult_memory_when_topics_empty():
+    # Memory on but no TOPIC notes ⇒ no consult_memory (aligns with empty directory).
+    chat_tools = _assemble_chat_tools(
+        folder_id="F1", memory_enabled=True, has_memory_topics=False
+    )
+    assert chat_tools.get_optional("consult_memory") is None
+    # remember still wires — only the on-demand recall tool is topic-gated.
+    assert chat_tools.get_optional("remember") is not None
 
 
 # --- worker wiring + prompt --------------------------------------------------
@@ -298,7 +328,9 @@ def test_worker_prompt_lists_topic_directory_when_memory_on():
 
 def test_worker_registry_wires_consult_memory_when_memory_on():
     worker_tools = build_worker_registry()
-    _wire_worker_memory_tools(worker_tools, memory_enabled=True, folder_id="F1")
+    _wire_worker_memory_tools(
+        worker_tools, memory_enabled=True, folder_id="F1", has_memory_topics=True
+    )
     cm = worker_tools.get_optional("consult_memory")
     assert cm is not None
     assert cm.folder_id == "F1"
@@ -306,5 +338,15 @@ def test_worker_registry_wires_consult_memory_when_memory_on():
 
 def test_worker_registry_omits_consult_memory_when_memory_off():
     worker_tools = build_worker_registry()
-    _wire_worker_memory_tools(worker_tools, memory_enabled=False, folder_id="F1")
+    _wire_worker_memory_tools(
+        worker_tools, memory_enabled=False, folder_id="F1", has_memory_topics=True
+    )
+    assert worker_tools.get_optional("consult_memory") is None
+
+
+def test_worker_registry_omits_consult_memory_when_topics_empty():
+    worker_tools = build_worker_registry()
+    _wire_worker_memory_tools(
+        worker_tools, memory_enabled=True, folder_id="F1", has_memory_topics=False
+    )
     assert worker_tools.get_optional("consult_memory") is None

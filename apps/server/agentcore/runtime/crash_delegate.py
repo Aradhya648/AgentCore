@@ -35,6 +35,7 @@ from agentcore.runtime.resolve.prompt import (
     compose_worker_base_prompt,
 )
 from agentcore.runtime.runs.types import RunKind
+from agentcore.tools.sandbox.exec_languages import resolve_exec_languages
 
 if TYPE_CHECKING:
     from agentcore.runtime.events import EventSink
@@ -138,8 +139,11 @@ async def production_crash_delegate_factory(
         memory_topics = await load_memory_topics(
             memory_store, user_id, folder_id=folder_id, enabled=memory_enabled
         )
+        exec_languages = await resolve_exec_languages(backend)
         workspace_facts = build_workspace_context(
-            backend, desktop_online=backend.location == "local"
+            backend,
+            desktop_online=backend.location == "local",
+            exec_languages=exec_languages,
         )
         system_prompt = assemble_system_prompt(
             memory_markdown=memory_markdown,
@@ -175,6 +179,7 @@ async def production_crash_delegate_factory(
             session_loader=session_loader,
             suspension_saver=suspension_saver,
             suspension_deleter=suspension_deleter,
+            has_memory_topics=bool(memory_topics),
         )
         logger.info(
             "recover.crash_delegate_ready",

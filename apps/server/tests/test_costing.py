@@ -108,6 +108,17 @@ def test_resolve_run_models_arena_falls_back_to_main_not_worker():
     # Explicit spec.model still wins (Phase 3 / injected main).
     priced_x, _ = resolve_run_models(profiles, "injected-main", cost_role=ROLE_ARENA)
     assert priced_x == "injected-main"
+    # Route-key injection: price bare id, request keeps prefix.
+    priced_r, request_r = resolve_run_models(
+        profiles, "platform/gpt-4o", cost_role=ROLE_ARENA
+    )
+    assert priced_r == "gpt-4o"
+    assert request_r == "platform/gpt-4o"
+    priced_b, request_b = resolve_run_models(
+        profiles, "prov-1/deepseek-chat", cost_role=ROLE_ARENA
+    )
+    assert priced_b == "deepseek-chat"
+    assert request_b == "prov-1/deepseek-chat"
 
 
 def test_captain_run_cost_from_state_reads_priced_state():

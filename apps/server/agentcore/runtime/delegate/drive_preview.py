@@ -32,7 +32,11 @@ async def team_preview_before_workers(
     AutonomyPolicy.full_auto, skips the card entirely and silently marks a
     delegation grant for later application.
     """
-    if seed_completed is not None or complexity_hint == "light" or tool._depth != 0:
+    playbook_name = str(getattr(tool, "_active_playbook", None) or "").strip()
+    # light 通常跳过开工卡；organize_folder 例外——落盘工具依赖 kickoff grant，
+    # 跳过会导致 GRANTABLE（mkdir 等）静默挂在 ApprovalGate。
+    skip_for_light = complexity_hint == "light" and playbook_name != "organize_folder"
+    if seed_completed is not None or skip_for_light or tool._depth != 0:
         return None
     from agentcore.core.types import AutonomyPolicy
     from agentcore.runtime.delegate.preview import (
@@ -67,7 +71,6 @@ async def team_preview_before_workers(
     ):
         return None
     # 批 B：stage_card research_first 决议 → 当次 MLR 一次性 pre-auth（不得泛化）。
-    playbook_name = str(getattr(tool, "_active_playbook", None) or "").strip()
     if playbook_name == "multi_lens_research":
         from agentcore.runtime.kickoff.stage_card import (
             consume_mlr_preauth,

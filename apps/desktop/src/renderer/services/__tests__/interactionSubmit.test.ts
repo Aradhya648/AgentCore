@@ -75,6 +75,7 @@ describe("submitInteraction path table", () => {
       "",
       undefined,
       undefined,
+      undefined,
     );
     expect(store().get("cp1")?.status).toBe("resolved");
   });
@@ -97,6 +98,7 @@ describe("submitInteraction path table", () => {
       "srv-m1",
       "continue",
       "先做公开竞品",
+      undefined,
       undefined,
       undefined,
     );
@@ -122,6 +124,7 @@ describe("submitInteraction path table", () => {
       "continue",
       "选 A",
       ["a"],
+      undefined,
       undefined,
     );
   });

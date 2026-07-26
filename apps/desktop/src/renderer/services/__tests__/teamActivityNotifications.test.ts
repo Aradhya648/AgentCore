@@ -48,6 +48,7 @@ function resume(
     assumptions: [],
     questions: [],
     styleOptions: [],
+    formatOptions: [],
     intent: "decision",
     origin: "server",
     ...over,

@@ -61,6 +61,7 @@ async def recover_turn(
     note: str = "",
     selected: list[str] | None = None,
     style_id: str | None = None,
+    format_id: str | None = None,
     debate_tool: DebateTool | None = None,
 ) -> SettledSuspension:
     """Settle a resume decision or CONTINUE-redrive unfinished DAG from ``state``.
@@ -82,6 +83,7 @@ async def recover_turn(
             note=note,
             selected=selected or [],
             style_id=style_id,
+            format_id=format_id,
             sink=sink,
             delegate_tool=delegate_tool,
             debate_tool=debate_tool,
@@ -120,6 +122,7 @@ async def _settle_resume(
     note: str,
     selected: list[str],
     style_id: str | None,
+    format_id: str | None,
     sink: EventSink,
     delegate_tool: DelegateTool,
     debate_tool: DebateTool | None,
@@ -143,6 +146,7 @@ async def _settle_resume(
             note=note,
             selected=list(selected),
             style_id=(style_id or "").strip(),
+            format_id=(format_id or "").strip(),
         )
         allowed = {
             option_label(o) for q in suspension.questions for o in q.get("options", [])
@@ -269,6 +273,44 @@ async def _settle_resume(
                         conversation_id=cid,
                         reason="missing_or_invalid_style_id",
                         style_id=(style_id or response.style_id or "") or None,
+                    )
+            # 演讲/PPT：resume 结构化 format_id 记账
+            # （显式字段优先 → selected 中合法 fN；禁散文独过闸）。
+            if (
+                decision is CheckpointDecision.CONTINUE
+                and getattr(suspension, "format_options", None)
+            ):
+                from agentcore.runtime.runs.presentation_format import (
+                    record_format_confirmation,
+                    resolve_format_from_resume,
+                )
+
+                resolved_fmt = resolve_format_from_resume(
+                    list(suspension.format_options or []),
+                    format_id=format_id or response.format_id,
+                    selected=list(selected or []),
+                    note=note,
+                )
+                cid = (getattr(suspension, "conversation_id", None) or "").strip()
+                if resolved_fmt is not None and cid:
+                    record_format_confirmation(
+                        cid,
+                        format_id=resolved_fmt.format_id,
+                        label=resolved_fmt.label,
+                        source="ask_user",
+                    )
+                    logger.info(
+                        "presentation.format_confirmed",
+                        conversation_id=cid,
+                        format_id=resolved_fmt.format_id,
+                        source="ask_user",
+                    )
+                elif cid:
+                    logger.info(
+                        "presentation.format_not_confirmed",
+                        conversation_id=cid,
+                        reason="missing_or_invalid_format_id",
+                        format_id=(format_id or response.format_id or "") or None,
                     )
         terminal = result.final_text if result.effect is ToolEffect.INTERACT else None
         return SettledSuspension(result.output, terminal)

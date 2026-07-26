@@ -107,6 +107,8 @@ class FactKind(StrEnum):
     COORDINATION_SNAPSHOT = "coordination_snapshot"
     # P1a 建站风格双闸：ask_user resume / full_auto 默认确认后的结构化 style_id。
     WEBSITE_STYLE_CONFIRMED = "website_style_confirmed"
+    # 演讲/PPT 交付形态双闸：ask_user resume / full_auto 默认确认后的结构化 format_id。
+    PRESENTATION_FORMAT_CONFIRMED = "presentation_format_confirmed"
     # 回合态挂起归宿 (P0): the resumable turn-state snapshot recorded at a durable
     # pause — see :class:`TurnPausedFact`.
     TURN_PAUSED = "turn_paused"
@@ -385,6 +387,8 @@ class TurnPausedFact:
     controller: dict[str, Any] | None = None
     # P1a 建站风格确认快照（style_id/label/source）；resume 再水化进 conversation ledger。
     website_style: dict[str, Any] | None = None
+    # 演讲/PPT 交付形态确认快照（format_id/label/source）；resume 再水化进 conversation ledger。
+    presentation_format: dict[str, Any] | None = None
     # Optional adjuncts that ride the same fact (e.g. demo-tape frame cursor).
     # Unknown to live faces; readers tolerate absence.
     extras: dict[str, Any] | None = None
@@ -406,6 +410,8 @@ class TurnPausedFact:
         }
         if self.website_style:
             payload["website_style"] = dict(self.website_style)
+        if self.presentation_format:
+            payload["presentation_format"] = dict(self.presentation_format)
         if self.extras:
             payload["extras"] = dict(self.extras)
         return Fact(
@@ -423,6 +429,7 @@ class TurnPausedFact:
         evidence_ledger = payload.get("evidence_ledger")
         controller = payload.get("controller")
         website_style = payload.get("website_style")
+        presentation_format = payload.get("presentation_format")
         extras = payload.get("extras")
         return cls(
             checkpoint_id=str(payload.get("checkpoint_id") or ""),
@@ -442,6 +449,11 @@ class TurnPausedFact:
             controller=dict(controller) if isinstance(controller, dict) else {},
             website_style=(
                 dict(website_style) if isinstance(website_style, dict) else None
+            ),
+            presentation_format=(
+                dict(presentation_format)
+                if isinstance(presentation_format, dict)
+                else None
             ),
             extras=dict(extras) if isinstance(extras, dict) else None,
         )

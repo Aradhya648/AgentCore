@@ -263,3 +263,100 @@ async def test_resolve_model_config_platform_background_downgrade_resolves_that_
     assert cfg.source == "platform"
     assert cfg.model == "grok-4.5"  # downgraded model name
     assert cfg.api_key == "sk-grok-key"  # resolved for the downgraded model
+
+
+# --- PlatformProvider: per-request model → key (辩论跨模型 / F3) --------------
+
+
+@pytest.mark.asyncio
+async def test_platform_provider_uses_per_model_key(monkeypatch):
+    """同一 leaf 上 5.2 与 grok-4.5 必须打到各自的 key（回归：冻死 grok key → 5.2 403）。"""
+    from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
+    from agentcore.llm.provider.platform import PlatformProvider
+    from agentcore.llm.provider.protocol import LLMMessage, LLMRequest, LLMResponse
+
+    monkeypatch.setattr(settings, "platform_api_key", "sk-default")
+    monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
+    monkeypatch.setattr(settings, "platform_model", "5.2")
+    monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
+
+    seen: list[tuple[str, str]] = []
+
+    async def _capture_complete(self, request):  # noqa: ANN001
+        seen.append((request.model, self._api_key))
+        return LLMResponse(content="ok", model=request.model)
+
+    monkeypatch.setattr(OpenAICompatibleProvider, "complete", _capture_complete)
+    provider = PlatformProvider()
+    msgs = [LLMMessage(role="user", content="hi")]
+    await provider.complete(LLMRequest(messages=msgs, model="5.2"))
+    await provider.complete(LLMRequest(messages=msgs, model="grok-4.5"))
+    assert seen == [("5.2", "sk-default"), ("grok-4.5", "sk-grok-key")]
+    await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_build_provider_platform_source_is_resolving_leaf(monkeypatch):
+    from agentcore.llm.call_fence import unwrap_provider
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.factory import build_provider
+    from agentcore.llm.provider.platform import PlatformProvider
+
+    monkeypatch.setattr(settings, "platform_api_key", "sk-default")
+    monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
+    provider = build_provider(
+        LLMCredentials(
+            api_key="sk-ignored-frozen",
+            base_url="https://ignored/v1",
+            default_model="5.2",
+            source="platform",
+        )
+    )
+    assert isinstance(unwrap_provider(provider), PlatformProvider)
+
+
+@pytest.mark.asyncio
+async def test_ensure_debate_route_extras_platform_per_model(monkeypatch):
+    """正方 5.2 + 反方 grok-4.5：router ``platform/…`` 各自用对 key。"""
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.factory import build_router
+    from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
+    from agentcore.llm.provider.protocol import LLMMessage, LLMRequest, LLMResponse
+    from agentcore.runtime.debate.models import ModelIdentity, ensure_debate_route_extras
+
+    monkeypatch.setattr(settings, "platform_api_key", "sk-default")
+    monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
+    monkeypatch.setattr(settings, "platform_model", "5.2")
+    monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
+
+    seen: list[tuple[str, str]] = []
+
+    async def _capture_complete(self, request):  # noqa: ANN001
+        seen.append((request.model, self._api_key))
+        return LLMResponse(content="ok", model=request.model)
+
+    monkeypatch.setattr(OpenAICompatibleProvider, "complete", _capture_complete)
+
+    # Turn main is BYOK — debate must inject platform extras (the production shape).
+    router = build_router(
+        LLMCredentials(
+            api_key="sk-byok",
+            base_url="https://byok.example/v1",
+            default_model="deepseek-v4-flash",
+            source="user",
+            provider_id="prov-ds",
+        )
+    )
+    await ensure_debate_route_extras(
+        router,
+        [
+            ModelIdentity(model="5.2", origin="platform"),
+            ModelIdentity(model="grok-4.5", origin="platform"),
+        ],
+    )
+    assert "platform" in router.available_prefixes
+    msgs = [LLMMessage(role="user", content="hi")]
+    await router.complete(LLMRequest(messages=msgs, model="platform/5.2"))
+    await router.complete(LLMRequest(messages=msgs, model="platform/grok-4.5"))
+    assert seen == [("5.2", "sk-default"), ("grok-4.5", "sk-grok-key")]
+    await router.close()

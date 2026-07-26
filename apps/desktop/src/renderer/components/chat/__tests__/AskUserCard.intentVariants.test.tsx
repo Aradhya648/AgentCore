@@ -35,6 +35,7 @@ const proposalContent: AskUserContent = {
     },
   ],
   styleOptions: [],
+  formatOptions: [],
 };
 
 const riskContent: AskUserContent = {
@@ -56,6 +57,7 @@ const riskContent: AskUserContent = {
     },
   ],
   styleOptions: [],
+  formatOptions: [],
 };
 
 function renderCard(
@@ -73,12 +75,15 @@ function renderCard(
 }
 
 describe("AskUserCard intent variants", () => {
-  it("proposal_pick 渲染方案墙与推荐徽章，单选后提交带 selected", async () => {
+  it("proposal_pick 行式单选，推荐灰字；提交带 selected", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     renderCard("proposal_pick", proposalContent, onSubmit);
 
     expect(
       document.querySelector('[data-ask-intent="proposal_pick"]'),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-ask-card="proposal_pick"]'),
     ).toBeTruthy();
     expect(screen.getByText("方案 A：快速原型")).toBeTruthy();
     expect(screen.getByText("一周内可验证")).toBeTruthy();
@@ -96,17 +101,19 @@ describe("AskUserCard intent variants", () => {
       "",
       ["方案 C：外包试点"],
       null,
+      null,
     );
   });
 
-  it("risk_ack 渲染勾选清单、严重度与建议处理，多选提交带 selected", async () => {
+  it("risk_ack 行式多选，严重度与建议处理灰字；提交带 selected", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     renderCard("risk_ack", riskContent, onSubmit);
 
     expect(document.querySelector('[data-ask-intent="risk_ack"]')).toBeTruthy();
+    expect(document.querySelector('[data-ask-card="risk_ack"]')).toBeTruthy();
     expect(screen.getByText("密钥轮换")).toBeTruthy();
     expect(screen.getByText("高")).toBeTruthy();
-    expect(screen.getByText("建议处理")).toBeTruthy();
+    expect(screen.getByText(/建议处理/)).toBeTruthy();
     expect(screen.getByText("备份校验")).toBeTruthy();
 
     fireEvent.click(screen.getByText("密钥轮换"));
@@ -118,6 +125,39 @@ describe("AskUserCard intent variants", () => {
       "",
       ["[高] 密钥轮换", "[中] 回滚演练"],
       null,
+      null,
+    );
+  });
+
+  it("kickoff 交付形态 continue 直传 format_id 与 selected fN", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const content: AskUserContent = {
+      question: "演讲怎么交付？",
+      context: "",
+      assumptions: [],
+      questions: [],
+      styleOptions: [],
+      formatOptions: [
+        { id: "f0", label: "PowerPoint（.pptx）" },
+        { id: "f1", label: "Marp Markdown" },
+      ],
+    };
+    render(
+      <MemoryRouter>
+        <TooltipProvider>
+          <AskUserCard content={content} intent="kickoff" onSubmit={onSubmit} />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("交付形态")).toBeTruthy();
+    fireEvent.click(screen.getByText("Marp Markdown"));
+    fireEvent.click(screen.getByRole("button", { name: /就这样开做/ }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "continue",
+      expect.stringContaining("· 形态：Marp Markdown"),
+      ["f1"],
+      null,
+      "f1",
     );
   });
 

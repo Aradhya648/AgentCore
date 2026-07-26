@@ -15,6 +15,44 @@ from agentcore.runtime.coordination.session import (
 from agentcore.runtime.delegate.team_synthesis import worker_output_blurb
 
 
+def _format_ownership_escalation_hint(payload: dict) -> str:
+    """Optional ownership conflict briefing for CEO escalate inject."""
+    paths = payload.get("ownership_paths") or []
+    if not isinstance(paths, list) or not paths:
+        return ""
+    path_bit = "、".join(f"`{p}`" for p in paths if isinstance(p, str) and p.strip())
+    if not path_bit:
+        return ""
+    lock_owner = (payload.get("lock_owner_run_id") or "").strip()
+    kind = payload.get("ownership_kind") or ""
+    status = payload.get("owner_status") or ""
+    nested = payload.get("escalator_is_lock_owner_nested_child")
+    kind_label = (
+        "仅派发占位未落盘"
+        if kind == "declared"
+        else ("已写入" if kind == "written" else "归属冲突")
+    )
+    status_label = {
+        "running": "进行中",
+        "completed": "已完成仍占位",
+        "unknown": "状态未知",
+    }.get(str(status), "")
+    bits = [f"文件归属：{path_bit}（{kind_label}"]
+    if status_label:
+        bits[0] += f"，锁主{status_label}"
+    bits[0] += "）"
+    if lock_owner:
+        bits.append(f"锁主=`{lock_owner}`")
+    if nested is True:
+        bits.append(
+            "升级方疑似锁主的【嵌套子队】——"
+            "优先 transfer_ownership=true 路径级移交，勿误判为遗留 worker"
+        )
+    elif nested is False and lock_owner:
+        bits.append("升级方并非锁主嵌套子")
+    return "；" + "；".join(bits) + "。"
+
+
 def format_coordination_events(
     session: CoordinationSession,
     events: list[CoordinationEvent],
@@ -98,20 +136,26 @@ def _format_one(session: CoordinationSession, ev: CoordinationEvent) -> str:
         src = p.get("source") or "escalate"
         question = p.get("question") or p.get("summary") or ""
         assumption = p.get("assumption") or ""
+        ownership_bit = _format_ownership_escalation_hint(p)
         if p.get("blocking"):
             assume_bit = f"；队员假设：{assumption}" if assumption else ""
             return (
                 f"- escalation【阻塞仲裁】【{role}】run_id={run_id} "
                 f"{esc_kind}（via {src}）：{question}{assume_bit}"
+                f"{ownership_bit}"
                 " ——你须仲裁：resolve_escalation(run_id, answer) 直裁；"
                 "偏好/授权/费用类须先 ask_user 征询用户，再 "
                 "resolve_escalation(run_id, answer, via_user=true)。"
+                "若需把冲突路径移交给升级方，设 transfer_ownership=true"
+                "（可带 paths；缺省用事件里的 ownership_paths）。"
                 "超时无响应时队员会按假设继续，勿永久卡住。"
             )
         return (
             f"- escalation【{role}】{esc_kind}（via {src}）：{question}"
+            f"{ownership_bit}"
             " ——可 update_synthesis 记分歧、cancel_worker、"
-            "ask_user 请用户裁决、或 post_note 给指导。"
+            "ask_user 请用户裁决、或 post_note 给指导；"
+            "文件归属冲突可 resolve_escalation(..., transfer_ownership=true) 路径级移交。"
         )
     if ev.kind is CoordinationEventKind.TIMEOUT:
         rid = p.get("run_id") or "?"

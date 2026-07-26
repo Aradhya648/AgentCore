@@ -11,11 +11,25 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ProcessStep } from "@/types/events";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const showBrowser = vi.fn();
+vi.mock("@/stores/sidePanel", () => ({
+  useSidePanelStore: Object.assign(
+    (selector: (s: { showBrowser: typeof showBrowser }) => unknown) =>
+      selector({ showBrowser }),
+    { getState: () => ({ showBrowser }) },
+  ),
+}));
+
 import { ToolLine, ToolLineGroup } from "../ToolLine";
 import { toolDetail, toolGroupSummary } from "../message-bubble/constants";
 
 afterEach(cleanup);
+
+beforeEach(() => {
+  showBrowser.mockReset();
+});
 
 function renderWithTooltip(ui: ReactElement) {
   return render(<TooltipProvider>{ui}</TooltipProvider>);
@@ -532,6 +546,90 @@ describe("ToolLineGroup · web_search 平铺", () => {
       />,
     );
     expect(screen.getByText(/Search web 1 · Run code 1/)).toBeTruthy();
+  });
+});
+
+describe("ToolLineGroup · 混杂组浏览器 CTA", () => {
+  function browserStep(id: string, over?: Partial<ToolStep>): ToolStep {
+    return step({
+      id,
+      tool_name: "browser_navigate",
+      arguments: { url: "https://example.com" },
+      result: "ok",
+      status: "success",
+      ...over,
+    });
+  }
+
+  it("shows a single group-header CTA for mixed browser+other groups", () => {
+    render(
+      <ToolLineGroup
+        tools={[
+          browserStep("b1"),
+          step({
+            id: "c1",
+            tool_name: "code_execute",
+            arguments: { code: "1+1" },
+            result: "2",
+            status: "success",
+          }),
+        ]}
+        isStreaming={false}
+        conversationId="c1"
+      />,
+    );
+    const ctas = screen.getAllByText("打开浏览器");
+    expect(ctas).toHaveLength(1);
+    fireEvent.click(ctas[0]);
+    expect(showBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels the CTA 查看直播 when any step is running", () => {
+    render(
+      <ToolLineGroup
+        tools={[
+          browserStep("b1", { status: "running", result: null }),
+          step({
+            id: "c1",
+            tool_name: "code_execute",
+            arguments: { code: "1+1" },
+            result: "2",
+            status: "success",
+          }),
+        ]}
+        isStreaming={true}
+        conversationId="c1"
+      />,
+    );
+    expect(screen.getByText("查看直播")).toBeTruthy();
+    expect(screen.queryByText("打开浏览器")).toBeNull();
+  });
+
+  it("does not show a browser CTA for pure non-browser groups", () => {
+    render(
+      <ToolLineGroup
+        tools={[
+          step({
+            id: "c1",
+            tool_name: "code_execute",
+            arguments: { code: "1+1" },
+            result: "2",
+            status: "success",
+          }),
+          step({
+            id: "f1",
+            tool_name: "file_read",
+            arguments: { path: "a.ts" },
+            result: "ok",
+            status: "success",
+          }),
+        ]}
+        isStreaming={false}
+        conversationId="c1"
+      />,
+    );
+    expect(screen.queryByText("打开浏览器")).toBeNull();
+    expect(screen.queryByText("查看直播")).toBeNull();
   });
 });
 

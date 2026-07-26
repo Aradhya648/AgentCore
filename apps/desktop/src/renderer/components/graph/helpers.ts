@@ -16,10 +16,14 @@ const PRODUCING_TOOLS = new Set(["file_write", "file_append", "str_replace"]);
 export function deriveCaptainStatus(
   execution: Execution,
   captainId: string,
+  opts?: { turnTerminal?: boolean },
 ): RunStatus {
   if (execution.status === "failed") return "failed";
   if (execution.status === "cancelled") return "cancelled";
   if (execution.status === "completed") return "completed";
+  // message_end already closed the chat turn; don't keep the CEO sink spinning
+  // on a stuck execution.status=running (captain frame drop / hold race).
+  if (opts?.turnTerminal) return "completed";
   const workers = execution.runs.filter((r) => r.id !== captainId);
   const allDone =
     workers.length > 0 && workers.every((r) => r.status === "completed");

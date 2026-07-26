@@ -30,6 +30,7 @@ import {
 import { useFolders } from "@/hooks/useFolders";
 import { shouldShowConversationCloudIcon } from "@/lib/conversationWorkspaceMode";
 import { notifyError, notifyInfo } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import {
   type ExportFormat,
   exportConversation,
@@ -315,7 +316,7 @@ export function ConversationItem({
 
   if (editing) {
     return (
-      <div className="flex h-9 w-full items-center rounded-lg bg-sidebar-accent px-2">
+      <div className="flex h-8 w-full items-center rounded-lg bg-sidebar-accent px-2">
         <input
           ref={inputRef}
           value={draft}
@@ -361,7 +362,8 @@ export function ConversationItem({
             <SurfaceRow
               variant="sidebar"
               active={isActive}
-              className={className}
+              // 列表行比导航项低一档（h-8 vs 导航 h-9），让二级内容不占一级高度。
+              className={cn("h-8", className)}
               onMouseEnter={() => {
                 setHovered(true);
                 if (!suppressPreview) {

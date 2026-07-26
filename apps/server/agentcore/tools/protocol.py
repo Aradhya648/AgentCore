@@ -185,8 +185,9 @@ class ToolContext:
     # Intra-batch write-conflict guard (并行写隔离·硬约束). Set per delegated-worker
     # node by ``build_agent_executor``; ``None`` for the CEO / tests (no concurrent
     # siblings to coordinate, so ``file_write`` skips the check). ``write_ancestors`` is
-    # this node's transitive ``depends_on`` closure, so it MAY overwrite a file written
-    # by an upstream it consolidates but not one a concurrent sibling did.
+    # this node's ``depends_on`` transitive closure ∪ nested ``parent_run_id``, so it
+    # MAY overwrite a file owned by an upstream / lead it consolidates but not one a
+    # concurrent sibling did.
     write_coordinator: WriteCoordinator | None = None
     write_ancestors: frozenset[str] = frozenset()
     # 团队便签墙 (§2.2 通): the per-batch sticky-note wall the worker-only ``post_note`` tool
@@ -313,13 +314,13 @@ class ToolContext:
     file_read_reread_remaining: dict[str, int] = field(default_factory=dict)
     # Artifact-first Writing：本 execution 已落盘 path → ``skeleton`` | ``prose``（共享可变
     # dict；``dataclasses.replace`` 浅拷贝与 ``file_read_counts`` 同模式）。``prose`` = 成篇
-    # 正文，同 path 后续 ``file_append`` 硬拒。配 ``landed_artifact_authors``：仅**作者**
-    # agent 禁 ``file_read`` 回读正文（防作者空转验真，非防下游读者）。
+    # 正文，同 path 后续 ``file_append`` 硬拒。配 ``landed_artifact_authors``：首次落盘
+    # 该 path 的 ``agent_id``（归属/可观测；作者与读者 ``file_read`` 走同一
+    # ``FILE_READ_SAME_PATH_MAX``，无身份硬闸）。
     landed_artifact_kinds: dict[str, Literal["skeleton", "prose"]] = field(
         default_factory=dict
     )
     # path → 首次落盘该 path 的 ``agent_id``（共享可变 dict，与 kinds 同生命周期）。
-    # ``file_read`` 仅当 ``context.agent_id`` 命中此表才硬拒 body 回读。
     landed_artifact_authors: dict[str, str] = field(default_factory=dict)
     # 冷启动探索幕未完成（本回合有 explore 原因且尚未成功 ``update_project_profile``）。
     # assemble 在注入 ``<cold_start_explore>`` 时置 True；画像写入成功后清 False。

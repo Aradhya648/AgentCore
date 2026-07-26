@@ -16,6 +16,11 @@ from typing import Any
 
 from agentcore.config import settings
 from agentcore.core.types import ToolApproval, ToolCategory
+from agentcore.tools.builtin.long_running import (
+    long_running_command_match,
+    readiness_footer,
+    wait_for_required_message,
+)
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
     AUDIENCE_WORKER_ONLY,
@@ -57,8 +62,9 @@ TERMINAL_TOOL_PARAMETERS: dict[str, Any] = {
         "wait_for": {
             "type": "string",
             "description": (
-                "start / read 可选：等待输出匹配此正则后再返回"
-                "（如 ready / Listening on）。"
+                "start / read：等待输出匹配此正则后再返回"
+                "（如 Local:|ready in|Listening）。"
+                "启动 npm run dev / vite / next dev 等长驻进程时【必填】。"
             ),
         },
         "wait_timeout_seconds": {
@@ -135,9 +141,11 @@ def _error(error: str, start: float) -> ToolResult:
     )
 
 
-def _format_process_output(value: dict[str, Any]) -> str:
+def _format_process_output(
+    value: dict[str, Any], *, had_wait_for: bool = False
+) -> str:
     process_id = value.get("process_id", "")
-    status = value.get("status", "")
+    status = str(value.get("status", ""))
     output = str(value.get("output") or "")
     matched = value.get("matched")
     exit_code = value.get("exit_code")
@@ -150,7 +158,20 @@ def _format_process_output(value: dict[str, Any]) -> str:
         lines.append(f"output:\n{output}")
     else:
         lines.append("output:（无）")
-    return "\n".join(lines)
+    body = "\n".join(lines)
+    matched_flag: bool | None
+    if matched is True:
+        matched_flag = True
+    elif matched is False:
+        matched_flag = False
+    else:
+        matched_flag = None
+    return body + readiness_footer(
+        status=status,
+        matched=matched_flag,
+        had_wait_for=had_wait_for,
+        exit_code=exit_code,
+    )
 
 
 def _format_list_output(processes: list[Any]) -> str:
@@ -202,11 +223,14 @@ class TerminalTool:
             name="terminal",
             description=(
                 "在用户本机启动/管理长时后台进程（dev server、watch、长脚本等）。"
-                "start：spawn 并返回 process_id + 首段输出（可选 wait_for 等 ready 信号）；"
-                "read：读尾部输出或按正则等待新输出；stop：终止进程；"
-                "list：列本对话进程（可能含用户在应用内打开的交互终端，名称形如「用户终端 #N」；"
-                "对用户终端可读不可停）。"
-                "一次性短命令请用 code_execute；本工具仅本地模式可用，进程跨回合存活。"
+                "【凡永不退出的命令必须用本工具，禁止改走 code_execute】"
+                "典型：npm run dev / vite / next dev / uvicorn --reload。"
+                "start：spawn 并返回 process_id + 首段输出；宣称「已就绪」前应用 "
+                "wait_for（如 Local:|ready in）等到 ready 信号，勿仅凭首段输出下结论；"
+                "read：读尾部输出或按正则等待；stop：终止；list：列本对话进程"
+                "（可能含用户交互终端「用户终端 #N」，可读不可停）。"
+                "会自行退出的短命令（npm install、build、test）请用 code_execute。"
+                "仅本地模式可用，进程跨回合存活。"
             ),
             parameters=TERMINAL_TOOL_PARAMETERS,
             category=ToolCategory.EXECUTION,
@@ -251,11 +275,25 @@ class TerminalTool:
         if not command:
             return _error("start 需要 command 参数", start)
 
+        wait_for = str(arguments.get("wait_for") or "").strip()
+        # 就绪验收闸：长驻 CLI 无 wait_for → 拒启动，逼模型带 ready 信号。
+        if not wait_for:
+            detected = long_running_command_match(command)
+            if detected is not None:
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=wait_for_required_message(detected),
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    metadata={"code": "wait_for_required", "matched": detected},
+                    contract_failure=True,
+                )
+
         args: dict[str, Any] = {"command": command}
         cwd = str(arguments.get("cwd") or "").strip()
         if cwd:
             args["cwd"] = cwd
-        wait_for = str(arguments.get("wait_for") or "").strip()
         if wait_for:
             args["wait_for"] = wait_for
             args["wait_timeout_seconds"] = clamp_wait_timeout_seconds(
@@ -271,7 +309,7 @@ class TerminalTool:
             args,
             timeout=terminal_op_timeout_seconds(arguments),
         )
-        return self._process_result("start", value, start)
+        return self._process_result("start", value, start, had_wait_for=bool(wait_for))
 
     async def _cmd_read(
         self, arguments: dict[str, Any], context: ToolContext, start: float
@@ -299,7 +337,7 @@ class TerminalTool:
             args,
             timeout=terminal_op_timeout_seconds(arguments),
         )
-        return self._process_result("read", value, start)
+        return self._process_result("read", value, start, had_wait_for=bool(wait_for))
 
     async def _cmd_stop(
         self, arguments: dict[str, Any], context: ToolContext, start: float
@@ -313,7 +351,7 @@ class TerminalTool:
             WorkspaceOp.PROCESS_STOP,
             {"process_id": process_id},
         )
-        return self._process_result("stop", value, start)
+        return self._process_result("stop", value, start, had_wait_for=False)
 
     async def _cmd_list(self, context: ToolContext, start: float) -> ToolResult:
         assert context.workspace_channel is not None
@@ -333,15 +371,31 @@ class TerminalTool:
         )
 
     def _process_result(
-        self, subcommand: str, value: Any, start: float
+        self,
+        subcommand: str,
+        value: Any,
+        start: float,
+        *,
+        had_wait_for: bool,
     ) -> ToolResult:
         if not isinstance(value, dict) or not value.get("process_id"):
             return _error(f"桌面返回了无效的 {subcommand} 结果", start)
         duration_ms = int((time.monotonic() - start) * 1000)
+        # stop：目标就是退出，不加「就绪判定」脚注。
+        if subcommand == "stop":
+            process_id = value.get("process_id", "")
+            status = value.get("status", "")
+            exit_code = value.get("exit_code")
+            lines = [f"process_id: {process_id}", f"status: {status}"]
+            if exit_code is not None:
+                lines.append(f"exit_code: {exit_code}")
+            output = "\n".join(lines)
+        else:
+            output = _format_process_output(value, had_wait_for=had_wait_for)
         return ToolResult(
             tool_call_id="",
             success=True,
-            output=_format_process_output(value),
+            output=output,
             duration_ms=duration_ms,
             display=_process_display(subcommand, value),
         )

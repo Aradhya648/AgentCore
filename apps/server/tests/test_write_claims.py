@@ -210,7 +210,7 @@ async def test_str_replace_respects_ownership(tmp_path: Path):
     from agentcore.tools.builtin.file_ops import StrReplaceTool
 
     coordinator = WriteCoordinator()
-    (tmp_path / "App.tsx").write_text(" cons ", encoding="utf-8")
+    # 新建（非覆盖非空代码）以建立 integration 归属。
     await FileWriteTool().execute(
         {"path": "App.tsx", "content": "from-integration"},
         _ctx(tmp_path, run_id="integration", coordinator=coordinator),
@@ -252,6 +252,97 @@ def test_force_claim_transfers():
 def test_ownership_snapshot_roundtrip():
     c = WriteCoordinator()
     c.declare("a/b.md", "w1", frozenset())
+    c.mark_written("a/b.md")
     restored = WriteCoordinator.from_dict(c.to_dict())
     assert restored.owner_of("a/b.md") == "w1"
+    assert restored.is_written("a/b.md")
     assert restored.claim("a/b.md", "w2", frozenset()) == "w1"
+
+
+def test_legacy_flat_snapshot_still_loads():
+    restored = WriteCoordinator.from_dict({"a/b.md": "w1"})
+    assert restored.owner_of("a/b.md") == "w1"
+    assert not restored.is_written("a/b.md")
+
+
+def test_conflict_message_distinguishes_declared_vs_written():
+    from agentcore.workspace.write_claims import ownership_conflict_message
+
+    declared = ownership_conflict_message(
+        "src/x.ts",
+        "backend-fix",
+        ownership_kind="declared",
+        owner_status="running",
+    )
+    assert "仅派发占位" in declared
+    assert "不是上一 run 残留锁" in declared
+    assert "进行中" in declared
+    assert "transfer_ownership" in declared
+
+    written = ownership_conflict_message(
+        "src/x.ts",
+        "backend-fix",
+        owner_role="后端补齐",
+        ownership_kind="written",
+        owner_status="completed",
+    )
+    assert "已成功写入" in written
+    assert "已完成" in written
+    assert "后端补齐" in written
+
+
+def test_ancestors_include_nested_parent_run_id():
+    from agentcore.runtime.runs.executor_context import _ancestors_by_id
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    plan = RunPlan(
+        nodes=[
+            RunSpec(
+                run_id="storage",
+                role="存储",
+                task="写 storage",
+                parent_run_id="backend-fix",
+                depth=1,
+            ),
+            RunSpec(
+                run_id="tools",
+                role="工具",
+                task="写 tools",
+                parent_run_id="backend-fix",
+                depth=1,
+            ),
+        ]
+    )
+    anc = _ancestors_by_id(plan)
+    assert "backend-fix" in anc["storage"]
+    assert "backend-fix" in anc["tools"]
+    # Siblings do not count each other as ancestors.
+    assert "tools" not in anc["storage"]
+    assert "storage" not in anc["tools"]
+
+
+def test_nested_child_may_claim_parent_declared_path():
+    c = WriteCoordinator()
+    assert c.declare("src/storage/db.ts", "backend-fix", frozenset()) is None
+    # Child write_ancestors includes nested parent → claim succeeds and transfers.
+    assert (
+        c.claim("src/storage/db.ts", "storage", frozenset({"backend-fix"})) is None
+    )
+    assert c.owner_of("src/storage/db.ts") == "storage"
+    # Unrelated peer still blocked by the new owner.
+    assert c.claim("src/storage/db.ts", "other", frozenset()) == "storage"
+
+
+def test_nested_siblings_still_mutex_under_shared_parent():
+    c = WriteCoordinator()
+    c.declare("src/tools/base-tool.ts", "backend-fix", frozenset())
+    assert (
+        c.claim("src/tools/base-tool.ts", "tools_a", frozenset({"backend-fix"}))
+        is None
+    )
+    # Sibling only has parent in ancestors, not tools_a → conflict.
+    assert (
+        c.claim("src/tools/base-tool.ts", "tools_b", frozenset({"backend-fix"}))
+        == "tools_a"
+    )

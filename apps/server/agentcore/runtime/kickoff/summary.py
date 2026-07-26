@@ -35,6 +35,13 @@ class KickoffSummary:
     offer_research_first: bool = False
     # Debate kickoff: elevate research-first as visual primary (zero research + courtroom triggers).
     research_first_recommended: bool = False
+    # §7.5 裁判选型（开赛卡展示；可与辩手同模）。
+    moderator_model: str = ""
+    moderator_origin: str = ""
+    moderator_provider_id: str = ""
+    same_model_debate: bool = False
+    # §7.5 D：消歧候选（开赛卡展示）；缺省空，旧 journal 兼容。
+    model_candidates: list[dict[str, Any]] = field(default_factory=list)
 
     def card_payload(self) -> dict[str, Any]:
         """Wire fields for ``team_preview_required`` / suspension extras."""
@@ -52,6 +59,16 @@ class KickoffSummary:
             out["offer_research_first"] = True
         if self.research_first_recommended:
             out["research_first_recommended"] = True
+        if self.moderator_model:
+            out["moderator_model"] = self.moderator_model
+            if self.moderator_origin:
+                out["moderator_origin"] = self.moderator_origin
+            if self.moderator_provider_id:
+                out["moderator_provider_id"] = self.moderator_provider_id
+        if self.same_model_debate:
+            out["same_model_debate"] = True
+        if self.model_candidates:
+            out["model_candidates"] = [dict(c) for c in self.model_candidates]
         return out
 
 
@@ -95,15 +112,9 @@ def debate_kickoff_summary(
     arguments: dict[str, Any],
     tools: list[str] | None = None,
 ) -> KickoffSummary:
-    sides = [
-        {
-            "key": s.key,
-            "name": s.name,
-            "stance": s.stance,
-            "is_subject": bool(s.is_subject),
-        }
-        for s in config.sides
-    ]
+    from agentcore.runtime.debate.models import side_wire_fields
+
+    sides = [side_wire_fields(s) for s in config.sides]
     return KickoffSummary(
         primitive="debate",
         tools=list(tools or []),
@@ -113,4 +124,9 @@ def debate_kickoff_summary(
         max_rounds=int(config.policy.max_rounds),
         thorough=bool(config.policy.thorough),
         debate_arguments=dict(arguments),
+        moderator_model=config.moderator_model or "",
+        moderator_origin=config.moderator_origin or "",
+        moderator_provider_id=config.moderator_provider_id or "",
+        same_model_debate=bool(config.same_model_debate),
+        model_candidates=list(getattr(config, "model_candidates", None) or []),
     )

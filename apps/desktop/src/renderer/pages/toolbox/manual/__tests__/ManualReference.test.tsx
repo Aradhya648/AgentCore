@@ -23,6 +23,8 @@ describe("ManualReference", () => {
     expect(screen.getByText(/模式条/)).toBeTruthy();
     expect(screen.getAllByText(/项目即工作区/).length).toBeGreaterThan(0);
     expect(screen.getByText(/右坞终端/)).toBeTruthy();
+    expect(screen.getByText(/右坞团队浏览器/)).toBeTruthy();
+    expect(screen.getByText(/仅云端隔离环境可用/)).toBeTruthy();
   });
 
   it("renders Git boundary table in FAQ", () => {

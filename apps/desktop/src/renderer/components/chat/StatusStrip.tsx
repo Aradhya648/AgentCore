@@ -24,6 +24,7 @@ import {
 import {
   type TeamPreviewDisplay,
   getActiveRuntime,
+  isTerminalPhase,
   useActiveGenerating,
   useActiveTurnPhase,
   useConversationStore,
@@ -241,7 +242,11 @@ function RunningStrip({
   const { wait: coordinationWait, waitLabel } =
     useCoordinationWaitChrome(execution);
   const synthesizing =
-    !isDebate(execution) && !waitLabel && isTeamSynthesizing(execution);
+    !isDebate(execution) &&
+    !waitLabel &&
+    isTeamSynthesizing(execution, {
+      turnTerminal: isTerminalPhase(turnPhase),
+    });
   const runningTitle = stopping
     ? "停止中…"
     : isDebate(execution)

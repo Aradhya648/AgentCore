@@ -89,6 +89,120 @@ def test_blocked_with_criteria_gap_and_bind_action_on_cloud():
     assert payload["gaps"][0]["role"] == "验收"
     assert payload["actions"] and payload["actions"][0]["kind"] == "bind_local_folder"
     assert "未能交付" in payload["summary"]
+    assert "未完成" in payload["summary"]
+
+
+def test_zero_landing_worker_and_criteria_merge_to_one_gap():
+    # 同一零落盘谓词：worker 契约 + 批次 files_written → 用户面一条 files_not_landed。
+    from agentcore.runtime.runs.types import Deliverable
+
+    plan = _plan(
+        RunSpec(
+            run_id="w1",
+            task="生成 pptx",
+            role="执行工程师",
+            deliverable=Deliverable(name="pptx", form="files"),
+        )
+    )
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="做好了",
+            delivery_gaps=[
+                {
+                    "description": (
+                        "未把产物写入工作区：交付物须用 file_write / str_replace / "
+                        "file_append 或 code_execute 落盘，而非粘在回复正文里"
+                    )
+                }
+            ],
+        )
+    }
+    payload = build_delivery_status(
+        plan,
+        results,
+        execution_id="e-merge",
+        criteria_gaps=[
+            "尚无 worker 将产物写入工作区（需要 file_write / file_append / "
+            "str_replace / write_section / file_move / code_execute 落盘）"
+        ],
+    )
+    assert payload is not None
+    assert payload["state"] == "blocked"
+    assert len(payload["gaps"]) == 1
+    gap = payload["gaps"][0]
+    assert gap["role"] == "验收"
+    assert gap["reason"] == "files_not_landed"
+    assert "未交付" in gap["description"]
+    assert "工作区没有新文件" in gap["description"]
+
+
+def test_maybe_emit_sets_current_delivery_verdict():
+    from agentcore.runtime.delegate.delivery_status import current_delivery_verdict
+
+    current_delivery_verdict.set(None)
+    sink = EventSink()
+    plan = _plan(RunSpec(run_id="w1", task="写文件", role="工程师"))
+    maybe_emit_delivery_status(
+        sink,
+        plan,
+        {"w1": RunState(phase=RunPhase.COMPLETED, content="ok", files_touched=["a.md"])},
+        execution_id="e-verdict",
+    )
+    verdict = current_delivery_verdict.get()
+    assert verdict is not None
+    assert verdict.state == "delivered"
+    assert verdict.delivered_files == ("a.md",)
+    assert verdict.execution_id == "e-verdict"
+
+def test_soft_notes_only_are_notes_state_not_partial():
+    plan = _plan(RunSpec(run_id="w1", task="写调研", role="调研员"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["findings.md"],
+            warnings=[
+                "含待核实/示例自注（2 处）：`findings.md` · 待核实 · 「示例」；"
+                "`findings.md` · 示例数据 · 「估算」。"
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-notes")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert payload["gaps"][0]["severity"] == "warning"
+    assert payload["gaps"][0]["reason"] == "unverified_note"
+    assert "findings.md" in (payload["gaps"][0].get("paths") or [])
+    assert "待核实备注" in payload["summary"]
+    assert payload["actions"] == []
+
+
+def test_partial_writing_cutoff_summary_without_continue_writing():
+    plan = _plan(RunSpec(run_id="w1", task="写成篇", role="撰稿人"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            files_touched=["报告.md"],
+            delivery_gaps=[
+                {
+                    "description": "队员因 token 预算触顶被迫收口，产出可能不完整",
+                    "reason": "token_budget",
+                }
+            ],
+            warnings=[
+                "含待核实/示例自注（1 处）：`报告.md` · 待核实 · 「待补」。"
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-mix")
+    assert payload is not None
+    assert payload["state"] == "partial"
+    assert "成篇未写完" in payload["summary"]
+    assert "待核实备注" in payload["summary"]
+    assert "continue_writing" not in {
+        a.get("kind") for a in payload.get("actions") or []
+    }
 
 
 def test_no_bind_action_on_local_backend():

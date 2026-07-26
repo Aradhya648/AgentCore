@@ -40,6 +40,7 @@ from agentcore.runtime.runs.contract import (
     debrief_meets_minimum,
     format_feedback,
     format_handoff_feedback,
+    format_interrupted_pass_note,
     format_light_repair_feedback,
     is_format_repairable,
     needs_file_contents,
@@ -110,6 +111,35 @@ _LIGHT_REPAIR_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 _LIGHT_REPAIR_MAX_ROUNDS = 4
+
+# Repair / light coding posture (encoding closed-loop phase 4): withhold全仓巡读 /
+# web crawl. Distinct from contract ``light_repair`` above.
+_REPAIR_POSTURE_WITHHOLD: frozenset[str] = frozenset(
+    {"file_list", "web_search", "read_url", "browser_navigate", "browser_click"}
+)
+
+
+def _files_expected(deliverable: Any) -> bool:
+    """True when this run's contract expects workspace landing."""
+    if deliverable is None:
+        return False
+    if getattr(deliverable, "requires_files", False):
+        return True
+    if getattr(deliverable, "form", None) == "files":
+        return True
+    return bool(getattr(deliverable, "artifacts", None))
+
+
+def _narrow_for_repair_posture(
+    worker_tools: Any,
+    allowed_tools: list[str] | None,
+) -> tuple[Any, list[str] | None]:
+    """Strip全仓 list / web crawl for short-round repair posture."""
+    narrowed_registry = _registry_without(worker_tools, *sorted(_REPAIR_POSTURE_WITHHOLD))
+    if allowed_tools is None:
+        return narrowed_registry, None
+    withhold = _REPAIR_POSTURE_WITHHOLD
+    return narrowed_registry, [t for t in allowed_tools if t not in withhold]
 
 
 def _retry_token_budget(*, ceiling: int, spent: int) -> int:
@@ -239,6 +269,8 @@ async def execute_agent_node(
     lead_subteam: LeadSubteam | None = None
     try:
         profile = env.profiles.agent()
+        if spec.max_rounds is not None and spec.max_rounds > 0:
+            profile = replace(profile, max_rounds=int(spec.max_rounds))
         from agentcore.runtime.costing import resolve_run_models
 
         priced_model, request_model = resolve_run_models(
@@ -361,6 +393,15 @@ async def execute_agent_node(
             if allowed_tools is not None:
                 withheld = set(PROSE_WITHHELD_WRITE_TOOLS)
                 allowed_tools = [t for t in allowed_tools if t not in withheld]
+        # Repair / light short-round posture: no全仓 list / web crawl.
+        if spec.max_rounds is not None and spec.max_rounds > 0:
+            worker_tools, allowed_tools = _narrow_for_repair_posture(
+                worker_tools, allowed_tools
+            )
+        files_expected = _files_expected(deliverable)
+        from agentcore.runtime.runs.worker_budget import is_short_write_posture
+
+        short_write_posture = is_short_write_posture(max_rounds=spec.max_rounds)
         # 检索预算 0 (提案 A1): strip web_search/read_url even for unrestricted workers
         # (builder already tightens tasks[].tools when valid_tools is known).
         if spec.retrieval_budget == 0:
@@ -467,6 +508,7 @@ async def execute_agent_node(
             shared_workspace=env.shared_workspace,
             batch_completion_criteria=env.batch_completion_criteria,
             context_inject=context_inject or None,
+            captain_recon=env.captain_recon,
         )
         # Worker window head (§8.3): journal the opening task-prompt so
         # ``window_from_journal(run_id=…)`` anchors on THIS run's system+user, not the
@@ -624,6 +666,8 @@ async def execute_agent_node(
                     finish_override_sink=finish_override,
                     cutoff_reason_sink=cutoff_reasons,
                     tool_failure_sink=tool_failures,
+                    files_expected=files_expected,
+                    short_write_posture=short_write_posture,
                 )
             run_usage = run_usage + round_usage
             run_rounds += round_rounds
@@ -759,6 +803,12 @@ async def execute_agent_node(
             checked_files = (
                 list(artifact_contents.keys()) if artifact_contents else None
             )
+            # 断流归因：这一遍是被 LLM 传输失败掐断的（ERROR = 没收到正文，
+            # DEGRADED = 只收到片段），不是 worker 自己写砸了。不标注的话它会把
+            # 「产出为空」当成自己的锅，重试轮里只补一次 handoff 而不重写正文。
+            pass_interrupted = any(
+                fr in (FinishReason.ERROR, FinishReason.DEGRADED) for fr in finish_override
+            )
             if _can_light_repair(
                 verdict=verdict,
                 handoff_ok=handoff_ok,
@@ -792,6 +842,8 @@ async def execute_agent_node(
                 )
                 continue
             parts = []
+            if pass_interrupted:
+                parts.append(format_interrupted_pass_note())
             if not verdict.ok:
                 parts.append(format_feedback(verdict, checked_files=checked_files))
                 if verdict.visual_failures:
@@ -841,6 +893,7 @@ async def execute_agent_node(
                 attempt=attempt + 1,
                 failures=verdict.failures,
                 handoff_ok=handoff_ok,
+                pass_interrupted=pass_interrupted,
             )
             attempt += 1
 
@@ -920,7 +973,15 @@ async def execute_agent_node(
             # A contract miss still produced a deliverable + (often) a 交接简报: surface it so
             # the run-detail shows the author's wrap-up beside the failure (the infra-failure
             # except path below has no reliable content, so it carries none).
-            env.sink.emit(run_failed(spec.run_id, agent_id, reason, debrief=debrief))
+            env.sink.emit(
+                run_failed(
+                    spec.run_id,
+                    agent_id,
+                    reason,
+                    debrief=debrief,
+                    execution_id=env.execution_id,
+                )
+            )
             # Contract retries already exhausted inside this executor; mark
             # non-retryable so WaveScheduler's on_failure=retry does not cold-
             # start the whole node (same tokens, same empty/short product).
@@ -986,7 +1047,15 @@ async def execute_agent_node(
                 run_id=spec.run_id,
                 body_chars=body_chars,
             )
-            env.sink.emit(run_failed(spec.run_id, agent_id, reason, debrief=debrief))
+            env.sink.emit(
+                run_failed(
+                    spec.run_id,
+                    agent_id,
+                    reason,
+                    debrief=debrief,
+                    execution_id=env.execution_id,
+                )
+            )
             return RunState(
                 phase=RunPhase.FAILED,
                 content=content,
@@ -1018,7 +1087,13 @@ async def execute_agent_node(
                 gaps=delivery_gaps,
             )
             env.sink.emit(
-                run_failed(spec.run_id, agent_id, hard_gap_reason, debrief=debrief)
+                run_failed(
+                    spec.run_id,
+                    agent_id,
+                    hard_gap_reason,
+                    debrief=debrief,
+                    execution_id=env.execution_id,
+                )
             )
             return RunState(
                 phase=RunPhase.FAILED,
@@ -1062,6 +1137,7 @@ async def execute_agent_node(
                 debrief=debrief,
                 output_files=touched or None,
                 gaps=delivery_gaps or None,
+                execution_id=env.execution_id,
             )
         )
         return RunState(
@@ -1092,7 +1168,12 @@ async def execute_agent_node(
             else "stop"
         )
         env.sink.emit(
-            run_cancelled(spec.run_id, agent_id, reason=cancel_reason)
+            run_cancelled(
+                spec.run_id,
+                agent_id,
+                reason=cancel_reason,
+                execution_id=env.execution_id,
+            )
         )
         if cancel_reason == "redirect":
             # Fold live streamed draft into messages when the ReAct pass was cut
@@ -1137,7 +1218,14 @@ async def execute_agent_node(
             retryable=retryable,
             exc_info=True,
         )
-        env.sink.emit(run_failed(spec.run_id, agent_id, str(e)))
+        env.sink.emit(
+            run_failed(
+                spec.run_id,
+                agent_id,
+                str(e),
+                execution_id=env.execution_id,
+            )
+        )
         return _priced_failure(
             str(e),
             model=priced_model,

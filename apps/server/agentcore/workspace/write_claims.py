@@ -10,8 +10,10 @@ Two eras share one class:
   still hold paths until session end or explicit transfer
   (``replaces_run_id`` / ``continue_from_run_id`` / ``force`` / ancestor handoff).
   Write tools consult the same book (``str_replace`` / ``write_section`` /
-  delete / move included). Non-coordination batches still get a batch-local
-  ledger for intra-batch mutual exclusion.
+  delete / move included). Write ancestors = plan ``depends_on`` closure ∪
+  nested ``parent_run_id`` (lead→child path handoff at nested declare).
+  Non-coordination batches still get a batch-local ledger for intra-batch
+  mutual exclusion.
 
 ``code_execute`` workspace write-back is **not** hard-gated this period — only
 observable; do not route it through :meth:`claim` without an explicit follow-up.
@@ -53,14 +55,35 @@ def ownership_conflict_message(
     owner_run_id: str,
     *,
     owner_role: str | None = None,
+    ownership_kind: str | None = None,
+    owner_status: str | None = None,
 ) -> str:
-    """Guiding refusal: name the owner; do **not** push renaming the final deliverable."""
+    """Guiding refusal: name the owner; do **not** push renaming the final deliverable.
+
+    ``ownership_kind``: ``\"declared\"`` (dispatch reserve, file may be empty/missing) or
+    ``\"written\"`` (successful write recorded). ``owner_status``: ``running`` /
+    ``completed`` / ``unknown``.
+    """
     who = f"【{owner_role}】（`{owner_run_id}`）" if owner_role else f"`{owner_run_id}`"
+    kind_bit = ""
+    if ownership_kind == "declared":
+        kind_bit = "（仅派发占位、尚未落盘——不是上一 run 残留锁）"
+    elif ownership_kind == "written":
+        kind_bit = "（锁主已成功写入过该路径）"
+    status_bit = ""
+    if owner_status == "running":
+        status_bit = "锁主状态：进行中。"
+    elif owner_status == "completed":
+        status_bit = "锁主状态：已完成（本协作会话内仍占位）。"
+    elif owner_status == "unknown":
+        status_bit = "锁主状态：未知（批内账本或无协调会话）。"
     return (
-        f"写入冲突：`{path}` 已归队友 {who} 负责。"
+        f"写入冲突：`{path}` 已归队友 {who} 负责{kind_bit}。"
+        f"{status_bit}"
         "请改写你自己职责下的文件，或等待其整合完成；"
-        "若需接手该终稿，请由主管用 replaces_run_id / replan / force 显式移交，"
-        "不要另起同名终稿文件名抢写。"
+        "若你是该锁主嵌套派出的执行者、或需接手该终稿，请 escalate 并由主管用 "
+        "resolve_escalation(..., transfer_ownership=true, paths=[本路径]) 路径级移交"
+        "（或 replaces_run_id / replan / force），不要另起同名终稿文件名抢写。"
     )
 
 
@@ -71,19 +94,48 @@ class WriteCoordinator:
     single-threaded event loop for atomicity (claim/declare before the awaited write).
     """
 
-    def __init__(self, owners: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        owners: dict[str, str] | None = None,
+        *,
+        written: set[str] | frozenset[str] | None = None,
+    ) -> None:
         # normalized path -> run_id
         self._owner: dict[str, str] = {
             _normalize(p): rid for p, rid in (owners or {}).items() if _normalize(p) and rid
         }
+        # Paths that saw a successful write/append/edit under the ledger (not declare-only).
+        self._written: set[str] = {
+            _normalize(p) for p in (written or ()) if _normalize(p)
+        }
 
-    def to_dict(self) -> dict[str, str]:
-        return dict(self._owner)
+    def to_dict(self) -> dict[str, Any]:
+        """Snapshot: v2 nested ``{owners, written}``; empty written may still use v2."""
+        return {
+            "_v": 2,
+            "owners": dict(self._owner),
+            "written": sorted(self._written),
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> WriteCoordinator:
         if not data or not isinstance(data, dict):
             return cls()
+        if data.get("_v") == 2 or isinstance(data.get("owners"), dict):
+            raw_owners = data.get("owners") or {}
+            owners = {
+                str(k): str(v)
+                for k, v in raw_owners.items()
+                if isinstance(k, str) and v is not None and str(v).strip()
+            }
+            raw_written = data.get("written") or []
+            written = {
+                str(p)
+                for p in raw_written
+                if isinstance(p, str) and str(p).strip()
+            }
+            return cls(owners, written=written)
+        # Legacy flat path → owner.
         owners = {
             str(k): str(v)
             for k, v in data.items()
@@ -96,6 +148,15 @@ class WriteCoordinator:
         if not key:
             return None
         return self._owner.get(key)
+
+    def is_written(self, path: str) -> bool:
+        key = _normalize(path)
+        return bool(key) and key in self._written
+
+    def mark_written(self, path: str) -> None:
+        key = _normalize(path)
+        if key:
+            self._written.add(key)
 
     def owned_paths(self, run_id: str) -> list[str]:
         rid = (run_id or "").strip()
@@ -140,7 +201,10 @@ class WriteCoordinator:
         return self.claim(path, run_id, ancestors, force=force)
 
     def transfer(self, path: str, new_owner: str) -> None:
-        """Force path → ``new_owner`` (replaces / continue_from / force handoff)."""
+        """Force path → ``new_owner`` (replaces / continue_from / force handoff).
+
+        Written-bit stays with the path (content may already exist on disk).
+        """
         key = _normalize(path)
         rid = (new_owner or "").strip()
         if not key or not rid:
@@ -171,6 +235,7 @@ class WriteCoordinator:
         key = _normalize(path)
         if self._owner.get(key) == run_id:
             del self._owner[key]
+            self._written.discard(key)
 
 
 def resolve_write_coordinator(
@@ -202,3 +267,136 @@ def resolve_write_coordinator(
     if fallback is not None:
         return fallback
     return WriteCoordinator()
+
+
+def lookup_owner_status(
+    owner_run_id: str,
+    *,
+    execution_id: str | None = None,
+) -> tuple[str | None, str]:
+    """Return ``(owner_role | None, owner_status)`` from the active coordination session.
+
+    ``owner_status`` is ``running`` / ``completed`` / ``unknown``.
+    """
+    rid = (owner_run_id or "").strip()
+    if not rid:
+        return None, "unknown"
+    try:
+        from agentcore.runtime.coordination.session import active_coordination
+
+        session = active_coordination(execution_id)
+    except Exception:  # noqa: BLE001
+        return None, "unknown"
+    if session is None:
+        return None, "unknown"
+
+    role: str | None = None
+    running = dict(session.running_workers())
+    if rid in running:
+        status = "running"
+        label = (running.get(rid) or "").strip()
+        role = label if label and label != rid else None
+    elif rid in session.completed_run_ids:
+        status = "completed"
+    else:
+        status = "unknown"
+
+    plan = getattr(session, "live_plan", None)
+    if plan is not None and hasattr(plan, "by_id"):
+        node = plan.by_id(rid)
+        if node is not None:
+            node_role = (getattr(node, "role", None) or "").strip()
+            if node_role:
+                role = role or node_role
+    return role, status
+
+
+def parse_ownership_conflict_paths(text: str) -> list[str]:
+    """Extract paths from ownership-conflict tool errors embedded in escalate questions."""
+    import re
+
+    return list(
+        dict.fromkeys(
+            m.group(1).strip()
+            for m in re.finditer(r"写入冲突：`([^`]+)`", text or "")
+            if m.group(1) and m.group(1).strip()
+        )
+    )
+
+
+def ownership_escalation_hints(
+    *,
+    escalator_run_id: str,
+    question: str = "",
+    execution_id: str | None = None,
+    paths: list[str] | None = None,
+    write_ancestors: frozenset[str] | set[str] | None = None,
+) -> dict[str, Any]:
+    """Structured ownership hints for CEO escalation inject / resolve transfer.
+
+    Returns keys: ownership_paths, lock_owner_run_id, escalator_is_lock_owner_nested_child,
+    ownership_kind, owner_status (empty dict when no conflict path resolved).
+    """
+    hints: dict[str, Any] = {}
+    path_list = [p for p in (paths or []) if isinstance(p, str) and p.strip()]
+    if not path_list:
+        path_list = parse_ownership_conflict_paths(question)
+    if not path_list:
+        return hints
+
+    ledger = resolve_write_coordinator(execution_id=execution_id)
+    lock_owners: list[str] = []
+    kinds: list[str] = []
+    for p in path_list:
+        owner = ledger.owner_of(p)
+        if owner:
+            lock_owners.append(owner)
+            kinds.append("written" if ledger.is_written(p) else "declared")
+
+    hints["ownership_paths"] = path_list
+    if not lock_owners:
+        return hints
+
+    lock_owner = lock_owners[0]
+    hints["lock_owner_run_id"] = lock_owner
+    hints["ownership_kind"] = kinds[0] if kinds else None
+    _role, status = lookup_owner_status(lock_owner, execution_id=execution_id)
+    hints["owner_status"] = status
+    anc = write_ancestors or frozenset()
+    nested = lock_owner in anc or _is_nested_child_of(
+        escalator_run_id, lock_owner, execution_id=execution_id
+    )
+    hints["escalator_is_lock_owner_nested_child"] = bool(nested)
+    return hints
+
+
+def _is_nested_child_of(
+    child_run_id: str,
+    parent_run_id: str,
+    *,
+    execution_id: str | None = None,
+) -> bool:
+    child = (child_run_id or "").strip()
+    parent = (parent_run_id or "").strip()
+    if not child or not parent or child == parent:
+        return False
+    try:
+        from agentcore.runtime.coordination.session import active_coordination
+
+        session = active_coordination(execution_id)
+    except Exception:  # noqa: BLE001
+        return False
+    if session is None:
+        return False
+    plan = getattr(session, "live_plan", None)
+    if plan is None or not hasattr(plan, "by_id"):
+        return False
+    node = plan.by_id(child)
+    if node is None:
+        for n in getattr(plan, "nodes", ()) or ():
+            if getattr(n, "run_id", None) == child:
+                node = n
+                break
+    if node is None:
+        return False
+    return (getattr(node, "parent_run_id", None) or "").strip() == parent

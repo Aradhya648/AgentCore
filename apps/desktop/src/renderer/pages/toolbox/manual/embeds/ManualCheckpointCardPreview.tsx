@@ -32,6 +32,7 @@ const DEMO_ASK: AskUserContent = {
     },
   ],
   styleOptions: [],
+  formatOptions: [],
 };
 
 /**

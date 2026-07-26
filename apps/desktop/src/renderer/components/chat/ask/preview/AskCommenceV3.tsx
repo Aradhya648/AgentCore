@@ -10,6 +10,7 @@ import {
   ChoiceQuestion,
   CommenceFooter,
   CommenceNote,
+  FormatPills,
   PlanChips,
   PreviewShell,
   StylePills,
@@ -133,6 +134,11 @@ export function AskCommenceV3({ content }: { content: AskUserContent }) {
             {isLast && (
               <>
                 <StylePills content={content} answer={answer} disabled={busy} />
+                <FormatPills
+                  content={content}
+                  answer={answer}
+                  disabled={busy}
+                />
                 <CommenceNote answer={answer} disabled={busy} compact />
               </>
             )}

@@ -286,6 +286,13 @@ function settledModel(
     motion: debate.motion,
     stopReason: debate.stop_reason,
     moderatorRunId: debate.moderator_run_id,
+    moderatorModel: debate.moderator_model?.trim() || null,
+    moderatorOrigin:
+      debate.moderator_origin === "platform" ||
+      debate.moderator_origin === "byok"
+        ? debate.moderator_origin
+        : null,
+    sameModelDebate: Boolean(debate.same_model_debate),
     narrativeFirst: debate.narrative_first,
     rounds,
     brief: debate.brief,
@@ -317,6 +324,9 @@ function liveModel(execution: Execution): DebateModel | null {
     motion: null,
     stopReason: null,
     moderatorRunId: null,
+    moderatorModel: null,
+    moderatorOrigin: null,
+    sameModelDebate: false,
     narrativeFirst: false,
     rounds,
     brief: null,

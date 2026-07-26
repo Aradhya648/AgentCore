@@ -782,11 +782,13 @@ class CloudStore:
                 )
                 assistant_message_id = assistant_msg.id
                 if not is_paused:
-                    # Happy path: project display ``runs``. Crash salvage: raw journal facts.
-                    if runs is not None:
-                        durable = journal_entries_from_display_runs(runs)
-                    elif journal:
+                    # Progressive journal is the sole fact source when present
+                    # (execution-only facts like late run_completed). Else project
+                    # display ``runs``; crash salvage may pass journal alone.
+                    if isinstance(journal, list) and journal:
                         durable = journal
+                    elif runs is not None:
+                        durable = journal_entries_from_display_runs(runs)
                     else:
                         durable = None
                     if durable is not None:

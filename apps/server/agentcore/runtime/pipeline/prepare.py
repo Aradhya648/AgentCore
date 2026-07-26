@@ -101,9 +101,12 @@ async def prepare_fresh_turn(
     # are never injected wholesale — only their NAMES (merged across global + project)
     # ride the CEO prompt, and the CEO pulls a note's full body via consult_memory when
     # relevant. Same master-switch gate: off ⇒ [] ⇒ no directory rendered, no tool wired.
+    # Empty topics (memory on but no 主题 notes) likewise omit consult_memory — reuse this
+    # list for the wire gate below so we do not re-list the store.
     memory_topics = await load_memory_topics(
         memory_store, user_id, folder_id=folder_id, enabled=memory_enabled
     )
+    has_memory_topics = bool(memory_topics)
     # Clean, stable base (base + date + workspace facts + memory): NO attachments,
     # NO CEO hints. This is the cacheable prefix shared by the CEO and reused
     # verbatim by workers. Environment facts ride the shared base so workers also
@@ -112,7 +115,14 @@ async def prepare_fresh_turn(
     # so a turn carrying attached files does not bust DeepSeek's prefix cache for
     # the hints (缓存友好: 易变内容置于稳定前缀之后).
     desktop_online = desktop_client_can_bind(x_client_platform) or backend.location == "local"
-    workspace_facts = build_workspace_context(backend, desktop_online=desktop_online)
+    from agentcore.tools.sandbox.exec_languages import resolve_exec_languages
+
+    exec_languages = await resolve_exec_languages(backend)
+    workspace_facts = build_workspace_context(
+        backend,
+        desktop_online=desktop_online,
+        exec_languages=exec_languages,
+    )
     system_prompt = assemble_system_prompt(
         memory_markdown=memory_markdown,
         user_rules_markdown=user_rules_markdown,
@@ -129,10 +139,15 @@ async def prepare_fresh_turn(
         attachment_context=attachment_context,
     )
     worker_tools = build_worker_registry(
-        backend=backend, permission_preset=permission_preset
+        backend=backend,
+        permission_preset=permission_preset,
+        languages=exec_languages if backend.location == "local" else None,
     )
     _wire_worker_memory_tools(
-        worker_tools, memory_enabled=memory_enabled, folder_id=folder_id
+        worker_tools,
+        memory_enabled=memory_enabled,
+        folder_id=folder_id,
+        has_memory_topics=has_memory_topics,
     )
     # System skills (提示词瘦身 P2): the advanced-mechanism guidance the CEO pulls
     # on demand via consult_skill. Built once per turn; backs the tool AND the
@@ -223,9 +238,12 @@ async def prepare_fresh_turn(
         shared_workspace=folder_id is not None,
     )
     from agentcore.runtime.coordination.session import current_execution_id
+    from agentcore.runtime.delegate.delivery_status import current_delivery_verdict
 
     bound_execution_id = base_tool_context.execution_id
     execution_id_token = current_execution_id.set(bound_execution_id)
+    # Fresh turn: prior batch delivery verdict must not leak into finish_guard.
+    current_delivery_verdict.set(None)
 
     # Pillar B: if a background execution is already live for this conversation,
     # adopt it so the CEO wait path / interjection routing share one registry key.

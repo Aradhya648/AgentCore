@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 # 交接清单条目的解决路径分类（辩论编排设计.md §4.1）：证据能闭合 → fact；
 # 只有用户价值观/偏好能闭合 → value；两者都闭合不了 → question。
@@ -62,9 +62,9 @@ class DebateSide:
     （正方 / 红队A / 经济学视角），``stance`` 是喂给辩手的立场定位（拼进它的角色补充）。
     ``is_subject`` 标记红队形态里那个「被审方案方」（单向攻击的承受方），其余形态恒 False。
 
-    ``model`` 是该方辩手的【显式模型覆写】（Phase 3 · 真·多模型辩手）：``schema.parse_sides``
-    仍解析入库，但 MVP 全链路统一用户 model，``debater_task`` 不注入、``to_event_payload``
-    不对外发此字段——各方实际跑同一 turn model；见 ``辩论编排设计.md`` §7.5。
+    模型身份（Phase 3 · 真·多模型辩手，§7.5）为三元组：``model`` + ``origin``
+    （platform|byok）+ ``provider_id``（byok 必填）。空 ``model`` = 回退 turn 主模型；
+    非空须过目录校验后注入路由键。见 ``runtime.debate.models``。
     """
 
     key: str
@@ -72,6 +72,8 @@ class DebateSide:
     stance: str
     is_subject: bool = False
     model: str = ""
+    origin: str = ""  # platform | byok | ""
+    provider_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,6 +141,15 @@ class DebateConfig:
     research_dossier_index: str = ""
     # 庭前取证已汇流（§二之二）：True → 首轮辩手检索预算按有案卷下调，引用台账为主。
     pretrial_evidence_ready: bool = False
+    # 裁判选型（§7.5）：开赛前 resolve；用户点名优先，可与辩手同模；route 写入主持人 LLM 调用。
+    moderator_model: str = ""
+    moderator_origin: str = ""
+    moderator_provider_id: str = ""
+    moderator_route: str = ""
+    # True = 目录只剩一模型，本场降级同模型并在开赛卡明示。
+    same_model_debate: bool = False
+    # §7.5 D：消歧零/多候选时挂结构化候选（开赛卡 / 工具错误载荷）；旧帧缺省空。
+    model_candidates: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def subject_side(self) -> DebateSide | None:
@@ -810,9 +821,46 @@ class DebateResult:
                     "name": s.name,
                     "stance": s.stance,
                     "is_subject": s.is_subject,
+                    **(
+                        {
+                            "model": s.model,
+                            **({"origin": s.origin} if s.origin else {}),
+                            **(
+                                {"provider_id": s.provider_id}
+                                if s.provider_id
+                                else {}
+                            ),
+                        }
+                        if (s.model or "").strip()
+                        else {}
+                    ),
                 }
                 for s in self.config.sides
             ],
+            **(
+                {
+                    "moderator_model": self.config.moderator_model,
+                    **(
+                        {"moderator_origin": self.config.moderator_origin}
+                        if self.config.moderator_origin
+                        else {}
+                    ),
+                    **(
+                        {
+                            "moderator_provider_id": self.config.moderator_provider_id
+                        }
+                        if self.config.moderator_provider_id
+                        else {}
+                    ),
+                }
+                if (self.config.moderator_model or "").strip()
+                else {}
+            ),
+            **(
+                {"same_model_debate": True}
+                if self.config.same_model_debate
+                else {}
+            ),
             "rounds": [rr.to_event_payload() for rr in self.rounds],
             # 各方结辩陈词（阶段化发言角色 P4）：问题/身份 verbatim 进载荷、陈词全文随 run_id 的 run
             # 事件走（不塞载荷，与各方发言 / 质询作答同策），恒带（无结辩为空列表），载荷形状统一。

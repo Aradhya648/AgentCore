@@ -12,6 +12,7 @@ _MAX_OPTIONS = 6  # 每个 choice 问题的选项上限
 _MAX_OPTION_DETAIL = 120  # 单个选项的权衡说明上限（一行内）
 _MAX_ASSUMPTIONS = 10
 _MAX_STYLES = 6
+_MAX_FORMATS = 6
 
 
 class ListArgError(ValueError):
@@ -184,4 +185,21 @@ def normalize_style_options(raw: Any) -> list[dict[str, Any]]:
         if not label:
             continue
         out.append({"id": f"s{i}", "label": label})
+    return out
+
+
+def normalize_format_options(raw: Any) -> list[dict[str, Any]]:
+    """Cap + id the 演讲/PPT 交付形态, accepting either ``{label}`` dicts or bare strings.
+
+    Wire ids are always ``f0``/``f1``/… (resume ``format_id`` / ``selected`` values).
+    Typical labels: pptx（真 PowerPoint）、marp（Markdown 幻灯片）、outline（仅讲稿）.
+    """
+    items = coerce_list_arg(raw, field="format_options")
+    out: list[dict[str, Any]] = []
+    for i, it in enumerate(items[:_MAX_FORMATS]):
+        raw_label = it.get("label") if isinstance(it, dict) else it
+        label = str(raw_label or "").strip()
+        if not label:
+            continue
+        out.append({"id": f"f{i}", "label": label})
     return out

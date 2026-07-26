@@ -194,6 +194,17 @@ async def test_consult_skill_degrades_on_unknown_name():
     assert "team_orchestration_advanced" in result.output
 
 
+async def test_consult_skill_playbook_name_miss_hints_delegate():
+    """Known playbook mistaken for skill → point at delegate(playbook=…); no new skill."""
+    tool = ConsultSkillTool(registry=build_system_skill_registry())
+    result = await tool.execute({"name": "build_feature"}, _ctx())
+    assert not result.success
+    assert "playbook" in result.output
+    assert 'delegate(playbook="build_feature"' in result.output
+    # Must not invent a build_feature skill body.
+    assert result.output.count("build_feature") >= 1
+
+
 async def test_consult_skill_handles_missing_name_arg():
     tool = ConsultSkillTool(registry=build_system_skill_registry())
     result = await tool.execute({}, _ctx())
@@ -229,6 +240,9 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "research_report" in body  # listing still present as teaching examples
     assert "成篇调研软偏好" in body
     assert "材料已齐" in body
+    # 定案 A：落盘文档 + ≥2 角 → 各角与主笔均 files；禁「角 prose、仅主笔落盘」
+    assert "角 prose" in body and "仅主笔落盘" in body
+    assert "form=files" in body and "artifacts" in body
 
 
 def test_team_orchestration_skill_teaches_delegate_knobs():
@@ -274,6 +288,21 @@ def test_team_orchestration_skill_teaches_constraint_vs_solution_and_outline_ste
     assert "required_sections" in body  # 验收底线、非结构蓝图
     assert "提纲" in body
     assert "checkpoint_after" in body
+    # 定案 A：调研驱动大型交付 — 各角 MD 笔记 files，禁三人 prose 只靠主笔落盘
+    assert "三人 prose" in body or "角 prose" in body
+    assert "仅主笔落盘" in body or "只靠主笔落盘" in body
+    # 演讲/PPT：禁代写全章节大纲 / Marp 语法细则（钉在约束 vs 方案）
+    assert "代写全章节大纲" in body
+    assert "Marp" in body
+
+
+def test_team_orchestration_skill_teaches_presentation_pptx_honesty():
+    """有执行须真 pptx；无执行允许 Marp/脚本但禁假称 PPT 已落盘。"""
+    body = _body("team_orchestration_advanced")
+    assert "python-pptx" in body
+    assert "静默" in body and ".md" in body
+    assert "PPT 已落盘可直接使用" in body
+    assert "交付缺口" in body or "标缺口" in body
 
 
 def test_team_orchestration_skill_teaches_must_contain_and_sections_discipline():
@@ -459,6 +488,17 @@ def test_ask_user_kickoff_skill_teaches_impact_tiered_proposal_card():
     assert "checkpoint_after" not in body
 
 
+def test_ask_user_kickoff_skill_teaches_presentation_format_options():
+    """演讲/PPT 意图：开工卡必须 format_options（pptx/marp/outline），能力感知默认。"""
+    body = _body("ask_user_kickoff")
+    assert "format_options" in body
+    assert "pptx" in body and "marp" in body and "outline" in body
+    assert "演讲" in body or "PPT" in body or "课件" in body
+    assert "code_execute" in body
+    assert "style_options" in body  # 与视觉风格正交，勿混为一谈
+    assert "无法生成" in body or "无执行" in body
+
+
 def test_ask_user_kickoff_skill_teaches_brief_option_dedup():
     # 去重纪律（开工卡「简报剧透选项」的根因修复）：message 只定调、不复述将成为
     # 选项的方案，背景归 context，避免左侧简报与右侧选项读到两遍同样的话。钉住防回退。
@@ -524,6 +564,10 @@ def test_verify_and_fix_skill_teaches_test_run_loop():
     assert "test_run" in body
     assert "str_replace" in body
     assert "escalate" in body
+    # 阶段3：编辑以磁盘为真源；禁骨架 file_write 冒充修复
+    assert "磁盘" in body
+    assert "骨架" in body
+    assert "file_write" in body
 
 
 def test_long_form_writing_skill_teaches_skeleton_fill():
@@ -544,9 +588,10 @@ def test_long_form_writing_skill_teaches_skeleton_fill():
     assert "明文要求" in body
     assert "checkpoint_after" in body
     assert "research_report" in body
-    # 与 research_report 划界：多角取证勿塌成单写手
+    # 与 research_report 划界：多角取证勿塌成单写手；各角与主笔均 files
     assert "划界" in body
     assert "材料已齐" in body
+    assert "角 prose" in body and "仅主笔落盘" in body
     assert "纯聊天" in body
     assert "自主确认" in body or "轻量" in body
     # 论文并行拆章：单主文件 + 合并责任（禁各写各的就交）；不误伤多产物。

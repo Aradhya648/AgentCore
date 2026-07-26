@@ -467,11 +467,87 @@ def test_flush_while_run_tool_running_then_end_journals_terminal_display():
         current_fact_log.reset(token)
 
 
+def test_run_plan_persists_process_team_immediately():
+    """First displayable run_plan journals ``process_team`` at emit time (mid-run reload)."""
+    from agentcore.runtime.events import run_plan
+    from agentcore.runtime.journal.fold import runs_from_entries
+
+    log = TurnFactLog()
+    token = current_fact_log.set(log)
+    sink = EventSink()
+    try:
+        sink.emit(content_delta("开场旁白"))
+        sink.emit(
+            run_plan(
+                execution_id="e1",
+                plan_type="multi_agent",
+                task_summary="t",
+                agents=[],
+                runs=[],
+            )
+        )
+        # No flush — workers may still be running; journal must already carry team.
+        assert "process_team" in [e["kind"] for e in log.entries()]
+        team_facts = [e for e in log.entries() if e["kind"] == "process_team"]
+        assert len(team_facts) == 1
+        assert team_facts[0]["payload"] == {"kind": "team", "execution_id": "e1"}
+
+        sink.emit(content_delta("收束"))
+        sink.flush_process_to_journal()
+        runs = runs_from_entries(log.entries())
+        assert runs is not None
+        assert [s["kind"] for s in (runs.get("process") or [])] == [
+            "content",
+            "team",
+            "content",
+        ]
+        # Same execution again — dedupe, no second process_team.
+        sink.emit(
+            run_plan(
+                execution_id="e1",
+                plan_type="multi_agent",
+                task_summary="t2",
+                agents=[],
+                runs=[],
+            )
+        )
+        assert len([e for e in log.entries() if e["kind"] == "process_team"]) == 1
+    finally:
+        current_fact_log.reset(token)
+
+
+def test_run_plan_growth_frame_skips_process_team():
+    """Cross-turn growth run_plan (host_message_id) must not insert/journal a new team."""
+    from agentcore.runtime.events import run_plan
+
+    log = TurnFactLog()
+    token = current_fact_log.set(log)
+    sink = EventSink()
+    try:
+        sink.emit(
+            run_plan(
+                execution_id="e1",
+                plan_type="multi_agent",
+                task_summary="t",
+                agents=[],
+                runs=[],
+                host_message_id="host-msg-1",
+            )
+        )
+        assert not any(s.get("kind") == "team" for s in sink.raw_process())
+        assert "process_team" not in [e["kind"] for e in log.entries()]
+    finally:
+        current_fact_log.reset(token)
+
+
 def test_persist_required_marker_keeps_team_preview_before_team():
     """Capture-path team_preview must cold-reload before ``team`` (before_last_team).
 
     Regression: flush-then-``seed_captain(len)`` pinned ``process_team`` ahead of
     ``process_team_preview`` in journal order, so reopen showed 协作图 before 开工卡.
+
+    ``run_plan`` now journals ``process_team`` immediately; fold still applies
+    before_last_team so reload order stays 开工卡 → 协作图.
     """
     from agentcore.runtime.events import run_plan
     from agentcore.runtime.events.types import EventType
@@ -509,6 +585,9 @@ def test_persist_required_marker_keeps_team_preview_before_team():
             "team_preview",
             "team",
         ]
+        # No duplicate process_team from mid-insert compensation.
+        assert len([e for e in log.entries() if e["kind"] == "process_team"]) == 1
+        assert len([e for e in log.entries() if e["kind"] == "process_team_preview"]) == 1
     finally:
         current_fact_log.reset(token)
 
@@ -536,3 +615,63 @@ def test_persist_required_marker_after_open_tool_still_journals_checkpoint():
         assert "process_checkpoint" in [e["kind"] for e in log.entries()]
     finally:
         current_fact_log.reset(token)
+
+
+def test_runs_from_entries_synthesizes_team_when_process_team_missing():
+    """Legacy journals: run_plan + later process_content, no process_team → team before 终稿."""
+    from agentcore.runtime.journal.fold import runs_from_entries
+
+    entries = [
+        {
+            "kind": "run_plan",
+            "payload": {
+                "execution_id": "e-legacy",
+                "plan_type": "multi_agent",
+                "task_summary": "t",
+                "agents": [],
+                "runs": [],
+            },
+            "ts": "2026-01-01T00:00:00Z",
+        },
+        {
+            "kind": "process_content",
+            "payload": {"kind": "content", "text": "进展。"},
+            "ts": "2026-01-01T00:00:01Z",
+        },
+        {
+            "kind": "process_content",
+            "payload": {"kind": "content", "text": "终稿。"},
+            "ts": "2026-01-01T00:00:02Z",
+        },
+    ]
+    runs = runs_from_entries(entries)
+    assert runs is not None
+    assert [s["kind"] for s in (runs.get("process") or [])] == [
+        "team",
+        "content",
+        "content",
+    ]
+    assert (runs["process"][0].get("execution_id")) == "e-legacy"
+    # Growth frame must not invent a team on the appending turn.
+    growth = [
+        {
+            "kind": "run_plan",
+            "payload": {
+                "execution_id": "e-legacy",
+                "host_message_id": "m-host",
+                "plan_type": "multi_agent",
+                "task_summary": "t",
+                "agents": [],
+                "runs": [],
+            },
+            "ts": "2026-01-01T00:00:00Z",
+        },
+        {
+            "kind": "process_content",
+            "payload": {"kind": "content", "text": "追加旁白。"},
+            "ts": "2026-01-01T00:00:01Z",
+        },
+    ]
+    growth_runs = runs_from_entries(growth)
+    assert growth_runs is not None
+    assert [s["kind"] for s in (growth_runs.get("process") or [])] == ["content"]

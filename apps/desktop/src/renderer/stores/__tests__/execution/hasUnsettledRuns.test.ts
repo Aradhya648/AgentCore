@@ -8,9 +8,10 @@ import {
 } from "../../execution";
 
 // hasUnsettledRuns drives the message_end「后台托管继续跑」hold: true = still has a
-// pending/running run (keep the graph running), false = every run terminal OR no
-// runs to wait on (let message_end 收口). NOT the exact negation of the private
-// runsAllSettled reconcile check — both are false on a 0-run graph.
+// pending/running **worker** (keep the graph running), false = every worker terminal
+// OR no workers to wait on (let message_end 收口). Captain pending does NOT hold —
+// its early run_started is often dropped pre-plan. NOT the exact negation of the
+// private runsAllSettled reconcile check — both are false on a 0-run graph.
 
 const MID = "m";
 const store = () => useExecutionStore.getState();
@@ -22,6 +23,20 @@ const onePlan: ExecutionPlan = {
   taskSummary: "t",
   agents: [{ id: "a1", role: "r" }],
   runs: [{ id: "r1", agentId: "a1", task: "t", dependsOn: [] }],
+};
+
+const captainPlusWorker: ExecutionPlan = {
+  id: "e2",
+  planType: "multi_agent",
+  taskSummary: "t",
+  agents: [
+    { id: "cap", role: "CEO" },
+    { id: "a1", role: "r" },
+  ],
+  runs: [
+    { id: "cap", agentId: "cap", task: "", dependsOn: [], kind: "captain" },
+    { id: "r1", agentId: "a1", task: "t", dependsOn: [] },
+  ],
 };
 
 function started(runId = "r1", agentId = "a1"): RunFrame {
@@ -77,5 +92,21 @@ describe("hasUnsettledRuns", () => {
   it("is false for a plan that declares no runs (nothing in flight to wait on)", () => {
     store().startExecution({ ...onePlan, runs: [] }, MID);
     expect(hasUnsettledRuns(rt())).toBe(false);
+  });
+
+  it("is false when only the captain remains pending after workers completed", () => {
+    store().startExecution(captainPlusWorker, MID);
+    store().recordFrame(started("r1", "a1"), MID);
+    store().recordFrame(completed("r1", "a1"), MID);
+    // Captain never got run_started / run_completed folded (common pre-plan drop).
+    expect(hasUnsettledRuns(rt())).toBe(false);
+  });
+
+  it("is true when a worker is still pending even if captain looks settled", () => {
+    store().startExecution(captainPlusWorker, MID);
+    store().recordFrame(started("cap", "cap"), MID);
+    store().recordFrame(completed("cap", "cap"), MID);
+    // Worker r1 still pending.
+    expect(hasUnsettledRuns(rt())).toBe(true);
   });
 });

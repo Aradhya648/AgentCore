@@ -237,10 +237,13 @@ def test_core_teaches_split_criterion_over_count():
     assert "拿不准先少派" in hint
     assert "可分解" in hint and "质量面" in hint
     assert "finalize=true" in hint and "机械单步" in hint
-    # 成篇调研软偏好：多角取证宜 research_report，禁一人自搜+成文
+    # 成篇调研软偏好：多角取证宜 research_report，禁一人自搜+成文；
+    # 定案 A：手写时各角与主笔均 files，禁「角 prose、仅主笔落盘」
     assert "成篇调研报告" in hint
     assert 'playbook="research_report"' in hint or "research_report" in hint
     assert "一人包办" in hint or "自搜+成文" in hint
+    assert "角 prose" in hint and "仅主笔落盘" in hint
+    assert "form=files" in hint
     # 路由第一拍：一句定方向，禁止思考里先干完。
     assert "路由·第一拍" in hint or "第一拍" in hint
     assert "只写一句" in hint or "十字以内" in hint
@@ -255,6 +258,8 @@ def test_core_teaches_split_criterion_over_count():
     assert "开卡最小字段" in hint
     assert "提案体" in hint or "至少其一" in hint
     assert "style_options" in hint
+    assert "format_options" in hint
+    assert "pptx" in hint and "marp" in hint
     assert "先设计再实现" in hint
     assert "只留方向句" in hint
     assert "1 人两段" in hint or "一人两段" in hint
@@ -477,6 +482,21 @@ def test_core_teaches_delivery_path_by_workspace_type():
     assert "真实路径" in hint
 
 
+def test_core_teaches_presentation_format_options_and_honesty():
+    # 演讲/PPT 交付形态：常驻短钩子钉 format_options + 诚实性；细节在 kickoff / 编排 skill。
+    hint = _CEO_CORE_HINT
+    assert "format_options" in hint
+    assert "pptx" in hint and "marp" in hint and "outline" in hint
+    assert "有执行" in hint or "code_execute" in hint
+    assert "PPT 已落盘可直接使用" in hint
+    assert "静默" in hint or "只交" in hint
+    kickoff = build_system_skill_registry().get("ask_user_kickoff").body
+    assert "format_options" in kickoff
+    orch = _TEAM_ORCHESTRATION_ADVANCED
+    assert "python-pptx" in orch
+    assert "代写全章节大纲" in orch or "Marp 语法" in orch
+
+
 def test_skill_teaches_environment_capability_constraint():
     # 编排 skill：无执行环境时不设 code_verified（显式会被硬拒）、改交付形态、显式标缺口。
     # 轻对齐：跑/验终向由引擎能力策略收口。
@@ -496,13 +516,14 @@ def test_skill_teaches_environment_capability_constraint():
 
 
 def test_shared_base_teaches_delivery_baseline():
-    # B3 一期：共享基座前置「交付底线」（围栏闭合 + #rN ∈ 台账）。
+    # B3 一期：共享基座前置「交付底线」（围栏闭合 + #rN ∈ 台账 + 交付验收对照）。
     from agentcore.runtime.resolve.prompt import _DEFAULT_SYSTEM_PROMPT
 
     assert "<delivery_baseline>" in _DEFAULT_SYSTEM_PROMPT
     assert "围栏必须成对闭合" in _DEFAULT_SYSTEM_PROMPT
     assert "#rN" in _DEFAULT_SYSTEM_PROMPT
     assert "真假引擎查" in _DEFAULT_SYSTEM_PROMPT
+    assert "交付验收对照" in _DEFAULT_SYSTEM_PROMPT
 
 
 def test_shared_base_teaches_claim_evidence_soft_constraint():

@@ -1,7 +1,7 @@
 /**
- * Production kickoff Ask card — V2 Brief + Choose (Notion AI / product-brief style),
- * slim chrome + always-visible compact choice rows.
- * Wired by {@link AskUserCard} when intent === "kickoff".
+ * 已退役的 kickoff 卡 — V2 Brief + Choose（Notion AI / product-brief 风）。
+ * 生产 kickoff 已换成 {@link AskKickoffBody}（单页全览 + 行式选项）；本文件只剩预览路由的
+ * `ask-commence-v2` 对照场景在挂，留作两版视觉的 A/B 参照，勿再接生产。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { Button } from "@/components/ui";
@@ -16,6 +16,7 @@ import { useState } from "react";
 import {
   ChoiceQuestion,
   CommenceNote,
+  FormatPills,
   PlanChips,
   StylePills,
   splitBriefContext,
@@ -147,6 +148,7 @@ export function AskCommenceKickoffBody({
         {bindError && <p className="text-xs text-destructive">{bindError}</p>}
 
         <StylePills content={content} answer={answer} disabled={busy} />
+        <FormatPills content={content} answer={answer} disabled={busy} />
 
         {/* 恰好一题时「其他…」已覆盖自定义；多题才保留跨题附言，且默认折叠。 */}
         {content.questions.length !== 1 && (

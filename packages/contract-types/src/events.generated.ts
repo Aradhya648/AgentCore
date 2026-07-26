@@ -227,6 +227,11 @@ export interface AskStyleOption {
   label: string;
 }
 
+export interface AskFormatOption {
+  id: string;
+  label: string;
+}
+
 export type CheckpointIntent =
   | "kickoff"
   | "decision"
@@ -243,6 +248,7 @@ export interface CheckpointRequiredPayload {
   assumptions: AskAssumption[];
   questions: AskQuestion[];
   style_options: AskStyleOption[];
+  format_options?: AskFormatOption[];
   intent?: CheckpointIntent;
 }
 
@@ -263,6 +269,7 @@ export interface QuestionPostedPayload {
   assumptions: AskAssumption[];
   questions: AskQuestion[];
   style_options: AskStyleOption[];
+  format_options?: AskFormatOption[];
 }
 
 export interface PlanReviewStep {
@@ -316,6 +323,22 @@ export interface TeamPreviewSide {
   name: string;
   stance: string;
   is_subject?: boolean;
+  /** 该方辩手模型 id。 */
+  model?: string;
+  /** 模型来源。 */
+  origin?: "platform" | "byok";
+  /** BYOK 服务商 id；platform 缺省。 */
+  provider_id?: string;
+}
+
+/** §7.5 D：消歧零/多候选时开赛卡 / 错误载荷中的目录行。 */
+export interface ModelCandidate {
+  model: string;
+  origin: "platform" | "byok";
+  provider_id?: string;
+  label?: string;
+  /** 触发消歧的参与方 key；缺省=整场。 */
+  side_key?: string;
 }
 
 /** 开工卡：计划预览 + 能力授权（两卡合一）。
@@ -344,6 +367,16 @@ export interface TeamPreviewRequiredPayload {
   offer_research_first?: boolean;
   /** 辩论开工卡：零调研且用户输入命中多维取证触发词时为 true，将「先多视角调研再辩」升为视觉主键；缺省视为 false。 */
   research_first_recommended?: boolean;
+  /** 裁判 / 主持人模型 id。 */
+  moderator_model?: string;
+  /** 裁判模型来源。 */
+  moderator_origin?: "platform" | "byok";
+  /** 裁判 BYOK provider_id。 */
+  moderator_provider_id?: string;
+  /** 目录只剩一模型时为 true，开赛卡明示同模型降级。 */
+  same_model_debate?: boolean;
+  /** 模型消歧候选（model/origin/provider_id/label）；旧帧缺省。 */
+  model_candidates?: ModelCandidate[];
 }
 
 export interface TeamPreviewResolvedPayload {
@@ -632,7 +665,11 @@ export interface CoordinationWaitPayload {
 /** Overall verdict of a delegate batch's delivery reconciliation (交付诚实性):
  * delivered = 无缺口且有落盘产物; partial = 有产物也有缺口; blocked = 有缺口且
  * 无落盘产物. */
-export type DeliveryState = "delivered" | "partial" | "blocked";
+export type DeliveryState =
+  | "delivered"
+  | "partial"
+  | "blocked"
+  | "notes";
 
 /** One undelivered piece in the wrap-up reconciliation (交付诚实性): the worker
  * ``role`` it belongs to (or a batch-level label like「验收」) + a one-line
@@ -641,22 +678,33 @@ export type DeliveryState = "delivered" | "partial" | "blocked";
  * 
  * Optional ``reason`` is a machine-readable cutoff / shortfall code when the gap
  * comes from a structured engine signal — known:
- * ``token_budget`` / ``worker_timeout`` / ``degraded_handoff``. Absent for
- * ordinary contract / criteria prose gaps. Clients may badge known codes and
- * ignore unknown ones (forward-compatible). */
+ * ``token_budget`` / ``worker_timeout`` / ``degraded_handoff`` /
+ * ``unverified_note`` (soft 待核实/示例自注) /
+ * ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影).
+ * Absent for ordinary contract / criteria prose gaps that have not been projected.
+ * Clients may badge known codes and ignore unknown ones (forward-compatible).
+ * 
+ * Optional ``severity``: ``warning`` = soft reminder (待核实等，不单独撑起
+ * partial/blocked); absent or ``blocking`` = real shortfall. Old clients that
+ * ignore unknown fields still see the row; new clients split summary / card state.
+ * 
+ * Optional ``paths``: workspace-relative files implicated by a soft note (for
+ * 「打开相关文件」); absent on ordinary blocking gaps. */
 export interface DeliveryGap {
   role: string;
   description: string;
   reason?: string;
+  severity?: "blocking" | "warning";
+  paths?: string[];
 }
 
 /** One user action that would close a delivery gap. ``kind`` is a widened string
  * on the wire (like ``ToolPhase``) so the backend can add kinds without a client
  * bump — known: ``bind_local_folder`` (云端无执行环境 → 绑定本地文件夹后可运行生成);
  * ``website_verify`` (整页 QA 因预算 defer → 一键续派 ``build_website_verify``);
- * ``continue_writing`` (成篇 partial → 按章续写);
  * ``continue_skipped_runs`` (turn/nested 额度 SKIPPED 未跑节点 → 下一回合续跑);
  * unknown kinds render as a plain hint.
+ * （成篇未写完改由对话框接着说——已撤 ``continue_writing`` 一键按钮。）
  * 
  * Optional ``prompt`` is the exact user-turn text a client should send for
  * kinds that open a new message (e.g. ``website_verify``). Absent for
@@ -671,8 +719,9 @@ export interface DeliveryAction {
  * delegate batch emits at wrap-up — 已交付文件 / 缺口 / 待用户操作 — so the client
  * renders an honest delivery card instead of mining the CEO's prose. Folds keep the
  * LATEST per ``execution_id`` (reflects the most recent batch's reconciliation).
- * ``state``: delivered = 无缺口且有落盘产物; partial = 有产物也有缺口;
- * blocked = 有缺口且无落盘产物. */
+ * ``state``: delivered = 无 blocking 缺口且有落盘产物; partial = 有产物也有
+ * blocking 缺口; blocked = 有 blocking 缺口且无落盘产物;
+ * notes = 仅有 soft 待核实提醒（轻提醒，非「部分未满足」）。 */
 export interface DeliveryStatusPayload {
   execution_id: string;
   state: DeliveryState;
@@ -790,6 +839,7 @@ export interface RunCompletedPayload {
   debrief?: RunDebrief;
   output_files?: string[];
   gaps?: DeliveryGap[];
+  execution_id?: string;
 }
 
 export interface RunFailedPayload {
@@ -797,12 +847,14 @@ export interface RunFailedPayload {
   agent_id: string;
   error: string;
   debrief?: RunDebrief;
+  execution_id?: string;
 }
 
 export interface RunCancelledPayload {
   run_id: string;
   agent_id: string;
   reason: "redirect" | "stop";
+  execution_id?: string;
 }
 
 export interface RunSkippedPayload {
@@ -848,8 +900,12 @@ export interface DebateSideInfo {
   name: string;
   stance: string;
   is_subject: boolean;
-  /** Display-only model hint on some debate forms; absent on older wire. */
+  /** 该方辩手模型 id。 */
   model?: string;
+  /** 模型来源。 */
+  origin?: "platform" | "byok";
+  /** BYOK 服务商 id。 */
+  provider_id?: string;
 }
 
 /** 辩手发言的一条结构化论点（后端 speech_parse 产出）。 */
@@ -1079,6 +1135,14 @@ export interface DebateResultPayload {
   brief: DebateBriefInfo;
   evidence_ledger?: EvidenceLedgerEntry[];
   subtopics?: string[];
+  /** 裁判模型 id。 */
+  moderator_model?: string;
+  /** 裁判模型来源。 */
+  moderator_origin?: "platform" | "byok";
+  /** 裁判 BYOK provider_id。 */
+  moderator_provider_id?: string;
+  /** 同模型降级明示。 */
+  same_model_debate?: boolean;
 }
 
 export interface DebateRoundStartedPayload {

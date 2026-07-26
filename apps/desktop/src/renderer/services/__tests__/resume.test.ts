@@ -313,6 +313,7 @@ describe("resolveResumeMessageId", () => {
       assumptions: [],
       questions: [],
       styleOptions: [],
+      formatOptions: [],
       intent: "decision",
     });
 

@@ -171,8 +171,8 @@ class CoordinationSnapshot:
     turn_attached: bool = True
     user_stopped: bool = False
     saw_first_completion: bool = False
-    # C3: path → owner run_id (session authority; restored into WriteCoordinator).
-    file_ownership: dict[str, str] = field(default_factory=dict)
+    # C3: ownership ledger snapshot (v2 nested ``{owners, written}`` or legacy flat).
+    file_ownership: dict[str, Any] = field(default_factory=dict)
 
     @property
     def budget_remaining(self) -> int:
@@ -222,13 +222,17 @@ class CoordinationSnapshot:
         if settled_via is not None:
             settled_via = str(settled_via).strip() or None
         raw_own = data.get("file_ownership")
-        file_ownership: dict[str, str] = {}
+        file_ownership: dict[str, Any] = {}
         if isinstance(raw_own, dict):
-            file_ownership = {
-                str(k): str(v)
-                for k, v in raw_own.items()
-                if isinstance(k, str) and v is not None and str(v).strip()
-            }
+            # Pass through v2 nested snapshots; coerce legacy flat path→owner.
+            if raw_own.get("_v") == 2 or isinstance(raw_own.get("owners"), dict):
+                file_ownership = dict(raw_own)
+            else:
+                file_ownership = {
+                    str(k): str(v)
+                    for k, v in raw_own.items()
+                    if isinstance(k, str) and v is not None and str(v).strip()
+                }
         return cls(
             execution_id=execution_id,
             draft=str(data.get("draft") or ""),
@@ -416,8 +420,11 @@ class CoordinationSession:
         question: str = "",
         assumption: str = "",
         kind: str = "normal",
+        ownership_paths: list[str] | None = None,
+        lock_owner_run_id: str = "",
+        escalator_is_lock_owner_nested_child: bool | None = None,
     ) -> None:
-        self.pending_arbitrations[run_id] = {
+        payload: dict[str, Any] = {
             "run_id": run_id,
             "escalation_id": escalation_id,
             "conversation_id": conversation_id,
@@ -425,6 +432,15 @@ class CoordinationSession:
             "assumption": assumption,
             "kind": kind,
         }
+        if ownership_paths:
+            payload["ownership_paths"] = list(ownership_paths)
+        if lock_owner_run_id:
+            payload["lock_owner_run_id"] = lock_owner_run_id
+        if escalator_is_lock_owner_nested_child is not None:
+            payload["escalator_is_lock_owner_nested_child"] = bool(
+                escalator_is_lock_owner_nested_child
+            )
+        self.pending_arbitrations[run_id] = payload
 
     def get_arbitration(self, run_id: str) -> dict[str, Any] | None:
         return self.pending_arbitrations.get(run_id)
@@ -999,7 +1015,7 @@ class CoordinationSession:
             }
             for iid, payload in self.pending_interjections.items()
         ]
-        ownership_dict: dict[str, str] = {}
+        ownership_dict: dict[str, Any] = {}
         if self.file_ownership is not None:
             try:
                 ownership_dict = dict(self.file_ownership.to_dict())

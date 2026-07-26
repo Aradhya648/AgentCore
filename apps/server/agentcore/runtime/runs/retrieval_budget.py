@@ -4,7 +4,8 @@ Structured defaults on ``RunSpec.retrieval_budget`` + strip search tools when th
 resolved limit is 0. Runtime counter lives on ``ToolContext.retrieval_budget``
 (:class:`~agentcore.tools.protocol.RetrievalBudgetState`); enforce in
 ``tool_exec`` (orthogonal to LoopController / team_gate). Cache hits and A3
-query-contract rejects do not consume budget.
+query-contract rejects do not consume budget. CEO / delegate schema 不可配置该
+字段；额度只来自统一常量（辩手有案卷窄例外由辩论内部 writer 补写）。
 """
 
 from __future__ import annotations
@@ -41,13 +42,13 @@ __all__ = [
 # Tools that share one per-run retrieval budget (web_search + read_url combined).
 RETRIEVAL_TOOL_NAMES: frozenset[str] = frozenset({"web_search", "read_url"})
 
-# 统一默认：任意非 prose、且 CEO 未显式声明的 worker → 14。
-# 开发期无真实产线数据，14 为假设统一阀（原 RESEARCH 档复用；已删 ROOT/DOWNSTREAM
-# 与透镜 base/gap 分档）。不做批级共享池 / 按 worker 数缩放——接受 N×线性税。
+# 全员统一默认：普通 worker → 14（含 form=prose）。开发期无真实产线数据，14 为假设
+# 统一阀（原 RESEARCH 档复用；已删 prose→0 / ROOT/DOWNSTREAM / 透镜 base/gap /
+# CEO 显式覆盖）。不做批级共享池 / 按 worker 数缩放——接受 N×线性税。
 DEFAULT_RETRIEVAL_BUDGET = 14
 # 辩手有幕1 案卷时：案卷已覆盖底料，只留残搜槽位补漏。原 4 → 2026-07-22 复测：
 # 案卷充分时残搜 3 次几乎全是噪声域名，正文引用几乎全来自案卷 → 校准为 2。
-# 窄硬例外（对齐 prose 式硬规则），不是结构猜档。无案卷路径不动。
+# 窄硬例外（内部 writer 写入 RunSpec，非 CEO 可配置），不是结构猜档。无案卷路径不动。
 DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER = 2
 
 # 同轮超订缓解：剩余槽位 ≤ 此值时经 reflection 注入提前告知，避免当轮 fan-out 超订被挡回。
@@ -56,12 +57,15 @@ RETRIEVAL_BUDGET_CRITICAL_REMAINING = 2
 BUDGET_EXHAUSTED_FEEDBACK = (
     "检索预算已尽：请基于证据台账中现有材料交付，并在交接（handoff）中如实标注检索缺口"
     "（缺什么、为何没补上）。不要再调用 web_search / read_url。"
-    "主管可用 continue_from_run_id 带现场续派并显式提高 retrieval_budget。"
 )
 
 
 def parse_retrieval_budget(raw: Any) -> int | None:
-    """CEO-explicit ``retrieval_budget``; ``None`` = omit → structured default later."""
+    """Normalise an internal ``retrieval_budget`` int; ``None`` = omit / invalid.
+
+    Not a CEO/delegate config path — schema 已不暴露该字段；仅供辩论等内部 writer
+    在 plan 建成后补写窄例外时规范化。
+    """
     if raw is None or isinstance(raw, bool):
         return None
     if isinstance(raw, int) and raw >= 0:
@@ -72,18 +76,14 @@ def parse_retrieval_budget(raw: Any) -> int | None:
 
 
 def default_retrieval_budget(spec: RunSpec, *, complexity_hint: str = "standard") -> int:
-    """Structured default — unified single value + hard exceptions; never role strings.
+    """Structured default — unified single value for all ordinary workers.
 
-    - ``form=prose`` → 0（剥离检索工具由 :func:`_apply_one` 完成）
-    - 其余 → :data:`DEFAULT_RETRIEVAL_BUDGET`（14）
-
-    CEO / schema 显式 ``retrieval_budget`` 由调用方在填默认前保留，不经本函数。
-    ``complexity_hint`` 保留签名兼容，**不再**参与分档（``is_research_root`` 亦不参与）。
+    Always :data:`DEFAULT_RETRIEVAL_BUDGET`（14）. ``form`` / role 不参与分档。
+    辩手有案卷残搜 2 由辩论内部 writer 在 plan 建成后写入，不经本函数。
+    ``complexity_hint`` 保留签名兼容，**不再**参与分档。
     """
     del complexity_hint  # API compat only; no tiering
-    form = spec.deliverable.form if spec.deliverable is not None else None
-    if form == "prose":
-        return 0
+    del spec  # form / deps 不再影响默认
     return DEFAULT_RETRIEVAL_BUDGET
 
 
@@ -112,7 +112,7 @@ def apply_retrieval_budgets(
     valid_tools: set[str] | None = None,
     complexity_hint: str = "standard",
 ) -> None:
-    """Resolve budgets on every node (CEO explicit wins) and strip tools when 0."""
+    """Fill structured defaults on every node; strip retrieval tools when limit is 0."""
     for spec in plan.nodes:
         _apply_one(spec, valid_tools=valid_tools, complexity_hint=complexity_hint)
 
@@ -131,10 +131,12 @@ def apply_retrieval_budgets_to_specs(
 def _apply_one(
     spec: RunSpec, *, valid_tools: set[str] | None, complexity_hint: str = "standard"
 ) -> None:
+    # 额度只来自结构化默认；CEO/task 字段不再写入。内部 writer（辩手有案卷）在
+    # apply 之后补写 RunSpec.retrieval_budget，故此处仅填 None。
     if spec.retrieval_budget is None:
         spec.retrieval_budget = default_retrieval_budget(spec, complexity_hint=complexity_hint)
     if spec.retrieval_budget == 0:
-        # 复用 tasks[].tools 白名单：预算 0 → 不装配检索工具。
+        # 复用 tasks[].tools 白名单：预算 0 → 不装配检索工具（引擎/测试手工构造）。
         stripped = exclude_retrieval_tools(spec.tools, valid_tools)
         if stripped is not None:
             spec.tools = stripped
@@ -152,7 +154,6 @@ def format_retrieval_budget_line(budget: int | None) -> str:
     return (
         f"- 检索预算：本 run 合计最多 {budget} 次 web_search/read_url"
         "（缓存命中不计）；用尽后基于台账现有证据交付并在交接中标注检索缺口。"
-        "续派请主管用 continue_from_run_id 并显式提高 retrieval_budget"
     )
 
 

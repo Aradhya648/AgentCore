@@ -1,4 +1,4 @@
-"""检索预算 A1: structured defaults, explicit override, tool_exec charge / exhaust."""
+"""检索预算 A1: structured defaults (CEO 不可配置), tool_exec charge / exhaust."""
 
 from __future__ import annotations
 
@@ -51,8 +51,8 @@ def _spec(
     )
 
 
-def test_structured_default_unified_non_prose():
-    """任意非 prose → 统一默认 14（root / light / files / 下游同额）。"""
+def test_structured_default_unified_for_all_workers():
+    """全员统一默认 14（含 prose / root / light / files / 下游）。"""
     assert DEFAULT_RETRIEVAL_BUDGET == 14
     assert default_retrieval_budget(_spec()) == DEFAULT_RETRIEVAL_BUDGET
     assert (
@@ -65,12 +65,11 @@ def test_structured_default_unified_non_prose():
         == DEFAULT_RETRIEVAL_BUDGET
     )
     assert default_retrieval_budget(_spec(deps=["u"])) == DEFAULT_RETRIEVAL_BUDGET
-
-
-def test_structured_default_prose_is_zero():
-    """form=prose → 0（硬例外；含无上游 root 与下游合成波）。"""
-    assert default_retrieval_budget(_spec(form="prose")) == 0
-    assert default_retrieval_budget(_spec(deps=["up"], form="prose")) == 0
+    assert default_retrieval_budget(_spec(form="prose")) == DEFAULT_RETRIEVAL_BUDGET
+    assert (
+        default_retrieval_budget(_spec(deps=["up"], form="prose"))
+        == DEFAULT_RETRIEVAL_BUDGET
+    )
 
 
 def test_debate_dossier_narrow_exception_constant():
@@ -94,7 +93,8 @@ def test_retrieval_budget_critical_helpers():
     assert "扇出" in prompt
 
 
-def test_build_plan_applies_defaults_and_strips_search_for_prose_downstream():
+def test_build_plan_applies_unified_default_including_prose():
+    """prose 与非 prose 均得统一默认；builder 不因 prose 剥离检索工具。"""
     valid = {"web_search", "read_url", "file_read", "handoff", "escalate"}
     plan, errors = build_run_plan(
         [
@@ -112,29 +112,13 @@ def test_build_plan_applies_defaults_and_strips_search_for_prose_downstream():
     assert errors == []
     by_role = {n.role: n for n in plan.nodes}
     assert by_role["研究员"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
-    assert by_role["写手"].retrieval_budget == 0
-    writer_tools = by_role["写手"].tools
-    assert writer_tools is not None
-    assert "web_search" not in writer_tools
-    assert "read_url" not in writer_tools
-    assert "file_read" in writer_tools
+    assert by_role["写手"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
+    # prose 不再因检索预算剥离工具（form=prose 撤写文件工具是 registry 另路）
+    assert by_role["写手"].tools is None
 
 
-def test_build_plan_explicit_zero_on_root_strips_tools_and_stays_zero():
-    """CEO 在无上游 root 显式 retrieval_budget=0 → 保持 0 且剥离检索工具。"""
-    plan, errors = build_run_plan(
-        [{"role": "研究员", "task": "只用现有材料成文", "retrieval_budget": 0}],
-        valid_tools={"web_search", "read_url", "file_read"},
-    )
-    assert errors == []
-    node = plan.nodes[0]
-    assert node.retrieval_budget == 0
-    assert node.tools is not None
-    assert "web_search" not in node.tools
-    assert "read_url" not in node.tools
-
-
-def test_ceo_explicit_budget_overrides_default():
+def test_build_plan_ignores_task_level_retrieval_budget():
+    """CEO/task 传入 retrieval_budget 不再作为覆盖——统一默认。"""
     plan, errors = build_run_plan(
         [
             {"id": "r", "role": "研究员", "task": "深挖", "retrieval_budget": 20},
@@ -144,16 +128,15 @@ def test_ceo_explicit_budget_overrides_default():
                 "task": "写",
                 "depends_on": ["r"],
                 "deliverable": {"form": "prose"},
-                "retrieval_budget": 2,
+                "retrieval_budget": 0,
             },
         ],
         valid_tools={"web_search", "read_url", "file_read"},
     )
     assert errors == []
     by_role = {n.role: n for n in plan.nodes}
-    assert by_role["研究员"].retrieval_budget == 20
-    assert by_role["写手"].retrieval_budget == 2
-    # explicit non-zero ⇒ do not strip retrieval tools (unrestricted stays None)
+    assert by_role["研究员"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
+    assert by_role["写手"].retrieval_budget == DEFAULT_RETRIEVAL_BUDGET
     assert by_role["写手"].tools is None
 
 
@@ -168,10 +151,11 @@ def test_charges_skips_cache_and_failures():
     assert charges_retrieval_budget(failed) is False
 
 
-def test_budget_line_mentions_continue_from():
+def test_budget_line_describes_limit_without_ceo_override_hint():
     line = format_retrieval_budget_line(5)
     assert "5" in line
-    assert "continue_from_run_id" in line
+    assert "retrieval_budget" not in line
+    assert "continue_from_run_id" not in line
     zero = format_retrieval_budget_line(0)
     assert "0" in zero
     assert "不装配" in zero
@@ -238,7 +222,8 @@ async def test_tool_exec_exhausts_and_returns_structured_feedback():
     )
     assert stub.calls == 1  # second call blocked
     assert BUDGET_EXHAUSTED_FEEDBACK in (msgs2[0].content or "")
-    assert "continue_from_run_id" in (msgs2[0].content or "")
+    assert "retrieval_budget" not in (msgs2[0].content or "")
+    assert "continue_from_run_id" not in (msgs2[0].content or "")
     assert state.used == 1
 
 

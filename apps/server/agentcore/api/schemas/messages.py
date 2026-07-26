@@ -335,7 +335,9 @@ class ResumeTurnRequest(BaseModel):
     carries the option(s) the user picked from an ask_user menu (ignored for
     plan_review; the server drops any pick not actually offered). ``style_id`` is the
     structured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in
-    ``selected``. The engine-only ``timeout`` is never sent by a client.
+    ``selected``. ``format_id`` is the structured presentation format pick
+    (``f0``/``f1``/…); preferred over an ``fN`` token in ``selected``. The engine-only
+    ``timeout`` is never sent by a client.
     """
 
     decision: CheckpointDecision
@@ -347,6 +349,14 @@ class ResumeTurnRequest(BaseModel):
         description=(
             "Optional structured website style pick (s0/s1/…). "
             "Preferred over scanning selected; ignored when not a website kickoff."
+        ),
+    )
+    format_id: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Optional structured presentation format pick (f0/f1/…). "
+            "Preferred over scanning selected; ignored when not a presentation kickoff."
         ),
     )
 
@@ -396,8 +406,8 @@ class PausedTurnSummary(BaseModel):
     ``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /
     ``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload
     ``question`` (the framing / opening line) + ``context`` + the optional opening
-    content ``assumptions`` / ``questions`` / ``style_options`` (empty for a compact
-    mid-task fork). The unused set is empty for the other kinds.
+    content ``assumptions`` / ``questions`` / ``style_options`` / ``format_options``
+    (empty for a compact mid-task fork). The unused set is empty for the other kinds.
     """
 
     message_id: str
@@ -428,6 +438,7 @@ class PausedTurnSummary(BaseModel):
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[dict[str, Any]] = Field(default_factory=list)
     style_options: list[dict[str, Any]] = Field(default_factory=list)
+    format_options: list[dict[str, Any]] = Field(default_factory=list)
     intent: AskCheckpointIntent | None = None
 
 

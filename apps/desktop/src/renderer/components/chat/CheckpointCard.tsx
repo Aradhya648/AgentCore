@@ -1,24 +1,16 @@
-import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import {
-  ASK_INTENT_META,
   ResolvedDecisionRecord,
   askResolvedOutcome,
 } from "@/components/chat/decision";
-import { Button, DecisionCard } from "@/components/ui";
-import { interactiveCheckpointTone } from "@/components/ui/tone-presets";
+import { DecisionCard } from "@/components/ui";
 import { notifyError } from "@/lib/toast";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
 import type { CheckpointDisplay } from "@/stores/conversation";
 import type { CheckpointIntent } from "@/types/events";
-import { Loader2, OctagonX } from "lucide-react";
 import { useState } from "react";
-import { AskCommenceKickoffBody } from "./ask/AskCommenceKickoff";
-import {
-  AskNoteField,
-  AskQuestionFields,
-  type AskUserContent,
-  useAskAnswer,
-} from "./ask/AskUserFields";
+import { AskDecisionBody } from "./ask/AskDecisionBody";
+import { AskKickoffBody } from "./ask/AskKickoffBody";
+import { type AskUserContent, useAskAnswer } from "./ask/AskUserFields";
 import { OrganizePlanBody } from "./ask/OrganizePlanBody";
 import { ProposalPickBody } from "./ask/ProposalPickBody";
 import { RiskAckBody } from "./ask/RiskAckBody";
@@ -54,9 +46,6 @@ export function CheckpointCard({
   return null;
 }
 
-/** Per-tone class sets — from shared tone-presets (Tailwind literal strings). */
-const TONE = interactiveCheckpointTone;
-
 /** Flatten per-question picks (+「其他」自定义) into resume `selected`. */
 export function collectAskSelected(
   content: AskUserContent,
@@ -84,19 +73,15 @@ export function collectAskSelected(
  * (ResumePrompt). Settled by 提交/就这样开做 (→ continue) or 停止. Picks compose into
  * ONE readable note (答复模型 α), handed to `onSubmit`.
  *
- * - **kickoff**：V2 Brief + Choose（中文 caption 头 + brief 钳 2 行 + 题干与紧凑单行选项常驻 + 计划/补充折叠行）。
- * - **decision**：紧凑单栏拍板（灰壳灰选项；Footer 主 CTA 仍用品牌蓝）。
- * - **proposal_pick**：方案墙（单选卡 + selected）。
- * - **risk_ack**：风险勾选清单（多选 + 严重度前缀 + selected）。
- *
- * icon + caption + CTA 文案由后端 intent 查表驱动（{@link ASK_INTENT_META}）。真·风险审批由 ApprovalPrompt 承载（蓝）。
+ * 五种 intent 均走 {@link AskCardShell} + 行式选项（{@link AskRowGroup}）；差异只在体插槽。
+ * icon + caption + CTA 文案由后端 intent 查表驱动（ASK_INTENT_META）。真·风险审批由
+ * ApprovalPrompt 承载（蓝）。
  */
 export function AskUserCard({
   content,
   intent,
   caption,
   onSubmit,
-  disclosureKey,
   conversationId,
 }: {
   content: AskUserContent;
@@ -107,14 +92,13 @@ export function AskUserCard({
     note: string,
     selected?: string[],
     styleId?: string | null,
+    formatId?: string | null,
   ) => void | Promise<void>;
-  /** 检查点 id：给了才把起步计划开合持久化。 */
+  /** 检查点 id：给了才把起步计划开合持久化（旧 decision 折叠路径已退役；保留形参兼容调用方）。 */
   disclosureKey?: string | null;
   /** Enables bind_local_folder action options on desktop. */
   conversationId?: string | null;
 }) {
-  const config = ASK_INTENT_META[intent];
-  const tone = TONE.neutral;
   const ans = useAskAnswer(content, {
     seedAllMultiple: intent === "organize_plan",
   });
@@ -122,8 +106,6 @@ export function AskUserCard({
     null,
   );
   const busy = submitting !== null;
-  const HeaderIcon = config.icon;
-  const CtaIcon = config.ctaIcon;
   const carriesSelected =
     intent === "proposal_pick" ||
     intent === "risk_ack" ||
@@ -136,13 +118,18 @@ export function AskUserCard({
       decision === "continue" && carriesSelected
         ? collectAskSelected(content, ans.answers, ans.otherOn, ans.otherText)
         : [];
-    // Structured style wire (B+A): explicit style_id + sN in selected when styles offered.
+    // Structured style/format wire (B+A): explicit style_id/format_id + sN/fN in selected.
     const stylePick =
       decision === "continue" && ans.styleId ? ans.styleId : null;
-    const selected =
-      stylePick && !baseSelected.includes(stylePick)
-        ? [...baseSelected, stylePick]
-        : baseSelected;
+    const formatPick =
+      decision === "continue" && ans.formatId ? ans.formatId : null;
+    let selected = baseSelected;
+    if (stylePick && !selected.includes(stylePick)) {
+      selected = [...selected, stylePick];
+    }
+    if (formatPick && !selected.includes(formatPick)) {
+      selected = [...selected, formatPick];
+    }
     const composed =
       noteOverride !== undefined
         ? noteOverride
@@ -151,33 +138,37 @@ export function AskUserCard({
           : carriesSelected
             ? ans.note.trim()
             : ans.compose(intent);
-    Promise.resolve(onSubmit(decision, composed, selected, stylePick)).catch(
-      (err) => {
-        notifyError(err, "提交失败");
-        setSubmitting(null);
-      },
-    );
+    Promise.resolve(
+      onSubmit(decision, composed, selected, stylePick, formatPick),
+    ).catch((err) => {
+      notifyError(err, "提交失败");
+      setSubmitting(null);
+    });
   };
 
   const onBindResolve = (composedAnswer: string) =>
     send("continue", composedAnswer);
 
-  // Kickoff: production default = V2 Brief + Choose (same IA as AskCommenceV2 preview).
+  const shared = {
+    content,
+    answer: ans,
+    busy,
+    submitting,
+    onContinue: () => send("continue"),
+    onStop: () => send("stop"),
+  };
+
   if (intent === "kickoff") {
     return (
       <DecisionCard
         tone="neutral"
         animate
-        className="flex max-h-[min(60vh,36rem)] flex-col overflow-hidden p-0"
+        // 行式选项比旧的紧凑盒子高，卡高上限相应放宽（kickoff 是该回合的焦点元素）。
+        className="flex max-h-[min(70vh,44rem)] flex-col overflow-hidden p-0"
         data-ask-intent="kickoff"
       >
-        <AskCommenceKickoffBody
-          content={content}
-          answer={ans}
-          busy={busy}
-          submitting={submitting}
-          onContinue={() => send("continue")}
-          onStop={() => send("stop")}
+        <AskKickoffBody
+          {...shared}
           conversationId={conversationId}
           onBindResolve={onBindResolve}
         />
@@ -193,16 +184,7 @@ export function AskUserCard({
         className="flex max-h-[min(50vh,28rem)] flex-col overflow-hidden p-0"
         data-ask-intent="proposal_pick"
       >
-        <ProposalPickBody
-          content={content}
-          answer={ans}
-          busy={busy}
-          submitting={submitting}
-          caption={caption ?? config.activeCaption}
-          cta={config.cta}
-          onContinue={() => send("continue")}
-          onStop={() => send("stop")}
-        />
+        <ProposalPickBody {...shared} caption={caption} />
       </DecisionCard>
     );
   }
@@ -215,16 +197,7 @@ export function AskUserCard({
         className="flex max-h-[min(50vh,28rem)] flex-col overflow-hidden p-0"
         data-ask-intent="risk_ack"
       >
-        <RiskAckBody
-          content={content}
-          answer={ans}
-          busy={busy}
-          submitting={submitting}
-          caption={caption ?? config.activeCaption}
-          cta={config.cta}
-          onContinue={() => send("continue")}
-          onStop={() => send("stop")}
-        />
+        <RiskAckBody {...shared} caption={caption} />
       </DecisionCard>
     );
   }
@@ -237,16 +210,7 @@ export function AskUserCard({
         className="flex max-h-[min(60vh,36rem)] flex-col overflow-hidden p-0"
         data-ask-intent="organize_plan"
       >
-        <OrganizePlanBody
-          content={content}
-          answer={ans}
-          busy={busy}
-          submitting={submitting}
-          caption={caption ?? config.activeCaption}
-          cta={config.cta}
-          onContinue={() => send("continue")}
-          onStop={() => send("stop")}
-        />
+        <OrganizePlanBody {...shared} caption={caption} />
       </DecisionCard>
     );
   }
@@ -258,82 +222,12 @@ export function AskUserCard({
       className="flex max-h-[min(50vh,28rem)] flex-col overflow-hidden p-0"
       data-ask-intent="decision"
     >
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pt-3">
-        <div className="flex items-start gap-1.5">
-          <HeaderIcon size={14} className={`mt-0.5 shrink-0 ${tone.accent}`} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1">
-              <p
-                className={`min-w-0 flex-1 text-xs font-medium ${tone.accent}`}
-              >
-                {caption ?? config.activeCaption}
-              </p>
-              <ManualHelpLink to={MANUAL_HELP.checkpoint} />
-            </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
-              {content.question}
-            </p>
-            {content.context && (
-              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                {content.context}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <AskQuestionFields
-          content={content}
-          answer={ans}
-          tone={tone}
-          disabled={busy}
-          disclosureKey={disclosureKey}
-          conversationId={conversationId}
-          onBindResolve={onBindResolve}
-        />
-
-        <AskNoteField
-          answer={ans}
-          tone={tone}
-          disabled={busy}
-          placeholder="补充说明"
-        />
-      </div>
-
-      <div className="shrink-0 space-y-2 px-3 pb-3 pt-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="md"
-            variant="primary"
-            className={tone.cta}
-            disabled={busy}
-            onClick={() => send("continue")}
-            icon={
-              submitting === "continue" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <CtaIcon size={14} />
-              )
-            }
-          >
-            {config.cta}
-          </Button>
-          <Button
-            size="md"
-            variant="danger"
-            disabled={busy}
-            onClick={() => send("stop")}
-            icon={
-              submitting === "stop" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <OctagonX size={14} />
-              )
-            }
-          >
-            停止
-          </Button>
-        </div>
-      </div>
+      <AskDecisionBody
+        {...shared}
+        caption={caption}
+        conversationId={conversationId}
+        onBindResolve={onBindResolve}
+      />
     </DecisionCard>
   );
 }

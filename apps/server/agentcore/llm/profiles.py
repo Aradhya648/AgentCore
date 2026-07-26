@@ -18,7 +18,8 @@ DEEPSEEK_V4_PRO = PLATFORM_MODEL_PRO
 
 # Router / ``agent_provider_id`` sentinel when a worker override runs on platform credentials
 # (main turn may be BYOK). ``route_model_for("agent")`` prefixes ``platform/{model}``;
-# ``build_turn_router`` registers ``platform_llm_credentials`` under this key.
+# ``build_turn_router`` / debate extras register :func:`build_platform_provider` under
+# this key (per-model credentials via ``platform_llm_credentials(model=…)``).
 PLATFORM_PROVIDER_SENTINEL = "platform"
 
 

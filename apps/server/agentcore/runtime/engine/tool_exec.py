@@ -56,6 +56,29 @@ _FILE_PRODUCT_TOOL_NAMES = frozenset(
 _TOOL_ERROR_REASON_MAX = 200
 
 
+def _file_read_round_coalesce_key(args: dict[str, Any]) -> str | None:
+    """Same-round parallel ``file_read`` coalesce key: normalized path only.
+
+    Offset/limit variants still share one underlying read and one
+    ``file_read_counts`` bump (整读与 ranged 计同 path). Empty path → no coalesce.
+    """
+    if not isinstance(args, dict):
+        return None
+    path = str(args.get("path") or "").strip().replace("\\", "/")
+    return path or None
+
+
+def _clone_tool_result(result: ToolResult, tool_call_id: str) -> ToolResult:
+    """Fan-out copy of a shared ``file_read`` result for a sibling tool_call."""
+    return replace(
+        result,
+        tool_call_id=tool_call_id,
+        citations=list(result.citations) if result.citations else None,
+        metadata=dict(result.metadata) if result.metadata else {},
+        display=dict(result.display) if result.display else None,
+    )
+
+
 def _short_tool_error_reason(text: str, *, limit: int = _TOOL_ERROR_REASON_MAX) -> str:
     """Collapse whitespace and truncate for log aggregation (not the full transcript)."""
     collapsed = " ".join((text or "").split())
@@ -233,10 +256,16 @@ async def execute_tools(
     so the UI renders them as turn-level inline steps (same as captain
     ``content_delta``); ``ToolCallFact`` and circuit-breaker audit still keep
     ``run_id`` for §8.3 fold / audit. Workers keep ``run_id`` on SSE too.
+
+    Same-round parallel ``file_read`` calls that share a normalized path execute
+    the underlying read once; sibling tool_calls receive fan-out clones (one
+    ``file_read_counts`` bump).
     """
     # Captain self-tools: inline timeline (no run_id on wire); facts/audit keep run_id.
     event_run_id = "" if role == "captain" else run_id
     allowed_set = None if allowed_tool_names is None else frozenset(allowed_tool_names)
+    # Same-round file_read path coalesce (leader Future → fan-out clones).
+    file_read_inflight: dict[str, asyncio.Future[ToolResult]] = {}
 
     async def _run_one(
         tc: ToolCall,
@@ -552,8 +581,36 @@ async def execute_tools(
 
         started = time.monotonic()
         timeout = resolve_tool_timeout(tool.schema, args)
+        coalesce_key = (
+            _file_read_round_coalesce_key(args) if name == "file_read" else None
+        )
         try:
-            if timeout is None:
+            if coalesce_key is not None:
+                existing = file_read_inflight.get(coalesce_key)
+                if existing is not None:
+                    shared = await existing
+                    result = _clone_tool_result(shared, tc.id)
+                    result.duration_ms = int((time.monotonic() - started) * 1000)
+                else:
+                    fut: asyncio.Future[ToolResult] = (
+                        asyncio.get_running_loop().create_future()
+                    )
+                    file_read_inflight[coalesce_key] = fut
+                    try:
+                        if timeout is None:
+                            result = await tool.execute(args, ctx)
+                        else:
+                            result = await asyncio.wait_for(
+                                tool.execute(args, ctx), timeout
+                            )
+                        # Snapshot before this call mutates ``tool_call_id``.
+                        if not fut.done():
+                            fut.set_result(replace(result))
+                    except Exception as exc:
+                        if not fut.done():
+                            fut.set_exception(exc)
+                        raise
+            elif timeout is None:
                 result = await tool.execute(args, ctx)
             else:
                 result = await asyncio.wait_for(tool.execute(args, ctx), timeout)

@@ -362,6 +362,7 @@ describe("hydrateInteractionsFromJournal (history replay)", () => {
         },
       ],
       style_options: [{ id: "s0", label: "深色科技" }],
+      format_options: [{ id: "f0", label: "PowerPoint（.pptx）" }],
     };
 
     it("folds a required event into one pending card (rich opening fields)", () => {
@@ -379,6 +380,7 @@ describe("hydrateInteractionsFromJournal (history replay)", () => {
         decision: null,
         assumptions: [{ id: "a0", label: "部署", value: "纯静态" }],
         styleOptions: [{ id: "s0", label: "深色科技" }],
+        formatOptions: [{ id: "f0", label: "PowerPoint（.pptx）" }],
       });
       expect(cards[0].questions[0].default).toBe("潜在客户");
     });

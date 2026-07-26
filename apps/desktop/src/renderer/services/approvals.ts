@@ -51,6 +51,23 @@ export function isFileOpTool(name: string): boolean {
 
 export const PER_CALL_TOOLS: ReadonlySet<string> = new Set();
 
+/** Align with backend ``execution_class_tool_names()`` (code / test / terminal + browser_*). */
+export const EXECUTION_TOOLS: ReadonlySet<string> = new Set([
+  "code_execute",
+  "test_run",
+  "terminal",
+  "browser_navigate",
+  "browser_click",
+  "browser_type",
+  "browser_scroll",
+  "browser_snapshot",
+  "browser_screenshot",
+]);
+
+export function isExecutionTool(name: string): boolean {
+  return EXECUTION_TOOLS.has(name) || name.startsWith("browser_");
+}
+
 export function supportsTurnGrant(name: string): boolean {
   return !PER_CALL_TOOLS.has(name);
 }

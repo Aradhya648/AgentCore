@@ -46,25 +46,43 @@ def post_escalation_to_coordination(
     summary: str = "",
     execution_id: str | None = None,
     escalation_id: str = "",
+    ownership_paths: list[str] | None = None,
+    lock_owner_run_id: str = "",
+    escalator_is_lock_owner_nested_child: bool | None = None,
+    ownership_kind: str | None = None,
+    owner_status: str | None = None,
 ) -> bool:
     """Post an escalation into the active coordination queue. Returns True if posted."""
     session = active_coordination(execution_id)
     if session is None or not session.active:
         return False
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "role": role or run_id,
+        "kind": kind,
+        "question": question,
+        "assumption": assumption,
+        "blocking": blocking,
+        "source": source,
+        "summary": summary or question,
+        "escalation_id": escalation_id,
+    }
+    if ownership_paths:
+        payload["ownership_paths"] = list(ownership_paths)
+    if lock_owner_run_id:
+        payload["lock_owner_run_id"] = lock_owner_run_id
+    if escalator_is_lock_owner_nested_child is not None:
+        payload["escalator_is_lock_owner_nested_child"] = bool(
+            escalator_is_lock_owner_nested_child
+        )
+    if ownership_kind:
+        payload["ownership_kind"] = ownership_kind
+    if owner_status:
+        payload["owner_status"] = owner_status
     posted = session.post(
         CoordinationEvent(
             kind=CoordinationEventKind.ESCALATION,
-            payload={
-                "run_id": run_id,
-                "role": role or run_id,
-                "kind": kind,
-                "question": question,
-                "assumption": assumption,
-                "blocking": blocking,
-                "source": source,
-                "summary": summary or question,
-                "escalation_id": escalation_id,
-            },
+            payload=payload,
         )
     )
     if posted:
@@ -75,6 +93,8 @@ def post_escalation_to_coordination(
             source=source,
             blocking=blocking,
             execution_id=session.execution_id,
+            ownership_paths=ownership_paths or None,
+            escalator_is_nested=escalator_is_lock_owner_nested_child,
         )
     return posted
 

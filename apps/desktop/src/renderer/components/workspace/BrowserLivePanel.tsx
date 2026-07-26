@@ -1,4 +1,9 @@
 import {
+  conversationHasBrowserActivity,
+  conversationHasPendingBrowserLogin,
+  conversationHasRunningTurn,
+} from "@/lib/browserActivity";
+import {
   type BrowserLiveConnection,
   type BrowserLiveState,
   startBrowserLive,
@@ -14,6 +19,9 @@ import {
   toFrameSpace,
 } from "@/services/browserTakeover";
 import { useBrowserTakeoverStore } from "@/stores/browserTakeover";
+import { useConversationStore } from "@/stores/conversation";
+import { runtimeOf } from "@/stores/conversation/runtime";
+import { useExecutionStore } from "@/stores/execution";
 import {
   Hand,
   Loader2,
@@ -38,13 +46,18 @@ import {
  * 附着一条 `…/browser/live` SSE 直播流（{@link startBrowserLive}），把 base64 jpeg 帧转成
  * objectURL **逐帧换图**：每来一帧换 `<img src>`、并回收上一帧的 objectURL（防内存泄漏）。覆盖
  * 连接中 / 无直播(no_session) / 会话已结束(session_closed) / 断线重连各态。挂载即附着（开播）、
- * 卸载即收口（停播）——由 SidePanel 仅在直播 tab 激活时挂载本组件，实现「无人看零开销」。
+ * 卸载即收口（停播）——由 SidePanel 仅在「浏览器」tab 激活时挂载本组件，实现「无人看零开销」。
+ * tab 自身条件常驻（{@link useBrowserRegion}），故本组件在「本会话用过浏览器、但此刻无直播」时
+ * 也会被挂载 —— `no_session` 占位态正是这条常态路径的正文，不是异常。
  *
- * M2 接管（D16）：有活直播（started 且有帧）时显「接管」；接管中画面变可交互面——捕获点击/键盘/
- * 滚轮，把展示坐标 {@link toFrameSpace} 换算到帧像素空间，经 {@link createInputBatcher} 攒批
- * POST（避免事件洪泛）；显著「接管中」状态条 + 「归还控制」。start 失败（turn_running 等）、会话
- * 结束(session_closed)、面板卸载都收口（卸载时尽力 end）。接管起止乐观并入接管 store 供时间线
- * 标记卡即时可见。密码等键入不回显不留存（缓冲仅在飞、不落任何持久缓存，守 D7）。
+ * M2 接管（D16）：有活直播（started 且有帧）且（无 turn 在跑 **或** pending `browserLogin`）
+ * 时显「接管」——与后端 start 闸对齐，避免点了才报 `turn_running`。接管中画面变可交互面——
+ * 捕获点击/键盘/滚轮，把展示坐标 {@link toFrameSpace} 换算到帧像素空间，经
+ * {@link createInputBatcher} 攒批 POST（避免事件洪泛）；显著「接管中」状态条 + 「归还控制」。
+ * start 失败（turn_running 等）、会话结束(session_closed)、面板卸载都收口（卸载时尽力 end）。
+ * 接管起止乐观并入接管 store 供时间线标记卡即时可见。归还提示两态：pending `browserLogin` →
+ * 对齐升级卡「已登录，继续」；否则「控制已归还」。密码等键入不回显不留存（缓冲仅在飞、不落
+ * 任何持久缓存，守 D7）。
  */
 
 /** base64（不含 data: 前缀）→ Blob，供 `URL.createObjectURL` 逐帧换图。 */
@@ -129,8 +142,23 @@ export function BrowserLivePanel({
     useState<BrowserLiveConnection>("connecting");
   const [takeover, setTakeover] = useState<TakeoverPhase>("idle");
   const [takeoverError, setTakeoverError] = useState<string | null>(null);
-  /** 用户点「归还控制」后的短提示：登录完成后在对话里发「继续」（不 auto-resume）。 */
-  const [continueHint, setContinueHint] = useState(false);
+  /**
+   * 用户点「归还控制」后的短提示（不 auto-resume）。文案两态：有 pending
+   * `browserLogin` escalate → 对齐升级卡「已登录，继续」；否则仅「控制已归还」。
+   */
+  const [returnHint, setReturnHint] = useState(false);
+  const pendingBrowserLogin = useExecutionStore((s) =>
+    conversationHasPendingBrowserLogin(
+      runtimeOf(useConversationStore.getState(), conversationId).messages,
+      s.byId,
+    ),
+  );
+  const turnRunning = useExecutionStore((s) =>
+    conversationHasRunningTurn(
+      runtimeOf(useConversationStore.getState(), conversationId).messages,
+      s.byId,
+    ),
+  );
   // Track the live object URL outside React state so the cleanup / next-frame swap can
   // revoke the previous one synchronously (state is async, and a stale closure would leak).
   const frameUrlRef = useRef<string | null>(null);
@@ -188,23 +216,23 @@ export function BrowserLivePanel({
     }
   }, [conversationId]);
 
-  // 归还控制：收口 + 复位可见态。`showContinueHint` 仅用户点「归还控制」时开（会话结束
-  // / 卸载不提示）；提示文案引导用户在对话里发「继续」，**不** auto-resume / auto-resolve。
+  // 归还控制：收口 + 复位可见态。`showReturnHint` 仅用户点「归还控制」时开（会话结束
+  // / 卸载不提示）；**不** auto-resume / auto-resolve。
   const returnControl = useCallback(
-    (opts?: { showContinueHint?: boolean }) => {
+    (opts?: { showReturnHint?: boolean }) => {
       if (!takeoverActiveRef.current) return;
       setTakeover("ending");
       endTakeoverCore();
       setTakeover("idle");
       setTakeoverError(null);
-      if (opts?.showContinueHint) setContinueHint(true);
+      if (opts?.showReturnHint) setReturnHint(true);
     },
     [endTakeoverCore],
   );
 
   const beginTakeover = useCallback(async () => {
     setTakeoverError(null);
-    setContinueHint(false);
+    setReturnHint(false);
     setTakeover("starting");
     try {
       // 200 + reason：started|already_active 成功；其余 reason 抛 TakeoverStartError。
@@ -341,9 +369,12 @@ export function BrowserLivePanel({
   const showFrame = frameUrl !== null && status !== "no_session";
   const isLive =
     showFrame && status !== "session_closed" && connection === "open";
-  // 可接管：有活直播（started 且有帧、传输在线）（D16）。
+  // 可接管：活直播 +（无 turn 在跑 | pending browserLogin）——与后端 start 闸对齐（D16）。
   const canTakeover =
-    showFrame && status === "started" && connection === "open";
+    showFrame &&
+    status === "started" &&
+    connection === "open" &&
+    (!turnRunning || pendingBrowserLogin);
   const isTakingOver = takeover === "active" || takeover === "ending";
 
   return (
@@ -357,7 +388,7 @@ export function BrowserLivePanel({
           </span>
           <button
             type="button"
-            onClick={() => returnControl({ showContinueHint: true })}
+            onClick={() => returnControl({ showReturnHint: true })}
             className="ml-auto shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             归还控制
@@ -400,10 +431,12 @@ export function BrowserLivePanel({
         </div>
       )}
 
-      {continueHint && !takeoverError && (
+      {returnHint && !takeoverError && (
         <div className="flex shrink-0 items-center gap-1.5 border-b border-primary/20 bg-primary/5 px-3 py-1.5 text-xs text-foreground">
           <Hand size={13} className="shrink-0 text-primary" />
-          登录完成后，在对话里发送「继续」
+          {pendingBrowserLogin
+            ? "登录完成后，回到对话点「已登录，继续」"
+            : "控制已归还"}
         </div>
       )}
 
@@ -460,4 +493,31 @@ export function BrowserLivePanel({
       </div>
     </div>
   );
+}
+
+/**
+ * 右坞「浏览器」tab 的显隐 + 目标会话（同 `useTerminalRegion` 先例）：本会话**曾有** `browser_*`
+ * 活动即显示，且常驻整个会话——不可关闭、随会话切换消失，用户无需在 turn 运行中抢着点开就能在
+ * turn 停下后接管（判定与动因见 `lib/browserActivity.ts`）。
+ *
+ * **不做 auto-surface**：AI 用浏览器是高频常态，自动弹面板是打扰；唯一需要抢注意力的是 pending
+ * `browser_login`，那条由 `EscalationCard` 单独负责（它调 `showBrowser()` 揭示本 tab）。
+ *
+ * 收窄订阅（同 SidePanel 纪律）：只订阅 execution store 并在选择器内算出**布尔**，流式 token
+ * 期间返回值不变 → 不触发右坞重渲染。messages 用 `getState()` 即时读而不订阅——`browser_*` 是
+ * worker-only，其工具调用只能从 execution 折叠出来，`false→true` 的跃变必然伴随 execution 变更
+ * （新会话 hydrate 亦然），故不存在漏更新；反之订阅 messages 数组会让右坞逐 token 重渲染。
+ */
+export function useBrowserRegion(): {
+  show: boolean;
+  conversationId: string | null;
+} {
+  const conversationId = useConversationStore((s) => s.currentConversationId);
+  const show = useExecutionStore((s) =>
+    conversationHasBrowserActivity(
+      runtimeOf(useConversationStore.getState(), conversationId).messages,
+      s.byId,
+    ),
+  );
+  return { show, conversationId };
 }

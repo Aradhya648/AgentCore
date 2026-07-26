@@ -256,7 +256,7 @@ class CoordinationWaitPayload(WirePayload):
     total: int
 
 
-DeliveryState = Literal["delivered", "partial", "blocked"]
+DeliveryState = Literal["delivered", "partial", "blocked", "notes"]
 
 
 class DeliveryGap(WirePayload):
@@ -267,13 +267,24 @@ class DeliveryGap(WirePayload):
 
     Optional ``reason`` is a machine-readable cutoff / shortfall code when the gap
     comes from a structured engine signal — known:
-    ``token_budget`` / ``worker_timeout`` / ``degraded_handoff``. Absent for
-    ordinary contract / criteria prose gaps. Clients may badge known codes and
-    ignore unknown ones (forward-compatible)."""
+    ``token_budget`` / ``worker_timeout`` / ``degraded_handoff`` /
+    ``unverified_note`` (soft 待核实/示例自注) /
+    ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影).
+    Absent for ordinary contract / criteria prose gaps that have not been projected.
+    Clients may badge known codes and ignore unknown ones (forward-compatible).
+
+    Optional ``severity``: ``warning`` = soft reminder (待核实等，不单独撑起
+    partial/blocked); absent or ``blocking`` = real shortfall. Old clients that
+    ignore unknown fields still see the row; new clients split summary / card state.
+
+    Optional ``paths``: workspace-relative files implicated by a soft note (for
+    「打开相关文件」); absent on ordinary blocking gaps."""
 
     role: str
     description: str
     reason: str | None = absent()
+    severity: Literal["blocking", "warning"] | None = absent()
+    paths: list[str] | None = absent()
 
 
 class DeliveryAction(WirePayload):
@@ -281,9 +292,9 @@ class DeliveryAction(WirePayload):
     on the wire (like ``ToolPhase``) so the backend can add kinds without a client
     bump — known: ``bind_local_folder`` (云端无执行环境 → 绑定本地文件夹后可运行生成);
     ``website_verify`` (整页 QA 因预算 defer → 一键续派 ``build_website_verify``);
-    ``continue_writing`` (成篇 partial → 按章续写);
     ``continue_skipped_runs`` (turn/nested 额度 SKIPPED 未跑节点 → 下一回合续跑);
     unknown kinds render as a plain hint.
+    （成篇未写完改由对话框接着说——已撤 ``continue_writing`` 一键按钮。）
 
     Optional ``prompt`` is the exact user-turn text a client should send for
     kinds that open a new message (e.g. ``website_verify``). Absent for
@@ -299,8 +310,9 @@ class DeliveryStatusPayload(WirePayload):
     delegate batch emits at wrap-up — 已交付文件 / 缺口 / 待用户操作 — so the client
     renders an honest delivery card instead of mining the CEO's prose. Folds keep the
     LATEST per ``execution_id`` (reflects the most recent batch's reconciliation).
-    ``state``: delivered = 无缺口且有落盘产物; partial = 有产物也有缺口;
-    blocked = 有缺口且无落盘产物."""
+    ``state``: delivered = 无 blocking 缺口且有落盘产物; partial = 有产物也有
+    blocking 缺口; blocked = 有 blocking 缺口且无落盘产物;
+    notes = 仅有 soft 待核实提醒（轻提醒，非「部分未满足」）。"""
 
     execution_id: str
     state: DeliveryState
@@ -378,6 +390,8 @@ class RunCompletedPayload(WirePayload):
     # Soft-accept / cutoff gaps on a COMPLETED node (additive). Same shape as
     # ``DeliveryGap`` minus the batch-level ``role`` (node role is on the payload).
     gaps: list[DeliveryGap] | None = absent()
+    # Host-journal routing after turn teardown (pillar A); absent on old fixtures.
+    execution_id: str | None = absent()
 
 
 class RunFailedPayload(WirePayload):
@@ -385,12 +399,14 @@ class RunFailedPayload(WirePayload):
     agent_id: str
     error: str
     debrief: RunDebrief | None = absent()
+    execution_id: str | None = absent()
 
 
 class RunCancelledPayload(WirePayload):
     run_id: str
     agent_id: str
     reason: Literal["redirect", "stop"]
+    execution_id: str | None = absent()
 
 
 class RunSkippedPayload(WirePayload):

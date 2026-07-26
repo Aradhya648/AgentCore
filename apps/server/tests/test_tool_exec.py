@@ -643,3 +643,87 @@ async def test_test_run_maps_sandbox_error_to_failed_result(monkeypatch: pytest.
 
     assert result.success is False
     assert "代码执行环境启动失败" in (result.error or "")
+
+
+async def test_parallel_same_path_file_read_coalesces_once(tmp_path: Path):
+    """Same-round parallel file_read on one path → one underlying read, fan-out results."""
+    from agentcore.tools.builtin.file_ops import FileReadTool
+
+    (tmp_path / "doc.md").write_text("# Hello\nshared body\n", encoding="utf-8")
+    backend = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
+    reads = {"n": 0}
+    orig_read = backend.read
+
+    async def _counting_read(path: str, *args: Any, **kwargs: Any) -> str:
+        reads["n"] += 1
+        return await orig_read(path, *args, **kwargs)
+
+    backend.read = _counting_read  # type: ignore[method-assign]
+
+    reg = ToolRegistry()
+    reg.register(FileReadTool())
+    ctx = _ctx(backend)
+    sink = EventSink()
+    args = '{"path": "doc.md"}'
+    messages, terminal, attempts = await execute_tools(
+        [
+            _call("r1", "file_read", args),
+            _call("r2", "file_read", args),
+            _call("r3", "file_read", args),
+        ],
+        reg,
+        ctx,
+        sink,
+        run_id="r1",
+    )
+
+    assert terminal is None
+    assert len(messages) == 3
+    assert all(a.success for a in attempts)
+    assert reads["n"] == 1
+    assert ctx.file_read_counts.get("doc.md") == 1
+    bodies = [m.content or "" for m in messages]
+    assert all("shared body" in b for b in bodies)
+    # Each call still gets its own tool_use_start/end on the wire.
+    starts = [e for e in sink._history if e.type == EventType.TOOL_USE_START]  # noqa: SLF001
+    ends = [e for e in sink._history if e.type == EventType.TOOL_USE_END]  # noqa: SLF001
+    assert {e.payload["tool_call_id"] for e in starts} == {"r1", "r2", "r3"}
+    assert {e.payload["tool_call_id"] for e in ends} == {"r1", "r2", "r3"}
+
+
+async def test_parallel_distinct_path_file_reads_not_coalesced(tmp_path: Path):
+    """Different paths in one round still each execute (no cross-path fan-out)."""
+    from agentcore.tools.builtin.file_ops import FileReadTool
+
+    (tmp_path / "a.md").write_text("AAA", encoding="utf-8")
+    (tmp_path / "b.md").write_text("BBB", encoding="utf-8")
+    backend = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
+    reads = {"n": 0}
+    orig_read = backend.read
+
+    async def _counting_read(path: str, *args: Any, **kwargs: Any) -> str:
+        reads["n"] += 1
+        return await orig_read(path, *args, **kwargs)
+
+    backend.read = _counting_read  # type: ignore[method-assign]
+
+    reg = ToolRegistry()
+    reg.register(FileReadTool())
+    ctx = _ctx(backend)
+    messages, _terminal, attempts = await execute_tools(
+        [
+            _call("r1", "file_read", '{"path": "a.md"}'),
+            _call("r2", "file_read", '{"path": "b.md"}'),
+        ],
+        reg,
+        ctx,
+        EventSink(),
+        run_id="r1",
+    )
+    assert all(a.success for a in attempts)
+    assert reads["n"] == 2
+    assert ctx.file_read_counts.get("a.md") == 1
+    assert ctx.file_read_counts.get("b.md") == 1
+    by_id = {m.tool_call_id: m.content or "" for m in messages}
+    assert "AAA" in by_id["r1"]
+    assert "BBB" in by_id["r2"]

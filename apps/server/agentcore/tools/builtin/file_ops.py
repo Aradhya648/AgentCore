@@ -11,11 +11,17 @@ local (desktop) workspace.
 import hashlib
 import re
 import time
+from difflib import SequenceMatcher
 from posixpath import basename
 from typing import Any, Literal
 
 from agentcore.core.logging import get_logger
 from agentcore.core.types import ToolApproval, ToolCategory
+from agentcore.tools.builtin.code_integrity import (
+    code_omission_rejection,
+    code_structure_rejection,
+    is_brace_code_path,
+)
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
     AUDIENCE_BOTH,
@@ -81,6 +87,23 @@ def substantial_overwrite_rejection(path: str, old_chars: int) -> str:
         f"{_SUBSTANTIAL_FILE_CHARS} 字）。请改用 str_replace 局部修订；"
         "确需整体换稿时先说明并拆成局部补丁。"
         "超长新建应先短骨架再按节填空；中等单篇一次 file_write 写完。"
+        "补丁失败或读不到原文 ≠ 用骨架 file_write 交差——应对照盘文再改或 escalate。"
+    )
+
+
+def is_empty_shell(content: str) -> bool:
+    """True when ``content`` is missing or whitespace-only (新建 / 真·空壳例外)."""
+    return not (content or "").strip()
+
+
+def non_empty_code_overwrite_rejection(path: str, old_chars: int) -> str:
+    """User-facing error when ``file_write`` would skeleton-clobber existing code."""
+    return (
+        f"拒绝整文件覆盖：`{path}` 已是非空代码文件（约 {old_chars} 字）。"
+        "修订须基于磁盘原文用 str_replace 局部改；"
+        "补丁失败或读不到原文 ≠ 用骨架 / 最小实现 file_write 整文件重写交差——"
+        "应对照 str_replace 失败回执中的盘片段再改，或 escalate。"
+        "仅新建文件或真·空壳（空白）可用 file_write。"
     )
 
 
@@ -278,17 +301,9 @@ def format_artifact_manifest(
         f"content_sha256: {content_sha256_short(content)}\n"
         f"title_tree:\n{tree_block}\n"
         f"end_preview:\n{preview}\n"
-        "【验真】请以本 manifest 确认落盘；作者禁止对本文件再 file_read 回读正文"
-        "（防空转；下游读者不受此限）。"
+        "【验真】请以本 manifest 确认落盘；优先用 manifest 验真，"
+        "勿为空转反复 file_read（同 path 受次数上限约束）。"
     )
-
-
-def format_cheap_disk_structure(content: str, *, path: str) -> str:
-    """Title tree + line count for author self-product ``file_read`` rejection (not a body dump)."""
-    lines = len((content or "").splitlines())
-    tree = extract_title_tree(content)
-    tree_block = "、".join(tree[:12]) if tree else "（无标题）"
-    return f"现盘结构：`{path}` lines={lines}；title_tree: {tree_block}"
 
 
 def prose_append_rejection(path: str) -> str:
@@ -297,18 +312,6 @@ def prose_append_rejection(path: str) -> str:
         f"拒绝追加：`{path}` 本 run 已落成篇正文（非骨架）。"
         "中等单篇应一次 file_write 写完；超长应先短骨架再按节 "
         "file_append / str_replace 填空；修订请用 str_replace。"
-    )
-
-
-def self_product_read_rejection(path: str, structure_note: str) -> str:
-    """Hard reject author ``file_read`` of a path they landed（防作者空转，非防读者）。"""
-    note = (structure_note or "").strip()
-    suffix = f"\n{note}" if note else ""
-    return (
-        f"拒绝 file_read：`{path}` 为你本 run 已落盘产物。"
-        "请以写/append 回执中的 artifact manifest 验真，禁止作者回读正文"
-        "（防空转；下游非作者可读）。"
-        f"{suffix}"
     )
 
 
@@ -325,14 +328,17 @@ def _mark_landed_files(
     """Stamp landed-files gate + Artifact-first path kind (shared mutable dict).
 
     ``kind="prose"`` locks same-path append. ``kind="skeleton"`` or omitted keeps
-    append allowed while still blocking the **author**'s self-product ``file_read``
-    （防作者空转验真，非防下游读者）. Existing ``prose`` is never downgraded.
+    append allowed. Existing ``prose`` is never downgraded.
     First writer of ``path`` is recorded in ``landed_artifact_authors`` (setdefault).
     """
     context.has_landed_files = True
     path_key = _norm_rel_path(path)
     if not path_key:
         return
+    # C3: successful I/O → path is no longer declare-only on the ownership ledger.
+    coordinator = context.write_coordinator
+    if coordinator is not None:
+        coordinator.mark_written(path_key)
     author = (context.agent_id or "").strip()
     if author:
         context.landed_artifact_authors.setdefault(path_key, author)
@@ -388,6 +394,191 @@ _APPEND_ECHO_LINES = 12
 _APPEND_ECHO_CHARS = 600
 _EDIT_ECHO_CONTEXT = 3
 _EDIT_ECHO_MAX_LINES = 24
+# str_replace 失败回执：从磁盘带回有界片段（编辑以盘为真源）；不放开通用 file_read 上限。
+_EDIT_FAIL_CONTEXT = 3
+_EDIT_FAIL_MAX_LINES = 24
+_EDIT_FAIL_FUZZY_MAX = 3
+_EDIT_FAIL_FUZZY_MIN_RATIO = 0.45
+_EDIT_FAIL_OLD_PREVIEW_CHARS = 160
+
+
+def _region_slice(
+    lines: list[str], center_idx0: int, *, context: int, max_lines: int
+) -> tuple[int, list[str]]:
+    """Return ``(start_line_1based, sliced_lines)`` around ``center_idx0``."""
+    half = min(context, max(0, (max_lines - 1) // 2))
+    start0 = max(0, center_idx0 - half)
+    end0 = min(len(lines), start0 + max_lines)
+    start0 = max(0, end0 - max_lines)
+    return start0 + 1, lines[start0:end0]
+
+
+def _old_string_preview(old_string: str) -> str:
+    text = old_string.replace("\r\n", "\n").replace("\r", "\n")
+    if len(text) <= _EDIT_FAIL_OLD_PREVIEW_CHARS:
+        return text
+    return text[:_EDIT_FAIL_OLD_PREVIEW_CHARS] + "…"
+
+
+def _fuzzy_line_candidates(
+    content: str, old_string: str
+) -> list[tuple[float, int, list[str]]]:
+    """Bounded fuzzy regions near ``old_string`` anchors (score, start_1based, lines)."""
+    lines = content.splitlines()
+    if not lines:
+        return []
+    old_lines = [ln for ln in old_string.replace("\r\n", "\n").splitlines() if ln.strip()]
+    if not old_lines:
+        start, region = _region_slice(
+            lines, 0, context=0, max_lines=_EDIT_FAIL_MAX_LINES
+        )
+        return [(0.0, start, region)]
+
+    scored: list[tuple[float, int]] = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        best = max(
+            SequenceMatcher(None, line, ol).ratio() for ol in old_lines
+        )
+        if best >= _EDIT_FAIL_FUZZY_MIN_RATIO:
+            scored.append((best, i))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+
+    out: list[tuple[float, int, list[str]]] = []
+    used: list[int] = []
+    min_gap = max(1, _EDIT_FAIL_CONTEXT * 2)
+    for score, idx in scored:
+        if len(out) >= _EDIT_FAIL_FUZZY_MAX:
+            break
+        if any(abs(idx - u) < min_gap for u in used):
+            continue
+        start, region = _region_slice(
+            lines,
+            idx,
+            context=_EDIT_FAIL_CONTEXT,
+            max_lines=_EDIT_FAIL_MAX_LINES,
+        )
+        out.append((score, start, region))
+        used.append(idx)
+
+    if not out:
+        start, region = _region_slice(
+            lines, 0, context=0, max_lines=_EDIT_FAIL_MAX_LINES
+        )
+        out.append((0.0, start, region))
+    return out
+
+
+def _exact_match_regions(
+    content: str, old_string: str, *, max_show: int = _EDIT_FAIL_FUZZY_MAX
+) -> list[tuple[int, list[str]]]:
+    """First ``max_show`` exact-match regions as ``(start_line_1based, lines)``."""
+    lines = content.splitlines()
+    if not lines or not old_string:
+        return []
+    out: list[tuple[int, list[str]]] = []
+    start_search = 0
+    while len(out) < max_show:
+        idx = content.find(old_string, start_search)
+        if idx < 0:
+            break
+        line_idx0 = content[:idx].count("\n")
+        start, region = _region_slice(
+            lines,
+            line_idx0,
+            context=_EDIT_FAIL_CONTEXT,
+            max_lines=_EDIT_FAIL_MAX_LINES,
+        )
+        out.append((start, region))
+        start_search = idx + max(1, len(old_string))
+    return out
+
+
+def _format_fail_snippet_block(
+    *,
+    label: str,
+    start_line: int,
+    region: list[str],
+    score: float | None = None,
+) -> str:
+    score_note = ""
+    if score is not None:
+        score_note = f"（模糊相似度 {score:.0%}，非精确）"
+    header = f"—— {label}{score_note} · 约第 {start_line} 行起 ——"
+    body = _format_numbered_lines(region, start_line)
+    return f"{header}\n{body}" if body else header
+
+
+async def _assemble_str_replace_fail_receipt(
+    context: ToolContext,
+    rel_path: str,
+    old_string: str,
+    *,
+    kind: Literal["no_match", "ambiguous"],
+    match_count: int | None = None,
+) -> str:
+    """Disk-backed failure receipt for ``str_replace`` (bounded snippets; no sticky re-read).
+
+    Backend still raises ``NoMatch`` / ``AmbiguousMatch``; this only enriches the tool
+    error so the model can re-anchor from disk instead of inventing a skeleton rewrite.
+    """
+    if kind == "no_match":
+        head = (
+            f"在 {rel_path} 中找不到 old_string；它必须与磁盘文件完全一致，"
+            "包括空白与缩进。"
+        )
+    else:
+        head = (
+            f"old_string 在 {rel_path} 中不唯一（匹配 {match_count} 处）。请补充"
+            "更多上下文以锁定单一片段，或设置 replace_all=true。"
+        )
+    head += (
+        f"\n你提供的 old_string 预览：\n```\n{_old_string_preview(old_string)}\n```"
+        "\n以下为磁盘原文片段（真源；标明非精确的仅供锚定，勿当已匹配）："
+    )
+
+    try:
+        content = await context.backend.read(rel_path)
+    except WorkspaceError as e:
+        return (
+            f"{head}\n（无法读取磁盘：{e}）\n"
+            "请 escalate 或改用其它路径；禁止用骨架 file_write 整文件重写冒充修复。"
+        )
+
+    blocks: list[str] = []
+    if kind == "ambiguous" and old_string:
+        for i, (start, region) in enumerate(
+            _exact_match_regions(content, old_string), start=1
+        ):
+            blocks.append(
+                _format_fail_snippet_block(
+                    label=f"精确命中 #{i}",
+                    start_line=start,
+                    region=region,
+                )
+            )
+        if match_count is not None and match_count > len(blocks):
+            blocks.append(f"（另有 {match_count - len(blocks)} 处未列出）")
+    else:
+        for i, (score, start, region) in enumerate(
+            _fuzzy_line_candidates(content, old_string), start=1
+        ):
+            label = "文件开头" if score == 0.0 and i == 1 else f"候选 #{i}"
+            blocks.append(
+                _format_fail_snippet_block(
+                    label=label,
+                    start_line=start,
+                    region=region,
+                    score=None if score == 0.0 else score,
+                )
+            )
+
+    guidance = (
+        "\n请对照上方盘片段重写精确 old_string 后再 str_replace；"
+        "禁止用骨架 / 最小实现 file_write 整文件覆盖冒充修复；仍对不上则 escalate。"
+    )
+    return head + "\n\n" + "\n\n".join(blocks) + guidance
 
 
 def _tail_preview(content: str, *, max_lines: int, max_chars: int) -> str:
@@ -625,16 +816,29 @@ def _claim_write_path(
             event, path=rel_path, run_id=context.run_id, owner=owner
         )
         from agentcore.runtime.audit.hooks import on_write_conflict
-        from agentcore.workspace.write_claims import ownership_conflict_message
+        from agentcore.workspace.write_claims import (
+            lookup_owner_status,
+            ownership_conflict_message,
+        )
 
         on_write_conflict(
             path=rel_path,
             run_id=context.run_id,
             owner_run_id=owner,
         )
+        ownership_kind = "written" if coordinator.is_written(rel_path) else "declared"
+        owner_role, owner_status = lookup_owner_status(
+            owner, execution_id=context.execution_id
+        )
         return (
             _error(
-                ownership_conflict_message(rel_path, owner),
+                ownership_conflict_message(
+                    rel_path,
+                    owner,
+                    owner_role=owner_role,
+                    ownership_kind=ownership_kind,
+                    owner_status=owner_status,
+                ),
                 start,
                 contract_failure=True,
             ),
@@ -733,9 +937,9 @@ class FileReadTool:
                 "读取工作区内某个文件的内容（相对路径）。"
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
-                "你本人本 run 已用 file_write / file_append / str_replace 落盘的路径"
-                "禁止再 file_read 回读正文（防作者空转——以写回执 artifact manifest 验真；"
-                "下游非作者可读）。"
+                "同一相对路径本 run 有成功读取次数上限（整读与 offset/limit 合计）；"
+                "已落盘产物优先以写/append 回执中的 artifact manifest 验真，"
+                "勿为空转反复 file_read。"
             ),
             parameters={
                 "type": "object",
@@ -776,24 +980,6 @@ class FileReadTool:
         path_key = (rel_path or "").strip().replace("\\", "/")
         using_reread = False
         if path_key:
-            # Artifact-first: author must not body-read a path they landed
-            # （防作者空转验真，非防读者）. Non-author agents in the same execution
-            # may read. Cheap structure only; does NOT count toward FILE_READ_SAME_PATH_MAX.
-            landed_kind = context.landed_artifact_kinds.get(path_key)
-            author_id = context.landed_artifact_authors.get(path_key) or ""
-            self_agent = (context.agent_id or "").strip()
-            if landed_kind is not None and author_id and author_id == self_agent:
-                structure = ""
-                try:
-                    disk = await context.backend.read(rel_path)
-                    structure = format_cheap_disk_structure(disk, path=path_key)
-                except WorkspaceError:
-                    structure = f"现盘结构：`{path_key}`（暂不可读）"
-                return _error(
-                    self_product_read_rejection(path_key, structure),
-                    start,
-                    contract_failure=True,
-                )
             prior = int(context.file_read_counts.get(path_key, 0))
             if prior >= FILE_READ_SAME_PATH_MAX:
                 verbatim = context.file_read_verbatim_paths
@@ -893,11 +1079,17 @@ class FileWriteTool:
                 "【Artifact-first】中等单篇默认一次写完；超长先短骨架（标题/锚点/"
                 "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空——"
                 "禁止先写成篇正文再同文件 append。"
-                "成功回执为 artifact manifest（作者以此验真，禁止再 file_read 回读；"
-                "防空转，下游读者不受此限）。"
+                "成功回执为 artifact manifest（优先以此验真；反复 file_read "
+                "受同 path 次数上限约束）。"
                 "【修订已有成品】禁止用它全文重写——对已存在成篇非空文件，"
                 "系统会【硬拒绝】整文件覆盖并引导改用 str_replace"
                 "（反例：惰性「……（中间省略，已保留首尾）……」会残缺交付）。"
+                "【代码文件】已存在的非空代码（.ts/.tsx/.js 等）禁止整文件覆盖——"
+                "哪怕短于成篇阈值；仅新建或真·空壳可用 file_write。"
+                "补丁失败（str_replace NoMatch）或读不到原文 ≠ 用骨架 file_write "
+                "整文件重写交差；应对照失败回执中的盘片段再改，或 escalate。"
+                "【代码完整性】对 .ts/.tsx/.js 等：无 SECTION 骨架标记时，"
+                "括号结构不完整或含省略标记 → 硬拒绝（防截断类缺 `}`）。"
                 "只改一部分优先 str_replace；骨架填空才用 file_append。"
                 "路径必须是相对于工作区的相对路径。"
             ),
@@ -972,6 +1164,54 @@ class FileWriteTool:
                 start,
                 contract_failure=True,
             )
+
+        # 编码闭环·阶段3：已存在非空代码文件禁止整文件覆盖（堵短文件骨架冒充修复）。
+        # 保留新建 / 真·空壳窄例外；成篇阈值之上已由 substantial 闸覆盖。
+        if (
+            old_content is not None
+            and not is_empty_shell(old_content)
+            and is_brace_code_path(rel_path)
+        ):
+            old_chars = len(old_content.strip())
+            logger.info(
+                "file_write.non_empty_code_overwrite_rejected",
+                path=rel_path,
+                old_chars=old_chars,
+            )
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            return _error(
+                non_empty_code_overwrite_rejection(rel_path, old_chars),
+                start,
+                contract_failure=True,
+            )
+
+        # 代码落盘完整性闸 (D1)：括号截断 / 省略标记硬拒；SECTION 骨架豁免。
+        if is_brace_code_path(rel_path):
+            if has_omission_marker(write_content):
+                logger.info(
+                    "file_write.code_integrity_rejected",
+                    path=rel_path,
+                    reason="omission",
+                )
+                if coordinator is not None and release_on_fail:
+                    coordinator.release(rel_path, context.run_id)
+                return _error(
+                    code_omission_rejection(rel_path),
+                    start,
+                    contract_failure=True,
+                )
+            if not has_skeleton_markers(write_content):
+                struct_err = code_structure_rejection(rel_path, write_content)
+                if struct_err is not None:
+                    logger.info(
+                        "file_write.code_integrity_rejected",
+                        path=rel_path,
+                        reason="structure",
+                    )
+                    if coordinator is not None and release_on_fail:
+                        coordinator.release(rel_path, context.run_id)
+                    return _error(struct_err, start, contract_failure=True)
 
         try:
             written = await context.backend.write(rel_path, write_content)
@@ -1050,8 +1290,8 @@ class FileAppendTool:
                 "仅用于骨架填空 / 建站 SECTION 壳：短骨架或 `<!-- SECTION: -->` 落盘后"
                 "按节追加。禁止对「本 run 已 file_write 成篇正文」再 append——"
                 "中篇应一次写完，修订用 str_replace。"
-                "成功回执为 artifact manifest（作者以此验真，禁止再 file_read 回读；"
-                "防空转，下游读者不受此限）。"
+                "成功回执为 artifact manifest（优先以此验真；反复 file_read "
+                "受同 path 次数上限约束）。"
                 "若要【整体覆盖】或中等单篇一次成文，用 file_write；改中间某段用 "
                 "str_replace。路径必须是相对于工作区的相对路径。"
             ),
@@ -1111,6 +1351,32 @@ class FileAppendTool:
         # Disk already looks like finished prose and this run wrote it as prose
         # is handled above. If disk is prose but not locked this run (扩写 / 他 run
         # 骨架)，仍放行。若本 run 未登记且盘上已是成篇、又无骨架标记——仍放行扩写。
+
+        # 代码落盘完整性闸 (D1)：追加后的合并正文也必须结构完整（骨架豁免）。
+        merged_preview = (old_content or "") + (content or "")
+        if is_brace_code_path(rel_path):
+            if has_omission_marker(content or ""):
+                if coordinator is not None and release_on_fail:
+                    coordinator.release(rel_path, context.run_id)
+                return _error(
+                    code_omission_rejection(rel_path),
+                    start,
+                    contract_failure=True,
+                )
+            skeleton_ok = has_skeleton_markers(merged_preview) or has_skeleton_markers(
+                old_content or ""
+            )
+            if not skeleton_ok:
+                struct_err = code_structure_rejection(rel_path, merged_preview)
+                if struct_err is not None:
+                    logger.info(
+                        "file_append.code_integrity_rejected",
+                        path=rel_path,
+                        reason="structure",
+                    )
+                    if coordinator is not None and release_on_fail:
+                        coordinator.release(rel_path, context.run_id)
+                    return _error(struct_err, start, contract_failure=True)
 
         try:
             appended = await context.backend.append(rel_path, content)
@@ -1329,8 +1595,9 @@ class StrReplaceTool:
                 "用它而非 file_write：它只重写匹配到的片段，因此对大文件安全、也"
                 "不会误伤无关内容。在 old_string 里放足够的上下文，确保在文件中"
                 "【唯一匹配一次】（包括空白、缩进与换行）。若 old_string 不存在、"
-                "或匹配多于一次（除非 replace_all=true），则失败。要新建文件请改"
-                "用 file_write。"
+                "或匹配多于一次（除非 replace_all=true），则失败；失败回执会附带"
+                "磁盘原文有界片段（模糊候选会标明非精确）——以盘文为真源重锚再改，"
+                "禁止改用骨架 file_write 整文件重写交差。要新建文件请改用 file_write。"
             ),
             parameters={
                 "type": "object",
@@ -1404,18 +1671,22 @@ class StrReplaceTool:
         except NoMatch:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
-            return _error(
-                f"在 {rel_path} 中找不到 old_string；它必须与文件完全一致，包括空白与缩进。",
-                start,
+            # 失败回执自带有界盘片段 → 不加 sticky「补丁再读」，勿放开通用 file_read 上限。
+            receipt = await _assemble_str_replace_fail_receipt(
+                context, rel_path, old_string, kind="no_match"
             )
+            return _error(receipt, start)
         except AmbiguousMatch as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
-            return _error(
-                f"old_string 在 {rel_path} 中不唯一（匹配 {e.count} 处）。请补充"
-                "更多上下文以锁定单一片段，或设置 replace_all=true。",
-                start,
+            receipt = await _assemble_str_replace_fail_receipt(
+                context,
+                rel_path,
+                old_string,
+                kind="ambiguous",
+                match_count=e.count,
             )
+            return _error(receipt, start)
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)

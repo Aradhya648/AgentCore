@@ -14,6 +14,19 @@ BACKOFF_MULTIPLIER = 2.0
 # the 10s connect ceiling). Read timeout / 5xx keep MAX_RETRIES above.
 CONNECT_MAX_RETRIES = 2
 CONNECT_INITIAL_BACKOFF = 1.0
+# Turn-scale scenarios invert that trade-off: a background one-shot (title /
+# followups / memory) only loses its own cheap output, but a chat turn or a
+# delegated worker loses the whole run — teammates' prose, coordination state,
+# minutes of wall clock — and the turn ends with no assistant message at all.
+# So connect failures there get a real exponential chain, sized to ride out a
+# proxy / tunnel restart (≈25s realistic, ≈47s if every connect also times out);
+# a genuine outage still fails, just not within 5 seconds.
+TURN_CONNECT_MAX_RETRIES = 4
+TURN_CONNECT_INITIAL_BACKOFF = 2.0
+# ``LLMRequest.scenario`` values that carry a whole turn. Mirrors the multi-round
+# entries of ``llm.profiles.PROFILES`` (kept here, not imported, because profiles
+# depends on this module); one-shot scenarios keep the fail-fast budget above.
+TURN_SCALE_SCENARIOS = frozenset({"chat", "agent"})
 # 429 / Retry-After: allow more attempts than generic I/O so short exponential
 # Retry-After chains (2→4→8…) are actually waited, not abandoned on the 3rd hit.
 RATE_LIMIT_MAX_RETRIES = 6
@@ -22,6 +35,13 @@ RATE_LIMIT_MAX_RETRIES = 6
 # followups 15s) even though a second-scale retry then succeeds — past this
 # cap we fall back to exponential backoff and log the raw header separately.
 MAX_RETRY_AFTER = 30.0
+
+
+def connect_retry_policy(scenario: str) -> tuple[int, float]:
+    """``(max_attempts, initial_backoff)`` for connect-class failures in ``scenario``."""
+    if scenario in TURN_SCALE_SCENARIOS:
+        return TURN_CONNECT_MAX_RETRIES, TURN_CONNECT_INITIAL_BACKOFF
+    return CONNECT_MAX_RETRIES, CONNECT_INITIAL_BACKOFF
 
 
 @dataclass

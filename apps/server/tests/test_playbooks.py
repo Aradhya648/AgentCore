@@ -49,6 +49,22 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     assert "单主文件" in by_id["write"]["task"]
     assert "AgentCore/文档/research/报告.md" in by_id["write"]["task"]
     assert "AgentCore/文档/research/报告.md" in by_id["review"]["task"]
+    # 中间环与终稿同走案卷：各路调研 + 提纲 form=files，路径钉 RESEARCH_DIR，角度名入文件名。
+    expected_research_artifacts = {
+        "AgentCore/文档/research/原理调研报告.md",
+        "AgentCore/文档/research/选型调研报告.md",
+        "AgentCore/文档/research/成本调研报告.md",
+    }
+    for rid in research_ids:
+        d = by_id[rid]["deliverable"]
+        assert d["form"] == "files"
+        assert d["artifacts"] and d["artifacts"][0] in expected_research_artifacts
+        assert d["artifacts"][0] in by_id[rid]["task"]
+        assert "file_write" in by_id[rid]["task"]
+    outline_d = by_id["outline"]["deliverable"]
+    assert outline_d["form"] == "files"
+    assert outline_d["artifacts"] == ["AgentCore/文档/research/提纲.md"]
+    assert "AgentCore/文档/research/提纲.md" in by_id["outline"]["task"]
     # Artifact-first writer brief: skeleton first; ban half-chapter prose then append.
     write_task = by_id["write"]["task"]
     assert "短骨架" in write_task or "首写必须是短骨架" in write_task
@@ -88,6 +104,11 @@ def test_research_report_without_angles_uses_single_researcher():
     # 单调研员路径同样钉住主张须证教法。
     assert "#rN" in by_id["research_0"]["task"]
     assert "待核实" in by_id["research_0"]["task"]
+    # 无 angles 时默认案卷路径（仍落 RESEARCH_DIR，不用角色名）。
+    d = by_id["research_0"]["deliverable"]
+    assert d["form"] == "files"
+    assert d["artifacts"] == ["AgentCore/文档/research/调研报告.md"]
+    assert by_id["outline"]["deliverable"]["artifacts"] == ["AgentCore/文档/research/提纲.md"]
 
 
 def test_research_report_output_path_overrides_main_artifact():
@@ -123,10 +144,10 @@ def test_research_report_review_explicit_wall_clock_survives_build():
     by_role = {n.role: n for n in plan.nodes}
     # review 有上游；墙钟显式 300s；token 顶走统一 backstop。
     assert by_role["学术审校员"].policy.timeout_s == 300
-    assert by_role["学术审校员"].token_ceiling == 600_000
-    # 提纲同为依赖上游的 prose 节点、未显式声明 → 统一 backstop 600s / 200k。
+    assert by_role["学术审校员"].token_ceiling == 1_000_000
+    # 提纲同为依赖上游的节点、未显式声明墙钟 → 统一 backstop 600s / 1M。
     assert by_role["提纲编辑"].policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
-    assert by_role["提纲编辑"].token_ceiling == 600_000
+    assert by_role["提纲编辑"].token_ceiling == 1_000_000
 
 
 def test_research_report_requires_topic():
@@ -182,6 +203,33 @@ def test_build_feature_requires_feature():
     tasks, errors = expand_playbook("build_feature", {})
     assert tasks == []
     assert errors and "feature" in errors[0]
+
+
+# ── repair_code ───────────────────────────────────────────────────────────────
+
+
+def test_repair_code_diagnose_patch_verify_shape():
+    tasks, errors = expand_playbook(
+        "repair_code",
+        {"problem": "Module missing export foo", "target": "src/app.ts"},
+    )
+    assert errors == []
+    by_id = _by_id(tasks)
+    assert set(by_id) == {"diagnose", "patch", "verify"}
+    assert by_id["patch"]["depends_on"] == ["diagnose"]
+    assert by_id["verify"]["depends_on"] == ["patch"]
+    assert by_id["diagnose"]["max_rounds"] == 4
+    assert by_id["patch"]["max_rounds"] == 6
+    assert by_id["patch"]["deliverable"]["requires_files"] is True
+    assert "src/app.ts" in by_id["patch"]["deliverable"]["artifacts"]
+    assert "file_list" not in by_id["diagnose"]["tools"]
+    assert "str_replace" in by_id["patch"]["tools"]
+
+
+def test_repair_code_requires_problem():
+    tasks, errors = expand_playbook("repair_code", {})
+    assert tasks == []
+    assert errors and "problem" in errors[0]
 
 
 # ── build_website ─────────────────────────────────────────────────────────────
@@ -867,6 +915,7 @@ def test_available_playbooks_lists_all_registered():
     assert set(PLAYBOOKS) == {
         "research_report",
         "build_feature",
+        "repair_code",
         "build_website",
         "build_toolshed",
         "build_website_verify",
@@ -878,6 +927,21 @@ def test_available_playbooks_lists_all_registered():
         assert name in listing
 
 
+# ── organize_folder ───────────────────────────────────────────────────────────
+
+
+def test_organize_folder_deliverable_form_is_files():
+    """整理要落盘：form=files 保留文件工具语义（非 prose 撤写）。"""
+    tasks, errors = expand_playbook(
+        "organize_folder",
+        {"task": "扫描下载文件夹并给出整理方案"},
+    )
+    assert errors == []
+    assert len(tasks) == 1
+    assert tasks[0]["deliverable"]["form"] == "files"
+    assert tasks[0]["deliverable"]["name"] == "整理结果报告"
+
+
 # ── every expansion is a runnable plan (the real builder, not a mock) ──────────
 
 
@@ -885,6 +949,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
     samples = {
         "research_report": {"topic": "T", "angles": ["a", "b"], "checkpoint": True},
         "build_feature": {"feature": "F", "stack": "S"},
+        "repair_code": {"problem": "missing export", "target": "app.ts"},
         "build_website": {"site": "Landing", "sections": ["hero", "cta"]},
         "build_toolshed": {"site": "Ops console", "sections": ["应用外壳", "数据表格"]},
         "build_website_verify": {"site": "Landing"},
@@ -895,6 +960,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
     expected_nodes = {
         "research_report": 5,
         "build_feature": 3,
+        "repair_code": 3,
         "build_website": 7,  # copy + design + skeleton + 2 sections + assemble + qa
         "build_toolshed": 7,  # same shape, 2 sections
         "build_website_verify": 1,  # qa only
@@ -911,3 +977,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         assert len(plan.nodes) == expected_nodes[name], name
         # waves() raises on a cycle / dangling edge — a clean call proves the DAG is sound.
         assert plan.waves()
+        if name == "repair_code":
+            assert all(
+                (n.max_rounds or 0) > 0 and (n.max_rounds or 99) <= 6 for n in plan.nodes
+            )

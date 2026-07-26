@@ -390,3 +390,51 @@ def declare_plan_artifacts(
             if owner is not None:
                 conflicts.append((rid, path, owner))
     return conflicts
+
+
+def declare_nested_drive_artifacts(
+    tool: Any,
+    plan: RunPlan,
+    *,
+    execution_id: str,
+) -> list[tuple[str, str, str]]:
+    """Path-level ownership handoff for nested (depth≥1) blocking drives.
+
+    Nested sub-teams share the parent coordination ledger via
+    :func:`~agentcore.workspace.write_claims.resolve_write_coordinator` but never
+    enter :func:`try_start_coordination`, so they previously skipped dispatch-time
+    declare. With ``parent_run_id`` in the ancestor map, declaring the child's
+    artifacts transfers only those paths from the lead (not ``transfer_all_from``).
+    Root depth-0 coordination already declares in ``host`` — skipped here.
+    """
+    from agentcore.workspace.write_claims import (
+        file_ownership_v2_enabled,
+        resolve_write_coordinator,
+    )
+
+    if not file_ownership_v2_enabled():
+        return []
+    if int(getattr(tool, "_depth", 0) or 0) < 1:
+        return []
+
+    ownership = resolve_write_coordinator(execution_id=execution_id)
+    force = bool(getattr(tool, "_delegate_force", False))
+    conflicts = declare_plan_artifacts(
+        plan,
+        ownership,
+        force=force,
+        ancestor_map=_ancestors_for_plan(plan),
+    )
+    if conflicts:
+        from agentcore.core.logging import get_logger
+
+        get_logger(__name__).info(
+            "coordination.nested_declare_conflicts",
+            execution_id=execution_id,
+            depth=int(getattr(tool, "_depth", 0) or 0),
+            conflicts=[
+                {"run_id": rid, "path": path, "owner": owner}
+                for rid, path, owner in conflicts
+            ],
+        )
+    return conflicts

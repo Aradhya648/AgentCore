@@ -33,6 +33,7 @@ __all__ = [
     "parse_form",
     "parse_background",
     "parse_sides",
+    "parse_moderator_fields",
     "validate_stance",
 ]
 
@@ -128,11 +129,39 @@ DEBATE_PARAMETERS = {
                     },
                     "model": {
                         "type": "string",
-                        "description": "（可选·MVP 未启用）per-side 模型覆写预留；请留空。",
+                        "description": (
+                            "（可选）该方辩手模型：可填目录 id，或人类可读提及"
+                            "（如「5.2」「平台 5.2」「DeepSeek」）。"
+                            "点名时只填提及即可，origin/provider_id 可省略——开赛前 runtime 消歧成三元组；"
+                            "已有完整三元组亦可直通。空=跟本 turn 主模型（同模型场）。"
+                        ),
+                    },
+                    "origin": {
+                        "type": "string",
+                        "enum": ["platform", "byok"],
+                        "description": (
+                            "模型来源：platform=平台目录；byok=用户自备密钥服务商。"
+                            "可选；缺省时由 runtime 对 model 提及消歧补全。"
+                        ),
+                    },
+                    "provider_id": {
+                        "type": "string",
+                        "description": (
+                            "BYOK 服务商 id（origin=byok 时最终必填；platform 勿填）。"
+                            "提及消歧成功后由 runtime 写回。"
+                        ),
                     },
                 },
                 "required": ["key", "name", "stance"],
             },
+        },
+        "cross_model": {
+            "type": "boolean",
+            "description": (
+                "用户只说「跨模型 / 不同模型辩论」未点名双方时置 true，且各方 model 留空："
+                "runtime 套默认对阵（平台 allowlist 前两名，或 1 平台 + BYOK DeepSeek）。"
+                "留空且无本旗标 = 同模型场（跟 turn 主模型），不是跨模型。"
+            ),
         },
         "thorough": {
             "type": "boolean",
@@ -146,6 +175,28 @@ DEBATE_PARAMETERS = {
                 "（可选）赛前底料：已核实客观事实清单，每条须附【来源】与【日期】；"
                 "未决 / 推断不得写成既定事实；只放事实不放观点。纯价值观命题不必传。"
                 "格式与硬化禁令见 debate_and_review。"
+            ),
+        },
+        "moderator_model": {
+            "type": "string",
+            "description": (
+                "（可选）裁判 / 主持人模型：同 sides[].model，可填目录 id 或人类可读提及"
+                "（如「DeepSeek」「平台 5.2」）。用户点名裁判时填此字段；"
+                "origin/provider_id 可省略——开赛前 runtime 消歧。空=系统默认（可与辩手同模）。"
+            ),
+        },
+        "moderator_origin": {
+            "type": "string",
+            "enum": ["platform", "byok"],
+            "description": (
+                "裁判模型来源：platform|byok。可选；缺省时由 runtime 对 moderator_model 提及消歧补全。"
+            ),
+        },
+        "moderator_provider_id": {
+            "type": "string",
+            "description": (
+                "裁判 BYOK 服务商 id（origin=byok 时最终必填；platform 勿填）。"
+                "提及消歧成功后由 runtime 写回。"
             ),
         },
     },
@@ -222,8 +273,21 @@ def parse_sides(raw: Any) -> tuple[list[DebateSide], str]:
         if stance_err:
             return [], stance_err
         seen.add(key)
-        # model（可选）：Phase 3 真·多模型辩手预留，宽松解析（仅收非空字符串）；MVP 不注入执行。
+        # §7.5 B：model 非空但缺 origin = 待消歧提及（prepare 阶段消歧）；完整三元组直通。
         model = str(item.get("model") or "").strip()
+        origin = str(item.get("origin") or "").strip().lower()
+        provider_id = str(item.get("provider_id") or "").strip()
+        if not model:
+            origin = ""
+            provider_id = ""
+        elif origin and origin not in ("platform", "byok"):
+            return (
+                [],
+                f"sides[`{key}`].origin 须为 platform|byok（收到 `{origin}`）。",
+            )
+        elif origin == "platform":
+            provider_id = ""
+        # origin 空 / byok 缺 provider_id → 保留提及，交 prepare 消歧；不在此硬拒。
         sides.append(
             DebateSide(
                 key=key,
@@ -231,8 +295,41 @@ def parse_sides(raw: Any) -> tuple[list[DebateSide], str]:
                 stance=stance,
                 is_subject=bool(item.get("is_subject")),
                 model=model,
+                origin=origin if origin in ("platform", "byok") else "",
+                provider_id=provider_id if origin == "byok" else "",
             )
         )
     if len(sides) < 2:
         return [], "debate 至少需要 2 个有效参与方（每个含非空 key/name/stance）。"
     return sides, ""
+
+
+def parse_moderator_fields(
+    raw_model: Any,
+    raw_origin: Any = None,
+    raw_provider_id: Any = None,
+) -> tuple[str, str, str, str]:
+    """解析顶层裁判模型字段；返回 (model, origin, provider_id, 错误)。
+
+    与 sides[].model 同规：提及可缺 origin；完整三元组直通；非法 origin 硬拒。
+    """
+    model = str(raw_model or "").strip()
+    origin = str(raw_origin or "").strip().lower()
+    provider_id = str(raw_provider_id or "").strip()
+    if not model:
+        return "", "", "", ""
+    if origin and origin not in ("platform", "byok"):
+        return (
+            "",
+            "",
+            "",
+            f"moderator_origin 须为 platform|byok（收到 `{origin}`）。",
+        )
+    if origin == "platform":
+        provider_id = ""
+    return (
+        model,
+        origin if origin in ("platform", "byok") else "",
+        provider_id if origin == "byok" else "",
+        "",
+    )

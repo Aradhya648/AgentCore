@@ -269,6 +269,54 @@ async def test_soft_stop_cancel_skips_all_completed_wake(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_background_drive_exception_posts_drive_cancelled(monkeypatch):
+    """后台调度炸了投递 DRIVE_CANCELLED，禁止假 ALL_COMPLETED。"""
+    import importlib
+
+    from agentcore.runtime.coordination.host import _background_drive
+    from agentcore.runtime.coordination.session import CoordinationEventKind
+    from agentcore.runtime.runs import build_run_plan
+
+    drive_mod = importlib.import_module("agentcore.runtime.delegate.drive")
+
+    plan, errors = build_run_plan(
+        [{"role": "研究员", "task": "做A"}, {"role": "写手", "task": "做B"}]
+    )
+    assert not errors
+    session = CoordinationSession(execution_id="e-boom", total_workers=2)
+    session.completed_run_ids.add("w1")
+    set_active_coordination(session)
+    t = tool(Provider(["x"]))
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("simulated drive scheduling crash")
+
+    monkeypatch.setattr(drive_mod, "drive_coordinated", _boom)
+
+    await _background_drive(
+        t,
+        plan,
+        execution_id="e-boom",
+        seed_completed=None,
+        finalize=True,
+        seed_notes=None,
+        complexity_hint="standard",
+        call_idx=0,
+        completion_criteria=None,
+        session=session,
+        coordination="wall",
+    )
+
+    events = session.drain_nowait()
+    cancelled = [e for e in events if e.kind is CoordinationEventKind.DRIVE_CANCELLED]
+    assert cancelled, f"expected DRIVE_CANCELLED, got {[e.kind for e in events]}"
+    assert cancelled[0].payload.get("completed") == 1
+    assert cancelled[0].payload.get("total") == 2
+    assert "调度异常" in (cancelled[0].payload.get("error") or "")
+    assert not any(e.kind is CoordinationEventKind.ALL_COMPLETED for e in events)
+
+
+@pytest.mark.asyncio
 async def test_coordination_start_echo_counts_and_seeds_completed():
     """决策3：回显新增/总数/已完成；seed 预填 completed_run_ids。"""
     provider = Provider(["NEWOUT"])

@@ -26,7 +26,9 @@ const variantClass: Record<SurfaceRowVariant, string> = {
     "flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 };
 
-/** List row chrome — sidebar conversations, file tree rows (desktop-layout h-9 nav exception for sidebar). */
+/** List row chrome — sidebar nav / conversations, file tree rows. The `sidebar`
+ * variant's h-9 is the desktop-layout 导航项 exception; conversation-list rows
+ * override it to h-8 so二级内容 doesn't carry nav-level height. */
 export function SurfaceRow({
   variant = "default",
   active = false,

@@ -13,7 +13,7 @@ export const ASK_COMMENCE_SCENES: AskCommenceScene[] = [
     id: "ask-commence-v2",
     title: "Brief + Choose",
     intent:
-      "【生产默认】题干与选项常驻（紧凑单行选项，决策空间一眼可见）；brief/起步计划/补充说明折叠收纳；风格 pills 常驻一行。",
+      "【已退役】题干与选项常驻（紧凑单行选项，决策空间一眼可见）；brief/起步计划/补充说明折叠收纳；风格 pills 常驻一行。留作 v5 的对照。",
     paradigm: "Notion AI × Executive Summary",
   },
   {
@@ -29,5 +29,12 @@ export const ASK_COMMENCE_SCENES: AskCommenceScene[] = [
     intent:
       "顶部一行结论 + 关键参数 pill，下方精简选项列表——Cursor / ChatGPT 确认条升级版。",
     paradigm: "Cursor / ChatGPT",
+  },
+  {
+    id: "ask-commence-v5",
+    title: "Row List",
+    intent:
+      "【生产默认】单页全览不变，视觉换成行式选项：无描边、发丝分隔线、hover 整行灰底 + 右侧 →，序号方块反白即选中；彩色徽章全删，起步计划常驻两列表，只剩「补充说明」一个折叠入口。",
+    paradigm: "Claude Code AskUserQuestion",
   },
 ];

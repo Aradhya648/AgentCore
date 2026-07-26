@@ -9,6 +9,7 @@ import {
   ChoiceQuestion,
   CommenceFooter,
   CommenceNote,
+  FormatPills,
   PlanChips,
   PreviewShell,
   StylePills,
@@ -62,6 +63,7 @@ export function AskCommenceV4({ content }: { content: AskUserContent }) {
         </div>
         <PlanChips assumptions={content.assumptions} />
         <StylePills content={content} answer={answer} disabled={busy} />
+        <FormatPills content={content} answer={answer} disabled={busy} />
       </div>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2.5">

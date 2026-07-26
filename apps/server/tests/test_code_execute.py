@@ -164,3 +164,98 @@ async def test_code_execute_display_on_failure_keeps_stderr_and_exit():
     assert result.display["exit_code"] == 1
     assert "NameError" in result.display["stderr"]
     assert result.display["language"] == "python"
+
+
+def test_long_running_command_match_catches_dev_servers():
+    from agentcore.tools.builtin.code_execute import long_running_command_match
+
+    assert long_running_command_match("npm run dev") is not None
+    assert long_running_command_match("pnpm dev") is not None
+    assert long_running_command_match("npx vite") is not None
+    assert long_running_command_match("os.system('npm run start')") is not None
+    # Finite / lookalike — must not trip the gate.
+    assert long_running_command_match("npm install") is None
+    assert long_running_command_match("npm run build") is None
+    assert long_running_command_match("npm run development") is None
+    assert long_running_command_match("import { defineConfig } from 'vite'") is None
+
+
+async def test_code_execute_blocks_long_running_without_sandbox():
+    backend = _FakeBackend(
+        ExecutionResult(success=True, stdout="should-not-run\n", stderr="", exit_code=0, duration_ms=1)
+    )
+    result = await CodeExecuteTool(location="local").execute(
+        {"code": "npm run dev", "language": "bash"},
+        _ctx(backend),
+    )
+
+    assert result.success is False
+    assert result.contract_failure is True
+    assert result.metadata.get("code") == "long_running_redirect"
+    assert "terminal" in (result.error or "")
+    assert "wait_for" in (result.error or "")
+    assert backend.requests == []
+
+
+async def test_code_execute_long_running_server_message_has_no_terminal():
+    backend = _FakeBackend(
+        ExecutionResult(success=True, stdout="", stderr="", exit_code=0, duration_ms=1)
+    )
+    result = await CodeExecuteTool(location="server").execute(
+        {"code": "next dev", "language": "bash"},
+        _ctx(backend),
+    )
+
+    assert result.success is False
+    assert result.contract_failure is True
+    err = result.error or ""
+    assert "无本机 terminal" in err
+    assert "subcommand=start" not in err
+    assert backend.requests == []
+
+
+async def test_code_execute_launcher_unavailable_is_contract_failure():
+    """Missing/rejected launcher (exit 127) must not burn the circuit breaker."""
+    backend = _FakeBackend(
+        ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=(
+                "代码执行环境启动失败：找不到可用的命令 'bash'。"
+                " 本机没有可用的 bash（Windows 上 PATH 的 bash 常是不可用的 WSL 蹦床）。"
+                "请改用 language=javascript 或 python 直接跑代码，不要用 bash 外壳包一层。"
+            ),
+            exit_code=127,
+            duration_ms=1,
+        )
+    )
+    result = await CodeExecuteTool(location="local").execute(
+        {"code": "npx tsc --noEmit", "language": "bash"},
+        _ctx(backend),
+    )
+
+    assert result.success is False
+    assert result.contract_failure is True
+    assert result.metadata.get("code") == "launcher_unavailable"
+    assert result.display is not None
+    assert result.display["exit_code"] == 127
+
+
+async def test_code_execute_nonzero_exit_without_launcher_msg_not_contract():
+    """Ordinary script failure (e.g. exit 1) must still count toward the breaker."""
+    backend = _FakeBackend(
+        ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="Error: fail",
+            exit_code=1,
+            duration_ms=5,
+        )
+    )
+    result = await CodeExecuteTool().execute(
+        {"code": "throw new Error('fail')", "language": "javascript"},
+        _ctx(backend),
+    )
+    assert result.success is False
+    assert result.contract_failure is False
+    assert result.metadata == {}

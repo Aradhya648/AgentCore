@@ -22,6 +22,54 @@ from .tool_exec import execute_tools
 
 logger = get_logger(__name__)
 
+# Shared thrashing signal source (ceiling hard-stop + mid-loop zero_write FINALIZE).
+CEILING_BACKSTOP_SOURCE = "ceiling_backstop"
+
+
+def thrashing_backstop_payload(
+    *,
+    question: str,
+    evidence: str,
+) -> dict[str, Any]:
+    """Structured escalation row for thrashing DEGRADED (signal only — no auto replan)."""
+    return {
+        "question": question,
+        "assumption": "",
+        "blocking": False,
+        "kind": "normal",
+        "source": CEILING_BACKSTOP_SOURCE,
+        "gate_kind": "normal",
+        "evidence": evidence,
+        "tool_name": "",
+        "layer": "scheme",
+    }
+
+
+def record_thrashing_backstop(
+    *,
+    run_id: str,
+    agent_id: str,
+    question: str,
+    evidence: str,
+    sink: EventSink,
+    gate_escalation_sink: list[dict[str, Any]] | None,
+) -> None:
+    """Append gate escalation + emit ``escalation_raised`` for a thrashing worker."""
+    if gate_escalation_sink is not None:
+        gate_escalation_sink.append(
+            thrashing_backstop_payload(question=question, evidence=evidence)
+        )
+    sink.emit(
+        escalation_raised(
+            run_id,
+            agent_id,
+            question=question,
+            assumption="",
+            blocking=False,
+            kind="normal",
+        )
+    )
+
 
 async def ceiling_finalize(
     *,
@@ -93,32 +141,16 @@ async def ceiling_finalize(
         # 让 CEO 的 escalation 聚合真正看得到「到顶打转」这一条、可自愿重规划——不止 UI 横幅
         # （否则「升级了却没人接」）。kind=normal：纯上浮，不触发 wave 边界自动动作，对齐
         # 「不自动重分解、CEO 自愿决策」的设计取舍。
-        if gate_escalation_sink is not None:
-            gate_escalation_sink.append(
-                {
-                    "question": ceiling_question,
-                    "assumption": "",
-                    "blocking": False,
-                    "kind": "normal",
-                    "source": "ceiling_backstop",
-                    "gate_kind": "normal",
-                    "evidence": (
-                        f"{ceiling_reason}: tokens={total_usage.total_tokens}, "
-                        f"rounds={rounds_done}"
-                    ),
-                    "tool_name": "",
-                    "layer": "scheme",
-                }
-            )
-        sink.emit(
-            escalation_raised(
-                run_id,
-                tool_context.agent_id,
-                question=ceiling_question,
-                assumption="",
-                blocking=False,
-                kind="normal",
-            )
+        record_thrashing_backstop(
+            run_id=run_id,
+            agent_id=tool_context.agent_id,
+            question=ceiling_question,
+            evidence=(
+                f"{ceiling_reason}: tokens={total_usage.total_tokens}, "
+                f"rounds={rounds_done}"
+            ),
+            sink=sink,
+            gate_escalation_sink=gate_escalation_sink,
         )
     final_content, final_reasoning, total_usage, rounds, coordination = await force_finalize(
         messages=messages,

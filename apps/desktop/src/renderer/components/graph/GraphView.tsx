@@ -9,7 +9,11 @@ import { useTurnAudit } from "@/hooks/useTurnAudit";
 import { resolveEffectiveGraphLayout } from "@/lib/graph-layout-utils";
 import { computeVisualBbox } from "@/lib/graphMetrics";
 import { isGraphTraceEnabled, traceGraphDomClip } from "@/services/graphTrace";
-import { useConversationStore } from "@/stores/conversation";
+import {
+  isTerminalPhase,
+  useActiveTurnPhase,
+  useConversationStore,
+} from "@/stores/conversation";
 import { useDisclosureStore } from "@/stores/disclosure";
 import {
   type RunStatus,
@@ -74,6 +78,8 @@ export function GraphView({
 }: GraphViewProps = {}) {
   const messageId = useExecutionScope();
   const conversationId = useConversationStore((s) => s.currentConversationId);
+  const turnPhase = useActiveTurnPhase();
+  const turnTerminal = isTerminalPhase(turnPhase);
   const execution = useProjectedExecution();
   const caps = executionGraphCapabilities(execution);
   const { data: turnAudit } = useTurnAudit(
@@ -321,9 +327,9 @@ export function GraphView({
   const captainStatus = useMemo<RunStatus | null>(
     () =>
       execution && captainRun
-        ? deriveCaptainStatus(execution, captainRun.id)
+        ? deriveCaptainStatus(execution, captainRun.id, { turnTerminal })
         : null,
-    [execution, captainRun],
+    [execution, captainRun, turnTerminal],
   );
 
   const teamSynthesisPreview = useActiveExecField(

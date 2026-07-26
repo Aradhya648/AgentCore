@@ -73,8 +73,12 @@ export const TERMINAL_TAB_ID = "terminal";
 /** Reserved id of the 「预览」 tab（应用内内置浏览器；仅当 `previewTab` 有值时出现；可关闭）。 */
 export const PREVIEW_TAB_ID = "preview";
 
-/** Reserved id of the 「浏览器直播」 tab（L3 团队浏览器 M1；仅当 `browserLiveTab` 有值时出现；可关闭）。 */
-export const BROWSER_LIVE_TAB_ID = "browser-live";
+/**
+ * Reserved id of the 「浏览器」 tab（L3 团队浏览器；**条件常驻**——本会话曾有 `browser_*` 活动
+ * 即显示、不可关闭，判定见 `lib/browserActivity.ts` + `useBrowserRegion`）。故此处**没有**
+ * 与之配对的目标字段：tab 是否存在由会话内容派生，本 store 只管「它是不是当前激活 tab」。
+ */
+export const BROWSER_TAB_ID = "browser";
 
 /** After the last closable detail tab closes → 工作区。 */
 function homeTabAfterDetailClose(): string {
@@ -224,12 +228,6 @@ interface SidePanelState {
    */
   previewTab: { conversationId: string; path: string; name: string } | null;
   /**
-   * L3「团队浏览器」M1 直播 (提案 D15)：当前打开直播的会话 id。非 null → SidePanel 出现可关闭的
-   * 「浏览器直播」tab（激活时挂 {@link BrowserLivePanel} 附着 SSE 直播流）。null = 未打开。会话级
-   * （不持久）；帧走 live-only 旁路通道、不进 journal/回放。tab 打开后跨 turn 存续，直到用户关闭。
-   */
-  browserLiveTab: { conversationId: string } | null;
-  /**
    * Session-level memory of contexts where the user explicitly closed the panel,
    * blocking auto-surface until the panel is opened again or the context clears.
    */
@@ -311,15 +309,11 @@ interface SidePanelState {
    */
   closePreview: () => void;
   /**
-   * 打开「浏览器直播」tab（提案 D15，入口 = 活动卡运行中的「查看直播」）：记下会话、开面板、切到直播
-   * tab。同一 tab 复用（换会话即换目标）。
+   * 揭示「浏览器」tab（活动卡 / 登录升级卡的快捷入口）：开面板 + 切到该 tab。**无参**——tab 恒对
+   * 当前会话，目标由 {@link BrowserLivePanel} 从当前会话派生，不在此存第二份会话 id。tab 本身
+   * 的存在与消失由会话内容派生（`useBrowserRegion`），故没有配对的 close。
    */
-  openBrowserLive: (conversationId: string) => void;
-  /**
-   * 关闭「浏览器直播」tab：清目标；若当前正处直播 tab 则回落 工作区 home。SSE 连接由 BrowserLivePanel
-   * 卸载时自行收口（无原生视图需销毁）。关闭 tab X、切换会话时调用。
-   */
-  closeBrowserLive: () => void;
+  showBrowser: () => void;
   closePanel: () => void;
   togglePanel: () => void;
   setWidth: (width: number) => void;
@@ -339,7 +333,6 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   activeTabId: WORKSPACE_TAB_ID,
   pendingFilePreview: null,
   previewTab: null,
-  browserLiveTab: null,
   dismissedContexts: new Set(),
   pendingBadge: 0,
 
@@ -509,25 +502,9 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
     });
   },
 
-  openBrowserLive: (conversationId) => {
+  showBrowser: () => {
     persistOpen(true);
-    set({
-      open: true,
-      activeTabId: BROWSER_LIVE_TAB_ID,
-      browserLiveTab: { conversationId },
-      pendingBadge: 0,
-    });
-  },
-
-  closeBrowserLive: () => {
-    set((s) => {
-      if (!s.browserLiveTab && s.activeTabId !== BROWSER_LIVE_TAB_ID) return s;
-      const activeTabId =
-        s.activeTabId === BROWSER_LIVE_TAB_ID
-          ? WORKSPACE_TAB_ID
-          : s.activeTabId;
-      return { browserLiveTab: null, activeTabId };
-    });
+    set({ open: true, activeTabId: BROWSER_TAB_ID, pendingBadge: 0 });
   },
 
   closePanel: () => {

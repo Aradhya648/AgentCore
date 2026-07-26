@@ -185,6 +185,9 @@ describe("ModelPicker", () => {
     mockProfiles(profiles());
     renderPicker();
     expect(screen.getByText("5.2")).toBeTruthy();
+    // 触发器只有一行组合名（与同排徽章等高）；主 · Worker 摘要退到 tooltip 与下拉行。
+    expect(screen.queryByText(/DeepSeek V4 Pro · 跟随主模型/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
     expect(screen.getByText(/DeepSeek V4 Pro · 跟随主模型/)).toBeTruthy();
   });
 

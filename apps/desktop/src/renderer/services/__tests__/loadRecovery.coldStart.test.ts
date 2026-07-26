@@ -322,6 +322,7 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
       assumptions: [],
       questions: [],
       styleOptions: [],
+      formatOptions: [],
       intent: "decision",
       origin: "server",
     });

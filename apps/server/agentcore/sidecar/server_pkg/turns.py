@@ -240,6 +240,7 @@ class TurnExecutionMixin:
         external_mounts: list | dict | None = None,
         *,
         style_id: str | None = None,
+        format_id: str | None = None,
     ) -> None:
         """Rebuild + finish a durably-paused turn; stream events; reply when done.
 
@@ -342,6 +343,7 @@ class TurnExecutionMixin:
                         note=note,
                         selected=selected,
                         style_id=style_id,
+                        format_id=format_id,
                         sink=sink,
                         backend=backend,
                         # The Sidecar has no message DB, so the prior-turn history rides in the

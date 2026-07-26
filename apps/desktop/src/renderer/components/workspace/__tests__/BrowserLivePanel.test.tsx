@@ -4,8 +4,9 @@
  * - 连接中 / 无直播(no_session) / 会话已结束(session_closed) / 断线重连各态文案。
  * - 逐帧换图：帧到达即 createObjectURL 换 <img src>、并 revoke 上一帧 URL（防泄漏）。
  * - 卸载回收：unmount 时 revoke 末帧 URL + stop() 收口 SSE。
- * - M2 接管流转：有活直播才显「接管」；start 成功→接管中条+归还；start 失败(turn_running)显因回落；
- *   归还/会话结束/卸载都收口 end 并把留档乐观并入 store；键盘输入捕获 → 批量 POST。
+ * - M2 接管流转：有活直播才显「接管」；turn running 无 login → 不显；pending browserLogin
+ *   例外仍显；start 成功→接管中条+归还；start 失败(turn_running)显因回落；归还/会话结束/卸载
+ *   都收口 end 并把留档乐观并入 store；键盘输入捕获 → 批量 POST。
  * mock services/browserLive 直接驱动回调；services/browserTakeover 仅 mock 网络（保留真坐标/批处理/
  * 文案纯函数）；桩 URL.createObjectURL/revoke（jsdom 缺失）。块注释隔开 @vitest-environment 指令。
  */
@@ -46,6 +47,14 @@ import {
   startBrowserTakeover,
 } from "@/services/browserTakeover";
 import { useBrowserTakeoverStore } from "@/stores/browserTakeover";
+import { useConversationStore } from "@/stores/conversation";
+import { EMPTY_RUNTIME } from "@/stores/conversation/runtime";
+import type { Message } from "@/stores/conversation/types";
+import {
+  type ExecutionPlan,
+  type RunFrame,
+  useExecutionStore,
+} from "@/stores/execution";
 import { BrowserLivePanel } from "../BrowserLivePanel";
 
 const mockStart = vi.mocked(startBrowserLive);
@@ -77,6 +86,11 @@ beforeEach(() => {
   mockEndTakeover.mockReset().mockResolvedValue(undefined);
   mockSendInput.mockReset().mockResolvedValue(undefined);
   useBrowserTakeoverStore.setState({ byConversation: {} });
+  useExecutionStore.setState({ byId: {} });
+  useConversationStore.setState({
+    currentConversationId: null,
+    byId: {},
+  });
 });
 
 afterEach(cleanup);
@@ -89,6 +103,100 @@ function emit(fn: (h: BrowserLiveHandlers) => void): void {
 }
 
 const FRAME = (frame_b64: string) => ({ frame_b64, width: 4, height: 4 });
+
+/** Seed conversation + execution with a pending `browserLogin` escalate. */
+function seedPendingBrowserLogin(
+  conversationId: string,
+  messageId: string,
+): void {
+  const msg: Message = {
+    id: messageId,
+    role: "assistant",
+    content: "",
+    createdAt: "2026-07-26T00:00:00.000Z",
+    executionId: "exec-1",
+    isStreaming: false,
+  };
+  useConversationStore.setState({
+    currentConversationId: conversationId,
+    byId: {
+      [conversationId]: { ...EMPTY_RUNTIME, messages: [msg] },
+    },
+  });
+  const plan: ExecutionPlan = {
+    id: "exec-1",
+    planType: "multi_agent",
+    taskSummary: "登录",
+    agents: [{ id: "agent-1", role: "研究员" }],
+    runs: [{ id: "run-1", agentId: "agent-1", task: "登", dependsOn: [] }],
+  };
+  const frames: RunFrame[] = [
+    {
+      t: 1,
+      kind: "run_started",
+      agentId: "agent-1",
+      runId: "run-1",
+      parentRunId: null,
+      runKind: "agent",
+      continuesRunId: null,
+    },
+    {
+      t: 2,
+      kind: "escalation_required",
+      escalationId: "esc-login",
+      runId: "run-1",
+      agentId: "agent-1",
+      question: "请在浏览器里登录后再继续",
+      assumption: "用户已登录",
+      escalationKind: "normal",
+      browserLogin: true,
+    },
+  ];
+  const exec = useExecutionStore.getState();
+  exec.startExecution(plan, messageId);
+  exec.recordFrames(frames, messageId);
+}
+
+/** Seed conversation + execution with a running turn (no pending browserLogin). */
+function seedRunningTurn(conversationId: string, messageId: string): void {
+  const msg: Message = {
+    id: messageId,
+    role: "assistant",
+    content: "",
+    createdAt: "2026-07-26T00:00:00.000Z",
+    executionId: "exec-1",
+    isStreaming: false,
+  };
+  useConversationStore.setState({
+    currentConversationId: conversationId,
+    byId: {
+      [conversationId]: { ...EMPTY_RUNTIME, messages: [msg] },
+    },
+  });
+  const plan: ExecutionPlan = {
+    id: "exec-1",
+    planType: "multi_agent",
+    taskSummary: "查资料",
+    agents: [{ id: "agent-1", role: "研究员" }],
+    runs: [{ id: "run-1", agentId: "agent-1", task: "查", dependsOn: [] }],
+  };
+  const exec = useExecutionStore.getState();
+  exec.startExecution(plan, messageId);
+  exec.recordFrames(
+    [
+      {
+        t: 1,
+        kind: "run_started",
+        agentId: "agent-1",
+        runId: "run-1",
+        parentRunId: null,
+        runKind: "agent",
+        continuesRunId: null,
+      },
+    ],
+    messageId,
+  );
+}
 
 describe("BrowserLivePanel · 状态文案", () => {
   it("attaches on mount with the conversation id and shows 连接中", () => {
@@ -200,6 +308,20 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(screen.getByText("接管")).toBeTruthy();
   });
 
+  it("hides 接管 while a turn is running (no pending browserLogin)", () => {
+    seedRunningTurn("c1", "a1");
+    render(<BrowserLivePanel conversationId="c1" />);
+    goLive();
+    expect(screen.queryByText("接管")).toBeNull();
+  });
+
+  it("keeps 接管 while running if pending browserLogin", () => {
+    seedPendingBrowserLogin("c1", "a1");
+    render(<BrowserLivePanel conversationId="c1" />);
+    goLive();
+    expect(screen.getByText("接管")).toBeTruthy();
+  });
+
   it("enters takeover: calls start, shows the 接管中 bar + 归还控制, hides 接管", async () => {
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
@@ -224,7 +346,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(screen.queryByText("归还控制")).toBeNull();
   });
 
-  it("returns control: ends the takeover, records it, and shows the continue hint", async () => {
+  it("returns control: ends the takeover, records it, and shows 控制已归还 (no pending login)", async () => {
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
     await clickAsync("接管");
@@ -236,11 +358,28 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(records[0].endedAt).not.toBeNull();
     // Chrome returns to the normal live header.
     expect(screen.queryByText("归还控制")).toBeNull();
-    // 不 auto-resume：只提示用户在对话里发「继续」。
-    expect(screen.getByText("登录完成后，在对话里发送「继续」")).toBeTruthy();
+    // 普通接管归还：不暗示登录 / 发继续。
+    expect(screen.getByText("控制已归还")).toBeTruthy();
+    expect(
+      screen.queryByText("登录完成后，回到对话点「已登录，继续」"),
+    ).toBeNull();
   });
 
-  it("auto-returns control when the session closes mid-takeover (no continue hint)", async () => {
+  it("returns control during pending browserLogin: hint aligns with EscalationCard", async () => {
+    seedPendingBrowserLogin("c1", "a1");
+    render(<BrowserLivePanel conversationId="c1" />);
+    goLive();
+    await clickAsync("接管");
+    await clickAsync("归还控制");
+
+    expect(mockEndTakeover).toHaveBeenCalledWith("c1");
+    expect(
+      screen.getByText("登录完成后，回到对话点「已登录，继续」"),
+    ).toBeTruthy();
+    expect(screen.queryByText("控制已归还")).toBeNull();
+  });
+
+  it("auto-returns control when the session closes mid-takeover (no return hint)", async () => {
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
     await clickAsync("接管");
@@ -254,7 +393,10 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(useBrowserTakeoverStore.getState().byConversation.c1).toHaveLength(
       1,
     );
-    expect(screen.queryByText("登录完成后，在对话里发送「继续」")).toBeNull();
+    expect(screen.queryByText("控制已归还")).toBeNull();
+    expect(
+      screen.queryByText("登录完成后，回到对话点「已登录，继续」"),
+    ).toBeNull();
   });
 
   it("best-effort ends the takeover on unmount", async () => {

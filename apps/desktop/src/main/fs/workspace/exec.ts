@@ -7,6 +7,12 @@ import { EXEC_CAPTURE_CAP, EXEC_LANGS, EXEC_TIMEOUT_CAP_S } from "../constants";
 import { realInside, resolveLexical, toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
 import { getRoot } from "../roots";
+import {
+  decodePipeChunk,
+  launcherMissingStderr,
+  resolveBashLauncher,
+  whichCommand,
+} from "./execCodec";
 import { opErr, opOk } from "./result";
 
 /** ExecutionResult 形状的成功信封（success 可为 false——执行「跑完了但非 0 退出」）。 */
@@ -57,6 +63,32 @@ export function buildExternalEnvFromRoots(
 }
 
 /**
+ * Resolve argv for ``language`` (absolute bash when needed). Returns ``null`` +
+ * stderr when the launcher is missing / is a rejected WSL trampoline — fail-fast,
+ * never hang on a broken System32\\bash.exe.
+ *
+ * python/node keep bare names so Windows PATHEXT / ``.cmd`` shims still work
+ * via CreateProcess; only bash is absolutized.
+ */
+function resolveLangCmd(
+  language: string,
+  lang: { cmd: string[]; ext: string },
+): { cmd: string[] } | { error: string } {
+  if (language === "bash") {
+    const bash = resolveBashLauncher();
+    if (!bash) {
+      return { error: launcherMissingStderr("bash", "bash") };
+    }
+    return { cmd: [bash] };
+  }
+  const binName = lang.cmd[0];
+  if (!whichCommand(binName)) {
+    return { error: launcherMissingStderr(binName, language) };
+  }
+  return { cmd: [...lang.cmd] };
+}
+
+/**
  * 在 `cwd` 下跑一个脚本文件，捕获 stdout/stderr，超时则强杀。
  *
  * 镜像服务端 SubprocessSandbox：超时 → stdout 清空、stderr 写超时说明、exit -1；
@@ -84,10 +116,10 @@ function runSubprocess(
     let settled = false;
 
     child.stdout.on("data", (chunk: Buffer) => {
-      if (stdout.length < EXEC_CAPTURE_CAP) stdout += chunk.toString("utf-8");
+      if (stdout.length < EXEC_CAPTURE_CAP) stdout += decodePipeChunk(chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      if (stderr.length < EXEC_CAPTURE_CAP) stderr += chunk.toString("utf-8");
+      if (stderr.length < EXEC_CAPTURE_CAP) stderr += decodePipeChunk(chunk);
     });
     // 进程未读 stdin 即退出会让写入抛 EPIPE——吞掉，不让它变成未捕获错误。
     child.stdin.on("error", () => {});
@@ -161,6 +193,18 @@ export async function opExecute(
       duration_ms: 0,
     });
   }
+
+  const resolved = resolveLangCmd(language, lang);
+  if ("error" in resolved) {
+    return execResult({
+      success: false,
+      stdout: "",
+      stderr: resolved.error,
+      exit_code: 127,
+      duration_ms: Date.now() - startedMs,
+    });
+  }
+
   const code = String(args.code ?? "");
   const stdin = args.stdin == null ? null : String(args.stdin);
   const timeoutSeconds = Math.max(
@@ -175,8 +219,8 @@ export async function opExecute(
   const sub = cwdRel === "." ? "" : cwdRel.replace(/^\/+|\/+$/g, "");
   let cwdAbs = root.absPath;
   if (sub) {
-    const resolved = resolveLexical(root, sub);
-    const real = resolved ? await realInside(root, resolved) : null;
+    const resolvedPath = resolveLexical(root, sub);
+    const real = resolvedPath ? await realInside(root, resolvedPath) : null;
     if (real?.ok) cwdAbs = real.path;
   }
 
@@ -198,7 +242,7 @@ export async function opExecute(
       String(args.conversation_id ?? ""),
     );
     return await runSubprocess(
-      lang.cmd,
+      resolved.cmd,
       scriptFile,
       cwdAbs,
       stdin,

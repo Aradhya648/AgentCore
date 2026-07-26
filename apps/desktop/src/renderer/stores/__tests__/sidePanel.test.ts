@@ -3,7 +3,7 @@ import { useCommandPanelStore } from "../commandPanel";
 import { useConversationStore } from "../conversation";
 import { type ExecutionPlan, useExecutionStore } from "../execution";
 import {
-  BROWSER_LIVE_TAB_ID,
+  BROWSER_TAB_ID,
   type DetailTab,
   PREVIEW_TAB_ID,
   SIDE_PANEL_DEFAULT_WIDTH,
@@ -49,7 +49,6 @@ beforeEach(() => {
     tabs: [],
     activeTabId: WORKSPACE_TAB_ID,
     previewTab: null,
-    browserLiveTab: null,
     dismissedContexts: new Set(),
     pendingBadge: 0,
   });
@@ -435,41 +434,34 @@ describe("openPreview / closePreview（内置浏览器预览 tab）", () => {
   });
 });
 
-describe("openBrowserLive / closeBrowserLive（团队浏览器直播 tab）", () => {
-  it("opens the live tab, reveals the panel and activates it", () => {
-    panel().openBrowserLive("c1");
+describe("showBrowser（团队浏览器 tab · 条件常驻）", () => {
+  it("reveals the panel and activates the browser tab", () => {
+    panel().showBrowser();
     expect(panel().open).toBe(true);
-    expect(panel().activeTabId).toBe(BROWSER_LIVE_TAB_ID);
-    expect(panel().browserLiveTab).toEqual({ conversationId: "c1" });
+    expect(panel().activeTabId).toBe(BROWSER_TAB_ID);
   });
 
-  it("reuses the single live tab when opening another conversation (swaps target)", () => {
-    panel().openBrowserLive("c1");
-    panel().openBrowserLive("c2");
-    expect(panel().browserLiveTab).toEqual({ conversationId: "c2" });
-    expect(panel().activeTabId).toBe(BROWSER_LIVE_TAB_ID);
+  it("carries no per-tab target state (存在性派生自会话内容，非 store 字段)", () => {
+    panel().showBrowser();
+    // tab 是否显示由 useBrowserRegion 从 execution 投影派生；store 只记「谁是激活 tab」。
+    expect(Object.keys(panel())).not.toContain("browserLiveTab");
   });
 
-  it("closeBrowserLive clears the target and falls back to 工作区 when it was active", () => {
-    panel().openBrowserLive("c1");
-    panel().closeBrowserLive();
-    expect(panel().browserLiveTab).toBeNull();
-    expect(panel().activeTabId).toBe(WORKSPACE_TAB_ID);
+  it("is idempotent — re-revealing keeps the same active tab", () => {
+    panel().showBrowser();
+    panel().showBrowser();
+    expect(panel().activeTabId).toBe(BROWSER_TAB_ID);
   });
 
-  it("closeBrowserLive keeps the active tab when live wasn't the active one", () => {
-    panel().openBrowserLive("c1");
-    // Switch away to a run tab, then close the (background) live tab.
+  it("leaves the browser tab in the background when a run tab is drilled after it", () => {
+    panel().showBrowser();
     panel().showRunDetail(MID, "run-1", "研究员");
     expect(panel().activeTabId).toBe(tabId("run-1"));
-    panel().closeBrowserLive();
-    expect(panel().browserLiveTab).toBeNull();
-    expect(panel().activeTabId).toBe(tabId("run-1"));
   });
 
-  it("clears pendingBadge on open (matches other reveal paths)", () => {
+  it("clears pendingBadge on reveal (matches other reveal paths)", () => {
     panel().incrementPendingBadge();
-    panel().openBrowserLive("c1");
+    panel().showBrowser();
     expect(panel().pendingBadge).toBe(0);
   });
 });

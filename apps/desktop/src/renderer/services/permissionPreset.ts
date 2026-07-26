@@ -42,7 +42,7 @@ export const PERMISSION_PRESET_LABELS: Record<
   },
   workspace: {
     short: "开工授权",
-    description: "开工卡一次授权本委派所需能力（推荐）。",
+    description: "信任工作区写入；跑代码/终端仍在开工卡确认（推荐）。",
   },
   full_trust: {
     short: "完全信任",

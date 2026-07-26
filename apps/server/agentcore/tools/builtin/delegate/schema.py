@@ -69,7 +69,6 @@ DELEGATE_PARAMETERS = {
                         "description": "自包含任务；worker 看不到完整历史。",
                     },
                     "objective": {"type": "string"},
-                    "retrieval_budget": {"type": "integer", "minimum": 0},
                     "deliverable": TASK_DELIVERABLE_SCHEMA,
                     "stance": {"type": "string", "enum": ["pro", "con"]},
                     "group": {"type": "string"},

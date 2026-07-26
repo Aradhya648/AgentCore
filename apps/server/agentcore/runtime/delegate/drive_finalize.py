@@ -302,54 +302,53 @@ async def finalize_successful_drive(
         ),
     )
     criteria = resolved.criteria
-    if criteria is not None:
-        criteria_ok, gaps = check_delegate_completion(criteria, results)
-        if not criteria_ok:
-            delivered = collect_delivered_files(results)
-            fp = gap_fingerprint(criteria.kind, gaps)
-            streak = tool.note_completion_gap(fp)
-            escalate = streak >= 2
-            gap_msg = format_completion_gap_message(
-                gaps,
-                criteria_kind=criteria.kind,
-                source=resolved.source,
-                escalate=escalate,
-                delivered_files=delivered,
-            )
-            logger.info(
-                "delegate.completion_criteria_unmet",
-                criteria=criteria.kind,
-                source=resolved.source,
-                gaps=gaps,
-                streak=streak,
-                escalate=escalate,
-                delivered_files=delivered[:24],
-                execution_id=execution_id,
-            )
-            # 交付状态（诚实对账）：验收未满足即是用户可见的交付缺口，连同批次级
-            # criteria 缺口一起结构化发出（含可推导的 bind_local_folder 行动项）。
-            maybe_emit_delivery_status(
-                tool._sink,
-                plan,
-                results,
-                execution_id=execution_id,
-                backend=tool._base_tool_context.backend,
-                criteria_gaps=gaps,
-            )
-            # Same terminal post as the success path — criteria gap is still end-of-batch.
-            if session is not None:
-                post_session_all_completed(session, output=gap_msg)
-            return ToolResult(
-                tool_call_id="",
-                success=True,
-                output=gap_msg,
-                output_limit=DELEGATE_OUTPUT_LIMIT,
-                metadata=usage_metadata(call_usage),
-                citations=new_citations or None,
-            )
-        tool.clear_completion_gap_streak()
-    else:
-        tool.clear_completion_gap_streak()
+    criteria_ok, gaps = check_delegate_completion(criteria, results)
+    if not criteria_ok:
+        delivered = collect_delivered_files(results)
+        kind_for_fp = criteria.kind if criteria is not None else "typescript_verify"
+        fp = gap_fingerprint(kind_for_fp, gaps)
+        streak = tool.note_completion_gap(fp)
+        escalate = streak >= 2
+        gap_msg = format_completion_gap_message(
+            gaps,
+            criteria_kind=kind_for_fp,
+            source=resolved.source or "structured",
+            escalate=escalate,
+            delivered_files=delivered,
+        )
+        logger.info(
+            "delegate.completion_criteria_unmet",
+            criteria=kind_for_fp,
+            source=resolved.source or "structured",
+            gaps=gaps,
+            streak=streak,
+            escalate=escalate,
+            delivered_files=delivered[:24],
+            execution_id=execution_id,
+        )
+        # 交付状态（诚实对账）：验收未满足即是用户可见的交付缺口，连同批次级
+        # criteria 缺口一起结构化发出（含可推导的 bind_local_folder 行动项）。
+        maybe_emit_delivery_status(
+            tool._sink,
+            plan,
+            results,
+            execution_id=execution_id,
+            backend=tool._base_tool_context.backend,
+            criteria_gaps=gaps,
+        )
+        # Same terminal post as the success path — criteria gap is still end-of-batch.
+        if session is not None:
+            post_session_all_completed(session, output=gap_msg)
+        return ToolResult(
+            tool_call_id="",
+            success=True,
+            output=gap_msg,
+            output_limit=DELEGATE_OUTPUT_LIMIT,
+            metadata=usage_metadata(call_usage),
+            citations=new_citations or None,
+        )
+
+    tool.clear_completion_gap_streak()
 
     # 交付状态（诚实对账）：正常收尾（含 finalize 单人直出）——有落盘文件或缺口才发，
     # 纯 prose 成功批次保持无声。放在 direct_result / format_for_ceo 分叉之前，两条
@@ -403,6 +402,15 @@ async def finalize_drive(
     batch_metrics: list[BatchMetrics],
 ) -> ToolResult:
     """Full post-wave finalize pipeline (metrics → early exits → success)."""
+    # Thrash rebrand memory before early exits (pause / partial) so cold re-delegate
+    # in the same conversation still sees DEGRADED/ceiling_backstop workers.
+    from agentcore.runtime.coordination.thrash import record_thrashing_from_results
+
+    record_thrashing_from_results(
+        conversation_id=str(getattr(tool, "_conversation_id", None) or ""),
+        plan=plan,
+        results=results,
+    )
     emit_batch_metrics(
         tool,
         batch_metrics,

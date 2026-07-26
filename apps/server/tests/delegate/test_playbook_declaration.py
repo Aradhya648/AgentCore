@@ -6,11 +6,31 @@ Other non-site hand-written tasks pass without playbook or none reason.
 """
 
 from agentcore.runtime.delegate.playbook_declaration import (
+    declaration_reject_gate,
+    is_website_none_rejected,
     resolve_playbook_declaration,
     website_none_path_blocked,
+    website_none_rejected_message,
 )
-from agentcore.runtime.runs.software_app import software_none_path_blocked
+from agentcore.runtime.runs.software_app import (
+    software_none_path_blocked,
+    software_thin_html_rejected_message,
+)
 from tests.delegate.conftest import Provider, ctx, tool
+
+
+def test_declaration_reject_gate_helpers():
+    web = website_none_rejected_message()
+    soft = software_thin_html_rejected_message()
+    assert is_website_none_rejected(web)
+    assert declaration_reject_gate(web) == "website"
+    assert declaration_reject_gate(soft) == "software"
+    assert declaration_reject_gate("delegate 须传手写 `tasks`，其余…") == "empty"
+    assert declaration_reject_gate("未知 playbook『x』") == "unknown"
+    assert not is_website_none_rejected(soft)
+    # Probe must not rely on bare substring without backticks (old broken check).
+    assert '禁止 playbook_id="none"' not in web  # message uses backticks
+    assert is_website_none_rejected(web)  # prefix / constant compare is reliable
 
 
 def test_resolve_handwritten_without_playbook_ok():
@@ -261,7 +281,7 @@ def test_website_none_path_blocked_helper():
 
 
 def test_website_none_path_blocked_continuation_site_shaped():
-    """用户「继续完成」+ HTML/CSS/JS 官网 call → 拦 none。"""
+    """用户「继续完成官网…」+ 建站形 call → 拦 none。"""
     assert website_none_path_blocked(
         {
             "playbook_id": "none",
@@ -273,7 +293,7 @@ def test_website_none_path_blocked_continuation_site_shaped():
                 }
             ],
         },
-        user_message="继续完成",
+        user_message="继续完成官网剩余分区",
     )
     name, reason, err = resolve_playbook_declaration(
         {
@@ -283,11 +303,46 @@ def test_website_none_path_blocked_continuation_site_shaped():
                 {"role": "前端", "task": "补全分区 HTML CSS 落地页"}
             ],
         },
-        user_message="继续完成",
+        user_message="继续完成官网剩余分区",
     )
     assert name is None and reason is None
     assert err is not None
     assert "build_website" in err
+    from agentcore.runtime.delegate.playbook_declaration import (
+        declaration_reject_gate,
+        is_website_none_rejected,
+    )
+
+    assert is_website_none_rejected(err)
+    assert declaration_reject_gate(err) == "website"
+
+
+def test_website_none_path_not_blocked_generic_project_continue():
+    """「讨论继续完成项目的开发」+ 手写前后端/HTML 游戏 → 声明闸通过（法庭迷局误伤回归）。"""
+    args = {
+        "playbook_id": "none",
+        "playbook_none_reason": "继续法庭迷局游戏开发",
+        "tasks": [
+            {
+                "role": "后端工程师",
+                "task": "实现案件状态机与证据 API",
+            },
+            {
+                "role": "前端工程师",
+                "task": "HTML5 画布与卡牌交互 UI",
+            },
+        ],
+    }
+    assert not website_none_path_blocked(
+        args,
+        user_message="讨论继续完成项目的开发",
+    )
+    name, reason, err = resolve_playbook_declaration(
+        args,
+        user_message="讨论继续完成项目的开发",
+    )
+    assert err is None
+    assert name is None
 
 
 def test_website_none_path_not_blocked_continuation_config():
@@ -301,6 +356,23 @@ def test_website_none_path_not_blocked_continuation_config():
             ],
         },
         user_message="继续完成",
+    )
+
+
+def test_website_none_path_not_blocked_continuation_doc_html_path():
+    """续作讨论 + 文档整理含 .html 路径（无建站词）→ 不拦手写 none。"""
+    assert not website_none_path_blocked(
+        {
+            "playbook_id": "none",
+            "playbook_none_reason": "先整理文档再继续开发",
+            "tasks": [
+                {
+                    "role": "文档",
+                    "task": "整理 docs/原型打印卡牌.html 与相关说明",
+                }
+            ],
+        },
+        user_message="讨论继续完成开发、先对文档进行整理",
     )
 
 
@@ -319,6 +391,33 @@ def test_website_none_path_continuation_audit_still_exempt():
         },
         user_message="继续完成",
     )
+
+
+def test_software_intent_skips_website_continuation_gate():
+    """软件意图 + 非 site 绿场 → 建站续作闸不拦；薄 HTML 仍由软件闸拒。"""
+    thin = {
+        "playbook_id": "none",
+        "playbook_none_reason": "单 HTML 即可",
+        "tasks": [
+            {"role": "前端工程师", "task": "写 app.html 单文件工具"},
+        ],
+    }
+    # Website gate must not fire (software priority).
+    assert not website_none_path_blocked(
+        thin,
+        user_message="帮我做一个思维导图软件，继续完成项目的开发",
+    )
+    # Software thin gate still rejects.
+    name, reason, err = resolve_playbook_declaration(
+        thin,
+        user_message="帮我做一个思维导图软件，继续完成项目的开发",
+    )
+    assert name is None and reason is None
+    assert err is not None
+    assert "build_feature" in err
+    from agentcore.runtime.delegate.playbook_declaration import declaration_reject_gate
+
+    assert declaration_reject_gate(err) == "software"
 
 
 async def test_execute_accepts_handwritten_without_playbook():

@@ -225,6 +225,107 @@ describe("ensureTimelineMarkersFromJournal", () => {
       },
     ]);
   });
+
+  // 缺 team 且已有队后 content：按 journal 槽插入，禁止尾部 append 把终稿挤到图上方。
+  it("inserts missing team before post-plan content (journal slot)", () => {
+    const process = ensureTimelineMarkersFromJournal(
+      [
+        { kind: "content", text: "我来安排团队。" },
+        { kind: "content", text: "终稿已完成。" },
+      ],
+      [
+        { type: "content_delta", payload: { delta: "我来安排团队。" } },
+        { type: "run_plan", payload: { execution_id: "exec1" } },
+        { type: "content_delta", payload: { delta: "终稿已完成。" } },
+      ],
+    );
+    expect(process).toEqual([
+      { kind: "content", text: "我来安排团队。" },
+      { kind: "team", execution_id: "exec1" },
+      { kind: "content", text: "终稿已完成。" },
+    ]);
+  });
+
+  // 已有 team_preview 时仍保持产品序：开工卡 → team → 终稿。
+  it("inserts missing team after persisted team_preview (product order)", () => {
+    const process = ensureTimelineMarkersFromJournal(
+      [
+        { kind: "content", text: "我来安排团队。" },
+        { kind: "team_preview", checkpoint_id: "tp1" },
+        { kind: "content", text: "终稿。" },
+      ],
+      [
+        { type: "content_delta", payload: { delta: "我来安排团队。" } },
+        { type: "run_plan", payload: { execution_id: "exec1" } },
+        {
+          type: "team_preview_required",
+          payload: { checkpoint_id: "tp1" },
+        },
+        { type: "content_delta", payload: { delta: "终稿。" } },
+      ],
+    );
+    expect(process).toEqual([
+      { kind: "content", text: "我来安排团队。" },
+      { kind: "team_preview", checkpoint_id: "tp1" },
+      { kind: "team", execution_id: "exec1" },
+      { kind: "content", text: "终稿。" },
+    ]);
+  });
+
+  // graph_append 同原则：缺锚点且已有追加后 content → 插在队后 content 之前。
+  it("inserts missing graph_append before post-append content (journal slot)", () => {
+    const process = ensureTimelineMarkersFromJournal(
+      [
+        { kind: "content", text: "再加一人。" },
+        { kind: "content", text: "已追加。" },
+      ],
+      [
+        { type: "content_delta", payload: { delta: "再加一人。" } },
+        {
+          type: "graph_append",
+          payload: {
+            execution_id: "exec1",
+            host_message_id: "m1",
+            added_count: 1,
+          },
+        },
+        {
+          type: "run_plan",
+          payload: {
+            execution_id: "exec1",
+            host_message_id: "m1",
+          },
+        },
+        { type: "content_delta", payload: { delta: "已追加。" } },
+      ],
+    );
+    expect(process).toEqual([
+      { kind: "content", text: "再加一人。" },
+      {
+        kind: "graph_append",
+        execution_id: "exec1",
+        host_message_id: "m1",
+        added_count: 1,
+      },
+      { kind: "content", text: "已追加。" },
+    ]);
+  });
+  // progressive process_* journals omit content_delta from runs.events — missing team
+  // must still pin above all settled content (not legacy append).
+  it("pins missing team above process when journal has no pre-plan deltas", () => {
+    const process = ensureTimelineMarkersFromJournal(
+      [
+        { kind: "content", text: "进展。" },
+        { kind: "content", text: "终稿。" },
+      ],
+      [{ type: "run_plan", payload: { execution_id: "exec1" } }],
+    );
+    expect(process).toEqual([
+      { kind: "team", execution_id: "exec1" },
+      { kind: "content", text: "进展。" },
+      { kind: "content", text: "终稿。" },
+    ]);
+  });
 });
 
 describe("foldTeamMarker", () => {

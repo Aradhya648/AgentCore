@@ -369,6 +369,30 @@ describe("executeWorkspaceOp (本地工作区写类 op，P2b)", () => {
       expect(r.stderr).toContain("Unsupported language");
       expect(r.exit_code).toBe(1);
     });
+
+    it("fail-fast rejects bash when no usable launcher (exit 127)", async () => {
+      const { _setPathExistsForTests } = await import(
+        "../fs/workspace/execCodec"
+      );
+      _setPathExistsForTests(() => false);
+      try {
+        const r = valOf(
+          await run("execute", { language: "bash", code: "echo hi" }),
+        ) as {
+          success: boolean;
+          stderr: string;
+          exit_code: number;
+          duration_ms: number;
+        };
+        expect(r.success).toBe(false);
+        expect(r.exit_code).toBe(127);
+        expect(r.stderr).toContain("代码执行环境启动失败");
+        expect(r.stderr.toLowerCase()).toMatch(/javascript|python/);
+        expect(r.duration_ms).toBeLessThan(2000);
+      } finally {
+        _setPathExistsForTests(null);
+      }
+    });
   });
 
   // 本地→云交接打包（双模式工作区 P2e / e1）：把整棵绑定根打成单个 zip 交服务端暂存。

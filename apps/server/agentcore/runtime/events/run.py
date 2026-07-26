@@ -324,6 +324,7 @@ def run_completed(
     debrief: dict[str, Any] | None = None,
     output_files: list[str] | None = None,
     gaps: list[dict[str, Any]] | None = None,
+    execution_id: str = "",
 ) -> SSEEvent:
     payload: dict[str, Any] = {
         "run_id": run_id,
@@ -352,11 +353,20 @@ def run_completed(
     # so old fixtures stay byte-identical. Clients badge known ``reason`` codes.
     if gaps:
         payload["gaps"] = list(gaps)
+    # Host-journal routing after turn teardown (pillar A): non-empty only — keeps old
+    # fixtures byte-identical when callers omit it.
+    if execution_id:
+        payload["execution_id"] = execution_id
     return SSEEvent(type=EventType.RUN_COMPLETED, payload=payload)
 
 
 def run_failed(
-    run_id: str, agent_id: str, error: str, *, debrief: dict[str, Any] | None = None
+    run_id: str,
+    agent_id: str,
+    error: str,
+    *,
+    debrief: dict[str, Any] | None = None,
+    execution_id: str = "",
 ) -> SSEEvent:
     payload: dict[str, Any] = {"run_id": run_id, "agent_id": agent_id, "error": error}
     # 完工交接简报 on a FAILED run: a worker that produced a product + authored a 交接简报 but
@@ -366,6 +376,8 @@ def run_failed(
     # and the client folds default it to null.
     if debrief:
         payload["debrief"] = debrief
+    if execution_id:
+        payload["execution_id"] = execution_id
     return SSEEvent(type=EventType.RUN_FAILED, payload=payload)
 
 
@@ -374,6 +386,7 @@ def run_cancelled(
     agent_id: str,
     *,
     reason: str = "stop",
+    execution_id: str = "",
 ) -> SSEEvent:
     """A run was interrupted mid-flight (跑一半改方向 / 整轮停止).
 
@@ -385,9 +398,16 @@ def run_cancelled(
     Orthogonal to ``run_failed`` (error terminal). Durable so reload doesn't leave the
     node stuck ``running`` / agent ``working``.
     """
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "reason": reason,
+    }
+    if execution_id:
+        payload["execution_id"] = execution_id
     return SSEEvent(
         type=EventType.RUN_CANCELLED,
-        payload={"run_id": run_id, "agent_id": agent_id, "reason": reason},
+        payload=payload,
     )
 
 
@@ -494,12 +514,12 @@ def delivery_status(
     Deterministic (template-only, no LLM), built from the wrap-up signals the engine
     already has — worker ``files_touched``, contract / handoff gaps (含 degraded 交接、
     artifacts 对账缺口、completion_criteria 未满足), and derived user actions (如云端无
-    执行环境 → ``bind_local_folder``). ``state`` ∈ delivered / partial / blocked.
-    ``gaps`` items are ``{role, description}`` plus optional ``reason``
-    （``token_budget`` / ``worker_timeout`` / ``degraded_handoff``）；``actions`` items
-    are ``{kind, description}`` (kind 当前含 ``bind_local_folder``，前端未知 kind 按普通
-    提示渲染). DURABLE：落 journal；folds 同 ``execution_id`` 保最新，交付状态卡刷新后重建。
-    Must NOT ride ``content_delta``（终稿正文与交付对账分离——终稿纪律的结构化搭档）。
+    执行环境 → ``bind_local_folder``). ``state`` ∈ delivered / partial / blocked / notes
+    （仅 soft 待核实 → notes 轻提醒）. ``gaps`` items are ``{role, description}`` plus
+    optional ``reason`` / ``severity`` / ``paths``；``actions`` 已知 kind 含
+    ``bind_local_folder`` / ``website_verify`` / ``continue_skipped_runs``（已撤
+    ``continue_writing``）. DURABLE：落 journal；folds 同 ``execution_id`` 保最新。
+    Must NOT ride ``content_delta``（终稿正文与交付对账分离）。
     """
     return SSEEvent(
         type=EventType.DELIVERY_STATUS,
