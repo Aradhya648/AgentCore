@@ -64,6 +64,11 @@ class ToolRegistration:
     # (a browser can't run in a plain subprocess). Gated by ``browser_execution_enabled_for``
     # ON TOP OF ``execution_class`` (observe withholds the class; gVisor cloud enables it).
     browser_class: bool = False
+    # Privacy-/catalog-gated tools: listed on the roster + capability catalog, but NOT
+    # auto-registered by ``build_worker_registry``. Callers wire them after the registry
+    # is built when the user gate is on (e.g. ``conversation_history_access`` →
+    # ``_wire_worker_conversation_log_tools``). Same pattern as ``consult_memory``.
+    manual_wire: bool = False
 
 
 def tool_registration(cls: type) -> ToolRegistration:
@@ -152,8 +157,10 @@ def _load_declared_tools() -> tuple[type, ...]:
     from agentcore.tools.builtin.md_to_docx import MdToDocxTool
     from agentcore.tools.builtin.post_note import PostNoteTool
     from agentcore.tools.builtin.read_notes import ReadNotesTool
+    from agentcore.tools.builtin.read_conversation import ReadConversationTool
     from agentcore.tools.builtin.remember import RememberTool
     from agentcore.tools.builtin.replan import ReplanTool
+    from agentcore.tools.builtin.search_conversations import SearchConversationsTool
     from agentcore.tools.builtin.terminal import TerminalTool
     from agentcore.tools.builtin.test_run import TestRunTool
     from agentcore.tools.builtin.update_project_profile import UpdateProjectProfileTool
@@ -196,6 +203,9 @@ def _load_declared_tools() -> tuple[type, ...]:
         BrowserScrollTool,
         BrowserSnapshotTool,
         BrowserScreenshotTool,
+        # privacy-gated worker log tools (manual_wire; not auto-registered)
+        SearchConversationsTool,
+        ReadConversationTool,
         # ceo_orchestration (catalog order)
         DelegateTool,
         ReplanTool,

@@ -124,10 +124,34 @@ def test_parse_section_overrides_mislabeled_core_file():
 # --- scope routing (global vs project) ---
 
 
-def test_parse_scope_defaults_to_global():
+def test_parse_scope_defaults_tech_stack_to_project_when_folder():
     raw = '{"ops": [{"action": "add", "section": "技术栈与工具", "content": "用 Python"}]}'
     ops = parse_memory_ops(raw, folder_id="F1")
+    assert ops[0].scope == "F1"
+
+
+def test_parse_tech_stack_explicit_global_honored_with_folder():
+    raw = (
+        '{"ops": [{"action": "add", "scope": "global", "section": "技术栈与工具",'
+        ' "content": "跨项目用 pnpm"}]}'
+    )
+    ops = parse_memory_ops(raw, folder_id="F1")
     assert ops[0].scope is None
+
+
+def test_parse_project_constraint_without_folder_dropped():
+    raw = '{"ops": [{"action": "add", "section": "项目约束", "content": "禁止 jQuery"}]}'
+    assert parse_memory_ops(raw, folder_id=None) == []
+
+
+def test_parse_project_constraint_routes_to_folder():
+    raw = (
+        '{"ops": [{"action": "add", "section": "项目约束", "content": "禁止 jQuery"}]}'
+    )
+    ops = parse_memory_ops(raw, folder_id="F1")
+    assert len(ops) == 1
+    assert ops[0].scope == "F1"
+    assert ops[0].section == "项目约束"
 
 
 def test_parse_project_scope_resolves_to_folder_id():

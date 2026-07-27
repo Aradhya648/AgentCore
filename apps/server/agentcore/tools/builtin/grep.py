@@ -66,8 +66,10 @@ class GrepTool:
                     "path": {
                         "type": "string",
                         "description": (
-                            "搜索范围：相对【目录】或【单个文件】（默认：工作区"
-                            "根目录）。传目录则递归其下；传单个文件则只搜该文件"
+                            "搜索范围：工作区相对 POSIX【目录】或【单个文件】"
+                            "（默认 `.`=整仓）。`.`/省略=根；`/<根标签>/…` 与裸 `/`、"
+                            "`\\` 视为根；其它绝对路径（/etc、盘符）拒绝。"
+                            "传目录则递归其下；传单个文件则只搜该文件"
                             "（类似 `rg PATTERN FILE`，此时 glob 被忽略）。"
                         ),
                         "default": ".",
@@ -174,12 +176,11 @@ def _fail(error: str, start: float) -> ToolResult:
 
 
 def _outside_workspace_msg(path: str) -> str:
-    """Actionable OutsideWorkspace text (mirrors ``file_ops``): the usual cause is an
-    absolute ``/workspace/...`` path the guard refuses, so point at the relative-path
-    fix with a concrete example instead of a bare "out of range"."""
+    """Actionable OutsideWorkspace text (mirrors ``file_ops``)."""
     return (
-        f"路径 '{path}' 超出了工作区范围。请改用相对工作区根目录的【相对路径】"
-        "（不要用 /workspace/... 这类绝对路径），例如 AgentCore/文档/research/report.md。"
+        f"路径 '{path}' 超出了工作区范围。请使用工作区相对路径"
+        "（如 AgentCore/文档/research/report.md；`.` 或裸 `/` 表示整仓）；"
+        "勿使用工作区外的绝对路径（如 /etc、盘符）。"
     )
 
 

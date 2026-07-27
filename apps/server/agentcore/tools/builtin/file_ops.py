@@ -745,17 +745,15 @@ def _error(error: str, start: float, *, contract_failure: bool = False) -> ToolR
 def _outside_workspace_msg(path: str, *, location: str | None = None) -> str:
     """Actionable OutsideWorkspace text.
 
-    A bare "out of range" leaves the model guessing; the real cause is almost always
-    an absolute sandbox path (``/workspace/report.md``) the guard refuses. Spell out
-    the fix — a path relative to the workspace root — with a concrete example, so the
-    worker corrects it in one shot instead of burning retry rounds.
+    Path contract lives in ``normalize_workspace_path`` / ``resolve_safe_path``;
+    this message only points at remaining rejects (true out-of-root absolutes).
 
     On cloud (``location=server``), also point at the bind card when the model was
     reaching for the user's machine — desktop-online qualifier matches other hard gates.
     """
     relative_fix = (
-        "请改用相对工作区根目录的【相对路径】"
-        "（不要用 /workspace/... 这类绝对路径），例如 AgentCore/文档/research/report.md。"
+        "请使用工作区相对路径（如 AgentCore/文档/research/report.md；"
+        "`.` 或裸 `/` 表示整仓）；勿使用工作区外的绝对路径（如 /etc、盘符）。"
     )
     if location == "server":
         return (
@@ -946,7 +944,10 @@ class FileReadTool:
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "工作区内的相对文件路径",
+                        "description": (
+                            "工作区相对 POSIX 文件路径（`.`=根；`/<根标签>/…` 与裸 `/`、"
+                            "`\\` 视为根；其它绝对路径如 /etc、盘符拒绝）"
+                        ),
                     },
                     "offset": {
                         "type": "integer",
@@ -1450,7 +1451,10 @@ class FileListTool:
                 "properties": {
                     "directory": {
                         "type": "string",
-                        "description": "相对目录路径（默认：工作区根目录）",
+                        "description": (
+                            "工作区相对 POSIX 目录（默认 `.`=整仓；`/<根标签>/…` 与裸 `/`、"
+                            "`\\` 视为根；其它绝对路径拒绝）"
+                        ),
                         "default": ".",
                     },
                     "pattern": {

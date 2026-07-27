@@ -209,7 +209,10 @@ def escalation_block(tool: DelegateTool, plan: RunPlan, results: dict) -> str:
 
 def worker_products(tool: DelegateTool, plan: RunPlan, results: dict) -> list[dict[str, Any]]:
     """Each worker's product folded back to the CEO — SINGLE SOURCE for synthesis + run_context."""
-    from agentcore.runtime.runs.constants import CEO_SYNTHESIS_BUDGET, DEP_POINTER_SUMMARY_CHARS
+    from agentcore.runtime.runs.constants import (
+        CEO_SYNTHESIS_BUDGET,
+        CEO_SYNTHESIS_POINTER_CHARS,
+    )
     from agentcore.runtime.runs.fidelity import allocate, truncate_head_tail
     from agentcore.runtime.runs.types import RunPhase
 
@@ -293,21 +296,45 @@ def worker_products(tool: DelegateTool, plan: RunPlan, results: dict) -> list[di
         clean, debrief = cleaned[node.run_id]
         author_summary = (debrief or {}).get("summary", "") if debrief else ""
         next_steps = (debrief or {}).get("next_steps", "") if debrief else ""
+        raw_points = (debrief or {}).get("key_points") if debrief else None
+        key_points = (
+            [str(p).strip() for p in raw_points if str(p).strip()]
+            if isinstance(raw_points, list)
+            else []
+        )
         motion_card = (debrief or {}).get("motion_card") if debrief else None
         if not isinstance(motion_card, dict):
             motion_card = None
         fidelity = ""
         truncated = False
         if mode == "pointer":
-            # HEAD+TAIL digest (not head-only): the full product is on disk (pointer), and the
-            # digest keeps the deliverable's opening AND its tail so 收尾 / 关键取舍 aren't dropped.
-            body = truncate_head_tail(clean, DEP_POINTER_SUMMARY_CHARS)
+            # Prefer structured handoff (summary + key_points + files) over a long
+            # prose digest — full artifact is on disk / in the UI.
+            body = _compact_worker_body(
+                clean=clean,
+                author_summary=author_summary,
+                key_points=key_points,
+                prose_limit=CEO_SYNTHESIS_POINTER_CHARS,
+                prefer_brief=True,
+            )
             fidelity, truncated = "pointer", True
         elif mode == "pass_through":
             allowance = next(allowances)
-            body = truncate_head_tail(clean, allowance)
+            # With a structured brief, keep prose short (pointer-like); otherwise
+            # water-fill the shared budget as before.
+            if author_summary or key_points:
+                body = _compact_worker_body(
+                    clean=clean,
+                    author_summary=author_summary,
+                    key_points=key_points,
+                    prose_limit=min(allowance, CEO_SYNTHESIS_POINTER_CHARS),
+                    prefer_brief=True,
+                )
+                truncated = len(clean) > CEO_SYNTHESIS_POINTER_CHARS
+            else:
+                body = truncate_head_tail(clean, allowance)
+                truncated = len(clean) > allowance
             fidelity = "pass_through"
-            truncated = len(clean) > allowance
         elif state and state.error:
             body = f"（失败：{state.error}）"
         else:
@@ -317,9 +344,6 @@ def worker_products(tool: DelegateTool, plan: RunPlan, results: dict) -> list[di
                 f"【接替】本节点 replaces_run_id=`{node.replaces_run_id}`"
                 f"（接手原失败/取消队员）\n\n{body}"
             )
-        # Lead the CEO's per-worker view with the author's own 结论 (cheapest, trim-proof).
-        if author_summary and mode in ("pointer", "pass_through"):
-            body = f"交接结论：{author_summary}\n\n{body}"
         if state and state.warnings:
             warns = "；".join(state.warnings)
             body += f"\n\n> 质检提醒（未完全达标，请判断是否需要返工）：{warns}"
@@ -353,6 +377,61 @@ def worker_products(tool: DelegateTool, plan: RunPlan, results: dict) -> list[di
             }
         )
     return products
+
+
+def _compact_worker_body(
+    *,
+    clean: str,
+    author_summary: str,
+    key_points: list[str],
+    prose_limit: int,
+    prefer_brief: bool,
+) -> str:
+    """Pointer-first body: summary + short bullets; optional tiny prose digest."""
+    from agentcore.runtime.runs.fidelity import truncate_head_tail
+
+    parts: list[str] = []
+    if author_summary:
+        parts.append(f"交接结论：{author_summary}")
+    if key_points:
+        bullets = "\n".join(f"- {p}" for p in key_points[:6])
+        parts.append(f"要点：\n{bullets}")
+    if prefer_brief and (author_summary or key_points):
+        # Structured brief present — skip dumping the full deliverable.
+        return "\n\n".join(parts) if parts else "（无摘要）"
+    if clean.strip():
+        parts.append(truncate_head_tail(clean, prose_limit))
+    return "\n\n".join(parts) if parts else "（无输出）"
+
+
+def _synthesis_char_cap(raw_chars: int) -> int:
+    """Effective final-char cap for ``format_for_ceo``.
+
+    Short handoffs used to expand into ~6k of wrapper+digest text (ratio~12).
+    Per-worker pointer/brief sizing is the primary guard; this absolute cap is the
+    backstop. When ``raw_chars`` already exceeds the prose budget, water-filling
+    has done the work — allow up to ``DELEGATE_OUTPUT_LIMIT`` so middle workers
+    are not elided by a second whole-document chop.
+    """
+    from agentcore.runtime.runs.constants import (
+        CEO_SYNTHESIS_BUDGET,
+        CEO_SYNTHESIS_MAX_CHARS,
+        DELEGATE_OUTPUT_LIMIT,
+    )
+
+    if raw_chars >= CEO_SYNTHESIS_BUDGET:
+        return DELEGATE_OUTPUT_LIMIT
+    return CEO_SYNTHESIS_MAX_CHARS
+
+
+def _cap_synthesis_output(output: str, raw_chars: int) -> tuple[str, bool]:
+    """Trim synthesis package to ratio/absolute cap (head+tail keeps roster + 终稿纪律)."""
+    from agentcore.runtime.runs.fidelity import truncate_head_tail
+
+    limit = _synthesis_char_cap(raw_chars)
+    if len(output) <= limit:
+        return output, False
+    return truncate_head_tail(output, limit), True
 
 
 def team_notes_block(tool: DelegateTool) -> str:
@@ -582,6 +661,8 @@ def format_for_ceo(
             "而非重新调用 delegate。若无需补跑，直接如实回复用户即可。"
         )
     raw_chars = sum(len(s.content) for s in results.values() if s and s.content)
+    output, ratio_capped = _cap_synthesis_output(output, raw_chars)
+    limit = _synthesis_char_cap(raw_chars)
     logger.info(
         "delegate.synthesis",
         call=call_idx if call_idx is not None else tool._calls,
@@ -591,6 +672,8 @@ def format_for_ceo(
         raw_chars=raw_chars,
         final_chars=len(output),
         ratio=round(len(output) / raw_chars, 2) if raw_chars else 1.0,
-        capped=len(output) > DELEGATE_OUTPUT_LIMIT,
+        capped=len(output) > DELEGATE_OUTPUT_LIMIT or ratio_capped,
+        synthesis_cap=limit,
+        ratio_capped=ratio_capped,
     )
     return output

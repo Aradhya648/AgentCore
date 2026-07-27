@@ -95,6 +95,8 @@ class AskUserTool:
     # The memory master switch, captured so resume re-wires consult_memory as this turn did
     # (off ⇒ stays off). Capture-only; defaults True (always-on).
     memory_enabled: bool = True
+    # Cross-session log access gate, captured for resume wire parity (跨会话对话日志访问定案).
+    conversation_history_access: bool = True
     # Advertise desktop-only ask_user option actions (bind_local_folder /
     # grant_readonly_folder / grant_organize_folder) when the desktop client can fulfil them.
     advertise_bind_local_folder: bool = False

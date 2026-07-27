@@ -488,10 +488,11 @@ Three kinds of notes (route each fact via the "file" field; route its scope via 
   new topic. "section" is optional for topic notes.
 
 SCOPE routing (only when there IS a current project; otherwise everything is global):
-- "scope": "global" — true of the user everywhere (e.g. "用 Python"、a personal fact).
+- "scope": "global" — true of the user everywhere (e.g. a personal fact, cross-project habit).
 - "scope": "project" — true ONLY in THIS project (e.g. "本项目用 Rust"、本项目部署流程、
-  本项目的客户是 X). Put project-specific facts/topics in the project scope so they don't
-  pollute global memory. When unsure, prefer "global". 偏好.md is always global.
+  本项目的客户是 X、本项目技术栈). Put project-specific facts/topics/tech stack in the
+  project scope so they don't pollute global memory. When a project exists and unsure,
+  prefer "project" (esp. 技术栈与工具 / project-only facts). 偏好.md is always global.
 
 Output ONLY a JSON object, with no other text. Shape:
 {"ops": [ <zero or more op objects> ]}
@@ -504,7 +505,8 @@ Each op object:
 Rules:
 - "section" decides which core file: 沟通偏好/工作习惯 → 偏好.md; 技术栈与工具/关于用户的事实/
   纠正记录/项目约束 → 画像.md. "section" is REQUIRED for core ops and MUST be one of those
-  six; for a topic file it is optional. "scope" defaults to "global" if omitted.
+  six; for a topic file it is optional. "scope" defaults to "global" if omitted, except
+  技术栈与工具 defaults to "project" when a project exists (explicit "global" still honored).
 - 纠正记录识别：用户否定 AI 的理解、改正事实、推翻先前方案——如「不是 npm，是 pnpm」
   「你理解错了，这里不需要认证」「之前说的方案改了，现在用 B」。写入 纠正记录，格式
   「AI曾认为…，实际应为…」，scope 固定 global。
@@ -709,6 +711,11 @@ def _coerce_op(item: object, folder_id: str | None = None) -> MemoryOp | None:
         if not folder_id:
             return None
         scope = folder_id
+    elif section == "技术栈与工具" and folder_id:
+        # With a project: tech stack defaults to project (uncertain → project). Explicit
+        # "global" still allowed for cross-project stacks.
+        token = (_clean_str(item.get("scope")) or "").lower()
+        scope = None if token == "global" else folder_id
     else:
         scope = _resolve_scope(item.get("scope"), folder_id)
     return MemoryOp(

@@ -179,6 +179,10 @@ class TurnSuspension:
     # too (privacy off-ramp parity, Agent记忆与知识系统 §二). Defaults True (legacy frames + the
     # always-on default) so an absent value never silently strips memory from a resume.
     memory_enabled: bool = True
+    # Cross-session conversation-log access gate at pause (跨会话对话日志访问定案). Resume
+    # re-wires ``search_conversations`` / ``read_conversation`` the same way. Defaults True
+    # for legacy frames.
+    conversation_history_access: bool = True
     # The CEO window at pause is a PROJECTION of the turn journal, NOT a stored blob
     # (执行级事件溯源 Phase 2 ⑤): resume folds ``journal_entries`` + ``history`` via
     # ``window_from_journal``. Kept as an in-memory carrier (the suspending face captures it
@@ -247,6 +251,7 @@ class TurnSuspension:
             "user_message": self.user_message,
             "folder_id": self.folder_id,
             "memory_enabled": self.memory_enabled,
+            "conversation_history_access": self.conversation_history_access,
             # NOTE: ``transcript`` / ``history`` / ``journal_entries`` are deliberately NOT
             # serialized into the frame (执行级事件溯源 Phase 2 ⑤): the CEO window is rebuilt by
             # ``window_from_journal`` from the turn_journal facts (§8.3) + reloaded history, so
@@ -285,6 +290,7 @@ class TurnSuspension:
             # Legacy frames (pre-field) lack the key → default True so a resume never silently
             # strips memory that the original turn had on.
             "memory_enabled": data.get("memory_enabled", True),
+            "conversation_history_access": data.get("conversation_history_access", True),
             # NOTE: ``transcript`` / ``history`` / ``journal_entries`` are NOT in the frame
             # (Phase 2 ⑤) — the CEO window is rebuilt from the turn_journal facts on claim
             # (``window_from_journal``), so they default empty here; the display ``journal`` is a

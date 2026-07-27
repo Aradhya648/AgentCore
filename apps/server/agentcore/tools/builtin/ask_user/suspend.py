@@ -65,6 +65,7 @@ async def persist_suspension(
             user_message=tool.user_message,
             folder_id=tool.folder_id,
             memory_enabled=tool.memory_enabled,
+            conversation_history_access=tool.conversation_history_access,
             transcript=capture.transcript,
             history=capture.history,
             question=message,

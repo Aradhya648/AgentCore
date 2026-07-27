@@ -31,13 +31,37 @@ from agentcore.tools.builtin.ask_user import AskUserTool
 from agentcore.tools.builtin.consult_memory import ConsultMemoryTool
 from agentcore.tools.builtin.consult_skill import ConsultSkillTool
 from agentcore.tools.builtin.delegate import DelegateTool
+from agentcore.tools.builtin.read_conversation import ReadConversationTool
 from agentcore.tools.builtin.remember import RememberTool
+from agentcore.tools.builtin.search_conversations import SearchConversationsTool
 from agentcore.tools.builtin.update_project_profile import UpdateProjectProfileTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registry import ToolRegistry
-from agentcore.workspace.attachment_parse import truncate_for_prompt
+from agentcore.workspace.attachment_parse import (
+    ATTACHMENT_INLINE_MAX_CHARS,
+    truncate_for_prompt,
+)
 
 logger = get_logger(__name__)
+
+# Soft-miss / gate-off notes for conversation attachments (跨会话对话日志访问定案 P1).
+# Never fall back to client shallow ``text`` — that would silently fake a deep read.
+_CONV_ATTACH_SOFT_MISS = (
+    "无法打开该对话（可能不存在、已删除、为 handoff，或不在可访问范围内）。"
+)
+_CONV_ATTACH_GATE_OFF = (
+    "跨会话对话日志访问已关闭（conversation_history_access=off），"
+    "服务端拒绝深读该对话；未注入客户端浅文。"
+    "请在设置中开启「允许 AI 查阅历史对话」后重试。"
+)
+_CONV_ATTACH_NO_ID = "缺少 conversation_id，无法服务端深读；未注入客户端浅文。"
+_CONV_ATTACH_HOST = (
+    "那是本回合正在进行的宿主会话——请直接看本会话工作记忆，无需附件深读。"
+)
+_CONV_ATTACH_TRUNC_NOTE = (
+    "\n\n… [truncated for prompt; 完整日志请派查阅 Worker `read_conversation` 续读"
+    "（conversation_id={cid}{cursor_part}）]"
+)
 
 
 def _wire_worker_memory_tools(
@@ -58,6 +82,24 @@ def _wire_worker_memory_tools(
         worker_tools.register(
             ConsultMemoryTool(store=default_memory_store(), folder_id=folder_id)
         )
+
+
+def _wire_worker_conversation_log_tools(
+    worker_tools: ToolRegistry,
+    *,
+    conversation_history_access: bool = True,
+    folder_id: str | None = None,
+) -> None:
+    """Register cross-session log tools when the privacy gate is on.
+
+    ``search_conversations`` / ``read_conversation`` are ``manual_wire`` worker-only
+    tools — never auto-registered by ``build_worker_registry``, never on the CEO
+    toolset. Gate off ⇒ not wired (跨会话对话日志访问定案).
+    """
+    if not conversation_history_access:
+        return
+    worker_tools.register(SearchConversationsTool(folder_id=folder_id))
+    worker_tools.register(ReadConversationTool())
 
 
 def _assemble_ceo_toolset(
@@ -83,6 +125,7 @@ def _assemble_ceo_toolset(
     backend_location: str,
     skill_registry: SkillRegistry,
     memory_enabled: bool = True,
+    conversation_history_access: bool = True,
     folder_id: str | None = None,
     has_memory_topics: bool = False,
     autonomy_policy=None,
@@ -126,6 +169,7 @@ def _assemble_ceo_toolset(
         suspension_deleter=suspension_deleter,
         folder_id=folder_id,
         memory_enabled=memory_enabled,
+        conversation_history_access=conversation_history_access,
         autonomy_policy=autonomy_policy,
     )
     chat_tools = build_ceo_tool_registry()
@@ -158,6 +202,7 @@ def _assemble_ceo_toolset(
         suspension_deleter=suspension_deleter,
         folder_id=folder_id,
         memory_enabled=memory_enabled,
+        conversation_history_access=conversation_history_access,
         autonomy_policy=autonomy_policy,
         registry=default_interaction_registry(),
         # 批 D1：共享会话 roster，开赛探测幕1 透镜 session 作证人。
@@ -231,20 +276,88 @@ def _assemble_ceo_toolset(
                 suspension_deleter=suspension_deleter,
                 folder_id=folder_id,
                 memory_enabled=memory_enabled,
+                conversation_history_access=conversation_history_access,
                 advertise_bind_local_folder=advertise_bind_local_folder,
             )
         )
     return delegate_tool, debate_tool, chat_tools
 
 
-def _build_attachment_context(attachments: list[dict] | None) -> str | None:
+async def _deep_read_conversation_attachment(
+    att: dict,
+    *,
+    name: str,
+    user_id: str | None,
+    host_conversation_id: str | None,
+    conversation_history_access: bool,
+) -> str:
+    """Server-side deep transcript for ``kind=conversation`` — never client shallow text.
+
+    Privacy gate off / missing id / owner soft-miss / handoff / host → explicit note.
+    Over-long → first prompt-capped chunk via ``log_export.chunk_transcript`` +
+    Worker ``read_conversation`` continuation hint.
+    """
+    from agentcore.conversation.log_export import (
+        chunk_transcript,
+        render_conversation_log,
+    )
+    from agentcore.db.base import async_session_factory
+    from agentcore.db.repositories import (
+        ConversationRepository,
+        MessageRepository,
+        TurnJournalRepository,
+    )
+
+    cid = str(att.get("conversation_id") or "").strip()
+    if not conversation_history_access:
+        return f"--- Conversation: {name} [deep-read denied] ---\n{_CONV_ATTACH_GATE_OFF}"
+    if not cid:
+        return f"--- Conversation: {name} ---\n{_CONV_ATTACH_NO_ID}"
+    if host_conversation_id and cid == host_conversation_id:
+        return f"--- Conversation: {name} ---\n{_CONV_ATTACH_HOST}"
+    if not user_id:
+        return f"--- Conversation: {name} ---\n{_CONV_ATTACH_SOFT_MISS}"
+
+    async with async_session_factory() as session:
+        conv = await ConversationRepository(session).get_by_id(cid, user_id=user_id)
+        if conv is None or conv.mode == "handoff":
+            return f"--- Conversation: {name} ---\n{_CONV_ATTACH_SOFT_MISS}"
+        messages = list(await MessageRepository(session).list_all_for_conversation(cid))
+        assistant_ids = [m.id for m in messages if m.role == "assistant"]
+        journal_map = await TurnJournalRepository(session).load_map(assistant_ids)
+        full = render_conversation_log(conv, messages, journal_map)
+        chunk = chunk_transcript(
+            full,
+            conversation=conv,
+            messages=messages,
+            cursor=None,
+            max_chars=ATTACHMENT_INLINE_MAX_CHARS,
+        )
+
+    title = chunk.title or name
+    note = " (truncated; continue via read_conversation)" if chunk.truncated else ""
+    body = chunk.transcript
+    if chunk.truncated:
+        cursor_part = f", next_cursor={chunk.next_cursor}" if chunk.next_cursor else ""
+        body += _CONV_ATTACH_TRUNC_NOTE.format(cid=cid, cursor_part=cursor_part)
+    return f"--- Conversation: {title}{note} ---\n{body}"
+
+
+async def _build_attachment_context(
+    attachments: list[dict] | None,
+    *,
+    user_id: str | None = None,
+    host_conversation_id: str | None = None,
+    conversation_history_access: bool = True,
+) -> str | None:
     """Render user-referenced files / dirs / conversations into a prompt block.
 
     Text files carry pre-extracted text; pre-parsed binaries (docx/pdf/…) carry
     inline text (context-capped) plus a pointer to the ``*.md`` workspace copy;
     unscanned spreadsheet binaries carry only a workspace path (引用即驻留 —
     model must parse via ``code_execute``). Directories carry a recursive file
-    listing (paths only); conversations carry recent messages. A file with a
+    listing (paths only); ``kind=conversation`` is **server deep-read** via
+    ``log_export`` (client shallow ``text`` is ignored). A file with a
     ``workspace_path`` was persisted into the workspace, so the header points
     the agent at that durable path. Returns None when there is nothing to inject
     so the base prompt stays unchanged.
@@ -256,6 +369,7 @@ def _build_attachment_context(attachments: list[dict] | None) -> str | None:
     resident = False
     has_binary = False
     has_preparsed = False
+    has_conversation = False
     for att in attachments:
         name = att.get("name") or "untitled"
         kind = att.get("kind") or "file"
@@ -275,10 +389,16 @@ def _build_attachment_context(attachments: list[dict] | None) -> str | None:
                 f"File paths (contents not included):\n{text}"
             )
         elif kind == "conversation":
-            if not text:
-                continue
-            note = " (recent messages only)" if att.get("truncated") else ""
-            blocks.append(f"--- Conversation: {name}{note} ---\n{text}")
+            has_conversation = True
+            blocks.append(
+                await _deep_read_conversation_attachment(
+                    att,
+                    name=name,
+                    user_id=user_id,
+                    host_conversation_id=host_conversation_id,
+                    conversation_history_access=conversation_history_access,
+                )
+            )
         elif parse_status == "scanned" and text:
             path = ws_path or att.get("path") or name
             if ws_path:
@@ -354,13 +474,21 @@ def _build_attachment_context(attachments: list[dict] | None) -> str | None:
         if has_preparsed
         else ""
     )
+    conversation_note = (
+        " A Conversation block is a server-rendered deep transcript (messages +"
+        " process layer); when truncated, delegate a Worker with"
+        " ``read_conversation`` to continue — do not treat a truncated block as"
+        " the full log."
+        if has_conversation
+        else ""
+    )
     return (
         "<attached_files>\n"
         "The user attached the following files, directories and past "
         "conversations as context for this message. Treat them as reference "
         "material the user provided; cite them by name when relevant. Directory "
-        "entries list file paths only (file contents are not included); a "
-        "Conversation block holds that conversation's recent messages."
+        "entries list file paths only (file contents are not included)."
+        f"{conversation_note}"
         f"{resident_note}{binary_note}{preparsed_note}\n\n"
         f"{body}\n"
         "</attached_files>"

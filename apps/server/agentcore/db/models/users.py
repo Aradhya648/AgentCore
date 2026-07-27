@@ -75,6 +75,13 @@ class User(Base):
     memory_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true")
     )
+    # Cross-session conversation-log access gate (跨会话对话日志访问定案). When False,
+    # Workers do not get ``search_conversations`` / ``read_conversation`` wired and
+    # deep conversation-attachment reads are refused. Orthogonal to ``memory_enabled``
+    # (facts vs raw transcripts). Defaults True (product default = allow on-demand recall).
+    conversation_history_access: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
     # Capability-authorization posture (安全权限与治理 §三 AutonomyPolicy).
     # always_ask | first_grant (default) | full_auto — only the capability-auth
     # dimension; plan_review / checkpoint confirmation is unchanged.

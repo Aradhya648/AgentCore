@@ -10,6 +10,7 @@ from agentcore.core.types import new_id
 from agentcore.db.models import (
     Conversation,
     CostEvent,
+    Folder,
     MemoryUpdateRow,
     Message,
     MessageBookmark,
@@ -322,8 +323,11 @@ class ConversationRepository:
         limit: int,
         updated_after: datetime | None = None,
         folder_id: str | None = None,
+        include_archived: bool = False,
+        global_chats_only: bool = False,
+        exclude_conversation_id: str | None = None,
     ) -> Sequence[Conversation]:
-        """Owner-scoped title substring search (全局搜索 Tier 1).
+        """Owner-scoped title substring search (全局搜索 Tier 1 / 跨会话日志工具).
 
         ILIKE over ``title``, newest-activity first, capped at ``limit``. Excludes
         soft-deleted and hidden handoff-host conversations — the same visibility as
@@ -333,21 +337,94 @@ class ConversationRepository:
         the cap is spent on matching rows rather than filtered-away ones:
         ``updated_after`` keeps only recently-active chats (时间过滤), ``folder_id``
         scopes to one folder/工作区.
+
+        Cross-session log tool extras (跨会话对话日志访问定案):
+        ``include_archived`` (default False), ``global_chats_only`` (``folder_id IS NULL``),
+        ``exclude_conversation_id`` (host turn's own chat). Empty ``query`` lists by
+        ``updated_at`` without a title filter.
         """
         stmt = select(Conversation).where(
             Conversation.user_id == user_id,
             Conversation.deleted_at.is_(None),
             Conversation.mode != "handoff",
-            Conversation.title.ilike(_ilike_pattern(query)),
         )
+        q = (query or "").strip()
+        if q:
+            stmt = stmt.where(Conversation.title.ilike(_ilike_pattern(q)))
+        if not include_archived:
+            stmt = stmt.where(Conversation.archived.is_(False))
+        if global_chats_only:
+            stmt = stmt.where(Conversation.folder_id.is_(None))
         if updated_after is not None:
             stmt = stmt.where(Conversation.updated_at >= updated_after)
         if folder_id is not None:
             stmt = stmt.where(Conversation.folder_id == folder_id)
+        if exclude_conversation_id:
+            stmt = stmt.where(Conversation.id != exclude_conversation_id)
         result = await self._session.execute(
             stmt.order_by(Conversation.updated_at.desc()).limit(limit)
         )
         return result.scalars().all()
+
+    async def search_with_projections(
+        self,
+        user_id: str,
+        query: str,
+        *,
+        limit: int,
+        folder_id: str | None = None,
+        include_archived: bool = False,
+        global_chats_only: bool = False,
+        exclude_conversation_id: str | None = None,
+    ) -> list[dict]:
+        """Like :meth:`search` but projects ``folder_name`` + ``message_count``.
+
+        Returns plain dicts for the Worker log tools (no ORM leakage into tool JSON).
+        Message counts come from one grouped query (same as sidebar
+        ``counts_for_conversations``).
+        """
+        convs = list(
+            await self.search(
+                user_id,
+                query,
+                limit=limit,
+                folder_id=folder_id,
+                include_archived=include_archived,
+                global_chats_only=global_chats_only,
+                exclude_conversation_id=exclude_conversation_id,
+            )
+        )
+        if not convs:
+            return []
+        folder_ids = {c.folder_id for c in convs if c.folder_id}
+        folder_names: dict[str, str] = {}
+        if folder_ids:
+            fres = await self._session.execute(
+                select(Folder.id, Folder.name).where(
+                    Folder.id.in_(folder_ids),
+                    Folder.user_id == user_id,
+                )
+            )
+            folder_names = {row[0]: row[1] for row in fres.all()}
+        from agentcore.db.repositories.messages import MessageRepository
+
+        counts = await MessageRepository(self._session).counts_for_conversations(
+            [c.id for c in convs]
+        )
+        out: list[dict] = []
+        for c in convs:
+            out.append(
+                {
+                    "conversation_id": c.id,
+                    "title": (c.title or "").strip() or "未命名对话",
+                    "folder_id": c.folder_id,
+                    "folder_name": folder_names.get(c.folder_id) if c.folder_id else None,
+                    "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+                    "message_count": int(counts.get(c.id, 0)),
+                    "archived": bool(c.archived),
+                }
+            )
+        return out
 
     async def update_title(
         self, conversation_id: str, title: str, *, user_id: str

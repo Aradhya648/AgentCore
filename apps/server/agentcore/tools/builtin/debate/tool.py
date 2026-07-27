@@ -100,6 +100,7 @@ class DebateTool:
         suspension_deleter: SuspensionDeleter | None = None,
         folder_id: str | None = None,
         memory_enabled: bool = True,
+        conversation_history_access: bool = True,
         autonomy_policy: AutonomyPolicy | None = None,
         registry: ClientRequestBridge | None = None,
         session_store: Any = None,
@@ -126,6 +127,7 @@ class DebateTool:
         self._suspension_deleter = suspension_deleter
         self._folder_id = folder_id
         self._memory_enabled = memory_enabled
+        self._conversation_history_access = conversation_history_access
         self._autonomy_policy = autonomy_policy or AutonomyPolicy.FIRST_GRANT
         self._registry = registry
         # 批 D1：会话级留人 roster（探测幕1 透镜 session）；缺省 = 无证人。

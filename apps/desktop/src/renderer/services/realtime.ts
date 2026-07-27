@@ -54,7 +54,7 @@ interface SharedSpaceInviteEvent {
  * recorded a row; its shape mirrors the REST `MemoryUpdateView` so {@link toMemoryUpdate}
  * maps it. Absent on older/edge passes — then we fall back to the heads-up toast. */
 interface MemoryUpdatedEvent {
-  type: "memory_updated";
+      type: "memory_updated";
   conversation_id: string;
   kind?: "episodic" | "semantic";
   update?: {
@@ -69,6 +69,8 @@ interface MemoryUpdatedEvent {
       scope: string;
       content: string;
       target: string;
+      /** folder_id when scope is project (深链 / 搬层). */
+      project_id?: string | null;
     }[];
   };
 }

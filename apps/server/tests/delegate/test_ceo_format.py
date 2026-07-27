@@ -265,22 +265,28 @@ def test_format_for_ceo_short_prose_passes_through_whole():
 
 
 def test_format_for_ceo_surfaces_next_steps_advisory_and_leads_with_summary():
-    # 完工交接简报: the per-worker synthesis body LEADS with the author's 结论 (from the structured
-    # debrief), and each worker's 建议下一步 is gathered into one advisory section.
+    # 完工交接简报: structured brief leads; with a summary present CEO synthesis prefers
+    # pointer/short bullets over re-dumping the full deliverable body (B 控长).
     t = tool(Provider([]))
     plan = RunPlan(nodes=[RunSpec(run_id="w1", task="调研", role="研究员")])
     results = {
         "w1": RunState(
             phase=RunPhase.COMPLETED,
             content="一段研究综述正文。",
-            debrief={"summary": "结论是甲", "next_steps": "补做竞品对比"},
+            debrief={
+                "summary": "结论是甲",
+                "key_points": ["要点一", "要点二"],
+                "next_steps": "补做竞品对比",
+            },
         )
     }
     out = format_for_ceo(t, plan, results)
     assert "队员建议的下一步" in out
     assert "补做竞品对比" in out
-    assert "交接结论：结论是甲" in out  # per-worker body leads with the author summary
-    assert "一段研究综述正文。" in out  # the deliverable body follows the lead
+    assert "交接结论：结论是甲" in out
+    assert "要点一" in out and "要点二" in out
+    # Full body is omitted when structured brief is present (prefer short).
+    assert "一段研究综述正文。" not in out
 
 
 def test_format_for_ceo_no_next_steps_section_when_none():
@@ -409,3 +415,37 @@ def test_format_for_ceo_emits_uncapped_synthesis_metric():
     assert metric["capped"] is False
     assert metric["workers"] == 8 and metric["prose"] == 8
     assert metric["ratio"] < 1.0
+    assert metric["ratio_capped"] is False
+
+
+def test_format_for_ceo_caps_short_raw_expansion_ratio():
+    """Short pointer-like raw must not expand into ~6k packaging (ratio~12)."""
+    from agentcore.runtime.runs.constants import CEO_SYNTHESIS_MAX_CHARS
+
+    t = tool(Provider([]))
+    # Many file producers with tiny orientation notes — the old path bloated via
+    # per-worker digests + footer even when raw_chars was tiny.
+    nodes = [RunSpec(run_id=f"w{i}", task="写一段", role=f"写手{i}") for i in range(12)]
+    plan = RunPlan(nodes=nodes)
+    results = {
+        f"w{i}": RunState(
+            phase=RunPhase.COMPLETED,
+            content=f"ok{i}",
+            files_touched=[f"out/{i}.md"],
+            debrief={"summary": f"完成{i}", "key_points": [f"路径 out/{i}.md"]},
+        )
+        for i in range(12)
+    }
+    with capture_logs() as logs:
+        out = format_for_ceo(t, plan, results)
+    metric = next(e for e in logs if e["event"] == "delegate.synthesis")
+    raw = metric["raw_chars"]
+    assert raw < 200
+    assert len(out) <= CEO_SYNTHESIS_MAX_CHARS
+    assert metric["final_chars"] <= CEO_SYNTHESIS_MAX_CHARS
+    # Prefer-brief keeps natural size well under the old ~6k regime (log ratio~12).
+    assert metric["final_chars"] < 3500
+    assert metric["ratio_capped"] is False  # natural size under cap
+    assert "交接结论" in out and "要点：" in out
+    assert "队员终态名册" in out or "写手0" in out
+    assert "文件产出" in out or "out/0.md" in out

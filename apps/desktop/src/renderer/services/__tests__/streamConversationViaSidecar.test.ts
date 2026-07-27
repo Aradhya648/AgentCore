@@ -38,6 +38,7 @@ vi.mock("@/services/inferenceToken", () => ({
 
 import { notifyWarning } from "@/lib/toast";
 import { resolveSidecarInference } from "@/services/inferenceToken";
+import { resetSidecarEventPumpForTests } from "../sidecarEventPump";
 import { takeRecentSidecarFailure } from "@/services/sidecarStatus";
 import { dispatchSSEEvent } from "@/services/streamConversation";
 import { useConversationStore } from "@/stores/conversation";
@@ -49,7 +50,7 @@ const takeRecentSidecarFailureMock = vi.mocked(takeRecentSidecarFailure);
 const resolveSidecarInferenceMock = vi.mocked(resolveSidecarInference);
 const notifyWarningMock = vi.mocked(notifyWarning);
 
-type EventPush = { conversationId: string; event: unknown };
+type EventPush = { conversationId: string; turnId: string; event: unknown };
 
 function turnResult(): SidecarTurnResult {
   return {
@@ -90,6 +91,7 @@ let cancelMock: ReturnType<typeof vi.fn>;
 let flushTurnMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  resetSidecarEventPumpForTests();
   useConversationStore.setState({ currentConversationId: null, byId: {} });
   useTurnModelStore.setState({ byConversation: {} });
   dispatchSSEEventMock.mockReset();
@@ -121,7 +123,9 @@ beforeEach(() => {
     sidecarApi: {
       onEvent: vi.fn((cb: (push: EventPush) => void) => {
         onEventCb = cb;
-        return () => {};
+        return () => {
+          if (onEventCb === cb) onEventCb = null;
+        };
       }),
       cancel: cancelMock,
       resume: resumeMock,
@@ -139,6 +143,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSidecarEventPumpForTests();
   (globalThis as Record<string, unknown>).window = undefined;
 });
 
@@ -171,10 +176,12 @@ describe("resumeConversationViaSidecar", () => {
     resumeMock.mockImplementation(async () => {
       onEventCb?.({
         conversationId: "c1",
+        turnId: "m-asst",
         event: { type: "content_delta", payload: { delta: "x" } },
       });
       onEventCb?.({
         conversationId: "other",
+        turnId: "m-asst",
         event: { type: "content_delta", payload: { delta: "y" } },
       });
       return result;

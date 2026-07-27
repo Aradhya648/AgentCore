@@ -19,24 +19,69 @@ vi.mock("@/services/api", () => ({
 }));
 
 import { dispatchSSEEvent } from "@/services/streamConversation";
+import { resetSidecarEventPumpForTests } from "../sidecarEventPump";
 import {
   clearActiveSidecarTurn,
   getActiveSidecarTarget,
   setActiveSidecarTurn,
 } from "../sidecarRouting";
 import { projectUnsyncedTurns } from "../turns/projectUnsynced";
-import { attachSidecarTurn } from "../turns/sidecarAttach";
+import {
+  attachSidecarTurn,
+  resetSidecarAttachInFlightForTests,
+} from "../turns/sidecarAttach";
 
 const CID = "conv-sidecar-recover";
 const dispatchMock = vi.mocked(dispatchSSEEvent);
 
+type EventPush = {
+  conversationId: string;
+  turnId: string;
+  event: unknown;
+};
+
+let onEventCb: ((push: EventPush) => void) | null;
+let onEventCalls: number;
+
 beforeEach(() => {
   useConversationStore.setState({ currentConversationId: null, byId: {} });
   clearActiveSidecarTurn(CID);
+  resetSidecarEventPumpForTests();
+  resetSidecarAttachInFlightForTests();
   dispatchMock.mockClear();
+  onEventCb = null;
+  onEventCalls = 0;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+function stubSidecarApi(over: {
+  attach?: ReturnType<typeof vi.fn>;
+  recovery?: ReturnType<typeof vi.fn>;
+  cancel?: ReturnType<typeof vi.fn>;
+}): void {
+  vi.stubGlobal("window", {
+    __WEB__: false,
+    sidecarApi: {
+      attach: over.attach ?? vi.fn(async () => ({ attached: false })),
+      recovery:
+        over.recovery ??
+        vi.fn(async () => ({
+          liveRunning: false,
+          unsynced: [],
+          paused: [],
+        })),
+      cancel: over.cancel ?? vi.fn(),
+      onEvent: vi.fn((cb: (push: EventPush) => void) => {
+        onEventCalls += 1;
+        onEventCb = cb;
+        return () => {
+          if (onEventCb === cb) onEventCb = null;
+        };
+      }),
+    },
+  });
+}
 
 function unsyncedReady(
   over: Partial<SidecarUnsyncedTurnSummary> = {},
@@ -58,6 +103,37 @@ function unsyncedReady(
     reasoning_tokens: 0,
     cache_hit_tokens: 0,
     cache_miss_tokens: 0,
+    ...over,
+  };
+}
+
+function attachLiveResponse(over: Record<string, unknown> = {}) {
+  return {
+    attached: true as const,
+    turnId: "turn-live",
+    rootId: "root-1",
+    subpath: "",
+    kind: "start" as const,
+    userMessageId: "u-live",
+    userMessage: "live q",
+    traceId: "f".repeat(32),
+    events: [
+      {
+        type: "message_start",
+        timestamp: "t0",
+        payload: { message_id: "a-live" },
+      },
+      {
+        type: "content_delta",
+        timestamp: "t1",
+        payload: { delta: "hello" },
+      },
+      {
+        type: "message_end",
+        timestamp: "t2",
+        payload: { finish_reason: "stop" },
+      },
+    ],
     ...over,
   };
 }
@@ -123,45 +199,13 @@ describe("attachSidecarTurn (D4)", () => {
   it("synthesizes user row, setActive before fold, replays terminal", async () => {
     useConversationStore.getState().switchConversation(CID);
 
-    const attachMock = vi.fn(async () => ({
-      attached: true as const,
-      turnId: "turn-live",
-      rootId: "root-1",
-      subpath: "",
-      kind: "start" as const,
-      userMessageId: "u-live",
-      userMessage: "live q",
-      traceId: "f".repeat(32),
-      events: [
-        {
-          type: "message_start",
-          timestamp: "t0",
-          payload: { message_id: "a-live" },
-        },
-        {
-          type: "content_delta",
-          timestamp: "t1",
-          payload: { delta: "hello" },
-        },
-        {
-          type: "message_end",
-          timestamp: "t2",
-          payload: { finish_reason: "stop" },
-        },
-      ],
-    }));
-
-    vi.stubGlobal("window", {
-      sidecarApi: {
-        attach: attachMock,
-        onEvent: () => () => {},
-        cancel: vi.fn(),
-      },
-    });
+    const attachMock = vi.fn(async () => attachLiveResponse());
+    stubSidecarApi({ attach: attachMock });
 
     const ok = await attachSidecarTurn(CID);
     expect(ok).toBe(true);
     expect(attachMock).toHaveBeenCalledWith({ conversationId: CID });
+    expect(onEventCalls).toBe(1);
 
     const msgs = useConversationStore.getState().byId[CID].messages;
     expect(msgs.some((m) => m.id === "u-live" && m.content === "live q")).toBe(
@@ -183,28 +227,22 @@ describe("attachSidecarTurn (D4)", () => {
     store.switchConversation(CID);
     store.setGenerating(true, CID);
     const attach = vi.fn();
-    vi.stubGlobal("window", {
-      sidecarApi: { attach, onEvent: () => () => {}, cancel: vi.fn() },
-    });
+    stubSidecarApi({ attach });
     expect(await attachSidecarTurn(CID)).toBe(true);
     expect(attach).not.toHaveBeenCalled();
+    expect(onEventCalls).toBe(0);
   });
 
   it("attached:false does not leave generating hung (fact-driven re-query)", async () => {
     useConversationStore.getState().switchConversation(CID);
 
-    vi.stubGlobal("window", {
-      __WEB__: false,
-      sidecarApi: {
-        attach: vi.fn(async () => ({ attached: false })),
-        recovery: vi.fn(async () => ({
-          liveRunning: false,
-          unsynced: [],
-          paused: [],
-        })),
-        onEvent: () => () => {},
-        cancel: vi.fn(),
-      },
+    stubSidecarApi({
+      attach: vi.fn(async () => ({ attached: false })),
+      recovery: vi.fn(async () => ({
+        liveRunning: false,
+        unsynced: [],
+        paused: [],
+      })),
     });
 
     const ok = await attachSidecarTurn(CID);
@@ -212,6 +250,122 @@ describe("attachSidecarTurn (D4)", () => {
     expect(
       useConversationStore.getState().byId[CID]?.isGenerating ?? false,
     ).toBe(false);
+  });
+
+  it("concurrent dual attach / hydrate twice → one IPC + one content_delta dispatch", async () => {
+    useConversationStore.getState().switchConversation(CID);
+
+    let releaseAttach!: (v: ReturnType<typeof attachLiveResponse>) => void;
+    const attachGate = new Promise<ReturnType<typeof attachLiveResponse>>(
+      (resolve) => {
+        releaseAttach = resolve;
+      },
+    );
+    const attachMock = vi.fn(() => attachGate);
+    stubSidecarApi({ attach: attachMock });
+
+    const p1 = attachSidecarTurn(CID);
+    const p2 = attachSidecarTurn(CID);
+    expect(attachMock).toHaveBeenCalledTimes(1);
+
+    releaseAttach(
+      attachLiveResponse({
+        events: [
+          {
+            type: "message_start",
+            timestamp: "t0",
+            payload: { message_id: "a-live" },
+          },
+          {
+            type: "content_delta",
+            timestamp: "t1",
+            payload: { delta: "once" },
+          },
+          {
+            type: "message_end",
+            timestamp: "t2",
+            payload: { finish_reason: "stop" },
+          },
+        ],
+      }),
+    );
+
+    await expect(Promise.all([p1, p2])).resolves.toEqual([true, true]);
+    expect(onEventCalls).toBe(1);
+    const deltas = dispatchMock.mock.calls.filter(
+      (c) => c[0].type === "content_delta",
+    );
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0][0].payload).toEqual({ delta: "once" });
+  });
+
+  it("live content_delta after attach is dispatched once (single pump)", async () => {
+    useConversationStore.getState().switchConversation(CID);
+
+    let resolveDone!: () => void;
+    const turnDone = new Promise<void>((r) => {
+      resolveDone = r;
+    });
+
+    const attachMock = vi.fn(async () => {
+      // Snapshot without terminal — live tail must finish the turn.
+      queueMicrotask(() => {
+        onEventCb?.({
+          conversationId: CID,
+          turnId: "turn-live",
+          event: {
+            type: "content_delta",
+            timestamp: "t-live",
+            payload: { delta: "tok" },
+          },
+        });
+        onEventCb?.({
+          conversationId: CID,
+          turnId: "turn-live",
+          event: {
+            type: "message_end",
+            timestamp: "t-end",
+            payload: { finish_reason: "stop" },
+          },
+        });
+        resolveDone();
+      });
+      return attachLiveResponse({
+        events: [
+          {
+            type: "message_start",
+            timestamp: "t0",
+            payload: { message_id: "a-live" },
+          },
+        ],
+      });
+    });
+    stubSidecarApi({ attach: attachMock });
+
+    const ok = await attachSidecarTurn(CID);
+    await turnDone;
+    expect(ok).toBe(true);
+    expect(onEventCalls).toBe(1);
+    const deltas = dispatchMock.mock.calls.filter(
+      (c) => c[0].type === "content_delta",
+    );
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0][0].payload).toEqual({ delta: "tok" });
+  });
+
+  it("start still generating → attach skips (no second pump)", async () => {
+    const store = useConversationStore.getState();
+    store.switchConversation(CID);
+    // Simulate runSidecarTurn already owning the session.
+    store.setGenerating(true, CID);
+    setActiveSidecarTurn(CID, "root-1", "", "turn-start");
+
+    const attach = vi.fn();
+    stubSidecarApi({ attach });
+    expect(await attachSidecarTurn(CID)).toBe(true);
+    expect(attach).not.toHaveBeenCalled();
+    expect(onEventCalls).toBe(0);
+    expect(dispatchMock).not.toHaveBeenCalled();
   });
 });
 

@@ -18,6 +18,7 @@ import {
   Keyboard,
   ListRestart,
   type LucideIcon,
+  MessagesSquare,
   MousePointerClick,
   MoveVertical,
   NotebookPen,
@@ -64,6 +65,9 @@ export const TOOL_META: Record<string, { Icon: LucideIcon; label: string }> = {
   ask_user: { Icon: HelpCircle, label: "Ask you" },
   consult_skill: { Icon: BookOpen, label: "Consult skill" },
   consult_memory: { Icon: Brain, label: "Consult memory" },
+  // Worker-only 跨会话对话日志（CEO 经 delegate 派查阅员）。
+  search_conversations: { Icon: MessagesSquare, label: "Search conversations" },
+  read_conversation: { Icon: MessagesSquare, label: "Read conversation" },
   revise: { Icon: PenLine, label: "Revise" },
   escalate: { Icon: ArrowUp, label: "Escalate" },
   // CEO 协调模式原语（波内边跑边调）：与 file/web 工具同走 ToolLine。
@@ -126,6 +130,7 @@ const TOOL_DETAIL_KEYS = [
   "command",
   "q",
   "name", // consult_skill / consult_memory
+  "conversation_id", // read_conversation
   "run_id", // cancel_worker / resolve_escalation
   "interjection_id", // queue_user_message
 ];

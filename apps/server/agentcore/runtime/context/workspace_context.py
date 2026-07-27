@@ -162,6 +162,11 @@ def build_workspace_context(
     dossier_boundary_line = (
         "案卷边界：讨论/调研/审查类交付写此树；用户工程源码仍写业务路径。"
     )
+    # Git is optional: most cloud scratches / unbound trees have no `.git` at root.
+    git_line = (
+        "版本控制：通常无 Git（仅识别工作区根 `.git`，不扫嵌套、不上溯；"
+        "只读 status/diff/log 无仓 → no_repo，写入仍硬错）。"
+    )
 
     body_lines = [
         location_line,
@@ -172,6 +177,7 @@ def build_workspace_context(
         dossier_debate_line,
         dossier_reviews_line,
         dossier_boundary_line,
+        git_line,
         desktop_line,
         grant_line,
         mounts_line,

@@ -1,6 +1,10 @@
 import { promises as fs } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { FsErrorCode, FsResult } from "@shared/ipc-contract";
+import {
+  DEFAULT_WORKSPACE_ROOT_LABEL,
+  normalizeWorkspacePath,
+} from "../../shared/workspace-path";
 import type { StoredRoot } from "./roots";
 import { getRoot } from "./roots";
 
@@ -63,12 +67,17 @@ export function realFail(
   return fsErr(r.code, r.reason);
 }
 
-/** 词法校验：解析相对路径并确认仍在根内（不触盘）。返回绝对路径或 null。 */
+/**
+ * 词法校验：解析相对路径并确认仍在根内（不触盘）。返回绝对路径或 null。
+ * 先走 ``normalizeWorkspacePath``（与后端 ``resolve_safe_path`` 同契约）。
+ */
 export function resolveLexical(
   root: StoredRoot,
   relPath: string,
 ): string | null {
-  const abs = resolve(root.absPath, relPath);
+  const label = root.name?.trim() || DEFAULT_WORKSPACE_ROOT_LABEL;
+  const normalized = normalizeWorkspacePath(relPath, label);
+  const abs = resolve(root.absPath, normalized);
   const rel = relative(root.absPath, abs);
   if (rel === "") return abs; // 根目录自身
   if (rel.startsWith("..") || isAbsolute(rel)) return null;
@@ -113,28 +122,29 @@ export function locate(
 
 /**
  * 词法 + realpath 双守卫解析 cwd（process / pty 共用）。
- * 空 / `"."` → 根自身；相对路径相对根；绝对路径须仍落在根内。
+ * 空 / ``.`` / 裸 ``/`` → 根自身；相对路径相对根；绝对路径须仍落在根内。
  * symlink 祖先逃逸 → `out_of_root`。
  */
 export async function resolveCwdInside(
   root: StoredRoot,
   cwdArg?: string | null,
 ): Promise<{ ok: true; cwd: string } | { ok: false; detail: string }> {
-  const raw =
-    cwdArg == null || cwdArg === "" || cwdArg === "."
-      ? ""
-      : cwdArg.replace(/^\/+|\/+$/g, "");
+  const label = root.name?.trim() || DEFAULT_WORKSPACE_ROOT_LABEL;
+  const normalized =
+    cwdArg == null || cwdArg === ""
+      ? "."
+      : normalizeWorkspacePath(cwdArg, label);
   let abs: string | null;
-  if (raw === "") {
+  if (normalized === "." || normalized === "") {
     abs = root.absPath;
-  } else if (isAbsolute(raw)) {
-    abs = resolve(raw);
+  } else if (isAbsolute(normalized)) {
+    abs = resolve(normalized);
     const rel = relative(root.absPath, abs);
     if (rel !== "" && (rel.startsWith("..") || isAbsolute(rel))) {
       return { ok: false, detail: "cwd 越出工作区根" };
     }
   } else {
-    abs = resolveLexical(root, raw);
+    abs = resolveLexical(root, normalized);
     if (!abs) return { ok: false, detail: "cwd 越出工作区根" };
   }
 

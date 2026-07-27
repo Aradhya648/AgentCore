@@ -101,6 +101,34 @@ describe("toolResultPeek", () => {
     ).toBe("部署流程");
   });
 
+  it("summarizes search_conversations by result_count", () => {
+    expect(
+      toolResultPeek(
+        data({
+          toolName: "search_conversations",
+          display: { result_count: 3, scope: "project" },
+          result: "…",
+        }),
+      ),
+    ).toBe("3 场对话");
+  });
+
+  it("names the title for a read_conversation (with truncated mark)", () => {
+    expect(
+      toolResultPeek(
+        data({
+          toolName: "read_conversation",
+          display: {
+            title: "上周方案",
+            conversation_id: "c1",
+            truncated: true,
+          },
+          result: "### User\n…",
+        }),
+      ),
+    ).toBe("上周方案 · 已截断");
+  });
+
   it("falls back to the first non-empty result line", () => {
     expect(
       toolResultPeek(data({ toolName: "grep", result: "match line\nmore" })),

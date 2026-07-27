@@ -36,6 +36,8 @@ const TOOL_LABEL: Record<string, string> = {
   ask_user: "Ask you",
   consult_skill: "Consult skill",
   consult_memory: "Consult memory",
+  search_conversations: "Search conversations",
+  read_conversation: "Read conversation",
   revise: "Revise",
   escalate: "Escalate",
   update_synthesis: "Update synthesis",

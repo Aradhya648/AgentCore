@@ -5,8 +5,16 @@
  * clear-then-fold (start) or incremental (resume) → replay → drain queue →
  * live tail. Does **not** reuse `rejoinLiveTurn` / `attachOnOpen` (those hang
  * the cloud SSE attach).
+ *
+ * Event ownership: claim via `sidecarEventPump` (App-lifetime single
+ * `sidecar:event` subscription). Concurrent attach coalesces; a later claim
+ * revokes the prior owner. Do not call `sidecarApi.onEvent` here.
  */
 import { logEvent } from "@/lib/log";
+import {
+  claimSidecarTurnSink,
+  type SidecarTurnClaim,
+} from "@/services/sidecarEventPump";
 import {
   clearActiveSidecarTurn,
   setActiveSidecarTurn,
@@ -23,6 +31,9 @@ import type {
 import { loadRecovery } from "../resume";
 import { projectUnsyncedTurns } from "./projectUnsynced";
 import { markGhostInterrupted } from "./recovery";
+
+/** In-flight attach per conversation — hydrate 两次 coalesce 到同一 Promise。 */
+const attachInFlight = new Map<string, Promise<boolean>>();
 
 function isTerminalEvent(type: string): boolean {
   return type === "message_end" || type === "error";
@@ -74,6 +85,11 @@ function ensureUserRow(
   );
 }
 
+export interface AttachSidecarTurnOptions {
+  /** 切会话 / hydrate 取消时 abort（停 live 等待，释放 claim）。 */
+  signal?: AbortSignal;
+}
+
 /**
  * Attach a live sidecar turn after refresh / reopen.
  *
@@ -81,10 +97,33 @@ function ensureUserRow(
  */
 export async function attachSidecarTurn(
   conversationId: string,
+  opts?: AttachSidecarTurnOptions,
 ): Promise<boolean> {
-  const store = useConversationStore.getState();
+  const existing = attachInFlight.get(conversationId);
+  if (existing) return existing;
+
   // Same-session guard: original runSidecarTurn invoke still alive → skip.
   if (getRuntime(conversationId).isGenerating) return true;
+
+  const p = attachSidecarTurnExclusive(conversationId, opts).finally(() => {
+    if (attachInFlight.get(conversationId) === p) {
+      attachInFlight.delete(conversationId);
+    }
+  });
+  attachInFlight.set(conversationId, p);
+  return p;
+}
+
+/** 测试隔离：清空 in-flight latch。 */
+export function resetSidecarAttachInFlightForTests(): void {
+  attachInFlight.clear();
+}
+
+async function attachSidecarTurnExclusive(
+  conversationId: string,
+  opts?: AttachSidecarTurnOptions,
+): Promise<boolean> {
+  const store = useConversationStore.getState();
 
   const liveQueue: SSEEvent[] = [];
   let draining = false;
@@ -93,6 +132,7 @@ export async function attachSidecarTurn(
   let activeRootId: string | undefined;
   let activeSubpath: string | undefined;
   let anchorUserMessageId: string | undefined;
+  let claim: SidecarTurnClaim | null = null;
 
   let resolveDone!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -107,14 +147,21 @@ export async function attachSidecarTurn(
     }
   };
 
-  const unsubscribe = window.sidecarApi.onEvent((push: SidecarEventPush) => {
-    if (push.conversationId !== conversationId) return;
-    if (activeTurnId && push.turnId !== activeTurnId) return;
+  const onLivePush = (push: SidecarEventPush): void => {
     if (draining) {
       foldEvent(push.event as SSEEvent);
       return;
     }
     liveQueue.push(push.event as SSEEvent);
+  };
+
+  // Claim before any await — concurrent attach coalesces above; a later exclusive
+  // claim (after prior settled) revokes this owner via onRevoked.
+  claim = claimSidecarTurnSink(conversationId, null, onLivePush, {
+    onRevoked: () => {
+      finished = true;
+      resolveDone();
+    },
   });
 
   const ac = new AbortController();
@@ -122,7 +169,10 @@ export async function attachSidecarTurn(
   beginTurnPreflight(conversationId);
 
   const onAbort = (): void => {
-    if (!activeRootId || !activeTurnId) return;
+    if (!activeRootId || !activeTurnId) {
+      resolveDone();
+      return;
+    }
     void window.sidecarApi
       .cancel({
         rootId: activeRootId,
@@ -135,15 +185,60 @@ export async function attachSidecarTurn(
   };
   ac.signal.addEventListener("abort", onAbort, { once: true });
 
+  const onExternalAbort = (): void => {
+    ac.abort();
+  };
+  if (opts?.signal) {
+    if (opts.signal.aborted) {
+      ac.abort();
+    } else {
+      opts.signal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+
   try {
+    if (ac.signal.aborted) {
+      teardownAttachedTurn(
+        conversationId,
+        activeTurnId,
+        anchorUserMessageId,
+        claim,
+        ac,
+        onAbort,
+        opts?.signal,
+        onExternalAbort,
+      );
+      return false;
+    }
+
     const res: SidecarAttachResponse = await window.sidecarApi.attach({
       conversationId,
     });
+    if (!claim.isOwner()) {
+      teardownAttachedTurn(
+        conversationId,
+        activeTurnId,
+        anchorUserMessageId,
+        claim,
+        ac,
+        onAbort,
+        opts?.signal,
+        onExternalAbort,
+      );
+      return false;
+    }
     if (!res.attached || !res.turnId || !res.rootId) {
       // Race: turn settled between recovery and attach — re-query, never hang.
-      unsubscribe();
-      store.setAbort(null, conversationId);
-      ac.signal.removeEventListener("abort", onAbort);
+      teardownAttachedTurn(
+        conversationId,
+        activeTurnId,
+        anchorUserMessageId,
+        claim,
+        ac,
+        onAbort,
+        opts?.signal,
+        onExternalAbort,
+      );
       logEvent("info", "sidecar.attach", {
         conversation_id: conversationId,
         attached: false,
@@ -167,6 +262,7 @@ export async function attachSidecarTurn(
     activeTurnId = res.turnId;
     activeRootId = res.rootId;
     activeSubpath = res.subpath ?? "";
+    claim.setTurnId(res.turnId);
     // D4 step 3: setActive BEFORE any event fold (interaction respond routing).
     setActiveSidecarTurn(
       conversationId,
@@ -225,7 +321,7 @@ export async function attachSidecarTurn(
       if (next) foldEvent(next);
     }
 
-    if (!finished && !ac.signal.aborted) {
+    if (!finished && !ac.signal.aborted && claim.isOwner()) {
       await done;
     }
 
@@ -233,9 +329,11 @@ export async function attachSidecarTurn(
       conversationId,
       activeTurnId,
       anchorUserMessageId,
-      unsubscribe,
+      claim,
       ac,
       onAbort,
+      opts?.signal,
+      onExternalAbort,
     );
     return true;
   } catch (err) {
@@ -243,9 +341,11 @@ export async function attachSidecarTurn(
       conversationId,
       activeTurnId,
       anchorUserMessageId,
-      unsubscribe,
+      claim,
       ac,
       onAbort,
+      opts?.signal,
+      onExternalAbort,
     );
     throw err;
   }
@@ -255,13 +355,16 @@ function teardownAttachedTurn(
   conversationId: string,
   turnId: string | undefined,
   userMessageId: string | undefined,
-  unsubscribe: () => void,
+  claim: SidecarTurnClaim | null,
   ac: AbortController,
   onAbort: () => void,
+  externalSignal: AbortSignal | undefined,
+  onExternalAbort: () => void,
 ): void {
   clearActiveSidecarTurn(conversationId, turnId);
-  unsubscribe();
+  claim?.release();
   ac.signal.removeEventListener("abort", onAbort);
+  externalSignal?.removeEventListener("abort", onExternalAbort);
   const store = useConversationStore.getState();
   store.setAbort(null, conversationId);
   if (userMessageId) {

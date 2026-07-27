@@ -3922,6 +3922,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/users/me/memory/conversation-history-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get My Conversation History Access
+         * @description Whether Workers may search/read this account's past conversation logs.
+         */
+        get: operations["get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get"];
+        /**
+         * Set My Conversation History Access
+         * @description Toggle cross-session conversation-log access (orthogonal to memory_enabled).
+         */
+        put: operations["set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/users/me/memory/enabled": {
         parameters: {
             query?: never;
@@ -3965,6 +3989,30 @@ export interface paths {
          */
         put: operations["put_my_memory_file_v1_users_me_memory_files__kind__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/users/me/memory/move-bullet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move My Memory Bullet
+         * @description Move one memory bullet between global and the current project (P2-b 搬层纠错).
+         *
+         *     Declared before ``/files/{kind}`` so the static segment wins the route match.
+         *     Holds the per-user memory lock; illegal sections (偏好 / 纠正记录 → project,
+         *     项目约束 → global) return 422 with a clear message.
+         */
+        post: operations["move_my_memory_bullet_v1_users_me_memory_move_bullet_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5865,6 +5913,22 @@ export interface components {
             turns: number;
             usage: components["schemas"]["UsageBreakdown"];
         };
+        /** ConversationHistoryAccessRequest */
+        ConversationHistoryAccessRequest: {
+            /**
+             * Enabled
+             * @description Allow Workers to search/read past conversation transcripts
+             */
+            enabled: boolean;
+        };
+        /**
+         * ConversationHistoryAccessResponse
+         * @description Cross-session conversation-log access gate (跨会话对话日志访问定案).
+         */
+        ConversationHistoryAccessResponse: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** ConversationListResponse */
         ConversationListResponse: {
             /** Data */
@@ -7253,6 +7317,71 @@ export interface components {
          * @enum {string}
          */
         MemoryKind: "preferences" | "profile";
+        /**
+         * MemoryMoveBulletRequest
+         * @description Move one bullet between GLOBAL and the given project's layer (位置即作用域纠错).
+         *
+         *     ``direction`` ``to_project`` = remove from global + add under the same section in
+         *     ``folder_id``; ``to_global`` is the inverse. Optional CAS baselines mirror the
+         *     per-leaf PUT contract (``None`` = unconditional under the memory lock).
+         */
+        MemoryMoveBulletRequest: {
+            /**
+             * Content
+             * @description Bullet text to move
+             */
+            content: string;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "to_project" | "to_global";
+            /**
+             * Folder Id
+             * @description Current project folder id
+             */
+            folder_id: string;
+            /**
+             * Kind
+             * @default profile
+             * @enum {string}
+             */
+            kind: "preferences" | "profile" | "topic";
+            /**
+             * Section
+             * @description ## section name (required for core leaves)
+             * @default
+             */
+            section: string;
+            /** Source Baseline */
+            source_baseline?: string | null;
+            /** Target Baseline */
+            target_baseline?: string | null;
+            /** Topic Slug */
+            topic_slug?: string | null;
+        };
+        /** MemoryMoveBulletResult */
+        MemoryMoveBulletResult: {
+            /**
+             * Conflict
+             * @default false
+             */
+            conflict: boolean;
+            /** Message */
+            message?: string | null;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Source Version
+             * @default
+             */
+            source_version: string;
+            /**
+             * Target Version
+             * @default
+             */
+            target_version: string;
+        };
         /**
          * MemoryProjectsResponse
          * @description folder_ids whose PROJECT memory layer is non-empty (the rail shows a node each).
@@ -18012,6 +18141,76 @@ export interface operations {
             };
         };
     };
+    get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationHistoryAccessResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationHistoryAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationHistoryAccessResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     set_my_memory_enabled_v1_users_me_memory_enabled_put: {
         parameters: {
             query?: never;
@@ -18114,6 +18313,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryWriteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_my_memory_bullet_v1_users_me_memory_move_bullet_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryMoveBulletRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryMoveBulletResult"];
                 };
             };
             /** @description Validation Error */

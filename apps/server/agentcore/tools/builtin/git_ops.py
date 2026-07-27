@@ -32,6 +32,7 @@ _ALLOWED_SUBCOMMANDS = frozenset(
     {"status", "diff", "log", "add", "commit", "branch", "checkout"}
 )
 _WRITE_SUBCOMMANDS = frozenset({"add", "commit", "branch", "checkout"})
+_NO_REPO_CODE = "no_repo"
 
 
 def git_write_subcommands() -> frozenset[str]:
@@ -51,7 +52,12 @@ GIT_TOOL_PARAMETERS: dict[str, Any] = {
         "subcommand": {
             "type": "string",
             "enum": ["status", "diff", "log", "add", "commit", "branch", "checkout"],
-            "description": "要执行的 git 子命令。",
+            "description": (
+                "要执行的 git 子命令。前置条件：仅当工作区【根】存在 `.git` 时可用"
+                "（不扫嵌套子仓、不上溯父仓、不自动 init）。"
+                "只读 status/diff/log：无仓 → success + metadata.code=no_repo；"
+                "写入 add/commit/branch/checkout：无仓仍硬错。"
+            ),
         },
         "paths": {
             "type": "array",
@@ -181,16 +187,31 @@ _NO_LOCAL_REPO_MSG = (
 )
 
 
-async def _ensure_git_repo(cwd: str, start: float) -> ToolResult | None:
+def _no_repo_ok(start: float) -> ToolResult:
+    """Read-only no-repo: success with machine-readable code (never fake a clean tree)."""
+    return _ok(
+        _NO_LOCAL_REPO_MSG,
+        start,
+        metadata={"code": _NO_REPO_CODE},
+    )
+
+
+async def _ensure_git_repo(
+    cwd: str, start: float, *, write: bool
+) -> ToolResult | None:
     # Fast path: refuse before any git discovery that could surface a parent repo.
     if not _workspace_has_local_git(cwd):
-        return _error(_NO_LOCAL_REPO_MSG, start)
+        if write:
+            return _error(_NO_LOCAL_REPO_MSG, start)
+        return _no_repo_ok(start)
     stdout, stderr, code = await _run_git(
         ["rev-parse", "--is-inside-work-tree"], cwd=cwd
     )
     if code != 0 or stdout.strip() != "true":
         detail = (stderr or stdout or _NO_LOCAL_REPO_MSG).strip()
-        return _error(detail, start)
+        if write:
+            return _error(detail, start)
+        return _ok(detail, start, metadata={"code": _NO_REPO_CODE})
     return None
 
 
@@ -238,10 +259,11 @@ class GitTool:
         return ToolSchema(
             name="git",
             description=(
-                "在工作区内执行 Git 操作。只读：status（工作区状态）、diff（差异）、"
-                "log（提交历史）。写入（需用户授权）：add（暂存）、commit（提交）、"
-                "branch（创建分支）、checkout（切换分支）。"
-                "禁止 push / reset / rebase 等危险操作——推送由用户手动完成。"
+                "在工作区内执行 Git 操作。前置：仅工作区根下的 `.git`"
+                "（不扫嵌套、不上溯、不自动 init；多数会话通常无 Git）。"
+                "只读：status / diff / log（无仓 → success + metadata.code=no_repo，"
+                "禁止当成干净仓）。写入（需用户授权）：add / commit / branch / checkout"
+                "（无仓仍硬错）。禁止 push / reset / rebase 等危险操作——推送由用户手动完成。"
             ),
             parameters=GIT_TOOL_PARAMETERS,
             category=ToolCategory.FILESYSTEM,
@@ -267,7 +289,9 @@ class GitTool:
         if cwd is None:
             return _error("当前工作区模式不支持 Git 操作（无本地根目录）", start)
 
-        repo_err = await _ensure_git_repo(cwd, start)
+        repo_err = await _ensure_git_repo(
+            cwd, start, write=subcommand in _WRITE_SUBCOMMANDS
+        )
         if repo_err is not None:
             return repo_err
 
@@ -282,7 +306,9 @@ class GitTool:
             max_count = int(arguments.get("max_count", 20))
             max_count = max(1, min(max_count, 100))
             oneline = bool(arguments.get("oneline", True))
-            return await self._cmd_log(cwd, paths, max_count=max_count, oneline=oneline, start=start)
+            return await self._cmd_log(
+                cwd, paths, max_count=max_count, oneline=oneline, start=start
+            )
         if subcommand == "add":
             return await self._cmd_add(cwd, paths, start)
         if subcommand == "commit":

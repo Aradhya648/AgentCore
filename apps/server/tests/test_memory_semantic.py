@@ -9,6 +9,7 @@ from agentcore.memory.semantic import (
     diff_memory_markdown,
     parse_semantic_result,
     rewrite_preserves_enough,
+    sanitize_profile_rewrite,
 )
 from agentcore.memory.store import CORE_MEMORY_FILE, PREFERENCES_MEMORY_FILE, FileMemoryStore
 from agentcore.memory.user_memory import MemoryAction, MemoryOp
@@ -64,6 +65,129 @@ def test_parse_semantic_result_topic_ops_only():
     assert result.ops is not None
     assert len(result.ops) == 1
     assert result.ops[0].file.startswith("主题/")
+
+
+def test_sanitize_global_profile_strips_project_constraints():
+    dirty = (
+        "# 用户记忆\n\n"
+        "## 关于用户的事实\n- 用中文\n\n"
+        "## 项目约束\n- 禁止 jQuery\n- 必须用白板栈\n"
+    )
+    clean = sanitize_profile_rewrite(dirty, scope=None)
+    assert "项目约束" not in clean
+    assert "用中文" in clean
+    assert "禁止 jQuery" not in clean
+
+
+def test_sanitize_project_profile_keeps_fixed_sections_drops_free():
+    messy = (
+        "# 用户记忆\n\n"
+        "## 技术栈\n- React\n\n"
+        "## 技术栈与工具\n- TypeScript\n\n"
+        "## 当前状态\n- 正在改白板\n\n"
+        "## 项目约束\n- 禁止 jQuery\n\n"
+        "## 纠正记录\n- AI曾认为用 Vue，实际为 React\n"
+    )
+    clean = sanitize_profile_rewrite(messy, scope="folder-1")
+    assert "## 技术栈与工具" in clean
+    assert "TypeScript" in clean
+    assert "## 项目约束" in clean
+    assert "禁止 jQuery" in clean
+    assert "## 技术栈\n" not in clean and "## 技术栈\r" not in clean
+    assert "当前状态" not in clean
+    assert "正在改白板" not in clean
+    assert "纠正记录" not in clean  # global-only
+
+
+async def test_consolidate_strips_project_constraints_from_global(tmp_path):
+    store = FileMemoryStore(tmp_path)
+    await store.save(
+        "u1",
+        CORE_MEMORY_FILE,
+        "# 用户记忆\n\n## 关于用户的事实\n- 用 pnpm\n",
+    )
+    episodes = [
+        EpisodeRecord(
+            id="e1",
+            conversation_id="c1",
+            summary="用户说改用 bun",
+            created_at="2026-07-19T00:00:00+00:00",
+        )
+    ]
+    polluted = (
+        "# 用户记忆\n\n"
+        "## 关于用户的事实\n- 用 bun\n- 用 pnpm\n\n"
+        "## 项目约束\n- 本项目必须用白板\n"
+    )
+    fake = _FakeConsolidator(
+        SemanticConsolidateResult(profile=polluted, ops=[], parse_failed=False)
+    )
+    outcome = await consolidate_semantic_memory(
+        user_id="u1",
+        episodes=episodes,
+        consolidator=fake,
+        store=store,
+    )
+    assert outcome is True
+    body = await store.load("u1", CORE_MEMORY_FILE)
+    assert "bun" in body
+    assert "项目约束" not in body
+    assert "白板" not in body
+
+
+async def test_consolidate_routes_project_profile_when_folder(tmp_path):
+    store = FileMemoryStore(tmp_path)
+    folder = "c5ab5b86-test"
+    await store.save(
+        "u1",
+        CORE_MEMORY_FILE,
+        "# 用户记忆\n\n## 关于用户的事实\n- 个人用中文\n",
+    )
+    await store.save(
+        "u1",
+        CORE_MEMORY_FILE,
+        "# 用户记忆\n\n## 技术栈与工具\n- 旧栈\n",
+        scope=folder,
+    )
+    episodes = [
+        EpisodeRecord(
+            id="e1",
+            conversation_id="c1",
+            summary="本项目改用 TypeScript + 白板引擎",
+            created_at="2026-07-19T00:00:00+00:00",
+        )
+    ]
+    new_global = "# 用户记忆\n\n## 关于用户的事实\n- 个人用中文\n"
+    new_project = (
+        "# 用户记忆\n\n"
+        "## 技术栈与工具\n- 旧栈\n- TypeScript\n- 白板引擎\n\n"
+        "## 项目约束\n- 禁止 jQuery\n\n"
+        "## 数据模型\n- 不应保留\n"
+    )
+    fake = _FakeConsolidator(
+        SemanticConsolidateResult(
+            profile=new_global,
+            project_profile=new_project,
+            ops=[],
+            parse_failed=False,
+        )
+    )
+    outcome = await consolidate_semantic_memory(
+        user_id="u1",
+        episodes=episodes,
+        consolidator=fake,
+        store=store,
+        folder_id=folder,
+    )
+    assert outcome is True
+    global_body = await store.load("u1", CORE_MEMORY_FILE)
+    assert "项目约束" not in global_body
+    assert "白板引擎" not in global_body
+    project_body = await store.load("u1", CORE_MEMORY_FILE, scope=folder)
+    assert "TypeScript" in project_body
+    assert "项目约束" in project_body
+    assert "禁止 jQuery" in project_body
+    assert "数据模型" not in project_body
 
 
 async def test_consolidate_semantic_rewrites_profile(tmp_path):

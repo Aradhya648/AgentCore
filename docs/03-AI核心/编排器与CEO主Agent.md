@@ -170,7 +170,7 @@ CEO 在自己的 ReAct 循环里调用单一的 `delegate` 工具把一批子任
 
 **空转巡查活性检查 ✅**：协调等待 idle 超时拟注入巡查 nudge 前，先查 execution 内 worker 是否有 in-flight LLM/工具调用——有则不发 nudge（短等后让出 CEO）；真停滞（无进行中调用）仍巡查，且 nudge 附带各 worker 进展摘要。→ 见代码: `runtime/coordination/wait.py`、`session.mark_worker_busy`、`engine/loop.py`。
 
-**空转让出简报 ✅**：`idle_yield_to_captain` 不再空手让出——注入流水线进度简报（波次 × 节点态：在跑 / 依赖阻塞 / 待调度 / 失败；所有协调注入均随带同一进度块），流水线健康（有在跑、其余仅依赖阻塞、无失败）时明示「正常推进·无需追加动作」，防 CEO 把依赖等待误读为空闲而追加重叠队员（GEO 官网事故教训）。→ 见代码: `runtime/coordination/pipeline_view.py`、`runtime/coordination/inject.py`。
+**空转让出简报 ✅**：`idle_yield_to_captain` 不再空手让出——注入流水线进度简报（波次 × 节点态：在跑 / 依赖阻塞 / 待调度 / 失败；**已完成只报计数 + 本轮新完成增量，不重复堆历史完成名单**；所有协调注入均随带同一进度块），流水线健康（有在跑、其余仅依赖阻塞、无失败）时明示「正常推进·无需追加动作」，防 CEO 把依赖等待误读为空闲而追加重叠队员（GEO 官网事故教训）。→ 见代码: `runtime/coordination/pipeline_view.py`、`runtime/coordination/inject.py`。
 
 **再委派护栏 ✅**：活跃协调上二次 `delegate` 若与在跑队员**角色+任务同构** → 结构化拒绝（须显式 `force=true` 才放行）；增量合并进活跃协调**同样走** `team_preview` 开工卡，不得静默并入。→ 见代码: `runtime/coordination/isomorphic.py`、`runtime/delegate/drive.py`。
 

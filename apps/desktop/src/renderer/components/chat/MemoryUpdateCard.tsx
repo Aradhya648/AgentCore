@@ -1,14 +1,17 @@
 import {
   MemoryUpdateItemRow,
   formatMemoryTime,
+  memoryScopeOverview,
 } from "@/components/memory/MemoryUpdateItemRow";
 import { Card } from "@/components/ui";
 import { countPillMuted, statusCardChrome } from "@/components/ui/tone-presets";
+import { getConversations } from "@/hooks/useConversations";
 import {
   memoryLeafTabName,
   parseProjectMemoryFolderId,
 } from "@/services/sources/memorySource";
 import type { MemoryUpdate } from "@/stores/conversation";
+import { useConversationStore } from "@/stores/conversation";
 import { usePersistentDisclosure } from "@/stores/disclosure";
 import { Brain, ChevronDown, ChevronRight, NotebookPen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -23,6 +26,9 @@ export function MemoryUpdateCard({ update }: { update: MemoryUpdate }) {
   const navigate = useNavigate();
   const chrome = statusCardChrome("muted");
   const [open, setOpen] = usePersistentDisclosure(`memory:${update.id}`, false);
+  const conversationId = useConversationStore((s) => s.currentConversationId);
+  const conversationFolderId =
+    getConversations().find((c) => c.id === conversationId)?.folderId ?? null;
 
   const isEpisodic = update.kind === "episodic";
   if (isEpisodic) {
@@ -72,8 +78,20 @@ export function MemoryUpdateCard({ update }: { update: MemoryUpdate }) {
   };
 
   const hasAnyTarget = update.items.some((it) => it.target);
+  const scopeOverview = memoryScopeOverview(update.items);
   const title =
-    update.items.length > 0 ? "记忆已更新" : (update.summary ?? "记忆已整理");
+    update.items.length > 0
+      ? scopeOverview
+        ? `记忆已更新 · ${scopeOverview}`
+        : "记忆已更新"
+      : (update.summary ?? "记忆已整理");
+
+  // Prefer conversation project; else any project id already on the items (for
+  // 「移到全局」 / naming when the card was produced in a project chat).
+  const projectFolderId =
+    conversationFolderId ||
+    update.items.find((it) => it.projectId)?.projectId ||
+    null;
 
   return (
     <Card
@@ -86,7 +104,9 @@ export function MemoryUpdateCard({ update }: { update: MemoryUpdate }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <Brain size={16} className={`shrink-0 ${chrome.accent}`} />
-        <span className={`text-xs font-medium ${chrome.accent}`}>{title}</span>
+        <span className={`min-w-0 truncate text-xs font-medium ${chrome.accent}`}>
+          {title}
+        </span>
         {update.items.length > 0 && (
           <span className={countPillMuted}>{update.items.length} 项</span>
         )}
@@ -112,6 +132,7 @@ export function MemoryUpdateCard({ update }: { update: MemoryUpdate }) {
                 key={`${item.action}:${item.file}:${item.section}:${i}`}
                 item={item}
                 onOpenLeaf={openLeaf}
+                projectFolderId={projectFolderId}
               />
             ))}
           </ul>

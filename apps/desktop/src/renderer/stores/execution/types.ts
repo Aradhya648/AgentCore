@@ -99,6 +99,8 @@ export const TOOL_LABELS: Record<string, string> = {
   ask_user: "Ask you",
   consult_skill: "Consult skill",
   consult_memory: "Consult memory",
+  search_conversations: "Search conversations",
+  read_conversation: "Read conversation",
   revise: "Revise",
   // Worker-only upward channel (build_worker_registry); surfaces in run detail.
   escalate: "Escalate",

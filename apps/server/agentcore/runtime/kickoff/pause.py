@@ -28,6 +28,7 @@ class KickoffHost(Protocol):
     _user_message: str
     _folder_id: str | None
     _memory_enabled: bool
+    _conversation_history_access: bool
     _base_tool_context: Any
     _registry: Any
 
@@ -87,6 +88,7 @@ async def persist_kickoff(
             user_message=host._user_message,
             folder_id=host._folder_id,
             memory_enabled=host._memory_enabled,
+            conversation_history_access=host._conversation_history_access,
             transcript=capture.transcript,
             history=capture.history,
             plan=plan_obj,

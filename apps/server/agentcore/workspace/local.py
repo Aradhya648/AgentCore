@@ -35,6 +35,7 @@ from typing import Any
 
 from agentcore.config import settings
 from agentcore.tools.sandbox.protocol import ExecutionRequest, ExecutionResult
+from agentcore.workspace._paths import normalize_workspace_path
 from agentcore.workspace.channel import WorkspaceChannel, WorkspaceOp
 from agentcore.workspace.external_mounts import (
     ExternalMount,
@@ -138,7 +139,10 @@ class LocalWorkspace:
         """
         parsed = parse_external_path(path)
         if parsed is None:
-            return None, self._in(path), None
+            # Same contract as ServerWorkspace.resolve_safe_path / desktop pathGuard:
+            # bare `/`/`\` → `.`; `/<root_label>/…` strip — before the channel sees it.
+            norm = normalize_workspace_path(path, root_label=self.root_label)
+            return None, self._in(norm), None
         routed = route_external(path, self._mounts)
         if routed is None:
             raise PathNotFound(path)

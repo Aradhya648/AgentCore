@@ -184,6 +184,33 @@ def strip_root_label_prefix(relative_path: str, root_label: str) -> str:
     return rest if rest else "."
 
 
+def normalize_workspace_path(
+    relative_path: str, *, root_label: str | None = None
+) -> str:
+    """Normalize a model-facing tool path to workspace-relative POSIX form.
+
+    Single source of truth for the path contract (desktop ``pathGuard`` mirrors):
+
+    * empty / ``.`` → ``.``
+    * bare ``/`` or ``\\`` → ``.`` (whole-workspace root aliases)
+    * ``/<root_label>/…`` → strip via :func:`strip_root_label_prefix` when label given
+    * other absolute paths (``/etc``, drive letters, …) left for containment to reject
+    * relative paths: separators unified to ``/``
+
+    Called **only** from :func:`resolve_safe_path` on the Python side (and from
+    ``LocalWorkspace`` before the desktop channel). Tools must not add private
+    ``if path == "/"`` rescues.
+    """
+    if not relative_path or relative_path == ".":
+        return "."
+    unified = relative_path.replace("\\", "/")
+    if unified == "/":
+        return "."
+    if root_label:
+        return strip_root_label_prefix(unified, root_label)
+    return unified
+
+
 def resolve_safe_path(
     workspace: Path, relative_path: str, *, root_label: str | None = None
 ) -> Path | None:
@@ -195,14 +222,11 @@ def resolve_safe_path(
     cannot be resolved. This is the single source of truth for the workspace
     sandbox boundary — every filesystem operation must route through it.
 
-    When ``root_label`` is given, absolute inputs whose first segment equals it are
-    first normalized to the equivalent relative path via
-    :func:`strip_root_label_prefix` (``/workspace/x.md`` → ``x.md``) and then run
-    through the same containment check below — so this only rescues inputs the guard
-    would already have rejected, and never weakens it (``..`` traversal still fails).
+    Paths are first passed through :func:`normalize_workspace_path` (bare ``/`` /
+    ``\\`` → ``.``; optional ``/<root_label>/…`` strip) then the same containment
+    check — so aliases never widen access (``..`` / other-root absolutes still fail).
     """
-    if root_label:
-        relative_path = strip_root_label_prefix(relative_path, root_label)
+    relative_path = normalize_workspace_path(relative_path, root_label=root_label)
     try:
         resolved = (workspace / relative_path).resolve()
         root = workspace.resolve()

@@ -56,6 +56,13 @@ _WORKER_ONLY_ORDER = [
     "desktop_notify",
 ]
 
+# Privacy-gated worker tools (manual_wire): catalog-advertised, not in default
+# ``build_worker_registry`` — wired after the gate (跨会话对话日志访问定案).
+_WORKER_GATED_ORDER = [
+    "search_conversations",
+    "read_conversation",
+]
+
 _CEO_BUILTIN_ORDER = [
     "web_search",
     "read_url",
@@ -107,6 +114,8 @@ _CATALOG_AVAILABLE_TO: dict[str, tuple[str, ...]] = {
     "amend_note": (AVAILABLE_TO_WORKER,),
     "handoff": (AVAILABLE_TO_WORKER,),
     "desktop_notify": (AVAILABLE_TO_WORKER,),
+    "search_conversations": (AVAILABLE_TO_WORKER,),
+    "read_conversation": (AVAILABLE_TO_WORKER,),
     # CEO orchestration (catalog advertise)
     "delegate": (AVAILABLE_TO_CEO,),
     "replan": (AVAILABLE_TO_CEO,),
@@ -190,7 +199,9 @@ def test_tool_registry_grant_sets_snapshot():
 def test_catalog_order_and_available_to_snapshot():
     catalog = build_capability_catalog()
     names = [e.schema.name for e in catalog]
-    assert names == _BUILTIN_ORDER + _WORKER_ONLY_ORDER + _CATALOG_ORCHESTRATION_ORDER
+    assert names == (
+        _BUILTIN_ORDER + _WORKER_ONLY_ORDER + _WORKER_GATED_ORDER + _CATALOG_ORCHESTRATION_ORDER
+    )
     by_name = {e.schema.name: e for e in catalog}
     assert set(by_name) == set(_CATALOG_AVAILABLE_TO)
     for name, expected in _CATALOG_AVAILABLE_TO.items():

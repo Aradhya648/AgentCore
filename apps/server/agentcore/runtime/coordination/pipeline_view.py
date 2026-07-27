@@ -2,6 +2,11 @@
 
 Surfaces wave progress + running / dependency-blocked node overview so idle
 wakes do not read as「闲着了该干点什么」when the DAG is advancing normally.
+
+Progress blocks are **incremental**: completed workers are not re-listed by name
+every inject (that roster grows and poisons CEO context). New completions are
+named once; critical decision signals (running / blocked / failed / pending)
+stay named every time.
 """
 
 from __future__ import annotations
@@ -102,19 +107,47 @@ def is_pipeline_healthy(session: CoordinationSession) -> bool:
     return not (not running and pending and not dep_blocked)
 
 
-def format_pipeline_progress(session: CoordinationSession) -> str:
-    """Human-readable wave / node progress block for CEO injection."""
+def format_pipeline_progress(
+    session: CoordinationSession,
+    *,
+    newly_completed: set[str] | None = None,
+    consume_delta: bool = True,
+) -> str:
+    """Human-readable wave / node progress block for CEO injection.
+
+    Incremental by default: completed workers are counted, not re-named every
+    inject. Pass ``newly_completed`` to name a delta once; when omitted and
+    ``consume_delta`` is True, takes the session's unreported completion cursor.
+    """
     live: RunPlan | None = getattr(session, "live_plan", None)
     done_n = len(session.completed_run_ids)
     total = session.total_workers or (len(live.nodes) if live else 0)
     head = f"【流水线进度】已完成 {done_n}/{total}"
 
+    if newly_completed is None and consume_delta:
+        newly = session.take_progress_delta()
+    else:
+        newly = set(newly_completed or ())
+        if consume_delta and newly:
+            session.progress_reported_completed |= newly
+
     if live is None or not live.nodes:
         summary = session.worker_progress_summary()
-        return f"{head}\n{summary}"
+        lines = [head]
+        if newly:
+            labels = _labels_for_ids(session, newly)
+            if labels:
+                lines.append(f"  本轮新完成：{'、'.join(labels)}")
+        lines.append(summary)
+        return "\n".join(lines)
 
-    completed, failed, running, dep_blocked, pending = _classify_nodes(session)
+    _completed, failed, running, dep_blocked, pending = _classify_nodes(session)
     lines: list[str] = [head]
+
+    if newly:
+        labels = _labels_for_ids(session, newly)
+        if labels:
+            lines.append(f"  本轮新完成：{'、'.join(labels)}")
 
     try:
         waves = live.waves()
@@ -127,12 +160,15 @@ def format_pipeline_progress(session: CoordinationSession) -> str:
 
     for i, wave in enumerate(waves):
         bits: list[str] = []
+        done_in_wave = 0
         for n in wave:
             label = _node_label(n)
             if n.run_id in failed_ids:
                 bits.append(f"{label}=失败")
+            elif n.run_id in newly:
+                bits.append(f"{label}=新完成")
             elif n.run_id in done:
-                bits.append(f"{label}=完成")
+                done_in_wave += 1
             elif n.run_id in running_ids:
                 bits.append(f"{label}=在跑")
             elif n in dep_blocked:
@@ -141,7 +177,9 @@ def format_pipeline_progress(session: CoordinationSession) -> str:
                 bits.append(f"{label}=待调度")
             else:
                 bits.append(f"{label}=未启动")
-        lines.append(f"  Wave {i}：{'；'.join(bits)}")
+        if done_in_wave:
+            bits.insert(0, f"已完成×{done_in_wave}")
+        lines.append(f"  Wave {i}：{'；'.join(bits) if bits else '（空）'}")
 
     if running:
         names = "、".join(_node_label(n) for n in running)
@@ -162,6 +200,17 @@ def format_pipeline_progress(session: CoordinationSession) -> str:
         lines.append(session.worker_progress_summary())
 
     return "\n".join(lines)
+
+
+def _labels_for_ids(session: CoordinationSession, run_ids: set[str]) -> list[str]:
+    """Stable role/run labels for a set of run_ids (plan first, else bare id)."""
+    live = getattr(session, "live_plan", None)
+    by_id: dict[str, str] = {}
+    if live is not None:
+        for n in live.nodes:
+            by_id[n.run_id] = _node_label(n)
+    labels = [by_id.get(rid, rid) for rid in sorted(run_ids)]
+    return [lb for lb in labels if lb]
 
 
 def format_idle_yield_brief(session: CoordinationSession) -> str:

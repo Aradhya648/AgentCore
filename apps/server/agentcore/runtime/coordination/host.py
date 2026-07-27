@@ -230,6 +230,8 @@ def _seed_session_completed(
     for run_id, state in seed_completed.items():
         if state.phase in terminal:
             session.mark_worker_completed(run_id)
+    # Seeded terminals are prior-wave history — don't name them as「本轮新完成」.
+    session.progress_reported_completed |= set(session.completed_run_ids)
 
 
 def _start_echo_counts(

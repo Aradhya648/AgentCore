@@ -3325,6 +3325,34 @@
         "title": "ConversationCost",
         "type": "object"
       },
+      "ConversationHistoryAccessRequest": {
+        "properties": {
+          "enabled": {
+            "description": "Allow Workers to search/read past conversation transcripts",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "ConversationHistoryAccessRequest",
+        "type": "object"
+      },
+      "ConversationHistoryAccessResponse": {
+        "description": "Cross-session conversation-log access gate (跨会话对话日志访问定案).",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "ConversationHistoryAccessResponse",
+        "type": "object"
+      },
       "ConversationListResponse": {
         "properties": {
           "data": {
@@ -6606,6 +6634,126 @@
         ],
         "title": "MemoryKind",
         "type": "string"
+      },
+      "MemoryMoveBulletRequest": {
+        "description": "Move one bullet between GLOBAL and the given project's layer (位置即作用域纠错).\n\n``direction`` ``to_project`` = remove from global + add under the same section in\n``folder_id``; ``to_global`` is the inverse. Optional CAS baselines mirror the\nper-leaf PUT contract (``None`` = unconditional under the memory lock).",
+        "properties": {
+          "content": {
+            "description": "Bullet text to move",
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "to_project",
+              "to_global"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "folder_id": {
+            "description": "Current project folder id",
+            "minLength": 1,
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "profile",
+            "enum": [
+              "preferences",
+              "profile",
+              "topic"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "section": {
+            "default": "",
+            "description": "## section name (required for core leaves)",
+            "title": "Section",
+            "type": "string"
+          },
+          "source_baseline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Baseline"
+          },
+          "target_baseline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Baseline"
+          },
+          "topic_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Slug"
+          }
+        },
+        "required": [
+          "content",
+          "folder_id",
+          "direction"
+        ],
+        "title": "MemoryMoveBulletRequest",
+        "type": "object"
+      },
+      "MemoryMoveBulletResult": {
+        "properties": {
+          "conflict": {
+            "default": false,
+            "title": "Conflict",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "source_version": {
+            "default": "",
+            "title": "Source Version",
+            "type": "string"
+          },
+          "target_version": {
+            "default": "",
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "MemoryMoveBulletResult",
+        "type": "object"
       },
       "MemoryProjectsResponse": {
         "description": "folder_ids whose PROJECT memory layer is non-empty (the rail shows a node each).",
@@ -12356,7 +12504,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.15"
+    "version": "0.3.16"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -29906,6 +30054,146 @@
         ]
       }
     },
+    "/v1/users/me/memory/conversation-history-access": {
+      "get": {
+        "description": "Whether Workers may search/read this account's past conversation logs.",
+        "operationId": "get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationHistoryAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get My Conversation History Access",
+        "tags": [
+          "memory"
+        ]
+      },
+      "put": {
+        "description": "Toggle cross-session conversation-log access (orthogonal to memory_enabled).",
+        "operationId": "set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationHistoryAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationHistoryAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set My Conversation History Access",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
     "/v1/users/me/memory/enabled": {
       "put": {
         "description": "Toggle the long-term memory master switch (off = stop injecting AND growing).",
@@ -30165,6 +30453,82 @@
           }
         },
         "summary": "Put My Memory File",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/v1/users/me/memory/move-bullet": {
+      "post": {
+        "description": "Move one memory bullet between global and the current project (P2-b 搬层纠错).\n\nDeclared before ``/files/{kind}`` so the static segment wins the route match.\nHolds the per-user memory lock; illegal sections (偏好 / 纠正记录 → project,\n项目约束 → global) return 422 with a clear message.",
+        "operationId": "move_my_memory_bullet_v1_users_me_memory_move_bullet_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryMoveBulletRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryMoveBulletResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move My Memory Bullet",
         "tags": [
           "memory"
         ]

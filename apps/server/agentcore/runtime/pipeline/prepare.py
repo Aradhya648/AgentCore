@@ -21,6 +21,7 @@ from agentcore.runtime.events import EventSink
 from agentcore.runtime.interaction import default_interaction_registry
 from agentcore.runtime.resolve.prepare import (
     _build_attachment_context,
+    _wire_worker_conversation_log_tools,
     _wire_worker_memory_tools,
 )
 from agentcore.runtime.resolve.prompt import (
@@ -64,6 +65,7 @@ async def prepare_fresh_turn(
     board_id: str | None,
     attachments: list[dict] | None,
     memory_enabled: bool,
+    conversation_history_access: bool = True,
     permission_preset,
     llm_credentials: LLMCredentials | None,
     x_client_platform: str | None,
@@ -128,7 +130,12 @@ async def prepare_fresh_turn(
         user_rules_markdown=user_rules_markdown,
         workspace_context=workspace_facts,
     )
-    attachment_context = _build_attachment_context(attachments)
+    attachment_context = await _build_attachment_context(
+        attachments,
+        user_id=user_id,
+        host_conversation_id=conversation_id,
+        conversation_history_access=conversation_history_access,
+    )
     # Workers hold no CEO hints; their base is the shared base + optional simplified
     # 记忆主题目录 + the same attachment block at the end — byte-identical to the old
     # single-call assembly when memory is off and no topics exist.
@@ -148,6 +155,11 @@ async def prepare_fresh_turn(
         memory_enabled=memory_enabled,
         folder_id=folder_id,
         has_memory_topics=has_memory_topics,
+    )
+    _wire_worker_conversation_log_tools(
+        worker_tools,
+        conversation_history_access=conversation_history_access,
+        folder_id=folder_id,
     )
     # System skills (提示词瘦身 P2): the advanced-mechanism guidance the CEO pulls
     # on demand via consult_skill. Built once per turn; backs the tool AND the

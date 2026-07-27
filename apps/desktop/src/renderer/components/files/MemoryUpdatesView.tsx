@@ -98,6 +98,8 @@ export function MemoryUpdatesView({
                       <MemoryUpdateItemRow
                         key={`${item.action}:${item.file}:${item.section}:${i}`}
                         item={item}
+                        projectFolderId={item.projectId}
+                        onMoved={() => void updates.refetch()}
                         onOpenLeaf={(target, projectId) =>
                           onOpenLeaf(
                             target,

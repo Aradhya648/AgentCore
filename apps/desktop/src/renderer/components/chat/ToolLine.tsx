@@ -39,6 +39,9 @@ import {
 const PEEK_SUPPRESSED = new Set([
   "consult_skill",
   "consult_memory",
+  // 跨会话对话日志：标题已自解释（query / conversation_id），正文在展开卡。
+  "search_conversations",
+  "read_conversation",
   "file_read",
   "file_list",
   // CEO 协调原语：标题已自解释（+ run_id / interjection_id chip），peek 只是操作确认文案。

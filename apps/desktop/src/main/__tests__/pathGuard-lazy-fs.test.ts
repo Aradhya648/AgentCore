@@ -67,6 +67,18 @@ describe("pathGuard realInside / locate error codes", () => {
   it("resolveLexical keeps in-root paths", () => {
     expect(resolveLexical(root, "a/b")).toBe(join(dir, "a", "b"));
   });
+
+  it("resolveLexical maps bare / and \\ to workspace root", () => {
+    expect(resolveLexical(root, "/")).toBe(dir);
+    expect(resolveLexical(root, "\\")).toBe(dir);
+  });
+
+  it("resolveLexical strips /<root.name>/… and rejects /etc", () => {
+    root = { id: "pg-root", name: "workspace", absPath: dir };
+    setRoot(root);
+    expect(resolveLexical(root, "/workspace/a.txt")).toBe(join(dir, "a.txt"));
+    expect(resolveLexical(root, "/etc/passwd")).toBeNull();
+  });
 });
 
 describe("listDir / create lazy workspace semantics", () => {

@@ -62,6 +62,22 @@ export interface MemoryConsultDisplay {
   topic: string;
 }
 
+/**
+ * `search_conversations` / `read_conversation` rich result (跨会话对话日志 · 工具卡):
+ * metadata only in `display` (title / conversation_id / truncated / result_count) — the
+ * transcript or hit list rides `result` so display stays under the ~6000-char wire cap.
+ * Search typically sets `result_count` (+ optional `scope`); read sets `title` /
+ * `conversation_id` / `truncated` (+ optional `depth: "full"`).
+ */
+export interface ConversationLogDisplay {
+  title?: string;
+  conversation_id?: string;
+  truncated?: boolean;
+  result_count?: number;
+  scope?: string;
+  depth?: string;
+}
+
 /** The action verb a single `browser_*` step performed (L3 团队浏览器 M0). Kept a
  * closed union for icon/label mapping, but the guard accepts any string so a
  * newer-backend verb degrades to a generic row instead of vanishing. */

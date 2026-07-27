@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import agentcore.runtime.pipeline as pipeline_pkg
 from agentcore.config import settings
 from agentcore.conversation.common import (
+    resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
     resolve_permission_preset,
@@ -101,6 +102,9 @@ async def production_crash_delegate_factory(
                 session, conv, user_id, credentials=llm_credentials
             )
             memory_enabled = await resolve_memory_enabled(session, user_id)
+            conversation_history_access = await resolve_conversation_history_access(
+                session, user_id
+            )
             permission_preset = await resolve_permission_preset(session, conversation_id)
             board = await BoardRepository(session).get_by_conversation_id(
                 conversation_id, user_id=user_id
@@ -169,6 +173,7 @@ async def production_crash_delegate_factory(
             user_id=user_id,
             folder_id=folder_id,
             memory_enabled=memory_enabled,
+            conversation_history_access=conversation_history_access,
             base_system_prompt=base_system_prompt,
             user_message=user_message,
             journal_entries=list(state.entries),

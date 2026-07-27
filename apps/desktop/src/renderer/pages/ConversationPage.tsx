@@ -112,6 +112,7 @@ export function ConversationPage() {
     const recoveryLoaded = loadRecovery(id);
 
     let cancelled = false;
+    let attachAbort: AbortController | null = null;
     void (async () => {
       try {
         const win = await fetchMessageWindow(id);
@@ -148,7 +149,11 @@ export function ConversationPage() {
             // Order: project unsynced → attach live.
             projectUnsyncedTurns(id, recovery.unsynced);
             if (recovery.sidecarLive && recovery.pausedCount === 0) {
-              void attachSidecarTurn(id);
+              // Await + abort on leave: serialize hydrate attach; 切会话停旧泵
+              // （claim 释放），避免 fire-and-forget 叠第二个 onEvent。
+              attachAbort = new AbortController();
+              await attachSidecarTurn(id, { signal: attachAbort.signal });
+              if (cancelled) return;
             }
           } else {
             // Cloud session: P4 hydrate — refresh before ghost when empty
@@ -208,6 +213,7 @@ export function ConversationPage() {
     })();
     return () => {
       cancelled = true;
+      attachAbort?.abort();
     };
   }, [id]);
 

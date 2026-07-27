@@ -38,7 +38,11 @@ CODE_SEARCH_PARAMETERS = {
         },
         "path_prefix": {
             "type": "string",
-            "description": "搜索范围：相对目录前缀（默认工作区根目录）。",
+            "description": (
+                "搜索范围：工作区相对 POSIX 目录前缀（默认 `.`=整仓）。"
+                "`.`/省略=根；`/<根标签>/…` 与裸 `/`、`\\` 视为根；"
+                "其它绝对路径（/etc、盘符）拒绝。"
+            ),
             "default": ".",
         },
         "max_results": {

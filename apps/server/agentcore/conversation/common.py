@@ -363,6 +363,18 @@ async def resolve_memory_enabled(session: AsyncSession, user_id: str) -> bool:
     return user.memory_enabled if user else True
 
 
+async def resolve_conversation_history_access(
+    session: AsyncSession, user_id: str
+) -> bool:
+    """This turn's cross-session conversation-log access gate (跨会话对话日志访问定案).
+
+    Defaults to True for an unknown user (access on, the product default), so a
+    missing row never silently strips Worker log tools.
+    """
+    user = await UserRepository(session).get_by_id(user_id)
+    return user.conversation_history_access if user else True
+
+
 async def resolve_autonomy_policy(session: AsyncSession, user_id: str):
     """User-global *default* AutonomyPolicy (seeds new conversations only).
 

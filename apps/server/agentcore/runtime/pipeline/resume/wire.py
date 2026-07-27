@@ -15,7 +15,10 @@ from agentcore.runtime.context import build_workspace_context, desktop_client_ca
 from agentcore.runtime.costing import RunCost
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.interaction import default_interaction_registry
-from agentcore.runtime.resolve.prepare import _wire_worker_memory_tools
+from agentcore.runtime.resolve.prepare import (
+    _wire_worker_conversation_log_tools,
+    _wire_worker_memory_tools,
+)
 from agentcore.runtime.sessions import SessionLoader, SessionSaver, default_session_registry
 from agentcore.runtime.skills import build_system_skill_registry
 from agentcore.runtime.suspension import SuspensionDeleter, SuspensionSaver, TurnSuspension
@@ -84,6 +87,7 @@ async def _wire_continuation_toolset(
     user_id: str,
     folder_id: str | None,
     memory_enabled: bool,
+    conversation_history_access: bool = True,
     base_system_prompt: str,
     user_message: str,
     journal_entries: list[dict[str, Any]],
@@ -134,6 +138,11 @@ async def _wire_continuation_toolset(
         memory_enabled=memory_enabled,
         folder_id=folder_id,
         has_memory_topics=topics_present,
+    )
+    _wire_worker_conversation_log_tools(
+        worker_tools,
+        conversation_history_access=conversation_history_access,
+        folder_id=folder_id,
     )
     # Same system-skill registry as a fresh turn so the continued CEO loop can
     # still consult_skill (提示词瘦身 P2), including deployment-gated capability
@@ -270,6 +279,7 @@ async def _wire_continuation_toolset(
         skill_registry=skill_registry,
         folder_id=folder_id,
         memory_enabled=memory_enabled,
+        conversation_history_access=conversation_history_access,
         has_memory_topics=topics_present,
         autonomy_policy=autonomy_policy,
         advertise_bind_local_folder=checkpoint_enabled
@@ -339,6 +349,7 @@ async def wire_resume_turn(
         user_id=suspension.user_id,
         folder_id=suspension.folder_id,
         memory_enabled=suspension.memory_enabled,
+        conversation_history_access=suspension.conversation_history_access,
         base_system_prompt=suspension.base_system_prompt,
         user_message=suspension.user_message,
         journal_entries=suspension.journal_entries,
@@ -366,6 +377,7 @@ async def wire_crash_turn(
     user_id: str,
     folder_id: str | None,
     memory_enabled: bool,
+    conversation_history_access: bool = True,
     base_system_prompt: str,
     user_message: str,
     journal_entries: list[dict[str, Any]],
@@ -395,6 +407,7 @@ async def wire_crash_turn(
         user_id=user_id,
         folder_id=folder_id,
         memory_enabled=memory_enabled,
+        conversation_history_access=conversation_history_access,
         base_system_prompt=base_system_prompt,
         user_message=user_message,
         journal_entries=journal_entries,

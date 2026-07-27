@@ -140,6 +140,61 @@ def test_dag_suspect_missing_dep_warns_when_task_mentions_upstream(monkeypatch):
     assert "depends_on" in kw["hint"]
 
 
+def test_dag_suspect_missing_dep_warns_on_read_upstream_request(monkeypatch):
+    """真像漏挂：请读取上游产出 + 空依赖 → 仍告。"""
+    spy = LogSpy()
+    monkeypatch.setattr(builder_mod, "logger", spy)
+    plan, errs = build_run_plan(
+        [
+            {"id": "r1", "role": "研究员", "task": "调研"},
+            {"id": "w", "role": "写手", "task": "请读取上游产出后撰写"},
+            # 另有 depends_on 边，使本批走 DAG 建图路径（advisory 挂在该路径）。
+            {"id": "x", "role": "其他", "task": "收尾", "depends_on": ["r1"]},
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    kw = spy.get("builder.suspect_missing_dep")
+    assert kw["run_id"] == "t_w"
+    assert any("depends_on 为空" in a for a in plan.advisories)
+
+
+def test_dag_suspect_missing_dep_silent_for_seed_as_upstream(monkeypatch):
+    """起点种子自称「作为上游产出」且 depends_on 空 → 不再误报。"""
+    spy = LogSpy()
+    monkeypatch.setattr(builder_mod, "logger", spy)
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "seed",
+                "role": "研究员",
+                "task": "作为上游产出调研纪要，供后续节点使用",
+            },
+            {"id": "w", "role": "写手", "task": "撰写成稿", "depends_on": ["seed"]},
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert not any(name == "builder.suspect_missing_dep" for name, _ in spy.events)
+    assert plan.advisories == []
+
+
+def test_dag_suspect_missing_dep_silent_on_negated_hint(monkeypatch):
+    """否定消费向措辞（不基于上游产出）不告。"""
+    spy = LogSpy()
+    monkeypatch.setattr(builder_mod, "logger", spy)
+    plan, errs = build_run_plan(
+        [
+            {"id": "a", "role": "独立", "task": "不基于上游产出，自行调研"},
+            {"id": "b", "role": "收尾", "task": "汇总", "depends_on": ["a"]},
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert not any(name == "builder.suspect_missing_dep" for name, _ in spy.events)
+    assert plan.advisories == []
+
+
 def test_dag_suspect_missing_dep_silent_when_dep_declared(monkeypatch):
     spy = LogSpy()
     monkeypatch.setattr(builder_mod, "logger", spy)
@@ -754,3 +809,202 @@ def test_depends_on_ambiguous_role_rejects():
     plan, errs = build_run_plan(tasks, id_prefix="t")
     assert errs
     assert any("歧义" in e for e in errs)
+
+
+def test_append_batch_depends_on_previous_batch_id():
+    """跨批 append：depends_on 上一批已有节点 id → 成功（对齐 build_added_nodes）。"""
+    # 宿主须走 DAG 铸 id（flat 批会忽略声明 id 改用序号）。
+    host, host_errs = build_run_plan(
+        [
+            {"id": "l2_a", "role": "调研A", "task": "查A"},
+            {"id": "l2_x", "role": "占位", "task": "占位", "depends_on": ["l2_a"]},
+        ],
+        id_prefix="bt",
+    )
+    assert host_errs == []
+    assert host.by_id("bt_l2_a") is not None
+
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "l2_b",
+                "role": "写手",
+                "task": "基于上游写",
+                "depends_on": ["bt_l2_a"],
+            }
+        ],
+        id_prefix="bt2",
+        existing_plan=host,
+    )
+    assert errs == []
+    assert len(plan.nodes) == 1
+    assert plan.nodes[0].run_id == "bt2_l2_b"
+    assert plan.nodes[0].depends_on == ["bt_l2_a"]
+
+
+def test_append_batch_unknown_dep_lists_host_nodes():
+    """append + host plan：未知依赖的「可用节点」须带出历史节点。"""
+    host, _ = build_run_plan(
+        [
+            {"id": "l2_a", "role": "调研A", "task": "查A"},
+            {"id": "l2_x", "role": "占位", "task": "占位", "depends_on": ["l2_a"]},
+        ],
+        id_prefix="bt",
+    )
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "l2_b",
+                "role": "写手",
+                "task": "写",
+                "depends_on": ["不存在的节点"],
+            }
+        ],
+        id_prefix="bt2",
+        existing_plan=host,
+    )
+    assert errs
+    msg = " ".join(errs)
+    assert "可用节点" in msg
+    assert "bt_l2_a" in msg
+    assert "调研A" in msg
+
+
+def test_non_append_unknown_dep_lists_only_current_batch():
+    """非 append：未知依赖仍只列本批，不假装有宿主图。"""
+    tasks = [
+        {"id": "a", "role": "A", "task": "a"},
+        {"id": "b", "role": "B", "task": "b", "depends_on": ["bt_l2_a"]},
+    ]
+    plan, errs = build_run_plan(tasks, id_prefix="t")
+    assert errs
+    msg = " ".join(errs)
+    assert "bt_l2_a" in msg
+    assert "可用节点" in msg
+    assert "a" in msg
+    assert "A" in msg
+    # 本批只有 a/b，不应冒出别的 execution 节点
+    assert "调研" not in msg
+    assert "bt_l2_a（" not in msg  # host-style catalog entry absent
+
+
+def test_append_batch_depends_on_host_short_raw():
+    """跨批 append：depends_on 上一批短 raw（bt_l2_a）→ 解析到 del_<uuid>_bt_l2_a。"""
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    host_id = "del_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee_bt_l2_a"
+    host = RunPlan(
+        nodes=[
+            RunSpec(run_id=host_id, agent_id=host_id, role="调研A", task="查A"),
+        ]
+    )
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "l2_b",
+                "role": "写手",
+                "task": "基于上游写",
+                "depends_on": ["bt_l2_a"],
+            }
+        ],
+        id_prefix="del_ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee",
+        existing_plan=host,
+    )
+    assert errs == []
+    assert len(plan.nodes) == 1
+    assert plan.nodes[0].depends_on == [host_id]
+
+
+def test_build_added_nodes_depends_on_host_short_raw():
+    """build_added_nodes：depends_on 宿主短 raw（与 append 同规则）。"""
+    from agentcore.runtime.runs.builder import build_added_nodes
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    host_id = "del_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee_bt_l2_a"
+    host = RunPlan(
+        nodes=[
+            RunSpec(run_id=host_id, agent_id=host_id, role="调研A", task="查A"),
+        ]
+    )
+    specs, errs = build_added_nodes(
+        [{"id": "l2_b", "role": "写手", "task": "基于上游写", "depends_on": ["bt_l2_a"]}],
+        host,
+    )
+    assert errs == []
+    assert len(specs) == 1
+    assert specs[0].depends_on == [host_id]
+
+
+def test_append_batch_short_raw_conflict_rejects():
+    """两宿主节点剥出同一短 raw 且 run_id 不同 → 歧义报错列候选，勿静默抢先。"""
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    a = "del_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee_bt_l2_a"
+    b = "del_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee_bt_l2_a"
+    host = RunPlan(
+        nodes=[
+            RunSpec(run_id=a, agent_id=a, role="调研A", task="查A"),
+            RunSpec(run_id=b, agent_id=b, role="调研B", task="查B"),
+        ]
+    )
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "l2_c",
+                "role": "写手",
+                "task": "写",
+                "depends_on": ["bt_l2_a"],
+            }
+        ],
+        id_prefix="del_cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee",
+        existing_plan=host,
+    )
+    assert errs
+    msg = " ".join(errs)
+    assert "短 id 有歧义" in msg
+    assert a in msg
+    assert b in msg
+    assert not plan.nodes
+
+
+def test_build_added_nodes_short_raw_conflict_rejects():
+    """build_added_nodes：宿主短 id 冲突 → 与 append 同类明确错误。"""
+    from agentcore.runtime.runs.builder import build_added_nodes
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    a = "del_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee_star_ct"
+    b = "add_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee_star_ct"
+    host = RunPlan(
+        nodes=[
+            RunSpec(run_id=a, agent_id=a, role="星图A", task="A"),
+            RunSpec(run_id=b, agent_id=b, role="星图B", task="B"),
+        ]
+    )
+    specs, errs = build_added_nodes(
+        [{"id": "n", "role": "汇总", "task": "汇总", "depends_on": ["star_ct"]}],
+        host,
+    )
+    assert errs
+    msg = " ".join(errs)
+    assert "短 id 有歧义" in msg
+    assert a in msg
+    assert b in msg
+    assert specs == []
+
+
+def test_non_append_short_raw_still_unknown():
+    """非 append：短 raw 不因「像 host id」而凭空可解析。"""
+    plan, errs = build_run_plan(
+        [
+            {"id": "a", "role": "A", "task": "a"},
+            {"id": "b", "role": "B", "task": "b", "depends_on": ["bt_l2_a"]},
+        ],
+        id_prefix="del_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    )
+    assert errs
+    assert any("无法解析" in e for e in errs)
+    assert plan.nodes  # a 仍入图；b 因 dep 失败被跳过，整批仍带 errs

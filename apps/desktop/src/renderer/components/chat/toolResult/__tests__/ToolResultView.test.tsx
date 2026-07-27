@@ -6,11 +6,28 @@
  * the import block so organizeImports keeps it file-leading.
  */
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ToolResultData, ToolResultView } from "../ToolResultView";
 
+const navigate = vi.fn();
+
+vi.mock("react-router-dom", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router-dom")>(
+      "react-router-dom",
+    );
+  return {
+    ...actual,
+    useNavigate: () => navigate,
+  };
+});
+
 afterEach(cleanup);
+
+beforeEach(() => {
+  navigate.mockClear();
+});
 
 function data(p: Partial<ToolResultData>): ToolResultData {
   return {
@@ -52,6 +69,86 @@ describe("ToolResultView · consult_memory", () => {
     );
     expect(screen.getByText("查阅记忆：")).toBeTruthy();
     expect(screen.getByText("项目背景")).toBeTruthy();
+  });
+});
+
+describe("ToolResultView · search_conversations / read_conversation", () => {
+  it("renders a search card with result_count and hit-list body in result", () => {
+    render(
+      <ToolResultView
+        data={data({
+          toolName: "search_conversations",
+          display: { result_count: 2, scope: "all" },
+          result: "1. 上周方案 · abc\n2. 部署讨论 · def",
+        })}
+      />,
+    );
+    expect(screen.getByText("检索对话")).toBeTruthy();
+    expect(screen.getByText(/2 场/)).toBeTruthy();
+    expect(screen.getByText(/上周方案/)).toBeTruthy();
+    // Search cards have no conversation_id — no deep-link button.
+    expect(screen.queryByRole("button", { name: "打开对话" })).toBeNull();
+  });
+
+  it("renders a read card with title, conversation_id, truncated badge, body from result", () => {
+    render(
+      <ToolResultView
+        data={data({
+          toolName: "read_conversation",
+          display: {
+            title: "上周方案复盘",
+            conversation_id: "conv_abc123",
+            truncated: true,
+            depth: "full",
+          },
+          result: "### User\n上次结论是什么？\n### Assistant\n采用方案 B。",
+        })}
+      />,
+    );
+    expect(screen.getByText("查阅对话：")).toBeTruthy();
+    expect(screen.getByText("上周方案复盘")).toBeTruthy();
+    expect(screen.getByText("conv_abc123")).toBeTruthy();
+    expect(screen.getByText("已截断")).toBeTruthy();
+    expect(screen.getByText(/采用方案 B/)).toBeTruthy();
+  });
+
+  it("deep-links「打开对话」to /conversations/:id when conversation_id is present", () => {
+    render(
+      <ToolResultView
+        data={data({
+          toolName: "read_conversation",
+          display: {
+            title: "旧案",
+            conversation_id: "conv_deeplink",
+            truncated: false,
+            depth: "full",
+          },
+          result: "### User\nhi",
+        })}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: "打开对话" });
+    fireEvent.click(btn);
+    expect(navigate).toHaveBeenCalledWith("/conversations/conv_deeplink");
+  });
+
+  it("clips a huge transcript preview while keeping the truncated footer", () => {
+    const huge = `${"x".repeat(6500)}\nTAIL_MARKER`;
+    render(
+      <ToolResultView
+        data={data({
+          toolName: "read_conversation",
+          display: {
+            title: "超长场",
+            conversation_id: "conv_long",
+            truncated: false,
+          },
+          result: huge,
+        })}
+      />,
+    );
+    expect(screen.getByText(/预览已截断/)).toBeTruthy();
+    expect(screen.queryByText(/TAIL_MARKER/)).toBeNull();
   });
 });
 

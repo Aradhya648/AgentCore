@@ -312,6 +312,9 @@ class CoordinationSession:
     completed_run_ids: set[str] = field(default_factory=set)
     # Terminal FAILED run_ids (subset of completed) — pipeline health / idle brief.
     failed_run_ids: set[str] = field(default_factory=set)
+    # CEO progress-inject cursor: completed ids already named in a prior progress
+    # block. Not snapshotted — restore seeds it to current completed (no re-dump).
+    progress_reported_completed: set[str] = field(default_factory=set)
     cancel_ids: set[str] = field(default_factory=set)
     active: bool = True
     # True after all_completed has been injected into the CEO window.
@@ -548,6 +551,12 @@ class CoordinationSession:
     def mark_worker_completed(self, run_id: str) -> None:
         self.completed_run_ids.add(run_id)
         self.disarm_worker_timeout(run_id)
+
+    def take_progress_delta(self) -> set[str]:
+        """Completed run_ids not yet named in a CEO progress block; advances cursor."""
+        delta = set(self.completed_run_ids) - self.progress_reported_completed
+        self.progress_reported_completed |= delta
+        return delta
 
     def request_cancel(self, run_id: str) -> None:
         self.cancel_ids.add(run_id)
@@ -1077,6 +1086,9 @@ class CoordinationSession:
             draft=snap.draft,
             conversation_id=snap.conversation_id,
             completed_run_ids=set(snap.completed_run_ids),
+            # Treat restored completions as already reported — avoid re-listing the
+            # whole roster as「本轮新完成」on the first post-resume inject.
+            progress_reported_completed=set(snap.completed_run_ids),
             cancel_ids=set(snap.cancel_run_ids),
             active=snap.active,
             all_completed_injected=snap.all_completed_injected,

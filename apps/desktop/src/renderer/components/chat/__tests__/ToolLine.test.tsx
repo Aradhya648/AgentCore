@@ -288,6 +288,26 @@ describe("ToolLine · 过程工具默认折叠", () => {
     expect(screen.getAllByText("部署流程")).toHaveLength(1);
   });
 
+  it("suppresses the peek for read_conversation — title chip only", () => {
+    render(
+      <ToolLine
+        step={step({
+          tool_name: "read_conversation",
+          arguments: { conversation_id: "conv_abc" },
+          result: "### User\n很长的 transcript 正文",
+          display: {
+            title: "上周方案",
+            conversation_id: "conv_abc",
+            truncated: false,
+          },
+          status: "success",
+        })}
+      />,
+    );
+    expect(screen.queryByText(/很长的 transcript/)).toBeNull();
+    expect(screen.getByText("conv_abc")).toBeTruthy();
+  });
+
   it("suppresses the peek for consult_skill — the summary shows only when expanded", () => {
     render(
       <ToolLine

@@ -176,13 +176,13 @@ async def test_preparse_failure_falls_back(tmp_path: Path):
     assert not (tmp_path / "attachments" / "broken.docx.md").exists()
 
     # Prompt falls back to binary path hint.
-    ctx = _build_attachment_context(out)
+    ctx = await _build_attachment_context(out)
     assert ctx is not None
     assert "[binary]" in ctx
     assert "code_execute" in ctx
 
 
-def test_context_preparsed_inline_and_large_truncation():
+async def test_context_preparsed_inline_and_large_truncation():
     small = {
         "name": "a.docx",
         "path": "attachments/a.docx",
@@ -192,7 +192,7 @@ def test_context_preparsed_inline_and_large_truncation():
         "parse_status": "ok",
         "text": "Hello world from docx extract.",
     }
-    out = _build_attachment_context([small])
+    out = await _build_attachment_context([small])
     assert out is not None
     assert "Hello world from docx extract" in out
     assert "pre-parsed → attachments/a.docx.md" in out
@@ -206,7 +206,7 @@ def test_context_preparsed_inline_and_large_truncation():
         "parsed_workspace_path": "attachments/big.docx.md",
         "workspace_path": "attachments/big.docx",
     }
-    out2 = _build_attachment_context([large])
+    out2 = await _build_attachment_context([large])
     assert out2 is not None
     assert "truncated" in out2
     assert "full extracted text is at attachments/big.docx.md" in out2
@@ -214,8 +214,8 @@ def test_context_preparsed_inline_and_large_truncation():
     assert "Z" * (ATTACHMENT_INLINE_MAX_CHARS + 1) not in out2
 
 
-def test_context_scanned_shows_notice():
-    out = _build_attachment_context(
+async def test_context_scanned_shows_notice():
+    out = await _build_attachment_context(
         [
             {
                 "name": "scan.pdf",

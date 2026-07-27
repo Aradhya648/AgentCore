@@ -124,10 +124,18 @@ FILE_READ_SAME_PATH_MAX = 5
 # (防幻觉铁律 / 收尾指引 at the tail now survive — ToolResult keeps head+tail — but a
 # worker silently vanishing from the synthesis input is still wrong). File-producers
 # (digested — their full product is on disk + shown in the UI) don't draw on this pool.
-# Sized BELOW DEP_CONTEXT_BUDGET / DELEGATE_OUTPUT_LIMIT (16000) so digests + per-worker
-# boilerplate + the closing instructions all fit under the output_limit net, i.e. it
-# effectively never fires for a normal (≤MAX_DELEGATION_TASKS-worker) batch.
-CEO_SYNTHESIS_BUDGET = 10000
+# Sized well below DELEGATE_OUTPUT_LIMIT so digests + roster + closing instructions fit
+# under CEO_SYNTHESIS_MAX_CHARS (prefer pointer + short bullets over full prose dump).
+CEO_SYNTHESIS_BUDGET = 3600
+# Per file-producer digest in CEO synthesis (tighter than DEP_POINTER_SUMMARY_CHARS —
+# CEO only needs orientation; full artifact is on disk / in the UI).
+CEO_SYNTHESIS_POINTER_CHARS = 240
+# Hard cap on format_for_ceo final text (chars) when raw product is small.
+# Blocks short-raw → ~6k packaging bloat; large-raw batches rely on BUDGET instead.
+CEO_SYNTHESIS_MAX_CHARS = 4000
+# Soft expansion guard used by tests / metrics (prefer_brief + POINTER_CHARS
+# keep natural length under MAX; whole-doc chop only at MAX_CHARS).
+CEO_SYNTHESIS_MAX_RATIO = 4.0
 
 # 工作区产物清单: peer products (role-attributed) + sparse pre-existing paths
 # (attachments / 裸聊 scratch; project shared trees → 「另有 N 个」summary). See

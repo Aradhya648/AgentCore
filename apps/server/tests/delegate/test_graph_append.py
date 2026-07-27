@@ -248,6 +248,78 @@ async def test_delegate_append_reuses_execution_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delegate_append_resolves_depends_on_host_node(monkeypatch):
+    """跨批 append：depends_on 宿主图已有 run_id → build 成功并保留边。"""
+    register_graph_host("exec-host", "m-host")
+
+    host_plan = RunPlan(
+        nodes=[
+            RunSpec(run_id="bt_l2_a", agent_id="bt_l2_a", role="调研A", task="查A"),
+        ]
+    )
+    seed = {"bt_l2_a": RunState(phase=RunPhase.COMPLETED, content="done")}
+
+    async def fake_resolve(*, conversation_id: str, execution_id: str) -> str | None:
+        return "m-host"
+
+    async def fake_load(host_message_id: str):
+        return host_plan, seed
+
+    async def fake_open_writer(**kwargs):  # noqa: ANN003
+        return TurnJournalWriter(
+            turn_id="m-host", conversation_id="c", trace_id=None, initial_seq=10
+        )
+
+    captured: dict[str, Any] = {}
+
+    async def fake_drive(tool, plan, **kwargs):  # noqa: ANN001
+        captured["deps"] = {
+            n.run_id: list(n.depends_on) for n in plan.nodes if n.run_id != "bt_l2_a"
+        }
+        captured["node_ids"] = [n.run_id for n in plan.nodes]
+        return ToolResult(tool_call_id="", success=True, output="ok")
+
+    monkeypatch.setattr(
+        "agentcore.runtime.delegate.graph_append.resolve_host_message_id",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.delegate.graph_append.load_host_plan_and_completed",
+        fake_load,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.delegate.graph_append.open_host_journal_writer",
+        fake_open_writer,
+    )
+    monkeypatch.setattr("agentcore.tools.builtin.delegate.tool.drive", fake_drive)
+
+    t = tool(Provider(["X"]))
+    t._message_id = "m-new"
+    t._conversation_id = "c"
+    t._base_tool_context.execution_id = "exec-fresh"
+
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "id": "l2_b",
+                    "role": "写手",
+                    "task": "基于上游写",
+                    "depends_on": ["bt_l2_a"],
+                }
+            ],
+            "append_to_execution_id": "exec-host",
+            "coordinate": False,
+        },
+        ctx(),
+    )
+    assert result.success is True, result.error
+    assert "bt_l2_a" in captured["node_ids"]
+    assert len(captured["deps"]) == 1
+    assert list(captured["deps"].values())[0] == ["bt_l2_a"]
+
+
+@pytest.mark.asyncio
 async def test_delegate_append_latest_resolves_recent_graph(monkeypatch):
     """append_to_execution_id="latest" → 服务端解析到本对话最近一张协作图，语义同显式 id。"""
     host_plan = RunPlan(

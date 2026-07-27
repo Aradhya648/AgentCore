@@ -12,6 +12,7 @@ from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace._paths import (
     normalize_glob,
+    normalize_workspace_path,
     resolve_safe_path,
     strip_root_label_prefix,
 )
@@ -66,7 +67,7 @@ async def test_grep_rejects_path_outside_workspace(tmp_path: Path):
     assert result.success is False
     assert "超出了工作区范围" in result.error
     # actionable: names the relative-path fix and gives a concrete example
-    assert "相对路径" in result.error
+    assert "工作区相对路径" in result.error
     assert "AgentCore/文档/research/report.md" in result.error
 
 
@@ -78,6 +79,26 @@ async def test_grep_normalizes_absolute_workspace_path(tmp_path: Path):
     )
     assert result.success is True
     assert "app.py:2: return a + b  # TODO: validate" in result.output
+
+
+async def test_grep_bare_slash_means_workspace_root(tmp_path: Path):
+    """Bare ``/`` (and ``\\``) must mean whole workspace — not OutsideWorkspace."""
+    _seed(tmp_path)
+    for scope in ("/", "\\"):
+        result = await GrepTool().execute(
+            {"pattern": "TODO", "path": scope}, _ctx(tmp_path)
+        )
+        assert result.success is True, scope
+        assert "app.py:2: return a + b  # TODO: validate" in result.output
+
+
+async def test_grep_rejects_true_absolute_escapes(tmp_path: Path):
+    _seed(tmp_path)
+    result = await GrepTool().execute(
+        {"pattern": "TODO", "path": "/etc"}, _ctx(tmp_path)
+    )
+    assert result.success is False
+    assert "超出了工作区范围" in (result.error or "")
 
 
 async def test_grep_rejects_missing_path(tmp_path: Path):
@@ -284,6 +305,30 @@ def test_strip_root_label_prefix_honors_custom_label():
     assert strip_root_label_prefix("/proj/a.md", "proj") == "a.md"
     # the default label is NOT special once a custom one is configured
     assert strip_root_label_prefix("/workspace/a.md", "proj") == "/workspace/a.md"
+
+
+# --- normalize_workspace_path (bare root aliases + label strip) ---
+
+
+def test_normalize_workspace_path_bare_root_aliases():
+    assert normalize_workspace_path("/") == "."
+    assert normalize_workspace_path("\\") == "."
+    assert normalize_workspace_path("") == "."
+    assert normalize_workspace_path(".") == "."
+
+
+def test_normalize_workspace_path_strips_root_label():
+    assert normalize_workspace_path("/workspace/foo.md", root_label="workspace") == "foo.md"
+    assert normalize_workspace_path("/workspace", root_label="workspace") == "."
+    assert normalize_workspace_path("/etc/passwd", root_label="workspace") == "/etc/passwd"
+    assert normalize_workspace_path("a/b", root_label="workspace") == "a/b"
+
+
+def test_resolve_safe_path_bare_slash_is_workspace_root(tmp_path: Path):
+    assert resolve_safe_path(tmp_path, "/", root_label="workspace") == tmp_path.resolve()
+    assert resolve_safe_path(tmp_path, "\\", root_label="workspace") == tmp_path.resolve()
+    # Without root_label, bare / still maps to root (alias is label-independent).
+    assert resolve_safe_path(tmp_path, "/") == tmp_path.resolve()
 
 
 # --- resolve_safe_path with root_label (normalize then contain) ---

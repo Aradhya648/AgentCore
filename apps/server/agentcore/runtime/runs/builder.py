@@ -45,13 +45,44 @@ _DEFAULT_RETRY_DELAY_MS = 2_000
 # awareness block stays scannable and can't blow up a worker's context.
 _SIBLING_TASK_CHARS = 150
 _SIBLING_OUTPUT_CHARS = 80
+# Consumer-oriented phrasing only — bare 「上游」「前置」 false-fire on seed tasks
+# that *are* the upstream ("作为上游产出…"). Keep advisory; never a hard reject.
 _UPSTREAM_HINTS = re.compile(
-    r"上游|基于.*(?:产出|结果|输出)|见上游|前置|依赖.*(?:结果|产出)|"
-    r"读取.*(?:产出|结果)|upstream|based on|depends on",
+    r"(?:"
+    r"基于.{0,40}(?:产出|结果|输出)|"
+    r"见上游|"
+    r"依赖.{0,20}(?:结果|产出)|"
+    r"(?:请)?读取.{0,20}(?:产出|结果)|"
+    r"(?:参考|根据|使用|等待|查看|拿到?|先看).{0,20}"
+    r"(?:上游|前置).{0,12}(?:产出|结果|输出|产物)|"
+    r"前置(?:结果|产出|产物)|"
+    r"(?:from|read|use).{0,20}upstream|"
+    r"based on|depends on"
+    r")",
+    re.IGNORECASE,
+)
+# Skip a match when the span is immediately preceded by a short negation.
+_UPSTREAM_NEGATION_PREFIX = re.compile(r"(?:不|勿|无需|不必|不用|别)\s*$")
+# Minted run_id = ``{del|add}_<uuid>_<raw>`` (see delegate prefix / build_added_nodes).
+# Strip the casting prefix so cross-batch depends_on can use the CEO's tasks[].id literal.
+_MINT_PREFIX_RE = re.compile(
+    r"^(?:del|add)_"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"_(.+)$",
     re.IGNORECASE,
 )
 
 logger = get_logger(__name__)
+
+
+def _task_suspects_missing_dep(task: str) -> bool:
+    """True when task text reads like it *consumes* upstream work but deps may be missing."""
+    for m in _UPSTREAM_HINTS.finditer(task):
+        prefix = task[max(0, m.start() - 4) : m.start()]
+        if _UPSTREAM_NEGATION_PREFIX.search(prefix):
+            continue
+        return True
+    return False
 
 
 def _format_available_dep_nodes(
@@ -66,12 +97,50 @@ def _format_available_dep_nodes(
     return "、".join(parts)
 
 
+def _recoverable_raw_id(run_id: str) -> str | None:
+    """Return the short raw suffix of a minted ``del_*`` / ``add_*`` run_id, else None."""
+    m = _MINT_PREFIX_RE.match(run_id or "")
+    return m.group(1) if m else None
+
+
+def _host_short_raw_index(
+    nodes: list[RunSpec],
+) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """Index recoverable short raws for host / existing_plan nodes.
+
+    Returns ``(aliases, ambiguous)`` where ``aliases`` maps short raw → run_id for
+    unambiguous cases, and ``ambiguous`` maps short raw → candidate run_ids when two
+    or more host nodes strip to the same raw (same shape as role-name ambiguity).
+    """
+    aliases: dict[str, str] = {}
+    ambiguous: dict[str, list[str]] = {}
+    for n in nodes:
+        short = _recoverable_raw_id(n.run_id)
+        if not short:
+            continue
+        if short in ambiguous:
+            if n.run_id not in ambiguous[short]:
+                ambiguous[short].append(n.run_id)
+            continue
+        prior = aliases.get(short)
+        if prior is None:
+            aliases[short] = n.run_id
+            continue
+        if prior == n.run_id:
+            continue
+        # Same short raw → different run_ids: demote to ambiguity (no silent setdefault).
+        del aliases[short]
+        ambiguous[short] = [prior, n.run_id]
+    return aliases, ambiguous
+
+
 def _resolve_dep_ref(
     raw: str,
     *,
     by_raw_id: dict[str, str],
     by_role: dict[str, list[str]],
     available_label: str,
+    ambiguous_raw_ids: dict[str, list[str]] | None = None,
 ) -> tuple[str | None, str | None]:
     """Resolve one depends_on token to a namespaced run_id.
 
@@ -87,6 +156,12 @@ def _resolve_dep_ref(
     minted_values = set(by_raw_id.values())
     if token in minted_values:
         return token, None
+    ambig = (ambiguous_raw_ids or {}).get(token) or []
+    if len(ambig) > 1:
+        return None, (
+            f"depends_on `{token}` 短 id 有歧义（候选 run_id：{'、'.join(ambig)}）。"
+            f"请改用完整 run_id。可用节点：{available_label}"
+        )
     role_hits = by_role.get(token) or []
     if len(role_hits) == 1:
         return role_hits[0], None
@@ -184,6 +259,7 @@ def build_run_plan(
     parent_run_id: str | None = None,
     depth: int = 1,
     complexity_hint: str = "standard",
+    existing_plan: RunPlan | None = None,
 ) -> tuple[RunPlan, list[str]]:
     """Build a RunPlan from raw delegate-tool task args.
 
@@ -202,6 +278,11 @@ def build_run_plan(
     ``complexity_hint`` is forwarded to retrieval-budget apply for API compat
     (defaults are unified; hint no longer tiers). Worker token/timeout backstop
     is applied uniformly afterward (:mod:`agentcore.runtime.runs.worker_budget`).
+
+    ``existing_plan`` (append / merge-into-host only): expand ``depends_on`` resolve
+    known-set to host nodes ∪ this batch — same rule as :func:`build_added_nodes`.
+    Returned plan still contains **only** the new batch nodes; pure new builds leave
+    this ``None`` (behavior unchanged).
     """
     if not tasks_raw:
         return RunPlan(), ["'tasks' array is required and cannot be empty"]
@@ -215,7 +296,15 @@ def build_run_plan(
             item["depends_on"] = [d for d in deps if d and isinstance(d, str) and d.strip()]
     prefix = id_prefix or f"del_{int(time.time() * 1000)}"
     if any(item.get("depends_on") for item in tasks_raw):
-        plan, errors = _dag_plan(tasks_raw, valid_tools, prefix, max_tasks, parent_run_id, depth)
+        plan, errors = _dag_plan(
+            tasks_raw,
+            valid_tools,
+            prefix,
+            max_tasks,
+            parent_run_id,
+            depth,
+            existing_plan=existing_plan,
+        )
     else:
         plan, errors = _flat_plan(
             tasks_raw, valid_tools, prefix, counter_start, max_tasks, parent_run_id, depth
@@ -266,9 +355,10 @@ def build_added_nodes(
     id 生成 + 依赖接线 (the bit that made ``add`` its own phase):
     - each added node gets a fresh collision-free id ``{add_<uuid>}_{raw}`` (a brand-new
       prefix per batch, so re-adds across multiple boundary yields never reuse an id);
-    - each ``depends_on`` ref resolves against BOTH the existing plan nodes (a cross-edge
-      onto already-declared / completed work) AND the other raw ids in THIS batch
-      (intra-edge), so the CEO can append a mini-DAG that hangs off the live graph;
+    - each ``depends_on`` ref resolves against BOTH the existing plan nodes (full run_id,
+      recoverable short raw after stripping ``del_*`` / ``add_*`` mint prefixes, or
+      unambiguous role) AND the other raw ids in THIS batch (intra-edge), so the CEO can
+      append a mini-DAG that hangs off the live graph;
     - role/task are required (like a DAG node); an unknown ``depends_on`` ref, a dup id,
       an over-cap batch, or a cycle introduced among the new nodes is a rejected error.
     """
@@ -308,9 +398,9 @@ def build_added_nodes(
     if errors:
         return [], errors
 
-    # Second pass: validate fields + resolve each depends_on ref (existing node id OR a
-    # raw id / unambiguous role in THIS batch). Build the specs reusing the same
-    # _inline_spec / _dag_policy the up-front builder uses.
+    # Second pass: validate fields + resolve each depends_on ref (existing node id /
+    # recoverable short raw OR a raw id / unambiguous role in THIS batch). Build the
+    # specs reusing the same _inline_spec / _dag_policy the up-front builder uses.
     by_raw_id = dict(raw_to_minted)
     by_role: dict[str, list[str]] = {}
     for n in plan.nodes:
@@ -318,6 +408,14 @@ def build_added_nodes(
         role_key = (n.role or n.agent_name or "").strip()
         if role_key:
             by_role.setdefault(role_key, []).append(n.run_id)
+    # Host short raws (strip del_/add_ mint prefix); this-batch raws already in
+    # by_raw_id win via setdefault. Short-id collisions among host nodes → ambiguous.
+    host_aliases, host_ambiguous = _host_short_raw_index(plan.nodes)
+    for short, rid in host_aliases.items():
+        by_raw_id.setdefault(short, rid)
+    ambiguous_raw_ids = {
+        k: v for k, v in host_ambiguous.items() if k not in by_raw_id
+    }
     for j, add_item in enumerate(adds):
         if not isinstance(add_item, dict):
             continue
@@ -356,6 +454,7 @@ def build_added_nodes(
                 by_raw_id=by_raw_id,
                 by_role=by_role,
                 available_label=available_label,
+                ambiguous_raw_ids=ambiguous_raw_ids,
             )
             if err:
                 errors.append(f"add[{i}]: {err}")
@@ -462,9 +561,16 @@ def _dag_plan(
     max_tasks: int,
     parent_run_id: str | None,
     depth: int,
+    *,
+    existing_plan: RunPlan | None = None,
 ) -> tuple[RunPlan, list[str]]:
     """DAG batch (has deps). Per-run validation collects errors; topology
-    (cycle / unknown edge) is checked via ``RunPlan.waves``."""
+    (cycle / unknown edge) is checked via ``RunPlan.waves``.
+
+    When ``existing_plan`` is set (append into a host graph), ``depends_on`` resolves
+    against host nodes ∪ this batch — same known-set as :func:`build_added_nodes`.
+    The returned plan still holds only this batch's nodes.
+    """
     if len(tasks_raw) > max_tasks:
         # 有依赖批不能按数量硬切（会拆断依赖链），给依赖感知的分批指引：独立子团队拆到不同次
         # 调用、有依赖的留同一次或用 depends_on 跨批衔接，让 CEO 重来那轮一次到位。
@@ -502,7 +608,28 @@ def _dag_plan(
         if not role:
             continue
         by_role.setdefault(role, []).append(_nsid(raw))
-    available_nodes = list(zip(raw_ids, roles_for_index, strict=True))
+    # Append/merge: host nodes join the known-set (all nodes, not only completed) —
+    # mirrors build_added_nodes so cross-batch depends_on resolves the same way
+    # (full run_id + recoverable short raw from del_/add_ mint prefix).
+    available_nodes: list[tuple[str, str]] = list(
+        zip(raw_ids, roles_for_index, strict=True)
+    )
+    ambiguous_raw_ids: dict[str, list[str]] = {}
+    if existing_plan is not None:
+        for n in existing_plan.nodes:
+            by_raw_id.setdefault(n.run_id, n.run_id)
+            role_key = (n.role or n.agent_name or "").strip()
+            if role_key:
+                by_role.setdefault(role_key, []).append(n.run_id)
+        host_aliases, host_ambiguous = _host_short_raw_index(existing_plan.nodes)
+        for short, rid in host_aliases.items():
+            by_raw_id.setdefault(short, rid)
+        ambiguous_raw_ids = {
+            k: v for k, v in host_ambiguous.items() if k not in by_raw_id
+        }
+        available_nodes = [
+            (n.run_id, n.role or n.agent_name or "") for n in existing_plan.nodes
+        ] + available_nodes
     available_label = _format_available_dep_nodes(available_nodes)
 
     for i, item in enumerate(tasks_raw):
@@ -524,6 +651,7 @@ def _dag_plan(
                 by_raw_id=by_raw_id,
                 by_role=by_role,
                 available_label=available_label,
+                ambiguous_raw_ids=ambiguous_raw_ids,
             )
             if err:
                 errors.append(f"tasks[{i}]（{role or raw_id}）: {err}")
@@ -548,13 +676,21 @@ def _dag_plan(
     if errors:
         return plan, errors
     try:
-        plan.waves()
+        # Cross-batch edges point at host nodes absent from `plan`; check the combined
+        # graph (same as build_added_nodes) without mutating existing_plan.
+        if existing_plan is not None:
+            RunPlan(
+                nodes=[*existing_plan.nodes, *plan.nodes],
+                origin=existing_plan.origin,
+            ).waves()
+        else:
+            plan.waves()
     except RunPlanError as e:
         # Defense in depth: waves() unknown-edge should be unreachable after resolve,
         # but keep the catalog so any residual message stays actionable.
         return plan, [f"{e}。可用节点：{available_label}"]
     for node in plan.nodes:
-        if not node.depends_on and node.task and _UPSTREAM_HINTS.search(node.task):
+        if not node.depends_on and node.task and _task_suspects_missing_dep(node.task):
             logger.warning(
                 "builder.suspect_missing_dep",
                 run_id=node.run_id,

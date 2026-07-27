@@ -203,3 +203,61 @@ export function writeMemoryTopic(
     baseline,
   });
 }
+
+/** Direction for {@link moveMemoryBullet} (位置即作用域纠错). */
+export type MemoryMoveDirection = "to_project" | "to_global";
+
+export type MemoryMoveKind = "preferences" | "profile" | "topic";
+
+export interface MemoryMoveBulletInput {
+  content: string;
+  section: string;
+  folderId: string;
+  direction: MemoryMoveDirection;
+  kind?: MemoryMoveKind;
+  topicSlug?: string | null;
+  sourceBaseline?: string | null;
+  targetBaseline?: string | null;
+}
+
+export interface MemoryMoveBulletResult {
+  ok: boolean;
+  conflict: boolean;
+  sourceVersion: string;
+  targetVersion: string;
+  message?: string | null;
+}
+
+/**
+ * Move one bullet between GLOBAL and the current project layer (remove + add under
+ * the same section). Illegal sections (偏好 / 纠正记录 → project, 项目约束 → global)
+ * return HTTP 422 with a clear message.
+ */
+export function moveMemoryBullet(
+  input: MemoryMoveBulletInput,
+): Promise<MemoryMoveBulletResult> {
+  return api
+    .post<{
+      ok: boolean;
+      conflict: boolean;
+      source_version: string;
+      target_version: string;
+      message?: string | null;
+    }>("/v1/users/me/memory/move-bullet", {
+      content: input.content,
+      section: input.section,
+      folder_id: input.folderId,
+      direction: input.direction,
+      kind: input.kind ?? "profile",
+      topic_slug: input.topicSlug ?? null,
+      source_baseline: input.sourceBaseline ?? null,
+      target_baseline: input.targetBaseline ?? null,
+    })
+    .then((r) => ({
+      ok: r.ok,
+      conflict: r.conflict,
+      sourceVersion: r.source_version,
+      targetVersion: r.target_version,
+      message: r.message ?? null,
+    }));
+}

@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 
 from agentcore.conversation.common import (
+    resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
     resolve_permission_preset,
@@ -90,6 +91,7 @@ async def run_harvest_closing_turn(
         local_binding = await resolve_local_binding(db, conv)
         profile_set = await resolve_profile_set(db, conv, user_id)
         memory_enabled = await resolve_memory_enabled(db, user_id)
+        conversation_history_access = await resolve_conversation_history_access(db, user_id)
         permission_preset = await resolve_permission_preset(db, conversation_id)
         autonomy_policy = preset_to_autonomy(permission_preset)
         board = await BoardRepository(db).get_by_conversation_id(
@@ -135,6 +137,7 @@ async def run_harvest_closing_turn(
                 llm_credentials=None,
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
+                conversation_history_access=conversation_history_access,
                 autonomy_policy=autonomy_policy,
                 permission_preset=permission_preset,
                 board_id=board_id,

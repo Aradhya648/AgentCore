@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from agentcore.conversation.common import (
+    resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
     resolve_permission_preset,
@@ -193,8 +194,11 @@ async def run_stage_card_start_debate(
         folder_id = conv.folder_id
         local_binding = await resolve_local_binding(session, conv)
         profile_set = await resolve_profile_set(session, conv, user_id)
-        memory_enabled = await resolve_memory_enabled(session, user_id)
-        permission_preset = await resolve_permission_preset(session, conversation_id)
+            memory_enabled = await resolve_memory_enabled(session, user_id)
+            conversation_history_access = await resolve_conversation_history_access(
+                session, user_id
+            )
+            permission_preset = await resolve_permission_preset(session, conversation_id)
         autonomy_policy = preset_to_autonomy(permission_preset)
         board = await BoardRepository(session).get_by_conversation_id(
             conversation_id, user_id=user_id
@@ -257,6 +261,7 @@ async def run_stage_card_start_debate(
                     folder_id=folder_id,
                     board_id=board_id,
                     memory_enabled=memory_enabled,
+                    conversation_history_access=conversation_history_access,
                     autonomy_policy=autonomy_policy,
                     permission_preset=permission_preset,
                     profile_set=profile_set,
@@ -362,8 +367,11 @@ async def run_stage_card_research_first(
         folder_id = conv.folder_id
         local_binding = await resolve_local_binding(session, conv)
         profile_set = await resolve_profile_set(session, conv, user_id)
-        memory_enabled = await resolve_memory_enabled(session, user_id)
-        permission_preset = await resolve_permission_preset(session, conversation_id)
+            memory_enabled = await resolve_memory_enabled(session, user_id)
+            conversation_history_access = await resolve_conversation_history_access(
+                session, user_id
+            )
+            permission_preset = await resolve_permission_preset(session, conversation_id)
         autonomy_policy = preset_to_autonomy(permission_preset)
         board = await BoardRepository(session).get_by_conversation_id(
             conversation_id, user_id=user_id
@@ -405,6 +413,7 @@ async def run_stage_card_research_first(
                 llm_credentials=llm_credentials,
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
+                conversation_history_access=conversation_history_access,
                 autonomy_policy=autonomy_policy,
                 permission_preset=permission_preset,
                 board_id=board_id,

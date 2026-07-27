@@ -7,14 +7,23 @@ import { PromptDocument } from "@/components/prompt/PromptDocument";
 import { cleanSourceTitle } from "@/lib/citations";
 import type {
   CodeExecDisplay,
+  ConversationLogDisplay,
   MemoryConsultDisplay,
   ReadUrlDisplay,
   SkillConsultDisplay,
   ToolDisplay,
   WebSearchDisplay,
 } from "@/types/events";
-import { BookOpen, Brain, FileCode2, FileText, Terminal } from "lucide-react";
+import {
+  BookOpen,
+  Brain,
+  FileCode2,
+  FileText,
+  MessagesSquare,
+  Terminal,
+} from "lucide-react";
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Favicon } from "../Favicon";
 import { SearchHitResult } from "./SearchHitResult";
 import { type DiffLine, lineDiff } from "./diff";
@@ -64,6 +73,26 @@ function isSkillConsultDisplay(d: unknown): d is SkillConsultDisplay {
 
 function isMemoryConsultDisplay(d: unknown): d is MemoryConsultDisplay {
   return !!d && typeof (d as { topic?: unknown }).topic === "string";
+}
+
+/** `search_conversations` / `read_conversation` display — metadata only (body in result). */
+function isConversationLogDisplay(d: unknown): d is ConversationLogDisplay {
+  if (!d || typeof d !== "object") return false;
+  const x = d as Record<string, unknown>;
+  // Exclude sibling rich displays that share open-dict `display`.
+  if (
+    "topic" in x ||
+    "skill_name" in x ||
+    "results" in x ||
+    "url" in x ||
+    "stdout" in x ||
+    "kind" in x
+  ) {
+    return false;
+  }
+  if (typeof x.conversation_id === "string") return true;
+  if (typeof x.result_count === "number") return true;
+  return false;
 }
 
 /** Whether a tool has anything to expand — a rich display, an editable diff, or a
@@ -119,6 +148,22 @@ export function toolResultPeek(d: ToolResultData): string {
   }
   if (isMemoryConsultDisplay(d.display)) {
     return clampLine(d.display.topic || "已查阅记忆");
+  }
+  if (isConversationLogDisplay(d.display)) {
+    if (typeof d.display.conversation_id === "string") {
+      const title = d.display.title?.trim();
+      if (title) {
+        return clampLine(
+          d.display.truncated ? `${title} · 已截断` : title,
+        );
+      }
+      return d.display.truncated ? "已截断" : "已查阅对话";
+    }
+    if (typeof d.display.result_count === "number") {
+      const n = d.display.result_count;
+      return `${n} 场对话`;
+    }
+    return "已查阅对话";
   }
   if (isBrowserDisplay(d.display)) {
     return browserResultPeek(d.display);
@@ -330,6 +375,83 @@ function MemoryConsultResult({
   );
 }
 
+/** Preview cap for conversation-log tool cards — full transcript stays in `result`
+ * for the model; the UI truncates so a huge read doesn't flood the expand panel.
+ * Aligns with the display wire-cap (~6000) discipline (跨会话对话日志定案). */
+const CONVERSATION_LOG_PREVIEW_CHARS = 6000;
+
+/** Worker conversation-log card (`search_conversations` / `read_conversation`):
+ * display carries title / id / truncated / result_count; body from `result`.
+ * Mirrors {@link MemoryConsultResult}. */
+function ConversationLogResult({
+  display,
+  result,
+}: {
+  display: ConversationLogDisplay;
+  result: string;
+}) {
+  const navigate = useNavigate();
+  const isRead = typeof display.conversation_id === "string";
+  const conversationId = isRead ? display.conversation_id : undefined;
+  const title = display.title?.trim();
+  const preview =
+    result.length > CONVERSATION_LOG_PREVIEW_CHARS
+      ? `${result.slice(0, CONVERSATION_LOG_PREVIEW_CHARS)}\n…`
+      : result;
+  const previewClipped = result.length > CONVERSATION_LOG_PREVIEW_CHARS;
+
+  return (
+    <div className="mt-1 overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center gap-2 border-border/60 border-b bg-muted/40 px-2.5 py-1 text-xs">
+        <MessagesSquare size={12} className="shrink-0 text-muted-foreground" />
+        {isRead ? (
+          <>
+            <span className="text-muted-foreground">查阅对话：</span>
+            <span className="min-w-0 truncate font-medium text-foreground">
+              {title || display.conversation_id || "（无标题）"}
+            </span>
+            {display.truncated && (
+              <span className="shrink-0 text-warning">已截断</span>
+            )}
+            {conversationId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/conversations/${conversationId}`)}
+                className="ml-auto shrink-0 text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                打开对话
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="text-muted-foreground">检索对话</span>
+            <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+              {display.result_count ?? 0} 场
+              {display.scope ? ` · ${display.scope}` : ""}
+            </span>
+          </>
+        )}
+      </div>
+      {isRead && conversationId && (
+        <div className="border-border/60 border-b px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+          {conversationId}
+        </div>
+      )}
+      {preview.trim() && (
+        <div className="px-1 pb-1">
+          <PromptDocument text={preview} maxHeightClass="max-h-72" />
+        </div>
+      )}
+      {previewClipped && (
+        <div className="border-border/60 border-t bg-muted/40 px-2.5 py-1 text-muted-foreground text-xs">
+          预览已截断（完整内容在工具结果中，可续读拼回）
+        </div>
+      )}
+    </div>
+  );
+}
+
 function diffSign(type: DiffLine["type"]): string {
   if (type === "add") return "+";
   if (type === "del") return "-";
@@ -486,6 +608,14 @@ export function ToolResultView({ data }: { data: ToolResultData }) {
   if (isMemoryConsultDisplay(data.display)) {
     return (
       <MemoryConsultResult display={data.display} result={data.result ?? ""} />
+    );
+  }
+  if (isConversationLogDisplay(data.display)) {
+    return (
+      <ConversationLogResult
+        display={data.display}
+        result={data.result ?? ""}
+      />
     );
   }
   if (isBrowserDisplay(data.display)) {

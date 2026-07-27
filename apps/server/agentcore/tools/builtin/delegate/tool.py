@@ -152,6 +152,7 @@ class DelegateTool:
         suspension_deleter: SuspensionDeleter | None = None,
         folder_id: str | None = None,
         memory_enabled: bool = True,
+        conversation_history_access: bool = True,
         autonomy_policy: AutonomyPolicy | None = None,
         depth: int = 0,
     ) -> None:
@@ -186,6 +187,7 @@ class DelegateTool:
         # Same capture-only role: the memory master switch rides the frame so resume re-wires
         # consult_memory exactly as this turn did (off ⇒ stays off).
         self._memory_enabled = memory_enabled
+        self._conversation_history_access = conversation_history_access
         self._children: list[DelegateTool] = []
         self._calls = 0
         # Cumulative sub-workers spawned by this captain (worker leads only).
@@ -593,6 +595,102 @@ class DelegateTool:
                 contract_failure=True,
             )
 
+        # 跨回合同图追加：须在 build_run_plan 之前加载宿主计划，以便 depends_on 解析
+        # 同 execution 已有图节点（对齐 build_added_nodes / replan add）。
+        append_raw = arguments.get("append_to_execution_id")
+        append_to = (
+            append_raw.strip()
+            if isinstance(append_raw, str) and append_raw.strip()
+            else None
+        )
+        host_message_id: str | None = None
+        append_seed: dict | None = None
+        host_plan_for_append = None
+        if append_to and self._depth > 0:
+            msg = (
+                "append_to_execution_id 仅根协调者可用：嵌套 lead 不能跨回合追加协作图。"
+                "请去掉该参数，直接在本子团队内委派。"
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=msg,
+                contract_failure=True,
+            )
+        if append_to and append_to.lower() == "latest":
+            from agentcore.runtime.delegate.graph_append import (
+                resolve_latest_appendable_execution,
+            )
+
+            resolved = await resolve_latest_appendable_execution(
+                conversation_id=self._conversation_id or "",
+                exclude_message_id=self._message_id,
+            )
+            if not resolved:
+                from agentcore.runtime.coordination.session import active_coordination
+
+                active = active_coordination(self._base_tool_context.execution_id)
+                if active is not None and active.active:
+                    msg = (
+                        "追加解析失败：本回合已有活跃协作图。同回合追加无需 "
+                        'append_to_execution_id="latest"——直接再调 delegate（不传该参数）'
+                        "即会自动并入当前协作图（同一 execution_id / 同一协调会话）。"
+                        "向用户汇报时说「已往当前团队追加」，不要说成新组建团队。"
+                    )
+                else:
+                    msg = (
+                        '追加解析失败：本对话没有可追加的既有协作图（append_to_execution_id="latest" '
+                        "未命中）。请改为不传 append_to_execution_id 新建团队执行，"
+                        "并如实告知用户本次是新组建团队、未在旧图上追加。"
+                    )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    contract_failure=True,
+                )
+            append_to = resolved
+        if append_to:
+            from agentcore.runtime.delegate.graph_append import (
+                load_host_plan_and_completed,
+                resolve_host_message_id,
+            )
+
+            host_message_id = await resolve_host_message_id(
+                conversation_id=self._conversation_id or "",
+                execution_id=append_to,
+            )
+            if not host_message_id:
+                msg = (
+                    f"找不到 execution_id=`{append_to}` 对应的既有协作图。"
+                    "请确认 id 来自本对话上一张团队执行的 run_plan，或改为不传 "
+                    "append_to_execution_id 以新建图。"
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    contract_failure=True,
+                )
+            host_plan_for_append, append_seed = await load_host_plan_and_completed(
+                host_message_id
+            )
+            if host_plan_for_append is None:
+                msg = (
+                    f"既有协作图 `{append_to}` 缺少可合并的计划快照（plan_snapshot），"
+                    "无法跨回合追加。请新建团队执行。"
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    contract_failure=True,
+                )
+
         self._calls += 1
         # 冻结本次委派调用的序号：同回合并发的多个 delegate 调用共享 self._calls，若在完成侧
         # 惰性读取会把每个批次的 completed / synthesis 日志都错记到「最后自增到的序号」。这里
@@ -606,6 +704,7 @@ class DelegateTool:
             parent_run_id=self._captain_run_id,
             depth=self._depth + 1,
             complexity_hint=complexity_hint,
+            existing_plan=host_plan_for_append,
         )
         if errors:
             msg = "委派任务无效：" + "；".join(errors)
@@ -791,113 +890,16 @@ class DelegateTool:
         self._coordination = coordination
         self._seed_notes = seed_notes
 
-        # 跨回合同图追加：复用既有 execution_id，合并旧计划，生长帧续写宿主 journal。
-        append_raw = arguments.get("append_to_execution_id")
-        append_to = (
-            append_raw.strip()
-            if isinstance(append_raw, str) and append_raw.strip()
-            else None
-        )
-        # 可追加边界：跨回合追加仅根协调者（depth==0）——嵌套 lead 活在某个 worker run 里，
-        # 「latest」会解析到当前图之外的旧图并把生长 divert 过去，跨图串写。
-        if append_to and self._depth > 0:
-            msg = (
-                "append_to_execution_id 仅根协调者可用：嵌套 lead 不能跨回合追加协作图。"
-                "请去掉该参数，直接在本子团队内委派。"
-            )
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error=msg,
-                contract_failure=True,
-            )
-        # 主路径「latest」：服务端解析到本对话最近一张可追加协作图（排除当前回合），
-        # 不依赖模型跨回合抄写精确 id。解析失败必须显式回错——禁止静默新建图。
-        if append_to and append_to.lower() == "latest":
-            from agentcore.runtime.delegate.graph_append import (
-                resolve_latest_appendable_execution,
-            )
-
-            resolved = await resolve_latest_appendable_execution(
-                conversation_id=self._conversation_id or "",
-                exclude_message_id=self._message_id,
-            )
-            if not resolved:
-                # 「latest」排除当前回合，故解析不到既有图。分两种真相回不同引导：
-                # 若本回合已有活跃协调会话，CEO 不带 append_to 再调 delegate 会走协调 merge
-                # 并入同一张图（并非新建）——旧文案让 CEO 对用户说错话（谎称新组建团队）。
-                from agentcore.runtime.coordination.session import active_coordination
-
-                active = active_coordination(self._base_tool_context.execution_id)
-                if active is not None and active.active:
-                    msg = (
-                        "追加解析失败：本回合已有活跃协作图。同回合追加无需 "
-                        'append_to_execution_id="latest"——直接再调 delegate（不传该参数）'
-                        "即会自动并入当前协作图（同一 execution_id / 同一协调会话）。"
-                        "向用户汇报时说「已往当前团队追加」，不要说成新组建团队。"
-                    )
-                else:
-                    msg = (
-                        '追加解析失败：本对话没有可追加的既有协作图（append_to_execution_id="latest" '
-                        "未命中）。请改为不传 append_to_execution_id 新建团队执行，"
-                        "并如实告知用户本次是新组建团队、未在旧图上追加。"
-                    )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=msg,
-                    contract_failure=True,
-                )
-            append_to = resolved
-        host_message_id: str | None = None
-        append_seed: dict | None = None
+        # 跨回合同图追加：宿主计划已在 build 前加载；此处合并新节点并绑定生长 divert。
         added_nodes_for_anchor: list = list(plan.nodes)
         graph_redirect = None
         graph_redirect_token = None
 
         if append_to:
-            from agentcore.runtime.delegate.graph_append import (
-                GraphAppendRedirect,
-                bind_redirect,
-                load_host_plan_and_completed,
-                open_host_journal_writer,
-                resolve_host_message_id,
-            )
-            from agentcore.runtime.events import graph_append as graph_append_event
             from agentcore.runtime.runs.plan import RunPlanError
 
-            host_message_id = await resolve_host_message_id(
-                conversation_id=self._conversation_id or "",
-                execution_id=append_to,
-            )
-            if not host_message_id:
-                msg = (
-                    f"找不到 execution_id=`{append_to}` 对应的既有协作图。"
-                    "请确认 id 来自本对话上一张团队执行的 run_plan，或改为不传 "
-                    "append_to_execution_id 以新建图。"
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=msg,
-                    contract_failure=True,
-                )
-            old_plan, append_seed = await load_host_plan_and_completed(host_message_id)
-            if old_plan is None:
-                msg = (
-                    f"既有协作图 `{append_to}` 缺少可合并的计划快照（plan_snapshot），"
-                    "无法跨回合追加。请新建团队执行。"
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=msg,
-                    contract_failure=True,
-                )
+            old_plan = host_plan_for_append
+            assert old_plan is not None  # loaded before build_run_plan
             added_nodes_for_anchor = []
             for node in plan.nodes:
                 try:
@@ -953,6 +955,12 @@ class DelegateTool:
 
         if append_to:
             from agentcore.core.log_context import get_log_value
+            from agentcore.runtime.delegate.graph_append import (
+                GraphAppendRedirect,
+                bind_redirect,
+                open_host_journal_writer,
+            )
+            from agentcore.runtime.events import graph_append as graph_append_event
 
             host_writer = await open_host_journal_writer(
                 host_message_id=host_message_id,

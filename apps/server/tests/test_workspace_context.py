@@ -63,6 +63,8 @@ def test_cloud_scratch_facts():
     assert "案卷出口·审查：`AgentCore/文档/reviews/`" in out
     assert "讨论/调研/审查类交付写此树" in out
     assert "用户工程源码仍写业务路径" in out
+    assert "通常无 Git" in out
+    assert "no_repo" in out
 
 
 def test_local_remote_channel_facts():

@@ -208,6 +208,20 @@ class UserRepository:
         )
         await self._session.commit()
 
+    async def set_conversation_history_access(self, user_id: str, enabled: bool) -> None:
+        """Flip the cross-session conversation-log access gate (跨会话对话日志访问定案).
+
+        Off ⇒ Workers do not get log search/read tools wired this turn; on ⇒ register
+        after the worker registry is built (same pattern as ``memory_enabled`` →
+        ``consult_memory``). Does not touch memory files or ``memory_enabled``.
+        """
+        await self._session.execute(
+            update(User)
+            .where(User.user_id == user_id)
+            .values(conversation_history_access=enabled)
+        )
+        await self._session.commit()
+
     async def set_autonomy_policy(self, user_id: str, policy: str) -> None:
         """Set the user's capability-authorization posture (安全权限与治理 §三)."""
         await self._session.execute(

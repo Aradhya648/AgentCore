@@ -46,7 +46,23 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+/** Imperative peek for hosts (e.g. dual-pane 搬层) that need selection + reload. */
+export type MarkdownFileEditorApi = {
+  getValue: () => string | null;
+  getSelectionContext: () => SelectionContext | null;
+  getBaselineEtag: () => string | null;
+  reload: () => void;
+  /** Persist unsaved edits before a cross-layer move (no-op when clean). */
+  saveIfDirty: () => Promise<void>;
+};
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 type ViewMode = "edit" | "preview";
@@ -65,6 +81,7 @@ export function MarkdownFileEditor({
   name,
   onClose,
   embedded,
+  apiRef,
 }: {
   source: FileSource;
   path: string;
@@ -74,6 +91,8 @@ export function MarkdownFileEditor({
    * control and tab chrome — so suppress this editor's own back button. Everything else
    * (脏标 / 保存 / AI 改写 / 编辑·预览) stays, since each pane edits its own file. */
   embedded?: boolean;
+  /** Optional handle for dual-pane hosts (selection + CAS baseline + reload). */
+  apiRef?: MutableRefObject<MarkdownFileEditorApi | null>;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -204,6 +223,24 @@ export function MarkdownFileEditor({
     },
     [source, path],
   );
+
+  // Dual-pane hosts (搬层) need selection + baseline + reload without forking the editor.
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      getValue: () => editorRef.current?.getValue() ?? latestMdRef.current,
+      getSelectionContext: () =>
+        editorRef.current?.getSelectionContext() ?? null,
+      getBaselineEtag: () => baselineRef.current.version.etag ?? null,
+      reload: () => load(),
+      saveIfDirty: async () => {
+        if (dirty && !readOnly && !conflict) await doSave();
+      },
+    };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef, load, doSave, dirty, readOnly, conflict]);
 
   // 冲刷闭包随脏标记/路径更新：离开或退出时拿最新正文，fire-and-forget 落盘（不再 setState）。
   // 带 baseline CAS——磁盘被外部改动只会冲突而不写，不会覆盖他人改动。

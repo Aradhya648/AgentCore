@@ -34,7 +34,10 @@ from agentcore.memory.store import (
     topic_slug,
 )
 from agentcore.memory.user_memory import (
+    PROFILE_SECTIONS,
     _DEFAULT_PREAMBLE,
+    _GLOBAL_ONLY_PROFILE_SECTIONS,
+    _PROJECT_ONLY_PROFILE_SECTIONS,
     MarkdownMemoryApplier,
     MemoryAction,
     MemoryApplier,
@@ -44,6 +47,7 @@ from agentcore.memory.user_memory import (
     _extract_json_object,
     _injection_style_marker,
     _MemoryDoc,
+    _Section,
     _parse,
     _render,
     strip_bullet_timestamp,
@@ -100,13 +104,27 @@ Output ONLY a JSON object:
 
 Always-file rules (preferences / profile / project_profile):
 - When you change a file, return its COMPLETE new markdown body (not a patch). Keep the
-  same section structure:
+  same FIXED section structure — never invent free headings (禁止「技术栈」「当前状态」
+  「数据模型」等自由小节；任务态/进行中工作不进画像):
   - 偏好.md sections: 沟通偏好, 工作习惯
-  - 画像.md sections: 技术栈与工具, 关于用户的事实, 纠正记录, 项目约束
+  - 画像.md sections (global profile): 技术栈与工具, 关于用户的事实, 纠正记录
+    (NEVER 项目约束 in global profile)
+  - project_profile sections: 技术栈与工具, 关于用户的事实, 项目约束
+    (纠正记录 is global-only — put corrections in profile, not project_profile)
 - PRESERVE every still-valid bullet. Do not drop entries just because a session did not
   mention them. Only remove/rewrite when a summary clearly supersedes or contradicts.
 - Prefer soft wording (倾向 / 偏好). Absolute dates for time-bound facts.
 - Use null when that file needs no change.
+
+Scope routing (profile vs project_profile — position = scope):
+- 项目约束 and THIS project's tech stack / project-only facts belong ONLY in
+  project_profile. Never put 项目约束 or「本项目…」tech stack into global profile.
+- When a project exists (project_profile section is present in the user prompt): default
+  技术栈与工具 and project-specific facts into project_profile; if unsure, prefer
+  project_profile (not global).
+- When NO project exists: leave project_profile null; do NOT write 项目约束 into global
+  profile (omit that section entirely). Cross-project personal stacks may stay in global
+  技术栈与工具.
 
 Preference promotion rule (strict — 偏好.md only):
 - Add or keep a 偏好.md bullet ONLY when a session summary records an explicit user
@@ -177,6 +195,36 @@ def _normalize_rewrite(markdown: str | None) -> str | None:
     if not text or text.lower() in ("null", "none"):
         return None
     return text
+
+
+def sanitize_profile_rewrite(markdown: str, *, scope: MemoryScope) -> str:
+    """Hard-gate 画像.md rewrite sections to match ``_coerce_op`` scope口径.
+
+    - Keep only fixed ``PROFILE_SECTIONS`` names (drop free headings like「技术栈」).
+    - Global (``scope is None``): drop project-only sections (``项目约束``).
+    - Project (folder scope): drop global-only sections (``纠正记录``).
+    """
+    doc = _parse(markdown)
+    drop = (
+        _PROJECT_ONLY_PROFILE_SECTIONS if scope is None else _GLOBAL_ONLY_PROFILE_SECTIONS
+    )
+    allowed = set(PROFILE_SECTIONS)
+    kept: list[_Section] = []
+    stripped: list[str] = []
+    for section in doc.sections:
+        name = section.name.strip()
+        if name not in allowed or name in drop:
+            stripped.append(name)
+            continue
+        kept.append(_Section(name=name, bullets=list(section.bullets)))
+    if stripped:
+        logger.info(
+            "memory.semantic_profile_sections_stripped",
+            scope=scope or "global",
+            sections=stripped,
+        )
+    doc.sections = kept
+    return _render(doc)
 
 
 def parse_semantic_result(
@@ -410,7 +458,14 @@ async def consolidate_semantic_memory(
             nonlocal changed
             if new is None:
                 return
-            if not rewrite_preserves_enough(old, new):
+            # Anti-loss compares against a scope-legal baseline so stripping
+            # project-only (global) / global-only (project) sections is not
+            # treated as silent mass-drop.
+            old_for_gate = old
+            if file == CORE_MEMORY_FILE:
+                new = sanitize_profile_rewrite(new, scope=scope)
+                old_for_gate = sanitize_profile_rewrite(old, scope=scope)
+            if not rewrite_preserves_enough(old_for_gate, new):
                 logger.warning(
                     "memory.semantic_rewrite_rejected",
                     user_id=user_id,

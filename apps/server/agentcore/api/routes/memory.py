@@ -33,8 +33,9 @@ Two editor surfaces sit on top, both reusing the workspace markdown editor (CAS 
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from agentcore.api.dependencies import (
@@ -57,6 +58,12 @@ from agentcore.memory import (
     topic_slug,
 )
 from agentcore.memory.locks import user_memory_lock
+from agentcore.memory.move_bullet import (
+    MoveBulletConflict,
+    MoveBulletError,
+    MoveBulletOk,
+    move_memory_bullet,
+)
 
 router = APIRouter(prefix="/users/me/memory", tags=["memory"])
 
@@ -111,6 +118,18 @@ class MemoryEnabledRequest(BaseModel):
     enabled: bool = Field(..., description="Long-term memory master switch")
 
 
+class ConversationHistoryAccessResponse(BaseModel):
+    """Cross-session conversation-log access gate (跨会话对话日志访问定案)."""
+
+    enabled: bool
+
+
+class ConversationHistoryAccessRequest(BaseModel):
+    enabled: bool = Field(
+        ..., description="Allow Workers to search/read past conversation transcripts"
+    )
+
+
 class MemoryFileResponse(BaseModel):
     """One memory leaf's body + its CAS tag (a single editor leaf's load payload)."""
 
@@ -161,6 +180,32 @@ class MemoryUpdatesFeedResponse(BaseModel):
     """
 
     updates: list[MemoryUpdateFeedItem]
+
+
+class MemoryMoveBulletRequest(BaseModel):
+    """Move one bullet between GLOBAL and the given project's layer (位置即作用域纠错).
+
+    ``direction`` ``to_project`` = remove from global + add under the same section in
+    ``folder_id``; ``to_global`` is the inverse. Optional CAS baselines mirror the
+    per-leaf PUT contract (``None`` = unconditional under the memory lock).
+    """
+
+    content: str = Field(..., min_length=1, description="Bullet text to move")
+    section: str = Field("", description="## section name (required for core leaves)")
+    folder_id: str = Field(..., min_length=1, description="Current project folder id")
+    direction: Literal["to_project", "to_global"]
+    kind: Literal["preferences", "profile", "topic"] = "profile"
+    topic_slug: str | None = None
+    source_baseline: str | None = None
+    target_baseline: str | None = None
+
+
+class MemoryMoveBulletResult(BaseModel):
+    ok: bool
+    conflict: bool = False
+    source_version: str = ""
+    target_version: str = ""
+    message: str | None = None
 
 
 @router.get("", response_model=MemoryResponse)
@@ -232,6 +277,31 @@ async def set_my_memory_enabled(
     )
 
 
+@router.get(
+    "/conversation-history-access",
+    response_model=ConversationHistoryAccessResponse,
+)
+async def get_my_conversation_history_access(
+    user: AuthUser,
+) -> ConversationHistoryAccessResponse:
+    """Whether Workers may search/read this account's past conversation logs."""
+    return ConversationHistoryAccessResponse(enabled=user.conversation_history_access)
+
+
+@router.put(
+    "/conversation-history-access",
+    response_model=ConversationHistoryAccessResponse,
+)
+async def set_my_conversation_history_access(
+    body: ConversationHistoryAccessRequest,
+    user: AuthUser,
+    users: UserRepository = Depends(get_user_repo),
+) -> ConversationHistoryAccessResponse:
+    """Toggle cross-session conversation-log access (orthogonal to memory_enabled)."""
+    await users.set_conversation_history_access(user.user_id, body.enabled)
+    return ConversationHistoryAccessResponse(enabled=body.enabled)
+
+
 @router.get("/projects", response_model=MemoryProjectsResponse)
 async def list_my_memory_projects(
     user: AuthUser, store: DocumentMemoryStore = Depends(get_memory_store)
@@ -241,6 +311,51 @@ async def list_my_memory_projects(
     Declared before ``/files/{kind}`` so the static segment wins the route match.
     """
     return MemoryProjectsResponse(folders=await store.project_scopes(user.user_id))
+
+
+@router.post("/move-bullet", response_model=MemoryMoveBulletResult)
+async def move_my_memory_bullet(
+    body: MemoryMoveBulletRequest,
+    user: AuthUser,
+    store: DocumentMemoryStore = Depends(get_memory_store),
+) -> MemoryMoveBulletResult:
+    """Move one memory bullet between global and the current project (P2-b 搬层纠错).
+
+    Declared before ``/files/{kind}`` so the static segment wins the route match.
+    Holds the per-user memory lock; illegal sections (偏好 / 纠正记录 → project,
+    项目约束 → global) return 422 with a clear message.
+    """
+    async with user_memory_lock(user.user_id):
+        result = await move_memory_bullet(
+            store,
+            user_id=user.user_id,
+            content=body.content,
+            section=body.section,
+            folder_id=body.folder_id,
+            direction=body.direction,
+            kind=body.kind,
+            topic_slug=body.topic_slug,
+            source_baseline=body.source_baseline,
+            target_baseline=body.target_baseline,
+        )
+    if isinstance(result, MoveBulletError):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "memory_move_rejected", "message": result.message},
+        )
+    if isinstance(result, MoveBulletConflict):
+        return MemoryMoveBulletResult(
+            ok=False,
+            conflict=True,
+            source_version=result.source_version,
+            target_version=result.target_version,
+        )
+    assert isinstance(result, MoveBulletOk)
+    return MemoryMoveBulletResult(
+        ok=True,
+        source_version=result.source_version,
+        target_version=result.target_version,
+    )
 
 
 @router.get("/updates", response_model=MemoryUpdatesFeedResponse)

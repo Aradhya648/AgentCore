@@ -458,7 +458,12 @@ export interface SidecarApi {
   ): Promise<SidecarTurnFilesDiffResult>;
   /** A2′ 本机回退到回合基线（unzip 覆盖，不经云）。 */
   restoreTurnBaseline(req: SidecarRestoreTurnBaselineRequest): Promise<void>;
-  /** 订阅本回合事件流；返回取消订阅函数。 */
+  /**
+   * 订阅本机回合事件流；返回取消订阅函数。
+   *
+   * Renderer 业务路径须经 `sidecarEventPump` 单例订阅（App 生命周期只订一次），
+   * 再 `claimSidecarTurnSink`——禁止每 turn 直接 `onEvent`（可叠 listener → live 叠字）。
+   */
   onEvent(cb: (e: SidecarEventPush) => void): () => void;
   /** 订阅 sidecar 生命周期/诊断事件；返回取消订阅函数。 */
   onStatus(cb: (e: SidecarStatusPush) => void): () => void;

@@ -136,6 +136,7 @@ async def test_status_refuses_parent_repo_when_workspace_has_no_git(tmp_path: Pa
 
     Reproduces host-path leak class: data_dir / scratch lives under the monorepo
     (e.g. ``C:/Project/...``); without a ceiling, ``git status`` would climb out.
+    Read-only returns structured ``no_repo`` (success) — never a fake clean tree.
     """
     parent = _init_repo(tmp_path / "parent", branch="feature/parent")
     nested = parent / "nested_workspace"
@@ -155,12 +156,13 @@ async def test_status_refuses_parent_repo_when_workspace_has_no_git(tmp_path: Pa
     assert Path(climbed.stdout.strip()).resolve() == parent.resolve()
 
     result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(nested))
-    assert result.success is False
-    assert result.error
-    assert "没有 Git 仓库" in result.error or "不会上溯" in result.error
+    assert result.success is True
+    assert result.metadata.get("code") == "no_repo"
+    assert "没有 Git 仓库" in result.output
     # Must not echo parent branch / status as if nested were the repo.
     assert "feature/parent" not in (result.output or "")
     assert "当前分支" not in (result.output or "")
+    assert "工作区干净" not in (result.output or "")
 
 
 async def test_status_uses_workspace_repo_not_parent(tmp_path: Path):
@@ -173,10 +175,27 @@ async def test_status_uses_workspace_repo_not_parent(tmp_path: Path):
     assert "feature/parent" not in result.output
 
 
-async def test_no_git_anywhere_reports_clear_error(tmp_path: Path):
+async def test_no_git_anywhere_reports_structured_no_repo(tmp_path: Path):
     bare = tmp_path / "not_a_repo"
     bare.mkdir()
-    result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(bare))
+    for sub in ("status", "diff", "log"):
+        result = await GitTool().execute({"subcommand": sub}, _ceo_ctx(bare))
+        assert result.success is True
+        assert result.metadata.get("code") == "no_repo"
+        assert "没有 Git 仓库" in result.output
+        assert "工作区干净" not in result.output
+        assert "无差异" not in result.output
+        assert "无提交" not in result.output
+
+
+async def test_write_without_repo_still_hard_fails(tmp_path: Path):
+    bare = tmp_path / "not_a_repo"
+    bare.mkdir()
+    (bare / "README.md").write_text("x\n", encoding="utf-8")
+    result = await GitTool().execute(
+        {"subcommand": "add", "paths": ["README.md"]},
+        _worker_ctx(bare),
+    )
     assert result.success is False
     assert "没有 Git 仓库" in (result.error or "")
 

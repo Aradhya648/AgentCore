@@ -3,6 +3,7 @@ import { StreamError } from "@/lib/errors";
 import { notifyWarning } from "@/lib/toast";
 import { resolveSidecarInference } from "@/services/inferenceToken";
 import { resolveConversationPermissionPreset } from "@/services/permissionPreset";
+import { claimSidecarTurnSink } from "@/services/sidecarEventPump";
 import {
   clearActiveSidecarTurn,
   setActiveSidecarTurn,
@@ -312,13 +313,11 @@ async function runSidecarTurn({
   // 按 root+subpath 起的同一进程），而非云端 HTTP。
   setActiveSidecarTurn(conversationId, rootId, subpath, turnId);
 
-  // 只消费本会话的事件；主进程已按 turnId 路由到本窗口，这里再按 conversationId 过滤，
-  // 防一个 sidecar 服务多个会话时串台。
+  // 经单例泵 claim 本 turn 的唯一 sink（禁止再直接 onEvent——可叠 listener → 叠字）。
   // 本回合是否派发过任何 sidecar 事件——一个都没有 = 引擎没跑起来（启动期失败，无输出 /
   // 副作用），失败时据此标 `recoverable` 让 turns.sendTurn 安全降级回云端（阶段二）。
   let sawAnyEvent = false;
-  const unsubscribe = window.sidecarApi.onEvent((push) => {
-    if (push.conversationId !== conversationId) return;
+  const claim = claimSidecarTurnSink(conversationId, turnId, (push) => {
     sawAnyEvent = true;
     dispatchSSEEvent(push.event as SSEEvent, {
       conversationId,
@@ -383,7 +382,7 @@ async function runSidecarTurn({
     flushPendingContent(conversationId);
     flushPendingFrames(conversationId);
     clearActiveSidecarTurn(conversationId, turnId);
-    unsubscribe();
+    claim.release();
     signal?.removeEventListener("abort", onAbort);
     releasePrimaryStream(conversationId, primaryToken);
   }

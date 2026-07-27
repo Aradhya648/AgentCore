@@ -10,7 +10,7 @@ skip_if:
 
 # Agent 记忆与知识系统
 
-> **状态**：MVP 方案已确定（存储基础、分层策略、注入流程）；作用域分层（全局/项目）+ 偏好/画像二分**后端已落地**（§1.4 / §二），项目层双栏画像编辑器 + 主题树浏览·编辑·删除**前端已落地**（§1.6）；维护协议已升级为**两层（情景沉淀 → 低频巩固）**并落地（§1.5）；**「一切皆文档」+ 用户自定义规则 + Document 第一期已落地**（记忆迁 `documents` 表 + 用户规则闭环 + 跨文件预算 + 桌面「你的规则」编辑入口，§五 / §5.7）；`code_search`（BM25 符号检索）已落地（§5.6）；**`AgentCore/` 约定目录**（规则 + 记忆 + `文档/` 案卷）✅ 已落地（§5.0）；embedding 去重 / pgvector 知识库等高级特性待定
+> **状态**：MVP 方案已确定（存储基础、分层策略、注入流程）；作用域分层（全局/项目）+ 偏好/画像二分**后端已落地**（§1.4 / §二），项目层双栏画像编辑器 + 主题树浏览·编辑·删除**前端已落地**（§1.6）；维护协议已升级为**两层（情景沉淀 → 低频巩固）**并落地（§1.5）；**「一切皆文档」+ 用户自定义规则 + Document 第一期已落地**（记忆迁 `documents` 表 + 用户规则闭环 + 跨文件预算 + 桌面「你的规则」编辑入口，§五 / §5.7）；`code_search`（BM25 符号检索）已落地（§5.6）；**`AgentCore/` 约定目录**（规则 + 记忆 + `文档/` 案卷）✅ 已落地（§5.0）；diff 标项目名 + 搬层纠错（§1.6 P2）✅；embedding 去重 / pgvector 知识库等高级特性待定
 >
 > → 见代码：`apps/server/agentcore/memory/`、`workspace/indexing/`
 
@@ -54,6 +54,10 @@ MVP 阶段实现两层记忆，覆盖最核心的用户体验需求。
 **生成时机（2026-07 提前，对齐行业实践）**：云 SSE 回合在**用户首条消息落库后**（`turn_saved`）fire-and-forget 与回合并行铸题，**只用首条用户消息**、不等 AI 回复——多 Agent 回合可跑数分钟，等收尾才铸题会让侧栏「新对话」挂到回合结束（首轮挂检查点时更是等到用户决策后）。写库条件化（仅 title 仍空才写，`update_title_if_empty`），关死与用户手动改名的竞态；`title_generated` SSE 可能出现在流中间，sink 已关时放弃 emit、DB 写入不回滚。**本地 sidecar 回写链路维持原时机**（回合结束回写时生成，输入含 AI 回复）——离线辨识由前端乐观占位（截断首条用户消息，替代「新对话」）兜住。**否决**「首轮结束后用完整交换再补铸一刀」：收益小、引入二次覆盖复杂度。
 
 > **对话自动标签已同路退役**（2026-07）：`memory/conversation_tag.py` 与 `conversations.tag` 列整体移除（迁移 `d2e8f1a4c7b9` drop 列），对话归组走项目（Folder）+ 搜索——勿从旧迁移文件反推该功能仍在。
+
+### 1.3a 跨会话对话日志按需访问 ✅
+
+> **已落地（2026-07-27）**：Worker 经 `search_conversations` / `read_conversation` 按需检索 / 打开**本账号**历史对话的**整段原文**（messages + turn_journal）；超窗游标续读；CEO **只 `delegate` 查阅员**。用户 `@` 对话附件走服务端 `log_export` 深读（不信客户端浅文）。隐私闸 `conversation_history_access`（与 `memory_enabled` 正交）。→ 见代码：`conversation/log_export.py`、`tools/builtin/search_conversations.py`、`read_conversation.py`、`runtime/resolve/prepare.py`（`_wire_worker_conversation_log_tools` / `_deep_read_conversation_attachment`）。
 
 ### 1.4 用户长期记忆（AI 维护的记忆文件夹）
 
@@ -108,7 +112,7 @@ AgentCore/
 - **琐事与重复的消解是机制性的，不靠门槛**：只出现在单条情景里的任务态在聚合视角天然不构成模式；跨场重复信号在重写输出里天然只剩一份。
 - **异常回合沉淀闸门 ✅**：`consolidate_conversation` 统一入口跳过 cancelled / interrupted / error / 无实质收口的回合（不把假暂停、硬杀、用户停止的半成品写进情景）；跳过仍**推进 watermark**（防 sweeper 空转），打 `memory.consolidation_skipped_abnormal_turn`。
 - **偏好须明示 ✅**：情景沉淀与语义巩固 prompt 均约束——偏好只能来自用户**明示或纠正**，禁止从任务题材推断（如「用户在测法律案」≠「偏好法律分析」）；`偏好.md` 升格须摘要带明示证据。
-- **重写防丢双闸**：空重写不可清空文件；重写若静默丢弃过多既有条目（保留率 < 50%）整体拒绝落盘，episodes 留待下轮重试；真变更以 bullet 级 diff 记 `memory_updates` 审计（即 diff 卡片数据源）。
+- **重写防丢双闸**：空重写不可清空文件；重写若静默丢弃过多既有条目（保留率 < 50%）整体拒绝落盘，episodes 留待下轮重试；真变更以 bullet 级 diff 记 `memory_updates` 审计（即 diff 卡片数据源）。整文件重写落盘前另硬闸：全局画像剥 `项目约束`（与 ops 路径 `_coerce_op` 同口径），项目画像仅保留固定小节名。
 - **巩固失败不推进**：LLM 解析失败/超时 → episodes **不标记已消化**，下轮触发自动重试；成功（含无变更）才标记，防止同批情景被反复合并。
 - **显式记住例外**：用户明确要求记住的内容经 CEO `remember` 工具**直写语义层、立即生效**，不等巩固——用户显式意图无需「时间证明持久性」。工具描述已约束「仅用户清楚说记住时用；推测偏好交给离线巩固」；`remember` 受 `memory_enabled` 总开关闸，`consult_memory` 另需本回合确有可查阅主题才装配（空目录不装配、不渲染）。注意：`remember` 落的是**用户规则**（`ai_maintained=false`），不是画像。
 - **巩固冷启动（`_is_cold_start`）**：仅当**全局** `偏好.md` 与 `画像.md` 皆空时，巩固抽取降门槛——与产品「冷启动探索幕」（闸看**项目**画像）**正交、禁混名**。
@@ -127,7 +131,7 @@ AgentCore/
 
 ### 1.6 记忆的查看 / 编辑 / 开关 ✅ 已落地（前端）
 
-记忆当文件用：文件页约定树 `AgentCore/{规则,记忆}/` + 同一 Markdown 编辑器。**CAS** 防盲覆盖；总开关在设置（停用＝不注入不增长且推进 watermark）；全局 = 偏好‖画像两叶；项目记忆在项目下同名约定夹；主题树可编删、核心叶不可删。→ 见代码: `components/files/fileWorkbench/AgentCoreSection.tsx`
+记忆当文件用：文件页约定树 `AgentCore/{规则,记忆}/` + 同一 Markdown 编辑器。**CAS** 防盲覆盖；总开关在设置（停用＝不注入不增长且推进 watermark）；全局 = 偏好‖画像两叶；项目记忆在项目下同名约定夹；主题树可编删、核心叶不可删。semantic diff 行标项目名（`本项目 · {名}`）+ 卡标题作用域概览；diff 行与双栏画像可「移到本项目 / 移到全局」搬层纠错（源层 remove + 目标层 add，非法小节拒）。仍不做待审再落盘 / 撤销本次巩固。→ 见代码: `components/files/fileWorkbench/AgentCoreSection.tsx`、`MemoryUpdateItemRow`、`MemoryProfileSplitEditor`、`POST /users/me/memory/move-bullet`
 
 ---
 
@@ -354,7 +358,7 @@ DeepSeek V4 有 1M token 上下文窗口，MVP 合计约 13K–73K，远小于�
 | 工作记忆（当前会话） | ✅ | — |
 | 用户长期记忆（`ai_maintained` rule 文件） | ✅ Day 1（轻结构化 markdown）；✅ 项目级作用域 + 偏好/画像二分（后端，见 §1.4 / §二）；✅ 项目层双栏画像编辑器 + 主题树浏览·编辑·删除（前端，见 §1.6）；✅ 两层维护协议（情景沉淀 → 低频巩固重写，见 §1.5） | embedding 去重 |
 | 自动标题（侧边栏 UX） | ✅ Day 1 | — |
-| 记忆可见/编辑 | ✅ 文件页 `AgentCore/记忆/`（全局偏好/画像 + 项目画像/主题；同编辑器 / CAS，见 §1.6 / §5.0） | — |
+| 记忆可见/编辑 | ✅ 文件页 `AgentCore/记忆/`（全局偏好/画像 + 项目画像/主题；同编辑器 / CAS；diff 标项目名 + 搬层纠错，见 §1.6 / §5.0） | — |
 | 用户规则可见/编辑 | ✅ 文件页 `AgentCore/规则/`（全局 + 项目；同编辑器 / CAS，见 §5.0 / §5.7） | Marketplace Rules / `consult_rule` |
 | `AgentCore/` 约定目录（规则+记忆+文档） | ✅ 规则/记忆注入树 + `文档/` 案卷写盘直切（§5.0；主题 slash-in-name 为有意设计；无根级案卷兼容） | — |
 | 记忆总开关（启用/停用） | ✅ 设置→「AI 记忆」，每用户 `memory_enabled`（停用＝不注入＋不增长，见 §1.6） | — |

@@ -79,7 +79,8 @@ DELEGATE_PARAMETERS = {
                         "items": {"type": "string"},
                         "description": (
                             "依赖任务 id（DAG）。"
-                            "填同一次 tasks 的 id 字段字面值或无歧义角色名；禁 del_*。"
+                            "填同 execution 已有节点的 id 字面值、本批 id、或无歧义角色名；"
+                            "勿手抄 del_* 作为主路径。"
                             "何时填（生产者→消费者）见系统提示路由。"
                         ),
                     },
