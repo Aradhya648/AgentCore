@@ -1,0 +1,43 @@
+---
+description: 用户给出 32 位 hex ID / UUID、贴排查包、或说查产品 AI 日志时读——用 logs/dev.jsonl + DB，禁止在文件系统搜文件名。
+alwaysApply: false
+---
+
+# 对话日志查询
+
+## 两套日志，不要混
+
+| | 产品 AI 日志 | Cursor IDE Agent 会话 |
+|---|---|---|
+| **位置** | `logs/dev.jsonl` + Postgres | `agent-transcripts/`（UUID.jsonl） |
+| **ID** | 32 位 hex 无连字符 = **trace_id**；带连字符 UUID = **conversation_id** | 文件名 = UUID 带连字符 |
+
+## 铁律
+
+- 用户给 trace_id / conversation_id → **`logs/dev.jsonl` + DB**，**禁止**在文件系统搜。
+- `agent-transcripts/` 是 Cursor 编码 Agent 转录，与产品 AI **无关**。
+- 日志**不含消息正文**，正文在 Postgres。
+
+## 查询入口（apps/server 下）
+
+```bash
+uv run python scripts/log_timeline.py <conversation_id>
+uv run python scripts/log_timeline.py --trace <trace_id>
+uv run python scripts/log_timeline.py --recent
+uv run python scripts/log_timeline.py --json --trace <trace_id>   # AI 消费
+uv run python scripts/log_stats.py --json
+```
+
+可复用查询层：`agentcore.observability.query`。轮转 `dev.jsonl.1…5` 默认合并。合成流量：`log_stats` 默认排除；`log_timeline` 精确 ID 默认包含并标 `Traffic:`。
+
+生产：本地无命中且像线上 → `pnpm sync:logs` 后 `--export-dir ../../logs/prod-export`。
+
+→ 详解：[对话日志分析指南](/docs/05-平台与运维/对话日志分析指南.md)
+
+## 查询策略
+
+- **无连字符 32-hex** → 一律当 `trace_id`，用 `--trace`（勿先当 conversation_id）
+- **带连字符 UUID** → conversation_id；查全貌用位置参数，单轮细节再 `--trace`
+- **无 ID / 仅截图 /「查最新」** → `--recent` 后必须用文案/`preview` **确认匹配**再深挖，勿默认第一条
+- **本地空、ID 像线上** → 先 sync / `--export-dir`，勿在空库硬猜
+- **ID 已齐**（cid 或 trace）→ 主 Agent **直接**跑 `log_timeline --json`，勿为单次查询开后台探子干等

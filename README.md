@@ -83,7 +83,7 @@ AI 运行时入口 → [`docs/03-AI核心/运行时总览.md`](docs/03-AI核心/
 | 问问题 / 去哪提 Issue | [`SUPPORT.md`](SUPPORT.md) |
 | 安全漏洞（勿开公开 Issue） | [`SECURITY.md`](SECURITY.md) |
 
-权威分层：`docs/01`–`05` = What/Why（给人 + AI；⏳ 未落地蓝图以代码与文内短指针为准）；包级 How-to / 命令见各 `apps/*/README`；开发用 AI 细则在本地 `.cursor/rules/`（How，gitignore、**勿** `git add -f`，贡献者可不读）。详细提案 / `docs/06-规划/` **不在公开树**（仅维护者本地）。
+权威分层：`docs/01`–`05` = What/Why（给人 + AI；⏳ 未落地蓝图以代码与文内短指针为准）；包级 How-to / 命令见各 `apps/*/README`；Cursor AI 细则在 `.cursor/rules/`（How）。详细提案 / `docs/06-规划/` **不在公开树**（仅维护者本地）。
 
 ## 快速开始
 

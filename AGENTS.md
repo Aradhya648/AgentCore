@@ -22,7 +22,7 @@ AgentCore：面向大众的 **Multi-Agent AI 工作台**——真正的 Agent �
 |---|---|---|
 | `docs/01`–`05` | ✅ | What/Why：现状 + 已确认蓝图（⏳ = 已确认未落地；以代码与文内短指针为准） |
 | `docs/06-规划/` | ❌ 不入公开树 | 详细提案仅维护者本地；勿依赖公开 clone 里存在该目录 |
-| `.cursor/rules/` | ❌ gitignore | How（本地 AI 操作细则）；贡献者可不读；**勿** `git add -f .cursor` |
+| `.cursor/rules/` | ✅ | How（Cursor AI 操作细则）；与 `docs/` 分工见 `doc-governance.mdc` |
 
 ## 开发 / 测试（最短）
 

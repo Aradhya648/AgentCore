@@ -1,0 +1,33 @@
+---
+description: 日志规范——写日志时阅读。Logger 获取、事件命名、禁止项。
+alwaysApply: false
+globs:
+  - "apps/server/agentcore/core/logging.py"
+  - "apps/server/agentcore/core/log_context.py"
+  - "apps/server/agentcore/**/service.py"
+  - "apps/server/agentcore/runtime/**/*.py"
+---
+
+# 日志规范
+
+完整规范（架构、环境变量、事件词表、Context 注入） → [`后端架构.md` §日志系统规范](/docs/02-架构/后端架构.md)。
+分析工具与排查方法 → [对话日志分析指南](/docs/05-平台与运维/对话日志分析指南.md)。
+
+## Logger 获取
+
+```python
+from agentcore.core.logging import get_logger
+logger = get_logger(__name__)
+logger.info("component.action", key=value)
+```
+
+## 事件命名
+
+格式 `组件.动作`（snake_case），如 `chat.turn_start`。**禁止裸名**（无组件前缀）。
+事件须登记于 `agentcore/observability/catalog.py`（`scripts/sync_log_event_registry.py`）；未注册：dev 告警 / prod 放行。
+
+## 禁止
+
+- 禁止 `logging.getLogger` / `structlog.get_logger`（脱离统一渲染）
+- 禁止记录敏感信息（BYOK key、密码、token）
+- 消息正文只记 preview，不落完整体

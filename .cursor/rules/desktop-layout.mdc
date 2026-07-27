@@ -1,0 +1,25 @@
+---
+description: 桌面端页面布局宽度规范——新增/修改页面时参考
+globs:
+  - "apps/desktop/src/renderer/**/*.tsx"
+alwaysApply: false
+---
+
+# 桌面端布局规范
+
+完整规格（宽度梯度、padding、字体、圆角、按钮、图标） → [`UI-Pattern索引.md` §桌面端布局规格](/docs/04-前端/UI-Pattern索引.md)。
+
+## 速查
+
+| 梯度 | Tailwind | 适用 |
+|---|---|---|
+| content | `max-w-4xl mx-auto` | 详情、表单 |
+| canvas | `max-w-[1200px] mx-auto` | 列表、文件管理 |
+| 对话页 | `max-w-3xl mx-auto` | 消息区 + 输入区（768px） |
+
+自有布局豁免：对话页、文件页、设置页、全屏页不走 content/canvas 梯度。
+
+## 禁止
+
+- **字号**：禁 `text-[10px]`/`text-[11px]`/`text-[13px]`/`text-lg` 及自定义像素值（4 级：xs/sm/base/xl）。
+- **圆角**：禁 `rounded-sm`/`rounded-md`/`rounded-2xl`/`rounded-3xl`（3 级：lg/xl/full）。

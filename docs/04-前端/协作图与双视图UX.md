@@ -1,0 +1,56 @@
+---
+status: blueprint
+code: apps/desktop/src/renderer/
+related:
+  - docs/04-前端/前端UX设计.md
+  - docs/04-前端/前端技术与架构.md
+skip_if:
+  - 只改辩论室呈现（读辩论室UX）
+  - 只改壳层布局/首启/文件（读前端UX设计）
+---
+
+# 协作图与双视图 UX
+
+> 入口：[前端 UX](/docs/04-前端/前端UX设计.md) · 渲染内核 → [前端技术 §9.13](/docs/04-前端/前端技术与架构.md)
+
+## 三、内嵌协作图与状态条
+
+多 Agent 团队界面 = 消息内嵌 `InlineTeamGraph`：状态条四态 + 可折叠图；「在画布打开」→ `TurnDetailPage`。
+
+| 场景 | 行为 |
+|------|------|
+| 简单任务（无 plan） | **不出图** |
+| `delegate` | `run_plan` 到达自动内嵌 |
+| 跨回合同图追加 | 新回合只渲染锚点条；生长归旧图 |
+| 开工挂起零 run | **不出图**（注意力归续跑卡） |
+| 完成 / 停止 | 战绩收缩 / 「已停止」+ 救火 |
+
+**救火**：部分失败 → 重试失败项；整轮失败/停止 → 重试。**否决**叠「全部重生成」、显式忽略（新 turn 隐式收口）、无帧「继续」。`cancelled`/`interrupted` 不出 finishReason chip。
+
+默认展开，按对话持久化。多幕 LOD：≥2 幕恰好一幕展开 DAG；**否决**默认全展开。face 徽标 ≤2；行动条仅 ≥2 待决。**否决**「规划中」态（`run_plan` 同步到达）。插话：composer 不禁发；热路挂起不可绕过。
+
+检查点 / 非阻塞发问 / plan_review / ResumePrompt / InteractionStore：语义 → [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)。内联卡只留 resolved；可操作面统一 `ResumePrompt`。**否决**题目 accordion、Wizard、消息流再堆可操作入口。决策区 Chat/画布 `ConversationDecisionPrompts` 单挂载互斥。
+
+## 五、图视图
+
+内嵌 = 静态预览（禁缩放）；探索在放大态。节点 face：角色→在干什么→用时；¥/token 归 run 详情。点节点 → 右坞 SidePanel（高亮同源）。
+
+**节点 = 一次执行（run）**：独立产出→新节点；轮内从属 beat→折进宿主；状态变化→角标。**否决**单卡堆叠 ×N、工具点节点。无 `continues_run_id` 的同 role ≠「同一人」。辩论不开放「改方向」。能力表一处声明 `planCapabilities.ts`。宿主三入口共用 `graphHost`；布局失败显式错误。
+
+子队盒：接续链归属单源 `layoutHints.ts`。辩论：一列=一轮，质询折进轮节点；结辩独立列。身份色 ⊥ 状态色。信息流边仅有损交接挂签。审计 inject 按需高亮；**否决**全量虚线、迷你 DAG、改 conformance。波次=拓扑层；跨委派用 `delegateBatch`（不进协议）。
+
+## 六、聊天 ⇄ 画布
+
+一份数据两种渲染（同 `projectExecution`）；切换不动协议。聊天默认 + 画布 opt-in；**聊天永不删**。画布=单张持久空间；LOD 恰好一聚焦回合展 DAG。指挥台 = SidePanel 顶部 `CommandRegion`（非第二右坞）。composer 核统一 `TurnComposer`。放大态纯深读、无命令栏。
+
+| 方向 | 处置 |
+|---|---|
+| 图即唯一界面 | 撤 |
+| 对话页卡片化 | 撤 |
+| 自适应默认切模式 | 否决 |
+| 真持久团队实体化 | 暂不做 |
+| 跨对话公司级画布 | 不在范围 |
+
+对比透镜仅非辩论同人接续链；辩论对照归辩论室。图技术：**否决** D3、自研画布。性能：节点 ≤50、≥60fps。
+
+→ 见代码 `components/graph/`、`pages/TurnDetailPage.tsx`、`stores/commandPanel.ts`。

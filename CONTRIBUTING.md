@@ -25,7 +25,7 @@
    - 管理后台 → [`apps/admin/README.md`](./apps/admin/README.md) → [`管理员后台`](./docs/05-平台与运维/管理员后台.md)
 4. 术语不确定时查 [`术语表`](./docs/01-产品/术语表.md)
 
-公开设计权威在 `docs/01`–`05`（⏳ = 已确认未落地，以代码与文内短指针为准；详细提案不在公开仓）。本地 `.cursor/rules/` 是开发用 AI 行为规则（How，gitignore）；贡献者可不读。规划草案若在维护者机器上的 `docs/06-规划/`，不会出现在公开 clone。
+公开设计权威在 `docs/01`–`05`（⏳ = 已确认未落地，以代码与文内短指针为准；详细提案不在公开仓）。`.cursor/rules/` 是 Cursor AI 行为规则（How）。规划草案若在维护者机器上的 `docs/06-规划/`，不会出现在公开 clone。
 
 ## 开发环境
 
@@ -45,7 +45,7 @@ cd apps/server && uv sync
 1. 改动聚焦；小 PR + 说清要解决的问题。
 2. `apps/server` 行为变更请补或更新测试。
 3. 不要提交密钥、本地 `.env` / `.env.local`、`data/`，或临时 `tmp_*` / `_tmp_*` / `.tmp_*` / `reviews/` 等草稿。
-4. `.cursor/`、`docs/06-规划/`、`reviews/` 已在 `.gitignore`；勿强行 `git add -f`。AI 规则在本地 `.cursor/rules/`，贡献者一般不必改；规划草案与审查草稿仅维护者本地。
+4. `docs/06-规划/`、`reviews/` 已在 `.gitignore`；勿强行 `git add -f`。规划草案与审查草稿仅维护者本地。
 5. 风格与现有代码一致；提交前跑下面的检查。
 
 ### 提交前检查

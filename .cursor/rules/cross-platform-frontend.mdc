@@ -1,0 +1,35 @@
+---
+description: 前端跨端架构规范——做桌面/手机前端、建 apps/mobile、或决定共享vs新建时参考：各端全新建实现、零共享业务逻辑、仅共享规范/类型/token、协议 fold 必过 conformance
+globs:
+  - "apps/desktop/src/renderer/**"
+  - "apps/mobile/**"
+  - "packages/**"
+alwaysApply: false
+---
+
+# 前端跨端架构（各端全新建 + 极小共享）
+
+桌面 + 手机是**同一产品**：手机端 = 桌面端 − 手机物理做不到的能力层。**实现策略 = 各端全新建，零共享业务逻辑。** 权威蓝图 → [`前端技术与架构.md` §七/§十二](/docs/04-前端/前端技术与架构.md)；原生壳 / 商店余项 → [产品路线图摘要](/docs/01-产品/产品路线图摘要.md)（详细提案不在公开仓 / 维护者本地）。
+
+## 结构（✅ 已落地）
+
+```
+apps/desktop/   渲染层 — 独立演进；conformanceFold + 共享 processTimeline
+apps/mobile/    全新实现：stores/services/协议 fold/组件 + Capacitor 壳
+packages/       protocol-conformance + contract-types + design-tokens (+ contract-rest-types)
+```
+
+## 硬规则
+
+1. **各端全新建实现**——stores / services / 协议 fold / 组件，每端一套。**不共享业务逻辑实现**（连 headless hook 也各写）。
+2. **唯一共享面 = 规范 + 契约 + token**——`protocol-conformance`（向量 / golden / schema）、事件 / REST 类型、`design-tokens`。**可选**共享纯渲染叶子（Markdown / Diagram，无 drift）。**绝不共享业务逻辑。**
+3. **零跨平台分支**——禁 `if(platform)`；每端独立树，只实现自己有的能力（手机不建本地文件 / MCP）。
+4. **协议 fold 是唯一危险面**——SSE→state / run 树 / resume / 审批，各端实现**必须对齐 conformance 规范**、过 `pnpm conformance` 才算对（见 [`protocol-conformance.mdc`](/.cursor/rules/protocol-conformance.mdc)）。
+
+## 决策启发式
+
+> **放手新建一切；唯一红线 = 协议 fold 必过 conformance；契约变更只走后端单一源。**
+
+## 为何不共享实现核
+
+共享 = 耦合 = 爆炸半径跨两 app，对有界上下文 AI 比 drift 更难控；且共享核是并行 agent 的序列化协调点。drift 由 conformance 巡检兜，**不靠零重复**。

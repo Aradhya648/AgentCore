@@ -3,7 +3,7 @@
 Pins the money math: input is split by cache hit/miss, output includes
 reasoning, everything is integer nano-USD, and an unknown model degrades to the
 Flash tier instead of crashing. Prices are asserted against the authoritative
-table in docs/03-AI核心/DeepSeek-V4-API参考.md §三.
+table in docs/05-平台与运维/平台LLM接入.md (DeepSeek) / api-docs.deepseek.com.
 """
 
 import pytest

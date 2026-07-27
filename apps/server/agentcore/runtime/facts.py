@@ -237,7 +237,7 @@ class LlmCallFact:
     quadratic duplication). ``reasoning_content`` is kept because DeepSeek thinking
     mode requires it echoed back on any assistant turn carrying ``tool_calls`` — the
     window fold must reproduce it byte-for-byte or a resumed request 400s (see
-    DeepSeek-V4-API参考). ``tool_calls`` / ``usage`` are the already-serialized dict forms (this
+    平台LLM接入 · DeepSeek 易错). ``tool_calls`` / ``usage`` are the already-serialized dict forms (this
     module stays free of the llm.protocol types).
     """
 

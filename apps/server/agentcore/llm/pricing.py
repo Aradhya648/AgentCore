@@ -2,7 +2,7 @@
 
 Every place that needs a cost calls :func:`calculate_cost` — there is no other
 price table and no per-site arithmetic. Prices are USD per 1M tokens: DeepSeek from
-``docs/03-AI核心/DeepSeek-V4-API参考.md`` §三 (authoritative); third-party vendors
+``docs/05-平台与运维/平台LLM接入.md``（DeepSeek 易错 + 官方价以官网为准）; third-party vendors
 (豆包/方舟) from the vendor's published CNY rate converted at ``CNY_PER_USD`` (see the
 table comments). Per-input-length tiers + FX-from-config are the Phase 2 定价表 item.
 
@@ -68,7 +68,7 @@ PLATFORM_GPT_4O = "gpt-4o"
 PLATFORM_RELAY_52 = "5.2"  # 平台默认；名义按 gpt-4o 档
 PLATFORM_RELAY_GROK_45 = "grok-4.5"  # 名义参考 community grok-3 档
 
-# USD per 1M tokens. DeepSeek: docs/03-AI核心/DeepSeek-V4-API参考.md §三 (authoritative);
+# USD per 1M tokens. DeepSeek: 平台LLM接入.md 四·附 / api-docs.deepseek.com;
 # cache_hit is ~50× cheaper than cache_miss — splitting input by hit/miss is what keeps
 # the bill honest on multi-turn chats (DeepSeek prefix caching).
 _PRICING: dict[str, dict[str, Decimal]] = {

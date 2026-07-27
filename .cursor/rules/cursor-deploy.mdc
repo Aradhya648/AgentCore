@@ -1,0 +1,29 @@
+---
+description: 全端部署（后端+官网+手机+管理后台+桌面）——用户说「部署/上线/发版」时读；凭据存 deploy/.env.deploy.local 不入仓。
+globs:
+  - "apps/website/**"
+  - "apps/mobile/**"
+  - "apps/admin/**"
+  - "apps/desktop/**"
+  - "apps/server/**"
+  - "deploy/**"
+  - ".github/workflows/*"
+alwaysApply: false
+---
+
+# 部署规范
+
+完整操作手册 → [`部署与运维.md` §本地发布操作手册](/docs/05-平台与运维/部署与运维.md)。
+
+## 铁律
+
+- **凭据禁令**：`deploy/.env.deploy.local` 不入仓。禁止在 chat 索要/回显 token、SSH 私钥或其它部署凭据。
+- **不重新启用** deploy/release workflow 的 push/tag/schedule 自动触发。
+- **新增/改接口 → 后端必须先部署**。前端 deploy 脚本内置版本漂移门禁。
+- **桌面发版**：Win = 本地 `release:win`（`--publish never` + `gh upload` + 资产断言 + `sync:release-cdn`；对齐 Mac）；Mac = GHA `Release Desktop`（仅 mac）。为省额度：GHA 桌面发布仅 Mac；Win 本地；**勿用 GHA 打 Win**。用户面下载 / updater = 品牌域（见部署文档 §7.6b；CDN / 隧道首次装机步骤亦见该节，勿在 chat 回显主机名或凭据）。
+- 发布前本地一键门禁：`pnpm release:gate`（与 `ci.yml` 同构；触发保留，不关 CI）。含 **schema gate**（迁移 head ↔ ORM；`uv run python scripts/check_schema_gate.py`）。
+- **后端上线顺序**：`finish-server.sh` / `deploy-server.sh` = 停旧 api → `alembic upgrade` → schema gate `--live` → 起新 api。禁止旧容器接流量时跑破坏性迁移。
+
+## 全端发布顺序（速查）
+
+git push → 后端 `pnpm deploy:backend <sha>` →（若桌面已 bump：先 Publish 桌面 release）→ 官网 → 手机 → admin → web 客户端 → 验收 → tag。

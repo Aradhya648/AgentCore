@@ -33,7 +33,7 @@ class ProfileParams:
     name: str = ""
     # None = provider default (DeepSeek V4 → thinking on). False = force off for
     # background one-shots (title / memory / …) — required so a 64-token title
-    # budget is not eaten by reasoning_content (DeepSeek-V4-API参考 §七.2).
+    # budget is not eaten by reasoning_content (平台LLM接入 · DeepSeek 易错).
     thinking: bool | None = None
 
 
