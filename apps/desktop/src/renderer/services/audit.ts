@@ -27,7 +27,7 @@ export async function fetchTurnAudit(
   );
 }
 
-/** 会话级审计（含 permission.preset_changed，供主流权限切换系统行）；404 → null。 */
+/** 会话级审计（含 permission.axes_changed，供主流权限切换系统行）；404 → null。 */
 export async function fetchConversationAudit(
   conversationId: string,
   options?: FetchConversationAuditOptions,

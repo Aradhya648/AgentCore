@@ -1,10 +1,9 @@
 /**
  * Standing tasks / scheduled automations REST client (L1 + L2a Webhook).
  *
- * OpenAPI types are not generated yet — narrow hand-written wire shapes aligned
- * with `docs/06-规划/站立任务定时自动化定案.md` §5.3 and
- * `docs/06-规划/站立任务L2-Webhook定案.md` §5. Domain models are camelCase
- * like `folders` / `handoff`; wire stays snake_case for the backend sketch.
+ * Wire shapes come from OpenAPI (`@agentcore/contract-rest-types` via
+ * `@/types/api.generated`). Domain models stay camelCase like `folders` /
+ * `handoff`.
  */
 
 import { BASE_URL, api } from "@/services/api";
@@ -13,6 +12,17 @@ import {
   DEFAULT_PERMISSION_AXES,
   normalizeAxes,
 } from "@/services/permissionAxes";
+import type { components } from "@/types/api.generated";
+
+type Schemas = components["schemas"];
+
+type StandingTaskWire = Schemas["StandingTaskSummary"];
+type StandingTaskRunWire = Schemas["StandingTaskRunSummary"];
+type StandingTaskRunListWire = Schemas["StandingTaskRunListResponse"];
+type CreateStandingTaskWire = Schemas["CreateStandingTaskRequest"];
+type UpdateStandingTaskWire = Schemas["UpdateStandingTaskRequest"];
+type TriggerStandingTaskWire = Schemas["TriggerStandingTaskResponse"];
+type RotateWebhookSecretWire = Schemas["RotateWebhookSecretResponse"];
 
 /** Built-in schedule presets (UI + create/patch). Custom uses `cron`. */
 export type SchedulePreset =
@@ -24,10 +34,10 @@ export type SchedulePreset =
   | "custom";
 
 /** Per-task trigger; mutually exclusive (定案 L2a). */
-export type TriggerKind = "schedule" | "webhook";
+export type TriggerKind = StandingTaskWire["trigger_kind"];
 
 /** Optional run provenance for inbox display. */
-export type TriggerSource = "schedule" | "webhook" | "manual";
+export type TriggerSource = StandingTaskRunWire["trigger_source"];
 
 export const SCHEDULE_PRESET_ORDER: SchedulePreset[] = [
   "daily",
@@ -60,11 +70,7 @@ export const TRIGGER_SOURCE_LABELS: Record<TriggerSource, string> = {
   manual: "手动",
 };
 
-export type StandingTaskRunStatus =
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "awaiting_user";
+export type StandingTaskRunStatus = StandingTaskRunWire["status"];
 
 export interface StandingTask {
   id: string;
@@ -78,6 +84,7 @@ export interface StandingTask {
   enabled: boolean;
   nextRunAt: string | null;
   conversationId: string | null;
+  lastRunAt: string | null;
   webhookId: string | null;
   /** Public POST URL when trigger is webhook; may be absolute or path. */
   webhookUrl: string | null;
@@ -142,62 +149,11 @@ export interface RotateWebhookSecretResult {
   webhookSecret: string;
   webhookUrl: string | null;
   webhookId: string | null;
-  /** Full task when the API returns one; else null. */
-  task: StandingTask | null;
 }
 
-// ---- wire ----
-
-interface StandingTaskWire {
-  id: string;
-  name: string;
-  trigger_kind?: string | null;
-  schedule_preset?: string | null;
-  cron?: string | null;
-  folder_id: string;
-  goal: string;
-  permission_axes?: PermissionAxes | null;
-  enabled: boolean;
-  next_run_at?: string | null;
-  conversation_id?: string | null;
-  webhook_id?: string | null;
-  webhook_url?: string | null;
-  /** One-shot plaintext; create / rotate only. */
-  webhook_secret?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface StandingTaskRunWire {
-  id: string;
-  standing_task_id: string;
-  task_name?: string | null;
-  name?: string | null;
-  status: string;
-  conversation_id?: string | null;
-  user_message_id?: string | null;
-  summary?: string | null;
-  error?: string | null;
-  acked_at?: string | null;
-  read_at?: string | null;
-  trigger_source?: string | null;
-  created_at: string;
-  finished_at?: string | null;
-}
-
-interface RotateWebhookSecretWire {
-  webhook_secret?: string | null;
-  webhook_url?: string | null;
-  webhook_id?: string | null;
-  id?: string;
-  name?: string;
-  trigger_kind?: string | null;
-  folder_id?: string;
-  goal?: string;
-  enabled?: boolean;
-  created_at?: string;
-  updated_at?: string;
-  [key: string]: unknown;
+/** Immediate-run response — OpenAPI `TriggerStandingTaskResponse`. */
+export interface TriggerStandingTaskResult {
+  runId: string;
 }
 
 function asPreset(raw: string | null | undefined): SchedulePreset | null {
@@ -211,7 +167,9 @@ function asTriggerKind(raw: string | null | undefined): TriggerKind {
   return raw === "webhook" ? "webhook" : "schedule";
 }
 
-function asTriggerSource(raw: string | null | undefined): TriggerSource | null {
+function asTriggerSource(
+  raw: string | null | undefined,
+): TriggerSource | null {
   if (raw === "schedule" || raw === "webhook" || raw === "manual") return raw;
   return null;
 }
@@ -252,6 +210,7 @@ export function toStandingTask(w: StandingTaskWire): StandingTask {
     enabled: w.enabled,
     nextRunAt: w.next_run_at ?? null,
     conversationId: w.conversation_id ?? null,
+    lastRunAt: w.last_run_at ?? null,
     webhookId: w.webhook_id ?? null,
     webhookUrl: absoluteWebhookUrl(w.webhook_url),
     webhookSecret: w.webhook_secret ?? null,
@@ -264,34 +223,22 @@ export function toStandingTaskRun(w: StandingTaskRunWire): StandingTaskRun {
   return {
     id: w.id,
     standingTaskId: w.standing_task_id,
-    taskName: w.task_name ?? w.name ?? null,
+    taskName: w.task_name ?? null,
     status: asRunStatus(w.status),
     conversationId: w.conversation_id ?? null,
     userMessageId: w.user_message_id ?? null,
     summary: w.summary ?? null,
     error: w.error ?? null,
-    ackedAt: w.acked_at ?? w.read_at ?? null,
+    ackedAt: w.acked_at ?? null,
     triggerSource: asTriggerSource(w.trigger_source),
     createdAt: w.created_at,
     finishedAt: w.finished_at ?? null,
   };
 }
 
-function unwrapList<T>(payload: unknown, keys: string[]): T[] {
-  if (Array.isArray(payload)) return payload as T[];
-  if (payload && typeof payload === "object") {
-    const obj = payload as Record<string, unknown>;
-    for (const k of keys) {
-      const v = obj[k];
-      if (Array.isArray(v)) return v as T[];
-    }
-  }
-  return [];
-}
-
-function createBody(input: CreateStandingTaskInput): Record<string, unknown> {
+function createBody(input: CreateStandingTaskInput): CreateStandingTaskWire {
   const kind = input.triggerKind;
-  const body: Record<string, unknown> = {
+  const body: CreateStandingTaskWire = {
     name: input.name,
     trigger_kind: kind,
     folder_id: input.folderId,
@@ -310,8 +257,8 @@ function createBody(input: CreateStandingTaskInput): Record<string, unknown> {
   return body;
 }
 
-function patchBody(input: PatchStandingTaskInput): Record<string, unknown> {
-  const body: Record<string, unknown> = {};
+function patchBody(input: PatchStandingTaskInput): UpdateStandingTaskWire {
+  const body: UpdateStandingTaskWire = {};
   if (input.name !== undefined) body.name = input.name;
   if (input.triggerKind !== undefined) body.trigger_kind = input.triggerKind;
 
@@ -341,10 +288,8 @@ function patchBody(input: PatchStandingTaskInput): Record<string, unknown> {
 
 /** List the signed-in user's standing tasks. */
 export async function listStandingTasks(): Promise<StandingTask[]> {
-  const res = await api.get<unknown>("/v1/standing-tasks");
-  return unwrapList<StandingTaskWire>(res, ["items", "data", "tasks"]).map(
-    toStandingTask,
-  );
+  const res = await api.get<StandingTaskWire[]>("/v1/standing-tasks");
+  return (Array.isArray(res) ? res : []).map(toStandingTask);
 }
 
 export async function getStandingTask(id: string): Promise<StandingTask> {
@@ -377,28 +322,26 @@ export async function deleteStandingTask(id: string): Promise<void> {
   await api.delete(`/v1/standing-tasks/${id}`);
 }
 
-/** Trigger one run now (backend sketch: `POST …/run`). */
+/**
+ * Trigger one run now. Response is OpenAPI `TriggerStandingTaskResponse`
+ * (`run_id` only) — not a full inbox row.
+ */
 export async function runStandingTaskNow(
   id: string,
-): Promise<StandingTaskRun | null> {
-  const res = await api.post<StandingTaskRunWire | StandingTaskWire | unknown>(
+): Promise<TriggerStandingTaskResult> {
+  const res = await api.post<TriggerStandingTaskWire>(
     `/v1/standing-tasks/${id}/run`,
     {},
   );
-  if (
-    res &&
-    typeof res === "object" &&
-    "standing_task_id" in (res as object) &&
-    "status" in (res as object)
-  ) {
-    return toStandingTaskRun(res as StandingTaskRunWire);
+  if (!res?.run_id) {
+    throw new Error("trigger standing task response missing run_id");
   }
-  return null;
+  return { runId: res.run_id };
 }
 
 /**
- * Rotate webhook secret. Plaintext `webhook_secret` is returned once.
- * Accepts either a full task wire or a slim `{ webhook_secret, webhook_url? }`.
+ * Rotate webhook secret. Plaintext `webhook_secret` is returned once
+ * (`RotateWebhookSecretResponse`).
  */
 export async function rotateWebhookSecret(
   id: string,
@@ -407,20 +350,13 @@ export async function rotateWebhookSecret(
     `/v1/standing-tasks/${id}/rotate-webhook-secret`,
     {},
   );
-  const secret =
-    typeof res?.webhook_secret === "string" ? res.webhook_secret : "";
-  if (!secret) {
+  if (!res?.webhook_secret) {
     throw new Error("rotate-webhook-secret response missing webhook_secret");
   }
-  const looksLikeTask =
-    typeof res.id === "string" &&
-    typeof res.folder_id === "string" &&
-    typeof res.name === "string";
   return {
-    webhookSecret: secret,
+    webhookSecret: res.webhook_secret,
     webhookUrl: absoluteWebhookUrl(res.webhook_url),
-    webhookId: res.webhook_id ?? null,
-    task: looksLikeTask ? toStandingTask(res as StandingTaskWire) : null,
+    webhookId: res.webhook_id,
   };
 }
 
@@ -439,12 +375,10 @@ function runsQueryString(q: ListStandingTaskRunsQuery = {}): string {
 export async function listStandingTaskRuns(
   query: ListStandingTaskRunsQuery = {},
 ): Promise<StandingTaskRun[]> {
-  const res = await api.get<unknown>(
+  const res = await api.get<StandingTaskRunListWire>(
     `/v1/standing-task-runs${runsQueryString(query)}`,
   );
-  return unwrapList<StandingTaskRunWire>(res, ["items", "data", "runs"]).map(
-    toStandingTaskRun,
-  );
+  return (res?.items ?? []).map(toStandingTaskRun);
 }
 
 /** Mark a run card read / dismiss a failure card. */
@@ -457,25 +391,23 @@ export async function ackStandingTaskRun(id: string): Promise<StandingTaskRun> {
 }
 
 /**
- * Badge = unacked awaiting_user + unacked failed (定案 §5.3 / §5.4；ack 可清待拍板).
- * Prefer server ``badge`` on the list payload; fall back to client filter.
+ * Badge = unacked awaiting_user + unacked failed.
+ * Prefer server ``badge`` on the list payload.
  */
 export async function countInboxBadge(): Promise<number> {
-  const res = await api.get<unknown>("/v1/standing-task-runs?limit=1");
-  if (res && typeof res === "object" && "badge" in res) {
-    const n = (res as { badge?: unknown }).badge;
-    if (typeof n === "number" && Number.isFinite(n)) return n;
+  const res = await api.get<StandingTaskRunListWire>(
+    "/v1/standing-task-runs?limit=1",
+  );
+  if (typeof res?.badge === "number" && Number.isFinite(res.badge)) {
+    return res.badge;
   }
-  const runs = unwrapList<StandingTaskRunWire>(res, [
-    "items",
-    "data",
-    "runs",
-  ]).map(toStandingTaskRun);
-  return runs.filter((r) => {
-    if (r.status === "awaiting_user" && !r.ackedAt) return true;
-    if (r.status === "failed" && !r.ackedAt) return true;
-    return false;
-  }).length;
+  return (res?.items ?? [])
+    .map(toStandingTaskRun)
+    .filter((r) => {
+      if (r.status === "awaiting_user" && !r.ackedAt) return true;
+      if (r.status === "failed" && !r.ackedAt) return true;
+      return false;
+    }).length;
 }
 
 /** List / editor subtitle for trigger. */

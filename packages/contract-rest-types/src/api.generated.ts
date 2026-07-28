@@ -10177,6 +10177,8 @@ export interface components {
             cron?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Folder Id */
+            folder_id?: string | null;
             /** Goal */
             goal?: string | null;
             /** Name */

@@ -258,9 +258,8 @@ export function StandingTaskEditorDrawer({
       setForm((f) => ({
         ...f,
         revealedSecret: result.webhookSecret,
-        webhookUrl:
-          result.webhookUrl ?? result.task?.webhookUrl ?? f.webhookUrl,
-        webhookId: result.webhookId ?? result.task?.webhookId ?? f.webhookId,
+        webhookUrl: result.webhookUrl ?? f.webhookUrl,
+        webhookId: result.webhookId ?? f.webhookId,
       }));
       notifySuccess("密钥已轮换 — 请立即复制新密钥");
     } catch (e) {

@@ -1300,3 +1300,191 @@ async def test_settle_after_turn_noop_without_open_rows(monkeypatch):
         content="x",
     )
     assert n == 0
+
+
+# ---------------------------------------------------------------------------
+# Release-audit non-blocking debt: N1 task_name · N2 folder_id PATCH ·
+# N3 last_run_at on dispatch claim · N4 TriggerStandingTaskResponse ·
+# N5 delete cascades inbox runs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_runs_fills_task_name(monkeypatch):
+    """N1: list standing-task-runs joins task name onto each summary."""
+    from agentcore.api.routes import standing_tasks as routes
+
+    run = SimpleNamespace(
+        id="run-1",
+        standing_task_id="task-1",
+        conversation_id=None,
+        user_message_id=None,
+        status="succeeded",
+        trigger_source="manual",
+        summary="ok",
+        error=None,
+        acked_at=None,
+        created_at=datetime(2026, 7, 28, 12, 0, tzinfo=UTC),
+        started_at=None,
+        finished_at=None,
+    )
+
+    class _Runs:
+        async def list_for_user(self, user_id, *, status=None, limit=50, unacked_only=False):
+            assert user_id == "u1"
+            return [(run, "周一简报")]
+
+        async def count_badge(self, user_id):
+            return 0
+
+    user = SimpleNamespace(user_id="u1")
+    out = await routes.list_standing_task_runs(
+        user=user, status=None, unacked=False, limit=50, repo=_Runs()
+    )
+    assert out.badge == 0
+    assert len(out.items) == 1
+    assert out.items[0].task_name == "周一简报"
+    assert out.items[0].id == "run-1"
+
+
+@pytest.mark.asyncio
+async def test_patch_folder_id_validates_cloud_workspace(monkeypatch):
+    """N2: PATCH folder_id is accepted and gated like create."""
+    from agentcore.api.routes import standing_tasks as routes
+    from agentcore.api.schemas.standing_tasks import UpdateStandingTaskRequest
+
+    existing = SimpleNamespace(
+        id="task-1",
+        user_id="u1",
+        folder_id="fold-old",
+        name="t",
+        goal="g",
+        trigger_kind="schedule",
+        cron="0 9 * * 1",
+        permission_axes={"file_write": "session", "command": "kickoff", "team_kickoff": "rules"},
+        enabled=True,
+        next_run_at=datetime(2026, 8, 3, 9, 0, tzinfo=UTC),
+        conversation_id=None,
+        last_run_at=None,
+        webhook_id=None,
+        webhook_secret_hash=None,
+        created_at=datetime(2026, 7, 28, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 28, tzinfo=UTC),
+    )
+    updated = SimpleNamespace(**{**existing.__dict__, "folder_id": "fold-new"})
+    captured: dict = {}
+
+    class _Repo:
+        async def get_by_id(self, task_id, *, user_id=None):
+            return existing if task_id == "task-1" else None
+
+        async def update(self, task_id, *, user_id, **fields):
+            captured.update(fields)
+            return updated
+
+    class _Folders:
+        async def get_by_id(self, folder_id, *, user_id=None):
+            if folder_id == "fold-local":
+                return SimpleNamespace(id=folder_id, local_root_id="root-1")
+            if folder_id == "fold-new":
+                return SimpleNamespace(id=folder_id, local_root_id=None)
+            return None
+
+    user = SimpleNamespace(user_id="u1")
+    body = UpdateStandingTaskRequest(folder_id="fold-new")
+    out = await routes.update_standing_task(
+        task_id="task-1",
+        body=body,
+        user=user,
+        repo=_Repo(),
+        folders=_Folders(),
+    )
+    assert captured["folder_id"] == "fold-new"
+    assert out.folder_id == "fold-new"
+
+    with pytest.raises(ValidationError, match="云工作区"):
+        await routes.update_standing_task(
+            task_id="task-1",
+            body=UpdateStandingTaskRequest(folder_id="fold-local"),
+            user=user,
+            repo=_Repo(),
+            folders=_Folders(),
+        )
+
+
+def test_claim_dispatch_sets_last_run_at():
+    """N3: webhook/manual claim_dispatch writes last_run_at (reuse column)."""
+    import inspect
+
+    from agentcore.db.repositories.standing_tasks import StandingTaskRepository
+
+    src = inspect.getsource(StandingTaskRepository.claim_dispatch)
+    assert "last_run_at" in src
+
+
+@pytest.mark.asyncio
+async def test_trigger_standing_task_returns_run_id(monkeypatch):
+    """N4: POST …/run returns TriggerStandingTaskResponse.run_id."""
+    from agentcore.api.routes import standing_tasks as routes
+
+    task = SimpleNamespace(
+        id="task-1",
+        user_id="u1",
+        folder_id="fold-1",
+        trigger_kind="schedule",
+    )
+
+    class _Repo:
+        async def get_by_id(self, task_id, *, user_id=None):
+            return task
+
+    class _Folders:
+        async def get_by_id(self, folder_id, *, user_id=None):
+            return SimpleNamespace(id=folder_id, local_root_id=None)
+
+    async def fake_dispatch(**kwargs):
+        assert kwargs["trigger_source"] == "manual"
+        assert kwargs["advance_schedule"] is False
+        return "run-abc"
+
+    monkeypatch.setattr(routes, "dispatch_standing_task", fake_dispatch)
+    out = await routes.trigger_standing_task(
+        task_id="task-1",
+        user=SimpleNamespace(user_id="u1"),
+        repo=_Repo(),
+        folders=_Folders(),
+    )
+    assert out.run_id == "run-abc"
+
+
+@pytest.mark.asyncio
+async def test_delete_standing_task_cascades_runs():
+    """N5: deleting a task removes standing_task_runs (no orphan inbox rows)."""
+    from agentcore.db.repositories.standing_tasks import StandingTaskRepository
+
+    executed: list[object] = []
+    deleted_rows: list[object] = []
+
+    class _Session:
+        async def execute(self, stmt):
+            executed.append(stmt)
+            return MagicMock()
+
+        async def delete(self, row):
+            deleted_rows.append(row)
+
+        async def commit(self):
+            return None
+
+    repo = StandingTaskRepository(_Session())  # type: ignore[arg-type]
+    task = SimpleNamespace(id="task-1", user_id="u1")
+
+    async def fake_get(task_id, *, user_id=None):
+        return task if task_id == "task-1" and user_id == "u1" else None
+
+    repo.get_by_id = fake_get  # type: ignore[method-assign]
+    assert await repo.delete("task-1", user_id="u1") is True
+    assert len(executed) == 1
+    assert deleted_rows == [task]
+    assert await repo.delete("missing", user_id="u1") is False
+    assert len(executed) == 1

@@ -38,6 +38,7 @@ import {
   useOrphanedApprovals,
   usePendingApprovals,
 } from "@/stores/interactions";
+import { usePermissionChangeStore } from "@/stores/permissionChanges";
 import type { ApprovalDecision } from "@/types/events";
 import {
   Check,
@@ -293,6 +294,11 @@ export function ApprovalCard({
           permissionAxes: saved,
         });
         setAxesOverride(saved);
+        // 与 PermissionAxesBadge 一致：同步审计后重拉，主流立即出现 A→B 行。
+        void usePermissionChangeStore
+          .getState()
+          .load(approval.conversationId)
+          .catch(() => {});
       })
       .catch((err) => notifyError(err, "切换失败"))
       .finally(() => setTrustBusy(false));

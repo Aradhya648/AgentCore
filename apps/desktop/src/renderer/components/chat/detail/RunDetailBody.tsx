@@ -72,9 +72,9 @@ function turnPresetSnapshot(
     ) {
       const raw =
         e.detail?.permission_axes ?? e.detail?.permission_preset ?? null;
+      // 短名仅经 permissionAxesShortLabel（含 JSON 字符串解析）；禁把整段 JSON 当芯片标签。
       const short = permissionAxesShortLabel(raw);
       if (short) label = short;
-      else if (typeof raw === "string") label = raw;
     }
   }
   return label;

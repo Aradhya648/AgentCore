@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 import { ApprovalCard } from "@/components/chat/ApprovalPrompt";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { patchConversationCache } from "@/hooks/useConversations";
+import { setConversationPermissionAxes } from "@/services/permissionAxes";
 import type { ApprovalView } from "@/stores/interactions";
-import { cleanup, render, screen } from "@testing-library/react";
+import { useInteractionStore } from "@/stores/interactions";
+import { usePermissionChangeStore } from "@/stores/permissionChanges";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/hooks/useConversations", () => ({
   getConversations: () => [
@@ -35,7 +45,20 @@ vi.mock("@/services/approvals", async (importOriginal) => {
   return { ...actual, decideApproval: vi.fn() };
 });
 
-afterEach(cleanup);
+vi.mock("@/lib/toast", () => ({
+  notifyError: vi.fn(),
+  notifySuccess: vi.fn(),
+}));
+
+afterEach(() => {
+  cleanup();
+  useInteractionStore.setState({ byId: new Map() });
+});
+
+beforeEach(() => {
+  vi.mocked(setConversationPermissionAxes).mockReset();
+  vi.mocked(patchConversationCache).mockReset();
+});
 
 function card(over: Partial<ApprovalView> = {}): ApprovalView {
   return {
@@ -57,6 +80,22 @@ function renderCard(approval: ApprovalView) {
       </TooltipProvider>
     </MemoryRouter>,
   );
+}
+
+/** Seed enough same-tool approvals so the「托管」nudge appears. */
+function seedSameToolApprovals(n: number, toolName = "terminal") {
+  const byId = new Map();
+  for (let i = 0; i < n; i++) {
+    byId.set(`hist-${i}`, {
+      id: `hist-${i}`,
+      kind: "approval" as const,
+      status: "resolved" as const,
+      conversationId: "c1",
+      messageId: "m1",
+      payload: { tool_name: toolName, approval_id: `hist-${i}` },
+    });
+  }
+  useInteractionStore.setState({ byId });
 }
 
 describe("ApprovalCard CTA (工具审批 A+B)", () => {
@@ -83,5 +122,32 @@ describe("ApprovalCard CTA (工具审批 A+B)", () => {
     const turnIdx = labels.findIndex((t) => t.includes("本轮内都允许"));
     const onceIdx = labels.findIndex((t) => t.includes("允许一次"));
     expect(onceIdx).toBeLessThan(turnIdx);
+  });
+
+  it("switching to 托管 patches cache and reloads permission change lines", async () => {
+    seedSameToolApprovals(3);
+    const managed = {
+      file_write: "session" as const,
+      command: "auto" as const,
+      team_kickoff: "skip" as const,
+    };
+    vi.mocked(setConversationPermissionAxes).mockResolvedValue(managed);
+    const load = vi.fn().mockResolvedValue(undefined);
+    usePermissionChangeStore.setState({ load });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderCard(card());
+    fireEvent.click(screen.getByRole("button", { name: "托管" }));
+
+    await waitFor(() => {
+      expect(setConversationPermissionAxes).toHaveBeenCalledWith(
+        "c1",
+        managed,
+      );
+      expect(patchConversationCache).toHaveBeenCalledWith("c1", {
+        permissionAxes: managed,
+      });
+      expect(load).toHaveBeenCalledWith("c1");
+    });
   });
 });

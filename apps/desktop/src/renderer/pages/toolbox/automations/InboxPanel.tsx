@@ -125,7 +125,7 @@ export function InboxPanel() {
   const onRerun = async (run: StandingTaskRun) => {
     setBusyId(run.id);
     try {
-      await runStandingTaskNow(run.standingTaskId);
+      const { runId } = await runStandingTaskNow(run.standingTaskId);
       if (!run.ackedAt) {
         try {
           await ackStandingTaskRun(run.id);
@@ -133,7 +133,7 @@ export function InboxPanel() {
           /* ack is best-effort after rerun */
         }
       }
-      notifySuccess("已重新触发");
+      notifySuccess(`已重新触发（${runId.slice(0, 8)}…）`);
       await load();
     } catch (e) {
       notifyError(e, "重跑失败");

@@ -73,7 +73,8 @@ export function usePermissionChanges(
 }
 
 /**
- * 打开会话时拉一次权限切换记录。会话内新切换由 PermissionAxesBadge 命令式重拉。
+ * 打开会话时拉一次权限切换记录。会话内新切换由 PermissionAxesBadge /
+ * ApprovalPrompt「托管」命令式重拉。
  */
 export function usePermissionChangesSync(conversationId: string | null): void {
   const load = usePermissionChangeStore((s) => s.load);

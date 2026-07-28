@@ -590,7 +590,7 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   PermissionChangeLine: {
     verdict: "simplified",
     reason:
-      "桌面把会话级权限档位切换（PUT permission-preset → 审计 permission.preset_changed，走 REST 非事件通道）在对话流内渲染「权限模式 A → B」系统提示行；手机可在 AutonomySettings 切档，但暂不在对话流内渲染该切换提示行（parity 最小同步，随需后置）",
+      "桌面把会话级权限轴切换（PUT permission-axes → 审计 permission.axes_changed，走 REST 非事件通道）在对话流内渲染「权限 A → B」系统提示行；手机可在 AutonomySettings 切档，但暂不在对话流内渲染该切换提示行（parity 最小同步，随需后置）",
   },
   ConversationHydrateOverlay: {
     verdict: "simplified",

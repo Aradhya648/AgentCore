@@ -12378,6 +12378,17 @@
             ],
             "title": "Enabled"
           },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
           "goal": {
             "anyOf": [
               {
@@ -13176,7 +13187,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.16"
+    "version": "0.3.17"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -92,8 +92,8 @@ export function StandingTasksPanel() {
   const onRunNow = async (task: StandingTask) => {
     setBusyId(task.id);
     try {
-      await runStandingTaskNow(task.id);
-      notifySuccess("已触发一次运行");
+      const { runId } = await runStandingTaskNow(task.id);
+      notifySuccess(`已触发运行（${runId.slice(0, 8)}…）`);
       void useStandingInboxStore.getState().refresh();
     } catch (e) {
       notifyError(e, "触发失败");

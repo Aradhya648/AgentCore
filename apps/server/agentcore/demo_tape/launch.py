@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.config import settings
-from agentcore.conversation.common import default_permission_preset_for_user
+from agentcore.conversation.common import default_permission_axes_for_user
 from agentcore.core.errors import NotFoundError, ValidationError
 from agentcore.core.logging import get_logger
 from agentcore.db.models import User
@@ -73,13 +73,13 @@ async def prepare_demo_tape_launch(
     bind_speed = float(speed if speed is not None else settings.demo_tape_speed)
     bind_gap = int(max_gap_ms if max_gap_ms is not None else settings.demo_tape_max_gap_ms)
 
-    preset = await default_permission_preset_for_user(session, user.user_id)
+    axes = await default_permission_axes_for_user(session, user.user_id)
     conv = await ConversationRepository(session).create(
         user_id=user.user_id,
         title=title,
         folder_id=None,
         local_container_root_id=None,
-        permission_preset=preset.value,
+        permission_axes=axes.to_dict(),
     )
 
     write_binding(

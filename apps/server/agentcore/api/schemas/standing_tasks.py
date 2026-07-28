@@ -45,6 +45,7 @@ class CreateStandingTaskRequest(BaseModel):
 class UpdateStandingTaskRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     goal: str | None = Field(None, min_length=1)
+    folder_id: str | None = None
     trigger_kind: TriggerKind | None = None
     cron: str | None = None
     schedule_preset: str | None = None

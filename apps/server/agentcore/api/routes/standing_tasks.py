@@ -129,6 +129,7 @@ async def update_standing_task(
     body: UpdateStandingTaskRequest,
     user: AuthUser,
     repo: StandingTaskRepository = Depends(get_standing_task_repo),
+    folders: FolderRepository = Depends(get_folder_repo),
 ):
     existing = await repo.get_by_id(task_id, user_id=user.user_id)
     if existing is None:
@@ -140,6 +141,10 @@ async def update_standing_task(
         kwargs["name"] = body.name
     if "goal" in fields:
         kwargs["goal"] = body.goal
+    if "folder_id" in fields and body.folder_id is not None:
+        folder = await folders.get_by_id(body.folder_id, user_id=user.user_id)
+        _require_cloud_folder(folder)
+        kwargs["folder_id"] = body.folder_id
     if "enabled" in fields:
         kwargs["enabled"] = body.enabled
     if "permission_axes" in fields and body.permission_axes is not None:
@@ -279,7 +284,12 @@ async def list_standing_task_runs(
     )
     badge = await repo.count_badge(user.user_id)
     return StandingTaskRunListResponse(
-        items=[StandingTaskRunSummary.model_validate(r) for r in items],
+        items=[
+            StandingTaskRunSummary.model_validate(r).model_copy(
+                update={"task_name": task_name}
+            )
+            for r, task_name in items
+        ],
         badge=badge,
     )
 

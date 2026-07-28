@@ -94,13 +94,18 @@ async def test_prepare_demo_tape_launch_creates_cloud_and_binds(
     fake_user.user_id = "user-1"
     session = MagicMock()
 
-    preset = MagicMock()
-    preset.value = "workspace"
+    # default_permission_axes_for_user → PermissionAxes with .to_dict()
+    axes = MagicMock()
+    axes.to_dict.return_value = {
+        "file_write": "session",
+        "command": "kickoff",
+        "team_kickoff": "rules",
+    }
 
     with (
         patch(
-            "agentcore.demo_tape.launch.default_permission_preset_for_user",
-            new=AsyncMock(return_value=preset),
+            "agentcore.demo_tape.launch.default_permission_axes_for_user",
+            new=AsyncMock(return_value=axes),
         ),
         patch(
             "agentcore.demo_tape.launch.ConversationRepository"
@@ -120,6 +125,11 @@ async def test_prepare_demo_tape_launch_creates_cloud_and_binds(
     create_kwargs = repo_cls.return_value.create.await_args.kwargs
     assert create_kwargs["local_container_root_id"] is None
     assert create_kwargs["folder_id"] is None
+    assert create_kwargs["permission_axes"] == {
+        "file_write": "session",
+        "command": "kickoff",
+        "team_kickoff": "rules",
+    }
     data = json.loads(bindings_file.read_text(encoding="utf-8"))
     assert data["conv-demo-1"]["tape"] == "demos/tapes/demo.json"
     assert data["conv-demo-1"]["turn_index"] == 0

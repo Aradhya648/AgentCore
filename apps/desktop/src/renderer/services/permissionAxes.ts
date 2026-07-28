@@ -198,13 +198,15 @@ export function axesShortLabel(axes: PermissionAxes): string {
 
 /**
  * Human label for audit `previous` / `permission_axes` payloads
- * (object → recipe short name; unknown string → as-is; else null).
+ * (object → recipe short name; JSON-string axes → parse then label;
+ * recipe/legacy short id → label; else null — never echo raw JSON).
  */
 export function permissionAxesShortLabel(raw: unknown): string | null {
   if (raw == null) return null;
   if (typeof raw === "string") {
-    if (raw in RECIPE_LABELS) {
-      return RECIPE_LABELS[raw as AutonomyRecipe].short;
+    const trimmed = raw.trim();
+    if (trimmed in RECIPE_LABELS) {
+      return RECIPE_LABELS[trimmed as AutonomyRecipe].short;
     }
     // Legacy three-tier ids (old audit rows).
     const legacy: Record<string, string> = {
@@ -215,7 +217,19 @@ export function permissionAxesShortLabel(raw: unknown): string | null {
       first_grant: "写代码",
       full_auto: "托管",
     };
-    return legacy[raw] ?? null;
+    if (trimmed in legacy) return legacy[trimmed];
+    // Turn snapshot may store axes as json.dumps(...) string.
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return axesShortLabel(normalizeAxes(parsed as Partial<PermissionAxes>));
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const axes = normalizeAxes(raw as Partial<PermissionAxes>);

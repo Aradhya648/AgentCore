@@ -37,7 +37,7 @@ const apiPatch = vi.mocked(api.patch);
 const sampleTaskWire = {
   id: "st-1",
   name: "周一简报",
-  trigger_kind: "schedule",
+  trigger_kind: "schedule" as const,
   schedule_preset: "weekly_mon",
   cron: null,
   folder_id: "fold-cloud",
@@ -46,6 +46,7 @@ const sampleTaskWire = {
   enabled: true,
   next_run_at: "2026-08-04T01:00:00Z",
   conversation_id: null,
+  last_run_at: null,
   created_at: "2026-07-28T00:00:00Z",
   updated_at: "2026-07-28T00:00:00Z",
 };
@@ -53,7 +54,7 @@ const sampleTaskWire = {
 const sampleWebhookWire = {
   id: "st-wh",
   name: "线索接入",
-  trigger_kind: "webhook",
+  trigger_kind: "webhook" as const,
   schedule_preset: null,
   cron: null,
   folder_id: "fold-cloud",
@@ -62,6 +63,7 @@ const sampleWebhookWire = {
   enabled: true,
   next_run_at: null,
   conversation_id: null,
+  last_run_at: null,
   webhook_id: "wh-uuid-1",
   webhook_url: "https://api.example.com/v1/hooks/standing/wh-uuid-1",
   webhook_secret: "sec_once_only",
@@ -89,7 +91,7 @@ describe("standingTasks mapping", () => {
   it("defaults missing trigger_kind to schedule", () => {
     const { trigger_kind: _, ...legacy } = sampleTaskWire;
     void _;
-    const t = toStandingTask(legacy);
+    const t = toStandingTask(legacy as typeof sampleTaskWire);
     expect(t.triggerKind).toBe("schedule");
   });
 
@@ -119,7 +121,7 @@ describe("standingTasks mapping", () => {
     );
   });
 
-  it("maps run wire and accepts read_at alias", () => {
+  it("maps run wire with task_name and acked_at", () => {
     const r = toStandingTaskRun({
       id: "run-1",
       standing_task_id: "st-1",
@@ -128,12 +130,14 @@ describe("standingTasks mapping", () => {
       conversation_id: "c1",
       summary: null,
       error: "quota exceeded",
-      read_at: "2026-07-28T02:00:00Z",
+      acked_at: "2026-07-28T02:00:00Z",
+      trigger_source: "schedule",
       created_at: "2026-07-28T01:00:00Z",
     });
     expect(r.ackedAt).toBe("2026-07-28T02:00:00Z");
+    expect(r.taskName).toBe("周一简报");
     expect(r.status).toBe("failed");
-    expect(r.triggerSource).toBeNull();
+    expect(r.triggerSource).toBe("schedule");
   });
 
   it("maps trigger_source when present", () => {
@@ -151,12 +155,9 @@ describe("standingTasks mapping", () => {
 });
 
 describe("standingTasks API", () => {
-  it("lists tasks from array or wrapped payload", async () => {
+  it("lists tasks from array payload", async () => {
     apiGet.mockResolvedValueOnce([sampleTaskWire]);
     expect((await listStandingTasks())[0]?.id).toBe("st-1");
-
-    apiGet.mockResolvedValueOnce({ items: [sampleTaskWire] });
-    expect((await listStandingTasks())[0]?.name).toBe("周一简报");
   });
 
   it("creates schedule with trigger_kind", async () => {
@@ -209,6 +210,18 @@ describe("standingTasks API", () => {
     });
   });
 
+  it("patches folder_id", async () => {
+    apiPatch.mockResolvedValueOnce({
+      ...sampleTaskWire,
+      folder_id: "fold-other",
+    });
+    const t = await patchStandingTask("st-1", { folderId: "fold-other" });
+    expect(t.folderId).toBe("fold-other");
+    expect(apiPatch).toHaveBeenCalledWith("/v1/standing-tasks/st-1", {
+      folder_id: "fold-other",
+    });
+  });
+
   it("patches switch to webhook without schedule fields", async () => {
     apiPatch.mockResolvedValueOnce(sampleWebhookWire);
     await patchStandingTask("st-1", {
@@ -233,25 +246,23 @@ describe("standingTasks API", () => {
       {},
     );
     expect(r.webhookSecret).toBe("sec_rotated");
-    expect(r.task).toBeNull();
+    expect(r.webhookId).toBe("wh-uuid-1");
   });
 
-  it("runs now and acks", async () => {
-    apiPost.mockResolvedValueOnce({
-      id: "run-1",
-      standing_task_id: "st-1",
-      status: "running",
-      created_at: "2026-07-28T03:00:00Z",
-    });
+  it("runs now returns TriggerStandingTaskResponse run_id", async () => {
+    apiPost.mockResolvedValueOnce({ run_id: "run-1" });
     const run = await runStandingTaskNow("st-1");
-    expect(run?.status).toBe("running");
+    expect(run.runId).toBe("run-1");
     expect(apiPost).toHaveBeenCalledWith("/v1/standing-tasks/st-1/run", {});
+  });
 
+  it("acks a run", async () => {
     apiPost.mockResolvedValueOnce({
       id: "run-1",
       standing_task_id: "st-1",
       status: "failed",
       acked_at: "2026-07-28T04:00:00Z",
+      trigger_source: "manual",
       created_at: "2026-07-28T03:00:00Z",
     });
     const acked = await ackStandingTaskRun("run-1");
@@ -271,6 +282,7 @@ describe("standingTasks API", () => {
           id: "r1",
           standing_task_id: "st-1",
           status: "awaiting_user",
+          trigger_source: "schedule",
           created_at: "2026-07-28T01:00:00Z",
         },
         {
@@ -278,6 +290,7 @@ describe("standingTasks API", () => {
           standing_task_id: "st-1",
           status: "awaiting_user",
           acked_at: "2026-07-28T02:00:00Z",
+          trigger_source: "schedule",
           created_at: "2026-07-28T01:00:00Z",
         },
         {
@@ -285,6 +298,7 @@ describe("standingTasks API", () => {
           standing_task_id: "st-1",
           status: "failed",
           acked_at: null,
+          trigger_source: "schedule",
           created_at: "2026-07-28T01:00:00Z",
         },
         {
@@ -292,12 +306,14 @@ describe("standingTasks API", () => {
           standing_task_id: "st-1",
           status: "failed",
           acked_at: "2026-07-28T02:00:00Z",
+          trigger_source: "schedule",
           created_at: "2026-07-28T01:00:00Z",
         },
         {
           id: "r4",
           standing_task_id: "st-1",
           status: "succeeded",
+          trigger_source: "schedule",
           created_at: "2026-07-28T01:00:00Z",
         },
       ],
@@ -307,7 +323,7 @@ describe("standingTasks API", () => {
   });
 
   it("lists runs with status query", async () => {
-    apiGet.mockResolvedValueOnce([]);
+    apiGet.mockResolvedValueOnce({ items: [], badge: 0 });
     await listStandingTaskRuns({ status: ["failed", "awaiting_user"] });
     const url = apiGet.mock.calls[0]?.[0] as string;
     expect(url).toContain("status=failed");

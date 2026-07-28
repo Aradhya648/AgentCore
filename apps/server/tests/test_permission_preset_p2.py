@@ -1,4 +1,4 @@
-"""P2 permission-preset audit + gVisor network grading."""
+"""P2 permission-axes audit + gVisor network grading."""
 
 from __future__ import annotations
 

@@ -8,6 +8,9 @@
  *   pnpm release:gate --only backend     # 只跑单段（修复迭代用）
  *
  * Sections (in order): backend, contracts, desktop, mobile, admin.
+ * When both contracts and desktop are enabled, they run in parallel child
+ * processes (CI already splits them into separate jobs). Set
+ * RELEASE_GATE_SERIAL=1 to force the old sequential order.
  * `--from`/`--only` are local iteration aids — a release still requires one
  * uninterrupted full pass.
  *
@@ -21,7 +24,7 @@
  * gate only proves regen is stable.
  */
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   createReadStream,
   existsSync,
@@ -34,7 +37,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const GATE_SCRIPT = fileURLToPath(import.meta.url);
+const ROOT = join(dirname(GATE_SCRIPT), "..");
 const SERVER = join(ROOT, "apps", "server");
 
 const CONTRACT_DRIFT_PATHS = [
@@ -199,6 +203,64 @@ function sectionEnabled(name, { from, only }) {
   return true;
 }
 
+/** Spawn a nested `release:gate --only <section>` so contracts ∥ desktop can
+ *  overlap wall-clock without blocking the parent on spawnSync. */
+function runSectionChild(only) {
+  return new Promise((resolve, reject) => {
+    console.log(`\n↗ parallel child: --only ${only}`);
+    const child = spawn(
+      process.execPath,
+      [GATE_SCRIPT, "--only", only],
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        env: { ...process.env, RELEASE_GATE_SERIAL: "1" },
+        shell: false,
+      },
+    );
+    child.on("error", reject);
+    child.on("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else {
+        reject(
+          new Error(
+            `release:gate --only ${only} failed (code=${code}, signal=${signal})`,
+          ),
+        );
+      }
+    });
+  });
+}
+
+async function runContractsSection() {
+  section("contracts");
+  regenContracts();
+  run("story-packs check", "pnpm", ["gen:story-packs:check"]);
+  await assertContractIdempotent();
+}
+
+function runDesktopSection() {
+  section("desktop");
+  run("desktop lint", "pnpm", ["--filter", "agentcore-desktop", "lint"]);
+  run("desktop typecheck", "pnpm", ["--filter", "agentcore-desktop", "typecheck"]);
+  run("desktop test", "pnpm", [
+    "--filter",
+    "agentcore-desktop",
+    "exec",
+    "vitest",
+    "run",
+  ]);
+  run("desktop conformance", "pnpm", ["--filter", "agentcore-desktop", "conformance"]);
+  run("desktop shoot", "pnpm", ["--filter", "agentcore-desktop", "shoot"], {
+    env: { SHOOT_FRAMES: "3" },
+  });
+  run("desktop smoke:webapp:ci", "pnpm", [
+    "--filter",
+    "agentcore-desktop",
+    "smoke:webapp:ci",
+  ]);
+}
+
 async function main() {
   const filter = parseSectionArgs(process.argv);
   const partial = filter.from || filter.only;
@@ -248,33 +310,28 @@ async function main() {
     });
   }
 
-  if (sectionEnabled("contracts", filter)) {
-    section("contracts");
-    regenContracts();
-    run("story-packs check", "pnpm", ["gen:story-packs:check"]);
-    await assertContractIdempotent();
-  }
+  const doContracts = sectionEnabled("contracts", filter);
+  const doDesktop = sectionEnabled("desktop", filter);
+  // Nested --only children set RELEASE_GATE_SERIAL to avoid re-entrant parallel.
+  const parallelContractsDesktop =
+    doContracts &&
+    doDesktop &&
+    !filter.only &&
+    process.env.RELEASE_GATE_SERIAL !== "1";
 
-  if (sectionEnabled("desktop", filter)) {
-    section("desktop");
-    run("desktop lint", "pnpm", ["--filter", "agentcore-desktop", "lint"]);
-    run("desktop typecheck", "pnpm", ["--filter", "agentcore-desktop", "typecheck"]);
-    run("desktop test", "pnpm", [
-      "--filter",
-      "agentcore-desktop",
-      "exec",
-      "vitest",
-      "run",
-    ]);
-    run("desktop conformance", "pnpm", ["--filter", "agentcore-desktop", "conformance"]);
-    run("desktop shoot", "pnpm", ["--filter", "agentcore-desktop", "shoot"], {
-      env: { SHOOT_FRAMES: "3" },
-    });
-    run("desktop smoke:webapp:ci", "pnpm", [
-      "--filter",
-      "agentcore-desktop",
-      "smoke:webapp:ci",
-    ]);
+  if (parallelContractsDesktop) {
+    section("contracts ∥ desktop");
+    console.log(
+      "  (parallel children; set RELEASE_GATE_SERIAL=1 for sequential)",
+    );
+    // One upfront regen so desktop typecheck rarely races the contracts child's
+    // first gen-types. Idempotence still re-regens inside the contracts child —
+    // if that flakes, use RELEASE_GATE_SERIAL=1 (CI uses separate checkouts).
+    regenContracts();
+    await Promise.all([runSectionChild("contracts"), runSectionChild("desktop")]);
+  } else {
+    if (doContracts) await runContractsSection();
+    if (doDesktop) runDesktopSection();
   }
 
   if (sectionEnabled("mobile", filter)) {

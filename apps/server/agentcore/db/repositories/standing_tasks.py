@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.core.types import new_id
@@ -138,6 +138,10 @@ class StandingTaskRepository:
         row = await self.get_by_id(task_id, user_id=user_id)
         if row is None:
             return False
+        # App-level cascade: inbox rows must not outlive the task (no DB FK).
+        await self._session.execute(
+            delete(StandingTaskRun).where(StandingTaskRun.standing_task_id == task_id)
+        )
         await self._session.delete(row)
         await self._session.commit()
         return True
@@ -338,19 +342,23 @@ class StandingTaskRunRepository:
         status: str | None = None,
         limit: int = 50,
         unacked_only: bool = False,
-    ) -> Sequence[StandingTaskRun]:
+    ) -> Sequence[tuple[StandingTaskRun, str | None]]:
+        """Return ``(run, task_name)`` rows; ``task_name`` is joined from the task."""
         conditions = [StandingTaskRun.user_id == user_id]
         if status is not None:
             conditions.append(StandingTaskRun.status == status)
         if unacked_only:
             conditions.append(StandingTaskRun.acked_at.is_(None))
         result = await self._session.execute(
-            select(StandingTaskRun)
+            select(StandingTaskRun, StandingTask.name)
+            .outerjoin(
+                StandingTask, StandingTask.id == StandingTaskRun.standing_task_id
+            )
             .where(*conditions)
             .order_by(StandingTaskRun.created_at.desc())
             .limit(limit)
         )
-        return result.scalars().all()
+        return [(run, name) for run, name in result.all()]
 
     async def set_conversation_and_message(
         self,

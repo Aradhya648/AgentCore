@@ -87,6 +87,18 @@ describe("permissionAxes mapping", () => {
     expect(permissionAxesShortLabel(RECIPE_AXES.write_code)).toBe("写代码");
     expect(permissionAxesShortLabel("write_code")).toBe("写代码");
     expect(permissionAxesShortLabel("workspace")).toBe("写代码");
+    // Turn snapshot may store axes as json.dumps string — parse, don't echo JSON.
+    expect(
+      permissionAxesShortLabel(
+        '{"file_write":"session","command":"auto","team_kickoff":"skip"}',
+      ),
+    ).toBe("托管");
+    expect(
+      permissionAxesShortLabel(
+        '{"file_write":"session","command":"kickoff","team_kickoff":"rules"}',
+      ),
+    ).toBe("写代码");
+    expect(permissionAxesShortLabel("{not-json")).toBeNull();
     expect(permissionAxesShortLabel("bogus")).toBeNull();
     expect(permissionAxesShortLabel(null)).toBeNull();
     expect(permissionAxesShortLabel(42)).toBeNull();
