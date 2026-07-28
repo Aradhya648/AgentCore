@@ -25,7 +25,7 @@ from agentcore.db.repositories.users import (
     UserRepository,
 )
 from agentcore.messaging.events import ChatEventPublisher, NullChatEventPublisher
-from agentcore.middleware.rate_limit import FixedWindowRateLimiter
+from agentcore.core.rate_limit import FixedWindowRateLimiter
 from agentcore.shared_spaces.limits import (
     DEFAULT_INVITE_RATE_MAX,
     DEFAULT_INVITE_RATE_WINDOW_SECONDS,

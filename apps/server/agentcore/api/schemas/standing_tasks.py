@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from agentcore.api.schemas.conversations import PermissionAxesModel
+from agentcore.standing_tasks.paths import webhook_path
 from agentcore.standing_tasks.schedule import infer_schedule_preset
-from agentcore.standing_tasks.webhook import webhook_path
 
 TriggerKind = Literal["schedule", "webhook"]
 TriggerSource = Literal["schedule", "webhook", "manual"]

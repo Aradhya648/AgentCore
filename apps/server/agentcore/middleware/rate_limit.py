@@ -6,15 +6,12 @@ Per-account lockout already lives in the auth service; this adds per-IP throttli
 across accounts.
 
 State is process-local, so it assumes a single server process — front with Redis
-if you scale to multiple workers. The core ``FixedWindowRateLimiter`` is framework
--free and unit-tested directly; the middleware is the thin ASGI adapter.
+if you scale to multiple workers. Core limiters live in ``agentcore.core.rate_limit``
+(framework-free); this module is the thin ASGI adapter plus settings-backed
+singletons.
 """
 
-import time
-from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Protocol
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -22,81 +19,26 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from agentcore.config import settings
+from agentcore.core.rate_limit import (
+    FixedWindowRateLimiter,
+    RateLimitDecision,
+    RateLimiter,
+    SlidingWindowRateLimiter,
+)
 
-
-class FixedWindowRateLimiter:
-    """Count requests per key within a fixed window; block once the cap is hit."""
-
-    def __init__(self, *, max_requests: int, window_seconds: float) -> None:
-        self._max = max_requests
-        self._window = window_seconds
-        self._hits: dict[str, tuple[float, int]] = {}
-
-    def allow(self, key: str, *, now: float | None = None) -> bool:
-        """Record a hit for ``key``; return False once it exceeds the window cap."""
-        now = time.monotonic() if now is None else now
-        start, count = self._hits.get(key, (now, 0))
-        if now - start >= self._window:
-            start, count = now, 0
-        count += 1
-        self._hits[key] = (start, count)
-        return count <= self._max
-
-    def reset(self) -> None:
-        self._hits.clear()
-
-
-@dataclass(frozen=True)
-class RateLimitDecision:
-    """Outcome of a limiter check. ``retry_after`` is the seconds until the next
-    slot frees (``0`` when allowed)."""
-
-    allowed: bool
-    retry_after: float = 0.0
-
-
-class RateLimiter(Protocol):
-    """Swappable limiter seam (成本配额与计费.md §一). The in-memory impl below is
-    single-process; a Redis ZSET impl can replace it for multiple workers without
-    touching call sites."""
-
-    def check(self, key: str, *, now: float | None = None) -> RateLimitDecision: ...
-
-    def reset(self) -> None: ...
-
-
-class SlidingWindowRateLimiter:
-    """Per-key sliding window: at most ``max_requests`` hits within any trailing
-    ``window_seconds``.
-
-    Unlike a fixed window, this has no boundary burst (a fixed window can let ~2x
-    the cap straddle the reset instant). Keeps a deque of hit timestamps per key,
-    evicting those older than the window on each check. A blocked call is **not**
-    recorded, so a client that keeps hammering while throttled can't push its own
-    reset further out. State is process-local (single server process) — front with
-    a Redis ZSET to scale to multiple workers.
-    """
-
-    def __init__(self, *, max_requests: int, window_seconds: float) -> None:
-        self._max = max_requests
-        self._window = window_seconds
-        self._hits: dict[str, deque[float]] = defaultdict(deque)
-
-    def check(self, key: str, *, now: float | None = None) -> RateLimitDecision:
-        """Record an allowed hit for ``key`` and return the decision."""
-        now = time.monotonic() if now is None else now
-        hits = self._hits[key]
-        cutoff = now - self._window
-        while hits and hits[0] <= cutoff:
-            hits.popleft()
-        if len(hits) >= self._max:
-            retry_after = hits[0] + self._window - now
-            return RateLimitDecision(allowed=False, retry_after=max(0.0, retry_after))
-        hits.append(now)
-        return RateLimitDecision(allowed=True)
-
-    def reset(self) -> None:
-        self._hits.clear()
+# Re-export core limiters for existing ``from agentcore.middleware.rate_limit import …``
+__all__ = [
+    "AuthRateLimitMiddleware",
+    "FixedWindowRateLimiter",
+    "RateLimitDecision",
+    "RateLimiter",
+    "SlidingWindowRateLimiter",
+    "auth_rate_limiter",
+    "get_client_ip",
+    "inference_token_mint_limiter",
+    "message_rate_limiter",
+    "reset_rate_limit_state",
+]
 
 
 # Module-level singletons sized from settings; exposed so tests can reset state.

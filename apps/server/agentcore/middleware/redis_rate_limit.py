@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 
 from agentcore.config import settings
-from agentcore.middleware.rate_limit import RateLimitDecision
+from agentcore.core.rate_limit import RateLimitDecision
 
 logger = logging.getLogger(__name__)
 

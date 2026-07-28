@@ -15,7 +15,8 @@ from threading import Lock
 
 from agentcore.config import settings
 from agentcore.core.errors import AuthenticationError, RateLimitedError
-from agentcore.middleware.rate_limit import SlidingWindowRateLimiter
+from agentcore.core.rate_limit import SlidingWindowRateLimiter
+from agentcore.standing_tasks.paths import webhook_path as webhook_path
 
 _EVENT_TEXT_MAX = 16_000
 _SECRET_BYTES = 32
@@ -72,11 +73,6 @@ def require_webhook_secret(
     )
     if not verify_webhook_secret(raw, expected_hash):
         raise AuthenticationError("Webhook 密钥无效")
-
-
-def webhook_path(webhook_id: str) -> str:
-    """Relative public path; clients prepend the API origin."""
-    return f"/v1/hooks/standing/{webhook_id}"
 
 
 def extract_event_text(body: bytes, *, content_type: str | None = None) -> str:

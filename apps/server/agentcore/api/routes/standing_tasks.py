@@ -28,6 +28,7 @@ from agentcore.db.repositories.standing_tasks import (
     StandingTaskRepository,
     StandingTaskRunRepository,
 )
+from agentcore.standing_tasks.paths import webhook_path
 from agentcore.standing_tasks.runner import dispatch_standing_task
 from agentcore.standing_tasks.schedule import CronError, next_run_after, resolve_cron
 from agentcore.standing_tasks.webhook import (
@@ -37,7 +38,6 @@ from agentcore.standing_tasks.webhook import (
     idempotency_lookup,
     idempotency_store,
     require_webhook_secret,
-    webhook_path,
 )
 
 router = APIRouter(tags=["standing-tasks"])
