@@ -51,6 +51,7 @@ def build_provider(
 
     Every leaf is wrapped by :func:`observe_provider` so ``complete`` / ``stream``
     emit uniform ``llm.call`` / ``llm.call_failed`` (observation only — no retry).
+    The fence also forwards leaf ``probe`` / ``probe_tools`` for BYOK connectivity tests.
     """
     _ = purpose  # call-site documentation only
     creds = credentials

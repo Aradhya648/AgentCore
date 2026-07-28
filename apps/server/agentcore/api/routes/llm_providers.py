@@ -126,4 +126,13 @@ async def test_llm_provider(
     service: LlmProviderService = Depends(get_llm_provider_service),
 ):
     """Probe one provider's endpoint and persist 'active' / 'error' + supports_tools."""
-    return _provider_to_response(await service.test_provider(user.user_id, provider_id))
+    view = await service.test_provider(user.user_id, provider_id)
+    logger.info(
+        "llm_provider.tested",
+        user_id=user.user_id,
+        provider_id=provider_id,
+        status=view.status,
+        supports_tools=view.supports_tools,
+        has_message=bool(view.message),
+    )
+    return _provider_to_response(view)

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from structlog.testing import capture_logs
 
 from agentcore.config import settings
 from agentcore.core.errors import (
@@ -175,12 +176,48 @@ async def test_test_provider_records_active_and_tools(service):
         ),
         patch("agentcore.llm.provider_service.build_provider", return_value=fake),
         patch.object(service, "_encryptor", return_value=_enc()),
+        capture_logs() as caps,
     ):
         view = await service.test_provider("u1", "prov-1")
     assert fake.probe_model == "gpt-4o"
     assert view.status == "active"
     service._repo.update_status.assert_awaited_once_with("prov-1", "active")
     service._repo.update_supports_tools.assert_awaited_once_with("prov-1", True)
+    start = next(c for c in caps if c.get("event") == "llm_provider.test.start")
+    assert start["provider_id"] == "prov-1"
+    assert start["model"] == "gpt-4o"
+    assert start["base_url"] == "https://api.openai.com/v1"
+    ok = next(c for c in caps if c.get("event") == "llm_provider.test.ok")
+    assert ok["supports_tools"] is True
+
+
+async def test_test_provider_logs_probe_failure(service):
+    service._repo.get = AsyncMock(
+        side_effect=[
+            _row(api_key_enc=b"x"),
+            _row(api_key_enc=b"x", status="error"),
+        ]
+    )
+    creds = LLMCredentials(
+        api_key="sk-bad", base_url="https://api.deepseek.com", default_model=DEEPSEEK_V4_FLASH
+    )
+    fake = _FakeProbeProvider(fail=True, supports_tools=None)
+    with (
+        patch(
+            "agentcore.llm.provider_service.resolve_provider_credentials",
+            AsyncMock(return_value=creds),
+        ),
+        patch("agentcore.llm.provider_service.build_provider", return_value=fake),
+        patch.object(service, "_encryptor", return_value=_enc()),
+        capture_logs() as caps,
+    ):
+        view = await service.test_provider("u1", "prov-1")
+    assert view.status == "error"
+    assert view.message == "bad key"
+    failed = next(c for c in caps if c.get("event") == "llm_provider.test.failed")
+    assert failed["provider_id"] == "prov-1"
+    assert failed["model"] == DEEPSEEK_V4_FLASH
+    assert "bad key" in failed["error"]
 
 
 async def test_test_provider_missing_raises(service):

@@ -134,6 +134,38 @@ def test_build_provider_wraps_with_fence(monkeypatch):
     assert isinstance(provider, ObservingLLMProvider)
     assert unwrap_provider(provider).__class__.__name__ == "OpenAICompatibleProvider"
     assert observe_provider(provider) is provider  # idempotent
+    # BYOK 设置·测试 calls probe on the fence-wrapped provider — must not AttributeError.
+    assert callable(getattr(provider, "probe", None))
+    assert callable(getattr(provider, "probe_tools", None))
+
+
+@pytest.mark.asyncio
+async def test_fence_forwards_probe_and_probe_tools():
+    class _ProbeLeaf(_FakeLeaf):
+        def __init__(self) -> None:
+            super().__init__()
+            self.probe_model: str | None = None
+            self.tools_model: str | None = None
+
+        async def probe(self, *, model: str) -> None:
+            self.probe_model = model
+
+        async def probe_tools(self, *, model: str) -> bool | None:
+            self.tools_model = model
+            return True
+
+    leaf = _ProbeLeaf()
+    provider = observe_provider(leaf)
+    await provider.probe(model=DEEPSEEK_V4_FLASH)
+    assert leaf.probe_model == DEEPSEEK_V4_FLASH
+    assert await provider.probe_tools(model=DEEPSEEK_V4_FLASH) is True
+    assert leaf.tools_model == DEEPSEEK_V4_FLASH
+
+
+@pytest.mark.asyncio
+async def test_fence_probe_tools_none_when_leaf_lacks_method():
+    provider = observe_provider(_FakeLeaf())  # no probe_tools
+    assert await provider.probe_tools(model=DEEPSEEK_V4_FLASH) is None
 
 
 def test_log_llm_call_includes_attempt():

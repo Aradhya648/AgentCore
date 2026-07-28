@@ -4,6 +4,9 @@ Observes every logical ``complete`` / ``stream`` invocation (success → ``llm.c
 failure → ``llm.call_failed``). Does **not** retry, swap models, or alter chunk
 contracts (``stream_reset`` / ``aborted`` pass through unchanged).
 
+Also forwards leaf-only helpers used outside the chat path (``probe`` /
+``probe_tools`` for BYOK 设置·测试) — the fence must not strip those methods.
+
 Inner provider I/O retries stay inside the leaf; this fence sees one attempt per
 outer call (``attempt`` defaults to 1; exhausted upstream retries surface via
 exception ``retry_attempts`` on failure).
@@ -51,6 +54,23 @@ class ObservingLLMProvider:
         close = getattr(self._inner, "close", None)
         if close is not None:
             await close()
+
+    async def probe(self, *, model: str) -> None:
+        """Forward connectivity probe to the leaf (BYOK 设置·测试)."""
+        probe = getattr(self._inner, "probe", None)
+        if probe is None:
+            raise AttributeError(
+                f"{type(self._inner).__name__} has no probe(); "
+                "ObservingLLMProvider cannot test connectivity"
+            )
+        await probe(model=model)
+
+    async def probe_tools(self, *, model: str) -> bool | None:
+        """Forward tools-capability probe to the leaf."""
+        probe_tools = getattr(self._inner, "probe_tools", None)
+        if probe_tools is None:
+            return None
+        return await probe_tools(model=model)
 
     def _provider_name(self) -> str | None:
         name = getattr(self._inner, "name", None) or getattr(self._inner, "_name", None)

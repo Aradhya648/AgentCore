@@ -271,13 +271,50 @@ class LlmProviderService:
             )
         provider = build_provider(credentials)
         model = credentials.default_model
+        base_url = credentials.base_url
         supports_tools: bool | None = None
+        logger.info(
+            "llm_provider.test.start",
+            user_id=user_id,
+            provider_id=provider_id,
+            base_url=base_url,
+            model=model,
+            provider_type=type(provider).__name__,
+        )
         try:
             await provider.probe(model=model)
             status, message = "active", None
             supports_tools = await provider.probe_tools(model=model)
         except LLMError as e:
             status, message = "error", str(e)
+            logger.warning(
+                "llm_provider.test.failed",
+                user_id=user_id,
+                provider_id=provider_id,
+                base_url=base_url,
+                model=model,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+        except Exception:
+            logger.exception(
+                "llm_provider.test.unhandled",
+                user_id=user_id,
+                provider_id=provider_id,
+                base_url=base_url,
+                model=model,
+                provider_type=type(provider).__name__,
+            )
+            raise
+        else:
+            logger.info(
+                "llm_provider.test.ok",
+                user_id=user_id,
+                provider_id=provider_id,
+                base_url=base_url,
+                model=model,
+                supports_tools=supports_tools,
+            )
         finally:
             await provider.close()
         await self._repo.update_status(provider_id, status)
