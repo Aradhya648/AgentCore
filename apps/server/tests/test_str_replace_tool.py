@@ -191,6 +191,23 @@ async def test_preserves_crlf_line_endings(tmp_path: Path):
     assert f.read_bytes() == b"alpha\r\nDONE\r\nomega\r\n"
 
 
+async def test_crlf_file_accepts_lf_multiline_old_string(tmp_path: Path):
+    """CRLF on disk + LF multiline old_string: normalize fallback, write-back CRLF."""
+    f = tmp_path / "win.txt"
+    f.write_bytes(b"line1\r\nline2\r\nline3\r\n")
+    result = await StrReplaceTool().execute(
+        {
+            "path": "win.txt",
+            "old_string": "line1\nline2\n",
+            "new_string": "lineA\n",
+        },
+        _ctx(tmp_path),
+    )
+    assert result.success is True
+    assert result.metadata["replacements"] == 1
+    assert f.read_bytes() == b"lineA\r\nline3\r\n"
+
+
 async def test_replacement_inserts_new_text_verbatim(tmp_path: Path):
     f = tmp_path / "f.txt"
     f.write_text("key: old\n", encoding="utf-8")

@@ -86,6 +86,7 @@ describe("PermissionAxesBadge", () => {
       file_write: "session",
       command: "ask",
       team_kickoff: "rules",
+      host: "ask",
     });
     renderBadge();
     await waitFor(() => {

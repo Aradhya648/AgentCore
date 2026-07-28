@@ -20,8 +20,11 @@ from agentcore.runtime.events import (
     run_completed,
     run_context,
     run_started,
+    title_generated,
     tool_use_end,
+    tool_use_progress,
     tool_use_start,
+    turn_saved,
     turn_warning,
 )
 
@@ -102,6 +105,89 @@ def _single_agent_error() -> list[SSEEvent]:
         message_start("m1", conversation_id=_CONV),
         content_delta("开始处理"),
         error_event("llm_error", "模型超时"),
+    ]
+
+
+def _single_agent_tool_failure() -> list[SSEEvent]:
+    """单聊：工具执行失败（``tool_use_end`` ``success=False`` → wire ``status=error``）。
+
+    生产 ``tool_use_end`` builder 把 ``success=False`` 写成 ``status: "error"``；CEO 仍可
+    继续作答。钉住 process 工具步终态为 error（与 success 向量对偶），避免 fold 把失败
+    当成 success 或丢结果。
+    """
+    return [
+        message_start("m1", conversation_id=_CONV),
+        reasoning_delta("先搜一下。"),
+        tool_use_start("tc1", "web_search", {"query": "AgentCore"}),
+        tool_use_end(
+            "tc1",
+            "web_search",
+            success=False,
+            output="搜索服务暂时不可用，请稍后重试。",
+        ),
+        content_delta("检索失败了，"),
+        content_delta("我先按已有知识回答。"),
+        message_end(FinishReason.END_TURN, input_tokens=1100, output_tokens=160, cost=_COST),
+    ]
+
+
+def _single_agent_cancelled() -> list[SSEEvent]:
+    """单聊：用户取消（``message_end(FinishReason.CANCELLED)``）。
+
+    生产 ``/stop`` / turn_persistence 对挂着的 SSE 先发 live ``message_end(cancelled)``；
+    与 ``reload_interrupted_partial``（lease salvage → interrupted）对偶——本向量钉住
+    **用户主动停止** 的 finish_reason=cancelled → status=cancelled，半截正文保留。
+    """
+    return [
+        message_start("m1", conversation_id=_CONV),
+        reasoning_delta("先梳理要点。"),
+        content_delta("根据目前信息，"),
+        content_delta("建议分三步："),
+        message_end(
+            FinishReason.CANCELLED,
+            input_tokens=600,
+            output_tokens=40,
+            cost=_COST,
+        ),
+    ]
+
+
+def _single_agent_tool_progress() -> list[SSEEvent]:
+    """单聊：工具执行阶段进度（``tool_use_progress``，非 ``tool_progress``）。
+
+    生产 ``tool_exec`` 在 ``tool_use_start``…``tool_use_end`` 之间经 ``on_phase`` 发
+    transport-only ``tool_use_progress``（web_search → querying/queued/fallback）；
+    ``tool_progress`` 是参数流式心跳，worker 侧对偶是 ``run_tool_progress``。本事件
+    不进 journal / ProjectedTurn process（EPHEMERAL），但向量须带真字段，保证三端 fold
+    对未知 phase 不崩、序列与生产一致。
+    """
+    return [
+        message_start("m1", conversation_id=_CONV),
+        reasoning_delta("我先搜索。"),
+        tool_use_start("tc1", "web_search", {"query": "AgentCore"}),
+        tool_use_progress("tc1", "web_search", "querying"),
+        tool_use_progress("tc1", "web_search", "queued"),
+        tool_use_end("tc1", "web_search", success=True, output="找到 3 条结果。"),
+        content_delta("根据搜索，"),
+        content_delta("答案如下。"),
+        message_end(FinishReason.END_TURN, input_tokens=1500, output_tokens=200, cost=_COST),
+    ]
+
+
+def _single_agent_title_and_turn_saved() -> list[SSEEvent]:
+    """单聊：回合 chrome——``turn_saved``（用户消息落库）+ ``title_generated``（早标题）。
+
+    生产：``turn_saved`` 在 ``message_start`` 之前；``title_generated`` 与回合并行、常在
+    ``message_end`` 前后到达。二者均不进 ProjectedTurn（DERIVED / chrome），fold no-op；
+    向量钉住事件名与 payload 键，避免客户端误把 chrome 当判定态。
+    """
+    return [
+        turn_saved(user_message_id="u1"),
+        message_start("m1", conversation_id=_CONV),
+        content_delta("你好，"),
+        content_delta("已收到。"),
+        message_end(FinishReason.END_TURN, input_tokens=400, output_tokens=60, cost=_COST),
+        title_generated("问候与确认", conversation_id=_CONV),
     ]
 
 def _single_agent_citations() -> list[SSEEvent]:
@@ -431,6 +517,22 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
     "single_agent_tool": ("单聊：思考→工具→正文（process 时间线）", _single_agent_tool),
     "single_agent_consult_memory": ("单聊：CEO 翻开记忆主题笔记（consult_memory → 查阅记忆卡片 + 全文）", _single_agent_consult_memory),
     "single_agent_error": ("单聊：正文中途 error 事件 → failed", _single_agent_error),
+    "single_agent_tool_failure": (
+        "单聊：工具失败（tool_use_end success=False → process status=error）后继续作答",
+        _single_agent_tool_failure,
+    ),
+    "single_agent_cancelled": (
+        "单聊：用户取消（message_end finish_reason=cancelled → status=cancelled，半截正文保留）",
+        _single_agent_cancelled,
+    ),
+    "single_agent_tool_progress": (
+        "单聊：工具执行阶段进度（tool_use_progress querying/queued，EPHEMERAL；终态同成功工具）",
+        _single_agent_tool_progress,
+    ),
+    "single_agent_title_and_turn_saved": (
+        "单聊：chrome turn_saved + title_generated（不进 ProjectedTurn；fold no-op）",
+        _single_agent_title_and_turn_saved,
+    ),
     "single_agent_citations": ("单聊：思考→工具→正文 + citations 来源卡", _single_agent_citations),
     "single_agent_web_read": (
         "单聊：联网检索+深读富渲染（web_search 卡 · 单条 read_url 来源头+正文 · ≥2 read_url 来源集合）",

@@ -565,3 +565,57 @@ def test_write_logs_failure_after_exhausted_replace_retries(tmp_path, monkeypatc
     assert errors and errors[0][0] == "sidecar.outbox_write_failed"
     assert not (tmp_path / "outbox" / "u1.json").exists()
 
+
+def test_finalize_replaces_journal_with_complete_result_entries(tmp_path):
+    """When result.journal_entries is passed, seal with that map (not progressive stub)."""
+    from agentcore.conversation.store.outbox import journal_entries_from_map
+
+    store = OutboxStore(tmp_path / "outbox")
+    store.bind_turn(
+        conversation_id="c1",
+        user_message_id="u1",
+        user_message="hi",
+        message_id="m1",
+        trace_id="z" * 32,
+    )
+
+    async def run() -> dict:
+        await store.begin_turn(conversation_id="c1", message_id="m1", trace_id="z" * 32)
+        # Incomplete progressive (team only) — would eclipse full process if kept.
+        await store.append_journal(
+            turn_id="m1",
+            seq=0,
+            conversation_id="c1",
+            trace_id="z" * 32,
+            entry={"kind": "run_started", "payload": {"run_id": "w1"}, "ts": None},
+        )
+        complete = [
+            {
+                "kind": "process_reasoning",
+                "payload": {"kind": "reasoning", "text": "想"},
+                "ts": None,
+            },
+            {"kind": "run_started", "payload": {"run_id": "w1"}, "ts": None},
+            {"kind": "turn_end", "payload": {"finish_reason": "stop"}, "ts": None},
+        ]
+        await store.finalize(
+            mode="local",
+            conversation_id="c1",
+            user_message="hi",
+            user_message_id="u1",
+            assistant_content="done",
+            message_id="m1",
+            trace_id="z" * 32,
+            finish_reason="stop",
+            runs={"events": [], "process": [{"kind": "reasoning", "text": "想"}]},
+            journal_entries=complete,
+        )
+        return json.loads((tmp_path / "outbox" / "u1.json").read_text(encoding="utf-8"))
+
+    record = _drive(run())
+    entries = journal_entries_from_map(record.get("journal")) or []
+    kinds = [e.get("kind") for e in entries]
+    assert kinds == ["process_reasoning", "run_started", "turn_end"]
+    body = to_record_turn_body(record)
+    assert body["journal"][0]["kind"] == "process_reasoning"
+

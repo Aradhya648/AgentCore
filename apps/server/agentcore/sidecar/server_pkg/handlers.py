@@ -506,6 +506,48 @@ class HandlerMixin:
         )
         await self._reply(request_id, {"ok": True, "queued": peek_steer_count(execution_id)})
 
+    async def _on_list_browser_sessions(self, request_id: Any, params: dict[str, Any]) -> None:
+        """Local hydrate: list live BrowserSessions from this process's Registry.
+
+        Wire shape mirrors cloud ``GET …/browser/sessions`` (snake_case) so the
+        desktop mapper can reuse the same fromWire path.
+        """
+        conversation_id = str(params.get("conversationId") or "").strip()
+        if not conversation_id:
+            await self._send(
+                protocol.make_error(
+                    request_id,
+                    protocol.INVALID_PARAMS,
+                    "listBrowserSessions requires conversationId",
+                )
+            )
+            return
+        from agentcore.runtime.browser.registry import default_browser_session_registry
+
+        reg = default_browser_session_registry()
+        infos = reg.list_by_conversation(conversation_id)
+        active = reg.resolve_session_id(conversation_id)
+        await self._reply(
+            request_id,
+            {
+                "data": [
+                    {
+                        "session_id": i.session_id,
+                        "conversation_id": i.conversation_id,
+                        "host_kind": i.host_kind,
+                        "control": i.control,
+                        "run_id": i.run_id,
+                        "created_at": i.created_at,
+                        "last_used": i.last_used,
+                        "url": i.url,
+                        "title": i.title,
+                    }
+                    for i in infos
+                ],
+                "active_session_id": active,
+            },
+        )
+
     async def _on_turn_files_diff(self, request_id: Any, params: dict[str, Any]) -> None:
         """A1+ local: baseline zip vs live workspace (read-only; no cloud path)."""
         if self._root is None:

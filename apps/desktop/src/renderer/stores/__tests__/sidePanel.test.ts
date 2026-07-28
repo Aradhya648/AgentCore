@@ -1,4 +1,20 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/services/browserSessions", () => ({
+  listBrowserSessions: vi.fn().mockResolvedValue({
+    sessions: [],
+    activeSessionId: null,
+  }),
+  closeBrowserSession: vi.fn(),
+}));
+
+const detachLocalBrowserHost = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/detachLocalBrowserHost", () => ({
+  detachLocalBrowserHost: (...args: unknown[]) =>
+    detachLocalBrowserHost(...args),
+}));
+
+import { listBrowserSessions } from "@/services/browserSessions";
 import { useBrowserSessionsStore } from "../browserSessions";
 import { useCommandPanelStore } from "../commandPanel";
 import { useConversationStore } from "../conversation";
@@ -20,6 +36,8 @@ import {
   terminalDismissKey,
   useSidePanelStore,
 } from "../sidePanel";
+
+const listMock = vi.mocked(listBrowserSessions);
 
 const panel = () => useSidePanelStore.getState();
 const exec = () => useExecutionStore.getState();
@@ -63,6 +81,9 @@ beforeEach(() => {
   });
   useConversationStore.setState({ currentConversationId: null });
   useBrowserSessionsStore.setState({ pages: [], activePageId: null });
+  listMock.mockReset();
+  listMock.mockResolvedValue({ sessions: [], activeSessionId: null });
+  detachLocalBrowserHost.mockClear();
 });
 
 describe("setWidth", () => {
@@ -544,15 +565,47 @@ describe("showBrowser（浏览器壳 · 可关内容 tab）", () => {
     expect(panel().pendingBadge).toBe(0);
   });
 
-  it("creates a blank local page when none exist", () => {
+  it("creates a blank local page when none exist (after hydrate finds no server)", async () => {
     useConversationStore.setState({ currentConversationId: "conv-browser" });
     panel().showBrowser();
-    expect(
-      useBrowserSessionsStore.getState().pagesFor("conv-browser"),
-    ).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(
+        useBrowserSessionsStore.getState().pagesFor("conv-browser"),
+      ).toHaveLength(1);
+    });
     expect(
       useBrowserSessionsStore.getState().pagesFor("conv-browser")[0]?.title,
     ).toBe("新标签页");
+    expect(listMock).toHaveBeenCalledWith("conv-browser");
+  });
+
+  it("activates hydrated server page instead of ensuring a blank", async () => {
+    useConversationStore.setState({ currentConversationId: "conv-server" });
+    listMock.mockResolvedValue({
+      sessions: [
+        {
+          sessionId: "sess-1",
+          conversationId: "conv-server",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 1,
+          url: "https://example.com/",
+          title: "Example",
+        },
+      ],
+      activeSessionId: "sess-1",
+    });
+    panel().showBrowser();
+    await vi.waitFor(() => {
+      expect(useBrowserSessionsStore.getState().activePageId).toBe(
+        "browser-server:sess-1",
+      );
+    });
+    const pages = useBrowserSessionsStore.getState().pagesFor("conv-server");
+    expect(pages.some((p) => p.serverSessionId === "sess-1")).toBe(true);
+    expect(pages.every((p) => p.serverSessionId)).toBe(true); // no blank forced
   });
 });
 
@@ -601,5 +654,23 @@ describe("auto-surface dismiss + pending badge", () => {
     panel().togglePanel();
     expect(panel().open).toBe(false);
     expect(panel().pendingBadge).toBe(1);
+  });
+});
+
+describe("Local browser detach on dock / browser tab close", () => {
+  it("closeTab(browser) calls hide before state change", () => {
+    panel().showBrowser();
+    panel().closeTab(TEAM_BROWSER_TAB_ID);
+    expect(detachLocalBrowserHost).toHaveBeenCalledTimes(1);
+    expect(panel().tabs.some((t) => t.kind === "browser")).toBe(false);
+  });
+
+  it("closePanel / togglePanel(关) call hide", () => {
+    panel().openPanel();
+    panel().closePanel();
+    expect(detachLocalBrowserHost).toHaveBeenCalledTimes(1);
+    panel().openPanel();
+    panel().togglePanel(); // close
+    expect(detachLocalBrowserHost).toHaveBeenCalledTimes(2);
   });
 });

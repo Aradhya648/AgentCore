@@ -302,6 +302,90 @@ def test_partial_verdict_allows_honest_gap_summary():
     )
 
 
+def test_partial_verdict_rejects_fixed_claim():
+    """乙：blocked/partial +「已修好」→ finish_guard 回炉。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("src/a.ts",),
+        execution_id="e1",
+    )
+    reworks = finish_guard(
+        "缺陷已修好，可以收工。",
+        citation_count=0,
+        delivery_verdict=verdict,
+    )
+    assert len(reworks) == 1
+    assert "已修好" in reworks[0] or "修码完成" in reworks[0]
+
+
+def test_blocked_verdict_rejects_verified_green_claims():
+    """乙：blocked + 验证通过 / 测试已通过 / 已跑通 → 回炉。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="blocked",
+        delivered_files=(),
+        execution_id="e1",
+    )
+    for claim in (
+        "验证通过，可以交付。",
+        "已验证通过。",
+        "测试已通过。",
+        "已跑通测试。",
+        "验证已绿。",
+        "修复已完成。",
+        "bug 已修复。",
+    ):
+        reworks = finish_guard(
+            claim,
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        assert any(
+            "修好" in r or "验证通过" in r or "跑通" in r or "修码" in r for r in reworks
+        ), claim
+
+
+def test_partial_verdict_allows_negated_fixed_phrase():
+    """乙：否定前缀「尚未修好」放行（沿用甲 `_GAP_NEGATION_PREFIXES`）。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("src/a.ts",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "尚未修好：约定测试仍失败。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
+
+
+def test_partial_verdict_allows_honest_fix_gap_summary():
+    """乙：诚实缺口摘要（未宣称修好/验绿）放行。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("src/fix.py",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "已落盘 `src/fix.py`；约定 pytest 未过，交付卡为部分未满足，下回补验。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
+
+
 def test_partial_verdict_allows_negated_all_success_phrase():
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 

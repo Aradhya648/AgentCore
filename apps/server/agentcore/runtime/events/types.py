@@ -74,6 +74,9 @@ class EventType(StrEnum):
     # Desktop Client Tools: transport-only client-tool request — the server asks the
     # bound Electron app to show an OS notification and report back. NOT journaled.
     DESKTOP_NOTIFY_REQUIRED = "desktop_notify_required"
+    # Host 第三能力面 P0: transport-only client-tool — desktop fulfils host_* ops
+    # (ping / info / audio_devices / open_settings) via backfill. NOT journaled.
+    HOST_OP_REQUIRED = "host_op_required"
     HANDOFF_SNAPSHOT_DONE = "handoff_snapshot_done"
     HANDOFF_JOB_STARTED = "handoff_job_started"
     HANDOFF_APPLY_DONE = "handoff_apply_done"

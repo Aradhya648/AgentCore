@@ -63,12 +63,13 @@ function mockBrowserApi(overrides: Partial<BrowserApi> = {}): BrowserApi {
   return {
     show: vi.fn().mockResolvedValue({ ok: true }),
     setBounds: vi.fn(),
-    hide: vi.fn(),
+    hide: vi.fn().mockResolvedValue(undefined),
     navigate: vi.fn().mockResolvedValue({ ok: true }),
     openWorkspaceHtml: vi.fn().mockResolvedValue({ ok: true }),
     reload: vi.fn(),
     back: vi.fn(),
     close: vi.fn(),
+    closeConversation: vi.fn().mockResolvedValue({ ok: true }),
     onNavState: vi.fn().mockReturnValue(() => {}),
     ...overrides,
   };
@@ -86,6 +87,14 @@ function firstPage(conversationId: string) {
   expect(page).toBeDefined();
   if (!page) throw new Error("expected browser page");
   return page;
+}
+
+async function waitForPages(conversationId: string, min = 1) {
+  await waitFor(() => {
+    expect(
+      useBrowserSessionsStore.getState().pagesFor(conversationId).length,
+    ).toBeGreaterThanOrEqual(min);
+  });
 }
 
 beforeEach(() => {
@@ -135,19 +144,26 @@ describe("BrowserPanel", () => {
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     expect(screen.getByLabelText("地址栏")).toBeTruthy();
     expect(screen.getByLabelText("新标签页")).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        useBrowserSessionsStore.getState().pagesFor("conv-1"),
+      ).toHaveLength(1);
+    });
     expect(screen.getByText("输入地址开始浏览")).toBeTruthy();
     expect(screen.queryByText("暂无浏览器活动")).toBeNull();
     expect(screen.queryByTestId("browser-live")).toBeNull();
-    expect(useBrowserSessionsStore.getState().pagesFor("conv-1")).toHaveLength(
-      1,
-    );
     await waitFor(() => {
       expect(listMock).toHaveBeenCalledWith("conv-1");
     });
   });
 
-  it("does not mount BrowserLivePanel for blank local page even when liveAvailable", () => {
+  it("does not mount BrowserLivePanel for blank local page even when liveAvailable", async () => {
     render(<BrowserPanel conversationId="conv-1" liveAvailable={true} />);
+    await waitFor(() => {
+      expect(
+        useBrowserSessionsStore.getState().pagesFor("conv-1").length,
+      ).toBeGreaterThan(0);
+    });
     expect(screen.queryByTestId("browser-live")).toBeNull();
   });
 
@@ -218,6 +234,11 @@ describe("BrowserPanel", () => {
 
   it("creates another local blank page via the new-tab button (no POST create)", async () => {
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitFor(() => {
+      expect(
+        useBrowserSessionsStore.getState().pagesFor("conv-1"),
+      ).toHaveLength(1);
+    });
     fireEvent.click(screen.getByLabelText("新标签页"));
     expect(useBrowserSessionsStore.getState().pagesFor("conv-1")).toHaveLength(
       2,
@@ -232,7 +253,7 @@ describe("BrowserPanel", () => {
     expect(closeMock).not.toHaveBeenCalled();
   });
 
-  it("hydrates server sessions into tabs", async () => {
+  it("hydrates server sessions into tabs and activates them over blank", async () => {
     listMock.mockResolvedValue({
       sessions: [
         {
@@ -251,6 +272,9 @@ describe("BrowserPanel", () => {
     await waitFor(() => {
       const pages = useBrowserSessionsStore.getState().pagesFor("conv-1");
       expect(pages.some((p) => p.serverSessionId === "sess-abc")).toBe(true);
+      expect(useBrowserSessionsStore.getState().activePageId).toBe(
+        "browser-server:sess-abc",
+      );
     });
   });
 
@@ -330,6 +354,7 @@ describe("BrowserPanel", () => {
 
   it("navigates the active page from the address bar (store)", async () => {
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "example.com" } });
     submitAddressBar(input);
@@ -346,21 +371,34 @@ describe("BrowserPanel", () => {
 
   it("Web address bar: create sandbox + navigate when no browserApi", async () => {
     window.browserApi = undefined;
-    listMock.mockResolvedValue({
-      sessions: [
-        {
-          sessionId: "sess-created",
-          conversationId: "conv-1",
-          hostKind: "sandbox",
-          control: "agent",
-          runId: null,
-          createdAt: 1,
-          lastUsed: 1,
-        },
-      ],
-      activeSessionId: "sess-created",
+    // 首轮 hydrate 空 list → 本地空白；create 后再 hydrate 带回 session。
+    listMock
+      .mockResolvedValueOnce({ sessions: [], activeSessionId: null })
+      .mockResolvedValue({
+        sessions: [
+          {
+            sessionId: "sess-created",
+            conversationId: "conv-1",
+            hostKind: "sandbox",
+            control: "agent",
+            runId: null,
+            createdAt: 1,
+            lastUsed: 1,
+          },
+        ],
+        activeSessionId: "sess-created",
+      });
+    createMock.mockResolvedValue({
+      sessionId: "sess-created",
+      conversationId: "conv-1",
+      hostKind: "sandbox",
+      control: "agent",
+      runId: null,
+      createdAt: 1,
+      lastUsed: 1,
     });
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "https://example.com" } });
     submitAddressBar(input);
@@ -386,6 +424,7 @@ describe("BrowserPanel", () => {
   it("Web address bar: rejects localhost without create", async () => {
     window.browserApi = undefined;
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "http://127.0.0.1:3000" } });
     submitAddressBar(input);
@@ -402,6 +441,7 @@ describe("BrowserPanel", () => {
     const api = mockBrowserApi();
     window.browserApi = api;
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
     const page = firstPage("conv-1");
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "https://example.com" } });
@@ -410,6 +450,7 @@ describe("BrowserPanel", () => {
       expect(api.navigate).toHaveBeenCalledWith({
         pageId: page.id,
         url: "https://example.com",
+        conversationId: "conv-1",
       });
     });
     expect(createMock).not.toHaveBeenCalled();
@@ -448,7 +489,10 @@ describe("BrowserPanel", () => {
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     await waitFor(() => {
       expect(api.show).toHaveBeenCalledWith(
-        expect.objectContaining({ pageId: "sess-local" }),
+        expect.objectContaining({
+          pageId: "sess-local",
+          conversationId: "conv-1",
+        }),
       );
     });
     const input = screen.getByLabelText("地址栏");
@@ -458,6 +502,7 @@ describe("BrowserPanel", () => {
       expect(api.navigate).toHaveBeenCalledWith({
         pageId: "sess-local",
         url: "https://example.com/next",
+        conversationId: "conv-1",
       });
     });
     expect(api.navigate).not.toHaveBeenCalledWith(
@@ -469,10 +514,11 @@ describe("BrowserPanel", () => {
     rectSpy.mockRestore();
   });
 
-  it("calls browserApi.close when closing a local page", () => {
+  it("calls browserApi.close when closing a local page", async () => {
     const api = mockBrowserApi();
     window.browserApi = api;
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
     const page = firstPage("conv-1");
     fireEvent.click(screen.getByLabelText(`关闭 ${page.title || "新标签页"}`));
     expect(api.close).toHaveBeenCalledWith(page.id);
@@ -490,6 +536,7 @@ describe("BrowserPanel", () => {
     });
     window.browserApi = api;
     render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
     const page = firstPage("conv-1");
     expect((screen.getByLabelText("后退") as HTMLButtonElement).disabled).toBe(
       true,

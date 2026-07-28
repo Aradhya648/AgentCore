@@ -722,6 +722,14 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
         "runtime_ready",
         "graph_consistent",
     }
+    obj_branch = next(
+        branch for branch in cc["oneOf"] if branch.get("type") == "object"
+    )
+    assert "verify_command" in obj_branch["properties"]
+    assert "怎么算修好" in obj_branch["properties"]["verify_command"]["description"]
+    assert "修码" in cc.get("description", "") or "verify_command" in cc.get(
+        "description", ""
+    )
     t = tool(Provider([]))
     params = t.schema.parameters
     props = params["properties"]

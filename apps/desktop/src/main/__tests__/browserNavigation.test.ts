@@ -9,12 +9,18 @@ import {
   isNavigableLocalBrowserUrl,
   resolveBridgeNavigateKind,
 } from "../browser/navigation-policy";
-import { BROWSER_PARTITION, normalizeBrowserBounds } from "../browser/paths";
 import {
-  WORKSPACE_PARTITION,
+  BROWSER_PARTITION_PREFIX,
+  browserPartitionFor,
+  normalizeBrowserBounds,
+} from "../browser/paths";
+import {
+  WORKSPACE_PARTITION_PREFIX,
   WORKSPACE_SCHEME,
   buildWorkspaceUrl,
   isWorkspaceBrowserUrl,
+  resolveWorkspaceProtocolRequest,
+  workspacePartitionFor,
 } from "../browser/workspace-paths";
 
 describe("isAllowedWebBrowserUrl", () => {
@@ -92,15 +98,48 @@ describe("resolveBridgeNavigateKind", () => {
   });
 });
 
-describe("BROWSER_PARTITION / WORKSPACE_PARTITION (L1b)", () => {
-  it("are non-persistent and mutually distinct from preview", () => {
-    expect(BROWSER_PARTITION).toBe("agentcore-browser");
-    expect(WORKSPACE_PARTITION).toBe("agentcore-browser-workspace");
-    expect(BROWSER_PARTITION.startsWith("persist:")).toBe(false);
-    expect(WORKSPACE_PARTITION.startsWith("persist:")).toBe(false);
-    expect(BROWSER_PARTITION).not.toBe(WORKSPACE_PARTITION);
-    expect(BROWSER_PARTITION).not.toBe("agentcore-preview");
-    expect(WORKSPACE_PARTITION).not.toBe("agentcore-preview");
+describe("browser / workspace partition by conversationId", () => {
+  it("外网与 workspace 按 cid 切开，同 cid 两 tab 同 partition 名", () => {
+    expect(browserPartitionFor("conv-a")).toBe("agentcore-browser:conv:conv-a");
+    expect(browserPartitionFor("conv-b")).toBe("agentcore-browser:conv:conv-b");
+    expect(browserPartitionFor("conv-a")).toBe(browserPartitionFor("Conv-A"));
+    expect(workspacePartitionFor("conv-a")).toBe(
+      "agentcore-browser-workspace:conv:conv-a",
+    );
+    expect(workspacePartitionFor("conv-b")).not.toBe(
+      workspacePartitionFor("conv-a"),
+    );
+    expect(BROWSER_PARTITION_PREFIX.startsWith("persist:")).toBe(false);
+    expect(WORKSPACE_PARTITION_PREFIX.startsWith("persist:")).toBe(false);
+    expect(browserPartitionFor("c1")).not.toBe(workspacePartitionFor("c1"));
+    expect(browserPartitionFor("c1")).not.toContain("agentcore-preview");
+    expect(workspacePartitionFor("c1")).not.toContain("agentcore-preview");
+  });
+
+  it("缺 conversationId 抛错（不回落全局 partition）", () => {
+    expect(() => browserPartitionFor("")).toThrow(/conversationId/);
+    expect(() => workspacePartitionFor("  ")).toThrow(/conversationId/);
+  });
+});
+
+describe("workspace protocol host === partition cid", () => {
+  it("同 cid 可解析；跨 cid → 403", () => {
+    expect(
+      resolveWorkspaceProtocolRequest(
+        "workspace://conv-a/site/index.html",
+        "conv-a",
+      ),
+    ).toEqual({
+      ok: true,
+      conversationId: "conv-a",
+      rel: "site/index.html",
+    });
+    expect(
+      resolveWorkspaceProtocolRequest(
+        "workspace://conv-b/site/index.html",
+        "conv-a",
+      ),
+    ).toEqual({ ok: false, status: 403 });
   });
 });
 

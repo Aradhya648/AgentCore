@@ -108,21 +108,16 @@ def validate_search_query(query: str) -> str | None:
     if not unquoted:
         # Entire query was quoted phrases — always allowed.
         return None
-    # 场景中立的拒绝提示：明示超限量 + 两个可直接照抄的操作（拆分 / 引号豁免）。
-    tip = (
-        "改法：①拆分——一次只搜 2–3 个核心词，其余概念留到下一轮再搜；"
-        "②引号/书名号豁免——把专有短语、法规名或报错原文用引号或书名号《》包住，"
-        "包住部分不计入上限。"
-    )
+    # 短拒绝文案：明示超限量 + 可照抄示例/删字量 + 一句操作提示（拆分 / 引号豁免）。
+    tip = "每次只搜 2–3 个核心词；专名用引号/书名号可豁免上限。"
     if _CJK_RE.search(unquoted):
         weighted = _weighted_char_cost(unquoted)
         if weighted > _QUERY_CJK_CHAR_LIMIT:
             over = weighted - _QUERY_CJK_CHAR_LIMIT
             return (
-                f"查询过长：未加引号部分折合 {weighted} 字，上限 "
-                f"{_QUERY_CJK_CHAR_LIMIT}（超出 {over} 字；中文按字计、英文单词每词折 "
-                f"{_QUERY_LATIN_WORD_WEIGHT} 字）。请删掉约 {over} 字或把长专有短语"
-                f"加书名号/引号后重试。"
+                f"查询过长：未加引号折合 {weighted} 字，上限 "
+                f"{_QUERY_CJK_CHAR_LIMIT}（超出 {over}；英文词每词折 "
+                f"{_QUERY_LATIN_WORD_WEIGHT} 字）。请删约 {over} 字或给长专名加引号后重试。"
                 f"{tip}"
             )
         return None
@@ -131,9 +126,9 @@ def validate_search_query(query: str) -> str | None:
         over = word_count - _QUERY_LATIN_WORD_LIMIT
         example = _latin_shorten_example(unquoted)
         return (
-            f"查询词过多：未加引号部分 {word_count} 个词，上限 "
-            f"{_QUERY_LATIN_WORD_LIMIT}（超出 {over} 个词）。"
-            f"可先改为「{example}」（或更短）后重试。{tip}"
+            f"查询词过多：未加引号 {word_count} 词，上限 "
+            f"{_QUERY_LATIN_WORD_LIMIT}（超出 {over}）。"
+            f"请改为「{example}」后重试。{tip}"
         )
     return None
 

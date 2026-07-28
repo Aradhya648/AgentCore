@@ -106,6 +106,9 @@ jobs:
       - name: Check town story-pack materialization (canonical ↔ Unity ↔ backend)
         run: node scripts/sync-story-packs.mjs --check
 
+      - name: Check legal Markdown mirror (desktop content.ts ↔ TERMS/PRIVACY ↔ mobile)
+        run: node scripts/sync-legal-md.mjs --check
+
       - name: Fail on uncommitted drift
         run: git diff --exit-code
 

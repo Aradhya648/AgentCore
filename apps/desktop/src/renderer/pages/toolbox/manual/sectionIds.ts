@@ -1,13 +1,15 @@
 /**
  * 手册节 ID 集中注册表 —— 功能现场深链 / JumpLink / 内容源共用。
  *
- * 目标信息架构（后续三章子代理只填 content/*.ts，不改本文件与 Shell）：
+ * 信息架构：
  * - intro: what / mindset / quickstart
- * - collaboration: collab-overview / briefing / roles / progress / checkpoint /
- *   control / debate / continuation / memory（另保留 autonomy）
- * - mechanism: live / legend / panorama / turnflow / scenarios
- * - reference: chat / tools / workspace / settings / faq / troubleshooting /
+ * - collaboration: briefing / progress / checkpoint / autonomy / debate /
+ *   control / memory
+ * - mechanism: live / legend / panorama / scenarios
+ * - reference: tools / workspace / settings / faq / troubleshooting /
  *   privacy / glossary
+ *
+ * 旧节 ID 见 MANUAL_SECTION_ALIASES（深链滚到新节，勿裸删）。
  */
 
 import { MANUAL_CHAPTER_PATHS, type ManualChapterId } from "./paths";
@@ -19,27 +21,23 @@ export const MANUAL_SECTION_IDS = {
     quickstart: "quickstart",
   },
   collaboration: {
-    "collab-overview": "collab-overview",
     briefing: "briefing",
-    roles: "roles",
     progress: "progress",
     checkpoint: "checkpoint",
-    control: "control",
-    debate: "debate",
-    continuation: "continuation",
-    memory: "memory",
-    /** 权限配方（徽章「设为新会话默认」；手机设置） */
     autonomy: "autonomy",
+    debate: "debate",
+    /** 中途插手（含带现场续派） */
+    control: "control",
+    memory: "memory",
   },
   mechanism: {
     live: "live",
     legend: "legend",
+    /** 从发消息到收答案（原 panorama + turnflow） */
     panorama: "panorama",
-    turnflow: "turnflow",
     scenarios: "scenarios",
   },
   reference: {
-    chat: "chat",
     tools: "tools",
     workspace: "workspace",
     settings: "settings",
@@ -49,6 +47,18 @@ export const MANUAL_SECTION_IDS = {
     glossary: "glossary",
   },
 } as const;
+
+/**
+ * 旧节 ID → 现行节 ID（书签 / 旧深链兼容）。
+ * 别名本身不出现在内容源 sections 列表。
+ */
+export const MANUAL_SECTION_ALIASES: Record<string, string> = {
+  "collab-overview": MANUAL_SECTION_IDS.collaboration.briefing,
+  roles: MANUAL_SECTION_IDS.intro.mindset,
+  continuation: MANUAL_SECTION_IDS.collaboration.control,
+  turnflow: MANUAL_SECTION_IDS.mechanism.panorama,
+  chat: MANUAL_SECTION_IDS.reference.faq,
+};
 
 export type IntroSectionId =
   (typeof MANUAL_SECTION_IDS.intro)[keyof typeof MANUAL_SECTION_IDS.intro];
@@ -65,7 +75,12 @@ export type ManualSectionId =
   | MechanismSectionId
   | ReferenceSectionId;
 
-/** 节 ID → 所属章（供 JumpLink 跨节回退导航）。 */
+/** 别名归一到现行节 ID。 */
+export function resolveCanonicalSectionId(sectionId: string): string {
+  return MANUAL_SECTION_ALIASES[sectionId] ?? sectionId;
+}
+
+/** 节 ID → 所属章（供 JumpLink 跨节回退导航）；含别名。 */
 const SECTION_OWNER: Record<string, ManualChapterId> = (() => {
   const map: Record<string, ManualChapterId> = {};
   for (const [chapterId, sections] of Object.entries(MANUAL_SECTION_IDS) as [
@@ -76,25 +91,31 @@ const SECTION_OWNER: Record<string, ManualChapterId> = (() => {
       map[id] = chapterId;
     }
   }
+  for (const [alias, canonical] of Object.entries(MANUAL_SECTION_ALIASES)) {
+    const chapter = map[canonical];
+    if (chapter) map[alias] = chapter;
+  }
   return map;
 })();
 
-/** 章 + 节 → 深链 path（含 `?s=`）。 */
+/** 章 + 节 → 深链 path（含 `?s=`）；节 ID 会归一到现行 ID。 */
 export function manualHref(
   chapter: ManualChapterId,
   section: ManualSectionId | string,
 ): string {
-  return `${MANUAL_CHAPTER_PATHS[chapter]}?s=${section}`;
+  const canonical = resolveCanonicalSectionId(section);
+  return `${MANUAL_CHAPTER_PATHS[chapter]}?s=${canonical}`;
 }
 
-/** 仅知节 ID 时解析深链；未知节返回 null。 */
+/** 仅知节 ID 时解析深链；未知节返回 null。href 使用现行节 ID。 */
 export function resolveSectionHref(sectionId: string): string | null {
-  const chapter = SECTION_OWNER[sectionId];
+  const canonical = resolveCanonicalSectionId(sectionId);
+  const chapter = SECTION_OWNER[canonical];
   if (!chapter) return null;
-  return manualHref(chapter, sectionId);
+  return manualHref(chapter, canonical);
 }
 
-/** 节是否在注册表中。 */
+/** 节是否在注册表中（含别名）。 */
 export function isRegisteredSectionId(sectionId: string): boolean {
   return sectionId in SECTION_OWNER;
 }
@@ -102,5 +123,5 @@ export function isRegisteredSectionId(sectionId: string): boolean {
 export function chapterOfSection(
   sectionId: string,
 ): ManualChapterId | undefined {
-  return SECTION_OWNER[sectionId];
+  return SECTION_OWNER[resolveCanonicalSectionId(sectionId)];
 }

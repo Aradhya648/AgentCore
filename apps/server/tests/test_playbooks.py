@@ -61,6 +61,9 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
         assert d["artifacts"] and d["artifacts"][0] in expected_research_artifacts
         assert d["artifacts"][0] in by_id[rid]["task"]
         assert "file_write" in by_id[rid]["task"]
+        # A3 查询契约进调研员任务书（与工具硬拒对齐）
+        assert "≤8 词" in by_id[rid]["task"]
+        assert "不改写" in by_id[rid]["task"]
     outline_d = by_id["outline"]["deliverable"]
     assert outline_d["form"] == "files"
     assert outline_d["artifacts"] == ["AgentCore/文档/research/提纲.md"]
@@ -274,7 +277,11 @@ def test_build_app_requires_app():
 def test_repair_code_diagnose_patch_verify_shape():
     tasks, errors = expand_playbook(
         "repair_code",
-        {"problem": "Module missing export foo", "target": "src/app.ts"},
+        {
+            "problem": "Module missing export foo",
+            "verify": "npx tsc -b",
+            "target": "src/app.ts",
+        },
     )
     assert errors == []
     by_id = _by_id(tasks)
@@ -287,12 +294,29 @@ def test_repair_code_diagnose_patch_verify_shape():
     assert "src/app.ts" in by_id["patch"]["deliverable"]["artifacts"]
     assert "file_list" not in by_id["diagnose"]["tools"]
     assert "str_replace" in by_id["patch"]["tools"]
+    assert "npx tsc -b" in by_id["verify"]["task"]
+    assert "纯 prose" in by_id["verify"]["task"]
+    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+
+    assert by_id["diagnose"]["deliverable"]["min_length"] == MIN_UPSTREAM_BODY_CHARS
+    assert by_id["diagnose"]["deliverable"]["min_length"] >= 80
+    # verify 无下游，不抬到 body 地板
+    assert by_id["verify"]["deliverable"]["min_length"] == 40
 
 
 def test_repair_code_requires_problem():
     tasks, errors = expand_playbook("repair_code", {})
     assert tasks == []
     assert errors and "problem" in errors[0]
+
+
+def test_repair_code_requires_verify_how_fixed():
+    tasks, errors = expand_playbook(
+        "repair_code",
+        {"problem": "Module missing export foo", "target": "src/app.ts"},
+    )
+    assert tasks == []
+    assert errors and "verify" in errors[0]
 
 
 # ── build_website ─────────────────────────────────────────────────────────────
@@ -1013,7 +1037,11 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
     samples = {
         "research_report": {"topic": "T", "angles": ["a", "b"], "checkpoint": True},
         "build_feature": {"feature": "F", "stack": "S"},
-        "repair_code": {"problem": "missing export", "target": "app.ts"},
+        "repair_code": {
+            "problem": "missing export",
+            "verify": "pytest -q",
+            "target": "app.ts",
+        },
         "build_app": {"app": "Ops board", "modules": ["overview", "list"]},
         "build_website": {"site": "Landing", "sections": ["hero", "cta"]},
         "build_toolshed": {"site": "Ops console", "sections": ["应用外壳", "数据表格"]},

@@ -363,15 +363,28 @@ async def finalize_successful_drive(
             backend=tool._base_tool_context.backend,
             criteria_gaps=gaps,
         )
-        # Same terminal post as the success path — criteria gap is still end-of-batch.
+        # Same terminal post as the success path — criteria gap is still end-of-batch,
+        # but must not present as failed=0 success（交付真相）.
+        failed_n = sum(
+            1 for s in results.values() if s.phase is RunPhase.FAILED
+        )
         if session is not None:
-            post_session_all_completed(session, output=gap_msg)
+            post_session_all_completed(
+                session,
+                output=gap_msg,
+                criteria_met=False,
+                failed=failed_n,
+            )
         return ToolResult(
             tool_call_id="",
             success=True,
             output=gap_msg,
             output_limit=DELEGATE_OUTPUT_LIMIT,
-            metadata=usage_metadata(call_usage),
+            metadata={
+                **(usage_metadata(call_usage) or {}),
+                "criteria_unmet": True,
+                "failed": failed_n,
+            },
             citations=new_citations or None,
         )
 

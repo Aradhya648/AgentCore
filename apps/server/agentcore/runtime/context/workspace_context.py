@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal
 from agentcore.workspace.stage_dirs import DEBATE_DIR, RESEARCH_DIR, REVIEWS_DIR
 
 if TYPE_CHECKING:
+    from agentcore.core.types import HostAxis
     from agentcore.workspace.protocol import WorkspaceBackend
 
 
@@ -34,6 +35,7 @@ def build_workspace_context(
     terminal_enabled: bool | None = None,
     browser_enabled: bool | None = None,
     exec_languages: list[str] | tuple[str, ...] | None = None,
+    host_axis: "HostAxis | str | None" = None,
 ) -> str:
     """Render the ``<workspace_context>`` block for this turn's backend + client.
 
@@ -78,9 +80,12 @@ def build_workspace_context(
             f"工作区身份：本会话云端草稿/临时文件空间（根标签 `{root_label}`）——"
             "不是用户本机目录，也不是用户本机已打开的仓库或项目工作区。"
         )
+        # Host 定案 §3.4: 云 reach 与 host= 正交——工作区在云；本机 Host 以能力行为准。
         reach_line = (
-            "云端沙箱触达不了用户的电脑、本机应用与本机文件；"
-            "不要假设能打开或安装用户机器上的软件；"
+            "云端工作区文件在云端沙箱，不是用户本机磁盘；"
+            "本机 Host（音响/系统信息/打开设置等）另计，以能力行 host= 为准——"
+            "host=已装配时可经桌面回填通道调用 host_*；"
+            "host=未装配时勿假装已查本机、勿假设能打开或安装用户机器上的软件；"
             "空树只表示本会话云端草稿尚无文件，勿当成「本机空项目」或宿主机器上的 Git 仓库。"
         )
         artifact_line = (
@@ -155,12 +160,39 @@ def build_workspace_context(
         browser_on = browser_execution_enabled_for(backend)
     # local_open = 本机工作区可让用户直接打开产物（非 L3 浏览器工具；与 location 同事实）。
     local_open_on = is_local
+    # Host 已装配 ⇔ host≠off ∧ 桌面回填通道可达（desktop_online）。
+    host_off = False
+    if host_axis is not None:
+        host_val = getattr(host_axis, "value", None) or str(host_axis)
+        host_off = host_val == "off"
+    host_on = desktop_online and not host_off
     caps: list[str] = []
     caps.append(f"code_execute={'已装配' if exec_on else '未装配'}")
     caps.append(f"terminal={'已装配' if term_on else '未装配'}")
     caps.append(f"browser={'已装配' if browser_on else '未装配'}")
     caps.append(f"local_open={'已装配' if local_open_on else '未装配'}")
+    caps.append(f"host={'已装配' if host_on else '未装配'}")
     capability_line = "本回合执行能力：" + "；".join(caps) + "。"
+    if host_off:
+        host_guide_line = (
+            "本机 Host 指引：host=未装配（用户已关本机协助 / host=off）——"
+            "勿调用 host_*、勿假装已查声卡或本机系统信息；"
+            "工作区 terminal / code_execute 仍可能已装配（host=off ≠ 整机只读）。"
+        )
+    elif host_on:
+        host_guide_line = (
+            "本机 Host 指引：host=已装配（经桌面回填通道，非云进程直探本机）。"
+            "本机排查可先用 L1 host_info / host_audio_devices，也可直接 host_shell"
+            "（Cursor 同款本机命令，不必先 delegate）；结构化 host_* 仍作快捷路径。"
+            "禁止用通识 FAQ 冒充已查本机；打开声音设置 / L3 动作用 worker"
+            "（host_open_settings / host_audio_set_default 等）。"
+        )
+    else:
+        host_guide_line = (
+            "本机 Host 指引：host=未装配（无桌面回填通道）——"
+            "勿调用 host_*、勿假装已查声卡或本机系统信息；"
+            "需要本机观测时如实说明限制，可用通识或 ask_user。"
+        )
     if browser_on:
         if is_local:
             path_capability = (
@@ -260,6 +292,7 @@ def build_workspace_context(
         grant_line,
         mounts_line,
         capability_line,
+        host_guide_line,
         browser_guide_line,
     ]
     if interpreters_line is not None:

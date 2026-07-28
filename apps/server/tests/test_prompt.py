@@ -153,6 +153,14 @@ def test_tool_use_block_teaches_parallel_calls():
     assert "一次性" in out
 
 
+def test_tool_use_block_documents_web_search_query_contract():
+    # A3 查询契约须进共享 system prompt（schema  alone 不够）：模型在研究压力下常倾倒长关键词串。
+    out = assemble_system_prompt()
+    assert "web_search 查询须精简" in out
+    assert "≤8 词" in out
+    assert "不自动改写" in out
+
+
 def test_runtime_context_uses_date_granularity_for_cache_stability():
     # The runtime-context line sits in the system-prompt prefix BEFORE the large
     # stable hint stack, so it must NOT carry second-precision time: a value that
@@ -237,13 +245,16 @@ def test_core_teaches_split_criterion_over_count():
     assert "拿不准先少派" in hint
     assert "可分解" in hint and "质量面" in hint
     assert "finalize=true" in hint and "机械单步" in hint
-    # 成篇调研软偏好：多角取证宜 research_report，禁一人自搜+成文；
-    # 定案 A：手写时各角与主笔均 files，禁「角 prose、仅主笔落盘」
+    # 成篇调研：多角取证宜 research_report（含末环审校）；手写须齐撰稿→独立审校；
+    # 禁一人自搜+成文、禁仅「调研→撰稿」两节点、禁「角 prose、仅主笔落盘」
     assert "成篇调研报告" in hint
     assert 'playbook="research_report"' in hint or "research_report" in hint
     assert "一人包办" in hint or "自搜+成文" in hint
     assert "角 prose" in hint and "仅主笔落盘" in hint
     assert "form=files" in hint
+    assert "独立审校" in hint
+    assert "调研→撰稿" in hint
+    assert "质量缝" in hint
     # 路由第一拍：一句定方向，禁止思考里先干完。
     assert "路由·第一拍" in hint or "第一拍" in hint
     assert "只写一句" in hint or "十字以内" in hint
@@ -370,6 +381,8 @@ def test_core_teaches_delegating_parallel_research():
     hint = _CEO_CORE_HINT
     assert "广度调查" in hint
     assert "探路" in hint
+    assert "3" in hint and "轮" in hint
+    assert "≥2 角" in hint or "继续开发" in hint
 
 
 def test_core_forbids_silent_worker_count_discount():
@@ -427,7 +440,7 @@ def test_core_teaches_execution_and_recall_routing():
     assert "workspace_context" in hint
     assert "能力策略" in hint
     assert "ask_user" in hint
-    assert "completion_criteria=code_verified" in hint
+    assert 'completion_criteria={"type":"code_verified"' in hint
     assert "delegate" in hint
     assert "读文件" in hint or "列目录" in hint
     assert "冒充已跑或已验" in hint
@@ -515,7 +528,8 @@ def test_core_teaches_automation_delivery_format_options():
     kickoff = build_system_skill_registry().get("ask_user_kickoff").body
     assert "可运行自动化" in kickoff
     assert "build_toolshed" in kickoff
-    assert "提示词" in kickoff or "调研" in kickoff
+    assert "不扫正文" in kickoff or "猜意图" in kickoff
+    assert "场面" in hint or "不扫正文" in hint or "猜意图" in hint
 
 
 def test_skill_teaches_environment_capability_constraint():

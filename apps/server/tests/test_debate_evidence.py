@@ -128,6 +128,7 @@ def test_side_system_carries_search_query_rule():
     text = side_system(_config(), _two_sides()[0])
     assert SEARCH_QUERY_RULE in text  # 来自共享常量、口径单一
     assert "2–4 个核心词" in text  # 短查询铁律
+    assert "超过 8 词会直接失败" in text  # A3 硬上限与工具拒绝对齐
     assert "空结果" in text and "再搜一次" in text  # 空→删词重搜，别当「不存在」
     assert "案件主体" in text or "当事方" in text  # 禁抽象文化词裸搜
 

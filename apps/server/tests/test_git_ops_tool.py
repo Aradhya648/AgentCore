@@ -382,3 +382,68 @@ async def test_commit_requires_message(tmp_path: Path):
     result = await GitTool().execute({"subcommand": "commit"}, _worker_ctx(repo))
     assert result.success is False
     assert "message" in (result.error or "")
+
+
+# --- timeout contract / status narrowing ---
+
+
+def test_git_tool_timeout_outlives_inner_ops():
+    from agentcore.runtime.engine import resolve_tool_timeout
+    from agentcore.tools.builtin.git_ops import (
+        _GIT_KILL_SLACK,
+        _GIT_TIMEOUT,
+        git_tool_timeout_seconds,
+    )
+
+    schema = GitTool().schema
+    assert schema.timeout_seconds is None
+    status_ceiling = git_tool_timeout_seconds({"subcommand": "status"})
+    commit_ceiling = git_tool_timeout_seconds({"subcommand": "commit"})
+    assert status_ceiling == 2 * _GIT_TIMEOUT + _GIT_KILL_SLACK
+    assert commit_ceiling == 4 * _GIT_TIMEOUT + _GIT_KILL_SLACK
+    assert commit_ceiling > status_ceiling
+    assert resolve_tool_timeout(schema, {"subcommand": "status"}) == status_ceiling
+    assert resolve_tool_timeout(schema, {"subcommand": "commit"}) == commit_ceiling
+
+
+async def test_status_hides_untracked_by_default(tmp_path: Path):
+    repo = _init_repo(tmp_path / "repo")
+    (repo / "ghost.txt").write_text("untracked\n", encoding="utf-8")
+    result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(repo))
+    assert result.success is True
+    assert "ghost.txt" not in result.output
+    assert result.metadata.get("include_untracked") is False
+
+    shown = await GitTool().execute(
+        {"subcommand": "status", "include_untracked": True},
+        _ceo_ctx(repo),
+    )
+    assert shown.success is True
+    assert "ghost.txt" in shown.output
+    assert shown.metadata.get("include_untracked") is True
+
+
+async def test_status_truncates_long_porcelain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from agentcore.tools.builtin import git_ops as git_mod
+
+    monkeypatch.setattr(git_mod, "_STATUS_LINE_LIMIT", 3)
+    repo = _init_repo(tmp_path / "repo")
+    for i in range(6):
+        (repo / f"f{i}.txt").write_text(f"{i}\n", encoding="utf-8")
+        _run_git(repo, "add", f"f{i}.txt")
+    result = await GitTool().execute({"subcommand": "status"}, _ceo_ctx(repo))
+    assert result.success is True
+    assert "已截断" in result.output
+    assert result.metadata.get("truncated") is True
+    assert (result.metadata.get("status_lines") or 0) >= 4
+
+
+def test_parse_status_sb_extracts_branch():
+    from agentcore.tools.builtin.git_ops import _parse_status_sb
+
+    branch, body = _parse_status_sb("## feature/work...origin/feature/work\n M a.py\n")
+    assert branch == "feature/work"
+    assert "M a.py" in body
+    branch2, body2 = _parse_status_sb("## main\n")
+    assert branch2 == "main"
+    assert body2 == ""

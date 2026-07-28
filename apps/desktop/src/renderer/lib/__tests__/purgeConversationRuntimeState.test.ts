@@ -1,9 +1,10 @@
 import { purgeConversationRuntimeState } from "@/lib/purgeConversationRuntimeState";
 import { useBackgroundTasksStore } from "@/stores/backgroundTasks";
+import { useBrowserSessionsStore } from "@/stores/browserSessions";
 import { useInteractionStore } from "@/stores/interactions";
 import { type PendingResume, usePausedTurnStore } from "@/stores/pausedTurns";
 import { useTurnModelStore } from "@/stores/turnModel";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CID = "conv-del";
 const OTHER = "conv-keep";
@@ -48,6 +49,8 @@ beforeEach(() => {
     modeByConversation: {},
     rootIdByConversation: {},
   });
+  useBrowserSessionsStore.setState({ pages: [], activePageId: null });
+  vi.unstubAllGlobals();
 });
 
 describe("purgeConversationRuntimeState", () => {
@@ -96,5 +99,27 @@ describe("purgeConversationRuntimeState", () => {
     expect(useBackgroundTasksStore.getState().modeByConversation[OTHER]).toBe(
       "cloud",
     );
+  });
+
+  it("清 browserSessions 并调用 browserApi.closeConversation", () => {
+    const closeConversation = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("window", {
+      browserApi: { closeConversation },
+    });
+
+    useBrowserSessionsStore.getState().createPage({
+      conversationId: CID,
+      title: "A",
+    });
+    useBrowserSessionsStore.getState().createPage({
+      conversationId: OTHER,
+      title: "B",
+    });
+
+    purgeConversationRuntimeState(CID);
+
+    expect(useBrowserSessionsStore.getState().pagesFor(CID)).toEqual([]);
+    expect(useBrowserSessionsStore.getState().pagesFor(OTHER)).toHaveLength(1);
+    expect(closeConversation).toHaveBeenCalledWith({ conversationId: CID });
   });
 });

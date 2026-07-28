@@ -124,6 +124,7 @@ async def prepare_fresh_turn(
         backend,
         desktop_online=desktop_online,
         exec_languages=exec_languages,
+        host_axis=permission_axes.host if permission_axes is not None else None,
     )
     system_prompt = assemble_system_prompt(
         memory_markdown=memory_markdown,
@@ -149,6 +150,7 @@ async def prepare_fresh_turn(
         backend=backend,
         permission_axes=permission_axes,
         languages=exec_languages if backend.location == "local" else None,
+        desktop_online=desktop_online,
     )
     _wire_worker_memory_tools(
         worker_tools,
@@ -202,7 +204,7 @@ async def prepare_fresh_turn(
             registry=default_interaction_registry(),
             timeout_seconds=settings.board_op_timeout_seconds,
         )
-        if backend.location == "local"
+        if desktop_online
         else None
     )
     workspace_channel = workspace_channel_for_tools(

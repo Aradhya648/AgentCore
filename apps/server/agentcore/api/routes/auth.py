@@ -148,7 +148,9 @@ async def _user_response_for(
     return _user_response(user, password_must_change=bool(creds and creds.password_must_change))
 
 
-def _invite_status(invite: Invite, now: datetime) -> str:
+def _invite_status(
+    invite: Invite, now: datetime
+) -> Literal["active", "used", "expired", "revoked"]:
     # Terminal first: a consumed code stays "used" even if later revoked/expired.
     if invite.used_at is not None:
         return "used"
@@ -583,10 +585,17 @@ async def mfa_setup(
 async def mfa_confirm(
     user: AdminSessionUser,
     body: MfaConfirmRequest,
+    response: Response,
     mfa: AdminMfaService = Depends(get_admin_mfa_service),
+    service: AuthService = Depends(get_auth_service),
     db: AsyncSession = Depends(get_db),
 ):
     result = await mfa.confirm_setup(user_id=user.user_id, code=body.code)
+    # Password-only sessions must not gain admin API access merely because
+    # enabled_at flipped — revoke families and clear cookies so the admin
+    # re-authenticates through /auth/login/mfa (mfa claim on the new access token).
+    await service.revoke_all_sessions(user_id=user.user_id)
+    _clear_auth_cookies(response, user_id=user.user_id)
     await record_admin_audit(
         db,
         actor_id=user.user_id,

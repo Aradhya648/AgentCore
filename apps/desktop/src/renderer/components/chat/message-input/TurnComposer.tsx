@@ -442,23 +442,25 @@ export function TurnComposer({
     </SimpleTooltip>
   ) : null;
 
-  // 生成中：发送=插话（送给正在工作的团队 / 排到下一回合），与停止并存；
-  // 停止键始终可用以打断回合。
+  // 生成中：主槽位只留停止（实心）；有草稿时次要 muted「插话」+ Enter 仍走 mid-flight。
   // N4-A：只读离线硬禁用发送（含插话）。
   const sendBlocked = serverUnhealthy;
-  const interjectDisabled = !value.trim() || sendBlocked;
+  const hasDraft = Boolean(value.trim());
+  const interjectDisabled = !hasDraft || sendBlocked;
   const sendControls = isGenerating ? (
     <>
-      <IconButton
-        size="md"
-        tone="primary"
-        onClick={() => void handleSend()}
-        disabled={interjectDisabled}
-        aria-label="发送插话"
-        title={sendBlocked ? "离线时无法发送" : undefined}
-      >
-        <Send size={14} />
-      </IconButton>
+      {hasDraft ? (
+        <IconButton
+          size="md"
+          tone="default"
+          onClick={() => void handleSend()}
+          disabled={interjectDisabled}
+          aria-label="发送插话"
+          title={sendBlocked ? "离线时无法发送" : "发送插话（Enter 亦可）"}
+        >
+          <Send size={14} />
+        </IconButton>
+      ) : null}
       <IconButton
         size="md"
         tone="destructive"
@@ -473,7 +475,7 @@ export function TurnComposer({
       size="md"
       tone="primary"
       onClick={() => void handleSend()}
-      disabled={!value.trim() || sendBlocked}
+      disabled={!hasDraft || sendBlocked}
       aria-label={bg ? "派发到云端后台" : "发送"}
       title={sendBlocked ? "离线时无法发送" : undefined}
     >
@@ -606,14 +608,14 @@ export function TurnComposer({
         </div>
       )}
 
-      {/* 生成中插话提示：发送=插话，交给正在工作的团队（无关内容排到下一回合）。 */}
-      {isGenerating && value.trim() && !showPendingHint && (
+      {/* 生成中插话提示：有草稿时出现；主按钮仍是停止，Enter/弱发送=插话。 */}
+      {isGenerating && hasDraft && !showPendingHint && (
         <div
           aria-live="polite"
           className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground"
         >
           <Loader2 size={12} className="shrink-0 animate-spin" />
-          发送将作为插话交给正在工作的团队；无关内容会排到下一回合
+          Enter 或点发送将作为插话交给团队；无关内容会排到下一回合
         </div>
       )}
 

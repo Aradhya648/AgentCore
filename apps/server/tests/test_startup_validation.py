@@ -5,17 +5,21 @@ master-key guard (安全权限与治理.md §七) is the one that matters most �
 missing/malformed ``ENCRYPTION_KEY`` from a silent "boots green but can't chat"
 landmine into a boot refusal, since byok makes a per-user key (and thus at-rest
 encryption) mandatory.
+
+P1-1: JWT placeholder secrets are checked even when DEBUG=true — only the
+explicit local-dev pair (DEBUG + ALLOW_INSECURE_JWT_SECRET) may keep them.
 """
 
 import pytest
 
 from agentcore.config import settings
-from agentcore.main import _validate_production_security
+from agentcore.main import _validate_jwt_secret, _validate_production_security
 
 # A valid 64-hex (32-byte) AES-256 master key.
 _MASTER_KEY = "a" * 64
 # A JWT secret that isn't a known placeholder, so the JWT guard passes.
 _GOOD_JWT = "x" * 48
+_PLACEHOLDER = "dev-secret-change-in-production"
 
 
 @pytest.fixture
@@ -24,17 +28,61 @@ def prod_settings(monkeypatch):
     test can isolate one dimension (here: the encryption key)."""
     monkeypatch.setattr(settings, "debug", False)
     monkeypatch.setattr(settings, "jwt_secret_key", _GOOD_JWT)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
     monkeypatch.setattr(settings, "cookie_secure", True)
     monkeypatch.setattr(settings, "cookie_samesite", "none")
     return settings
 
 
-def test_debug_skips_all_validation(monkeypatch):
+def test_debug_skips_non_jwt_validation(monkeypatch):
+    """DEBUG still bypasses encryption / cloud-RCE guards, but JWT is always checked."""
     monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "jwt_secret_key", _GOOD_JWT)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
     monkeypatch.setattr(settings, "billing_mode", "byok")
     monkeypatch.setattr(settings, "encryption_key", "")
-    # No raise even with everything misconfigured — debug bypasses the guard.
     _validate_production_security()
+
+
+def test_placeholder_jwt_refuses_boot_when_debug_without_allow(monkeypatch):
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "jwt_secret_key", _PLACEHOLDER)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        _validate_jwt_secret()
+
+
+def test_placeholder_jwt_refuses_boot_in_production(monkeypatch):
+    monkeypatch.setattr(settings, "debug", False)
+    monkeypatch.setattr(settings, "jwt_secret_key", _PLACEHOLDER)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", True)
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        _validate_jwt_secret()
+
+
+def test_placeholder_jwt_allowed_for_explicit_local_dev(monkeypatch):
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "jwt_secret_key", _PLACEHOLDER)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", True)
+    _validate_jwt_secret()
+    _validate_production_security()
+
+
+def test_env_example_alt_placeholder_also_refused(monkeypatch):
+    monkeypatch.setattr(settings, "debug", False)
+    monkeypatch.setattr(
+        settings, "jwt_secret_key", "change-this-to-a-random-secret-in-production"
+    )
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        _validate_jwt_secret()
+
+
+def test_strong_jwt_boots_without_allow_flag(monkeypatch):
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "jwt_secret_key", _GOOD_JWT)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
+    _validate_jwt_secret()
 
 
 def test_byok_without_master_key_refuses_boot(prod_settings, monkeypatch):
@@ -101,8 +149,10 @@ def test_cloud_code_execute_default_off_boots(prod_settings, monkeypatch):
 
 
 def test_debug_skips_cloud_code_execute_guard(monkeypatch):
-    # debug bypasses every production guard, including the cloud-RCE one.
+    # debug bypasses non-JWT production guards, including the cloud-RCE one.
     monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "jwt_secret_key", _GOOD_JWT)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
     monkeypatch.setattr(settings, "code_execute_cloud_enabled", True)
     monkeypatch.setattr(settings, "code_execute_cloud_unsafe_ack", False)
     _validate_production_security()  # no raise

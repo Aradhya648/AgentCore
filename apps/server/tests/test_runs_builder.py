@@ -616,6 +616,35 @@ def test_dag_step_deliverable_parsed_independently():
     assert plan.by_id("t_s2").deliverable is None
 
 
+def test_prose_with_downstream_min_length_aligned_to_body_floor():
+    """交付真相项4：prose ∧ 有下游 → min_length ≥ MIN_UPSTREAM_BODY_CHARS。"""
+    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "diagnose",
+                "role": "诊断员",
+                "task": "短诊断",
+                "deliverable": {"form": "prose", "min_length": 40},
+            },
+            {
+                "id": "patch",
+                "role": "修补员",
+                "task": "修补",
+                "depends_on": ["diagnose"],
+                "deliverable": {"form": "files", "requires_files": True},
+            },
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    d = plan.by_id("t_diagnose").deliverable
+    assert d is not None
+    assert d.min_length == MIN_UPSTREAM_BODY_CHARS
+    assert d.min_length >= 80
+
+
 def test_deliverable_invalid_output_format_falls_back_to_text():
     plan, _ = build_run_plan(
         [{"role": "A", "task": "a", "deliverable": {"output_format": "xml", "min_length": 10}}],

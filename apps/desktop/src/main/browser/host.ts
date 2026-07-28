@@ -1,9 +1,9 @@
 /**
  * LocalChromiumHost —— 主窗口内嵌多页 WebContentsView。
  *
- * 安全不变量（L1b）：
- * - 外网页：**非持久** {@link BROWSER_PARTITION}；工作区 HTML：**非持久**
- *   {@link WORKSPACE_PARTITION}——二者 ≠ PREVIEW_PARTITION / defaultSession，互不共用；
+ * 安全不变量（L1b · 对话硬隔离）：
+ * - 外网页：**非持久** {@link browserPartitionFor}；工作区 HTML：**非持久**
+ *   {@link workspacePartitionFor}——二者按 conversationId 切开，≠ PREVIEW / defaultSession；
  * - sandbox:true、**无 preload**、nodeIntegration 关、contextIsolation 开、webviewTag 关；
  * - 导航策略见 navigation.ts（按 web | workspace 模式；不改 lockPreviewNavigation）。
  *
@@ -32,17 +32,22 @@ import {
   isNavigableLocalBrowserUrl,
   lockLocalBrowserNavigation,
 } from "./navigation";
-import { BROWSER_PARTITION, normalizeBrowserBounds } from "./paths";
 import {
-  WORKSPACE_PARTITION,
+  browserPartitionFor,
+  normalizeBrowserBounds,
+  normalizeBrowserConversationId,
+} from "./paths";
+import {
   buildWorkspaceUrl,
   isWorkspaceBrowserUrl,
   normalizePreviewPath,
+  workspacePartitionFor,
 } from "./workspace-paths";
-import { registerWorkspaceProtocol } from "./workspace-protocol";
+import { registerWorkspaceProtocolFor } from "./workspace-protocol";
 
 interface PageView {
   pageId: string;
+  conversationId: string;
   view: WebContentsView;
   snapshotVersion: number;
   kind: LocalBrowserNavMode;
@@ -50,9 +55,24 @@ interface PageView {
 
 /** pageId → 视图。 */
 const pages = new Map<string, PageView>();
+/** 测试/断言用：与 setVisible 同步的可见性镜像。 */
+const pageVisible = new Map<string, boolean>();
 
 let hostWin: BrowserWindow | null = null;
+/**
+ * 一等 Attachment：当前附着（可见）页；`null` = 已脱离。
+ * hide/detach 必须清此字段，避免 ensurePageKind 重建时误点亮残影。
+ */
 let activePageId: string | null = null;
+/**
+ * 每次 detach 递增；show 入口捕获，落点前若已变则拒（过期 show）。
+ * 与 IPC show/hide 串行队列一起保证顺序。
+ */
+let attachmentGeneration = 0;
+/** 升级后清旧全局 partition 活页：首次 browser 路径跑一次。 */
+let legacyPagesCleared = false;
+/** 测试接缝：show 落点 generation 检查前钩子（模拟 hide 竞态）。 */
+let beforeAttachCheckForTests: (() => void) | null = null;
 
 /** 与 sandbox driver 对齐的交互元素快照（data-acref）。 */
 const SNAPSHOT_JS = `(version) => {
@@ -65,7 +85,7 @@ const SNAPSHOT_JS = `(version) => {
   let n = 0;
   for (const el of document.querySelectorAll(sel)) {
     const r = el.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) continue;
+    if (r.width === 0 || r.height === 0) continue;
     const style = window.getComputedStyle(el);
     if (style.visibility === 'hidden' || style.display === 'none') continue;
     n++;
@@ -114,17 +134,29 @@ function ensureHostCleanup(win: BrowserWindow): void {
   });
 }
 
-function partitionFor(kind: LocalBrowserNavMode): string {
-  return kind === "workspace" ? WORKSPACE_PARTITION : BROWSER_PARTITION;
+function clearLegacyPagesOnce(): void {
+  if (legacyPagesCleared) return;
+  legacyPagesCleared = true;
+  closeAllLocalBrowserPages();
+}
+
+function partitionFor(
+  kind: LocalBrowserNavMode,
+  conversationId: string,
+): string {
+  return kind === "workspace"
+    ? workspacePartitionFor(conversationId)
+    : browserPartitionFor(conversationId);
 }
 
 function createPageView(
   win: BrowserWindow,
   pageId: string,
   kind: LocalBrowserNavMode,
+  conversationId: string,
 ): WebContentsView {
-  if (kind === "workspace") registerWorkspaceProtocol();
-  const partition = partitionFor(kind);
+  if (kind === "workspace") registerWorkspaceProtocolFor(conversationId);
+  const partition = partitionFor(kind, conversationId);
   const sess = session.fromPartition(partition);
   attachLocalBrowserDownloadGuard(sess);
 
@@ -142,29 +174,42 @@ function createPageView(
   view.webContents.on("did-navigate", () => pushNavState(pageId));
   view.webContents.on("did-navigate-in-page", () => pushNavState(pageId));
   view.webContents.on("page-title-updated", () => pushNavState(pageId));
-  view.setVisible(false);
+  setPageVisible(pageId, view, false);
   win.contentView.addChildView(view);
   void view.webContents.loadURL(LOCAL_BROWSER_BLANK);
   return view;
 }
 
+function setPageVisible(
+  pageId: string,
+  view: WebContentsView,
+  visible: boolean,
+): void {
+  view.setVisible(visible);
+  pageVisible.set(pageId, visible);
+}
+
 /**
- * 确保 pageId 视图存在且为指定 kind；kind 变更则销毁重建（换 partition）。
+ * 确保 pageId 视图存在且为指定 kind + conversationId；变更则销毁重建（换 partition）。
  */
 function ensurePageKind(
   win: BrowserWindow,
   pageId: string,
   kind: LocalBrowserNavMode,
+  conversationId: string,
 ): PageView {
   const existing = pages.get(pageId);
   if (
     existing &&
     !existing.view.webContents.isDestroyed() &&
-    existing.kind === kind
+    existing.kind === kind &&
+    existing.conversationId === conversationId
   ) {
     return existing;
   }
-  const wasActive = activePageId === pageId;
+  // 仅当**当前仍附着**该页时重建后恢复可见。
+  // 不是「hide 前曾是 active」——hide 已清 activePageId，不得因 wasActive 复活残影。
+  const wasAttached = activePageId === pageId;
   const prevBounds =
     existing && !existing.view.webContents.isDestroyed()
       ? existing.view.getBounds()
@@ -173,20 +218,26 @@ function ensurePageKind(
 
   hostWin = win;
   ensureHostCleanup(win);
-  const view = createPageView(win, pageId, kind);
+  const view = createPageView(win, pageId, kind, conversationId);
   if (prevBounds) view.setBounds(prevBounds);
-  if (wasActive) {
+  if (wasAttached) {
     activePageId = pageId;
-    view.setVisible(true);
+    setPageVisible(pageId, view, true);
   }
-  const entry: PageView = { pageId, view, snapshotVersion: 0, kind };
+  const entry: PageView = {
+    pageId,
+    conversationId,
+    view,
+    snapshotVersion: 0,
+    kind,
+  };
   pages.set(pageId, entry);
   return entry;
 }
 
 function hideAllViews(): void {
-  for (const { view } of pages.values()) {
-    if (!view.webContents.isDestroyed()) view.setVisible(false);
+  for (const [pageId, { view }] of pages) {
+    if (!view.webContents.isDestroyed()) setPageVisible(pageId, view, false);
   }
 }
 
@@ -194,6 +245,7 @@ function destroyPageView(pageId: string): void {
   const entry = pages.get(pageId);
   if (!entry) return;
   pages.delete(pageId);
+  pageVisible.delete(pageId);
   if (activePageId === pageId) activePageId = null;
   const { view } = entry;
   try {
@@ -210,41 +262,89 @@ function destroyPageView(pageId: string): void {
   }
 }
 
-/** 销毁全部本机页（宿主窗口关闭）。 */
+/** 销毁全部本机页（宿主窗口关闭 / 升级清场）。 */
 export function closeAllLocalBrowserPages(): void {
   const ids = [...pages.keys()];
   for (const id of ids) destroyPageView(id);
   hostWin = null;
   activePageId = null;
+  attachmentGeneration += 1;
+}
+
+/**
+ * 销毁某对话全部本机页（含仅本地空白页）。幂等；与 server registry.close 双关。
+ */
+export function closeConversationBrowserPages(conversationId: string): void {
+  const cid = normalizeBrowserConversationId(conversationId);
+  if (!cid) return;
+  const ids = [...pages.entries()]
+    .filter(([, e]) => e.conversationId === cid)
+    .map(([id]) => id);
+  for (const id of ids) destroyPageView(id);
+}
+
+/** 测试接缝：当前存活页的 conversationId 集合。 */
+export function listLocalBrowserConversationIdsForTests(): string[] {
+  return [
+    ...new Set(
+      [...pages.values()]
+        .filter((e) => !e.view.webContents.isDestroyed())
+        .map((e) => e.conversationId),
+    ),
+  ];
+}
+
+/** 测试接缝：某页当前外网/工作区 partition 名（无页 → null）。 */
+export function localBrowserPartitionForTests(pageId: string): string | null {
+  const entry = pages.get(pageId);
+  if (!entry || entry.view.webContents.isDestroyed()) return null;
+  return partitionFor(entry.kind, entry.conversationId);
 }
 
 /**
  * 显示（并必要时创建）某 pageId 视图，设为激活并定位 bounds；其余页 hide。
+ * 缺 conversationId → fail-closed，不建全局 partition 页。
+ * 过期 show：入口捕获 attachmentGeneration，落点前若 hide 已 bump 则拒。
  */
 export function showLocalBrowserPage(
   win: BrowserWindow,
   pageId: string,
   boundsIn: BrowserBounds,
+  conversationId: string,
 ): BrowserResult {
   try {
+    clearLegacyPagesOnce();
     const bounds = normalizeBrowserBounds(boundsIn);
     if (!bounds) return { ok: false, reason: "无效的预览区域" };
     if (!pageId.trim()) return { ok: false, reason: "无效的页 id" };
+    const cid = normalizeBrowserConversationId(conversationId);
+    if (!cid) return { ok: false, reason: "缺少 conversationId" };
 
     if (hostWin && hostWin !== win) closeAllLocalBrowserPages();
+    // 换窗清场后锚定；此后 hide/detach 再 bump 则本 show 过期。
+    const gen = attachmentGeneration;
     hostWin = win;
     ensureHostCleanup(win);
 
-    // show 不强制换 kind：已有页保留（workspace 页再次 show 不掉回 web）。
+    // show 不强制换 kind：已有同 cid 页保留（workspace 页再次 show 不掉回 web）。
     let entry = pages.get(pageId);
-    if (!entry || entry.view.webContents.isDestroyed()) {
-      entry = ensurePageKind(win, pageId, "web");
+    if (
+      !entry ||
+      entry.view.webContents.isDestroyed() ||
+      entry.conversationId !== cid
+    ) {
+      entry = ensurePageKind(win, pageId, entry?.kind ?? "web", cid);
+    }
+
+    beforeAttachCheckForTests?.();
+    if (attachmentGeneration !== gen) {
+      return { ok: false, reason: "attachment_stale" };
     }
 
     hideAllViews();
     activePageId = pageId;
     entry.view.setBounds(bounds);
-    entry.view.setVisible(true);
+    setPageVisible(pageId, entry.view, true);
     pushNavState(pageId);
     return { ok: true };
   } catch (e) {
@@ -264,16 +364,58 @@ export function setLocalBrowserBounds(boundsIn: BrowserBounds): void {
   entry.view.setBounds(bounds);
 }
 
-/** 隐藏全部本机视图但保活。 */
-export function hideLocalBrowserPages(): void {
+/**
+ * 脱离附着（保活）：清 activePageId、全部不可见、bump generation。
+ * 关坞 / 关浏览器 tab / 切对话；过期 in-flight show 据此拒。
+ */
+function detachAttachment(): void {
   hideAllViews();
+  activePageId = null;
+  attachmentGeneration += 1;
+}
+
+/** 隐藏全部本机视图但保活（detach Attachment）。 */
+export function hideLocalBrowserPages(): void {
+  detachAttachment();
+}
+
+/** 测试接缝：当前附着页 id（null = 已脱离）。 */
+export function localBrowserActivePageIdForTests(): string | null {
+  return activePageId;
+}
+
+/** 测试接缝：attachmentGeneration。 */
+export function localBrowserAttachmentGenerationForTests(): number {
+  return attachmentGeneration;
+}
+
+/** 测试接缝：页是否可见（无页 → null）。 */
+export function localBrowserPageVisibleForTests(
+  pageId: string,
+): boolean | null {
+  if (!pages.has(pageId)) return null;
+  return pageVisible.get(pageId) ?? false;
+}
+
+/** 测试接缝：模拟 generation 漂移（过期 show）。 */
+export function advanceAttachmentGenerationForTests(): void {
+  attachmentGeneration += 1;
+}
+
+/** 测试接缝：show 附着前钩子（测过期 show；测完须清 null）。 */
+export function setBeforeAttachCheckForTests(fn: (() => void) | null): void {
+  beforeAttachCheckForTests = fn;
 }
 
 /** 导航某页到 http(s) 或 workspace://（可先于 show；无宿主窗口则拒）。 */
 export function navigateLocalBrowserPage(
   pageId: string,
   url: string,
+  conversationId: string,
 ): BrowserResult {
+  clearLegacyPagesOnce();
+  const cid = normalizeBrowserConversationId(conversationId);
+  if (!cid) return { ok: false, reason: "缺少 conversationId" };
   const trimmed = url.trim();
   if (!isNavigableLocalBrowserUrl(trimmed)) {
     return { ok: false, reason: "仅支持 http(s) 或工作区地址" };
@@ -284,14 +426,14 @@ export function navigateLocalBrowserPage(
   const kind: LocalBrowserNavMode = isWorkspaceBrowserUrl(trimmed)
     ? "workspace"
     : "web";
-  const entry = ensurePageKind(win, pageId, kind);
+  const entry = ensurePageKind(win, pageId, kind, cid);
   void entry.view.webContents.loadURL(trimmed);
   pushNavState(pageId);
   return { ok: true };
 }
 
 /**
- * 在指定 pageId 加载会话工作区 HTML（L1b：WORKSPACE_PARTITION + workspace://）。
+ * 在指定 pageId 加载会话工作区 HTML（L1b：workspace partition + workspace://）。
  * 可先于 UI show；无主窗口 → 失败。
  */
 export function openLocalBrowserWorkspaceHtml(
@@ -300,8 +442,9 @@ export function openLocalBrowserWorkspaceHtml(
   path: string,
 ): BrowserResult {
   try {
+    clearLegacyPagesOnce();
     const id = pageId.trim();
-    const conv = conversationId.trim();
+    const conv = normalizeBrowserConversationId(conversationId);
     if (!id) return { ok: false, reason: "无效的页 id" };
     if (!conv) return { ok: false, reason: "无效的会话 id" };
     const rel = normalizePreviewPath(path);
@@ -312,8 +455,8 @@ export function openLocalBrowserWorkspaceHtml(
       return { ok: false, reason: "无宿主窗口" };
     }
 
-    registerWorkspaceProtocol();
-    const entry = ensurePageKind(win, id, "workspace");
+    registerWorkspaceProtocolFor(conv);
+    const entry = ensurePageKind(win, id, "workspace", conv);
     const target = buildWorkspaceUrl(conv, rel);
     void entry.view.webContents.loadURL(target);
     pushNavState(id);
@@ -354,14 +497,34 @@ function resolveBridgeWindow(): BrowserWindow | null {
 
 /**
  * Bridge：确保 pageId 对应视图存在（可先于 UI show；无主窗口 → host_unavailable）。
+ * conversationId 必填（caller 已 fail-closed）。
  */
-function ensurePageForBridge(pageId: string): BridgeHostResult | PageView {
+function ensurePageForBridge(
+  pageId: string,
+  conversationId: string,
+): BridgeHostResult | PageView {
+  clearLegacyPagesOnce();
   const id = pageId.trim();
+  const cid = normalizeBrowserConversationId(conversationId);
   if (!id)
     return { ok: false, error: "missing_pageId", code: "host_unavailable" };
+  if (!cid) {
+    return {
+      ok: false,
+      error: "missing_conversationId",
+      code: "missing_conversationId",
+    };
+  }
 
   const existing = pages.get(id);
-  if (existing && !existing.view.webContents.isDestroyed()) return existing;
+  if (
+    existing &&
+    !existing.view.webContents.isDestroyed() &&
+    existing.conversationId === cid
+  ) {
+    return existing;
+  }
+  if (existing) destroyPageView(id);
 
   const win = resolveBridgeWindow();
   if (!win) {
@@ -374,11 +537,17 @@ function ensurePageForBridge(pageId: string): BridgeHostResult | PageView {
   if (hostWin && hostWin !== win) closeAllLocalBrowserPages();
   hostWin = win;
   ensureHostCleanup(win);
-  const view = createPageView(win, id, "web");
+  const view = createPageView(win, id, "web", cid);
   // 隐藏占位：Agent 驱动时可先不 show；用户打开右坞后再 setBounds。
   view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
-  view.setVisible(false);
-  const entry: PageView = { pageId: id, view, snapshotVersion: 0, kind: "web" };
+  setPageVisible(id, view, false);
+  const entry: PageView = {
+    pageId: id,
+    conversationId: cid,
+    view,
+    snapshotVersion: 0,
+    kind: "web",
+  };
   pages.set(id, entry);
   return entry;
 }
@@ -467,14 +636,15 @@ async function waitLoad(wc: WebContents, timeoutMs: number): Promise<void> {
 
 /**
  * Bridge 派发：与 sandbox browser driver 六动作语义对齐。
- * pageId = Registry session_id。
+ * pageId = Registry session_id；conversationId 强制。
  */
 export async function bridgeDispatchLocalBrowser(
   pageId: string,
   action: BridgeAction,
   args: Record<string, unknown>,
+  conversationId: string,
 ): Promise<BridgeHostResult> {
-  const ensured = ensurePageForBridge(pageId);
+  const ensured = ensurePageForBridge(pageId, conversationId);
   if ("ok" in ensured && ensured.ok === false) return ensured;
   const entry = ensured as PageView;
   const wc = entry.view.webContents;
@@ -502,7 +672,12 @@ export async function bridgeDispatchLocalBrowser(
         const kind: LocalBrowserNavMode = isWorkspaceBrowserUrl(target)
           ? "workspace"
           : "web";
-        const page = ensurePageKind(win, entry.pageId, kind);
+        const page = ensurePageKind(
+          win,
+          entry.pageId,
+          kind,
+          entry.conversationId,
+        );
         const wcNav = page.view.webContents;
         const load = wcNav.loadURL(target);
         await Promise.race([
@@ -639,6 +814,12 @@ export async function bridgeDispatchLocalBrowser(
 export function bridgeNavigateLocalBrowser(
   pageId: string,
   url: string,
+  conversationId: string,
 ): BrowserResult {
-  return navigateLocalBrowserPage(pageId, url);
+  return navigateLocalBrowserPage(pageId, url, conversationId);
+}
+
+/** 测试接缝：重置升级清场标记。 */
+export function resetLegacyBrowserClearForTests(): void {
+  legacyPagesCleared = false;
 }

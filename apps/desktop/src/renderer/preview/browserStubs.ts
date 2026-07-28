@@ -110,6 +110,10 @@ const sidecarApi: SidecarApi = {
   restoreTurnBaseline: async () => {
     throw new Error("sidecar unavailable in web preview");
   },
+  listBrowserSessions: async () => ({
+    data: [],
+    active_session_id: null,
+  }),
   onEvent: () => noop,
   onStatus: () => noop,
 };

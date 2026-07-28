@@ -79,8 +79,15 @@ class _FakeBridgeHandler(BaseHTTPRequestHandler):
             args = body.get("args") or body
             url = args.get("url") or body.get("url") or ""
             page_id = body.get("pageId") or body.get("session_id") or ""
+            conversation_id = body.get("conversationId") or body.get("conversation_id") or ""
             self.__class__.navigations.append(
-                {"pageId": page_id, "action": action, "url": url, "args": args}
+                {
+                    "pageId": page_id,
+                    "conversationId": conversation_id,
+                    "action": action,
+                    "url": url,
+                    "args": args,
+                }
             )
             data: dict = {
                 "final_url": url or "https://example.com/",
@@ -161,6 +168,7 @@ async def test_local_bridge_session_navigate_async(fake_bridge):
     assert result.data["final_url"] == "https://example.com/"
     assert _FakeBridgeHandler.navigations[-1]["pageId"] == "sess-local-1"
     assert _FakeBridgeHandler.navigations[-1]["action"] == "navigate"
+    assert _FakeBridgeHandler.navigations[-1]["conversationId"] == "c1"
 
 
 @pytest.mark.asyncio
@@ -297,6 +305,10 @@ async def test_local_screencast_start_emits_frames_and_stop_halts(fake_bridge):
     assert frames[0]["width"] == 1280
     assert frames[0]["height"] == 800
     assert any(n["action"] == "screenshot" for n in _FakeBridgeHandler.navigations)
+    assert any(
+        n["action"] == "screenshot" and n["conversationId"] == "c1"
+        for n in _FakeBridgeHandler.navigations
+    )
 
     before = len(frames)
     await sess.stop_screencast()

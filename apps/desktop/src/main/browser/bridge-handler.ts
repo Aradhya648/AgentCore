@@ -93,18 +93,21 @@ export type BridgeHostResult =
 
 /**
  * 注入的 Host 派发器（避免本模块依赖 electron）。
- * ``pageId`` = Registry ``session_id``（Local 路径同 id）。
+ * ``pageId`` = Registry ``session_id``（Local 路径同 id）；
+ * ``conversationId`` 强制（缺字段由 handler 先 400，不到此回调）。
  */
 export type BridgeDispatch = (
   pageId: string,
   action: BridgeAction,
   args: Record<string, unknown>,
+  conversationId: string,
 ) => BridgeHostResult | Promise<BridgeHostResult>;
 
 /** @deprecated 仅兼容旧 navigate 注入签名；新代码用 BridgeDispatch。 */
 export type BridgeNavigate = (
   pageId: string,
   url: string,
+  conversationId: string,
 ) => { ok: true } | { ok: false; reason: string };
 
 function isBridgeAction(value: string): value is BridgeAction {
@@ -119,6 +122,11 @@ function asRecord(body: unknown): Record<string, unknown> | null {
 
 function pageIdFromBody(body: Record<string, unknown>): string {
   const raw = body.pageId ?? body.session_id ?? body.sessionId;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function conversationIdFromBody(body: Record<string, unknown>): string {
+  const raw = body.conversationId ?? body.conversation_id;
   return typeof raw === "string" ? raw.trim() : "";
 }
 
@@ -153,12 +161,22 @@ export async function handleBridgeRequest(
     }
     const rec = asRecord(body);
     const pageId = rec ? pageIdFromBody(rec) : "";
+    const conversationId = rec ? conversationIdFromBody(rec) : "";
     const target = rec && typeof rec.url === "string" ? rec.url.trim() : "";
+    if (!conversationId) {
+      sendJson(res, 400, { ok: false, error: "missing_conversationId" });
+      return;
+    }
     if (!pageId || !target) {
       sendJson(res, 400, { ok: false, error: "missing_pageId_or_url" });
       return;
     }
-    const result = await dispatch(pageId, "navigate", { url: target });
+    const result = await dispatch(
+      pageId,
+      "navigate",
+      { url: target },
+      conversationId,
+    );
     if (!result.ok) {
       const status = result.code === "host_unavailable" ? 503 : 422;
       sendJson(res, status, {
@@ -187,7 +205,12 @@ export async function handleBridgeRequest(
       return;
     }
     const pageId = pageIdFromBody(rec);
+    const conversationId = conversationIdFromBody(rec);
     const actionRaw = typeof rec.action === "string" ? rec.action.trim() : "";
+    if (!conversationId) {
+      sendJson(res, 400, { ok: false, error: "missing_conversationId" });
+      return;
+    }
     if (!pageId || !isBridgeAction(actionRaw)) {
       sendJson(res, 400, { ok: false, error: "missing_pageId_or_action" });
       return;
@@ -202,13 +225,15 @@ export async function handleBridgeRequest(
               pageId: _p,
               session_id: _s,
               sessionId: _S,
+              conversationId: _c,
+              conversation_id: _C,
               action: _a,
               args: _args,
               ...rest
             } = rec;
             return rest;
           })();
-    const result = await dispatch(pageId, actionRaw, args);
+    const result = await dispatch(pageId, actionRaw, args, conversationId);
     if (!result.ok) {
       const status = result.code === "host_unavailable" ? 503 : 422;
       sendJson(res, status, {

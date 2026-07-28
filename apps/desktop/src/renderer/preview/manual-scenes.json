@@ -36,19 +36,23 @@
   },
   {
     "id": "manual-mechanism-embeds",
-    "description": "看懂协作 · 协作回合（拍板卡 + 审批卡）",
+    "description": "看懂协作 · 从发消息到收答案（拍板卡 + 审批卡）",
     "path": "/toolbox/manual/mechanism",
-    "section": "turnflow",
+    "section": "panorama",
     "previewManual": "manual-mechanism",
     "waitEmbeds": ["ManualCheckpointCardPreview", "ManualApprovalCardPreview"]
   },
   {
     "id": "manual-mechanism-scenarios",
-    "description": "看懂协作 · 机制场景（记分牌 + 场景画廊）",
+    "description": "看懂协作 · 机制场景（记分牌 + 终审 + 场景画廊）",
     "path": "/toolbox/manual/mechanism",
     "section": "scenarios",
     "previewManual": "manual-mechanism",
-    "waitEmbeds": ["ManualDebateScoreboardPreview", "MechanismScenarios"]
+    "waitEmbeds": [
+      "ManualDebateScoreboardPreview",
+      "ManualDebateFinalePreview",
+      "MechanismScenarios"
+    ]
   },
   {
     "id": "manual-reference",

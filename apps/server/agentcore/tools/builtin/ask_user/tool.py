@@ -395,60 +395,8 @@ class AskUserTool:
             if card is not None
             else resolve_ask_checkpoint_intent(captain_transcript.get())
         )
-        # P1a 风格双闸·kickoff：建站意图开工卡必须非空 style_options（拒调）。
-        # 挂点 ask_user（非 team_preview / 非强制 proposal_pick）。
-        if intent == "kickoff" and card is None:
-            from agentcore.runtime.runs.website_style import (
-                is_website_kickoff_text,
-                website_kickoff_requires_styles_error,
-            )
-
-            if is_website_kickoff_text(message, ctx_text) and not style_options:
-                logger.info(
-                    "ask_user.website_style_rejected",
-                    conversation_id=self.conversation_id,
-                    reason="empty_style_options",
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=website_kickoff_requires_styles_error(),
-                )
-            from agentcore.runtime.runs.presentation_format import (
-                is_presentation_kickoff_text,
-                presentation_kickoff_requires_formats_error,
-            )
-
-            if is_presentation_kickoff_text(message, ctx_text) and not format_options:
-                logger.info(
-                    "ask_user.presentation_format_rejected",
-                    conversation_id=self.conversation_id,
-                    reason="empty_format_options",
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=presentation_kickoff_requires_formats_error(),
-                )
-            from agentcore.runtime.runs.automation_delivery import (
-                automation_kickoff_requires_formats_error,
-                is_automation_kickoff_text,
-            )
-
-            if is_automation_kickoff_text(message, ctx_text) and not format_options:
-                logger.info(
-                    "ask_user.automation_delivery_rejected",
-                    conversation_id=self.conversation_id,
-                    reason="empty_format_options",
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=automation_kickoff_requires_formats_error(),
-                )
+        # 建站 / 演讲 / 自动化：引擎不扫正文猜意图。CEO 显式带 style_options /
+        # format_options 才挂选项并在 resume 记账；缺省放行（后果闸在 ledger+playbook）。
         # Kickoff gate: user already settled high-leverage / collaboration decisions
         # (same-turn checkpoint_resolved OR prior-turn verbal affirm of a plan outline)
         # → refuse re-opening 开工提案卡; mid-task cards (decision / proposal_pick / …) pass.
@@ -472,7 +420,7 @@ class AskUserTool:
                         "请直接 delegate 开干，或推进既定计划；途中岔路再用 ask_user。"
                     ),
                 )
-        # Kickoff 提案体硬闸：须 assumptions 或 questions 非空（可与建站 style_options 闸叠加）。
+        # Kickoff 提案体硬闸：须 assumptions 或 questions 非空。
         # message-only / 两者皆空 → 拒调；途中 decision 与显式 card 不受本闸约束。
         if intent == "kickoff" and card is None and not assumptions and not questions:
             logger.info(

@@ -156,6 +156,7 @@ pnpm -C apps/desktop dev
 - 获取帮助：[SUPPORT.md](./SUPPORT.md)
 - 行为准则：[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
 - 安全报告：[SECURITY.md](./SECURITY.md)（请勿用公开 Issue 报漏洞）
+- 用户服务协议：[TERMS.md](./TERMS.md) · 隐私政策：[PRIVACY.md](./PRIVACY.md)（与应用内法律文案同源；正式上线前须法务审阅）
 
 公开切分前的开发历史已私有归档；请对本仓库提 Issue / PR。
 

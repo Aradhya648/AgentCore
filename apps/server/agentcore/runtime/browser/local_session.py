@@ -129,6 +129,7 @@ class LocalBridgeSession:
             args["url"] = rewritten
         payload = {
             "pageId": self.session_id,
+            "conversationId": self.conversation_id,
             "action": command.action,
             "args": args,
         }
@@ -176,6 +177,7 @@ class LocalBridgeSession:
             return
         payload = {
             "pageId": self.session_id,
+            "conversationId": self.conversation_id,
             "action": "screenshot",
             "args": {"capture": True, "quality": quality},
         }

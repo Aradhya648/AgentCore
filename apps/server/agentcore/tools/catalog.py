@@ -68,7 +68,11 @@ def build_capability_catalog() -> list[CatalogTool]:
     """
     audience_by_name = _runtime_audience_by_name()
     catalog: list[CatalogTool] = []
-    for schema in build_worker_registry().list_all():
+    # Catalog advertises Host tools even when the calling session has no desktop —
+    # runtime registries still gate on desktop_online ∧ host≠off.
+    for schema in build_worker_registry(
+        desktop_online=True,
+    ).list_all():
         available = audience_by_name.get(schema.name, (AVAILABLE_TO_WORKER,))
         catalog.append(CatalogTool(schema=schema, available_to=available))
     # Privacy-gated worker tools (manual_wire): still advertised in the capability

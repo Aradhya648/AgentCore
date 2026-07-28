@@ -130,6 +130,7 @@ def _assemble_ceo_toolset(
     has_memory_topics: bool = False,
     permission_axes=None,
     advertise_bind_local_folder: bool = False,
+    desktop_online: bool = False,
 ) -> tuple[DelegateTool, Any, ToolRegistry]:
     """Wire the CEO coordinator's toolset (delegate + read/retrieval +
     consult_skill + an optional consult_memory + an optional ask_user), shared by a
@@ -172,7 +173,10 @@ def _assemble_ceo_toolset(
         conversation_history_access=conversation_history_access,
         permission_axes=permission_axes,
     )
-    chat_tools = build_ceo_tool_registry()
+    chat_tools = build_ceo_tool_registry(
+        desktop_online=desktop_online,
+        permission_axes=permission_axes,
+    )
     chat_tools.register(delegate_tool)
     # debate (辩论编排原语): the CEO's对抗性多视角思考 primitive, sibling to delegate —
     # ALWAYS registered (拍板: 模型须能从闲聊开辩), schema 只留短触发 (长文在

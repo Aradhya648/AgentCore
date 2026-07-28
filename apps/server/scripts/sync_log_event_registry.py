@@ -149,6 +149,17 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
     "approval.sandbox_auto_pass": {"tool": "str"},
     "approval.timeout": {"tool": "str"},
     "firehose.backpressure_drop": {},
+    "auth.login_failed": {
+        "reason": "str",
+        "user_id": "str",
+        "subject": "str",
+        "platform": "str",
+        "method": "str",
+    },
+    "auth.mfa_enrolled": {"user_id": "str"},
+    "auth.mfa_recovery_used": {"user_id": "str"},
+    "llm_provider.key_updated": {"user_id": "str", "provider_id": "str"},
+    "llm_provider.deleted": {"user_id": "str", "provider_id": "str"},
 }
 
 KEY_DESC: dict[str, str] = {
@@ -172,6 +183,11 @@ KEY_DESC: dict[str, str] = {
     "cost.recorded": "回合落账成功（含 by_role 角色拆解）",
     "pipeline.error": "回合管线未捕获异常",
     "http.unhandled_error": "HTTP 层未捕获异常",
+    "auth.login_failed": "敏感操作审计：登录失败（password/unknown/locked/mfa/role；无明文凭据）",
+    "auth.mfa_enrolled": "敏感操作审计：Admin MFA 绑定确认成功",
+    "auth.mfa_recovery_used": "敏感操作审计：Admin MFA 恢复码成功消费",
+    "llm_provider.key_updated": "敏感操作审计：BYOK API Key 轮换保存（无明文）",
+    "llm_provider.deleted": "敏感操作审计：BYOK 服务商（含密钥）删除",
 }
 
 

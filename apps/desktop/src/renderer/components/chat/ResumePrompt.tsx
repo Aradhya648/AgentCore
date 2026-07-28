@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   DecisionCard,
+  DecisionCardFooter,
   DecisionCardIcon,
   Textarea,
 } from "@/components/ui";
@@ -21,6 +22,7 @@ import { type PendingResume, usePausedTurnStore } from "@/stores/pausedTurns";
 import type { CeoReviewSummary } from "@/types/events";
 import type { InteractionKind } from "@/types/interactionExt";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   CheckCheck,
@@ -32,14 +34,12 @@ import {
   Pencil,
   Users,
 } from "lucide-react";
-import { type ComponentType, useState } from "react";
+import { type ComponentType, useRef, useState } from "react";
 import { AskUserCard } from "./CheckpointCard";
 import { formatCrossModelRosterLine } from "./debate/model";
 import { TEAM_PRIMITIVE_META } from "./decision";
 
-/** 把关意见默认只露前 N 条风险；其余与建议一并折叠（A+ 渐进披露）。 */
-const CEO_REVIEW_TOP_RISKS = 2;
-/** 结论超过此长度（或含换行）默认三行截断，可展开全文。 */
+/** 结论超过此长度（或含换行）默认两行截断，可展开全文。 */
 const CONCLUSION_CLAMP_CHARS = 60;
 
 /** Cold-path pending cards only (`ask_user` / `plan_review` / `team_preview`). */
@@ -142,7 +142,7 @@ function PlanReviewMeta({
     roles.length > 0 ? roles.join(" · ") : `${turn.steps.length} 步`;
 
   return (
-    <div className="mt-2">
+    <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         {hasSteps && (
           <button
@@ -198,8 +198,8 @@ function PlanReviewMeta({
 }
 
 /**
- * 把关风险 / 建议——A+：无内嵌边框；结论在卡头；Top N 风险常显；
- * 其余风险与建议进同一「详情」。
+ * 把关风险 / 建议——默认一条摘要芯片（GitHub Checks / PR review 式），
+ * 点开再看完整列表；结论仍在卡头 hero。
  */
 function CeoReviewBlock({
   review,
@@ -214,37 +214,47 @@ function CeoReviewBlock({
   );
   const riskCount = review.risks.length;
   const suggestionCount = review.suggestions.length;
-  const hasMore = riskCount > CEO_REVIEW_TOP_RISKS || suggestionCount > 0;
-  const visibleRisks = open
-    ? review.risks
-    : review.risks.slice(0, CEO_REVIEW_TOP_RISKS);
-  const hiddenRiskCount = Math.max(0, riskCount - CEO_REVIEW_TOP_RISKS);
+  const summary = [
+    riskCount > 0 ? `${riskCount} 风险` : null,
+    suggestionCount > 0 ? `${suggestionCount} 建议` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div data-testid="ceo-review-summary" className="mt-2">
-      <CeoReviewList label="风险" items={visibleRisks} />
-      {open && <CeoReviewList label="建议" items={review.suggestions} />}
-      {hasMore && (
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          data-testid="ceo-review-more-toggle"
-          className="mt-1 flex items-center gap-1 text-xs text-primary"
-        >
-          <ChevronRight
-            size={13}
-            className={cn("shrink-0 transition-transform", open && "rotate-90")}
-          />
-          {open
-            ? "收起详情"
-            : `${[
-                hiddenRiskCount > 0 ? `另 ${hiddenRiskCount} 风险` : null,
-                suggestionCount > 0 ? `${suggestionCount} 建议` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")} · 详情`}
-        </button>
+    <div data-testid="ceo-review-summary">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid="ceo-review-more-toggle"
+        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/80 bg-card/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground"
+      >
+        <AlertTriangle
+          size={13}
+          className="shrink-0 text-foreground/70"
+          aria-hidden
+        />
+        <span className="min-w-0 truncate font-medium text-foreground/80">
+          {summary}
+        </span>
+        <ChevronRight
+          size={13}
+          className={cn("shrink-0 transition-transform", open && "rotate-90")}
+        />
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1 border-l-2 border-border/70 pl-2.5">
+          <CeoReviewList label="风险" items={review.risks} />
+          <CeoReviewList label="建议" items={review.suggestions} />
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            收起详情
+          </button>
+        </div>
       )}
     </div>
   );
@@ -253,7 +263,7 @@ function CeoReviewBlock({
 function CeoReviewList({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
-    <div className="mt-1 first:mt-0">
+    <div className="first:mt-0">
       <p className="text-xs font-medium text-foreground/80">{label}</p>
       <ul className="mt-0.5 space-y-0.5">
         {items.map((item) => (
@@ -273,11 +283,11 @@ function ConclusionHero({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const long = text.length > CONCLUSION_CLAMP_CHARS || text.includes("\n");
   return (
-    <div className="mt-1">
+    <div className="mt-2">
       <p
         className={cn(
-          "whitespace-pre-wrap text-sm text-foreground",
-          !open && long && "line-clamp-3",
+          "whitespace-pre-wrap text-sm leading-relaxed text-foreground/90",
+          !open && long && "line-clamp-2",
         )}
       >
         {text}
@@ -286,7 +296,7 @@ function ConclusionHero({ text }: { text: string }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="mt-0.5 text-xs text-primary"
+          className="mt-0.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           data-testid="plan-review-conclusion-toggle"
         >
           {open ? "收起" : "展开全文"}
@@ -298,7 +308,8 @@ function ConclusionHero({ text }: { text: string }) {
 
 function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
   const [note, setNote] = useState("");
-  const [noteExpanded, setNoteExpanded] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const { submitting, busy, send } = useColdSubmit(turn);
 
   const spinnerOr = (
@@ -317,6 +328,12 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
     reviewedRoles.length > 0 ? `「${reviewedRoles.join("、")}」` : "这一步";
   const disclosureKey = turn.checkpointId;
   const gateHint = turn.ceoReview?.source === "llm";
+  const showNote = noteOpen || Boolean(note.trim());
+
+  const openNote = () => {
+    setNoteOpen(true);
+    queueMicrotask(() => noteRef.current?.focus());
+  };
 
   const continueBtn = (
     <Button
@@ -332,7 +349,7 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
 
   return (
     <DecisionCard tone="primary" animate className="mx-0">
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2">
         <DecisionCardIcon tone="primary">
           <GitBranch size={16} />
         </DecisionCardIcon>
@@ -340,12 +357,22 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
           <p className="text-xs font-medium text-primary">
             计划复核 · 等你确认
           </p>
-          <p className="mt-0.5 text-sm font-medium text-foreground">
+          <p className="mt-0.5 text-sm font-semibold text-foreground">
             {rolesLabel}已完成
           </p>
-          {turn.ceoReview?.conclusion && (
-            <ConclusionHero text={turn.ceoReview.conclusion} />
-          )}
+        </div>
+      </div>
+
+      {turn.ceoReview?.conclusion && (
+        <ConclusionHero text={turn.ceoReview.conclusion} />
+      )}
+
+      {(turn.ceoReview &&
+        (turn.ceoReview.risks.length > 0 ||
+          turn.ceoReview.suggestions.length > 0)) ||
+      turn.steps.length > 0 ||
+      turn.pending.length > 0 ? (
+        <div className="mt-2 flex flex-col gap-1.5">
           {turn.ceoReview &&
             (turn.ceoReview.risks.length > 0 ||
               turn.ceoReview.suggestions.length > 0) && (
@@ -355,28 +382,50 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
               />
             )}
           <PlanReviewMeta turn={turn} disclosureKey={disclosureKey} />
-
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onFocus={() => setNoteExpanded(true)}
-            onBlur={() => {
-              if (!note.trim()) setNoteExpanded(false);
-            }}
-            disabled={busy}
-            rows={noteExpanded || note.trim() ? 2 : 1}
-            placeholder="可选备注（调整时必填）"
-            className="mt-2.5 w-full border-border bg-card/70 focus:border-primary/60"
-          />
         </div>
-      </div>
+      ) : null}
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5 pl-6">
+      {showNote ? (
+        <Textarea
+          ref={noteRef}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={() => {
+            if (!note.trim()) setNoteOpen(false);
+          }}
+          disabled={busy}
+          rows={2}
+          placeholder="备注（调整时必填）"
+          className="mt-2.5 w-full border-border bg-card/70 focus:border-primary/60"
+          data-testid="plan-review-note"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={openNote}
+          disabled={busy}
+          className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+          data-testid="plan-review-note-toggle"
+        >
+          添加备注
+        </button>
+      )}
+
+      <DecisionCardFooter
+        tone="primary"
+        className="-mx-3 -mb-3 mt-2.5 gap-1.5 rounded-b-xl"
+      >
         <Button
           variant="neutral"
           icon={spinnerOr("adjust", <Pencil size={13} />)}
-          disabled={busy || !note.trim()}
-          onClick={() => send("adjust", [], note.trim())}
+          disabled={busy}
+          onClick={() => {
+            if (!note.trim()) {
+              openNote();
+              return;
+            }
+            send("adjust", [], note.trim());
+          }}
         >
           调整
         </Button>
@@ -401,7 +450,7 @@ function PlanReviewResumeCard({ turn }: { turn: PendingResume }) {
         ) : (
           continueBtn
         )}
-      </div>
+      </DecisionCardFooter>
     </DecisionCard>
   );
 }

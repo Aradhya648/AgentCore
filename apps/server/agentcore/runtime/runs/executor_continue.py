@@ -484,3 +484,11 @@ async def _continue_run_scoped(
             rounds=0,
             duration_ms=duration_ms,
         )
+    finally:
+        # Browser B: same run-bind release as executor_node (continuation uses a new run id).
+        try:
+            from agentcore.runtime.browser.registry import default_browser_session_registry
+
+            default_browser_session_registry().unbind_run(continuation_run_id)
+        except Exception:  # noqa: BLE001 - teardown must not fail the continuation path
+            logger.warning("browser.unbind_run_failed", run_id=continuation_run_id)

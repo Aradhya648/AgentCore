@@ -114,10 +114,13 @@ class _ScriptedRounds:
         self._rounds = rounds
         self.calls = 0
         self.user_messages: list[str] = []
+        self.system_messages: list[str] = []
 
     async def stream(self, request):  # noqa: ANN001 - duck-typed for the loop
         user = next((m.content for m in request.messages if m.role == "user"), "")
         self.user_messages.append(user or "")
+        system = next((m.content for m in request.messages if m.role == "system"), "")
+        self.system_messages.append(system or "")
         chunks = (
             self._rounds[self.calls]
             if self.calls < len(self._rounds)

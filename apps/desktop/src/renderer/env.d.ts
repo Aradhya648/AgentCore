@@ -6,6 +6,7 @@ import type { FsApi } from "@shared/ipc-contract";
 import type { LocalStoreApi } from "@shared/local-store-contract";
 import type { LogApi } from "@shared/log-contract";
 import type { NotificationApi } from "@shared/notification-contract";
+import type { HostApi } from "@shared/host-contract";
 import type { OutboxApi } from "@shared/outbox-contract";
 import type { PreviewApi } from "@shared/preview-contract";
 import type { ProcessApi } from "@shared/process-contract";
@@ -43,6 +44,8 @@ declare global {
     ptyApi?: PtyApi;
     /** OS 原生通知（窗口失焦时跨对话提醒）；纯浏览器 / 单测环境可能缺失。 */
     notificationApi?: NotificationApi;
+    /** 本机 Host 能力（host_* ClientTool 回填）；纯浏览器 / 单测环境可能缺失。 */
+    hostApi?: HostApi;
     /** @deprecated M3b：旧子窗 / embed（preview://）协议实现保留；产品完整预览走 browserApi。
      *  web / 单测可缺失。 */
     previewApi?: PreviewApi;

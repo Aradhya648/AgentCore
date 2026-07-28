@@ -175,6 +175,7 @@ async def dispatch_handoff(
                 user_id=user_id,
                 title=fallback_title(task) or "云端作业",
                 mode="handoff",
+                commit=False,
             )
             job = await HandoffJobRepository(session).create(
                 user_id=user_id,
@@ -182,7 +183,9 @@ async def dispatch_handoff(
                 job_conversation_id=job_conv.id,
                 base_snapshot_id=base_ref.snapshot_id,
                 task=task,
+                commit=False,
             )
+            await session.commit()
             credentials = await resolve_user_llm_credentials(session, user_id)
 
         spawn_background(

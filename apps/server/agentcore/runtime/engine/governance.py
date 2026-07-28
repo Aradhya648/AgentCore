@@ -27,8 +27,9 @@ from .outcome import RoundOutcome
 logger = get_logger(__name__)
 
 # Team-gate (协作优先): investigation-only, captain-only, one shot per run.
-# ≥ TEAM_GATE_INVESTIGATION_THRESHOLD investigation tools → always hard-stop
-# (strip investigation tools). No soft nudge. long_content 事后丢稿闸门已撤：
+# ≥ TEAM_GATE_INVESTIGATION_THRESHOLD **探路轮** → always hard-stop
+# (strip investigation tools). 按轮不计同轮并行工具次数——一轮里 git×2+file_list
+# 只计 1 轮，避免并行烧尽额度。No soft nudge. long_content 事后丢稿闸门已撤：
 # 改由 CEO 提示词「路由·第一拍」在展开前显式表态（见 prompt._CEO_CORE_HINT）。
 TEAM_GATE_INVESTIGATION_THRESHOLD = 3
 # 本地改文件：允许多摸 1～2 次 file_list/file_read/grep，再硬催派（与网页独搜分阈）。
@@ -36,13 +37,14 @@ TEAM_GATE_LOCAL_EDIT_THRESHOLD = 2
 LOCAL_RECON_TOOLS = frozenset({"file_list", "file_read", "grep"})
 
 
-# 闸后形状（B）：成篇调研意图命中时追加——治「立刻 delegate」塌成 none+单人。
+# 闸后形状（B）：成篇调研意图命中时追加——治「立刻 delegate」塌成 none+单人/无审校。
 _TEAM_GATE_RESEARCH_SHAPE = (
-    "【成篇调研形状】用户要落盘的中篇实务/研究报告且可多角取证 → "
-    "下一拍 delegate【宜】`playbook=\"research_report\"`（`playbook_args`：topic + angles）"
-    "或手写同构（≥2 角并行调研/讨论笔记 → 提纲 → 撰稿；各角与主笔均 "
-    "`form=files`+`artifacts`）；"
+    "【成篇调研形状】用户要落盘的中篇实务/研究报告/论文且可多角取证 → "
+    "下一拍 delegate【宜】`playbook=\"research_report\"`（`playbook_args`：topic + angles；"
+    "内含末环审校）或手写同构（≥2 角并行调研/讨论笔记 → 提纲 → 撰稿 → 独立审校；"
+    "各角与主笔均 `form=files`+`artifacts`；审校 depends_on 撰稿，审计者≠作者）；"
     "【禁止】`playbook=none` 单 task 一人包办自搜+成文；"
+    "【禁止】仅「调研→撰稿」两节点收工；"
     "【禁止】「角 prose、仅主笔落盘」。"
     "材料已齐仅扩写 / 短文落盘不适用本条。"
 )
@@ -52,7 +54,7 @@ def team_gate_hard_stop_prompt(*, research_shape: bool = False) -> str:
     """Hard gate: investigation tools stripped; delegate or answer, no more recon."""
     n = TEAM_GATE_INVESTIGATION_THRESHOLD
     text = (
-        f"[系统提示] 探路已达硬上限（{n} 次）：调查类工具已收回。"
+        f"[系统提示] 探路已达硬上限（{n} 轮）：调查类工具已收回。"
         "请立即 delegate；若坚持直答，直接作答并给出归类理由"
         "（闲聊/单点事实/追问），禁止再搜 / 再读。"
     )
@@ -158,10 +160,12 @@ def exec_verify_delegate_prompt() -> str:
     """Hard gate: has capability → delegate with the matching acceptance kind."""
     return (
         "[系统提示] 能力策略：用户要跑/修或打开验证，且本回合已装配对应执行能力。"
-        "探路工具已收回。请立即 delegate：测试/build→code_verified；"
+        "探路工具已收回。请立即 delegate：测试/build→"
+        'completion_criteria={"type":"code_verified","verify_command":"…"}；'
         "启动开发服务器→runtime_ready（勿混用）。"
         "本地修码：单文件一刀切→`complexity_hint=light`；有症状/需验→"
-        '`playbook="repair_code"`；禁止直答、翻目录收口或 none 当修码默认。'
+        '`playbook="repair_code"`（playbook_args 填 problem+verify）；'
+        "禁止直答、翻目录收口或 none 当修码默认。"
     )
 
 
@@ -320,10 +324,11 @@ def maybe_inject_team_gate(
 ) -> bool:
     """Inject the team-gate once for the CEO captain. Returns True if injected.
 
-    Investigation path: after :data:`TEAM_GATE_INVESTIGATION_THRESHOLD` investigation
-    tool calls, always strip investigation tools and inject hard-stop copy
-    (delegate or 直答+归类理由; no more recon). ``research_shape`` only controls
-    whether the research-report shape sentence is appended.
+    Investigation path: after :data:`TEAM_GATE_INVESTIGATION_THRESHOLD` **探路轮**
+    (``investigation_rounds``; 同轮并行多工具只计 1), always strip investigation
+    tools and inject hard-stop copy (delegate or 直答+归类理由; no more recon).
+    ``research_shape`` only controls whether the research-report shape sentence is
+    appended.
 
     Local file-edit intent is a separate light hard path: after
     :data:`TEAM_GATE_LOCAL_EDIT_THRESHOLD` local peeks, strip tools and催派 — not the
@@ -348,6 +353,7 @@ def maybe_inject_team_gate(
             trigger=trigger,
             round=round_idx,
             investigation_calls=controller.investigation_calls,
+            investigation_rounds=controller.investigation_rounds,
             local_recon_calls=local_calls,
             hard_stop=True,
             research_shape=False,
@@ -359,7 +365,7 @@ def maybe_inject_team_gate(
         )
         return True
 
-    if controller.investigation_calls < TEAM_GATE_INVESTIGATION_THRESHOLD:
+    if controller.investigation_rounds < TEAM_GATE_INVESTIGATION_THRESHOLD:
         return False
 
     controller.mark_team_gate_fired()
@@ -371,6 +377,7 @@ def maybe_inject_team_gate(
         trigger=trigger,
         round=round_idx,
         investigation_calls=controller.investigation_calls,
+        investigation_rounds=controller.investigation_rounds,
         hard_stop=True,
         research_shape=research_shape,
         local_edit=False,
@@ -390,8 +397,10 @@ def audit_gate_nudge_prompt() -> str:
         "默认派 1 名审计员；重要材料可用 2-3 透镜分工。"
         "成品以落盘文件交给审计员阅读；若发现问题，用 continue_from_run_id "
         "唤回原作者修订，再由审计员复核，≤2 轮。"
-        "若确实不需要审计，给出归类理由后即可交付。"
-        "系统只提示、绝不代派——派不派、派几个由你自主决定；此后不再打扰。"
+        "成篇落盘（研究报告/论文/多章指南等）不适用「免审归类」——"
+        "首批未含审校则必须再派。"
+        "仅非成篇的轻交付（短文、机械单步、用户明示免审）可给归类理由后交付。"
+        "系统只提示、绝不代派——派几个由你自主决定；此后不再打扰。"
     )
 
 
@@ -660,6 +669,7 @@ def create_loop_controller(
     seed: Mapping[str, Any] | None = None,
     files_expected: bool = False,
     short_write_posture: bool = False,
+    tighten_verify_exec_thrash: bool = False,
 ) -> LoopController:
     """Build per-run convergence controller from engine settings.
 
@@ -669,6 +679,11 @@ def create_loop_controller(
     ``short_write_posture`` (light / repair / stamped short ``max_rounds``).
     Standard files workers keep it off — still bounded by convergence_spin /
     max_rounds / contract.
+
+    ``tighten_verify_exec_thrash`` (repair verify short posture): lower
+    unproductive + tool-failure disable thresholds so same-fail / no-output
+    ``code_execute`` ladders reach nudge→finalize sooner — still the same
+    LoopController paths, not a parallel fuse.
     """
     from agentcore.runtime.runs.worker_budget import should_enable_zero_write
 
@@ -680,11 +695,18 @@ def create_loop_controller(
         )
         else 0
     )
+    tool_failure_warn = settings.engine_tool_failure_warn
+    tool_failure_disable = settings.engine_tool_failure_disable
+    unproductive_threshold = settings.engine_unproductive_threshold
+    if tighten_verify_exec_thrash:
+        # Same ladders, earlier trip for verify-only short posture.
+        tool_failure_disable = min(int(tool_failure_disable), 2)
+        unproductive_threshold = min(int(unproductive_threshold), 2)
     controller = LoopController(
         empty_threshold=settings.engine_empty_response_threshold,
-        tool_failure_warn=settings.engine_tool_failure_warn,
-        tool_failure_disable=settings.engine_tool_failure_disable,
-        unproductive_threshold=settings.engine_unproductive_threshold,
+        tool_failure_warn=tool_failure_warn,
+        tool_failure_disable=tool_failure_disable,
+        unproductive_threshold=unproductive_threshold,
         reflection_start_round=settings.engine_reflection_start_round,
         reflection_interval=settings.engine_reflection_interval,
         convergence_finalize_rounds=settings.engine_convergence_finalize_rounds,

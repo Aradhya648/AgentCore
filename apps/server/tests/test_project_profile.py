@@ -115,6 +115,24 @@ async def test_detects_pip_console_script_from_pyproject():
     assert "pip" in profile.package_managers
 
 
+async def test_detects_typecheck_from_package_and_tsconfig():
+    backend = _FakeBackend(
+        {
+            "package.json": """{
+  "name": "demo",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "vite build"
+  }
+}""",
+            "tsconfig.json": "{}",
+        }
+    )
+    profile = await detect_workspace_profile(backend)
+    assert any("typecheck" in c for c in profile.typecheck_commands)
+    assert any("build" in c for c in profile.build_commands)
+
+
 async def test_render_includes_run_commands_under_common_commands():
     profile = WorkspaceProfile(
         languages=["javascript"],

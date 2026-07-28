@@ -123,7 +123,7 @@ jobs:
           echo "uploaded mac assets to ${repo} ${tag}"
           gh release view "$tag" --repo "$repo"
 
-      # Brand download host for user downloads + electron-updater (部署与运维.md §7.6b).
+      # Brand download host for electron-updater (发布与门禁 §7.6b). 官网首装 = GitHub.
       # Uses same DEPLOY_SSH_* as other server deploys; skip if unset (local sync can backfill).
       - name: Sync mac assets to download CDN
         working-directory: .

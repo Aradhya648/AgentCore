@@ -10,10 +10,12 @@ import {
   COMMAND_OPTIONS,
   DEFAULT_PERMISSION_AXES,
   FILE_WRITE_OPTIONS,
+  HOST_OPTIONS,
   type PermissionAxes,
   RECIPE_LABELS,
   RECIPE_ORDER,
   TEAM_KICKOFF_OPTIONS,
+  axesEqual,
   axesShortLabel,
   confirmAutoCommandIfNeeded,
   isIllegalAxes,
@@ -30,7 +32,7 @@ import { ChevronDown, Shield } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Composer permission badge — recipes first; three-axis custom folded.
+ * Composer permission badge — recipes first; four-axis custom folded.
  * New chats: draft axes (seeded from 新会话默认配方); existing: read/write
  * ``conversation.permissionAxes``（下一回合生效）.
  */
@@ -79,11 +81,7 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
   const apply = async (next: PermissionAxes, opts: { close: boolean }) => {
     if (pending || disabled) return;
     if (isIllegalAxes(next)) return;
-    if (
-      next.file_write === axes.file_write &&
-      next.command === axes.command &&
-      next.team_kickoff === axes.team_kickoff
-    ) {
+    if (axesEqual(next, axes)) {
       return;
     }
     if (!confirmAutoCommandIfNeeded(axes, next)) return;
@@ -234,7 +232,7 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
               className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left hover:bg-accent/50"
             >
               <span className="text-xs font-medium text-muted-foreground">
-                自定义三轴
+                自定义权限轴
                 {isCustom ? (
                   <span className="ml-1.5 text-foreground">· 当前</span>
                 ) : null}
@@ -274,6 +272,12 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
                   value={axes.team_kickoff}
                   onSelect={(v) => patchAxis("team_kickoff", v)}
                 />
+                <AxisSegment
+                  title="本机 Host"
+                  options={HOST_OPTIONS}
+                  value={axes.host}
+                  onSelect={(v) => patchAxis("host", v)}
+                />
                 <div className="flex justify-end pt-1">
                   <button
                     type="button"
@@ -303,7 +307,8 @@ function axesCustomTip(axes: PermissionAxes): string {
   const team =
     TEAM_KICKOFF_OPTIONS.find((o) => o.value === axes.team_kickoff)?.short ??
     "";
-  return `${file} · ${cmd} · ${team}`;
+  const host = HOST_OPTIONS.find((o) => o.value === axes.host)?.short ?? "";
+  return `${file} · ${cmd} · ${team} · ${host}`;
 }
 
 function AxisSegment<T extends string>({

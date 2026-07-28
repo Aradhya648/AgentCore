@@ -1,3 +1,4 @@
+import { detachLocalBrowserHost } from "@/lib/detachLocalBrowserHost";
 import { uiGet, uiSet } from "@/lib/uiStorage";
 import { create } from "zustand";
 import { useBrowserSessionsStore } from "./browserSessions";
@@ -440,6 +441,10 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
 
   closeTab: (id) => {
     const closing = get().tabs.find((t) => t.id === id);
+    if (closing?.kind === "browser") {
+      // 关浏览器 tab = 脱离保活（改 React 状态前显式 hide）。
+      void detachLocalBrowserHost();
+    }
     if (closing?.kind === "terminal") {
       const conversationId =
         useConversationStore.getState().currentConversationId;
@@ -644,15 +649,39 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   showBrowser: () => {
     const conversationId =
       useConversationStore.getState().currentConversationId;
-    useBrowserSessionsStore.getState().ensureBlankPage(conversationId);
     get().openTab({
       kind: "browser",
       id: TEAM_BROWSER_TAB_ID,
       title: "浏览器",
     });
+    // 先/并 hydrate：有 server session 时激活该页（merge 优先 activeSessionId），
+    // 勿让 ensureBlank 的本地空白抢激活；仅无 server 页时才补空白。
+    if (!conversationId) {
+      useBrowserSessionsStore.getState().ensureBlankPage(null);
+      return;
+    }
+    void useBrowserSessionsStore
+      .getState()
+      .hydrateConversation(conversationId)
+      .then(() => {
+        const pages = useBrowserSessionsStore
+          .getState()
+          .pagesFor(conversationId);
+        const hasServer = pages.some(
+          (p) => p.serverSessionId != null && p.serverSessionId !== "",
+        );
+        if (!hasServer) {
+          useBrowserSessionsStore.getState().ensureBlankPage(conversationId);
+        }
+      })
+      .catch(() => {
+        useBrowserSessionsStore.getState().ensureBlankPage(conversationId);
+      });
   },
 
   closePanel: () => {
+    // 关坞 = 脱离保活（改 React 状态前显式 hide）。
+    void detachLocalBrowserHost();
     persistOpen(false);
     recordActiveContextDismiss(get);
     set({ open: false });
@@ -660,6 +689,10 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
 
   togglePanel: () => {
     const next = !get().open;
+    if (!next) {
+      // 关坞 = 脱离保活。
+      void detachLocalBrowserHost();
+    }
     persistOpen(next);
     if (!next) recordActiveContextDismiss(get);
     set({ open: next, pendingBadge: next ? 0 : get().pendingBadge });

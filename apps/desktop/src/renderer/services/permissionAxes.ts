@@ -2,6 +2,7 @@ import { api } from "@/services/api";
 import type {
   SidecarCommandAxis,
   SidecarFileWriteAxis,
+  SidecarHostAxis,
   SidecarPermissionAxes,
   SidecarTeamKickoffAxis,
 } from "@shared/sidecar-contract";
@@ -19,18 +20,30 @@ export const DEFAULT_PERMISSION_AXES: PermissionAxes = {
   file_write: "session",
   command: "kickoff",
   team_kickoff: "rules",
+  host: "ask",
 };
 
-/** Built-in recipes → exact axis triples. */
+/** Built-in recipes → exact axis tuples (含 host). */
 export const RECIPE_AXES: Record<AutonomyRecipe, PermissionAxes> = {
-  cautious: { file_write: "ask", command: "ask", team_kickoff: "rules" },
+  cautious: {
+    file_write: "ask",
+    command: "ask",
+    team_kickoff: "rules",
+    host: "off",
+  },
   write_code: DEFAULT_PERMISSION_AXES,
   less_interrupt: {
     file_write: "session",
     command: "kickoff",
     team_kickoff: "skip",
+    host: "ask",
   },
-  managed: { file_write: "session", command: "auto", team_kickoff: "skip" },
+  managed: {
+    file_write: "session",
+    command: "auto",
+    team_kickoff: "skip",
+    host: "session",
+  },
 };
 
 export const RECIPE_ORDER: AutonomyRecipe[] = [
@@ -46,19 +59,19 @@ export const RECIPE_LABELS: Record<
 > = {
   cautious: {
     short: "谨慎",
-    description: "改文件每次问 · 执行每次确认 · 组队按规则",
+    description: "改文件每次问 · 执行每次确认 · 组队按规则 · 本机关闭",
   },
   write_code: {
     short: "写代码",
-    description: "改文件本会话信任 · 执行开工时确认 · 组队按规则",
+    description: "改文件本会话信任 · 执行开工时确认 · 组队按规则 · 本机每次确认",
   },
   less_interrupt: {
     short: "少打断",
-    description: "改文件本会话信任 · 执行开工时确认 · 不弹组队卡",
+    description: "改文件本会话信任 · 执行开工时确认 · 不弹组队卡 · 本机每次确认",
   },
   managed: {
     short: "托管",
-    description: "改文件本会话信任 · 自动执行 · 不弹组队卡",
+    description: "改文件本会话信任 · 自动执行 · 不弹组队卡 · 本机会话信任",
   },
 };
 
@@ -123,7 +136,29 @@ export const TEAM_KICKOFF_OPTIONS: {
   },
 ];
 
-/** Compact tokens for custom-axes badge (file · command · team). */
+export const HOST_OPTIONS: {
+  value: SidecarHostAxis;
+  short: string;
+  description: string;
+}[] = [
+  {
+    value: "off",
+    short: "关闭",
+    description: "本机 Host 面整面关闭（不影响工作区终端）。",
+  },
+  {
+    value: "ask",
+    short: "每次确认",
+    description: "本机 Host 敏感操作逐次确认。",
+  },
+  {
+    value: "session",
+    short: "本会话信任",
+    description: "本会话信任本机 Host（熔断除外）。",
+  },
+];
+
+/** Compact tokens for custom-axes badge (file · command · team · host). */
 const FILE_WRITE_BADGE: Record<SidecarFileWriteAxis, string> = {
   ask: "逐次",
   session: "信任",
@@ -138,20 +173,27 @@ const TEAM_KICKOFF_BADGE: Record<SidecarTeamKickoffAxis, string> = {
   rules: "规则",
   skip: "跳卡",
 };
+const HOST_BADGE: Record<SidecarHostAxis, string> = {
+  off: "本机关",
+  ask: "本机问",
+  session: "本机信",
+};
 
-/** Three-axis short summary when not matching a built-in recipe. */
+/** Four-axis short summary when not matching a built-in recipe. */
 export function axesCustomSummary(axes: PermissionAxes): string {
   return [
     FILE_WRITE_BADGE[axes.file_write],
     COMMAND_BADGE[axes.command],
     TEAM_KICKOFF_BADGE[axes.team_kickoff],
+    HOST_BADGE[axes.host],
   ].join(" · ");
 }
 export function axesEqual(a: PermissionAxes, b: PermissionAxes): boolean {
   return (
     a.file_write === b.file_write &&
     a.command === b.command &&
-    a.team_kickoff === b.team_kickoff
+    a.team_kickoff === b.team_kickoff &&
+    a.host === b.host
   );
 }
 
@@ -167,6 +209,7 @@ export function normalizeAxes(
     file_write: raw?.file_write ?? DEFAULT_PERMISSION_AXES.file_write,
     command: raw?.command ?? DEFAULT_PERMISSION_AXES.command,
     team_kickoff: raw?.team_kickoff ?? DEFAULT_PERMISSION_AXES.team_kickoff,
+    host: raw?.host ?? DEFAULT_PERMISSION_AXES.host,
   };
   if (isIllegalAxes(next)) return DEFAULT_PERMISSION_AXES;
   return next;
@@ -188,7 +231,7 @@ export function recipeShortLabel(recipe: AutonomyRecipe | "custom"): string {
   return recipe === "custom" ? "自定义" : RECIPE_LABELS[recipe].short;
 }
 
-/** Badge / chip short name for current axes (custom → three-axis summary). */
+/** Badge / chip short name for current axes (custom → four-axis summary). */
 export function axesShortLabel(axes: PermissionAxes): string {
   const recipe = matchRecipe(axes);
   return recipe === "custom"
@@ -223,7 +266,9 @@ export function permissionAxesShortLabel(raw: unknown): string | null {
       try {
         const parsed: unknown = JSON.parse(trimmed);
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          return axesShortLabel(normalizeAxes(parsed as Partial<PermissionAxes>));
+          return axesShortLabel(
+            normalizeAxes(parsed as Partial<PermissionAxes>),
+          );
         }
       } catch {
         return null;

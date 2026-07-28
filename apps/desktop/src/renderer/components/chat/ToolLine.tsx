@@ -51,6 +51,14 @@ const PEEK_SUPPRESSED = new Set([
   "cancel_worker",
   "resolve_escalation",
   "queue_user_message",
+  // 本机 Host：标题已自解释；正文是 untrusted JSON，勿 peek 刷屏。
+  "host_ping",
+  "host_info",
+  "host_audio_devices",
+  "host_shell",
+  "host_open_settings",
+  "host_audio_set_default",
+  "host_service_restart",
 ]);
 
 /** 模型流式组装工具调用 JSON 时的心跳行（不持久化）。 */

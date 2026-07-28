@@ -18,6 +18,7 @@
 import { Button, IconButton, Input } from "@/components/ui";
 import { BrowserLivePanel } from "@/components/workspace/BrowserLivePanel";
 import { BrowserLocalTakeoverBar } from "@/components/workspace/BrowserLocalTakeoverBar";
+import { isBrowserTool } from "@/lib/browserActivity";
 import { notifyError } from "@/lib/toast";
 import {
   createBrowserSession,
@@ -29,6 +30,12 @@ import {
   normalizeBrowserUrl,
   useBrowserSessionsStore,
 } from "@/stores/browserSessions";
+import { useConversationStore } from "@/stores/conversation";
+import {
+  assistantProjectionId,
+  runtimeOf,
+} from "@/stores/conversation/runtime";
+import { projectRuntime, useExecutionStore } from "@/stores/execution";
 import { useOverlayStore } from "@/stores/overlay";
 import type { BrowserBounds, BrowserNavState } from "@shared/browser-contract";
 import { ArrowLeft, Globe, Plus, RotateCw, X } from "lucide-react";
@@ -61,7 +68,7 @@ export function isLocalhostBrowserUrl(url: string): boolean {
 
 export function BrowserPanel({
   conversationId,
-  liveAvailable: _liveAvailable,
+  liveAvailable,
 }: {
   conversationId: string | null;
   /** 本会话曾有 browser_* 活动（tab 条件常驻）；直播挂载以 serverSessionId 为准。 */
@@ -89,23 +96,56 @@ export function BrowserPanel({
   const activePage =
     pages.find((p) => p.id === activePageId) ?? pages[pages.length - 1] ?? null;
 
-  // 打开壳时保证至少一页（`+` / 自动补 tab 共用）——本地空白，不 POST。
-  useEffect(() => {
-    ensureBlankPage(conversationId);
-  }, [conversationId, ensureBlankPage]);
+  // browser_* 步进指纹：工具进行中/结束后触发重 hydrate（对齐裸 session 真 view）。
+  const browserToolSig = useExecutionStore((s) => {
+    if (!conversationId) return "";
+    const messages = runtimeOf(
+      useConversationStore.getState(),
+      conversationId,
+    ).messages;
+    const parts: string[] = [];
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      const rt = s.byId[assistantProjectionId(msg)];
+      if (!rt) continue;
+      const exec = projectRuntime(rt);
+      if (!exec) continue;
+      for (const agent of exec.agents) {
+        for (const tc of agent.toolCalls) {
+          if (isBrowserTool(tc.toolName)) {
+            parts.push(`${tc.id}:${tc.status}`);
+          }
+        }
+      }
+    }
+    return parts.join("|");
+  });
 
-  // mount / conversation 切换 → debounce hydrate（inflight 在 store 内合并）。
+  // mount / conversation 切换 → debounce hydrate（inflight 在 store 内合并）；
+  // 完成后若仍无页才 ensureBlank（勿在 hydrate 前用本地空白抢激活）。
   const hydrateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleHydrate = useCallback(() => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      ensureBlankPage(null);
+      return;
+    }
     if (hydrateTimer.current) clearTimeout(hydrateTimer.current);
     hydrateTimer.current = setTimeout(() => {
       hydrateTimer.current = null;
-      void hydrateConversation(conversationId).catch((err) => {
-        notifyError(err, "同步浏览器页签失败");
-      });
+      void hydrateConversation(conversationId)
+        .catch((err) => {
+          notifyError(err, "同步浏览器页签失败");
+        })
+        .finally(() => {
+          const scoped = useBrowserSessionsStore
+            .getState()
+            .pagesFor(conversationId);
+          if (scoped.length === 0) {
+            ensureBlankPage(conversationId);
+          }
+        });
     }, HYDRATE_DEBOUNCE_MS);
-  }, [conversationId, hydrateConversation]);
+  }, [conversationId, hydrateConversation, ensureBlankPage]);
 
   useEffect(() => {
     scheduleHydrate();
@@ -113,6 +153,13 @@ export function BrowserPanel({
       if (hydrateTimer.current) clearTimeout(hydrateTimer.current);
     };
   }, [scheduleHydrate]);
+
+  // 有 browser 活动 / 工具步进变化 → 再 hydrate（Agent 已建 session 时对齐激活页）。
+  useEffect(() => {
+    if (!conversationId) return;
+    if (!liveAvailable && !browserToolSig) return;
+    scheduleHydrate();
+  }, [conversationId, liveAvailable, browserToolSig, scheduleHydrate]);
 
   // 窗口重新聚焦时再拉一次（会话可能已被 Agent 新建/关掉）。
   useEffect(() => {
@@ -163,13 +210,15 @@ export function BrowserPanel({
   pageUrlRef.current = activePage?.url ?? "";
 
   // 本机视图显隐 + bounds；激活页变 → 重新 show（url 变更由 onSubmit 导航，不重挂）。
+  // Attachment：仅本 panel 可 show；cleanup / 不可见路径必须 detach（awaitable hide）。
   useEffect(() => {
     if (!browserApi || !useLocalHost) {
-      browserApi?.hide();
+      void browserApi?.hide();
       return;
     }
-    if (!localVisible || !hostPageId) {
-      browserApi.hide();
+    const cid = activePage?.conversationId ?? conversationId;
+    if (!localVisible || !hostPageId || !cid) {
+      void browserApi.hide();
       return;
     }
     const pageId = hostPageId;
@@ -184,12 +233,18 @@ export function BrowserPanel({
           browserApi.setBounds(b);
         } else {
           shown = true;
-          void browserApi.show({ pageId, bounds: b }).then((r) => {
-            const pageUrl = pageUrlRef.current;
-            if (r.ok && pageUrl) {
-              void browserApi.navigate({ pageId, url: pageUrl });
-            }
-          });
+          void browserApi
+            .show({ pageId, bounds: b, conversationId: cid })
+            .then((r) => {
+              const pageUrl = pageUrlRef.current;
+              if (r.ok && pageUrl) {
+                void browserApi.navigate({
+                  pageId,
+                  url: pageUrl,
+                  conversationId: cid,
+                });
+              }
+            });
         }
       });
     };
@@ -202,13 +257,23 @@ export function BrowserPanel({
       cancelAnimationFrame(raf);
       ro.disconnect();
       window.removeEventListener("resize", sync);
+      // 依赖变 / 卸载：脱离附着（与 show 串行；过期 in-flight show 拒）。
+      void browserApi.hide();
     };
-  }, [browserApi, useLocalHost, localVisible, hostPageId, measure]);
+  }, [
+    browserApi,
+    useLocalHost,
+    localVisible,
+    hostPageId,
+    measure,
+    activePage?.conversationId,
+    conversationId,
+  ]);
 
   // 卸载 → hide 保活（关页才 close）。
   useEffect(() => {
     return () => {
-      window.browserApi?.hide();
+      void window.browserApi?.hide();
     };
   }, []);
 
@@ -238,23 +303,35 @@ export function BrowserPanel({
     // 桌面 Local 真画面路径（有 browserApi）。
     if (browserApi && useLocalHost) {
       const pageId = hostBrowserPageId(activePage);
+      const cid = activePage.conversationId ?? conversationId;
+      if (!cid) {
+        notifyError(new Error("缺少 conversationId"), "无法打开本机浏览器");
+        return;
+      }
       void (async () => {
         const b = measure();
         if (b) {
-          const shown = await browserApi.show({ pageId, bounds: b });
+          const shown = await browserApi.show({
+            pageId,
+            bounds: b,
+            conversationId: cid,
+          });
           if (!shown.ok) {
             notifyError(new Error(shown.reason), "无法打开本机浏览器");
             return;
           }
         }
-        const r = await browserApi.navigate({ pageId, url: normalized });
+        const r = await browserApi.navigate({
+          pageId,
+          url: normalized,
+          conversationId: cid,
+        });
         if (!r.ok) {
           notifyError(new Error(r.reason), "无法打开该地址");
           return;
         }
         const sid = activePage.serverSessionId;
-        const cid = activePage.conversationId;
-        if (sid && cid) {
+        if (sid) {
           void patchBrowserSessionNav(cid, sid, {
             url: normalized,
             title: activePage.title || null,

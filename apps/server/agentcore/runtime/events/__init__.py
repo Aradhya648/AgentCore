@@ -28,7 +28,7 @@ from agentcore.runtime.events.chat import (
     turn_saved,
     turn_warning,
 )
-from agentcore.runtime.events.desktop import desktop_notify_required
+from agentcore.runtime.events.desktop import desktop_notify_required, host_op_required
 from agentcore.runtime.events.interaction import (
     approval_required,
     approval_resolved,
@@ -130,6 +130,7 @@ __all__ = [
     "browser_live_frame",
     "browser_live_status",
     "desktop_notify_required",
+    "host_op_required",
     "handoff_snapshot_done",
     "handoff_job_started",
     "handoff_apply_done",

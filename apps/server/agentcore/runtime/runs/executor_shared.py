@@ -190,12 +190,25 @@ def _priced_failure(
     )
 
 
-def _is_hard_failure(content: str, deliverable: Deliverable | None) -> bool:
+def _is_hard_failure(
+    content: str,
+    deliverable: Deliverable | None,
+    *,
+    files_touched: int = 0,
+) -> bool:
     """Whether a contract miss should FAIL the run vs. soft-accept with a warning.
 
-    An empty product is always hard (the non-empty baseline, 决策②); any other
-    shortfall is hard only when the deliverable is ``strict`` (默认软提醒, 决策③)."""
+    An empty product is always hard (the non-empty baseline, 决策②).
+    ``requires_files`` with zero disk writes is always hard (交付真相：不得 soft-complete).
+    Any other shortfall is hard only when the deliverable is ``strict`` (默认软提醒, 决策③).
+    """
     if not content.strip():
+        return True
+    if (
+        deliverable is not None
+        and deliverable.requires_files
+        and int(files_touched or 0) <= 0
+    ):
         return True
     return deliverable is not None and deliverable.strict
 
@@ -263,6 +276,7 @@ async def _react_and_capture(
     ledger_registrant: str = "",
     files_expected: bool = False,
     short_write_posture: bool = False,
+    tighten_verify_exec_thrash: bool = False,
 ) -> tuple[str, str, TokenUsage, int]:
     """Run one ReAct pass over ``messages`` (mutated in place — the loop appends
     each assistant tool-call turn + tool results), then append the final assistant
@@ -344,6 +358,7 @@ async def _react_and_capture(
         tool_failure_sink=tool_failure_sink,
         files_expected=files_expected,
         short_write_posture=short_write_posture,
+        tighten_verify_exec_thrash=tighten_verify_exec_thrash,
     )
     messages.append(LLMMessage(role="assistant", content=content))
     return content, reasoning, usage, rounds

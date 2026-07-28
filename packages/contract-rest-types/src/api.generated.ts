@@ -7288,6 +7288,12 @@ export interface components {
             updated_at: string;
         };
         /**
+         * HostAxis
+         * @description 本机 Host 面授权（与 ``command`` 正交；不挂 execution_class / 不吃 kickoff 静默授）。
+         * @enum {string}
+         */
+        HostAxis: "off" | "ask" | "session";
+        /**
          * InferenceTokenResponse
          * @description A freshly minted inference token + its lifetime + server-resolved upstream model.
          */
@@ -8342,19 +8348,21 @@ export interface components {
         };
         /**
          * PermissionAxesModel
-         * @description Three-axis session permission (运行时单一真相源).
+         * @description Session permission axes (运行时单一真相源 · file_write/command/team_kickoff/host).
          */
         PermissionAxesModel: {
             /** @default kickoff */
             command: components["schemas"]["CommandAxis"];
             /** @default session */
             file_write: components["schemas"]["FileWriteAxis"];
+            /** @default ask */
+            host: components["schemas"]["HostAxis"];
             /** @default rules */
             team_kickoff: components["schemas"]["TeamKickoffAxis"];
         };
         /**
          * PermissionAxesUpdate
-         * @description Switch the conversation's three-axis permission mid-session.
+         * @description Switch the conversation's permission axes mid-session.
          */
         PermissionAxesUpdate: {
             permission_axes: components["schemas"]["PermissionAxesModel"];

@@ -20,6 +20,13 @@ def test_is_hard_failure_nonempty_depends_on_strict():
     assert _is_hard_failure("x", Deliverable(strict=True)) is True
 
 
+def test_is_hard_failure_requires_files_zero_disk_always_hard():
+    """交付真相：requires_files ∧ files_touched==0 不得 soft-complete。"""
+    d = Deliverable(requires_files=True, strict=False)
+    assert _is_hard_failure("有正文但未落盘", d, files_touched=0) is True
+    assert _is_hard_failure("有正文且已落盘", d, files_touched=1) is False
+
+
 def test_hard_gap_blocks_completion_non_strict_allows():
     """Non-strict (legacy soft-accept) still allows COMPLETED with degraded gaps."""
     gaps = [{"description": DEGRADED_HANDOFF_WARNING, "reason": REASON_DEGRADED_HANDOFF}]

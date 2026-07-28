@@ -1,18 +1,34 @@
 /**
- * LocalChromiumHost 外网页分区常量 + bounds 归一化（纯逻辑，无 electron）。
+ * LocalChromiumHost 外网页分区工厂 + bounds 归一化（纯逻辑，无 electron）。
  *
- * L1b：外网 http(s) 用 {@link BROWSER_PARTITION}；工作区 HTML 用
- * `workspace-paths.WORKSPACE_PARTITION`——**绝不**复用彼此，也绝不复用
- * PREVIEW_PARTITION / defaultSession。
+ * L1b：外网 http(s) 与工作区 HTML **均**按 conversationId 切开（见 §2.2）；
+ * 绝不复用 PREVIEW_PARTITION / defaultSession，也绝不复用彼此。
  */
 
 import type { BrowserBounds } from "@shared/browser-contract";
 
+/** 外网 partition 前缀（完整键 = {@link browserPartitionFor}）。 */
+export const BROWSER_PARTITION_PREFIX = "agentcore-browser";
+
 /**
  * 本机浏览器**外网页**所用的**非持久独立分区**（无 `persist:` → 内存态）。
- * 与 `agentcore-preview`、`agentcore-browser-workspace`、defaultSession 隔离。
+ * 键：`agentcore-browser:conv:{conversationId}`。
  */
-export const BROWSER_PARTITION = "agentcore-browser";
+export function browserPartitionFor(conversationId: string): string {
+  const cid = normalizeBrowserConversationId(conversationId);
+  if (!cid) {
+    throw new Error("browserPartitionFor: conversationId required");
+  }
+  return `${BROWSER_PARTITION_PREFIX}:conv:${cid}`;
+}
+
+/** 规范化对话 id（trim + 小写）；空串 → ""。 */
+export function normalizeBrowserConversationId(
+  conversationId: string | null | undefined,
+): string {
+  if (typeof conversationId !== "string") return "";
+  return conversationId.trim().toLowerCase();
+}
 
 /**
  * 校验并归一化占位 bounds（来自 renderer）：四字段有限数字、取整、宽高钳非负；否则 null。

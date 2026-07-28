@@ -444,6 +444,7 @@ async function route(
       file_write: "session",
       command: "kickoff",
       team_kickoff: "rules",
+      host: "ask",
     };
     try {
       const body = JSON.parse(raw) as {

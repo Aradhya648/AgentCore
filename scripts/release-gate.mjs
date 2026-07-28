@@ -236,6 +236,7 @@ async function runContractsSection() {
   section("contracts");
   regenContracts();
   run("story-packs check", "pnpm", ["gen:story-packs:check"]);
+  run("legal md check", "pnpm", ["sync:legal:check"]);
   await assertContractIdempotent();
 }
 

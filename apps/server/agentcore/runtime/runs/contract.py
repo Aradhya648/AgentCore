@@ -489,6 +489,53 @@ def format_light_repair_feedback(
     )
 
 
+# Zero-disk gap eligible for one short write pass (not a full investigation retry).
+_MISSING_FILES_MARKERS = (
+    "未把产物写入工作区",
+    "声明的交付物路径未落盘",
+    "产物未写入案卷目录",
+)
+
+
+def is_zero_files_gap(verdict: ContractVerdict) -> bool:
+    """True when contract failures include a zero-disk / missing-landing gap."""
+    if verdict.ok or not verdict.failures:
+        return False
+    return any(
+        any(marker in str(f) for marker in _MISSING_FILES_MARKERS)
+        for f in verdict.failures
+    )
+
+
+def format_write_pass_feedback(verdict: ContractVerdict) -> str:
+    """Correction prompt for one short write-to-disk pass (no re-investigation)."""
+    items = "\n".join(f"- {f}" for f in (verdict.failures or []))
+    return (
+        "你尚未把产物写入工作区。本轮是【短写盘 pass】——工具面已收窄为写盘/handoff："
+        f"\n{items}\n\n"
+        "请立即用 file_write / str_replace / file_append（或等价落盘）把产物写进工作区，"
+        "然后调用 handoff。"
+        "禁止重新调查、禁止全仓巡读、禁止只把内容贴在回复正文里。"
+    )
+
+
+def has_salvageable_half_product(
+    content: str,
+    files_touched: list[str] | None,
+    debrief: dict[str, Any] | None = None,
+) -> bool:
+    """True when there is half-finished work worth summarizing / salvage.
+
+    Empty body ∧ zero disk ∧ no qualified brief → not salvageable (skip empty
+    ``degraded_synth`` / meaningless finalize LLM).
+    """
+    if (content or "").strip():
+        return True
+    if files_touched:
+        return True
+    return debrief_meets_minimum(debrief)
+
+
 def format_feedback(
     verdict: ContractVerdict, *, checked_files: list[str] | None = None
 ) -> str:

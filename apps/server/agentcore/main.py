@@ -72,15 +72,34 @@ _INSECURE_SECRETS = {
 }
 
 
+def _validate_jwt_secret() -> None:
+    """Refuse known placeholder JWT secrets unless local-dev explicitly opts in.
+
+    DEBUG alone is not enough — a publicly reachable process can still run with
+    DEBUG=true. The placeholder is only allowed when DEBUG=true *and*
+    ALLOW_INSECURE_JWT_SECRET=true.
+    """
+    if settings.jwt_secret_key not in _INSECURE_SECRETS:
+        return
+    if settings.debug and settings.allow_insecure_jwt_secret:
+        get_logger(__name__).warning(
+            "security.insecure_jwt_secret",
+            detail="JWT_SECRET_KEY is a known placeholder; allowed only because "
+            "DEBUG=true and ALLOW_INSECURE_JWT_SECRET=true",
+        )
+        return
+    raise RuntimeError(
+        "JWT_SECRET_KEY is unset or still a default placeholder. Set a strong, "
+        "random secret, or for local development only set DEBUG=true and "
+        "ALLOW_INSECURE_JWT_SECRET=true."
+    )
+
+
 def _validate_production_security() -> None:
-    """Fail fast on insecure production config (skipped in debug)."""
+    """Fail fast on insecure config. JWT secret always checked; other guards skip in debug."""
+    _validate_jwt_secret()
     if settings.debug:
         return
-    if settings.jwt_secret_key in _INSECURE_SECRETS:
-        raise RuntimeError(
-            "JWT_SECRET_KEY is unset or still a default placeholder. Set a strong, "
-            "random secret before running in production (DEBUG=false)."
-        )
     # byok makes a per-user API key mandatory, so a usable master key is required
     # to store it. Without one the model-config page can't save a key and every
     # turn is blocked — fail closed at boot rather than ship a server that looks

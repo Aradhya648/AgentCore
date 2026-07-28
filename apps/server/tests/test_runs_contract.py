@@ -11,8 +11,11 @@ from agentcore.runtime.runs.contract import (
     describe_deliverable,
     format_feedback,
     format_light_repair_feedback,
+    format_write_pass_feedback,
+    has_salvageable_half_product,
     is_file_deliverable,
     is_format_repairable,
+    is_zero_files_gap,
     needs_file_contents,
     node_has_dependents,
     synthesize_debrief,
@@ -169,6 +172,41 @@ def test_format_light_repair_feedback_carries_prior_and_skips_reinvestigate():
     assert format_light_repair_feedback(
         check_contract("ok 内容", None), prior_content="x"
     ) == ""
+
+
+def test_zero_files_gap_and_write_pass_feedback():
+    v = check_contract(
+        "只有文字", Deliverable(requires_files=True), files_written=0
+    )
+    assert is_zero_files_gap(v)
+    assert not is_format_repairable(v)
+    fb = format_write_pass_feedback(v)
+    assert "短写盘 pass" in fb
+    assert "file_write" in fb
+    assert not is_zero_files_gap(
+        check_contract("ok", Deliverable(requires_files=True), files_written=1)
+    )
+
+
+def test_has_salvageable_half_product_gates_empty_synth():
+    assert not has_salvageable_half_product("", [], None)
+    assert not has_salvageable_half_product("  ", [], {"summary": "x", "degraded": True})
+    assert has_salvageable_half_product("有正文", [], None)
+    assert has_salvageable_half_product("", ["a.py"], None)
+    assert has_salvageable_half_product(
+        "",
+        [],
+        {
+            "summary": (
+                "足够长的合格交接简报内容用于下游接力——"
+                "根因与拟改路径、风险假设与建议下一步均已写清，满足交接信息量地板。"
+            )
+        },
+    )
+    # Empty inventory → synthesize still returns a shell, but callers must not use it.
+    empty = synthesize_debrief("", [])
+    assert empty.get("degraded") is True
+    assert "无正文" in empty["summary"]
 
 
 def test_describe_deliverable_renders_rules():

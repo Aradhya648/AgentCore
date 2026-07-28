@@ -30,8 +30,8 @@ export function OnboardingPreviewPage() {
         ? "card"
         : null;
 
-  // 生成中插话态：让 activeRuntime.isGenerating=true 并塞一条草稿，展示「发送=插话
-  // + 停止并存 + 提示行」。切走/卸载时复位，不污染其它预览场景。
+  // 生成中插话态：isGenerating=true + 草稿，展示「弱发送插话 + 实心停止 + 提示行」。
+  // 切走/卸载时复位，不污染其它预览场景。
   useEffect(() => {
     if (!genVariant) return;
     const key = draftKeyFor(null);
@@ -118,7 +118,7 @@ export function OnboardingPreviewPage() {
             data-composer-dock="bottom"
           >
             <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10 text-center text-sm text-muted-foreground">
-              回合执行中：下方输入框「发送 = 插话」，停止键并存
+              回合执行中：主按钮=停止；有草稿时弱发送/Enter=插话
             </div>
             <div className="mx-auto w-full max-w-3xl">
               <MessageInput variant="bar" />
@@ -132,7 +132,7 @@ export function OnboardingPreviewPage() {
           >
             <div className="mx-auto flex w-full max-w-3xl flex-col">
               <div className="px-4 pb-2 text-center text-sm text-muted-foreground">
-                回合执行中：画布命令栏（card）同样可插话
+                回合执行中：画布命令栏同样主停+弱插话
               </div>
               <MessageInput className="px-4 pb-2 pt-4" variant="card" />
             </div>

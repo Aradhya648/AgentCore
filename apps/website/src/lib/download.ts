@@ -1,6 +1,6 @@
 /**
- * 桌面端 / Android 下载配置（构建时由 scripts/fetch-release.mjs 从品牌 CDN 刷新）。
- * 用户面 URL = downloads.*（R2）；GitHub Releases 仅作历史归档入口。
+ * 桌面端 / Android 下载配置（构建时由 scripts/fetch-release.mjs 刷新）。
+ * 用户面安装包 URL = GitHub Releases；版本发现可读品牌域 latest.json。
  */
 import {
   ANDROID_APK_FILENAME,
@@ -26,13 +26,13 @@ export {
   WIN_INSTALLER_URL,
 };
 
-/** Brand download CDN (Cloudflare R2). */
+/** Brand host for updater feed / latest.json（非官网首装主链）。 */
 export const DOWNLOADS_BASE = "https://downloads.fashitianxia.xyz" as const;
 
 export const RELEASES_REPO =
   "https://github.com/Lawofall/AgentCore-releases" as const;
 
-/** 历史版本归档（非首装主路径）。 */
+/** 发布页 / 历史版本（官网安装包直链亦指向本仓 assets）。 */
 export const RELEASES_LATEST = `${RELEASES_REPO}/releases/latest` as const;
 
 export type PlatformId = "win" | "mac" | "linux" | "android";

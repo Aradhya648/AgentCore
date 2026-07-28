@@ -37,6 +37,7 @@ __all__ = [
     "get_client_ip",
     "inference_token_mint_limiter",
     "message_rate_limiter",
+    "mfa_verify_rate_limiter",
     "reset_rate_limit_state",
 ]
 
@@ -97,6 +98,11 @@ inference_token_mint_limiter = _build_sliding_rate_limiter(
     max_requests=settings.inference_token_mint_max,
     window_seconds=settings.inference_token_mint_window_seconds,
 )
+mfa_verify_rate_limiter = _build_sliding_rate_limiter(
+    prefix="rl:mfa",
+    max_requests=settings.mfa_verify_rate_limit_max,
+    window_seconds=settings.mfa_verify_rate_limit_window_seconds,
+)
 
 
 def reset_rate_limit_state() -> None:
@@ -104,6 +110,7 @@ def reset_rate_limit_state() -> None:
     auth_rate_limiter.reset()
     message_rate_limiter.reset()
     inference_token_mint_limiter.reset()
+    mfa_verify_rate_limiter.reset()
     from agentcore.conversation.inference_rate_limit import reset_inference_proxy_turn_claims
 
     reset_inference_proxy_turn_claims()

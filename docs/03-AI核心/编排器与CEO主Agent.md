@@ -30,7 +30,7 @@ CEO 是**管理者**（不是调查员）：只持只读 / 检索工具，用于
 | 开工前只读探路；团队跑完写简短概览 | 为简单对话支付规划税 |
 | 理解意图、拆任务、定角色与依赖（`depends_on`） | 复述各 worker 全文（细节由前端 run / 图视图展示） |
 
-工具结构分界：`approval=NEVER` → CEO 持有；`GRANTABLE` → 仅 worker。自研编排（否决 LangGraph / CrewAI 等）：编排是核心壁垒，须完全掌控。聊天优先 + 按需编排（否决「编排器唯一入口」——每条消息付编排税）。
+工具结构分界：`approval=NEVER` → CEO 持有；`GRANTABLE` → 仅 worker——**唯一例外**：本机 Host 的 `host_shell`（CEO+worker · `host` 轴授 · 禁 kickoff 静默授；L2/L3 仍仅 worker）。自研编排（否决 LangGraph / CrewAI 等）：编排是核心壁垒，须完全掌控。聊天优先 + 按需编排（否决「编排器唯一入口」——每条消息付编排税）。
 
 **档位取舍**：档 2.5 = 结构取档 2（CEO 只读；否决档 1 全能 CEO、档 3 纯编排 CEO）+ 路由按「活的规模与结构」细化。档 1 污染上下文、弱化团队心智；档 3 给高频轻量只读加委派税。
 
@@ -90,7 +90,7 @@ CEO 是**管理者**（不是调查员）：只持只读 / 检索工具，用于
 | `complexity_hint` | `light`/`standard`：编排姿态（如 light 隐含 `coordination=none`），**不**映射 worker token/超时 |
 | `coordination` | 便签墙档；缺省 `none`；权威 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md) |
 | `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema` |
-| `completion_criteria` | 批次验收；省略不强制；文案推断已废除。`files_written` / `code_verified`（编译·测试·build）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；落盘此类文件时自动扫）互不混用；启动开发服务器用 `runtime_ready` |
+| `completion_criteria` | 批次验收；省略不强制；文案推断已废除。`files_written` / `code_verified`（编译·测试·build，**默认走有界验证 `test_run`**）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；落盘此类文件时自动扫）互不混用；启动开发服务器用 `runtime_ready`；慢 build/tsc 勿塞 `code_execute` |
 | `continue_from_run_id` | 带现场续派；权威 → [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md) |
 | worker 模型 | CEO **不**选 per-task 模型档；力度用协作结构表达；用户侧「模型组合」可选 Worker 槽 |
 
@@ -100,9 +100,9 @@ CEO 是**管理者**（不是调查员）：只持只读 / 检索工具，用于
 
 **触发**：有项目（`folder_id`）+ 实质请求 +（项目 `画像.md` 空 **或** `_memory_meta.explore_workspace_key` 与当前绑定不一致）。
 
-**流程**：注入 `<cold_start_explore>`（空仓建档 / 绑定已变两套文案）→ 先轻量探路 → `delegate`（`team_preview`）组调研队 → 收尾 `update_project_profile` 合并写入项目画像并记录 `workspace_key`（可选 `topics`≤3）→ **立刻继续原请求**。
+**流程**：注入 `<cold_start_explore>`（空仓建档 / 绑定已变两套文案）→ 先轻量探路（≤3 **轮**；同轮并行多工具只计 1 轮）→ `delegate`（`team_preview`）组调研队（**≥2 角并行**，禁止 1 人包办整仓）→ 收尾 `update_project_profile` 合并写入项目画像并记录 `workspace_key`（可选 `topics`≤3）→ **立刻继续原请求**。
 
-**强制 / 豁免**：用户点名「先了解 / 重新了解 / 刷新项目记忆」强制开幕（合并更新）。旧画像无 key → 不因缺 key 硬开。裸聊 / 纯闲聊 / 空工作区不自动开幕、不写假画像。
+**强制 / 豁免**：用户点名「先了解 / 重新了解 / 刷新项目记忆」强制开幕（合并更新）。旧画像无 key → 不因缺 key 硬开。裸聊 / 纯闲聊 / 空工作区不自动开幕、不写假画像。对已有工程「继续开发 / 全面摸底」亦须 ≥2 角并行（提示词纪律；冷启动闸另硬拒单 worker）。
 
 **边界**：不新建 Explore 原语；不做指纹 / 天数 / commit 自动重探。
 

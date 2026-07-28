@@ -75,6 +75,16 @@ class DesktopNotifyRequiredPayload(WirePayload):
     body: str | None = absent()
 
 
+class HostOpRequiredPayload(WirePayload):
+    """Transport-only client-tool request: run a Host op on the bound desktop
+    (`host_*` tools). NOT journaled."""
+
+    request_id: str
+    conversation_id: str
+    op: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
 class HandoffSnapshotDonePayload(WirePayload):
     snapshot_id: str
     conversation_id: str

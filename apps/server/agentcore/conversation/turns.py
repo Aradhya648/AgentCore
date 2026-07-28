@@ -202,9 +202,12 @@ async def regenerate_chat(
                 return
 
             if edited_content is not None:
-                await msg_repo.update_content(message_id, edited_content)
+                await msg_repo.update_content(message_id, edited_content, commit=False)
 
-            await msg_repo.delete_after(conversation_id, after_created_at=target.created_at)
+            await msg_repo.delete_after(
+                conversation_id, after_created_at=target.created_at, commit=False
+            )
+            await session.commit()
 
             user_message = edited_content if edited_content is not None else (target.content or "")
             history = await load_chat_context(session, conversation_id, max_messages=40)

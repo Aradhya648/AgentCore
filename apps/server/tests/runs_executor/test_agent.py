@@ -598,20 +598,21 @@ async def test_requires_files_reworks_when_not_written_then_passes_on_write():
     assert state.warnings == []
 
 
-async def test_requires_files_soft_accepts_with_warning_when_never_written():
-    # Non-strict: after the one rework the worker still never writes → accepted
-    # (product isn't empty) but carries the shortfall as a warning, not a hard fail.
+async def test_requires_files_write_pass_then_hard_fails_when_never_written():
+    # 交付真相：零落盘走写盘 pass（非满轮调查 retry），再失败 → FAILED（非 soft-complete）。
     plan, _ = build_run_plan(
         [{"role": "前端", "task": "建页面", "deliverable": {"requires_files": True}}],
         id_prefix="t",
     )
     provider = _ContentProvider(["只有文字一", "只有文字二"])
     res = await WaveScheduler().run(plan, _executor(plan, provider, EventSink()))
-    assert provider.calls == 2  # produced, reworked once, then soft-accepted
+    assert provider.calls == 2  # initial + write pass（无第三轮满轮 retry）
     state = res["t_1"]
-    assert state.phase is RunPhase.COMPLETED
-    assert any("工作区" in w for w in state.warnings)
+    assert state.phase is RunPhase.FAILED
+    assert "工作区" in (state.error or "")
     assert state.files_touched == []
+    assert state.error_retryable is False
+    assert any("落盘契约未满足" in (e.get("question") or "") for e in state.escalations)
 
 
 async def test_requires_files_strict_hard_fails_when_never_written():

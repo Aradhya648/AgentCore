@@ -291,7 +291,8 @@ async def test_leaf_without_dependents_does_not_force_handoff():
     assert provider.calls == 1
 
 
-async def test_artifacts_missing_reworks_then_soft_accepts_with_warning():
+async def test_artifacts_missing_write_pass_then_hard_fails():
+    """交付真相：artifacts 隐含 requires_files；零落盘写盘 pass 后再失败 → FAILED。"""
     plan, _ = build_run_plan(
         [
             {
@@ -315,9 +316,10 @@ async def test_artifacts_missing_reworks_then_soft_accepts_with_warning():
     )
     res = await WaveScheduler().run(plan, executor)
     state = res["t_1"]
-    assert state.phase is RunPhase.COMPLETED
-    assert provider.calls == 2
-    assert any("README.md" in w for w in state.warnings)
+    assert state.phase is RunPhase.FAILED
+    assert provider.calls == 2  # initial + write pass（无满轮调查 retry）
+    assert "README.md" in (state.error or "")
+    assert state.files_touched == []
 
 
 async def test_artifacts_hit_when_file_write_covers_declared_path():

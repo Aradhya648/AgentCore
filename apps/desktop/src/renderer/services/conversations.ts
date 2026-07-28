@@ -1,5 +1,6 @@
 import { BASE_URL, api } from "@/services/api";
 import { type FolderMeta, toFolder } from "@/services/folders";
+import { normalizeAxes } from "@/services/permissionAxes";
 import { trashBareConversationScratch } from "@/services/trashBareScratch";
 import { authedFetch, saveBlob } from "@/services/workspaceHttp";
 import type { Conversation } from "@/stores/conversation";
@@ -43,11 +44,7 @@ function toConversation(c: BackendConversation): Conversation {
     localContainerRootId: c.local_container_root_id ?? null,
     pinned: c.pinned ?? false,
     archived: c.archived ?? false,
-    permissionAxes: c.permission_axes ?? {
-      file_write: "session",
-      command: "kickoff",
-      team_kickoff: "rules",
-    },
+    permissionAxes: normalizeAxes(c.permission_axes ?? undefined),
     modelProfileId: c.model_profile_id ?? null,
   };
 }

@@ -18,6 +18,7 @@ from agentcore.tools.builtin import browser_execution_enabled_for, build_worker_
 from agentcore.tools.builtin.browser import (
     BROWSER_TOOL_CLASSES,
     BrowserNavigateTool,
+    BrowserScreenshotTool,
     BrowserSnapshotTool,
     BrowserTypeTool,
 )
@@ -214,6 +215,8 @@ async def test_navigate_builds_display_contract_and_writes_keyframe(tmp_path):
     assert d["kind"] == "browser" and d["action"] == "navigate"
     assert d["url"] == "https://example.com/" and d["title"] == "Example Domain"
     assert d["frame"] == "browser/step-0001.jpg"
+    # A 推送绑页：成功路径必带 session_id + host_kind（FakeRegistry peek → cid）。
+    assert d["session_id"] == "c1" and d["host_kind"] == "sandbox"
     # keyframe actually landed in the workspace (引用即驻留)
     assert (tmp_path / "browser" / "step-0001.jpg").read_bytes() == b"\xff\xd8\xff\xe0jpeg"
     # model-facing output is JSON with an untrusted-content boundary
@@ -319,6 +322,43 @@ async def test_keyframe_size_cap_skips_oversized_frame(tmp_path, monkeypatch):
     result = await tool.execute({"url": "https://x/"}, _ctx(tmp_path))
     assert result.success and "frame" not in result.display
     assert "大小上限" in json.loads(result.output).get("note", "")
+
+
+@pytest.mark.asyncio
+async def test_navigate_missing_frame_succeeds_with_honest_note(tmp_path):
+    """Case C: want_frame but frame is None → navigate stays ok, note warns against pixels."""
+    session = _FakeSession(
+        BrowserCommandResult(
+            ok=True,
+            data={"final_url": "https://example.com/", "title": "Example", "http_status": 200},
+            frame=None,
+        )
+    )
+    tool = BrowserNavigateTool(registry=_FakeRegistry(session=session))
+    result = await tool.execute({"url": "https://example.com/"}, _ctx(tmp_path))
+    assert result.success
+    assert "frame" not in (result.display or {})
+    payload = json.loads(result.output)
+    note = payload.get("note") or ""
+    assert "未截到画面" in note
+    assert "snapshot" in note.lower() or "browser_snapshot" in note
+
+
+@pytest.mark.asyncio
+async def test_screenshot_missing_frame_is_weak_failure(tmp_path):
+    """Case C: browser_screenshot without a frame must not mark success."""
+    session = _FakeSession(
+        BrowserCommandResult(
+            ok=True,
+            data={"final_url": "https://example.com/", "title": "Example"},
+            frame=None,
+        )
+    )
+    tool = BrowserScreenshotTool(registry=_FakeRegistry(session=session))
+    result = await tool.execute({}, _ctx(tmp_path))
+    assert result.success is False
+    assert "未截到画面" in (result.output or "")
+    assert (result.metadata or {}).get("code") == "no_frame"
 
 
 @pytest.mark.asyncio

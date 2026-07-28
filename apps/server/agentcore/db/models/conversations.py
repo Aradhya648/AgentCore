@@ -42,10 +42,11 @@ class Conversation(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     archived: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     mode: Mapped[str] = mapped_column(String(20), default="chat", server_default=text("'chat'"))
-    # Three-axis session permission (会话级权限 · 安全权限与治理):
-    # {file_write, command, team_kickoff}. Runtime gates read THIS column — not
+    # Permission axes (会话级权限 · 安全权限与治理):
+    # {file_write, command, team_kickoff, host}. Runtime gates read THIS column — not
     # users.autonomy_policy (which only seeds new conversations with a recipe).
-    # Default = 写代码: session + kickoff + rules.
+    # Default = 写代码: session + kickoff + rules + ask.
+    # Legacy rows / server_default may omit ``host``; ``PermissionAxes.from_mapping`` fills ask.
     permission_axes: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
@@ -53,7 +54,10 @@ class Conversation(Base):
             "file_write": "session",
             "command": "kickoff",
             "team_kickoff": "rules",
+            "host": "ask",
         },
+        # Keep legacy three-key JSON as DB default; app-layer default + from_mapping
+        # always materialize ``host`` (ask) so we don't need a column ALTER for P0.
         server_default=text(
             "'{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}'::jsonb"
         ),

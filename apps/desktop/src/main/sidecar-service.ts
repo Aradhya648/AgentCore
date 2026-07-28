@@ -9,6 +9,8 @@ import {
   type SidecarCancelRequest,
   type SidecarDebateSteerRequest,
   type SidecarInference,
+  type SidecarListBrowserSessionsRequest,
+  type SidecarListBrowserSessionsResult,
   type SidecarPausedTurn,
   type SidecarProbeRequest,
   type SidecarRecoveryRequest,
@@ -594,7 +596,7 @@ export class SidecarManager {
         ...(req.inference ? { inference: req.inference } : {}),
         // Same for DesktopBrowserBridge (B-Arch): refresh every turn; null = 未装配.
         browserBridge: currentBrowserBridge(),
-        // 会话三轴权限按回合随送：中途切换后下一回合即生效。
+        // 会话权限轴按回合随送：中途切换后下一回合即生效。
         ...(req.permissionAxes
           ? { permissionAxes: req.permissionAxes }
           : req.permissionPreset
@@ -664,6 +666,23 @@ export class SidecarManager {
     await entry.client.request("restoreTurnBaseline", {
       snapshotId: req.snapshotId,
     });
+  }
+
+  /** Local hydrate: ensure sidecar → `listBrowserSessions`（同进程 Registry）。 */
+  async listBrowserSessions(
+    req: SidecarListBrowserSessionsRequest,
+    workspaceRoot: string,
+  ): Promise<SidecarListBrowserSessionsResult> {
+    const entry = this.ensure(
+      req.rootId,
+      req.subpath ?? "",
+      workspaceRoot,
+      undefined,
+    );
+    await entry.ready;
+    return entry.client.request("listBrowserSessions", {
+      conversationId: req.conversationId,
+    }) as Promise<SidecarListBrowserSessionsResult>;
   }
 
   /**
@@ -1194,6 +1213,28 @@ export function registerSidecarIpc(): void {
         req.subpath,
       );
       await manager.restoreTurnBaseline(req, workspaceRoot);
+    },
+  );
+
+  ipcMain.handle(
+    SIDECAR_CHANNELS.listBrowserSessions,
+    async (
+      _e,
+      req: SidecarListBrowserSessionsRequest,
+    ): Promise<SidecarListBrowserSessionsResult> => {
+      assertSidecarShape(
+        SIDECAR_CHANNELS.listBrowserSessions,
+        req,
+        ["rootId", "conversationId"],
+        ["subpath"],
+      );
+      const root = await getStoredRoot(req.rootId);
+      if (!root) throw new Error("本地目录未授权或已移除");
+      const workspaceRoot = await resolveWorkspaceRoot(
+        root.absPath,
+        req.subpath,
+      );
+      return manager.listBrowserSessions(req, workspaceRoot);
     },
   );
 

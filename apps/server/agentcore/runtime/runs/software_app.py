@@ -2,6 +2,7 @@
 
 软件意图下保留窄硬拒：禁止「单前端 + 单 HTML / 仅因单文件缩成 1 worker」旁路。
 绿场软件 / SPA 完整交付另有硬锁：命中则禁 ``none`` / 手写 tasks，必须 ``build_app``。
+审计 / 只读 / review 框定豁免该硬锁（对齐建站 followup；勿把模型往 ``build_app`` 推）。
 官网 / toolshed 仍走 ``website_style`` 硬闸，本模块与之正交（site 意图优先排除）。
 ``build_feature`` 为可选形状快捷，不文案强推「优先」。
 """
@@ -39,11 +40,14 @@ _SOFTWARE_APP_INTENT_RE = re.compile(
 )
 
 # 绿场完整交付：从 0 到 1 / 完整 SPA / Vite·Vue·React 看板等（site 优先排除）。
+# 不含裸 ``build_app`` / 裸「完整项目」——任务书提栈名或 playbook 名 alone 不得判绿场
+#（审计任务常写 React/monorepo/build_app 对照，曾误伤 trace c1a34615…）。
 _SOFTWARE_GREENFIELD_INTENT_RE = re.compile(
     r"(?:"
     r"从\s*0\s*到\s*1|从零(?:开始|搭建|构建|开发)|"
     r"搭建完整项目|按文档实现全部功能|"
-    r"完整.{0,12}(?:应用|项目|SPA|系统)|"
+    r"完整的?(?:Vite|Vue|React|\bSPA\b)|"
+    r"完整.{0,8}(?:SPA|应用系统|web\s*app)|"
     r"(?:做|建|开发|搭建|构建|制作).{0,36}"
     r"(?:Vue|React|Vite|SPA|看板|dashboard|数据看板|"
     r"前端项目|前端应用|单页应用|web\s*app)"
@@ -54,8 +58,19 @@ _SOFTWARE_GREENFIELD_INTENT_RE = re.compile(
     r"|"
     r"(?:build|create|scaffold|greenfield).{0,40}"
     r"(?:vue|react|vite|\bspa\b|dashboard|full[- ]?stack\s+app)"
-    r"|"
-    r"build_app"
+    r")",
+    re.IGNORECASE,
+)
+
+# 审计 / 只读 / review 框定 → 豁免绿场 none 硬锁（对齐建站 followup 豁免思路）。
+# 用户话或本轮委派文案任一命中即可；勿把模型往 build_app 推。
+_SOFTWARE_AUDIT_READONLY_EXEMPT_RE = re.compile(
+    r"(?:"
+    r"独立审计|全面审计|代码审计|安全审计|质量审计|架构审计|"
+    r"审计员|审校员|只读|不修改代码|勿修改代码|不要修改代码|"
+    r"不改代码|不做修改|仅审计|仅审查|只审查|代码审查|只读审查|"
+    r"\baudit(?:or|ing)?\b|\breview(?:er|ing)?\b|"
+    r"read[- ]?only|no\s+code\s+changes|without\s+modifying(?:\s+code)?"
     r")",
     re.IGNORECASE,
 )
@@ -140,15 +155,28 @@ def is_software_app_intent(*parts: str) -> bool:
     return bool(_SOFTWARE_APP_INTENT_RE.search(blob))
 
 
+def is_software_audit_readonly_exempt(*parts: str) -> bool:
+    """True when text frames audit / read-only / review (not greenfield build).
+
+    Aligns with website followup exemption: user turn **or** this-call delegation
+    copy that clearly says 审计 / 只读 / 不修改代码 / review → not software greenfield.
+    """
+    blob = " ".join(p for p in parts if isinstance(p, str) and p.strip())
+    return bool(blob and _SOFTWARE_AUDIT_READONLY_EXEMPT_RE.search(blob))
+
+
 def is_software_greenfield_intent(*parts: str) -> bool:
     """True for 从0到1 / 完整 SPA / Vite·Vue·React 看板等绿场完整交付.
 
     Site / toolshed 优先：命中 ``is_site_build_intent`` → False（互斥）。
+    审计 / 只读 / review 框定 → False（不得因任务书提栈名或 ``build_app`` 误伤）。
     """
     blob = " ".join(p for p in parts if isinstance(p, str) and p.strip())
     if not blob:
         return False
     if is_site_build_intent(blob):
+        return False
+    if is_software_audit_readonly_exempt(blob):
         return False
     return bool(_SOFTWARE_GREENFIELD_INTENT_RE.search(blob))
 
@@ -222,9 +250,18 @@ def software_greenfield_none_path_blocked(
     *,
     user_message: str = "",
 ) -> bool:
-    """True when greenfield SPA intent + none / hand-written path must be rejected."""
+    """True when greenfield SPA intent + none / hand-written path must be rejected.
+
+    Audit / read-only framing on the user turn **or** this call's tasks / reason
+    exempts the hard lock (do not push the model toward ``build_app``). True
+    greenfield construction without that framing still rejects ``none``.
+    """
     call_blob = _task_blob(arguments)
-    return is_software_greenfield_intent(user_message or "", call_blob)
+    user = user_message or ""
+    # Explicit check so exemption is visible at the gate (intent also short-circuits).
+    if is_software_audit_readonly_exempt(user, call_blob):
+        return False
+    return is_software_greenfield_intent(user, call_blob)
 
 
 def software_thin_html_rejected_message() -> str:

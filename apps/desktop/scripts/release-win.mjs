@@ -186,7 +186,7 @@ function main() {
   const paths = assertLocalAssets(releaseDir, version);
   uploadAndVerify(tag, version, paths);
 
-  // Brand CDN (R2) — user-facing downloads + electron-updater feed.
+  // Brand host (nginx) — electron-updater feed；官网首装走 GitHub Releases。
   run(
     "sync:release-cdn (desktop)",
     process.execPath,

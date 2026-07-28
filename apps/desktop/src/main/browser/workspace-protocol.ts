@@ -4,58 +4,63 @@
  * 请求 `workspace://<conversationId>/<path>` → 主进程 Bearer 代理会话工作区文件端点
  * （与 preview:// 同形安全不变量：路径穿越防护 / CSP / nosniff / 权限全拒）。
  *
- * 处理器注册在 **WORKSPACE_PARTITION** session 上（≠ BROWSER_PARTITION、≠ PREVIEW_PARTITION、
- * ≠ defaultSession）。不改 `lockPreviewNavigation`。
+ * 处理器按 **conversation 分区** 注册（`workspacePartitionFor(cid)`）；
+ * URL host **必须等于**该 partition 绑定的 cid，否则 403（防跨对话灌 HTML）。
  */
 
 import { type Session, session } from "electron";
 import { bearerFetch } from "../auth-client";
+import { normalizeBrowserConversationId } from "./paths";
 import {
   WORKSPACE_CSP,
-  WORKSPACE_PARTITION,
   WORKSPACE_SCHEME,
   mimeForPath,
-  normalizePreviewPath,
+  resolveWorkspaceProtocolRequest,
   workspaceFilePath,
+  workspacePartitionFor,
 } from "./workspace-paths";
 
-export function workspaceBrowserSession(): Session {
-  return session.fromPartition(WORKSPACE_PARTITION);
+/** 已注册协议处理器的 partition 名（幂等）。 */
+const registeredPartitions = new Set<string>();
+
+export function workspaceBrowserSessionFor(conversationId: string): Session {
+  return session.fromPartition(workspacePartitionFor(conversationId));
 }
 
-let protocolRegistered = false;
+export { resolveWorkspaceProtocolRequest };
 
 /**
- * 幂等：在工作区分区装 `workspace://` 处理器 + 权限全拒。
- * 首帧加载前调用（openWorkspaceHtml / registerBrowserIpc 都会调）。
+ * 幂等：在指定对话的工作区分区装 `workspace://` 处理器 + 权限全拒。
+ * 建 workspace 页前调用。
  */
-export function registerWorkspaceProtocol(): void {
-  const sess = workspaceBrowserSession();
+export function registerWorkspaceProtocolFor(conversationId: string): void {
+  const cid = normalizeBrowserConversationId(conversationId);
+  if (!cid) return;
+  const partition = workspacePartitionFor(cid);
+  const sess = session.fromPartition(partition);
 
   sess.setPermissionRequestHandler((_wc, _permission, callback) =>
     callback(false),
   );
   sess.setPermissionCheckHandler(() => false);
 
-  if (protocolRegistered) return;
-  protocolRegistered = true;
+  if (registeredPartitions.has(partition)) return;
+  registeredPartitions.add(partition);
 
   sess.protocol.handle(WORKSPACE_SCHEME, async (request) => {
-    let url: URL;
-    try {
-      url = new URL(request.url);
-    } catch {
-      return new Response("Bad Request", { status: 400 });
-    }
-    const conversationId = url.hostname;
-    const rel = normalizePreviewPath(url.pathname);
-    if (!conversationId || !rel) {
-      return new Response("Forbidden", { status: 403 });
+    const resolved = resolveWorkspaceProtocolRequest(request.url, cid);
+    if (!resolved.ok) {
+      return new Response(
+        resolved.status === 400 ? "Bad Request" : "Forbidden",
+        { status: resolved.status },
+      );
     }
 
     let upstream: Response;
     try {
-      upstream = await bearerFetch(workspaceFilePath(conversationId, rel));
+      upstream = await bearerFetch(
+        workspaceFilePath(resolved.conversationId, resolved.rel),
+      );
     } catch {
       return new Response("Bad Gateway", { status: 502 });
     }
@@ -67,7 +72,7 @@ export function registerWorkspaceProtocol(): void {
     }
 
     const headers = new Headers();
-    headers.set("Content-Type", mimeForPath(rel));
+    headers.set("Content-Type", mimeForPath(resolved.rel));
     headers.set("Content-Security-Policy", WORKSPACE_CSP);
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Cache-Control", "no-store");
@@ -75,7 +80,12 @@ export function registerWorkspaceProtocol(): void {
   });
 }
 
+/** @deprecated 首期按 cid 注册；无 cid 时 no-op（勿挂全局 partition）。 */
+export function registerWorkspaceProtocol(): void {
+  /* intentionally empty — callers must use registerWorkspaceProtocolFor(cid) */
+}
+
 /** 测试接缝：重置注册标记。 */
 export function resetWorkspaceProtocolForTests(): void {
-  protocolRegistered = false;
+  registeredPartitions.clear();
 }

@@ -1,8 +1,22 @@
-"""Test runner tool — run workspace test suites with structured output."""
+"""Bounded project verification — test / typecheck / build with a minute-level budget.
+
+Expands the historical ``test_run`` surface into the first-class verify tool of the
+short-exec / bounded-verify / long-running triad:
+
+- ``code_execute`` — short, self-exiting scripts only
+- **this tool** — project checks (test / typecheck / build / explicit verify command)
+- ``terminal`` — long-running processes
+
+Runs through the same sandbox chain and GRANTABLE posture as ``code_execute``.
+Over-budget timeouts are ``contract_failure`` (verify incomplete), not circuit-breaker
+fuel. Local runs launch via a Python argv runner so Windows never defaults through a
+WSL bash trampoline.
+"""
 
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import time
 from typing import Any, Literal
@@ -24,22 +38,46 @@ from agentcore.tools.registration import (
     ToolRegistration,
     ToolSurface,
 )
-from agentcore.tools.sandbox.protocol import ExecutionRequest
+from agentcore.tools.sandbox.protocol import ExecutionRequest, ExecutionResult
 from agentcore.workspace.protocol import PathNotFound, WorkspaceBackend
 
 Framework = Literal["pytest", "vitest", "jest"]
 Scope = Literal["all", "affected", "file"]
+CheckKind = Literal["test", "typecheck", "build", "command"]
+
+# Minute-level verify budget. Engine schema timeout adds slack so the sandbox
+# returns Timeout first and we can mark ``contract_failure`` (not engine cancel).
+_VERIFY_BUDGET_SECONDS = 300
+_ENGINE_TIMEOUT_SLACK_SECONDS = 30
+_DEFAULT_TIMEOUT = _VERIFY_BUDGET_SECONDS
 
 TEST_RUN_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "check": {
+            "type": "string",
+            "enum": ["test", "typecheck", "build", "command"],
+            "default": "test",
+            "description": (
+                "验证种类：test=测试套件；typecheck=类型检查（tsc 等）；"
+                "build=项目构建；command=显式跑 command（用于 completion_criteria / "
+                "verify_command）。慢 build / 全量 tsc / 项目测试请用本工具，勿用 "
+                "code_execute。"
+            ),
+        },
+        "command": {
+            "type": "string",
+            "description": (
+                "check=command 时必填：要跑的验证命令（如 pnpm test、npx tsc --noEmit、"
+                "npm run build）。须为项目检查形，禁止长驻进程。"
+            ),
+        },
         "scope": {
             "type": "string",
             "enum": ["all", "affected", "file"],
             "default": "affected",
             "description": (
-                "测试范围：all=全量测试套件；affected=只跑可能受影响的测试"
-                "（基于最近修改的文件）；file=指定单个测试文件。"
+                "仅 check=test：all=全量；affected=受影响测试；file=单个测试文件。"
             ),
         },
         "test_file": {
@@ -50,26 +88,74 @@ TEST_RUN_PARAMETERS: dict[str, Any] = {
             "type": "string",
             "enum": ["pytest", "vitest", "jest", "auto"],
             "default": "auto",
-            "description": "测试框架。auto 时从 WorkspaceProfile 自动检测。",
+            "description": "仅 check=test：测试框架。auto 时从 WorkspaceProfile 自动检测。",
         },
         "filter": {
             "type": "string",
-            "description": "可选，测试名过滤表达式（如 pytest 的 -k 参数值）。",
+            "description": "仅 check=test：可选测试名过滤（如 pytest -k）。",
+        },
+        "purpose": {
+            "type": "string",
+            "description": (
+                "一句话中文说明这次验证要确认什么；会展示给用户作为审批说明，执行时忽略"
+            ),
         },
     },
     "required": [],
 }
 
 _ALLOWED_PREFIXES: tuple[tuple[str, ...], ...] = (
+    # tests
     ("pytest",),
     ("python", "-m", "pytest"),
     ("npx", "vitest"),
     ("npx", "jest"),
     ("pnpm", "test"),
     ("npm", "test"),
+    ("yarn", "test"),
     ("uv", "run", "pytest"),
     ("vitest",),
     ("jest",),
+    # typecheck / build
+    ("tsc",),
+    ("npx", "tsc"),
+    ("vue-tsc",),
+    ("npx", "vue-tsc"),
+    ("npm", "run", "typecheck"),
+    ("npm", "run", "type-check"),
+    ("npm", "run", "build"),
+    ("npm", "run", "lint"),
+    ("pnpm", "run", "typecheck"),
+    ("pnpm", "run", "type-check"),
+    ("pnpm", "run", "build"),
+    ("pnpm", "run", "lint"),
+    ("pnpm", "typecheck"),
+    ("pnpm", "build"),
+    ("yarn", "typecheck"),
+    ("yarn", "build"),
+    ("yarn", "run", "typecheck"),
+    ("yarn", "run", "build"),
+    ("cargo", "test"),
+    ("cargo", "check"),
+    ("cargo", "build"),
+    ("go", "test"),
+    ("go", "build"),
+    ("python", "-m", "mypy"),
+    ("mypy",),
+    ("uv", "run", "mypy"),
+)
+
+# Mirrors completion._VERIFY_COMMAND_RE — keep allow surface honest for explicit command=.
+_VERIFY_SHAPED_RE = re.compile(
+    r"\b(?:"
+    r"tsc\b|vue-tsc\b|typecheck\b|"
+    r"(?:npm|pnpm|yarn)\s+run\s+(?:test|typecheck|type-check|build|lint)\b|"
+    r"(?:npm|pnpm|yarn)\s+test\b|"
+    r"pytest\b|vitest\b|\bjest\b|mypy\b|"
+    r"cargo\s+(?:test|check|build)\b|go\s+(?:test|build)\b|"
+    r"(?:mvn|gradlew?)\s+test\b"
+    r")",
+    re.IGNORECASE,
 )
 
 _VITEST_CONFIG_NAMES = (
@@ -87,7 +173,8 @@ _JEST_CONFIG_NAMES = (
 
 _SOURCE_EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".js", ".jsx"})
 _MAX_AFFECTED_SOURCES = 10
-_DEFAULT_TIMEOUT = 120
+
+_TIMEOUT_MARKER = "Timeout: execution exceeded"
 
 
 def _make_output_callback(context: ToolContext):
@@ -110,8 +197,43 @@ def _is_allowed_command(argv: list[str]) -> bool:
     return False
 
 
+def _is_allowed_verify_argv(argv: list[str]) -> bool:
+    if _is_allowed_command(argv):
+        return True
+    return bool(_VERIFY_SHAPED_RE.search(_argv_to_shell(argv)))
+
+
 def _argv_to_shell(argv: list[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in argv)
+
+
+def _parse_command(command: str) -> list[str] | None:
+    text = command.strip()
+    if not text:
+        return None
+    try:
+        argv = shlex.split(text, posix=True)
+    except ValueError:
+        return None
+    return argv or None
+
+
+def _python_argv_runner(argv: list[str]) -> str:
+    """Run ``argv`` under Python so local Windows never needs a bash trampoline."""
+    return (
+        "import shutil\n"
+        "import subprocess\n"
+        "import sys\n"
+        f"argv = {list(argv)!r}\n"
+        "resolved = shutil.which(argv[0])\n"
+        "if resolved:\n"
+        "    argv = [resolved, *argv[1:]]\n"
+        "if sys.platform == 'win32' and argv[0].lower().endswith(('.cmd', '.bat')):\n"
+        "    completed = subprocess.run(subprocess.list2cmdline(argv), shell=True)\n"
+        "else:\n"
+        "    completed = subprocess.run(argv)\n"
+        "raise SystemExit(completed.returncode)\n"
+    )
 
 
 def _is_test_file(path: str) -> bool:
@@ -266,7 +388,7 @@ def _parse_output(
     return result
 
 
-def _format_output(
+def _format_test_output(
     result: TestRunResult,
     command_argv: list[str],
     duration_seconds: float,
@@ -317,8 +439,137 @@ def _format_output(
     return "\n".join(parts)
 
 
+def _format_check_output(
+    *,
+    check: CheckKind,
+    command_argv: list[str],
+    exec_result: ExecutionResult,
+    duration_seconds: float,
+    budget_exceeded: bool,
+) -> str:
+    if budget_exceeded:
+        status = "未完成（预算耗尽）"
+    elif exec_result.exit_code == 0:
+        status = "通过"
+    else:
+        status = "未通过"
+    parts = [
+        f"## 验证结果：{status}",
+        "",
+        "### 摘要",
+        f"- 种类：{check}",
+        f"- 命令：{_argv_to_shell(command_argv)}",
+        f"- 退出码：{exec_result.exit_code}",
+        f"- 耗时：{duration_seconds:.1f}s",
+        f"- 预算：{_VERIFY_BUDGET_SECONDS}s",
+    ]
+    if budget_exceeded:
+        parts.append(
+            f"- 说明：验证未在 {_VERIFY_BUDGET_SECONDS}s 预算内完成；"
+            "这是验证未完成，不是执行工具故障。可缩小范围、换更快的 check，或拆命令后重试。"
+        )
+    raw = (exec_result.stdout or "").strip()
+    err = (exec_result.stderr or "").strip()
+    if raw:
+        parts.extend(["", "### stdout", raw])
+    if err and not (budget_exceeded and _TIMEOUT_MARKER in err):
+        parts.extend(["", "### stderr", err])
+    elif err and budget_exceeded:
+        # Keep the timeout line visible once.
+        parts.extend(["", "### stderr", err])
+    return "\n".join(parts)
+
+
+def _is_budget_timeout(exec_result: ExecutionResult) -> bool:
+    if exec_result.exit_code == -1 and _TIMEOUT_MARKER in (exec_result.stderr or ""):
+        return True
+    return _TIMEOUT_MARKER in (exec_result.stderr or "")
+
+
+def _js_pm_run(profile: WorkspaceProfile, script: str) -> list[str]:
+    pm = "npm"
+    for candidate in ("pnpm", "yarn", "npm"):
+        if candidate in profile.package_managers:
+            pm = candidate
+            break
+    if pm == "yarn":
+        return ["yarn", script]
+    if pm == "pnpm":
+        # Prefer bare script when common; fall back to run for custom names.
+        if script in ("test", "build", "typecheck"):
+            return ["pnpm", script] if script != "test" else ["pnpm", "test"]
+        return ["pnpm", "run", script]
+    return ["npm", "run", script] if script != "test" else ["npm", "test"]
+
+
+async def _resolve_typecheck_argv(
+    backend: WorkspaceBackend,
+    profile: WorkspaceProfile,
+) -> list[str] | None:
+    for cmd in getattr(profile, "typecheck_commands", None) or []:
+        argv = _parse_command(cmd)
+        if argv and _is_allowed_verify_argv(argv):
+            return argv
+    if await _file_exists(backend, "tsconfig.json"):
+        return ["npx", "tsc", "--noEmit"]
+    return None
+
+
+async def _resolve_build_argv(
+    backend: WorkspaceBackend,
+    profile: WorkspaceProfile,
+) -> list[str] | None:
+    for cmd in profile.build_commands:
+        argv = _parse_command(cmd)
+        if argv and _is_allowed_verify_argv(argv):
+            return argv
+    if profile.package_managers and await _file_exists(backend, "package.json"):
+        return _js_pm_run(profile, "build")
+    return None
+
+
+async def _resolve_test_argv(
+    *,
+    backend: WorkspaceBackend,
+    profile: WorkspaceProfile,
+    arguments: dict[str, Any],
+) -> tuple[list[str] | None, Framework | None, str | None]:
+    scope: Scope = arguments.get("scope", "affected")  # type: ignore[assignment]
+    test_file = (arguments.get("test_file") or "").strip()
+    framework_arg = arguments.get("framework", "auto")
+    filter_expr = (arguments.get("filter") or "").strip()
+
+    if scope == "file" and not test_file:
+        return None, None, "scope=file 时必须提供 test_file 参数"
+
+    framework = await _detect_framework(backend, profile, framework_arg)
+    if framework is None:
+        return (
+            None,
+            None,
+            (
+                "无法检测测试框架。请确认工作区包含 pyproject.toml（pytest）、"
+                "vitest.config.* 或 jest.config.*，或在 framework 参数中显式指定；"
+                "或改用 check=command 并提供 verify 命令。"
+            ),
+        )
+
+    argv = _base_command(framework, profile)
+    argv = _append_filter(argv, framework, filter_expr)
+
+    if scope == "file":
+        argv.append(test_file)
+    elif scope == "affected":
+        affected = await _resolve_affected_paths(backend)
+        if affected:
+            argv.extend(affected)
+        elif framework == "pytest":
+            argv.append("tests/")
+    return argv, framework, None
+
+
 class TestRunTool:
-    """Run the workspace test suite and return structured results."""
+    """Bounded project verification (test / typecheck / build / explicit command)."""
 
     registration = ToolRegistration(
         surface=ToolSurface.BUILTIN,
@@ -331,83 +582,102 @@ class TestRunTool:
         return ToolSchema(
             name="test_run",
             description=(
-                "运行工作区的测试套件并返回结构化结果。自动检测测试框架（pytest / vitest / jest）"
-                "并解析输出为通过/失败/错误摘要。适合验证代码改动是否正确。"
-                "若只需执行任意命令，请用 code_execute。"
+                "有界项目验证：跑工作区声明的检查（测试 / typecheck / build / 显式 "
+                "verify 命令），分钟级预算、可流式输出。适合 completion_criteria="
+                "code_verified 与慢 build、全量 tsc、项目测试——【不要】用 code_execute "
+                "跑这些。超预算返回「验证未完成」，不是工具故障。长驻进程请用 terminal。"
             ),
             parameters=TEST_RUN_PARAMETERS,
             category=ToolCategory.EXECUTION,
-            # test_run runs the project's test command through the SAME sandbox chain as
-            # code_execute (context.backend.execute) — a test suite executes arbitrary
-            # project code (conftest, fixtures, plugins), so its execution power is
-            # equivalent. It therefore belongs to the same code-execution class and must
-            # carry the SAME governance: GRANTABLE so the approval gate covers it, the CEO
-            # NEVER-filter keeps it worker-only, and the cloud availability gate
-            # (code_execution_enabled_for) withholds it where the sandbox isn't a real
-            # isolation boundary — closing the P0 where a NEVER test_run ran ungated
-            # (local: user's real machine; cloud default: subprocess RCE). Turn grants
-            # are allowed (per_call_tool_names empty, Cursor-aligned).
+            # Same sandbox chain + GRANTABLE posture as code_execute (P0): a project
+            # check executes arbitrary project code, so governance must stay aligned.
             approval=ToolApproval.GRANTABLE,
-            timeout_seconds=_DEFAULT_TIMEOUT,
+            timeout_seconds=_VERIFY_BUDGET_SECONDS + _ENGINE_TIMEOUT_SLACK_SECONDS,
         )
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
-        scope: Scope = arguments.get("scope", "affected")  # type: ignore[assignment]
-        test_file = (arguments.get("test_file") or "").strip()
-        framework_arg = arguments.get("framework", "auto")
-        filter_expr = (arguments.get("filter") or "").strip()
-
-        if scope == "file" and not test_file:
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error="scope=file 时必须提供 test_file 参数",
-                duration_ms=0,
-            )
+        check: CheckKind = arguments.get("check", "test")  # type: ignore[assignment]
+        if check not in ("test", "typecheck", "build", "command"):
+            check = "test"
 
         profile = await detect_workspace_profile(context.backend)
-        framework = await _detect_framework(context.backend, profile, framework_arg)
-        if framework is None:
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error=(
-                    "无法检测测试框架。请确认工作区包含 pyproject.toml（pytest）、"
-                    "vitest.config.* 或 jest.config.*，或在 framework 参数中显式指定。"
-                ),
-                duration_ms=int((time.monotonic() - start) * 1000),
+        framework: Framework | None = None
+        err: str | None = None
+        argv: list[str] | None = None
+
+        if check == "command":
+            raw_cmd = (arguments.get("command") or "").strip()
+            if not raw_cmd:
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error="check=command 时必须提供 command 参数",
+                    duration_ms=0,
+                    contract_failure=True,
+                    metadata={"code": "verify_contract"},
+                )
+            argv = _parse_command(raw_cmd)
+            if argv is None:
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=f"无法解析 command：{raw_cmd}",
+                    duration_ms=0,
+                    contract_failure=True,
+                    metadata={"code": "verify_contract"},
+                )
+        elif check == "typecheck":
+            argv = await _resolve_typecheck_argv(context.backend, profile)
+            if argv is None:
+                err = (
+                    "无法推断 typecheck 命令。请用 check=command 并提供命令"
+                    "（如 npx tsc --noEmit），或确认存在 tsconfig.json / typecheck 脚本。"
+                )
+        elif check == "build":
+            argv = await _resolve_build_argv(context.backend, profile)
+            if argv is None:
+                err = (
+                    "无法推断 build 命令。请用 check=command 并提供命令"
+                    "（如 npm run build），或确认 package.json 含 build 脚本。"
+                )
+        else:
+            argv, framework, err = await _resolve_test_argv(
+                backend=context.backend,
+                profile=profile,
+                arguments=arguments,
             )
 
-        argv = _base_command(framework, profile)
-        argv = _append_filter(argv, framework, filter_expr)
-
-        if scope == "file":
-            argv.append(test_file)
-        elif scope == "affected":
-            affected = await _resolve_affected_paths(context.backend)
-            if affected:
-                argv.extend(affected)
-            elif framework == "pytest":
-                argv.append("tests/")
-        # scope == "all": no path args
-
-        if not _is_allowed_command(argv):
+        if err:
             return ToolResult(
                 tool_call_id="",
                 success=False,
                 output="",
-                error=f"命令不在白名单内：{_argv_to_shell(argv)}",
+                error=err,
                 duration_ms=int((time.monotonic() - start) * 1000),
+                contract_failure=True,
+                metadata={"code": "verify_contract"},
+            )
+        assert argv is not None
+
+        if not _is_allowed_verify_argv(argv):
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=f"命令不在验证白名单内：{_argv_to_shell(argv)}",
+                duration_ms=int((time.monotonic() - start) * 1000),
+                contract_failure=True,
+                metadata={"code": "verify_contract"},
             )
 
         command_shell = _argv_to_shell(argv)
         request = ExecutionRequest(
-            code=command_shell,
-            language="bash",
-            timeout_seconds=_DEFAULT_TIMEOUT,
+            code=_python_argv_runner(argv),
+            language="python",
+            timeout_seconds=_VERIFY_BUDGET_SECONDS,
             on_output=_make_output_callback(context),
             network_mode=(
                 "restricted"
@@ -433,52 +703,94 @@ class TestRunTool:
             )
         duration_ms = int((time.monotonic() - start) * 1000)
         duration_s = duration_ms / 1000.0
+        budget_exceeded = _is_budget_timeout(exec_result)
 
-        parsed = _parse_output(
-            framework,
-            exec_result.stdout,
-            exec_result.stderr,
-            exec_result.exit_code,
-        )
-        if parsed.duration_seconds is None and exec_result.duration_ms:
-            parsed.duration_seconds = exec_result.duration_ms / 1000.0
-
-        output = _format_output(parsed, argv, duration_s)
-        tests_passed = parsed.failed == 0 and parsed.errors == 0 and exec_result.exit_code == 0
-
-        display = {
-            "framework": parsed.framework,
-            "command": command_shell,
-            "passed": parsed.passed,
-            "failed": parsed.failed,
-            "errors": parsed.errors,
-            "skipped": parsed.skipped,
-            "exit_code": exec_result.exit_code,
-            "stdout": exec_result.stdout,
-            "stderr": exec_result.stderr,
-            "failures": [
-                {
-                    "test_name": f.test_name,
-                    "file_path": f.file_path,
-                    "line": f.line,
-                    "message": f.message,
-                    "snippet": f.snippet,
-                }
-                for f in parsed.failures
-            ],
-        }
-
-        return ToolResult(
-            tool_call_id="",
-            success=tests_passed,
-            output=output,
-            error=None if tests_passed else f"测试未通过（退出码 {exec_result.exit_code}）",
-            duration_ms=duration_ms,
-            metadata={
+        if check == "test" and framework is not None and not budget_exceeded:
+            parsed = _parse_output(
+                framework,
+                exec_result.stdout,
+                exec_result.stderr,
+                exec_result.exit_code,
+            )
+            if parsed.duration_seconds is None and exec_result.duration_ms:
+                parsed.duration_seconds = exec_result.duration_ms / 1000.0
+            output = _format_test_output(parsed, argv, duration_s)
+            tests_passed = (
+                parsed.failed == 0 and parsed.errors == 0 and exec_result.exit_code == 0
+            )
+            display = {
+                "check": check,
                 "framework": parsed.framework,
+                "command": command_shell,
                 "passed": parsed.passed,
                 "failed": parsed.failed,
                 "errors": parsed.errors,
+                "skipped": parsed.skipped,
+                "exit_code": exec_result.exit_code,
+                "stdout": exec_result.stdout,
+                "stderr": exec_result.stderr,
+                "failures": [
+                    {
+                        "test_name": f.test_name,
+                        "file_path": f.file_path,
+                        "line": f.line,
+                        "message": f.message,
+                        "snippet": f.snippet,
+                    }
+                    for f in parsed.failures
+                ],
+            }
+            return ToolResult(
+                tool_call_id="",
+                success=tests_passed,
+                output=output,
+                error=None if tests_passed else f"测试未通过（退出码 {exec_result.exit_code}）",
+                duration_ms=duration_ms,
+                metadata={
+                    "check": check,
+                    "framework": parsed.framework,
+                    "passed": parsed.passed,
+                    "failed": parsed.failed,
+                    "errors": parsed.errors,
+                },
+                display=display,
+            )
+
+        output = _format_check_output(
+            check=check,
+            command_argv=argv,
+            exec_result=exec_result,
+            duration_seconds=duration_s,
+            budget_exceeded=budget_exceeded,
+        )
+        ok = (not budget_exceeded) and exec_result.exit_code == 0
+        error: str | None
+        if budget_exceeded:
+            error = (
+                f"验证未在 {_VERIFY_BUDGET_SECONDS}s 预算内完成（验证未完成，非工具故障）"
+            )
+        else:
+            error = None if ok else f"验证未通过（退出码 {exec_result.exit_code}）"
+
+        return ToolResult(
+            tool_call_id="",
+            success=ok,
+            output=output,
+            error=error,
+            duration_ms=duration_ms,
+            metadata={
+                "check": check,
+                "code": "verify_budget" if budget_exceeded else "verify_result",
+                "timeout_seconds": _VERIFY_BUDGET_SECONDS,
+                "exit_code": exec_result.exit_code,
             },
-            display=display,
+            display={
+                "check": check,
+                "command": command_shell,
+                "exit_code": exec_result.exit_code,
+                "stdout": exec_result.stdout,
+                "stderr": exec_result.stderr,
+                "budget_exceeded": budget_exceeded,
+            },
+            contract_failure=budget_exceeded,
         )

@@ -632,7 +632,15 @@ async def execute_tools(
                     tc.id, name, success=False, output=timeout_msg, run_id=event_run_id
                 )
             )
-            logger.warning("tool.execute_end", tool=name, status="timeout", duration_ms=duration_ms)
+            timeout_fields: dict[str, Any] = {
+                "tool": name,
+                "status": "timeout",
+                "duration_ms": duration_ms,
+                "timeout_layer": "outer",
+            }
+            if name == "git" and isinstance(args.get("subcommand"), str):
+                timeout_fields["subcommand"] = args["subcommand"]
+            logger.warning("tool.execute_end", **timeout_fields)
             return (
                 _failed_tool_message(tc.id, timeout_msg),
                 None,
@@ -729,6 +737,10 @@ async def execute_tools(
             end_fields["hosts"] = meta["hosts"]
         if isinstance(meta.get("blocked_hosts"), list) and meta["blocked_hosts"]:
             end_fields["blocked_hosts"] = meta["blocked_hosts"]
+        if isinstance(meta.get("subcommand"), str) and meta["subcommand"]:
+            end_fields["subcommand"] = meta["subcommand"]
+        if isinstance(meta.get("timeout_layer"), str) and meta["timeout_layer"]:
+            end_fields["timeout_layer"] = meta["timeout_layer"]
         logger.info("tool.execute_end", **end_fields)
 
         citations = result.citations if (result.success and result.citations) else []

@@ -1,3 +1,4 @@
+import { detachLocalBrowserHost } from "@/lib/detachLocalBrowserHost";
 import type { ErrorAction } from "@/lib/errors";
 import {
   foldAskMarker,
@@ -917,6 +918,8 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         set({ currentConversationId: id });
         return;
       }
+      // 切对话 / 回首页 = 必须脱离 Local 浏览器附着（改状态前）。
+      void detachLocalBrowserHost();
       set((state) => {
         const byId = { ...state.byId };
         const prev = byId[prevKey];

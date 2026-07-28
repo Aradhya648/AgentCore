@@ -34,6 +34,7 @@ __all__ = [
     "is_research_root",
     "is_short_write_posture",
     "should_enable_zero_write",
+    "should_tighten_verify_exec_thrash",
 ]
 
 # 统一墙钟 backstop（原 deep 档值）；CEO 显式 timeout_ms 恒优先。
@@ -136,6 +137,25 @@ def should_enable_zero_write(
     if short_write_posture is None:
         short_write_posture = is_short_write_posture(max_rounds=max_rounds)
     return bool(files_expected and short_write_posture)
+
+
+def should_tighten_verify_exec_thrash(
+    *,
+    short_write_posture: bool,
+    files_expected: bool,
+    has_execution_tools: bool,
+) -> bool:
+    """Repair verify short posture: tighten unproductive / tool-failure ladders.
+
+    Applies when the worker is short-budget (light / repair_code stamped max_rounds),
+    holds execution tools, and is **not** a files-landing node (verify / diagnose
+    prose). Reuses LoopController repeated-failure / circuit-breaker / unproductive
+    paths — does **not** add a parallel fuse. Files short-write nodes keep zero_write
+    instead.
+    """
+    return bool(
+        short_write_posture and has_execution_tools and not files_expected
+    )
 
 
 def is_directed_search_role(role: str) -> bool:

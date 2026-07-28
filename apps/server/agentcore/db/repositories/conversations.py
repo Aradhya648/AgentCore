@@ -21,7 +21,7 @@ from agentcore.db.models import (
 )
 
 from ._audit_cascade import delete_audit_for_conversation
-from ._base import _ilike_pattern, _sum_int
+from ._base import _ilike_pattern, _sum_int, commit_or_flush
 from ._journal_cascade import delete_journal_for_conversation
 
 
@@ -39,6 +39,7 @@ class ConversationRepository:
         local_container_root_id: str | None = None,
         permission_axes: dict | None = None,
         deep_research_auto: bool | None = None,
+        commit: bool = True,
     ) -> Conversation:
         # Omit title when not provided so the DB server_default ('') applies.
         # The live `conversations.title` column is NOT NULL; passing an explicit
@@ -53,6 +54,8 @@ class ConversationRepository:
         # ``mode`` is "chat" for a normal conversation; a "handoff" conversation is
         # the hidden host for a local→云 cloud job's team run (双模式工作区 P2e /
         # e2), kept out of the sidebar by the list filters below.
+        #
+        # Pass ``commit=False`` when pairing with HandoffJobRepository.create.
         conv = Conversation(id=new_id(), user_id=user_id)
         if title is not None:
             conv.title = title
@@ -70,7 +73,7 @@ class ConversationRepository:
         if deep_research_auto is not None:
             conv.deep_research_auto = bool(deep_research_auto)
         self._session.add(conv)
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         await self._session.refresh(conv)
         return conv
 

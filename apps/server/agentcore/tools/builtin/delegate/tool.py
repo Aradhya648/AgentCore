@@ -316,55 +316,31 @@ class DelegateTool:
                 contract_failure=True,
             )
 
-        # Agent/自动化开工形态双闸（对齐演讲）：意图命中须有 format 记账；无账拒任意 delegate。
-        # 须先于 playbook 声明闸，以便把记账传入 toolshed/website 禁令。
+        # Agent/自动化：只认结构化 ledger 后果（已记账「可运行/仅方案」禁 toolshed 等）。
+        # 不扫用户原文猜意图、不因无账拒整个 delegate。须先于 playbook 声明闸传入记账。
         automation_delivery_warning: str | None = None
         automation_conf = None
         from agentcore.runtime.runs.automation_delivery import (
-            automation_intent_from_parts,
-            automation_missing_delivery_error,
             automation_runnable_no_exec_soft_tip,
-            ensure_full_auto_default_delivery,
             is_runnable_delivery,
             resolve_delivery_confirmation,
         )
         from agentcore.tools.builtin import code_execution_enabled_for
 
-        if automation_intent_from_parts(self._user_message or ""):
-            cid = (self._conversation_id or "").strip()
-            automation_conf = await resolve_delivery_confirmation(cid) if cid else None
-            if automation_conf is None:
-                if self._permission_axes.auto_executes and cid:
-                    automation_conf = ensure_full_auto_default_delivery(cid)
-                    logger.info(
-                        "delegate.automation_delivery_full_auto_default",
-                        conversation_id=cid,
-                        format_id=automation_conf.format_id,
-                    )
-                else:
-                    logger.info(
-                        "delegate.automation_delivery_rejected",
-                        conversation_id=cid or None,
-                        permission_axes=self._permission_axes.to_dict(),
-                        reason="missing_delivery",
-                    )
-                    return ToolResult(
-                        tool_call_id="",
-                        success=False,
-                        output="",
-                        error=automation_missing_delivery_error(),
-                        contract_failure=True,
-                    )
-            if is_runnable_delivery(automation_conf):
-                exec_on = code_execution_enabled_for(self._base_tool_context.backend)
-                if not exec_on:
-                    automation_delivery_warning = automation_runnable_no_exec_soft_tip()
-                    logger.info(
-                        "delegate.automation_delivery_soft_tip",
-                        conversation_id=cid or None,
-                        reason="runnable_no_exec",
-                        format_id=automation_conf.format_id,
-                    )
+        cid_auto = (self._conversation_id or "").strip()
+        automation_conf = (
+            await resolve_delivery_confirmation(cid_auto) if cid_auto else None
+        )
+        if automation_conf is not None and is_runnable_delivery(automation_conf):
+            exec_on = code_execution_enabled_for(self._base_tool_context.backend)
+            if not exec_on:
+                automation_delivery_warning = automation_runnable_no_exec_soft_tip()
+                logger.info(
+                    "delegate.automation_delivery_soft_tip",
+                    conversation_id=cid_auto or None,
+                    reason="runnable_no_exec",
+                    format_id=automation_conf.format_id,
+                )
 
         # Playbook 二分：建站意图硬闸（拒绝 none / 手写旁路）；其余可手写 tasks 不声明。
         declared_playbook, none_reason, decl_error = resolve_playbook_declaration(
@@ -516,15 +492,11 @@ class DelegateTool:
                     contract_failure=True,
                 )
 
-        # 演讲/PPT 交付形态双闸（镜像建站 style）：user 原文呈 presentation 意图须有
-        # format 记账；已确认 pptx 且本回合有 code_execute 时禁止静默改成只交 .md/Marp。
-        # 意图只看 user_message（与 kickoff 同词汇），避免 task 文案里的 pptx 误触发。
+        # 演讲/PPT：只认结构化 format ledger 后果（已确认 pptx + 有执行 → 禁静默只交 .md/Marp）。
+        # 不扫用户原文猜意图、不因无账拒整个 delegate。
         presentation_format_warning: str | None = None
         from agentcore.runtime.runs.presentation_format import (
-            ensure_full_auto_default_format,
             is_pptx_format_confirmation,
-            presentation_intent_from_parts,
-            presentation_missing_format_error,
             presentation_pptx_no_exec_soft_tip,
             presentation_pptx_silent_md_error,
             resolve_format_confirmation,
@@ -532,56 +504,32 @@ class DelegateTool:
         )
         from agentcore.tools.builtin import code_execution_enabled_for
 
-        if presentation_intent_from_parts(self._user_message or ""):
-            cid = (self._conversation_id or "").strip()
-            conf = await resolve_format_confirmation(cid) if cid else None
+        cid_pres = (self._conversation_id or "").strip()
+        conf = await resolve_format_confirmation(cid_pres) if cid_pres else None
+        if conf is not None and is_pptx_format_confirmation(conf):
             exec_on = code_execution_enabled_for(self._base_tool_context.backend)
-            if conf is None:
-                if self._permission_axes.auto_executes and cid:
-                    conf = ensure_full_auto_default_format(cid, prefer_pptx=exec_on)
-                    logger.info(
-                        "delegate.presentation_format_full_auto_default",
-                        conversation_id=cid,
-                        prefer_pptx=exec_on,
-                        format_id=conf.format_id,
-                    )
-                else:
-                    logger.info(
-                        "delegate.presentation_format_rejected",
-                        conversation_id=cid or None,
-                        permission_axes=self._permission_axes.to_dict(),
-                        reason="missing_format",
-                    )
-                    return ToolResult(
-                        tool_call_id="",
-                        success=False,
-                        output="",
-                        error=presentation_missing_format_error(),
-                        contract_failure=True,
-                    )
-            if is_pptx_format_confirmation(conf):
-                if exec_on and tasks_silently_downgrade_pptx_to_md(tasks_raw):
-                    logger.info(
-                        "delegate.presentation_format_rejected",
-                        conversation_id=cid or None,
-                        reason="pptx_silent_md",
-                        format_id=conf.format_id,
-                    )
-                    return ToolResult(
-                        tool_call_id="",
-                        success=False,
-                        output="",
-                        error=presentation_pptx_silent_md_error(),
-                        contract_failure=True,
-                    )
-                if not exec_on:
-                    presentation_format_warning = presentation_pptx_no_exec_soft_tip()
-                    logger.info(
-                        "delegate.presentation_format_soft_tip",
-                        conversation_id=cid or None,
-                        reason="pptx_no_exec",
-                        format_id=conf.format_id,
-                    )
+            if exec_on and tasks_silently_downgrade_pptx_to_md(tasks_raw):
+                logger.info(
+                    "delegate.presentation_format_rejected",
+                    conversation_id=cid_pres or None,
+                    reason="pptx_silent_md",
+                    format_id=conf.format_id,
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=presentation_pptx_silent_md_error(),
+                    contract_failure=True,
+                )
+            if not exec_on:
+                presentation_format_warning = presentation_pptx_no_exec_soft_tip()
+                logger.info(
+                    "delegate.presentation_format_soft_tip",
+                    conversation_id=cid_pres or None,
+                    reason="pptx_no_exec",
+                    format_id=conf.format_id,
+                )
 
         valid_tools = {s.name for s in self._tools.list_all()}
         complexity_hint = arguments.get("complexity_hint", "standard")
@@ -795,6 +743,7 @@ class DelegateTool:
             or plan_signals_long_form_audit(plan.nodes)
         )
         from agentcore.runtime.delegate.completion import (
+            default_repair_code_criteria,
             execution_capability_warning,
             format_resolved_acceptance_echo,
             hoist_task_completion_criteria,
@@ -803,6 +752,7 @@ class DelegateTool:
             validate_completion_against_forms,
             validate_criteria_kind_fit,
             validate_execution_capability,
+            validate_repair_how_fixed,
         )
 
         # 顶层缺失时，容错提升 task 内误放的 completion_criteria（不改 schema 契约）。
@@ -817,6 +767,54 @@ class DelegateTool:
                 success=False,
                 output="",
                 error=hoist_err,
+                contract_failure=True,
+            )
+
+        # E1/E2：repair_code 强制 code_verified（不可降到 files_written），写入 how-fixed。
+        playbook_name_early = (
+            playbook.strip() if isinstance(playbook, str) and playbook.strip() else None
+        )
+        if playbook_name_early == "repair_code":
+            completion_criteria = default_repair_code_criteria(
+                arguments.get("playbook_args")
+            )
+            # Prefer richer how-fixed already on an explicit top-level object.
+            from agentcore.runtime.delegate.completion import (
+                how_fixed_text,
+                parse_completion_criteria,
+            )
+
+            prior = parse_completion_criteria(arguments.get("completion_criteria"))
+            prior_how = how_fixed_text(prior)
+            if prior_how and not completion_criteria.get("verify_command"):
+                completion_criteria = {
+                    **completion_criteria,
+                    "verify_command": prior_how,
+                }
+            logger.info(
+                "delegate.repair_code_criteria_forced",
+                criteria="code_verified",
+            )
+
+        how_fixed_err = validate_repair_how_fixed(
+            completion_criteria,
+            playbook=playbook_name_early,
+            playbook_args=arguments.get("playbook_args"),
+            complexity_hint=(
+                complexity_hint if isinstance(complexity_hint, str) else None
+            ),
+        )
+        if how_fixed_err:
+            logger.info(
+                "delegate.rejected",
+                errors=[how_fixed_err],
+                reason="repair_how_fixed",
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=how_fixed_err,
                 contract_failure=True,
             )
 

@@ -228,7 +228,7 @@ def chunked(iterable, n, strict=False):
 
     """
     # R1a seed_patch: intentional off-by-one in chunk size
-    iterator = iter(partial(take, n + 1 if n is not None else n, iter(iterable)), [])
+    iterator = iter(partial(take, n, iter(iterable)), [])
     if strict:
         if n is None:
             raise ValueError('n must not be None when using strict mode.')

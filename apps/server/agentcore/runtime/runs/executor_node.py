@@ -42,7 +42,10 @@ from agentcore.runtime.runs.contract import (
     format_handoff_feedback,
     format_interrupted_pass_note,
     format_light_repair_feedback,
+    format_write_pass_feedback,
+    has_salvageable_half_product,
     is_format_repairable,
+    is_zero_files_gap,
     needs_file_contents,
     node_has_dependents,
     synthesize_debrief,
@@ -218,7 +221,25 @@ def _can_light_repair(
         return False
     if verdict.ok and handoff_ok:
         return False
+    # Zero-disk gaps use write pass (not format light repair / full investigation retry).
+    if is_zero_files_gap(verdict):
+        return False
     return not (not verdict.ok and not is_format_repairable(verdict))
+
+
+def _can_write_pass(
+    *,
+    verdict: ContractVerdict,
+    files_expected: bool,
+    files_written: int,
+    write_pass_used: bool,
+) -> bool:
+    """``requires_files`` + zero disk → one short write pass (not full contract.retry)."""
+    if write_pass_used or not files_expected:
+        return False
+    if int(files_written or 0) > 0:
+        return False
+    return is_zero_files_gap(verdict)
 
 
 async def execute_agent_node(
@@ -400,9 +421,18 @@ async def execute_agent_node(
                 worker_tools, allowed_tools
             )
         files_expected = _files_expected(deliverable)
-        from agentcore.runtime.runs.worker_budget import is_short_write_posture
+        from agentcore.runtime.delegate.completion import node_holds_execution_tools
+        from agentcore.runtime.runs.worker_budget import (
+            is_short_write_posture,
+            should_tighten_verify_exec_thrash,
+        )
 
         short_write_posture = is_short_write_posture(max_rounds=spec.max_rounds)
+        tighten_verify_exec_thrash = should_tighten_verify_exec_thrash(
+            short_write_posture=short_write_posture,
+            files_expected=files_expected,
+            has_execution_tools=node_holds_execution_tools(spec),
+        )
         # 检索预算 0 (提案 A1): strip web_search/read_url even for unrestricted workers
         # (builder already tightens tasks[].tools when valid_tools is known).
         if spec.retrieval_budget == 0:
@@ -583,7 +613,9 @@ async def execute_agent_node(
         # Last accepted react pass's tool-failure facts (circuit-breaker tally).
         tool_failures: list[dict] = []
         # Format-only / handoff-thin: one in-place light repair before full contract.retry.
+        # Zero-disk (requires_files): one short write pass — never a full investigation retry.
         light_repair_used = False
+        write_pass_used = False
         light_mode = False
         visual_rework_used = 0
         attempt = 0
@@ -669,6 +701,7 @@ async def execute_agent_node(
                     tool_failure_sink=tool_failures,
                     files_expected=files_expected,
                     short_write_posture=short_write_posture,
+                    tighten_verify_exec_thrash=tighten_verify_exec_thrash,
                 )
             run_usage = run_usage + round_usage
             run_rounds += round_rounds
@@ -842,6 +875,38 @@ async def execute_agent_node(
                     rounds_spent=run_rounds,
                 )
                 continue
+            if _can_write_pass(
+                verdict=verdict,
+                files_expected=files_expected,
+                files_written=len(touched_now),
+                write_pass_used=write_pass_used,
+            ):
+                write_pass_used = True
+                light_mode = True  # reuse narrow write/handoff surface + short rounds
+                parts = [format_write_pass_feedback(verdict)]
+                if needs_handoff and handoff_offered and not debrief_meets_minimum(
+                    debrief_now
+                ):
+                    parts.append(
+                        format_handoff_feedback(present_but_thin=debrief_now is not None)
+                    )
+                messages.append(_retry_message("\n\n".join(p for p in parts if p)))
+                logger.info(
+                    "contract.write_pass",
+                    run_id=spec.run_id,
+                    failures=verdict.failures,
+                    tokens_spent=run_usage.total_tokens,
+                    rounds_spent=run_rounds,
+                )
+                continue
+            # Write pass already spent and still zero disk → hard-fail path (no full retry).
+            if write_pass_used and is_zero_files_gap(verdict):
+                logger.info(
+                    "contract.write_pass_exhausted",
+                    run_id=spec.run_id,
+                    failures=verdict.failures,
+                )
+                break
             parts = []
             if pass_interrupted:
                 parts.append(format_interrupted_pass_note())
@@ -929,11 +994,17 @@ async def execute_agent_node(
         # synthesis read the author's own 结论 + 建议下一步 instead of re-deriving them from
         # prose. Carried on BOTH terminal states (a worker that failed its contract can still
         # have submitted a useful brief before failing). Nodes with downstream dependents
-        # that still lack a minimum-quality brief get an engine-synthesized degraded debrief.
+        # that still lack a minimum-quality brief get an engine-synthesized degraded debrief
+        # **only when there is salvageable half-product** (body / disk / qualified brief) —
+        # empty inventory must not mint an empty ``degraded_synth``.
         debrief = debrief_from_transcript(messages)
         touched = files_touched_from_transcript(messages)
         author_brief = debrief
-        if node_has_dependents(env.plan, spec.run_id) and not debrief_meets_minimum(debrief):
+        if (
+            node_has_dependents(env.plan, spec.run_id)
+            and not debrief_meets_minimum(debrief)
+            and has_salvageable_half_product(content, touched, author_brief)
+        ):
             debrief = synthesize_debrief(content, touched)
             logger.info(
                 "handoff.degraded_synth",
@@ -968,9 +1039,42 @@ async def execute_agent_node(
                 soft_failures=[],
                 visual_failures=[],
             )
-        if not verdict.ok and _is_hard_failure(content, deliverable):
+        if not verdict.ok and _is_hard_failure(
+            content, deliverable, files_touched=len(touched)
+        ):
             reason = "；".join(verdict.failures)
             logger.info("contract.failed", run_id=spec.run_id, failures=verdict.failures)
+            # 交付真相：零落盘硬失败时上浮 escalate，供 CEO 续派 / 收口（非自愈旁路）。
+            if (
+                deliverable is not None
+                and deliverable.requires_files
+                and not touched
+            ):
+                esc_q = (
+                    "落盘契约未满足：requires_files 且零落盘"
+                    + ("（写盘 pass 已用尽）" if write_pass_used else "")
+                    + "——请 continue_from_run_id 续派或冷补派，勿当作已完成。"
+                )
+                if not any(e.get("question") == esc_q for e in escalations):
+                    escalations.append(
+                        {
+                            "question": esc_q,
+                            "assumption": "",
+                            "blocking": False,
+                            "kind": "normal",
+                            "source": "contract",
+                        }
+                    )
+                env.sink.emit(
+                    escalation_raised(
+                        spec.run_id,
+                        agent_id,
+                        question=esc_q,
+                        assumption="",
+                        blocking=False,
+                        kind="normal",
+                    )
+                )
             # A contract miss still produced a deliverable + (often) a 交接简报: surface it so
             # the run-detail shows the author's wrap-up beside the failure (the infra-failure
             # except path below has no reliable content, so it carries none).
@@ -998,6 +1102,7 @@ async def execute_agent_node(
                 model=priced_model,
                 duration_ms=duration_ms,
                 rounds=run_rounds,
+                files_touched=touched,
                 tool_failures=list(tool_failures),
                 usage=usage,
                 cost=cost,
@@ -1236,6 +1341,15 @@ async def execute_agent_node(
             retryable=retryable,
         )
     finally:
+        # Browser B: release this run's session bind so a later worker omitting
+        # session_id can reuse the conversation's unbound unique/active live tab
+        # (complete / fail / cancel — including redirect cancel + re-raise stop).
+        try:
+            from agentcore.runtime.browser.registry import default_browser_session_registry
+
+            default_browser_session_registry().unbind_run(spec.run_id)
+        except Exception:  # noqa: BLE001 - teardown must not fail the worker path
+            logger.warning("browser.unbind_run_failed", run_id=spec.run_id)
         # 堵漏账: if this lead opened a sub-plan at a 波边界 but its react loop ended
         # without a final replan (answered directly / hit MAX_ROUNDS / raised), the held
         # sub-team spend still sits in the child delegate's _supervised. Fold it in now —

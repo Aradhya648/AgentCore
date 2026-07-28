@@ -137,6 +137,7 @@ async def _run_captain(
 def test_hard_stop_copy_strips_and_steers_delegate():
     text = team_gate_hard_stop_prompt()
     assert "硬上限" in text
+    assert "3 轮" in text  # 按探路轮计，非同轮并行工具次数
     assert "调查类工具已收回" in text
     assert "delegate" in text
     assert "归类理由" in text
@@ -155,9 +156,45 @@ def test_team_gate_research_shape_copy_when_flagged():
     assert "form=files" in hard
 
 
+def test_team_gate_counts_rounds_not_parallel_calls():
+    """同轮并行多工具只计 1 轮：calls 再高、rounds<3 不硬闸。"""
+    controller = create_loop_controller(frozenset({"search", "git", "file_list"}))
+    controller._investigation_calls = 5
+    controller._investigation_rounds = 1
+    disabled: set[str] = set()
+    messages = [LLMMessage(role="user", content="继续完成白板应用开发")]
+    assert (
+        maybe_inject_team_gate(
+            controller,
+            messages=messages,
+            run_id="r",
+            round_idx=0,
+            role="captain",
+            disabled_tools=disabled,
+            investigation_tools=frozenset({"search", "git", "file_list"}),
+        )
+        is False
+    )
+    assert disabled == set()
+    controller._investigation_rounds = 3
+    assert (
+        maybe_inject_team_gate(
+            controller,
+            messages=messages,
+            run_id="r",
+            round_idx=1,
+            role="captain",
+            disabled_tools=disabled,
+            investigation_tools=frozenset({"search", "git", "file_list"}),
+        )
+        is True
+    )
+    assert disabled == {"search", "git", "file_list"}
+
+
 def test_hard_stop_research_intent_injects_shape():
     controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_calls = 3
+    controller._investigation_rounds = 3
     disabled: set[str] = set()
     messages = [
         LLMMessage(
@@ -186,9 +223,9 @@ def test_hard_stop_research_intent_injects_shape():
 
 
 def test_soft_gate_non_research_skips_shape():
-    """开放问答：≥3 硬收并剥工具，但不追加成篇形状句。"""
+    """开放问答：≥3 轮硬收并剥工具，但不追加成篇形状句。"""
     controller = create_loop_controller(frozenset({"search"}))
-    controller._investigation_calls = 3
+    controller._investigation_rounds = 3
     disabled: set[str] = set()
     messages = [LLMMessage(role="user", content="查一下 X 和 Y 的区别")]
     assert maybe_inject_team_gate(
@@ -209,7 +246,7 @@ def test_soft_gate_non_research_skips_shape():
 def test_research_intent_forces_hard_stop_and_shape():
     """成篇调研意图：闸门走硬停 + 形状句。"""
     controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_calls = 3
+    controller._investigation_rounds = 3
     disabled: set[str] = set()
     messages = [
         LLMMessage(
@@ -234,7 +271,7 @@ def test_research_intent_forces_hard_stop_and_shape():
 def test_competitor_compare_intent_forces_hard_stop_and_shape():
     """竞品对比落盘：须硬停卸调查工具 + 成篇形状句。"""
     controller = create_loop_controller(frozenset({"web_search", "read_url"}))
-    controller._investigation_calls = 3
+    controller._investigation_rounds = 3
     disabled: set[str] = set()
     messages = [
         LLMMessage(
@@ -342,7 +379,7 @@ def test_local_file_edit_below_threshold_no_gate():
 
 def test_hard_stop_disables_investigation_tools_when_intent_clear():
     controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_calls = 3  # threshold met
+    controller._investigation_rounds = 3  # threshold met
     disabled: set[str] = set()
     messages = [
         LLMMessage(role="assistant", content="协作方案与团队分工如下……"),
@@ -365,9 +402,9 @@ def test_hard_stop_disables_investigation_tools_when_intent_clear():
 
 
 def test_soft_path_keeps_tools_without_team_intent():
-    """开放问答无组队意图：≥3 仍硬收剥工具（无 soft）。"""
+    """开放问答无组队意图：≥3 轮仍硬收剥工具（无 soft）。"""
     controller = create_loop_controller(frozenset({"search"}))
-    controller._investigation_calls = 3
+    controller._investigation_rounds = 3
     disabled: set[str] = set()
     messages = [LLMMessage(role="user", content="查一下 X 和 Y 的区别")]
     assert (
@@ -388,7 +425,7 @@ def test_soft_path_keeps_tools_without_team_intent():
 
 @pytest.mark.asyncio
 async def test_investigation_threshold_fires_once_for_captain():
-    # ≥3 investigation calls → hard gate once; tools stripped so 4th search
+    # ≥3 investigation rounds → hard gate once; tools stripped so 4th search
     # cannot execute; subsequent rounds stay quiet.
     search = _StubTool(name="search")
     provider = _ScriptedProvider(

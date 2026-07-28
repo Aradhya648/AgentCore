@@ -17,6 +17,7 @@ from agentcore.core.errors import (
     AdminProductForbiddenError,
     AuthenticationError,
     AuthorizationError,
+    MfaRequiredError,
     MfaSetupRequiredError,
 )
 from agentcore.db.base import get_session
@@ -54,7 +55,11 @@ from agentcore.db.repositories import (
 from agentcore.db.repositories.shared_spaces import SharedSpaceRepository
 from agentcore.messaging import MessagingService
 from agentcore.messaging.hub import HubChatEventPublisher, default_chat_hub
-from agentcore.security.tokens import decode_access_token_claims, decode_access_token_family
+from agentcore.security.tokens import (
+    decode_access_token_claims,
+    decode_access_token_family,
+    decode_access_token_mfa_verified,
+)
 from agentcore.shared_spaces.service import SharedSpaceService
 from agentcore.storage.assets import AssetStorage, build_asset_storage
 
@@ -295,6 +300,7 @@ def get_auth_service(
         refresh_tokens=RefreshTokenRepository(session),
         invites=InviteRepository(session),
         mfa=mfa,
+        session=session,
     )
 
 
@@ -321,6 +327,7 @@ async def get_current_user(
         raise AuthenticationError("User not found or inactive")
     request.state.token_aud = aud
     request.state.token_family = decode_access_token_family(token)
+    request.state.mfa_verified = decode_access_token_mfa_verified(token)
     _enforce_audience_bounds(request, user, aud)
     return user
 
@@ -348,6 +355,10 @@ async def get_optional_user(
     except AuthenticationError:
         request.state.token_family = None
     try:
+        request.state.mfa_verified = decode_access_token_mfa_verified(token)
+    except AuthenticationError:
+        request.state.mfa_verified = False
+    try:
         _enforce_audience_bounds(request, user, aud)
     except (AdminProductForbiddenError, AuthorizationError):
         return None
@@ -359,16 +370,26 @@ OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 
 
 async def get_current_admin(
+    request: Request,
     user: AuthUser,
     mfa_repo: AdminMfaRepository = Depends(get_admin_mfa_repo),
 ) -> User:
-    """Resolve the current user and require the admin role (403 otherwise)."""
+    """Resolve the current user and require the admin role (403 otherwise).
+
+    When ``admin_mfa_required`` is on and the admin has enrolled MFA, the access
+    token must carry ``mfa: true`` (issued only after ``/auth/login/mfa``).
+    Unenrolled admins still get ``MfaSetupRequiredError`` so they can finish
+    binding via ``AdminSessionUser`` routes; password-only sessions after
+    enrollment are rejected until MFA login.
+    """
     if user.role != "admin":
         raise AuthorizationError("Admin privileges required")
     if settings.admin_mfa_required:
         row = await mfa_repo.get_by_user_id(user.user_id)
         if row is None or row.enabled_at is None:
             raise MfaSetupRequiredError("请先完成双因素认证绑定")
+        if not getattr(request.state, "mfa_verified", False):
+            raise MfaRequiredError("请完成双因素认证后再访问管理接口")
     return user
 
 

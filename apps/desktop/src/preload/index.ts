@@ -27,6 +27,10 @@ import {
   type NotificationApi,
 } from "@shared/notification-contract";
 import {
+  HOST_CHANNELS,
+  type HostApi,
+} from "@shared/host-contract";
+import {
   OUTBOX_CHANNELS,
   type OutboxApi,
   type OutboxSyncedPayload,
@@ -194,6 +198,8 @@ const sidecarApi: SidecarApi = {
     ipcRenderer.invoke(SIDECAR_CHANNELS.turnFilesDiff, req),
   restoreTurnBaseline: (req) =>
     ipcRenderer.invoke(SIDECAR_CHANNELS.restoreTurnBaseline, req),
+  listBrowserSessions: (req) =>
+    ipcRenderer.invoke(SIDECAR_CHANNELS.listBrowserSessions, req),
   onEvent: (cb) => {
     const listener = (_e: unknown, payload: SidecarEventPush) => cb(payload);
     ipcRenderer.on(SIDECAR_CHANNELS.event, listener);
@@ -293,6 +299,10 @@ const notificationApi: NotificationApi = {
   },
 };
 
+const hostApi: HostApi = {
+  runOp: (input) => ipcRenderer.invoke(HOST_CHANNELS.runOp, input),
+};
+
 const previewApi: PreviewApi = {
   open: (input) => ipcRenderer.invoke(PREVIEW_CHANNELS.open, input),
   embedShow: (input) => ipcRenderer.invoke(PREVIEW_CHANNELS.embedShow, input),
@@ -313,13 +323,15 @@ const previewApi: PreviewApi = {
 const browserApi: BrowserApi = {
   show: (input) => ipcRenderer.invoke(BROWSER_CHANNELS.show, input),
   setBounds: (bounds) => ipcRenderer.send(BROWSER_CHANNELS.setBounds, bounds),
-  hide: () => ipcRenderer.send(BROWSER_CHANNELS.hide),
+  hide: () => ipcRenderer.invoke(BROWSER_CHANNELS.hide),
   navigate: (input) => ipcRenderer.invoke(BROWSER_CHANNELS.navigate, input),
   openWorkspaceHtml: (input) =>
     ipcRenderer.invoke(BROWSER_CHANNELS.openWorkspaceHtml, input),
   reload: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.reload, { pageId }),
   back: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.back, { pageId }),
   close: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.close, { pageId }),
+  closeConversation: (input) =>
+    ipcRenderer.invoke(BROWSER_CHANNELS.closeConversation, input),
   onNavState: (cb) => {
     const listener = (_e: unknown, payload: BrowserNavState) => cb(payload);
     ipcRenderer.on(BROWSER_CHANNELS.navState, listener);
@@ -350,6 +362,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld("processApi", processApi);
     contextBridge.exposeInMainWorld("ptyApi", ptyApi);
     contextBridge.exposeInMainWorld("notificationApi", notificationApi);
+    contextBridge.exposeInMainWorld("hostApi", hostApi);
     contextBridge.exposeInMainWorld("previewApi", previewApi);
     contextBridge.exposeInMainWorld("browserApi", browserApi);
     contextBridge.exposeInMainWorld("windowApi", windowApi);
@@ -379,6 +392,8 @@ if (process.contextIsolated) {
   window.ptyApi = ptyApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.notificationApi = notificationApi;
+  // @ts-ignore - 非隔离环境下直接挂载
+  window.hostApi = hostApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.previewApi = previewApi;
   // @ts-ignore - 非隔离环境下直接挂载

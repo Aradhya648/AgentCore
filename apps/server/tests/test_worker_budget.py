@@ -280,3 +280,84 @@ def test_repair_posture_keeps_browser_navigate():
     assert "browser_click" not in narrowed
     assert "file_list" not in narrowed
     assert "read_url" not in narrowed
+
+
+def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
+    """E3：修码验证短姿态启用收紧；files 短写仍走 zero_write，不平行造熔断器。"""
+    from agentcore.runtime.engine.governance import create_loop_controller
+    from agentcore.runtime.loop_controller import ToolAttempt
+    from agentcore.runtime.runs.worker_budget import should_tighten_verify_exec_thrash
+
+    # verify / diagnose：短预算 + 执行工具 + 非落盘 → tighten
+    assert should_tighten_verify_exec_thrash(
+        short_write_posture=True,
+        files_expected=False,
+        has_execution_tools=True,
+    )
+    # patch 落盘节点：zero_write，不 tighten
+    assert not should_tighten_verify_exec_thrash(
+        short_write_posture=True,
+        files_expected=True,
+        has_execution_tools=True,
+    )
+    # 无执行工具 / 非短姿态 → 不收紧
+    assert not should_tighten_verify_exec_thrash(
+        short_write_posture=True,
+        files_expected=False,
+        has_execution_tools=False,
+    )
+    assert not should_tighten_verify_exec_thrash(
+        short_write_posture=False,
+        files_expected=False,
+        has_execution_tools=True,
+    )
+
+    tightened = create_loop_controller(
+        frozenset({"code_execute", "file_read"}),
+        files_expected=False,
+        short_write_posture=True,
+        tighten_verify_exec_thrash=True,
+    )
+    # Still the same LoopController — zero_write stays off for non-files verify.
+    assert tightened.zero_write_finalize_rounds == 0
+    # disable<=2：两次同工具失败即 disable（默认 3 才 disable）
+    tightened.record(
+        [ToolAttempt(fingerprint="fp0", tool_name="code_execute", success=False)]
+    )
+    assert not tightened.tool_circuit_breaker().disabled
+    tightened.record(
+        [ToolAttempt(fingerprint="fp1", tool_name="code_execute", success=False)]
+    )
+    assert tightened.tool_circuit_breaker().disabled == ("code_execute",)
+
+    # unproductive threshold<=2：两轮无产出即 early stop（默认 3）
+    tight_u = create_loop_controller(
+        frozenset({"code_execute"}),
+        files_expected=False,
+        short_write_posture=True,
+        tighten_verify_exec_thrash=True,
+    )
+    tight_u.note_round_productivity(
+        had_tool_calls=True, all_failed=True, had_content=False
+    )
+    assert not tight_u.unproductive_early_stop()
+    tight_u.note_round_productivity(
+        had_tool_calls=True, all_failed=True, had_content=False
+    )
+    assert tight_u.unproductive_early_stop()
+
+    baseline = create_loop_controller(
+        frozenset({"code_execute"}),
+        files_expected=False,
+        short_write_posture=True,
+        tighten_verify_exec_thrash=False,
+    )
+    for _ in range(2):
+        baseline.note_round_productivity(
+            had_tool_calls=True, all_failed=True, had_content=False
+        )
+    assert not baseline.unproductive_early_stop()
+    baseline.note_round_productivity(
+        had_tool_calls=True, all_failed=True, had_content=False
+    )
+    assert baseline.unproductive_early_stop()

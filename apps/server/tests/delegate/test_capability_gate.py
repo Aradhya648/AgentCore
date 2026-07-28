@@ -168,11 +168,16 @@ def test_soft_warning_defers_to_hard_gate_on_explicit_criteria():
 @pytest.mark.asyncio
 async def test_execute_rejects_code_verified_on_cloud():
     # 「云端 + code_verified」→ delegate 校验硬拒绝，错误信息给出明确出路。
+    # E1：须带「怎么算修好」，否则先被修码收口契约拒（本测覆盖能力闸，故带 verify_command）。
     t = tool(Provider(["X"]))
     result = await t.execute(
         {
             "tasks": [{"role": "工程师", "task": "生成 pptx 课件"}],
-            "completion_criteria": "code_verified",
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "python -c 'assert True'",
+            },
+            "complexity_hint": "standard",
         },
         ctx(),
     )
@@ -212,13 +217,18 @@ async def test_execute_echoes_explicit_acceptance():
     result = await t.execute(
         {
             "tasks": [{"role": "工程师", "task": "修好构建脚本"}],
-            "completion_criteria": "code_verified",
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "pnpm test",
+            },
+            "complexity_hint": "standard",
             "coordinate": False,
         },
         local_ctx(),
     )
     assert result.success is True
     assert "本批验收：code_verified（显式声明）" in result.output
+    assert "怎么算修好：pnpm test" in result.output
 
 
 @pytest.mark.asyncio
@@ -237,7 +247,11 @@ async def test_execute_passes_code_verified_on_local():
     result = await t.execute(
         {
             "tasks": [{"role": "工程师", "task": "修好构建脚本"}],
-            "completion_criteria": "code_verified",
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "pytest -q",
+            },
+            "complexity_hint": "standard",
             "coordinate": False,
         },
         local_ctx(),
@@ -324,10 +338,15 @@ async def test_execute_rejects_form_files_while_explore_pending():
         {
             "tasks": [
                 {
-                    "role": "调研",
-                    "task": "摸清项目结构",
+                    "role": "调研A",
+                    "task": "摸清项目目录与入口",
                     "deliverable": {"form": "files"},
-                }
+                },
+                {
+                    "role": "调研B",
+                    "task": "读设计与约定文档",
+                    "deliverable": {"form": "prose"},
+                },
             ],
             "coordinate": False,
         },
@@ -336,6 +355,37 @@ async def test_execute_rejects_form_files_while_explore_pending():
     assert result.success is False
     assert "update_project_profile" in (result.error or "")
     assert "prose" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_single_worker_while_explore_pending():
+    base = local_ctx()
+    base.cold_start_explore_pending = True
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=base,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "调研",
+                    "task": "摸清项目结构",
+                    "deliverable": {"form": "prose"},
+                }
+            ],
+            "coordinate": False,
+        },
+        base,
+    )
+    assert result.success is False
+    assert "≥2" in (result.error or "") or "至少两" in (result.error or "")
 
 
 @pytest.mark.asyncio
@@ -356,10 +406,15 @@ async def test_execute_prose_explore_batch_does_not_auto_files_written():
         {
             "tasks": [
                 {
-                    "role": "调研",
-                    "task": "摸清项目结构与技术栈",
+                    "role": "调研A",
+                    "task": "摸清项目目录与入口",
                     "deliverable": {"form": "prose"},
-                }
+                },
+                {
+                    "role": "调研B",
+                    "task": "读设计与约定文档",
+                    "deliverable": {"form": "prose"},
+                },
             ],
             "coordinate": False,
         },
@@ -420,10 +475,15 @@ async def test_execute_explicit_criteria_still_binds_during_explore():
         {
             "tasks": [
                 {
-                    "role": "调研",
-                    "task": "摸清项目并落盘 brief",
+                    "role": "调研A",
+                    "task": "摸清项目目录并落盘 brief",
                     "deliverable": {"form": "files"},
-                }
+                },
+                {
+                    "role": "调研B",
+                    "task": "读设计文档回报",
+                    "deliverable": {"form": "prose"},
+                },
             ],
             "completion_criteria": "files_written",
             "coordinate": False,
@@ -448,3 +508,73 @@ def test_hard_gate_passes_runtime_ready_on_local():
         "runtime_ready", _plan("启动开发服务器"), LocalBackend()
     )
     assert msg is None
+
+
+# ── E1 修码收口：怎么算修好契约（execute 级）────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_bare_code_verified_without_how_fixed():
+    t = tool(Provider(["X"]))
+    result = await t.execute(
+        {
+            "tasks": [{"role": "工程师", "task": "修好构建"}],
+            "completion_criteria": "code_verified",
+            "complexity_hint": "standard",
+            "coordinate": False,
+        },
+        local_ctx(),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "怎么算修好" in (result.error or "")
+    assert "verify_command" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_repair_code_without_verify_slot():
+    t = tool(Provider(["X"]))
+    result = await t.execute(
+        {
+            "playbook": "repair_code",
+            "playbook_args": {"problem": "missing export foo"},
+        },
+        local_ctx(),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "verify" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_execute_repair_code_forces_code_verified_acceptance():
+    """E1/E2：repair_code 带 verify → 强制 code_verified，不可降到 files_written。"""
+    t = DelegateTool(
+        llm=Provider(["诊断完成。", "已修补。", "验证通过。"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="修这个 bug",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=local_ctx(),
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
+    )
+    result = await t.execute(
+        {
+            "playbook": "repair_code",
+            "playbook_args": {
+                "problem": "missing export foo",
+                "verify": "pytest tests/test_app.py -q",
+                "target": "app.py",
+            },
+            # 试图降级：应被强制覆盖为 code_verified
+            "completion_criteria": "files_written",
+            "coordinate": False,
+        },
+        local_ctx(),
+    )
+    assert result.success is True
+    assert "本批验收：code_verified" in result.output
+    assert "怎么算修好：pytest tests/test_app.py -q" in result.output
+    # 无真实 verify 工具成功 → 验收缺口（不能靠 prose 过门）
+    assert "完成条件未满足" in result.output or "验证" in result.output

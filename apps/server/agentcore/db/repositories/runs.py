@@ -19,7 +19,7 @@ from agentcore.db.models import (
     User,
 )
 
-from ._base import strip_nul
+from ._base import commit_or_flush, strip_nul
 
 
 class HandoffJobRepository:
@@ -42,6 +42,7 @@ class HandoffJobRepository:
         job_conversation_id: str,
         base_snapshot_id: str,
         task: str,
+        commit: bool = True,
     ) -> HandoffJob:
         job = HandoffJob(
             id=new_id(),
@@ -52,7 +53,7 @@ class HandoffJobRepository:
             task=task,
         )
         self._session.add(job)
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         await self._session.refresh(job)
         return job
 

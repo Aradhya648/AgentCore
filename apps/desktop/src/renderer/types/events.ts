@@ -104,4 +104,8 @@ export interface BrowserDisplay {
   title?: string;
   detail?: string;
   frame?: string;
+  /** Registry session_id — 成功路径由后端写入，供右坞 upsert 绑页。 */
+  session_id?: string;
+  /** ``local`` | ``sandbox`` — 与 session_id 同路推送。 */
+  host_kind?: "local" | "sandbox" | string;
 }

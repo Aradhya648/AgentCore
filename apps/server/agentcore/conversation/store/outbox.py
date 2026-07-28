@@ -304,6 +304,51 @@ class OutboxStore:
         await self._mutate(user_message_id, mutate)
         return allocated[0]
 
+    async def seed_journal_entries_durable(
+        self,
+        *,
+        turn_id: str,
+        conversation_id: str,
+        trace_id: str | None,
+        entries: list[dict[str, Any]],
+        user_message_id: str,
+    ) -> int:
+        """Seed hang-frame facts at explicit seq ``0..n-1`` (idempotent). Raises on failure.
+
+        Aligns local resume with cloud: pause frames are already durable before
+        ``*_resolved`` continues from the next seq. Empty outbox + settlement-only
+        prewrite would leave ``process_*`` out of the durable journal forever.
+        """
+        if not _is_safe_id(user_message_id):
+            raise ValueError(f"unsafe outbox user_message_id: {user_message_id!r}")
+        seeded = list(entries or [])
+        if not seeded:
+            return 0
+
+        def mutate(record: dict[str, Any]) -> None:
+            record["conversation_id"] = conversation_id or record.get("conversation_id")
+            record["message_id"] = turn_id or record.get("message_id")
+            if trace_id:
+                record["trace_id"] = trace_id
+            if not record.get("user_message_id"):
+                record["user_message_id"] = user_message_id
+            journal = record.setdefault("journal", {})
+            for i, entry in enumerate(seeded):
+                if not isinstance(entry, dict):
+                    continue
+                key = str(i)
+                if key not in journal:  # seq-idempotent
+                    journal[key] = entry
+            ops = record.setdefault("ops", [])
+            if "journal_append" not in ops:
+                ops.append("journal_append")
+            if "journal_seed" not in ops:
+                ops.append("journal_seed")
+
+        async with self._lock_for(user_message_id):
+            await asyncio.to_thread(self._mutate_sync, user_message_id, mutate)
+        return len(seeded)
+
     async def append_journal_durable(
         self,
         *,
@@ -430,6 +475,16 @@ class OutboxStore:
                 record["evidence_ledger"] = list(kwargs["evidence_ledger"] or [])
             if kwargs.get("runs") is not None:
                 record["runs"] = kwargs["runs"]
+            # Prefer complete result journal over progressive mid-run map: cloud
+            # local-turns persists ``journal`` first, so an incomplete progressive
+            # map would otherwise eclipse full ``runs`` (CEO process_* lost).
+            journal_entries = kwargs.get("journal_entries")
+            if isinstance(journal_entries, list):
+                journal_map: dict[str, Any] = {}
+                for i, entry in enumerate(journal_entries):
+                    if isinstance(entry, dict):
+                        journal_map[str(i)] = entry
+                record["journal"] = journal_map
             for key in (
                 "input_tokens",
                 "output_tokens",

@@ -5,12 +5,22 @@ Read subcommands (status / diff / log) run without approval; write subcommands
 (add / commit / branch / checkout) are refused on the CEO path and executed on
 delegated workers. Dangerous operations (push / reset / rebase / …) are hard-
 rejected at the tool boundary.
+
+Timeout contract (aligned with ``terminal``): each subprocess has
+``_GIT_TIMEOUT``; the engine wall-clock ceiling is
+``serial_ops × _GIT_TIMEOUT + _GIT_KILL_SLACK`` so kill/reap never races the
+outer ``asyncio.wait_for``. Status uses a single ``git status -sb`` (branch +
+porcelain) to keep serial_ops at 2 for the common read path.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import signal
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -44,7 +54,21 @@ def git_write_subcommands() -> frozenset[str]:
 _FORBIDDEN_PATTERNS = git_forbidden_subcommands()
 _PROTECTED_BRANCHES = git_protected_branches()
 _DIFF_OUTPUT_LIMIT = 16000
-_GIT_TIMEOUT = 25.0
+_STATUS_LINE_LIMIT = 200
+# Per-subprocess ceiling. Engine outer = serial_ops × this + kill slack.
+_GIT_TIMEOUT = 20.0
+_GIT_KILL_SLACK = 5.0
+
+
+def git_tool_timeout_seconds(arguments: dict[str, Any] | None = None) -> float:
+    """Engine wall-clock ceiling for one ``git`` tool call (must outlive inner ops).
+
+    ``ensure_repo`` + primary command = 2; ``commit`` also probes branch and short SHA.
+    """
+    sub = str((arguments or {}).get("subcommand", "")).strip().lower()
+    serial = 4 if sub == "commit" else 2
+    return serial * _GIT_TIMEOUT + _GIT_KILL_SLACK
+
 
 GIT_TOOL_PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -55,6 +79,7 @@ GIT_TOOL_PARAMETERS: dict[str, Any] = {
             "description": (
                 "要执行的 git 子命令。前置条件：仅当工作区【根】存在 `.git` 时可用"
                 "（不扫嵌套子仓、不上溯父仓、不自动 init）。"
+                "探路/摸底优先 file_list / grep；本工具用于分支、diff、log 等 VCS 事实。"
                 "只读 status/diff/log：无仓 → success + metadata.code=no_repo；"
                 "写入 add/commit/branch/checkout：无仓仍硬错。"
             ),
@@ -62,11 +87,22 @@ GIT_TOOL_PARAMETERS: dict[str, Any] = {
         "paths": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "status/diff/add 的路径过滤（工作区相对路径）。add 时必填。",
+            "description": (
+                "status/diff/add 的路径过滤（工作区相对路径）。add 时必填。"
+                "大仓 status/diff 请尽量收窄 paths，避免全树扫描超时。"
+            ),
         },
         "staged": {
             "type": "boolean",
             "description": "diff 时只看暂存区（等同 git diff --cached）。默认 false。",
+            "default": False,
+        },
+        "include_untracked": {
+            "type": "boolean",
+            "description": (
+                "status 是否包含未跟踪文件。默认 false（--untracked-files=no），"
+                "大仓更快；需要看未跟踪时显式传 true。"
+            ),
             "default": False,
         },
         "max_count": {
@@ -97,13 +133,14 @@ GIT_TOOL_PARAMETERS: dict[str, Any] = {
 }
 
 
-def _error(error: str, start: float) -> ToolResult:
+def _error(error: str, start: float, **kwargs: Any) -> ToolResult:
     return ToolResult(
         tool_call_id="",
         success=False,
         output="",
         error=error,
         duration_ms=int((time.monotonic() - start) * 1000),
+        **kwargs,
     )
 
 
@@ -140,6 +177,34 @@ def _is_ceo_context(context: ToolContext) -> bool:
     )
 
 
+def _git_spawn_kwargs() -> dict[str, Any]:
+    """POSIX: new session so timeout can ``killpg`` the whole tree (sandbox pattern)."""
+    return {} if sys.platform == "win32" else {"start_new_session": True}
+
+
+async def _reap_git_process(proc: asyncio.subprocess.Process) -> None:
+    """Kill the git child and descendants, then reap (best-effort, never raises)."""
+    if proc.returncode is not None:
+        return
+    pid = proc.pid
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(
+                subprocess.run,
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+    else:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(proc.wait(), timeout=5.0)
+
+
 async def _run_git(
     args: list[str], *, cwd: str, timeout: float = _GIT_TIMEOUT
 ) -> tuple[str, str, int]:
@@ -147,6 +212,7 @@ async def _run_git(
 
     ``GIT_CEILING_DIRECTORIES`` is set to the workspace root so discovery never
     climbs into a parent repo (e.g. workspace nested under the host monorepo).
+    On timeout / cancel, reaps the process tree (Windows ``taskkill /T``).
     """
     ceiling = str(Path(cwd).resolve())
     env = {
@@ -161,13 +227,16 @@ async def _run_git(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        **_git_spawn_kwargs(),
     )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout)
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return "", "git 操作超时", 1
+        await _reap_git_process(proc)
+        return "", f"git 操作超时（{' '.join(args)}）", 1
+    except asyncio.CancelledError:
+        await _reap_git_process(proc)
+        raise
     return (
         stdout_b.decode("utf-8", errors="replace"),
         stderr_b.decode("utf-8", errors="replace"),
@@ -176,10 +245,13 @@ async def _run_git(
 
 
 async def _git_failure(
-    stdout: str, stderr: str, exit_code: int, start: float
+    stdout: str, stderr: str, exit_code: int, start: float, **kwargs: Any
 ) -> ToolResult:
     detail = (stderr or stdout or f"git 退出码 {exit_code}").strip()
-    return _error(detail, start)
+    meta = dict(kwargs.pop("metadata", {}) or {})
+    if "超时" in detail:
+        meta.setdefault("timeout_layer", "inner")
+    return _error(detail, start, metadata=meta, **kwargs)
 
 
 _NO_LOCAL_REPO_MSG = (
@@ -222,6 +294,37 @@ async def _current_branch(cwd: str) -> str:
     return stdout.strip()
 
 
+def _parse_status_sb(stdout: str) -> tuple[str, str]:
+    """Parse ``git status -sb`` into (branch_line, body)."""
+    lines = stdout.splitlines()
+    if not lines:
+        return "(无)", ""
+    first = lines[0]
+    if first.startswith("## "):
+        # ``## main...origin/main [ahead 1]`` → branch token before ``...`` / space.
+        rest = first[3:].strip()
+        branch = rest.split("...", 1)[0].split(" ", 1)[0].strip() or "(无)"
+        body = "\n".join(lines[1:]).rstrip()
+        return branch, body
+    return "(无)", stdout.rstrip()
+
+
+def _truncate_status_body(body: str) -> tuple[str, bool, int]:
+    """Cap status porcelain lines; return (text, truncated, total_lines)."""
+    if not body:
+        return "", False, 0
+    lines = body.splitlines()
+    total = len(lines)
+    if total <= _STATUS_LINE_LIMIT:
+        return body, False, total
+    kept = "\n".join(lines[:_STATUS_LINE_LIMIT])
+    kept += (
+        f"\n…（已截断，共 {total} 行，仅显示前 {_STATUS_LINE_LIMIT} 行；"
+        "请用 paths 收窄范围）"
+    )
+    return kept, True, total
+
+
 def _validate_add_paths(paths: list[Any], start: float) -> ToolResult | None:
     if not paths:
         return _error("add 需要显式 paths 参数，禁止使用 git add . / -A / --all", start)
@@ -261,19 +364,23 @@ class GitTool:
             description=(
                 "在工作区内执行 Git 操作。前置：仅工作区根下的 `.git`"
                 "（不扫嵌套、不上溯、不自动 init；多数会话通常无 Git）。"
+                "探路摸底优先 file_list/grep；本工具补 VCS 事实（分支/diff/log）。"
                 "只读：status / diff / log（无仓 → success + metadata.code=no_repo，"
-                "禁止当成干净仓）。写入（需用户授权）：add / commit / branch / checkout"
+                "禁止当成干净仓；status 默认不含未跟踪文件）。"
+                "写入（需用户授权）：add / commit / branch / checkout"
                 "（无仓仍硬错）。禁止 push / reset / rebase 等危险操作——推送由用户手动完成。"
             ),
             parameters=GIT_TOOL_PARAMETERS,
             category=ToolCategory.FILESYSTEM,
             approval=ToolApproval.NEVER,
-            timeout_seconds=30.0,
+            # Dynamic ceiling via resolve_tool_timeout → git_tool_timeout_seconds.
+            timeout_seconds=None,
         )
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
         subcommand = str(arguments.get("subcommand", "")).strip().lower()
+        base_meta = {"subcommand": subcommand} if subcommand else {}
 
         if not subcommand:
             return _error("subcommand 为必填参数", start)
@@ -293,53 +400,90 @@ class GitTool:
             cwd, start, write=subcommand in _WRITE_SUBCOMMANDS
         )
         if repo_err is not None:
+            if repo_err.metadata is None:
+                repo_err.metadata = {}
+            repo_err.metadata = {**base_meta, **(repo_err.metadata or {})}
             return repo_err
 
         paths = _normalize_paths(arguments.get("paths"))
 
         if subcommand == "status":
-            return await self._cmd_status(cwd, paths, start)
+            include_untracked = bool(arguments.get("include_untracked", False))
+            return await self._cmd_status(
+                cwd, paths, start, include_untracked=include_untracked, meta=base_meta
+            )
         if subcommand == "diff":
             staged = bool(arguments.get("staged", False))
-            return await self._cmd_diff(cwd, paths, staged=staged, start=start)
+            return await self._cmd_diff(
+                cwd, paths, staged=staged, start=start, meta=base_meta
+            )
         if subcommand == "log":
             max_count = int(arguments.get("max_count", 20))
             max_count = max(1, min(max_count, 100))
             oneline = bool(arguments.get("oneline", True))
             return await self._cmd_log(
-                cwd, paths, max_count=max_count, oneline=oneline, start=start
+                cwd,
+                paths,
+                max_count=max_count,
+                oneline=oneline,
+                start=start,
+                meta=base_meta,
             )
         if subcommand == "add":
-            return await self._cmd_add(cwd, paths, start)
+            return await self._cmd_add(cwd, paths, start, meta=base_meta)
         if subcommand == "commit":
             message = str(arguments.get("message", "")).strip()
-            return await self._cmd_commit(cwd, message, start)
+            return await self._cmd_commit(cwd, message, start, meta=base_meta)
         if subcommand == "branch":
             branch = str(arguments.get("branch", "")).strip()
-            return await self._cmd_branch(cwd, branch, start)
+            return await self._cmd_branch(cwd, branch, start, meta=base_meta)
         if subcommand == "checkout":
             branch = str(arguments.get("branch", "")).strip()
             create = bool(arguments.get("create", False))
-            return await self._cmd_checkout(cwd, branch, create=create, start=start)
+            return await self._cmd_checkout(
+                cwd, branch, create=create, start=start, meta=base_meta
+            )
 
         return _error(f"子命令 '{subcommand}' 不在允许列表中", start)
 
-    async def _cmd_status(self, cwd: str, paths: list[str], start: float) -> ToolResult:
-        branch = await _current_branch(cwd)
-        branch_line = branch or "(无)"
-        args = ["status", "--short"]
+    async def _cmd_status(
+        self,
+        cwd: str,
+        paths: list[str],
+        start: float,
+        *,
+        include_untracked: bool,
+        meta: dict[str, Any],
+    ) -> ToolResult:
+        # Single subprocess: branch header + porcelain (avoids branch + status serial).
+        args = ["status", "-sb"]
+        if not include_untracked:
+            args.append("--untracked-files=no")
         if paths:
             args.extend(["--", *paths])
         stdout, stderr, code = await _run_git(args, cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
-        body = stdout.rstrip()
-        output = f"## 当前分支: {branch_line}\n"
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
+        branch, body = _parse_status_sb(stdout)
+        body, truncated, total = _truncate_status_body(body)
+        output = f"## 当前分支: {branch}\n"
         output += body if body else "（工作区干净）"
-        return _ok(output, start)
+        out_meta = {
+            **meta,
+            "include_untracked": include_untracked,
+            "truncated": truncated,
+            "status_lines": total,
+        }
+        return _ok(output, start, metadata=out_meta)
 
     async def _cmd_diff(
-        self, cwd: str, paths: list[str], *, staged: bool, start: float
+        self,
+        cwd: str,
+        paths: list[str],
+        *,
+        staged: bool,
+        start: float,
+        meta: dict[str, Any],
     ) -> ToolResult:
         args = ["diff"]
         if staged:
@@ -348,11 +492,13 @@ class GitTool:
             args.extend(["--", *paths])
         stdout, stderr, code = await _run_git(args, cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
         output = stdout.rstrip() or "（无差异）"
         if len(output) > _DIFF_OUTPUT_LIMIT:
             output = truncate_head_tail(output, _DIFF_OUTPUT_LIMIT)
-        return _ok(output, start, output_limit=_DIFF_OUTPUT_LIMIT)
+        return _ok(
+            output, start, output_limit=_DIFF_OUTPUT_LIMIT, metadata=meta
+        )
 
     async def _cmd_log(
         self,
@@ -362,6 +508,7 @@ class GitTool:
         max_count: int,
         oneline: bool,
         start: float,
+        meta: dict[str, Any],
     ) -> ToolResult:
         args = ["log", f"-n{max_count}"]
         if oneline:
@@ -370,28 +517,32 @@ class GitTool:
             args.extend(["--", *paths])
         stdout, stderr, code = await _run_git(args, cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
         lines = [line for line in stdout.splitlines() if line.strip()]
         body = "\n".join(lines) if lines else "（无提交记录）"
         footer = f"\n\n（共 {len(lines)} 条，可用 max_count 调整）"
-        return _ok(body + footer, start)
+        return _ok(body + footer, start, metadata=meta)
 
-    async def _cmd_add(self, cwd: str, paths: list[str], start: float) -> ToolResult:
+    async def _cmd_add(
+        self, cwd: str, paths: list[str], start: float, *, meta: dict[str, Any]
+    ) -> ToolResult:
         path_err = _validate_add_paths(paths, start)
         if path_err is not None:
             return path_err
         args = ["add", "--", *paths]
         stdout, stderr, code = await _run_git(args, cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
         listed = ", ".join(paths)
         detail = (stdout or stderr).strip()
         output = f"已暂存：{listed}"
         if detail:
             output += f"\n{detail}"
-        return _ok(output, start)
+        return _ok(output, start, metadata=meta)
 
-    async def _cmd_commit(self, cwd: str, message: str, start: float) -> ToolResult:
+    async def _cmd_commit(
+        self, cwd: str, message: str, start: float, *, meta: dict[str, Any]
+    ) -> ToolResult:
         if not message:
             return _error("commit 需要 message 参数", start)
         branch = await _current_branch(cwd)
@@ -402,31 +553,39 @@ class GitTool:
             )
         stdout, stderr, code = await _run_git(["commit", "-m", message], cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
         sha, _, sha_code = await _run_git(["rev-parse", "--short", "HEAD"], cwd=cwd)
         short_sha = sha.strip() if sha_code == 0 else ""
         output = f"已提交 {short_sha}：{message}" if short_sha else f"已提交：{message}"
         detail = (stdout or stderr).strip()
         if detail:
             output += f"\n{detail}"
-        return _ok(output, start)
+        return _ok(output, start, metadata=meta)
 
-    async def _cmd_branch(self, cwd: str, branch: str, start: float) -> ToolResult:
+    async def _cmd_branch(
+        self, cwd: str, branch: str, start: float, *, meta: dict[str, Any]
+    ) -> ToolResult:
         if not branch:
             return _error("branch 需要 branch 参数", start)
         if branch.startswith("-"):
             return _error("分支名不能以 '-' 开头（防止被 git 解析为选项）", start)
         stdout, stderr, code = await _run_git(["branch", branch], cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
         detail = (stdout or stderr).strip()
         output = f"已创建分支 {branch}"
         if detail:
             output += f"\n{detail}"
-        return _ok(output, start)
+        return _ok(output, start, metadata=meta)
 
     async def _cmd_checkout(
-        self, cwd: str, branch: str, *, create: bool, start: float
+        self,
+        cwd: str,
+        branch: str,
+        *,
+        create: bool,
+        start: float,
+        meta: dict[str, Any],
     ) -> ToolResult:
         if not branch:
             return _error("checkout 需要 branch 参数", start)
@@ -439,10 +598,10 @@ class GitTool:
             args.append(branch)
         stdout, stderr, code = await _run_git(args, cwd=cwd)
         if code != 0:
-            return await _git_failure(stdout, stderr, code, start)
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
         action = "已创建并切换到分支" if create else "已切换到分支"
         detail = (stdout or stderr).strip()
         output = f"{action} {branch}"
         if detail:
             output += f"\n{detail}"
-        return _ok(output, start)
+        return _ok(output, start, metadata=meta)

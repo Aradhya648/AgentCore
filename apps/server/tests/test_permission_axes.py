@@ -1,4 +1,4 @@
-"""Three-axis permission model (会话级权限 · file_write / command / team_kickoff)."""
+"""Permission axes (会话级权限 · file_write / command / team_kickoff / host)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from agentcore.core.types import (
     AutonomyPolicy,
     CommandAxis,
     FileWriteAxis,
+    HostAxis,
     PermissionAxes,
     TeamKickoffAxis,
     recipe_to_axes,
@@ -27,21 +28,49 @@ class _LocalBackend:
 
 def test_default_axes_are_write_code():
     assert PermissionAxes(
-        FileWriteAxis.SESSION, CommandAxis.KICKOFF, TeamKickoffAxis.RULES
+        FileWriteAxis.SESSION,
+        CommandAxis.KICKOFF,
+        TeamKickoffAxis.RULES,
+        HostAxis.ASK,
     ) == DEFAULT_PERMISSION_AXES
     assert recipe_to_axes(AutonomyPolicy.WRITE_CODE) == DEFAULT_PERMISSION_AXES
+    assert DEFAULT_PERMISSION_AXES.host is HostAxis.ASK
 
 
 def test_builtin_recipes():
     assert recipe_to_axes(AutonomyPolicy.CAUTIOUS) == PermissionAxes(
-        FileWriteAxis.ASK, CommandAxis.ASK, TeamKickoffAxis.RULES
+        FileWriteAxis.ASK,
+        CommandAxis.ASK,
+        TeamKickoffAxis.RULES,
+        HostAxis.OFF,
     )
     assert recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT) == PermissionAxes(
-        FileWriteAxis.SESSION, CommandAxis.KICKOFF, TeamKickoffAxis.SKIP
+        FileWriteAxis.SESSION,
+        CommandAxis.KICKOFF,
+        TeamKickoffAxis.SKIP,
+        HostAxis.ASK,
     )
     assert recipe_to_axes(AutonomyPolicy.MANAGED) == PermissionAxes(
-        FileWriteAxis.SESSION, CommandAxis.AUTO, TeamKickoffAxis.SKIP
+        FileWriteAxis.SESSION,
+        CommandAxis.AUTO,
+        TeamKickoffAxis.SKIP,
+        HostAxis.SESSION,
     )
+
+
+def test_from_mapping_roundtrip_and_legacy_missing_host():
+    axes = recipe_to_axes(AutonomyPolicy.MANAGED)
+    assert PermissionAxes.from_mapping(axes.to_dict()) == axes
+    # Old JSON without host → write_code default ask (not silently dropped).
+    legacy = PermissionAxes.from_mapping(
+        {"file_write": "session", "command": "kickoff", "team_kickoff": "rules"}
+    )
+    assert legacy == DEFAULT_PERMISSION_AXES
+    assert legacy.host is HostAxis.ASK
+    # Cautious seed persists host=off through dict roundtrip.
+    cautious = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
+    assert cautious.host is HostAxis.OFF
+    assert PermissionAxes.from_mapping(cautious.to_dict()).host is HostAxis.OFF
 
 
 def test_illegal_command_auto_with_file_write_ask():
@@ -50,16 +79,24 @@ def test_illegal_command_auto_with_file_write_ask():
             file_write=FileWriteAxis.ASK,
             command=CommandAxis.AUTO,
             team_kickoff=TeamKickoffAxis.SKIP,
+            host=HostAxis.ASK,
         )
     with pytest.raises(ValueError, match="illegal"):
         validate_permission_axes(
-            file_write="ask", command="auto", team_kickoff="skip"
+            file_write="ask", command="auto", team_kickoff="skip", host="ask"
         )
     with pytest.raises(ValidationError):
-        PermissionAxesModel(file_write="ask", command="auto", team_kickoff="rules")
+        PermissionAxesModel(
+            file_write="ask", command="auto", team_kickoff="rules", host="ask"
+        )
     with pytest.raises(ValidationError):
         PermissionAxesUpdate(
-            permission_axes={"file_write": "ask", "command": "auto", "team_kickoff": "skip"}
+            permission_axes={
+                "file_write": "ask",
+                "command": "auto",
+                "team_kickoff": "skip",
+                "host": "ask",
+            }
         )
 
 
@@ -94,7 +131,10 @@ def test_team_kickoff_skip_releases_card():
 
 def test_team_kickoff_always_forces_plan_half():
     axes = PermissionAxes(
-        FileWriteAxis.SESSION, CommandAxis.KICKOFF, TeamKickoffAxis.ALWAYS
+        FileWriteAxis.SESSION,
+        CommandAxis.KICKOFF,
+        TeamKickoffAxis.ALWAYS,
+        HostAxis.ASK,
     )
     assert should_kickoff(plan_preview=False, local_gate=False, axes=axes) is True
 
@@ -125,6 +165,7 @@ def test_less_interrupt_skips_card_but_keeps_kickoff_grant_semantics():
     assert needs_capability_auth(local_gate=True, axes=axes) is True
     assert axes.honors_kickoff_grant is True
     assert axes.auto_executes is False
+    assert axes.host is HostAxis.ASK
 
 
 def test_command_ask_no_capability_auth():
@@ -132,3 +173,4 @@ def test_command_ask_no_capability_auth():
     assert needs_capability_auth(local_gate=True, axes=axes) is False
     # rules + plan_preview still hangs team card (组团按 rules)
     assert should_kickoff(plan_preview=True, local_gate=True, axes=axes) is True
+    assert axes.host_disabled is True

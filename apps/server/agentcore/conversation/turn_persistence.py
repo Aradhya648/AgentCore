@@ -40,6 +40,7 @@ __all__ = [
     "MESSAGE_STATUS_RUNNING",
     "close_user_stop_turn",
     "compose_salvage_content",
+    "compose_salvage_journal",
     "create_assistant_placeholder",
     "has_open_durable_pause",
     "persist_incomplete_turn",
@@ -203,6 +204,52 @@ def compose_salvage_content(
     snap = pre_pause_from_journal(entries)
     pre = (snap.content if snap is not None else "") or ""
     return join_segments(pre, live or "")
+
+
+def compose_salvage_journal(
+    live: list[dict[str, Any]] | None,
+    hang_frame: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Merge hang-frame journal with live post-resume facts for cancel salvage.
+
+    Symmetric to :func:`compose_salvage_content`: live ``execution_journal`` alone
+    drops pre-pause ``process_*``. Hang-frame first (original order), then live
+    entries not already covered by a settlement ``(kind, checkpoint_id)`` key.
+    Explicit ``seq`` is stamped so outbox salvage keys continue past the seed.
+    """
+    base = [e for e in (hang_frame or []) if isinstance(e, dict)]
+    live_list = [e for e in (live or []) if isinstance(e, dict)]
+    if not base:
+        return list(live_list)
+    if not live_list:
+        return list(base)
+
+    settled: set[tuple[str, str]] = set()
+    for entry in base:
+        kind = str(entry.get("kind") or entry.get("type") or "")
+        if not kind.endswith("_resolved"):
+            continue
+        payload = dict(entry.get("payload") or {})
+        cid = str(payload.get("checkpoint_id") or "")
+        if cid:
+            settled.add((kind, cid))
+
+    merged: list[dict[str, Any]] = list(base)
+    for entry in live_list:
+        kind = str(entry.get("kind") or entry.get("type") or "")
+        if kind.endswith("_resolved"):
+            payload = dict(entry.get("payload") or {})
+            cid = str(payload.get("checkpoint_id") or "")
+            if cid and (kind, cid) in settled:
+                continue
+        merged.append(entry)
+
+    out: list[dict[str, Any]] = []
+    for i, entry in enumerate(merged):
+        stamped = dict(entry)
+        stamped["seq"] = i
+        out.append(stamped)
+    return out
 
 
 def salvage_incomplete_turn(

@@ -21,6 +21,10 @@ describe("permissionAxes mapping", () => {
     expect(recipeToAxes("write_code")).toEqual(RECIPE_AXES.write_code);
     expect(recipeToAxes("less_interrupt")).toEqual(RECIPE_AXES.less_interrupt);
     expect(recipeToAxes("managed")).toEqual(RECIPE_AXES.managed);
+    expect(RECIPE_AXES.cautious.host).toBe("off");
+    expect(RECIPE_AXES.write_code.host).toBe("ask");
+    expect(RECIPE_AXES.less_interrupt.host).toBe("ask");
+    expect(RECIPE_AXES.managed.host).toBe("session");
   });
 
   it("matches recipes and reports custom", () => {
@@ -31,6 +35,7 @@ describe("permissionAxes mapping", () => {
         file_write: "session",
         command: "ask",
         team_kickoff: "rules",
+        host: "ask",
       }),
     ).toBe("custom");
   });
@@ -41,6 +46,7 @@ describe("permissionAxes mapping", () => {
         file_write: "ask",
         command: "auto",
         team_kickoff: "skip",
+        host: "ask",
       }),
     ).toBe(true);
     expect(isIllegalAxes(RECIPE_AXES.managed)).toBe(false);
@@ -49,6 +55,7 @@ describe("permissionAxes mapping", () => {
         file_write: "ask",
         command: "auto",
         team_kickoff: "skip",
+        host: "ask",
       }),
     ).toEqual(RECIPE_AXES.write_code);
   });
@@ -75,22 +82,24 @@ describe("permissionAxes mapping", () => {
         file_write: "session",
         command: "ask",
         team_kickoff: "always",
+        host: "ask",
       }),
-    ).toBe("信任 · 每次 · 总挂");
+    ).toBe("信任 · 每次 · 总挂 · 本机问");
     expect(
       permissionAxesShortLabel({
         file_write: "session",
         command: "ask",
         team_kickoff: "always",
+        host: "ask",
       }),
-    ).toBe("信任 · 每次 · 总挂");
+    ).toBe("信任 · 每次 · 总挂 · 本机问");
     expect(permissionAxesShortLabel(RECIPE_AXES.write_code)).toBe("写代码");
     expect(permissionAxesShortLabel("write_code")).toBe("写代码");
     expect(permissionAxesShortLabel("workspace")).toBe("写代码");
     // Turn snapshot may store axes as json.dumps string — parse, don't echo JSON.
     expect(
       permissionAxesShortLabel(
-        '{"file_write":"session","command":"auto","team_kickoff":"skip"}',
+        '{"file_write":"session","command":"auto","team_kickoff":"skip","host":"session"}',
       ),
     ).toBe("托管");
     expect(
@@ -113,8 +122,23 @@ describe("permissionAxes mapping", () => {
     }
   });
 
-  it("normalize fills defaults", () => {
+  it("normalize fills defaults including missing host → ask", () => {
     const a: PermissionAxes = normalizeAxes({});
     expect(a).toEqual(RECIPE_AXES.write_code);
+    expect(
+      normalizeAxes({
+        file_write: "session",
+        command: "kickoff",
+        team_kickoff: "rules",
+      }),
+    ).toEqual(RECIPE_AXES.write_code);
+    expect(
+      normalizeAxes({
+        file_write: "ask",
+        command: "ask",
+        team_kickoff: "rules",
+        host: "off",
+      }),
+    ).toEqual(RECIPE_AXES.cautious);
   });
 });

@@ -32,7 +32,63 @@ def test_is_software_greenfield_intent():
     assert not is_software_greenfield_intent("帮我做个官网")
     assert not is_software_greenfield_intent("帮我做一个运营控制台")
     assert not is_software_greenfield_intent("帮我调研竞品")
+    # 裸「完整项目」/ 字面 build_app / 栈名 alone ≠ 绿场
+    assert not is_software_greenfield_intent("审视完整项目结构与 monorepo")
+    assert not is_software_greenfield_intent("对照 build_app playbook 写任务书")
+    assert not is_software_greenfield_intent("技术栈含 React Vite monorepo")
+    # 审计 / 只读框定即使夹带 React 也不是绿场
+    assert not is_software_greenfield_intent(
+        "做架构审计，覆盖 React / Vite / monorepo，不修改代码"
+    )
 
+
+def test_is_software_audit_readonly_exempt():
+    from agentcore.runtime.runs.software_app import is_software_audit_readonly_exempt
+
+    assert is_software_audit_readonly_exempt("对项目做全面审计、不修改代码")
+    assert is_software_audit_readonly_exempt("质量敏感成品独立审计，1名审计员")
+    assert is_software_audit_readonly_exempt("read-only code review, no code changes")
+    assert not is_software_audit_readonly_exempt("从0到1搭建一个 Vue3 数据看板")
+
+
+def test_software_greenfield_none_path_audit_exempt():
+    """误伤形态（trace c1a34615…）：用户要全面审计不改码 + 任务书含 React/monorepo/审计员 → 放行."""
+    from agentcore.runtime.runs.software_app import software_greenfield_none_path_blocked
+
+    assert not software_greenfield_none_path_blocked(
+        {
+            "playbook_none_reason": "多角度并行只读审计",
+            "tasks": [
+                {
+                    "role": "审计员",
+                    "task": (
+                        "对 AgentCore monorepo 做架构审计；"
+                        "技术栈含 React / Electron / Vite；只读、不修改代码"
+                    ),
+                },
+                {
+                    "role": "审计员",
+                    "task": "代码健康审计，对照 build_app 文档仅作参考",
+                },
+            ],
+        },
+        user_message="对项目做全面审计、不修改代码",
+    )
+
+
+def test_software_greenfield_none_path_true_spa_still_blocked():
+    from agentcore.runtime.runs.software_app import software_greenfield_none_path_blocked
+
+    assert software_greenfield_none_path_blocked(
+        {
+            "playbook_none_reason": "手写前后端",
+            "tasks": [
+                {"role": "前端", "task": "搭 Vite 脚手架"},
+                {"role": "前端", "task": "写看板页面"},
+            ],
+        },
+        user_message="从0到1做一个 Vue SPA",
+    )
 
 def test_thin_html_none_path_detection():
     assert is_software_thin_html_none_path(

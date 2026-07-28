@@ -4,45 +4,44 @@ from pathlib import Path
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.llm.provider.protocol import LLMMessage
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.facts import FactKind, TurnFactLog, TurnPausedFact, current_fact_log
 from agentcore.runtime.runs.automation_delivery import (
     DEFAULT_FORMAT_ID,
-    automation_kickoff_requires_formats_error,
-    automation_missing_delivery_error,
     classify_delivery_kind,
     clear_delivery_confirmation,
     delivery_from_journal_entries,
     ensure_full_auto_default_delivery,
+    format_options_look_like_automation,
     get_delivery_confirmation,
-    is_automation_kickoff_text,
     record_delivery_confirmation,
     rehydrate_delivery_confirmation,
     resolve_delivery_from_resume,
     snapshot_automation_delivery_for_pause,
 )
+from agentcore.runtime.suspension import captain_transcript
 from agentcore.tools.builtin.ask_user import AskUserTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 
 
-def test_is_automation_kickoff_text_positive():
-    assert is_automation_kickoff_text("帮我做短视频自动化 Agent")
-    assert is_automation_kickoff_text("打造内容分发工作流")
-    assert is_automation_kickoff_text("生成多步骤代运营流水线")
-    assert is_automation_kickoff_text("Build an automation agent for posting")
-    assert is_automation_kickoff_text("开发一套自动发帖的流水线")
-
-
-def test_is_automation_kickoff_text_false_positives():
-    assert not is_automation_kickoff_text("用团队做调研")
-    assert not is_automation_kickoff_text("帮我写一个 agent 提示词")
-    assert not is_automation_kickoff_text("优化 Agent system prompt")
-    assert not is_automation_kickoff_text("写一份调研报告")
-    assert not is_automation_kickoff_text("帮我做个官网落地页")
-    assert not is_automation_kickoff_text("帮我做一个运营控制台")
+def test_format_options_look_like_automation():
+    assert format_options_look_like_automation(
+        [
+            {"label": "可运行自动化 — 真实可调度"},
+            {"label": "控制台原型 — 工具台 UI"},
+            {"label": "仅方案"},
+        ]
+    )
+    assert not format_options_look_like_automation(
+        [
+            {"label": "PowerPoint（.pptx）"},
+            {"label": "Marp Markdown 幻灯片"},
+            {"label": "仅讲稿大纲"},
+        ]
+    )
 
 
 def test_resolve_delivery_from_resume_by_explicit_format_id():
@@ -188,79 +187,117 @@ def _ask_ctx() -> ToolContext:
     )
 
 
-@pytest.mark.asyncio
-async def test_ask_user_automation_kickoff_rejects_empty_format_options():
-    tool = AskUserTool(
+def _ask_tool(*, conversation_id: str = "c-auto") -> AskUserTool:
+    async def _save(_frame) -> None:
+        return None
+
+    async def _drop(_mid: str) -> None:
+        return None
+
+    return AskUserTool(
         sink=EventSink(),
-        conversation_id="c-auto",
+        conversation_id=conversation_id,
         timeout_seconds=1.0,
+        message_id="m1",
+        suspension_saver=_save,
+        suspension_deleter=_drop,
+        captain_run_id="cap",
+        base_system_prompt="sys",
+        user_message="继续开发",
     )
-    res = await tool.execute(
-        {
-            "message": "开工：做短视频自动化 Agent",
-            "questions": [
-                {
-                    "prompt": "平台",
-                    "options": ["抖音", "小红书"],
-                    "default": "抖音",
-                }
-            ],
-        },
-        _ask_ctx(),
-    )
-    assert res.success is False
-    assert automation_kickoff_requires_formats_error() in (res.error or "")
 
 
 @pytest.mark.asyncio
-async def test_ask_user_automation_kickoff_accepts_format_options():
-    tool = AskUserTool(
-        sink=EventSink(),
-        conversation_id="c-auto",
-        timeout_seconds=1.0,
-        message_id=None,
+async def test_ask_user_whiteboard_continue_with_agentcore_context_ok():
+    """白板继续开发 + context 含 AgentCore：不因正文像自动化而拒 ask_user。"""
+    tool = _ask_tool(conversation_id="c-auto-wb")
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="继续完成白板的开发")]
     )
-    res = await tool.execute(
-        {
-            "message": "开工：做短视频自动化 Agent",
-            "format_options": [
-                {"label": "可运行自动化 — 真实可调度"},
-                {"label": "控制台原型 — 工具台 UI"},
-                {"label": "仅方案"},
-            ],
-            "questions": [
-                {
-                    "prompt": "平台",
-                    "options": ["抖音", "小红书"],
-                    "default": "抖音",
-                }
-            ],
-        },
-        _ask_ctx(),
-    )
-    assert automation_kickoff_requires_formats_error() not in (res.error or "")
+    try:
+        res = await tool.execute(
+            {
+                "message": "继续完成白板的开发",
+                "context": "工作区：AgentCore 桌面端协作白板模块",
+                "assumptions": [{"label": "范围", "value": "沿用现有栈"}],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True
 
 
 @pytest.mark.asyncio
-async def test_ask_user_research_false_positive_no_format_gate():
-    tool = AskUserTool(
-        sink=EventSink(),
-        conversation_id="c-auto-fp",
-        timeout_seconds=1.0,
+async def test_ask_user_automation_without_format_options_still_succeeds():
+    """引擎不因文案像自动化而强制 format_options；缺省放行。"""
+    tool = _ask_tool()
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="做短视频自动化 Agent")]
     )
-    res = await tool.execute(
-        {
-            "message": "用团队做竞品调研",
-            "assumptions": [{"item": "范围", "value": "三家主流"}],
-        },
-        _ask_ctx(),
-    )
-    assert automation_kickoff_requires_formats_error() not in (res.error or "")
+    try:
+        res = await tool.execute(
+            {
+                "message": "开工：做短视频自动化 Agent",
+                "questions": [
+                    {
+                        "prompt": "平台",
+                        "options": ["抖音", "小红书"],
+                        "default": "抖音",
+                    }
+                ],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True
 
 
-def test_automation_missing_delivery_error_mentions_ask_user():
-    err = automation_missing_delivery_error()
-    assert "ask_user" in err
-    assert "format_id" in err
-    _ = AutonomyPolicy.MANAGED
-    assert "full_auto" in err.lower()
+@pytest.mark.asyncio
+async def test_ask_user_automation_with_format_options_succeeds():
+    tool = _ask_tool()
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="做短视频自动化 Agent")]
+    )
+    try:
+        res = await tool.execute(
+            {
+                "message": "开工：做短视频自动化 Agent",
+                "format_options": [
+                    {"label": "可运行自动化 — 真实可调度"},
+                    {"label": "控制台原型 — 工具台 UI"},
+                    {"label": "仅方案"},
+                ],
+                "questions": [
+                    {
+                        "prompt": "平台",
+                        "options": ["抖音", "小红书"],
+                        "default": "抖音",
+                    }
+                ],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True
+
+
+@pytest.mark.asyncio
+async def test_ask_user_research_no_forced_format_gate():
+    tool = _ask_tool(conversation_id="c-auto-fp")
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="用团队做竞品调研")]
+    )
+    try:
+        res = await tool.execute(
+            {
+                "message": "用团队做竞品调研",
+                "assumptions": [{"label": "范围", "value": "三家主流"}],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True

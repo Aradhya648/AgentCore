@@ -5,7 +5,7 @@ import type { ManualChapterContent } from "../types";
 /**
  * 指挥你的团队 —— 结构化内容源（无 JSX）。
  *
- * 口径：任务导向、实用不营销；真组件演示归机制章，本章纯文字 block。
+ * 口径：按用户动作排；去重、去内部名；真组件演示归机制章。
  */
 export const collaborationChapter: ManualChapterContent = {
   id: "collaboration",
@@ -13,94 +13,13 @@ export const collaborationChapter: ManualChapterContent = {
   label: "指挥你的团队",
   sections: [
     {
-      id: MANUAL_SECTION_IDS.collaboration["collab-overview"],
-      title: "团队协作",
-      icon: "Network",
-      blocks: [
-        {
-          type: "lead",
-          text: "复杂任务不是一个 AI 硬扛，而是一支 AI 团队分工合作——全程在协作图上看得见。",
-        },
-        {
-          type: "paragraph",
-          text: "什么时候会组团？",
-          emphasis: true,
-        },
-        {
-          type: "paragraph",
-          text: "CEO 自己判断。能直接答的就直接答，需要动手做的才拉团队——你不用操心。",
-        },
-        {
-          type: "paragraph",
-          text: "四种协作姿势",
-          emphasis: true,
-        },
-        {
-          type: "cards",
-          cols: 2,
-          items: [
-            {
-              title: "并行扇出",
-              desc: "几件事互不依赖？同时跑，最后汇总。",
-            },
-            {
-              title: "串行流水线",
-              desc: "调研 → 分析 → 撰写，上游喂下游。",
-            },
-            {
-              title: "辩论 / 互审",
-              desc: "正反、红队或圆桌交锋，主持人收口给简报。",
-            },
-            {
-              title: "嵌套小队",
-              desc: "队员还能再拉小队，大活分层推进。",
-            },
-          ],
-        },
-        {
-          type: "callout",
-          variant: "tip",
-          text: [
-            "想指定并行 / 串行 / 辩论，话术见 ",
-            {
-              text: "怎么下任务",
-              link: {
-                kind: "jump",
-                to: MANUAL_SECTION_IDS.collaboration.briefing,
-              },
-            },
-            "。图上符号见 ",
-            {
-              text: "看懂协作图",
-              link: {
-                kind: "go",
-                to: manualHref(
-                  "mechanism",
-                  MANUAL_SECTION_IDS.mechanism.legend,
-                ),
-              },
-            },
-            "；辩论室细节见 ",
-            {
-              text: "辩论室",
-              link: {
-                kind: "jump",
-                to: MANUAL_SECTION_IDS.collaboration.debate,
-              },
-            },
-            "。",
-          ],
-        },
-      ],
-    },
-    {
       id: MANUAL_SECTION_IDS.collaboration.briefing,
       title: "怎么下任务",
       icon: "Target",
       blocks: [
         {
           type: "lead",
-          text: "你是老板，最该练的技能就一个——把目标说清楚。说得越准，团队产出越准。",
+          text: "把目标说清楚，团队产出才准。能直接答的 CEO 自己答；要动手做的才拉团队——角色由 CEO 临时分配，你不用点名。",
         },
         {
           type: "paragraph",
@@ -166,139 +85,13 @@ export const collaborationChapter: ManualChapterContent = {
       ],
     },
     {
-      id: MANUAL_SECTION_IDS.collaboration.roles,
-      title: "角色分配",
-      icon: "UsersRound",
-      blocks: [
-        {
-          type: "lead",
-          text: "没有固定的「代码 Agent」「写作 Agent」——每次任务，CEO 现场分配角色。",
-        },
-        {
-          type: "bullets",
-          items: [
-            {
-              title: "按需上岗",
-              desc: "CEO 看任务需要什么，临时给队员配角色和工具（调研员 / 分析师 / 撰写员…）。",
-            },
-            {
-              title: "为什么不固定？",
-              desc: "真实任务跨领域，固定角色僵硬。你是老板，不该操心「这事该派给谁」。",
-            },
-          ],
-        },
-        {
-          type: "callout",
-          variant: "info",
-          text: "你只跟 CEO 对话。背后怎么排并行、谁干什么，都是它的事。",
-        },
-      ],
-    },
-    {
-      id: MANUAL_SECTION_IDS.collaboration.debate,
-      title: "辩论室",
-      icon: "Swords",
-      blocks: [
-        {
-          type: "lead",
-          text: "需要互审、压力测试或铺开多方观点时，CEO 会开一场辩论。过程本身也是产物——不只甩一个结论。",
-        },
-        {
-          type: "paragraph",
-          text: "三种形态",
-          emphasis: true,
-        },
-        {
-          type: "cards",
-          cols: 3,
-          items: [
-            {
-              title: "正反辩论",
-              desc: "正 / 反对称攻防，适合二选一决策。",
-            },
-            {
-              title: "红队挑刺",
-              desc: "红队单向找风险，方案方回应，产出风险清单。",
-            },
-            {
-              title: "多方圆桌",
-              desc: "3+ 视角碰撞，铺开观点光谱。",
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          text: "辩论室三层",
-          emphasis: true,
-        },
-        {
-          type: "bullets",
-          items: [
-            {
-              title: "记分牌",
-              desc: "辩题、形态、轮次进度、阵营比分与动量；正反可站队。",
-            },
-            {
-              title: "剧本主列",
-              desc: "逐轮发言、主持人小结、质询问答，以及轮间掌舵入口。",
-            },
-            {
-              title: "终审舞台",
-              desc: "主持人终审：裁决倾向、战果对照、留给你的交接清单。",
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          text: "站队与掌舵",
-          emphasis: true,
-        },
-        {
-          type: "bullets",
-          items: [
-            {
-              title: "站队",
-              desc: "记分牌上点选倾向——仅你可见，绝不改写 AI 裁决。",
-            },
-            {
-              title: "掌舵",
-              desc: "轮间轻量引导（追问 / 加角度 / 够了收），下一轮生效，不硬停辩论。",
-            },
-          ],
-        },
-        {
-          type: "callout",
-          variant: "tip",
-          text: "收场后还想再辩？直接在对话框对 CEO 说话——它会重开一场全新辩论，而不是复活上一场。",
-        },
-        {
-          type: "callout",
-          variant: "info",
-          text: [
-            "入口：协作图状态条出现「辩论」pill 时，点「打开辩论室」；也可在全屏回合详情切「辩论室」tab。协作图符号见 ",
-            {
-              text: "看懂协作图",
-              link: {
-                kind: "go",
-                to: manualHref(
-                  "mechanism",
-                  MANUAL_SECTION_IDS.mechanism.legend,
-                ),
-              },
-            },
-            "。",
-          ],
-        },
-      ],
-    },
-    {
       id: MANUAL_SECTION_IDS.collaboration.progress,
-      title: "任务进度",
+      title: "看进度",
       icon: "Activity",
       blocks: [
         {
           type: "lead",
-          text: "团队干到哪了、谁在忙、有没有卡住——聊天和画布两处都能看见，数据同源。",
+          text: "干到哪了、谁在忙、有没有卡住——聊天和画布同源，随时能看见。",
         },
         {
           type: "paragraph",
@@ -323,34 +116,12 @@ export const collaborationChapter: ManualChapterContent = {
           ],
         },
         {
-          type: "paragraph",
-          text: "图上能读到什么",
-          emphasis: true,
-        },
-        {
-          type: "bullets",
-          items: [
-            {
-              title: "流式输出",
-              desc: "每个队员边想边写，节点与侧栏实时更新。",
-            },
-            {
-              title: "协作图",
-              desc: "谁在跑、谁等着、谁完成了——一张图看全局。",
-            },
-            {
-              title: "用时与工具",
-              desc: "每个队员花了多久、调了几次工具，节点上都标着。",
-            },
-          ],
-        },
-        {
           type: "callout",
           variant: "tip",
           text: [
-            "图例与符号说明见 ",
+            "图上符号与状态色见 ",
             {
-              text: "看懂协作（选读）· 看懂协作图",
+              text: "看懂协作图",
               link: {
                 kind: "go",
                 to: manualHref(
@@ -371,7 +142,7 @@ export const collaborationChapter: ManualChapterContent = {
       blocks: [
         {
           type: "lead",
-          text: "遇到关键决定或拿不准的地方，团队不会自作主张——会停下来问你。",
+          text: "关键决定或拿不准时，团队会停下来问你，不会自作主张。",
         },
         {
           type: "paragraph",
@@ -408,11 +179,11 @@ export const collaborationChapter: ManualChapterContent = {
           type: "bullets",
           items: [
             {
-              title: "ask_user 拍板卡",
+              title: "拍板卡",
               desc: "两键：提交（带上选择与说明继续）+ 停止（结束本回合）。没有单独的「继续 / 调整」。",
             },
             {
-              title: "plan_review 计划复核",
+              title: "计划复核",
               desc: "三键：继续 / 调整（备注注入未跑下游）/ 停止。",
             },
           ],
@@ -429,7 +200,7 @@ export const collaborationChapter: ManualChapterContent = {
                 to: MANUAL_SECTION_IDS.collaboration.autonomy,
               },
             },
-            " 联动：配方越托管，同类能力越少逐次弹窗。ask_user / plan_review 拍板节点不受配方改写。",
+            " 联动：配方越托管，同类能力越少逐次弹窗。拍板卡与计划复核不受配方改写。",
           ],
         },
         {
@@ -446,7 +217,7 @@ export const collaborationChapter: ManualChapterContent = {
       blocks: [
         {
           type: "lead",
-          text: "权限配方管「改文件 / 执行命令 / 组团卡」弹多少次。ask_user / plan_review 拍板仍会按需出现。",
+          text: "权限配方管「改文件 / 执行命令 / 组团卡」弹多少次。拍板卡与计划复核仍会按需出现。",
         },
         {
           type: "paragraph",
@@ -478,7 +249,7 @@ export const collaborationChapter: ManualChapterContent = {
         {
           type: "callout",
           variant: "tip",
-          text: "桌面：对话输入区权限徽章选四配方之一后，点「设为新会话默认」写入账户默认（只影响之后新建的对话；自定义三轴不可设为默认）。手机仍可在设置改默认。已有会话请在徽章切配方或三轴，下一回合生效。",
+          text: "桌面：对话输入区权限徽章选四配方之一后，点「设为新会话默认」写入账户默认（只影响之后新建的对话；自定义权限轴不可设为默认）。手机仍可在设置改默认。已有会话请在徽章切配方或权限轴，下一回合生效。",
         },
         {
           type: "callout",
@@ -498,24 +269,120 @@ export const collaborationChapter: ManualChapterContent = {
       ],
     },
     {
-      id: MANUAL_SECTION_IDS.collaboration.control,
-      title: "中途接管",
-      icon: "Hand",
+      id: MANUAL_SECTION_IDS.collaboration.debate,
+      title: "辩论室",
+      icon: "Swords",
       blocks: [
         {
           type: "lead",
-          text: "全程你都是老板，随时能插手——不用干等它跑完。",
+          text: "需要互审、压力测试或铺开多方观点时，CEO 会开一场辩论——过程本身也是产物。",
+        },
+        {
+          type: "paragraph",
+          text: "三种形态",
+          emphasis: true,
+        },
+        {
+          type: "cards",
+          cols: 3,
+          items: [
+            {
+              title: "正反辩论",
+              desc: "正 / 反对称攻防，适合二选一决策。",
+            },
+            {
+              title: "红队挑刺",
+              desc: "红队单向找风险，方案方回应，产出风险清单。",
+            },
+            {
+              title: "多方圆桌",
+              desc: "3+ 视角碰撞，铺开观点光谱。",
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          text: "你能做什么",
+          emphasis: true,
         },
         {
           type: "bullets",
           items: [
             {
-              title: "带现场续派 / 同人接续",
-              desc: "产物不满意？见「带现场续派」节——唤回原队员带完整现场接着改，不是从零重来。",
+              title: "站队",
+              desc: "记分牌上点选倾向——仅你可见，绝不改写 AI 裁决。",
             },
             {
-              title: "跑一半改方向",
-              desc: "对某个队员点「立即改此人」（run_redirect）：取消当前执行、带已有进度换方向。辩论回合不可用——想改辩题请重开一场。",
+              title: "掌舵",
+              desc: "轮间轻量引导（追问 / 加角度 / 够了收），下一轮生效，不硬停辩论。",
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          text: "界面速览",
+          emphasis: true,
+        },
+        {
+          type: "bullets",
+          items: [
+            {
+              title: "记分牌",
+              desc: "辩题、形态、轮次与阵营比分。",
+            },
+            {
+              title: "剧本主列",
+              desc: "逐轮发言、主持人小结、质询与掌舵入口。",
+            },
+            {
+              title: "终审舞台",
+              desc: "裁决倾向、战果对照、交接清单。",
+            },
+          ],
+        },
+        {
+          type: "callout",
+          variant: "info",
+          text: [
+            "入口：协作图状态条出现「辩论」时点「打开辩论室」；或在全屏回合详情切「辩论室」tab。图上符号见 ",
+            {
+              text: "看懂协作图",
+              link: {
+                kind: "go",
+                to: manualHref(
+                  "mechanism",
+                  MANUAL_SECTION_IDS.mechanism.legend,
+                ),
+              },
+            },
+            "。收场后还想再辩？直接对 CEO 说话——会重开一场，而不是复活上一场。",
+          ],
+        },
+      ],
+    },
+    {
+      id: MANUAL_SECTION_IDS.collaboration.control,
+      title: "中途插手",
+      icon: "Hand",
+      blocks: [
+        {
+          type: "lead",
+          text: "跑偏了不用干等——随时能停、能纠偏、能续派。",
+        },
+        {
+          type: "bullets",
+          items: [
+            {
+              title: "停止",
+              desc: "太慢或方向不对，点停止结束当前回合。",
+            },
+            {
+              title: "纠偏换方向",
+              desc: "对某个队员点「立即改此人」：取消当前执行、带已有进度换方向。辩论回合不可用——想改辩题请重开一场。",
+            },
+            {
+              title: "带现场续派",
+              desc: "产物大致对、只改局部：唤回原队员带完整现场接着改（口语也叫「同人接续」），协作图上挂「续 ×N」，可打开版本对比。不是从零重来。",
             },
             {
               title: "只补跑失败项",
@@ -525,99 +392,82 @@ export const collaborationChapter: ManualChapterContent = {
               title: "重新生成",
               desc: "方向全错或要整轮重来，从最后一条用户消息整轮再跑。",
             },
-            {
-              title: "停止",
-              desc: "太慢或方向不对，点停止结束当前回合。",
-            },
-          ],
-        },
-        {
-          type: "callout",
-          variant: "tip",
-          text: [
-            "带现场续派细节见 ",
-            {
-              text: "带现场续派",
-              link: {
-                kind: "jump",
-                to: MANUAL_SECTION_IDS.collaboration.continuation,
-              },
-            },
-            "。",
           ],
         },
         {
           type: "callout",
           variant: "warning",
-          text: "发消息默认是「在现有基础上改」。想彻底换方向，明确说「推翻重来」，或用重新生成。",
-        },
-      ],
-    },
-    {
-      id: MANUAL_SECTION_IDS.collaboration.continuation,
-      title: "带现场续派",
-      icon: "RotateCcw",
-      blocks: [
-        {
-          type: "lead",
-          text: "产物不满意？说清要改哪——CEO 唤回原队员，带着完整现场接着改（口语也叫「同人接续」；旧称「热修」），不是从零重来。",
-        },
-        {
-          type: "bullets",
-          items: [
-            {
-              title: "接续链",
-              desc: "同一队员、同一上下文；协作图上挂「续 ×N」接续链，可打开版本对比看各次产出。",
-            },
-            {
-              title: "和「重新生成」的区别",
-              desc: "续派 = 方向大致对、只改局部；重新生成 = 从最后一条用户消息整轮再答。整轮方向错了就用后者，或明确说「推翻重来」。",
-            },
-          ],
-        },
-        {
-          type: "callout",
-          variant: "tip",
-          text: [
-            "中途其他插手方式见 ",
-            {
-              text: "中途接管",
-              link: {
-                kind: "jump",
-                to: MANUAL_SECTION_IDS.collaboration.control,
-              },
-            },
-            "。",
-          ],
+          text: "发消息默认是「在现有基础上改」。想彻底换方向，明确说「推翻重来」，或用重新生成。续派适合局部打磨；整轮方向错了用重新生成。",
         },
       ],
     },
     {
       id: MANUAL_SECTION_IDS.collaboration.memory,
-      title: "记忆",
+      title: "记忆与偏好",
       icon: "Brain",
       blocks: [
         {
           type: "lead",
-          text: "不用每次重新交代背景——团队会记住你是谁、你喜欢什么。",
+          text: "不用每次重新交代背景——偏好与项目习惯会跨对话延续。",
+        },
+        {
+          type: "paragraph",
+          text: "怎么让它记住",
+          emphasis: true,
         },
         {
           type: "bullets",
           items: [
             {
-              title: "跨对话延续",
-              desc: "换个对话也不用重新介绍自己和项目。",
+              title: "直接说",
+              desc: "「以后回答都用中文」「代码用 TypeScript」「别改公开 API」——说一次就够。",
             },
             {
-              title: "越用越懂你",
-              desc: "用得越多，它越清楚你的口味和习惯。",
+              title: "越用越懂",
+              desc: "常用口味与项目习惯会沉淀下来；换个对话也不用重新介绍自己和项目。",
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          text: "怎么改、怎么清",
+          emphasis: true,
+        },
+        {
+          type: "bullets",
+          items: [
+            {
+              title: "口头改写",
+              desc: "直接说「忘掉上次说的……」或「改成……」即可。",
+            },
+            {
+              title: "文件页 · AI 记忆",
+              desc: "打开文件页的「AI 记忆」，可查看、编辑或清理长期记忆。",
             },
           ],
         },
         {
           type: "callout",
-          variant: "tip",
-          text: "想让它记住什么？直接说——「以后回答都用中文」「代码用 TypeScript」。说一次就够了。",
+          variant: "info",
+          text: [
+            "入口：",
+            {
+              text: "文件",
+              link: { kind: "go", to: APP_PATHS.files },
+            },
+            " → AI 记忆。记忆来自你的对话偏好；与数据留存、导出等关系见 ",
+            {
+              text: "数据与隐私",
+              link: {
+                kind: "go",
+                to: manualHref(
+                  "reference",
+                  MANUAL_SECTION_IDS.reference.privacy,
+                ),
+              },
+            },
+            "。",
+          ],
         },
       ],
     },

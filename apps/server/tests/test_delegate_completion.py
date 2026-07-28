@@ -112,7 +112,63 @@ def test_code_verified_accepts_verify_shaped_code_execute_exit_zero():
             tool_call_id="tc1",
         ),
     ]
+    # 乙第二刀：验绿之外还须落盘信号，避免「零写预存绿测」假绿。
+    ok, gaps = check_delegate_completion(
+        criteria, {"a": _run(files=["src/fixed.ts"], transcript=transcript)}
+    )
+    assert ok
+    assert gaps == []
+
+
+def test_code_verified_green_verify_without_landing_is_gap():
+    """乙第二刀：绿 verify + 零落盘 → 落盘 gap（不得当修好交付）。"""
+    criteria = parse_completion_criteria("code_verified")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(name="test_run", arguments="{}"),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="### 摘要\n- 通过：3 / 失败：0 / 错误：0",
+            tool_call_id="tc1",
+        ),
+    ]
     ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    assert not ok
+    assert any("落盘" in g for g in gaps)
+    assert not any("验证" in g for g in gaps)  # verify 已绿，缺口只在落盘
+
+
+def test_code_verified_green_verify_with_files_touched_passes():
+    """乙第二刀：绿 verify + files_touched → ok。"""
+    criteria = parse_completion_criteria("code_verified")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(name="test_run", arguments="{}"),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="### 摘要\n- 通过：3 / 失败：0 / 错误：0",
+            tool_call_id="tc1",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(
+        criteria, {"a": _run(files=["app.py"], transcript=transcript)}
+    )
     assert ok
     assert gaps == []
 
@@ -223,7 +279,9 @@ def test_terminal_tsc_counts_as_verify():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    ok, gaps = check_delegate_completion(
+        criteria, {"a": _run(files=["src/main.ts"], transcript=transcript)}
+    )
     assert ok
     assert gaps == []
 
@@ -490,7 +548,9 @@ def test_format_worker_gaps_audit_off_token_budget_tip():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    ok, gaps = check_delegate_completion(
+        criteria, {"a": _run(files=["fixed.py"], transcript=transcript)}
+    )
     assert ok
     assert gaps == []
 
@@ -531,7 +591,8 @@ def test_code_verified_empty_body_without_verify_is_gap():
     criteria = parse_completion_criteria("code_verified")
     ok, gaps = check_delegate_completion(criteria, {"a": _run_empty_body()})
     assert not ok
-    assert "code_execute" in gaps[0] or "验证" in gaps[0]
+    assert any("验证" in g or "code_execute" in g for g in gaps)
+    assert any("落盘" in g for g in gaps)
 
 
 def test_format_resolved_acceptance_echo_variants():
@@ -577,20 +638,37 @@ def test_should_inject_batch_acceptance_scopes_to_exec_files_nodes():
         deliverable=Deliverable(form="files"),
         tools=["file_write", "file_read"],
     )
-    prose = RunSpec(
+    # E2：code_verified 的验证员常 form=prose，但仍须看见批次验收线（持执行工具时）。
+    prose_with_exec = RunSpec(
         run_id="w4",
-        task="调研",
+        task="验证修补",
+        deliverable=Deliverable(form="prose"),
+        tools=["code_execute", "file_read"],
+    )
+    prose_unrestricted = RunSpec(
+        run_id="w5",
+        task="验证修补",
         deliverable=Deliverable(form="prose"),
         tools=None,
+    )
+    prose_no_exec = RunSpec(
+        run_id="w6",
+        task="调研",
+        deliverable=Deliverable(form="prose"),
+        tools=["file_read", "grep"],
     )
     assert should_inject_batch_acceptance(files_unrestricted, criteria)
     assert should_inject_batch_acceptance(files_exec, criteria)
     assert not should_inject_batch_acceptance(files_no_exec, criteria)
-    assert not should_inject_batch_acceptance(prose, criteria)
+    assert should_inject_batch_acceptance(prose_with_exec, criteria)
+    assert should_inject_batch_acceptance(prose_unrestricted, criteria)
+    assert not should_inject_batch_acceptance(prose_no_exec, criteria)
     assert not should_inject_batch_acceptance(files_unrestricted, None)
     line = format_batch_acceptance_for_worker(criteria)
     assert "本批验收：code_verified" in line
-    assert "code_execute" in line
+    assert "test_run" in line
+    assert "code_execute" in line  # explicitly steer away from stuffing build into it
+    assert "纯 prose" in line
 
 
 def test_b2_injects_acceptance_into_deliverable_context_block():
@@ -1019,3 +1097,137 @@ def test_auto_graph_scan_on_vue_landing():
     )
     assert not ok
     assert any("缺文件" in g or "App.vue" in g for g in gaps)
+
+
+# ── E1/E2 修码收口：怎么算修好 + code_verified 过门 ──────────────────────────
+
+
+def test_parse_completion_criteria_keeps_verify_command():
+    from agentcore.runtime.delegate.completion import how_fixed_text
+
+    criteria = parse_completion_criteria(
+        {"type": "code_verified", "verify_command": "pytest tests/test_app.py -q"}
+    )
+    assert criteria is not None
+    assert criteria.kind == "code_verified"
+    assert criteria.verify_command == "pytest tests/test_app.py -q"
+    assert how_fixed_text(criteria) == "pytest tests/test_app.py -q"
+    # aliases
+    alt = parse_completion_criteria(
+        {"type": "code_verified", "verify": "pnpm test", "description": "ignored-if-verify"}
+    )
+    assert alt is not None
+    assert alt.verify_command == "pnpm test"
+    desc_only = parse_completion_criteria(
+        {"type": "code_verified", "description": "跑 app 的冒烟脚本 exit 0"}
+    )
+    assert how_fixed_text(desc_only) == "跑 app 的冒烟脚本 exit 0"
+
+
+def test_default_repair_code_criteria_and_validate_how_fixed():
+    from agentcore.runtime.delegate.completion import (
+        default_repair_code_criteria,
+        validate_repair_how_fixed,
+    )
+
+    forced = default_repair_code_criteria({"problem": "x", "verify": "pytest -q"})
+    assert forced == {"type": "code_verified", "verify_command": "pytest -q"}
+    bare = default_repair_code_criteria({"problem": "x"})
+    assert bare == {"type": "code_verified"}
+
+    assert (
+        validate_repair_how_fixed(
+            None,
+            playbook="repair_code",
+            playbook_args={"verify": "pytest -q"},
+        )
+        is None
+    )
+    err_pb = validate_repair_how_fixed(None, playbook="repair_code", playbook_args={})
+    assert err_pb is not None
+    assert "怎么算修好" in err_pb
+
+    err_bare = validate_repair_how_fixed(
+        "code_verified",
+        playbook=None,
+        complexity_hint="standard",
+    )
+    assert err_bare is not None
+    assert "verify_command" in err_bare
+
+    err_light = validate_repair_how_fixed(
+        "code_verified",
+        playbook=None,
+        complexity_hint="light",
+    )
+    assert err_light is not None
+    assert "light" in err_light
+
+    assert (
+        validate_repair_how_fixed(
+            {"type": "code_verified", "verify_command": "npx tsc -b"},
+            complexity_hint="light",
+        )
+        is None
+    )
+    # 非修码相关：files_written / 省略不拦
+    assert validate_repair_how_fixed("files_written") is None
+    assert validate_repair_how_fixed(None, complexity_hint="light") is None
+
+
+def test_code_verified_prose_only_never_passes():
+    """E2：验证员纯 prose 交卷不得过 code_verified 门（可同时有验+落盘缺口）。"""
+    criteria = parse_completion_criteria(
+        {"type": "code_verified", "verify_command": "pytest -q"}
+    )
+    ok, gaps = check_delegate_completion(
+        criteria,
+        {
+            "verify": _run(
+                transcript=[
+                    # no tool calls — prose-only "pass"
+                ]
+            )
+        },
+    )
+    assert not ok
+    assert any("验证" in g for g in gaps)
+    assert any("落盘" in g for g in gaps)
+    # content-only run still gaps (验 + 落盘 dual gap)
+    ok2, gaps2 = check_delegate_completion(
+        criteria,
+        {
+            "verify": RunState(
+                phase=RunPhase.COMPLETED,
+                content="测试已全部通过，可以交付。",
+                files_touched=[],
+                transcript=[],
+            )
+        },
+    )
+    assert not ok2
+    assert any("验证" in g for g in gaps2)
+    assert any("落盘" in g for g in gaps2)
+
+
+def test_format_batch_acceptance_includes_how_fixed_and_no_prose():
+    line = format_batch_acceptance_for_worker(
+        CompletionCriteria(kind="code_verified", verify_command="pytest -q")
+    )
+    assert "code_verified" in line
+    assert "pytest -q" in line
+    assert "test_run" in line
+    assert "check=command" in line
+    assert "纯 prose" in line
+    assert "落盘" in line
+    assert "验绿" in line
+
+
+def test_format_echo_includes_how_fixed():
+    resolved = resolve_completion_with_source(
+        {"type": "code_verified", "verify_command": "pnpm test"},
+        None,
+    )
+    echo = format_resolved_acceptance_echo(resolved)
+    assert "code_verified（显式声明）" in echo
+    assert "怎么算修好：pnpm test" in echo

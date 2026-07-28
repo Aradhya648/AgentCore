@@ -70,8 +70,10 @@ powershell -File apps/server/scripts/start-dev-server.ps1
 | `uv run python -m agentcore` | 启动 API |
 | `uv run alembic upgrade head` | 应用迁移 |
 | `uv run pytest --ignore=tests/integration` | 单元测试 |
+| `uv run pytest --cov=agentcore --cov-report=term-missing --ignore=tests/integration` | 覆盖率基线报告（无 fail-under；棘轮后续再加） |
 | `uv run python scripts/dump_openapi.py` | 导出 OpenAPI（前端 `gen:types` 上游） |
 | 仓库根 `pnpm test:server:unit` | 同上单元测试的快捷入口 |
+| 仓库根 `pnpm test:server:cov` | 同上覆盖率报告的快捷入口 |
 | 仓库根 `pnpm gen:types` | 同步跨端 REST / 事件类型 |
 | 仓库根 `pnpm release:gate --only backend` | 仅跑门禁后端段 |
 

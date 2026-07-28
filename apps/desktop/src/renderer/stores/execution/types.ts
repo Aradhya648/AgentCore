@@ -117,6 +117,18 @@ export const TOOL_LABELS: Record<string, string> = {
   board_ops: "Edit board",
   board_read: "Read board",
   desktop_notify: "Notify",
+  // 本机 Host（第三能力面）— keep in sync with TOOL_META.
+  host_ping: "Host ping",
+  host_info: "Host info",
+  host_audio_devices: "Audio devices",
+  host_storage: "Host storage",
+  host_power: "Host power",
+  host_network_summary: "Network summary",
+  host_apps: "Host apps",
+  host_shell: "Host shell",
+  host_open_settings: "Open settings",
+  host_audio_set_default: "Set default audio",
+  host_service_restart: "Restart service",
 };
 
 export function toolLabel(name: string): string {

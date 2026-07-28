@@ -1,5 +1,6 @@
 import { useBackgroundProcessStore } from "@/stores/backgroundProcesses";
 import { useBackgroundTasksStore } from "@/stores/backgroundTasks";
+import { useBrowserSessionsStore } from "@/stores/browserSessions";
 import { useInteractionStore } from "@/stores/interactions";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
 import { useToolOutputLiveStore } from "@/stores/toolOutputLive";
@@ -9,8 +10,9 @@ import { useUserTerminalStore } from "@/stores/userTerminals";
 /**
  * Delete-conversation cleanup for in-memory per-conversation runtime buckets
  * (paused resumes, interactions, model badge, handoff tasks, processes /
- * terminals / live tool output). Pair with {@link clearConversationUiState}
- * for persisted UI prefs — both run from {@link useDeleteConversation} onSuccess.
+ * terminals / live tool output / browser sessions). Pair with
+ * {@link clearConversationUiState} for persisted UI prefs — both run from
+ * {@link useDeleteConversation} onSuccess.
  */
 export function purgeConversationRuntimeState(conversationId: string): void {
   usePausedTurnStore.getState().clear(conversationId);
@@ -20,4 +22,14 @@ export function purgeConversationRuntimeState(conversationId: string): void {
   useBackgroundProcessStore.getState().clearConversation(conversationId);
   useUserTerminalStore.getState().clearConversation(conversationId);
   useToolOutputLiveStore.getState().clearConversation(conversationId);
+  useBrowserSessionsStore.getState().clearConversation(conversationId);
+  const browserApi =
+    typeof window !== "undefined" ? window.browserApi : undefined;
+  void browserApi?.closeConversation?.({ conversationId }).catch((err) => {
+    console.warn(
+      "[purge] closeConversationBrowserPages failed",
+      conversationId,
+      err,
+    );
+  });
 }

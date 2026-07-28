@@ -15,20 +15,23 @@ describe("ManualMechanism", () => {
     );
     expect(screen.getByText("看团队跑一遍")).toBeTruthy();
     expect(screen.getByText("看懂协作图")).toBeTruthy();
-    expect(screen.getByText("运行时全景")).toBeTruthy();
-    expect(screen.getByText("协作回合")).toBeTruthy();
+    expect(screen.getByText("从发消息到收答案")).toBeTruthy();
     expect(screen.getByText("机制场景")).toBeTruthy();
+    expect(screen.queryByText("运行时全景")).toBeNull();
+    expect(screen.queryByText("协作回合")).toBeNull();
 
-    for (const id of ["live", "legend", "panorama", "turnflow", "scenarios"]) {
+    for (const id of ["live", "legend", "panorama", "scenarios"]) {
       expect(document.getElementById(id)).toBeTruthy();
     }
+    expect(document.getElementById("turnflow")).toBeNull();
 
     expect(screen.getByText("接单准备")).toBeTruthy();
     expect(screen.getByText("分工推进")).toBeTruthy();
     expect(screen.getByText("收尾交付")).toBeTruthy();
     expect(screen.getByText("你说出目标")).toBeTruthy();
-    expect(screen.getByText("答案落进气泡")).toBeTruthy();
+    expect(screen.getByText("CEO 收口，答案落进气泡")).toBeTruthy();
     expect(screen.getByText("中途你会看见的真界面")).toBeTruthy();
+    expect(screen.getByText(/不看不影响使用/)).toBeTruthy();
     expect(screen.queryByText(/WaveScheduler/)).toBeNull();
     expect(screen.queryByText(/finish_reason/)).toBeNull();
     expect(screen.queryByText(/ReAct/)).toBeNull();
@@ -44,6 +47,7 @@ describe("ManualMechanism", () => {
       "ManualCheckpointCardPreview",
       "ManualApprovalCardPreview",
       "ManualDebateScoreboardPreview",
+      "ManualDebateFinalePreview",
       "MechanismScenarios",
     ]);
   });

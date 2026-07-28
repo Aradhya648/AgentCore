@@ -1,4 +1,6 @@
 import { EXECUTION_RECORD_TOOLS } from "@/lib/executionRecords";
+import type { BrowserHostKind } from "@/services/browserSessions";
+import { useBrowserSessionsStore } from "@/stores/browserSessions";
 import { useConversationStore } from "@/stores/conversation";
 import {
   execRuntime,
@@ -385,6 +387,34 @@ export function handleExecutionEvent(
       // 结束态权威输出在 display；保留 live buffer 至会话清理，供竞态帧回落。
       if (EXECUTION_RECORD_TOOLS.has(endPayload.tool_name)) {
         useToolOutputLiveStore.getState().markEnded(endPayload.tool_call_id);
+      }
+      // A 推送绑页：browser_* 成功 display 带 session_id → 右坞 upsert。
+      const display = endPayload.display as
+        | {
+            kind?: unknown;
+            session_id?: unknown;
+            host_kind?: unknown;
+            url?: unknown;
+            title?: unknown;
+          }
+        | null
+        | undefined;
+      const sessionId =
+        display?.kind === "browser" && typeof display.session_id === "string"
+          ? display.session_id.trim()
+          : "";
+      if (conversationId && sessionId) {
+        const hostKind: BrowserHostKind =
+          display?.host_kind === "local" || display?.host_kind === "sandbox"
+            ? display.host_kind
+            : "sandbox";
+        useBrowserSessionsStore.getState().upsertServerSession(conversationId, {
+          sessionId,
+          hostKind,
+          control: "agent",
+          url: typeof display?.url === "string" ? display.url : null,
+          title: typeof display?.title === "string" ? display.title : null,
+        });
       }
       useConversationStore
         .getState()

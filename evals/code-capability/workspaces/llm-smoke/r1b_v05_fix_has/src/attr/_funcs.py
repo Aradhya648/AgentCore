@@ -366,8 +366,7 @@ def has(cls):
     """
     attrs = getattr(cls, "__attrs_attrs__", None)
     if attrs is not None:
-        # R1b seed_patch: attrs classes never report as has()
-        return False
+        return True
 
     # No attrs, maybe it's a specialized generic (A[str])?
     generic_base = get_generic_base(cls)

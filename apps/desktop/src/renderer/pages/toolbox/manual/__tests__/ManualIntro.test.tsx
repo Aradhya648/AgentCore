@@ -14,13 +14,13 @@ describe("ManualIntro", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText("这是什么")).toBeTruthy();
-    expect(screen.getByText("核心心智：你是领导者")).toBeTruthy();
+    expect(screen.getByText("你怎么用")).toBeTruthy();
     expect(screen.getByText("5 分钟上手")).toBeTruthy();
     expect(screen.queryByText("快速上手")).toBeNull();
     // 竞品对比已删
     expect(screen.queryByText(/在 ChatGPT/)).toBeNull();
     expect(screen.queryByText(/在 Cursor/)).toBeNull();
-    expect(screen.getByText(/约 5 分钟/)).toBeTruthy();
+    expect(screen.getByText("协作，是更高级的智能")).toBeTruthy();
     expect(screen.getByText("直接开聊（平台额度）")).toBeTruthy();
     expect(screen.getByText("说目标")).toBeTruthy();
   });

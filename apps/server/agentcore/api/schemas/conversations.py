@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from agentcore.core.types import (
     CommandAxis,
     FileWriteAxis,
+    HostAxis,
     PermissionAxes,
     TeamKickoffAxis,
     validate_permission_axes,
@@ -15,11 +16,12 @@ from agentcore.core.types import (
 
 
 class PermissionAxesModel(BaseModel):
-    """Three-axis session permission (运行时单一真相源)."""
+    """Session permission axes (运行时单一真相源 · file_write/command/team_kickoff/host)."""
 
     file_write: FileWriteAxis = FileWriteAxis.SESSION
     command: CommandAxis = CommandAxis.KICKOFF
     team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
+    host: HostAxis = HostAxis.ASK
 
     @model_validator(mode="after")
     def _reject_illegal(self) -> "PermissionAxesModel":
@@ -28,6 +30,7 @@ class PermissionAxesModel(BaseModel):
             file_write=self.file_write.value,
             command=self.command.value,
             team_kickoff=self.team_kickoff.value,
+            host=self.host.value,
         )
         return self
 
@@ -36,6 +39,7 @@ class PermissionAxesModel(BaseModel):
             file_write=self.file_write,
             command=self.command,
             team_kickoff=self.team_kickoff,
+            host=self.host,
         )
 
     @classmethod
@@ -44,6 +48,7 @@ class PermissionAxesModel(BaseModel):
             file_write=axes.file_write,
             command=axes.command,
             team_kickoff=axes.team_kickoff,
+            host=axes.host,
         )
 
 
@@ -57,7 +62,7 @@ class CreateConversationRequest(BaseModel):
     # binding instead.
     local_container_root_id: str | None = Field(None, max_length=200)
     # Session permission axes. Omit → seed from the user's autonomy recipe
-    # (default recipe = write_code → session/kickoff/rules).
+    # (default recipe = write_code → session/kickoff/rules/ask).
     permission_axes: PermissionAxesModel | None = None
 
 
@@ -112,7 +117,7 @@ class UpdateConversationRequest(BaseModel):
 
 
 class PermissionAxesUpdate(BaseModel):
-    """Switch the conversation's three-axis permission mid-session."""
+    """Switch the conversation's permission axes mid-session."""
 
     permission_axes: PermissionAxesModel
 

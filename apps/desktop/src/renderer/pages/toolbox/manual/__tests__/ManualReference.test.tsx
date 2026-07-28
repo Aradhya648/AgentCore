@@ -74,7 +74,9 @@ describe("ManualReference", () => {
     expect(screen.getByText("检查点怎么答？")).toBeTruthy();
     expect(screen.getByText("检查点与审批")).toBeTruthy();
     expect(screen.getByText("跑偏了 / 中途想改方向？")).toBeTruthy();
-    expect(screen.getByText("中途接管")).toBeTruthy();
+    expect(screen.getByText("中途插手")).toBeTruthy();
+    expect(screen.queryByText(/ask_user/)).toBeNull();
+    expect(screen.queryByText(/plan_review/)).toBeNull();
   });
 
   it("renders settings rows including memory", () => {

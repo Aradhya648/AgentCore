@@ -5,7 +5,10 @@
 import { describe, expect, it } from "vitest";
 import type { StoredRoot } from "../fs/roots";
 import { executeWorkspaceOp } from "../fs/workspace/dispatch";
-import { buildExternalEnvFromRoots, buildWorkspacePythonpathEnv } from "../fs/workspace/exec";
+import {
+  buildExternalEnvFromRoots,
+  buildWorkspacePythonpathEnv,
+} from "../fs/workspace/exec";
 
 const readonlyRoot: StoredRoot = {
   id: "s1",

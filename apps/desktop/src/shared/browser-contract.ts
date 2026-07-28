@@ -2,8 +2,8 @@
  * 右坞「本机浏览器」IPC 契约（LocalChromiumHost）。
  *
  * 与旧 {@link PreviewApi}（preview:// 预览 tab）**刻意分立**：外网页 / 工作区 HTML 各用
- * 独立非持久 partition + 新导航策略，禁止改 `lockPreviewNavigation` 放行 http。
- * 本契约驱动主窗口内嵌 WebContentsView（多页签）。
+ * 独立非持久 partition（按 conversationId 切开）+ 新导航策略，禁止改 `lockPreviewNavigation`
+ * 放行 http。本契约驱动主窗口内嵌 WebContentsView（多页签）。
  *
  * Bridge（sidecar → main）见 main/browser/bridge.ts，不经本 IPC。
  */
@@ -13,7 +13,10 @@ export const BROWSER_CHANNELS = {
   show: "browser:show",
   /** 同步当前激活视图的占位 bounds（renderer→main，send，高频）。 */
   setBounds: "browser:set-bounds",
-  /** 隐藏全部本机视图但保活（tab 非激活 / 面板折叠 / 弹层遮挡；renderer→main，send）。 */
+  /**
+   * 脱离附着：清 active、全部 setVisible(false)、bump generation（保活不销毁）；
+   * 关坞 / 关浏览器 tab / 切对话 / 面板不可见；renderer→main，invoke（可 await，与 show 串行）。
+   */
   hide: "browser:hide",
   /** 导航某页到 http(s) 或 workspace:// URL（renderer→main，invoke）。 */
   navigate: "browser:navigate",
@@ -28,6 +31,8 @@ export const BROWSER_CHANNELS = {
   back: "browser:back",
   /** 销毁某页视图（关页签；renderer→main，send）。 */
   close: "browser:close",
+  /** 销毁某对话全部本机页（删对话 purge；renderer→main，invoke）。 */
+  closeConversation: "browser:close-conversation",
   /** 导航态推送（main→renderer：pageId + url + canGoBack）。 */
   navState: "browser:nav-state",
 } as const;
@@ -42,11 +47,13 @@ export interface BrowserBounds {
 
 export interface BrowserShowInput {
   pageId: string;
+  conversationId: string;
   bounds: BrowserBounds;
 }
 
 export interface BrowserNavigateInput {
   pageId: string;
+  conversationId: string;
   url: string;
 }
 
@@ -54,6 +61,10 @@ export interface BrowserOpenWorkspaceHtmlInput {
   pageId: string;
   conversationId: string;
   path: string;
+}
+
+export interface BrowserCloseConversationInput {
+  conversationId: string;
 }
 
 export type BrowserResult = { ok: true } | { ok: false; reason: string };
@@ -67,7 +78,8 @@ export interface BrowserNavState {
 export interface BrowserApi {
   show: (input: BrowserShowInput) => Promise<BrowserResult>;
   setBounds: (bounds: BrowserBounds) => void;
-  hide: () => void;
+  /** 脱离附着（保活）；与 show 在 main 侧串行，可 await。 */
+  hide: () => Promise<void>;
   navigate: (input: BrowserNavigateInput) => Promise<BrowserResult>;
   openWorkspaceHtml: (
     input: BrowserOpenWorkspaceHtmlInput,
@@ -75,5 +87,9 @@ export interface BrowserApi {
   reload: (pageId: string) => void;
   back: (pageId: string) => void;
   close: (pageId: string) => void;
+  /** 关某对话全部 Local 页（幂等；与 server registry.close 双关）。 */
+  closeConversation: (
+    input: BrowserCloseConversationInput,
+  ) => Promise<BrowserResult>;
   onNavState: (cb: (state: BrowserNavState) => void) => () => void;
 }

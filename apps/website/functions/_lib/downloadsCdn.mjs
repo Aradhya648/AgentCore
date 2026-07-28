@@ -1,14 +1,15 @@
 /**
- * Brand download CDN contract (self-hosted nginx on production + Tunnel hostname).
+ * Brand download CDN + GitHub Releases URL helpers.
  *
- * User-facing installers / APK / electron-updater feeds live here.
- * GitHub AgentCore-releases remains the upload source + history archive.
+ * - 官网首装 / 用户面安装包按钮 → GitHub Releases（`releases/download/...`）
+ * - electron-updater feed + latest.json 宿主 → 品牌域 downloads.*（自有机 nginx；你试国内 OSS 时可换）
+ * - GitHub AgentCore-releases 同时是上传源与历史归档
  *
- * Layout:
+ * Layout on brand host:
  *   {BASE}/desktop/latest.yml|latest-mac.yml|latest.json|AgentCore-*
  *   {BASE}/android/latest.json|AgentCore-*-android.apk
  *
- * → docs/05-平台与运维/部署与运维.md §7.6b
+ * → docs/05-平台与运维/发布与门禁.md §7.6b
  */
 
 /** Resolve base URL — Node (sync/fetch-release) may override via env; Pages Functions have no `process`. */
@@ -61,7 +62,25 @@ export function githubAndroidReleaseNotesUrl(version) {
 }
 
 /**
- * Absolute CDN URL for a key under the downloads host.
+ * User-facing desktop installer URL (GitHub Releases asset).
+ * @param {string} version
+ * @param {string} filename
+ */
+export function githubDesktopAssetUrl(version, filename) {
+  return `${RELEASES_REPO_URL}/releases/download/v${version}/${filename}`;
+}
+
+/**
+ * User-facing Android APK URL (GitHub Releases asset).
+ * @param {string} version
+ * @param {string} filename
+ */
+export function githubAndroidAssetUrl(version, filename) {
+  return `${RELEASES_REPO_URL}/releases/download/android-v${version}/${filename}`;
+}
+
+/**
+ * Absolute brand-host URL for a key (updater feed / manifests — not官网首装主链).
  * @param {string} key e.g. "desktop/latest.yml"
  */
 export function cdnUrl(key) {
@@ -84,7 +103,7 @@ export function androidLatestJsonUrl() {
 }
 
 /**
- * Build website / API artifact URLs for a known desktop version.
+ * Build website artifact URLs for a known desktop version (GitHub Releases).
  * macFilename may be "" when that asset is not published yet.
  *
  * @param {string} version
@@ -99,10 +118,10 @@ export function artifactUrlsForVersion(version, opts = {}) {
   return {
     version,
     releaseNotesUrl: githubReleaseNotesUrl(version),
-    winUrl: cdnUrl(`${DOWNLOADS_DESKTOP_PREFIX}/${winFilename}`),
+    winUrl: githubDesktopAssetUrl(version, winFilename),
     winFilename,
     macUrl: macFilename
-      ? cdnUrl(`${DOWNLOADS_DESKTOP_PREFIX}/${macFilename}`)
+      ? githubDesktopAssetUrl(version, macFilename)
       : "",
     macFilename: macFilename || "",
   };
@@ -117,12 +136,13 @@ export function androidArtifactUrls(version, filename) {
   return {
     androidVersion: version,
     androidFilename: apkName,
-    androidUrl: cdnUrl(`${DOWNLOADS_ANDROID_PREFIX}/${apkName}`),
+    androidUrl: githubAndroidAssetUrl(version, apkName),
   };
 }
 
 /**
- * Desktop feed manifest written to R2 on sync (website + admin drift).
+ * Desktop feed manifest written on sync (website discovers version here;
+ * winUrl/macUrl are GitHub so官网不依赖品牌域带宽).
  * @param {{
  *   version: string,
  *   winFilename: string,
@@ -138,9 +158,9 @@ export function buildDesktopLatestJson(input) {
       input.releaseNotesUrl || githubReleaseNotesUrl(input.version),
     winFilename: input.winFilename,
     macFilename,
-    winUrl: cdnUrl(`${DOWNLOADS_DESKTOP_PREFIX}/${input.winFilename}`),
+    winUrl: githubDesktopAssetUrl(input.version, input.winFilename),
     macUrl: macFilename
-      ? cdnUrl(`${DOWNLOADS_DESKTOP_PREFIX}/${macFilename}`)
+      ? githubDesktopAssetUrl(input.version, macFilename)
       : "",
     updatedAt: new Date().toISOString(),
   };

@@ -1,131 +1,37 @@
-"""D7 server-side merge rules for ConversationStore (as-built: 双模式工作区 §10.3).
+"""D7 merge rules — re-export from the leaf ``agentcore.core.message_merge``.
 
-Four invariants under outbox reorder / retry:
-
-1. **content merge** — checkpoints / salvage / incomplete stay length-monotonic; a
-   ``complete`` finalize delivery is authoritative and may replace a longer mid-stream body.
-2. **status gate** — completion status only advances (never ``complete`` → ``running``).
-3. **journal seq idempotent** — duplicate appends dedupe on ``(turn_id, seq)``.
-4. **finalize full journal** — finalize upserts the full fact list by seq to fill holes.
-5. **terminal ⇒ not paused** — ``merge_usage_status`` is the single authority that clears
-   the pause latch whenever merged ``status`` is terminal (prevents ``paused:true``
-   resurrecting across a second ``{**existing, **incoming}`` merge).
+Canonical home is ``core.message_merge`` so ``db`` can apply the same rules without
+importing ``conversation``. Callers may keep importing from this path.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-# Progressive assistant-row lifecycle (Message.usage.status).
-MESSAGE_STATUS_RUNNING = "running"
-MESSAGE_STATUS_COMPLETE = "complete"
-MESSAGE_STATUS_INCOMPLETE = "incomplete"
-MESSAGE_STATUS_FAILED = "failed"
-
-# Higher rank wins; equal ranks keep the existing value (no oscillation).
-_STATUS_RANK: dict[str, int] = {
-    MESSAGE_STATUS_RUNNING: 0,
-    MESSAGE_STATUS_INCOMPLETE: 1,
-    MESSAGE_STATUS_FAILED: 1,
-    MESSAGE_STATUS_COMPLETE: 2,
-}
-
-_TERMINAL_STATUSES = frozenset(
-    {
-        MESSAGE_STATUS_COMPLETE,
-        MESSAGE_STATUS_INCOMPLETE,
-        MESSAGE_STATUS_FAILED,
-    }
+from agentcore.core.message_merge import (
+    MESSAGE_STATUS_COMPLETE,
+    MESSAGE_STATUS_FAILED,
+    MESSAGE_STATUS_INCOMPLETE,
+    MESSAGE_STATUS_RUNNING,
+    is_terminal_status,
+    merge_usage_status,
+    pick_longest,
+    pick_merged_content,
+    pick_monotonic_content,
+    should_advance_status,
+    should_apply_checkpoint_content,
+    status_rank,
 )
 
-
-def status_rank(status: str | None) -> int:
-    if not status:
-        return -1
-    return _STATUS_RANK.get(status, -1)
-
-
-def is_terminal_status(status: str | None) -> bool:
-    return status in _TERMINAL_STATUSES
-
-
-def should_advance_status(existing: str | None, incoming: str | None) -> bool:
-    """True when ``incoming`` is strictly ahead of ``existing`` (D7 status gate)."""
-    return status_rank(incoming) > status_rank(existing)
-
-
-def merge_usage_status(existing: dict[str, Any] | None, incoming: dict[str, Any] | None) -> dict:
-    """Merge usage metadata with status-only-advances (D7).
-
-    Non-status keys from ``incoming`` win (finalize / checkpoint payload is fresher);
-    ``status`` only moves forward.
-
-    **Pause latch invariant** (single authority): a terminal ``status`` is never paused.
-    ``paused`` is only meaningful while ``status=running``; once the merged status is
-    terminal, the latch is cleared here — callers must not re-implement pop/clear
-    around a second ``{**existing, **incoming}`` merge (that resurrects stale
-    ``paused:true`` when incoming omits the key).
-    """
-    base = dict(existing or {})
-    nxt = dict(incoming or {})
-    existing_status = base.get("status")
-    incoming_status = nxt.get("status")
-    merged = {**base, **nxt}
-    if not should_advance_status(existing_status, incoming_status):
-        if existing_status is not None:
-            merged["status"] = existing_status
-        elif "status" in merged and incoming_status is None:
-            merged.pop("status", None)
-    # 终态必非暂停：terminal status wins over any residual paused latch.
-    if is_terminal_status(merged.get("status")) or nxt.get("paused") is False:
-        merged.pop("paused", None)
-    return merged
-
-
-def should_apply_checkpoint_content(
-    *,
-    existing_content: str | None,
-    existing_status: str | None,
-    incoming_content: str,
-) -> bool:
-    """D7 content monotonic + status gate for mid-turn checkpoints.
-
-    Reject when the row is already terminal, or when incoming is shorter than what
-    is already stored (a late/reordered checkpoint must not shorten the body).
-    """
-    if is_terminal_status(existing_status):
-        return False
-    existing = existing_content or ""
-    return len(incoming_content) >= len(existing)
-
-
-def pick_monotonic_content(existing: str | None, incoming: str | None) -> str:
-    """Prefer the longer body (salvage / incomplete / checkpoint monotonic protection)."""
-    a = existing or ""
-    b = incoming or ""
-    return b if len(b) >= len(a) else a
-
-
-def pick_merged_content(
-    existing: str | None,
-    incoming: str | None,
-    *,
-    incoming_status: str | None = None,
-) -> str:
-    """Merge assistant body for finalize / upsert.
-
-    ``complete`` finalize is the authoritative delivery — it may replace a longer
-    mid-stream draft. Salvage / incomplete / failed keep length-monotonic protection
-    so a shorter crash salvage cannot erase a fuller checkpoint.
-    """
-    if incoming_status == MESSAGE_STATUS_COMPLETE:
-        return incoming or ""
-    return pick_monotonic_content(existing, incoming)
-
-
-def pick_longest(*candidates: str | None) -> str:
-    """Reduce candidates with :func:`pick_monotonic_content` (error/FAILED salvage)."""
-    best = ""
-    for c in candidates:
-        best = pick_monotonic_content(best, c)
-    return best
+__all__ = [
+    "MESSAGE_STATUS_COMPLETE",
+    "MESSAGE_STATUS_FAILED",
+    "MESSAGE_STATUS_INCOMPLETE",
+    "MESSAGE_STATUS_RUNNING",
+    "is_terminal_status",
+    "merge_usage_status",
+    "pick_longest",
+    "pick_merged_content",
+    "pick_monotonic_content",
+    "should_advance_status",
+    "should_apply_checkpoint_content",
+    "status_rank",
+]

@@ -111,7 +111,8 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 实质任务该派就派。按活的**自然缝**拆人，不按工种表凑人；能少则少，真并行再多；\
 拿不准先少派。先想形状再拆任务——教的是【词汇 + 组合】，不是成品模板。\
 自检：换个主题，形状还一模一样吗？还一样就错了。\
-「调研+写码+点评+合成一篇」这类跨域合成流水线 → 常见 1～2 人，勿默认每人一种专长。\
+「调研+写码+点评+合成一篇」这类跨域合成流水线 → 常见 1～2 人，勿默认每人一种专长；\
+成篇落盘的【产出→独立审校】是质量缝、不算凑工种，默认保留。\
 「先设计再实现」小CRUD/骨架 → 默认 1 人两段（先交设计验收再实现）；设计很重或要点名评审再升 2 人串。
 
 形状词汇（按任务结构选、可组合）：
@@ -141,13 +142,16 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 教学示例形状（playbook）：下列是词汇表的可实例化示例——对照学形状，勿「是就直接套」。\
 形态贴合时可设 `playbook` + `playbook_args` 生成骨架（与手写 tasks 二选一）；否则按词汇手写。\
 【自由组队】非建站可不声明 playbook，直接手写 `tasks`。\
-【成篇调研软偏好】要落盘的中篇实务/研究报告且尚需 ≥2 可并行取证角 → 形态贴合时【宜】\
-`research_report`（禁止一人自搜+成文）；手写同构时【各角调研/讨论笔记 + 主笔终稿】均 \
-`form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）——\
-【禁止】「角 prose、仅主笔落盘」（中途停则用户零文件）。材料已齐扩写 / 短文落盘仍单人。非硬锁。\
+【成篇调研】要落盘的中篇实务/研究报告/论文且尚需 ≥2 可并行取证角 → 【宜】\
+`research_report`（内含末环审校；禁止一人自搜+成文）；手写同构须齐【各角调研/讨论笔记 + \
+主笔终稿 + 独立审校】：各角与主笔均 `form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）；\
+末节点审校 `depends_on` 撰稿（role 含审校/审计/审查，审计者≠作者）——\
+【禁止】仅「调研→撰稿」两节点收工；【禁止】「角 prose、仅主笔落盘」（中途停则用户零文件）。\
+材料已齐扩写 / 短文落盘仍单人（成篇落盘仍【宜】另派独立审校）。\
 建站 / 工具台硬约束见 consult `build_website` / `build_toolshed`（勿在此复读全文）。\
 本地修码：单文件/单符号一刀切 → 宜显式 `complexity_hint=light`+短任务（可 \
-`requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`。\
+`requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`（`playbook_args` 必填 \
+`problem` + `verify` 怎么算修好）。\
 **禁止**把 `none` 当修码默认、禁止触顶后再派马甲从零读。\
 可用：""" + _PLAYBOOK_LISTING + """。槽位见 `delegate` 的 playbook_args。
 
@@ -251,8 +255,10 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 各角 MD 笔记与主笔终稿均须 `form=files`+`artifacts`，【禁止】「角 prose、仅主笔落盘」。
 - 完成验收（`completion_criteria`）：三类互不混用——\
 ① 用户要【跑通测试 / typecheck / build / 编译检查】才算交付 → 【必须】\
-`completion_criteria=code_verified`（引擎验 worker 是否用 `code_execute` / `test_run` / \
-`terminal` 跑通 verify 形态命令且 exit 0；**启动开发服务器不算**）；\
+`completion_criteria={"type":"code_verified","verify_command":"…"}`（写清怎么算修好；\
+引擎验 worker 是否用 `code_execute` / `test_run` / \
+`terminal` 跑通 verify 形态命令且 exit 0；**启动开发服务器不算**；纯 prose 交卷不算过门；\
+修码 / `repair_code` / light 要验缺 `verify_command` 会被契约拒绝）；\
 ② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL】才算交付 → 【必须】\
 `completion_criteria=runtime_ready`（引擎验 `terminal` start + `wait_for` 就绪；\
 **禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
@@ -260,7 +266,7 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 省略 = 本批不强制（引擎【不】从任务文案推断验收）。\
 跑/修/打开验证类终向由引擎能力策略收口（对照 `<workspace_context>`）；要执行成功证据时用\
 对应种类，禁止只验 `files_written` 却声称「已跑通 / 已启动」。\
-别混用：能跑通测试才算完的活用 `code_verified`；启动服务用 `runtime_ready`；全员 prose \
+别混用：能跑通测试才算完的活用带 `verify_command` 的 `code_verified`；启动服务用 `runtime_ready`；全员 prose \
 的批次别设 `files_written`。\
 `type=custom`【不被引擎验证】——设了也不会机械验收，却可能误导你以为已加闸；需要可验证完成条件时用 \
 `files_written` / `code_verified` / `runtime_ready`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
@@ -460,16 +466,14 @@ _ASK_USER_KICKOFF = """\
 （全用默认），想管的人就地调整。\
 【提案体硬闸】开工提案卡须 `assumptions` 与 `questions` 至少其一非空——仅 message 的澄清问句拒调：\
 解不出意图写正文，能复述目标再带提案体开卡（途中 decision 不受此闸）。\
-【建站 / 落地页 / 控制台】提案卡【必须】非空 `style_options`（2–3 个风格方向，气质对照如「极简编辑感 / 暖色人文 / \
-深色科技」）——机制硬闸：缺则拒调（可与提案体闸叠加）；选定风格 id 结构化记账并写入 `site/DESIGN.md`；勿只给单一默认皮。\
-【演讲 / PPT / 课件 / 演示文稿】提案卡【必须】非空 `format_options`（pptx=真 PowerPoint / marp=Markdown 幻灯片 / \
-outline=仅讲稿；与建站 `style_options` 同构）——有 `code_execute` 默认倾向 pptx，无执行默认 marp 并在选项文案\
-明示「当前环境无法生成 .pptx」；选定形态写入约束，勿静默改交付形态。\
-【Agent / 自动化 / 工作流 / 流水线】（窄：做/打造/生成 + 上列词，或明确多步骤代运营；勿误伤「用团队做调研」\
-「写 agent 提示词」）提案卡【必须】非空 `format_options` 三档：可运行自动化 / 控制台原型 / 仅方案\
-（与演讲共用 `format_options` 字段、按意图分流记账）——选控制台原型才允许 `build_toolshed`；\
-可运行自动化禁止默认 toolshed，自由组队 / `build_feature`，无执行环境如实降级；仅方案不进 \
-toolshed/website 硬锁。纯「做控制台/官网」仍走建站 style 闸。\
+【场面填 options·引擎不扫正文猜意图】建站 / 落地页 / 控制台场面 → 提案卡填非空 `style_options`\
+（2–3 个风格方向，气质对照如「极简编辑感 / 暖色人文 / 深色科技」）；演讲 / PPT / 课件 / 演示文稿场面 →\
+填非空 `format_options`（pptx=真 PowerPoint / marp=Markdown 幻灯片 / outline=仅讲稿）；\
+Agent / 自动化 / 工作流 / 流水线场面 → 填非空 `format_options` 三档（可运行自动化 / 控制台原型 / 仅方案，\
+与演讲共用字段）。CEO 显式带了对应 options 才挂选项并在 resume 结构化记账；引擎【不】因正文像某某意图而拒调。\
+选定风格 id 写入 `site/DESIGN.md`；演讲有 `code_execute` 默认倾向 pptx，无执行默认 marp 并在选项文案\
+明示「当前环境无法生成 .pptx」；自动化选控制台原型才允许 `build_toolshed`，可运行自动化禁止默认 toolshed\
+（自由组队 / `build_feature`，无执行如实降级），仅方案不进 toolshed/website 硬锁。纯「做控制台/官网」走建站 style 账。\
 【做软件 / 应用 / 工具软件】提案卡【必须】把「技术栈 / 交付形态」放进 `questions`（高杠杆），\
 【禁止】塞进 `assumptions` 用「拿不准宁可默认」吞掉——选项至少覆盖：可运行单页原型 / 本地多文件小工具 / \
 前后端应用 / 仅方案文档。用户选「基础版 / 风格方向」【不等于】默许「单 HTML」；未问清交付形态前\
@@ -498,12 +502,12 @@ default）。`card="proposal_pick"` 是执行途中「N 个候选方案挑一个
 - 给 choice 的每个选项配一行 `detail`（这一项的权衡 / 代价），展示在选项下方，让用户不必\
 读散文就看懂取舍；把你最建议的一项标 `recommended`（至多一个，仅「推荐」高亮、不替用户预选，\
 预选仍由 default 定）。开场里 recommended 常与 default 同项，detail 让用户秒懂取舍。
-- `style_options`：仅当产物是视觉类（网站 / 海报 / 幻灯…）时给出风格预设（如「深色科技 / 简约商务 / \
+- `style_options`：视觉类场面（网站 / 海报 / 幻灯…）给出风格预设（如「深色科技 / 简约商务 / \
 活泼明亮」）让用户选基调；非视觉类省略。软件应用的「风格」若进 questions，也【不得】当成交付形态\
 已定为单 HTML。
-- `format_options`：演讲/PPT/课件意图时必给交付形态（pptx / marp / outline）；\
-Agent/自动化/工作流意图时必给三档（可运行自动化 / 控制台原型 / 仅方案）；与视觉 `style_options` 正交\
-——风格是气质，format 是交付形态。
+- `format_options`：演讲/PPT/课件场面给交付形态（pptx / marp / outline）；\
+Agent/自动化/工作流场面给三档（可运行自动化 / 控制台原型 / 仅方案）；与视觉 `style_options` 正交\
+——风格是气质，format 是交付形态。引擎只认你显式传入的 options，不扫正文猜意图。
 
 【别把方案在 message 里先讲一遍（避免简报与选项重复）】：卡片左侧「简报」渲染 `message` + `context`，\
 右侧「选项」渲染 `questions`——两栏各司其职。`message` 只做定调（复述目标 + 点明有关键决策要你拍板），\
@@ -702,7 +706,8 @@ _DEEP_MULTI_LENS_RESEARCH = """\
 
 【二、CEO 纪律：禁止自搜替代四路】
 你【禁止】用自己的 `web_search` / 长检索串把四路调研做完再假装组队——那是 solo 塌缩。\
-探路检索至多【3 次】，只为写清各路任务书（边界 / 关键词 / 忌重叠）；取证与交叉验证交给队员。\
+探路检索至多【3 轮】，只为写清各路任务书（边界 / 关键词 / 忌重叠）；每次 web_search 须精简到\
+纯拉丁≤8 词（建议 2–3 核心词），超限会被拒绝且不改写。取证与交叉验证交给队员。\
 广度调查归团队（见 team_orchestration_advanced）。
 
 【三、命题卡 `motion_card`（真对立轴须产卡；非见分歧就开辩）】
@@ -772,7 +777,8 @@ _BUILD_WEBSITE = f"""\
 
 开工顺序：
 1. 关键未齐（类型/受众/风格等）或用户只说「做个网站」→ **立刻** `ask_user` 开工提案卡，\
-**必带**非空 `style_options`（id=`s0/s1…`）。**勿先** consult 本 skill 再开卡。
+并按场面填非空 `style_options`（id=`s0/s1…`；引擎不扫正文猜意图，显式带了才记账）。\
+**勿先** consult 本 skill 再开卡。
 2. **规格已齐**（用户已点名风格/站点类型/交付范围等）→ **直接** `delegate(playbook="build_website", …)`，\
 **勿先** consult；`playbook_args.site` 等只填用户已给事实，\
 【禁止】自拟视觉施工图（配色 / 动效 / 板块清单交给 playbook）。槽位拿不准再查本 skill。
@@ -796,8 +802,8 @@ _BUILD_TOOLSHED = f"""\
 槽位：{_BUILD_TOOLSHED_PLAYBOOK.slots}
 
 开工顺序：
-1. 若尚未确认风格：先 `ask_user` 开工提案卡，**必带**非空 `style_options`（id=`s0/s1…`；\
-可复用营销气质对照，或偏「高对比工作台 / 紧凑数据台」）。
+1. 若尚未确认风格：先 `ask_user` 开工提案卡，并按场面填非空 `style_options`（id=`s0/s1…`；\
+可复用营销气质对照，或偏「高对比工作台 / 紧凑数据台」；引擎不扫正文猜意图）。
 2. 用户确认后调 `delegate`：`playbook="build_toolshed"`；`playbook_args.site` 填产品控制台简述，\
 可选 `sections` / `stack` / `audience`——**只传事实输入**，【禁止】自拟视觉施工图。
 3. 流水线同 `build_website`（含分区独立片段 → assemble）；强制注入 catalog pack `tool_dense` + anti-slop `domain=tool`；\

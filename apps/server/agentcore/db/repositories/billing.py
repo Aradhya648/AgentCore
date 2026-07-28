@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from agentcore.core.types import new_id
+from agentcore.costing import run_cost_from_calls
 from agentcore.db.models import CostCall, CostEvent, User
-from agentcore.runtime.costing import run_cost_from_calls
 
 from ._base import _json_int, _sum_int
 

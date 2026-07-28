@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from agentcore.core.types import AutonomyPolicy
+from agentcore.llm.provider.protocol import LLMMessage
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.facts import FactKind, TurnFactLog, TurnPausedFact, current_fact_log
 from agentcore.runtime.runs.website_style import (
@@ -15,25 +16,17 @@ from agentcore.runtime.runs.website_style import (
     ensure_full_auto_default_style,
     extract_style_id_from_design,
     get_style_confirmation,
-    is_website_kickoff_text,
     record_style_confirmation,
     rehydrate_style_confirmation,
     resolve_style_from_resume,
     snapshot_website_style_for_pause,
     style_from_journal_entries,
-    website_kickoff_requires_styles_error,
 )
+from agentcore.runtime.suspension import captain_transcript
 from agentcore.tools.builtin.ask_user import AskUserTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
-
-
-def test_is_website_kickoff_text():
-    assert is_website_kickoff_text("帮我做个官网落地页")
-    assert is_website_kickoff_text("Build a landing page for GEO")
-    assert is_website_kickoff_text("做一个运营控制台")
-    assert not is_website_kickoff_text("写一份调研报告")
 
 
 def test_is_website_build_intent_construction_vs_audit():
@@ -249,53 +242,76 @@ def _ask_ctx() -> ToolContext:
     )
 
 
-@pytest.mark.asyncio
-async def test_ask_user_website_kickoff_rejects_empty_style_options():
-    tool = AskUserTool(
+def _ask_tool() -> AskUserTool:
+    async def _save(_frame) -> None:
+        return None
+
+    async def _drop(_mid: str) -> None:
+        return None
+
+    return AskUserTool(
         sink=EventSink(),
         conversation_id="c-style",
         timeout_seconds=1.0,
+        message_id="m1",
+        suspension_saver=_save,
+        suspension_deleter=_drop,
+        captain_run_id="cap",
+        base_system_prompt="sys",
+        user_message="做个官网",
     )
-    res = await tool.execute(
-        {
-            "message": "开工：为 GEO 做官网落地页",
-            "questions": [
-                {
-                    "prompt": "受众",
-                    "options": ["中小商家", "企业"],
-                    "default": "中小商家",
-                }
-            ],
-        },
-        _ask_ctx(),
-    )
-    assert res.success is False
-    assert website_kickoff_requires_styles_error() in (res.error or "")
 
 
 @pytest.mark.asyncio
-async def test_ask_user_website_kickoff_accepts_style_options():
-    tool = AskUserTool(
-        sink=EventSink(),
-        conversation_id="c-style",
-        timeout_seconds=1.0,
-        message_id=None,
+async def test_ask_user_website_without_style_options_still_succeeds():
+    """引擎不因文案像建站而强制 style_options；缺省放行。"""
+    tool = _ask_tool()
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="为 GEO 做官网落地页")]
     )
-    res = await tool.execute(
-        {
-            "message": "开工：为 GEO 做官网落地页",
-            "style_options": [{"label": "深色科技"}, {"label": "简约商务"}],
-            "questions": [
-                {
-                    "prompt": "受众",
-                    "options": ["中小商家", "企业"],
-                    "default": "中小商家",
-                }
-            ],
-        },
-        _ask_ctx(),
+    try:
+        res = await tool.execute(
+            {
+                "message": "开工：为 GEO 做官网落地页",
+                "questions": [
+                    {
+                        "prompt": "受众",
+                        "options": ["中小商家", "企业"],
+                        "default": "中小商家",
+                    }
+                ],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True
+
+
+@pytest.mark.asyncio
+async def test_ask_user_website_with_style_options_succeeds():
+    tool = _ask_tool()
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="为 GEO 做官网落地页")]
     )
-    assert website_kickoff_requires_styles_error() not in (res.error or "")
+    try:
+        res = await tool.execute(
+            {
+                "message": "开工：为 GEO 做官网落地页",
+                "style_options": [{"label": "深色科技"}, {"label": "简约商务"}],
+                "questions": [
+                    {
+                        "prompt": "受众",
+                        "options": ["中小商家", "企业"],
+                        "default": "中小商家",
+                    }
+                ],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True
 
 
 def test_build_website_missing_style_error_mentions_ask_user():

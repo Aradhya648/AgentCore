@@ -189,6 +189,23 @@ describe("executeWorkspaceOp (本地工作区写类 op，P2b)", () => {
     expect(await readFile(join(dir, "r.txt"), "utf-8")).toBe("y y y");
   });
 
+  it("replace matches LF old against CRLF file and preserves CRLF", async () => {
+    await writeFile(
+      join(dir, "win.txt"),
+      Buffer.from("line1\r\nline2\r\nline3\r\n"),
+    );
+    const r = await run("replace", {
+      path: "win.txt",
+      old: "line1\nline2\n",
+      new: "lineA\n",
+      all: false,
+    });
+    expect(valOf(r)).toEqual({ count: 1, first_line: 1 });
+    expect(await readFile(join(dir, "win.txt"))).toEqual(
+      Buffer.from("lineA\r\nline3\r\n"),
+    );
+  });
+
   it("replace surfaces AmbiguousMatch with the match count when not all", async () => {
     await run("write", { path: "r.txt", content: "x x" });
     const err = errOf(

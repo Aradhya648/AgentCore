@@ -7,7 +7,10 @@ import {
   collectContentLinks,
   pathToChapterId,
 } from "../gates/collectLinks";
-import { isRegisteredSectionId } from "../sectionIds";
+import {
+  isRegisteredSectionId,
+  resolveCanonicalSectionId,
+} from "../sectionIds";
 
 function assertGoOrSettings(
   to: string,
@@ -29,10 +32,11 @@ function assertGoOrSettings(
     );
     return;
   }
+  const canonical = resolveCanonicalSectionId(section);
   const ids = sectionsByChapter.get(chapterId);
-  if (!ids?.has(section)) {
+  if (!ids?.has(canonical)) {
     failures.push(
-      `${where}: 章 ${chapterId} 无 section id「${section}」（to=${to}）`,
+      `${where}: 章 ${chapterId} 无 section id「${section}」→「${canonical}」（to=${to}）`,
     );
   }
 }
@@ -103,6 +107,16 @@ describe("manual route / anchor gates", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it("旧节 ID 别名归一到现行节", () => {
+    expect(resolveCanonicalSectionId("continuation")).toBe("control");
+    expect(resolveCanonicalSectionId("turnflow")).toBe("panorama");
+    expect(resolveCanonicalSectionId("collab-overview")).toBe("briefing");
+    expect(resolveCanonicalSectionId("roles")).toBe("mindset");
+    expect(resolveCanonicalSectionId("chat")).toBe("faq");
+    expect(isRegisteredSectionId("continuation")).toBe(true);
+    expect(isRegisteredSectionId("control")).toBe(true);
   });
 
   it("不把未落地的 /explore 空壳当已知用户路由", () => {

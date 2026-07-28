@@ -126,6 +126,7 @@ async def react_loop(
     tool_failure_sink: list[dict[str, Any]] | None = None,
     files_expected: bool = False,
     short_write_posture: bool = False,
+    tighten_verify_exec_thrash: bool = False,
 ) -> tuple[str, str, TokenUsage, int]:
     """Run the ReAct loop.
 
@@ -295,6 +296,7 @@ async def react_loop(
         seed=controller_seed,
         files_expected=files_expected,
         short_write_posture=short_write_posture,
+        tighten_verify_exec_thrash=tighten_verify_exec_thrash,
     )
     # 跑/打开验证：意图命中则在首轮 LLM 前硬收探路工具（仿 team_gate，零阈值）。
     if role == "captain":

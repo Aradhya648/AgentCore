@@ -1,9 +1,10 @@
 """Sidecar local settlement prewrite (回合恢复状态机收口 · D1).
 
 Mirrors cloud ``prewrite_cold_resume_settlement`` against the local OutboxStore:
-durable ``*_resolved`` lands in the outbox journal **before** the paused frame is
-consumed. The settlement payload may embed ``resume_frame`` as audit/control
-metadata (frameless continue-after-decision was abolished).
+hang-frame ``journal_entries`` are seeded at explicit seq first (cloud already has
+them in PG), then durable ``*_resolved`` continues from the next seq **before**
+the paused frame is consumed. The settlement payload may embed ``resume_frame``
+as audit/control metadata (frameless continue-after-decision was abolished).
 """
 
 from __future__ import annotations
@@ -45,13 +46,30 @@ async def prewrite_sidecar_resume_settlement(
     user_message_id: str,
     trace_id: str = "",
 ) -> dict[str, Any]:
-    """Durable-write ``*_resolved`` (+ resume_frame) into the outbox journal.
+    """Durable-write hang-frame journal then ``*_resolved`` (+ resume_frame).
+
+    Cloud already has pause frames in PG before settlement continues at the next
+    seq. Local resume often starts from an empty outbox (prior READY writeback
+    deleted the file) — seed ``suspension.journal_entries`` at explicit seq
+    ``0..n-1`` first so ``process_*`` survive cancel/writeback/refresh.
 
     Raises on write failure so the caller can restore the claimed frame.
-    Returns the journal entry that was written (also appended onto
+    Returns the settlement journal entry that was written (also appended onto
     ``suspension.journal_entries`` for resume-pipeline dedupe seeding).
     """
     picks = list(selected or [])
+    tid = suspension.message_id
+    cid = suspension.conversation_id
+    tr = trace_id or getattr(suspension, "trace_id", None)
+    # Seed hang-frame facts before settlement so *_resolved does not occupy seq0
+    # on an empty outbox (leaving process_* out of the durable journal forever).
+    await outbox.seed_journal_entries_durable(
+        turn_id=tid,
+        conversation_id=cid,
+        trace_id=tr,
+        entries=list(suspension.journal_entries or []),
+        user_message_id=user_message_id,
+    )
     event = cold_resume_settlement_event(
         suspension, decision=decision, note=note, selected=picks
     )
@@ -67,9 +85,9 @@ async def prewrite_sidecar_resume_settlement(
         ),
     }
     await outbox.append_journal_durable(
-        turn_id=suspension.message_id,
-        conversation_id=suspension.conversation_id,
-        trace_id=trace_id or getattr(suspension, "trace_id", None),
+        turn_id=tid,
+        conversation_id=cid,
+        trace_id=tr,
         entry=entry,
         user_message_id=user_message_id,
     )

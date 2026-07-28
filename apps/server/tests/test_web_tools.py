@@ -1636,8 +1636,8 @@ def test_validate_search_query_rejects_latin_over_word_limit():
     err = validate_search_query(words)
     assert err is not None
     assert "查询词过多" in err
-    assert "超出 1 个词" in err  # 明示超限量
-    assert "可先改为「" in err  # 可照抄的缩短示例
+    assert "超出 1" in err  # 明示超限量
+    assert "请改为「" in err  # 可照抄的缩短示例
     assert "2–3 个核心词" in err  # 场景中立拆分建议
     assert "引号" in err  # 引号豁免操作
     assert str(_QUERY_LATIN_WORD_LIMIT) in err
@@ -1665,8 +1665,8 @@ def test_validate_search_query_rejects_cjk_over_char_limit():
     err = validate_search_query(chars)
     assert err is not None
     assert "查询过长" in err
-    assert "超出 1 字" in err
-    assert "请删掉约 1 字" in err
+    assert "超出 1" in err
+    assert "请删约 1 字" in err
     assert "2–3 个核心词" in err
     assert "引号" in err
 
@@ -1689,7 +1689,7 @@ def test_validate_search_query_mixed_weighted_rejects_when_over():
     assert err is not None
     assert "查询过长" in err
     assert "折合 36 字" in err  # 展示与新口径一致的加权字数
-    assert "超出 4 字" in err
+    assert "超出 4" in err
     assert str(_QUERY_LATIN_WORD_WEIGHT) in err  # 文案说明英文词折算权重
 
 
@@ -1754,8 +1754,8 @@ async def test_web_search_rejects_oversized_latin_query_without_backend(monkeypa
     # 参数契约拒绝: 打上 contract_failure 让断路器跳过累计（同轮扇出不烧穿禁用阈值）。
     assert result.contract_failure is True
     assert "查询词过多" in (result.error or "")
-    assert "超出 1 个词" in (result.error or "")
-    assert "可先改为「" in (result.error or "")
+    assert "超出 1" in (result.error or "")
+    assert "请改为「" in (result.error or "")
     assert "2–3 个核心词" in (result.error or "")
     assert calls["n"] == 0  # no silent rewrite, no network
 
@@ -1779,15 +1779,15 @@ def test_reject_copy_states_real_ceiling_not_just_suggestion():
     latin = validate_search_query(" ".join(f"w{i}" for i in range(_QUERY_LATIN_WORD_LIMIT + 1)))
     assert latin is not None
     assert f"上限 {_QUERY_LATIN_WORD_LIMIT}" in latin  # 真实上限 8，而非只给 2–3 建议
-    assert "超出 1 个词" in latin
-    assert "可先改为「" in latin
+    assert "超出 1" in latin
+    assert "请改为「" in latin
     assert "2–3 个核心词" in latin  # 拆分建议
     assert "引号" in latin  # 引号豁免
 
     cjk = validate_search_query("研" * (_QUERY_CJK_CHAR_LIMIT + 1))
     assert cjk is not None
     assert str(_QUERY_CJK_CHAR_LIMIT) in cjk  # 真实上限 32
-    assert "超出 1 字" in cjk
+    assert "超出 1" in cjk
     assert "2–3 个核心词" in cjk
     assert "引号" in cjk
 
@@ -1798,8 +1798,8 @@ def test_latin_reject_includes_shortened_example_from_query():
     err = validate_search_query(" ".join(words))
     assert err is not None
     expected = " ".join(words[:_QUERY_LATIN_WORD_LIMIT])
-    assert f"可先改为「{expected}」" in err
-    assert "超出 3 个词" in err
+    assert f"请改为「{expected}」" in err
+    assert "超出 3" in err
 
 
 # --- A4: cache key casefold + Latin word-order; debate exact keys ---

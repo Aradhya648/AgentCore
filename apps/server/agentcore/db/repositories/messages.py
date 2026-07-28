@@ -17,7 +17,7 @@ from agentcore.db.models import (
 )
 
 from ._audit_cascade import delete_audit_after, delete_audit_for_message
-from ._base import _ilike_pattern, strip_nul
+from ._base import _ilike_pattern, commit_or_flush, strip_nul
 from ._journal_cascade import delete_journal_after, delete_journal_for_message
 
 
@@ -140,7 +140,7 @@ class MessageRepository:
         write_usage = metadata
         write_reasoning = reasoning_content
         if merge:
-            from agentcore.conversation.store.merge import (
+            from agentcore.core.message_merge import (
                 merge_usage_status,
                 pick_merged_content,
             )
@@ -203,7 +203,7 @@ class MessageRepository:
 
         D7: refuse to shorten the body or touch a terminal-status row.
         """
-        from agentcore.conversation.store.merge import should_apply_checkpoint_content
+        from agentcore.core.message_merge import should_apply_checkpoint_content
 
         existing = await self.get_by_id(message_id, conversation_id=conversation_id)
         if existing is None:
@@ -625,13 +625,17 @@ class MessageRepository:
         )
         return result.scalar_one_or_none()
 
-    async def update_content(self, message_id: str, content: str) -> None:
+    async def update_content(
+        self, message_id: str, content: str, *, commit: bool = True
+    ) -> None:
         await self._session.execute(
             update(Message).where(Message.id == message_id).values(content=content)
         )
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
 
-    async def delete_after(self, conversation_id: str, *, after_created_at: datetime) -> int:
+    async def delete_after(
+        self, conversation_id: str, *, after_created_at: datetime, commit: bool = True
+    ) -> int:
         """Hard-delete messages created strictly after a point in time.
 
         Used by regenerate / edit-and-resend to drop the superseded assistant
@@ -641,6 +645,8 @@ class MessageRepository:
         message's ``turn_journal`` replay stream goes with it (§8.3 唯一事实源 — it
         could never project without its message). Any matching ``paused_turns`` frame
         is dropped too — otherwise resume would find a frame whose journal is gone.
+
+        Pass ``commit=False`` when pairing with :meth:`update_content` in one txn.
         """
         await delete_journal_after(
             self._session, conversation_id, after_created_at=after_created_at
@@ -678,7 +684,7 @@ class MessageRepository:
                 Message.created_at > after_created_at,
             )
         )
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         return result.rowcount or 0
 
     async def delete_by_id(self, message_id: str, *, conversation_id: str) -> bool:

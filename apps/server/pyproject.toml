@@ -162,6 +162,31 @@ markers = [
     "csrf: exercise CSRF synchronizer-token enforcement on cookie-session flows",
 ]
 
+# Coverage baseline (P4-3): report-only — no fail-under ratchet yet.
+# Full: uv run pytest --cov=agentcore --cov-report=term-missing --ignore=tests/integration
+# Quick smoke: uv run pytest tests/test_mfa_rate_limit.py --cov=agentcore --cov-report=term-missing
+# Root shortcut: pnpm test:server:cov
+[tool.coverage.run]
+source = ["agentcore"]
+branch = false
+omit = [
+    "agentcore/db/migrations/*",
+    "agentcore/db/migrations/versions/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+# Intentionally unset: establish a baseline first; ratchet fail_under in a later pass.
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
 [tool.mypy]
 # Static type gate — introduced 2026-07 as a LOOSE first-pass baseline on a backend that
 # predates type-checking. The global posture stays permissive so adoption is non-disruptive:
@@ -190,7 +215,6 @@ module = [
     "agentcore.__main__",
     "agentcore.api.routes.admin._shared",
     "agentcore.api.routes.admin.observability",
-    "agentcore.api.routes.auth",
     "agentcore.api.routes.conversations.audit",
     "agentcore.api.routes.conversations.binding",
     "agentcore.api.routes.conversations.browser_takeover",
@@ -217,7 +241,6 @@ module = [
     "agentcore.core.logging",
     "agentcore.core.net",
     "agentcore.db.repositories.agent_audit",
-    "agentcore.db.repositories.auth",
     "agentcore.db.repositories.billing",
     "agentcore.db.repositories.bookmarks",
     "agentcore.db.repositories.browser",
@@ -260,7 +283,6 @@ module = [
     "agentcore.memory.store",
     "agentcore.memory.user_memory",
     "agentcore.messaging.service",
-    "agentcore.middleware.csrf",
     "agentcore.middleware.redis_rate_limit",
     "agentcore.runtime.audit.causal",
     "agentcore.runtime.audit.projector",

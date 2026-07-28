@@ -1,6 +1,7 @@
 import { IconButton } from "@/components/ui";
 import { isBrowserTool } from "@/lib/browserActivity";
 import { fetchWorkspaceFileBlob } from "@/services/workspace";
+import { useBrowserSessionsStore } from "@/stores/browserSessions";
 import { useStreamAwareDisclosure } from "@/stores/disclosure";
 import { useSidePanelStore } from "@/stores/sidePanel";
 import type { BrowserDisplay, ProcessStep } from "@/types/events";
@@ -375,6 +376,13 @@ export function BrowserActivityCard({
   const count = steps.length;
   const title = `浏览器 · ${count} 步`;
 
+  // browser_* 步进出现/结束 → 预 hydrate，打开坞时对齐 server session 页。
+  const hydrateKey = tools.map((t) => `${t.id}:${t.status}`).join("|");
+  useEffect(() => {
+    if (!conversationId || !hydrateKey) return;
+    void useBrowserSessionsStore.getState().hydrateConversation(conversationId);
+  }, [conversationId, hydrateKey]);
+
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-1.5">
@@ -459,6 +467,12 @@ export function BrowserResult({
   const showBrowser = useSidePanelStore((s) => s.showBrowser);
   const { Icon, label } = browserActionMeta(display.action);
   const alt = frameAlt(display);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    void useBrowserSessionsStore.getState().hydrateConversation(conversationId);
+  }, [conversationId]);
+
   return (
     <div className="mt-1 overflow-hidden rounded-lg border border-border">
       <div className="flex items-start gap-2 border-border/60 border-b bg-muted/40 px-2.5 py-1.5">

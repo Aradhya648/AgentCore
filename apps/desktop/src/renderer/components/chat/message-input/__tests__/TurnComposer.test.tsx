@@ -104,12 +104,14 @@ vi.mock("@/services/permissionAxes", () => ({
       file_write: "session",
       command: "kickoff",
       team_kickoff: "rules",
+      host: "ask",
     },
   },
   DEFAULT_PERMISSION_AXES: {
     file_write: "session",
     command: "kickoff",
     team_kickoff: "rules",
+    host: "ask",
   },
   FILE_WRITE_OPTIONS: [],
   COMMAND_OPTIONS: [],
@@ -120,12 +122,14 @@ vi.mock("@/services/permissionAxes", () => ({
     file_write: "session",
     command: "kickoff",
     team_kickoff: "rules",
+    host: "ask",
   }),
   resolveDefaultPermissionAxes: () =>
     Promise.resolve({
       file_write: "session",
       command: "kickoff",
       team_kickoff: "rules",
+      host: "ask",
     }),
   setConversationPermissionAxes: vi.fn(),
   setComposerDraftAxes: vi.fn(),
@@ -202,7 +206,7 @@ function renderComposer(variant?: "card" | "bar") {
   );
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   genMock.value = false;
   useConversationStore.setState({
     currentConversationId: null,
@@ -213,6 +217,8 @@ beforeEach(() => {
     reason: null,
     justRecovered: false,
   });
+  const { useComposerDraftStore } = await import("@/stores/composer");
+  useComposerDraftStore.getState().setValue("__draft__", "");
 });
 
 afterEach(cleanup);
@@ -277,15 +283,27 @@ describe("TurnComposer variants", () => {
     ).toBeTruthy();
   });
 
-  it("generating: bar exposes 发送插话 + 停止生成 side by side", () => {
+  it("generating + empty: bar shows only 停止生成 (no 插话)", () => {
     genMock.value = true;
     renderComposer("bar");
-    expect(screen.getByRole("button", { name: "发送插话" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "发送插话" })).toBeNull();
     expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy();
   });
 
-  it("generating: canvas card also allows 插话 (发送插话 + 停止生成)", () => {
+  it("generating + draft: muted 发送插话 + solid 停止生成", async () => {
     genMock.value = true;
+    const { useComposerDraftStore } = await import("@/stores/composer");
+    useComposerDraftStore.getState().setValue("__draft__", "插一句");
+    renderComposer("bar");
+    expect(screen.getByRole("button", { name: "发送插话" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy();
+    expect(screen.getByText(/Enter 或点发送将作为插话交给团队/)).toBeTruthy();
+  });
+
+  it("generating + draft: canvas card also exposes muted 插话 + 停止", async () => {
+    genMock.value = true;
+    const { useComposerDraftStore } = await import("@/stores/composer");
+    useComposerDraftStore.getState().setValue("__draft__", "插一句");
     renderComposer();
     expect(screen.getByRole("button", { name: "发送插话" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy();

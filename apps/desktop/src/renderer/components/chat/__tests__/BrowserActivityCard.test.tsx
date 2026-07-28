@@ -39,6 +39,13 @@ vi.mock("@/stores/sidePanel", () => ({
   ),
 }));
 
+const hydrateConversation = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/stores/browserSessions", () => ({
+  useBrowserSessionsStore: {
+    getState: () => ({ hydrateConversation }),
+  },
+}));
+
 import { isBrowserTool } from "@/lib/browserActivity";
 import { fetchWorkspaceFileBlob } from "@/services/workspace";
 import {
@@ -66,6 +73,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockFetch.mockResolvedValue(new Blob(["jpeg-bytes"], { type: "image/jpeg" }));
   showBrowser.mockReset();
+  hydrateConversation.mockClear();
 });
 
 afterEach(cleanup);

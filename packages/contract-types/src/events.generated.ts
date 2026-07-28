@@ -1625,6 +1625,15 @@ export interface DesktopNotifyRequiredPayload {
   body?: string;
 }
 
+/** Transport-only client-tool request: run a Host op on the bound desktop
+ * (`host_*` tools). NOT journaled. */
+export interface HostOpRequiredPayload {
+  request_id: string;
+  conversation_id: string;
+  op: string;
+  args?: Record<string, unknown>;
+}
+
 export interface HandoffSnapshotDonePayload {
   snapshot_id: string;
   conversation_id: string;
@@ -1739,6 +1748,7 @@ export type SSEPayloadMap = {
   board_op_required: BoardOpRequiredPayload;
   board_read_required: BoardReadRequiredPayload;
   desktop_notify_required: DesktopNotifyRequiredPayload;
+  host_op_required: HostOpRequiredPayload;
   handoff_snapshot_done: HandoffSnapshotDonePayload;
   handoff_job_started: HandoffJobStartedPayload;
   handoff_apply_done: HandoffApplyDonePayload;

@@ -231,9 +231,10 @@ class ToolContext:
     # "not on a board" error instead of touching anything. The channel owns the mechanism
     # (suspend / emit / await the desktop); the tool owns only the op→result mapping (引擎纯化).
     board_channel: BoardChannel | None = None
-    # Desktop Client Tools: per-run channel for ``desktop_notify`` (OS notification).
-    # Set when ``backend.location == "local"`` so delegated workers can ping the user
-    # on the bound Electron app; ``None`` on cloud-only runs.
+    # Desktop Client Tools: per-run channel for ``desktop_notify`` + Host ops.
+    # Set when the desktop client is online (local workspace **or** cloud +
+    # ``desktop_online``) so tools can backfill via ClientTool SSE; ``None`` when
+    # no desktop is attached.
     desktop_channel: DesktopClientChannel | None = None
     # Background process ops (terminal tool): the same ``workspace_op_required`` channel
     # LocalWorkspace already uses for file/execute ops. Reused from LocalWorkspace when

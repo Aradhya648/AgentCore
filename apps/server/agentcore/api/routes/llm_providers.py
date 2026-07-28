@@ -96,6 +96,7 @@ async def update_llm_provider(
     service: LlmProviderService = Depends(get_llm_provider_service),
 ):
     """Update a provider (endpoint / model / label; key optional to keep)."""
+    fields_set = set(body.model_fields_set)
     view = await service.update_provider(
         user.user_id,
         provider_id,
@@ -103,8 +104,15 @@ async def update_llm_provider(
         api_key=body.api_key,
         base_url=body.base_url,
         default_model=body.default_model,
-        fields_set=set(body.model_fields_set),
+        fields_set=fields_set,
     )
+    if "api_key" in fields_set and (body.api_key or "").strip():
+        # Key material never logged — only the fact a BYOK key was rotated.
+        logger.info(
+            "llm_provider.key_updated",
+            user_id=user.user_id,
+            provider_id=provider_id,
+        )
     return _provider_to_response(view)
 
 
@@ -116,6 +124,11 @@ async def delete_llm_provider(
 ):
     """Remove a provider (profile slots referencing it fall back cleanly)."""
     await service.delete_provider(user.user_id, provider_id)
+    logger.info(
+        "llm_provider.deleted",
+        user_id=user.user_id,
+        provider_id=provider_id,
+    )
     return StatusResponse()
 
 

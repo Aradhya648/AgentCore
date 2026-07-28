@@ -153,6 +153,9 @@ def test_nudge_copy_cites_audit_keywords():
     assert "≤2 轮" in text
     assert "理由" in text
     assert "绝不代派" in text
+    assert "成篇落盘" in text
+    assert "免审归类" in text
+    assert "轻交付" in text
 
 
 def test_coordination_injection_has_all_completed():

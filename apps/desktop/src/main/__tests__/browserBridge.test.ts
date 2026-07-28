@@ -57,13 +57,19 @@ function okDispatch(
     pageId: string,
     action: string,
     args: Record<string, unknown>,
+    conversationId: string,
   ) => BridgeHostResult,
 ): BridgeDispatch {
-  return async (pageId, action, args) => {
-    if (impl) return impl(pageId, action, args);
+  return async (pageId, action, args, conversationId) => {
+    if (impl) return impl(pageId, action, args, conversationId);
     return {
       ok: true,
-      data: { final_url: "https://example.com/", title: "Example", action },
+      data: {
+        final_url: "https://example.com/",
+        title: "Example",
+        action,
+        conversationId,
+      },
     };
   };
 }
@@ -141,14 +147,50 @@ describe("handleBridgeRequest", () => {
     });
   });
 
-  it("navigate accepts pageId+url with token", async () => {
+  it("navigate accepts pageId+url+conversationId with token", async () => {
     const auth = createBridgeAuth();
     const token = auth.issueToken();
     const calls: {
       pageId: string;
       action: string;
       args: Record<string, unknown>;
+      conversationId: string;
     }[] = [];
+    const { req, res, statusCode, body } = mockReqRes({
+      method: "POST",
+      url: "/navigate",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        pageId: "browser-page:1",
+        conversationId: "conv-a",
+        url: "https://example.com",
+      }),
+    });
+    await handleBridgeRequest(
+      req,
+      res,
+      (t) => auth.validateToken(t),
+      okDispatch((pageId, action, args, conversationId) => {
+        calls.push({ pageId, action, args, conversationId });
+        return { ok: true, data: { final_url: args.url as string } };
+      }),
+    );
+    expect(statusCode()).toBe(200);
+    expect(JSON.parse(body()).ok).toBe(true);
+    expect(calls).toEqual([
+      {
+        pageId: "browser-page:1",
+        action: "navigate",
+        args: { url: "https://example.com" },
+        conversationId: "conv-a",
+      },
+    ]);
+  });
+
+  it("navigate without conversationId → 400 and does not dispatch", async () => {
+    const auth = createBridgeAuth();
+    const token = auth.issueToken();
+    let dispatched = false;
     const { req, res, statusCode, body } = mockReqRes({
       method: "POST",
       url: "/navigate",
@@ -162,32 +204,31 @@ describe("handleBridgeRequest", () => {
       req,
       res,
       (t) => auth.validateToken(t),
-      okDispatch((pageId, action, args) => {
-        calls.push({ pageId, action, args });
-        return { ok: true, data: { final_url: args.url as string } };
+      okDispatch(() => {
+        dispatched = true;
+        return { ok: true };
       }),
     );
-    expect(statusCode()).toBe(200);
-    expect(JSON.parse(body()).ok).toBe(true);
-    expect(calls).toEqual([
-      {
-        pageId: "browser-page:1",
-        action: "navigate",
-        args: { url: "https://example.com" },
-      },
-    ]);
+    expect(statusCode()).toBe(400);
+    expect(JSON.parse(body())).toMatchObject({
+      ok: false,
+      error: "missing_conversationId",
+    });
+    expect(dispatched).toBe(false);
   });
 
   it("command navigate dispatches workspace:// url unchanged", async () => {
     const auth = createBridgeAuth();
     const token = auth.issueToken();
     let seen: Record<string, unknown> | null = null;
+    let seenCid = "";
     const { req, res, statusCode, body } = mockReqRes({
       method: "POST",
       url: "/command",
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({
         pageId: "sess-ws",
+        conversationId: "c1",
         action: "navigate",
         args: { url: "workspace://c1/site/index.html" },
       }),
@@ -196,14 +237,47 @@ describe("handleBridgeRequest", () => {
       req,
       res,
       (t) => auth.validateToken(t),
-      okDispatch((_p, _a, args) => {
+      okDispatch((_p, _a, args, conversationId) => {
         seen = args;
+        seenCid = conversationId;
         return { ok: true, data: { final_url: args.url as string } };
       }),
     );
     expect(statusCode()).toBe(200);
     expect(JSON.parse(body()).ok).toBe(true);
     expect(seen).toEqual({ url: "workspace://c1/site/index.html" });
+    expect(seenCid).toBe("c1");
+  });
+
+  it("command without conversationId → 400 and does not dispatch", async () => {
+    const auth = createBridgeAuth();
+    const token = auth.issueToken();
+    let dispatched = false;
+    const { req, res, statusCode, body } = mockReqRes({
+      method: "POST",
+      url: "/command",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        pageId: "p1",
+        action: "navigate",
+        args: { url: "https://x.test" },
+      }),
+    });
+    await handleBridgeRequest(
+      req,
+      res,
+      (t) => auth.validateToken(t),
+      okDispatch(() => {
+        dispatched = true;
+        return { ok: true };
+      }),
+    );
+    expect(statusCode()).toBe(400);
+    expect(JSON.parse(body())).toMatchObject({
+      ok: false,
+      error: "missing_conversationId",
+    });
+    expect(dispatched).toBe(false);
   });
 
   it("command dispatches click/type/scroll/snapshot/screenshot", async () => {
@@ -223,6 +297,7 @@ describe("handleBridgeRequest", () => {
         headers: { authorization: `Bearer ${token}` },
         body: JSON.stringify({
           session_id: "sess-1",
+          conversationId: "conv-1",
           action,
           args:
             action === "type"
@@ -254,6 +329,7 @@ describe("handleBridgeRequest", () => {
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({
         pageId: "p1",
+        conversationId: "c1",
         action: "navigate",
         args: { url: "https://x.test" },
       }),

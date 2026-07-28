@@ -38,15 +38,6 @@ SUGGESTED_FORMAT_LABELS: tuple[str, ...] = (
     "仅讲稿大纲 — 只要讲稿、不要幻灯片文件",
 )
 
-_PRESENTATION_KICKOFF_RE = re.compile(
-    r"(?:"
-    r"PPT|pptx|幻灯片|课件|演示文稿|演讲稿|答辩\s*PPT|"
-    r"powerpoint|power\s*point|slides?(?:\s*deck)?|marp|"
-    r"presentation(?:\s*deck)?"
-    r")",
-    re.IGNORECASE,
-)
-
 # ``f0`` / ``f_default`` / ``f12`` — ids minted by normalize_format_options or default.
 _FORMAT_ID_TOKEN_RE = re.compile(r"\b(f(?:_default|\d+))\b", re.IGNORECASE)
 
@@ -85,28 +76,6 @@ class PresentationFormatConfirmedFact:
             },
             ts=ts,
         )
-
-
-def is_presentation_kickoff_text(*parts: str) -> bool:
-    """True when kickoff framing looks like a PPT / slides / 课件 ask."""
-    blob = " ".join(p for p in parts if p)
-    return bool(blob and _PRESENTATION_KICKOFF_RE.search(blob))
-
-
-def presentation_kickoff_requires_formats_error() -> str:
-    return (
-        "演讲 / PPT / 课件开工提案卡必须提供非空 format_options"
-        "（至少含 pptx / marp / outline 等交付形态候选，id=f0/f1…）。"
-        "请补 format_options 后重调 ask_user；选定形态会结构化记账（format_id）。"
-    )
-
-
-def presentation_missing_format_error() -> str:
-    return (
-        "演讲 / PPT 交付需要先经 ask_user 开工卡确认交付形态"
-        "（非空 format_options → 用户选定 format_id 已记账）。"
-        "请先开开工提案卡选形态，或在 AutonomyPolicy.full_auto 下由机制落默认形态。"
-    )
 
 
 def presentation_pptx_silent_md_error() -> str:
@@ -200,11 +169,6 @@ def tasks_silently_downgrade_pptx_to_md(tasks_raw: list[Any] | None) -> bool:
     return tasks_declare_md_or_marp_delivery(tasks_raw) and not tasks_declare_pptx_delivery(
         tasks_raw
     )
-
-
-def presentation_intent_from_parts(*parts: str) -> bool:
-    """Presentation intent for the delegate gate (same kickoff vocabulary)."""
-    return is_presentation_kickoff_text(*parts)
 
 
 def format_confirmation_to_payload(conf: FormatConfirmation) -> dict[str, str]:

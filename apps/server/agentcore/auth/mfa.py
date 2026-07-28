@@ -8,10 +8,14 @@ from dataclasses import dataclass
 
 import pyotp
 
+from agentcore.auth.mfa_rate_limit import enforce_mfa_verify_rate_limit
 from agentcore.config import settings
 from agentcore.core.errors import AuthenticationError, ValidationError
+from agentcore.core.logging import get_logger
 from agentcore.db.repositories.admin_mfa import AdminMfaRepository
 from agentcore.security.keys import KeyEncryptor
+
+logger = get_logger(__name__)
 
 
 def _hash_recovery_code(code: str) -> str:
@@ -60,6 +64,7 @@ class AdminMfaService:
         )
 
     async def confirm_setup(self, *, user_id: str, code: str) -> MfaConfirmResult:
+        await enforce_mfa_verify_rate_limit(user_id)
         row = await self._mfa.get_by_user_id(user_id)
         if row is None:
             raise ValidationError("请先开始双因素认证绑定")
@@ -71,9 +76,12 @@ class AdminMfaService:
             user_id,
             recovery_codes_hash=[_hash_recovery_code(c) for c in recovery_codes],
         )
+        # Audit enrollment confirmation only — never log TOTP secret / recovery codes.
+        logger.info("auth.mfa_enrolled", user_id=user_id)
         return MfaConfirmResult(recovery_codes=recovery_codes)
 
     async def verify_code(self, *, user_id: str, code: str) -> bool:
+        await enforce_mfa_verify_rate_limit(user_id)
         row = await self._mfa.get_by_user_id(user_id)
         if row is None or row.enabled_at is None:
             return False
@@ -81,6 +89,7 @@ class AdminMfaService:
         return pyotp.TOTP(secret).verify(code, valid_window=1)
 
     async def verify_recovery_code(self, *, user_id: str, code: str) -> bool:
+        await enforce_mfa_verify_rate_limit(user_id)
         normalized = code.strip().replace("-", "").lower()
         if not normalized:
             return False

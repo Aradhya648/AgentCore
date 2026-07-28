@@ -38,7 +38,6 @@ from agentcore.db.repositories import (
     MemoryUpdateRepository,
     MessageRepository,
     PausedTurnRepository,
-    TurnLeaseRepository,
 )
 from agentcore.llm.factory import build_provider
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
@@ -60,6 +59,7 @@ from agentcore.memory.semantic import (
 from agentcore.memory.store import MemoryStore, default_memory_store
 from agentcore.messaging.hub import default_chat_hub
 from agentcore.runtime.events.types import FinishReason
+from agentcore.runtime.leases import TurnLeaseRepository
 
 logger = get_logger(__name__)
 

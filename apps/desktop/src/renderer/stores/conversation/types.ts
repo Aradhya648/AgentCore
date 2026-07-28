@@ -129,11 +129,12 @@ export interface Conversation {
   localRootId?: string | null;
   pinned?: boolean;
   archived?: boolean;
-  /** Session three-axis permission (file_write / command / team_kickoff). */
+  /** Session permission axes (file_write / command / team_kickoff / host). */
   permissionAxes?: {
     file_write: "ask" | "session";
     command: "ask" | "kickoff" | "auto";
     team_kickoff: "always" | "rules" | "skip";
+    host: "off" | "ask" | "session";
   };
   /**
    * 会话级模型组合引用：非空即「本会话固定用这个组合」（活引用，改组合定义下一 turn 生效）；

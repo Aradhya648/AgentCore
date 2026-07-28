@@ -175,7 +175,10 @@ DELEGATE_PARAMETERS = {
         "completion_criteria": {
             "description": (
                 "批次验收（仅 delegate 顶层，与 tasks 同级；勿写入 tasks[]）。"
-                "files_written=落盘；code_verified=编译/测试/build exit 0；"
+                "files_written=落盘；code_verified=编译/测试/build exit 0"
+                "（修码/要验须用对象写清 verify_command，如"
+                '{"type":"code_verified","verify_command":"pytest -q"}；'
+                "裸字符串仅兼容旧行为）；"
                 "runtime_ready=terminal 长驻进程 wait_for 就绪；"
                 "graph_consistent=import 图闭合（.ts/.tsx/.vue 落盘时自动扫）；"
                 "启动开发服务器用 runtime_ready，勿用 code_verified。"
@@ -193,7 +196,23 @@ DELEGATE_PARAMETERS = {
                 {
                     "type": "object",
                     "properties": {
-                        "type": {"type": "string", "enum": ["custom"]},
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "files_written",
+                                "code_verified",
+                                "runtime_ready",
+                                "graph_consistent",
+                                "custom",
+                            ],
+                        },
+                        "verify_command": {
+                            "type": "string",
+                            "description": (
+                                "怎么算修好：具体验收命令（code_verified / 修码必填；"
+                                "亦可用 description）"
+                            ),
+                        },
                         "description": {"type": "string"},
                     },
                     "required": ["type"],

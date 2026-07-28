@@ -1,0 +1,108 @@
+name: Dependency audit (nightly)
+
+# 轻量供应链扫描：后端 pip-audit + 前端 pnpm audit。
+# 仅 nightly / 手动；continue-on-error 出报告，不把 master/PR 弄红；
+# 不要求本轮清零 CVE。不触碰任何 deploy/release 自动触发。
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 19 * * *" # 19:00 UTC（evals 18:00 / smoke 18:30 之后）
+
+concurrency:
+  group: dependency-audit-nightly
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: pip-audit + pnpm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install backend deps
+        working-directory: apps/server
+        run: uv sync --all-extras
+
+      - name: Backend pip-audit
+        id: pip_audit
+        working-directory: apps/server
+        continue-on-error: true
+        run: |
+          mkdir -p ../../audit-reports
+          # --with 临时装 pip-audit，不写入项目 lock；扫描当前 uv 环境。
+          set +e
+          uv run --with pip-audit pip-audit \
+            --format json \
+            --output ../../audit-reports/pip-audit.json
+          uv run --with pip-audit pip-audit \
+            --format columns \
+            | tee ../../audit-reports/pip-audit.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend pnpm audit
+        id: pnpm_audit
+        continue-on-error: true
+        run: |
+          mkdir -p audit-reports
+          # JSON 便于归档；非零退出不弄红（continue-on-error）。
+          pnpm audit --json > audit-reports/pnpm-audit.json 2>audit-reports/pnpm-audit.stderr || true
+          pnpm audit --prod 2>&1 | tee audit-reports/pnpm-audit.txt || true
+
+      - name: Write job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          {
+            echo "## Dependency audit (soft gate)"
+            echo ""
+            echo "本 job **不阻塞**合并/发版；报告作观测。本地等价：\`pnpm audit:deps\`。"
+            echo ""
+            if [ -f audit-reports/pip-audit.txt ]; then
+              echo "### Backend (pip-audit)"
+              echo '```'
+              head -n 80 audit-reports/pip-audit.txt
+              echo '```'
+            else
+              echo "### Backend: no report file"
+            fi
+            echo ""
+            if [ -f audit-reports/pnpm-audit.txt ]; then
+              echo "### Frontend (pnpm audit --prod)"
+              echo '```'
+              head -n 80 audit-reports/pnpm-audit.txt
+              echo '```'
+            else
+              echo "### Frontend: no report file"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-reports
+          path: audit-reports/
+          if-no-files-found: warn
+          retention-days: 30

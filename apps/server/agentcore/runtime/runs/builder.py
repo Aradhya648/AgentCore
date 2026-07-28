@@ -498,6 +498,7 @@ def build_added_nodes(
     from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_specs
 
     apply_artifact_dir_to_specs(specs)
+    _align_prose_upstream_body_floor(RunPlan(nodes=[*plan.nodes, *specs], origin=plan.origin))
     return specs, []
 
 
@@ -703,7 +704,31 @@ def _dag_plan(
                 f"（run_id={node.run_id}）。若确需先拿上游结果，补 depends_on 或分批 delegate；"
                 "本就独立可忽略。"
             )
+    _align_prose_upstream_body_floor(plan)
     return plan, []
+
+
+def _align_prose_upstream_body_floor(plan: RunPlan) -> None:
+    """prose ∧ 有下游：``min_length`` 与 ``MIN_UPSTREAM_BODY_CHARS`` 同一来源（≥地板）。
+
+    禁止合同写 40、交接却要求 80 的漂移；不把地板降到合同侧。Mutates deliverables
+    in place. Leaf / non-prose nodes unchanged.
+    """
+    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+
+    has_downstream = {
+        dep
+        for node in plan.nodes
+        for dep in (node.depends_on or [])
+    }
+    for node in plan.nodes:
+        if node.run_id not in has_downstream:
+            continue
+        d = node.deliverable
+        if d is None or d.form != "prose":
+            continue
+        if d.min_length < MIN_UPSTREAM_BODY_CHARS:
+            d.min_length = MIN_UPSTREAM_BODY_CHARS
 
 
 def _inline_spec(

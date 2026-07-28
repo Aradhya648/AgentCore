@@ -65,6 +65,7 @@ export function conversationSummary(
       file_write: "session",
       command: "kickoff",
       team_kickoff: "rules",
+      host: "ask",
     },
   };
 }

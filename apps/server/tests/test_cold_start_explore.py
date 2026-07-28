@@ -291,6 +291,9 @@ def test_compose_prompt_cold_start_block_only_when_flagged():
     assert "需要我继续吗" in with_flag
     assert "topics" in with_flag
     assert "重新了解" in with_flag
+    assert "≥2" in with_flag or "至少两" in with_flag
+    assert "1 人" in with_flag or "包办" in with_flag
+    assert "轮" in with_flag
 
 
 def test_compose_prompt_rebind_gate():
@@ -302,6 +305,7 @@ def test_compose_prompt_rebind_gate():
         cold_start_explore="rebind",
     )
     assert "绑定已变" in text
+    assert "≥2" in text or "包办" in text
     assert "合并更新" in text
     assert "<cold_start_explore>" in text
     assert "画像.md」为空" not in text

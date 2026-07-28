@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.llm.provider.protocol import LLMMessage
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.facts import FactKind, TurnFactLog, TurnPausedFact, current_fact_log
 from agentcore.runtime.runs.presentation_format import (
@@ -13,27 +13,16 @@ from agentcore.runtime.runs.presentation_format import (
     ensure_full_auto_default_format,
     format_from_journal_entries,
     get_format_confirmation,
-    is_presentation_kickoff_text,
-    presentation_kickoff_requires_formats_error,
-    presentation_missing_format_error,
     record_format_confirmation,
     rehydrate_format_confirmation,
     resolve_format_from_resume,
     snapshot_presentation_format_for_pause,
 )
+from agentcore.runtime.suspension import captain_transcript
 from agentcore.tools.builtin.ask_user import AskUserTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
-
-
-def test_is_presentation_kickoff_text():
-    assert is_presentation_kickoff_text("帮我做一份产品发布 PPT")
-    assert is_presentation_kickoff_text("写个课件幻灯片")
-    assert is_presentation_kickoff_text("Build a presentation deck")
-    assert is_presentation_kickoff_text("用 marp 做演示文稿")
-    assert not is_presentation_kickoff_text("写一份调研报告")
-    assert not is_presentation_kickoff_text("帮我做个官网落地页")
 
 
 def test_resolve_format_from_resume_by_explicit_format_id():
@@ -214,62 +203,77 @@ def _ask_ctx() -> ToolContext:
     )
 
 
-@pytest.mark.asyncio
-async def test_ask_user_presentation_kickoff_rejects_empty_format_options():
-    tool = AskUserTool(
+def _ask_tool() -> AskUserTool:
+    async def _save(_frame) -> None:
+        return None
+
+    async def _drop(_mid: str) -> None:
+        return None
+
+    return AskUserTool(
         sink=EventSink(),
         conversation_id="c-format",
         timeout_seconds=1.0,
+        message_id="m1",
+        suspension_saver=_save,
+        suspension_deleter=_drop,
+        captain_run_id="cap",
+        base_system_prompt="sys",
+        user_message="做一份 PPT",
     )
-    res = await tool.execute(
-        {
-            "message": "开工：做一份产品发布 PPT 演示文稿",
-            "questions": [
-                {
-                    "prompt": "时长",
-                    "options": ["10 分钟", "20 分钟"],
-                    "default": "10 分钟",
-                }
-            ],
-        },
-        _ask_ctx(),
-    )
-    assert res.success is False
-    assert presentation_kickoff_requires_formats_error() in (res.error or "")
 
 
 @pytest.mark.asyncio
-async def test_ask_user_presentation_kickoff_accepts_format_options():
-    tool = AskUserTool(
-        sink=EventSink(),
-        conversation_id="c-format",
-        timeout_seconds=1.0,
-        message_id=None,
+async def test_ask_user_presentation_without_format_options_still_succeeds():
+    """引擎不因文案像演讲而强制 format_options；缺省放行。"""
+    tool = _ask_tool()
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="做一份产品发布 PPT")]
     )
-    res = await tool.execute(
-        {
-            "message": "开工：做一份产品发布 PPT 演示文稿",
-            "format_options": [
-                {"label": "PowerPoint（.pptx）— 有 code_execute 时推荐"},
-                {"label": "Marp Markdown 幻灯片 — 无代码执行时推荐"},
-                {"label": "仅讲稿大纲"},
-            ],
-            "questions": [
-                {
-                    "prompt": "时长",
-                    "options": ["10 分钟", "20 分钟"],
-                    "default": "10 分钟",
-                }
-            ],
-        },
-        _ask_ctx(),
-    )
-    assert presentation_kickoff_requires_formats_error() not in (res.error or "")
+    try:
+        res = await tool.execute(
+            {
+                "message": "开工：做一份产品发布 PPT 演示文稿",
+                "questions": [
+                    {
+                        "prompt": "时长",
+                        "options": ["10 分钟", "20 分钟"],
+                        "default": "10 分钟",
+                    }
+                ],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True
 
 
-def test_presentation_missing_format_error_mentions_ask_user():
-    err = presentation_missing_format_error()
-    assert "ask_user" in err
-    assert "format_id" in err
-    _ = AutonomyPolicy.MANAGED
-    assert "full_auto" in err.lower()
+@pytest.mark.asyncio
+async def test_ask_user_presentation_with_format_options_succeeds():
+    tool = _ask_tool()
+    token = captain_transcript.set(
+        [LLMMessage(role="user", content="做一份产品发布 PPT")]
+    )
+    try:
+        res = await tool.execute(
+            {
+                "message": "开工：做一份产品发布 PPT 演示文稿",
+                "format_options": [
+                    {"label": "PowerPoint（.pptx）— 有 code_execute 时推荐"},
+                    {"label": "Marp Markdown 幻灯片 — 无代码执行时推荐"},
+                    {"label": "仅讲稿大纲"},
+                ],
+                "questions": [
+                    {
+                        "prompt": "时长",
+                        "options": ["10 分钟", "20 分钟"],
+                        "default": "10 分钟",
+                    }
+                ],
+            },
+            _ask_ctx(),
+        )
+    finally:
+        captain_transcript.reset(token)
+    assert res.success is True

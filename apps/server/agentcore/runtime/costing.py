@@ -1,9 +1,9 @@
 """Per-call detail + per-run aggregate ledger shapes.
-``CallCost`` → ``cost_calls`` (authority). ``RunCost`` → ``cost_events`` (per-run
-materialized view the product surfaces read). Both carry structural ``role``
-(captain/member/…) and optional ``persona`` (调研员 / CEO / …) so persona-level
-payroll derives from the same attribution fields on every path (cloud finalize
-and sidecar-via-proxy).
+
+Value objects / ``run_cost_from_calls`` live in the leaf ``agentcore.costing``
+(so ``db`` never imports this module). This file keeps RunState reshape builders
+and re-exports the leaf symbols for the historical ``runtime.costing`` import path.
+
 Money stays integer nano-USD throughout; pricing happens exactly once via
 :func:`agentcore.llm.pricing.calculate_cost`. This module only *reshapes*
 priced states / usages into ledger rows — it never re-prices.
@@ -14,38 +14,63 @@ platform/vendor → ``cost_total_nano`` (quota / admin); user → ``cost_estimat
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from typing import Any
 
 from agentcore.core.types import new_id
+from agentcore.costing import (
+    COST_KEYS,
+    PERSONA_CEO,
+    ROLE_ARENA,
+    ROLE_CAPTAIN,
+    ROLE_MEMBER,
+    ROLE_MEMORY,
+    ROLE_TITLE,
+    ROLE_VISION,
+    USAGE_KEYS,
+    CallCost,
+    RunCost,
+    run_cost_from_calls,
+    split_cost,
+)
 from agentcore.llm.pricing import CredentialSource, calculate_cost
 from agentcore.llm.provider.protocol import TokenUsage
 from agentcore.runtime.citations import merge_citations
 from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
 
-# Structural role categories (mirror the DB CheckConstraint). A turn's run tree
-# produces captain + member; ``title`` / ``memory`` tag the off-turn background
-# LLM calls (标题生成 / 记忆整合) so their spend rolls into account/conversation
-# totals without polluting the per-message team payroll. ``arena`` tags debate
-# runs (主持人 / 辩手 / 取证员 / 证人续写) so spend shows as「辩论」and sidecar
-# proxy keeps the turn main model (never Worker).
-ROLE_CAPTAIN = "captain"
-ROLE_MEMBER = "member"
-ROLE_ARENA = "arena"
-ROLE_TITLE = "title"
-ROLE_MEMORY = "memory"
-# ``vision`` tags a board_read 读图 sub-call (AI协作白板.md §九.4): an in-turn tool-layer
-# call to a SEPARATE vision model (qwen-vl ≠ the run's DeepSeek). It is NOT a Run/Agent —
-# it gets its own priced ledger row (one model = one row, 同跨档不复价) so its spend shows
-# as its own line on the team payroll + the by-role dashboard.
-ROLE_VISION = "vision"
-PERSONA_CEO = "CEO"
-# The four money keys carried in cost_events.cost (integer nano-USD). The Cost
-# dataclass also exposes ``currency`` / ``pricing_source`` / ``credential_source``.
-_COST_KEYS = ("input", "cached", "output", "total")
-# The five short-key token counts carried on RunState.usage / a tool's accumulated
-# usage (cache_hit/cache_miss split kept so the folded total stays priceable).
-_USAGE_KEYS = ("input", "output", "reasoning", "cache_hit", "cache_miss")
+# Historical private aliases (call sites / tests may still reference these names).
+_COST_KEYS = COST_KEYS
+_USAGE_KEYS = USAGE_KEYS
+_split_cost = split_cost
+
+# Leaf re-exports kept for the historical ``from agentcore.runtime.costing import …`` path.
+__all__ = [
+    "COST_KEYS",
+    "USAGE_KEYS",
+    "PERSONA_CEO",
+    "ROLE_ARENA",
+    "ROLE_CAPTAIN",
+    "ROLE_MEMBER",
+    "ROLE_MEMORY",
+    "ROLE_TITLE",
+    "ROLE_VISION",
+    "CallCost",
+    "RunCost",
+    "WorkerResultAccumulator",
+    "aggregate_cost",
+    "arena_run_cost",
+    "background_run_cost",
+    "captain_run_cost_from_state",
+    "member_run_cost",
+    "priced_call_cost",
+    "resolve_run_models",
+    "run_cost_from_calls",
+    "split_cost",
+    "usage_metadata",
+    "vision_run_cost",
+]
+
+
 def usage_metadata(usage: Mapping[str, int]) -> dict[str, int]:
     """The ``metadata`` token block a non-terminal orchestration tool returns.
     Re-keys the short-key usage form ({input, ...}) to the engine's ``*_tokens``
@@ -54,58 +79,8 @@ def usage_metadata(usage: Mapping[str, int]) -> dict[str, int]:
     shape can never drift between them.
     """
     return {f"{key}_tokens": int(usage.get(key, 0)) for key in _USAGE_KEYS}
-@dataclass(frozen=True)
-class RunCost:
-    """One per-run ledger row (``cost_events`` materialized view).
-    The user / conversation / message envelope is attached at persistence time by
-    the conversation service (which owns the DB session), so this stays a pure
-    value object the runtime can build without any DB awareness.
-    """
-    run_id: str
-    parent_run_id: str | None
-    agent_id: str | None
-    role: str
-    model: str
-    tokens: dict[str, int]
-    cost: dict[str, int | str]
-    cost_total_nano: int
-    currency: str
-    rounds: int
-    duration_ms: int
-    persona: str | None = None
-    cost_estimated_nano: int = 0
-@dataclass(frozen=True)
-class CallCost:
-    """One per-call detail row (``cost_calls`` — billing authority)."""
-    call_id: str
-    run_id: str
-    parent_run_id: str | None
-    agent_id: str | None
-    role: str
-    model: str
-    tokens: dict[str, int]
-    cost: dict[str, int | str]
-    cost_total_nano: int
-    currency: str
-    duration_ms: int
-    persona: str | None = None
-    cost_estimated_nano: int = 0
-def _split_cost(cost: dict) -> tuple[dict[str, int | str], int, int, str]:
-    """Normalise a cost dict into (JSONB body, billed nano, estimated nano, currency).
-    Accepts the ``asdict(Cost)`` shape. User-sourced money always lands in
-    ``cost_estimated_nano`` with ``cost_total_nano == 0``; platform/vendor keep
-    billed ``cost_total_nano``.
-    """
-    body: dict[str, int | str] = {key: int(cost.get(key, 0)) for key in _COST_KEYS}
-    pricing_source = str(cost.get("pricing_source") or "curated")
-    credential_source = str(cost.get("credential_source") or "platform")
-    body["pricing_source"] = pricing_source
-    body["credential_source"] = credential_source
-    total = int(body["total"])
-    currency = str(cost.get("currency", "USD"))
-    if credential_source == "user":
-        return body, 0, total, currency
-    return body, total, 0, currency
+
+
 def member_run_cost(
     spec: RunSpec,
     state: RunState,
@@ -325,58 +300,8 @@ def vision_run_cost(
         rounds=1,
         duration_ms=duration_ms,
     )
-def run_cost_from_calls(calls: Sequence[CallCost | Mapping[str, Any]]) -> RunCost | None:
-    """Materialize one per-run aggregate from a batch of call details.
-    Sums tokens / cost / duration; ``rounds`` = call count. Attribution
-    (role / persona / agent / parent) is taken from the first call. Returns
-    ``None`` when ``calls`` is empty.
-    """
-    if not calls:
-        return None
-    first = calls[0]
-    if isinstance(first, CallCost):
-        first_map: Mapping[str, Any] = asdict(first)
-    else:
-        first_map = first
-    tokens = {key: 0 for key in _USAGE_KEYS}
-    cost_body: dict[str, int | str] = {key: 0 for key in _COST_KEYS}
-    billed = 0
-    estimated = 0
-    duration = 0
-    pricing_source = "curated"
-    credential_source = "platform"
-    for raw in calls:
-        row = asdict(raw) if isinstance(raw, CallCost) else raw
-        for key in _USAGE_KEYS:
-            tokens[key] += int((row.get("tokens") or {}).get(key, 0) or 0)
-        c = row.get("cost") or {}
-        for key in ("input", "cached", "output"):
-            cost_body[key] = int(cost_body[key]) + int(c.get(key, 0) or 0)
-        billed += int(row.get("cost_total_nano", 0) or 0)
-        estimated += int(row.get("cost_estimated_nano", 0) or 0)
-        duration += int(row.get("duration_ms", 0) or 0)
-        if c.get("pricing_source"):
-            pricing_source = str(c["pricing_source"])
-        if c.get("credential_source"):
-            credential_source = str(c["credential_source"])
-    cost_body["total"] = billed + estimated
-    cost_body["pricing_source"] = pricing_source
-    cost_body["credential_source"] = credential_source
-    return RunCost(
-        run_id=str(first_map["run_id"]),
-        parent_run_id=first_map.get("parent_run_id"),
-        agent_id=first_map.get("agent_id"),
-        role=str(first_map.get("role") or ROLE_MEMBER),
-        persona=(str(first_map["persona"]).strip() if first_map.get("persona") else None),
-        model=str(first_map.get("model") or ""),
-        tokens=tokens,
-        cost=cost_body,
-        cost_total_nano=billed,
-        cost_estimated_nano=estimated,
-        currency=str(first_map.get("currency") or "USD"),
-        rounds=len(calls),
-        duration_ms=duration,
-    )
+
+
 def aggregate_cost(cost_runs: Sequence[dict]) -> dict[str, int | str]:
     """Sum per-run cost rows into the turn total carried on ``message_end.cost``.
     Takes the ``asdict(RunCost)`` rows the pipeline builds (captain + members) and

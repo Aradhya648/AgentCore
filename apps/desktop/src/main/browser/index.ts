@@ -10,4 +10,7 @@ export {
   getDesktopBrowserBridgeCredentials,
   rotateDesktopBrowserBridgeCredentials,
 } from "./bridge";
-export { closeAllLocalBrowserPages } from "./host";
+export {
+  closeAllLocalBrowserPages,
+  closeConversationBrowserPages,
+} from "./host";

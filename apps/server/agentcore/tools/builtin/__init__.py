@@ -87,6 +87,7 @@ def browser_execution_enabled_for(backend: WorkspaceBackend | None) -> bool:
 def build_builtin_registry(
     *,
     include_execution_tools: bool = True,
+    include_host_tools: bool = False,
     location: Literal["server", "local"] | None = None,
     languages: tuple[str, ...] | list[str] | None = None,
 ) -> ToolRegistry:
@@ -100,6 +101,9 @@ def build_builtin_registry(
     (``test_run`` + ``code_execute``): the worker registry withholds BOTH on a backend
     that can't run code safely (see ``code_execution_enabled_for``).
 
+    ``include_host_tools`` gates the Host face (``host_class``): only when the
+    desktop backfill channel is reachable and ``host≠off``.
+
     ``location`` stamps ``code_execute``'s description to match the turn's backend.
     ``languages`` trims ``code_execute``'s language enum after a local/sidecar probe
     (cloud / catalog leave ``None`` → full fixed surface).
@@ -108,6 +112,8 @@ def build_builtin_registry(
     for cls in declared_tools(surface=ToolSurface.BUILTIN):
         reg = tool_registration(cls)
         if reg.execution_class and not include_execution_tools:
+            continue
+        if reg.host_class and not include_host_tools:
             continue
         registry.register(
             instantiate_declared(cls, location=location, languages=languages)
@@ -120,17 +126,22 @@ def build_worker_registry(
     backend: WorkspaceBackend | None = None,
     permission_axes: "PermissionAxes | None" = None,
     languages: tuple[str, ...] | list[str] | None = None,
+    desktop_online: bool = False,
 ) -> ToolRegistry:
     """The delegated worker's toolset: builtins PLUS worker-only declarations.
 
     ``command=ask`` withholds the entire execution class
     (``code_execute`` / ``test_run`` / ``terminal``) — read-only retrieval stays on.
+    Host tools gate on ``desktop_online`` ∧ ``host≠off`` (orthogonal to command).
     """
     location = backend.location if backend is not None else None
     include_execution = code_execution_enabled_for(backend)
     if permission_axes is not None and permission_axes.withholds_execution_tools:
         include_execution = False
     include_browser = include_execution and browser_execution_enabled_for(backend)
+    include_host = desktop_online and (
+        permission_axes is None or not permission_axes.host_disabled
+    )
     # Prefer explicit languages; else reuse a probe cached on the backend by
     # ``resolve_exec_languages`` (prepare / resume). Cloud stays untrimmed.
     resolved_languages = languages
@@ -140,6 +151,7 @@ def build_worker_registry(
         resolved_languages = None
     registry = build_builtin_registry(
         include_execution_tools=include_execution,
+        include_host_tools=include_host,
         location=location,
         languages=resolved_languages,
     )
@@ -153,20 +165,31 @@ def build_worker_registry(
             continue
         if reg.browser_class and not include_browser:
             continue
+        if reg.host_class and not include_host:
+            continue
         if reg.local_only and (backend is None or backend.location != "local"):
             continue
         registry.register(instantiate_declared(cls, location=location))
     return registry
 
 
-def build_ceo_tool_registry() -> ToolRegistry:
-    """The CEO chat agent's DIRECT toolset: read / retrieval builtins only.
+def build_ceo_tool_registry(
+    *,
+    desktop_online: bool = False,
+    permission_axes: "PermissionAxes | None" = None,
+) -> ToolRegistry:
+    """The CEO chat agent's DIRECT toolset: read / retrieval builtins + Host face.
 
-    Collects ``surface=builtin`` tools whose declared audience includes ``ceo``
-    (must stay aligned with ``approval=NEVER`` — enforced by snapshot tests).
+    Collects ``surface=builtin`` tools whose declared audience includes ``ceo``.
+    Historically aligned with ``approval=NEVER``; **P3 exception**: ``host_shell``
+    is GRANTABLE and CEO-holdable (Host face only — L2/L3 stay worker-only).
     Orchestration primitives are wired separately in ``_assemble_ceo_toolset``.
+    Host tools appear only when ``desktop_online`` ∧ ``host≠off``.
     """
-    full = build_builtin_registry()
+    include_host = desktop_online and (
+        permission_axes is None or not permission_axes.host_disabled
+    )
+    full = build_builtin_registry(include_host_tools=include_host)
     registry = ToolRegistry()
     ceo_names = {
         declared_tool_name(cls)

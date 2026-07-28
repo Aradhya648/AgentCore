@@ -97,7 +97,7 @@ describe("searchIndex", () => {
     expect(quick?.body).toContain("直接开聊（平台额度）");
 
     const what = entries.find((e) => e.itemId === "what");
-    expect(what?.haystack).toContain("你带团队，不是盯一个助手");
+    expect(what?.haystack).toContain("协作，是更高级的智能");
     expect(what?.haystack).not.toContain("chatgpt");
   });
 

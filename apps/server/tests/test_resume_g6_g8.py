@@ -11,6 +11,7 @@ from agentcore.config import settings
 from agentcore.conversation import turn_persistence
 from agentcore.conversation.turn_persistence import (
     compose_salvage_content,
+    compose_salvage_journal,
     salvage_incomplete_turn,
 )
 from agentcore.llm.provider.protocol import LLMMessage
@@ -74,6 +75,40 @@ def test_compose_salvage_legacy_journal_is_live_only():
 
 def test_compose_salvage_empty_live_keeps_pre_pause():
     assert compose_salvage_content("", [_paused_entry("基底")]) == "基底"
+
+
+# --- G8 compose_salvage_journal -------------------------------------------------
+
+
+def test_compose_salvage_journal_joins_hang_frame_and_live():
+    hang = [
+        {"kind": "process_reasoning", "payload": {"text": "想"}, "ts": None},
+        {"kind": "checkpoint_resolved", "payload": {"checkpoint_id": "ck1"}, "ts": None},
+    ]
+    live = [
+        {"kind": "checkpoint_resolved", "payload": {"checkpoint_id": "ck1"}, "ts": None},
+        {"kind": "run_started", "payload": {"run_id": "w1"}, "ts": None},
+    ]
+    merged = compose_salvage_journal(live, hang)
+    kinds = [e.get("kind") for e in merged]
+    assert kinds == ["process_reasoning", "checkpoint_resolved", "run_started"]
+    assert [e.get("seq") for e in merged] == [0, 1, 2]
+
+
+def test_compose_salvage_journal_live_only_when_no_hang_frame():
+    live = [{"kind": "run_started", "payload": {"run_id": "w1"}, "ts": None}]
+    assert compose_salvage_journal(live, None) == live
+    assert compose_salvage_journal(live, []) == live
+
+
+def test_compose_salvage_journal_hang_only_when_no_live():
+    hang = [{"kind": "process_content", "payload": {"text": "旁白"}, "ts": None}]
+    assert [e.get("kind") for e in compose_salvage_journal(None, hang)] == [
+        "process_content"
+    ]
+    assert [e.get("kind") for e in compose_salvage_journal([], hang)] == [
+        "process_content"
+    ]
 
 
 # --- G8 cloud salvage_incomplete_turn -------------------------------------------

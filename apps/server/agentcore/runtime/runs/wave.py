@@ -34,7 +34,6 @@ then stop; degrade → dependents proceed). Cascade-skipped dependents revive wh
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import inspect
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -426,10 +425,16 @@ class WaveScheduler:
                 if cancel_run_ids is not None and running:
                     for target_id in cancel_run_ids():
                         for task, rid in list(running.items()):
-                            if rid == target_id and rid not in cancelled_by_redirect:
-                                # msg="redirect" so executor_agent salvages + returns CANCELLED
-                                # instead of re-raising (整轮 stop uses bare cancel).
-                                task.cancel("redirect")
+                            # msg="redirect" so executor_agent salvages + returns CANCELLED
+                            # instead of re-raising (整轮 stop uses bare cancel).
+                            # Only claim redirect-absorb when *this* cancel took effect —
+                            # if the task was already cancelling for stop/external,
+                            # cancel() returns False and we must not swallow that.
+                            if (
+                                rid == target_id
+                                and rid not in cancelled_by_redirect
+                                and task.cancel("redirect")
+                            ):
                                 cancelled_by_redirect.add(rid)
 
                 done, _ = await asyncio.wait(
@@ -444,12 +449,23 @@ class WaveScheduler:
                     if run_id in cancelled_by_redirect:
                         # User-initiated single cancel: absorb gracefully, don't propagate.
                         # Prefer the executor's salvaged CANCELLED RunState (partial transcript);
-                        # fall back to empty CANCELLED if the task raised / never returned.
+                        # fall back to empty CANCELLED if the task raised redirect / never returned.
+                        # Stop/external CancelledError must re-raise — never treat as success
+                        # (zombie scheduler keeps dispatching after outer cancel).
                         if not task.done():
                             task.cancel("redirect")
                         state: RunState | None = None
-                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                        try:
                             result = task.result()
+                        except asyncio.CancelledError as e:
+                            reason = str(e.args[0]) if e.args else ""
+                            if reason == "redirect":
+                                state = RunState(phase=RunPhase.CANCELLED)
+                            else:
+                                raise
+                        except Exception:
+                            state = RunState(phase=RunPhase.CANCELLED)
+                        else:
                             if isinstance(result, RunState):
                                 state = result
                         if state is None:

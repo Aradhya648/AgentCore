@@ -18,11 +18,11 @@ from agentcore.db.repositories import (
     ConversationRepository,
     MessageRepository,
     PausedTurnRepository,
-    TurnLeaseRepository,
     UserRepository,
 )
 from agentcore.memory import consolidation
 from agentcore.memory.episodic import EpisodeRecord
+from agentcore.runtime.leases import TurnLeaseRepository
 
 
 class _DummyProvider:

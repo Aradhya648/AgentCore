@@ -145,6 +145,9 @@ def test_identity_handoff_topology_preserved_with_form():
     assert "必须调用 handoff" in up
     assert "不必为交而交" in leaf
     assert "必须调用 handoff" not in leaf
+    # 交付真相项4：有下游 prose — summary 不算 body；leaf 不抬此提示
+    assert "不算正文" in up
+    assert "不算正文" not in leaf
 
 
 def test_describe_deliverable_form_split():
@@ -311,15 +314,16 @@ async def test_prose_worker_not_offered_write_tools():
 
 
 async def test_files_worker_keeps_write_tools_and_identity():
+    from agentcore.llm.provider.protocol import LLMChunk, ToolCallDelta
     from agentcore.runtime.events import EventSink
     from agentcore.runtime.runs.executor import build_agent_executor
     from agentcore.runtime.runs.types import RunPhase
     from agentcore.runtime.runs.wave import WaveScheduler
     from agentcore.tools.registry import ToolRegistry
     from tests.runs_executor.conftest import (
-        _ContentProvider,
         _ctx,
-        _GrantableTool,
+        _FileWriteTool,
+        _ScriptedRounds,
     )
 
     plan, _ = build_run_plan(
@@ -327,8 +331,24 @@ async def test_files_worker_keeps_write_tools_and_identity():
         id_prefix="t",
     )
     reg = ToolRegistry()
-    reg.register(_GrantableTool("file_write"))
-    provider = _ContentProvider(["DONE"])
+    reg.register(_FileWriteTool())
+    # form=files ⇒ requires_files：须真实落盘才能 COMPLETED（交付真相）。
+    rounds = [
+        [
+            LLMChunk(
+                delta_tool_calls=[
+                    ToolCallDelta(
+                        index=0,
+                        id="c1",
+                        function_name="file_write",
+                        arguments_delta='{"path": "index.html", "content": "<html></html>"}',
+                    )
+                ]
+            )
+        ],
+        [LLMChunk(delta_content="已写入")],
+    ]
+    provider = _ScriptedRounds(rounds)
     executor = build_agent_executor(
         plan=plan,
         llm=provider,
@@ -345,9 +365,24 @@ async def test_files_worker_keeps_write_tools_and_identity():
     assert "file_write" in provider.system_messages[0]
 
 
+def test_cold_start_rejects_single_worker():
+    plan, errs = build_run_plan(
+        [{"role": "调研", "task": "摸清项目结构", "deliverable": {"form": "prose"}}],
+        id_prefix="t",
+    )
+    assert errs == []
+    err = validate_cold_start_explore_deliverables(plan)
+    assert err is not None
+    assert "≥2" in err or "至少两" in err
+    assert "1 人" in err or "包办" in err
+
+
 def test_cold_start_rejects_form_files():
     plan, errs = build_run_plan(
-        [{"role": "调研", "task": "摸清项目结构", "deliverable": {"form": "files"}}],
+        [
+            {"role": "A", "task": "摸目录", "deliverable": {"form": "files"}},
+            {"role": "B", "task": "读设计", "deliverable": {"form": "prose"}},
+        ],
         id_prefix="t",
     )
     assert errs == []
@@ -365,7 +400,8 @@ def test_cold_start_rejects_artifacts():
                 "role": "调研",
                 "task": "摸清项目",
                 "deliverable": {"artifacts": ["brief.md"]},
-            }
+            },
+            {"role": "B", "task": "读 README", "deliverable": {"form": "prose"}},
         ],
         id_prefix="t",
     )
@@ -392,7 +428,10 @@ def test_cold_start_allows_all_prose():
 
 def test_cold_start_allows_form_files_with_explicit_files_written():
     plan, errs = build_run_plan(
-        [{"role": "调研", "task": "落盘 brief", "deliverable": {"form": "files"}}],
+        [
+            {"role": "调研", "task": "落盘 brief", "deliverable": {"form": "files"}},
+            {"role": "B", "task": "读设计", "deliverable": {"form": "prose"}},
+        ],
         id_prefix="t",
     )
     assert errs == []

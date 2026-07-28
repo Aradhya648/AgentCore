@@ -64,7 +64,9 @@ class StandingTask(Base):
             "file_write": "session",
             "command": "kickoff",
             "team_kickoff": "rules",
+            "host": "ask",
         },
+        # Legacy three-key JSON ok; from_mapping / model_validate fill host=ask.
         server_default=text(
             "'{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}'::jsonb"
         ),

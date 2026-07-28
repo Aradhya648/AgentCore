@@ -1,0 +1,104 @@
+{
+  "name": "single_agent_cancelled",
+  "description": "单聊：用户取消（message_end finish_reason=cancelled → status=cancelled，半截正文保留）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "reasoning_delta",
+      "payload": {
+        "delta": "先梳理要点。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "根据目前信息，"
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "建议分三步："
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "cancelled",
+        "usage": {
+          "input_tokens": 600,
+          "output_tokens": 40,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    }
+  ],
+  "projected": {
+    "status": "cancelled",
+    "finishReason": "cancelled",
+    "content": "根据目前信息，建议分三步：",
+    "reasoning": "先梳理要点。",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "reasoning",
+        "text": "先梳理要点。"
+      },
+      {
+        "kind": "content",
+        "text": "根据目前信息，建议分三步："
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

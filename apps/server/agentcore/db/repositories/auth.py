@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agentcore.config import settings
 from agentcore.core.types import new_id
 from agentcore.db.models import Credentials, Invite, RefreshToken, UserLlmProvider
-from agentcore.db.repositories._base import _UNSET, _ilike_pattern
+from agentcore.db.repositories._base import _UNSET, _ilike_pattern, commit_or_flush
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
 
 
@@ -40,10 +40,12 @@ class CredentialsRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def create(self, *, user_id: str, password_hash: str) -> Credentials:
+    async def create(
+        self, *, user_id: str, password_hash: str, commit: bool = True
+    ) -> Credentials:
         cred = Credentials(user_id=user_id, password_hash=password_hash)
         self._session.add(cred)
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         await self._session.refresh(cred)
         return cred
 
@@ -56,6 +58,8 @@ class CredentialsRepository:
     async def set_failure_state(
         self, user_id: str, *, failed_attempts: int, locked_until: datetime | None
     ) -> None:
+        # Exception (P1-8): intentional immediate persist — lockout must survive a
+        # subsequent handler failure; do not mix with other writes on this session.
         await self._session.execute(
             update(Credentials)
             .where(Credentials.user_id == user_id)
@@ -64,6 +68,7 @@ class CredentialsRepository:
         await self._session.commit()
 
     async def reset_failure_state(self, user_id: str) -> None:
+        # Exception (P1-8): clear lockout immediately on successful login.
         await self._session.execute(
             update(Credentials)
             .where(Credentials.user_id == user_id)
@@ -77,10 +82,14 @@ class CredentialsRepository:
         password_hash: str,
         *,
         must_change: bool | None = None,
+        commit: bool = True,
     ) -> None:
         """Replace the stored hash and clear any lockout. An admin reset both rotates
         the secret and unlocks the account (a forgotten password may have tripped the
-        brute-force lock). ``must_change`` optionally sets ``password_must_change``."""
+        brute-force lock). ``must_change`` optionally sets ``password_must_change``.
+
+        Pass ``commit=False`` when pairing with token revoke / re-issue in one txn.
+        """
         values: dict = {
             "password_hash": password_hash,
             "failed_attempts": 0,
@@ -91,7 +100,7 @@ class CredentialsRepository:
         await self._session.execute(
             update(Credentials).where(Credentials.user_id == user_id).values(**values)
         )
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
 
 
 class UserLlmProviderRepository:
@@ -194,15 +203,15 @@ class UserLlmProviderRepository:
             return None
         reset_status = False
         if label is not _UNSET:
-            row.label = (label or "").strip()  # type: ignore[assignment]
+            row.label = str(label or "").strip()
         if api_key_enc is not _UNSET:
             row.api_key_enc = api_key_enc  # type: ignore[assignment]
             reset_status = True
         if base_url is not _UNSET:
-            row.base_url = (base_url or settings.platform_base_url).strip().rstrip("/")  # type: ignore[union-attr]
+            row.base_url = str(base_url or settings.platform_base_url).strip().rstrip("/")
             reset_status = True
         if default_model is not _UNSET:
-            row.default_model = (default_model or DEEPSEEK_V4_FLASH).strip()  # type: ignore[union-attr]
+            row.default_model = str(default_model or DEEPSEEK_V4_FLASH).strip()
             reset_status = True
         if reset_status:
             row.status = "unchecked"
@@ -236,7 +245,7 @@ class UserLlmProviderRepository:
             )
         )
         await self._session.commit()
-        return bool(result.rowcount or 0)
+        return bool(int(getattr(result, "rowcount", 0) or 0))
 
     async def delete_all_for_user(self, user_id: str) -> None:
         """Drop every provider for an account (注销 cascade)."""
@@ -263,6 +272,7 @@ class RefreshTokenRepository:
         ip: str | None = None,
         family_started_at: datetime | None = None,
         last_used_at: datetime | None = None,
+        commit: bool = True,
     ) -> RefreshToken:
         now = datetime.now(UTC)
         token = RefreshToken(
@@ -279,7 +289,7 @@ class RefreshTokenRepository:
             last_used_at=last_used_at or now,
         )
         self._session.add(token)
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         await self._session.refresh(token)
         return token
 
@@ -289,15 +299,16 @@ class RefreshTokenRepository:
         )
         return result.scalar_one_or_none()
 
-    async def mark_rotated(self, token_id: str) -> None:
+    async def mark_rotated(self, token_id: str, *, commit: bool = True) -> None:
         await self._session.execute(
             update(RefreshToken)
             .where(RefreshToken.id == token_id)
             .values(rotated_at=datetime.now(UTC))
         )
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
 
     async def revoke_family(self, token_family: str) -> None:
+        # Exception (P1-8): security revoke — persist immediately on reuse / logout.
         await self._session.execute(
             update(RefreshToken)
             .where(
@@ -308,7 +319,7 @@ class RefreshTokenRepository:
         )
         await self._session.commit()
 
-    async def revoke_all_for_user(self, user_id: str) -> None:
+    async def revoke_all_for_user(self, user_id: str, *, commit: bool = True) -> None:
         await self._session.execute(
             update(RefreshToken)
             .where(
@@ -317,7 +328,7 @@ class RefreshTokenRepository:
             )
             .values(revoked_at=datetime.now(UTC))
         )
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
 
     async def revoke_other_families(self, user_id: str, *, keep_family: str) -> int:
         """Revoke every non-revoked row for ``user_id`` whose family ≠ ``keep_family``.
@@ -335,7 +346,7 @@ class RefreshTokenRepository:
             .values(revoked_at=datetime.now(UTC))
         )
         await self._session.commit()
-        return int(result.rowcount or 0)
+        return int(getattr(result, "rowcount", 0) or 0)
 
     async def family_belongs_to_user(self, *, user_id: str, token_family: str) -> bool:
         result = await self._session.execute(
@@ -405,7 +416,7 @@ class RefreshTokenRepository:
             delete(RefreshToken).where(RefreshToken.id.in_(ids))
         )
         await self._session.commit()
-        return int(result.rowcount or 0)
+        return int(getattr(result, "rowcount", 0) or 0)
 
 
 class InviteRepository:

@@ -5989,6 +5989,16 @@
         "title": "HandoffJobSummary",
         "type": "object"
       },
+      "HostAxis": {
+        "description": "本机 Host 面授权（与 ``command`` 正交；不挂 execution_class / 不吃 kickoff 静默授）。",
+        "enum": [
+          "off",
+          "ask",
+          "session"
+        ],
+        "title": "HostAxis",
+        "type": "string"
+      },
       "InferenceTokenResponse": {
         "description": "A freshly minted inference token + its lifetime + server-resolved upstream model.",
         "properties": {
@@ -8318,7 +8328,7 @@
         "type": "object"
       },
       "PermissionAxesModel": {
-        "description": "Three-axis session permission (运行时单一真相源).",
+        "description": "Session permission axes (运行时单一真相源 · file_write/command/team_kickoff/host).",
         "properties": {
           "command": {
             "$ref": "#/components/schemas/CommandAxis",
@@ -8327,6 +8337,10 @@
           "file_write": {
             "$ref": "#/components/schemas/FileWriteAxis",
             "default": "session"
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostAxis",
+            "default": "ask"
           },
           "team_kickoff": {
             "$ref": "#/components/schemas/TeamKickoffAxis",
@@ -8337,7 +8351,7 @@
         "type": "object"
       },
       "PermissionAxesUpdate": {
-        "description": "Switch the conversation's three-axis permission mid-session.",
+        "description": "Switch the conversation's permission axes mid-session.",
         "properties": {
           "permission_axes": {
             "$ref": "#/components/schemas/PermissionAxesModel"

@@ -97,6 +97,40 @@ async def test_run_id_binds_separate_sessions():
 
 
 @pytest.mark.asyncio
+async def test_unbind_run_lets_next_worker_reuse_live_session():
+    """Sequential workers: unbind after run-a so run-b reuses the same live tab (no live:2)."""
+    reg, created = _make_registry(max_sessions=8)
+    s1, _ = await reg.acquire(_req("c1", run_id="run-a"))
+    assert len(created) == 1
+    infos = reg.list_by_conversation("c1")
+    assert infos[0].run_id == "run-a"
+
+    assert reg.unbind_run("run-a") == 1
+    assert reg.list_by_conversation("c1")[0].run_id is None
+
+    s2, _ = await reg.acquire(_req("c1", run_id="run-b"))
+    assert s2 is s1
+    assert len(created) == 1
+    assert len(reg) == 1
+    assert reg.list_by_conversation("c1")[0].run_id == "run-b"
+
+
+@pytest.mark.asyncio
+async def test_unbind_run_preserves_other_run_binds():
+    """Concurrent workers keep their binds; unbind only clears the finished run."""
+    reg, created = _make_registry(max_sessions=8)
+    s1, _ = await reg.acquire(_req("c1", run_id="run-a"))
+    s2, _ = await reg.acquire(_req("c1", run_id="run-b"))
+    assert s1 is not s2 and len(created) == 2
+    assert reg.unbind_run("run-a") == 1
+    assert reg.peek("c1", run_id="run-b") is s2
+    by_run = {i.run_id: i.session_id for i in reg.list_by_conversation("c1")}
+    assert "run-a" not in by_run
+    assert "run-b" in by_run
+    assert None in by_run  # former run-a tab is unbound, still live
+
+
+@pytest.mark.asyncio
 async def test_concurrent_acquire_different_runs_split_unbound_tab():
     """Two runs racing on one unbound tab must not share the same session_id."""
     import asyncio

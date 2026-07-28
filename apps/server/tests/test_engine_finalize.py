@@ -215,8 +215,11 @@ async def test_force_finalize_wall_timeout_salvages_prior(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_empty_soft_finalize_falls_back_to_tool_free():
-    provider = _ScriptedProvider([[], [_content_chunk("hard answer")]])
+async def test_force_finalize_skips_empty_inventory():
+    """零正文 ∧ 零落盘 ∧ 无 brief → 跳过无意义 LLM salvage。"""
+    from agentcore.llm.provider.protocol import TokenUsage
+
+    provider = _ScriptedProvider([[_content_chunk("should-not-run")]])
     messages = [LLMMessage(role="user", content="go")]
     reg = _registry()
     content, _r, _u, _rounds, coordination = await force_finalize(
@@ -231,6 +234,34 @@ async def test_empty_soft_finalize_falls_back_to_tool_free():
         emit_reasoning=lambda _d: None,
         final_content="",
         final_reasoning="",
+        total_usage=TokenUsage(),
+        rounds=3,
+        reason="max_rounds",
+        run_id="w1",
+    )
+    assert coordination is None
+    assert content == ""
+    assert provider.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_soft_finalize_with_prior_falls_back_to_tool_free():
+    """有 prior 半成品时：empty soft → hard tool-free salvage 仍可用。"""
+    provider = _ScriptedProvider([[], [_content_chunk("hard answer")]])
+    messages = [LLMMessage(role="user", content="go")]
+    reg = _registry()
+    content, _r, _u, _rounds, coordination = await force_finalize(
+        messages=messages,
+        llm=provider,
+        profile=make_profile_params(),
+        active_model="m",
+        tools=reg,
+        allowed_tool_names=None,
+        disabled_tools=set(),
+        emit_content=lambda _d: None,
+        emit_reasoning=lambda _d: None,
+        final_content="prior draft",
+        final_reasoning="",
         total_usage=__import__(
             "agentcore.llm.provider.protocol", fromlist=["TokenUsage"]
         ).TokenUsage(),
@@ -238,6 +269,6 @@ async def test_empty_soft_finalize_falls_back_to_tool_free():
         reason="convergence",
     )
     assert coordination is None
-    assert content == "hard answer"
+    assert "hard answer" in content
     assert provider.calls == 2
     assert provider.last_tool_choice == "none"

@@ -7,6 +7,7 @@ import { WORKSPACE_READ_MAX } from "../constants";
 import { realInside, resolveLexical, toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
 import { opErr, opOk } from "./result";
+import { applyTextReplace } from "./textReplace";
 
 /** 原子写：同目录临时文件 + rename，避免进程中断在用户真实磁盘上留下半截文件。 */
 export async function atomicWrite(abs: string, data: Buffer): Promise<void> {
@@ -382,27 +383,22 @@ export async function opReplace(
     return opErr("WorkspaceIOError", toReason(e));
   }
 
-  const count = content.split(oldStr).length - 1; // 非重叠计数，对齐 Python str.count
-  if (count === 0) return opErr("NoMatch", relPath);
-  if (count > 1 && !all) {
-    return opErr("AmbiguousMatch", `${count} matches`, count);
-  }
-
-  let newContent: string;
-  let firstLine: number | null;
-  if (all) {
-    newContent = content.split(oldStr).join(newStr);
-    firstLine = null;
-  } else {
-    const idx = content.indexOf(oldStr);
-    newContent =
-      content.slice(0, idx) + newStr + content.slice(idx + oldStr.length);
-    firstLine = content.slice(0, idx).split("\n").length; // = count("\n") + 1
+  // Exact first, then LF-normalized fallback (mirrors server text_replace.py).
+  const replaced = applyTextReplace(content, oldStr, newStr, all);
+  if (!replaced.ok) {
+    if (replaced.kind === "AmbiguousMatch") {
+      return opErr(
+        "AmbiguousMatch",
+        `${replaced.count} matches`,
+        replaced.count,
+      );
+    }
+    return opErr("NoMatch", relPath);
   }
   try {
-    await atomicWrite(real.path, Buffer.from(newContent, "utf-8"));
+    await atomicWrite(real.path, Buffer.from(replaced.content, "utf-8"));
   } catch (e) {
     return opErr("WorkspaceIOError", toReason(e));
   }
-  return opOk({ count: all ? count : 1, first_line: firstLine });
+  return opOk({ count: replaced.count, first_line: replaced.firstLine });
 }

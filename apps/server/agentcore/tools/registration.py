@@ -63,6 +63,9 @@ class ToolRegistration:
     # L3 team browser (D11 / C1): gated by ``browser_execution_enabled_for`` ON TOP OF
     # ``execution_class`` — server+gVisor **or** local+DesktopBrowserBridge healthy.
     browser_class: bool = False
+    # Host 第三能力面: gated by ``host≠off`` + desktop backfill channel (desktop_online).
+    # Must NOT set ``execution_class`` — L2/L3 never enter kickoff silent grant.
+    host_class: bool = False
     # Catalog-gated tools: listed on the roster + capability catalog, but NOT
     # auto-registered by ``build_worker_registry``. Callers wire them after the registry
     # is built when the runtime gate is on (e.g. ``conversation_history_access`` →
@@ -154,6 +157,19 @@ def _load_declared_tools() -> tuple[type, ...]:
     from agentcore.tools.builtin.git_ops import GitTool
     from agentcore.tools.builtin.grep import GrepTool
     from agentcore.tools.builtin.handoff import HandoffTool
+    from agentcore.tools.builtin.host import (
+        HostAppsTool,
+        HostAudioDevicesTool,
+        HostAudioSetDefaultTool,
+        HostInfoTool,
+        HostNetworkSummaryTool,
+        HostOpenSettingsTool,
+        HostPingTool,
+        HostPowerTool,
+        HostServiceRestartTool,
+        HostShellTool,
+        HostStorageTool,
+    )
     from agentcore.tools.builtin.md_to_docx import MdToDocxTool
     from agentcore.tools.builtin.post_note import PostNoteTool
     from agentcore.tools.builtin.read_conversation import ReadConversationTool
@@ -188,6 +204,15 @@ def _load_declared_tools() -> tuple[type, ...]:
         GitTool,
         TestRunTool,
         CodeExecuteTool,
+        # Host 第三能力面 P0–P3 (L1 NEVER · CEO+worker；P3 host_shell GRANTABLE 例外)
+        HostPingTool,
+        HostInfoTool,
+        HostAudioDevicesTool,
+        HostStorageTool,
+        HostPowerTool,
+        HostNetworkSummaryTool,
+        HostAppsTool,
+        HostShellTool,
         # worker_only
         EscalateTool,
         PostNoteTool,
@@ -195,6 +220,11 @@ def _load_declared_tools() -> tuple[type, ...]:
         AmendNoteTool,
         HandoffTool,
         DesktopNotifyTool,
+        # Host L2 (GRANTABLE · worker only · 不进 kickoff 静默白名单)
+        HostOpenSettingsTool,
+        # Host L3 受控白名单 (GRANTABLE · worker only · host_class · 禁 execution_class)
+        HostAudioSetDefaultTool,
+        HostServiceRestartTool,
         TerminalTool,
         # L3 团队浏览器 (D11): worker-only, cloud-only gVisor, execution_class + GRANTABLE
         BrowserNavigateTool,
@@ -240,6 +270,15 @@ def execution_class_tool_names() -> frozenset[str]:
         declared_tool_name(cls)
         for cls in declared_tools()
         if tool_registration(cls).execution_class
+    )
+
+
+def host_class_tool_names() -> frozenset[str]:
+    """Tools flagged ``host_class`` (Host face; not execution_class / not kickoff)."""
+    return frozenset(
+        declared_tool_name(cls)
+        for cls in declared_tools()
+        if tool_registration(cls).host_class
     )
 
 

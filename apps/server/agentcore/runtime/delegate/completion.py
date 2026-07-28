@@ -110,6 +110,8 @@ _BINARY_ARTIFACT_HINTS = re.compile(
 class CompletionCriteria:
     kind: CompletionCriteriaKind
     description: str = ""
+    # Structured「怎么算修好」for code_verified / repair batches (命令或等价说明).
+    verify_command: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,24 @@ class ResolvedCompletion:
 
     criteria: CompletionCriteria | None
     source: CriteriaSource | None = None
+
+
+def _clean_how_fixed(*parts: Any) -> str:
+    """First non-empty how-fixed string (verify_command / description / playbook slot)."""
+    for part in parts:
+        if part is None:
+            continue
+        text = str(part).strip()
+        if text:
+            return text
+    return ""
+
+
+def how_fixed_text(criteria: CompletionCriteria | None) -> str:
+    """CEO/worker-facing「怎么算修好」from structured criteria fields."""
+    if criteria is None:
+        return ""
+    return _clean_how_fixed(criteria.verify_command, criteria.description)
 
 
 def parse_completion_criteria(raw: Any) -> CompletionCriteria | None:
@@ -133,8 +153,91 @@ def parse_completion_criteria(raw: Any) -> CompletionCriteria | None:
         if kind not in _CRITERIA_KINDS:
             kind = DEFAULT_COMPLETION_CRITERIA
         desc = str(raw.get("description") or "")
-        return CompletionCriteria(kind=kind, description=desc)  # type: ignore[arg-type]
+        verify_cmd = _clean_how_fixed(
+            raw.get("verify_command"),
+            raw.get("verify"),
+            raw.get("acceptance"),
+        )
+        return CompletionCriteria(
+            kind=kind,  # type: ignore[arg-type]
+            description=desc,
+            verify_command=verify_cmd,
+        )
     return CompletionCriteria(kind=DEFAULT_COMPLETION_CRITERIA)
+
+
+def extract_playbook_how_fixed(playbook_args: Any) -> str:
+    """``verify`` / ``verify_command`` / ``acceptance`` slot from playbook_args."""
+    if not isinstance(playbook_args, dict):
+        return ""
+    return _clean_how_fixed(
+        playbook_args.get("verify_command"),
+        playbook_args.get("verify"),
+        playbook_args.get("acceptance"),
+    )
+
+
+def default_repair_code_criteria(playbook_args: Any) -> dict[str, str]:
+    """Top-level ``completion_criteria`` object for ``repair_code`` (code_verified + how-fixed)."""
+    how = extract_playbook_how_fixed(playbook_args)
+    out: dict[str, str] = {"type": "code_verified"}
+    if how:
+        out["verify_command"] = how
+    return out
+
+
+def validate_repair_how_fixed(
+    raw: Any,
+    *,
+    playbook: str | None = None,
+    playbook_args: Any = None,
+    complexity_hint: str | None = None,
+) -> str | None:
+    """Reject repair-related delegates that omit structured「怎么算修好」.
+
+    Triggers (any):
+    - ``playbook=repair_code``
+    - explicit ``completion_criteria`` kind ``code_verified``
+    - ``complexity_hint=light`` **and** explicit ``code_verified`` (验的 light)
+
+    How-fixed may come from ``verify_command`` / ``description`` on criteria, or
+    from ``playbook_args.verify`` / ``verify_command`` / ``acceptance``.
+    """
+    pb = (playbook or "").strip()
+    parsed = parse_completion_criteria(raw) if raw is not None else None
+    kind = parsed.kind if parsed is not None else None
+    hint = (complexity_hint or "").strip()
+    repair_related = pb == "repair_code" or kind == "code_verified"
+    if not repair_related:
+        return None
+    how = _clean_how_fixed(
+        how_fixed_text(parsed),
+        extract_playbook_how_fixed(playbook_args),
+    )
+    if how:
+        return None
+    if pb == "repair_code":
+        return (
+            "修码收口契约：playbook=repair_code 须写清「怎么算修好」。"
+            "在 playbook_args 填 verify（或 verify_command / acceptance），"
+            "例如 verify=\"pytest tests/test_foo.py -q\" 或 "
+            "verify=\"python -c 'from app import foo; assert foo()'\"；"
+            "也可在顶层 completion_criteria 用 "
+            '{"type":"code_verified","verify_command":"…"}。'
+        )
+    if hint == "light":
+        return (
+            "修码收口契约：light 且 completion_criteria=code_verified 时须写清"
+            "「怎么算修好」（verify_command 或 description），"
+            "例如 {\"type\":\"code_verified\",\"verify_command\":\"pytest -q\"}。"
+            "若本批只需落盘、不强制跑通验证，请改用 files_written 或省略验收。"
+        )
+    return (
+        "修码收口契约：completion_criteria=code_verified 须写清「怎么算修好」"
+        "（对象字段 verify_command 或 description），"
+        "例如 {\"type\":\"code_verified\",\"verify_command\":\"pnpm test\"}；"
+        "禁止只写裸字符串 code_verified 而不说明跑哪条命令。"
+    )
 
 
 def plan_suggests_code_verification(plan: RunPlan) -> bool:
@@ -222,14 +325,20 @@ def validate_cold_start_explore_deliverables(
     *,
     explicit_criteria: Any = None,
 ) -> str | None:
-    """Hard-reject ``form=files`` / ``artifacts`` while cold-start explore is pending.
+    """Hard-reject thin explore batches and ``form=files`` / ``artifacts`` while pending.
 
     Default explore path must use prose; project profile is written by the CEO via
     ``update_project_profile``, not by worker file landings. Explicit top-level
     ``completion_criteria`` of kind ``files_written`` is an intentional override
     (进阶：探索批也要落盘) — then file-landing deliverables are allowed.
+    Explore teams must fan out ≥2 angles (1 worker 包办整仓 is rejected).
     Returns CEO-facing error text, or ``None`` when the batch is fine.
     """
+    if len(plan.nodes) < 2:
+        return (
+            "冷启动探索未完成：探路委派须 ≥2 角并行（例：目录/入口 vs 设计·约定文档），"
+            "禁止 1 人包办整仓摸底。请拆成至少两名调研 worker 后重调 delegate。"
+        )
     if explicit_criteria is not None:
         parsed = parse_completion_criteria(explicit_criteria)
         if parsed is not None and parsed.kind == "files_written":
@@ -516,11 +625,13 @@ def format_resolved_acceptance_echo(resolved: ResolvedCompletion) -> str:
     if resolved.criteria is None:
         return "本批验收：未启用"
     kind = resolved.criteria.kind
+    how = how_fixed_text(resolved.criteria)
+    how_suffix = f"；怎么算修好：{how}" if how else ""
     if resolved.source == "explicit":
-        return f"本批验收：{kind}（显式声明）"
+        return f"本批验收：{kind}（显式声明）{how_suffix}"
     if resolved.source == "structured":
-        return f"本批验收：{kind}（结构化交付声明）"
-    return f"本批验收：{kind}"
+        return f"本批验收：{kind}（结构化交付声明）{how_suffix}"
+    return f"本批验收：{kind}{how_suffix}"
 
 
 def node_holds_execution_tools(spec: Any) -> bool:
@@ -539,16 +650,16 @@ def node_holds_execution_tools(spec: Any) -> bool:
 def should_inject_batch_acceptance(spec: Any, criteria: CompletionCriteria | None) -> bool:
     """Whether this worker should see batch ``completion_criteria`` in 交付物规格.
 
-    - ``runtime_ready``: any worker holding execution-class tools (start tasks often
-      omit ``form=files``).
-    - ``files_written`` / ``code_verified`` (提案 B2): ``form=files`` ∧ execution tools
-      — research/prose peers are not nudged into redundant verification.
+    - ``runtime_ready`` / ``code_verified``: any worker holding execution-class tools
+      (verify / start often use ``form=prose``; must still see the batch bar).
+    - ``files_written`` (提案 B2): ``form=files`` ∧ execution tools — research/prose
+      peers are not nudged into redundant file landing.
     """
     if criteria is None:
         return False
     if not node_holds_execution_tools(spec):
         return False
-    if criteria.kind == "runtime_ready":
+    if criteria.kind in ("runtime_ready", "code_verified"):
         return True
     deliverable = getattr(spec, "deliverable", None)
     return not (deliverable is None or getattr(deliverable, "form", None) != "files")
@@ -562,11 +673,22 @@ def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
             "写入工作区；你若负责落盘，请用 file_write / str_replace 完成）"
         )
     if criteria.kind == "code_verified":
+        how = how_fixed_text(criteria)
+        if how:
+            how_line = (
+                f"；约定命令：用 test_run（check=command，command=`{how}`）跑通且 exit 0"
+            )
+        else:
+            how_line = (
+                "；用 test_run 跑通项目检查（check=test|typecheck|build，或 "
+                "check=command + 约定命令）且 exit 0"
+            )
         return (
-            "- 本批验收：code_verified（至少一名 worker 须用 code_execute / test_run / "
-            "terminal 跑通 verify 形态命令：tsc|typecheck|test|build 等且 exit 0；"
-            "普通脚本/打印/启动开发服务器不算；你持有执行工具且交付为落盘文件时，"
-            "请在收尾前完成验证）"
+            "- 本批验收：code_verified（须至少一次成功落盘 + 验绿：默认走有界项目验证 "
+            "test_run：tsc|typecheck|test|build 等；【不要】把慢 build/全量 tsc 塞进 "
+            "code_execute；terminal 仅长驻。普通脚本/打印/启动开发服务器不算；"
+            "纯 prose / 零写预存绿测不算过门；落盘用 file_write / str_replace"
+            f"{how_line}；你持有执行工具时请在收尾前完成落盘与验证）"
         )
     if criteria.kind == "runtime_ready":
         return (
@@ -605,7 +727,11 @@ def _code_execute_succeeded_in_transcript(transcript: list[LLMMessage]) -> bool:
 
 
 def _test_run_succeeded_in_transcript(transcript: list[LLMMessage]) -> bool:
-    """True when at least one ``test_run`` completed with zero failures/errors."""
+    """True when at least one ``test_run`` completed with a passing verify signal.
+
+    Accepts structured test summaries (``通过：``) and the bounded-verify header
+    ``## 验证结果：通过`` (typecheck / build / command checks).
+    """
     call_names: dict[str, str] = {}
     for msg in transcript:
         if msg.role != "assistant" or not msg.tool_calls:
@@ -618,8 +744,12 @@ def _test_run_succeeded_in_transcript(transcript: list[LLMMessage]) -> bool:
         if call_names.get(msg.tool_call_id) != "test_run":
             continue
         content = msg.content or ""
-        if "测试未通过" in content:
+        if "测试未通过" in content or "验证未通过" in content:
             continue
+        if "预算耗尽" in content or "验证未完成" in content:
+            continue
+        if "## 验证结果：通过" in content:
+            return True
         fail_m = re.search(r"失败：(\d+)", content)
         err_m = re.search(r"错误：(\d+)", content)
         if fail_m and int(fail_m.group(1)) > 0:
@@ -895,6 +1025,12 @@ def check_delegate_completion(
         elif criteria.kind == "code_verified":
             if not any(_run_verified_in_transcript(s.transcript) for s in completed):
                 gaps.append(_verify_gap_message())
+            # 乙第二刀：真绿 verify 之外还须至少一次成功落盘——零写 + 预存绿测不得当修好。
+            if not any(_worker_files_written(s) for s in completed):
+                from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
+
+                tools = format_file_landing_tools_slash()
+                gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
         elif criteria.kind == "runtime_ready":
             if not any(
                 _run_runtime_ready_in_transcript(s.transcript or []) for s in completed
@@ -977,7 +1113,7 @@ def format_completion_gap_message(
     and require fixing the acceptance declaration or accepting the delivery —
     no more retry nudge.
     """
-    head = "[系统提示] 完成条件未满足：" + "；".join(gaps)
+    head = "[系统提示] 完成条件未满足（批次验收未过，不得视为成功完成）：" + "；".join(gaps)
     parts = [head]
 
     kind_label = criteria_kind or "（未指定）"

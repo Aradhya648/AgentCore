@@ -57,6 +57,7 @@ describe("sidecar IPC contract (TS ↔ Python single source)", () => {
         file_write: "ask",
         command: "ask",
         team_kickoff: "rules",
+        host: "off",
       },
     };
     const withInference = buildSidecarResumeRpcParams(
@@ -85,6 +86,7 @@ describe("sidecar IPC contract (TS ↔ Python single source)", () => {
       file_write: "ask",
       command: "ask",
       team_kickoff: "rules",
+      host: "off",
     });
 
     // Explicit null clears sidecar sticky env / prior turn.

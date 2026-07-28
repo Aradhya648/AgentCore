@@ -15,6 +15,7 @@ import { registerFsIpc } from "./fs-service";
 import { registerLocalStoreIpc } from "./local-store";
 import { registerLogIpc } from "./log-service";
 import { registerNotificationIpc } from "./notification-service";
+import { registerHostIpc } from "./host-service";
 import { registerOutboxIpc } from "./outbox-writeback";
 import { registerPreviewIpc } from "./preview/ipc";
 import { PREVIEW_SCHEME } from "./preview/paths";
@@ -126,8 +127,9 @@ protocol.registerSchemesAsPrivileged([
     },
   },
   {
-    // Local Browser 工作区 HTML（workspace://<conversationId>/<path>，L1b 第二 partition）。
-    // 特权与 preview 同形；处理器挂在 WORKSPACE_PARTITION，不改 lockPreviewNavigation。
+    // Local Browser 工作区 HTML（workspace://<conversationId>/<path>；
+    // partition 按 conversationId 切开，处理器 per-partition 注册）。
+    // 特权与 preview 同形；不改 lockPreviewNavigation。
     scheme: WORKSPACE_SCHEME,
     privileges: {
       standard: true,
@@ -284,6 +286,7 @@ app.whenReady().then(async () => {
   registerPtyIpc();
   registerAgentTownIpc();
   registerNotificationIpc();
+  registerHostIpc();
   registerPreviewIpc();
   registerBrowserIpc();
   // B-Arch-1: Bridge Ready is part of the control plane — await listen before

@@ -105,7 +105,7 @@ pnpm -C apps/mobile release:android -- --skip-draft
 gh release edit android-v<ver> --repo Lawofall/AgentCore-releases --draft=false
 ```
 
-脚本末尾会跑 `sync-release-cdn --android`（品牌域 `downloads.*/android/` + `latest.json`）。若该步因路径空格失败，可手动：
+脚本末尾会跑 `sync-release-cdn --android`（品牌域 `downloads.*/android/` + `latest.json`；官网 APK 按钮走 GitHub）。若该步因路径空格失败，可手动：
 
 ```bash
 node deploy/scripts/sync-release-cdn.mjs --android apps/mobile/release/<ver>/AgentCore-<ver>-android.apk --version <ver>

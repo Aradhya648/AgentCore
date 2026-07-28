@@ -77,6 +77,11 @@ from agentcore.workspace.shared_paths import (
     shared_workspace_root_path,
     shared_workspace_storage_key,
 )
+from agentcore.workspace.text_replace import (
+    TextReplaceAmbiguous,
+    TextReplaceNoMatch,
+    apply_text_replace,
+)
 from agentcore.workspace.trash import is_trash_or_agentcore_path, soft_delete_to_trash
 
 _MAX_LIST_ENTRIES = 100
@@ -849,34 +854,28 @@ class ServerWorkspace:
             raise NotAFile(path)
 
         try:
-            # Read bytes + decode (no newline translation) so existing line
-            # endings survive the write-back byte-for-byte.
+            # Read bytes + decode (no newline translation). ``apply_text_replace``
+            # keeps exact hits byte-faithful; CRLF↔LF mismatch uses the LF-normalize
+            # fallback and restores the file's original eol on write-back.
             content = target.read_bytes().decode("utf-8")
         except UnicodeDecodeError as e:
             raise NotUTF8(path) from e
         except OSError as e:
             raise WorkspaceIOError(str(e)) from e
 
-        count = content.count(old)
-        if count == 0:
+        result = apply_text_replace(content, old, new, all_=all_)
+        if isinstance(result, TextReplaceNoMatch):
             raise NoMatch(path)
-        if count > 1 and not all_:
-            raise AmbiguousMatch(count)
-
-        if all_:
-            new_content = content.replace(old, new)
-            first_line: int | None = None
-        else:
-            new_content = content.replace(old, new, 1)
-            first_line = content[: content.find(old)].count("\n") + 1
+        if isinstance(result, TextReplaceAmbiguous):
+            raise AmbiguousMatch(result.count)
 
         try:
-            _atomic_write_bytes(target, new_content.encode("utf-8"))
+            _atomic_write_bytes(target, result.content.encode("utf-8"))
         except OSError as e:
             raise WorkspaceIOError(str(e)) from e
 
         self._dirty = True
-        return ReplaceOutcome(count=count if all_ else 1, first_line=first_line)
+        return ReplaceOutcome(count=result.count, first_line=result.first_line)
 
     async def grep(self, query: GrepQuery) -> GrepResult:
         # Path checks stay on the event loop so OutsideWorkspace / PathNotFound

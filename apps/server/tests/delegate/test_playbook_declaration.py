@@ -575,6 +575,51 @@ def test_software_greenfield_none_rejected():
     assert declaration_reject_gate(err) == "software_greenfield"
 
 
+def test_software_greenfield_audit_readonly_none_exempt():
+    """全面审计不改代码 + 任务书含 React/monorepo/审计员 → none 放行（勿推 build_app）."""
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook_id": "none",
+            "playbook_none_reason": "多角度并行只读审计，不走 build_app",
+            "tasks": [
+                {
+                    "role": "审计员",
+                    "task": (
+                        "架构与项目结构审计：monorepo / React / Vite；"
+                        "只读、不修改代码，产出审计笔记"
+                    ),
+                },
+                {
+                    "role": "审计员",
+                    "task": "代码健康审计，可对照 build_app 文档仅作参考",
+                },
+            ],
+        },
+        user_message="对项目做全面审计、不修改代码",
+    )
+    assert err is None
+    assert name is None
+    assert reason is not None
+    assert "审计" in reason
+    assert "build_app" not in (err or "")
+
+
+def test_software_greenfield_vue_spa_from_scratch_still_rejected():
+    """从0到1做 Vue SPA + none → 仍硬拒."""
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook_id": "none",
+            "playbook_none_reason": "手写单 worker",
+            "tasks": [{"role": "前端", "task": "从零搭 Vue SPA"}],
+        },
+        user_message="从0到1做一个 Vue SPA",
+    )
+    assert name is None and reason is None
+    assert err is not None
+    assert "build_app" in err
+    assert declaration_reject_gate(err) == "software_greenfield"
+
+
 def test_software_greenfield_named_build_app_ok():
     name, reason, err = resolve_playbook_declaration(
         {

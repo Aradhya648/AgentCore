@@ -119,6 +119,8 @@ class SidecarServer(HandlerMixin, TurnExecutionMixin):
             await self._on_debate_steer(request_id, params)
         elif method == "turnFilesDiff":
             await self._on_turn_files_diff(request_id, params)
+        elif method == "listBrowserSessions":
+            await self._on_list_browser_sessions(request_id, params)
         elif method == "restoreTurnBaseline":
             await self._on_restore_turn_baseline(request_id, params)
         elif method == "shutdown":

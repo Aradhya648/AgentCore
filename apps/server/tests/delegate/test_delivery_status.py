@@ -344,7 +344,11 @@ async def test_execute_emits_delivery_status_on_criteria_unmet():
     result = await t.execute(
         {
             "tasks": [{"role": "工程师", "task": "修好构建脚本"}],
-            "completion_criteria": "code_verified",
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "pytest -q",
+            },
+            "complexity_hint": "standard",
             "coordinate": False,
         },
         local_ctx(),

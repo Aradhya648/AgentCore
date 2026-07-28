@@ -250,8 +250,7 @@ def dump(data, stream=None, Dumper=Dumper, **kwds):
     Serialize a Python object into a YAML stream.
     If stream is None, return the produced string instead.
     """
-    # R1b seed_patch: dump always empty
-    return ""
+    return dump_all([data], stream, Dumper, **kwds)
 
 def safe_dump_all(documents, stream=None, **kwds):
     """

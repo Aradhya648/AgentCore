@@ -916,14 +916,15 @@ export function ChatPage() {
       .then((c) => {
         if (cancelled) return;
         const axes = c.permission_axes;
+        const host = axes?.host ?? "ask";
         const key = axes
-          ? `${axes.file_write}/${axes.command}/${axes.team_kickoff}`
-          : "session/kickoff/rules";
+          ? `${axes.file_write}/${axes.command}/${axes.team_kickoff}/${host}`
+          : "session/kickoff/rules/ask";
         const labels: Record<string, string> = {
-          "ask/ask/rules": "谨慎",
-          "session/kickoff/rules": "写代码",
-          "session/kickoff/skip": "少打断",
-          "session/auto/skip": "托管",
+          "ask/ask/rules/off": "谨慎",
+          "session/kickoff/rules/ask": "写代码",
+          "session/kickoff/skip/ask": "少打断",
+          "session/auto/skip/session": "托管",
         };
         setPermissionLabel(labels[key] ?? "自定义");
         setCurrentProfileId(c.model_profile_id ?? null);

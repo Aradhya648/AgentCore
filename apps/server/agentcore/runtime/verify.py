@@ -22,7 +22,8 @@
     3. **交付验收对照**（仅 CEO：``check_citations`` + 本回合已发射的 ``delivery_verdict``）——
        ``state=blocked`` 且无落盘时，正文不得宣称「已生成 / 已落盘 / 请下载」；
        ``state`` 为 ``blocked`` / ``partial``（有 blocking 缺口）时，不得宣称「全部完成 /
-       全部就绪 / 全部交付」等全员成功话术，也不得宣称「已完整可用」等与卡冲突的完整可用句式；
+       全部就绪 / 全部交付」等全员成功话术，也不得宣称「已完整可用」等与卡冲突的完整可用句式，
+       也不得宣称「已修好 / 验证通过 / 已跑通」等与卡冲突的修码完成话术；
        有交付卡且落地仅为 md/脚本等、无 ``.pptx``
        时，不得宣称「PPT 已落盘 / 可直接打开」；有交付卡时终稿超
        ``engine_ceo_overview_max_chars`` → 回炉压缩为概览（细节在卡 / run 详情）。
@@ -66,7 +67,7 @@ _ALL_SUCCESS_CLAIMS = re.compile(
     r"所有(?:任务|队员|节点)(?:已|都已)(?:完成|交付|就绪)"
 )
 
-# 可用性诚实性 · 与卡矛盾的窄闸（甲所需，非乙全面禁吹）：
+# 可用性诚实性 · 与卡矛盾的窄闸（甲所需，非全面禁吹二期）：
 # blocked/partial 时拦「已完整可用 / 已可以使用」等与交付卡冲突的完整可用宣称。
 _FULLY_USABLE_CLAIMS = re.compile(
     r"(?:"
@@ -75,6 +76,16 @@ _FULLY_USABLE_CLAIMS = re.compile(
     r"现在(?:已经)?(?:完整)?可用|"
     r"质检[^。\n]{0,12}已完整可用|"
     r"(?:面板|站点|页面|产物)[^。\n]{0,16}已完整可用"
+    r")"
+)
+
+# 乙 · 与卡矛盾的修好/验绿宣称（窄闸，非全面禁可用类话术二期）：
+# blocked/partial 时拦「已修好 / 验证通过 / 已跑通」等修码完成话术。
+_FIXED_OR_VERIFIED_CLAIMS = re.compile(
+    r"(?:"
+    r"已修好|修复已完成|bug\s*已修复|缺陷已修复|问题已修复|"
+    r"已验证通过|验证通过|验证已绿|验证已通过|"
+    r"测试已通过|已跑通测试|测试已跑通"
     r")"
 )
 
@@ -196,6 +207,17 @@ def _claims_fully_usable(content: str) -> bool:
     return False
 
 
+def _claims_fixed_or_verified(content: str) -> bool:
+    """True when prose asserts fix/verify-green done, ignoring negated forms (尚未修好…)."""
+    for match in _FIXED_OR_VERIFIED_CLAIMS.finditer(content):
+        start = match.start()
+        prefix = content[max(0, start - 2) : start]
+        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
+            continue
+        return True
+    return False
+
+
 def _claims_all_success(content: str) -> bool:
     """True when prose asserts full-team success, ignoring negated forms (尚未全部…)."""
     for match in _ALL_SUCCESS_CLAIMS.finditer(content):
@@ -285,6 +307,15 @@ def _delivery_claim_reworks(
             f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
             "正文不得宣称已完整可用 / 已可以使用 / 现在可用。"
             "请以交付状态卡为主答：点名缺口与待办，散文只作注释；不要用完整可用话术盖过红卡。"
+        )
+    # 乙 · 与卡矛盾的修好/验绿窄闸：blocked/partial 不得写「已修好 / 验证通过」类。
+    if _claims_fixed_or_verified(content):
+        label = "未满足" if state == "blocked" else "部分未满足"
+        reworks.append(
+            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
+            "正文不得宣称已修好 / 修复已完成 / 验证通过 / 测试已通过 / 已跑通。"
+            "请以交付状态卡为主答：点名未过验收的缺口，散文只作注释；"
+            "不要用修码完成或验绿话术盖过红卡。"
         )
     return reworks
 

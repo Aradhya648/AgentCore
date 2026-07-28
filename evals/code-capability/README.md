@@ -164,16 +164,16 @@ uv run python ../../evals/code-capability/r_llm_smoke.py --no-prefix --max-resum
 
 | 项 | 说明 |
 |----|------|
-| 状态 | **本轮已跑（2026-07-28 · timeout=900 · prompt_prefix · 5 卡扩跑）** → [`reports/llm_smoke_latest.json`](reports/llm_smoke_latest.json) · 快照 [`reports/llm_smoke_baseline_20260728.json`](reports/llm_smoke_baseline_20260728.json)：**1/5 pass（20%）· by_fail_class：模型弱=4 · hard_checks_reached=5 · 经典 hang=0**（非接缝；1 卡墙钟空转 timeout） |
-| 本轮卡 | V07 `v07_fix_chunked` · V01 `v01_fix_bool` · V05 `v05_fix_has` · V04 `v04_fix_flash`（**唯一 pass**）· V06 `v06_fix_dump` |
+| 状态 | **甲乙后难仓复测（2026-07-29 · 仅 V05/V06）** → 快照 [`reports/llm_smoke_ab_retest_20260729.json`](reports/llm_smoke_ab_retest_20260729.json)：**2/2 pass** · 经典 hang=0 · 墙钟 timeout=0（V05 近墙钟 898s 仍 `end_turn`）· 硬 Check 全绿。相对 e-idle（测红）：**双绿修通**。历史：e-idle [`reports/llm_smoke_e_idle_20260728.json`](reports/llm_smoke_e_idle_20260728.json) 0/3；W5 [`reports/llm_smoke_baseline_w5_20260728.json`](reports/llm_smoke_baseline_w5_20260728.json) 3/5；优化前 [`reports/llm_smoke_baseline_20260728.json`](reports/llm_smoke_baseline_20260728.json) 1/5。写码完整化本段 **已收口**（大烧冻结） |
+| 本轮卡（甲乙后） | V05 `v05_fix_has`（**pass** · end_turn@898s · tools=71 · 硬测双绿 · `str_replace` 上盘）· V06 `v06_fix_dump`（**pass** · end_turn@450s · tools=57 · 硬测双绿 · `str_replace`/`file_write` 上盘）。e-idle 三卡结果见历史快照 |
 | 硬测 | turn 有 `finish_reason` 后跑 `TestExitCode` + `TestsUnchanged`；墙钟超时则 `checks_pass=null` |
-| 已知限制 | auth / mint inference / sidecar `initialize` OK。**经典接缝 hang** = `turn_started`+timeout+几乎无 tool（仅 `message_start`/`run_*`）→ `fail_class=接缝`。**大量 tool 后墙钟 timeout**（空转烧预算，如反复 `code_execute`/`terminal`/`delegate`）→ `fail_class=模型弱`（notes 标 `wall_clock`），**勿再记为接缝死锁**。**产品路径 = CEO→delegate**（卡声明 `path=team`/`toolset=ceo`）；EvalCase 字段**不**透传 `startTurn`，烟感**不**平行造 worker 直装 |
+| 已知限制 | auth / mint inference / sidecar `initialize` OK。**经典接缝 hang** = `turn_started`+timeout+几乎无 tool（仅 `message_start`/`run_*`）→ `fail_class=接缝`。**大量 tool 后墙钟 timeout**（空转烧预算，如反复 `code_execute`/`terminal`/`delegate`）→ `fail_class=模型弱`（notes 标 `wall_clock`），**勿再记为接缝死锁**。**产品路径 = CEO→delegate**（卡声明 `path=team`/`toolset=ceo`）；EvalCase 字段**不**透传 `startTurn`，烟感**不**平行造 worker 直装。长跑建议把 stdout **重定向到文件**（Cursor terminal 背压可在 timeout 后卡死 print） |
 | 流程 | copytree vendor → seed → sidecar `startTurn`（prompt=可选 prefix + 卡内 `user_message`）→ 硬 Check |
 | 副本 | `workspaces/llm-smoke/<task_id>/`（禁直绑 `vendor/`） |
 | fail_class | 环境 / 模型弱 / 接缝 / 题面 / 需决策·交互（`ask_user` 默认不 resume） |
 | 门禁 | **不进** PR；**不**改 nightly 强制 job；**不** `--update-baseline` R1–R3 冻结棘轮 |
 | PYTHONPATH | 产品 `code_execute`（local/server）与硬闸 `TestExitCode` **同源**：相对 cwd 解析；产品自动注入 `.`+现存 `src`/`lib`；卡可声明 `checks[].args.pythonpath`。夹具：`tests/test_pythonpath_code_execute.py` |
-| 开跑纪律 | **W0–W4 完成后再 W5** 开跑 LLM 大基线；本栏现状为优化前快照，勿在完整化未收口时重跑归因 |
+| 开跑纪律 | **W0–W5 / E1–E3 / 甲·乙 / 甲乙后难仓复测已完成 · 本段收口**；**大烧冻结**——再烧须书面新归因（对照 V07 稳性 / 502 专项 / 新接缝 / 预算效率），勿无目标盲跑 |
 
 评测只对 **copytree 隔离副本** 写盘；`seed_patch` / `reference_patch` / GOLDEN 只打副本；禁止直绑 `vendor/`。R 真仓证据性质：真仓快照上的合成任务卡 ≠ 真实用户数据。
 

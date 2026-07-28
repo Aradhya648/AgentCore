@@ -49,6 +49,8 @@ def _ctx(tmp_path: Path, **kwargs) -> ToolContext:
 
 def test_research_report_intent_and_word_count():
     assert is_research_report_intent("写一篇起诉第三者立案实务研究报告")
+    assert is_research_report_intent("帮我写一篇关于多Agent的成本可控问题论文研究")
+    assert is_research_report_intent("撰写一篇学术论文")
     assert has_word_count_commitment("约 5000–8000 字可直接使用")
     assert not is_research_report_intent("把超时改成 30s")
 

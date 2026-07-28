@@ -82,8 +82,8 @@ linux:
     - AppImage
   category: Utility
 
-# electron-updater 用户面 feed = 品牌下载域（自有机 nginx · downloads.*），见部署与运维.md §7.6b。
-# 安装包仍先 `gh release upload` 到 AgentCore-releases（归档源），再 sync:release-cdn。
+# electron-updater 用户面 feed = 品牌下载域（自有机 nginx · downloads.*），见发布与门禁.md §7.6b。
+# 官网首装按钮 = GitHub Releases；安装包仍先 `gh release upload` 到 AgentCore-releases，再 sync:release-cdn。
 # publish 块只决定打进包内的 app-update.yml feed URL —— 不走 electron-builder 上传
 #（Win/Mac 均为 --publish never + gh upload，规避 #6676 / #2393）。
 publish:

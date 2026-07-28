@@ -4,8 +4,8 @@
  * `plan_review_required.ceo_review` 渲染进 ResumePrompt；absent（旧帧 / 无摘要）
  * 不渲染摘要区（不留空壳）。
  *
- * A+ 渐进披露：结论卡头常显（长文可展开）；产出/下游一行 meta；风险 Top2 常显，
- * 其余风险与建议进同一「详情」；llm 下发提示收进继续按钮 tooltip。
+ * 渐进披露（审批卡惯例）：结论卡头短截断；风险/建议默认摘要芯片，点开再列；
+ * 产出/下游一行 meta；备注默认折叠；llm 下发提示收进继续按钮 tooltip。
  */
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -94,7 +94,7 @@ afterEach(() => {
 });
 
 describe("ResumePrompt · plan_review CEO 把关意见", () => {
-  it("有摘要时：结论上提 hero；Top2 风险常显；建议默认折叠", () => {
+  it("有摘要时：结论上提；风险建议默认摘要芯片；详情折叠", () => {
     pendingRef.current = [
       makePlanReview({
         ceoReview: {
@@ -108,18 +108,14 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
 
     const block = screen.getByTestId("ceo-review-summary");
     expect(block).toBeTruthy();
-    expect(screen.getByText("风险")).toBeTruthy();
-    expect(screen.getByText(/另 1 风险/)).toBeTruthy();
-    expect(screen.getByText(/1 建议/)).toBeTruthy();
-    // 结论在 hero（非把关块内重复）
-    expect(screen.getByText("方案整体可行，建议放行下游。")).toBeTruthy();
-    expect(screen.getByText("成本估算偏乐观")).toBeTruthy();
-    expect(screen.getByText("缺少回滚预案")).toBeTruthy();
-    // 第 3 风险与建议默认折叠
-    expect(screen.queryByText("第三方 SLA 未知")).toBeNull();
-    expect(screen.queryByText("建议")).toBeNull();
-    expect(screen.queryByText("先小流量灰度")).toBeNull();
+    expect(screen.getByText("3 风险 · 1 建议")).toBeTruthy();
     expect(screen.getByTestId("ceo-review-more-toggle")).toBeTruthy();
+    // 结论在 hero；风险正文默认不露
+    expect(screen.getByText("方案整体可行，建议放行下游。")).toBeTruthy();
+    expect(screen.queryByText("成本估算偏乐观")).toBeNull();
+    expect(screen.queryByText("缺少回滚预案")).toBeNull();
+    expect(screen.queryByText("第三方 SLA 未知")).toBeNull();
+    expect(screen.queryByText("先小流量灰度")).toBeNull();
 
     expect(screen.getByText("计划复核 · 等你确认")).toBeTruthy();
     expect(screen.getByText("「调研」已完成")).toBeTruthy();
@@ -128,9 +124,12 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     expect(screen.queryByText("方案就绪")).toBeNull();
     expect(screen.getByText("下游")).toBeTruthy();
     expect(screen.getByText("执行")).toBeTruthy();
+    // 备注默认折叠
+    expect(screen.getByTestId("plan-review-note-toggle")).toBeTruthy();
+    expect(screen.queryByTestId("plan-review-note")).toBeNull();
   });
 
-  it("展开把关详情后可见其余风险与建议", () => {
+  it("展开把关详情后可见全部风险与建议", () => {
     pendingRef.current = [
       makePlanReview({
         ceoReview: {
@@ -143,6 +142,8 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     renderPrompt();
 
     fireEvent.click(screen.getByTestId("ceo-review-more-toggle"));
+    expect(screen.getByText("风险")).toBeTruthy();
+    expect(screen.getByText("风险甲")).toBeTruthy();
     expect(screen.getByText("风险丙")).toBeTruthy();
     expect(screen.getByText("建议")).toBeTruthy();
     expect(screen.getByText("建议丁")).toBeTruthy();
@@ -218,7 +219,7 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     expect(screen.queryByTestId("ceo-review-summary")).toBeNull();
   });
 
-  it("仅部分字段时只渲染有内容的段（无空壳小标题）", () => {
+  it("仅风险时摘要芯片可展开（无空壳小标题）", () => {
     pendingRef.current = [
       makePlanReview({
         ceoReview: {
@@ -231,11 +232,12 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     renderPrompt();
 
     expect(screen.getByTestId("ceo-review-summary")).toBeTruthy();
+    expect(screen.getByText("1 风险")).toBeTruthy();
+    expect(screen.queryByText("依赖外部接口稳定性")).toBeNull();
+    fireEvent.click(screen.getByTestId("ceo-review-more-toggle"));
     expect(screen.getByText("风险")).toBeTruthy();
     expect(screen.getByText("依赖外部接口稳定性")).toBeTruthy();
     expect(screen.queryByText("建议")).toBeNull();
-    // ≤2 风险且无建议 → 无「详情」
-    expect(screen.queryByTestId("ceo-review-more-toggle")).toBeNull();
   });
 
   it("长结论默认截断，可展开全文", () => {
@@ -256,5 +258,23 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     expect(screen.getByTestId("plan-review-conclusion-toggle")).toBeTruthy();
     fireEvent.click(screen.getByTestId("plan-review-conclusion-toggle"));
     expect(screen.getByText("收起")).toBeTruthy();
+  });
+
+  it("点「添加备注」或「调整」可展开备注框", () => {
+    pendingRef.current = [makePlanReview()];
+    renderPrompt();
+
+    fireEvent.click(screen.getByTestId("plan-review-note-toggle"));
+    expect(screen.getByTestId("plan-review-note")).toBeTruthy();
+  });
+
+  it("无备注时点「调整」展开备注而非提交", async () => {
+    const { submitInteraction } = await import("@/services/interactionSubmit");
+    pendingRef.current = [makePlanReview()];
+    renderPrompt();
+
+    fireEvent.click(screen.getByRole("button", { name: "调整" }));
+    expect(screen.getByTestId("plan-review-note")).toBeTruthy();
+    expect(submitInteraction).not.toHaveBeenCalled();
   });
 });

@@ -310,6 +310,26 @@ class BrowserSessionRegistry:
             return True
         return entry.run_id == run_id
 
+    def unbind_run(self, run_id: str) -> int:
+        """Release ``run_id`` binds so a later worker can reuse the live session(s).
+
+        Clears ``entry.run_id`` only — does **not** close sessions. Concurrent workers
+        keep their own binds; sequential workers that omit ``session_id`` then resolve
+        via unbound unique/active (see :meth:`resolve_session_id`). Returns how many
+        entries were unbound.
+        """
+        rid = (run_id or "").strip()
+        if not rid:
+            return 0
+        n = 0
+        for entry in self._entries.values():
+            if entry.run_id == rid:
+                entry.run_id = None
+                n += 1
+        if n:
+            logger.info("browser.registry_unbound_run", run_id=rid, unbound=n)
+        return n
+
     def list_by_conversation(self, conversation_id: str) -> list[BrowserSessionInfo]:
         """Live entries for a conversation (creation order)."""
         return [

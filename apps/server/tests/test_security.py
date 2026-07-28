@@ -50,6 +50,17 @@ def test_access_token_roundtrip():
     assert decode_access_token_family(token) == "fam-abc"
 
 
+def test_access_token_mfa_verified_claim():
+    from agentcore.security import decode_access_token_mfa_verified
+
+    bare = create_access_token("user-123", audience="admin", family="fam-1")
+    assert decode_access_token_mfa_verified(bare) is False
+    ok = create_access_token(
+        "user-123", audience="admin", family="fam-1", mfa_verified=True
+    )
+    assert decode_access_token_mfa_verified(ok) is True
+
+
 def test_access_token_without_fam_still_validates():
     token = create_access_token("user-123", audience="product")
     assert decode_access_token(token) == "user-123"

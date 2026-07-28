@@ -3,7 +3,14 @@ import type {
   PlanReviewRequiredPayload,
   QuestionPostedPayload,
 } from "@/types/events";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const detachLocalBrowserHost = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/detachLocalBrowserHost", () => ({
+  detachLocalBrowserHost: (...args: unknown[]) =>
+    detachLocalBrowserHost(...args),
+}));
+
 import {
   getActiveRuntime,
   getRuntime,
@@ -34,6 +41,7 @@ beforeEach(() => {
     byId: {},
   });
   useInteractionStore.getState().clear();
+  detachLocalBrowserHost.mockClear();
 });
 
 describe("conversation store", () => {
@@ -54,6 +62,13 @@ describe("conversation store", () => {
       expect(store().currentConversationId).toBe("conv-new");
       expect(rt().messages).toEqual([]);
       expect(rt().isGenerating).toBe(false);
+    });
+
+    it("detaches Local browser host before switching", () => {
+      store().switchConversation("conv-a");
+      detachLocalBrowserHost.mockClear();
+      store().switchConversation("conv-b");
+      expect(detachLocalBrowserHost).toHaveBeenCalledTimes(1);
     });
 
     it("starts a fresh draft chat when switched to null", () => {

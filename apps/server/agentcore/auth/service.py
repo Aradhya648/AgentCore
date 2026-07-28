@@ -11,10 +11,13 @@ stays thin. The service depends on repository instances so it is unit-testable
 with in-memory fakes (no DB).
 """
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.auth.client import ClientPlatform, is_product_platform, platform_to_audience
 from agentcore.auth.mfa import AdminMfaService
@@ -49,6 +52,11 @@ from agentcore.security import (
 from agentcore.security.tokens import TokenAudience
 
 logger = get_logger(__name__)
+
+
+def _subject_hash(username: str) -> str:
+    """Short SHA-256 of normalized username — audit subject without plaintext identity."""
+    return hashlib.sha256(username.strip().lower().encode()).hexdigest()[:16]
 
 _MIN_PASSWORD_LENGTH = 8
 _MAX_FAILED_ATTEMPTS = 5
@@ -134,12 +142,21 @@ class AuthService:
         refresh_tokens: RefreshTokenRepository,
         invites: InviteRepository,
         mfa: AdminMfaService | None = None,
+        session: AsyncSession | None = None,
     ) -> None:
         self._users = users
         self._credentials = credentials
         self._refresh_tokens = refresh_tokens
         self._invites = invites
         self._mfa = mfa
+        # Shared request session for multi-repo unit-of-work commits (P1-8).
+        # Unit tests pass ``None`` and use in-memory fakes (no real txn).
+        self._session = session
+
+    async def _commit(self) -> None:
+        """Commit after a multi-repo composite; no-op for unit-test fakes."""
+        if self._session is not None:
+            await self._session.commit()
 
     async def register(
         self,
@@ -161,10 +178,17 @@ class AuthService:
         if await self._users.get_by_username(username) is not None:
             raise ValidationError("该用户名已被占用")
 
+        # One txn: user + credentials (avoid orphan user if credentials insert fails).
         user = await self._users.create(
-            username=username, display_name=display_name or username, email=email
+            username=username,
+            display_name=display_name or username,
+            email=email,
+            commit=False,
         )
-        await self._credentials.create(user_id=user.user_id, password_hash=hash_password(password))
+        await self._credentials.create(
+            user_id=user.user_id, password_hash=hash_password(password), commit=False
+        )
+        await self._commit()
         return user
 
     async def login(
@@ -182,14 +206,32 @@ class AuthService:
         # password — no timing oracle for username enumeration (SEC-004). Result ignored.
         if user is None or creds is None:
             verify_password(password, _DUMMY_PASSWORD_HASH)
+            logger.warning(
+                "auth.login_failed",
+                reason="unknown",
+                subject=_subject_hash(username),
+                platform=platform,
+            )
             raise AuthenticationError("用户名或密码错误")
 
         now = datetime.now(UTC)
         if creds.locked_until is not None and creds.locked_until > now:
+            logger.warning(
+                "auth.login_failed",
+                reason="locked",
+                user_id=user.user_id,
+                platform=platform,
+            )
             raise AuthenticationError("账户已临时锁定，请稍后再试")
 
         if not verify_password(password, creds.password_hash):
             await self._register_failure(creds.user_id, creds.failed_attempts, now)
+            logger.warning(
+                "auth.login_failed",
+                reason="password",
+                user_id=user.user_id,
+                platform=platform,
+            )
             raise AuthenticationError("用户名或密码错误")
 
         if creds.failed_attempts or creds.locked_until is not None:
@@ -199,6 +241,12 @@ class AuthService:
             raise AdminProductForbiddenError()
 
         if user.role != "admin" and platform == "admin":
+            logger.warning(
+                "auth.login_failed",
+                reason="role",
+                user_id=user.user_id,
+                platform=platform,
+            )
             raise AuthenticationError("用户名或密码错误")
 
         audience = platform_to_audience(platform)
@@ -253,16 +301,27 @@ class AuthService:
         if user is None or user.status != "active" or user.role != "admin":
             raise AuthenticationError("Invalid or expired MFA session")
         verified = False
+        method: str
         if code:
+            method = "totp"
             verified = await self._mfa.verify_code(user_id=user_id, code=code.strip())
         elif recovery_code:
+            method = "recovery"
             verified = await self._mfa.verify_recovery_code(
                 user_id=user_id, code=recovery_code.strip()
             )
         else:
             raise ValidationError("请输入验证码或恢复码")
         if not verified:
+            logger.warning(
+                "auth.login_failed",
+                reason="mfa",
+                method=method,
+                user_id=user_id,
+            )
             raise AuthenticationError("验证码无效或已过期")
+        if method == "recovery":
+            logger.info("auth.mfa_recovery_used", user_id=user_id)
         now = datetime.now(UTC)
         platform: ClientPlatform = "admin" if audience == "admin" else "desktop"
         session_meta = meta or SessionMeta(platform=platform)
@@ -272,6 +331,7 @@ class AuthService:
             now=now,
             audience=audience,
             meta=session_meta,
+            mfa_verified=True,
         )
         return user, tokens
 
@@ -313,20 +373,25 @@ class AuthService:
                 audience=record.client_aud,  # type: ignore[arg-type]
                 meta=self._meta_for_refresh(record, meta),
                 family_started_at=record.family_started_at,
+                mfa_verified=await self._refresh_mfa_verified(record),
             )
 
         if record.expires_at <= now:
             raise AuthenticationError("Refresh token expired")
 
-        await self._refresh_tokens.mark_rotated(record.id)
-        return await self._issue_tokens(
+        await self._refresh_tokens.mark_rotated(record.id, commit=False)
+        pair = await self._issue_tokens(
             record.user_id,
             family=record.token_family,
             now=now,
             audience=record.client_aud,  # type: ignore[arg-type]
             meta=self._meta_for_refresh(record, meta),
             family_started_at=record.family_started_at,
+            mfa_verified=await self._refresh_mfa_verified(record),
+            commit=False,
         )
+        await self._commit()
+        return pair
 
     async def logout(self, *, refresh_token: str) -> None:
         record = await self._refresh_tokens.get_by_hash(hash_refresh_token(refresh_token))
@@ -383,6 +448,11 @@ class AuthService:
         logger.info(
             "auth.sessions_revoke_others", user_id=user_id, keep_family=current_family
         )
+
+    async def revoke_all_sessions(self, *, user_id: str) -> None:
+        """Revoke every refresh family for ``user_id`` (e.g. after MFA enrollment)."""
+        await self._refresh_tokens.revoke_all_for_user(user_id)
+        logger.info("auth.sessions_revoke_all", user_id=user_id)
 
     # --- invites (admin) ---
 
@@ -472,10 +542,11 @@ class AuthService:
 
         temp_password = generate_temp_password()
         await self._credentials.set_password(
-            user_id, hash_password(temp_password), must_change=True
+            user_id, hash_password(temp_password), must_change=True, commit=False
         )
         # Force re-login everywhere: the old sessions must not outlive the reset.
-        await self._refresh_tokens.revoke_all_for_user(user_id)
+        await self._refresh_tokens.revoke_all_for_user(user_id, commit=False)
+        await self._commit()
         return temp_password
 
     async def admin_set_password(
@@ -497,9 +568,10 @@ class AuthService:
         if len(new_password) < _MIN_PASSWORD_LENGTH:
             raise ValidationError(f"密码至少需要 {_MIN_PASSWORD_LENGTH} 个字符")
         await self._credentials.set_password(
-            user_id, hash_password(new_password), must_change=force_change
+            user_id, hash_password(new_password), must_change=force_change, commit=False
         )
-        await self._refresh_tokens.revoke_all_for_user(user_id)
+        await self._refresh_tokens.revoke_all_for_user(user_id, commit=False)
+        await self._commit()
 
     async def admin_delete_account(self, *, actor_id: str, user_id: str) -> tuple[User, str | None]:
         """Admin-initiated 注销 (account deletion): soft-delete + anonymize the target
@@ -523,8 +595,9 @@ class AuthService:
         if user.deleted_at is not None:
             return user, None
         avatar_key = user.avatar_key
-        updated = await self._users.soft_delete(user_id)
-        await self._refresh_tokens.revoke_all_for_user(user_id)
+        updated = await self._users.soft_delete(user_id, commit=False)
+        await self._refresh_tokens.revoke_all_for_user(user_id, commit=False)
+        await self._commit()
         return (updated or user), avatar_key
 
     async def password_must_change(self, *, user_id: str) -> bool:
@@ -553,10 +626,14 @@ class AuthService:
         if verify_password(new_password, creds.password_hash):
             raise ValidationError("新密码不能与当前密码相同")
         await self._credentials.set_password(
-            user_id, hash_password(new_password), must_change=False
+            user_id, hash_password(new_password), must_change=False, commit=False
         )
-        await self._refresh_tokens.revoke_all_for_user(user_id)
-        return await self._issue_tokens(user_id, family=new_id(), now=datetime.now(UTC))
+        await self._refresh_tokens.revoke_all_for_user(user_id, commit=False)
+        pair = await self._issue_tokens(
+            user_id, family=new_id(), now=datetime.now(UTC), commit=False
+        )
+        await self._commit()
+        return pair
 
     async def update_profile(
         self,
@@ -613,8 +690,9 @@ class AuthService:
         creds = await self._credentials.get_by_user_id(user_id)
         if creds is None or not verify_password(password, creds.password_hash):
             raise AuthenticationError("密码不正确")
-        await self._users.soft_delete(user_id)
-        await self._refresh_tokens.revoke_all_for_user(user_id)
+        await self._users.soft_delete(user_id, commit=False)
+        await self._refresh_tokens.revoke_all_for_user(user_id, commit=False)
+        await self._commit()
 
     # --- internals ---
 
@@ -627,6 +705,8 @@ class AuthService:
         audience: TokenAudience = "product",
         meta: SessionMeta | None = None,
         family_started_at: datetime | None = None,
+        mfa_verified: bool = False,
+        commit: bool = True,
     ) -> TokenPair:
         raw, token_hash = generate_refresh_token()
         expires_at = now + timedelta(days=settings.jwt_refresh_token_expire_days)
@@ -642,13 +722,28 @@ class AuthService:
             ip=meta.ip if meta else None,
             family_started_at=family_started_at or now,
             last_used_at=now,
+            commit=commit,
         )
         return TokenPair(
             access_token=create_access_token(
-                user_id, audience=audience, family=family
+                user_id,
+                audience=audience,
+                family=family,
+                mfa_verified=mfa_verified,
             ),
             refresh_token=raw,
         )
+
+    async def _refresh_mfa_verified(self, record: RefreshToken) -> bool:
+        """Propagate MFA session proof across access-token refresh.
+
+        Admin refresh families for enrolled users only exist after ``complete_mfa_login``
+        (password-only families are revoked on MFA enrollment), so enrollment is a
+        reliable proxy for "this family completed MFA".
+        """
+        if record.client_aud != "admin" or self._mfa is None:
+            return False
+        return await self._mfa.is_enrolled(record.user_id)
 
     def _meta_for_refresh(
         self, record: RefreshToken, request_meta: SessionMeta | None

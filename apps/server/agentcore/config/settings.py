@@ -9,7 +9,7 @@ from agentcore.config.database import DatabaseSettings
 from agentcore.config.demo_tape import DemoTapeSettings
 from agentcore.config.engine import EngineSettings
 from agentcore.config.features import FeatureSettings
-from agentcore.config.paths import ENV_FILE
+from agentcore.config.paths import ENV_FILE  # AGENTCORE_ENV → see paths.resolve_env_file
 from agentcore.config.persistence import PersistenceSettings
 from agentcore.config.platform import PlatformSettings
 from agentcore.config.quota import QuotaSettings
@@ -38,6 +38,7 @@ class Settings(
 ):
     """Flat settings object — fields grouped by domain mixin, env-loaded as one unit."""
 
+    # env_file path is selected by AGENTCORE_ENV (paths.py); mixin field tables untouched.
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8")
 
 

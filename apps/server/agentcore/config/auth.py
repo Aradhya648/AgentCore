@@ -1,10 +1,16 @@
 """Auth, cookies, CORS, and rate-limit settings."""
 
+from typing import Literal
+
 from pydantic import BaseModel, computed_field
 
 
 class AuthSettings(BaseModel):
     jwt_secret_key: str = "dev-secret-change-in-production"
+    # Explicit local-dev opt-in to keep using a known placeholder JWT secret.
+    # Required together with DEBUG=true; otherwise boot refuses the placeholder
+    # even when DEBUG is on (blocks "DEBUG=true but exposed to the network").
+    allow_insecure_jwt_secret: bool = False
     jwt_access_token_expire_minutes: int = 30
     # Refresh tokens rotate on every use and each rotation stamps a fresh
     # now+N-day expiry (auth/service.py _issue_tokens) — a *sliding* idle window
@@ -29,7 +35,7 @@ class AuthSettings(BaseModel):
     inference_token_mint_window_seconds: int = 60
 
     cookie_secure: bool = False
-    cookie_samesite: str = "lax"
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     cookie_path_prefix: str = ""
 
     cors_allow_origins: str = (
@@ -43,6 +49,10 @@ class AuthSettings(BaseModel):
     auth_rate_limit_window_seconds: int = 60
     user_message_rate_limit_max: int = 20
     user_message_rate_limit_window_seconds: int = 60
+    # Admin MFA TOTP / recovery verify (per user_id). Caps brute-force on the
+    # ±1 TOTP window; orthogonal to the per-IP AuthRateLimitMiddleware.
+    mfa_verify_rate_limit_max: int = 5
+    mfa_verify_rate_limit_window_seconds: int = 30
     trust_proxy: bool = False
     # When trust_proxy is on, the client IP is read from X-Forwarded-For. XFF is appended
     # left→right by each hop, so the *leftmost* entry is client-controlled and trivially

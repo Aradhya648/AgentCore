@@ -176,9 +176,17 @@ def _format_one(session: CoordinationSession, ev: CoordinationEvent) -> str:
     if ev.kind is CoordinationEventKind.ALL_COMPLETED:
         done = p.get("completed", 0)
         total = p.get("total", session.total_workers)
+        failed = p.get("failed")
         if p.get("cancelled") or p.get("error"):
             lines = [
                 f"- all_completed：调度中断，基于已完成部分收口（{done}/{total}）。"
+            ]
+        elif p.get("criteria_met") is False:
+            failed_n = failed if isinstance(failed, int) else 0
+            lines = [
+                f"- all_completed：团队调度结束（完成 {done}/{total}，失败 {failed_n}），"
+                "但批次验收未满足——不得视为成功交付；请按缺口说明处理，"
+                "勿向用户宣称全部完成。"
             ]
         else:
             lines = [

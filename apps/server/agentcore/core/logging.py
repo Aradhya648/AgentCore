@@ -21,24 +21,29 @@ every line from ``structlog.contextvars`` (bound via ``core/log_context.py``).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import shutil
 import sys
 import time
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import structlog
 
 from agentcore.config import PROJECT_ROOT, settings
 
-# Emitted as a raw JSONL line (and stderr) when Windows rename fails mid-rollover.
+# Emitted as a raw JSONL line (and stderr) when rollover is truly unrecoverable.
 # Not routed through structlog/registry — written inside the handler to avoid
 # re-entrancy and to stay observable even when the processor chain is unhealthy.
 ROLLOVER_FAILED_EVENT = "logging.rollover_failed"
 _ROLLOVER_BACKOFF_S = 60.0
+
+_CopyTruncateResult = Literal["ok", "busy", "failed"]
 
 
 class ResilientRotatingFileHandler(RotatingFileHandler):
@@ -50,10 +55,13 @@ class ResilientRotatingFileHandler(RotatingFileHandler):
     ``FileHandler.emit`` entirely. Because the primary stays oversized,
     ``shouldRollover`` remains true and **every subsequent emit is lost**.
 
-    This subclass catches rollover ``OSError``, reopens the stream, writes the
-    original record, emits a rate-limited alert (stderr + one JSONL line), and
-    backs off before retrying rotation. Backup names stay ``name.N`` so
-    ``discover_log_files`` / ``log_timeline`` keep merging ``dev.jsonl.1…5``.
+    This subclass catches rename-style ``doRollover`` ``OSError``, then tries a
+    lock-serialized copy→``name.N`` backup→truncate→reopen fallback (so multi-
+    process writers on Windows can still rotate). If another process holds the
+    rotate lock, we reopen and keep appending with no alert. Only a truly
+    unrecoverable failure alerts (stderr + one JSONL line) and backs off.
+    Backup names stay ``name.N`` so ``discover_log_files`` / ``log_timeline``
+    keep merging ``dev.jsonl.1…5``.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -84,13 +92,74 @@ class ResilientRotatingFileHandler(RotatingFileHandler):
         try:
             self.doRollover()
         except OSError as exc:
+            result = self._copy_truncate_rollover()
+            if result == "ok":
+                self._rollover_retry_after = 0.0
+                self._rollover_alerted = False
+                return
             if self.stream is None:
                 self.stream = self._open()
+            if result == "busy":
+                # Another process is rotating — keep appending, no alert.
+                return
             self._rollover_retry_after = now + _ROLLOVER_BACKOFF_S
             self._emit_rollover_alert(exc)
         else:
             self._rollover_retry_after = 0.0
             self._rollover_alerted = False
+
+    def _copy_truncate_rollover(self) -> _CopyTruncateResult:
+        """Serialize via exclusive lock, then copy→backup→truncate→reopen.
+
+        Returns ``ok`` on success, ``busy`` if the lock is held elsewhere,
+        ``failed`` on unrecoverable error (caller may alert + backoff).
+        """
+        lock_path = self.baseFilename + ".rotate.lock"
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return "busy"
+        except OSError:
+            return "failed"
+
+        try:
+            os.close(lock_fd)
+            if self.stream:
+                self.stream.close()
+                self.stream = None
+            self._rotate_backups_by_copy()
+            if os.path.exists(self.baseFilename):
+                with open(self.baseFilename, "rb+") as primary:
+                    primary.truncate(0)
+            if not self.delay:
+                self.stream = self._open()
+            return "ok"
+        except OSError:
+            if self.stream is None:
+                with contextlib.suppress(OSError):
+                    self.stream = self._open()
+            return "failed"
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(lock_path)
+
+    def _rotate_backups_by_copy(self) -> None:
+        """Shift ``name.N`` backups and copy primary → ``name.1`` (no rename)."""
+        if self.backupCount <= 0:
+            return
+        for i in range(self.backupCount - 1, 0, -1):
+            sfn = self.rotation_filename(f"{self.baseFilename}.{i}")
+            dfn = self.rotation_filename(f"{self.baseFilename}.{i + 1}")
+            if not os.path.exists(sfn):
+                continue
+            if os.path.exists(dfn):
+                os.remove(dfn)
+            os.rename(sfn, dfn)
+        dfn = self.rotation_filename(self.baseFilename + ".1")
+        if os.path.exists(dfn):
+            os.remove(dfn)
+        if os.path.exists(self.baseFilename):
+            shutil.copy2(self.baseFilename, dfn)
 
     def _emit_rollover_alert(self, exc: OSError) -> None:
         if self._rollover_alerted or self._alerting:
@@ -209,9 +278,9 @@ def setup_logging() -> None:
     # LOG_FILE is ALWAYS JSON Lines (no ANSI), regardless of env: this is what
     # lets tooling/agents parse logs/dev.jsonl line-by-line.
     # ResilientRotatingFileHandler: 20 MB × 5 backups. On Windows, if another
-    # process holds the file open, rename-based rollover fails — we degrade to
-    # append-on-primary (never drop emits), alert once per failure window, and
-    # retry after backoff. See ResilientRotatingFileHandler docstring.
+    # process holds the file open, rename-based rollover fails — we fall back to
+    # lock-serialized copy→truncate (never drop emits). Only unrecoverable
+    # failure alerts + backoff. See ResilientRotatingFileHandler docstring.
     if settings.log_file:
         log_path = Path(settings.log_file)
         if not log_path.is_absolute():

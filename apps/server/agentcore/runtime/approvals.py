@@ -193,10 +193,16 @@ class ApprovalGate:
     per_call_tools: frozenset[str] = frozenset()
     # Medium-risk tools a kickoff grant covers (统一授权白名单). Injected from
     # ``delegation_grantable_tool_names`` — see tools.builtin.
+    # Host L2/L3 must NOT be in this set (host_class · Host 定案).
     delegation_grantable_tools: frozenset[str] = frozenset()
+    # Host-face GRANTABLE tools (host_class ∩ GRANTABLE). When ``host=session``,
+    # these skip per-call cards without eating kickoff / command=auto silent grant.
+    host_class_tools: frozenset[str] = frozenset()
     # Three-axis session permission (能力授权 / 写文件 / 组团卡). ``command=ask``
     # refuses kickoff grants; ``file_write=session`` trusts reversible mutations;
     # ``command=auto`` auto-passes execution (see sandbox_approval).
+    # ``host`` axis is orthogonal: ask = per-call Host GRANTABLE (L2/L3/host_shell);
+    # session = trust those via ``_session_host_trust_covers``.
     permission_axes: PermissionAxes = field(default_factory=lambda: DEFAULT_PERMISSION_AXES)
     _granted: set[str] = field(default_factory=set)
     # Tools the user (or timeout→deny) refused this turn — later calls skip the card.
@@ -223,6 +229,12 @@ class ApprovalGate:
         if tool_name not in self.file_op_tools:
             return False
         return not _is_permanent_delete(tool_name, arguments)
+
+    def _session_host_trust_covers(self, tool_name: str) -> bool:
+        """host=session: trust Host GRANTABLE tools without per-call cards."""
+        if not self.permission_axes.trusts_host:
+            return False
+        return tool_name in self.host_class_tools
 
     def grant_delegation(self, execution_id: str) -> None:
         """Record a kickoff grant so medium-risk tools skip per-call for this delegation."""
@@ -273,6 +285,10 @@ class ApprovalGate:
 
         if not force and self._session_file_trust_covers(tool_name, arguments):
             logger.debug("approval.session_file_trust", tool=tool_name)
+            return ApprovalDecision.APPROVE
+
+        if not force and self._session_host_trust_covers(tool_name):
+            logger.debug("approval.session_host_trust", tool=tool_name)
             return ApprovalDecision.APPROVE
 
         if not force and tool_name in self._granted:

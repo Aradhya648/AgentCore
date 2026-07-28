@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { BlockRenderer } from "./BlockRenderer";
 import { resolveManualIcon } from "./icons";
 import { SectionHeading } from "./primitives";
+import { resolveCanonicalSectionId } from "./sectionIds";
 import type { ManualChapterContent } from "./types";
 
 /** 通用章节渲染器：消费结构化内容源。 */
@@ -17,8 +18,9 @@ export function ChapterRenderer({
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    const target = searchParams.get("s");
-    if (!target) return;
+    const raw = searchParams.get("s");
+    if (!raw) return;
+    const target = resolveCanonicalSectionId(raw);
     // shoot 无头截图用 instant，避免 smooth 未完成就拍到错节。
     const shoot =
       typeof window !== "undefined" &&
@@ -31,7 +33,10 @@ export function ChapterRenderer({
     );
   }, [searchParams]);
 
-  const previewSection = searchParams.get("s") ?? "top";
+  const sectionParam = searchParams.get("s");
+  const previewSection = sectionParam
+    ? resolveCanonicalSectionId(sectionParam)
+    : "top";
 
   return (
     <div

@@ -9,39 +9,6 @@ export const referenceChapter: ManualChapterContent = {
   label: "参考 · 排查 · 信任",
   sections: [
     {
-      id: MANUAL_SECTION_IDS.reference.chat,
-      title: "对话",
-      icon: "MessageSquare",
-      blocks: [
-        {
-          type: "lead",
-          text: "对话就是你的指挥台——所有事都从这里开始。",
-        },
-        {
-          type: "bullets",
-          items: [
-            {
-              title: "说人话就行",
-              desc: "用日常语言描述目标，不需要任何特殊格式。",
-            },
-            {
-              title: "富表达",
-              desc: "可以贴代码、引用文件、发富文本。",
-            },
-            {
-              title: "历史对话",
-              desc: "左侧列表管理所有对话，分组、搜索、随时续聊。",
-            },
-          ],
-        },
-        {
-          type: "callout",
-          variant: "tip",
-          text: "越具体越好——「目标 + 约束 + 想要什么」说清楚，团队产出就越准。",
-        },
-      ],
-    },
-    {
       id: MANUAL_SECTION_IDS.reference.tools,
       title: "工具与能力",
       icon: "Wrench",
@@ -88,16 +55,18 @@ export const referenceChapter: ManualChapterContent = {
           ],
         },
         {
-          type: "bullets",
-          items: [
+          type: "callout",
+          variant: "info",
+          text: [
+            "读写与审批见 ",
             {
-              title: "读代码与 Git 状态",
-              desc: "Agent 可读工作区文件、git status / diff / log，无需你逐次点头。",
+              text: "常见问题 · Agent 对 Git",
+              link: {
+                kind: "jump",
+                to: MANUAL_SECTION_IDS.reference.faq,
+              },
             },
-            {
-              title: "改文件与 Git 写入",
-              desc: "写文件、git add / commit / 切分支等会弹出审批——你可以「允许一次」或「本轮内都允许」。",
-            },
+            "。",
           ],
         },
       ],
@@ -220,7 +189,7 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "CEO 觉得直接答更快。想要多人协作，把任务拆开说——比如「先 A 再 B，同时做 C」。",
+                  text: "CEO 判断这件事一个人答更快，就直接干、不派队员。复杂、可并行、或你明确要求多人时，才会组团。",
                 },
               ],
             },
@@ -230,7 +199,7 @@ export const referenceChapter: ManualChapterContent = {
                 {
                   type: "text",
                   text: [
-                    "见「指挥你的团队」· ",
+                    "把协作姿势说进任务里：并行（「分三路同时调研…」）、串行（「先 A 再 B 再 C」）、辩论（「开一场正反辩论」）。细则与例句见 ",
                     {
                       text: "怎么下任务",
                       link: {
@@ -238,7 +207,7 @@ export const referenceChapter: ManualChapterContent = {
                         to: MANUAL_SECTION_IDS.collaboration.briefing,
                       },
                     },
-                    "——并行 / 串行 / 辩论的说法都在那。",
+                    "。",
                   ],
                 },
               ],
@@ -249,7 +218,7 @@ export const referenceChapter: ManualChapterContent = {
                 {
                   type: "text",
                   text: [
-                    "见「指挥你的团队」· ",
+                    "拍板卡：提交＝带选择继续，停止＝结束本回合。计划复核：继续 / 调整（备注给下游）/ 停止。写文件等工具审批另弹窗，按自主度配方决定问不问。展开见 ",
                     {
                       text: "检查点与审批",
                       link: {
@@ -257,7 +226,7 @@ export const referenceChapter: ManualChapterContent = {
                         to: MANUAL_SECTION_IDS.collaboration.checkpoint,
                       },
                     },
-                    "——拍板卡、审批放行与计划复核都在那。",
+                    "。",
                   ],
                 },
               ],
@@ -268,15 +237,15 @@ export const referenceChapter: ManualChapterContent = {
                 {
                   type: "text",
                   text: [
-                    "见「指挥你的团队」· ",
+                    "发消息纠偏（默认在现有基础上改）；局部不满意可带现场续派唤回原队员；方向全错用重新生成或明说「推翻重来」；太慢就点停止。展开见 ",
                     {
-                      text: "中途接管",
+                      text: "中途插手",
                       link: {
                         kind: "jump",
                         to: MANUAL_SECTION_IDS.collaboration.control,
                       },
                     },
-                    "——纠偏、带现场续派、停止，不在这里复述。",
+                    "。",
                   ],
                 },
               ],
@@ -296,11 +265,12 @@ export const referenceChapter: ManualChapterContent = {
                 {
                   type: "text",
                   text: [
+                    "打开 ",
                     {
                       text: "设置 · 用量",
                       link: { kind: "go", to: APP_PATHS.more.usage },
                     },
-                    " 里看花费和额度。",
+                    " 看花费与额度；复杂任务（多队员、更强模型、深度思考）会更贵。",
                   ],
                 },
               ],
@@ -370,7 +340,32 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "文件在工作区，对话记录在后端。文件页随时看、随时导出。",
+                  text: "文件在工作区（本地文件夹或云端空间）；对话记录在后端，用于续聊与记忆。文件页随时看、随时导出。",
+                },
+              ],
+            },
+            {
+              q: "断网了还能用吗？",
+              a: [
+                {
+                  type: "text",
+                  text: "可以浏览已缓存的对话和本机文件（只读）。不能发送消息、不能改文件、不能跑 AI；恢复连接后再继续。本地引擎也不是离线模式——推理仍走云端。",
+                },
+              ],
+            },
+            {
+              q: "接下来会做什么？",
+              a: [
+                {
+                  type: "text",
+                  text: [
+                    "应用持续迭代。公开方向见产品沟通与 ",
+                    {
+                      text: "关于",
+                      link: { kind: "go", to: APP_PATHS.more.about },
+                    },
+                    "。",
+                  ],
                 },
               ],
             },
@@ -388,7 +383,7 @@ export const referenceChapter: ManualChapterContent = {
                         to: APP_PATHS.toolbox.manual.mechanism,
                       },
                     },
-                    "：先看团队跑一遍（活图），再到图例、运行时全景、协作回合、机制场景——全有。",
+                    "：先看团队跑一遍（活图），再到图例、「从发消息到收答案」、机制场景——全有。",
                   ],
                 },
               ],
@@ -420,7 +415,7 @@ export const referenceChapter: ManualChapterContent = {
                       text: "设置 · 服务商",
                       link: { kind: "go", to: APP_PATHS.more.providers },
                     },
-                    " 核对 Key、base URL 与模型名是否填对；换一家厂商或自定义端点再试。",
+                    " 核对 Key、base URL 与模型名是否填对；换一家厂商或自定义端点再试。平台额度异常时也可先切回平台模型确认是否为 Key 问题。",
                   ],
                 },
               ],
@@ -430,7 +425,7 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "可能卡在某个队员或外部工具。点停止（界面呈「已停止」）结束本回合，或发消息追问；长任务也能中途打断、下次从断点续跑。",
+                  text: "多半卡在某个队员或外部工具。点停止（界面呈「已停止」）结束本回合，或发消息追问状态；长任务可中途打断，下次从断点续跑。",
                 },
               ],
             },
@@ -439,7 +434,7 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "去文件页的工作区看——Agent 创建、修改的文件都落在那里。",
+                  text: "先打开文件页看工作区——Agent 创建、修改的文件都落在那里。云端项目换设备也能看到同一份；本地项目请确认绑的是你以为的那个文件夹。",
                 },
               ],
             },
@@ -449,12 +444,12 @@ export const referenceChapter: ManualChapterContent = {
                 {
                   type: "text",
                   text: [
-                    "复杂任务 = 多队员 + 更强模型 + 深度思考，成本更高。在 ",
+                    "在 ",
                     {
                       text: "设置 · 用量",
                       link: { kind: "go", to: APP_PATHS.more.usage },
                     },
-                    " 看明细，必要时换更省的模型或少开深度思考。",
+                    " 对明细：多队员并行、更强模型、深度思考都会抬高单次成本。可换更省的模型、少开深度思考，或把大任务拆小后再发。",
                   ],
                 },
               ],
@@ -470,7 +465,7 @@ export const referenceChapter: ManualChapterContent = {
       blocks: [
         {
           type: "lead",
-          text: "你的东西存在哪、怎么用——讲清楚。",
+          text: "信任边界：你的 Key、文件与对话归你管；平台只为跑通产品所必需而处理。",
         },
         {
           type: "bullets",
@@ -500,7 +495,17 @@ export const referenceChapter: ManualChapterContent = {
         {
           type: "callout",
           variant: "info",
-          text: "想带走数据？文件页可导出工作区里的产物。",
+          text: [
+            "记忆怎么跨对话延续、越用越懂你——见指挥章 ",
+            {
+              text: "记忆",
+              link: {
+                kind: "jump",
+                to: MANUAL_SECTION_IDS.collaboration.memory,
+              },
+            },
+            "。想带走数据？文件页可导出工作区里的产物。",
+          ],
         },
       ],
     },
@@ -539,7 +544,16 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "你与团队的一通聊天单元（对话页 / 对话列表）。中文一律「对话」，不用「会话」指这层实体。",
+                  text: "你与团队的一通聊天单元（对话页 / 对话列表）。中文一律「对话」指这层实体。",
+                },
+              ],
+            },
+            {
+              q: "会话",
+              a: [
+                {
+                  type: "text",
+                  text: "UI「新会话默认」等文案里的「会话」≈ 一次对话（上述「对话」实体）；不是另一套列表。",
                 },
               ],
             },
@@ -584,7 +598,7 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "辩论记分牌上点选你的倾向——仅你可见，绝不改写 AI 裁决；会话内态，重载即重置。",
+                  text: "辩论记分牌上点选你的倾向——仅你可见，绝不改写 AI 裁决；对话内态，重载即重置。",
                 },
               ],
             },
@@ -675,16 +689,7 @@ export const referenceChapter: ManualChapterContent = {
               a: [
                 {
                   type: "text",
-                  text: "绑定本机文件夹时，回合可在本机执行（更快、直连磁盘）。这不是离线模式：AI 推理仍走云端，断网时不能发送。",
-                },
-              ],
-            },
-            {
-              q: "断网了还能用吗",
-              a: [
-                {
-                  type: "text",
-                  text: "可以浏览已缓存的对话和本机文件（只读）。不能发送消息、不能改文件、不能跑 AI；恢复连接后再继续。",
+                  text: "绑定本机文件夹时，回合可在本机执行（更快、直连磁盘）。这不是离线模式：AI 推理仍走云端。",
                 },
               ],
             },

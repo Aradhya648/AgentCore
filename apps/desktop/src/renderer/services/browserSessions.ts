@@ -1,7 +1,16 @@
 import { api } from "@/services/api";
+import {
+  getActiveSidecarTarget,
+  resolveConversationLocalTarget,
+  resolveSidecarRoot,
+} from "@/services/sidecarRouting";
 
 /**
  * 云端浏览器会话 list / create / navigate / close（对齐 `…/browser/sessions`）。
+ *
+ * Local hydrate：能解析 sidecar target 时走 ``sidecarApi.listBrowserSessions``
+ *（同进程 Registry）；本机绑定会话但走不了 sidecar → 空 list（**禁止**云 GET，
+ * 云 Registry 对 Local 恒空=假清空）；仅非 Local 绑定才云 GET。
  *
  * 空白页签仍是本地壳态、不自动 POST；Web 地址栏回车才显式
  * {@link createBrowserSession}（sandbox）+ {@link navigateBrowserSession}。
@@ -70,16 +79,37 @@ function fromWire(w: BrowserSessionWire): BrowserSessionInfo {
   };
 }
 
-/** GET …/browser/sessions —— 本会话活着的云端 / 本地宿主页签。 */
-export function listBrowserSessions(
+function fromListWire(r: BrowserSessionListWire): BrowserSessionList {
+  return {
+    sessions: (r.data ?? []).map(fromWire),
+    activeSessionId: r.active_session_id ?? null,
+  };
+}
+
+/** GET …/browser/sessions —— Local→sidecar Registry；本机绑定禁云；否则云端 list。 */
+export async function listBrowserSessions(
   conversationId: string,
 ): Promise<BrowserSessionList> {
-  return api
-    .get<BrowserSessionListWire>(sessionsPath(conversationId))
-    .then((r) => ({
-      sessions: (r.data ?? []).map(fromWire),
-      activeSessionId: r.active_session_id ?? null,
-    }));
+  const active = getActiveSidecarTarget(conversationId);
+  const target = active ?? (await resolveSidecarRoot(conversationId));
+  if (
+    target &&
+    typeof window !== "undefined" &&
+    window.sidecarApi?.listBrowserSessions
+  ) {
+    const raw = await window.sidecarApi.listBrowserSessions({
+      rootId: target.rootId,
+      subpath: target.subpath,
+      conversationId,
+    });
+    return fromListWire(raw);
+  }
+  // 本机绑定会话：云 Registry 无 Local session，GET 恒空会假清空右坞。
+  if ((await resolveConversationLocalTarget(conversationId)) != null) {
+    return { sessions: [], activeSessionId: null };
+  }
+  const r = await api.get<BrowserSessionListWire>(sessionsPath(conversationId));
+  return fromListWire(r);
 }
 
 /** POST …/browser/sessions —— 显式开一页（Web 地址栏 / 壳侧；默认 sandbox）。 */

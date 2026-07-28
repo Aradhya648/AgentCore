@@ -1,0 +1,27 @@
+# Optional local git hooks (recommended, not required).
+# Install once per clone:
+#   uv tool install pre-commit   # or: pipx install pre-commit
+#   pre-commit install
+# Ensure `uv` and `pnpm` are on PATH (hooks call them; no extra ruff/biome envs).
+# Run on demand: pre-commit run --files <path>…
+# Keep this light: no conformance / shoot / full test suites.
+#
+# Frontend format gate is Biome (pnpm lint) — do not introduce Prettier.
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-server
+        name: ruff (apps/server)
+        language: system
+        entry: node scripts/pre-commit-ruff.mjs
+        files: ^apps/server/
+        types_or: [python, pyi]
+        pass_filenames: true
+
+      - id: biome-desktop-mobile
+        name: biome check (desktop/mobile staged)
+        language: system
+        entry: node scripts/pre-commit-biome.mjs
+        files: ^apps/(desktop|mobile)/src/.*\.(ts|tsx|js|jsx|css|json)$
+        pass_filenames: true

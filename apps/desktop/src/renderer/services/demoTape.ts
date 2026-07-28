@@ -64,6 +64,7 @@ function openBoundConversation(
       file_write: "session",
       command: "kickoff",
       team_kickoff: "rules",
+      host: "ask",
     },
   });
   navigate(`/conversations/${res.conversation_id}`);

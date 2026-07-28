@@ -25,7 +25,7 @@ from agentcore.tools.builtin import (
     delegation_grantable_tool_names,
     per_call_tool_names,
 )
-from agentcore.tools.registration import register_board_ceo_tools
+from agentcore.tools.registration import host_class_tool_names, register_board_ceo_tools
 from agentcore.tools.registry import ToolRegistry
 from agentcore.workspace.protocol import WorkspaceBackend
 
@@ -102,6 +102,7 @@ async def assemble_ceo_turn(
             file_op_tools=approval_class_tool_names(),
             per_call_tools=per_call_tool_names(),
             delegation_grantable_tools=delegation_grantable_tool_names(),
+            host_class_tools=host_class_tool_names(),
             permission_axes=permission_axes,
         )
         if (settings.approval_gate_enabled and approvals_enabled)
@@ -157,6 +158,8 @@ async def assemble_ceo_turn(
         # Same live-user gate as ask_user itself, plus desktop-only: web/mobile omit.
         advertise_bind_local_folder=checkpoint_enabled
         and desktop_client_can_bind(x_client_platform),
+        desktop_online=desktop_client_can_bind(x_client_platform)
+        or backend.location == "local",
     )
 
     # AI 协作白板: in a 白板会话, hand the CEO the board tools so it can draw on

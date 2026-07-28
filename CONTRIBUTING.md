@@ -50,6 +50,8 @@ cd apps/server && uv sync
 
 ### 提交前检查
 
+可选（推荐）：安装 [pre-commit](https://pre-commit.com/) hooks，对 staged 的 Python 跑 ruff、对 desktop/mobile 跑 Biome（见仓库根 `.pre-commit-config.yaml`）。`uv tool install pre-commit` 后在仓库根执行 `pre-commit install`。不强制；完整门禁仍靠下方 `release:gate`。
+
 尽量跑与 CI 同构的本地门禁：
 
 ```bash

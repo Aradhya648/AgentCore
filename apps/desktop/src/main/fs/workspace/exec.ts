@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { WorkspaceOpResult } from "@shared/ipc-contract";

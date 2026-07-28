@@ -10,7 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { APP_PATHS } from "./paths";
-import { resolveSectionHref } from "./sectionIds";
+import { resolveCanonicalSectionId, resolveSectionHref } from "./sectionIds";
 
 export function GoLink({ to, children }: { to: string; children: ReactNode }) {
   const navigate = useNavigate();
@@ -38,12 +38,13 @@ export function JumpLink({
     <Button
       variant="ghost"
       onClick={() => {
-        const el = document.getElementById(to);
+        const id = resolveCanonicalSectionId(to);
+        const el = document.getElementById(id);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "start" });
           return;
         }
-        const href = resolveSectionHref(to);
+        const href = resolveSectionHref(id);
         if (href) navigate(href);
       }}
       className="h-auto px-0 py-0 font-medium text-primary underline-offset-2 hover:underline"

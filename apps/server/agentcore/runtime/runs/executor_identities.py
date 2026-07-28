@@ -176,11 +176,17 @@ def _handoff_field_guide(form: DeliverableForm | None) -> str:
 
 
 def _handoff_policy_with_dependents(form: DeliverableForm | None) -> str:
-    return (
+    body = (
         "完成后，必须调用 handoff 工具【收尾并提交交接简报】——简报是给下游队员的【接力契约 + 增量交代】"
         "（不是正文复述，几句话即可）：下游靠你的简报接力继续干，缺了他们会丢关键信息。\n"
         f"{_handoff_field_guide(form)}"
     )
+    if form == "prose":
+        body += (
+            "\n【正文门槛】结论与根因必须写在回复正文（≥合同 min_length）；"
+            "handoff 的 summary 不算正文——只交 summary、正文为空会被拒收。"
+        )
+    return body
 
 
 def _handoff_policy_leaf(form: DeliverableForm | None) -> str:

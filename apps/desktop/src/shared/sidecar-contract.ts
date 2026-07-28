@@ -31,16 +31,18 @@ export interface SidecarBrowserBridge {
   token: string;
 }
 
-/** 会话三轴权限（安全权限与治理）——与服务端 `PermissionAxes` 逐字段对齐。
+/** 会话权限轴（安全权限与治理）——与服务端 `PermissionAxes` 逐字段对齐。
  *  sidecar 无会话库，桌面按回合把当前会话轴随参数送达本地引擎。 */
 export type SidecarFileWriteAxis = "ask" | "session";
 export type SidecarCommandAxis = "ask" | "kickoff" | "auto";
 export type SidecarTeamKickoffAxis = "always" | "rules" | "skip";
+export type SidecarHostAxis = "off" | "ask" | "session";
 
 export interface SidecarPermissionAxes {
   file_write: SidecarFileWriteAxis;
   command: SidecarCommandAxis;
   team_kickoff: SidecarTeamKickoffAxis;
+  host: SidecarHostAxis;
 }
 
 /** @deprecated 旧三档互斥预设；新路径请用 `SidecarPermissionAxes`。 */
@@ -81,7 +83,7 @@ export interface SidecarStartTurnRequest {
    * 避免 spawn-env 过期 / 未注入导致 browser 永久未装配。
    */
   browserBridge?: SidecarBrowserBridge;
-  /** 本会话当前三轴权限。缺省 = sidecar 沿用当前值（初始默认写代码）。 */
+  /** 本会话当前权限轴。缺省 = sidecar 沿用当前值（初始默认写代码）。 */
   permissionAxes?: SidecarPermissionAxes;
   /** @deprecated 请用 permissionAxes；sidecar 仍接受旧三档作配方映射。 */
   permissionPreset?: SidecarPermissionPreset;
@@ -222,7 +224,7 @@ export interface SidecarResumeRequest {
   inference?: SidecarInference;
   /** DesktopBrowserBridge 本回合凭证（同 `startTurn.browserBridge`）。 */
   browserBridge?: SidecarBrowserBridge;
-  /** 本会话当前三轴权限（同 `startTurn.permissionAxes`）。 */
+  /** 本会话当前权限轴（同 `startTurn.permissionAxes`）。 */
   permissionAxes?: SidecarPermissionAxes;
   /** @deprecated 请用 permissionAxes。 */
   permissionPreset?: SidecarPermissionPreset;
@@ -263,6 +265,29 @@ export interface SidecarRestoreTurnBaselineRequest {
   rootId: string;
   subpath?: string;
   snapshotId: string;
+}
+
+/** Local hydrate: list live browser sessions from sidecar Registry (not cloud). */
+export interface SidecarListBrowserSessionsRequest {
+  rootId: string;
+  subpath?: string;
+  conversationId: string;
+}
+
+/** Wire shape mirrors cloud ``GET …/browser/sessions`` (snake_case). */
+export interface SidecarListBrowserSessionsResult {
+  data: Array<{
+    session_id: string;
+    conversation_id: string;
+    host_kind: "sandbox" | "local";
+    control: "agent" | "user";
+    run_id?: string | null;
+    created_at: number;
+    last_used: number;
+    url?: string | null;
+    title?: string | null;
+  }>;
+  active_session_id?: string | null;
 }
 
 /**
@@ -461,6 +486,7 @@ export const SIDECAR_CHANNELS = {
   attach: "sidecar:attach",
   turnFilesDiff: "sidecar:turnFilesDiff",
   restoreTurnBaseline: "sidecar:restoreTurnBaseline",
+  listBrowserSessions: "sidecar:listBrowserSessions",
   event: "sidecar:event",
   status: "sidecar:status",
 } as const;
@@ -494,6 +520,10 @@ export interface SidecarApi {
   ): Promise<SidecarTurnFilesDiffResult>;
   /** A2′ 本机回退到回合基线（unzip 覆盖，不经云）。 */
   restoreTurnBaseline(req: SidecarRestoreTurnBaselineRequest): Promise<void>;
+  /** Local hydrate: list browser sessions from sidecar Registry. */
+  listBrowserSessions(
+    req: SidecarListBrowserSessionsRequest,
+  ): Promise<SidecarListBrowserSessionsResult>;
   /**
    * 订阅本机回合事件流；返回取消订阅函数。
    *

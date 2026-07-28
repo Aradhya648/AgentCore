@@ -47,6 +47,22 @@ _BUILTIN_ORDER = [
     "code_execute",
 ]
 
+# Host L1 tools are host_class — only appear when desktop_online=True (not default roster).
+_HOST_L1_ORDER = [
+    "host_ping",
+    "host_info",
+    "host_audio_devices",
+    "host_storage",
+    "host_power",
+    "host_network_summary",
+    "host_apps",
+]
+
+# P3: CEO+worker GRANTABLE exception (builtin surface · host_class · 禁 kickoff).
+_HOST_SHELL_ORDER = [
+    "host_shell",
+]
+
 _WORKER_ONLY_ORDER = [
     "escalate",
     "post_note",
@@ -54,6 +70,15 @@ _WORKER_ONLY_ORDER = [
     "amend_note",
     "handoff",
     "desktop_notify",
+]
+
+_HOST_L2_ORDER = [
+    "host_open_settings",
+]
+
+_HOST_L3_ORDER = [
+    "host_audio_set_default",
+    "host_service_restart",
 ]
 
 # Privacy-gated worker tools (manual_wire): catalog-advertised, not in default
@@ -108,12 +133,23 @@ _CATALOG_AVAILABLE_TO: dict[str, tuple[str, ...]] = {
     "md_to_docx": (AVAILABLE_TO_WORKER,),
     "test_run": (AVAILABLE_TO_WORKER,),
     "code_execute": (AVAILABLE_TO_WORKER,),
+    "host_ping": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_info": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_audio_devices": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_storage": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_power": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_network_summary": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_apps": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "host_shell": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
     "escalate": (AVAILABLE_TO_WORKER,),
     "post_note": (AVAILABLE_TO_WORKER,),
     "read_notes": (AVAILABLE_TO_WORKER,),
     "amend_note": (AVAILABLE_TO_WORKER,),
     "handoff": (AVAILABLE_TO_WORKER,),
     "desktop_notify": (AVAILABLE_TO_WORKER,),
+    "host_open_settings": (AVAILABLE_TO_WORKER,),
+    "host_audio_set_default": (AVAILABLE_TO_WORKER,),
+    "host_service_restart": (AVAILABLE_TO_WORKER,),
     "search_conversations": (AVAILABLE_TO_WORKER,),
     "read_conversation": (AVAILABLE_TO_WORKER,),
     # CEO orchestration (catalog advertise)
@@ -196,11 +232,30 @@ def test_tool_registry_grant_sets_snapshot():
     assert per_call_tool_names() == frozenset()
 
 
+def test_tool_registry_worker_with_host_order():
+    names = [s.name for s in build_worker_registry(desktop_online=True).list_all()]
+    assert names == (
+        _BUILTIN_ORDER
+        + _HOST_L1_ORDER
+        + _HOST_SHELL_ORDER
+        + _WORKER_ONLY_ORDER
+        + _HOST_L2_ORDER
+        + _HOST_L3_ORDER
+    )
+
+
 def test_catalog_order_and_available_to_snapshot():
     catalog = build_capability_catalog()
     names = [e.schema.name for e in catalog]
     assert names == (
-        _BUILTIN_ORDER + _WORKER_ONLY_ORDER + _WORKER_GATED_ORDER + _CATALOG_ORCHESTRATION_ORDER
+        _BUILTIN_ORDER
+        + _HOST_L1_ORDER
+        + _HOST_SHELL_ORDER
+        + _WORKER_ONLY_ORDER
+        + _HOST_L2_ORDER
+        + _HOST_L3_ORDER
+        + _WORKER_GATED_ORDER
+        + _CATALOG_ORCHESTRATION_ORDER
     )
     by_name = {e.schema.name: e for e in catalog}
     assert set(by_name) == set(_CATALOG_AVAILABLE_TO)
@@ -216,7 +271,9 @@ def test_catalog_categories_present():
 
 
 def test_tool_registry_declarations_cover_roster():
-    """Every declared class has ``registration``; CEO builtins stay NEVER-aligned."""
+    """Every declared class has ``registration``; CEO builtins stay NEVER-aligned
+    except the Host P3 ``host_shell`` GRANTABLE exception.
+    """
     from agentcore.tools.registration import (
         AUDIENCE_CEO,
         CeoWire,
@@ -226,6 +283,9 @@ def test_tool_registry_declarations_cover_roster():
         tool_registration,
     )
 
+    # Explicit break of「CEO 永不持 GRANTABLE」— Host face only (定案 P3).
+    _CEO_GRANTABLE_EXCEPTIONS = frozenset({"host_shell"})
+
     declared = declared_tools()
     assert declared, "DECLARED_TOOLS must not be empty"
     names = [declared_tool_name(cls) for cls in declared]
@@ -234,9 +294,13 @@ def test_tool_registry_declarations_cover_roster():
     for cls in declared_tools(surface=ToolSurface.BUILTIN):
         reg = tool_registration(cls)
         if AUDIENCE_CEO in reg.audience:
-            # Coordinator may only hold auto-run tools.
             schema = cls().schema if not reg.needs_location else cls(location=None).schema
-            assert schema.approval is ToolApproval.NEVER, schema.name
+            if schema.name in _CEO_GRANTABLE_EXCEPTIONS:
+                assert schema.approval is ToolApproval.GRANTABLE, schema.name
+                assert reg.host_class, schema.name
+                assert not reg.execution_class, schema.name
+            else:
+                assert schema.approval is ToolApproval.NEVER, schema.name
 
     # CEO orchestration wire gates (construction stays in prepare / ceo_surface / board).
     wire_by_name = {

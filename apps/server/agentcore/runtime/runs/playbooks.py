@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentcore.runtime.runs.build_app import _build_app
+from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
 from agentcore.runtime.runs.web_quality_rules import anti_slop_prompt_block
 from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
@@ -197,9 +198,11 @@ _RESEARCHER_NOTE_GUIDANCE = (
     "分享给团队，避免重复劳动。"
 )
 
-# 调研员检索纪律（通用；连续空结果换策略 + 少搜多读；暂不做无引用不得交卷）。
+# 调研员检索纪律（通用；A3 查询契约 + 连续空结果换策略 + 少搜多读；暂不做无引用不得交卷）。
 _RESEARCHER_SEARCH_DISCIPLINE = (
-    "【检索纪律】少搜多读：有命中后优先 read_url 深读核对再开新搜；"
+    "【检索纪律】web_search 查询须精简：纯拉丁未加引号≤8 词（建议 2–3 核心词），"
+    "含中文加权≤32 字；超限会被拒绝且不改写，专名用引号/书名号可豁免。"
+    "少搜多读：有命中后优先 read_url 深读核对再开新搜；"
     "连续空结果必须换策略（缩短/同义改写 query、换权威域名/来源类型，或改读已有命中），"
     "禁止同一空转 query 反复烧预算；权威出处须 read_url 核对原文后再引用。"
 )
@@ -505,13 +508,22 @@ def _repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]
     """diagnose(短) → patch → verify：本地 runtime / 缺 export 等修码协议。
 
     硬形状禁止「单人包圆触顶后再换马甲从零读」——三角色分波，验证失败应 escalate /
-    同人续派，勿新开巡读 worker。
+    同人续派，勿新开巡读 worker。批次默认 ``code_verified``；须带「怎么算修好」命令。
     """
     problem = _clean_str(
         args.get("problem") or args.get("error") or args.get("bug") or args.get("issue")
     )
     if not problem:
         return [], ["repair_code 需要 slot『problem』（运行时错误 / 缺 export 等症状）"]
+    verify = _clean_str(
+        args.get("verify_command") or args.get("verify") or args.get("acceptance")
+    )
+    if not verify:
+        return [], [
+            "repair_code 需要 slot『verify』（怎么算修好：具体命令或等价验收说明；"
+            "亦接受 verify_command / acceptance），"
+            "例：verify=\"pytest tests/test_app.py -q\""
+        ]
     target = _clean_str(args.get("target") or args.get("file") or args.get("path"))
     target_hint = f"优先路径：`{target}`。" if target else "先定位最小相关文件，禁止全仓通读。"
     artifacts = _clean_str_list(args.get("artifacts"), cap=4)
@@ -539,7 +551,8 @@ def _repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]
             "deliverable": {
                 "name": "短诊断（根因 + 拟改点）",
                 "form": "prose",
-                "min_length": 40,
+                # 与 MIN_UPSTREAM_BODY_CHARS 同一来源（有下游 handoff_requires_body）。
+                "min_length": MIN_UPSTREAM_BODY_CHARS,
             },
         },
         {
@@ -559,8 +572,12 @@ def _repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]
             "id": "verify",
             "role": "验证员",
             "task": (
-                f"验证【{problem}】修补是否生效：用 code_execute / test_run 跑最小复现；"
-                "失败则 escalate 说明缺口，禁止新开巡读或换马甲从零读仓库。"
+                f"验证【{problem}】修补是否生效。约定验收：`{verify}`——"
+                "默认用 test_run（check=command，command 填该约定命令；或 "
+                "check=test/typecheck/build）跑通且 exit 0；"
+                "【不要】把慢 build/全量 tsc 塞进 code_execute；"
+                "纯 prose 交卷不算过门。失败则 escalate 说明缺口，"
+                "禁止新开巡读或换马甲从零读仓库；禁止无产出反复空跑同一失败命令。"
             ),
             "depends_on": ["patch"],
             "tools": list(_REPAIR_VERIFY_TOOLS),
@@ -1430,10 +1447,12 @@ PLAYBOOKS: dict[str, Playbook] = {
         name="repair_code",
         summary=(
             "诊断(短)→修补→验证的本地修码协议（runtime 错 / 缺 export；"
-            "短轮次+工具收窄；禁触顶后换马甲从零读）"
+            "短轮次+工具收窄；禁触顶后换马甲从零读；批次 code_verified）"
         ),
         slots=(
             "problem(必填,错误症状/缺 export 等) / "
+            "verify(必填,怎么算修好:具体命令或等价说明;"
+            "亦接受 verify_command/acceptance) / "
             "target(可选,优先文件路径) / artifacts(可选,落盘路径数组)"
         ),
         build=_repair_code,

@@ -16,6 +16,7 @@ from agentcore.core.errors import (
     ValidationError,
 )
 from agentcore.core.logging import get_logger
+from agentcore.core.rate_limit import FixedWindowRateLimiter
 from agentcore.db.models.shared_spaces import SharedSpace, SharedSpaceEvent, SharedSpaceMember
 from agentcore.db.models.users import User
 from agentcore.db.repositories.shared_spaces import SharedSpaceRepository
@@ -25,7 +26,6 @@ from agentcore.db.repositories.users import (
     UserRepository,
 )
 from agentcore.messaging.events import ChatEventPublisher, NullChatEventPublisher
-from agentcore.core.rate_limit import FixedWindowRateLimiter
 from agentcore.shared_spaces.limits import (
     DEFAULT_INVITE_RATE_MAX,
     DEFAULT_INVITE_RATE_WINDOW_SECONDS,

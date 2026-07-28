@@ -283,6 +283,10 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
     verdict: "impossible",
     reason: "桌面 OS 通知为 Electron Client Tool，手机无此通道 (fold no-op)",
   },
+  host_op_required: {
+    verdict: "impossible",
+    reason: "本机 Host 回填为 Electron Client Tool，手机无此通道 (fold no-op)",
+  },
 
   // —— 草稿工作区（本地文件夹）/ 本地↔云交接（物理做不到）——
   workspace_op_required: {

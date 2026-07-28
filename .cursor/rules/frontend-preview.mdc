@@ -22,7 +22,7 @@ alwaysApply: false
 
 - 改桌面组件/样式/布局 → `pnpm shoot` → 读 `shoot-out/*.png` 自检，形成「改→截→看→迭代」紧回路。
 - 改交互相关代码（发消息 / 审批卡 / 开工·checkpoint resume / 协作图入口 / AuthGate·会话切换等用户操作链路）→ `pnpm -C apps/desktop e2e`（mock 后端 + webapp 壳 + Playwright；失败留 `e2e-results/` 截图与 trace）。与「改渲染 → `pnpm shoot`」并列，别靠跑真实 AI / 活后端验点击行为。
-- **`pnpm shoot` 是渲染冒烟门禁**（`ci.yml` frontend job，但 GHA 无配额、实际不跑）：任一场景渲染崩（未捕获报错 / `#/preview` 挂不上）即红。**发布前本地必跑自检**——CI 不会替你兜。
+- **`pnpm shoot` 是渲染冒烟门禁**（`ci.yml` frontend job **在跑**；近期风险是 CI 红如 Lint，早失败则 shoot 等后续 skipped）：任一场景渲染崩（未捕获报错 / `#/preview` 挂不上）即红。**发布前本地必跑** `pnpm shoot` / `release:gate`。
 - 新 AI 态补向量：后端 `conformance/vectors/` 加场景 → `cd apps/server && uv run python -m agentcore.conformance.export` 重导 fixture → `#/preview` 与 `pnpm conformance` 同步刷新。
 
 ## AI 小镇 3D（`apps/town` Unity，不走 #/preview）

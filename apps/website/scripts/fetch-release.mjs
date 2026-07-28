@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 构建前从品牌 CDN（desktop/latest.json + android/latest.json）拉取 Latest，
+ * 构建前发现 Latest（品牌域 latest.json → 版本；安装包 URL 构造为 GitHub Releases），
  * 生成 download.generated.ts。线上 /download 还会经 Pages Function
  * /api/desktop-release 再拉一次；此脚本仅作 SSG 首屏与 metadata 回退。
  */

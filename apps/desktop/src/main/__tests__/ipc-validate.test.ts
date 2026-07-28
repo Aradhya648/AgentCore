@@ -103,7 +103,7 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
     });
 
     it("未列入 optionalStrings 的对象载荷（permissionAxes）不拦合法 startTurn", () => {
-      // 回归：三轴权限迁到对象后，曾误把 permissionAxes 塞进 optionalStrings，
+      // 回归：权限轴迁到对象后，曾误把 permissionAxes 塞进 optionalStrings，
       // 导致每次本地回合 IPC 边界拒掉。寻址 string 校验 + 对象载荷透传才是正确姿态。
       const startTurnRequired = [
         "rootId",
@@ -129,6 +129,7 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
               file_write: "session",
               command: "kickoff",
               team_kickoff: "rules",
+              host: "ask",
             },
           },
           startTurnRequired,
@@ -166,6 +167,7 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
               file_write: "ask",
               command: "auto",
               team_kickoff: "skip",
+              host: "session",
             },
           },
           resumeRequired,

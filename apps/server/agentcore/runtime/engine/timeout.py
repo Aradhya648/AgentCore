@@ -15,17 +15,21 @@ def resolve_tool_timeout(
     """The engine-level wall-clock ceiling (seconds) for one call of this tool.
 
     ``None`` ⇒ no engine backstop (the tool manages its own lifecycle). Precedence:
-    ``terminal`` derives a dynamic ceiling from ``wait_for`` / ``wait_timeout_seconds``
-    (must outlive the channel per-op deadline); else an explicit
-    ``schema.timeout_seconds`` wins; else the tool's category decides — ORCHESTRATION
-    / INTERACTION are exempt (``None``), EXECUTION gets the higher execution ceiling
-    (it runs code), everything else the default. This is a coarse safety net layered
-    above each tool's own finer timeout, never a replacement (B1).
+    ``terminal`` / ``git`` derive a dynamic ceiling from arguments (must outlive
+    per-op deadlines + kill slack); else an explicit ``schema.timeout_seconds``
+    wins; else the tool's category decides — ORCHESTRATION / INTERACTION are
+    exempt (``None``), EXECUTION gets the higher execution ceiling (it runs code),
+    everything else the default. This is a coarse safety net layered above each
+    tool's own finer timeout, never a replacement (B1).
     """
     if schema.name == "terminal":
         from agentcore.tools.builtin.terminal import terminal_op_timeout_seconds
 
         return terminal_op_timeout_seconds(arguments)
+    if schema.name == "git":
+        from agentcore.tools.builtin.git_ops import git_tool_timeout_seconds
+
+        return git_tool_timeout_seconds(arguments)
     if schema.timeout_seconds is not None:
         return schema.timeout_seconds
     if schema.category in TIMEOUT_EXEMPT_CATEGORIES:

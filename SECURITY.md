@@ -20,3 +20,7 @@ Include:
 - Your preferred contact for follow-up
 
 We will acknowledge receipt when possible and aim to respond within a few business days. We coordinate a fix before any public disclosure.
+
+## Privacy / terms
+
+产品面向用户的《隐私政策》与《用户服务协议》公开镜像见仓根 [`PRIVACY.md`](./PRIVACY.md) / [`TERMS.md`](./TERMS.md)（与应用内 `legal/content.ts` 同源；正式上线前须法务审阅）。改文案请改桌面单一源后跑 `pnpm sync:legal`。

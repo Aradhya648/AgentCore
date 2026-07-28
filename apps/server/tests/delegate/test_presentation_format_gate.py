@@ -1,4 +1,4 @@
-"""Delegate 演讲/PPT 交付形态硬闸：无记账拒、pptx+执行+仅 md 拒、无执行+marp 放行。"""
+"""Delegate 演讲/PPT：ledger 后果闸（pptx+执行+仅 md 拒）；无文案意图拒整批。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.presentation_format import (
     clear_format_confirmation,
     is_pptx_format_confirmation,
-    presentation_missing_format_error,
     presentation_pptx_silent_md_error,
     record_format_confirmation,
     tasks_silently_downgrade_pptx_to_md,
@@ -80,11 +79,12 @@ def test_tasks_silently_downgrade_pptx_to_md():
     )
 
 
-# ── execute 级：无记账拒 ──────────────────────────────────────────────────────
+# ── execute 级：无账不因文案拒 ────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_presentation_without_format_ledger():
+async def test_execute_allows_presentation_text_without_format_ledger():
+    """无演讲账时不因用户原文像 PPT 而拒整个 delegate。"""
     cid = "pres-gate-missing-format"
     clear_format_confirmation(cid)
     t = _delegate(
@@ -99,34 +99,6 @@ async def test_execute_rejects_presentation_without_format_ledger():
                     "role": "课件工程师",
                     "task": "用 python-pptx 生成 course.pptx",
                     "deliverable": {"form": "files", "artifacts": ["course.pptx"]},
-                }
-            ],
-            "coordinate": False,
-        },
-        local_ctx(),
-    )
-    assert result.success is False
-    assert presentation_missing_format_error() in (result.error or "")
-    clear_format_confirmation(cid)
-
-
-@pytest.mark.asyncio
-async def test_execute_full_auto_defaults_format_then_accepts_pptx():
-    cid = "pres-gate-full-auto-default"
-    clear_format_confirmation(cid)
-    t = _delegate(
-        user_message="帮我做一份产品发布 PPT",
-        conversation_id=cid,
-        base_ctx=local_ctx(),
-        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
-    )
-    result = await t.execute(
-        {
-            "tasks": [
-                {
-                    "role": "课件工程师",
-                    "task": "用 python-pptx 生成 launch.pptx",
-                    "deliverable": {"form": "files", "artifacts": ["launch.pptx"]},
                 }
             ],
             "coordinate": False,
@@ -282,7 +254,7 @@ async def test_execute_pptx_confirmed_no_exec_allows_marp_with_soft_tip():
 
 @pytest.mark.asyncio
 async def test_non_presentation_delegate_unaffected():
-    """非演讲意图不读 format 闸（能力闸既有测不回归的旁证）。"""
+    """非演讲任务不读 format 闸。"""
     t = _delegate(
         user_message="写一份调研报告",
         conversation_id="pres-gate-non-pres",

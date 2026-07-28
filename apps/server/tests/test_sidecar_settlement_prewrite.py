@@ -43,7 +43,17 @@ def _ask(message_id: str = "m1", conversation_id: str = "c1") -> AskUserSuspensi
         ],
     )
     susp.journal_entries = [
-        {"kind": "checkpoint_required", "payload": {"checkpoint_id": "cp1"}, "ts": None}
+        {
+            "kind": "process_reasoning",
+            "payload": {"kind": "reasoning", "text": "先想清楚范围"},
+            "ts": None,
+        },
+        {
+            "kind": "process_content",
+            "payload": {"kind": "content", "text": "旁白"},
+            "ts": None,
+        },
+        {"kind": "checkpoint_required", "payload": {"checkpoint_id": "cp1"}, "ts": None},
     ]
     return susp
 
@@ -80,6 +90,13 @@ async def test_sidecar_settlement_prewrite_embeds_resume_frame(tmp_path) -> None
         for e in entries
         if isinstance(e, dict)
     )
+    # Hang-frame process_* seeded before settlement (empty-outbox GAP fix).
+    kinds = [e.get("kind") for e in entries]
+    assert "process_reasoning" in kinds
+    assert "process_content" in kinds
+    assert kinds.index("process_reasoning") < kinds.index("checkpoint_resolved")
+    assert kinds.index("checkpoint_required") < kinds.index("checkpoint_resolved")
+    assert kinds[-1] == "checkpoint_resolved"
     # Idempotent re-prewrite does not fan out rows.
     await prewrite_sidecar_resume_settlement(
         outbox,
@@ -94,7 +111,103 @@ async def test_sidecar_settlement_prewrite_embeds_resume_frame(tmp_path) -> None
     entries2 = journal_entries_from_map(record2.get("journal")) or []
     resolved = [e for e in entries2 if e.get("kind") == "checkpoint_resolved"]
     assert len(resolved) == 1
+    assert sum(1 for e in entries2 if e.get("kind") == "process_reasoning") == 1
 
+
+@pytest.mark.asyncio
+async def test_sidecar_settlement_prewrite_seeds_hang_frame_on_empty_outbox(
+    tmp_path,
+) -> None:
+    """Empty outbox resume: hang-frame process_* + settlement, not settlement@seq0 alone."""
+    outbox = OutboxStore(tmp_path / "outbox")
+    outbox.bind_turn(
+        conversation_id="c1",
+        user_message_id="u1",
+        user_message="原始问题",
+        message_id="m1",
+        trace_id="a" * 32,
+    )
+    await outbox.begin_turn(conversation_id="c1", message_id="m1", trace_id="a" * 32)
+    susp = _ask()
+    await prewrite_sidecar_resume_settlement(
+        outbox,
+        susp,
+        decision="continue",
+        selected=["是"],
+        user_message_id="u1",
+        trace_id="a" * 32,
+    )
+    record = outbox.find_record_by_message_id("m1")
+    assert record is not None
+    journal = record.get("journal") or {}
+    assert journal["0"]["kind"] == "process_reasoning"
+    assert journal["1"]["kind"] == "process_content"
+    assert journal["2"]["kind"] == "checkpoint_required"
+    assert journal["3"]["kind"] == "checkpoint_resolved"
+    from agentcore.runtime.journal import runs_from_entries
+
+    runs = runs_from_entries(journal_entries_from_map(journal) or [])
+    assert runs is not None
+    process = runs.get("process") or []
+    assert any(
+        isinstance(s, dict) and s.get("kind") == "reasoning" for s in process
+    ), process
+
+
+@pytest.mark.asyncio
+async def test_resume_cancel_salvage_keeps_pre_pause_process(tmp_path) -> None:
+    """Cancel after prewrite: salvage journal projects runs.process with thinking steps."""
+    from agentcore.conversation.turn_persistence import compose_salvage_journal
+    from agentcore.runtime.journal import runs_from_entries
+
+    outbox = OutboxStore(tmp_path / "outbox")
+    outbox.bind_turn(
+        conversation_id="c1",
+        user_message_id="u1",
+        user_message="原始问题",
+        message_id="m1",
+        trace_id="a" * 32,
+    )
+    await outbox.begin_turn(conversation_id="c1", message_id="m1", trace_id="a" * 32)
+    susp = _ask()
+    await prewrite_sidecar_resume_settlement(
+        outbox,
+        susp,
+        decision="continue",
+        selected=["是"],
+        user_message_id="u1",
+        trace_id="a" * 32,
+    )
+    # Live post-resume journal (team only) — without merge, process_* would be lost.
+    live = [
+        {
+            "kind": "run_started",
+            "payload": {"run_id": "w1", "agent_id": "researcher", "name": "研"},
+            "ts": None,
+        },
+    ]
+    merged = compose_salvage_journal(live, susp.journal_entries)
+    await outbox.salvage(
+        journal=merged,
+        content="续跑半段",
+        conversation_id="c1",
+        trace_id="a" * 32,
+        message_id="m1",
+    )
+    record = outbox.find_record_by_message_id("m1")
+    assert record is not None
+    assert record["phase"] == "ready"
+    entries = journal_entries_from_map(record.get("journal")) or []
+    kinds = [e.get("kind") for e in entries]
+    assert "process_reasoning" in kinds
+    assert "run_started" in kinds
+    assert kinds.index("process_reasoning") < kinds.index("run_started")
+    runs = runs_from_entries(entries)
+    assert runs is not None
+    process = runs.get("process") or []
+    assert any(isinstance(s, dict) and s.get("kind") == "reasoning" for s in process)
+    # Not team-only: process lane carries pre-resume thinking.
+    assert not (process == [] and (runs.get("events") or []))
 
 def test_recover_stale_claims_consumes_when_settlement_present(tmp_path) -> None:
     paused = tmp_path / "paused"

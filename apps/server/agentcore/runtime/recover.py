@@ -274,38 +274,25 @@ async def _settle_resume(
                         reason="missing_or_invalid_style_id",
                         style_id=(style_id or response.style_id or "") or None,
                     )
-            # format_options resume：按意图分流 ledger（自动化 vs 演讲；禁短视频 Agent 进演讲账）。
+            # format_options resume：只认选项标签形状分流 ledger（自动化三档 vs 演讲 pptx/marp）。
+            # 不扫 question/context/user_message 猜意图。
             if (
                 decision is CheckpointDecision.CONTINUE
                 and getattr(suspension, "format_options", None)
             ):
                 fmt_opts = list(suspension.format_options or [])
                 cid = (getattr(suspension, "conversation_id", None) or "").strip()
-                kickoff_blob = " ".join(
-                    p
-                    for p in (
-                        getattr(suspension, "question", "") or "",
-                        getattr(suspension, "context", "") or "",
-                        getattr(suspension, "user_message", "") or "",
-                    )
-                    if p
-                )
                 from agentcore.runtime.runs.automation_delivery import (
                     format_options_look_like_automation,
-                    is_automation_kickoff_text,
                     record_delivery_confirmation,
                     resolve_delivery_from_resume,
                 )
                 from agentcore.runtime.runs.presentation_format import (
-                    is_presentation_kickoff_text,
                     record_format_confirmation,
                     resolve_format_from_resume,
                 )
 
-                route_automation = is_automation_kickoff_text(kickoff_blob) or (
-                    format_options_look_like_automation(fmt_opts)
-                    and not is_presentation_kickoff_text(kickoff_blob)
-                )
+                route_automation = format_options_look_like_automation(fmt_opts)
                 if route_automation:
                     resolved_del = resolve_delivery_from_resume(
                         fmt_opts,

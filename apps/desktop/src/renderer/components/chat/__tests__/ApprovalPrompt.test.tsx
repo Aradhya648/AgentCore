@@ -24,6 +24,7 @@ vi.mock("@/hooks/useConversations", () => ({
         file_write: "session",
         command: "kickoff",
         team_kickoff: "rules",
+        host: "ask",
       },
     },
   ],
@@ -37,6 +38,7 @@ vi.mock("@/services/permissionAxes", () => ({
     file_write: "session",
     command: "auto",
     team_kickoff: "skip",
+    host: "session",
   }),
 }));
 
@@ -130,6 +132,7 @@ describe("ApprovalCard CTA (工具审批 A+B)", () => {
       file_write: "session" as const,
       command: "auto" as const,
       team_kickoff: "skip" as const,
+      host: "session" as const,
     };
     vi.mocked(setConversationPermissionAxes).mockResolvedValue(managed);
     const load = vi.fn().mockResolvedValue(undefined);
@@ -140,10 +143,7 @@ describe("ApprovalCard CTA (工具审批 A+B)", () => {
     fireEvent.click(screen.getByRole("button", { name: "托管" }));
 
     await waitFor(() => {
-      expect(setConversationPermissionAxes).toHaveBeenCalledWith(
-        "c1",
-        managed,
-      );
+      expect(setConversationPermissionAxes).toHaveBeenCalledWith("c1", managed);
       expect(patchConversationCache).toHaveBeenCalledWith("c1", {
         permissionAxes: managed,
       });

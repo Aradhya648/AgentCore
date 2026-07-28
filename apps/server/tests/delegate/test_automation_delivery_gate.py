@@ -1,4 +1,4 @@
-"""Delegate Agent/自动化开工形态硬闸：无记账拒、可运行禁 toolshed、控制台可过、仅方案禁硬锁。"""
+"""Delegate Agent/自动化：ledger 后果闸（可运行禁 toolshed、仅方案禁硬锁）；无文案意图拒整批。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,14 @@ import pytest
 from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.automation_delivery import (
-    automation_missing_delivery_error,
     automation_toolshed_rejected_message,
     automation_website_rejected_message,
     clear_delivery_confirmation,
     record_delivery_confirmation,
+)
+from agentcore.runtime.runs.website_style import (
+    build_website_missing_style_error,
+    clear_style_confirmation,
 )
 from agentcore.tools.builtin.delegate import DelegateTool
 from agentcore.tools.registry import ToolRegistry
@@ -39,7 +42,8 @@ def _delegate(
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_automation_without_delivery_ledger():
+async def test_execute_allows_automation_text_without_delivery_ledger():
+    """无自动化账时不因用户原文像自动化而拒整个 delegate（自由组队放行）。"""
     cid = "auto-gate-missing"
     clear_delivery_confirmation(cid)
     t = _delegate(
@@ -54,30 +58,33 @@ async def test_execute_rejects_automation_without_delivery_ledger():
         },
         local_ctx(),
     )
-    assert result.success is False
-    assert automation_missing_delivery_error() in (result.error or "")
+    assert result.success is True
     clear_delivery_confirmation(cid)
 
 
 @pytest.mark.asyncio
-async def test_execute_full_auto_defaults_delivery_then_accepts_free_teaming():
-    cid = "auto-gate-full-auto"
+async def test_execute_rejects_build_toolshed_without_style_ledger():
+    """无风格账 + build_toolshed 仍拒（结构化 playbook 闸，非文案意图）。"""
+    cid = "auto-gate-toolshed-no-style"
     clear_delivery_confirmation(cid)
+    clear_style_confirmation(cid)
     t = _delegate(
-        user_message="帮我做内容分发自动化工作流",
+        user_message="随便聊聊",
         conversation_id=cid,
         base_ctx=local_ctx(),
-        autonomy=AutonomyPolicy.MANAGED,
     )
     result = await t.execute(
         {
-            "tasks": [{"role": "工程师", "task": "设计并可运行的分发流水线"}],
+            "playbook": "build_toolshed",
+            "playbook_args": {"site": "Ops", "sections": ["应用外壳", "数据表格"]},
             "coordinate": False,
         },
         local_ctx(),
     )
-    assert result.success is True
+    assert result.success is False
+    assert build_website_missing_style_error() in (result.error or "")
     clear_delivery_confirmation(cid)
+    clear_style_confirmation(cid)
 
 
 @pytest.mark.asyncio
@@ -139,8 +146,6 @@ async def test_execute_console_allows_build_toolshed():
         user_message="做短视频自动化 Agent",
         conversation_id=cid,
         base_ctx=local_ctx(),
-        # Style gate will still reject without style ledger — use free args path that
-        # expands playbook only after style check. Record a style so toolshed can pass.
     )
     from agentcore.runtime.runs.website_style import (
         clear_style_confirmation,
@@ -235,23 +240,6 @@ async def test_non_automation_delegate_unaffected():
     result = await t.execute(
         {
             "tasks": [{"role": "研究员", "task": "整理竞品对比"}],
-            "coordinate": False,
-        },
-        local_ctx(),
-    )
-    assert result.success is True
-
-
-@pytest.mark.asyncio
-async def test_research_false_positive_unaffected():
-    t = _delegate(
-        user_message="用团队做竞品调研",
-        conversation_id="auto-gate-research-fp",
-        base_ctx=local_ctx(),
-    )
-    result = await t.execute(
-        {
-            "tasks": [{"role": "研究员", "task": "摸底三家竞品"}],
             "coordinate": False,
         },
         local_ctx(),

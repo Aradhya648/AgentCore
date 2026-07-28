@@ -216,6 +216,8 @@ class TurnExecutionMixin:
             assistant_reasoning=result.get("reasoning_content"),
             citations=result.get("citations") or [],
             runs=runs,
+            # Complete result journal replaces progressive mid-run map when present.
+            journal_entries=journal_entries if isinstance(journal_entries, list) else None,
             message_id=result.get("message_id"),
             input_tokens=int(result.get("input_tokens", 0) or 0),
             output_tokens=int(result.get("output_tokens", 0) or 0),
@@ -389,10 +391,17 @@ class TurnExecutionMixin:
                 await self._paused_store.rollback_claim(turn_id)
             if outbox is not None:
                 # G8: streamed_content is live-only; join hang-frame pre_pause.
-                from agentcore.conversation.turn_persistence import compose_salvage_content
+                # Journal: merge hang-frame process_* with live (symmetric to content).
+                from agentcore.conversation.turn_persistence import (
+                    compose_salvage_content,
+                    compose_salvage_journal,
+                )
 
                 await outbox.salvage(
-                    journal=list(sink.execution_journal() or []),
+                    journal=compose_salvage_journal(
+                        sink.execution_journal() or [],
+                        suspension.journal_entries,
+                    ),
                     content=compose_salvage_content(
                         sink.streamed_content() or "",
                         suspension.journal_entries,
@@ -411,9 +420,20 @@ class TurnExecutionMixin:
             if not settlement_durable and self._paused_store is not None:
                 await self._paused_store.rollback_claim(turn_id)
             if outbox is not None:
+                from agentcore.conversation.turn_persistence import (
+                    compose_salvage_content,
+                    compose_salvage_journal,
+                )
+
                 await outbox.salvage(
-                    journal=list(sink.execution_journal() or []),
-                    content=sink.streamed_content() or "",
+                    journal=compose_salvage_journal(
+                        sink.execution_journal() or [],
+                        suspension.journal_entries,
+                    ),
+                    content=compose_salvage_content(
+                        sink.streamed_content() or "",
+                        suspension.journal_entries,
+                    ),
                     conversation_id=conversation_id,
                     trace_id=trace_id,
                     message_id=turn_id,

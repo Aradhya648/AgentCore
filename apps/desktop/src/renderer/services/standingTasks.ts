@@ -167,9 +167,7 @@ function asTriggerKind(raw: string | null | undefined): TriggerKind {
   return raw === "webhook" ? "webhook" : "schedule";
 }
 
-function asTriggerSource(
-  raw: string | null | undefined,
-): TriggerSource | null {
+function asTriggerSource(raw: string | null | undefined): TriggerSource | null {
   if (raw === "schedule" || raw === "webhook" || raw === "manual") return raw;
   return null;
 }
@@ -401,13 +399,11 @@ export async function countInboxBadge(): Promise<number> {
   if (typeof res?.badge === "number" && Number.isFinite(res.badge)) {
     return res.badge;
   }
-  return (res?.items ?? [])
-    .map(toStandingTaskRun)
-    .filter((r) => {
-      if (r.status === "awaiting_user" && !r.ackedAt) return true;
-      if (r.status === "failed" && !r.ackedAt) return true;
-      return false;
-    }).length;
+  return (res?.items ?? []).map(toStandingTaskRun).filter((r) => {
+    if (r.status === "awaiting_user" && !r.ackedAt) return true;
+    if (r.status === "failed" && !r.ackedAt) return true;
+    return false;
+  }).length;
 }
 
 /** List / editor subtitle for trigger. */

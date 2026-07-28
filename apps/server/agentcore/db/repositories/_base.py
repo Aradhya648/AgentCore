@@ -3,16 +3,42 @@
 Kept in one private module so the domain repos can share them without a circular
 import. The package ``__init__`` re-exports ``_ilike_pattern`` for callers that
 import it directly (e.g. global-search tests).
+
+Transaction boundary (P1-8)
+---------------------------
+Canonical rule: **the caller owns the unit-of-work**. Repository write methods
+default to ``commit=True`` for single-op CRUD (legacy / thin routers), but any
+multi-step composite MUST pass ``commit=False`` on each step and call
+``session.commit()`` once. Prefer flush (via :func:`commit_or_flush`) over
+mid-composite commits so a later failure rolls the whole batch back.
+
+Exception: intentional immediate persistence (e.g. auth lockout counters) may
+keep ``commit=True`` and must not be mixed with other writes on the same
+session without an explicit comment.
 """
 
 from typing import Any
 
 from sqlalchemy import BigInteger, cast, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 # Sentinel for "field not provided" in partial updates, distinct from an explicit
 # None (which clears a nullable column).
 _UNSET: object = object()
+
+
+async def commit_or_flush(session: AsyncSession, *, commit: bool) -> None:
+    """Commit (default single-op) or flush (composite unit-of-work step).
+
+    ``commit=True`` preserves today's per-method atomicity for standalone CRUD.
+    ``commit=False`` flushes so subsequent steps share one transaction; the
+    caller must ``await session.commit()`` (or rollback) when the unit completes.
+    """
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
 
 
 def strip_nul(value: Any) -> Any:

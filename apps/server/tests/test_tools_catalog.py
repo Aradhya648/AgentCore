@@ -170,6 +170,9 @@ def test_code_execute_description_routes_long_running_to_terminal():
     assert "禁止" in ce
     assert "terminal" in ce
     assert "npm run dev" in ce
+    # Bounded verify is the home for slow project checks — not code_execute.
+    assert "test_run" in ce
+    assert "npm run build" in ce  # mentioned as forbidden / redirect, not promoted
     # Local short-CLI guidance: prefer node/javascript over bash shell.
     assert "language=javascript" in ce
     assert "WSL" in ce
@@ -185,6 +188,8 @@ def test_code_execute_description_server_omits_local_wsl_hint():
 
     server = code_execute_description("server")
     assert "WSL" not in server
+    # Server copy still steers project verify to test_run (capability, not WSL hint).
+    assert "test_run" in server
     assert "npx tsc" not in server
 
 
@@ -212,12 +217,26 @@ def test_ceo_registry_excludes_every_mutation_tool():
 
 def test_ceo_registry_holds_only_auto_run_tools():
     # The split is by approval level: the CEO keeps only NEVER tools (auto-run, no
-    # consent), while every GRANTABLE (env-mutating) tool is delegated. This pins
-    # the rule that makes a new read-only tool reach the CEO automatically while a
-    # new mutating tool stays worker-only.
+    # consent), while every GRANTABLE (env-mutating) tool is delegated — **except**
+    # Host P3 ``host_shell`` (desktop_online gate; not in the default no-desktop set).
     schemas = build_ceo_tool_registry().list_all()
     assert schemas, "CEO must retain its read/retrieval tools"
     assert all(s.approval is ToolApproval.NEVER for s in schemas)
+
+
+def test_ceo_registry_host_shell_grantable_exception_when_desktop_online():
+    schemas = {
+        s.name: s for s in build_ceo_tool_registry(desktop_online=True).list_all()
+    }
+    assert "host_shell" in schemas
+    assert schemas["host_shell"].approval is ToolApproval.GRANTABLE
+    # L2/L3 still withheld from CEO.
+    assert "host_open_settings" not in schemas
+    # All other CEO tools remain NEVER.
+    for name, schema in schemas.items():
+        if name == "host_shell":
+            continue
+        assert schema.approval is ToolApproval.NEVER, name
 
 
 def test_ceo_registry_excludes_delegate_primitive():

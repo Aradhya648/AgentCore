@@ -67,6 +67,48 @@ def test_single_agent_error(projected):
     assert p["cost"] is None
 
 
+def test_single_agent_tool_failure(projected):
+    p = projected["single_agent_tool_failure"]
+    assert p["status"] == "completed"
+    assert [s["kind"] for s in p["process"]] == ["reasoning", "tool", "content"]
+    tool = p["process"][1]
+    assert tool["id"] == "tc1"
+    assert tool["tool_name"] == "web_search"
+    assert tool["status"] == "error"
+    assert tool["result"] == "搜索服务暂时不可用，请稍后重试。"
+    assert p["content"] == "检索失败了，我先按已有知识回答。"
+
+
+def test_single_agent_cancelled(projected):
+    p = projected["single_agent_cancelled"]
+    assert p["status"] == "cancelled"
+    assert p["finishReason"] == "cancelled"
+    assert p["reasoning"] == "先梳理要点。"
+    assert p["content"] == "根据目前信息，建议分三步："
+    assert p["cost"]["total"] == 360_000
+
+
+def test_single_agent_tool_progress(projected):
+    """tool_use_progress is EPHEMERAL — golden matches successful tool timeline."""
+    p = projected["single_agent_tool_progress"]
+    baseline = projected["single_agent_tool"]
+    assert p["status"] == "completed"
+    assert [s["kind"] for s in p["process"]] == ["reasoning", "tool", "content"]
+    assert p["process"][1]["status"] == "success"
+    assert p["process"] == baseline["process"]
+    assert p["content"] == baseline["content"]
+
+
+def test_single_agent_title_and_turn_saved(projected):
+    """turn_saved / title_generated are chrome — same judge state as a plain text turn."""
+    p = projected["single_agent_title_and_turn_saved"]
+    assert p["status"] == "completed"
+    assert p["finishReason"] == "end_turn"
+    assert p["content"] == "你好，已收到。"
+    assert p["process"] == [{"kind": "content", "text": "你好，已收到。"}]
+    assert p["runs"] == []
+
+
 def test_multi_agent_delegate_tree(projected):
     p = projected["multi_agent_delegate"]
     assert p["status"] == "completed"

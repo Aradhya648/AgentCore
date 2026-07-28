@@ -49,7 +49,7 @@ class FakeUsers:
         )
 
     async def create(
-        self, *, username, display_name=None, email=None, role="user", status="active"
+        self, *, username, display_name=None, email=None, role="user", status="active", commit=True
     ):
         user = SimpleNamespace(
             user_id=new_id(),
@@ -72,7 +72,7 @@ class FakeUsers:
             setattr(user, key, value)
         return user
 
-    async def soft_delete(self, user_id):
+    async def soft_delete(self, user_id, *, commit=True):
         user = self._by_id.get(user_id)
         if user is None:
             return None
@@ -87,7 +87,7 @@ class FakeCredentials:
     def __init__(self) -> None:
         self._by_user: dict = {}
 
-    async def create(self, *, user_id, password_hash):
+    async def create(self, *, user_id, password_hash, commit=True):
         cred = SimpleNamespace(
             user_id=user_id,
             password_hash=password_hash,
@@ -111,7 +111,7 @@ class FakeCredentials:
         cred.failed_attempts = 0
         cred.locked_until = None
 
-    async def set_password(self, user_id, password_hash, *, must_change=None):
+    async def set_password(self, user_id, password_hash, *, must_change=None, commit=True):
         cred = self._by_user[user_id]
         cred.password_hash = password_hash
         cred.failed_attempts = 0
@@ -137,6 +137,7 @@ class FakeRefreshTokens:
         ip=None,
         family_started_at=None,
         last_used_at=None,
+        commit=True,
     ):
         now = datetime.now(UTC)
         rec = SimpleNamespace(
@@ -161,7 +162,7 @@ class FakeRefreshTokens:
     async def get_by_hash(self, token_hash):
         return next((r for r in self.records.values() if r.token_hash == token_hash), None)
 
-    async def mark_rotated(self, token_id):
+    async def mark_rotated(self, token_id, *, commit=True):
         self.records[token_id].rotated_at = datetime.now(UTC)
 
     async def revoke_family(self, token_family):
@@ -169,7 +170,7 @@ class FakeRefreshTokens:
             if rec.token_family == token_family and rec.revoked_at is None:
                 rec.revoked_at = datetime.now(UTC)
 
-    async def revoke_all_for_user(self, user_id):
+    async def revoke_all_for_user(self, user_id, *, commit=True):
         for rec in self.records.values():
             if rec.user_id == user_id and rec.revoked_at is None:
                 rec.revoked_at = datetime.now(UTC)
@@ -909,4 +910,81 @@ async def test_gc_deletes_only_terminal_old_rows():
     assert deleted == 1
     assert old.id not in tokens.records
     assert live.id in tokens.records
+
+
+class FakeMfa:
+    def __init__(self, *, enrolled: bool = True) -> None:
+        self.enrolled = enrolled
+
+    async def is_enrolled(self, user_id: str) -> bool:
+        return self.enrolled
+
+    async def verify_code(self, *, user_id: str, code: str) -> bool:
+        return code == "123456"
+
+    async def verify_recovery_code(self, *, user_id: str, code: str) -> bool:
+        return False
+
+
+def _make_admin_with_mfa(*, enrolled: bool = True):
+    users = FakeUsers()
+    creds = FakeCredentials()
+    tokens = FakeRefreshTokens()
+    invites = FakeInvites()
+    mfa = FakeMfa(enrolled=enrolled)
+    svc = AuthService(
+        users=users,
+        credentials=creds,
+        refresh_tokens=tokens,
+        invites=invites,
+        mfa=mfa,
+    )
+    return svc, users, creds, tokens, invites, mfa
+
+
+async def test_complete_mfa_login_sets_mfa_claim_on_access_token():
+    from agentcore.security import (
+        create_mfa_pending_token,
+        decode_access_token_mfa_verified,
+        hash_password,
+    )
+
+    svc, users, creds, *_ = _make_admin_with_mfa(enrolled=True)
+    admin = await users.create(username="mfaadm", display_name="A", role="admin")
+    await creds.create(user_id=admin.user_id, password_hash=hash_password(_PW))
+    pending = create_mfa_pending_token(admin.user_id, audience="admin")
+    user, pair = await svc.complete_mfa_login(pending_token=pending, code="123456")
+    assert user.user_id == admin.user_id
+    assert decode_access_token_mfa_verified(pair.access_token) is True
+
+
+async def test_admin_password_login_without_mfa_claim_when_not_enrolled(monkeypatch):
+    from agentcore.security import decode_access_token_mfa_verified, hash_password
+
+    monkeypatch.setattr(
+        "agentcore.auth.service.settings.admin_mfa_required", True
+    )
+    svc, users, creds, *_rest = _make_admin_with_mfa(enrolled=False)
+    admin = await users.create(username="setupadm", display_name="A", role="admin")
+    await creds.create(user_id=admin.user_id, password_hash=hash_password(_PW))
+    result = await svc.login(username="setupadm", password=_PW, platform="admin")
+    assert result.tokens is not None
+    assert result.mfa_setup_required is True
+    assert decode_access_token_mfa_verified(result.tokens.access_token) is False
+
+
+async def test_refresh_propagates_mfa_claim_for_enrolled_admin():
+    from agentcore.security import (
+        create_mfa_pending_token,
+        decode_access_token_mfa_verified,
+        hash_password,
+    )
+
+    svc, users, creds, *_ = _make_admin_with_mfa(enrolled=True)
+    admin = await users.create(username="refadm", display_name="A", role="admin")
+    await creds.create(user_id=admin.user_id, password_hash=hash_password(_PW))
+    pending = create_mfa_pending_token(admin.user_id, audience="admin")
+    _, pair = await svc.complete_mfa_login(pending_token=pending, code="123456")
+    rotated = await svc.refresh(refresh_token=pair.refresh_token)
+    assert decode_access_token_mfa_verified(rotated.access_token) is True
 

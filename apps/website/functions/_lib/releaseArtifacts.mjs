@@ -1,12 +1,12 @@
 /**
  * Latest desktop + Android download artifacts for the website.
- * User-facing URLs are brand CDN (R2); GitHub is archive / release notes only.
+ * User-facing installer URLs = GitHub Releases；版本发现可读品牌域 latest.json。
  *
  * Discovery order:
- *   1. CDN desktop/latest.json + android/latest.json
- *   2. FALLBACK_VERSION constructed CDN URLs (SSG / offline)
+ *   1. CDN desktop/latest.json + android/latest.json（version / filenames）
+ *   2. FALLBACK_VERSION → 构造 GitHub asset URLs（SSG / offline）
  *
- * → apps/website/functions/_lib/downloadsCdn.mjs · 部署与运维.md §7.6b
+ * → apps/website/functions/_lib/downloadsCdn.mjs · 发布与门禁.md §7.6b
  */
 import {
   androidArtifactUrls,
@@ -48,14 +48,8 @@ async function fetchLatestAndroidArtifacts() {
     const version = String(data.version ?? "").trim();
     const filename = String(data.filename ?? "").trim();
     if (!version || !filename) return { ...EMPTY_ANDROID };
-    const built = androidArtifactUrls(version, filename);
-    // Prefer manifest downloadUrl when it matches our CDN host; else reconstruct.
-    const downloadUrl = String(data.downloadUrl ?? "").trim();
-    return {
-      androidVersion: built.androidVersion,
-      androidFilename: built.androidFilename,
-      androidUrl: downloadUrl || built.androidUrl,
-    };
+    // Always reconstruct GitHub URL — ignore stale brand-host downloadUrl in manifest.
+    return androidArtifactUrls(version, filename);
   } catch {
     return { ...EMPTY_ANDROID };
   }
@@ -102,11 +96,10 @@ export async function fetchLatestReleaseArtifacts(fallbackVersion) {
       version,
       releaseNotesUrl:
         String(data.releaseNotesUrl ?? "").trim() || base.releaseNotesUrl,
-      winUrl: String(data.winUrl ?? "").trim() || base.winUrl,
+      // Always GitHub — ignore stale brand-host winUrl/macUrl in manifest.
+      winUrl: base.winUrl,
       winFilename,
-      macUrl: macFilename
-        ? String(data.macUrl ?? "").trim() || base.macUrl
-        : "",
+      macUrl: macFilename ? base.macUrl : "",
       macFilename,
       ...android,
     };

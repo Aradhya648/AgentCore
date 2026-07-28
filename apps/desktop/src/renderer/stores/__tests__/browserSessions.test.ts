@@ -250,6 +250,216 @@ describe("mergeHydratedPages", () => {
     expect(page.url).toBe("https://example.com/from-agent");
     expect(page.title).toBe("From Agent");
   });
+
+  it("switches off local blank when sessions exist even without activeSessionId", () => {
+    const blankId = "local-blank";
+    const { activePageId, pages } = mergeHydratedPages(
+      [
+        {
+          id: blankId,
+          url: "",
+          title: "新标签页",
+          conversationId: "c1",
+          serverSessionId: null,
+        },
+      ],
+      "c1",
+      [
+        {
+          sessionId: "only",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 2,
+          url: "https://only.example/",
+          title: "Only",
+        },
+      ],
+      null,
+      blankId,
+    );
+    expect(pages.some((p) => p.id === blankId)).toBe(true);
+    expect(activePageId).toBe(serverPageId("only"));
+  });
+
+  it("with multiple sessions and null activeSessionId, picks the last server page over blank", () => {
+    const blankId = "local-blank";
+    const { activePageId } = mergeHydratedPages(
+      [
+        {
+          id: blankId,
+          url: "",
+          title: "新标签页",
+          conversationId: "c1",
+          serverSessionId: null,
+        },
+      ],
+      "c1",
+      [
+        {
+          sessionId: "a",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 1,
+        },
+        {
+          sessionId: "b",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 2,
+          lastUsed: 2,
+        },
+      ],
+      null,
+      blankId,
+    );
+    expect(activePageId).toBe(serverPageId("b"));
+  });
+
+  it("keeps a non-blank prevActive when activeSessionId is null", () => {
+    const serverA = serverPageId("a");
+    const { activePageId } = mergeHydratedPages(
+      [
+        {
+          id: serverA,
+          url: "https://a.example/",
+          title: "A",
+          conversationId: "c1",
+          serverSessionId: "a",
+          hostKind: "local",
+          control: "agent",
+        },
+      ],
+      "c1",
+      [
+        {
+          sessionId: "a",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 1,
+        },
+        {
+          sessionId: "b",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 2,
+          lastUsed: 2,
+        },
+      ],
+      null,
+      serverA,
+    );
+    expect(activePageId).toBe(serverA);
+  });
+
+  it("empty list keeps local server pages with blanks", () => {
+    const blankId = "local-blank";
+    const localSid = serverPageId("local-1");
+    const { pages, activePageId } = mergeHydratedPages(
+      [
+        {
+          id: blankId,
+          url: "",
+          title: "新标签页",
+          conversationId: "c1",
+          serverSessionId: null,
+        },
+        {
+          id: localSid,
+          url: "https://www.baidu.com/",
+          title: "百度",
+          conversationId: "c1",
+          serverSessionId: "local-1",
+          hostKind: "local",
+          control: "agent",
+        },
+      ],
+      "c1",
+      [],
+      null,
+      localSid,
+    );
+    const c1 = pages.filter((p) => p.conversationId === "c1");
+    expect(c1.map((p) => p.serverSessionId)).toEqual([null, "local-1"]);
+    expect(c1.find((p) => p.serverSessionId === "local-1")?.url).toBe(
+      "https://www.baidu.com/",
+    );
+    expect(activePageId).toBe(localSid);
+  });
+
+  it("empty list drops sandbox server pages", () => {
+    const sandId = serverPageId("sand-1");
+    const { pages } = mergeHydratedPages(
+      [
+        {
+          id: sandId,
+          url: "https://sand.example/",
+          title: "Sand",
+          conversationId: "c1",
+          serverSessionId: "sand-1",
+          hostKind: "sandbox",
+          control: "agent",
+        },
+      ],
+      "c1",
+      [],
+      null,
+      sandId,
+    );
+    expect(
+      pages.some(
+        (p) => p.conversationId === "c1" && p.serverSessionId === "sand-1",
+      ),
+    ).toBe(false);
+  });
+
+  it("non-empty list still drops stale local server pages", () => {
+    const stale = serverPageId("stale-local");
+    const { pages } = mergeHydratedPages(
+      [
+        {
+          id: stale,
+          url: "https://stale.example/",
+          title: "Stale",
+          conversationId: "c1",
+          serverSessionId: "stale-local",
+          hostKind: "local",
+          control: "agent",
+        },
+      ],
+      "c1",
+      [
+        {
+          sessionId: "alive",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 1,
+          url: "https://alive.example/",
+        },
+      ],
+      "alive",
+      stale,
+    );
+    expect(
+      pages.find((p) => p.serverSessionId === "stale-local"),
+    ).toBeUndefined();
+    expect(pages.find((p) => p.serverSessionId === "alive")).toBeTruthy();
+  });
 });
 
 describe("hydrateConversation", () => {
@@ -284,6 +494,145 @@ describe("hydrateConversation", () => {
       title: "Hydrated",
     });
     expect(store().activePageId).toBe(serverPageId("s1"));
+  });
+
+  it("activates server page over pre-existing local blank when activeSessionId is null", async () => {
+    const blankId = store().createPage({
+      conversationId: "c1",
+      title: "新标签页",
+    });
+    expect(store().activePageId).toBe(blankId);
+    listMock.mockResolvedValue({
+      sessions: [
+        {
+          sessionId: "s-agent",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 1,
+          url: "https://agent.example/",
+        },
+      ],
+      activeSessionId: null,
+    });
+
+    await store().hydrateConversation("c1");
+
+    expect(store().activePageId).toBe(serverPageId("s-agent"));
+    expect(
+      store()
+        .pagesFor("c1")
+        .some((p) => p.serverSessionId === "s-agent"),
+    ).toBe(true);
+  });
+
+  it("expired hydrate after upsert does not wipe server page", async () => {
+    let resolveList!: (v: {
+      sessions: Array<{
+        sessionId: string;
+        conversationId: string;
+        hostKind: "sandbox" | "local";
+        control: "agent" | "user";
+        runId: string | null;
+        createdAt: number;
+        lastUsed: number;
+        url?: string;
+        title?: string;
+      }>;
+      activeSessionId: string | null;
+    }) => void;
+    listMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+
+    const hydrateP = store().hydrateConversation("c1");
+    await Promise.resolve();
+
+    // sandbox：空 list merge 会清掉；仅靠 epoch 才能保住 upsert
+    store().upsertServerSession("c1", {
+      sessionId: "s-sand",
+      hostKind: "sandbox",
+      control: "agent",
+      url: "https://example.com/",
+      title: "Example",
+    });
+    expect(store().pages.some((p) => p.serverSessionId === "s-sand")).toBe(
+      true,
+    );
+
+    resolveList({ sessions: [], activeSessionId: null });
+    await hydrateP;
+
+    expect(store().pages.some((p) => p.serverSessionId === "s-sand")).toBe(
+      true,
+    );
+    expect(store().pages.find((p) => p.serverSessionId === "s-sand")?.url).toBe(
+      "https://example.com/",
+    );
+  });
+
+  it("second hydrate does not reuse first inflight empty result", async () => {
+    const resolvers: Array<
+      (v: {
+        sessions: Array<{
+          sessionId: string;
+          conversationId: string;
+          hostKind: "sandbox" | "local";
+          control: "agent" | "user";
+          runId: string | null;
+          createdAt: number;
+          lastUsed: number;
+          url?: string;
+        }>;
+        activeSessionId: string | null;
+      }) => void
+    > = [];
+    listMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const h1 = store().hydrateConversation("c1");
+    await Promise.resolve();
+    const h2 = store().hydrateConversation("c1");
+    await Promise.resolve();
+
+    expect(listMock).toHaveBeenCalledTimes(1);
+    expect(resolvers).toHaveLength(1);
+
+    resolvers[0]?.({ sessions: [], activeSessionId: null });
+    await h1;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(listMock).toHaveBeenCalledTimes(2);
+    expect(resolvers).toHaveLength(2);
+
+    resolvers[1]?.({
+      sessions: [
+        {
+          sessionId: "s1",
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 1,
+          url: "https://alive.example/",
+        },
+      ],
+      activeSessionId: "s1",
+    });
+    await h2;
+
+    expect(store().pages.some((p) => p.serverSessionId === "s1")).toBe(true);
   });
 });
 
@@ -335,5 +684,74 @@ describe("blank pages never create server sessions", () => {
         (p) => p.serverSessionId == null || p.serverSessionId === "",
       ),
     ).toBe(true);
+  });
+});
+
+describe("upsertServerSession", () => {
+  it("creates a server page with url and activates over local blank", () => {
+    const blankId = store().ensureBlankPage("c1");
+    expect(store().activePageId).toBe(blankId);
+
+    store().upsertServerSession("c1", {
+      sessionId: "sess-nav",
+      hostKind: "local",
+      control: "agent",
+      url: "https://example.com/",
+      title: "Example",
+    });
+
+    const page = store().pages.find((p) => p.serverSessionId === "sess-nav");
+    expect(page).toMatchObject({
+      url: "https://example.com/",
+      title: "Example",
+      hostKind: "local",
+      serverSessionId: "sess-nav",
+    });
+    expect(page).toBeDefined();
+    if (!page) throw new Error("expected server page");
+    expect(hostBrowserPageId(page)).toBe("sess-nav");
+    expect(store().activePageId).toBe(page.id);
+  });
+
+  it("updates url/title on existing serverSessionId without duplicating", () => {
+    store().upsertServerSession("c1", {
+      sessionId: "s1",
+      hostKind: "sandbox",
+      control: "agent",
+      url: "https://a.example/",
+    });
+    store().upsertServerSession("c1", {
+      sessionId: "s1",
+      hostKind: "sandbox",
+      control: "agent",
+      url: "https://b.example/",
+      title: "B",
+    });
+    const pages = store()
+      .pagesFor("c1")
+      .filter((p) => p.serverSessionId === "s1");
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({
+      url: "https://b.example/",
+      title: "B",
+    });
+  });
+
+  it("does not steal activation from another server tab", () => {
+    store().upsertServerSession("c1", {
+      sessionId: "keep",
+      hostKind: "local",
+      control: "agent",
+      url: "https://keep.example/",
+    });
+    const keepId = store().activePageId;
+    store().upsertServerSession("c1", {
+      sessionId: "other",
+      hostKind: "local",
+      control: "agent",
+      url: "https://other.example/",
+    });
+    expect(store().activePageId).toBe(keepId);
+    expect(store().pagesFor("c1")).toHaveLength(2);
   });
 });

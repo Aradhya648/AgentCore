@@ -1311,3 +1311,78 @@ async def test_external_stop_cancels_inflight_with_stop_reason():
 
     assert sorted(rid for rid, _ in cancel_msgs) == ["a", "b"]
     assert {msg for _, msg in cancel_msgs} == {"stop"}
+
+
+async def test_redirect_path_does_not_swallow_stop_cancel():
+    """A worker already stop-cancelled must not be absorbed via redirect marker.
+
+    Repro: cancel worker with msg=stop first, then list it in cancel_run_ids.
+    Old bug: cancel(\"redirect\") returns False but still entered cancelled_by_redirect,
+    then suppress(CancelledError) treated stop as success and kept dispatching (zombie).
+    """
+
+    plan = RunPlan()
+    plan.add(_spec("a"))
+    plan.add(_spec("b"))
+    cancel_targets: set[str] = set()
+    workers: dict[str, asyncio.Task] = {}
+    a_started = asyncio.Event()
+    b_started = asyncio.Event()
+
+    async def ex(spec: RunSpec, _completed) -> RunState:
+        task = asyncio.current_task()
+        assert task is not None
+        workers[spec.run_id] = task
+        if spec.run_id == "a":
+            a_started.set()
+            await asyncio.sleep(10)
+        else:
+            b_started.set()
+            await asyncio.sleep(0.01)
+        return RunState(phase=RunPhase.COMPLETED, content=spec.run_id)
+
+    wave_task = asyncio.create_task(
+        WaveScheduler(max_parallel=1).run(
+            plan, ex, cancel_run_ids=lambda: frozenset(cancel_targets)
+        )
+    )
+    await a_started.wait()
+    workers["a"].cancel("stop")  # external/stop wins first
+    cancel_targets.add("a")  # redirect hook fires next cycle; must not claim absorb
+    with pytest.raises(asyncio.CancelledError):
+        await wave_task
+    assert not b_started.is_set(), "wave must not keep scheduling after stop cancel"
+    assert wave_task.done()
+
+
+async def test_external_cancel_after_redirect_terminates_wave():
+    """Outer wave cancel during/after redirect must end scheduling (no zombie)."""
+    import contextlib
+
+    plan = RunPlan()
+    plan.add(_spec("a"))
+    plan.add(_spec("b"))
+    plan.add(_spec("c"))
+    cancel_targets: set[str] = set()
+    a_started = asyncio.Event()
+
+    async def ex(spec: RunSpec, _completed) -> RunState:
+        if spec.run_id == "a":
+            a_started.set()
+            await asyncio.sleep(10)
+        await asyncio.sleep(0.05)
+        return RunState(phase=RunPhase.COMPLETED, content=spec.run_id)
+
+    wave_task = asyncio.create_task(
+        WaveScheduler(max_parallel=2).run(
+            plan, ex, cancel_run_ids=lambda: frozenset(cancel_targets)
+        )
+    )
+    await a_started.wait()
+    cancel_targets.add("a")
+    await asyncio.sleep(0.08)  # let redirect absorb a; siblings may start
+    wave_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await wave_task
+    assert wave_task.done()
+    assert wave_task.cancelled() or wave_task.exception() is not None

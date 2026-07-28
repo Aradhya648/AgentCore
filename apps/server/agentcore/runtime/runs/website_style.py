@@ -33,13 +33,7 @@ STYLE_ID_HEADING = "用户选定风格 id"
 DEFAULT_STYLE_ID = "s_default"
 DEFAULT_STYLE_LABEL = "简洁克制·高对比"
 
-_WEBSITE_KICKOFF_RE = re.compile(
-    r"(?:官网|落地页|营销页|建站|网站|站点|首页|landing\s*page|website|web\s*site|"
-    r"控制台|工具台|管理后台|后台系统|admin\s*(?:console|panel|dashboard)|toolshed)",
-    re.IGNORECASE,
-)
-
-# Greenfield *construction* (delegate ``none`` hard gate). Broader than kickoff:
+# Greenfield *construction* (delegate ``none`` hard gate).
 # requires a build/create verb near a site noun, or explicit hand-write / miss framing.
 # Audit/fix follow-ups that only mention 官网 without 做/建… do not match.
 _WEBSITE_BUILD_INTENT_RE = re.compile(
@@ -200,18 +194,12 @@ class WebsiteStyleConfirmedFact:
         )
 
 
-def is_website_kickoff_text(*parts: str) -> bool:
-    """True when kickoff framing looks like a site / landing-page ask."""
-    blob = " ".join(p for p in parts if p)
-    return bool(blob and _WEBSITE_KICKOFF_RE.search(blob))
-
-
 def is_website_build_intent(*parts: str) -> bool:
     """True when text frames greenfield site / landing *construction*.
 
     Used by the delegate playbook-declaration hard gate (reject ``none`` under
-    website build intent). Distinct from :func:`is_website_kickoff_text`: a bare
-    mention of「官网」in an audit task does **not** count as build intent.
+    website build intent). A bare mention of「官网」in an audit task does **not**
+    count as build intent.
     """
     blob = " ".join(p for p in parts if p)
     return bool(blob and _WEBSITE_BUILD_INTENT_RE.search(blob))
@@ -238,7 +226,7 @@ def is_website_continuation_intent(*parts: str) -> bool:
     """True when user asks to continue / finish remaining *site* work.
 
     Requires a continuation phrase **and** a site / toolshed strong noun in the
-    same blob (or the blob is already site kickoff / build framing). Bare
+    same blob (or the blob is already greenfield build framing). Bare
     「继续完成项目的开发」does **not** match.
     """
     blob = " ".join(p for p in parts if p)
@@ -246,21 +234,13 @@ def is_website_continuation_intent(*parts: str) -> bool:
         return False
     if _WEBSITE_CONTINUATION_SITE_ANCHOR_RE.search(blob):
         return True
-    # User message already frames a site / toolshed ask (kickoff or greenfield).
-    return is_website_kickoff_text(blob) or is_site_build_intent(blob)
+    return is_site_build_intent(blob)
 
 
 def is_website_shaped_call(*parts: str) -> bool:
     """True when call payload looks like site / page construction (官网 / index.html…)."""
     blob = " ".join(p for p in parts if p)
     return bool(blob and _WEBSITE_SHAPED_CALL_RE.search(blob))
-
-
-def website_kickoff_requires_styles_error() -> str:
-    return (
-        "建站 / 落地页 / 控制台开工提案卡必须提供非空 style_options（2–3 个风格候选）。"
-        "请补 style_options 后重调 ask_user；选定风格会结构化记账并写入 site/DESIGN.md。"
-    )
 
 
 def build_website_missing_style_error() -> str:

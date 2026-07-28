@@ -57,14 +57,17 @@ class WorkspaceSettings(BaseModel):
     # (single-uvicorn production ⇒ effectively per host). Sized for the 2C8G box.
     gvisor_max_concurrent_executions: int = 2
     # Bounded grace queue: how long one call may wait for a free slot before it
-    # fails fast with an explainable "busy" result. Budget check: slot wait (15)
-    # + exec cap (60) stays under the engine EXECUTION backstop (90s).
+    # fails fast with an explainable "busy" result. code_execute stays ≤60s at the
+    # tool layer; test_run (bounded verify) may use up to gvisor_timeout_max.
     gvisor_slot_wait_seconds: float = 15.0
     # Per-execution hard resource caps enforced by the OCI spec. Authoritative for
     # cloud runs: an ExecutionRequest cannot exceed them. Memory default sized for
     # document/data workloads (pandas + matplotlib comfortably above 256MB).
     gvisor_memory_limit_mb: int = 512
-    gvisor_timeout_max_seconds: int = 60
+    # Ceiling for sandbox requests. code_execute still caps itself at 60s; raised
+    # so bounded project verify (test_run, minute-level budget) is not silently
+    # truncated on cloud gVisor.
+    gvisor_timeout_max_seconds: int = 300
     # 产物写回 (copy-in/copy-out): the workspace is COPIED into a per-execution
     # staging dir (mounted rw at /workspace), and new/changed regular files are
     # copied back after the run. Caps bound both legs.

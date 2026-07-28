@@ -37,6 +37,7 @@ export type SSEEventType =
   | "handoff_apply_done"
   | "handoff_job_started"
   | "handoff_snapshot_done"
+  | "host_op_required"
   | "interaction_orphaned"
   | "message_end"
   | "message_start"

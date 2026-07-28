@@ -30,7 +30,7 @@ from agentcore.tools.builtin import (
     per_call_tool_names,
 )
 from agentcore.tools.protocol import ToolContext
-from agentcore.tools.registration import register_board_ceo_tools
+from agentcore.tools.registration import host_class_tool_names, register_board_ceo_tools
 from agentcore.tools.registry import ToolRegistry
 from agentcore.vision import build_vision_reader
 from agentcore.workspace.locate import workspace_channel_for_tools
@@ -128,10 +128,14 @@ async def _wire_continuation_toolset(
     from agentcore.tools.sandbox.exec_languages import resolve_exec_languages
 
     exec_languages = await resolve_exec_languages(backend)
+    desktop_online = (
+        desktop_client_can_bind(x_client_platform) or backend.location == "local"
+    )
     worker_tools = build_worker_registry(
         backend=backend,
         permission_axes=permission_axes,
         languages=exec_languages if backend.location == "local" else None,
+        desktop_online=desktop_online,
     )
     _wire_worker_memory_tools(
         worker_tools,
@@ -173,7 +177,7 @@ async def _wire_continuation_toolset(
             registry=default_interaction_registry(),
             timeout_seconds=settings.board_op_timeout_seconds,
         )
-        if backend.location == "local"
+        if desktop_online
         else None
     )
     workspace_channel = workspace_channel_for_tools(
@@ -234,6 +238,7 @@ async def _wire_continuation_toolset(
             file_op_tools=approval_class_tool_names(),
             per_call_tools=per_call_tool_names(),
             delegation_grantable_tools=delegation_grantable_tool_names(),
+            host_class_tools=host_class_tool_names(),
             permission_axes=permission_axes,
         )
         if settings.approval_gate_enabled
@@ -244,15 +249,13 @@ async def _wire_continuation_toolset(
     # Re-stamp environment facts onto the worker base: continuation rebuilds the
     # backend from the CURRENT binding, so workers must not inherit a stale cloud
     # ``<workspace_context>``.
-    desktop_online = (
-        desktop_client_can_bind(x_client_platform) or backend.location == "local"
-    )
     refreshed_base = restamp_workspace_facts(
         base_system_prompt,
         build_workspace_context(
             backend,
             desktop_online=desktop_online,
             exec_languages=exec_languages,
+            host_axis=permission_axes.host if permission_axes is not None else None,
         ),
     )
     # Look up via ``resume.pipeline`` so any module-level monkeypatch on that
@@ -286,6 +289,7 @@ async def _wire_continuation_toolset(
         permission_axes=permission_axes,
         advertise_bind_local_folder=checkpoint_enabled
         and desktop_client_can_bind(x_client_platform),
+        desktop_online=desktop_online,
     )
 
     # AI 协作白板: re-give the CEO board tools (``board_ops`` §六 M2 + ``board_read``

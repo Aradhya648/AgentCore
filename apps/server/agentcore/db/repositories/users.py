@@ -11,7 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from agentcore.core.types import new_id
 from agentcore.db.models import CostEvent, User, UserBlock, UserDirectorySettings
 
-from ._base import _UNSET, _ilike_pattern, _sum_int
+from ._base import _UNSET, _ilike_pattern, _sum_int, commit_or_flush
 
 
 class UserRepository:
@@ -169,6 +169,7 @@ class UserRepository:
         email: str | None = None,
         role: str = "user",
         status: str = "active",
+        commit: bool = True,
     ) -> User:
         user = User(
             user_id=new_id(),
@@ -179,7 +180,7 @@ class UserRepository:
             status=status,
         )
         self._session.add(user)
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         await self._session.refresh(user)
         return user
 
@@ -315,7 +316,7 @@ class UserRepository:
         await self._session.commit()
         return await self.get_by_id(user_id)
 
-    async def soft_delete(self, user_id: str) -> User | None:
+    async def soft_delete(self, user_id: str, *, commit: bool = True) -> User | None:
         """Soft-delete + anonymize an account (注销账户), returning the updated row.
 
         Stamps ``deleted_at``, disables the account (so ``get_current_user`` refuses it
@@ -324,6 +325,8 @@ class UserRepository:
         ``email`` and dropping the avatar key (the object is purged by the caller). The
         append-only cost ledger (不变量①) is intentionally untouched. Returns ``None``
         for an unknown id.
+
+        Pass ``commit=False`` when pairing with refresh-token revoke in one txn.
         """
         user = await self.get_by_id(user_id)
         if user is None:
@@ -333,7 +336,7 @@ class UserRepository:
         user.username = f"deleted_{user_id}"
         user.email = None
         user.avatar_key = None
-        await self._session.commit()
+        await commit_or_flush(self._session, commit=commit)
         await self._session.refresh(user)
         return user
 

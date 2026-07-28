@@ -59,6 +59,14 @@ class TeamKickoffAxis(StrEnum):
     SKIP = "skip"
 
 
+class HostAxis(StrEnum):
+    """本机 Host 面授权（与 ``command`` 正交；不挂 execution_class / 不吃 kickoff 静默授）。"""
+
+    OFF = "off"
+    ASK = "ask"
+    SESSION = "session"
+
+
 class AutonomyPolicy(StrEnum):
     """User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).
 
@@ -66,20 +74,21 @@ class AutonomyPolicy(StrEnum):
     Stored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).
     """
 
-    CAUTIOUS = "cautious"  # ask / ask / rules
-    WRITE_CODE = "write_code"  # session / kickoff / rules (default · 写代码)
-    LESS_INTERRUPT = "less_interrupt"  # session / kickoff / skip
-    MANAGED = "managed"  # session / auto / skip
+    CAUTIOUS = "cautious"  # ask / ask / rules / off
+    WRITE_CODE = "write_code"  # session / kickoff / rules / ask (default · 写代码)
+    LESS_INTERRUPT = "less_interrupt"  # session / kickoff / skip / ask
+    MANAGED = "managed"  # session / auto / skip / session
 
 
 @dataclass(frozen=True)
 class PermissionAxes:
-    """Conversation-level three-axis permission mode (运行时单一真相源).
+    """Conversation-level permission axes (运行时单一真相源).
 
     - ``file_write`` — ask = per-call; session = trust reversible writes
     - ``command`` — ask = withhold/no kickoff grant; kickoff = card authorizes;
       auto = silent local exec
     - ``team_kickoff`` — always / rules / skip for the team card
+    - ``host`` — off / ask / session for the local Host face (orthogonal to command)
 
     Illegal: ``command=auto`` ∧ ``file_write=ask``.
     ask_user / plan_review / circuit-breakers / sensitive reads are orthogonal.
@@ -88,6 +97,7 @@ class PermissionAxes:
     file_write: FileWriteAxis = FileWriteAxis.SESSION
     command: CommandAxis = CommandAxis.KICKOFF
     team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
+    host: HostAxis = HostAxis.ASK
 
     def __post_init__(self) -> None:
         if self.command is CommandAxis.AUTO and self.file_write is FileWriteAxis.ASK:
@@ -100,11 +110,15 @@ class PermissionAxes:
             "file_write": self.file_write.value,
             "command": self.command.value,
             "team_kickoff": self.team_kickoff.value,
+            "host": self.host.value,
         }
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> PermissionAxes:
-        """Parse stored / wire JSON; unknown / missing → write_code defaults."""
+        """Parse stored / wire JSON; unknown / missing → write_code defaults.
+
+        Explicitly resolves ``host`` (缺省 = 写代码默认 ``ask``); never silently drop it.
+        """
         if not raw:
             return DEFAULT_PERMISSION_AXES
         try:
@@ -116,6 +130,7 @@ class PermissionAxes:
                 team_kickoff=TeamKickoffAxis(
                     str(raw.get("team_kickoff") or TeamKickoffAxis.RULES.value)
                 ),
+                host=HostAxis(str(raw.get("host") or HostAxis.ASK.value)),
             )
         except (ValueError, TypeError, KeyError):
             return DEFAULT_PERMISSION_AXES
@@ -147,6 +162,14 @@ class PermissionAxes:
         return self.team_kickoff is TeamKickoffAxis.ALWAYS
 
     @property
+    def host_disabled(self) -> bool:
+        return self.host is HostAxis.OFF
+
+    @property
+    def trusts_host(self) -> bool:
+        return self.host is HostAxis.SESSION
+
+    @property
     def implies_deep_research_auto(self) -> bool:
         """托管配方 (session/auto/skip) 蕴含深度研究自治，对齐原 full_trust."""
         return (
@@ -159,18 +182,28 @@ DEFAULT_PERMISSION_AXES = PermissionAxes(
     file_write=FileWriteAxis.SESSION,
     command=CommandAxis.KICKOFF,
     team_kickoff=TeamKickoffAxis.RULES,
+    host=HostAxis.ASK,
 )
 
 _RECIPE_TO_AXES: dict[AutonomyPolicy, PermissionAxes] = {
     AutonomyPolicy.CAUTIOUS: PermissionAxes(
-        FileWriteAxis.ASK, CommandAxis.ASK, TeamKickoffAxis.RULES
+        FileWriteAxis.ASK,
+        CommandAxis.ASK,
+        TeamKickoffAxis.RULES,
+        HostAxis.OFF,
     ),
     AutonomyPolicy.WRITE_CODE: DEFAULT_PERMISSION_AXES,
     AutonomyPolicy.LESS_INTERRUPT: PermissionAxes(
-        FileWriteAxis.SESSION, CommandAxis.KICKOFF, TeamKickoffAxis.SKIP
+        FileWriteAxis.SESSION,
+        CommandAxis.KICKOFF,
+        TeamKickoffAxis.SKIP,
+        HostAxis.ASK,
     ),
     AutonomyPolicy.MANAGED: PermissionAxes(
-        FileWriteAxis.SESSION, CommandAxis.AUTO, TeamKickoffAxis.SKIP
+        FileWriteAxis.SESSION,
+        CommandAxis.AUTO,
+        TeamKickoffAxis.SKIP,
+        HostAxis.SESSION,
     ),
 }
 
@@ -185,12 +218,14 @@ def validate_permission_axes(
     file_write: str,
     command: str,
     team_kickoff: str,
+    host: str = HostAxis.ASK.value,
 ) -> PermissionAxes:
     """Parse + validate axes for API writes; raises ValueError on illegal combo / enum."""
     return PermissionAxes(
         file_write=FileWriteAxis(file_write),
         command=CommandAxis(command),
         team_kickoff=TeamKickoffAxis(team_kickoff),
+        host=HostAxis(host),
     )
 
 

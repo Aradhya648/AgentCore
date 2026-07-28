@@ -43,42 +43,6 @@ SUGGESTED_FORMAT_LABELS: tuple[str, ...] = (
     "仅方案 — 方案文档 / 架构说明，不进 toolshed/website 硬锁流水线",
 )
 
-# Narrow kickoff: 做/打造/生成 + Agent|自动化|工作流|流水线，或明确多步骤代运营.
-_AUTOMATION_KICKOFF_RE = re.compile(
-    r"(?:"
-    r"(?:做|打造|生成|搭建|构建|开发|创建|写个|写一个|帮.?我(?:做|打造|生成|搭))"
-    r".{0,48}"
-    r"(?:Agent|agent|自动化|工作流|流水线|workflow|pipeline|automation)"
-    r"|"
-    r"(?:Agent|agent|自动化|工作流|流水线|workflow|pipeline|automation)"
-    r".{0,32}"
-    r"(?:做|打造|生成|搭建|构建|开发)"
-    r"|"
-    r"(?:build|create|make|develop)\s+(?:a\s+|an\s+|the\s+)?"
-    r"(?:(?:automation|automated)\s+)?"
-    r"(?:agent|workflow|pipeline|automation)\b"
-    r"|"
-    r"(?:多步骤|多步).{0,20}代运营|"
-    r"代运营.{0,20}(?:流水线|工作流|自动化|Agent|agent)|"
-    r"(?:自动(?:化)?).{0,24}(?:代运营|运营流水线)"
-    r")",
-    re.IGNORECASE,
-)
-
-# 勿误伤：调研 / 写提示词（即便含 Agent 字样）.
-_AUTOMATION_FALSE_POSITIVE_RE = re.compile(
-    r"(?:"
-    r"提示词|system\s*prompt|prompt\s*(?:工程|词|模板|撰写|优化|改写)|"
-    r"(?:写|撰写|起草|优化|改).{0,16}(?:agent|Agent).{0,16}"
-    r"(?:提示|prompt|system)|"
-    r"(?:用|让|请).{0,12}(?:团队|Agent|agent).{0,24}"
-    r"(?:调研|研究|分析|审查)|"
-    r"(?:做|进行|开展|帮忙).{0,12}调研|"
-    r"(?:调研|研究).{0,20}(?:报告|竞品|市场)"
-    r")",
-    re.IGNORECASE,
-)
-
 _RUNNABLE_LABEL_RE = re.compile(
     r"(?:可运行\s*自动化|真实可调度|runnable\s*automation|automation\s*agent)",
     re.IGNORECASE,
@@ -127,36 +91,6 @@ class AutomationDeliveryConfirmedFact:
             },
             ts=ts,
         )
-
-
-def is_automation_kickoff_text(*parts: str) -> bool:
-    """True when kickoff framing looks like Agent / automation / workflow ask.
-
-    Excludes research-with-team and agent-prompt writing false positives.
-    Pure「做控制台/官网」without automation vocabulary does **not** match.
-    """
-    blob = " ".join(p for p in parts if p)
-    if not blob:
-        return False
-    if _AUTOMATION_FALSE_POSITIVE_RE.search(blob):
-        return False
-    return bool(_AUTOMATION_KICKOFF_RE.search(blob))
-
-
-def automation_kickoff_requires_formats_error() -> str:
-    return (
-        "Agent / 自动化 / 工作流开工提案卡必须提供非空 format_options"
-        "（三档：可运行自动化 / 控制台原型 / 仅方案，id=f0/f1…）。"
-        "请补 format_options 后重调 ask_user；选定形态会结构化记账（format_id）。"
-    )
-
-
-def automation_missing_delivery_error() -> str:
-    return (
-        "Agent / 自动化交付需要先经 ask_user 开工卡确认交付形态"
-        "（非空 format_options → 用户选定 format_id 已记账）。"
-        "请先开开工提案卡选形态，或在 AutonomyPolicy.full_auto 下由机制落默认形态。"
-    )
 
 
 def automation_toolshed_rejected_message() -> str:
@@ -232,11 +166,6 @@ def format_options_look_like_automation(
         if pat.search(blob)
     )
     return hits >= 2
-
-
-def automation_intent_from_parts(*parts: str) -> bool:
-    """Automation intent for the delegate gate (same kickoff vocabulary)."""
-    return is_automation_kickoff_text(*parts)
 
 
 def delivery_confirmation_to_payload(conf: DeliveryConfirmation) -> dict[str, str]:

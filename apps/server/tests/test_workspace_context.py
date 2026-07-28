@@ -37,7 +37,9 @@ def test_cloud_scratch_facts():
     assert "不是用户本机已打开的仓库" in out
     assert "空树" in out
     assert "本机空项目" in out or "宿主机器" in out
-    assert "触达不了用户的电脑" in out
+    assert "触达不了用户的电脑" not in out
+    assert "本机 Host" in out or "host=" in out
+    assert "host=已装配" in out
     assert "bind_local_folder" in out
     assert "open_local_project" in out
     assert "grant_readonly_folder" in out
@@ -62,6 +64,7 @@ def test_cloud_scratch_facts():
     assert "terminal=未装配" in out
     assert "browser=未装配" in out
     assert "local_open=未装配" in out
+    assert "host=已装配" in out
     # 产物出口纠偏：文件在云端、「完整预览」进右坞浏览器；禁止本机「双击打开」
     assert "产物出口" in out
     assert "不在用户本机" in out
@@ -71,6 +74,7 @@ def test_cloud_scratch_facts():
     assert "浏览器指引" in out
     assert "browser=未装配" in out
     assert "勿假装" in out or "勿调用 browser_*" in out
+    assert "host_info" in out or "host_audio" in out or "本机 Host 指引" in out
     # 旧「云端临时空间」短标签已换成诚实草稿口径
     assert "工作区身份：云端临时空间" not in out
     # 案卷布局（始终可见）：三行出口 + 边界
@@ -81,6 +85,31 @@ def test_cloud_scratch_facts():
     assert "用户工程源码仍写业务路径" in out
     assert "通常无 Git" in out
     assert "no_repo" in out
+
+
+def test_cloud_host_off_capability():
+    from agentcore.core.types import HostAxis
+
+    out = build_workspace_context(
+        _FakeBackend("server"),
+        desktop_online=True,
+        code_execute_enabled=False,
+        terminal_enabled=False,
+        host_axis=HostAxis.OFF,
+    )
+    assert "host=未装配" in out
+    assert "host=off" in out or "本机协助" in out or "勿调用 host_*" in out
+
+
+def test_no_desktop_host_unassembled():
+    out = build_workspace_context(
+        _FakeBackend("server"),
+        desktop_online=False,
+        code_execute_enabled=False,
+        terminal_enabled=False,
+    )
+    assert "host=未装配" in out
+    assert "无桌面回填通道" in out or "勿假装" in out
 
 
 def test_local_remote_channel_facts():

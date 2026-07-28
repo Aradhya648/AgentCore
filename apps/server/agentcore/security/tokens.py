@@ -20,6 +20,7 @@ def create_access_token(
     *,
     audience: TokenAudience,
     family: str | None = None,
+    mfa_verified: bool = False,
     expires_delta: timedelta | None = None,
 ) -> str:
     """Mint a short-lived access JWT carrying ``user_id`` as the subject.
@@ -27,6 +28,9 @@ def create_access_token(
     ``family`` (claim ``fam``) binds the access token to its refresh-token family
     so session-management endpoints can mark the current device. Omitted only for
     legacy test helpers; production issuance always passes it.
+
+    ``mfa_verified`` (claim ``mfa``) proves this session completed admin MFA; set
+    only after ``complete_mfa_login`` (or a refresh of such a family).
     """
     now = datetime.now(UTC)
     expire = now + (expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes))
@@ -39,6 +43,8 @@ def create_access_token(
     }
     if family is not None:
         claims["fam"] = family
+    if mfa_verified:
+        claims["mfa"] = True
     return jwt.encode(claims, settings.jwt_secret_key, algorithm=_JWT_ALGORITHM)
 
 
@@ -67,6 +73,12 @@ def decode_access_token_family(token: str) -> str | None:
     claims = _decode_access_claims(token)
     fam = claims.get("fam")
     return fam if isinstance(fam, str) and fam else None
+
+
+def decode_access_token_mfa_verified(token: str) -> bool:
+    """Return whether the access token carries ``mfa: true`` (admin MFA session proof)."""
+    claims = _decode_access_claims(token)
+    return claims.get("mfa") is True
 
 
 def _decode_access_claims(token: str) -> dict:

@@ -8,18 +8,34 @@ from typing import Any
 
 from agentcore.core.types import ToolApproval
 from agentcore.runtime.audit.recorder import AuditDraft, AuditRecorder
-from agentcore.tools.builtin import build_builtin_registry
 
 _TASK_PREVIEW_CHARS = 200
 
 
 @lru_cache(maxsize=1)
 def _grantable_tool_names() -> frozenset[str]:
-    names = {
-        s.name
-        for s in build_builtin_registry().list_all()
-        if s.approval is ToolApproval.GRANTABLE
-    }
+    """All GRANTABLE tools on the declaration roster (builtin + worker-only Host/L3…).
+
+    Builtin-only scan would miss ``host_open_settings`` / ``host_audio_set_default`` /
+    ``host_service_restart`` / ``host_shell`` / terminal / browser — those
+    still go through ApprovalGate and must land on ``agent_audit_events`` like file tools.
+    """
+    from agentcore.tools.registration import (
+        ToolSurface,
+        declared_tools,
+        instantiate_declared,
+        tool_registration,
+    )
+
+    names: set[str] = set()
+    for cls in declared_tools():
+        reg = tool_registration(cls)
+        if reg.surface is ToolSurface.CEO_ORCHESTRATION:
+            continue
+        schema = instantiate_declared(cls, location=None).schema
+        if schema.approval is ToolApproval.GRANTABLE:
+            names.add(schema.name)
+    # Keep legacy ``git`` even if a future roster flip marks it differently.
     return frozenset(names | {"git"})
 
 

@@ -239,11 +239,14 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "教学示例形状" in body and "对照学形状" in body
     assert "免手搓" not in body  # 旧广告口径已撤
     assert "research_report" in body  # listing still present as teaching examples
-    assert "成篇调研软偏好" in body
+    assert "成篇调研" in body
     assert "材料已齐" in body
-    # 定案 A：落盘文档 + ≥2 角 → 各角与主笔均 files；禁「角 prose、仅主笔落盘」
+    # 落盘文档 + ≥2 角 → 各角与主笔均 files + 末环独立审校；禁仅调研→撰稿、禁角 prose
     assert "角 prose" in body and "仅主笔落盘" in body
     assert "form=files" in body and "artifacts" in body
+    assert "独立审校" in body
+    assert "调研→撰稿" in body
+    assert "质量缝" in body
 
 
 def test_team_orchestration_skill_teaches_delegate_knobs():
@@ -501,14 +504,14 @@ def test_ask_user_kickoff_skill_teaches_presentation_format_options():
 
 
 def test_ask_user_kickoff_skill_teaches_automation_delivery_format_options():
-    """Agent/自动化意图：开工卡必须 format_options 三档；控制台原型才允许 toolshed。"""
+    """Agent/自动化场面：填 format_options 三档；控制台原型才允许 toolshed；引擎不扫正文。"""
     body = _body("ask_user_kickoff")
     assert "可运行自动化" in body
     assert "控制台原型" in body
     assert "仅方案" in body
     assert "build_toolshed" in body
     assert "工作流" in body or "流水线" in body
-    assert "提示词" in body or "调研" in body
+    assert "不扫正文" in body or "猜意图" in body
 
 
 def test_ask_user_kickoff_skill_teaches_brief_option_dedup():
@@ -650,9 +653,10 @@ def test_deep_multi_lens_research_teaches_parallel_lenses_and_motion_card():
     assert "继续调研" in body or "对抗检验" in body
     assert "见分歧" in body  # 严禁见分歧就建议开辩
     assert "真对立轴" in body  # 存在真对立轴则必须产卡
-    # CEO 禁止自搜替代四路；先调研后辩
-    assert "3 次" in body or "至多" in body
+    # CEO 禁止自搜替代四路；先调研后辩；探路 query 须遵守 A3 ≤8 词
+    assert "3 轮" in body or "至多" in body
     assert "禁止自搜" in body or ("禁止" in body and "替代四路" in body)
+    assert "≤8 词" in body
     assert "本回合" in body and "debate" in body
     assert "用户同意" in body or "批准" in body
     # 批 B：推进卡即授权；勿口头征求、勿本回合自调 debate

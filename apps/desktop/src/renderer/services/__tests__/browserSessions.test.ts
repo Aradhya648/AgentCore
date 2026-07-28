@@ -9,7 +9,18 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
+vi.mock("@/services/sidecarRouting", () => ({
+  getActiveSidecarTarget: vi.fn(() => null),
+  resolveSidecarRoot: vi.fn(() => Promise.resolve(null)),
+  resolveConversationLocalTarget: vi.fn(() => Promise.resolve(null)),
+}));
+
 import { api } from "@/services/api";
+import {
+  getActiveSidecarTarget,
+  resolveConversationLocalTarget,
+  resolveSidecarRoot,
+} from "@/services/sidecarRouting";
 import {
   closeBrowserSession,
   createBrowserSession,
@@ -20,11 +31,21 @@ import {
 const getMock = vi.mocked(api.get);
 const deleteMock = vi.mocked(api.delete);
 const postMock = vi.mocked(api.post);
+const getActiveMock = vi.mocked(getActiveSidecarTarget);
+const resolveRootMock = vi.mocked(resolveSidecarRoot);
+const resolveLocalMock = vi.mocked(resolveConversationLocalTarget);
 
 beforeEach(() => {
   getMock.mockReset();
   deleteMock.mockReset();
   postMock.mockReset();
+  getActiveMock.mockReset();
+  resolveRootMock.mockReset();
+  resolveLocalMock.mockReset();
+  getActiveMock.mockReturnValue(null);
+  resolveRootMock.mockResolvedValue(null);
+  resolveLocalMock.mockResolvedValue(null);
+  vi.stubGlobal("window", {});
 });
 
 describe("browserSessions service", () => {
@@ -64,6 +85,79 @@ describe("browserSessions service", () => {
       ],
       activeSessionId: "s1",
     });
+  });
+
+  it("listBrowserSessions routes Local → sidecar when target resolves", async () => {
+    resolveRootMock.mockResolvedValue({
+      rootId: "root-1",
+      subpath: "conversations/c1",
+    });
+    const listRpc = vi.fn().mockResolvedValue({
+      data: [
+        {
+          session_id: "local-s1",
+          conversation_id: "c1",
+          host_kind: "local",
+          control: "agent",
+          run_id: null,
+          created_at: 1,
+          last_used: 2,
+          url: "https://local.example/",
+          title: "Local",
+        },
+      ],
+      active_session_id: "local-s1",
+    });
+    // @ts-expect-error partial stub
+    window.sidecarApi = { listBrowserSessions: listRpc };
+
+    const result = await listBrowserSessions("c1");
+    expect(getMock).not.toHaveBeenCalled();
+    expect(listRpc).toHaveBeenCalledWith({
+      rootId: "root-1",
+      subpath: "conversations/c1",
+      conversationId: "c1",
+    });
+    expect(result.activeSessionId).toBe("local-s1");
+    expect(result.sessions[0]).toMatchObject({
+      sessionId: "local-s1",
+      hostKind: "local",
+      url: "https://local.example/",
+    });
+  });
+
+  it("listBrowserSessions prefers active sidecar turn target over resolve", async () => {
+    getActiveMock.mockReturnValue({
+      rootId: "active-root",
+      subpath: "",
+      turnId: "t1",
+    });
+    const listRpc = vi.fn().mockResolvedValue({
+      data: [],
+      active_session_id: null,
+    });
+    // @ts-expect-error partial stub
+    window.sidecarApi = { listBrowserSessions: listRpc };
+
+    await listBrowserSessions("c1");
+    expect(resolveRootMock).not.toHaveBeenCalled();
+    expect(listRpc).toHaveBeenCalledWith({
+      rootId: "active-root",
+      subpath: "",
+      conversationId: "c1",
+    });
+  });
+
+  it("listBrowserSessions returns empty for Local-bound without sidecar (no cloud GET)", async () => {
+    resolveLocalMock.mockResolvedValue({
+      rootId: "root-1",
+      subpath: "conversations/c1",
+    });
+
+    const result = await listBrowserSessions("c1");
+
+    expect(getMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ sessions: [], activeSessionId: null });
   });
 
   it("createBrowserSession POSTs host_kind sandbox by default", async () => {

@@ -22,6 +22,7 @@ class WorkspaceProfile:
     vcs: str | None = None
     branch: str | None = None
     test_commands: list[str] = field(default_factory=list)
+    typecheck_commands: list[str] = field(default_factory=list)
     build_commands: list[str] = field(default_factory=list)
     run_commands: list[str] = field(default_factory=list)
     agents_md_excerpt: str | None = None
@@ -85,6 +86,7 @@ async def detect_workspace_profile(backend: WorkspaceBackend) -> WorkspaceProfil
     vcs: str | None = None
     branch: str | None = None
     test_commands: list[str] = []
+    typecheck_commands: list[str] = []
     build_commands: list[str] = []
     run_commands: list[str] = []
     agents_md_excerpt: str | None = None
@@ -105,6 +107,10 @@ async def detect_workspace_profile(backend: WorkspaceBackend) -> WorkspaceProfil
                 package_managers.append("pip")
             if "pytest" in content:
                 test_commands.append("pytest")
+            if "mypy" in content:
+                typecheck_commands.append(
+                    "uv run mypy" if "uv" in package_managers else "mypy"
+                )
             py_run = _detect_python_run_command(content, package_managers)
             if py_run:
                 run_commands.append(py_run)
@@ -130,10 +136,20 @@ async def detect_workspace_profile(backend: WorkspaceBackend) -> WorkspaceProfil
             pm = _js_package_manager(content)
             package_managers.append(pm)
             if '"test"' in content:
-                test_commands.append("npm test")
+                test_commands.append("npm test" if pm == "npm" else f"{pm} test")
+            if '"typecheck"' in content or '"type-check"' in content:
+                script = "typecheck" if '"typecheck"' in content else "type-check"
+                typecheck_commands.append(_format_js_run_command(pm, script))
             if '"build"' in content:
-                build_commands.append("npm run build")
+                build_commands.append(_format_js_run_command(pm, "build"))
             run_commands.extend(_detect_js_run_commands(content, pm))
+    except Exception:
+        pass
+
+    try:
+        await backend.read("tsconfig.json")
+        if not typecheck_commands:
+            typecheck_commands.append("npx tsc --noEmit")
     except Exception:
         pass
 
@@ -185,6 +201,7 @@ async def detect_workspace_profile(backend: WorkspaceBackend) -> WorkspaceProfil
         vcs=vcs,
         branch=branch,
         test_commands=test_commands,
+        typecheck_commands=typecheck_commands,
         build_commands=build_commands,
         run_commands=run_commands,
         agents_md_excerpt=agents_md_excerpt,
@@ -217,7 +234,12 @@ def render_workspace_profile(profile: WorkspaceProfile) -> str:
             vcs_str += f"（分支 {profile.branch}）"
         parts.append(f"版本控制：{vcs_str}")
 
-    commands = profile.test_commands + profile.build_commands + profile.run_commands
+    commands = (
+        profile.test_commands
+        + profile.typecheck_commands
+        + profile.build_commands
+        + profile.run_commands
+    )
     if commands:
         shown = commands[:_PROFILE_MAX_COMMANDS]
         parts.append(f"常用命令：{' · '.join(shown)}")
