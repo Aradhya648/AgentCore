@@ -7,9 +7,9 @@
   "vendor_dir": "zod@e30870369d5b",
   "language": "typescript",
   "user_message": "工作区是 zod（v3 pin）。请为 `ZodString` 新增方法 `hexColor(message?)`：校验 CSS hex 颜色（#RGB 或 #RRGGBB）。可用现有 `regex`。Windows 友好：ts-jest 直跑源码。不要修改既有 src/__tests__/；评测追加 GOLDEN 测。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "golden_tests": [
     {
       "src": "golden/v10_hex_color_test.ts",

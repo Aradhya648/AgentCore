@@ -17,7 +17,7 @@
 | ID | 场景 | 层 | 路径 | 工作区 | 能力焦点（勾选须真打通） | 验收（可检查产物） | 本轮 |
 |----|------|----|------|--------|--------------------------|-------------------|------|
 | S1 | P1 从零搭 hello-cli | C | D | P1（近空副本） | `file_*` 写盘 · `code_execute`/`terminal` 跑命令 · 工作区画像 · （可选）`git` | 见 P1 `GOLDEN.md`：`--help`+子命令退出 0；约定文件存在；记下 `conversation_id`/`trace_id` | **Pass**（RPC） |
-| S2 | P3 已知 Bug 最小修复 | B | D | P3 副本 | `file_list`/`file_read`/`grep`/`code_search` · 最小 `file_replace`/`file_write` · 跑测 | 见 P3 `GOLDEN.md`：三坑修好；`python -m pytest` 绿；禁止大重构；记 id | **Pass**（RPC） |
+| S2 | P3 已知 Bug 最小修复 | B | D | P3 副本 | `file_list`/`file_read`/`grep`/`code_search` · 最小 `str_replace`/`file_write` · 跑测 | 见 P3 `GOLDEN.md`：三坑修好；`python -m pytest` 绿；禁止大重构；记 id | **Pass**（RPC） |
 | S3 | 中断 / Resume | B+U | D+U | P1 或 P3（**独立会话副本**） | 挂起帧 · `resume` · AskUser/plan_review 结算 | **U 层**：人为挂起 → **刷新/重进仍见卡** → 决策后继续且**不丢**已有写盘；journal/UI 一致；记 id。`listPaused`/`resume` RPC **不**等于「仍见卡」（无 S4 `turnFilesDiff` 式等价）。人手：[runbooks/s3-resume-ui.md](runbooks/s3-resume-ui.md) | **待人手 / CDP** |
 | S4 | Checkpoint + turn files diff | B | D（U 可选） | P3 独立会话 | 回合基线 · `turnFilesDiff` / 云 `files/diff` · （U）产物卡「查看改动」 | 回合改 ≥1 文件后：diff 路径与磁盘一致；有基线时可「回退到本回合开始」（可选破坏性，用副本）；记 message_id。**D 验收以 RPC/API 等价为准**；产物卡按钮属 U | **Pass**（RPC） |
 | S5 | Delegate / 多 Agent 协作写码 | B/C | D | P1 独立近空副本 | `delegate` · worker `file_*`/`code_execute` · 交付契约 `files`/`code_verified`（若声明） | 出现 `run_plan`；≥1 worker 落盘；CEO 收口；黄金命令可跑；记 id；**不**与 S1 同盘互踩 | **Pass**（R2）；R1 探测 Fail **已修**（见 README） |

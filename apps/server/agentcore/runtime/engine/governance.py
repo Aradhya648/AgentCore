@@ -66,9 +66,9 @@ def team_gate_local_edit_prompt() -> str:
     n = TEAM_GATE_LOCAL_EDIT_THRESHOLD
     return (
         f"[系统提示] 本地改文件探路已够（已摸仓 ≥{n} 次）：调查类工具已收回。"
-        "请立即 delegate：本地 runtime / 缺 export 等修码用 "
-        "`complexity_hint=light`（可带 requires_files）或 "
-        '`playbook="repair_code"`；禁止 none+满轮巡读、禁止继续 '
+        "请立即 delegate：单文件一刀切用 `complexity_hint=light`（可带 "
+        "requires_files）；有症状/需验用 `playbook=\"repair_code\"`；"
+        "禁止 none 当修码默认、禁止继续 "
         "file_list / file_read / grep 空转。"
     )
 
@@ -160,9 +160,8 @@ def exec_verify_delegate_prompt() -> str:
         "[系统提示] 能力策略：用户要跑/修或打开验证，且本回合已装配对应执行能力。"
         "探路工具已收回。请立即 delegate：测试/build→code_verified；"
         "启动开发服务器→runtime_ready（勿混用）。"
-        "本地 runtime 错 / 单文件修码优先 `complexity_hint=light` 或 "
-        '`playbook="repair_code"`（diagnose→patch→verify），'
-        "禁止直答、翻目录收口或 none+满轮巡读。"
+        "本地修码：单文件一刀切→`complexity_hint=light`；有症状/需验→"
+        '`playbook="repair_code"`；禁止直答、翻目录收口或 none 当修码默认。'
     )
 
 

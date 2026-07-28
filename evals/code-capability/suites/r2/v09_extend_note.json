@@ -7,9 +7,9 @@
   "vendor_dir": "commander@ba6d13ddb424",
   "language": "typescript",
   "user_message": "工作区是 commander.js。请为 `Command` 新增方法 `note(text?)`：无参返回已存 notes 数组（默认 []）；有参则 push 并链式返回 this。Windows 友好：`node --test`。不要修改既有 tests/；评测会追加 GOLDEN 测。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "golden_tests": [
     {
       "src": "golden/v09_note_test.js",

@@ -7,9 +7,9 @@
   "vendor_dir": "zod@e30870369d5b",
   "language": "typescript",
   "user_message": "工作区是 zod（v3 pin）。`z.string().email()` 校验行为异常。请定位缺陷所在文件路径与符号，在回复中明确写出；不要修改代码。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "seed_patch": "seeds/v10_break_email.json",
   "gold": {
     "paths": ["src/types.ts"],

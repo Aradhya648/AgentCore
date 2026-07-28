@@ -146,8 +146,9 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 `form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）——\
 【禁止】「角 prose、仅主笔落盘」（中途停则用户零文件）。材料已齐扩写 / 短文落盘仍单人。非硬锁。\
 建站 / 工具台硬约束见 consult `build_website` / `build_toolshed`（勿在此复读全文）。\
-本地 runtime 错 / 缺 export：宜 `repair_code` 或显式 `complexity_hint=light`+\
-短任务；**禁止**触顶后再派马甲从零读。\
+本地修码：单文件/单符号一刀切 → 宜显式 `complexity_hint=light`+短任务（可 \
+`requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`。\
+**禁止**把 `none` 当修码默认、禁止触顶后再派马甲从零读。\
 可用：""" + _PLAYBOOK_LISTING + """。槽位见 `delegate` 的 playbook_args。
 
 按需用好 `delegate` 的进阶旋钮（不必都填）：
@@ -316,8 +317,8 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 结论互相影响、互相审查）→ `coordination="wall"`；各写各的、互不依赖的正交扇出 → 保持缺省\
 `none`（不建墙、不授便签三件套，省开销与 UI 噪音）。传了非空 `seed_notes` / `team_brief` 会\
 隐含升级为 wall；`complexity_hint=light` 隐含 none（且会缩短 worker 轮次预算；\
-本地 runtime / 缺 export 修码即使 `requires_files` 也可显式 light，或用 \
-`playbook="repair_code"`）。`build_feature` / `build_website` \
+单文件一刀切修码即使 `requires_files` 也可显式 light；有症状/需验用 \
+`playbook="repair_code"`；禁 none 当修码默认）。`build_feature` / `build_website` \
 教学示例默认 wall（接口或页面契约经便签对齐）。**主 Agent 可在 `delegate` 上预置共识**：`seed_notes`（`[{kind,text}]` \
 写入便签墙，首波并行 worker 开局即见）与 `team_brief`（回合级「团队共识」块注入每个 worker 开局上下文，\
 跨多波 `delegate` 仍沿用直至覆盖）——brief 写总述、seed 钉关键决定，减少在各 task 里重复粘贴同一段背景。\

@@ -7,9 +7,9 @@
   "vendor_dir": "more-itertools@64be96ceb2a6",
   "language": "python",
   "user_message": "工作区是 more-itertools。`chunked()` 分块行为异常。请定位缺陷所在文件路径与符号（函数名），在回复中明确写出；不要修改代码。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "seed_patch": "seeds/v07_break_chunked.json",
   "gold": {
     "paths": ["more_itertools/more.py"],

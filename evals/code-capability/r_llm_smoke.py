@@ -48,11 +48,14 @@ _DEFAULT_CARD_STEMS = (
     "v01_fix_int",
 )
 
-# Fix 烟感短前缀：控空转；不改任务 JSON 题面。可用 --no-prefix 关掉。
+# Fix 烟感短前缀：仅复述产品规则（CEO→delegate；mutation=worker str_replace）。
+# 可用 --no-prefix 关掉。禁幽灵工具名；不平行造 worker 直装。
 _FIX_PROMPT_PREFIX = (
-    "[eval smoke] Minimal fix only. Prefer file_read / grep / file_replace; "
-    "avoid repeated code_execute or terminal loops. Verify once with the card's "
-    "pytest command, then stop."
+    "[eval smoke] Product path: CEO coordinates then delegate "
+    "(light for single-file one-shot; repair_code when symptoms/verify needed). "
+    "Worker mutates with str_replace (not CEO). Prefer file_read / grep; "
+    "verify once with the card's pytest command, then stop. "
+    "Avoid repeated code_execute or terminal loops; forbid playbook=none as repair default."
 )
 
 # 墙钟 timeout 时：tool 数 ≥ 此阈值 → 模型弱（空转烧预算），非接缝死锁
@@ -201,7 +204,7 @@ def _run_hard_checks(
         id=task["id"],
         category=task.get("category", "tool_use"),
         user_message=task.get("user_message", ""),
-        path=task.get("path", "single"),
+        path=task.get("path", "team"),
         mode=task.get("mode", "economy"),
         toolset=task.get("toolset", "ceo"),
         checks=list(task.get("checks") or []),
@@ -709,9 +712,9 @@ async def main_async(args: argparse.Namespace) -> int:
             "hard_checks_reached": n_pass + sum(1 for r in rows if r.get("checks") is not None),
             "classic_post_llm_hang_cards": classic_seam,
             "wall_clock_timeout_model_weak_cards": wall_clock_weak,
-            "worker_toolset": (
-                "sidecar startTurn 现无 toolset/path 透传（run_chat_pipeline 未接）；"
-                "强制 worker 需产品透传，本轮用 Fix prompt_prefix 代替，勿新造平行 API"
+            "product_path": (
+                "产品路径恒 CEO→delegate(playbook)；EvalCase path/toolset 仅诊断标签"
+                "（已对齐 team+ceo），startTurn 不透传、不平行造 worker 直装"
             ),
             "seam_note": (
                 "经典接缝 hang = turn_started+timeout+几乎无 tool（仅 message_start/run_*）；"
@@ -729,7 +732,7 @@ async def main_async(args: argparse.Namespace) -> int:
             "首波 Fix 烟感；不进 PR 门禁；禁直绑 vendor 写盘",
             "ask_user 默认 max_resumes=0 → fail_class=需决策/交互",
             "经典 post_llm_hang（几乎无 tool）→ 接缝；多 tool 后墙钟 timeout → 模型弱",
-            "强制 worker toolset 需产品透传 startTurn；本轮 prompt_prefix 代替",
+            "产品路径=CEO→delegate；EvalCase toolset/path 不透传 startTurn",
         ],
     }
     out = _write_report(report)

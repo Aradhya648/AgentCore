@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import type { WorkspaceOpResult } from "@shared/ipc-contract";
 import { EXEC_CAPTURE_CAP, EXEC_LANGS, EXEC_TIMEOUT_CAP_S } from "../constants";
 import { realInside, resolveLexical, toReason } from "../pathGuard";
@@ -24,6 +24,27 @@ function execResult(value: {
   duration_ms: number;
 }): WorkspaceOpResult {
   return opOk(value);
+}
+
+/** Layout dirs auto-prepended to PYTHONPATH (mirrors server ``default_pythonpath_rels``). */
+const PYTHONPATH_AUTO_EXTRA = ["src", "lib"] as const;
+
+/**
+ * D11′: workspace ``.`` + existing ``src``/``lib`` for local ``code_execute``,
+ * same resolution as server ``merge_pythonpath_into_env`` (auto mode).
+ */
+export function buildWorkspacePythonpathEnv(
+  cwdAbs: string,
+  prevPythonpath?: string,
+): Record<string, string> {
+  const entries: string[] = [cwdAbs];
+  for (const name of PYTHONPATH_AUTO_EXTRA) {
+    const p = join(cwdAbs, name);
+    if (existsSync(p)) entries.push(p);
+  }
+  const prev = prevPythonpath ?? process.env.PYTHONPATH ?? "";
+  const merged = [...entries, prev].filter(Boolean).join(delimiter);
+  return { PYTHONPATH: merged };
 }
 
 /**
@@ -234,13 +255,17 @@ export async function opExecute(
   try {
     const scriptFile = join(tmpDir, `main${lang.ext}`);
     await fs.writeFile(scriptFile, code, "utf-8");
-    // W3: inject AGENTCORE_EXTERNAL_<ALIAS>=absPath so code_execute can open
-    // session-authorized dirs without absolute paths entering the model prompt.
-    // Only roots owned by this conversation's session grants are injected.
-    const envExtra = buildExternalEnvFromRoots(
-      args.external_roots as Record<string, unknown> | undefined,
-      String(args.conversation_id ?? ""),
-    );
+    // W3: inject AGENTCORE_EXTERNAL_* + D11′ PYTHONPATH (. + src/lib) so local
+    // code_execute can import src-layout packages the same way TestExitCode does.
+    const envExtra: Record<string, string> = {
+      ...buildExternalEnvFromRoots(
+        args.external_roots as Record<string, unknown> | undefined,
+        String(args.conversation_id ?? ""),
+      ),
+    };
+    if (language === "python") {
+      Object.assign(envExtra, buildWorkspacePythonpathEnv(cwdAbs));
+    }
     return await runSubprocess(
       resolved.cmd,
       scriptFile,

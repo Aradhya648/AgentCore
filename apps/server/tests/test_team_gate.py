@@ -265,6 +265,21 @@ def test_local_edit_prompt_urges_delegate_not_research_shape():
     assert "本地改文件" in text
     assert "delegate" in text
     assert "research_report" not in text
+    # D10′：light vs repair_code；禁 none 当修码默认
+    assert "complexity_hint=light" in text
+    assert "repair_code" in text
+    assert "none 当修码默认" in text
+
+
+def test_ceo_prompt_d10_repair_routing_rules():
+    """CEO 主提示含 D10′ light / repair_code 选型（契约文案，非意图分类器）."""
+    from agentcore.runtime.resolve import prompt as prompt_mod
+
+    core = prompt_mod._CEO_CORE_HINT
+    assert "单文件/单符号一刀切" in core
+    assert "complexity_hint=light" in core
+    assert 'playbook="repair_code"' in core
+    assert "修码默认" in core
 
 
 def test_local_file_edit_fires_after_two_local_peeks():

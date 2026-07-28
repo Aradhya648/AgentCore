@@ -7,9 +7,9 @@
   "vendor_dir": "zod@e30870369d5b",
   "language": "typescript",
   "user_message": "工作区是 zod（v3 pin）。请为 `ZodString` 新增方法 `slug(message?)`：校验 URL slug（小写字母数字，中间可用单个连字符，如 hello-world）。可用现有 `regex` 实现。Windows 友好：harness 会 npm install，再用 ts-jest 跑追加的 GOLDEN 测。不要修改既有 src/__tests__/。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "golden_tests": [
     {
       "src": "golden/v10_slug_test.ts",

@@ -7,9 +7,9 @@
   "vendor_dir": "flask@22d924701a6a",
   "language": "python",
   "user_message": "工作区是 flask（src layout）。请新增公开 API `flask.truthy(value: str | None) -> bool`：配置/环境风格真值判断；None、空串、0/false/no/off/n（大小写不敏感）为 False，其余非空串为 True。实现放在 `src/flask/helpers.py` 并在 `__init__.py` 导出。不要修改既有 tests/；评测会追加 GOLDEN 测。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "golden_tests": [
     {
       "src": "golden/v04_truthy_test.py",

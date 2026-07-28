@@ -7,9 +7,9 @@
   "vendor_dir": "click@b2e30a175449",
   "language": "python",
   "user_message": "工作区是 click。布尔参数转换结果与预期相反。请定位缺陷文件路径与符号（类/方法），在回复中明确写出；不要修改代码。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "seed_patch": "seeds/v01_break_bool.json",
   "gold": {
     "paths": ["src/click/types.py"],

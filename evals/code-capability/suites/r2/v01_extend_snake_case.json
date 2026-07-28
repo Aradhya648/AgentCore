@@ -7,9 +7,9 @@
   "vendor_dir": "click@b2e30a175449",
   "language": "python",
   "user_message": "工作区是 click（src layout）。请新增公开 API `click.snake_case(text: str) -> str`：把空白分隔的词转为小写 snake_case（例：\"Hello World\" → \"hello_world\"）。实现放在 `src/click/utils.py` 并在 `src/click/__init__.py` 导出。不要修改既有 tests/；评测会追加 GOLDEN 测文件。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "golden_tests": [
     {
       "src": "golden/v01_snake_case_test.py",

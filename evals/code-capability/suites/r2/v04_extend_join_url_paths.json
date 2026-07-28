@@ -7,9 +7,9 @@
   "vendor_dir": "flask@22d924701a6a",
   "language": "python",
   "user_message": "工作区是 flask（src layout）。请新增公开 API `flask.join_url_paths(*parts: str) -> str`：用单斜杠拼接 URL 路径段（忽略空段、剥离首尾 /）；无有效段时返回 \"/\"。实现放在 `helpers.py` 并导出。不要修改既有 tests/；评测会追加 GOLDEN 测。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "golden_tests": [
     {
       "src": "golden/v04_join_url_paths_test.py",

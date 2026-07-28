@@ -406,14 +406,12 @@ class TestExitCodeCheck:
         cwd = Path(root)
         if not cwd.is_dir():
             return CheckOutcome(self.name, False, f"workspace_root not a dir: {root}")
-        env = os.environ.copy()
-        # 保证副本内包可 import（无需 pip install -e；纯源码树）
-        prev = env.get("PYTHONPATH", "")
-        path_entries: list[str] = []
-        for rel in self.pythonpath or ["."]:
-            entry = cwd if rel in (".", "") else (cwd / rel)
-            path_entries.append(str(entry.resolve()))
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, [*path_entries, prev]))
+        # 与产品 code_execute 同源：相对 cwd 解析 pythonpath（卡声明或默认 ["."]）
+        from agentcore.tools.sandbox.pythonpath import merge_pythonpath_into_env
+
+        env = merge_pythonpath_into_env(
+            cwd, os.environ.copy(), rels=list(self.pythonpath or ["."])
+        )
         try:
             proc = subprocess.run(
                 list(self.command),

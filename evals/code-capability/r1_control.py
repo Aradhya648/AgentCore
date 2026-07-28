@@ -237,7 +237,7 @@ def _run_checks(
         id=task["id"],
         category=task.get("category", "tool_use"),
         user_message=task.get("user_message", ""),
-        path=task.get("path", "single"),
+        path=task.get("path", "team"),
         mode=task.get("mode", "economy"),
         toolset=task.get("toolset", "ceo"),
         checks=list(task.get("checks") or []),

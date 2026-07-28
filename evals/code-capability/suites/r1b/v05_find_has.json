@@ -7,9 +7,9 @@
   "vendor_dir": "attrs@7bfc49e9b22d",
   "language": "python",
   "user_message": "工作区是 attrs（src layout）。`has()` 对 attrs 类判断异常。请定位缺陷所在文件路径与符号（函数名），在回复中明确写出；不要修改代码。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "seed_patch": "seeds/v05_break_has.json",
   "gold": {
     "paths": ["src/attr/_funcs.py"],

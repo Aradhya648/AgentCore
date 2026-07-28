@@ -7,9 +7,9 @@
   "vendor_dir": "uuid@70177807e922",
   "language": "typescript",
   "user_message": "工作区是 uuidjs/uuid。`validate()` 把合法 UUID 判为无效。请定位缺陷文件路径与符号，在回复中明确写出；不要修改代码。",
-  "path": "single",
+  "path": "team",
   "mode": "economy",
-  "toolset": "worker",
+  "toolset": "ceo",
   "seed_patch": "seeds/v08_break_validate.json",
   "gold": {
     "paths": ["src/validate.ts"],

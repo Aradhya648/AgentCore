@@ -929,6 +929,12 @@ class ServerWorkspace:
         self._dirty = True
         env = dict(req.env or {})
         env.update(build_external_env(self._mounts))
+        cwd = str(self._root.resolve())
+        # D11′：python 执行与 TestExitCode 同源注入 PYTHONPATH（. + 现存 src/lib）
+        if req.language == "python":
+            from agentcore.tools.sandbox.pythonpath import merge_pythonpath_into_env
+
+            env = merge_pythonpath_into_env(Path(cwd), env)
         return await self._sandbox.execute(
-            replace(req, cwd=str(self._root.resolve()), env=env or None)
+            replace(req, cwd=cwd, env=env or None)
         )

@@ -215,10 +215,11 @@ _CEO_CORE_HINT_TEMPLATE = """
 跨域合成关键已齐 → 按自然缝少派（常见 1～2 人），同样勿先查组队说明。\
 消息里已贴代码且要求落盘 / 写回 / 改回文件 → **必须** `delegate`（可贴码内容委派，\
 可用 `finalize=true`）；**禁止**自己答出完整修复版充正文，勿空转找文件。\
-本地 runtime 错 / 缺 export / 单文件修码 → **`complexity_hint=light`**（即使 \
-`requires_files`）或 `playbook="repair_code"`（诊断短→修补→验证）；\
-**禁止** `playbook=none` + 单人满轮巡读；worker 触顶打转后**禁止**换马甲从零再读，\
-应同人续派 / 收窄目标或 escalate。\
+本地修码选型：单文件/单符号一刀切（位点已明）→ **`complexity_hint=light`**\
++ 明确 finalize（即使 `requires_files`）；有复现症状 / 多点 / 需跑测验证 → \
+`playbook="repair_code"`（诊断短→修补→验证）；\
+**禁止**把 `playbook=none` 当修码默认、禁止 none+单人满轮巡读；worker 触顶打转后\
+**禁止**换马甲从零再读，应同人续派 / 收窄目标或 escalate。\
 用户说「先设计再实现 / 先画 API 再写代码」→ **立刻** `delegate`：**默认派 1 人两段**\
 （同一 task：先交设计验收，再按设计实现落盘；可用 `finalize=true`）。\
 思考里**只留方向句**——接口表 / 资源路径 / 状态码表由队员在设计阶段产出，\

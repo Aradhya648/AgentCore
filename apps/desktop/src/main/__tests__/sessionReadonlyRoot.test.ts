@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { StoredRoot } from "../fs/roots";
 import { executeWorkspaceOp } from "../fs/workspace/dispatch";
-import { buildExternalEnvFromRoots } from "../fs/workspace/exec";
+import { buildExternalEnvFromRoots, buildWorkspacePythonpathEnv } from "../fs/workspace/exec";
 
 const readonlyRoot: StoredRoot = {
   id: "s1",
@@ -149,5 +149,24 @@ describe("buildExternalEnvFromRoots conversation ownership", () => {
   it("skips injection when conversation_id is empty", () => {
     const env = buildExternalEnvFromRoots({ reports: "ext-1" }, "", lookup);
     expect(env).toEqual({});
+  });
+});
+
+describe("buildWorkspacePythonpathEnv (D11′)", () => {
+  it("prepends cwd and existing src/lib, keeps previous PYTHONPATH", async () => {
+    const { mkdtemp, mkdir, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join, delimiter } = await import("node:path");
+    const root = await mkdtemp(join(tmpdir(), "ac-pp-"));
+    try {
+      await mkdir(join(root, "src"));
+      const env = buildWorkspacePythonpathEnv(root, "keep-me");
+      const parts = env.PYTHONPATH.split(delimiter);
+      expect(parts[0]).toBe(root);
+      expect(parts).toContain(join(root, "src"));
+      expect(parts[parts.length - 1]).toBe("keep-me");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
