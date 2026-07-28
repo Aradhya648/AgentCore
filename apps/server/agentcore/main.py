@@ -55,7 +55,7 @@ from agentcore.runtime.audit_retention import audit_retention_loop
 from agentcore.runtime.session_retention import session_retention_loop
 from agentcore.runtime.suspension_retention import paused_turn_retention_loop
 from agentcore.security.keys import KeyEncryptor
-from agentcore.standing_tasks import standing_task_scheduler_loop
+from agentcore.standing_tasks.scheduler import standing_task_scheduler_loop
 from agentcore.tools.builtin.web.search_backend import (
     aclose_search_backend,
     probe_search_at_startup,
