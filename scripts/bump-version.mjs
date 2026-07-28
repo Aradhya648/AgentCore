@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { syncAndroidVersion } from "../apps/mobile/scripts/sync-android-version.mjs";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dir, "..");
@@ -173,6 +174,9 @@ function main() {
 
   if (dryRun) {
     if (track === "desktop") syncDesktopFallbackVersion(next, { dryRun: true });
+    if (track === "mobile") {
+      console.log(`  would sync android versionName/versionCode → ${next}`);
+    }
     return;
   }
 
@@ -181,6 +185,12 @@ function main() {
 
   if (track === "desktop") {
     syncDesktopFallbackVersion(next);
+  }
+
+  // APK versionName/versionCode live in android/app/build.gradle; keep in lockstep
+  // with apps/mobile/package.json so release:android isn't the only writer.
+  if (track === "mobile") {
+    syncAndroidVersion(next);
   }
 }
 
