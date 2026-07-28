@@ -35,6 +35,7 @@ from .chat import ChatRepository
 from .conversation_shares import ConversationShareRepository
 from .conversations import ConversationRepository
 from .devices import PushDeviceRepository
+from .external_grants import ExternalGrantRepository
 from .documents import DocumentRepository
 from .feedback import FeedbackRepository
 from .folders import FolderRepository
@@ -50,6 +51,7 @@ from .runs import (
 )
 from .shared_spaces import SharedSpaceRepository
 from .simulation import SimulationRepository
+from .standing_tasks import StandingTaskRepository, StandingTaskRunRepository
 from .stream_state import TurnStreamStateRepository
 from .users import (
     UserBlockRepository,
@@ -72,6 +74,7 @@ __all__ = [
     "CostEventRepository",
     "DocumentRepository",
     "CredentialsRepository",
+    "ExternalGrantRepository",
     "FeedbackRepository",
     "FolderRepository",
     "HandoffJobRepository",
@@ -85,6 +88,8 @@ __all__ = [
     "RunSessionRepository",
     "SharedSpaceRepository",
     "SimulationRepository",
+    "StandingTaskRepository",
+    "StandingTaskRunRepository",
     "TurnJournalRepository",
     "TurnLeaseRepository",
     "TurnMetricsRepository",

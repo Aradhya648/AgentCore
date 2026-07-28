@@ -1,0 +1,16 @@
+{
+  "format": "replacements_v1",
+  "description": "R2 Extend 参照实现：flask.helpers.join_url_paths + 导出",
+  "replacements": [
+    {
+      "path": "src/flask/helpers.py",
+      "old": "def get_debug_flag() -> bool:\n    \"\"\"Get whether debug mode should be enabled for the app, indicated by the\n    :envvar:`FLASK_DEBUG` environment variable. The default is ``False``.\n    \"\"\"\n    val = os.environ.get(\"FLASK_DEBUG\")\n    return bool(val and val.lower() not in {\"0\", \"false\", \"no\"})\n",
+      "new": "def join_url_paths(*parts: str) -> str:\n    \"\"\"Join URL path segments with single leading/joining slashes.\n\n    Empty segments are ignored. No parts → ``\"/\"``.\n\n    .. versionadded:: AgentCore R2 Extend (eval reference)\n    \"\"\"\n    cleaned = [p.strip(\"/\") for p in parts if p and p.strip(\"/\")]\n    if not cleaned:\n        return \"/\"\n    return \"/\" + \"/\".join(cleaned)\n\n\ndef get_debug_flag() -> bool:\n    \"\"\"Get whether debug mode should be enabled for the app, indicated by the\n    :envvar:`FLASK_DEBUG` environment variable. The default is ``False``.\n    \"\"\"\n    val = os.environ.get(\"FLASK_DEBUG\")\n    return bool(val and val.lower() not in {\"0\", \"false\", \"no\"})\n"
+    },
+    {
+      "path": "src/flask/__init__.py",
+      "old": "from .helpers import flash as flash\nfrom .helpers import get_flashed_messages as get_flashed_messages\n",
+      "new": "from .helpers import flash as flash\nfrom .helpers import get_flashed_messages as get_flashed_messages\nfrom .helpers import join_url_paths as join_url_paths\n"
+    }
+  ]
+}

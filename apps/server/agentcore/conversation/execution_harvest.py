@@ -16,14 +16,14 @@ from agentcore.conversation.common import (
     resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
-    resolve_permission_preset,
+    resolve_permission_axes,
     resolve_profile_set,
 )
 from agentcore.conversation.history import load_chat_context
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_runner import run_and_persist
 from agentcore.core.logging import get_logger
-from agentcore.core.types import preset_to_autonomy
+
 from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import BoardRepository, ConversationRepository
 from agentcore.push import PushNotification, notify_user
@@ -38,7 +38,6 @@ _HARVEST_USER_TEXT = (
     "【系统收口】后台团队任务已全部完成。请综合队员产出，按终稿纪律交付给老板："
     "交付物在前，过程简述至多一段；勿粘贴协调事件原文。"
 )
-
 
 async def run_harvest_closing_turn(
     *,
@@ -92,8 +91,8 @@ async def run_harvest_closing_turn(
         profile_set = await resolve_profile_set(db, conv, user_id)
         memory_enabled = await resolve_memory_enabled(db, user_id)
         conversation_history_access = await resolve_conversation_history_access(db, user_id)
-        permission_preset = await resolve_permission_preset(db, conversation_id)
-        autonomy_policy = preset_to_autonomy(permission_preset)
+        permission_axes = await resolve_permission_axes(db, conversation_id)
+        
         board = await BoardRepository(db).get_by_conversation_id(
             conversation_id, user_id=user_id
         )
@@ -109,7 +108,7 @@ async def run_harvest_closing_turn(
         history = await load_chat_context(db, conversation_id, max_messages=40)
 
     sink = EventSink()
-    backend = build_turn_backend(
+    backend = await build_turn_backend(
         user_id=user_id,
         conversation_id=conversation_id,
         folder_id=folder_id,
@@ -138,8 +137,7 @@ async def run_harvest_closing_turn(
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
                 conversation_history_access=conversation_history_access,
-                autonomy_policy=autonomy_policy,
-                permission_preset=permission_preset,
+                permission_axes=permission_axes,
                 board_id=board_id,
                 llm_supports_tools=None,
                 x_client_platform=None,
@@ -166,7 +164,6 @@ async def run_harvest_closing_turn(
         conversation_id=conversation_id,
         execution_id=execution_id,
     )
-
 
 async def _notify_harvest_complete(
     *,

@@ -459,9 +459,10 @@ def test_core_worker_capability_follows_workspace_facts():
 
 
 def test_core_teaches_delivery_honesty_when_no_execution():
-    # 云端无执行环境：核心短钩子点 code_verified；交付缺口细节在编排 skill。
+    # 云端无执行环境：核心短钩子点验收种类；交付缺口细节在编排 skill。
     hint = _CEO_CORE_HINT
     assert "code_verified" in hint
+    assert "runtime_ready" in hint
     assert "能力策略" in hint
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "不要设" in skill or "显式声明会被硬拒" in skill
@@ -475,10 +476,18 @@ def test_core_teaches_delivery_path_by_workspace_type():
     assert "执行位置分道" in hint
     assert "收口硬约束" in hint
     assert "文件」面板" in hint
-    assert "预览" in hint
-    assert "浏览器打开" in hint
+    assert "完整预览" in hint
+    assert "右坞「浏览器」" in hint or "右坞" in hint
+    assert "【右坞浏览器】" in hint
+    assert "browser_navigate" in hint
+    assert "escalate" in hint
+    assert "已登录，继续" in hint
+    assert "用浏览器打开" in hint
+    assert "delegate" in hint
+    assert "read_url" in hint
     assert "双击打开" in hint
-    assert "禁止给本机路径" in hint
+    assert "系统浏览器" in hint
+    assert "禁止给本机磁盘路径" in hint or "禁止给本机" in hint
     assert "真实路径" in hint
 
 
@@ -497,6 +506,18 @@ def test_core_teaches_presentation_format_options_and_honesty():
     assert "代写全章节大纲" in orch or "Marp 语法" in orch
 
 
+def test_core_teaches_automation_delivery_format_options():
+    hint = _CEO_CORE_HINT
+    assert "可运行自动化" in hint
+    assert "控制台原型" in hint
+    assert "仅方案" in hint
+    assert "工作流" in hint or "流水线" in hint
+    kickoff = build_system_skill_registry().get("ask_user_kickoff").body
+    assert "可运行自动化" in kickoff
+    assert "build_toolshed" in kickoff
+    assert "提示词" in kickoff or "调研" in kickoff
+
+
 def test_skill_teaches_environment_capability_constraint():
     # 编排 skill：无执行环境时不设 code_verified（显式会被硬拒）、改交付形态、显式标缺口。
     # 轻对齐：跑/验终向由引擎能力策略收口。
@@ -506,7 +527,6 @@ def test_skill_teaches_environment_capability_constraint():
     assert "显式声明会被硬拒" in skill
     assert "交付缺口" in skill
     assert "bind_local_folder" in skill
-    assert "硬要求" in skill
     assert "不】从任务文案推断" in skill or "不从任务文案推断" in skill
     assert "执行成功证据" in skill
     assert "禁止只验" in skill
@@ -524,6 +544,8 @@ def test_shared_base_teaches_delivery_baseline():
     assert "#rN" in _DEFAULT_SYSTEM_PROMPT
     assert "真假引擎查" in _DEFAULT_SYSTEM_PROMPT
     assert "交付验收对照" in _DEFAULT_SYSTEM_PROMPT
+    assert "可用性短问" in _DEFAULT_SYSTEM_PROMPT
+    assert "已完整可用" in _DEFAULT_SYSTEM_PROMPT
 
 
 def test_shared_base_teaches_claim_evidence_soft_constraint():
@@ -551,6 +573,23 @@ def test_core_guides_out_of_workspace_absolute_paths():
     assert mid is not None
     assert "开只读授权" in mid.body or "区外目录" in mid.body
     assert "organize_plan" in mid.body
+
+
+def test_core_teaches_narrowed_attachment_scope_must_start():
+    # 定案 A：用户收窄为本轮附件/工作区已有产物时须先动手；与 open_local_project 正交。
+    hint = _CEO_CORE_HINT
+    assert "本轮材料收窄" in hint
+    assert "先这些" in hint or "就这些" in hint
+    assert "缺口分析" in hint or "改一版" in hint
+    assert "禁止整轮" in hint and ("催" in hint or "完整源码" in hint)
+    assert "单点缺件" in hint or "局限" in hint
+    assert "open_local_project" in hint
+    assert "换工程面" in hint or "收窄本轮输入" in hint
+    assert "开工前置" in hint
+    mid = build_system_skill_registry().get("ask_user_midtask")
+    assert mid is not None
+    assert "先读材料" in mid.body or "收窄本轮" in mid.body
+    assert "开工前置" in mid.body
 
 
 def test_core_points_to_consult_skill_and_directory():

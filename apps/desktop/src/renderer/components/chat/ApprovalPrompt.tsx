@@ -24,7 +24,12 @@ import {
   isFileOpTool,
   supportsTurnGrant,
 } from "@/services/approvals";
-import { setConversationPermissionPreset } from "@/services/permissionPreset";
+import {
+  type PermissionAxes,
+  matchRecipe,
+  recipeToAxes,
+  setConversationPermissionAxes,
+} from "@/services/permissionAxes";
 import { useConversationStore } from "@/stores/conversation";
 import {
   type ApprovalView,
@@ -187,13 +192,14 @@ export function ApprovalCard({
   const [expanded, setExpanded] = useState(false);
   const [clicked, setClicked] = useState<ApprovalDecision | null>(null);
   const [trustBusy, setTrustBusy] = useState(false);
-  const [presetOverride, setPresetOverride] = useState<
-    "observe" | "workspace" | "full_trust" | null
-  >(null);
-  const preset =
-    presetOverride ??
+  const [axesOverride, setAxesOverride] = useState<PermissionAxes | null>(
+    null,
+  );
+  const axes =
+    axesOverride ??
     getConversations().find((c) => c.id === approval.conversationId)
-      ?.permissionPreset;
+      ?.permissionAxes;
+  const recipe = axes ? matchRecipe(axes) : "custom";
 
   const isCodeExecute = approval.toolName === "code_execute";
   const isFileBatch = approval.toolName === "file_batch";
@@ -212,9 +218,9 @@ export function ApprovalCard({
     () => countToolApprovals(approval.conversationId, approval.toolName),
     [approval.conversationId, approval.toolName],
   );
-  const showFullTrustHint =
+  const showManagedHint =
     sameToolCount >= FULL_TRUST_HINT_AFTER &&
-    preset !== "full_trust" &&
+    recipe !== "managed" &&
     !circuitBreakerHint;
 
   const batchOps = useMemo(() => {
@@ -272,22 +278,23 @@ export function ApprovalCard({
     });
   };
 
-  const switchFullTrust = () => {
+  const switchManaged = () => {
     if (trustBusy || !approval.conversationId) return;
     if (
       !window.confirm(
-        "切换到「完全信任」后，AI 将与你同权执行命令（含本地运行代码）。确定继续？",
+        "切换到「托管」后，AI 将与你同权执行命令（含本地运行代码）。确定继续？",
       )
     ) {
       return;
     }
     setTrustBusy(true);
-    void setConversationPermissionPreset(approval.conversationId, "full_trust")
+    const next = recipeToAxes("managed");
+    void setConversationPermissionAxes(approval.conversationId, next)
       .then((saved) => {
         patchConversationCache(approval.conversationId, {
-          permissionPreset: saved,
+          permissionAxes: saved,
         });
-        setPresetOverride(saved);
+        setAxesOverride(saved);
       })
       .catch((err) => notifyError(err, "切换失败"))
       .finally(() => setTrustBusy(false));
@@ -385,16 +392,16 @@ export function ApprovalCard({
               安全熔断升格审批（启发式兜底，并非完整拦截）：{circuitBreakerHint}
             </p>
           )}
-          {showFullTrustHint && (
+          {showManagedHint && (
             <p className="mt-1 text-xs text-muted-foreground">
               同类审批较频繁。可切换为
               <button
                 type="button"
                 className="mx-0.5 text-primary underline-offset-2 hover:underline"
                 disabled={trustBusy}
-                onClick={switchFullTrust}
+                onClick={switchManaged}
               >
-                完全信任
+                托管
               </button>
               （下一回合生效；熔断仍在）。
             </p>

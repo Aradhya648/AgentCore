@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/tone-presets";
 import { agentColorVar, agentGlyph } from "@/lib/agentIdentity";
 import { formatCompact } from "@/lib/format";
+import { runningElapsedSec } from "@/lib/runningElapsed";
 import { STANCE_META, toolLabel } from "@/stores/execution";
 import {
   AlertTriangle,
@@ -277,7 +278,7 @@ function useRunningElapsed(
     return () => clearInterval(id);
   }, [ticking]);
   if (!ticking || startedAt == null) return 0;
-  return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  return runningElapsedSec(startedAt);
 }
 
 /** 质询标记：可点直达该轮质询 run。suffix「含质询」走链接色、replace「质询作答失败」走告警色。 */

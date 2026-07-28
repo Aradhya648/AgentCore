@@ -1,9 +1,14 @@
 import { ChatView } from "@/components/chat/ChatView";
+import {
+  ConversationHydrateOverlay,
+  type ConversationHydratePhase,
+} from "@/components/chat/ConversationHydrateOverlay";
 import { ConversationCanvas } from "@/components/graph/ConversationCanvas";
 import { SidePanel } from "@/components/layout/SidePanel";
 import { Button, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { getConversations } from "@/hooks/useConversations";
+import { reconcileExternalGrants } from "@/lib/reconcileExternalGrants";
 import { logEvent } from "@/lib/log";
 import {
   fetchMessageWindow,
@@ -31,7 +36,7 @@ import {
 import { WORKSPACE_TAB_ID, useSidePanelStore } from "@/stores/sidePanel";
 import { useUIStore } from "@/stores/ui";
 import { MessageSquare, Network, PanelRight } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 /** Read the `msg` query of the current hash route (#/conversations/:id?msg=<id>).
@@ -86,6 +91,9 @@ async function persistOpenedCache(
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
+  const [hydratePhase, setHydratePhase] =
+    useState<ConversationHydratePhase>("ready");
+  const [hydrateRetry, setHydrateRetry] = useState(0);
 
   // 路由参数是 conversation 的真相来源（刷新/前进后退/直达链接时同步到 store），
   // 并从后端拉取最新一窗消息（含附件元信息）以恢复对话；更早的历史按需上滚加载。
@@ -97,6 +105,7 @@ export function ConversationPage() {
     // 设置的落库目标（见 startNewConversation），清掉会破坏「全部对话」按项目新建。
     if (!id) {
       if (store.currentConversationId !== null) store.switchConversation(null);
+      setHydratePhase("ready");
       return;
     }
     if (id !== store.currentConversationId) store.switchConversation(id);
@@ -110,6 +119,10 @@ export function ConversationPage() {
     // its result — see the attach block. `loadRecovery` never rejects (it swallows its own
     // errors), so the handle is safe to leave unawaited on the paths that skip the gate.
     const recoveryLoaded = loadRecovery(id);
+
+    const warm =
+      getRuntime(id).messages.length > 0 || getRuntime(id).isGenerating;
+    setHydratePhase(warm ? "ready" : "loading");
 
     let cancelled = false;
     let attachAbort: AbortController | null = null;
@@ -174,33 +187,41 @@ export function ConversationPage() {
             }
           }
         }
+        if (!cancelled) setHydratePhase("ready");
       } catch {
         // N4-A: network / outage → fall back to local-store snapshot for this id.
         if (cancelled) return;
         const cached = await loadCachedConversation(id);
-        if (cancelled || !cached) return;
-        adoptMessageWindow(
-          id,
-          cached.messages as Message[],
-          {
-            hasMoreBefore: cached.hasMoreBefore,
-            hasMoreAfter: cached.hasMoreAfter,
-          },
-          cached.memoryUpdates as MemoryUpdate[],
-        );
-        logEvent("info", "conversation.hydrate", {
-          conversation_id: id,
-          branch: "offline_cache",
-        });
+        if (cancelled) return;
+        if (cached) {
+          adoptMessageWindow(
+            id,
+            cached.messages as Message[],
+            {
+              hasMoreBefore: cached.hasMoreBefore,
+              hasMoreAfter: cached.hasMoreAfter,
+            },
+            cached.memoryUpdates as MemoryUpdate[],
+          );
+          logEvent("info", "conversation.hydrate", {
+            conversation_id: id,
+            branch: "offline_cache",
+          });
+          setHydratePhase("ready");
+        } else if (!warm) {
+          // No cache + cold slice: explicit error (never silent blank like a draft).
+          setHydratePhase("error");
+          return;
+        }
       }
       // Honor a search-hit jump that navigated in from elsewhere: now that this
       // conversation's window is loaded, land on the hit (in-window → scroll;
       // outside → load-around). Runs after the load so it sees real messages.
       if (cancelled) return;
-      const store = useConversationStore.getState();
-      const pending = store.pendingFocus;
+      const jumpStore = useConversationStore.getState();
+      const pending = jumpStore.pendingFocus;
       if (pending && pending.conversationId === id) {
-        store.clearPendingFocus();
+        jumpStore.clearPendingFocus();
         void jumpToMessage(id, pending.messageId);
       } else {
         // 消息永久链接 (对话基础功能补齐): a #/conversations/:id?msg=<messageId> anchor
@@ -215,7 +236,7 @@ export function ConversationPage() {
       cancelled = true;
       attachAbort?.abort();
     };
-  }, [id]);
+  }, [id, hydrateRetry]);
 
   // 消息收藏 star state (方向 4): load which of this conversation's messages are
   // bookmarked so their bubbles render a filled star. Best-effort + independent of
@@ -223,6 +244,13 @@ export function ConversationPage() {
   useEffect(() => {
     if (!id) return;
     void useBookmarkStore.getState().hydrateForConversation(id);
+  }, [id]);
+
+  // W3: reconcile desktop session roots ↔ server external-grants on open
+  // (补登记 / 清孤儿). Paths stay on desktop; best-effort, never blocks hydrate.
+  useEffect(() => {
+    if (!id) return;
+    void reconcileExternalGrants(id);
   }, [id]);
 
   // Page-scoped shortcuts for the single side panel: Ctrl/Cmd+I shows / hides it
@@ -264,6 +292,12 @@ export function ConversationPage() {
   return (
     <>
       {canvasMode ? <ConversationCanvas /> : <ChatView />}
+      {id && (
+        <ConversationHydrateOverlay
+          phase={hydratePhase}
+          onRetry={() => setHydrateRetry((n) => n + 1)}
+        />
+      )}
       {/* 视图切换段控件（聊天 ⇄ 画布），置于左上，与右上的侧面板开关对称。 */}
       {id && (
         <div className="absolute left-3 top-2 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card/80 p-0.5 backdrop-blur">

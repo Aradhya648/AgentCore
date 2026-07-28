@@ -551,6 +551,44 @@ class CoordinationSession:
     def mark_worker_completed(self, run_id: str) -> None:
         self.completed_run_ids.add(run_id)
         self.disarm_worker_timeout(run_id)
+        self._handoff_ownership_on_complete(run_id)
+
+    def _handoff_ownership_on_complete(self, run_id: str) -> None:
+        """交接式写权：完成后把独占下游 artifact 路径交给唯一依赖方。"""
+        rid = (run_id or "").strip()
+        if not rid or self.file_ownership is None or self.live_plan is None:
+            return
+        try:
+            from agentcore.runtime.coordination.append_guard import (
+                handoff_owned_paths_on_complete,
+            )
+            from agentcore.workspace.write_claims import file_ownership_v2_enabled
+
+            if not file_ownership_v2_enabled():
+                return
+            moved = handoff_owned_paths_on_complete(
+                self.live_plan,
+                self.ensure_file_ownership(),
+                rid,
+                completed_run_ids=self.completed_run_ids,
+            )
+        except Exception:  # noqa: BLE001 — never break completion
+            return
+        if not moved:
+            return
+        try:
+            from agentcore.core.logging import get_logger
+
+            get_logger(__name__).info(
+                "file_ownership.completion_handoff",
+                run_id=rid,
+                execution_id=self.execution_id,
+                transfers=[
+                    {"path": path, "new_owner": new_owner} for path, new_owner in moved
+                ],
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     def take_progress_delta(self) -> set[str]:
         """Completed run_ids not yet named in a CEO progress block; advances cursor."""

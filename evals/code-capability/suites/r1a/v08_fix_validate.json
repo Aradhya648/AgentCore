@@ -1,0 +1,30 @@
+{
+  "id": "r1a_v08_fix_validate",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1a",
+  "vendor_id": "V08",
+  "vendor_dir": "uuid@70177807e922",
+  "language": "typescript",
+  "user_message": "工作区是 uuidjs/uuid。`validate()` 行为异常（合法 UUID 也被判无效）。请做最小修复。测试命令（Windows 友好）：先由 harness 完成 npm+tsc 构建后，运行 `node --test --enable-source-maps dist-node/test/validate.test.js`。不要修改 src/test/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v08_break_validate.json",
+  "protected_paths": ["src/test"],
+  "test_command": ["node", "--test", "--enable-source-maps", "dist-node/test/validate.test.js"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["node", "--test", "--enable-source-maps", "dist-node/test/validate.test.js"],
+        "expected_exit": 0,
+        "timeout_sec": 180
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["src/test"] }
+    }
+  ]
+}

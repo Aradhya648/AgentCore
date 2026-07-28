@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: stringify 用 toUpperCase，破坏期望的小写 UUID 字符串。",
+  "replacements": [
+    {
+      "path": "src/stringify.ts",
+      "old": "  ).toLowerCase();\n}\n",
+      "new": "  ).toUpperCase(); // R1a seed_patch: wrong case\n}\n"
+    }
+  ]
+}

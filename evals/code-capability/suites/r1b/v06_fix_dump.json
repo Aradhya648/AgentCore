@@ -1,0 +1,31 @@
+{
+  "id": "r1b_v06_fix_dump",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1b",
+  "vendor_id": "V06",
+  "vendor_dir": "pyyaml@49790e73684b",
+  "language": "python",
+  "user_message": "工作区是 PyYAML。`yaml.dump()` 序列化结果异常。请做最小修复。验收用纯 Python 树（`PYTHONPATH=lib`），勿强制本机编译 libyaml：`python -c \"import yaml; assert yaml.dump(['foo'])\"`。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v06_break_dump.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-c", "import yaml; assert yaml.dump(['foo'])"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-c", "import yaml; assert yaml.dump(['foo'])"],
+        "expected_exit": 0,
+        "timeout_sec": 60,
+        "pythonpath": ["lib"]
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

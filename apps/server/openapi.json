@@ -1798,11 +1798,12 @@
         "type": "object"
       },
       "AutonomyPolicy": {
-        "description": "User-global *default* for new conversations (maps to :class:`PermissionPreset`).\n\nRuntime gates no longer read this directly — the conversation's\n``permission_preset`` is the single source of truth. This enum remains the\nstored shape of ``users.autonomy_policy`` (设置页「新会话默认权限模式」).\n\nMapping: ``always_ask``→observe, ``first_grant``→workspace, ``full_auto``→full_trust.",
+        "description": "User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).\n\nRuntime gates read the conversation's ``permission_axes`` — not this column.\nStored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).",
         "enum": [
-          "always_ask",
-          "first_grant",
-          "full_auto"
+          "cautious",
+          "write_code",
+          "less_interrupt",
+          "managed"
         ],
         "title": "AutonomyPolicy",
         "type": "string"
@@ -1811,7 +1812,7 @@
         "properties": {
           "policy": {
             "$ref": "#/components/schemas/AutonomyPolicy",
-            "description": "New-session default: always_ask→observe | first_grant→workspace | full_auto→full_trust"
+            "description": "New-session default recipe: cautious | write_code | less_interrupt | managed"
           }
         },
         "required": [
@@ -1824,7 +1825,7 @@
         "properties": {
           "policy": {
             "$ref": "#/components/schemas/AutonomyPolicy",
-            "default": "first_grant"
+            "default": "write_code"
           }
         },
         "title": "AutonomyView",
@@ -2290,6 +2291,17 @@
             },
             "title": "Events",
             "type": "array"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
           }
         },
         "required": [
@@ -2312,8 +2324,180 @@
         "title": "BrowserInputResponse",
         "type": "object"
       },
+      "BrowserSessionCreateRequest": {
+        "description": "Create a new browser session tab for the conversation.",
+        "properties": {
+          "activate": {
+            "default": true,
+            "title": "Activate",
+            "type": "boolean"
+          },
+          "host_kind": {
+            "default": "sandbox",
+            "enum": [
+              "sandbox",
+              "local"
+            ],
+            "title": "Host Kind",
+            "type": "string"
+          }
+        },
+        "title": "BrowserSessionCreateRequest",
+        "type": "object"
+      },
+      "BrowserSessionListResponse": {
+        "properties": {
+          "active_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Session Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/BrowserSessionView"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "BrowserSessionListResponse",
+        "type": "object"
+      },
+      "BrowserSessionNavPatch": {
+        "description": "PATCH body for L7 idle / Bridge navigate url·title 回写.",
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "BrowserSessionNavPatch",
+        "type": "object"
+      },
+      "BrowserSessionNavigateRequest": {
+        "description": "POST …/browser/sessions/{id}/navigate — owner address-bar navigate.",
+        "properties": {
+          "url": {
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "BrowserSessionNavigateRequest",
+        "type": "object"
+      },
+      "BrowserSessionView": {
+        "description": "One live browser session entry (list / create response).",
+        "properties": {
+          "control": {
+            "default": "agent",
+            "enum": [
+              "agent",
+              "user"
+            ],
+            "title": "Control",
+            "type": "string"
+          },
+          "conversation_id": {
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "host_kind": {
+            "default": "sandbox",
+            "enum": [
+              "sandbox",
+              "local"
+            ],
+            "title": "Host Kind",
+            "type": "string"
+          },
+          "last_used": {
+            "title": "Last Used",
+            "type": "number"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "session_id",
+          "conversation_id",
+          "created_at",
+          "last_used"
+        ],
+        "title": "BrowserSessionView",
+        "type": "object"
+      },
       "BrowserTakeoverActionRequest": {
-        "description": "Start or end user takeover of the conversation's team browser (owner-only).",
+        "description": "Start or end user takeover of a browser session (owner-only).\n\n``session_id`` optional — omit to resolve the conversation's unique/active session.",
         "properties": {
           "action": {
             "enum": [
@@ -2322,6 +2506,17 @@
             ],
             "title": "Action",
             "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
           }
         },
         "required": [
@@ -2376,6 +2571,17 @@
             "title": "Id",
             "type": "string"
           },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
           "started_at": {
             "format": "date-time",
             "title": "Started At",
@@ -2392,7 +2598,7 @@
         "type": "object"
       },
       "BrowserTakeoverState": {
-        "description": "The takeover state a POST …/browser/takeover returns (D16: state on the response).\n\n``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on\nsuccess; ``already_active`` (start when one is running — still active); ``turn_running``\n/ ``no_session`` (start preconditions unmet); ``not_active`` (end when none is running).\n``active`` reflects the resulting state; ``started_at`` is set while active.",
+        "description": "The takeover state a POST …/browser/takeover returns.\n\n``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on\nsuccess; ``already_active`` (start when one is running — still active); ``no_session``\n(no live session to take over); ``not_active`` (end when none is running).\n``turn_running`` is retained for wire compat but is never produced after D8 (anytime\ntakeover). ``active`` reflects the resulting state; ``started_at`` is set while active.",
         "properties": {
           "active": {
             "title": "Active",
@@ -2420,6 +2626,17 @@
               }
             ],
             "title": "Record Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
           },
           "started_at": {
             "anyOf": [
@@ -3288,6 +3505,16 @@
         "title": "CollaborationTimelineResponse",
         "type": "object"
       },
+      "CommandAxis": {
+        "description": "How execution-class tools (code / terminal / test) are authorized.",
+        "enum": [
+          "ask",
+          "kickoff",
+          "auto"
+        ],
+        "title": "CommandAxis",
+        "type": "string"
+      },
       "ConversationCost": {
         "description": "A conversation's cumulative spend (``GET /conversations/{id}/cost``).",
         "properties": {
@@ -3328,7 +3555,7 @@
       "ConversationHistoryAccessRequest": {
         "properties": {
           "enabled": {
-            "description": "Allow Workers to search/read past conversation transcripts",
+            "description": "Ignored (compat); conversation-log access is product-always-on",
             "title": "Enabled",
             "type": "boolean"
           }
@@ -3340,7 +3567,7 @@
         "type": "object"
       },
       "ConversationHistoryAccessResponse": {
-        "description": "Cross-session conversation-log access gate (跨会话对话日志访问定案).",
+        "description": "Cross-session conversation-log access (always on; 定案 A).",
         "properties": {
           "enabled": {
             "title": "Enabled",
@@ -3443,9 +3670,8 @@
             ],
             "title": "Model Profile Id"
           },
-          "permission_preset": {
-            "$ref": "#/components/schemas/PermissionPreset",
-            "default": "workspace"
+          "permission_axes": {
+            "$ref": "#/components/schemas/PermissionAxesModel"
           },
           "pinned": {
             "default": false,
@@ -3653,10 +3879,10 @@
             ],
             "title": "Local Container Root Id"
           },
-          "permission_preset": {
+          "permission_axes": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/PermissionPreset"
+                "$ref": "#/components/schemas/PermissionAxesModel"
               },
               {
                 "type": "null"
@@ -3896,45 +4122,6 @@
             "maxLength": 100,
             "title": "Label",
             "type": "string"
-          },
-          "price_cache_hit": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional provider USD per 1M cache-hit tokens (decimal string)",
-            "title": "Price Cache Hit"
-          },
-          "price_cache_miss": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional provider USD per 1M cache-miss tokens (decimal string)",
-            "title": "Price Cache Miss"
-          },
-          "price_output": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional provider USD per 1M output tokens (decimal string)",
-            "title": "Price Output"
           }
         },
         "required": [
@@ -4030,6 +4217,89 @@
           }
         },
         "title": "CreateSnapshotRequest",
+        "type": "object"
+      },
+      "CreateStandingTaskRequest": {
+        "properties": {
+          "cron": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "folder_id": {
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "goal": {
+            "minLength": 1,
+            "title": "Goal",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "permission_axes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PermissionAxesModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "schedule_preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Preset"
+          },
+          "trigger_kind": {
+            "default": "schedule",
+            "enum": [
+              "schedule",
+              "webhook"
+            ],
+            "title": "Trigger Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "goal",
+          "folder_id"
+        ],
+        "title": "CreateStandingTaskRequest",
         "type": "object"
       },
       "DailyCost": {
@@ -5244,6 +5514,15 @@
         "title": "FeedbackSummary",
         "type": "object"
       },
+      "FileWriteAxis": {
+        "description": "Whether reversible file mutations need per-call approval.",
+        "enum": [
+          "ask",
+          "session"
+        ],
+        "title": "FileWriteAxis",
+        "type": "string"
+      },
       "FolderGroup": {
         "description": "A project plus the conversations it holds (grouped sidebar payload).",
         "properties": {
@@ -6228,39 +6507,6 @@
             ],
             "title": "Message"
           },
-          "price_cache_hit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price Cache Hit"
-          },
-          "price_cache_miss": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price Cache Miss"
-          },
-          "price_output": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price Output"
-          },
           "status": {
             "description": "Connectivity result: unchecked | active | error",
             "title": "Status",
@@ -6596,7 +6842,7 @@
       "MemoryEnabledRequest": {
         "properties": {
           "enabled": {
-            "description": "Long-term memory master switch",
+            "description": "Ignored (compat); memory is product-always-on",
             "title": "Enabled",
             "type": "boolean"
           }
@@ -6773,7 +7019,7 @@
         "type": "object"
       },
       "MemoryResponse": {
-        "description": "The user's memory document + the master switch (the editor's load payload).",
+        "description": "The user's memory document + always-on ``enabled`` (editor load payload).",
         "properties": {
           "content": {
             "title": "Content",
@@ -8071,27 +8317,36 @@
         "title": "PendingInteractionSummary",
         "type": "object"
       },
-      "PermissionPreset": {
-        "description": "Conversation-level permission mode (会话级权限模式 · 运行时单一真相源).\n\n- ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff\n  does not pre-authorize write capabilities (≈ always_ask + withhold execution)\n- ``workspace`` — session-trust file-mutation class (no per-call cards; permanent\n  delete still asks); kickoff confirms team + authorizes execution class\n  (≈ first_grant; default)\n- ``full_trust`` — skip kickoff; silent auto-grant including local execution\n  (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)",
-        "enum": [
-          "observe",
-          "workspace",
-          "full_trust"
-        ],
-        "title": "PermissionPreset",
-        "type": "string"
-      },
-      "PermissionPresetUpdate": {
-        "description": "Switch the conversation's permission mode mid-session.",
+      "PermissionAxesModel": {
+        "description": "Three-axis session permission (运行时单一真相源).",
         "properties": {
-          "permission_preset": {
-            "$ref": "#/components/schemas/PermissionPreset"
+          "command": {
+            "$ref": "#/components/schemas/CommandAxis",
+            "default": "kickoff"
+          },
+          "file_write": {
+            "$ref": "#/components/schemas/FileWriteAxis",
+            "default": "session"
+          },
+          "team_kickoff": {
+            "$ref": "#/components/schemas/TeamKickoffAxis",
+            "default": "rules"
+          }
+        },
+        "title": "PermissionAxesModel",
+        "type": "object"
+      },
+      "PermissionAxesUpdate": {
+        "description": "Switch the conversation's three-axis permission mid-session.",
+        "properties": {
+          "permission_axes": {
+            "$ref": "#/components/schemas/PermissionAxesModel"
           }
         },
         "required": [
-          "permission_preset"
+          "permission_axes"
         ],
-        "title": "PermissionPresetUpdate",
+        "title": "PermissionAxesUpdate",
         "type": "object"
       },
       "QuotaStatus": {
@@ -8717,7 +8972,7 @@
         "type": "object"
       },
       "ResolveEscalationInteraction": {
-        "description": "Settle a worker's blocking escalate (``escalation`` interaction, 阻塞式求决策 §4.5).\n\nRaised when a delegated worker hit a「只有用户能定、且猜错就作废」fork and suspended\nitself. Classic (non-coordination) path asks the user; coordination path awaits CEO\n``resolve_escalation`` (Invariant B: solo never uses that tool). The user either answers\n(``answer``) or chooses 按假设继续 (``use_assumption`` true → wire status ``assumed``).\nA wall-clock miss is ``timed_out``. A late resolve falls through as 404.",
+        "description": "Settle a worker's blocking escalate (``escalation`` interaction, 阻塞式求决策 §4.5).\n\nRaised when a delegated worker hit a「只有用户能定、且猜错就作废」fork and suspended\nitself. Classic (non-coordination) path asks the user; coordination path awaits CEO\n``resolve_escalation`` (Invariant B: solo never uses that tool). The user either answers\n(``answer``) or chooses 按假设继续 (``use_assumption`` true → wire status ``assumed``).\nWrite-lock conflicts may set ``transfer_ownership`` to path-handoff to the escalator.\nA wall-clock miss is ``timed_out``. A late resolve falls through as 404.",
         "properties": {
           "answer": {
             "default": "",
@@ -8730,6 +8985,11 @@
             "default": "escalation",
             "title": "Kind",
             "type": "string"
+          },
+          "transfer_ownership": {
+            "default": false,
+            "title": "Transfer Ownership",
+            "type": "boolean"
           },
           "use_assumption": {
             "default": false,
@@ -8917,6 +9177,29 @@
           "turns"
         ],
         "title": "RoleCostLine",
+        "type": "object"
+      },
+      "RotateWebhookSecretResponse": {
+        "properties": {
+          "webhook_id": {
+            "title": "Webhook Id",
+            "type": "string"
+          },
+          "webhook_secret": {
+            "title": "Webhook Secret",
+            "type": "string"
+          },
+          "webhook_url": {
+            "title": "Webhook Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhook_id",
+          "webhook_url",
+          "webhook_secret"
+        ],
+        "title": "RotateWebhookSecretResponse",
         "type": "object"
       },
       "RunError": {
@@ -10452,6 +10735,311 @@
         "title": "SnapshotSummary",
         "type": "object"
       },
+      "StandingTaskRunListResponse": {
+        "properties": {
+          "badge": {
+            "default": 0,
+            "title": "Badge",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StandingTaskRunSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "StandingTaskRunListResponse",
+        "type": "object"
+      },
+      "StandingTaskRunSummary": {
+        "properties": {
+          "acked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acked At"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "standing_task_id": {
+            "title": "Standing Task Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "awaiting_user"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "task_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Name"
+          },
+          "trigger_source": {
+            "default": "schedule",
+            "enum": [
+              "schedule",
+              "webhook",
+              "manual"
+            ],
+            "title": "Trigger Source",
+            "type": "string"
+          },
+          "user_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Message Id"
+          }
+        },
+        "required": [
+          "id",
+          "standing_task_id",
+          "status",
+          "created_at"
+        ],
+        "title": "StandingTaskRunSummary",
+        "type": "object"
+      },
+      "StandingTaskSummary": {
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cron": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "folder_id": {
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "permission_axes": {
+            "$ref": "#/components/schemas/PermissionAxesModel"
+          },
+          "schedule_preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Preset"
+          },
+          "trigger_kind": {
+            "default": "schedule",
+            "enum": [
+              "schedule",
+              "webhook"
+            ],
+            "title": "Trigger Kind",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "webhook_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Id"
+          },
+          "webhook_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Secret"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "goal",
+          "folder_id",
+          "permission_axes",
+          "enabled",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "StandingTaskSummary",
+        "type": "object"
+      },
       "StartDmRequest": {
         "description": "Open (or reuse) a 1:1 chat with another user (by their user id).",
         "properties": {
@@ -10711,6 +11299,16 @@
         "title": "SuspensionKind",
         "type": "string"
       },
+      "TeamKickoffAxis": {
+        "description": "Whether / when the team kickoff card (plan + capability halves) hangs.",
+        "enum": [
+          "always",
+          "rules",
+          "skip"
+        ],
+        "title": "TeamKickoffAxis",
+        "type": "string"
+      },
       "TextInputEvent": {
         "description": "Verbatim text insertion (IME-style). Content is never logged/persisted (D17).",
         "properties": {
@@ -10861,7 +11459,7 @@
         "type": "object"
       },
       "ToolApproval": {
-        "description": "Tool approval requirement levels (可逆性 × 副作用).\n\nTwo live levels: ``NEVER`` (silent) and ``GRANTABLE`` (first-grant / per-call\nvia AutonomyPolicy). The former ``ALWAYS`` (every call, no turn grant) had no\nconsumers and was removed — irreversible external tools are not in the MVP set.",
+        "description": "Tool approval requirement levels (可逆性 × 副作用).\n\nTwo live levels: ``NEVER`` (silent) and ``GRANTABLE`` (first-grant / per-call\nvia session permission axes). The former ``ALWAYS`` (every call, no turn grant)\nhad no consumers and was removed — irreversible external tools are not in the\nMVP set.",
         "enum": [
           "never",
           "grantable"
@@ -10930,6 +11528,19 @@
           }
         },
         "title": "TownGovernanceState",
+        "type": "object"
+      },
+      "TriggerStandingTaskResponse": {
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "TriggerStandingTaskResponse",
         "type": "object"
       },
       "TurnCollabMetrics": {
@@ -11642,45 +12253,6 @@
               }
             ],
             "title": "Label"
-          },
-          "price_cache_hit": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional provider USD per 1M cache-hit tokens (decimal string)",
-            "title": "Price Cache Hit"
-          },
-          "price_cache_miss": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional provider USD per 1M cache-miss tokens (decimal string)",
-            "title": "Price Cache Miss"
-          },
-          "price_output": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional provider USD per 1M output tokens (decimal string)",
-            "title": "Price Output"
           }
         },
         "title": "UpdateLlmProviderRequest",
@@ -11780,6 +12352,106 @@
           }
         },
         "title": "UpdateSharedSpaceRequest",
+        "type": "object"
+      },
+      "UpdateStandingTaskRequest": {
+        "properties": {
+          "cron": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "permission_axes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PermissionAxesModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "schedule_preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Preset"
+          },
+          "trigger_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "schedule",
+                  "webhook"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Kind"
+          }
+        },
+        "title": "UpdateStandingTaskRequest",
         "type": "object"
       },
       "UpdatesPolicyResponse": {
@@ -17601,7 +18273,7 @@
     },
     "/v1/conversations/{conversation_id}/browser/live": {
       "get": {
-        "description": "Attach as a live viewer of the conversation's browser screencast (owner-only).",
+        "description": "Attach as a live viewer of a browser screencast (owner-only).\n\nOptional ``session_id`` pins the stream to one tab; omit to use the conversation's\nunique/active session (thin wrap over the multi-session registry).",
         "operationId": "stream_browser_live_v1_conversations__conversation_id__browser_live_get",
         "parameters": [
           {
@@ -17611,6 +18283,22 @@
             "schema": {
               "title": "Conversation Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
             }
           },
           {
@@ -17672,9 +18360,437 @@
         ]
       }
     },
+    "/v1/conversations/{conversation_id}/browser/sessions": {
+      "get": {
+        "description": "List live browser sessions for the conversation (owner-only).",
+        "operationId": "list_browser_sessions_v1_conversations__conversation_id__browser_sessions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserSessionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Browser Sessions",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "post": {
+        "description": "Create a new browser session tab (owner-only).",
+        "operationId": "create_browser_session_v1_conversations__conversation_id__browser_sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserSessionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Browser Session",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{conversation_id}/browser/sessions/{session_id}": {
+      "delete": {
+        "description": "Close one browser session by id (owner-only).",
+        "operationId": "close_browser_session_v1_conversations__conversation_id__browser_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Close Browser Session",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "patch": {
+        "description": "L7 最小：回写 url/title（用户地址栏 / Bridge 导航后）。",
+        "operationId": "patch_browser_session_nav_v1_conversations__conversation_id__browser_sessions__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserSessionNavPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Browser Session Nav",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{conversation_id}/browser/sessions/{session_id}/navigate": {
+      "post": {
+        "description": "Owner address-bar navigate: registry ``send(BrowserCommand navigate)``.\n\nWorks for sandbox (Web) and local host_kind sessions alike.",
+        "operationId": "navigate_browser_session_v1_conversations__conversation_id__browser_sessions__session_id__navigate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserSessionNavigateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Navigate Browser Session",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
     "/v1/conversations/{conversation_id}/browser/takeover": {
       "post": {
-        "description": "Start or end user takeover of the conversation's team browser (owner-only).",
+        "description": "Start or end user takeover of a browser session (owner-only).",
         "operationId": "set_browser_takeover_v1_conversations__conversation_id__browser_takeover_post",
         "parameters": [
           {
@@ -19782,10 +20898,10 @@
         ]
       }
     },
-    "/v1/conversations/{conversation_id}/permission-preset": {
+    "/v1/conversations/{conversation_id}/permission-axes": {
       "put": {
-        "description": "Switch the session permission mode (降档/升档确认由客户端负责).\n\nTakes effect on the next turn / durable resume (gate is built at turn entry).",
-        "operationId": "set_permission_preset_v1_conversations__conversation_id__permission_preset_put",
+        "description": "Switch the session permission axes (降档/升档确认由客户端负责).\n\nTakes effect on the next turn / durable resume (gate is built at turn entry).\nIllegal combo ``command=auto`` ∧ ``file_write=ask`` is rejected by the schema.",
+        "operationId": "set_permission_axes_v1_conversations__conversation_id__permission_axes_put",
         "parameters": [
           {
             "in": "path",
@@ -19833,7 +20949,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PermissionPresetUpdate"
+                "$ref": "#/components/schemas/PermissionAxesUpdate"
               }
             }
           },
@@ -19861,7 +20977,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Set Permission Preset",
+        "summary": "Set Permission Axes",
         "tags": [
           "conversations"
         ]
@@ -21428,7 +22544,7 @@
     },
     "/v1/conversations/{conversation_id}/workspace/external-grants": {
       "delete": {
-        "description": "Revoke one grant (by alias or root_id) or all session grants for the conversation.",
+        "description": "Revoke one grant (by alias or root_id) or all grants for the conversation.",
         "operationId": "revoke_external_grants_v1_conversations__conversation_id__workspace_external_grants_delete",
         "parameters": [
           {
@@ -21605,7 +22721,7 @@
         ]
       },
       "post": {
-        "description": "Register a session mount after the user confirms via folder picker.",
+        "description": "Register a conversation mount after the user confirms via folder picker.",
         "operationId": "grant_external_folder_v1_conversations__conversation_id__workspace_external_grants_post",
         "parameters": [
           {
@@ -24718,6 +25834,97 @@
         "summary": "Delete Folder Permanent",
         "tags": [
           "folders"
+        ]
+      }
+    },
+    "/v1/hooks/standing/{webhook_id}": {
+      "post": {
+        "description": "Public webhook fire — no user JWT; auth via shared secret header.",
+        "operationId": "fire_standing_webhook_v1_hooks_standing__webhook_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-AgentCore-Webhook-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Agentcore-Webhook-Secret"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerStandingTaskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fire Standing Webhook",
+        "tags": [
+          "standing-hooks"
         ]
       }
     },
@@ -28766,6 +29973,708 @@
         ]
       }
     },
+    "/v1/standing-task-runs": {
+      "get": {
+        "operationId": "list_standing_task_runs_v1_standing_task_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "running",
+                    "succeeded",
+                    "failed",
+                    "awaiting_user"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unacked",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unacked",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingTaskRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Standing Task Runs",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-task-runs/{run_id}/ack": {
+      "post": {
+        "operationId": "ack_standing_task_run_v1_standing_task_runs__run_id__ack_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingTaskRunSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ack Standing Task Run",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-tasks": {
+      "get": {
+        "operationId": "list_standing_tasks_v1_standing_tasks_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StandingTaskSummary"
+                  },
+                  "title": "Response List Standing Tasks V1 Standing Tasks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Standing Tasks",
+        "tags": [
+          "standing-tasks"
+        ]
+      },
+      "post": {
+        "operationId": "create_standing_task_v1_standing_tasks_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStandingTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingTaskSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Standing Task",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-tasks/{task_id}": {
+      "delete": {
+        "operationId": "delete_standing_task_v1_standing_tasks__task_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Standing Task",
+        "tags": [
+          "standing-tasks"
+        ]
+      },
+      "get": {
+        "operationId": "get_standing_task_v1_standing_tasks__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingTaskSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Standing Task",
+        "tags": [
+          "standing-tasks"
+        ]
+      },
+      "patch": {
+        "operationId": "update_standing_task_v1_standing_tasks__task_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStandingTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingTaskSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Standing Task",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-tasks/{task_id}/rotate-webhook-secret": {
+      "post": {
+        "operationId": "rotate_webhook_secret_v1_standing_tasks__task_id__rotate_webhook_secret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateWebhookSecretResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Webhook Secret",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-tasks/{task_id}/run": {
+      "post": {
+        "description": "立即跑一次（验收 / 收件箱重跑）。不推进 cron 时钟。",
+        "operationId": "trigger_standing_task_v1_standing_tasks__task_id__run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerStandingTaskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Standing Task",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
     "/v1/usage/summary": {
       "get": {
         "description": "Account dashboard: today's tokens/cost, the month's cost + per-role payroll,\nthe recent daily-cost trend, and the quota.\n\nWindows are bounded at the current UTC day / month start (MVP — a per-user\ntimezone is a later refinement). ``month_by_role`` splits this month's spend by\nrole (团队工资单, spend-desc) — the multi-agent differentiator;\n``recent_daily_cost`` is the last ``_TREND_DAYS`` UTC days (zero-filled,\noldest-first) for the sparkline. Also carries ``cny_per_usd`` so the client\nformats money from the single server-owned rate.\n\n``quota`` mirrors what ``enforce_quota`` will actually apply to this user\n(D7): per-user override columns first, else free-tier defaults on a byok\ndeployment's platform-paid path (keyless free-tier riders), else global\n``quota_*`` — so the meters never show a cap the gate wouldn't enforce.",
@@ -29756,7 +31665,7 @@
         ]
       },
       "patch": {
-        "description": "Update a provider (endpoint / model / label / price; key optional to keep).",
+        "description": "Update a provider (endpoint / model / label; key optional to keep).",
         "operationId": "update_llm_provider_v1_users_me_llm_providers__provider_id__patch",
         "parameters": [
           {
@@ -29916,7 +31825,7 @@
     },
     "/v1/users/me/memory": {
       "get": {
-        "description": "Load the signed-in user's long-term memory + whether memory is enabled.",
+        "description": "Load the signed-in user's long-term memory (``enabled`` is always true).",
         "operationId": "get_my_memory_v1_users_me_memory_get",
         "parameters": [
           {
@@ -30056,7 +31965,7 @@
     },
     "/v1/users/me/memory/conversation-history-access": {
       "get": {
-        "description": "Whether Workers may search/read this account's past conversation logs.",
+        "description": "Workers may always search/read this account's past conversation logs (定案 A).",
         "operationId": "get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get",
         "parameters": [
           {
@@ -30120,7 +32029,7 @@
         ]
       },
       "put": {
-        "description": "Toggle cross-session conversation-log access (orthogonal to memory_enabled).",
+        "description": "Compatibility no-op: access is product-always-on; body ignored, never persists false.",
         "operationId": "set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put",
         "parameters": [
           {
@@ -30196,7 +32105,7 @@
     },
     "/v1/users/me/memory/enabled": {
       "put": {
-        "description": "Toggle the long-term memory master switch (off = stop injecting AND growing).",
+        "description": "Compatibility no-op: memory is product-always-on; body ignored, never persists false.",
         "operationId": "set_my_memory_enabled_v1_users_me_memory_enabled_put",
         "parameters": [
           {

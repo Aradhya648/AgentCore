@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: remove_query_params 空操作，不删参数。",
+  "replacements": [
+    {
+      "path": "starlette/datastructures.py",
+      "old": "    def remove_query_params(self, keys: str | Sequence[str]) -> URL:\n        if isinstance(keys, str):\n            keys = [keys]\n        params = MultiDict(parse_qsl(self.query, keep_blank_values=True))\n        for key in keys:\n            params.pop(key, None)\n        query = urlencode(params.multi_items())\n        return self.replace(query=query)\n",
+      "new": "    def remove_query_params(self, keys: str | Sequence[str]) -> URL:\n        # R1a seed_patch: noop — never remove query params\n        return self\n"
+    }
+  ]
+}

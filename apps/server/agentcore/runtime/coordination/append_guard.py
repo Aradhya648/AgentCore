@@ -351,14 +351,20 @@ def declare_plan_artifacts(
     force: bool = False,
     only_run_ids: set[str] | frozenset[str] | None = None,
     ancestor_map: dict[str, frozenset[str]] | None = None,
+    ancestor_handoff_at_declare: bool = False,
 ) -> list[tuple[str, str, str]]:
     """Reserve deliverable.artifacts for each node; apply replaces/continue transfers.
+
+    By default (``ancestor_handoff_at_declare=False``) a downstream node that lists the
+    same path as an ancestor **does not** steal the lock at dispatch — the ancestor
+    keeps holding until write-time claim, completion handoff, or explicit transfer.
+    Nested lead→child drives pass ``ancestor_handoff_at_declare=True``.
 
     Returns list of ``(new_run_id, path, conflicting_owner)`` for hard conflicts
     when not force/transfer-eligible (caller should have rejected via overlaps first).
     """
     ancestors = ancestor_map if ancestor_map is not None else _ancestors_for_plan(plan)
-    # Topological-ish: nodes with fewer deps first so ancestors register before handoff.
+    # Topological-ish: nodes with fewer deps first so ancestors register before intent.
     ordered = sorted(plan.nodes, key=lambda n: len(getattr(n, "depends_on", None) or ()))
     conflicts: list[tuple[str, str, str]] = []
     only = set(only_run_ids) if only_run_ids is not None else None
@@ -386,10 +392,65 @@ def declare_plan_artifacts(
             if force or replaces or continue_from:
                 ownership.transfer(path, rid)
                 continue
-            owner = ownership.declare(path, rid, anc_f, force=False)
+            owner = ownership.declare(
+                path,
+                rid,
+                anc_f,
+                force=False,
+                allow_ancestor_handoff=ancestor_handoff_at_declare,
+            )
             if owner is not None:
                 conflicts.append((rid, path, owner))
     return conflicts
+
+
+def handoff_owned_paths_on_complete(
+    plan: RunPlan,
+    ownership: WriteCoordinator,
+    completed_run_id: str,
+    *,
+    completed_run_ids: set[str] | frozenset[str] | None = None,
+    ancestor_map: dict[str, frozenset[str]] | None = None,
+) -> list[tuple[str, str]]:
+    """Move completed worker's paths to the unique unfinished dependent listing them.
+
+    Returns ``(path, new_owner_run_id)`` pairs actually transferred. Ambiguous
+    (0 or 2+ candidates) paths stay with the completed owner for write-time claim
+    or explicit ``transfer_ownership``.
+    """
+    rid = (completed_run_id or "").strip()
+    if not rid or not plan.nodes:
+        return []
+    owned = ownership.owned_paths(rid)
+    if not owned:
+        return []
+    ancestors = ancestor_map if ancestor_map is not None else _ancestors_for_plan(plan)
+    done = set(completed_run_ids or ())
+    done.add(rid)
+    moved: list[tuple[str, str]] = []
+    for path in owned:
+        candidates: list[str] = []
+        direct: list[str] = []
+        for node in plan.nodes:
+            nid = (getattr(node, "run_id", None) or "").strip()
+            if not nid or nid == rid or nid in done:
+                continue
+            if path not in node_artifact_paths(node):
+                continue
+            anc = ancestors.get(nid, frozenset())
+            if rid not in anc:
+                continue
+            candidates.append(nid)
+            deps = set(getattr(node, "depends_on", None) or ())
+            if rid in deps:
+                direct.append(nid)
+        pool = direct if len(direct) == 1 else (candidates if len(candidates) == 1 else [])
+        if len(pool) != 1:
+            continue
+        new_owner = pool[0]
+        ownership.transfer(path, new_owner)
+        moved.append((path, new_owner))
+    return moved
 
 
 def declare_nested_drive_artifacts(
@@ -424,6 +485,7 @@ def declare_nested_drive_artifacts(
         ownership,
         force=force,
         ancestor_map=_ancestors_for_plan(plan),
+        ancestor_handoff_at_declare=True,
     )
     if conflicts:
         from agentcore.core.logging import get_logger

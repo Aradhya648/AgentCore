@@ -18,15 +18,13 @@ A keyless user on a deployment with no platform subsidy gets an EMPTY catalog �
 shows an empty state that guides to 设置·模型配置 (no greyed-out「add a key」guide rows).
 
 Discovery is the source of WHICH models exist; ``model_metadata`` only ENRICHES the
-display fields. Pricing reuses the provider's price card (estimating fallback) then the
-community chain (:func:`pricing_for_model`).
+display fields. Pricing reuses the community chain (:func:`pricing_for_model`).
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -44,7 +42,6 @@ from agentcore.llm.model_metadata import model_metadata_for
 from agentcore.llm.pricing import (
     CredentialSource,
     has_curated_pricing,
-    parse_user_prices,
     pricing_for_model,
 )
 from agentcore.llm.profiles import PLATFORM_MODEL_FLASH
@@ -100,11 +97,8 @@ def _price_card(
     model_id: str,
     *,
     credential_source: CredentialSource,
-    user_prices: dict[str, Decimal] | None = None,
 ) -> dict[str, str] | None:
-    card = pricing_for_model(
-        model_id, credential_source=credential_source, user_prices=user_prices
-    )
+    card = pricing_for_model(model_id, credential_source=credential_source)
     if card is None:
         return None
     return {key: str(value) for key, value in card.items()}
@@ -118,7 +112,6 @@ def _entry(
     credential_source: CredentialSource,
     provider_id: str | None = None,
     provider_label: str | None = None,
-    user_prices: dict[str, Decimal] | None = None,
 ) -> ModelCatalogEntry:
     meta = model_metadata_for(model_id)
     return ModelCatalogEntry(
@@ -128,9 +121,7 @@ def _entry(
         vendor=meta.vendor,
         capabilities=sorted(meta.capabilities),
         context_length=meta.context_length,
-        price=_price_card(
-            model_id, credential_source=credential_source, user_prices=user_prices
-        ),
+        price=_price_card(model_id, credential_source=credential_source),
         available=available,
         provider_id=provider_id,
         provider_label=provider_label,
@@ -140,15 +131,6 @@ def _entry(
 def _dedupe(ids: list[str]) -> list[str]:
     """Order-preserving de-dupe (dict.fromkeys), dropping blanks."""
     return list(dict.fromkeys(mid for mid in ids if mid))
-
-
-def _provider_price_card(row) -> dict[str, Decimal] | None:
-    """The provider's own USD-per-1M unit card, if fully set (estimating fallback)."""
-    return parse_user_prices(
-        cache_hit=getattr(row, "price_cache_hit", None),
-        cache_miss=getattr(row, "price_cache_miss", None),
-        output=getattr(row, "price_output", None),
-    )
 
 
 async def _discover_provider_models(row, creds: LLMCredentials) -> list[str] | None:
@@ -185,7 +167,6 @@ def _provider_entries(
     """One provider's byok rows: its default model + discovered ids, tagged with provider."""
     current = (creds.default_model or "").strip() or PLATFORM_MODEL_FLASH
     ids = _dedupe([current, *discovered]) if discovered else _dedupe([current])
-    user_prices = _provider_price_card(row)
     label = (row.label or "").strip() or None
     return [
         _entry(
@@ -195,7 +176,6 @@ def _provider_entries(
             credential_source="user",
             provider_id=row.id,
             provider_label=label,
-            user_prices=user_prices,
         )
         for mid in ids
     ]
@@ -278,7 +258,6 @@ async def resolve_model_catalog(session: AsyncSession, user_id: str) -> ModelCat
                     credential_source="user",
                     provider_id=row.id,
                     provider_label=label,
-                    user_prices=_provider_price_card(row),
                 )
             )
             continue

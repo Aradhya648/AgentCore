@@ -1,0 +1,384 @@
+{
+  "name": "multi_agent_browser_login_pending",
+  "description": "浏览器：worker browser_* 后 escalate(browser_login=true) pending——登录卡 + 自动揭示右坞壳（shoot）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "我安排调研员用浏览器实地看一下。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "dc1",
+        "tool_name": "delegate",
+        "arguments": {
+          "tasks": [
+            {
+              "role": "调研员"
+            }
+          ],
+          "coordinate": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec1",
+        "plan_type": "multi_agent",
+        "task_summary": "浏览器调研",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "调研员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "用浏览器调研目标网站",
+            "depends_on": []
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b1",
+        "tool_name": "browser_navigate",
+        "arguments": {
+          "url": "https://example.com/"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b1",
+        "tool_name": "browser_navigate",
+        "status": "success",
+        "result": "{\"action\":\"navigate\",\"final_url\":\"https://example.com/\",\"http_status\":200}",
+        "display": {
+          "kind": "browser",
+          "action": "navigate",
+          "url": "https://example.com/",
+          "title": "Example Domain",
+          "detail": "打开 https://example.com/（HTTP 200）",
+          "frame": "browser/step-0001.jpg"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b2",
+        "tool_name": "browser_snapshot",
+        "arguments": {},
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b2",
+        "tool_name": "browser_snapshot",
+        "status": "success",
+        "result": "{\"action\":\"snapshot\",\"snapshot_version\":1,\"untrusted_web_content\":{\"source_url\":\"https://example.com/\"}}",
+        "display": {
+          "kind": "browser",
+          "action": "snapshot",
+          "url": "https://example.com/",
+          "title": "Example Domain",
+          "detail": "读取页面结构（v1）"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b3",
+        "tool_name": "browser_click",
+        "arguments": {
+          "ref": "e-login",
+          "snapshot_version": 1
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b3",
+        "tool_name": "browser_click",
+        "status": "success",
+        "result": "{\"action\":\"click\",\"final_url\":\"https://example.com/login\"}",
+        "display": {
+          "kind": "browser",
+          "action": "click",
+          "url": "https://example.com/login",
+          "title": "Sign in",
+          "detail": "点击登录入口",
+          "frame": "browser/step-0002.jpg"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "b4",
+        "tool_name": "browser_snapshot",
+        "arguments": {},
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.012Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "b4",
+        "tool_name": "browser_snapshot",
+        "status": "success",
+        "result": "{\"action\":\"snapshot\",\"snapshot_version\":2,\"untrusted_web_content\":{\"source_url\":\"https://example.com/login\"}}",
+        "display": {
+          "kind": "browser",
+          "action": "snapshot",
+          "url": "https://example.com/login",
+          "title": "Sign in",
+          "detail": "读取登录页结构（v2）"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.013Z"
+    },
+    {
+      "type": "escalation_required",
+      "payload": {
+        "escalation_id": "esc-browser-login",
+        "run_id": "r1",
+        "agent_id": "w1",
+        "question": "目标站点需要登录才能继续调研，请你在浏览器里完成登录。",
+        "assumption": "用户已登录，继续抓取",
+        "questions": [],
+        "kind": "normal",
+        "awaiting": "user",
+        "browser_login": true
+      },
+      "timestamp": "2026-01-01T00:00:00.014Z"
+    }
+  ],
+  "projected": {
+    "status": "running",
+    "finishReason": null,
+    "content": "我安排调研员用浏览器实地看一下。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "我安排调研员用浏览器实地看一下。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec1"
+      },
+      {
+        "kind": "escalation",
+        "escalation_id": "esc-browser-login"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "调研员",
+        "thinking": true,
+        "status": "working",
+        "currentRunId": "r1",
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "用浏览器调研目标网站",
+        "status": "running",
+        "dependsOn": [],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [
+          {
+            "question": "目标站点需要登录才能继续调研，请你在浏览器里完成登录。",
+            "assumption": "用户已登录，继续抓取",
+            "blocking": true,
+            "status": "pending",
+            "answer": null,
+            "kind": "normal"
+          }
+        ],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "b1",
+            "tool_name": "browser_navigate",
+            "arguments": {
+              "url": "https://example.com/"
+            },
+            "result": "{\"action\":\"navigate\",\"final_url\":\"https://example.com/\",\"http_status\":200}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "navigate",
+              "url": "https://example.com/",
+              "title": "Example Domain",
+              "detail": "打开 https://example.com/（HTTP 200）",
+              "frame": "browser/step-0001.jpg"
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "b2",
+            "tool_name": "browser_snapshot",
+            "arguments": {},
+            "result": "{\"action\":\"snapshot\",\"snapshot_version\":1,\"untrusted_web_content\":{\"source_url\":\"https://example.com/\"}}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "snapshot",
+              "url": "https://example.com/",
+              "title": "Example Domain",
+              "detail": "读取页面结构（v1）"
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "b3",
+            "tool_name": "browser_click",
+            "arguments": {
+              "ref": "e-login",
+              "snapshot_version": 1
+            },
+            "result": "{\"action\":\"click\",\"final_url\":\"https://example.com/login\"}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "click",
+              "url": "https://example.com/login",
+              "title": "Sign in",
+              "detail": "点击登录入口",
+              "frame": "browser/step-0002.jpg"
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "b4",
+            "tool_name": "browser_snapshot",
+            "arguments": {},
+            "result": "{\"action\":\"snapshot\",\"snapshot_version\":2,\"untrusted_web_content\":{\"source_url\":\"https://example.com/login\"}}",
+            "status": "success",
+            "display": {
+              "kind": "browser",
+              "action": "snapshot",
+              "url": "https://example.com/login",
+              "title": "Sign in",
+              "detail": "读取登录页结构（v2）"
+            }
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 0,
+      "total": 1
+    },
+    "interactions": [
+      {
+        "kind": "escalation",
+        "id": "esc-browser-login",
+        "status": "pending",
+        "runId": "r1",
+        "agentId": "w1",
+        "question": "目标站点需要登录才能继续调研，请你在浏览器里完成登录。",
+        "assumption": "用户已登录，继续抓取",
+        "awaiting": "user"
+      }
+    ],
+    "cost": null,
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

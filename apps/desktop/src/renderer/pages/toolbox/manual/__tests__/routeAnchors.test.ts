@@ -104,4 +104,8 @@ describe("manual route / anchor gates", () => {
     }
     expect(missing).toEqual([]);
   });
+
+  it("不把未落地的 /explore 空壳当已知用户路由", () => {
+    expect(isKnownAppRoute("/explore")).toBe(false);
+  });
 });

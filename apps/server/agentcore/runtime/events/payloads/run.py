@@ -269,7 +269,9 @@ class DeliveryGap(WirePayload):
     comes from a structured engine signal — known:
     ``token_budget`` / ``worker_timeout`` / ``degraded_handoff`` /
     ``unverified_note`` (soft 待核实/示例自注) /
-    ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影).
+    ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影) /
+    ``verify_failed`` (验证形工具失败：browser_navigate / test_run /
+    verify 形 code_execute·terminal).
     Absent for ordinary contract / criteria prose gaps that have not been projected.
     Clients may badge known codes and ignore unknown ones (forward-compatible).
 
@@ -290,7 +292,9 @@ class DeliveryGap(WirePayload):
 class DeliveryAction(WirePayload):
     """One user action that would close a delivery gap. ``kind`` is a widened string
     on the wire (like ``ToolPhase``) so the backend can add kinds without a client
-    bump — known: ``bind_local_folder`` (云端无执行环境 → 绑定本地文件夹后可运行生成);
+    bump — known: ``bind_local_folder`` (云端无执行环境 → 绑定本机执行环境后可运行生成；≠打开项目);
+    ``export_to_local`` (云端已有 delivered_files → 导出到本机文件夹后即可 npm install / 本地运行；
+    与 bind_local_folder 可并存但语义不同);
     ``website_verify`` (整页 QA 因预算 defer → 一键续派 ``build_website_verify``);
     ``continue_skipped_runs`` (turn/nested 额度 SKIPPED 未跑节点 → 下一回合续跑);
     unknown kinds render as a plain hint.
@@ -298,7 +302,7 @@ class DeliveryAction(WirePayload):
 
     Optional ``prompt`` is the exact user-turn text a client should send for
     kinds that open a new message (e.g. ``website_verify``). Absent for
-    non-message actions like ``bind_local_folder``."""
+    non-message actions like ``bind_local_folder`` / ``export_to_local``."""
 
     kind: str
     description: str

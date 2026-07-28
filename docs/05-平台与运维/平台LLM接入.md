@@ -20,7 +20,7 @@ skip_if:
 | **多厂商 provider 路由** | model 串带 `厂商/` 前缀 | 豆包 / Moonshot / 智谱 等（§四） |
 | **platform 平台凭据** | 免费档 fallback / 显式 platform / `billing_mode=platform` | `PLATFORM_*` 三项 |
 
-**BYOK 去向**：每用户多服务商列表（`user_llm_providers`：AES-GCM 密文 key + base_url + 默认模型 + 价卡）；账号/会话选的是**模型组合**（`llm_model_profiles` → `{main, worker?, background?}` 槽，每槽 `(model, origin, provider_id)`）。key **不在 `.env`**。BYOK 且无服务商、又无 platform 回退 → `402 LLM_KEY_REQUIRED`。
+**BYOK 去向**：每用户多服务商列表（`user_llm_providers`：AES-GCM 密文 key + base_url + 默认模型）；账号/会话选的是**模型组合**（`llm_model_profiles` → `{main, worker?, background?}` 槽，每槽 `(model, origin, provider_id)`）。key **不在 `.env`**。BYOK 且无服务商、又无 platform 回退 → `402 LLM_KEY_REQUIRED`。
 
 ## 二、模型与凭据解析
 

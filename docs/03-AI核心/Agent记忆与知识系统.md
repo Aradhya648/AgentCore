@@ -68,7 +68,7 @@ AgentCore/
 - 偏好只能来自用户**明示或纠正**，禁止从任务题材推断。
 - 空重写 / 保留率 <50% → 拒落盘；巩固失败不标记已消化。
 - 用户明示「记住」→ `remember` 直写**用户规则**（`ai_maintained=false`），立即生效。
-- 总开关 `memory_enabled`：停用 = 不注入不增长且推进 watermark。
+- 记忆能力**产品层恒开**（无用户总闸）；用户靠文件页编辑/清空控制内容。异常回合仍跳过沉淀并推进 watermark。
 
 ### 两种「冷启动」（正交、禁混名）
 
@@ -83,7 +83,7 @@ AgentCore/
 
 ## 四、跨会话对话日志
 
-Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历史原文（messages + turn_journal）；CEO **只 `delegate` 查阅员**。用户 `@` 对话附件走服务端 `log_export` 深读。隐私闸 `conversation_history_access`（与 `memory_enabled` 正交）。
+Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历史原文（messages + turn_journal）；CEO **只 `delegate` 查阅员**。用户 `@` 对话附件走服务端 `log_export` 深读。能力**产品层恒开**（无独立隐私闸）；控制面为编辑/清空长期记忆与删除对话，而非总开关。
 
 → 见代码：`conversation/log_export.py`、`tools/builtin/search_conversations.py`
 
@@ -109,5 +109,6 @@ Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历
 | 独立 `AgentCore/知识/` + 知识目录注入 | 无独立可注入知识库产品；案卷走 `文档/` + `file_read` |
 | 偏好/画像改 on_demand；隐藏点目录替代可见 `AgentCore/` | 规则缺了模型不会主动查；产品心智要可见约定根 |
 | 向量 chunk 自动灌进 prompt | 与「文件随时变」不合；agentic 自取永远新鲜 |
+| 用户可关的记忆/历史查阅总闸（设置页） | 默认常开 + 文件页编辑/清空已够；总闸难懂且历史检索与记忆正交却同页堆开关；定案 A 恒开并删页 |
 
 查看/编辑：文件页 `AgentCore/{规则,记忆}/` + CAS；semantic diff 可搬层纠错。→ 见代码：`fileWorkbench/AgentCoreSection.tsx`

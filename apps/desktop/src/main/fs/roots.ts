@@ -6,7 +6,7 @@ export interface StoredRoot {
   id: string;
   name: string;
   absPath: string;
-  /** W3: session-only grant — not persisted to fs-roots.json. */
+  /** W3: conversation-scoped grant — persisted to fs-session-grants.json, not fs-roots. */
   sessionOnly?: boolean;
   conversationId?: string;
   /**
@@ -20,6 +20,9 @@ export interface StoredRoot {
   alias?: string;
 }
 
+/** On-disk shape: conversationId → session grant rows (paths stay on desktop). */
+type SessionGrantsFile = Record<string, StoredRoot[]>;
+
 let roots = new Map<string, StoredRoot>();
 let rootsReady: Promise<void> | null = null;
 
@@ -27,11 +30,60 @@ function storeFilePath(): string {
   return join(app.getPath("userData"), "fs-roots.json");
 }
 
+function sessionGrantsFilePath(): string {
+  return join(app.getPath("userData"), "fs-session-grants.json");
+}
+
+function sessionRootPayload(r: StoredRoot): StoredRoot {
+  return {
+    id: r.id,
+    name: r.name,
+    absPath: r.absPath,
+    sessionOnly: true,
+    conversationId: r.conversationId,
+    mode: r.mode ?? (r.readonly ? "readonly" : undefined),
+    readonly: r.readonly ?? r.mode === "readonly",
+    alias: r.alias,
+  };
+}
+
+async function loadSessionGrants(): Promise<void> {
+  try {
+    const raw = await fs.readFile(sessionGrantsFilePath(), "utf-8");
+    const data = JSON.parse(raw) as SessionGrantsFile;
+    for (const [conversationId, arr] of Object.entries(data)) {
+      if (!Array.isArray(arr)) continue;
+      for (const row of arr) {
+        if (!row?.id || !row?.absPath) continue;
+        roots.set(row.id, {
+          ...sessionRootPayload(row),
+          conversationId: row.conversationId ?? conversationId,
+        });
+      }
+    }
+  } catch {
+    // Missing / corrupt → empty session grants (permanent roots already loaded).
+  }
+}
+
+async function saveSessionGrants(): Promise<void> {
+  const byConv: SessionGrantsFile = {};
+  for (const r of roots.values()) {
+    if (!r.sessionOnly || !r.conversationId) continue;
+    (byConv[r.conversationId] ??= []).push(sessionRootPayload(r));
+  }
+  try {
+    await fs.writeFile(sessionGrantsFilePath(), JSON.stringify(byConv, null, 2));
+  } catch (e) {
+    console.error("[fs-service] 持久化会话授权根失败:", e);
+  }
+}
+
 async function loadRoots(): Promise<void> {
   try {
     const raw = await fs.readFile(storeFilePath(), "utf-8");
     const arr = JSON.parse(raw) as StoredRoot[];
-    // Drop any accidentally persisted session roots.
+    // Permanent roots only — session grants live in fs-session-grants.json.
     roots = new Map(
       arr
         .filter((r) => !r.sessionOnly)
@@ -40,6 +92,7 @@ async function loadRoots(): Promise<void> {
   } catch {
     roots = new Map();
   }
+  await loadSessionGrants();
 }
 
 async function saveRoots(): Promise<void> {
@@ -120,4 +173,36 @@ export async function getStoredRoot(
   return roots.get(rootId) ?? null;
 }
 
-export { saveRoots };
+export { saveRoots, saveSessionGrants };
+
+/** Test helpers: inject / read without Electron app paths. */
+export const __test = {
+  reset(map?: Map<string, StoredRoot>) {
+    roots = map ?? new Map();
+    rootsReady = Promise.resolve();
+  },
+  getMap() {
+    return roots;
+  },
+  sessionGrantsFilePath,
+  buildSessionFilePayload(): SessionGrantsFile {
+    const byConv: SessionGrantsFile = {};
+    for (const r of roots.values()) {
+      if (!r.sessionOnly || !r.conversationId) continue;
+      (byConv[r.conversationId] ??= []).push(sessionRootPayload(r));
+    }
+    return byConv;
+  },
+  applySessionFilePayload(data: SessionGrantsFile) {
+    for (const [conversationId, arr] of Object.entries(data)) {
+      if (!Array.isArray(arr)) continue;
+      for (const row of arr) {
+        if (!row?.id || !row?.absPath) continue;
+        roots.set(row.id, {
+          ...sessionRootPayload(row),
+          conversationId: row.conversationId ?? conversationId,
+        });
+      }
+    }
+  },
+};

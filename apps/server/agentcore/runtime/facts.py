@@ -109,6 +109,8 @@ class FactKind(StrEnum):
     WEBSITE_STYLE_CONFIRMED = "website_style_confirmed"
     # 演讲/PPT 交付形态双闸：ask_user resume / full_auto 默认确认后的结构化 format_id。
     PRESENTATION_FORMAT_CONFIRMED = "presentation_format_confirmed"
+    # Agent/自动化开工形态双闸：ask_user resume / full_auto 默认确认后的结构化 format_id。
+    AUTOMATION_DELIVERY_CONFIRMED = "automation_delivery_confirmed"
     # 回合态挂起归宿 (P0): the resumable turn-state snapshot recorded at a durable
     # pause — see :class:`TurnPausedFact`.
     TURN_PAUSED = "turn_paused"
@@ -389,6 +391,8 @@ class TurnPausedFact:
     website_style: dict[str, Any] | None = None
     # 演讲/PPT 交付形态确认快照（format_id/label/source）；resume 再水化进 conversation ledger。
     presentation_format: dict[str, Any] | None = None
+    # Agent/自动化开工形态确认快照（format_id/label/source）；resume 再水化进 conversation ledger。
+    automation_delivery: dict[str, Any] | None = None
     # Optional adjuncts that ride the same fact (e.g. demo-tape frame cursor).
     # Unknown to live faces; readers tolerate absence.
     extras: dict[str, Any] | None = None
@@ -412,6 +416,8 @@ class TurnPausedFact:
             payload["website_style"] = dict(self.website_style)
         if self.presentation_format:
             payload["presentation_format"] = dict(self.presentation_format)
+        if self.automation_delivery:
+            payload["automation_delivery"] = dict(self.automation_delivery)
         if self.extras:
             payload["extras"] = dict(self.extras)
         return Fact(
@@ -430,6 +436,7 @@ class TurnPausedFact:
         controller = payload.get("controller")
         website_style = payload.get("website_style")
         presentation_format = payload.get("presentation_format")
+        automation_delivery = payload.get("automation_delivery")
         extras = payload.get("extras")
         return cls(
             checkpoint_id=str(payload.get("checkpoint_id") or ""),
@@ -453,6 +460,11 @@ class TurnPausedFact:
             presentation_format=(
                 dict(presentation_format)
                 if isinstance(presentation_format, dict)
+                else None
+            ),
+            automation_delivery=(
+                dict(automation_delivery)
+                if isinstance(automation_delivery, dict)
                 else None
             ),
             extras=dict(extras) if isinstance(extras, dict) else None,

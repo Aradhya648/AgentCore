@@ -38,7 +38,12 @@ type Selection =
   | { kind: "record"; id: string }
   | null;
 
-export function TerminalPanelBody() {
+export function TerminalPanelBody({
+  preferredSessionId = null,
+}: {
+  /** 顶栏多 Terminal tab：优先选中该 pty；无则走原有回落逻辑。 */
+  preferredSessionId?: string | null;
+}) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const messages = useConversationStore(
     (s) => runtimeOf(s, conversationId).messages,
@@ -115,7 +120,7 @@ export function TerminalPanelBody() {
     };
   }, [conversationId]);
 
-  // 选中失效时回落：优先最新用户终端 → 进程 → 执行记录
+  // 选中失效时回落：优先 preferredSession → 最新用户终端 → 进程 → 执行记录
   useEffect(() => {
     const ptyOk =
       selection?.kind === "pty" &&
@@ -127,6 +132,18 @@ export function TerminalPanelBody() {
       selection?.kind === "record" &&
       records.some((r) => r.id === selection.id);
     if (ptyOk || processOk || recordOk) return;
+
+    if (
+      preferredSessionId &&
+      sessions.some((s) => s.session_id === preferredSessionId)
+    ) {
+      setSelection({ kind: "pty", id: preferredSessionId });
+      selectSession(preferredSessionId);
+      selectProcess(null);
+      selectRecord(null);
+      return;
+    }
+
     const lastPty = sessions[sessions.length - 1];
     if (lastPty) {
       setSelection({ kind: "pty", id: lastPty.session_id });
@@ -157,6 +174,7 @@ export function TerminalPanelBody() {
     sessions,
     processes,
     records,
+    preferredSessionId,
     selectProcess,
     selectRecord,
     selectSession,

@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: Headers.__getitem__ 不做 lower()，大小写不敏感查找失效。",
+  "replacements": [
+    {
+      "path": "starlette/datastructures.py",
+      "old": "    def __getitem__(self, key: str) -> str:\n        get_header_key = key.lower().encode(\"latin-1\")\n        for header_key, header_value in self._list:\n            if header_key == get_header_key:\n                return header_value.decode(\"latin-1\")\n        raise KeyError(key)\n",
+      "new": "    def __getitem__(self, key: str) -> str:\n        # R1a seed_patch: case-sensitive header lookup (breaks case-insensitivity)\n        get_header_key = key.encode(\"latin-1\")\n        for header_key, header_value in self._list:\n            if header_key == get_header_key:\n                return header_value.decode(\"latin-1\")\n        raise KeyError(key)\n"
+    }
+  ]
+}

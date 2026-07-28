@@ -177,6 +177,9 @@ export type RunFrame =
       awaiting?: "user" | "ceo";
       /** Wire `browser_login` — 登录等待 escalate；缺省 false。 */
       browserLogin?: boolean;
+      /** Wire `ownership_paths` — 写权冲突结构化裁决。 */
+      ownershipPaths?: string[];
+      lockOwnerRunId?: string;
     }
   | {
       // 阻塞式求决策 settlement.
@@ -434,6 +437,9 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
     }
     case "escalation_required": {
       const p = event.payload as EscalationRequiredPayload;
+      const paths = Array.isArray(p.ownership_paths)
+        ? p.ownership_paths.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        : [];
       return {
         t,
         kind: "escalation_required",
@@ -447,6 +453,10 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
         questions: p.questions ?? [],
         awaiting: p.awaiting === "ceo" ? "ceo" : "user",
         ...(p.browser_login === true ? { browserLogin: true as const } : {}),
+        ...(paths.length > 0 ? { ownershipPaths: paths } : {}),
+        ...(typeof p.lock_owner_run_id === "string" && p.lock_owner_run_id.trim()
+          ? { lockOwnerRunId: p.lock_owner_run_id.trim() }
+          : {}),
       };
     }
     case "escalation_resolved": {

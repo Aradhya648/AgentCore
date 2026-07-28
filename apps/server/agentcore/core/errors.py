@@ -37,14 +37,22 @@ class LLMUpstreamError(LLMError):
 
 
 class LLMRateLimitError(LLMError):
-    """LLM API rate limit hit (429)."""
+    """LLM API rate limit hit (429). User-facing zh message; retryable."""
 
     code = ErrorCode.LLM_RATE_LIMIT
     retryable = True
 
     def __init__(self, retry_after: float | None = None, **kwargs):
         self.retry_after = retry_after
-        super().__init__(f"Rate limited. Retry after {retry_after}s", **kwargs)
+        # 工程侧不睡满 >30s 的 Retry-After；文案也不承诺「等一小时」。
+        if retry_after is not None and 0 < retry_after <= 30:
+            message = (
+                f"上游限流，暂时无法继续本回合。请约 {int(retry_after)} 秒后再试，或点重试。"
+            )
+        else:
+            message = "上游限流，暂时无法继续本回合。请稍后再试或点重试。"
+        # retry_after 进 details，供 SSE ErrorContext / history 复用。
+        super().__init__(message, retry_after=retry_after, **kwargs)
 
 
 class LLMTimeoutError(LLMError):

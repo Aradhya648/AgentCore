@@ -285,11 +285,12 @@ turn_runs = TurnRunRegistry()
 
 
 async def salvage_turns_on_shutdown(*, timeout: float | None = None) -> None:
-    """Lifespan shutdown: interrupt live turns, await unwind, force-release leftovers.
+    """Lifespan shutdown: interrupt live turns, await unwind, force-close leftovers.
 
     Sets the process-wide shutdown flag first so any racing ``CancelledError``
     (uvicorn teardown) takes the clean-close path instead of orphaning. Timed-out
-    runs still get an explicit lease release — never the sweeper orphan path.
+    runs are force-closed; lease is released only when close succeeds, otherwise
+    orphaned so the sweeper can retry (never leave a lease-less RUNNING).
     """
     from agentcore.config import settings
 
@@ -303,7 +304,7 @@ async def salvage_turns_on_shutdown(*, timeout: float | None = None) -> None:
     if not leftovers:
         return
     from agentcore.conversation.turn_persistence import close_user_stop_turn
-    from agentcore.runtime.leases import release_turn_lease
+    from agentcore.runtime.leases import orphan_turn_lease, release_turn_lease
     from agentcore.runtime.turn_interrupt import (
         TurnInterruptReason,
         close_turn_interrupted,
@@ -336,12 +337,16 @@ async def salvage_turns_on_shutdown(*, timeout: float | None = None) -> None:
                     reason=TurnInterruptReason.USER_STOP,
                     load_stream_state=True,
                 )
-        await release_turn_lease(message_id)
+        if closed:
+            await release_turn_lease(message_id)
+        else:
+            with contextlib.suppress(Exception):
+                await orphan_turn_lease(message_id)
         logger.info(
             "turn_run.shutdown_force_release",
             conversation_id=run.conversation_id,
             run_id=run.run_id,
             message_id=message_id,
             closed=closed,
-            released=True,
+            released=bool(closed),
         )

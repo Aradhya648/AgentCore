@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.presentation_format import (
     clear_format_confirmation,
@@ -24,7 +24,7 @@ def _delegate(
     user_message: str,
     conversation_id: str,
     base_ctx,
-    autonomy: AutonomyPolicy = AutonomyPolicy.FIRST_GRANT,
+    autonomy: AutonomyPolicy = AutonomyPolicy.WRITE_CODE,
 ) -> DelegateTool:
     return DelegateTool(
         llm=Provider(["X"]),
@@ -34,7 +34,7 @@ def _delegate(
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base_ctx,
-        autonomy_policy=autonomy,
+        permission_axes=autonomy,
         conversation_id=conversation_id,
     )
 
@@ -118,7 +118,7 @@ async def test_execute_full_auto_defaults_format_then_accepts_pptx():
         user_message="帮我做一份产品发布 PPT",
         conversation_id=cid,
         base_ctx=local_ctx(),
-        autonomy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {

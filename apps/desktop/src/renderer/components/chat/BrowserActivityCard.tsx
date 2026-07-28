@@ -333,10 +333,10 @@ function BrowserStepRow({
 }
 
 /**
- * Merged view for a tool-group of ≥2 consecutive `browser_*` steps — the L3「团队浏览器」
- * M0 activity card. Collapses to a bare「Browser · N steps」header (aligned with the
- * read_url source collection / tool-group chrome); expands into a step list (action /
- * detail / url) with lazy key-frame thumbnails, each opening the full frame in a lightbox.
+ * Merged view for a tool-group of ≥2 consecutive `browser_*` steps — the browser activity
+ * card. Collapses to a bare「浏览器 · N 步」header (aligned with the read_url source
+ * collection / tool-group chrome); expands into a step list (action / detail / url) with
+ * lazy key-frame thumbnails, each opening the full frame in a lightbox.
  * Card data comes ONLY from each step's durable `display`, so it rebuilds on journal replay.
  * Reuses ReadUrlSourceCollection's `${turnKey}:tgrp:${groupKey}` disclosure key.
  */
@@ -373,7 +373,7 @@ export function BrowserActivityCard({
     0,
   );
   const count = steps.length;
-  const title = `Browser · ${count} step${count === 1 ? "" : "s"}`;
+  const title = `浏览器 · ${count} 步`;
 
   return (
     <div>

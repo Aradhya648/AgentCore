@@ -29,6 +29,7 @@ import {
   listSessionRoots,
   revokeSessionRoot,
   saveRoots,
+  saveSessionGrants,
   setRoot,
 } from "./roots";
 import { saveBytesToDisk } from "./save";
@@ -187,7 +188,8 @@ export function registerFsIpc(): void {
     await saveRoots();
   });
 
-  // W3/P1: session-scoped root (readonly | organize) — not persisted; bound to conversationId.
+  // W3/P1: conversation-scoped root (readonly | organize) — persisted to
+  // fs-session-grants.json (not permanent fs-roots.json).
   ipcMain.handle(
     FS_CHANNELS.grantSessionReadonlyRoot,
     async (_e, p: unknown): Promise<FsRoot | null> => {
@@ -239,6 +241,7 @@ export function registerFsIpc(): void {
           mode,
           readonly: mode === "readonly",
         });
+        await saveSessionGrants();
         return {
           id: same.id,
           name: same.name,
@@ -260,7 +263,7 @@ export function registerFsIpc(): void {
         readonly: mode === "readonly",
         alias,
       });
-      // Not persisted — sessionOnly filtered out of saveRoots.
+      await saveSessionGrants();
       return {
         id,
         name,
@@ -296,7 +299,9 @@ export function registerFsIpc(): void {
       if (!args) return false;
       await ensureReady();
       closeWatchersForRoot(args.rootId);
-      return revokeSessionRoot(args.conversationId, args.rootId);
+      const ok = revokeSessionRoot(args.conversationId, args.rootId);
+      if (ok) await saveSessionGrants();
+      return ok;
     },
   );
 
@@ -309,6 +314,7 @@ export function registerFsIpc(): void {
       for (const id of clearSessionRoots(args.conversationId)) {
         closeWatchersForRoot(id);
       }
+      await saveSessionGrants();
     },
   );
 

@@ -1,4 +1,4 @@
-"""Long-term AI memory routes — view / edit / clear + master switch (self-only).
+"""Long-term AI memory routes — view / edit / clear (self-only).
 
 The user's long-term memory is the markdown body of their `ai_maintained` rule file
 (Agent记忆与知识系统 §1.4 / §五), today backed by the per-user ``MemoryStore`` on disk
@@ -12,13 +12,17 @@ All endpoints are self-only (``AuthUser``): memory is private per-user data. Wri
 hold the per-user memory lock (``memory/locks.py``) so a manual save and the offline
 consolidation pass can never interleave and lose each other's change.
 
+Memory injection and cross-session conversation-log access are product-always-on
+(定案 A). ``GET/PUT …/enabled`` and ``…/conversation-history-access`` remain as
+compatibility stubs that always report ``enabled: true`` and never persist ``false``.
+
 Two editor surfaces sit on top, both reusing the workspace markdown editor (CAS contract):
 
 - **Legacy combined doc** (``GET/PUT /users/me/memory``): treats the GLOBAL core as ONE
   document — combines 偏好.md + 画像.md on read (``merge_global_core``) and splits on write
   (``split_global_core``), which doubles as the organic 偏好/画像 migration (an old 画像.md
-  still holding preference sections splits the first time it is saved). Still carries the
-  master switch ``enabled``.
+  still holding preference sections splits the first time it is saved). ``enabled`` is
+  always ``true`` (product gate; not a user toggle).
 - **Per-leaf surface** (``GET/PUT /users/me/memory/files/{kind}``, P2): one editable leaf
   per (kind, scope) so the「文件」rail can show 偏好 / 画像 (global) and a project's 画像
   separately. ``preferences`` (偏好.md) is GLOBAL-only by invariant; ``profile`` (画像.md)
@@ -42,10 +46,9 @@ from agentcore.api.dependencies import (
     AuthUser,
     get_memory_store,
     get_memory_update_repo,
-    get_user_repo,
 )
 from agentcore.api.schemas import MemoryUpdateItemView
-from agentcore.db.repositories import MemoryUpdateRepository, UserRepository
+from agentcore.db.repositories import MemoryUpdateRepository
 from agentcore.memory import (
     CORE_MEMORY_FILE,
     PREFERENCES_MEMORY_FILE,
@@ -92,12 +95,13 @@ def _resolve_file_scope(kind: MemoryKind, folder_id: str | None) -> tuple[str, s
 
 
 class MemoryResponse(BaseModel):
-    """The user's memory document + the master switch (the editor's load payload)."""
+    """The user's memory document + always-on ``enabled`` (editor load payload)."""
 
     content: str
     # Content-addressed CAS tag (memory/store.py ``memory_version``); the client sends
     # it back as the write baseline so a stale overwrite is caught, not silently lost.
     version: str
+    # Product-always-on (定案 A); kept on the payload for client compatibility.
     enabled: bool
 
 
@@ -115,18 +119,22 @@ class MemoryWriteResult(BaseModel):
 
 
 class MemoryEnabledRequest(BaseModel):
-    enabled: bool = Field(..., description="Long-term memory master switch")
+    enabled: bool = Field(
+        ...,
+        description="Ignored (compat); memory is product-always-on",
+    )
 
 
 class ConversationHistoryAccessResponse(BaseModel):
-    """Cross-session conversation-log access gate (跨会话对话日志访问定案)."""
+    """Cross-session conversation-log access (always on; 定案 A)."""
 
     enabled: bool
 
 
 class ConversationHistoryAccessRequest(BaseModel):
     enabled: bool = Field(
-        ..., description="Allow Workers to search/read past conversation transcripts"
+        ...,
+        description="Ignored (compat); conversation-log access is product-always-on",
     )
 
 
@@ -212,13 +220,13 @@ class MemoryMoveBulletResult(BaseModel):
 async def get_my_memory(
     user: AuthUser, store: DocumentMemoryStore = Depends(get_memory_store)
 ) -> MemoryResponse:
-    """Load the signed-in user's long-term memory + whether memory is enabled."""
+    """Load the signed-in user's long-term memory (``enabled`` is always true)."""
     content = merge_global_core(
         await store.load(user.user_id, PREFERENCES_MEMORY_FILE),
         await store.load(user.user_id, CORE_MEMORY_FILE),
     )
     return MemoryResponse(
-        content=content, version=memory_version(content), enabled=user.memory_enabled
+        content=content, version=memory_version(content), enabled=True
     )
 
 
@@ -263,17 +271,16 @@ async def put_my_memory(
 async def set_my_memory_enabled(
     body: MemoryEnabledRequest,
     user: AuthUser,
-    users: UserRepository = Depends(get_user_repo),
     store: DocumentMemoryStore = Depends(get_memory_store),
 ) -> MemoryResponse:
-    """Toggle the long-term memory master switch (off = stop injecting AND growing)."""
-    await users.set_memory_enabled(user.user_id, body.enabled)
+    """Compatibility no-op: memory is product-always-on; body ignored, never persists false."""
+    _ = body
     content = merge_global_core(
         await store.load(user.user_id, PREFERENCES_MEMORY_FILE),
         await store.load(user.user_id, CORE_MEMORY_FILE),
     )
     return MemoryResponse(
-        content=content, version=memory_version(content), enabled=body.enabled
+        content=content, version=memory_version(content), enabled=True
     )
 
 
@@ -284,8 +291,9 @@ async def set_my_memory_enabled(
 async def get_my_conversation_history_access(
     user: AuthUser,
 ) -> ConversationHistoryAccessResponse:
-    """Whether Workers may search/read this account's past conversation logs."""
-    return ConversationHistoryAccessResponse(enabled=user.conversation_history_access)
+    """Workers may always search/read this account's past conversation logs (定案 A)."""
+    _ = user
+    return ConversationHistoryAccessResponse(enabled=True)
 
 
 @router.put(
@@ -295,11 +303,10 @@ async def get_my_conversation_history_access(
 async def set_my_conversation_history_access(
     body: ConversationHistoryAccessRequest,
     user: AuthUser,
-    users: UserRepository = Depends(get_user_repo),
 ) -> ConversationHistoryAccessResponse:
-    """Toggle cross-session conversation-log access (orthogonal to memory_enabled)."""
-    await users.set_conversation_history_access(user.user_id, body.enabled)
-    return ConversationHistoryAccessResponse(enabled=body.enabled)
+    """Compatibility no-op: access is product-always-on; body ignored, never persists false."""
+    _ = (body, user)
+    return ConversationHistoryAccessResponse(enabled=True)
 
 
 @router.get("/projects", response_model=MemoryProjectsResponse)

@@ -155,10 +155,11 @@ def exec_verify_ask_text_exit_prompt() -> str:
 
 
 def exec_verify_delegate_prompt() -> str:
-    """Hard gate: has capability → delegate + code_verified only."""
+    """Hard gate: has capability → delegate with the matching acceptance kind."""
     return (
         "[系统提示] 能力策略：用户要跑/修或打开验证，且本回合已装配对应执行能力。"
-        "探路工具已收回。请立即 delegate，并显式 completion_criteria=code_verified；"
+        "探路工具已收回。请立即 delegate：测试/build→code_verified；"
+        "启动开发服务器→runtime_ready（勿混用）。"
         "本地 runtime 错 / 单文件修码优先 `complexity_hint=light` 或 "
         '`playbook="repair_code"`（diagnose→patch→verify），'
         "禁止直答、翻目录收口或 none+满轮巡读。"
@@ -171,6 +172,40 @@ def paste_writeback_delegate_prompt() -> str:
         "[系统提示] 能力策略：消息已贴代码且要求写回文件。"
         "探路工具已收回。请立即 delegate 落盘；禁止口述修复当直答。"
     )
+
+
+def maybe_inject_availability_status_nudge(
+    *,
+    messages: list[LLMMessage],
+    run_id: str,
+    role: str = "",
+) -> bool:
+    """可用性诚实性 · 甲：偏窄短问 → 注入「主答=卡」纪律（一次，船长路径）。
+
+    Reinject of the delivery card happens earlier in assemble; this nudge steers the
+    CEO prose to stay commentary-only. Returns True when injected.
+    """
+    if role != "captain":
+        return False
+    chunks = _user_intent_chunks(messages)
+    if not chunks:
+        return False
+    from agentcore.runtime.delegate.delivery_status import (
+        availability_status_nudge_prompt,
+        is_availability_status_question,
+    )
+
+    if not is_availability_status_question(chunks[-1]):
+        return False
+    nudge = availability_status_nudge_prompt()
+    logger.info("engine.availability_status_nudge", run_id=run_id or None)
+    messages.append(LLMMessage(role="user", content=nudge))
+    record_turn_fact(
+        NoteFact(
+            role="user", content=nudge, reason="availability_status", run_id=run_id
+        ).to_fact()
+    )
+    return True
 
 
 def maybe_inject_exec_verify_gate(

@@ -85,6 +85,34 @@ class MessageRepository:
             trace_id=trace_id,
         )
 
+    async def list_non_paused_running_assistants(
+        self,
+        conversation_id: str,
+        *,
+        exclude_message_id: str | None = None,
+    ) -> Sequence[Message]:
+        """Assistant rows still ``usage.status=running`` without a pause latch.
+
+        Used to settle dead-registry / no-lease zombies before a new attempt's
+        ``begin_turn``. Does not consult ``paused_turns`` — callers that need that
+        filter check the frame table separately.
+        """
+        q = select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.role == "assistant",
+            Message.usage["status"].astext == "running",
+        )
+        if exclude_message_id:
+            q = q.where(Message.id != exclude_message_id)
+        result = await self._session.execute(q.order_by(Message.created_at.asc()))
+        out: list[Message] = []
+        for row in result.scalars().all():
+            usage = row.usage if isinstance(row.usage, dict) else {}
+            if usage.get("paused"):
+                continue
+            out.append(row)
+        return out
+
     async def upsert_assistant(
         self,
         *,

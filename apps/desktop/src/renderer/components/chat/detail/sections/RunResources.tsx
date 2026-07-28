@@ -48,7 +48,6 @@ export function ResourceSection({
   const byokHint =
     money?.estimated === true ||
     (cost?.estimated_total ?? 0) > 0 ||
-    cost?.pricing_source === "user_defined" ||
     cost?.pricing_source === "unpriced";
   // 未计价 ≠ 估算：三层价卡全落空时连估算值都没有，标注要如实（拍板 2026-07-20）。
   const unpriced =

@@ -39,7 +39,7 @@ async def permanent_delete_folder(*, folder_id: str, user_id: str) -> bool:
         share_repo = ConversationShareRepository(session)
         for conversation_id in conv_ids:
             await share_repo.revoke_all_for_conversation(conversation_id)
-            grant_store.clear_conversation(conversation_id)
+            await grant_store.clear_conversation(conversation_id)
             from agentcore.runtime.browser import default_browser_session_registry
             from agentcore.workspace import organize_journal, organize_plan_store
 

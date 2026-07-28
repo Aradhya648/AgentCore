@@ -226,12 +226,12 @@ def apply_delegation_grant(
     # a fresh segment owner (avoids double-revoke bookkeeping). Still a no-op apply.
     if seed_completed is not None:
         return False
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import DEFAULT_PERMISSION_AXES
 
     auto = bool(getattr(tool, "_auto_grant_pending", False))
     already = worker_gate.has_delegation_grant(execution_id)
-    autonomy = getattr(tool, "_autonomy_policy", None) or AutonomyPolicy.FIRST_GRANT
-    if auto or already or autonomy is AutonomyPolicy.FULL_AUTO:
+    axes = getattr(tool, "_permission_axes", None) or DEFAULT_PERMISSION_AXES
+    if auto or already or axes.auto_executes:
         if not already:
             worker_gate.grant_delegation(execution_id)
         tool._auto_grant_pending = False  # type: ignore[attr-defined]

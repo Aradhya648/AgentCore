@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: URL.__eq__ 恒 False，使 test_url 等失败。",
+  "replacements": [
+    {
+      "path": "starlette/datastructures.py",
+      "old": "    def __eq__(self, other: Any) -> bool:\n        return str(self) == str(other)\n\n    def __str__(self) -> str:\n        return self._url\n",
+      "new": "    def __eq__(self, other: Any) -> bool:\n        # R1a seed_patch: equality always false\n        return False\n\n    def __str__(self) -> str:\n        return self._url\n"
+    }
+  ]
+}

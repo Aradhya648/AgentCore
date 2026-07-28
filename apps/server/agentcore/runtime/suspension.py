@@ -174,14 +174,14 @@ class TurnSuspension:
     # global) instead of degrading to global-only — Agent记忆与知识系统 §二. ``None`` for a
     # 裸聊 / local turn with no cloud folder. Serialized into the frame (resume control state).
     folder_id: str | None = None
-    # The long-term-memory master switch at pause: captured so a resume re-wires the toolset
-    # the SAME way the original turn did — memory OFF ⇒ consult_memory stays UNwired on resume
-    # too (privacy off-ramp parity, Agent记忆与知识系统 §二). Defaults True (legacy frames + the
-    # always-on default) so an absent value never silently strips memory from a resume.
+    # Caller-supplied memory gate at pause (product resolve always on / 定案 A):
+    # captured so a resume re-wires the toolset the SAME way the original turn did —
+    # False ⇒ consult_memory stays UNwired on resume too. Defaults True (legacy
+    # frames + product default) so an absent value never silently strips memory.
     memory_enabled: bool = True
-    # Cross-session conversation-log access gate at pause (跨会话对话日志访问定案). Resume
-    # re-wires ``search_conversations`` / ``read_conversation`` the same way. Defaults True
-    # for legacy frames.
+    # Caller-supplied conversation-log access gate at pause. Resume re-wires
+    # ``search_conversations`` / ``read_conversation`` the same way. Defaults True
+    # for legacy frames (product resolve always on / 定案 A).
     conversation_history_access: bool = True
     # The CEO window at pause is a PROJECTION of the turn journal, NOT a stored blob
     # (执行级事件溯源 Phase 2 ⑤): resume folds ``journal_entries`` + ``history`` via

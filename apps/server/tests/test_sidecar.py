@@ -416,12 +416,12 @@ def test_sidecar_threads_permission_preset_per_turn(tmp_path, monkeypatch):
     a per-turn ``permissionPreset`` refreshes it, and an absent param keeps the
     current value — never a silent reset to the default.
     """
-    from agentcore.core.types import AutonomyPolicy, PermissionPreset
+    from agentcore.core.types import AutonomyPolicy
 
-    captured: list[tuple[AutonomyPolicy, PermissionPreset]] = []
+    captured: list[tuple[AutonomyPolicy]] = []
 
     async def fake_pipeline(**kwargs: Any) -> dict[str, Any]:
-        captured.append((kwargs["autonomy_policy"], kwargs["permission_preset"]))
+        captured.append((kwargs["permission_axes"], kwargs["permission_preset"]))
         kwargs["sink"].close()
         return {"finish_reason": "end_turn", "content": "ok", "rounds": 1}
 
@@ -469,9 +469,9 @@ def test_sidecar_threads_permission_preset_per_turn(tmp_path, monkeypatch):
 
     asyncio.run(drive())
     assert captured == [
-        (AutonomyPolicy.FULL_AUTO, PermissionPreset.FULL_TRUST),
-        (AutonomyPolicy.ALWAYS_ASK, PermissionPreset.OBSERVE),
-        (AutonomyPolicy.ALWAYS_ASK, PermissionPreset.OBSERVE),
+        (AutonomyPolicy.MANAGED.FULL_TRUST),
+        (AutonomyPolicy.CAUTIOUS.OBSERVE),
+        (AutonomyPolicy.CAUTIOUS.OBSERVE),
     ]
 
 

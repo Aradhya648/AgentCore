@@ -109,6 +109,222 @@ async def test_user_stop_releases_lease_not_orphan(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_user_stop_close_failure_orphans_lease(monkeypatch):
+    """Close failure must orphan (not release) — never leave lease-less RUNNING."""
+    from agentcore.conversation import turn_runner as runner_mod
+
+    conversation_id = "conv-close-fail"
+    released: list[str] = []
+    orphaned: list[str] = []
+
+    async def _fake_close(**_kwargs):
+        return False
+
+    async def _fake_release(mid, *, owner_id=None):
+        released.append(mid)
+
+    async def _fake_orphan(mid, *, owner_id=None):
+        orphaned.append(mid)
+
+    async def _pipeline(**_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(runner_mod, "close_user_stop_turn", _fake_close)
+    monkeypatch.setattr(runner_mod, "release_turn_lease", _fake_release)
+    monkeypatch.setattr(runner_mod, "orphan_turn_lease", _fake_orphan)
+    monkeypatch.setattr(runner_mod, "run_chat_pipeline", _pipeline)
+    monkeypatch.setattr(runner_mod, "create_assistant_placeholder", AsyncMock())
+    monkeypatch.setattr(runner_mod.settings, "turn_lease_enabled", True)
+    monkeypatch.setattr(runner_mod, "acquire_turn_lease", AsyncMock(return_value="owner-1"))
+
+    async def _hb(*_a, **_k):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runner_mod, "lease_heartbeat_loop", _hb)
+    monkeypatch.setattr(
+        "agentcore.demo_tape.hooks.run_tape_turn_if_bound",
+        AsyncMock(return_value=None),
+    )
+
+    sink = MagicMock()
+    sink.bind_content_checkpoint = MagicMock()
+
+    async def _noop() -> None:
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_noop())
+    turn_runs._runs[conversation_id] = TurnRun(
+        run_id="r-fail",
+        conversation_id=conversation_id,
+        task=task,
+        sink=sink,
+        user_stopped=True,
+    )
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await runner_mod.run_and_persist(
+                conversation_id=conversation_id,
+                user_message="hi",
+                user_id="u1",
+                folder_id=None,
+                sink=sink,
+                history=[],
+                attachments=None,
+                backend=MagicMock(),
+                llm_credentials=None,
+            )
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        turn_runs._runs.pop(conversation_id, None)
+
+    assert orphaned, "close failure must orphan the lease"
+    assert not released, "close failure must not release the lease"
+
+
+@pytest.mark.asyncio
+async def test_close_user_stop_empty_journal_still_durable(monkeypatch):
+    """Tool-only / pre-stream cancel: empty journal + empty body still close_turn_interrupted."""
+    from agentcore.conversation import turn_persistence
+    from agentcore.runtime.events import EventSink
+
+    called: list[dict] = []
+
+    async def _fake_close(**kwargs):
+        called.append(kwargs)
+        return True
+
+    monkeypatch.setattr(turn_persistence.settings, "incomplete_turn_persist_enabled", True)
+    monkeypatch.setattr(turn_persistence, "close_turn_interrupted", _fake_close)
+
+    sink = EventSink()
+    # No surface journal, no streamed captain text (e672 shape).
+    assert sink.execution_journal() is None
+    assert not (sink.streamed_content() or "").strip()
+
+    ok = await turn_persistence.close_user_stop_turn(
+        sink=sink,
+        conversation_id="c-empty",
+        trace_id="tr",
+        message_id="m-empty",
+    )
+    assert ok is True
+    assert len(called) == 1
+    assert called[0]["message_id"] == "m-empty"
+    assert called[0]["load_stream_state"] is True
+    assert called[0]["reason"] == TurnInterruptReason.USER_STOP
+    assert called[0]["journal"] == []
+
+
+@pytest.mark.asyncio
+async def test_settle_prior_running_assistants_closes_zombies(monkeypatch):
+    """begin_turn settle: earlier non-paused RUNNING → close_turn_interrupted."""
+    from agentcore.runtime import turn_interrupt as interrupt_mod
+
+    closed: list[dict] = []
+
+    class _MsgRepo:
+        def __init__(self, _session):
+            pass
+
+        async def list_non_paused_running_assistants(
+            self, conversation_id, *, exclude_message_id=None
+        ):
+            assert conversation_id == "c-prior"
+            assert exclude_message_id == "m-new"
+            return [
+                SimpleNamespace(id="m-zombie", trace_id="tr-z", usage={"status": "running"}),
+                SimpleNamespace(
+                    id="m-has-frame",
+                    trace_id="tr-f",
+                    usage={"status": "running"},
+                ),
+            ]
+
+    class _PausedRepo:
+        def __init__(self, _session):
+            pass
+
+        async def get(self, mid):
+            if mid == "m-has-frame":
+                return SimpleNamespace(message_id=mid)
+            return None
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    async def _fake_close(**kwargs):
+        closed.append(kwargs)
+        return True
+
+    monkeypatch.setattr(interrupt_mod, "async_session_factory", lambda: _FakeSession())
+    monkeypatch.setattr(
+        "agentcore.db.repositories.MessageRepository",
+        _MsgRepo,
+    )
+    monkeypatch.setattr(
+        "agentcore.db.repositories.PausedTurnRepository",
+        _PausedRepo,
+    )
+    monkeypatch.setattr(interrupt_mod, "close_turn_interrupted", _fake_close)
+
+    n = await interrupt_mod.settle_prior_running_assistants(
+        conversation_id="c-prior",
+        keep_message_id="m-new",
+    )
+    assert n == 1
+    assert len(closed) == 1
+    assert closed[0]["message_id"] == "m-zombie"
+    assert closed[0]["reason"] == TurnInterruptReason.PROCESS_KILL
+    assert closed[0]["load_stream_state"] is True
+
+
+@pytest.mark.asyncio
+async def test_begin_turn_settles_prior_before_placeholder(monkeypatch):
+    """CloudStore.begin_turn settles prior RUNNING before creating the new row."""
+    from agentcore.conversation.store import cloud as cloud_mod
+    from agentcore.conversation.store.cloud import CloudStore
+
+    order: list[str] = []
+
+    async def _settle(**_kw):
+        order.append("settle")
+        return 1
+
+    class Repo:
+        def __init__(self, _s):
+            pass
+
+        async def create_assistant_placeholder(self, **kw):
+            order.append("placeholder")
+            return SimpleNamespace(id=kw["message_id"])
+
+    class CM:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
+    monkeypatch.setattr(cloud_mod, "MessageRepository", Repo)
+    monkeypatch.setattr(
+        "agentcore.runtime.turn_interrupt.settle_prior_running_assistants",
+        _settle,
+    )
+
+    await CloudStore().begin_turn(
+        conversation_id="c1", message_id="m-new", trace_id="t" * 32
+    )
+    assert order == ["settle", "placeholder"]
+
+
+@pytest.mark.asyncio
 async def test_process_kill_orphans_without_user_stop_close(monkeypatch):
     """Non-user CancelledError orphans the lease and skips user-stop closer."""
     from agentcore.conversation import turn_runner as runner_mod
@@ -294,6 +510,68 @@ async def test_salvage_turns_on_shutdown_force_releases_timeout(monkeypatch):
         assert closed == ["m-stuck"]
         assert released == ["m-stuck"]
         assert not orphaned
+    finally:
+        leftover.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await leftover.task
+        turn_runs.end_shutdown_salvage()
+
+
+@pytest.mark.asyncio
+async def test_salvage_turns_on_shutdown_close_failure_orphans(monkeypatch):
+    """Shutdown force-close failure must orphan lease, not release."""
+    from agentcore.runtime import turn_runs as turn_runs_mod
+
+    released: list[str] = []
+    orphaned: list[str] = []
+
+    async def _fake_close(**_kwargs):
+        return False
+
+    async def _fake_interrupt(**_kwargs):
+        return False
+
+    async def _fake_release(mid, *, owner_id=None):
+        released.append(mid)
+
+    async def _fake_orphan(mid, *, owner_id=None):
+        orphaned.append(mid)
+
+    sink = MagicMock()
+    sink.message_id = "m-fail-close"
+    leftover = TurnRun(
+        run_id="r-fail-close",
+        conversation_id="conv-fail-close",
+        task=asyncio.create_task(asyncio.sleep(3600)),
+        sink=sink,
+    )
+
+    async def _fake_stop_all(*, timeout: float = 20.0):
+        return [leftover]
+
+    monkeypatch.setattr(
+        "agentcore.conversation.turn_persistence.close_user_stop_turn",
+        _fake_close,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.turn_interrupt.close_turn_interrupted",
+        _fake_interrupt,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.leases.release_turn_lease",
+        _fake_release,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.leases.orphan_turn_lease",
+        _fake_orphan,
+    )
+    monkeypatch.setattr(turn_runs, "stop_all_and_drain", _fake_stop_all)
+
+    turn_runs.end_shutdown_salvage()
+    try:
+        await turn_runs_mod.salvage_turns_on_shutdown(timeout=0.05)
+        assert orphaned == ["m-fail-close"]
+        assert not released
     finally:
         leftover.task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

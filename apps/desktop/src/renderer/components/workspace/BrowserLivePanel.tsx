@@ -1,7 +1,6 @@
 import {
   conversationHasBrowserActivity,
   conversationHasPendingBrowserLogin,
-  conversationHasRunningTurn,
 } from "@/lib/browserActivity";
 import {
   type BrowserLiveConnection,
@@ -41,7 +40,7 @@ import {
 } from "react";
 
 /**
- * L3「团队浏览器」M1 直播 + M2 用户接管 tab body (提案 D15/D16)——桌面首个「按帧刷新」组件。
+ * 浏览器 M1 直播 + M2 用户接管 tab body (提案 D15/D16)——桌面首个「按帧刷新」组件。
  *
  * 附着一条 `…/browser/live` SSE 直播流（{@link startBrowserLive}），把 base64 jpeg 帧转成
  * objectURL **逐帧换图**：每来一帧换 `<img src>`、并回收上一帧的 objectURL（防内存泄漏）。覆盖
@@ -50,11 +49,11 @@ import {
  * tab 自身条件常驻（{@link useBrowserRegion}），故本组件在「本会话用过浏览器、但此刻无直播」时
  * 也会被挂载 —— `no_session` 占位态正是这条常态路径的正文，不是异常。
  *
- * M2 接管（D16）：有活直播（started 且有帧）且（无 turn 在跑 **或** pending `browserLogin`）
- * 时显「接管」——与后端 start 闸对齐，避免点了才报 `turn_running`。接管中画面变可交互面——
+ * M2 接管（D16 / D8）：有活直播（started 且有帧）即可显「接管」——随时可接，已废止
+ * turn_running 闸；pending `browserLogin` 仅影响归还提示口径。接管中画面变可交互面——
  * 捕获点击/键盘/滚轮，把展示坐标 {@link toFrameSpace} 换算到帧像素空间，经
  * {@link createInputBatcher} 攒批 POST（避免事件洪泛）；显著「接管中」状态条 + 「归还控制」。
- * start 失败（turn_running 等）、会话结束(session_closed)、面板卸载都收口（卸载时尽力 end）。
+ * start 失败（no_session 等）、会话结束(session_closed)、面板卸载都收口（卸载时尽力 end）。
  * 接管起止乐观并入接管 store 供时间线标记卡即时可见。归还提示两态：pending `browserLogin` →
  * 对齐升级卡「已登录，继续」；否则「控制已归还」。密码等键入不回显不留存（缓冲仅在飞、不落
  * 任何持久缓存，守 D7）。
@@ -133,8 +132,11 @@ type TakeoverPhase = "idle" | "starting" | "active" | "ending";
 
 export function BrowserLivePanel({
   conversationId,
+  sessionId,
 }: {
   conversationId: string;
+  /** Registry tab pin — 对齐 LocalTakeoverBar；live SSE + takeover start/end 都带上。 */
+  sessionId?: string | null;
 }) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<BrowserLiveState | null>(null);
@@ -149,12 +151,6 @@ export function BrowserLivePanel({
   const [returnHint, setReturnHint] = useState(false);
   const pendingBrowserLogin = useExecutionStore((s) =>
     conversationHasPendingBrowserLogin(
-      runtimeOf(useConversationStore.getState(), conversationId).messages,
-      s.byId,
-    ),
-  );
-  const turnRunning = useExecutionStore((s) =>
-    conversationHasRunningTurn(
       runtimeOf(useConversationStore.getState(), conversationId).messages,
       s.byId,
     ),
@@ -174,21 +170,25 @@ export function BrowserLivePanel({
   const takeoverStartRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const client = startBrowserLive(conversationId, {
-      onFrame: (frame) => {
-        frameDimRef.current = { width: frame.width, height: frame.height };
-        const next = URL.createObjectURL(
-          base64ToBlob(frame.frame_b64, "image/jpeg"),
-        );
-        const prev = frameUrlRef.current;
-        frameUrlRef.current = next;
-        setFrameUrl(next);
-        // 换帧即回收上一帧：旧帧已绘制、<img> 已切到新 src，旧 objectURL 无人再引用 → revoke 防泄漏。
-        if (prev) URL.revokeObjectURL(prev);
+    const client = startBrowserLive(
+      conversationId,
+      {
+        onFrame: (frame) => {
+          frameDimRef.current = { width: frame.width, height: frame.height };
+          const next = URL.createObjectURL(
+            base64ToBlob(frame.frame_b64, "image/jpeg"),
+          );
+          const prev = frameUrlRef.current;
+          frameUrlRef.current = next;
+          setFrameUrl(next);
+          // 换帧即回收上一帧：旧帧已绘制、<img> 已切到新 src，旧 objectURL 无人再引用 → revoke 防泄漏。
+          if (prev) URL.revokeObjectURL(prev);
+        },
+        onStatus: setStatus,
+        onConnection: setConnection,
       },
-      onStatus: setStatus,
-      onConnection: setConnection,
-    });
+      sessionId ? { sessionId } : undefined,
+    );
     return () => {
       client.stop();
       if (frameUrlRef.current) {
@@ -196,7 +196,7 @@ export function BrowserLivePanel({
         frameUrlRef.current = null;
       }
     };
-  }, [conversationId]);
+  }, [conversationId, sessionId]);
 
   // Core收口：停批处理 + 尽力 end（幂等）+ 把本场接管乐观并入 store（时间线标记卡即时可见）。
   // 不碰 React state，故可安全用于卸载/会话结束/按钮各路径。仅在确实持有控制时执行一次。
@@ -208,13 +208,16 @@ export function BrowserLivePanel({
     draggingRef.current = false;
     batcherRef.current?.stop();
     batcherRef.current = null;
-    void endBrowserTakeover(conversationId).catch(() => {});
+    void endBrowserTakeover(
+      conversationId,
+      sessionId ? { sessionId } : undefined,
+    ).catch(() => {});
     if (startedAt) {
       useBrowserTakeoverStore
         .getState()
         .addLocal(conversationId, startedAt, new Date().toISOString());
     }
-  }, [conversationId]);
+  }, [conversationId, sessionId]);
 
   // 归还控制：收口 + 复位可见态。`showReturnHint` 仅用户点「归还控制」时开（会话结束
   // / 卸载不提示）；**不** auto-resume / auto-resolve。
@@ -236,7 +239,10 @@ export function BrowserLivePanel({
     setTakeover("starting");
     try {
       // 200 + reason：started|already_active 成功；其余 reason 抛 TakeoverStartError。
-      await startBrowserTakeover(conversationId);
+      await startBrowserTakeover(
+        conversationId,
+        sessionId ? { sessionId } : undefined,
+      );
       takeoverStartRef.current = new Date().toISOString();
       takeoverActiveRef.current = true;
       batcherRef.current = createInputBatcher((events) =>
@@ -248,7 +254,7 @@ export function BrowserLivePanel({
       setTakeover("idle");
       setTakeoverError(takeoverStartErrorMessage(err));
     }
-  }, [conversationId]);
+  }, [conversationId, sessionId]);
 
   // 会话结束时若仍在接管 → 自动归还（服务端会话已亡，end 幂等无副作用；不弹「继续」提示）。
   useEffect(() => {
@@ -369,12 +375,9 @@ export function BrowserLivePanel({
   const showFrame = frameUrl !== null && status !== "no_session";
   const isLive =
     showFrame && status !== "session_closed" && connection === "open";
-  // 可接管：活直播 +（无 turn 在跑 | pending browserLogin）——与后端 start 闸对齐（D16）。
+  // 可接管：活直播即可（D8 随时；废止 turn_running 闸）。pending browserLogin 仅影响归还提示。
   const canTakeover =
-    showFrame &&
-    status === "started" &&
-    connection === "open" &&
-    (!turnRunning || pendingBrowserLogin);
+    showFrame && status === "started" && connection === "open";
   const isTakingOver = takeover === "active" || takeover === "ending";
 
   return (

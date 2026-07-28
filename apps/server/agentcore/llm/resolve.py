@@ -66,9 +66,6 @@ class ModelConfig:
     api_key: str
     source: Literal["platform", "byok"]
     purpose: str
-    price_cache_hit: str | None = None
-    price_cache_miss: str | None = None
-    price_output: str | None = None
     background_model: str | None = None
     provider_id: str | None = None
 
@@ -140,9 +137,6 @@ def _credentials_from_provider(row: UserLlmProvider, api_key: str) -> LLMCredent
         base_url=row.base_url or settings.platform_base_url,
         default_model=(row.default_model or "").strip() or PLATFORM_MODEL_FLASH,
         source="user",
-        price_cache_hit=getattr(row, "price_cache_hit", None),
-        price_cache_miss=getattr(row, "price_cache_miss", None),
-        price_output=getattr(row, "price_output", None),
         provider_id=row.id,
     )
 
@@ -349,9 +343,6 @@ def _model_config_from_creds(
         api_key=creds.api_key,
         source="byok" if creds.source != "platform" else "platform",
         purpose=purpose,
-        price_cache_hit=creds.price_cache_hit,
-        price_cache_miss=creds.price_cache_miss,
-        price_output=creds.price_output,
         provider_id=creds.provider_id,
     )
 
@@ -441,9 +432,6 @@ async def resolve_credentials(
         base_url=cfg.base_url,
         default_model=cfg.model,
         source="platform" if cfg.source == "platform" else "user",
-        price_cache_hit=cfg.price_cache_hit,
-        price_cache_miss=cfg.price_cache_miss,
-        price_output=cfg.price_output,
         provider_id=cfg.provider_id,
     )
 

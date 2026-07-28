@@ -42,6 +42,8 @@ from agentcore.db.repositories import (
     PushDeviceRepository,
     RefreshTokenRepository,
     SimulationRepository,
+    StandingTaskRepository,
+    StandingTaskRunRepository,
     TurnJournalRepository,
     TurnMetricsRepository,
     UserBlockRepository,
@@ -219,6 +221,18 @@ def get_turn_journal_repo(
 
 def get_handoff_job_repo(session: AsyncSession = Depends(get_db)) -> HandoffJobRepository:
     return HandoffJobRepository(session)
+
+
+def get_standing_task_repo(
+    session: AsyncSession = Depends(get_db),
+) -> StandingTaskRepository:
+    return StandingTaskRepository(session)
+
+
+def get_standing_task_run_repo(
+    session: AsyncSession = Depends(get_db),
+) -> StandingTaskRunRepository:
+    return StandingTaskRunRepository(session)
 
 
 def get_push_device_repo(

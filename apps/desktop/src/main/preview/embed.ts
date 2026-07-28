@@ -1,10 +1,12 @@
 /**
- * 主窗口内嵌预览视图 —— 应用内「完整预览」的**主入口**（第二步）：把一个隔离 WebContents
- * 挂到主窗口 `contentView` 上，由渲染层 SidePanel「预览」tab 定位。原生视图恒盖在 DOM 之上，
- * 故显隐/bounds 全部由渲染层驱动（tab 激活 → show + 上报 bounds；非激活/折叠/遮挡/离开路由 →
+ * @deprecated M3b：产品 UI 已不再挂 EmbeddedPreview；完整预览主路径 = BrowserPanel +
+ * workspace://。本模块与 `previewApi.embed*` 仅作协议/内嵌实现参考保留。
+ *
+ * 主窗口内嵌预览视图 —— 把一个隔离 WebContents 挂到主窗口 `contentView` 上。原生视图恒盖在
+ * DOM 之上，故显隐/bounds 全部由渲染层驱动（激活 → show + 上报 bounds；非激活/折叠/遮挡 →
  * hide；布局变化 → setBounds）。
  *
- * 安全不变量（与独立子窗口 window.ts **逐条复用**，一条不得削弱）：
+ * 安全不变量（与独立子窗口 window.ts **逐条复用**，一条不得削弱；**禁止**改弱 lockPreviewNavigation）：
  * - 独立**非持久**分区（PREVIEW_PARTITION）——绝不触碰 defaultSession 的登录 cookie；
  * - sandbox:true、**无 preload**、nodeIntegration 关、contextIsolation 开、webviewTag 关；
  * - 该分区权限全拒（见 protocol.registerPreviewProtocol）；

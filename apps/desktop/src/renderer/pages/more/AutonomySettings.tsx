@@ -3,87 +3,59 @@ import { notifyError, notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { api } from "@/services/api";
 import {
-  PERMISSION_PRESET_LABELS,
-  autonomyToPreset,
-  setCachedDefaultPermissionPreset,
-} from "@/services/permissionPreset";
+  type AutonomyRecipe,
+  RECIPE_LABELS,
+  RECIPE_ORDER,
+  confirmAutoCommandIfNeeded,
+  recipeToAxes,
+  setCachedDefaultRecipe,
+} from "@/services/permissionAxes";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsHeader } from "./SettingsHeader";
 
-type AutonomyPolicy = "always_ask" | "first_grant" | "full_auto";
-
-interface AutonomyOption {
-  value: AutonomyPolicy;
-  label: string;
-  description: string;
-}
-
-const OPTIONS: AutonomyOption[] = [
-  {
-    value: "always_ask",
-    label: PERMISSION_PRESET_LABELS.observe.short,
-    description: `新会话默认「${PERMISSION_PRESET_LABELS.observe.short}」：${PERMISSION_PRESET_LABELS.observe.description}`,
-  },
-  {
-    value: "first_grant",
-    label: `${PERMISSION_PRESET_LABELS.workspace.short}（推荐）`,
-    description: `新会话默认「${PERMISSION_PRESET_LABELS.workspace.short}」：${PERMISSION_PRESET_LABELS.workspace.description}`,
-  },
-  {
-    value: "full_auto",
-    label: PERMISSION_PRESET_LABELS.full_trust.short,
-    description: `新会话默认「${PERMISSION_PRESET_LABELS.full_trust.short}」：${PERMISSION_PRESET_LABELS.full_trust.description}`,
-  },
-];
-
 /**
- * 新会话默认权限模式（/more/autonomy）— 用户级 AutonomyPolicy 映射到
- * observe / workspace / full_trust，仅影响新建会话的初始 permission_preset。
+ * 新会话默认权限配方（/more/autonomy）— 用户级 AutonomyRecipe，
+ * 仅影响新建会话的初始 permission_axes。
  */
 export function AutonomySettings() {
-  const [policy, setPolicy] = useState<AutonomyPolicy | null>(null);
+  const [policy, setPolicy] = useState<AutonomyRecipe | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     let alive = true;
     api
-      .get<{ policy: AutonomyPolicy }>("/v1/users/me/autonomy")
+      .get<{ policy: AutonomyRecipe }>("/v1/users/me/autonomy")
       .then((d) => {
         if (!alive) return;
         setPolicy(d.policy);
-        setCachedDefaultPermissionPreset(d.policy);
+        setCachedDefaultRecipe(d.policy);
       })
       .catch((e) => {
         if (!alive) return;
-        notifyError(e, "加载默认权限模式失败");
-        setPolicy("first_grant");
+        notifyError(e, "加载默认权限配方失败");
+        setPolicy("write_code");
       });
     return () => {
       alive = false;
     };
   }, []);
 
-  const onSelect = async (next: AutonomyPolicy) => {
+  const onSelect = async (next: AutonomyRecipe) => {
     if (next === policy || pending) return;
-    if (
-      next === "full_auto" &&
-      !window.confirm(
-        "将「完全信任」设为新会话默认后，新对话中 AI 将与你同权执行命令。确定？",
-      )
-    ) {
-      return;
-    }
+    const currentAxes = recipeToAxes(policy ?? "write_code");
+    const nextAxes = recipeToAxes(next);
+    if (!confirmAutoCommandIfNeeded(currentAxes, nextAxes)) return;
     setPending(true);
     try {
-      const d = await api.put<{ policy: AutonomyPolicy }>(
+      const d = await api.put<{ policy: AutonomyRecipe }>(
         "/v1/users/me/autonomy",
         { policy: next },
       );
       setPolicy(d.policy);
-      setCachedDefaultPermissionPreset(d.policy);
+      setCachedDefaultRecipe(d.policy);
       notifySuccess(
-        `新会话将默认「${PERMISSION_PRESET_LABELS[autonomyToPreset(d.policy)].short}」`,
+        `新会话将默认「${RECIPE_LABELS[d.policy].short}」`,
       );
     } catch (e) {
       notifyError(e, "设置失败");
@@ -95,8 +67,8 @@ export function AutonomySettings() {
   return (
     <div>
       <SettingsHeader
-        title="新会话默认权限模式"
-        description="只影响之后新建的对话。已有会话请在对话内的权限徽章或状态条切换。"
+        title="新会话默认权限配方"
+        description="只影响之后新建的对话。已有会话请在对话内的权限徽章切换三轴或配方。"
         action={<ManualHelpLink to={MANUAL_HELP.autonomy} />}
       />
 
@@ -107,16 +79,17 @@ export function AutonomySettings() {
             className="animate-spin text-muted-foreground/50"
           />
         ) : (
-          OPTIONS.map((option) => {
-            const selected = option.value === policy;
+          RECIPE_ORDER.map((id) => {
+            const selected = id === policy;
+            const meta = RECIPE_LABELS[id];
             return (
               <button
                 type="button"
-                key={option.value}
+                key={id}
                 aria-pressed={selected}
                 disabled={pending}
                 onClick={() => {
-                  if (!pending) void onSelect(option.value);
+                  if (!pending) void onSelect(id);
                 }}
                 className={cn(
                   "flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left disabled:pointer-events-none disabled:opacity-60",
@@ -127,10 +100,11 @@ export function AutonomySettings() {
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground">
-                    {option.label}
+                    {meta.short}
+                    {id === "write_code" ? "（推荐）" : ""}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {option.description}
+                    新会话默认「{meta.short}」：{meta.description}
                   </p>
                 </div>
               </button>

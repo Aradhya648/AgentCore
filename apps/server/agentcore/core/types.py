@@ -1,6 +1,10 @@
 """Shared enumerations and base types used across all modules."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any, Mapping
 from uuid import uuid4
 
 
@@ -22,67 +26,171 @@ class ToolApproval(StrEnum):
     """Tool approval requirement levels (可逆性 × 副作用).
 
     Two live levels: ``NEVER`` (silent) and ``GRANTABLE`` (first-grant / per-call
-    via AutonomyPolicy). The former ``ALWAYS`` (every call, no turn grant) had no
-    consumers and was removed — irreversible external tools are not in the MVP set.
+    via session permission axes). The former ``ALWAYS`` (every call, no turn grant)
+    had no consumers and was removed — irreversible external tools are not in the
+    MVP set.
     """
 
     NEVER = "never"
     GRANTABLE = "grantable"
 
 
+class FileWriteAxis(StrEnum):
+    """Whether reversible file mutations need per-call approval."""
+
+    ASK = "ask"
+    SESSION = "session"
+
+
+class CommandAxis(StrEnum):
+    """How execution-class tools (code / terminal / test) are authorized."""
+
+    ASK = "ask"
+    KICKOFF = "kickoff"
+    AUTO = "auto"
+
+
+class TeamKickoffAxis(StrEnum):
+    """Whether / when the team kickoff card (plan + capability halves) hangs."""
+
+    ALWAYS = "always"
+    RULES = "rules"
+    SKIP = "skip"
+
+
 class AutonomyPolicy(StrEnum):
-    """User-global *default* for new conversations (maps to :class:`PermissionPreset`).
+    """User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).
 
-    Runtime gates no longer read this directly — the conversation's
-    ``permission_preset`` is the single source of truth. This enum remains the
-    stored shape of ``users.autonomy_policy`` (设置页「新会话默认权限模式」).
-
-    Mapping: ``always_ask``→observe, ``first_grant``→workspace, ``full_auto``→full_trust.
+    Runtime gates read the conversation's ``permission_axes`` — not this column.
+    Stored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).
     """
 
-    ALWAYS_ASK = "always_ask"
-    FIRST_GRANT = "first_grant"
-    FULL_AUTO = "full_auto"
+    CAUTIOUS = "cautious"  # ask / ask / rules
+    WRITE_CODE = "write_code"  # session / kickoff / rules (default · 写代码)
+    LESS_INTERRUPT = "less_interrupt"  # session / kickoff / skip
+    MANAGED = "managed"  # session / auto / skip
 
 
-class PermissionPreset(StrEnum):
-    """Conversation-level permission mode (会话级权限模式 · 运行时单一真相源).
+@dataclass(frozen=True)
+class PermissionAxes:
+    """Conversation-level three-axis permission mode (运行时单一真相源).
 
-    - ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff
-      does not pre-authorize write capabilities (≈ always_ask + withhold execution)
-    - ``workspace`` — session-trust file-mutation class (no per-call cards; permanent
-      delete still asks); kickoff confirms team + authorizes execution class
-      (≈ first_grant; default)
-    - ``full_trust`` — skip kickoff; silent auto-grant including local execution
-      (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)
+    - ``file_write`` — ask = per-call; session = trust reversible writes
+    - ``command`` — ask = withhold/no kickoff grant; kickoff = card authorizes;
+      auto = silent local exec
+    - ``team_kickoff`` — always / rules / skip for the team card
+
+    Illegal: ``command=auto`` ∧ ``file_write=ask``.
+    ask_user / plan_review / circuit-breakers / sensitive reads are orthogonal.
     """
 
-    OBSERVE = "observe"
-    WORKSPACE = "workspace"
-    FULL_TRUST = "full_trust"
+    file_write: FileWriteAxis = FileWriteAxis.SESSION
+    command: CommandAxis = CommandAxis.KICKOFF
+    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
+
+    def __post_init__(self) -> None:
+        if self.command is CommandAxis.AUTO and self.file_write is FileWriteAxis.ASK:
+            raise ValueError(
+                "illegal permission axes: command=auto requires file_write=session"
+            )
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "file_write": self.file_write.value,
+            "command": self.command.value,
+            "team_kickoff": self.team_kickoff.value,
+        }
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, Any] | None) -> PermissionAxes:
+        """Parse stored / wire JSON; unknown / missing → write_code defaults."""
+        if not raw:
+            return DEFAULT_PERMISSION_AXES
+        try:
+            return cls(
+                file_write=FileWriteAxis(
+                    str(raw.get("file_write") or FileWriteAxis.SESSION.value)
+                ),
+                command=CommandAxis(str(raw.get("command") or CommandAxis.KICKOFF.value)),
+                team_kickoff=TeamKickoffAxis(
+                    str(raw.get("team_kickoff") or TeamKickoffAxis.RULES.value)
+                ),
+            )
+        except (ValueError, TypeError, KeyError):
+            return DEFAULT_PERMISSION_AXES
+
+    @property
+    def trusts_file_writes(self) -> bool:
+        return self.file_write is FileWriteAxis.SESSION
+
+    @property
+    def honors_kickoff_grant(self) -> bool:
+        """True when a kickoff continue may silence execution-class tools."""
+        return self.command is CommandAxis.KICKOFF
+
+    @property
+    def auto_executes(self) -> bool:
+        return self.command is CommandAxis.AUTO
+
+    @property
+    def withholds_execution_tools(self) -> bool:
+        """command=ask: do not register execution class (对齐原 observe 执行侧)."""
+        return self.command is CommandAxis.ASK
+
+    @property
+    def skips_team_kickoff(self) -> bool:
+        return self.team_kickoff is TeamKickoffAxis.SKIP
+
+    @property
+    def forces_team_kickoff(self) -> bool:
+        return self.team_kickoff is TeamKickoffAxis.ALWAYS
+
+    @property
+    def implies_deep_research_auto(self) -> bool:
+        """托管配方 (session/auto/skip) 蕴含深度研究自治，对齐原 full_trust."""
+        return (
+            self.command is CommandAxis.AUTO
+            and self.team_kickoff is TeamKickoffAxis.SKIP
+        )
 
 
-_AUTONOMY_TO_PRESET: dict[AutonomyPolicy, PermissionPreset] = {
-    AutonomyPolicy.ALWAYS_ASK: PermissionPreset.OBSERVE,
-    AutonomyPolicy.FIRST_GRANT: PermissionPreset.WORKSPACE,
-    AutonomyPolicy.FULL_AUTO: PermissionPreset.FULL_TRUST,
+DEFAULT_PERMISSION_AXES = PermissionAxes(
+    file_write=FileWriteAxis.SESSION,
+    command=CommandAxis.KICKOFF,
+    team_kickoff=TeamKickoffAxis.RULES,
+)
+
+_RECIPE_TO_AXES: dict[AutonomyPolicy, PermissionAxes] = {
+    AutonomyPolicy.CAUTIOUS: PermissionAxes(
+        FileWriteAxis.ASK, CommandAxis.ASK, TeamKickoffAxis.RULES
+    ),
+    AutonomyPolicy.WRITE_CODE: DEFAULT_PERMISSION_AXES,
+    AutonomyPolicy.LESS_INTERRUPT: PermissionAxes(
+        FileWriteAxis.SESSION, CommandAxis.KICKOFF, TeamKickoffAxis.SKIP
+    ),
+    AutonomyPolicy.MANAGED: PermissionAxes(
+        FileWriteAxis.SESSION, CommandAxis.AUTO, TeamKickoffAxis.SKIP
+    ),
 }
 
-_PRESET_TO_AUTONOMY: dict[PermissionPreset, AutonomyPolicy] = {
-    PermissionPreset.OBSERVE: AutonomyPolicy.ALWAYS_ASK,
-    PermissionPreset.WORKSPACE: AutonomyPolicy.FIRST_GRANT,
-    PermissionPreset.FULL_TRUST: AutonomyPolicy.FULL_AUTO,
-}
+
+def recipe_to_axes(policy: AutonomyPolicy) -> PermissionAxes:
+    """Map user-default recipe → conversation PermissionAxes."""
+    return _RECIPE_TO_AXES.get(policy, DEFAULT_PERMISSION_AXES)
 
 
-def autonomy_to_preset(policy: AutonomyPolicy) -> PermissionPreset:
-    """Map user-default AutonomyPolicy → conversation PermissionPreset."""
-    return _AUTONOMY_TO_PRESET.get(policy, PermissionPreset.WORKSPACE)
-
-
-def preset_to_autonomy(preset: PermissionPreset) -> AutonomyPolicy:
-    """Map conversation PermissionPreset → AutonomyPolicy for kickoff / ApprovalGate."""
-    return _PRESET_TO_AUTONOMY.get(preset, AutonomyPolicy.FIRST_GRANT)
+def validate_permission_axes(
+    *,
+    file_write: str,
+    command: str,
+    team_kickoff: str,
+) -> PermissionAxes:
+    """Parse + validate axes for API writes; raises ValueError on illegal combo / enum."""
+    return PermissionAxes(
+        file_write=FileWriteAxis(file_write),
+        command=CommandAxis(command),
+        team_kickoff=TeamKickoffAxis(team_kickoff),
+    )
 
 
 class ToolCategory(StrEnum):

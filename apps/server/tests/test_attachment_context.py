@@ -38,6 +38,10 @@ async def test_unresident_file_uses_local_path_no_hint():
     assert "--- File: a.py (/local/a.py) ---" in out
     assert "print(1)" in out
     assert "saved into your workspace" not in out
+    # 定案 A：附件是本轮可开工输入，勿写成「仅参考」。
+    assert "actionable inputs" in out
+    assert "reference material" not in out
+    assert "do not idle" in out or "full repo is missing" in out
 
 
 @pytest.mark.asyncio

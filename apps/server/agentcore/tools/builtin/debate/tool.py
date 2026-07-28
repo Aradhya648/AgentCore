@@ -6,7 +6,14 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from agentcore.core.logging import get_logger
-from agentcore.core.types import AutonomyPolicy, ToolApproval, ToolCategory, ToolEffect, new_id
+from agentcore.core.types import (
+    DEFAULT_PERMISSION_AXES,
+    PermissionAxes,
+    ToolApproval,
+    ToolCategory,
+    ToolEffect,
+    new_id,
+)
 from agentcore.llm.profiles import TurnProfiles as ProfileSet
 from agentcore.llm.profiles import default_turn_profiles as default_profile_set
 from agentcore.llm.provider.protocol import LLMProvider
@@ -101,7 +108,7 @@ class DebateTool:
         folder_id: str | None = None,
         memory_enabled: bool = True,
         conversation_history_access: bool = True,
-        autonomy_policy: AutonomyPolicy | None = None,
+        permission_axes: PermissionAxes | None = None,
         registry: ClientRequestBridge | None = None,
         session_store: Any = None,
         session_loader: Any = None,
@@ -128,7 +135,7 @@ class DebateTool:
         self._folder_id = folder_id
         self._memory_enabled = memory_enabled
         self._conversation_history_access = conversation_history_access
-        self._autonomy_policy = autonomy_policy or AutonomyPolicy.FIRST_GRANT
+        self._permission_axes = permission_axes or DEFAULT_PERMISSION_AXES
         self._registry = registry
         # 批 D1：会话级留人 roster（探测幕1 透镜 session）；缺省 = 无证人。
         self._session_store = session_store
@@ -512,9 +519,9 @@ class DebateTool:
         )
         from agentcore.runtime.sandbox_approval import worker_gate_applies
 
-        autonomy = self._autonomy_policy
+        axes = self._permission_axes
         local_gate = worker_gate_applies(self._base_tool_context.backend)
-        # 深度研究自治：旗标或 full_trust 且未超会话上限 → 免挂 debate 开赛卡
+        # 深度研究自治：旗标或托管配方且未超会话上限 → 免挂 debate 开赛卡
         # （只放行本卡；本地执行 / 其他能力审批 / plan_review 不变）。
         auto_adopt = tool_may_auto_debate(self)
         # Debate always wants the plan half at top-level; capability half is False
@@ -522,16 +529,16 @@ class DebateTool:
         if not should_kickoff(
             plan_preview=True,
             local_gate=local_gate,
-            autonomy=autonomy,
+            axes=axes,
         ):
-            # full_trust 本就全跳；仍计一次自治自动开辩（上限降级用）。
+            # team_kickoff=skip 本就全跳；仍计一次自治自动开辩（上限降级用）。
             if auto_adopt:
                 await record_auto_debate(self)
                 self._debate_authorized_by = "auto"
             else:
                 self._debate_authorized_by = "preview"
             return None
-        # 单开旗标（非 full_trust）：免挂 team_preview，语义 = 用户预先授权这一场。
+        # 单开旗标（非托管配方）：免挂 team_preview，语义 = 用户预先授权这一场。
         if auto_adopt:
             await record_auto_debate(self)
             self._debate_authorized_by = "auto"
@@ -542,7 +549,7 @@ class DebateTool:
             return None
         if (
             skip_after_confirmed_ask(self)
-            and not needs_capability_auth(local_gate=local_gate, autonomy=autonomy)
+            and not needs_capability_auth(local_gate=local_gate, axes=axes)
         ):
             return None
 

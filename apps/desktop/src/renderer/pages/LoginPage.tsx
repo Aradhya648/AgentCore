@@ -5,6 +5,7 @@ import type { LegalDocId } from "@/pages/legal/types";
 import { persistAgentTownSession } from "@/services/agentTownSession";
 import { ApiError } from "@/services/api";
 import { login, register } from "@/services/auth";
+import { cacheShellMeta } from "@/services/offlineCache";
 import { useAuthStore } from "@/stores/auth";
 import { useState } from "react";
 
@@ -94,6 +95,9 @@ export function LoginPage() {
       const user = await login(username.trim(), password);
       setAuthenticated(user);
       void persistAgentTownSession();
+      // N4-A: same shell-meta write as AuthGate bootstrap `authenticated`, so a
+      // password login (not only cookie bootstrap) leaves an offline-hydratable user.
+      void cacheShellMeta({ user });
     } catch (err) {
       setError(
         errorMessage(

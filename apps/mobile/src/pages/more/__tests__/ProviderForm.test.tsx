@@ -54,9 +54,6 @@ describe("ProviderForm", () => {
       base_url: "https://api.deepseek.com",
       default_model: "deepseek-v4-flash",
       label: "DeepSeek",
-      price_cache_miss: null,
-      price_output: null,
-      price_cache_hit: null,
     });
     expect(onSaved).toHaveBeenCalledWith(SAVED);
   });

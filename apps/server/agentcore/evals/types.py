@@ -95,6 +95,11 @@ class TurnOutcome:
     collab_interactions: dict[str, int] = field(default_factory=dict)
     # 终版成品：path → 该 path 末次 file_write 的 content（空 dict = 无落盘 / 旧 outcome）。
     artifacts: dict[str, str] = field(default_factory=dict)
+    # 工作区根（copytree 隔离副本）。``TestExitCode`` / ``TestsUnchanged`` 等盘面 Check 用；
+    # 旧 outcome / 无 workspace 路径为 None。
+    workspace_root: str | None = None
+    # 对照根（vendor 干净树或 seed 前快照）。``TestsUnchanged`` 比「禁改测目录」用；可空。
+    reference_root: str | None = None
 
 
 def artifacts_from_tool_calls(tool_calls: list[tuple[str, str]]) -> dict[str, str]:

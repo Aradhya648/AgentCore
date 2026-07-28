@@ -1,13 +1,15 @@
-"""BrowserLiveHub — per-conversation live screencast fan-out (M1 · D13).
+"""BrowserLiveHub — per-session live screencast fan-out (M1 · D13).
 
 The live-frame bypass (D13) mirrors the sim tick-frame precedent's SHAPE (an independent
-per-conversation live registry + an attach-style SSE) but is purpose-built for a high-rate
-screencast:
+live registry + an attach-style SSE) but is purpose-built for a high-rate screencast:
 
 - **viewer-driven lifecycle**: screencast starts on the FIRST viewer attach and stops when the
   LAST viewer leaves (after a short grace so a refresh does not thrash). No viewers ⇒ zero
   screencast cost. A watched session is spared idle-TTL reaping via the registry observer
   (``is_watched``); ``max_lifetime`` still recycles it.
+- **per-session channels**: the channel key is ``(conversation_id, session_id)`` so multi-tab
+  attaches with different ``session_id`` never share a frame sink (no cross-tab frame bleed).
+  Omitting ``session_id`` keeps a conversation-default channel (registry resolve).
 - **fan-out with backpressure**: one driver produces frames; the hub broadcasts each to every
   viewer's OWN bounded queue that drops the oldest on overflow (latest-frame-wins) so a slow /
   stalled viewer can never grow memory or add latency.
@@ -34,7 +36,11 @@ from agentcore.tools.sandbox.browser.protocol import BrowserDriverCrashedError, 
 logger = get_logger(__name__)
 
 # Peek the conversation's live session WITHOUT creating one (registry.peek); None ⇒ no session.
-SessionLookup = Callable[[str], BrowserSession | None]
+# May accept an optional session_id as a second positional arg (multi-session M0).
+SessionLookup = Callable[..., BrowserSession | None]
+
+# Channel map key: (conversation_id, pinned session_id | None for conversation-default).
+_ChannelKey = tuple[str, str | None]
 
 
 class BrowserLiveViewer:
@@ -78,10 +84,16 @@ class _LiveChannel:
     viewers: set[BrowserLiveViewer] = field(default_factory=set)
     screencast_on: bool = False
     stop_timer: asyncio.TimerHandle | None = None
+    # Optional pin to a specific session (query param); None → registry default resolve.
+    session_id: str | None = None
+
+
+def _channel_key(conversation_id: str, session_id: str | None) -> _ChannelKey:
+    return (conversation_id, session_id or None)
 
 
 class BrowserLiveHub:
-    """Process-wide ``conversation_id → live channel`` fan-out + registry observer (D13)."""
+    """Process-wide ``(conversation_id, session_id?) → live channel`` fan-out + registry observer (D13)."""
 
     def __init__(
         self,
@@ -93,7 +105,7 @@ class BrowserLiveHub:
         self._lookup = session_lookup
         self._grace = grace_seconds
         self._max_q = max_queued_frames
-        self._channels: dict[str, _LiveChannel] = {}
+        self._channels: dict[_ChannelKey, _LiveChannel] = {}
         self._lock = asyncio.Lock()
         # Fire-and-forget detach tasks (scheduled from the SSE generator's finally, where an
         # await would race the request cancellation) — referenced so they aren't GC'd.
@@ -111,18 +123,51 @@ class BrowserLiveHub:
             return self._max_q
         return int(settings.browser_live_max_queued_frames)
 
+    def _peek(self, conversation_id: str, session_id: str | None = None) -> BrowserSession | None:
+        """Call the injected lookup; supports both legacy ``(cid)`` and ``(cid, sid)``."""
+        try:
+            return self._lookup(conversation_id, session_id)  # type: ignore[call-arg]
+        except TypeError:
+            return self._lookup(conversation_id)
+
+    def _channels_for(
+        self, conversation_id: str, session_id: str | None = None
+    ) -> list[_LiveChannel]:
+        """Channels that should react to a registry event for ``(cid, sid?)``.
+
+        Pinned session events hit the matching pin channel + the conversation-default
+        (unpinned) channel. Events without a sid hit every channel on that conversation.
+        """
+        out: list[_LiveChannel] = []
+        if session_id:
+            pinned = self._channels.get(_channel_key(conversation_id, session_id))
+            if pinned is not None:
+                out.append(pinned)
+            unpinned = self._channels.get(_channel_key(conversation_id, None))
+            if unpinned is not None and unpinned not in out:
+                out.append(unpinned)
+            return out
+        for (cid, _), channel in self._channels.items():
+            if cid == conversation_id:
+                out.append(channel)
+        return out
+
     # -- viewer lifecycle ------------------------------------------------------
-    async def attach(self, conversation_id: str) -> BrowserLiveViewer:
+    async def attach(
+        self, conversation_id: str, *, session_id: str | None = None
+    ) -> BrowserLiveViewer:
         """Register a viewer; start screencast if it's the first + a session exists."""
+        sid = session_id or None
+        key = _channel_key(conversation_id, sid)
         async with self._lock:
-            channel = self._channels.get(conversation_id)
+            channel = self._channels.get(key)
             if channel is None:
-                channel = _LiveChannel(conversation_id=conversation_id)
-                self._channels[conversation_id] = channel
+                channel = _LiveChannel(conversation_id=conversation_id, session_id=sid)
+                self._channels[key] = channel
             self._cancel_stop_timer(channel)
             viewer = BrowserLiveViewer(max_queue=self.max_queued_frames)
             channel.viewers.add(viewer)
-            session = self._lookup(conversation_id)
+            session = self._peek(conversation_id, channel.session_id)
             if session is not None and session.alive:
                 if not channel.screencast_on:
                     await self._begin_screencast(channel, session)
@@ -133,11 +178,18 @@ class BrowserLiveHub:
             logger.info(
                 "browser.live_attached",
                 conversation_id=conversation_id,
+                session_id=channel.session_id,
                 viewers=len(channel.viewers),
             )
             return viewer
 
-    def detach_soon(self, conversation_id: str, viewer: BrowserLiveViewer) -> None:
+    def detach_soon(
+        self,
+        conversation_id: str,
+        viewer: BrowserLiveViewer,
+        *,
+        session_id: str | None = None,
+    ) -> None:
         """Schedule :meth:`detach` as an independent task (safe from the SSE finally).
 
         The SSE generator's cleanup runs while the request is being cancelled, so awaiting
@@ -149,14 +201,29 @@ class BrowserLiveHub:
         except RuntimeError:
             viewer.close()
             return
-        task = loop.create_task(self.detach(conversation_id, viewer))
+        task = loop.create_task(
+            self.detach(conversation_id, viewer, session_id=session_id)
+        )
         self._pending_detach.add(task)
         task.add_done_callback(self._pending_detach.discard)
 
-    async def detach(self, conversation_id: str, viewer: BrowserLiveViewer) -> None:
+    async def detach(
+        self,
+        conversation_id: str,
+        viewer: BrowserLiveViewer,
+        *,
+        session_id: str | None = None,
+    ) -> None:
         """Drop a viewer; schedule a grace-period screencast stop if it was the last."""
+        key = _channel_key(conversation_id, session_id)
         async with self._lock:
-            channel = self._channels.get(conversation_id)
+            channel = self._channels.get(key)
+            if channel is None or viewer not in channel.viewers:
+                # Fallback: locate the channel that still holds this viewer (stale/missing sid).
+                channel = next(
+                    (ch for ch in self._channels.values() if viewer in ch.viewers),
+                    None,
+                )
             if channel is None:
                 viewer.close()
                 return
@@ -165,48 +232,73 @@ class BrowserLiveHub:
             logger.info(
                 "browser.live_detached",
                 conversation_id=conversation_id,
+                session_id=channel.session_id,
                 viewers=len(channel.viewers),
             )
             if not channel.viewers:
                 self._schedule_stop(channel)
 
     # -- registry observer (sync, non-blocking) --------------------------------
-    def on_session_ready(self, conversation_id: str) -> None:
-        self._schedule(self._react_ready(conversation_id))
+    def on_session_ready(self, conversation_id: str, session_id: str = "") -> None:
+        self._schedule(self._react_ready(conversation_id, session_id or None))
 
-    def on_session_gone(self, conversation_id: str) -> None:
-        self._schedule(self._react_gone(conversation_id))
+    def on_session_gone(self, conversation_id: str, session_id: str = "") -> None:
+        self._schedule(self._react_gone(conversation_id, session_id or None))
 
-    def is_watched(self, conversation_id: str) -> bool:
-        channel = self._channels.get(conversation_id)
-        return bool(channel and channel.viewers)
+    def is_watched(self, conversation_id: str, session_id: str | None = None) -> bool:
+        if session_id:
+            pinned = self._channels.get(_channel_key(conversation_id, session_id))
+            if pinned and pinned.viewers:
+                return True
+            # Conversation-default viewers spare every session on that conversation.
+            unpinned = self._channels.get(_channel_key(conversation_id, None))
+            return bool(unpinned and unpinned.viewers)
+        for (cid, _), channel in self._channels.items():
+            if cid == conversation_id and channel.viewers:
+                return True
+        return False
 
     # -- internal --------------------------------------------------------------
-    async def _react_ready(self, conversation_id: str) -> None:
+    async def _react_ready(
+        self, conversation_id: str, session_id: str | None = None
+    ) -> None:
         async with self._lock:
-            channel = self._channels.get(conversation_id)
-            if channel is None or not channel.viewers or channel.screencast_on:
-                return
-            session = self._lookup(conversation_id)
-            if session is None or not session.alive:
-                return
-            await self._begin_screencast(channel, session)
-            if channel.screencast_on:
-                self._broadcast(channel, browser_live_status("started"))
+            for channel in self._channels_for(conversation_id, session_id):
+                if not channel.viewers or channel.screencast_on:
+                    continue
+                if (
+                    channel.session_id is not None
+                    and session_id is not None
+                    and channel.session_id != session_id
+                ):
+                    continue
+                session = self._peek(conversation_id, channel.session_id or session_id)
+                if session is None or not session.alive:
+                    continue
+                await self._begin_screencast(channel, session)
+                if channel.screencast_on:
+                    self._broadcast(channel, browser_live_status("started"))
 
-    async def _react_gone(self, conversation_id: str) -> None:
+    async def _react_gone(
+        self, conversation_id: str, session_id: str | None = None
+    ) -> None:
         async with self._lock:
-            channel = self._channels.get(conversation_id)
-            if channel is None:
-                return
-            was_on = channel.screencast_on
-            channel.screencast_on = False
-            self._cancel_stop_timer(channel)
-            if channel.viewers:
-                self._broadcast(channel, browser_live_status("session_closed"))
-            elif not was_on:
-                # No viewers and nothing running — drop the empty channel.
-                self._channels.pop(conversation_id, None)
+            for channel in list(self._channels_for(conversation_id, session_id)):
+                if (
+                    channel.session_id is not None
+                    and session_id is not None
+                    and channel.session_id != session_id
+                ):
+                    continue
+                was_on = channel.screencast_on
+                channel.screencast_on = False
+                self._cancel_stop_timer(channel)
+                key = _channel_key(channel.conversation_id, channel.session_id)
+                if channel.viewers:
+                    self._broadcast(channel, browser_live_status("session_closed"))
+                elif not was_on:
+                    # No viewers and nothing running — drop the empty channel.
+                    self._channels.pop(key, None)
 
     async def _begin_screencast(self, channel: _LiveChannel, session: BrowserSession) -> None:
         session.set_frame_listener(self._make_frame_sink(channel))
@@ -220,7 +312,11 @@ class BrowserLiveHub:
             )
             return
         channel.screencast_on = True
-        logger.info("browser.screencast_started", conversation_id=channel.conversation_id)
+        logger.info(
+            "browser.screencast_started",
+            conversation_id=channel.conversation_id,
+            session_id=channel.session_id,
+        )
 
     def _make_frame_sink(self, channel: _LiveChannel) -> Callable[[dict[str, Any]], None]:
         def sink(frame: dict[str, Any]) -> None:
@@ -245,28 +341,31 @@ class BrowserLiveHub:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        cid = channel.conversation_id
+        key = _channel_key(channel.conversation_id, channel.session_id)
         channel.stop_timer = loop.call_later(
-            self.grace_seconds, lambda: self._schedule(self._grace_stop(cid))
+            self.grace_seconds, lambda k=key: self._schedule(self._grace_stop(k))
         )
 
-    async def _grace_stop(self, conversation_id: str) -> None:
+    async def _grace_stop(self, key: _ChannelKey) -> None:
         async with self._lock:
-            channel = self._channels.get(conversation_id)
+            channel = self._channels.get(key)
             if channel is None or channel.viewers:
                 return  # a viewer re-attached within the grace window
             channel.stop_timer = None
+            conversation_id, session_id = key
             if channel.screencast_on:
-                session = self._lookup(conversation_id)
+                session = self._peek(conversation_id, session_id)
                 if session is not None:
                     session.set_frame_listener(None)
                     with contextlib.suppress(Exception):
                         await session.stop_screencast()
                 channel.screencast_on = False
                 logger.info(
-                    "browser.screencast_stopped", conversation_id=conversation_id
+                    "browser.screencast_stopped",
+                    conversation_id=conversation_id,
+                    session_id=session_id,
                 )
-            self._channels.pop(conversation_id, None)
+            self._channels.pop(key, None)
 
     def _cancel_stop_timer(self, channel: _LiveChannel) -> None:
         if channel.stop_timer is not None:
@@ -290,6 +389,10 @@ def default_browser_live_hub() -> BrowserLiveHub:
         from agentcore.runtime.browser.registry import default_browser_session_registry
 
         registry = default_browser_session_registry()
-        _hub = BrowserLiveHub(session_lookup=registry.peek)
+
+        def _lookup(cid: str, sid: str | None = None) -> BrowserSession | None:
+            return registry.peek(cid, session_id=sid)
+
+        _hub = BrowserLiveHub(session_lookup=_lookup)
         registry.set_observer(_hub)
     return _hub

@@ -2,7 +2,7 @@ import { patchConversationCache } from "@/hooks/useConversations";
 import { StreamError } from "@/lib/errors";
 import { notifyWarning } from "@/lib/toast";
 import { resolveSidecarInference } from "@/services/inferenceToken";
-import { resolveConversationPermissionPreset } from "@/services/permissionPreset";
+import { resolveConversationPermissionAxes } from "@/services/permissionAxes";
 import { claimSidecarTurnSink } from "@/services/sidecarEventPump";
 import {
   clearActiveSidecarTurn,
@@ -120,10 +120,23 @@ function unwrapSidecarRejectMessage(err: unknown): string | null {
  * 而 Electron 会把主进程 handler 抛出的错误包成
  * `Error invoking remote method 'sidecar:startTurn': Error: <真因>`——剥掉这层包装与 `Error:`
  * 前缀，露出可读真因。提不出则返回 `null`，由调用方退到通用兜底文案。
+ *
+ * IPC 边界拒（`无效的 IPC 入参：…`）优先展字段级原因，避免与「浏览器未装配 / 服务不可用」混淆。
  */
 function describeSidecarTurnError(err: unknown): string | null {
   const unwrapped = unwrapSidecarRejectMessage(err);
-  return unwrapped ? `本地引擎出错：${unwrapped}` : null;
+  if (!unwrapped) return null;
+  const ipcMatch = /^无效的 IPC 入参：([^\s（]+)(?:（字段 (.+?) 期望 (.+?)）)?$/.exec(
+    unwrapped,
+  );
+  if (ipcMatch) {
+    const [, channel, field, expected] = ipcMatch;
+    if (field && expected) {
+      return `本地引擎出错：请求参数校验失败（${field} 期望 ${expected}，${channel}）`;
+    }
+    return `本地引擎出错：请求参数校验失败（${channel}）`;
+  }
+  return `本地引擎出错：${unwrapped}`;
 }
 
 /**
@@ -166,9 +179,9 @@ export async function streamConversationViaSidecar({
   // 云推理凭据（平台 key 不下放本机，走云端代理鉴权——Slice 4a）。取不到则带 undefined：
   // dev 下 sidecar 回退其自身配置，生产则以可重试的引擎错误失败（胜过静默跑成无计费回合）。
   const inference = (await resolveSidecarInference()) ?? undefined;
-  // 本会话权限模式随回合送达本地引擎；取不到则 sidecar 沿用其当前值。
-  const permissionPreset =
-    await resolveConversationPermissionPreset(conversationId);
+  // 本会话三轴权限随回合送达本地引擎；取不到则 sidecar 沿用其当前值。
+  const permissionAxes =
+    await resolveConversationPermissionAxes(conversationId);
   throwIfCannotOpenStream(conversationId, signal);
   return runSidecarTurn({
     conversationId,
@@ -190,7 +203,7 @@ export async function streamConversationViaSidecar({
         userMessageId: optimisticUserId,
         history,
         inference,
-        permissionPreset,
+        permissionAxes,
       }),
     writeBack: () => persistAndReconcile(conversationId, optimisticUserId),
   });
@@ -222,9 +235,9 @@ export async function resumeConversationViaSidecar({
   );
   // 续跑同样要跑 LLM（重启后会新拉起引擎），故随带当前云推理凭据（同 startTurn）。
   const inference = (await resolveSidecarInference()) ?? undefined;
-  // 本会话权限模式（同 startTurn）：续跑期间的能力授权按会话当前模式。
-  const permissionPreset =
-    await resolveConversationPermissionPreset(conversationId);
+  // 本会话三轴权限（同 startTurn）：续跑期间的能力授权按会话当前轴。
+  const permissionAxes =
+    await resolveConversationPermissionAxes(conversationId);
   // 本次续跑的 trace_id（同 startTurn）：贯穿续跑的推理调用 + 回写落库。
   const traceId = newTraceId();
   throwIfCannotOpenStream(conversationId, signal);
@@ -252,7 +265,7 @@ export async function resumeConversationViaSidecar({
           styleId,
           formatId,
           inference,
-          permissionPreset,
+          permissionAxes,
         }),
       writeBack: () => persistAndReconcile(conversationId, userMessageId),
     });

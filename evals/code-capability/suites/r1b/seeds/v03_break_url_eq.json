@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: URL.__eq__ 恒 False，使 test_url_eq_str 失败。",
+  "replacements": [
+    {
+      "path": "httpx/_urls.py",
+      "old": "    def __eq__(self, other: typing.Any) -> bool:\n        return isinstance(other, (URL, str)) and str(self) == str(URL(other))\n",
+      "new": "    def __eq__(self, other: typing.Any) -> bool:\n        # R1b seed_patch: equality always false\n        return False\n"
+    }
+  ]
+}

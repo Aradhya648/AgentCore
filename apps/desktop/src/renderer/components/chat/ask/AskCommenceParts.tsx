@@ -372,8 +372,9 @@ export function ChoiceQuestion({
   bindBusyLabel?: string | null;
   onBindOption?: (opt: AskOption) => void;
 }) {
+  const canLocalFs = hasLocalFiles() && !!window.fsApi;
   const canBindAction =
-    !!conversationId && !!onBindOption && hasLocalFiles() && !!window.fsApi;
+    !!conversationId && !!onBindOption && canLocalFs;
   const twoColumn = optionLayout === "card" && optionColumns === 2;
   const compact = optionLayout === "compact";
   return (
@@ -434,9 +435,13 @@ export function ChoiceQuestion({
             >
               {question.options.map((opt) => {
                 const isBindAction =
-                  canBindAction &&
-                  (opt.action === "bind_local_folder" ||
-                    opt.action === "grant_readonly_folder");
+                  (opt.action === "open_local_project" &&
+                    canLocalFs &&
+                    !!onBindOption) ||
+                  (canBindAction &&
+                    (opt.action === "bind_local_folder" ||
+                      opt.action === "grant_readonly_folder" ||
+                      opt.action === "grant_organize_folder"));
                 const bindBusy = bindBusyLabel === opt.label;
                 return (
                   <OptionButton

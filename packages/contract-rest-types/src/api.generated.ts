@@ -1231,11 +1231,84 @@ export interface paths {
         };
         /**
          * Stream Browser Live
-         * @description Attach as a live viewer of the conversation's browser screencast (owner-only).
+         * @description Attach as a live viewer of a browser screencast (owner-only).
+         *
+         *     Optional ``session_id`` pins the stream to one tab; omit to use the conversation's
+         *     unique/active session (thin wrap over the multi-session registry).
          */
         get: operations["stream_browser_live_v1_conversations__conversation_id__browser_live_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversation_id}/browser/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Browser Sessions
+         * @description List live browser sessions for the conversation (owner-only).
+         */
+        get: operations["list_browser_sessions_v1_conversations__conversation_id__browser_sessions_get"];
+        put?: never;
+        /**
+         * Create Browser Session
+         * @description Create a new browser session tab (owner-only).
+         */
+        post: operations["create_browser_session_v1_conversations__conversation_id__browser_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversation_id}/browser/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Close Browser Session
+         * @description Close one browser session by id (owner-only).
+         */
+        delete: operations["close_browser_session_v1_conversations__conversation_id__browser_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Patch Browser Session Nav
+         * @description L7 最小：回写 url/title（用户地址栏 / Bridge 导航后）。
+         */
+        patch: operations["patch_browser_session_nav_v1_conversations__conversation_id__browser_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/v1/conversations/{conversation_id}/browser/sessions/{session_id}/navigate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Navigate Browser Session
+         * @description Owner address-bar navigate: registry ``send(BrowserCommand navigate)``.
+         *
+         *     Works for sandbox (Web) and local host_kind sessions alike.
+         */
+        post: operations["navigate_browser_session_v1_conversations__conversation_id__browser_sessions__session_id__navigate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1253,7 +1326,7 @@ export interface paths {
         put?: never;
         /**
          * Set Browser Takeover
-         * @description Start or end user takeover of the conversation's team browser (owner-only).
+         * @description Start or end user takeover of a browser session (owner-only).
          */
         post: operations["set_browser_takeover_v1_conversations__conversation_id__browser_takeover_post"];
         delete?: never;
@@ -1835,7 +1908,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/conversations/{conversation_id}/permission-preset": {
+    "/v1/conversations/{conversation_id}/permission-axes": {
         parameters: {
             query?: never;
             header?: never;
@@ -1844,12 +1917,13 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Permission Preset
-         * @description Switch the session permission mode (降档/升档确认由客户端负责).
+         * Set Permission Axes
+         * @description Switch the session permission axes (降档/升档确认由客户端负责).
          *
          *     Takes effect on the next turn / durable resume (gate is built at turn entry).
+         *     Illegal combo ``command=auto`` ∧ ``file_write=ask`` is rejected by the schema.
          */
-        put: operations["set_permission_preset_v1_conversations__conversation_id__permission_preset_put"];
+        put: operations["set_permission_axes_v1_conversations__conversation_id__permission_axes_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2223,12 +2297,12 @@ export interface paths {
         put?: never;
         /**
          * Grant External Folder
-         * @description Register a session mount after the user confirms via folder picker.
+         * @description Register a conversation mount after the user confirms via folder picker.
          */
         post: operations["grant_external_folder_v1_conversations__conversation_id__workspace_external_grants_post"];
         /**
          * Revoke External Grants
-         * @description Revoke one grant (by alias or root_id) or all session grants for the conversation.
+         * @description Revoke one grant (by alias or root_id) or all grants for the conversation.
          */
         delete: operations["revoke_external_grants_v1_conversations__conversation_id__workspace_external_grants_delete"];
         options?: never;
@@ -2822,6 +2896,26 @@ export interface paths {
          *     Local-mode OS directories are never touched — only DB + server-side data.
          */
         delete: operations["delete_folder_permanent_v1_folders__folder_id__permanent_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hooks/standing/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fire Standing Webhook
+         * @description Public webhook fire — no user JWT; auth via shared secret header.
+         */
+        post: operations["fire_standing_webhook_v1_hooks_standing__webhook_id__post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3687,6 +3781,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/standing-task-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Standing Task Runs */
+        get: operations["list_standing_task_runs_v1_standing_task_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/standing-task-runs/{run_id}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ack Standing Task Run */
+        post: operations["ack_standing_task_run_v1_standing_task_runs__run_id__ack_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/standing-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Standing Tasks */
+        get: operations["list_standing_tasks_v1_standing_tasks_get"];
+        put?: never;
+        /** Create Standing Task */
+        post: operations["create_standing_task_v1_standing_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/standing-tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Standing Task */
+        get: operations["get_standing_task_v1_standing_tasks__task_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Standing Task */
+        delete: operations["delete_standing_task_v1_standing_tasks__task_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Standing Task */
+        patch: operations["update_standing_task_v1_standing_tasks__task_id__patch"];
+        trace?: never;
+    };
+    "/v1/standing-tasks/{task_id}/rotate-webhook-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Webhook Secret */
+        post: operations["rotate_webhook_secret_v1_standing_tasks__task_id__rotate_webhook_secret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/standing-tasks/{task_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger Standing Task
+         * @description 立即跑一次（验收 / 收件箱重跑）。不推进 cron 时钟。
+         */
+        post: operations["trigger_standing_task_v1_standing_tasks__task_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage/summary": {
         parameters: {
             query?: never;
@@ -3866,7 +4068,7 @@ export interface paths {
         head?: never;
         /**
          * Update Llm Provider
-         * @description Update a provider (endpoint / model / label / price; key optional to keep).
+         * @description Update a provider (endpoint / model / label; key optional to keep).
          */
         patch: operations["update_llm_provider_v1_users_me_llm_providers__provider_id__patch"];
         trace?: never;
@@ -3900,7 +4102,7 @@ export interface paths {
         };
         /**
          * Get My Memory
-         * @description Load the signed-in user's long-term memory + whether memory is enabled.
+         * @description Load the signed-in user's long-term memory (``enabled`` is always true).
          */
         get: operations["get_my_memory_v1_users_me_memory_get"];
         /**
@@ -3931,12 +4133,12 @@ export interface paths {
         };
         /**
          * Get My Conversation History Access
-         * @description Whether Workers may search/read this account's past conversation logs.
+         * @description Workers may always search/read this account's past conversation logs (定案 A).
          */
         get: operations["get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get"];
         /**
          * Set My Conversation History Access
-         * @description Toggle cross-session conversation-log access (orthogonal to memory_enabled).
+         * @description Compatibility no-op: access is product-always-on; body ignored, never persists false.
          */
         put: operations["set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put"];
         post?: never;
@@ -3956,7 +4158,7 @@ export interface paths {
         get?: never;
         /**
          * Set My Memory Enabled
-         * @description Toggle the long-term memory master switch (off = stop injecting AND growing).
+         * @description Compatibility no-op: memory is product-always-on; body ignored, never persists false.
          */
         put: operations["set_my_memory_enabled_v1_users_me_memory_enabled_put"];
         post?: never;
@@ -5223,24 +5425,21 @@ export interface components {
         };
         /**
          * AutonomyPolicy
-         * @description User-global *default* for new conversations (maps to :class:`PermissionPreset`).
+         * @description User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).
          *
-         *     Runtime gates no longer read this directly — the conversation's
-         *     ``permission_preset`` is the single source of truth. This enum remains the
-         *     stored shape of ``users.autonomy_policy`` (设置页「新会话默认权限模式」).
-         *
-         *     Mapping: ``always_ask``→observe, ``first_grant``→workspace, ``full_auto``→full_trust.
+         *     Runtime gates read the conversation's ``permission_axes`` — not this column.
+         *     Stored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).
          * @enum {string}
          */
-        AutonomyPolicy: "always_ask" | "first_grant" | "full_auto";
+        AutonomyPolicy: "cautious" | "write_code" | "less_interrupt" | "managed";
         /** AutonomyUpdate */
         AutonomyUpdate: {
-            /** @description New-session default: always_ask→observe | first_grant→workspace | full_auto→full_trust */
+            /** @description New-session default recipe: cautious | write_code | less_interrupt | managed */
             policy: components["schemas"]["AutonomyPolicy"];
         };
         /** AutonomyView */
         AutonomyView: {
-            /** @default first_grant */
+            /** @default write_code */
             policy: components["schemas"]["AutonomyPolicy"];
         };
         /** BatchCreateInviteRequest */
@@ -5441,6 +5640,8 @@ export interface components {
         BrowserInputRequest: {
             /** Events */
             events: (components["schemas"]["MouseInputEvent"] | components["schemas"]["KeyInputEvent"] | components["schemas"]["TextInputEvent"])[];
+            /** Session Id */
+            session_id?: string | null;
         };
         /**
          * BrowserInputResponse
@@ -5451,8 +5652,84 @@ export interface components {
             injected: number;
         };
         /**
+         * BrowserSessionCreateRequest
+         * @description Create a new browser session tab for the conversation.
+         */
+        BrowserSessionCreateRequest: {
+            /**
+             * Activate
+             * @default true
+             */
+            activate: boolean;
+            /**
+             * Host Kind
+             * @default sandbox
+             * @enum {string}
+             */
+            host_kind: "sandbox" | "local";
+        };
+        /** BrowserSessionListResponse */
+        BrowserSessionListResponse: {
+            /** Active Session Id */
+            active_session_id?: string | null;
+            /** Data */
+            data: components["schemas"]["BrowserSessionView"][];
+        };
+        /**
+         * BrowserSessionNavPatch
+         * @description PATCH body for L7 idle / Bridge navigate url·title 回写.
+         */
+        BrowserSessionNavPatch: {
+            /** Title */
+            title?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * BrowserSessionNavigateRequest
+         * @description POST …/browser/sessions/{id}/navigate — owner address-bar navigate.
+         */
+        BrowserSessionNavigateRequest: {
+            /** Url */
+            url: string;
+        };
+        /**
+         * BrowserSessionView
+         * @description One live browser session entry (list / create response).
+         */
+        BrowserSessionView: {
+            /**
+             * Control
+             * @default agent
+             * @enum {string}
+             */
+            control: "agent" | "user";
+            /** Conversation Id */
+            conversation_id: string;
+            /** Created At */
+            created_at: number;
+            /**
+             * Host Kind
+             * @default sandbox
+             * @enum {string}
+             */
+            host_kind: "sandbox" | "local";
+            /** Last Used */
+            last_used: number;
+            /** Run Id */
+            run_id?: string | null;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
          * BrowserTakeoverActionRequest
-         * @description Start or end user takeover of the conversation's team browser (owner-only).
+         * @description Start or end user takeover of a browser session (owner-only).
+         *
+         *     ``session_id`` optional — omit to resolve the conversation's unique/active session.
          */
         BrowserTakeoverActionRequest: {
             /**
@@ -5460,6 +5737,8 @@ export interface components {
              * @enum {string}
              */
             action: "start" | "end";
+            /** Session Id */
+            session_id?: string | null;
         };
         /** BrowserTakeoverListResponse */
         BrowserTakeoverListResponse: {
@@ -5477,6 +5756,8 @@ export interface components {
             ended_at: string | null;
             /** Id */
             id: string;
+            /** Session Id */
+            session_id?: string | null;
             /**
              * Started At
              * Format: date-time
@@ -5485,12 +5766,13 @@ export interface components {
         };
         /**
          * BrowserTakeoverState
-         * @description The takeover state a POST …/browser/takeover returns (D16: state on the response).
+         * @description The takeover state a POST …/browser/takeover returns.
          *
          *     ``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on
-         *     success; ``already_active`` (start when one is running — still active); ``turn_running``
-         *     / ``no_session`` (start preconditions unmet); ``not_active`` (end when none is running).
-         *     ``active`` reflects the resulting state; ``started_at`` is set while active.
+         *     success; ``already_active`` (start when one is running — still active); ``no_session``
+         *     (no live session to take over); ``not_active`` (end when none is running).
+         *     ``turn_running`` is retained for wire compat but is never produced after D8 (anytime
+         *     takeover). ``active`` reflects the resulting state; ``started_at`` is set while active.
          */
         BrowserTakeoverState: {
             /** Active */
@@ -5502,6 +5784,8 @@ export interface components {
             reason: "started" | "ended" | "already_active" | "turn_running" | "no_session" | "not_active";
             /** Record Id */
             record_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
             /** Started At */
             started_at?: string | null;
         };
@@ -5901,6 +6185,12 @@ export interface components {
             total: number;
         };
         /**
+         * CommandAxis
+         * @description How execution-class tools (code / terminal / test) are authorized.
+         * @enum {string}
+         */
+        CommandAxis: "ask" | "kickoff" | "auto";
+        /**
          * ConversationCost
          * @description A conversation's cumulative spend (``GET /conversations/{id}/cost``).
          */
@@ -5917,13 +6207,13 @@ export interface components {
         ConversationHistoryAccessRequest: {
             /**
              * Enabled
-             * @description Allow Workers to search/read past conversation transcripts
+             * @description Ignored (compat); conversation-log access is product-always-on
              */
             enabled: boolean;
         };
         /**
          * ConversationHistoryAccessResponse
-         * @description Cross-session conversation-log access gate (跨会话对话日志访问定案).
+         * @description Cross-session conversation-log access (always on; 定案 A).
          */
         ConversationHistoryAccessResponse: {
             /** Enabled */
@@ -5970,8 +6260,7 @@ export interface components {
             message_count: number;
             /** Model Profile Id */
             model_profile_id?: string | null;
-            /** @default workspace */
-            permission_preset: components["schemas"]["PermissionPreset"];
+            permission_axes?: components["schemas"]["PermissionAxesModel"];
             /**
              * Pinned
              * @default false
@@ -6060,7 +6349,7 @@ export interface components {
             folder_id?: string | null;
             /** Local Container Root Id */
             local_container_root_id?: string | null;
-            permission_preset?: components["schemas"]["PermissionPreset"] | null;
+            permission_axes?: components["schemas"]["PermissionAxesModel"] | null;
             /** Title */
             title?: string | null;
         };
@@ -6149,21 +6438,6 @@ export interface components {
              * @default
              */
             label: string;
-            /**
-             * Price Cache Hit
-             * @description Optional provider USD per 1M cache-hit tokens (decimal string)
-             */
-            price_cache_hit?: string | null;
-            /**
-             * Price Cache Miss
-             * @description Optional provider USD per 1M cache-miss tokens (decimal string)
-             */
-            price_cache_miss?: string | null;
-            /**
-             * Price Output
-             * @description Optional provider USD per 1M output tokens (decimal string)
-             */
-            price_output?: string | null;
         };
         /**
          * CreateShareRequest
@@ -6214,6 +6488,33 @@ export interface components {
         CreateSnapshotRequest: {
             /** Label */
             label?: string | null;
+        };
+        /** CreateStandingTaskRequest */
+        CreateStandingTaskRequest: {
+            /** Cron */
+            cron?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Folder Id */
+            folder_id: string;
+            /** Goal */
+            goal: string;
+            /** Name */
+            name: string;
+            permission_axes?: components["schemas"]["PermissionAxesModel"] | null;
+            /** Preset */
+            preset?: string | null;
+            /** Schedule Preset */
+            schedule_preset?: string | null;
+            /**
+             * Trigger Kind
+             * @default schedule
+             * @enum {string}
+             */
+            trigger_kind: "schedule" | "webhook";
         };
         /**
          * DailyCost
@@ -6773,6 +7074,12 @@ export interface components {
             updated_at: string;
         };
         /**
+         * FileWriteAxis
+         * @description Whether reversible file mutations need per-call approval.
+         * @enum {string}
+         */
+        FileWriteAxis: "ask" | "session";
+        /**
          * FolderGroup
          * @description A project plus the conversations it holds (grouped sidebar payload).
          */
@@ -7158,12 +7465,6 @@ export interface components {
             masked_key?: string | null;
             /** Message */
             message?: string | null;
-            /** Price Cache Hit */
-            price_cache_hit?: string | null;
-            /** Price Cache Miss */
-            price_cache_miss?: string | null;
-            /** Price Output */
-            price_output?: string | null;
             /**
              * Status
              * @description Connectivity result: unchecked | active | error
@@ -7294,7 +7595,7 @@ export interface components {
         MemoryEnabledRequest: {
             /**
              * Enabled
-             * @description Long-term memory master switch
+             * @description Ignored (compat); memory is product-always-on
              */
             enabled: boolean;
         };
@@ -7392,7 +7693,7 @@ export interface components {
         };
         /**
          * MemoryResponse
-         * @description The user's memory document + the master switch (the editor's load payload).
+         * @description The user's memory document + always-on ``enabled`` (editor load payload).
          */
         MemoryResponse: {
             /** Content */
@@ -8040,25 +8341,23 @@ export interface components {
             };
         };
         /**
-         * PermissionPreset
-         * @description Conversation-level permission mode (会话级权限模式 · 运行时单一真相源).
-         *
-         *     - ``observe`` — no execution tools; GRANTABLE (writes) always prompt; kickoff
-         *       does not pre-authorize write capabilities (≈ always_ask + withhold execution)
-         *     - ``workspace`` — session-trust file-mutation class (no per-call cards; permanent
-         *       delete still asks); kickoff confirms team + authorizes execution class
-         *       (≈ first_grant; default)
-         *     - ``full_trust`` — skip kickoff; silent auto-grant including local execution
-         *       (≈ full_auto; UI must warn that AI runs commands with user-equivalent power)
-         * @enum {string}
+         * PermissionAxesModel
+         * @description Three-axis session permission (运行时单一真相源).
          */
-        PermissionPreset: "observe" | "workspace" | "full_trust";
+        PermissionAxesModel: {
+            /** @default kickoff */
+            command: components["schemas"]["CommandAxis"];
+            /** @default session */
+            file_write: components["schemas"]["FileWriteAxis"];
+            /** @default rules */
+            team_kickoff: components["schemas"]["TeamKickoffAxis"];
+        };
         /**
-         * PermissionPresetUpdate
-         * @description Switch the conversation's permission mode mid-session.
+         * PermissionAxesUpdate
+         * @description Switch the conversation's three-axis permission mid-session.
          */
-        PermissionPresetUpdate: {
-            permission_preset: components["schemas"]["PermissionPreset"];
+        PermissionAxesUpdate: {
+            permission_axes: components["schemas"]["PermissionAxesModel"];
         };
         /**
          * QuotaStatus
@@ -8345,6 +8644,7 @@ export interface components {
          *     itself. Classic (non-coordination) path asks the user; coordination path awaits CEO
          *     ``resolve_escalation`` (Invariant B: solo never uses that tool). The user either answers
          *     (``answer``) or chooses 按假设继续 (``use_assumption`` true → wire status ``assumed``).
+         *     Write-lock conflicts may set ``transfer_ownership`` to path-handoff to the escalator.
          *     A wall-clock miss is ``timed_out``. A late resolve falls through as 404.
          */
         ResolveEscalationInteraction: {
@@ -8358,6 +8658,11 @@ export interface components {
              * @enum {string}
              */
             kind: "escalation";
+            /**
+             * Transfer Ownership
+             * @default false
+             */
+            transfer_ownership: boolean;
             /**
              * Use Assumption
              * @default false
@@ -8486,6 +8791,15 @@ export interface components {
             role: string;
             /** Turns */
             turns: number;
+        };
+        /** RotateWebhookSecretResponse */
+        RotateWebhookSecretResponse: {
+            /** Webhook Id */
+            webhook_id: string;
+            /** Webhook Secret */
+            webhook_secret: string;
+            /** Webhook Url */
+            webhook_url: string;
         };
         /**
          * RunError
@@ -9125,6 +9439,101 @@ export interface components {
             /** Snapshot Id */
             snapshot_id: string;
         };
+        /** StandingTaskRunListResponse */
+        StandingTaskRunListResponse: {
+            /**
+             * Badge
+             * @default 0
+             */
+            badge: number;
+            /** Items */
+            items: components["schemas"]["StandingTaskRunSummary"][];
+        };
+        /** StandingTaskRunSummary */
+        StandingTaskRunSummary: {
+            /** Acked At */
+            acked_at?: string | null;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Id */
+            id: string;
+            /** Standing Task Id */
+            standing_task_id: string;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed" | "awaiting_user";
+            /** Summary */
+            summary?: string | null;
+            /** Task Name */
+            task_name?: string | null;
+            /**
+             * Trigger Source
+             * @default schedule
+             * @enum {string}
+             */
+            trigger_source: "schedule" | "webhook" | "manual";
+            /** User Message Id */
+            user_message_id?: string | null;
+        };
+        /** StandingTaskSummary */
+        StandingTaskSummary: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Cron */
+            cron?: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Folder Id */
+            folder_id: string;
+            /** Goal */
+            goal: string;
+            /** Id */
+            id: string;
+            /** Last Run At */
+            last_run_at?: string | null;
+            /** Name */
+            name: string;
+            /** Next Run At */
+            next_run_at?: string | null;
+            permission_axes: components["schemas"]["PermissionAxesModel"];
+            /** Schedule Preset */
+            schedule_preset?: string | null;
+            /**
+             * Trigger Kind
+             * @default schedule
+             * @enum {string}
+             */
+            trigger_kind: "schedule" | "webhook";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Webhook Id */
+            webhook_id?: string | null;
+            /** Webhook Secret */
+            webhook_secret?: string | null;
+            /** Webhook Url */
+            webhook_url?: string | null;
+        };
         /**
          * StartDmRequest
          * @description Open (or reuse) a 1:1 chat with another user (by their user id).
@@ -9284,6 +9693,12 @@ export interface components {
          */
         SuspensionKind: "plan_review" | "ask_user" | "team_preview";
         /**
+         * TeamKickoffAxis
+         * @description Whether / when the team kickoff card (plan + capability halves) hangs.
+         * @enum {string}
+         */
+        TeamKickoffAxis: "always" | "rules" | "skip";
+        /**
          * TextInputEvent
          * @description Verbatim text insertion (IME-style). Content is never logged/persisted (D17).
          */
@@ -9381,8 +9796,9 @@ export interface components {
          * @description Tool approval requirement levels (可逆性 × 副作用).
          *
          *     Two live levels: ``NEVER`` (silent) and ``GRANTABLE`` (first-grant / per-call
-         *     via AutonomyPolicy). The former ``ALWAYS`` (every call, no turn grant) had no
-         *     consumers and was removed — irreversible external tools are not in the MVP set.
+         *     via session permission axes). The former ``ALWAYS`` (every call, no turn grant)
+         *     had no consumers and was removed — irreversible external tools are not in the
+         *     MVP set.
          * @enum {string}
          */
         ToolApproval: "never" | "grantable";
@@ -9414,6 +9830,11 @@ export interface components {
              * @default 0
              */
             yes_votes: number;
+        };
+        /** TriggerStandingTaskResponse */
+        TriggerStandingTaskResponse: {
+            /** Run Id */
+            run_id: string;
         };
         /**
          * TurnCollabMetrics
@@ -9714,21 +10135,6 @@ export interface components {
             default_model?: string | null;
             /** Label */
             label?: string | null;
-            /**
-             * Price Cache Hit
-             * @description Optional provider USD per 1M cache-hit tokens (decimal string)
-             */
-            price_cache_hit?: string | null;
-            /**
-             * Price Cache Miss
-             * @description Optional provider USD per 1M cache-miss tokens (decimal string)
-             */
-            price_cache_miss?: string | null;
-            /**
-             * Price Output
-             * @description Optional provider USD per 1M output tokens (decimal string)
-             */
-            price_output?: string | null;
         };
         /**
          * UpdateMembershipRequest
@@ -9764,6 +10170,24 @@ export interface components {
         UpdateSharedSpaceRequest: {
             /** Name */
             name?: string | null;
+        };
+        /** UpdateStandingTaskRequest */
+        UpdateStandingTaskRequest: {
+            /** Cron */
+            cron?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Goal */
+            goal?: string | null;
+            /** Name */
+            name?: string | null;
+            permission_axes?: components["schemas"]["PermissionAxesModel"] | null;
+            /** Preset */
+            preset?: string | null;
+            /** Schedule Preset */
+            schedule_preset?: string | null;
+            /** Trigger Kind */
+            trigger_kind?: ("schedule" | "webhook") | null;
         };
         /**
          * UpdatesPolicyResponse
@@ -12475,7 +12899,9 @@ export interface operations {
     };
     stream_browser_live_v1_conversations__conversation_id__browser_live_get: {
         parameters: {
-            query?: never;
+            query?: {
+                session_id?: string | null;
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -12495,6 +12921,196 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_browser_sessions_v1_conversations__conversation_id__browser_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserSessionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_browser_session_v1_conversations__conversation_id__browser_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserSessionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_browser_session_v1_conversations__conversation_id__browser_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+                session_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_browser_session_nav_v1_conversations__conversation_id__browser_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+                session_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserSessionNavPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    navigate_browser_session_v1_conversations__conversation_id__browser_sessions__session_id__navigate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+                session_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserSessionNavigateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserSessionView"];
                 };
             };
             /** @description Validation Error */
@@ -13391,7 +14007,7 @@ export interface operations {
             };
         };
     };
-    set_permission_preset_v1_conversations__conversation_id__permission_preset_put: {
+    set_permission_axes_v1_conversations__conversation_id__permission_axes_put: {
         parameters: {
             query?: never;
             header?: {
@@ -13406,7 +14022,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PermissionPresetUpdate"];
+                "application/json": components["schemas"]["PermissionAxesUpdate"];
             };
         };
         responses: {
@@ -15657,6 +16273,41 @@ export interface operations {
             };
         };
     };
+    fire_standing_webhook_v1_hooks_standing__webhook_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-AgentCore-Webhook-Secret"?: string | null;
+                "X-Idempotency-Key"?: string | null;
+            };
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerStandingTaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     mint_inference_token_v1_inference_token_post: {
         parameters: {
             query?: never;
@@ -17494,6 +18145,327 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShowEpisodeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_standing_task_runs_v1_standing_task_runs_get: {
+        parameters: {
+            query?: {
+                status?: ("running" | "succeeded" | "failed" | "awaiting_user") | null;
+                unacked?: boolean;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ack_standing_task_run_v1_standing_task_runs__run_id__ack_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskRunSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_standing_tasks_v1_standing_tasks_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_standing_task_v1_standing_tasks_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStandingTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_standing_task_v1_standing_tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_standing_task_v1_standing_tasks__task_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_standing_task_v1_standing_tasks__task_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStandingTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_webhook_secret_v1_standing_tasks__task_id__rotate_webhook_secret_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotateWebhookSecretResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trigger_standing_task_v1_standing_tasks__task_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerStandingTaskResponse"];
                 };
             };
             /** @description Validation Error */

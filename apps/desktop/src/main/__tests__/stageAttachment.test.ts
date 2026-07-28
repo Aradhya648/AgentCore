@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { execFileMock, cloudAttrs } = vi.hoisted(() => {
+const { execFileMock, cloudAttrs, userDataPath } = vi.hoisted(() => {
   // Must attach promisify.custom BEFORE stageAttachment module loads
   // (it does `promisify(execFile)` at import time).
   const cloudAttrs = { stdout: "Archive" };
@@ -14,11 +14,13 @@ const { execFileMock, cloudAttrs } = vi.hoisted(() => {
   const execFileMock = Object.assign(vi.fn(), {
     [custom]: () => Promise.resolve({ stdout: cloudAttrs.stdout, stderr: "" }),
   });
-  return { execFileMock, cloudAttrs };
+  // Placeholder until beforeEach assigns a per-test userData dir.
+  const userDataPath = { current: "" };
+  return { execFileMock, cloudAttrs, userDataPath };
 });
 
 vi.mock("electron", () => ({
-  app: { getPath: () => tmpdir() },
+  app: { getPath: () => userDataPath.current },
   dialog: { showOpenDialog: vi.fn() },
   BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
 }));
@@ -34,6 +36,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 import { type StoredRoot, setRoot } from "../fs/roots";
 import {
   ATTACH_MAX_BYTES,
+  __resetStagingMemoryForTests,
   consumeStagedBytes,
   finalizeStagedAttachment,
   isCloudPlaceholder,
@@ -42,15 +45,19 @@ import {
 
 describe("stageAttachment", () => {
   let dir: string;
+  let userData: string;
   let root: StoredRoot;
   const originalPlatform = process.platform;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "stage-att-"));
+    userData = await mkdtemp(join(tmpdir(), "stage-userdata-"));
+    userDataPath.current = userData;
     root = { id: "stage-root", name: "stage", absPath: dir };
     setRoot(root);
     cloudAttrs.stdout = "Archive";
     execFileMock.mockClear();
+    __resetStagingMemoryForTests();
     // Hermetic default: skip PowerShell path unless a test opts into win32.
     Object.defineProperty(process, "platform", { value: "linux" });
   });
@@ -58,6 +65,8 @@ describe("stageAttachment", () => {
   afterEach(async () => {
     Object.defineProperty(process, "platform", { value: originalPlatform });
     await rm(dir, { recursive: true, force: true });
+    await rm(userData, { recursive: true, force: true });
+    __resetStagingMemoryForTests();
   });
 
   it("copies a text file into attachments/ and returns workspacePath", async () => {
@@ -204,6 +213,60 @@ describe("stageAttachment", () => {
     // Second consume fails — staging cleared.
     const again = await consumeStagedBytes(stagingId);
     expect(again.ok).toBe(false);
+  });
+
+  it("finalize survives in-memory Map loss by rescanning attach-staging", async () => {
+    const src = join(dir, "restart.txt");
+    await writeFile(src, "still here\n", "utf-8");
+    const staged = await stageFromAbsPath(src);
+    expect(staged.ok).toBe(true);
+    if (!staged.ok) return;
+    const stagingId = staged.data.stagingId;
+    expect(stagingId).toBeTruthy();
+    if (!stagingId) return;
+
+    // Simulate app restart: Map wiped, disk files remain under userData/attach-staging.
+    __resetStagingMemoryForTests();
+
+    const destDir = await mkdtemp(join(tmpdir(), "stage-rehydrate-"));
+    setRoot({ id: "rehydrate-root", name: "rehydrate", absPath: destDir });
+    try {
+      const fin = await finalizeStagedAttachment(stagingId, {
+        rootId: "rehydrate-root",
+      });
+      expect(fin.ok).toBe(true);
+      if (!fin.ok) return;
+      expect(fin.data.workspacePath).toBe("attachments/restart.txt");
+      const onDisk = await readFile(
+        join(destDir, "attachments", "restart.txt"),
+        "utf-8",
+      );
+      expect(onDisk).toContain("still here");
+    } finally {
+      await rm(destDir, { recursive: true, force: true });
+    }
+  });
+
+  it("consume after Map wipe fails honestly when staging dir is gone", async () => {
+    const src = join(dir, "gone.txt");
+    await writeFile(src, "bye\n", "utf-8");
+    const staged = await stageFromAbsPath(src);
+    expect(staged.ok).toBe(true);
+    if (!staged.ok) return;
+    const stagingId = staged.data.stagingId;
+    if (!stagingId) return;
+
+    // Wipe memory AND delete the on-disk staging folder (true loss).
+    await rm(join(userData, "attach-staging", stagingId), {
+      recursive: true,
+      force: true,
+    });
+    __resetStagingMemoryForTests();
+
+    const consumed = await consumeStagedBytes(stagingId);
+    expect(consumed.ok).toBe(false);
+    if (consumed.ok) return;
+    expect(consumed.reason).toContain("附件暂存已失效");
   });
 
   it("isCloudPlaceholder returns false on non-Windows", async () => {

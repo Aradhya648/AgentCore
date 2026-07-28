@@ -225,10 +225,37 @@ async def test_str_replace_respects_ownership(tmp_path: Path):
     assert (tmp_path / "App.tsx").read_text(encoding="utf-8") == "from-integration"
 
 
+def test_declare_does_not_steal_from_ancestor():
+    """交接式：下游派发声明同 path 不抢祖先锁；真写时再交接。"""
+    c = WriteCoordinator()
+    assert c.declare("site/index.html", "skeleton", frozenset()) is None
+    assert (
+        c.declare("site/index.html", "assemble", frozenset({"skeleton"})) is None
+    )
+    assert c.owner_of("site/index.html") == "skeleton"
+    assert c.claim("site/index.html", "assemble", frozenset({"skeleton"})) is None
+    assert c.owner_of("site/index.html") == "assemble"
+
+
+def test_declare_ancestor_handoff_opt_in():
+    c = WriteCoordinator()
+    c.declare("a.ts", "lead", frozenset())
+    assert (
+        c.declare(
+            "a.ts",
+            "child",
+            frozenset({"lead"}),
+            allow_ancestor_handoff=True,
+        )
+        is None
+    )
+    assert c.owner_of("a.ts") == "child"
+
+
 def test_declare_and_completed_owner_still_blocks():
     c = WriteCoordinator()
     assert c.declare("site/index.html", "skeleton", frozenset()) is None
-    # Completed owner still holds — sibling cannot declare or claim.
+    # Completed owner still holds — unrelated sibling cannot declare or claim.
     assert c.declare("site/index.html", "frontend", frozenset()) == "skeleton"
     assert c.claim("site/index.html", "frontend", frozenset()) == "skeleton"
 
@@ -346,3 +373,53 @@ def test_nested_siblings_still_mutex_under_shared_parent():
         c.claim("src/tools/base-tool.ts", "tools_b", frozenset({"backend-fix"}))
         == "tools_a"
     )
+
+def test_handoff_owned_paths_on_complete_unique_dependent():
+    from agentcore.runtime.coordination.append_guard import (
+        declare_plan_artifacts,
+        handoff_owned_paths_on_complete,
+    )
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import Deliverable, RunSpec
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    plan = RunPlan()
+    for node in (
+        RunSpec(
+            run_id="skeleton",
+            role="骨架",
+            task="壳",
+            deliverable=Deliverable(
+                artifacts=["site/index.html", "site/styles.css", "site/CONTRACT.md"]
+            ),
+        ),
+        RunSpec(
+            run_id="section_0",
+            role="分区",
+            task="块",
+            depends_on=["skeleton"],
+            deliverable=Deliverable(artifacts=["site/sections/s0.html"]),
+        ),
+        RunSpec(
+            run_id="assemble",
+            role="组装",
+            task="合",
+            depends_on=["section_0"],
+            deliverable=Deliverable(
+                artifacts=["site/index.html", "site/styles.css", "site/main.js"]
+            ),
+        ),
+    ):
+        plan.add(node)
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(plan, ownership)
+    assert ownership.owner_of("site/index.html") == "skeleton"
+    assert ownership.owner_of("site/styles.css") == "skeleton"
+    # assemble declared intent only — did not steal
+    moved = handoff_owned_paths_on_complete(
+        plan, ownership, "skeleton", completed_run_ids={"skeleton"}
+    )
+    assert ("site/index.html", "assemble") in moved
+    assert ("site/styles.css", "assemble") in moved
+    assert ownership.owner_of("site/CONTRACT.md") == "skeleton"
+    assert ownership.owner_of("site/index.html") == "assemble"

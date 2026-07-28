@@ -1,0 +1,16 @@
+{
+  "format": "replacements_v1",
+  "description": "R2 Extend 参照实现：click.utils.clamp + 导出",
+  "replacements": [
+    {
+      "path": "src/click/utils.py",
+      "old": "def make_str(value: t.Any) -> str:\n    \"\"\"Converts a value into a valid string.\"\"\"\n",
+      "new": "def clamp(value: float, min_value: float, max_value: float) -> float:\n    \"\"\"Clamp *value* into ``[min_value, max_value]``.\n\n    .. versionadded:: AgentCore R2 Extend (eval reference)\n    \"\"\"\n    if min_value > max_value:\n        raise ValueError(\"min_value must be <= max_value\")\n    return max(min_value, min(max_value, value))\n\n\ndef make_str(value: t.Any) -> str:\n    \"\"\"Converts a value into a valid string.\"\"\"\n"
+    },
+    {
+      "path": "src/click/__init__.py",
+      "old": "from .utils import open_file as open_file\n",
+      "new": "from .utils import clamp as clamp\nfrom .utils import open_file as open_file\n"
+    }
+  ]
+}

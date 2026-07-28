@@ -3,7 +3,7 @@
 from typing import Literal
 
 from agentcore.config import settings
-from agentcore.core.types import PermissionPreset, ToolApproval, ToolCategory
+from agentcore.core.types import PermissionAxes, ToolApproval, ToolCategory
 from agentcore.tools.registration import (
     AUDIENCE_CEO,
     ToolSurface,
@@ -46,15 +46,36 @@ def code_execution_enabled_for(backend: WorkspaceBackend | None) -> bool:
 
 
 def browser_execution_enabled_for(backend: WorkspaceBackend | None) -> bool:
-    """Whether the L3 team-browser tool class may appear in a worker toolset (D11).
+    """Whether the L3 team-browser tool class may appear in a worker toolset (D11 / C1).
 
-    Cloud-only AND needs a REAL gVisor isolation boundary — a browser cannot run in a
-    plain subprocess, so (unlike ``code_execution_enabled_for``) the
-    ``code_execute_cloud_enabled`` subprocess path does NOT enable it. Local / sidecar
-    backends do not host browser sessions in M0. Folds the same boot-time sandbox
-    health probe so registration stays truthful when the sandbox is unavailable.
+    Two paths (never mixed on one session — C4):
+
+    - **server + gVisor**: real isolation; folds the boot-time sandbox health probe.
+      (``code_execute_cloud_enabled`` subprocess path does NOT enable browsers.)
+    - **local + DesktopBrowserBridge**: desktop re-sends ``browserBridge`` on each
+      sidecar turn (``apply_desktop_bridge_from_turn``); we require a successful
+      ``GET /health`` for the **current** credential generation. Unconfigured /
+      unhealthy → withhold tools (no silent sandbox fallback).
     """
-    if backend is None or backend.location != "server":
+    if backend is None:
+        return False
+    if backend.location == "local":
+        from agentcore.runtime.browser.desktop_bridge import (
+            desktop_bridge_configured,
+            desktop_bridge_health,
+            ensure_desktop_bridge_health,
+        )
+
+        # Cached True → allow; False → withhold; None → probe once if env present.
+        cached = desktop_bridge_health()
+        if cached is True:
+            return True
+        if cached is False:
+            return False
+        if not desktop_bridge_configured():
+            return False
+        return ensure_desktop_bridge_health()
+    if backend.location != "server":
         return False
     if not settings.gvisor_enabled:
         return False
@@ -97,20 +118,18 @@ def build_builtin_registry(
 def build_worker_registry(
     *,
     backend: WorkspaceBackend | None = None,
-    permission_preset: "PermissionPreset | None" = None,
+    permission_axes: "PermissionAxes | None" = None,
     languages: tuple[str, ...] | list[str] | None = None,
 ) -> ToolRegistry:
     """The delegated worker's toolset: builtins PLUS worker-only declarations.
 
-    ``permission_preset=observe`` withholds the entire execution class
+    ``command=ask`` withholds the entire execution class
     (``code_execute`` / ``test_run`` / ``terminal``) — read-only retrieval stays on.
     """
     location = backend.location if backend is not None else None
     include_execution = code_execution_enabled_for(backend)
-    if permission_preset is PermissionPreset.OBSERVE:
+    if permission_axes is not None and permission_axes.withholds_execution_tools:
         include_execution = False
-    # Browser class needs gVisor cloud ON TOP of the execution-class gate (so OBSERVE
-    # still withholds it, and a subprocess "sandbox" never gets a browser).
     include_browser = include_execution and browser_execution_enabled_for(backend)
     # Prefer explicit languages; else reuse a probe cached on the backend by
     # ``resolve_exec_languages`` (prepare / resume). Cloud stays untrimmed.

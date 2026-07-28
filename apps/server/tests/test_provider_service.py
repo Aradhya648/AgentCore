@@ -30,9 +30,6 @@ def _row(**kwargs):
         "api_key_enc": b"cipher",
         "base_url": settings.platform_base_url,
         "default_model": DEEPSEEK_V4_FLASH,
-        "price_cache_hit": None,
-        "price_cache_miss": None,
-        "price_output": None,
         "supports_tools": None,
         "status": "unchecked",
         "created_at": datetime.now(UTC),
@@ -125,16 +122,6 @@ async def test_create_provider_without_master_key_raises(service):
         pytest.raises(KeyStorageUnavailableError),
     ):
         await service.create_provider("u1", label="X", api_key="sk-x")
-
-
-async def test_create_provider_rejects_partial_price_card(service):
-    with (
-        patch.object(service, "_encryptor", return_value=_enc()),
-        pytest.raises(ValidationError),
-    ):
-        await service.create_provider(
-            "u1", label="X", api_key="sk-x", price_cache_miss="1.0"
-        )
 
 
 async def test_list_providers_reports_profile_id_and_free_tier(service, monkeypatch):

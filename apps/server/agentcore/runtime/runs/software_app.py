@@ -1,6 +1,7 @@
 """软件 / 应用类工程意图谓词（kickoff 交付形态 + playbook 声明闸复用）.
 
 软件意图下保留窄硬拒：禁止「单前端 + 单 HTML / 仅因单文件缩成 1 worker」旁路。
+绿场软件 / SPA 完整交付另有硬锁：命中则禁 ``none`` / 手写 tasks，必须 ``build_app``。
 官网 / toolshed 仍走 ``website_style`` 硬闸，本模块与之正交（site 意图优先排除）。
 ``build_feature`` 为可选形状快捷，不文案强推「优先」。
 """
@@ -33,6 +34,28 @@ _SOFTWARE_APP_INTENT_RE = re.compile(
     r"(?:软件|应用|build_feature)"
     r"|"
     r"build_feature.{0,48}(?:未|不|miss|没有|不可|目录)"
+    r")",
+    re.IGNORECASE,
+)
+
+# 绿场完整交付：从 0 到 1 / 完整 SPA / Vite·Vue·React 看板等（site 优先排除）。
+_SOFTWARE_GREENFIELD_INTENT_RE = re.compile(
+    r"(?:"
+    r"从\s*0\s*到\s*1|从零(?:开始|搭建|构建|开发)|"
+    r"搭建完整项目|按文档实现全部功能|"
+    r"完整.{0,12}(?:应用|项目|SPA|系统)|"
+    r"(?:做|建|开发|搭建|构建|制作).{0,36}"
+    r"(?:Vue|React|Vite|SPA|看板|dashboard|数据看板|"
+    r"前端项目|前端应用|单页应用|web\s*app)"
+    r"|"
+    r"(?:Vue|React|Vite|SPA|看板|dashboard|数据看板|"
+    r"前端项目|前端应用|单页应用|web\s*app)"
+    r".{0,36}(?:做|建|开发|搭建|构建|制作)"
+    r"|"
+    r"(?:build|create|scaffold|greenfield).{0,40}"
+    r"(?:vue|react|vite|\bspa\b|dashboard|full[- ]?stack\s+app)"
+    r"|"
+    r"build_app"
     r")",
     re.IGNORECASE,
 )
@@ -86,6 +109,22 @@ _SOFTWARE_THIN_HTML_REJECTED_MSG = (
     "须在理由或任务书中写明「用户已确认交付形态…」。"
 )
 
+_SOFTWARE_GREENFIELD_NONE_REJECTED_PREFIX = (
+    "绿场软件 / SPA 完整交付意图下禁止 `playbook_id=\"none\"`"
+)
+
+_SOFTWARE_GREENFIELD_NONE_REJECTED_MSG = (
+    f"{_SOFTWARE_GREENFIELD_NONE_REJECTED_PREFIX}"
+    "（或缺省手写 tasks 旁路）。"
+    "从 0 到 1 / 完整 Vite·Vue·React·SPA / 数据看板【必须】"
+    "使用 `playbook=\"build_app\"` + `playbook_args`（app 必填；"
+    "可选 modules / stack / root）。"
+    "禁止手糊单 worker 包整站绕过 scaffold-first 多波管线。"
+    "非绿场完整交付（局部改码 / 单功能）勿走此路径——手写 tasks 或 "
+    "`build_feature` 即可。"
+    "可先 `consult_skill(\"build_app\")` 拉回用法。"
+)
+
 
 def is_software_app_intent(*parts: str) -> bool:
     """True when text frames greenfield software / app construction.
@@ -99,6 +138,19 @@ def is_software_app_intent(*parts: str) -> bool:
     if is_site_build_intent(blob):
         return False
     return bool(_SOFTWARE_APP_INTENT_RE.search(blob))
+
+
+def is_software_greenfield_intent(*parts: str) -> bool:
+    """True for 从0到1 / 完整 SPA / Vite·Vue·React 看板等绿场完整交付.
+
+    Site / toolshed 优先：命中 ``is_site_build_intent`` → False（互斥）。
+    """
+    blob = " ".join(p for p in parts if isinstance(p, str) and p.strip())
+    if not blob:
+        return False
+    if is_site_build_intent(blob):
+        return False
+    return bool(_SOFTWARE_GREENFIELD_INTENT_RE.search(blob))
 
 
 def _task_blob(arguments: dict[str, Any]) -> str:
@@ -165,5 +217,28 @@ def software_none_path_blocked(
     return is_software_thin_html_none_path(arguments)
 
 
+def software_greenfield_none_path_blocked(
+    arguments: dict[str, Any],
+    *,
+    user_message: str = "",
+) -> bool:
+    """True when greenfield SPA intent + none / hand-written path must be rejected."""
+    call_blob = _task_blob(arguments)
+    return is_software_greenfield_intent(user_message or "", call_blob)
+
+
 def software_thin_html_rejected_message() -> str:
     return _SOFTWARE_THIN_HTML_REJECTED_MSG
+
+
+def software_greenfield_none_rejected_message() -> str:
+    return _SOFTWARE_GREENFIELD_NONE_REJECTED_MSG
+
+
+def is_software_greenfield_none_rejected(error: str | None) -> bool:
+    if not error:
+        return False
+    return (
+        error.startswith(_SOFTWARE_GREENFIELD_NONE_REJECTED_PREFIX)
+        or error == _SOFTWARE_GREENFIELD_NONE_REJECTED_MSG
+    )

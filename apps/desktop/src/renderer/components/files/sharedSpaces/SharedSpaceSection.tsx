@@ -269,7 +269,7 @@ export function SharedSpaceSection({
 
   const tree = offlineUnavailable ? (
     <div className="py-1 pl-7 text-xs text-muted-foreground">
-      离线时共享空间不可用，仅可浏览本地文件夹。
+      离线时共享空间不可用；本机文件夹可浏览（只读），恢复连接后再改文件。
     </div>
   ) : source ? (
     <FileTree

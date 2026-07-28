@@ -18,6 +18,7 @@ import {
   emptyMessages,
   emptyRecovery,
   emptyWorkspaces,
+  HYDRATE_FAIL_CONV_ID,
   loginOk,
   MOCK_USER,
   readyzOk,
@@ -51,6 +52,16 @@ interface HotHold {
 
 const conversations = new Map<string, ConvState>();
 const hotHolds = new Map<string, HotHold>();
+
+/** Cold-open target for hydrate-failure e2e (messages GET → 500, no cache). */
+conversations.set(HYDRATE_FAIL_CONV_ID, {
+  summary: conversationSummary({
+    id: HYDRATE_FAIL_CONV_ID,
+    title: "e2e hydrate fail",
+    message_count: 1,
+  }),
+  recovery: emptyConvRecovery(),
+});
 
 function emptyConvRecovery(): TurnRecoveryResponse {
   return emptyRecovery();
@@ -429,16 +440,20 @@ async function route(
     const raw = await readBody(req);
     let folderId: string | null = null;
     let localRoot: string | null = null;
-    let preset: ConversationSummary["permission_preset"] = "workspace";
+    let axes: NonNullable<ConversationSummary["permission_axes"]> = {
+      file_write: "session",
+      command: "kickoff",
+      team_kickoff: "rules",
+    };
     try {
       const body = JSON.parse(raw) as {
         folder_id?: string | null;
         local_container_root_id?: string | null;
-        permission_preset?: ConversationSummary["permission_preset"];
+        permission_axes?: ConversationSummary["permission_axes"];
       };
       folderId = body.folder_id ?? null;
       localRoot = body.local_container_root_id ?? null;
-      if (body.permission_preset) preset = body.permission_preset;
+      if (body.permission_axes) axes = body.permission_axes;
     } catch {
       /* defaults */
     }
@@ -447,7 +462,7 @@ async function route(
       id,
       folder_id: folderId,
       local_container_root_id: localRoot,
-      permission_preset: preset,
+      permission_axes: axes,
     });
     conversations.set(id, { summary, recovery: emptyConvRecovery() });
     json(req, res, 200, summary);
@@ -462,6 +477,12 @@ async function route(
 
   const msgGet = /^\/v1\/conversations\/([^/]+)\/messages$/.exec(path);
   if (method === "GET" && msgGet) {
+    if (msgGet[1] === HYDRATE_FAIL_CONV_ID) {
+      json(req, res, 500, {
+        error: { code: "internal", message: "e2e hydrate fail" },
+      });
+      return;
+    }
     json(req, res, 200, emptyMessages());
     return;
   }
@@ -532,13 +553,49 @@ async function route(
   }
 
   if (method === "GET" && path === "/v1/users/me/autonomy") {
-    json(req, res, 200, { policy: "first_grant" });
+    json(req, res, 200, { policy: "write_code" });
+    return;
+  }
+
+  const permAxes =
+    /^\/v1\/conversations\/([^/]+)\/permission-axes$/.exec(path);
+  if (method === "PUT" && permAxes) {
+    const id = permAxes[1];
+    const entry = conversations.get(id);
+    if (!entry) {
+      json(req, res, 404, {
+        error: { code: "not_found", message: "conversation not found" },
+      });
+      return;
+    }
+    const raw = await readBody(req);
+    try {
+      const body = JSON.parse(raw) as {
+        permission_axes?: ConversationSummary["permission_axes"];
+      };
+      if (body.permission_axes) {
+        entry.summary = {
+          ...entry.summary,
+          permission_axes: body.permission_axes,
+        };
+      }
+    } catch {
+      /* keep prior */
+    }
+    json(req, res, 200, entry.summary);
     return;
   }
 
   // Soft stubs for non-critical polls so the shell stays quiet.
   if (method === "GET" && path === "/v1/capabilities") {
     json(req, res, 200, {});
+    return;
+  }
+
+  const browserSessions =
+    /^\/v1\/conversations\/([^/]+)\/browser\/sessions$/.exec(path);
+  if (method === "GET" && browserSessions) {
+    json(req, res, 200, { data: [], active_session_id: null });
     return;
   }
 

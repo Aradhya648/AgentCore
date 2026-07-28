@@ -201,8 +201,15 @@ function seedRunningTurn(conversationId: string, messageId: string): void {
 describe("BrowserLivePanel · 状态文案", () => {
   it("attaches on mount with the conversation id and shows 连接中", () => {
     render(<BrowserLivePanel conversationId="c1" />);
-    expect(mockStart).toHaveBeenCalledWith("c1", expect.anything());
+    expect(mockStart).toHaveBeenCalledWith("c1", expect.anything(), undefined);
     expect(screen.getByText("连接中…")).toBeTruthy();
+  });
+
+  it("passes sessionId to startBrowserLive when provided", () => {
+    render(<BrowserLivePanel conversationId="c1" sessionId="sess-live" />);
+    expect(mockStart).toHaveBeenCalledWith("c1", expect.anything(), {
+      sessionId: "sess-live",
+    });
   });
 
   it("shows the no-session state", () => {
@@ -308,11 +315,11 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     expect(screen.getByText("接管")).toBeTruthy();
   });
 
-  it("hides 接管 while a turn is running (no pending browserLogin)", () => {
+  it("offers 接管 while a turn is running (D8 anytime)", () => {
     seedRunningTurn("c1", "a1");
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
-    expect(screen.queryByText("接管")).toBeNull();
+    expect(screen.getByText("接管")).toBeTruthy();
   });
 
   it("keeps 接管 while running if pending browserLogin", () => {
@@ -327,10 +334,23 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     goLive();
     await clickAsync("接管");
 
-    expect(mockStartTakeover).toHaveBeenCalledWith("c1");
+    expect(mockStartTakeover).toHaveBeenCalledWith("c1", undefined);
     expect(screen.getByText(/接管中/)).toBeTruthy();
     expect(screen.getByText("归还控制")).toBeTruthy();
     expect(screen.queryByText("接管")).toBeNull();
+  });
+
+  it("passes sessionId to takeover start/end", async () => {
+    render(<BrowserLivePanel conversationId="c1" sessionId="sess-live" />);
+    goLive();
+    await clickAsync("接管");
+    expect(mockStartTakeover).toHaveBeenCalledWith("c1", {
+      sessionId: "sess-live",
+    });
+    await clickAsync("归还控制");
+    expect(mockEndTakeover).toHaveBeenCalledWith("c1", {
+      sessionId: "sess-live",
+    });
   });
 
   it("surfaces a start failure (turn_running reason) and stays idle", async () => {
@@ -352,7 +372,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     await clickAsync("接管");
     await clickAsync("归还控制");
 
-    expect(mockEndTakeover).toHaveBeenCalledWith("c1");
+    expect(mockEndTakeover).toHaveBeenCalledWith("c1", undefined);
     const records = useBrowserTakeoverStore.getState().byConversation.c1 ?? [];
     expect(records).toHaveLength(1);
     expect(records[0].endedAt).not.toBeNull();
@@ -372,7 +392,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     await clickAsync("接管");
     await clickAsync("归还控制");
 
-    expect(mockEndTakeover).toHaveBeenCalledWith("c1");
+    expect(mockEndTakeover).toHaveBeenCalledWith("c1", undefined);
     expect(
       screen.getByText("登录完成后，回到对话点「已登录，继续」"),
     ).toBeTruthy();
@@ -388,7 +408,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
       emit((h) => h.onStatus("session_closed"));
     });
 
-    expect(mockEndTakeover).toHaveBeenCalledWith("c1");
+    expect(mockEndTakeover).toHaveBeenCalledWith("c1", undefined);
     expect(screen.queryByText("归还控制")).toBeNull();
     expect(useBrowserTakeoverStore.getState().byConversation.c1).toHaveLength(
       1,
@@ -405,7 +425,7 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     await clickAsync("接管");
 
     unmount();
-    expect(mockEndTakeover).toHaveBeenCalledWith("c1");
+    expect(mockEndTakeover).toHaveBeenCalledWith("c1", undefined);
   });
 
   it("captures keyboard input on the takeover surface and batches it", async () => {

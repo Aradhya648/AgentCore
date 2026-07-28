@@ -25,6 +25,9 @@ export function ServiceUnavailablePage({
         />
         <p className="mt-2 text-sm text-muted-foreground">服务暂时不可用</p>
         <p className="mt-4 text-sm text-destructive">{reason}</p>
+        <p className="mt-3 text-xs text-muted-foreground">
+          正在自动重试，服务恢复后会自动进入；也可手动重试。
+        </p>
         <Button className="mt-6 h-10 w-full" onClick={onRetry}>
           重试
         </Button>

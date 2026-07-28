@@ -179,3 +179,32 @@ jobs:
           name: eval-reports
           path: apps/server/eval-reports/
           if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # R4 真仓回归 · 可选挂载点（默认不启用；不进 PR 硬门禁；默认不烧 LLM）
+  #
+  # 本地权威命令（仓库根）：
+  #   python evals/code-capability/r4_regress.py --lint-only
+  #   python evals/code-capability/r4_regress.py --compare-latest
+  #   python evals/code-capability/r4_regress.py --run --phases r0,r3   # 可选全矩阵，可慢
+  #
+  # 若要挂本 workflow：新增 workflow_dispatch input `run_r4_regress`（boolean, default false），
+  # 并加 job（示例，勿默认 schedule 强制跑）：
+  #
+  #   r4-regress:
+  #     name: R4 real-vendor regress (optional, no LLM)
+  #     if: github.event_name == 'workflow_dispatch' && inputs.run_r4_regress == true
+  #     runs-on: ubuntu-latest
+  #     timeout-minutes: 30
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - uses: actions/setup-python@v5
+  #         with: { python-version: '3.12' }
+  #       - name: R4 lint + compare-latest
+  #         run: |
+  #           python evals/code-capability/r4_regress.py --lint-only --phases r0,r3
+  #           python evals/code-capability/r4_regress.py --compare-latest
+  #
+  # 无 EVAL key 时只跑上列无 LLM 路径；全量 --run 矩阵留给维护者手工，防 CI 过久。
+  # 文档：evals/code-capability/README.md「R4」· reports/baselines/README.md
+  # ---------------------------------------------------------------------------

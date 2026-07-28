@@ -23,6 +23,17 @@ def test_is_software_app_intent_excludes_site_and_toolshed():
     assert not is_software_app_intent("把超时改成 30s")
 
 
+def test_is_software_greenfield_intent():
+    from agentcore.runtime.runs.software_app import is_software_greenfield_intent
+
+    assert is_software_greenfield_intent("从0到1搭建一个 Vue3 数据看板")
+    assert is_software_greenfield_intent("帮我做一个完整的 Vite SPA 项目")
+    assert is_software_greenfield_intent("按文档实现全部功能，开发 React 应用")
+    assert not is_software_greenfield_intent("帮我做个官网")
+    assert not is_software_greenfield_intent("帮我做一个运营控制台")
+    assert not is_software_greenfield_intent("帮我调研竞品")
+
+
 def test_thin_html_none_path_detection():
     assert is_software_thin_html_none_path(
         {

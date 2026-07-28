@@ -1,0 +1,34 @@
+{
+  "id": "r1a_v08_find_validate",
+  "category": "tool_use",
+  "kind": "find",
+  "phase": "R1a",
+  "vendor_id": "V08",
+  "vendor_dir": "uuid@70177807e922",
+  "language": "typescript",
+  "user_message": "工作区是 uuidjs/uuid。`validate()` 把合法 UUID 判为无效。请定位缺陷文件路径与符号，在回复中明确写出；不要修改代码。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v08_break_validate.json",
+  "gold": {
+    "paths": ["src/validate.ts"],
+    "symbols": ["validate"]
+  },
+  "checks": [
+    {
+      "name": "ContentMatches",
+      "args": {
+        "pattern": "src[/\\\\]validate\\.ts|validate\\.ts",
+        "flags": "i"
+      }
+    },
+    {
+      "name": "ContentMatches",
+      "args": {
+        "pattern": "\\bvalidate\\b",
+        "flags": "i"
+      }
+    }
+  ]
+}

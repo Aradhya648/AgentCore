@@ -142,6 +142,9 @@ class ErrorContext(WirePayload):
     upstream_body_preview: str | None = None
     retry_attempts: int | None = absent()
     empty_diagnosis: str | None = absent()
+    retry_after: float | None = absent(
+        "上游 429 Retry-After 秒数（原始值；工程重试仍截断 ≤30s）。"
+    )
 
 
 class ErrorPayload(WirePayload):

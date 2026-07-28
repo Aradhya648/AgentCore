@@ -1,5 +1,4 @@
 import { FileAuditTrail } from "@/components/audit/FileAuditTrail";
-import { TurnFileChangesReview } from "@/components/chat/TurnFileChangesReview";
 import { Button, IconButton } from "@/components/ui";
 import {
   type StatusTone,
@@ -35,13 +34,9 @@ import {
 /**
  * 「本回合产出文件」卡 —— 把一回合内成功的文件写/改/删/移聚合成一张回合级清单，挂在
  * 答复正文下方（前端UX设计.md §九「回合内文件呈现」）。点任一可预览行 → 经 {@link useSidePanelStore}
- * 的 `showFile` 把右侧工作区面板切到该文件预览，与文件树/详情共用同一套预览（不另起编辑器）。
- * 例外：HTML 产物在会话具备应用内「完整预览」能力时**直达**内置浏览器 tab（网页产物的
- * 首要出口就是看效果；能力判定与对话侧栏同一套 = {@link useConversationFileSource} 挂没挂
- * `openInAppPreview`，不另起判定），无能力则回落文件源码视图。
- *
- * 删除态无文件可看 → 该行不可点（仅留痕）。卡只读已折好的运行时状态；折叠偏好按对话持久化。
- * 工作区文件树仍是真相源；重载后由各回合 journal 重建 process/execution 时清单自然复现。
+ * 的 `showFile` 开右坞顶栏 File 内容 tab。例外：HTML 产物在会话具备应用内「完整预览」能力时
+ * **直达**内置浏览器 tab（`preview://`）。「查看改动」聚焦右坞固定「改动」tab（与
+ * {@link TurnFileChangesReview} 同源，前端UX设计.md §十）。
  */
 
 const OP_META: Record<
@@ -205,12 +200,8 @@ export function FileArtifactsCard({
     turnKey ? `${turnKey}:files` : null,
     artifacts.length <= 4,
   );
-  // A1 只读「查看改动」：默认收起，避免与清单抢视觉。
-  const [reviewOpen, setReviewOpen] = usePersistentDisclosure(
-    turnKey ? `${turnKey}:file-changes` : null,
-    false,
-  );
   const showFile = useSidePanelStore((s) => s.showFile);
+  const showChanges = useSidePanelStore((s) => s.showChanges);
   // 与对话侧栏同一套能力判定：hook 只对云端会话源且 hasInAppPreview 时挂 openInAppPreview。
   const openInAppPreview =
     useConversationFileSource(conversationId)?.openInAppPreview;
@@ -221,7 +212,7 @@ export function FileArtifactsCard({
     hasChangePreviews(artifacts) || (!!conversationId && !!turnKey);
 
   const openArtifact = (a: FileArtifact) => {
-    // HTML 直达完整预览（内置浏览器 tab）；其余/无能力回落工作区文件视图。
+    // HTML 直达完整预览（内置浏览器 tab）；其余/无能力回落 File 内容 tab。
     if (openInAppPreview && isHtmlPath(a.path)) {
       void openInAppPreview(a.path);
       return;
@@ -259,17 +250,12 @@ export function FileArtifactsCard({
           </span>
         </Button>
         {canReview && (
-          <SimpleTooltip label="查看改动（只读预览）">
+          <SimpleTooltip label="在右坞查看改动（只读）">
             <Button
               variant="ghost"
-              onClick={() => setReviewOpen((v) => !v)}
-              aria-expanded={reviewOpen}
+              onClick={() => showChanges(turnKey)}
               aria-label="查看改动"
-              className={`h-auto shrink-0 rounded-none px-3 py-2.5 text-xs hover:bg-accent/50 ${
-                reviewOpen
-                  ? "bg-accent/40 text-foreground"
-                  : "text-muted-foreground"
-              }`}
+              className="h-auto shrink-0 rounded-none px-3 py-2.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             >
               <Diff size={14} className="mr-1.5 shrink-0" />
               查看改动
@@ -291,13 +277,6 @@ export function FileArtifactsCard({
             />
           ))}
         </ul>
-      )}
-      {reviewOpen && canReview && (
-        <TurnFileChangesReview
-          artifacts={artifacts}
-          conversationId={conversationId}
-          messageId={turnKey ?? null}
-        />
       )}
     </div>
   );

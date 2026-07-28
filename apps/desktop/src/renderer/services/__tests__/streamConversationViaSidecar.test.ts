@@ -318,6 +318,24 @@ describe("resumeConversationViaSidecar", () => {
     expect(flushTurnMock).not.toHaveBeenCalled();
   });
 
+  it("surfaces IPC invalid-args rejects with field-level sidecar banner copy", async () => {
+    // Electron wraps main-process throws; message after unwrap matches IpcInvalidArgsError.
+    resumeMock.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'sidecar:resume': Error: 无效的 IPC 入参：sidecar:resume（字段 permissionAxes 期望 string）",
+      ),
+    );
+
+    const err = await resumeConversationViaSidecar(baseRequest).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(StreamError);
+    expect((err as StreamError).kind).toBe("sidecar");
+    expect((err as StreamError).serverMessage).toBe(
+      "本地引擎出错：请求参数校验失败（permissionAxes 期望 string，sidecar:resume）",
+    );
+  });
+
   it("prefers an onStatus lifecycle diagnostic over the rejection reason", async () => {
     takeRecentSidecarFailureMock.mockReturnValue(
       "找不到 Python，无法启动本地引擎",

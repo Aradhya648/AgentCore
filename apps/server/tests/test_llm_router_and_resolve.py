@@ -252,9 +252,6 @@ def _provider_row(**kw):
         "user_id": "u1",
         "base_url": "https://byok.example/v1",
         "default_model": "byok-flash",
-        "price_cache_hit": None,
-        "price_cache_miss": None,
-        "price_output": None,
     }
     defaults.update(kw)
     return SimpleNamespace(**defaults)

@@ -73,6 +73,106 @@
 
 计费/账本精度、多租户、Mobile、Admin、Unity 小镇、无边界大项目、压测。
 
+## R 真仓（内部评测 · R0 / R0b / R1a / R1b / R2 / R3 / R4）
+
+与上表 **合成 S1–S7 / workspaces** 分列：合成 = 烟感与产品接缝；本栏 = **pinned 开源仓快照上的能力雷达**（只做内部评测，无 GitHub 导入产品面）。
+
+| 项 | 现状 |
+|----|------|
+| Phase | **R0 ✅** · **R0b vendor 满编 ✅** · **R1a Find+Fix 首波 ✅** · **R1b Find+Fix 满编 ✅** · **R2 Extend ✅** · **R3 Collab ✅** · **R4 回归 ✅** |
+| 硬 Check | `agentcore.evals`：`TestExitCode`（含可选 `pythonpath`）· `TestsUnchanged`（Extend 用 `allow_extra` 白名单 GOLDEN）· Find 用 `ContentMatches` |
+| R0 Fix 烟感 | [`suites/r0/r0_fix_chunked.json`](suites/r0/r0_fix_chunked.json) + [`seeds/break_chunked.json`](suites/r0/seeds/break_chunked.json)（仅 V07） |
+| R1a 任务卡 | [`suites/r1a/`](suites/r1a/)（V01·V02·V07·V08 · 16 卡 Find/Fix）· [`manifest.json`](suites/r1a/manifest.json) |
+| R1b 任务卡 | [`suites/r1b/`](suites/r1b/)（V03·V04·V05·V06·V09·V10 · 12 卡 Find/Fix）· [`manifest.json`](suites/r1b/manifest.json) |
+| R2 Extend | [`suites/r2/`](suites/r2/)（V01·V04·V09·V10 · 8 卡；Py+TS）· [`manifest.json`](suites/r2/manifest.json)；只追加 GOLDEN 测 + `reference_patch` |
+| R3 Collab | [`suites/r3/`](suites/r3/)（V01·V07 · 4 卡；复用 R1a Fix seed；题面强制 `delegate`）· [`manifest.json`](suites/r3/manifest.json)；硬=测绿；软=`collab_diagnostics`（`run_plan` / `worker_files`，不进 hard_accept） |
+| 无 LLM 对照 | [`r0_control.py`](r0_control.py) · [`r1_control.py`](r1_control.py) `--suite all --mode matrix` · [`r2_control.py`](r2_control.py) `--mode matrix` · [`r3_control.py`](r3_control.py) `--mode matrix` |
+| 基线报告 | Find/Fix：[`reports/r1_baseline_latest.json`](reports/r1_baseline_latest.json)；**Extend**：[`reports/r2_baseline_latest.json`](reports/r2_baseline_latest.json)；**Collab**：[`reports/r3_baseline_latest.json`](reports/r3_baseline_latest.json) |
+| LLM 烟感（D·sidecar） | 脚本 [`r_llm_smoke.py`](r_llm_smoke.py)（复用 [`probe_sidecar_turn.py`](probe_sidecar_turn.py)）；报告 [`reports/llm_smoke_latest.json`](reports/llm_smoke_latest.json)；**首波结果见下「LLM 烟感」节**（不进 PR / nightly 强制） |
+| R4 冻结基线 | [`reports/baselines/`](reports/baselines/)（`r1.json`·`r2.json`·`r3.json` + [`manifest.json`](reports/baselines/manifest.json)）；棘轮脚本 [`r4_regress.py`](r4_regress.py) |
+| Vendor 复现 | [`vendor/README.md`](vendor/README.md) · `_fetch_r0b.py`（维护者本地；禁 CI 现拉 main） |
+| 门禁 | **不进** PR 硬门禁；R4 为本地/可选 nightly 挂载点（默认不烧 LLM）；勿与 S1–S7 Pass 口径混谈 |
+
+### R0b 满编 vendor 状态表
+
+去 `.git` / 无 `node_modules` 的源码树 + 仓内 `SOURCE.json`。总树约 **10.3 MiB**（十仓合计）。
+
+| ID | 仓 | vendor 路径 | pin | 许可证 | 闸结果 | 备注 |
+|----|----|-------------|-----|--------|--------|------|
+| V01 | click | [`vendor/click@b2e30a175449/`](vendor/click@b2e30a175449/) | `8.4.2` / `b2e30a175449` | BSD-3-Clause | LOC≈9.1k ✅ | CLI · **R1a** · **R2** · **R3** |
+| V02 | starlette | [`vendor/starlette@8ebffd067857/`](vendor/starlette@8ebffd067857/) | `1.3.1` / `8ebffd067857` | BSD-3-Clause | LOC≈5.3k ✅ | ASGI · **R1a**（测需 `httpx2`） |
+| V03 | httpx | [`vendor/httpx@26d48e0634e6/`](vendor/httpx@26d48e0634e6/) | `0.28.1` / `26d48e0634e6` | BSD-3-Clause | LOC≈6.9k ✅ | HTTP 客户端 · **R1b**（硬闸用 `python -c`，避 trustme/trio 全量 pytest 依赖） |
+| V04 | flask | [`vendor/flask@22d924701a6a/`](vendor/flask@22d924701a6a/) | `3.1.3` / `22d924701a6a` | BSD-3-Clause | LOC≈6.7k ✅ | WSGI · **R1b** · **R2** |
+| V05 | attrs | [`vendor/attrs@7bfc49e9b22d/`](vendor/attrs@7bfc49e9b22d/) | `26.1.0` / `7bfc49e9b22d` | MIT | LOC≈4.8k ✅ | 数据模型 · **R1b**（硬闸用 `python -c`，避 hypothesis conftest） |
+| V06 | pyyaml | [`vendor/pyyaml@49790e73684b/`](vendor/pyyaml@49790e73684b/) | `6.0.3` / `49790e73684b` | MIT | LOC≈4.5k ✅ | **R1b**；`PYTHONPATH=lib` 纯 Python，勿强制本机编译 libyaml |
+| V07 | more-itertools | [`vendor/more-itertools@64be96ceb2a6/`](vendor/more-itertools@64be96ceb2a6/) | `v11.1.0` / `64be96ceb2a6` | MIT | 应用≈7.1k ✅ | R0 烟感 + **R1a** · **R3** |
+| V08 | uuid | [`vendor/uuid@70177807e922/`](vendor/uuid@70177807e922/) | `v14.0.1` / `70177807e922` | MIT | LOC≈2.2k ✅ | TS · **R1a**（Windows：`npm ci --ignore-scripts` + `tsc` → `dist-node`，勿依赖 bash `build.sh`） |
+| V09 | commander | [`vendor/commander@ba6d13ddb424/`](vendor/commander@ba6d13ddb424/) | `v15.0.0` / `ba6d13ddb424` | MIT | LOC≈3.6k ✅ | Node CLI · **R1b** · **R2**（`node --test` 直跑 JS） |
+| V10 | zod | [`vendor/zod@e30870369d5b/`](vendor/zod@e30870369d5b/) | `v3.24.2` / `e30870369d5b` | MIT | LOC≈12.7k ✅ | **R1b** · **R2**；pin v3（v4 超 LOC）；ts-jest 直跑 src |
+
+```text
+# R0
+python evals/code-capability/r0_control.py --lint-only
+python evals/code-capability/r0_control.py --mode fixed
+python evals/code-capability/r0_control.py --mode broken
+
+# R1（R1a+R1b 全卡 fixed/broken + 写 r1/r1b 报告；硬验收）
+python evals/code-capability/r1_control.py --lint-only
+python evals/code-capability/r1_control.py --suite all --mode matrix
+
+# 分波
+python evals/code-capability/r1_control.py --suite r1a --mode matrix
+python evals/code-capability/r1_control.py --suite r1b --mode matrix
+python evals/code-capability/r1a_control.py --mode matrix   # ≡ --suite r1a
+
+# R2 Extend（缺实现 broken / 参照实现 fixed + 写 r2 报告）
+python evals/code-capability/r2_control.py --lint-only
+python evals/code-capability/r2_control.py --mode matrix
+
+# R3 Collab（Fix 同口径硬对照 + collab_diagnostics 软字段；写 r3 报告）
+python evals/code-capability/r3_control.py --lint-only
+python evals/code-capability/r3_control.py --mode matrix
+
+# R4 回归（冻结基线 · 回退 >10pp → Fail；默认不烧 LLM）
+python evals/code-capability/r4_regress.py --compare-latest          # latest=冻结 → 应绿
+python evals/code-capability/r4_regress.py --self-test-regression    # 合成回退 11pp → Fail 演示
+python evals/code-capability/r4_regress.py --lint-only               # 全相位 seed_lint（nightly 轻挂）
+python evals/code-capability/r4_regress.py --run --phases r0,r3      # 可选：跑矩阵后再比（可慢）
+# bump（须一句话理由；见 reports/baselines/README.md）
+python evals/code-capability/r4_regress.py --update-baseline --phase r1 \
+  --from reports/r1_baseline_latest.json --reason "一句话理由"
+```
+
+### R4 bump 纪律
+
+- 冻结副本在 [`reports/baselines/`](reports/baselines/)；对比口径 = `summary.pass / summary.matrix_cells`。
+- **相对基线回退 >10pp → 非零退出**；持平/更好 → 绿。
+- 允许 `--update-baseline` 仅当：有意改题面/pin/硬 Check、修 harness 假红假绿、或人确认换观察线——**必须** `--reason`；禁止为变绿静默压基线。
+- **Nightly 挂载点**（可选、默认可跳过、不进 PR）：见 [`.github/workflows/evals-nightly.yml`](../../.github/workflows/evals-nightly.yml) 文末注释；本地优先 `--lint-only` 或 `--compare-latest`，全矩阵 `--run` 维护者手工。
+
+### LLM 烟感（D·sidecar · 真跑）
+
+与无 LLM 对照矩阵分列：本栏 = 真 Agent 回合后硬 Check。首波优先 Fix 卡（须含 V07 chunked）；勿与大批量 evals 抢限流。
+
+```text
+# 从 apps/server；默认 4 张 Fix（V07 chunked · V01 bool · V05 has · V01 int）
+uv run python ../../evals/code-capability/r_llm_smoke.py
+uv run python ../../evals/code-capability/r_llm_smoke.py --timeout 450 --max-resumes 0
+```
+
+| 项 | 说明 |
+|----|------|
+| 状态 | **本轮已跑（2026-07-28）** → [`reports/llm_smoke_latest.json`](reports/llm_smoke_latest.json)：**3/3 Fail · fail_class=接缝**（非 pending） |
+| 首波卡 | V07 `v07_fix_chunked` · V01 `v01_fix_bool` · V05 `v05_fix_has`（均有 `conversation_id`/`trace_id`） |
+| 硬测 | 未跑到（`startTurn` 超时，无 `finish_reason`）→ `checks_pass=null` |
+| 已知限制 | auth / mint inference / sidecar `initialize` OK；LLM unary 有回（见 `logs/dev.jsonl`）；**挂在 `inference.proxy_spend_enqueued` 之后**（仅见 `message_start`，无 tool/收口）— Windows sidecar stdio / event-pump 接缝债 |
+| 流程 | copytree vendor → seed → sidecar `startTurn`（prompt=卡内 `user_message`）→ `TestExitCode` + `TestsUnchanged` |
+| 副本 | `workspaces/llm-smoke/<task_id>/`（禁直绑 `vendor/`） |
+| fail_class | 环境 / 模型弱 / 接缝 / 题面 / 需决策·交互（`ask_user` 默认不 resume） |
+| 门禁 | **不进** PR；**不**改 nightly 强制 job |
+
+评测只对 **copytree 隔离副本** 写盘；`seed_patch` / `reference_patch` / GOLDEN 只打副本；禁止直绑 `vendor/`。R 真仓证据性质：真仓快照上的合成任务卡 ≠ 真实用户数据。
+
 ## 仍有效的架构备注（非本轮新决策）
 
 1. **Server API「真本地盘」对照**：`PUT …/workspace/binding` 的 `root_id` 须为桌面 `addRoot` 铸造的句柄；纯 curl **无法**单独铸造本机根。对照抽检默认走 **云工作区 + `PUT …/workspace/files/{path}` 播种试件**（S6 已按此跑通），或人手在 Desktop 绑根后只把 `conversation_id` 交给 API 探针。

@@ -4,7 +4,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
-    CheckConstraint,
     DateTime,
     Index,
     Integer,
@@ -26,12 +25,6 @@ from ._helpers import _new_uuid
 
 class Conversation(Base):
     __tablename__ = "conversations"
-    __table_args__ = (
-        CheckConstraint(
-            "permission_preset in ('observe', 'workspace', 'full_trust')",
-            name="ck_conversations_permission_preset",
-        ),
-    )
 
     id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
     user_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), index=True)
@@ -49,20 +42,30 @@ class Conversation(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     archived: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     mode: Mapped[str] = mapped_column(String(20), default="chat", server_default=text("'chat'"))
-    # Session permission mode (会话级权限模式 · 安全权限与治理): observe | workspace
-    # (default) | full_trust. Runtime gates read THIS column — not users.autonomy_policy
-    # (which only seeds new conversations). Existing rows backfill to workspace.
-    permission_preset: Mapped[str] = mapped_column(
-        String(20), default="workspace", server_default=text("'workspace'")
+    # Three-axis session permission (会话级权限 · 安全权限与治理):
+    # {file_write, command, team_kickoff}. Runtime gates read THIS column — not
+    # users.autonomy_policy (which only seeds new conversations with a recipe).
+    # Default = 写代码: session + kickoff + rules.
+    permission_axes: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=lambda: {
+            "file_write": "session",
+            "command": "kickoff",
+            "team_kickoff": "rules",
+        },
+        server_default=text(
+            "'{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}'::jsonb"
+        ),
     )
     # 深度研究自治（会话级独立旗标）: when True, CEO may auto-adopt worker motion_cards
     # and call debate without a team_preview kickoff (prompt-layer fork + debate-only
-    # kickoff waiver). full_trust implies the same via runtime helper — this column is
-    # the explicit single-flag path. Frontend settings UI is a later batch; API/DB settable.
+    # kickoff waiver). Managed axes (command=auto ∧ team_kickoff=skip) imply the same
+    # via runtime helper — this column is the explicit single-flag path.
     deep_research_auto: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false")
     )
-    # Auto-adopted debates started under 深度研究自治 (flag or full_trust). Cap = 1 per
+    # Auto-adopted debates started under 深度研究自治 (flag or managed axes). Cap = 1 per
     # session; over the limit kickoff + ceo_format gracefully degrade (no error).
     deep_research_auto_debate_count: Mapped[int] = mapped_column(
         Integer, server_default=text("0")
@@ -363,5 +366,53 @@ class MessageBookmark(Base):
     # The bookmarked message.
     message_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False))
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+# --- External directory grants (W3 区外授权: 对话级持久, 非进程生命周期) ---
+# Server holds alias / root_id / label / mode only. Absolute OS paths stay on the
+# desktop (``fs-session-grants.json``). Orthogonal to workspace binding. Cleared on
+# revoke / conversation soft-delete / hard-delete cascade.
+
+
+class ConversationExternalGrant(Base):
+    """One conversation-scoped external directory grant under ``external/<alias>/``.
+
+    **Lifecycle** (no DB FK — app-level, per repo convention): created/updated via
+    ``POST …/external-grants``; dropped on revoke, soft-delete clear, or
+    ``ConversationRepository.hard_delete`` cascade. Desktop reconciles root_id ↔
+    local path on open; orphans without a desktop path are revoked server-side.
+    """
+
+    __tablename__ = "conversation_external_grants"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "alias",
+            name="uq_conversation_external_grants_conv_alias",
+        ),
+        UniqueConstraint(
+            "conversation_id",
+            "root_id",
+            name="uq_conversation_external_grants_conv_root",
+        ),
+        Index("ix_conversation_external_grants_conversation", "conversation_id"),
+    )
+
+    id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
+    conversation_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False))
+    alias: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Desktop authorized-root handle (never an absolute path).
+    root_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(500), nullable=False, server_default=text("''"))
+    # "readonly" | "organize"
+    mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'readonly'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

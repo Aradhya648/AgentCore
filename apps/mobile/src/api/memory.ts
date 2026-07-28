@@ -4,9 +4,8 @@
 // `apiFetch` (mobile has no cookie origin). 精简版 (手机端): GLOBAL scope only — no
 // per-project layer, no AI 改写 / preview. The phone is a 查看 + 改 + 删 lens on the
 // always-injected core (偏好 全局 + 画像 全局) and the on-demand 主题 notes, plus the
-// master switch and cross-conversation「最近更新」feed. The contract mirrors the
-// workspace edit contract: full text + a content-addressed `version` baseline the
-// next write does its CAS against.
+// cross-conversation「最近更新」feed. The contract mirrors the workspace edit contract:
+// full text + a content-addressed `version` baseline the next write does its CAS against.
 import { apiFetch } from "@/api/client";
 import type { MemoryUpdateItem } from "@/api/conversations";
 
@@ -85,18 +84,9 @@ async function putJson<T>(
   return (await res.json()) as T;
 }
 
-/** Load the master switch (the whole-doc body/version ride along, unused by the lite UI). */
+/** Load the memory document (whole-doc body + version; content API retained for callers). */
 export function getMemory(): Promise<MemoryDoc> {
   return getJson<MemoryDoc>("/v1/users/me/memory", "加载记忆失败");
-}
-
-/** Flip the long-term memory master switch (off = stop injecting AND growing). */
-export function setMemoryEnabled(enabled: boolean): Promise<MemoryDoc> {
-  return putJson<MemoryDoc>(
-    "/v1/users/me/memory/enabled",
-    { enabled },
-    "设置失败",
-  );
 }
 
 /** Load one always-injected core leaf (偏好 / 画像), GLOBAL layer. */

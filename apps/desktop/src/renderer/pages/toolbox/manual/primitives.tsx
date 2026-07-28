@@ -290,8 +290,8 @@ const DEFAULT_SETTINGS_ROWS: { label: string; desc: string; to: string }[] = [
   },
   {
     label: "AI 记忆",
-    desc: "长期记忆总开关——关掉则不再读写记忆",
-    to: APP_PATHS.more.memory,
+    desc: "在文件页查看、编辑或清理长期记忆",
+    to: APP_PATHS.files,
   },
   {
     label: "自主度",

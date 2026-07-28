@@ -704,7 +704,7 @@ function TeamPreviewResumeCard({ turn }: { turn: PendingResume }) {
               {showCapabilities && (
                 <div className="mt-2">
                   <p className="mb-1 text-xs text-muted-foreground">
-                    工作区写入已由「开工授权」信任；以下为执行类。
+                    可逆写入已由「本会话信任」放行；以下为执行类。
                   </p>
                   <button
                     type="button"

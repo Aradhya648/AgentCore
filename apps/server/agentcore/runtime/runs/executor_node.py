@@ -113,9 +113,10 @@ _LIGHT_REPAIR_TOOL_NAMES: frozenset[str] = frozenset(
 _LIGHT_REPAIR_MAX_ROUNDS = 4
 
 # Repair / light coding posture (encoding closed-loop phase 4): withhold全仓巡读 /
-# web crawl. Distinct from contract ``light_repair`` above.
+# web crawl. Keep ``browser_navigate`` — opening a URL is the lightest browser
+# task and must not be stripped while snapshot/screenshot remain (dogfood 2026-07-28).
 _REPAIR_POSTURE_WITHHOLD: frozenset[str] = frozenset(
-    {"file_list", "web_search", "read_url", "browser_navigate", "browser_click"}
+    {"file_list", "web_search", "read_url", "browser_click"}
 )
 
 

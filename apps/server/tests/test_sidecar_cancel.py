@@ -184,3 +184,32 @@ async def test_close_user_stop_turn_emits_message_end_even_when_persist_skipped(
     assert sink._stream_finish_reason == FinishReason.CANCELLED.value
     payload = await _drain_until_message_end(sink)
     assert payload["finish_reason"] == FinishReason.CANCELLED
+
+
+async def test_close_user_stop_turn_empty_body_still_durable(monkeypatch):
+    """Empty journal + empty content must still durable-close (not skip)."""
+    from agentcore.conversation import turn_persistence
+    from agentcore.runtime.turn_interrupt import TurnInterruptReason
+
+    called: list[dict] = []
+
+    async def _fake_close(**kwargs):
+        called.append(kwargs)
+        return True
+
+    monkeypatch.setattr(turn_persistence.settings, "incomplete_turn_persist_enabled", True)
+    monkeypatch.setattr(turn_persistence, "close_turn_interrupted", _fake_close)
+
+    sink = EventSink()
+    ok = await turn_persistence.close_user_stop_turn(
+        sink=sink,
+        conversation_id="c1",
+        trace_id="t1",
+        message_id="m-empty",
+    )
+    assert ok is True
+    assert called and called[0]["load_stream_state"] is True
+    assert called[0]["reason"] == TurnInterruptReason.USER_STOP
+    assert sink._stream_finish_reason == FinishReason.CANCELLED.value
+    payload = await _drain_until_message_end(sink)
+    assert payload["finish_reason"] == FinishReason.CANCELLED

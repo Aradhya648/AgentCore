@@ -1,0 +1,31 @@
+{
+  "id": "r1b_v05_fix_has",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1b",
+  "vendor_id": "V05",
+  "vendor_dir": "attrs@7bfc49e9b22d",
+  "language": "python",
+  "user_message": "工作区是 attrs（src layout）。`has()` 对 attrs 类判断异常。请做最小修复。验收（避免 hypothesis 开发依赖）：`python -c \"import attr; C=attr.make_class('C',['x']); assert attr.has(C); assert not attr.has(object)\"`（PYTHONPATH=src）。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v05_break_has.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-c", "import attr; C=attr.make_class('C',['x']); assert attr.has(C); assert not attr.has(object)"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-c", "import attr; C=attr.make_class('C',['x']); assert attr.has(C); assert not attr.has(object)"],
+        "expected_exit": 0,
+        "timeout_sec": 60,
+        "pythonpath": ["src"]
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+import { usePausedTurnStore } from "@/stores/pausedTurns";
+import { useInteractionStore } from "@/stores/interactions";
+
+/** Persistent composer hint while a decision card is waiting (弱提示 · 不强拦). */
+export const COMPOSER_PENDING_HINT =
+  "当前有待你确认的事项；直接发送将取消等待并开始新一轮";
+
+/** Confirm copy on first send while pending (同会话确认一次后不再弹). */
+export const COMPOSER_PENDING_SEND_CONFIRM =
+  "仍有待确认事项。发送将取消等待并开始新一轮，确定继续？";
+
+/** Conversations where the user already confirmed「仍要发送」this session. */
+const sendDespitePendingAcks = new Set<string>();
+
+/** True when the conversation has a resume / approval / delegation card awaiting the user. */
+export function conversationHasPendingDecision(
+  conversationId: string,
+): boolean {
+  const paused = usePausedTurnStore
+    .getState()
+    .pending.some((p) => p.conversationId === conversationId);
+  if (paused) return true;
+
+  const byId = useInteractionStore.getState().byId;
+  for (const e of byId.values()) {
+    if (e.conversationId !== conversationId) continue;
+    if (e.status !== "pending" && e.status !== "submitting") continue;
+    if (e.kind === "approval" || e.kind === "delegation_authorization") {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function hasAckedSendDespitePending(conversationId: string): boolean {
+  return sendDespitePendingAcks.has(conversationId);
+}
+
+export function ackSendDespitePending(conversationId: string): void {
+  sendDespitePendingAcks.add(conversationId);
+}
+
+/** Test / session reset helper. */
+export function resetSendDespitePendingAcks(): void {
+  sendDespitePendingAcks.clear();
+}
+
+/**
+ * Gate for the weak confirm before a new turn: pending cards + not yet acked.
+ * Callers pass `!isGenerating` so mid-flight 插话 / 正规续跑卡提交不受影响.
+ */
+export function shouldConfirmSendDespitePending(
+  conversationId: string,
+): boolean {
+  return (
+    conversationHasPendingDecision(conversationId) &&
+    !hasAckedSendDespitePending(conversationId)
+  );
+}
+
+/**
+ * Run {@link window.confirm} when needed; returns false if the user backs out.
+ * On confirm, remembers the ack for this conversation for the rest of the session.
+ */
+export function confirmSendDespitePendingIfNeeded(
+  conversationId: string | null | undefined,
+  isGenerating: boolean,
+): boolean {
+  if (!conversationId || isGenerating) return true;
+  if (!shouldConfirmSendDespitePending(conversationId)) return true;
+  if (!window.confirm(COMPOSER_PENDING_SEND_CONFIRM)) return false;
+  ackSendDespitePending(conversationId);
+  return true;
+}

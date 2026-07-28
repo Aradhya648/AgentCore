@@ -1,6 +1,6 @@
 import { useGroupedConversations } from "@/hooks/useConversations";
 import { isWebClient } from "@/lib/capabilities";
-import { GLOBAL_SHORTCUTS } from "@/lib/shortcuts";
+import { GLOBAL_SHORTCUTS, shouldRunGlobalShortcut } from "@/lib/shortcuts";
 import { useApplyTheme } from "@/lib/theme";
 import { startRealtime, stopRealtime } from "@/services/realtime";
 import { startServerHealthMonitor } from "@/services/serverHealth";
@@ -8,6 +8,7 @@ import {
   startNativeNotificationRouting,
   startTeamActivityNotifications,
 } from "@/services/teamActivityNotifications";
+import { useStandingInboxStore } from "@/stores/standingInbox";
 import { startUpdates } from "@/stores/updates";
 import { useUsageStore } from "@/stores/usage";
 import { useEffect, useRef } from "react";
@@ -47,6 +48,13 @@ export function AppShell() {
     return () => stopRealtime();
   }, []);
 
+  // Standing-task inbox badge (awaiting_user + unacked failed) — soft-poll so
+  // More → 收件箱 stays live even when the user is elsewhere.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.__WEB_PREVIEW__) return;
+    return useStandingInboxStore.getState().startPolling();
+  }, []);
+
   // Ambient backend-connectivity heartbeat (probes /readyz) so the composer can
   // show whether the server is reachable *before* the user sends — offline preview
   // has no backend, so skip it there. Lives at the shell so it spans the whole
@@ -76,9 +84,9 @@ export function AppShell() {
 
   // Global keyboard shortcuts (§二) — dispatched off the single-source table in
   // lib/shortcuts.ts (also rendered by the 快捷键 settings page, so behavior and
-  // the documented chord never drift). Modifier chords don't insert text, so
-  // they fire regardless of focus; navigate is read via a ref so the effect
-  // needn't resubscribe on every route change.
+  // the documented chord never drift). Chords yield to editable focus (input /
+  // textarea / contenteditable) except Cmd/Ctrl+K command palette; navigate is
+  // read via a ref so the effect needn't resubscribe on every route change.
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -102,6 +110,7 @@ export function AppShell() {
       const key = e.key.toLowerCase();
       const match = GLOBAL_SHORTCUTS.find((s) => s.keys.includes(key));
       if (!match) return;
+      if (!shouldRunGlobalShortcut(match.id, e.target)) return;
       e.preventDefault();
       match.run(navigateRef.current);
     };

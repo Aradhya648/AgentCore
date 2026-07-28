@@ -1,0 +1,30 @@
+{
+  "id": "r1a_v02_fix_headers_case",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1a",
+  "vendor_id": "V02",
+  "vendor_dir": "starlette@8ebffd067857",
+  "language": "python",
+  "user_message": "工作区是 starlette。`Headers` 按名取值时大小写不敏感行为坏了。请做最小修复，使 `python -m pytest tests/test_datastructures.py::test_headers -q` 通过。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v02_break_headers_case.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_datastructures.py::test_headers", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_datastructures.py::test_headers", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

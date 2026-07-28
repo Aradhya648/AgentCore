@@ -162,6 +162,73 @@ async def _reconcile_interrupted_turn_cost(
             )
 
 
+async def settle_prior_running_assistants(
+    *,
+    conversation_id: str,
+    keep_message_id: str | None = None,
+) -> int:
+    """Durable-close earlier non-paused RUNNING assistants before a new attempt.
+
+    Covers dead-registry / no-lease zombies that overlap cancel cannot see (e.g.
+    empty-journal cancel that released the lease). Uses
+    :class:`TurnInterruptReason.PROCESS_KILL` → ``finish_reason=interrupted``
+    (supersede semantics). Pause latches (``usage.paused`` / ``paused_turns``)
+    are left alone. Best-effort: per-row failures are logged, not raised.
+    Returns how many closes reported success (including already-terminal).
+    """
+    from agentcore.db.repositories import MessageRepository, PausedTurnRepository
+
+    try:
+        async with async_session_factory() as session:
+            rows = await MessageRepository(session).list_non_paused_running_assistants(
+                conversation_id,
+                exclude_message_id=keep_message_id,
+            )
+            paused_ids: set[str] = set()
+            for row in rows:
+                frame = await PausedTurnRepository(session).get(row.id)
+                if frame is not None:
+                    paused_ids.add(row.id)
+    except Exception as e:  # noqa: BLE001 — never block a new turn on settle lookup
+        logger.warning(
+            "turn.prior_running_list_failed",
+            conversation_id=conversation_id,
+            error=str(e),
+        )
+        return 0
+
+    closed = 0
+    for row in rows:
+        if row.id in paused_ids:
+            continue
+        ok = False
+        try:
+            ok = await close_turn_interrupted(
+                message_id=row.id,
+                conversation_id=conversation_id,
+                trace_id=getattr(row, "trace_id", None),
+                reason=TurnInterruptReason.PROCESS_KILL,
+                load_stream_state=True,
+            )
+        except Exception as e:  # noqa: BLE001 — continue remaining rows
+            logger.warning(
+                "turn.prior_running_settle_failed",
+                conversation_id=conversation_id,
+                message_id=row.id,
+                error=str(e),
+            )
+            ok = False
+        if ok:
+            closed += 1
+            logger.info(
+                "turn.prior_running_settled",
+                conversation_id=conversation_id,
+                message_id=row.id,
+                keep_message_id=keep_message_id,
+            )
+    return closed
+
+
 async def close_turn_interrupted(
     *,
     message_id: str,

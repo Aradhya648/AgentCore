@@ -118,8 +118,7 @@ class TurnExecutionMixin:
                         user_id=self._user_id,
                         backend=backend,
                         approvals_enabled=self._approvals_enabled,
-                        autonomy_policy=self._autonomy_policy,
-                        permission_preset=self._permission_preset,
+                        permission_axes=self._permission_axes,
                         llm_credentials=turn_creds,
                         suspension_saver=saver,
                         suspension_deleter=deleter,
@@ -353,8 +352,7 @@ class TurnExecutionMixin:
                         llm_credentials=resume_creds,
                         suspension_saver=saver,
                         suspension_deleter=deleter,
-                        autonomy_policy=self._autonomy_policy,
-                        permission_preset=self._permission_preset,
+                        permission_axes=self._permission_axes,
                     )
                     # Same D1 hold as _run_turn: delay close while detached drive lives.
                     from agentcore.runtime.coordination import await_live_detached_drive

@@ -1,0 +1,32 @@
+{
+  "id": "r0_fix_chunked",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R0",
+  "vendor_id": "V07",
+  "vendor_dir": "more-itertools@64be96ceb2a6",
+  "user_message": "工作区是 more-itertools 源码树。`chunked()` 行为异常：按长度 n 分块时结果块大小不对。请定位并做最小修复，使 `python -m pytest tests/test_more.py::ChunkedTests -q` 全部通过。不要修改 tests/ 目录下的任何文件。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/break_chunked.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_more.py::ChunkedTests", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_more.py::ChunkedTests", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": {
+        "paths": ["tests"]
+      }
+    }
+  ],
+  "_note": "R0 脚手架：无 LLM 对照走 evals/code-capability/r0_control.py；真 Agent 跑留 R1。"
+}

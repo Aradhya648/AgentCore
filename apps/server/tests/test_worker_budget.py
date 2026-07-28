@@ -254,3 +254,29 @@ def test_build_plan_enriches_reviewer_least_privilege_tools():
     assert tools is not None
     assert "grep" in tools
     assert "code_search" in tools
+
+
+def test_repair_posture_keeps_browser_navigate():
+    """light/repair 可抠 click / 全仓巡读，但必须保留 browser_navigate（开页任务）。"""
+    from agentcore.runtime.runs.executor_node import (
+        _REPAIR_POSTURE_WITHHOLD,
+        _narrow_for_repair_posture,
+    )
+    from agentcore.tools.registry import ToolRegistry
+
+    assert "browser_navigate" not in _REPAIR_POSTURE_WITHHOLD
+    assert "browser_click" in _REPAIR_POSTURE_WITHHOLD
+    allowed = [
+        "browser_navigate",
+        "browser_click",
+        "browser_snapshot",
+        "file_list",
+        "read_url",
+    ]
+    _reg, narrowed = _narrow_for_repair_posture(ToolRegistry(), allowed)
+    assert narrowed is not None
+    assert "browser_navigate" in narrowed
+    assert "browser_snapshot" in narrowed
+    assert "browser_click" not in narrowed
+    assert "file_list" not in narrowed
+    assert "read_url" not in narrowed

@@ -694,10 +694,6 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     reason: "反馈设置页，手机暂不做",
   },
-  "more/MemorySettings": {
-    verdict: "ported",
-    surface: "MemoryPage（手机独立记忆页）",
-  },
   "more/AutonomySettings": {
     verdict: "ported",
     surface: "more/AutonomySettings（/more/autonomy）",

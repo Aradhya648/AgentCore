@@ -23,6 +23,9 @@ import { useAuthStore } from "@/stores/auth";
 import { useServerHealthStore } from "@/stores/serverHealth";
 import { type ReactNode, useCallback, useEffect } from "react";
 
+/** Poll interval while the hard-wall unavailable page is shown (prod + dev). */
+export const UNAVAILABLE_BOOTSTRAP_POLL_MS = 5000;
+
 /**
  * Wraps the pre-auth screens (login / loading / 后端不可用) in draggable window chrome.
  * These render outside AppShell — so without this they'd inherit no title bar, leaving a
@@ -146,14 +149,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (status === "authenticated") void ensureDefaultContainerRoot();
   }, [status]);
 
-  // Dev: backend tasks often restart during parallel server edits; poll bootstrap
-  // so the app recovers when port 8000 comes back without a manual retry click.
-  // Skip while already in the shell offline-readonly (serverHealth drives recovery).
+  // Hard-wall「服务不可用」：后端起来后自动恢复，不必只靠手点「重试」。
+  // 生产与开发同口径（先前仅 DEV 轮询）。已进壳的离线只读由 serverHealth 恢复，不走这里。
   useEffect(() => {
-    if (status !== "unavailable" || !import.meta.env.DEV) return;
+    if (status !== "unavailable") return;
     const id = window.setInterval(
       () => void runBootstrap({ showLoading: false }),
-      5000,
+      UNAVAILABLE_BOOTSTRAP_POLL_MS,
     );
     return () => window.clearInterval(id);
   }, [status, runBootstrap]);

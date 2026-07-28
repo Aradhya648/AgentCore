@@ -38,7 +38,7 @@ async def team_preview_before_workers(
     skip_for_light = complexity_hint == "light" and playbook_name != "organize_folder"
     if seed_completed is not None or skip_for_light or tool._depth != 0:
         return None
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import DEFAULT_PERMISSION_AXES
     from agentcore.runtime.delegate.preview import (
         await_team_preview,
         needs_capability_auth,
@@ -48,17 +48,21 @@ async def team_preview_before_workers(
     )
     from agentcore.runtime.sandbox_approval import worker_gate_applies
 
-    autonomy = getattr(tool, "_autonomy_policy", None) or AutonomyPolicy.FIRST_GRANT
+    axes = getattr(tool, "_permission_axes", None) or DEFAULT_PERMISSION_AXES
     local_gate = worker_gate_applies(tool._base_tool_context.backend)
     plan_preview = should_preview_plan(plan, finalize=finalize)
     if not should_kickoff(
-        plan, finalize=finalize, local_gate=local_gate, autonomy=autonomy
+        plan, finalize=finalize, local_gate=local_gate, axes=axes
     ):
-        # full_auto + local: silent grant (plan half also released under full_auto).
+        # Card skipped: still silent-grant when command=auto, OR when team_kickoff=skip
+        # with command=kickoff (少打断 — 跳组团卡但仍开工授执行类).
         if (
             local_gate
-            and autonomy is AutonomyPolicy.FULL_AUTO
             and tool._approval_gate is not None
+            and (
+                axes.auto_executes
+                or (axes.skips_team_kickoff and axes.honors_kickoff_grant)
+            )
         ):
             tool._auto_grant_pending = True  # type: ignore[attr-defined]
         return None
@@ -66,7 +70,7 @@ async def team_preview_before_workers(
     # If only plan would have shown, skip entirely (legacy dual-card avoidance).
     if (
         skip_after_confirmed_ask(tool)
-        and not needs_capability_auth(local_gate=local_gate, autonomy=autonomy)
+        and not needs_capability_auth(local_gate=local_gate, axes=axes)
         and plan_preview
     ):
         return None
@@ -82,7 +86,7 @@ async def team_preview_before_workers(
             mark_turn_keeps_stage_card()
             logger.info("delegate.mlr_preauth_skip_team_preview", call=call_idx)
             return None
-    show_capabilities = needs_capability_auth(local_gate=local_gate, autonomy=autonomy)
+    show_capabilities = needs_capability_auth(local_gate=local_gate, axes=axes)
     preview_decision = await await_team_preview(
         tool, plan, show_capabilities=show_capabilities
     )

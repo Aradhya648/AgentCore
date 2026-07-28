@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: description() getter 返回反转字符串。",
+  "replacements": [
+    {
+      "path": "lib/command.js",
+      "old": "  description(str, argsDescription) {\n    if (str === undefined && argsDescription === undefined)\n      return this._description;\n    this._description = str;\n",
+      "new": "  description(str, argsDescription) {\n    if (str === undefined && argsDescription === undefined)\n      // R1b seed_patch: reverse description on get\n      return [...(this._description || '')].reverse().join('');\n    this._description = str;\n"
+    }
+  ]
+}

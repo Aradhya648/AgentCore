@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import time
 from collections.abc import AsyncIterator
@@ -168,14 +169,29 @@ def _retry_wait(retry_after: float | None, backoff: float) -> tuple[float, float
 
     Returns ``(wait_sec, retry_after_sec)`` where ``wait_sec`` is what
     ``asyncio.sleep`` uses and ``retry_after_sec`` is the raw header value when
-    present (for logs). Values above ``MAX_RETRY_AFTER`` fall back to ``backoff``
-    so a spurious ``Retry-After: 3600`` cannot starve title/followups budgets.
+    present (for logs). Callers must refuse retry via
+    :func:`_rate_limit_should_retry` when raw exceeds ``MAX_RETRY_AFTER``;
+    this helper only clamps sleep for accepted retries (legacy absurd branch
+    still falls back to ``backoff`` if invoked).
     """
     if retry_after is None:
         return backoff, None
     if retry_after > _MAX_RETRY_AFTER:
         return backoff, retry_after
     return (retry_after if retry_after > 0 else backoff), retry_after
+
+
+def _rate_limit_should_retry(retry_after: float | None) -> bool:
+    """Whether a 429 is worth retrying under interactive turn budgets.
+
+    Upstream sometimes returns ``Retry-After: 3600``. Blind exponential backoff
+    still burns ~1min of empty retries and looks like a hung worker. Cooldowns
+    longer than ``MAX_RETRY_AFTER`` fail immediately so the UI can surface
+    rate-limit instead of spinning.
+    """
+    if retry_after is not None and retry_after > _MAX_RETRY_AFTER:
+        return False
+    return True
 
 
 class OpenAICompatibleProvider:
@@ -281,6 +297,43 @@ class OpenAICompatibleProvider:
         engine can keep the partial. A transparent retry yields ``stream_reset``
         so consumers drop ephemeral reasoning before the next attempt.
         """
+        # Sidecar→localhost inference SSE can stall at 0 chunks while the proxy
+        # still finishes upstream (proxy_spend_enqueued then llm.stream_stalled).
+        # Opt-in unary bypass for dogfood / probe: AGENTCORE_INFERENCE_UNARY=1.
+        if (
+            os.environ.get("AGENTCORE_INFERENCE_UNARY", "").strip().lower()
+            in {"1", "true", "yes"}
+            and "/inference/" in self._base_url
+        ):
+            logger.info(
+                "llm.inference_unary_bypass",
+                base_url=self._base_url,
+                scenario=request.scenario,
+            )
+            resp = await self.complete(request)
+            if resp.reasoning_content:
+                yield LLMChunk(delta_reasoning=resp.reasoning_content)
+            if resp.content:
+                yield LLMChunk(delta_content=resp.content)
+            if resp.tool_calls:
+                deltas = [
+                    ToolCallDelta(
+                        index=i,
+                        id=tc.id,
+                        function_name=tc.function.name,
+                        arguments_delta=tc.function.arguments,
+                    )
+                    for i, tc in enumerate(resp.tool_calls)
+                ]
+                yield LLMChunk(delta_tool_calls=deltas)
+            yield LLMChunk(
+                finish_reason=resp.finish_reason,
+                usage=resp.usage,
+                empty_diagnosis=resp.empty_diagnosis,
+                empty_raw_preview=resp.empty_raw_preview,
+            )
+            return
+
         payload = self._build_payload(request, stream=True)
         last_error: Exception | None = None
         backoff = _INITIAL_BACKOFF
@@ -466,10 +519,22 @@ class OpenAICompatibleProvider:
                     attempt, max_attempts=max_attempts
                 ):
                     raise
+                retry_after = e.retry_after if isinstance(e, LLMRateLimitError) else None
+                if isinstance(e, LLMRateLimitError) and not _rate_limit_should_retry(
+                    retry_after
+                ):
+                    logger.info(
+                        "llm.rate_limit_no_retry",
+                        provider=self._name,
+                        attempt=attempt + 1,
+                        retry_after_sec=retry_after,
+                        stream=True,
+                        reason="retry_after_too_large",
+                    )
+                    raise
                 if yielded_ephemeral:
                     yield LLMChunk(stream_reset=True)
                     yielded_ephemeral = False
-                retry_after = e.retry_after if isinstance(e, LLMRateLimitError) else None
                 wait, raw_retry_after = _retry_wait(retry_after, backoff)
                 logger.info(
                     "llm.call_retried",
@@ -794,6 +859,18 @@ class OpenAICompatibleProvider:
                 ):
                     raise
                 retry_after = e.retry_after if isinstance(e, LLMRateLimitError) else None
+                if isinstance(e, LLMRateLimitError) and not _rate_limit_should_retry(
+                    retry_after
+                ):
+                    logger.info(
+                        "llm.rate_limit_no_retry",
+                        provider=self._name,
+                        attempt=attempt + 1,
+                        retry_after_sec=retry_after,
+                        stream=False,
+                        reason="retry_after_too_large",
+                    )
+                    raise
                 wait, raw_retry_after = _retry_wait(retry_after, backoff)
                 logger.info(
                     "llm.call_retried",

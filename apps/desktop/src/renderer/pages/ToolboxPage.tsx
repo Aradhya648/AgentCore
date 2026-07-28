@@ -23,9 +23,10 @@ import {
   Presentation,
   ScrollText,
   Table2,
-  Workflow,
+  Timer,
   Wrench,
 } from "lucide-react";
+import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import { useNavigate } from "react-router-dom";
 
 interface ToolboxEntry {
@@ -108,8 +109,8 @@ const CREATION_TOOLS: ToolboxEntry[] = [
   },
 ];
 
-// 「能力」组：AI 自身的能力（工具 + AI 提示词，均已可用、点开见对应能力图鉴）+
-// 平台集成（连接器 / 工作流，即将开放）。能力图鉴只分两类——工具（确定性代码）与
+// 「能力」组：AI 自身的能力（工具 + AI 提示词，均已可用）+ 自动化（定时/Webhook）+
+// 平台集成（连接器，即将开放）。能力图鉴只分两类——工具（确定性代码）与
 // AI 提示词（含准则与按需注入的工具进阶用法 / 薄技能）；这批薄技能本质是 Prompt 注入、不是
 // 独立能力，并入「AI 提示词」页。
 const CAPABILITIES: ToolboxEntry[] = [
@@ -131,18 +132,19 @@ const CAPABILITIES: ToolboxEntry[] = [
     to: "/toolbox/guidelines",
   },
   {
+    id: "automations",
+    title: "自动化",
+    description: "定时或 Webhook 触发后，自动开一轮协作",
+    icon: Timer,
+    color: "workflow",
+    to: APP_PATHS.toolbox.automations.root,
+  },
+  {
     id: "connectors",
     title: "集成 · 连接器",
     description: "MCP 与第三方服务接入",
     icon: Plug,
     color: "connectors",
-  },
-  {
-    id: "workflow",
-    title: "工作流",
-    description: "编排工具与 Agent 协作流程",
-    icon: Workflow,
-    color: "workflow",
   },
 ];
 

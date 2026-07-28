@@ -61,7 +61,11 @@ export function conversationSummary(
     pinned: partial.pinned ?? false,
     archived: partial.archived ?? false,
     deep_research_auto: partial.deep_research_auto ?? false,
-    permission_preset: partial.permission_preset ?? "workspace",
+    permission_axes: partial.permission_axes ?? {
+      file_write: "session",
+      command: "kickoff",
+      team_kickoff: "rules",
+    },
   };
 }
 
@@ -82,6 +86,12 @@ export function emptyRecovery(): TurnRecoveryResponse {
     pending_interactions: [],
   };
 }
+
+/**
+ * Seeded conversation whose GET /messages always 500s — e2e nails hydrate
+ * failure shell (诚实壳层) without offline cache / route.fulfill.
+ */
+export const HYDRATE_FAIL_CONV_ID = "e2e0000000000000000000000hydrate";
 
 export type { TurnRecoveryResponse };
 

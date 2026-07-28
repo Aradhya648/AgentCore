@@ -133,9 +133,6 @@ export function ProviderSettings() {
                 initialLabel={provider.label}
                 initialBaseUrl={provider.base_url}
                 initialModel={provider.default_model}
-                initialPriceCacheHit={provider.price_cache_hit}
-                initialPriceCacheMiss={provider.price_cache_miss}
-                initialPriceOutput={provider.price_output}
                 hideTestHint
                 onSaved={onSavedProvider}
                 onCancel={() => setForm(null)}
@@ -278,7 +275,7 @@ function ProviderCard({
   const metaParts = [
     host || null,
     provider.masked_key ?? "已配置",
-    `回落模型 ${provider.default_model}`,
+    provider.default_model || null,
   ].filter(Boolean);
 
   return (
@@ -299,16 +296,6 @@ function ProviderCard({
           <p className="truncate font-mono text-xs text-muted-foreground">
             {metaParts.join(" · ")}
           </p>
-          {(provider.price_cache_miss || provider.price_output) && (
-            <p className="text-xs text-muted-foreground/80">
-              单价 输入 {provider.price_cache_miss ?? "—"} / 输出{" "}
-              {provider.price_output ?? "—"}
-              {provider.price_cache_hit
-                ? ` / 缓存 ${provider.price_cache_hit}`
-                : ""}{" "}
-              USD/1M
-            </p>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button

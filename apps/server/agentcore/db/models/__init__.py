@@ -24,6 +24,7 @@ from .browser import BrowserTakeoverRow
 from .chat import Chat, ChatMember, ChatMessage
 from .conversations import (
     Conversation,
+    ConversationExternalGrant,
     ConversationShare,
     Folder,
     MemoryUpdateRow,
@@ -45,6 +46,7 @@ from .runs import (
 )
 from .shared_spaces import SharedSpace, SharedSpaceEvent, SharedSpaceMember
 from .simulation import SimAgent, SimEvent, SimTick, SimulationRun
+from .standing_tasks import StandingTask, StandingTaskRun
 from .users import User, UserBlock, UserDirectorySettings
 
 __all__ = [
@@ -57,6 +59,7 @@ __all__ = [
     "ChatMember",
     "ChatMessage",
     "Conversation",
+    "ConversationExternalGrant",
     "ConversationShare",
     "CostCall",
     "CostEvent",
@@ -81,6 +84,8 @@ __all__ = [
     "SimEvent",
     "SimTick",
     "SimulationRun",
+    "StandingTask",
+    "StandingTaskRun",
     "TurnJournalRow",
     "TurnLeaseRow",
     "TurnMetricsRow",

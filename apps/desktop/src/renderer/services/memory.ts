@@ -11,7 +11,7 @@ type MemoryUpdateItemView = components["schemas"]["MemoryUpdateItemView"];
  * (Agent记忆与知识系统). It is edited through the same source-agnostic markdown editor
  * the file workbench uses (see `services/sources/memorySource`), so the contract
  * mirrors the workspace edit contract: full text + a content-addressed `version`
- * baseline the next write does its CAS against. `enabled` is the master switch.
+ * baseline the next write does its CAS against.
  */
 
 export interface MemoryDoc {
@@ -27,7 +27,7 @@ export interface MemoryWriteResult {
   conflict: boolean;
 }
 
-/** Load the memory document + whether memory is enabled. */
+/** Load the memory document (whole-doc body + version; content APIs for callers). */
 export function getMemory(): Promise<MemoryDoc> {
   return api.get<MemoryDoc>("/v1/users/me/memory");
 }
@@ -45,11 +45,6 @@ export function writeMemory(
     content,
     baseline,
   });
-}
-
-/** Flip the long-term memory master switch (off = stop injecting AND growing). */
-export function setMemoryEnabled(enabled: boolean): Promise<MemoryDoc> {
-  return api.put<MemoryDoc>("/v1/users/me/memory/enabled", { enabled });
 }
 
 /**

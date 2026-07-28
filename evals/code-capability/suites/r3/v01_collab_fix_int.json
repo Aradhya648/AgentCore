@@ -1,0 +1,36 @@
+{
+  "id": "r3_v01_collab_fix_int",
+  "category": "tool_use",
+  "kind": "collab",
+  "phase": "R3",
+  "vendor_id": "V01",
+  "vendor_dir": "click@b2e30a175449",
+  "language": "python",
+  "base_kind": "fix",
+  "collab": {
+    "induce": "force_delegate",
+    "soft_diagnostics": ["run_plan", "worker_files"]
+  },
+  "user_message": "工作区是 click（src layout）。整数/数字类型转换结果偏离预期。\n\n【多 Agent 强制】你必须以 CEO 身份调用 `delegate` 组建至少 1 个 worker 完成修复；CEO 不要自己直接改生产代码。修好后使 `python -m pytest tests/test_types.py::test_range -q` 通过。不要修改 tests/。",
+  "path": "team",
+  "mode": "economy",
+  "toolset": "ceo",
+  "seed_patch": "../r1a/seeds/v01_break_int.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_types.py::test_range", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_types.py::test_range", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120,
+        "pythonpath": ["src"]
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

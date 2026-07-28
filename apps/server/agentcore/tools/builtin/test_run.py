@@ -10,6 +10,7 @@ from typing import Any, Literal
 from agentcore.core.errors import SandboxError
 from agentcore.core.types import ToolApproval, ToolCategory
 from agentcore.runtime.context.workspace_profile import WorkspaceProfile, detect_workspace_profile
+from agentcore.tools.builtin.code_execute import _permission_allows_restricted_network
 from agentcore.tools.builtin.test_parsers import (
     TestRunResult,
     parse_generic_output,
@@ -410,7 +411,7 @@ class TestRunTool:
             on_output=_make_output_callback(context),
             network_mode=(
                 "restricted"
-                if context.permission_preset == "full_trust"
+                if _permission_allows_restricted_network(context.permission_preset)
                 else "none"
             ),
         )

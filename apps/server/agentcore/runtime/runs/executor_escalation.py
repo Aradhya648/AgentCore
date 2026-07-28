@@ -16,6 +16,31 @@ from agentcore.tools.protocol import EscalationChannel, EscalationOutcome
 logger = get_logger(__name__)
 
 
+def _apply_user_ownership_transfer(
+    *,
+    escalator_run_id: str,
+    paths: list[str],
+    execution_id: str | None,
+) -> None:
+    """Path-level handoff to the escalator when the user picks「移交写权」."""
+    from agentcore.workspace.write_claims import resolve_write_coordinator
+
+    ledger = resolve_write_coordinator(execution_id=execution_id)
+    rid = (escalator_run_id or "").strip()
+    if not rid:
+        return
+    for path in paths:
+        p = (path or "").strip()
+        if p:
+            ledger.transfer(p, rid)
+    logger.info(
+        "file_ownership.user_transfer",
+        run_id=rid,
+        execution_id=execution_id or "",
+        paths=list(paths),
+    )
+
+
 def build_escalation_channel(
     env: AgentExecutorEnv,
     run_id: str,
@@ -44,15 +69,21 @@ def build_escalation_channel(
         awaiting: str = "user",
         *,
         browser_login: bool = False,
+        ownership_paths: list[str] | None = None,
+        lock_owner_run_id: str = "",
     ) -> EscalationOutcome:
         # Cap: count this conversation's already-parked blocking escalates. The check
         # and the suspend's create() run with no await between them (single loop), so
         # the count can't race (设计 §4.7). Over cap ⇒ degrade (proceed on assumption).
-        # browser_login is always user-facing (human types the password) — never CEO.
+        # browser_login / write-lock ownership are always user-facing — never CEO.
         want_browser_login = bool(browser_login)
+        own_paths = [
+            p for p in (ownership_paths or []) if isinstance(p, str) and p.strip()
+        ]
+        ownership_conflict = bool(own_paths)
         who = (
             "user"
-            if want_browser_login
+            if want_browser_login or ownership_conflict
             else (awaiting if awaiting in ("user", "ceo") else "user")
         )
         awaiting_ceo = who == "ceo"
@@ -155,6 +186,11 @@ def build_escalation_channel(
         }
         if want_browser_login:
             suspend_payload["browser_login"] = True
+        if own_paths:
+            suspend_payload["ownership_paths"] = own_paths
+        lock_owner = (lock_owner_run_id or "").strip()
+        if lock_owner:
+            suspend_payload["lock_owner_run_id"] = lock_owner
         try:
             result = await bridge.suspend(
                 escalation_id,
@@ -173,6 +209,8 @@ def build_escalation_channel(
                         kind=esc_kind,
                         awaiting=who,
                         browser_login=want_browser_login or None,
+                        ownership_paths=own_paths or None,
+                        lock_owner_run_id=lock_owner or None,
                     )
                 ),
             )
@@ -189,6 +227,14 @@ def build_escalation_channel(
             elif isinstance(result, dict):
                 status, answer = "resolved", str(result.get("answer") or "").strip()
                 via_user = bool(result.get("via_user"))
+                if result.get("transfer_ownership") and own_paths:
+                    _apply_user_ownership_transfer(
+                        escalator_run_id=run_id,
+                        paths=own_paths,
+                        execution_id=env.base_tool_context.execution_id,
+                    )
+                    if not answer:
+                        answer = "已移交写权：" + "、".join(f"`{p}`" for p in own_paths)
             else:
                 status, answer = "resolved", str(result or "").strip()
         if awaiting_ceo:

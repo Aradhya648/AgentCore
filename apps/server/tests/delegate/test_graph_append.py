@@ -576,7 +576,7 @@ async def test_assemble_injects_recent_graph_note_into_ceo_prompt(monkeypatch):
         folder_id=None,
         memory_enabled=False,
         approvals_enabled=False,
-        autonomy_policy=None,
+        permission_axes=None,
         permission_preset=None,
         profiles=None,
         captain_run_id="cap",

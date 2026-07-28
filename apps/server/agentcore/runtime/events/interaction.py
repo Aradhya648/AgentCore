@@ -319,6 +319,8 @@ def escalation_required(
     kind: str = "normal",
     awaiting: str = "user",
     browser_login: bool | None = None,
+    ownership_paths: list[str] | None = None,
+    lock_owner_run_id: str | None = None,
 ) -> SSEEvent:
     """``question`` is the worker's headline ask; ``questions`` is the optional
     structured-fork list (同 ask_user 的 questions) the card renders as choice/text so
@@ -328,6 +330,7 @@ def escalation_required(
     or ``ceo`` (协调模式等主管仲裁，初始不作为用户可答卡).
     ``browser_login`` (narrow D16 exception): when true, the pending escalate allows
     user browser takeover while the turn is still running. Absent/false on old streams.
+    ``ownership_paths`` / ``lock_owner_run_id``: write-lock conflict 结构化裁决（移交写权）。
     """
     who = awaiting if awaiting in ("user", "ceo") else "user"
     payload: dict[str, Any] = {
@@ -344,6 +347,12 @@ def escalation_required(
     # generators omit false so old journals stay bit-identical).
     if browser_login is True:
         payload["browser_login"] = True
+    paths = [p for p in (ownership_paths or []) if isinstance(p, str) and p.strip()]
+    if paths:
+        payload["ownership_paths"] = paths
+    lock = (lock_owner_run_id or "").strip()
+    if lock:
+        payload["lock_owner_run_id"] = lock
     return SSEEvent(
         type=EventType.ESCALATION_REQUIRED,
         payload=payload,

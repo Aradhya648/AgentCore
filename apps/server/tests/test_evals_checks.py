@@ -3,6 +3,8 @@
 走 ``build_check`` 的 spec 路径（顺带覆盖注册表映射），对构造的 ``TurnOutcome`` 断言。
 """
 
+import sys
+
 from agentcore.evals.checks import CHECK_NAMES, build_check
 from agentcore.evals.types import EvalCase, TurnOutcome
 
@@ -227,5 +229,79 @@ def test_registry_contains_all_documented_checks():
         "NoFabricationMarker",
         "ContentMatches",
         "DeliverableIntegrity",
+        "TestExitCode",
+        "TestsUnchanged",
     }
     assert expected <= CHECK_NAMES
+
+
+def test_test_exit_code_pass_and_fail(tmp_path):
+    good = tmp_path / "good"
+    good.mkdir()
+    (good / "ok.py").write_text("print('hi')\n", encoding="utf-8")
+    oc = _outcome(workspace_root=str(good))
+    assert _run(
+        {"name": "TestExitCode", "args": {"command": [sys.executable, "ok.py"]}},
+        oc,
+    ).passed
+
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "fail.py").write_text("raise SystemExit(2)\n", encoding="utf-8")
+    oc2 = _outcome(workspace_root=str(bad))
+    assert not _run(
+        {"name": "TestExitCode", "args": {"command": [sys.executable, "fail.py"]}},
+        oc2,
+    ).passed
+    assert not _run(
+        {"name": "TestExitCode", "args": {"command": [sys.executable, "-c", "pass"]}},
+        _outcome(workspace_root=None),
+    ).passed
+
+
+def test_tests_unchanged_detects_cheat(tmp_path):
+    ref = tmp_path / "ref"
+    ws = tmp_path / "ws"
+    for root in (ref, ws):
+        (root / "tests").mkdir(parents=True)
+        (root / "tests" / "t.py").write_text("assert True\n", encoding="utf-8")
+        (root / "src").mkdir()
+        (root / "src" / "a.py").write_text("x=1\n", encoding="utf-8")
+    # 生产代码可改
+    (ws / "src" / "a.py").write_text("x=2\n", encoding="utf-8")
+    oc = _outcome(workspace_root=str(ws), reference_root=str(ref))
+    assert _run({"name": "TestsUnchanged", "args": {"paths": ["tests"]}}, oc).passed
+    # 改测 = 作弊
+    (ws / "tests" / "t.py").write_text("assert False\n", encoding="utf-8")
+    assert not _run({"name": "TestsUnchanged", "args": {"paths": ["tests"]}}, oc).passed
+
+
+def test_tests_unchanged_allow_extra_golden(tmp_path):
+    """Extend：追加 GOLDEN 测文件可白名单；仍禁改 upstream 测。"""
+    ref = tmp_path / "ref"
+    ws = tmp_path / "ws"
+    for root in (ref, ws):
+        (root / "tests").mkdir(parents=True)
+        (root / "tests" / "t.py").write_text("assert True\n", encoding="utf-8")
+    golden = "tests/test_agentcore_extend_x.py"
+    (ws / "tests" / "test_agentcore_extend_x.py").write_text("assert 1\n", encoding="utf-8")
+    oc = _outcome(workspace_root=str(ws), reference_root=str(ref))
+    # 无白名单 → extra 失败
+    assert not _run({"name": "TestsUnchanged", "args": {"paths": ["tests"]}}, oc).passed
+    # 白名单 → 过
+    assert _run(
+        {
+            "name": "TestsUnchanged",
+            "args": {"paths": ["tests"], "allow_extra": [golden]},
+        },
+        oc,
+    ).passed
+    # 改 upstream 仍失败
+    (ws / "tests" / "t.py").write_text("assert False\n", encoding="utf-8")
+    assert not _run(
+        {
+            "name": "TestsUnchanged",
+            "args": {"paths": ["tests"], "allow_extra": [golden]},
+        },
+        oc,
+    ).passed

@@ -182,6 +182,84 @@ def test_toolshed_intent_named_build_toolshed_ok():
     assert reason is None
 
 
+def test_automation_runnable_rejects_build_toolshed():
+    from agentcore.runtime.runs.automation_delivery import DeliveryConfirmation
+
+    conf = DeliveryConfirmation(
+        format_id="f0", label="可运行自动化", source="ask_user"
+    )
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook": "build_toolshed",
+            "playbook_args": {"site": "Ops", "sections": ["应用外壳"]},
+        },
+        user_message="做短视频自动化 Agent",
+        automation_delivery=conf,
+    )
+    assert name is None
+    assert err is not None
+    assert declaration_reject_gate(err) == "automation"
+    assert "build_toolshed" in err
+
+
+def test_automation_console_allows_build_toolshed():
+    from agentcore.runtime.runs.automation_delivery import DeliveryConfirmation
+
+    conf = DeliveryConfirmation(
+        format_id="f1", label="控制台原型", source="ask_user"
+    )
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook": "build_toolshed",
+            "playbook_args": {"site": "Ops", "sections": ["应用外壳"]},
+        },
+        automation_delivery=conf,
+    )
+    assert err is None
+    assert name == "build_toolshed"
+
+
+def test_automation_plan_rejects_website_and_toolshed():
+    from agentcore.runtime.runs.automation_delivery import (
+        DeliveryConfirmation,
+        automation_toolshed_rejected_message,
+        automation_website_rejected_message,
+    )
+
+    conf = DeliveryConfirmation(format_id="f2", label="仅方案", source="ask_user")
+    _, _, err_t = resolve_playbook_declaration(
+        {"playbook": "build_toolshed", "playbook_args": {"site": "X"}},
+        automation_delivery=conf,
+    )
+    assert err_t == automation_toolshed_rejected_message()
+    _, _, err_w = resolve_playbook_declaration(
+        {"playbook": "build_website", "playbook_args": {"site": "X"}},
+        automation_delivery=conf,
+    )
+    assert err_w == automation_website_rejected_message()
+
+
+def test_automation_runnable_skips_toolshed_none_hard_lock():
+    """可运行自动化记账：即便 call 呈控制台形，也不强制 build_toolshed。"""
+    from agentcore.runtime.runs.automation_delivery import DeliveryConfirmation
+
+    conf = DeliveryConfirmation(
+        format_id="f0", label="可运行自动化", source="ask_user"
+    )
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook_id": "none",
+            "tasks": [
+                {"role": "工程师", "task": "搭运营控制台自动化流水线"},
+            ],
+        },
+        user_message="做短视频自动化 Agent",
+        automation_delivery=conf,
+    )
+    assert err is None
+    assert name is None
+
+
 def test_non_website_none_still_ok():
     """明显非建站 + none → 仍可（不误伤）。"""
     name, reason, err = resolve_playbook_declaration(
@@ -475,6 +553,49 @@ def test_software_intent_none_thin_html_rejected():
     assert "build_feature" in err
     assert "优先" not in err
     assert "禁止" in err or "单" in err
+
+
+def test_software_greenfield_none_rejected():
+    """绿场 SPA / 数据看板 + none → 拒，必须 build_app。"""
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook_id": "none",
+            "playbook_none_reason": "手写前后端两节点",
+            "tasks": [
+                {"role": "前端", "task": "搭 Vite 脚手架"},
+                {"role": "前端", "task": "写看板页面"},
+            ],
+        },
+        user_message="从0到1搭建一个 Vue3 数据看板",
+    )
+    assert name is None and reason is None
+    assert err is not None
+    assert "build_app" in err
+    assert "禁止" in err
+    assert declaration_reject_gate(err) == "software_greenfield"
+
+
+def test_software_greenfield_named_build_app_ok():
+    name, reason, err = resolve_playbook_declaration(
+        {
+            "playbook": "build_app",
+            "playbook_args": {"app": "运营数据看板", "stack": "Vue3+Vite+TS"},
+        },
+        user_message="帮我做一个完整的 Vite SPA 项目",
+    )
+    assert err is None
+    assert name == "build_app"
+    assert reason is None
+
+
+def test_non_greenfield_free_teaming_still_ok():
+    """非绿场自由组队（调研）仍可手写 tasks。"""
+    name, reason, err = resolve_playbook_declaration(
+        {"tasks": [{"role": "调研员", "task": "调研竞品并写报告"}]},
+        user_message="帮我调研一下竞品",
+    )
+    assert err is None
+    assert name is None
 
 
 def test_software_intent_named_build_feature_ok():

@@ -1,0 +1,39 @@
+{
+  "id": "r2_v09_extend_note",
+  "category": "tool_use",
+  "kind": "extend",
+  "phase": "R2",
+  "vendor_id": "V09",
+  "vendor_dir": "commander@ba6d13ddb424",
+  "language": "typescript",
+  "user_message": "工作区是 commander.js。请为 `Command` 新增方法 `note(text?)`：无参返回已存 notes 数组（默认 []）；有参则 push 并链式返回 this。Windows 友好：`node --test`。不要修改既有 tests/；评测会追加 GOLDEN 测。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "golden_tests": [
+    {
+      "src": "golden/v09_note_test.js",
+      "dest": "tests/agentcore_extend_note.test.js"
+    }
+  ],
+  "reference_patch": "seeds/v09_extend_note.json",
+  "protected_paths": ["tests"],
+  "test_command": ["node", "--test", "tests/agentcore_extend_note.test.js"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["node", "--test", "tests/agentcore_extend_note.test.js"],
+        "expected_exit": 0,
+        "timeout_sec": 60
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": {
+        "paths": ["tests"],
+        "allow_extra": ["tests/agentcore_extend_note.test.js"]
+      }
+    }
+  ]
+}

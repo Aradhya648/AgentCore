@@ -37,6 +37,7 @@ from agentcore.workspace.stage_dirs import RESEARCH_DIR, REVIEWS_DIR
 _PLAYBOOK_LISTING = available_playbooks()
 _BUILD_WEBSITE_PLAYBOOK = PLAYBOOKS["build_website"]
 _BUILD_TOOLSHED_PLAYBOOK = PLAYBOOKS["build_toolshed"]
+_BUILD_APP_PLAYBOOK = PLAYBOOKS["build_app"]
 
 # 多维取证类终局对抗触发词（kickoff research_first_recommended + MLR/debate 入口分流句同源，禁止另抄字面量）。
 MULTI_LENS_COURTROOM_TRIGGERS: Final[tuple[str, ...]] = (
@@ -247,23 +248,31 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 工作区」、必要时用 `deliverable.name` 写清期望文件，双保险。一般【中间产物】（审查意见、注入下游的短结论、\
 纯口头讨论、用户明确不要文件）可留文字、不设落盘契约；**但**用户要落盘文档且 ≥2 调研/讨论角时【不适用】——\
 各角 MD 笔记与主笔终稿均须 `form=files`+`artifacts`，【禁止】「角 prose、仅主笔落盘」。
-- 完成验收（`completion_criteria`）：用户要【安装 / 运行 / 打开软件、联调集成、跑通测试】才算交付的\
-任务——【必须】显式设 `completion_criteria=code_verified`（硬要求；引擎【不】从任务文案推断验收，\
-省略 = 本批不强制）。引擎校验 worker 是否用 `code_execute` / `test_run` 在工作区实际跑通；\
-纯写文件、只需阅读编辑不必启动进程的——`files_written`（常配合 `deliverable.form=files`）。\
-跑/修/打开验证类终向由引擎能力策略收口（对照 `<workspace_context>`）；验收须含执行成功证据 \
-（`code_verified`），禁止只验 `files_written`。\
-别混用：能跑才算完的活别只验「写了文件」；全员 prose 的批次别设 `files_written`。\
+- 完成验收（`completion_criteria`）：三类互不混用——\
+① 用户要【跑通测试 / typecheck / build / 编译检查】才算交付 → 【必须】\
+`completion_criteria=code_verified`（引擎验 worker 是否用 `code_execute` / `test_run` / \
+`terminal` 跑通 verify 形态命令且 exit 0；**启动开发服务器不算**）；\
+② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL】才算交付 → 【必须】\
+`completion_criteria=runtime_ready`（引擎验 `terminal` start + `wait_for` 就绪；\
+**禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
+③ 纯写文件、只需阅读编辑不必启动进程 → `files_written`（常配合 `deliverable.form=files`）。\
+省略 = 本批不强制（引擎【不】从任务文案推断验收）。\
+跑/修/打开验证类终向由引擎能力策略收口（对照 `<workspace_context>`）；要执行成功证据时用\
+对应种类，禁止只验 `files_written` 却声称「已跑通 / 已启动」。\
+别混用：能跑通测试才算完的活用 `code_verified`；启动服务用 `runtime_ready`；全员 prose \
+的批次别设 `files_written`。\
 `type=custom`【不被引擎验证】——设了也不会机械验收，却可能误导你以为已加闸；需要可验证完成条件时用 \
-`files_written` / `code_verified`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
+`files_written` / `code_verified` / `runtime_ready`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
 - 环境能力约束（委派前先对照 `<workspace_context>`）：`code_execute=未装配`（以能力行实际标注为准，勿默认\
 云端必然未装配）时，worker 只能写文件、【不能】运行代码，也生成不了需运行程序才能产出的二进制 / \
 可播放产物（.pptx / .docx / .xlsx / 视频 / 可执行文件…）。此时【不要】设 \
-`completion_criteria=code_verified`（显式声明会被硬拒）；把交付形态改成当前环境真能交付的\
+`completion_criteria=code_verified`（显式声明会被硬拒）。`terminal=未装配` 时【不要】设 \
+`completion_criteria=runtime_ready`（云端无法托管长驻进程，会被硬拒）。把交付形态改成当前环境真能交付的\
 ——`form=files` + `completion_criteria=files_written` 落盘生成脚本 / 源文件 + 使用说明，或 \
-`form=prose` 方案文档——并在给用户的收尾里显式标出交付缺口（「脚本已就绪、未运行验证；绑定本地\
-文件夹后可在本机生成」），或立即发 `ask_user` 卡（桌面在线时选项标 `action=bind_local_folder`，\
-勿用纯文本询问）后再委派。绝不把没生成的产物说成已交付。\
+`form=prose` 方案文档——并在给用户的收尾里显式标出交付缺口（「脚本已就绪、未运行验证；绑定本机\
+执行环境后可在本机生成 / 启动」），或立即发 `ask_user` 卡（桌面在线时：本会话要跑通 → \
+`action=bind_local_folder`；用户要打开本机目录当项目 → `action=open_local_project`；\
+勿用纯文本询问；bind≠打开项目）后再委派。绝不把没生成的产物说成已交付。\
 【演讲/PPT】用户已选定 pptx 且本回合有 `code_execute`：禁止静默改成只交 `.md`，须真 `.pptx`（`python-pptx`）；\
 无执行：允许 Marp.md 或脚本+说明，收尾必须标缺口，【禁止】称「PPT 已落盘可直接使用」。
 - 桌面提醒（本地绑定）：用户可能已离开电脑、任务跑完需唤回时，worker 可用 `desktop_notify` 弹系统\
@@ -455,10 +464,18 @@ _ASK_USER_KICKOFF = """\
 【演讲 / PPT / 课件 / 演示文稿】提案卡【必须】非空 `format_options`（pptx=真 PowerPoint / marp=Markdown 幻灯片 / \
 outline=仅讲稿；与建站 `style_options` 同构）——有 `code_execute` 默认倾向 pptx，无执行默认 marp 并在选项文案\
 明示「当前环境无法生成 .pptx」；选定形态写入约束，勿静默改交付形态。\
+【Agent / 自动化 / 工作流 / 流水线】（窄：做/打造/生成 + 上列词，或明确多步骤代运营；勿误伤「用团队做调研」\
+「写 agent 提示词」）提案卡【必须】非空 `format_options` 三档：可运行自动化 / 控制台原型 / 仅方案\
+（与演讲共用 `format_options` 字段、按意图分流记账）——选控制台原型才允许 `build_toolshed`；\
+可运行自动化禁止默认 toolshed，自由组队 / `build_feature`，无执行环境如实降级；仅方案不进 \
+toolshed/website 硬锁。纯「做控制台/官网」仍走建站 style 闸。\
 【做软件 / 应用 / 工具软件】提案卡【必须】把「技术栈 / 交付形态」放进 `questions`（高杠杆），\
 【禁止】塞进 `assumptions` 用「拿不准宁可默认」吞掉——选项至少覆盖：可运行单页原型 / 本地多文件小工具 / \
 前后端应用 / 仅方案文档。用户选「基础版 / 风格方向」【不等于】默许「单 HTML」；未问清交付形态前\
-勿按单文件开工；组队可手写多角色工程拆分，或选用可选形状 `playbook="build_feature"`。\
+勿按单文件开工。\
+【绿场完整交付】从 0 到 1 / 搭建完整项目 / 完整 Vue·React·Vite·SPA / 数据看板【必须】\
+`playbook="build_app"`（禁止 none / 手写旁路）；局部单功能可手写多角色或选用可选形状 \
+`playbook="build_feature"`。\
 【已确认勿再开】：用户已口头认可协作方案 / 高杠杆决策（如「认可」「就这样」「开干」），或本回合\
 已拍过开工提案卡——禁止再开开工提案卡，直接 `delegate` 或推进。
 
@@ -483,8 +500,9 @@ default）。`card="proposal_pick"` 是执行途中「N 个候选方案挑一个
 - `style_options`：仅当产物是视觉类（网站 / 海报 / 幻灯…）时给出风格预设（如「深色科技 / 简约商务 / \
 活泼明亮」）让用户选基调；非视觉类省略。软件应用的「风格」若进 questions，也【不得】当成交付形态\
 已定为单 HTML。
-- `format_options`：演讲/PPT/课件意图时必给交付形态（pptx / marp / outline）；与视觉 `style_options` 正交\
-——风格是气质，format 是文件形态。
+- `format_options`：演讲/PPT/课件意图时必给交付形态（pptx / marp / outline）；\
+Agent/自动化/工作流意图时必给三档（可运行自动化 / 控制台原型 / 仅方案）；与视觉 `style_options` 正交\
+——风格是气质，format 是交付形态。
 
 【别把方案在 message 里先讲一遍（避免简报与选项重复）】：卡片左侧「简报」渲染 `message` + `context`，\
 右侧「选项」渲染 `questions`——两栏各司其职。`message` 只做定调（复述目标 + 点明有关键决策要你拍板），\
@@ -548,11 +566,20 @@ _ASK_USER_MIDTASK = """\
 「已知、按用户决定未处理」。
 两种卡都是主拍板（每任务恰好一张，见主拍板纪律）——用了就不再叠开工提案或提纲把关。
 
-【区外目录授权操作】用户给出工作区外的目录路径时：只读分析 → 开只读授权；整理读写（移动/\
-重命名/复制/删除进回收站）→ 开整理授权。桌面在线时 choice 选项可标对应 action（只读 /\
-整理 / 绑定本机）；同目录从只读升整理须重新弹卡。确认后目录以 `external/<别名>/…` 可用；\
-整理方案用 `card="organize_plan"` → 确认后 `file_batch(organize_plan_id=…)`；扫描/执行委派用 \
-playbook `organize_folder`。云端无法授权本机区外目录——如实说明。授权须用户显式确认。
+【区外目录授权 / 打开项目 / 本机执行】按意图分流，勿混用：
+- 用户要把本机目录当【本地项目】打开（仓库/工程）→ `action=open_local_project`
+  （新建会话挂 Folder；禁止改写本会话 folder_id；禁止用 bind 冒充）。
+- 本会话仅需本机执行环境（裸聊 scratch）→ `action=bind_local_folder`（≠打开项目）。
+- 「优化/改项目」≠默认开项目卡：仅当用户要打开本机工程根 → `open_local_project`；\
+  已有附件且用户收窄本轮范围（先这些/就这些）→ 先读材料动手，勿把开项目当开工前置。
+- 看/分析/整理本机某目录（含桌面）→ 只读 `grant_readonly_folder`；整理 \
+  `grant_organize_folder`。与绑定正交：云端草稿 + 桌面在线亦可授权（经桌面通道读 \
+  `external/`）；勿要求先 bind/open_project；勿用 bind 冒充「看一眼」。
+桌面在线时 choice 选项可标对应 action（立即发卡，勿纯文本劝授权）。同目录从只读升整理\
+须重新弹卡。确认后区外目录以 `external/<别名>/…` 可用；整理方案用 `card="organize_plan"` \
+→ 确认后 `file_batch(organize_plan_id=…)`；扫描/执行委派用 playbook `organize_folder`。\
+禁止要用户手填绝对路径；禁止用 code_execute/terminal 探主机家目录找 Desktop。\
+Web/移动端无法履行——如实说明。授权须用户显式确认。
 </ask_user_midtask>"""
 
 _VERIFY_AND_FIX = """\
@@ -778,6 +805,30 @@ _BUILD_TOOLSHED = f"""\
 组队进阶旋钮见 `consult_skill(team_orchestration_advanced)`。
 </build_toolshed>"""
 
+_BUILD_APP = f"""\
+<build_app>
+【硬约束】绿场软件 / SPA 完整交付（从 0 到 1、搭建完整项目、完整 Vue·React·Vite·SPA / \
+数据看板）【必须】`delegate(playbook="build_app", playbook_args={{...}})`。\
+机制会拒绝 `playbook_id="none"` 与缺省手写 tasks 旁路。\
+营销落地页 / 官网改用 `build_website`；控制台 dense 改用 `build_toolshed`；\
+局部单功能改码可用手写 tasks 或可选 `build_feature`。
+
+形状：{_BUILD_APP_PLAYBOOK.summary}
+槽位：{_BUILD_APP_PLAYBOOK.slots}
+
+开工顺序：
+1. 关键未齐（栈 / 模块范围 / 交付形态）→ **立刻** `ask_user` 开工提案卡（技术栈与交付形态进 \
+`questions`）。**勿先** consult 本 skill 再开卡。
+2. **规格已齐** → **直接** `delegate(playbook="build_app", …)`，`playbook_args.app` 填应用简述；\
+可选 `modules` / `stack`（默认 Vue3+Vite+TS）/ `root`。
+3. 流水线五波不可减（scaffold → shared → N×module → integrate → smoke）；\
+禁单 worker 包整站；router/入口引用的页面须同波创建（可 stub）。
+4. 批次会自动扫 `.ts/.tsx/.vue` import 图（`graph_consistent`）；云端交付后引导用户 \
+`export_to_local` 再 npm install。
+
+组队进阶旋钮见 `consult_skill(team_orchestration_advanced)`。
+</build_app>"""
+
 
 # --- The system skills (single source of truth) -----------------------------
 # Catalog summaries (the always-on one-line triggers) per the design (§4.4): sharp
@@ -808,6 +859,15 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
         requires_tools=("delegate",),
     ),
     SystemSkill(
+        name="build_app",
+        summary=(
+            "绿场软件/SPA 完整交付：必须 playbook=build_app（禁止 none 手糊）；"
+            "scaffold→shared→modules→integrate→smoke；局部单功能改用 build_feature"
+        ),
+        body=_BUILD_APP,
+        requires_tools=("delegate",),
+    ),
+    SystemSkill(
         name="debate_and_review",
         summary=(
             "对抗性多视角思考用 debate（决策/压力测试/争议光谱）；"
@@ -826,7 +886,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
         summary=(
             "开场引导：对「能做但没说全」的产出类请求，用普通 ask_user（不填 card）开"
             "「开工提案卡」按影响力分档预填默认（assumptions / questions / style_options；"
-            "演讲另须 format_options），一键可开做"
+            "演讲/自动化另须 format_options），一键可开做"
         ),
         body=_ASK_USER_KICKOFF,
         requires_tools=("ask_user",),
@@ -939,7 +999,8 @@ def render_skill_directory(registry: SkillRegistry, tool_names: set[str]) -> str
         "糊建站 /「做个网站」先 ask_user，确认后再 consult `build_website`；"
         "规格已齐的落地页/作品集可直接 delegate(playbook=build_website)，不必先查；"
         "控制台 / 后台 / 工具台 dense 先 consult `build_toolshed`；"
-        "做软件禁止单前端单 HTML 薄旁路（可手写多角色或选用 build_feature）：",
+        "绿场软件/SPA 完整交付必须 build_app（禁 none 手糊）；"
+        "做软件禁止单前端单 HTML 薄旁路（局部可手写多角色或选用 build_feature）：",
     ]
     lines.extend(f"- {skill.name}：{skill.summary}" for skill in skills)
     lines.append("</能力目录>")

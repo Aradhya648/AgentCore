@@ -1,4 +1,4 @@
-import { IconButton } from "@/components/ui";
+﻿import { IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import {
   embeddedPreviewVisible,
@@ -7,7 +7,6 @@ import {
 import { notifyActionError } from "@/lib/toast";
 import { openWorkspaceInBrowser } from "@/services/workspace";
 import { useOverlayStore } from "@/stores/overlay";
-import { useSidePanelStore } from "@/stores/sidePanel";
 import type { PreviewBounds, PreviewNavState } from "@shared/preview-contract";
 import {
   ArrowLeft,
@@ -20,6 +19,9 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
+ * @deprecated M3b：产品入口已拆除。完整预览走右坞 BrowserPanel（`openWorkspaceHtmlInBrowser`）。
+ * 本组件与 `previewApi.embed*` 仅作协议/内嵌实现参考保留；UI 不得再挂载。
+ *
  * SidePanel「预览」tab 的正文 —— 应用内内置浏览器的**渲染层外壳 + 原生视图定位器**。
  *
  * 页面本身由主进程一个隔离 WebContentsView（preview:// 代理会话工作区字节）渲染，恒盖在 DOM
@@ -28,8 +30,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * setBounds/hide，做**遮挡管理**：
  *   - 激活且无弹层遮挡 → show（首帧）/ setBounds（布局变化，经 ResizeObserver + window resize）；
  *   - 非激活（组件仍挂载，父容器 hidden）/ 弹层遮挡 → hide；
- *   - 卸载（切 tab / 折叠面板 / 离开对话路由）→ hide **保活**（返回即恢复页面状态）；
- *   - 销毁（关闭 tab / 切换会话）→ 走 store.closePreview → embedClose（此处不销毁）。
+ *   - 卸载（切 tab / 折叠面板 / 离开路由）→ hide **保活**（返回即恢复页面状态）；
+ *   - 销毁 → `previewApi.embedClose`（不再经 sidePanel.closePreview；该 API 已随 M3b 删除）。
  *
  * bounds 用占位容器 `getBoundingClientRect()`（视口坐标）；frame:false 下内容区原点 = 视口原点，
  * 直接对齐主进程 `setBounds` 的内容区坐标。面板右贴靠、顶栏定高，故位移只源于窗口尺寸变化
@@ -48,7 +50,6 @@ export function EmbeddedPreview({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const obstructed = useOverlayStore((s) => s.count > 0);
-  const closePreview = useSidePanelStore((s) => s.closePreview);
   const [nav, setNav] = useState<PreviewNavState>({
     url: "",
     canGoBack: false,
@@ -57,6 +58,9 @@ export function EmbeddedPreview({
 
   const api = typeof window !== "undefined" ? window.previewApi : undefined;
   const visible = embeddedPreviewVisible(active, obstructed);
+  const closeEmbed = useCallback(() => {
+    api?.embedClose();
+  }, [api]);
 
   // 测占位容器，得整数视口相对 bounds；不可测（未挂载 / display:none）→ null。
   const measure = useCallback((): PreviewBounds | null => {
@@ -104,7 +108,7 @@ export function EmbeddedPreview({
     };
   }, [api, visible, conversationId, path, measure]);
 
-  // 卸载（切 tab / 折叠面板 / 离开路由）→ 隐藏但保活；销毁由 store.closePreview 负责。
+  // 卸载 → 隐藏但保活；显式销毁走 embedClose（产品 UI 已不再挂本组件）。
   useEffect(() => {
     return () => {
       window.previewApi?.embedHide();
@@ -167,7 +171,7 @@ export function EmbeddedPreview({
           </IconButton>
         </SimpleTooltip>
         <SimpleTooltip label="关闭预览">
-          <IconButton onClick={closePreview} aria-label="关闭预览">
+          <IconButton onClick={closeEmbed} aria-label="关闭预览">
             <X size={15} />
           </IconButton>
         </SimpleTooltip>

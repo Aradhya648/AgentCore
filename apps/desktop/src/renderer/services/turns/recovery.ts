@@ -107,8 +107,8 @@ export async function rejoinLiveTurn(conversationId: string): Promise<boolean> {
 
 /**
  * Mark a dead-lease ghost (``usage.status=running`` but recovery has no live run
- * and no pause) as interrupted so the bubble stops spinning and offers retry
- * (流式回复持久化 P4).
+ * and no pause) as interrupted so the bubble stops spinning. Empty body → layer 1
+ * recoverability (send a new turn / composer hint); no message-level retry row.
  */
 export function markGhostInterrupted(conversationId: string): void {
   const store = useConversationStore.getState();
@@ -162,8 +162,9 @@ export async function settleCloudRunningAssistant(
 }
 
 /**
- * On opening a conversation, rejoin a live run or surface interrupted affordance
- * (P4 unified hydrate · 实时重连续看 C1 · slice 1b).
+ * On opening a conversation, rejoin a live run or mark a dead ghost interrupted
+ * (P4 unified hydrate · 实时重连续看 C1 · slice 1b). Empty interrupted → layer 1
+ * (send new turn); not a resume affordance.
  *
  * - Last message is user + liveRunning → bare attach (``message_start`` opens bubble).
  * - Last message is running assistant + liveRunning → clear-then-fold rejoin (overlay

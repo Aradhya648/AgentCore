@@ -1,9 +1,8 @@
-"""L3 团队浏览器 M2 接管 API schemas（内置浏览器与Agent浏览器提案.md · D16/D17）.
+"""Browser Session API schemas — multi ``session_id`` + takeover (M0 / M2).
 
-Co-owned (pinned) with the desktop takeover block: the takeover state is carried by the
-POST response (``BrowserTakeoverState``), input is a batch of frame-pixel-space events, and
-the timeline card reads the audit episodes. NO frame/key/text content is ever persisted or
-echoed back (D17) — responses carry only counts + who/when/why.
+Co-owned with the desktop BrowserPanel: list/create/close sessions; takeover state is
+carried by the POST response; input is a batch of frame-pixel-space events. NO frame /
+key / text content is ever persisted or echoed back (D17).
 """
 
 from datetime import datetime
@@ -12,19 +11,64 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 
+class BrowserSessionView(BaseModel):
+    """One live browser session entry (list / create response)."""
+
+    session_id: str
+    conversation_id: str
+    host_kind: Literal["sandbox", "local"] = "sandbox"
+    run_id: str | None = None
+    control: Literal["agent", "user"] = "agent"
+    created_at: float
+    last_used: float
+    # L7 最小：最近导航 url/title（可选）。
+    url: str | None = None
+    title: str | None = None
+
+
+class BrowserSessionNavPatch(BaseModel):
+    """PATCH body for L7 idle / Bridge navigate url·title 回写."""
+
+    url: str | None = None
+    title: str | None = None
+
+
+class BrowserSessionNavigateRequest(BaseModel):
+    """POST …/browser/sessions/{id}/navigate — owner address-bar navigate."""
+
+    url: str = Field(..., min_length=1)
+
+
+class BrowserSessionListResponse(BaseModel):
+    data: list[BrowserSessionView]
+    active_session_id: str | None = None
+
+
+class BrowserSessionCreateRequest(BaseModel):
+    """Create a new browser session tab for the conversation."""
+
+    host_kind: Literal["sandbox", "local"] = "sandbox"
+    activate: bool = True
+
+
 class BrowserTakeoverActionRequest(BaseModel):
-    """Start or end user takeover of the conversation's team browser (owner-only)."""
+    """Start or end user takeover of a browser session (owner-only).
+
+    ``session_id`` optional — omit to resolve the conversation's unique/active session.
+    """
 
     action: Literal["start", "end"]
+    session_id: str | None = None
 
 
 class BrowserTakeoverState(BaseModel):
-    """The takeover state a POST …/browser/takeover returns (D16: state on the response).
+    """The takeover state a POST …/browser/takeover returns.
 
     ``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on
-    success; ``already_active`` (start when one is running — still active); ``turn_running``
-    / ``no_session`` (start preconditions unmet); ``not_active`` (end when none is running).
-    ``active`` reflects the resulting state; ``started_at`` is set while active.
+    success; ``already_active`` (start when one is running — still active); ``no_session``
+    (no live session to take over); ``not_active`` (end when none is running).
+    ``turn_running`` is retained for wire compat but is never produced after D8 (anytime
+    takeover). ``active`` reflects the resulting state; ``started_at`` is set while active.
     """
 
     active: bool
@@ -33,6 +77,7 @@ class BrowserTakeoverState(BaseModel):
     ]
     record_id: str | None = None
     started_at: datetime | None = None
+    session_id: str | None = None
 
 
 class MouseInputEvent(BaseModel):
@@ -78,6 +123,7 @@ class BrowserInputRequest(BaseModel):
     """A batch of takeover input events (only valid while takeover is active; else 409)."""
 
     events: list[BrowserInputEvent]
+    session_id: str | None = None
 
 
 class BrowserInputResponse(BaseModel):
@@ -93,6 +139,7 @@ class BrowserTakeoverRecord(BaseModel):
     started_at: datetime
     ended_at: datetime | None
     end_reason: str | None
+    session_id: str | None = None
 
     model_config = {"from_attributes": True}
 

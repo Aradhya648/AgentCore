@@ -32,7 +32,7 @@ with a ``default`` so a 想省事 user one-clicks through), and optional ``style
 
 A submit answer is ``ToolEffect.CONTINUE`` (the CEO resumes with the user's picks); a
 stop is ``ToolEffect.INTERACT`` — a terminal effect that ends the turn gracefully in-band
-(its closing note rides as ``ToolResult.final_text``). The question + answer are
+(optional user note rides as ``ToolResult.final_text``; empty when none). The question + answer are
 journaled (``events._JOURNAL_EVENT_TYPES``) so a reload replays the exchange inline.
 
 结构化挂起 2b + 挂起即收口 (②) / D11 (turn 级落盘 + ``POST .../resume``): like the

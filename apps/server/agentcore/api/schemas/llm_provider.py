@@ -1,9 +1,9 @@
 """BYOK LLM provider configuration (多服务商列表, llm/provider_service.py) schemas.
 
 A user configures a LIST of OpenAI-compatible providers (each: label + key + endpoint +
-default model + optional price card). Account / conversation model selection uses
-**model combination profiles** (see ``llm_model_profiles`` schemas) — not bare
-per-slot pointers on this response.
+default model). Account / conversation model selection uses **model combination
+profiles** (see ``llm_model_profiles`` schemas) — not bare per-slot pointers on
+this response.
 """
 
 from datetime import datetime
@@ -14,25 +14,7 @@ from agentcore.config import settings
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
 
 
-class _PriceCardFields(BaseModel):
-    price_cache_hit: str | None = Field(
-        default=None,
-        max_length=40,
-        description="Optional provider USD per 1M cache-hit tokens (decimal string)",
-    )
-    price_cache_miss: str | None = Field(
-        default=None,
-        max_length=40,
-        description="Optional provider USD per 1M cache-miss tokens (decimal string)",
-    )
-    price_output: str | None = Field(
-        default=None,
-        max_length=40,
-        description="Optional provider USD per 1M output tokens (decimal string)",
-    )
-
-
-class CreateLlmProviderRequest(_PriceCardFields):
+class CreateLlmProviderRequest(BaseModel):
     """Add one OpenAI-compatible BYOK provider to the account's list."""
 
     label: str = Field(
@@ -59,7 +41,7 @@ class CreateLlmProviderRequest(_PriceCardFields):
     )
 
 
-class UpdateLlmProviderRequest(_PriceCardFields):
+class UpdateLlmProviderRequest(BaseModel):
     """Partial update of a provider. Only fields present in the body are applied; an
     omitted ``api_key`` keeps the stored ciphertext (edit endpoint/model without
     re-entering the key)."""
@@ -80,9 +62,6 @@ class LlmProviderView(BaseModel):
     status: str = Field(description="Connectivity result: unchecked | active | error")
     masked_key: str | None = None
     supports_tools: bool | None = None
-    price_cache_hit: str | None = None
-    price_cache_miss: str | None = None
-    price_output: str | None = None
     # Transient message from the connectivity test (POST .../test) only.
     message: str | None = None
     created_at: datetime | None = None

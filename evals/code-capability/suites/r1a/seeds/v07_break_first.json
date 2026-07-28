@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: first() 误返回最后一个元素（收集全表再 return），使 FirstTests 失败。",
+  "replacements": [
+    {
+      "path": "more_itertools/more.py",
+      "old": "    for item in iterable:\n        return item\n    if default is _marker:\n",
+      "new": "    # R1a seed_patch: return last instead of first\n    items = list(iterable)\n    if items:\n        return items[-1]\n    if default is _marker:\n"
+    }
+  ]
+}

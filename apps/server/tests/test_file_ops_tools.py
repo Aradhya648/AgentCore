@@ -162,6 +162,7 @@ async def test_outside_workspace_error_is_actionable(tmp_path: Path):
     assert "相对路径" in result.error
     assert "AgentCore/文档/research/report.md" in result.error
     assert "bind_local_folder" in result.error
+    assert "open_local_project" in result.error
     assert "勿用纯文本" in result.error
 
 

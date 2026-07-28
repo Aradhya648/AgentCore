@@ -3,9 +3,48 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from agentcore.core.types import PermissionPreset
+from agentcore.core.types import (
+    CommandAxis,
+    FileWriteAxis,
+    PermissionAxes,
+    TeamKickoffAxis,
+    validate_permission_axes,
+)
+
+
+class PermissionAxesModel(BaseModel):
+    """Three-axis session permission (运行时单一真相源)."""
+
+    file_write: FileWriteAxis = FileWriteAxis.SESSION
+    command: CommandAxis = CommandAxis.KICKOFF
+    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
+
+    @model_validator(mode="after")
+    def _reject_illegal(self) -> "PermissionAxesModel":
+        # Raises ValueError on command=auto ∧ file_write=ask.
+        validate_permission_axes(
+            file_write=self.file_write.value,
+            command=self.command.value,
+            team_kickoff=self.team_kickoff.value,
+        )
+        return self
+
+    def to_axes(self) -> PermissionAxes:
+        return PermissionAxes(
+            file_write=self.file_write,
+            command=self.command,
+            team_kickoff=self.team_kickoff,
+        )
+
+    @classmethod
+    def from_axes(cls, axes: PermissionAxes) -> "PermissionAxesModel":
+        return cls(
+            file_write=axes.file_write,
+            command=axes.command,
+            team_kickoff=axes.team_kickoff,
+        )
 
 
 class CreateConversationRequest(BaseModel):
@@ -17,9 +56,9 @@ class CreateConversationRequest(BaseModel):
     # Recorded only when ``folder_id`` is None; project chats inherit the project's
     # binding instead.
     local_container_root_id: str | None = Field(None, max_length=200)
-    # Session permission mode. Omit → seed from the user's autonomy default
-    # (always_ask→observe / first_grant→workspace / full_auto→full_trust).
-    permission_preset: PermissionPreset | None = None
+    # Session permission axes. Omit → seed from the user's autonomy recipe
+    # (default recipe = write_code → session/kickoff/rules).
+    permission_axes: PermissionAxesModel | None = None
 
 
 class ConversationSummary(BaseModel):
@@ -34,14 +73,25 @@ class ConversationSummary(BaseModel):
     local_container_root_id: str | None = None
     pinned: bool = False
     archived: bool = False
-    # Session permission mode (运行时单一真相源).
-    permission_preset: PermissionPreset = PermissionPreset.WORKSPACE
-    # 深度研究自治（会话级旗标；full_trust 蕴含同效，见 runtime.deep_research_auto）。
+    # Session permission axes (运行时单一真相源).
+    permission_axes: PermissionAxesModel = Field(
+        default_factory=PermissionAxesModel
+    )
+    # 深度研究自治（会话级旗标；托管配方蕴含同效，见 runtime.deep_research_auto）。
     deep_research_auto: bool = False
     # 会话级模型组合（模型组合配置）。None = 跟随账号默认组合。
     model_profile_id: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("permission_axes", mode="before")
+    @classmethod
+    def _coerce_axes(cls, value: object) -> object:
+        if isinstance(value, PermissionAxes):
+            return PermissionAxesModel.from_axes(value)
+        if isinstance(value, dict):
+            return PermissionAxes.from_mapping(value).to_dict()
+        return value
 
 
 class ConversationListResponse(BaseModel):
@@ -61,10 +111,14 @@ class UpdateConversationRequest(BaseModel):
     model_profile_id: str | None = None
 
 
-class PermissionPresetUpdate(BaseModel):
-    """Switch the conversation's permission mode mid-session."""
+class PermissionAxesUpdate(BaseModel):
+    """Switch the conversation's three-axis permission mid-session."""
 
-    permission_preset: PermissionPreset
+    permission_axes: PermissionAxesModel
+
+
+# Back-compat export alias for OpenAPI / import churn during migration.
+PermissionPresetUpdate = PermissionAxesUpdate
 
 
 class CreateFolderRequest(BaseModel):

@@ -28,8 +28,7 @@ pytestmark = pytest.mark.anyio
 # --- helpers -----------------------------------------------------------------
 
 
-def _prov(pid: str, *, default_model: str = "deepseek-v4-flash", label: str = "P", price=None):
-    price = price or {}
+def _prov(pid: str, *, default_model: str = "deepseek-v4-flash", label: str = "P"):
     return SimpleNamespace(
         id=pid,
         user_id="u1",
@@ -37,9 +36,6 @@ def _prov(pid: str, *, default_model: str = "deepseek-v4-flash", label: str = "P
         default_model=default_model,
         base_url=f"http://{pid}/v1",
         api_key_enc=b"x",
-        price_cache_hit=price.get("cache_hit"),
-        price_cache_miss=price.get("cache_miss"),
-        price_output=price.get("output"),
         supports_tools=None,
         status="active",
     )

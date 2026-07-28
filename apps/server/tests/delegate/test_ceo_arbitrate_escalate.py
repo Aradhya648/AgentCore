@@ -22,10 +22,15 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 
 
-def _ctx(*, execution_id: str = "e-d1", escalation: EscalationChannel | None = None) -> ToolContext:
+def _ctx(
+    *,
+    execution_id: str = "e-d1",
+    escalation: EscalationChannel | None = None,
+    run_id: str = "r1",
+) -> ToolContext:
     return ToolContext(
         execution_id=execution_id,
-        run_id="r1",
+        run_id=run_id,
         agent_id="w1",
         backend=ServerWorkspace(root=Path("."), sandbox=SubprocessSandbox()),
         user_id="u",
@@ -141,7 +146,7 @@ async def test_blocking_escalate_routes_to_ceo_when_coordination_active():
     set_active_coordination(session)
     seen: list[str] = []
 
-    async def _request(q, a, questions, kind, awaiting="user", *, browser_login=False):
+    async def _request(q, a, questions, kind, awaiting="user", **_kwargs):
         seen.append(awaiting)
         assert awaiting == "ceo"
         return EscalationOutcome(status="resolved", answer="用 Postgres")
@@ -174,7 +179,7 @@ async def test_blocking_escalate_stays_user_without_coordination():
     clear_active_coordination()
     seen: list[str] = []
 
-    async def _request(q, a, questions, kind, awaiting="user", *, browser_login=False):
+    async def _request(q, a, questions, kind, awaiting="user", **_kwargs):
         seen.append(awaiting)
         return EscalationOutcome(status="resolved", answer="用 Postgres")
 
@@ -190,6 +195,38 @@ async def test_blocking_escalate_stays_user_without_coordination():
     assert result.success is True
     assert "用户就你的升级问题答复" in result.output
     assert seen == ["user"]
+
+
+@pytest.mark.asyncio
+async def test_ownership_conflict_escalate_stays_user_under_coordination():
+    """写权冲突直达用户（与 browser_login 同属例外），即使协调会话活跃。"""
+    clear_active_coordination()
+    session = CoordinationSession(execution_id="e-own-u", total_workers=2)
+    set_active_coordination(session)
+    ledger = session.ensure_file_ownership()
+    ledger.declare("site/index.html", "assemble", frozenset())
+    seen: list[tuple[str, object]] = []
+
+    async def _request(q, a, questions, kind, awaiting="user", **kwargs):
+        seen.append((awaiting, kwargs.get("ownership_paths")))
+        return EscalationOutcome(status="resolved", answer="已移交写权")
+
+    channel = EscalationChannel(armed=True, request=_request)
+    try:
+        result = await EscalateTool().execute(
+            {
+                "question": "写入冲突：`site/index.html` 已归队友负责",
+                "assumption": "等移交后再写",
+                "blocking": True,
+            },
+            _ctx(execution_id="e-own-u", escalation=channel, run_id="skeleton"),
+        )
+        assert result.success is True
+        assert "用户就你的升级问题答复" in result.output
+        assert seen == [("user", ["site/index.html"])]
+    finally:
+        clear_active_coordination("e-own-u")
+        clear_active_coordination()
 
 
 @pytest.mark.asyncio

@@ -47,6 +47,8 @@ CEO 是**管理者**（不是调查员）：只持只读 / 检索工具，用于
 
 短文分界：未要求存文件 → 回复直写；明确落盘 → 派 1 人。CEO 绝不为省委派把整份代码贴进正文。
 
+**部分材料明示范围**：用户附材料并收窄为本轮附件 / 工作区已有产物时，须先对照动手（缺口分析或改一版）；缺整仓只说明局限与单点缺件——禁止整轮只催源码。与打开本地项目正交（开项目=换工程面，非开工前置）。
+
 **实证（一行）**：team 价值是同预算更便宜 / 更稳过硬性判据，非「更聪明」；跨域整合组队全面溃败 → 产品收窄为「按缝拆、跨域合成少派」。数据 → `apps/server/eval-out/`；跑法 → [本地开发 · evals](/docs/02-架构/本地开发.md)。
 
 ## `delegate` / `finalize` / `replan`
@@ -75,7 +77,7 @@ CEO 是**管理者**（不是调查员）：只持只读 / 检索工具，用于
 
 协调模式（≥2 worker、根 CEO、非 finalize）：默认后台跑、CEO 继续 ReAct；`coordinate=false` / 单 worker / finalize / 含 `checkpoint_after` 仍阻塞。结构跟着证据走：调研成篇用 `depends_on` + `checkpoint_after` 把「定结构」摆到调研之后。委派后用团队产出写综述（提示强化，非硬禁只读）；根 CEO 探路成功的 list/read/grep 可摘要注入 worker 开局。worker 协作通道 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md)。
 
-收尾：先对账拼图边（4b：冲突 / 缺口 / 重复）→ 核验原始目标（4a：完工判定）→ 写概览；未达成就续派 / `replan`，别假装收工。`playbook`：建站 / 工具台硬锁流水线，其余自由组队（可选快捷形状）。对抗性多视角另走 `debate` → [辩论编排设计](/docs/03-AI核心/辩论编排设计.md)。
+收尾：先对账拼图边（4b：冲突 / 缺口 / 重复）→ 核验原始目标（4a：完工判定）→ 写概览；未达成就续派 / `replan`，别假装收工。`playbook`：建站/工具台/绿场软件(`build_app`)硬锁；其余自由组队（可选快捷形状）。**Agent/自动化意图**须先经开工卡交付形态三档（可运行自动化 / 控制台原型 / 仅方案）；仅「控制台原型」才允许 `build_toolshed` → [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)。对抗性多视角另走 `debate` → [辩论编排设计](/docs/03-AI核心/辩论编排设计.md)。
 
 提示词分层：常驻 = 路由脊柱 + 能力目录 + 短钩子；进阶 HOW 在系统 Skill，用时 `consult_skill`。同一条知识只在唯一所有者出现。
 
@@ -88,7 +90,7 @@ CEO 是**管理者**（不是调查员）：只持只读 / 检索工具，用于
 | `complexity_hint` | `light`/`standard`：编排姿态（如 light 隐含 `coordination=none`），**不**映射 worker token/超时 |
 | `coordination` | 便签墙档；缺省 `none`；权威 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md) |
 | `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema` |
-| `completion_criteria` | 批次验收；省略不强制；文案推断已废除，靠结构化信号或显式声明 |
+| `completion_criteria` | 批次验收；省略不强制；文案推断已废除。`files_written` / `code_verified`（编译·测试·build）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；落盘此类文件时自动扫）互不混用；启动开发服务器用 `runtime_ready` |
 | `continue_from_run_id` | 带现场续派；权威 → [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md) |
 | worker 模型 | CEO **不**选 per-task 模型档；力度用协作结构表达；用户侧「模型组合」可选 Worker 槽 |
 

@@ -2,24 +2,20 @@ import { getTokens } from "@/api/client";
 import {
   type MemoryKind,
   type MemoryUpdateFeedEntry,
-  getMemory,
   getMemoryFile,
   getMemoryTopic,
   isFeatureUnavailable,
   listMemoryTopics,
   listMemoryUpdates,
-  setMemoryEnabled,
   writeMemoryFile,
   writeMemoryTopic,
 } from "@/api/memory";
 // AI 记忆 (/memory) — the mobile 查看 + 改 + 删 lens on long-term memory (Agent记忆与知识系统
-// §一). The desktop splits this across the 文件 page (content) + 设置 (switch); the phone's
-// lite版 folds both into one page reached from the 文件 tab: a master switch, cross-
-// conversation「最近更新」feed, the two always-injected GLOBAL core leaves (偏好 / 画像) as
-// editable text, and the on-demand 主题 notes as a view/edit/delete list. GLOBAL scope
-// only — per-project memory stays a desktop task (减法 boundary). Each section self-loads
-// (mobile has no global store), and edits are CAS-guarded: a stale baseline reloads the
-// live copy rather than clobbering it.
+// §一). Reached from the 文件 tab: cross-conversation「最近更新」feed, the two always-
+// injected GLOBAL core leaves (偏好 / 画像) as editable text, and the on-demand 主题 notes
+// as a view/edit/delete list. GLOBAL scope only — per-project memory stays a desktop task
+// (减法 boundary). Each section self-loads (mobile has no global store), and edits are
+// CAS-guarded: a stale baseline reloads the live copy rather than clobbering it.
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "@/pages/more/more.css";
@@ -65,7 +61,6 @@ export function MemoryPage() {
           AI
           会从对话里记下关于你的长期偏好与事实，并在后续对话中参考。你可以在这里查看、编辑或清空。
         </p>
-        <EnableToggle onAuthError={onAuthError} />
         <RecentUpdates onAuthError={onAuthError} />
         <LeafEditor
           kind="preferences"
@@ -100,65 +95,6 @@ function Section({
       {note && <p className="section-note">{note}</p>}
       <div className="section-card">{children}</div>
     </section>
-  );
-}
-
-/** Master switch — enable/disable long-term memory (content is kept when off). */
-function EnableToggle({
-  onAuthError,
-}: { onAuthError: (e: unknown) => unknown }) {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    getMemory()
-      .then((d) => alive && setEnabled(d.enabled))
-      .catch((e) => {
-        onAuthError(e);
-        if (alive) setError("加载记忆设置失败");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [onAuthError]);
-
-  async function toggle() {
-    if (enabled === null) return;
-    setPending(true);
-    setError(null);
-    try {
-      const d = await setMemoryEnabled(!enabled);
-      setEnabled(d.enabled);
-    } catch (e) {
-      onAuthError(e);
-      setError("设置失败，请重试");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <Section
-      title="启用 AI 记忆"
-      note="停用后，AI 不再把记忆注入对话，也不会从新对话里自动更新记忆；已记住的内容会保留。"
-    >
-      <div className="mem-toggle-row">
-        <span className="mem-toggle-state">
-          {enabled === null ? "加载中…" : enabled ? "已启用" : "已停用"}
-        </span>
-        <button
-          type="button"
-          className={enabled ? "btn-outline" : ""}
-          disabled={enabled === null || pending}
-          onClick={() => void toggle()}
-        >
-          {pending ? "处理中…" : enabled ? "停用" : "启用"}
-        </button>
-      </div>
-      {error && <p className="error">{error}</p>}
-    </Section>
   );
 }
 

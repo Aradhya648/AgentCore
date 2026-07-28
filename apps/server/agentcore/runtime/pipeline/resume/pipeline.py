@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import contextlib
 from dataclasses import asdict
 
@@ -9,7 +11,7 @@ import agentcore.runtime.pipeline as pipeline_pkg
 from agentcore.core.error_codes import ErrorCode
 from agentcore.core.errors import error_fields_for
 from agentcore.core.logging import get_logger
-from agentcore.core.types import AutonomyPolicy, PermissionPreset, new_id, preset_to_autonomy
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, new_id
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.profiles import TurnProfiles as ProfileSet
 from agentcore.llm.profiles import turn_profiles_for_turn
@@ -75,8 +77,7 @@ async def resume_chat_pipeline(
     suspension_saver: SuspensionSaver | None = None,
     suspension_deleter: SuspensionDeleter | None = None,
     llm_supports_tools: bool | None = None,
-    autonomy_policy: AutonomyPolicy | None = None,
-    permission_preset: PermissionPreset | None = None,
+    permission_axes: PermissionAxes | None = None,
     x_client_platform: str | None = None,
 ) -> dict:
     """Continue a turn paused at a plan_review / ask_user checkpoint (结构化挂起 2b resume).
@@ -105,15 +106,12 @@ async def resume_chat_pipeline(
     for every ordinary chat — then ``board_ops`` is neither wired nor reachable, exactly as
     on the fresh-turn path.
 
-    ``permission_preset`` / ``autonomy_policy`` mirror :func:`run_chat_pipeline`: the
-    conversation's CURRENT permission mode (安全权限与治理 · 会话级权限模式), resolved
-    by the caller at resume time — not frozen into the frame. ``None`` falls back to
-    workspace / first_grant.
+    ``permission_axes`` mirrors :func:`run_chat_pipeline`: the conversation's CURRENT
+    three-axis permission mode, resolved by the caller at resume time — not frozen
+    into the frame. ``None`` falls back to write_code defaults.
     """
-    if permission_preset is not None:
-        autonomy_policy = preset_to_autonomy(permission_preset)
-    elif autonomy_policy is None:
-        autonomy_policy = AutonomyPolicy.FIRST_GRANT
+    if permission_axes is None:
+        permission_axes = DEFAULT_PERMISSION_AXES
     profiles = turn_profiles_for_turn(profile_set, llm_credentials)
     message_id = suspension.message_id
     conversation_id = suspension.conversation_id
@@ -185,10 +183,10 @@ async def resume_chat_pipeline(
         captain_run_id=captain_run_id,
         delegated=bool(
             (getattr(suspension, "plan", None) and getattr(suspension.plan, "nodes", None))
-            or permission_preset is PermissionPreset.FULL_TRUST
+            or permission_axes.implies_deep_research_auto
         ),
         permission_preset=(
-            permission_preset.value if permission_preset is not None else None
+            json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
     )
     # Session roster write-through (as-built: 成本配额 §三): fire-and-forget + turn-end flush (parity with run).
@@ -223,8 +221,7 @@ async def resume_chat_pipeline(
             message_id=message_id,
             captain_run_id=captain_run_id,
             profiles=profiles,
-            autonomy_policy=autonomy_policy,
-            permission_preset=permission_preset,
+            permission_axes=permission_axes,
             session_saver=session_saver,
             session_loader=session_loader,
             suspension_saver=suspension_saver,
@@ -266,6 +263,16 @@ async def resume_chat_pipeline(
             conversation_id,
             entries=list(suspension.journal_entries or []),
             turn_paused_format=hydrated.presentation_format,
+        )
+        # Agent/自动化开工形态确认从 turn_paused / journal 再水化。
+        from agentcore.runtime.runs.automation_delivery import (
+            rehydrate_delivery_confirmation,
+        )
+
+        rehydrate_delivery_confirmation(
+            conversation_id,
+            entries=list(suspension.journal_entries or []),
+            turn_paused_delivery=hydrated.automation_delivery,
         )
         controller_seed = hydrated.controller_seed
 

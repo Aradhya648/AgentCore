@@ -152,11 +152,14 @@ async def close_user_stop_turn(
 ) -> bool:
     """Synchronously close a user-stopped turn (terminal incomplete + release path).
 
-    Same spawn gates as :func:`salvage_incomplete_turn`, but awaited so ``/stop``
-    finishes the durable write before releasing the lease.
+    Awaited so ``/stop`` finishes the durable write before releasing the lease.
+    Callers must only ``release_turn_lease`` when this returns ``True``; on
+    ``False`` they must ``orphan_turn_lease`` so a RUNNING row never loses its lease.
 
     Always emits live ``message_end(cancelled)`` first so an attached SSE client can
-    leave ``stopping`` (durable persist may still skip on empty / open-pause turns).
+    leave ``stopping``. Empty journal / empty captain body must still durable-close
+    (tool-only / pre-stream cancel); open durable pause keeps the pause frame and
+    returns ``True`` (safe to release — pause owns continuation).
     """
     # Live confirmation before durable close — FE confirms stop on this frame.
     if not sink._closed:
@@ -168,11 +171,10 @@ async def close_user_stop_turn(
         return False
     journal = sink.execution_journal()
     content = compose_salvage_content(sink.streamed_content(), journal_entries)
-    if not journal and not content.strip():
-        return False
     suspend_frames = settings.structured_suspension_persist_enabled
     if journal and suspend_frames and has_open_durable_pause(journal):
-        return False
+        # Pause frame is the durable record — do not interrupt-close; lease may release.
+        return True
     return await close_turn_interrupted(
         message_id=message_id,
         conversation_id=conversation_id,
@@ -180,6 +182,7 @@ async def close_user_stop_turn(
         reason=TurnInterruptReason.USER_STOP,
         content=content,
         journal=list(journal) if journal else [],
+        load_stream_state=True,
     )
 
 

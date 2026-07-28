@@ -67,10 +67,14 @@ class AskOption(WirePayload):
     and the value composed back into the answer; `recommended` is advisory highlight only
     (NOT a pre-selection). `action` marks an option that the desktop client fulfils with a
     native client action instead of a plain text answer (unknown/absent → plain option):
-    `bind_local_folder` renders as a folder picker that binds the conversation workspace
-    to the chosen local directory before resuming the turn;
+    `open_local_project` renders as a folder picker that creates/reuses a local Folder
+    (mode=local, empty subpath, root=chosen dir) and starts a **new** conversation under
+    that project — never rewrites the current session's ``folder_id``;
+    `bind_local_folder` renders as a folder picker that binds the bare-chat scratch
+    workspace (``conversations/<id>``) for local execution — not 「打开项目」;
     `grant_readonly_folder` renders as a folder picker that grants a session-scoped
-    read-only mount under ``external/<alias>/`` (W3; does not change workspace binding);
+    read-only mount under ``external/<alias>/`` (W3; orthogonal to workspace binding —
+    cloud scratch + desktop online is enough; does not change binding);
     `grant_organize_folder` is the organize-mode counterpart (move/copy/mkdir/trash-delete).
     Structured ``op`` / ``source`` / ``destination`` / ``path`` fields carry organize_plan
     items for plan-bound ``file_batch``."""
@@ -79,7 +83,12 @@ class AskOption(WirePayload):
     detail: str | None = absent()
     recommended: bool | None = absent()
     action: (
-        Literal["bind_local_folder", "grant_readonly_folder", "grant_organize_folder"]
+        Literal[
+            "open_local_project",
+            "bind_local_folder",
+            "grant_readonly_folder",
+            "grant_organize_folder",
+        ]
         | None
     ) = absent()
     op: Literal["move", "copy", "delete", "mkdir"] | None = absent()
@@ -321,6 +330,12 @@ class EscalationRequiredPayload(WirePayload):
     browser_login: bool | None = absent(
         "true=用户可在回合仍 running 时接管浏览器完成登录（D16 窄例外）。"
         "旧流缺字段按 false。"
+    )
+    ownership_paths: list[str] | None = absent(
+        "写权冲突路径列表；有值时前端呈现「移交写权 / 保持原主」。旧流缺字段按无。"
+    )
+    lock_owner_run_id: str | None = absent(
+        "当前写权持有者 run_id。旧流缺字段按无。"
     )
 
 

@@ -122,6 +122,8 @@ def single_outcome(
     citations: list[dict],
     latency_ms: int,
     finish_override: FinishReason | None = None,
+    workspace_root: str | None = None,
+    reference_root: str | None = None,
 ) -> TurnOutcome:
     """把 ``react_loop`` 的返回值 + sink 截获的事实归一化成 :class:`TurnOutcome`.
 
@@ -153,10 +155,19 @@ def single_outcome(
         plan_type=sink.plan_type,
         collab_interactions=dict(sink.collab_interactions),
         artifacts=artifacts_from_tool_calls(tool_calls),
+        workspace_root=workspace_root,
+        reference_root=reference_root,
     )
 
 
-def team_outcome(result: dict, sink: RecordingSink, *, latency_ms: int) -> TurnOutcome:
+def team_outcome(
+    result: dict,
+    sink: RecordingSink,
+    *,
+    latency_ms: int,
+    workspace_root: str | None = None,
+    reference_root: str | None = None,
+) -> TurnOutcome:
     """把 ``run_chat_pipeline`` 的返回 dict + sink 截获的 roster 归一化成 :class:`TurnOutcome`.
 
     ``delegated`` 以 roster 里是否出现**非 CEO 角色**为准（roster 来自 ``run_plan`` 的委派
@@ -192,6 +203,8 @@ def team_outcome(result: dict, sink: RecordingSink, *, latency_ms: int) -> TurnO
         plan_type=sink.plan_type,
         collab_interactions=dict(sink.collab_interactions),
         artifacts=artifacts_from_tool_calls(tool_calls),
+        workspace_root=workspace_root,
+        reference_root=reference_root,
     )
 
 
@@ -219,7 +232,8 @@ class EvalHarness:
 
     async def run_case(self, case: EvalCase) -> TurnOutcome:
         sink = RecordingSink()
-        backend = ServerWorkspace(root=self._fixture_root(case), sandbox=SubprocessSandbox())
+        ws_root = self._fixture_root(case)
+        backend = ServerWorkspace(root=ws_root, sandbox=SubprocessSandbox())
         profiles = resolve_profile_set(case.mode, custom_modes={}, ceiling=_EVAL_CEILING)
         if self._plan_only:
             profiles = _clamp_ceo_rounds(profiles, PLAN_ONLY_CEO_MAX_ROUNDS)
@@ -235,6 +249,7 @@ class EvalHarness:
         # un-correlatable and skewing offline log_stats. ``case`` is the eval analogue of
         # turn_id (already used as the failure-log key below). Evals never emit
         # chat.turn_complete, so these traces stay correctly excluded from the 空转率 turn set.
+        ws = str(ws_root)
         with (
             log_context(trace_id=new_trace_id(), user_id=_EVAL_USER_ID, case=case.id),
             use_profile(prompt_profile),
@@ -242,8 +257,12 @@ class EvalHarness:
         ):
             try:
                 if case.path == "single":
-                    return await self._run_single(case, backend, profiles, sink, t0)
-                return await self._run_team(case, backend, profiles, sink, t0)
+                    return await self._run_single(
+                        case, backend, profiles, sink, t0, workspace_root=ws
+                    )
+                return await self._run_team(
+                    case, backend, profiles, sink, t0, workspace_root=ws
+                )
             except Exception as e:  # react_loop/pipeline 失败 → error 态（不让一例炸掉整套）
                 logger.error("evals.run_case_failed", case=case.id, error=str(e), exc_info=True)
                 tool_calls = list(sink.tool_calls)
@@ -258,9 +277,12 @@ class EvalHarness:
                     plan_type=sink.plan_type,
                     collab_interactions=dict(sink.collab_interactions),
                     artifacts=artifacts_from_tool_calls(tool_calls),
+                    workspace_root=ws,
                 )
 
-    async def _run_single(self, case, backend, profiles, sink, t0) -> TurnOutcome:
+    async def _run_single(
+        self, case, backend, profiles, sink, t0, *, workspace_root: str | None = None
+    ) -> TurnOutcome:
         provider = self._provider or build_provider(_eval_credentials())
         # toolset="worker" gets the REAL delegated-worker registry (builtins + the
         # worker-only ``escalate`` upward channel), so a worker-path eval exercises
@@ -311,9 +333,12 @@ class EvalHarness:
             citations=citations,
             latency_ms=_ms(t0),
             finish_override=finish_override[0] if finish_override else None,
+            workspace_root=workspace_root,
         )
 
-    async def _run_team(self, case, backend, profiles, sink, t0) -> TurnOutcome:
+    async def _run_team(
+        self, case, backend, profiles, sink, t0, *, workspace_root: str | None = None
+    ) -> TurnOutcome:
         result = await run_chat_pipeline(
             conversation_id=new_id(),
             user_message=case.user_message,
@@ -324,7 +349,7 @@ class EvalHarness:
             approvals_enabled=False,
             profile_set=profiles,
         )
-        return team_outcome(result, sink, latency_ms=_ms(t0))
+        return team_outcome(result, sink, latency_ms=_ms(t0), workspace_root=workspace_root)
 
     def _fixture_root(self, case: EvalCase) -> Path:
         """用例的工作区现场：指定 fixture → 拷贝到临时目录再挂（源只读）；否则一次性临时目录。"""

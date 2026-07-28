@@ -15,8 +15,23 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-CompletionCriteriaKind = Literal["files_written", "code_verified", "custom"]
+CompletionCriteriaKind = Literal[
+    "files_written",
+    "code_verified",
+    "runtime_ready",
+    "graph_consistent",
+    "custom",
+]
 DEFAULT_COMPLETION_CRITERIA: CompletionCriteriaKind = "files_written"
+_CRITERIA_KINDS = frozenset(
+    {
+        "files_written",
+        "code_verified",
+        "runtime_ready",
+        "graph_consistent",
+        "custom",
+    }
+)
 # Where the resolved criteria came from — drives CEO-facing gap / echo copy.
 # ``text_inferred`` is retained only for historical gap-format strings; the resolver
 # no longer produces it (检索与交付约束前置提案 B1).
@@ -28,6 +43,8 @@ _EXECUTION_TOOL_NAMES = frozenset({"code_execute", "test_run", "terminal"})
 
 # D2: TypeScript landings require a real verify signal (not task-text inference).
 _TYPESCRIPT_SUFFIXES = frozenset({".ts", ".tsx"})
+# Graph auto-scan: .ts/.tsx/.vue landings (parallel to D2).
+_GRAPH_SOURCE_SUFFIXES = frozenset({".ts", ".tsx", ".vue"})
 
 # Commands that count as code verification when run via terminal / code_execute.
 _VERIFY_COMMAND_RE = re.compile(
@@ -42,11 +59,39 @@ _VERIFY_COMMAND_RE = re.compile(
 )
 # Task text hints that imply run/open/install acceptance — non-binding soft warnings
 # only (``execution_capability_warning``). Binding criteria MUST be explicit / structured;
-# never resolve to ``code_verified`` from these hints (提案 B1).
+# never resolve to ``code_verified`` / ``runtime_ready`` from these hints (提案 B1).
 _EXECUTION_TASK_HINTS = re.compile(
     r"(运行|启动|打开|安装|跑通|联调|验收|测试通过|"
     r"npm\s+(run|start)|pnpm\s+(run|start)|yarn\s+(run|start|dev)|"
     r"python\s+-m|uv\s+run|pip\s+run|cargo\s+run|go\s+run|进程)",
+    re.IGNORECASE,
+)
+
+# Long-running / process-ready task shape — pairs with ``runtime_ready`` (not code_verified).
+# Require a process/service anchor after「启动」— bare「启动调研」must NOT match.
+_RUNTIME_READY_TASK_HINTS = re.compile(
+    r"(?:"
+    r"启动(?:项目|应用|服务|服务器|开发服务器|dev)"
+    r"|把(?:这个|该)?项目跑起来|把服务跑起来|跑起来(?:项目|服务|应用|开发服务器)?"
+    r"|开发服务器|dev\s*server|长驻|后台进程|wait_for"
+    r"|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start)\b"
+    r"|(?:npx|bunx)\s+(?:vite|next|nuxt|webpack-dev-server)\b"
+    r"|vite\s+--host|next\s+dev|uvicorn\b|runserver\b|flask\s+run\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Compile / test / build verify task shape — pairs with ``code_verified``.
+# Keep aligned with ``_VERIFY_COMMAND_RE`` (kind-fit must not drift from evidence).
+_VERIFY_TASK_HINTS = re.compile(
+    r"(?:"
+    r"\btsc\b|vue-tsc\b|typecheck|type-check|pytest|vitest|\bjest\b|unittest"
+    r"|(?:npm|pnpm|yarn)\s+run\s+(?:test|build|typecheck|lint)\b"
+    r"|(?:npm|pnpm|yarn)\s+test\b"
+    r"|cargo\s+(?:test|check|build)\b|go\s+test\b"
+    r"|(?:mvn|gradlew?)\s+test\b"
+    r"|跑通测试|单元测试|集成测试|编译检查|类型检查|build\s*通过|测试通过"
+    r")",
     re.IGNORECASE,
 )
 
@@ -80,12 +125,12 @@ def parse_completion_criteria(raw: Any) -> CompletionCriteria | None:
     if raw is None:
         return None
     if isinstance(raw, str):
-        if raw in ("files_written", "code_verified", "custom"):
+        if raw in _CRITERIA_KINDS:
             return CompletionCriteria(kind=raw)  # type: ignore[arg-type]
         return CompletionCriteria(kind=DEFAULT_COMPLETION_CRITERIA)
     if isinstance(raw, dict):
         kind = raw.get("type") or raw.get("kind") or DEFAULT_COMPLETION_CRITERIA
-        if kind not in ("files_written", "code_verified", "custom"):
+        if kind not in _CRITERIA_KINDS:
             kind = DEFAULT_COMPLETION_CRITERIA
         desc = str(raw.get("description") or "")
         return CompletionCriteria(kind=kind, description=desc)  # type: ignore[arg-type]
@@ -97,6 +142,24 @@ def plan_suggests_code_verification(plan: RunPlan) -> bool:
     for node in plan.nodes:
         text = f"{node.task}\n{node.objective}".strip()
         if text and _EXECUTION_TASK_HINTS.search(text):
+            return True
+    return False
+
+
+def plan_suggests_runtime_ready(plan: RunPlan) -> bool:
+    """True when any task reads like start-a-long-running-process acceptance."""
+    for node in plan.nodes:
+        text = f"{node.task}\n{node.objective}".strip()
+        if text and _RUNTIME_READY_TASK_HINTS.search(text):
+            return True
+    return False
+
+
+def plan_suggests_verify(plan: RunPlan) -> bool:
+    """True when any task reads like compile/test/build verify acceptance."""
+    for node in plan.nodes:
+        text = f"{node.task}\n{node.objective}".strip()
+        if text and _VERIFY_TASK_HINTS.search(text):
             return True
     return False
 
@@ -148,7 +211,8 @@ def validate_completion_against_forms(
     return (
         "契约矛盾：completion_criteria=files_written 要求至少一名 worker 落盘，"
         "但本批全部 worker 均为 deliverable.form=prose（纯文字、不授写文件工具）。"
-        "改法：① 纯文字交付请省略 completion_criteria，或改用 code_verified（若需跑通验证）；"
+        "改法：① 纯文字交付请省略 completion_criteria，或改用 code_verified / "
+        "runtime_ready（若需跑通验证或进程就绪）；"
         "② 若确需落盘，把对应 worker 的 deliverable.form 改为 files。"
     )
 
@@ -205,6 +269,49 @@ def _resolved_code_verified(raw: Any, plan: RunPlan) -> bool:
     return criteria is not None and criteria.kind == "code_verified"
 
 
+def _resolved_runtime_ready(raw: Any, plan: RunPlan) -> bool:
+    """Whether this delegate WILL be held to ``runtime_ready`` at completion."""
+    criteria = resolve_completion_criteria(raw, plan)
+    return criteria is not None and criteria.kind == "runtime_ready"
+
+
+def _explicit_criteria_kind(raw: Any) -> CompletionCriteriaKind | None:
+    """Kind from CEO-explicit raw only (ignores structured files_written inference)."""
+    if raw is None:
+        return None
+    parsed = parse_completion_criteria(raw)
+    return parsed.kind if parsed is not None else None
+
+
+def validate_criteria_kind_fit(raw: Any, plan: RunPlan) -> str | None:
+    """Reject explicit criteria that contradict the batch's acceptance shape.
+
+    ``code_verified`` = compile/test/build evidence; ``runtime_ready`` = long-running
+    process ready. Mixing them (e.g. ``code_verified`` on「启动 npm run dev」) is a
+    contract error — not a soft gap after the worker already succeeded.
+    """
+    kind = _explicit_criteria_kind(raw)
+    if kind is None:
+        return None
+    startish = plan_suggests_runtime_ready(plan)
+    verifyish = plan_suggests_verify(plan)
+    if kind == "code_verified" and startish and not verifyish:
+        return (
+            "契约矛盾：completion_criteria=code_verified 只验收编译/测试/build"
+            "（tsc|typecheck|test|build 等 exit 0），不能验收「启动开发服务器 / 长驻进程」。"
+            "本批任务是进程启动形。改法：改用 completion_criteria=runtime_ready"
+            "（terminal start + wait_for 就绪）；若只要启动汇报、不强制引擎验收，可省略"
+            "completion_criteria。"
+        )
+    if kind == "runtime_ready" and verifyish and not startish:
+        return (
+            "契约矛盾：completion_criteria=runtime_ready 只验收长驻进程就绪"
+            "（terminal start + wait_for matched），不能验收编译/测试。"
+            "本批任务是验证形。改法：改用 completion_criteria=code_verified。"
+        )
+    return None
+
+
 def _criteria_fingerprint(raw: Any) -> str | None:
     """Stable compare key for hoist / conflict (kind + optional custom description)."""
     criteria = parse_completion_criteria(raw)
@@ -253,7 +360,8 @@ def hoist_task_completion_criteria(
             "委派参数无效：多个 task 内嵌的 completion_criteria 互相冲突"
             f"（{'; '.join(parts)}）。"
             "请删掉 tasks[].completion_criteria，改在 delegate 顶层写一条"
-            "（与 tasks 同级，如 files_written / code_verified / "
+            "（与 tasks 同级，如 files_written / code_verified / runtime_ready / "
+            "graph_consistent / "
             "{\"type\":\"custom\",\"description\":\"…\"}）；"
             "若确需分 task 差异验收，请拆成多次 delegate。"
         )
@@ -274,14 +382,26 @@ def validate_execution_capability(
     plan: RunPlan,
     backend: Any,
 ) -> str | None:
-    """Hard gate: resolved ``code_verified`` on a workspace with NO execution class.
+    """Hard gate: execution-class criteria on a workspace that cannot satisfy them.
 
-    Fires for whatever ``resolve_completion_criteria`` will enforce at completion
-    (同一谓词；B1 后绑定 criteria 仅来自显式声明 / 结构化 form·artifacts，文案启发
-    只走软警告)。Capability truth is ``code_execution_enabled_for`` (the SAME
-    predicate the worker registry uses). Returns the CEO-facing rejection message
-    (with concrete ways out), or ``None`` when the combination is fine.
+    - ``code_verified`` needs ``code_execution_enabled_for`` (code_execute / test_run).
+    - ``runtime_ready`` needs a local workspace with ``terminal``.
+
+    Returns the CEO-facing rejection message, or ``None`` when fine.
     """
+    if _resolved_runtime_ready(raw, plan):
+        if backend is None or getattr(backend, "location", None) == "local":
+            return None
+        return (
+            "无法按 runtime_ready 验收：本回合无本机 terminal（云端沙箱不能托管长驻"
+            "开发服务器），这条委派会空跑。出路："
+            "① 需要真启动服务 → 立即发 ask_user 卡（桌面在线时：本会话要跑通 → "
+            "action=bind_local_folder；打开本机目录当项目 → action=open_local_project；"
+            "勿用纯文本询问；bind≠打开项目）；完成后再委派；"
+            "② 改为给出本地启动步骤（form=prose 或 files 落盘说明），省略 "
+            "completion_criteria=runtime_ready，并在收尾标出「未在本回合启动」；"
+            "③ 交付形态拿不准 → 先 ask_user 与用户对齐再委派。"
+        )
     if not _resolved_code_verified(raw, plan):
         return None
     from agentcore.tools.builtin import code_execution_enabled_for
@@ -291,8 +411,9 @@ def validate_execution_capability(
     return (
         "无法按 code_verified 验收：本回合工作区为云端沙箱、未装配 code_execute / test_run"
         "（执行环境不可用），worker 写得了文件但运行不了代码，这条委派会空跑。出路："
-        "① 需要真跑通 → 立即发 ask_user 卡（桌面在线时选项标 action=bind_local_folder），"
-        "勿用纯文本询问；绑定完成后再委派；"
+        "① 需要真跑通 → 立即发 ask_user 卡（桌面在线时：本会话要跑通 → "
+        "action=bind_local_folder；打开本机目录当项目 → action=open_local_project；"
+        "勿用纯文本询问；bind≠打开项目）；完成后再委派；"
         "② 改为当前环境可交付的形态 → 落盘生成脚本 / 源文件 + 使用说明"
         "（deliverable.form=files，completion_criteria=files_written，任务文案不写"
         "「运行 / 跑通」类要求），并在收尾向用户显式标出「未运行验证」的交付缺口；"
@@ -305,27 +426,36 @@ def execution_capability_warning(
     plan: RunPlan,
     backend: Any,
 ) -> str | None:
-    """Soft warning: binary-artifact deliverable smell with no execution class.
+    """Soft warning: binary-artifact / run-flavoured smell with no execution class.
 
-    Fires only when the hard gate did NOT (resolved criteria is not ``code_verified`` —
-    e.g. explicit ``files_written`` on a run-flavoured task, or binary-artifact hints
-    without run hints). Never blocks — the caller appends it to the delegate tool
-    result so the CEO plans an honest deliverable (剩余启发只软警告，误报宁可漏不可错杀).
+    Fires only when the hard gate did NOT (resolved criteria is not ``code_verified``
+    or ``runtime_ready``). Never blocks.
     """
-    if _resolved_code_verified(raw, plan):
+    if _resolved_code_verified(raw, plan) or _resolved_runtime_ready(raw, plan):
         return None  # hard gate owns this case
     if not (plan_suggests_code_verification(plan) or plan_mentions_binary_artifact(plan)):
         return None
     from agentcore.tools.builtin import code_execution_enabled_for
 
     if code_execution_enabled_for(backend):
+        if (
+            plan_suggests_runtime_ready(plan)
+            and getattr(backend, "location", None) != "local"
+        ):
+            return (
+                "[能力提示] 本批任务像「启动长驻进程 / 开发服务器」，但当前无本机 "
+                "terminal：worker 无法真正托管服务。请在绑定本机执行环境或打开本地项目后使用 "
+                "completion_criteria=runtime_ready，或改为启动步骤说明并省略进程就绪验收。"
+            )
         return None
     return (
         "[能力提示] 本回合执行环境未装配（云端沙箱，无 code_execute / test_run / terminal）："
         "任务文案涉及「运行 / 启动 / 生成二进制或可播放产物」，worker 只能写脚本 / 文件，"
         "无法真正运行或生成此类产物。收尾时请把交付缺口如实标给用户"
         "（如「脚本已落盘、未运行验证」），或立即发 ask_user 卡"
-        "（桌面在线时 action=bind_local_folder，勿用纯文本询问）后重派。"
+        "（桌面在线时：本会话要跑通 → action=bind_local_folder；"
+        "打开本机目录当项目 → action=open_local_project；"
+        "勿用纯文本询问；bind≠打开项目）后重派。"
     )
 
 
@@ -409,15 +539,21 @@ def node_holds_execution_tools(spec: Any) -> bool:
 def should_inject_batch_acceptance(spec: Any, criteria: CompletionCriteria | None) -> bool:
     """Whether this worker should see batch ``completion_criteria`` in 交付物规格.
 
-    Scope (提案 B2): resolved criteria present ∧ ``form=files`` ∧ holds execution
-    tools — so research/prose peers are not nudged into redundant verification.
+    - ``runtime_ready``: any worker holding execution-class tools (start tasks often
+      omit ``form=files``).
+    - ``files_written`` / ``code_verified`` (提案 B2): ``form=files`` ∧ execution tools
+      — research/prose peers are not nudged into redundant verification.
     """
     if criteria is None:
         return False
+    if not node_holds_execution_tools(spec):
+        return False
+    if criteria.kind == "runtime_ready":
+        return True
     deliverable = getattr(spec, "deliverable", None)
     if deliverable is None or getattr(deliverable, "form", None) != "files":
         return False
-    return node_holds_execution_tools(spec)
+    return True
 
 
 def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
@@ -431,7 +567,19 @@ def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
         return (
             "- 本批验收：code_verified（至少一名 worker 须用 code_execute / test_run / "
             "terminal 跑通 verify 形态命令：tsc|typecheck|test|build 等且 exit 0；"
-            "普通脚本/打印不算；你持有执行工具且交付为落盘文件时，请在收尾前完成验证）"
+            "普通脚本/打印/启动开发服务器不算；你持有执行工具且交付为落盘文件时，"
+            "请在收尾前完成验证）"
+        )
+    if criteria.kind == "runtime_ready":
+        return (
+            "- 本批验收：runtime_ready（至少一名 worker 须用 terminal subcommand=start "
+            "启动长驻进程，并设 wait_for 等到就绪信号 matched；禁止用 code_execute "
+            "启服务；就绪后汇报访问地址）"
+        )
+    if criteria.kind == "graph_consistent":
+        return (
+            "- 本批验收：graph_consistent（落盘的 .ts/.tsx/.vue 相对路径与 `@/` import "
+            "须指向已存在文件；禁止悬空引用）"
         )
     desc = (criteria.description or "").strip()
     if desc:
@@ -564,6 +712,13 @@ def _is_typescript_path(path: str) -> bool:
     return suffix in _TYPESCRIPT_SUFFIXES
 
 
+def _is_graph_source_path(path: str) -> bool:
+    from pathlib import PurePosixPath
+
+    suffix = PurePosixPath(path.replace("\\", "/")).suffix.lower()
+    return suffix in _GRAPH_SOURCE_SUFFIXES
+
+
 def _batch_landed_typescript(completed: list[RunState]) -> bool:
     """True when any COMPLETED worker landed a ``.ts`` / ``.tsx`` path."""
     for state in completed:
@@ -577,10 +732,116 @@ def _batch_landed_typescript(completed: list[RunState]) -> bool:
     return False
 
 
+def _batch_landed_graph_sources(completed: list[RunState]) -> bool:
+    """True when any COMPLETED worker landed a ``.ts`` / ``.tsx`` / ``.vue`` path."""
+    for state in completed:
+        for path in state.files_touched or []:
+            if path and _is_graph_source_path(path):
+                return True
+        if state.transcript:
+            for path in _files_from_transcript(state.transcript):
+                if path and _is_graph_source_path(path):
+                    return True
+    return False
+
+
+def _collect_graph_source_paths(completed: list[RunState]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for state in completed:
+        paths = list(state.files_touched or [])
+        if state.transcript:
+            paths.extend(_files_from_transcript(state.transcript))
+        for path in paths:
+            if path and _is_graph_source_path(path) and path not in seen:
+                seen.add(path)
+                out.append(path)
+    return out
+
+
+def _graph_gap_message() -> str:
+    return (
+        "import 图不闭合：已落盘 .ts/.tsx/.vue 存在悬空相对路径或 `@/` 引用"
+        "（缺文件；须同批补齐或修正 import）"
+    )
+
+
+def _append_graph_gaps(
+    gaps: list[str],
+    *,
+    completed: list[RunState],
+    backend: Any = None,
+    file_map: dict[str, str] | None = None,
+) -> None:
+    """Append graph_consistent gaps when source texts are available."""
+    from agentcore.runtime.delegate.graph_integrity import (
+        format_graph_gap,
+        load_source_file_map_sync,
+        resolve_missing_imports,
+    )
+
+    paths = _collect_graph_source_paths(completed)
+    if not paths:
+        return
+    texts: dict[str, str] = dict(file_map or {})
+    if not texts and backend is not None:
+        texts = load_source_file_map_sync(backend, paths)
+    if not texts:
+        # No readable sources — cannot honestly claim a miss; skip (drive_finalize
+        # should pass an async-loaded file_map for cloud/local channel backends).
+        return
+    missing = resolve_missing_imports(texts)
+    if not missing:
+        return
+    msg = format_graph_gap(missing) or _graph_gap_message()
+    if msg not in gaps:
+        gaps.append(msg)
+
+
+def _terminal_runtime_ready_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """True when ``terminal`` *start* reported process ready (wait_for hit).
+
+    Requires ``subcommand=start`` in the call args. Status / matched are read from
+    the metadata header (before ``output:``) so stdout cannot fake readiness.
+    """
+    calls = _tool_call_args_map(transcript)
+    for msg in transcript:
+        if msg.role != "tool" or not msg.tool_call_id:
+            continue
+        name, args_json = calls.get(msg.tool_call_id, ("", ""))
+        if name != "terminal":
+            continue
+        if not re.search(r'"subcommand"\s*:\s*"start"', args_json or ""):
+            continue
+        content = msg.content or ""
+        if "【就绪判定】wait_for 已命中" in content:
+            return True
+        meta = content.split("\noutput:", 1)[0]
+        running = bool(re.search(r"(?m)^status:\s*running\s*$", meta))
+        matched = bool(re.search(r"(?m)^matched:\s*True\s*$", meta, re.IGNORECASE))
+        if running and matched:
+            return True
+    return False
+
+
+def _run_runtime_ready_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """Honest process-ready only: terminal start with wait_for matched."""
+    if not transcript:
+        return False
+    return _terminal_runtime_ready_in_transcript(transcript)
+
+
 def _verify_gap_message() -> str:
     return (
         "尚无 worker 成功验证代码（须 code_execute / test_run / terminal 跑通 "
-        "tsc|typecheck|test|build 等；落盘了 .ts/.tsx 时强制）"
+        "tsc|typecheck|test|build 等；落盘了 .ts/.tsx 时强制；启动开发服务器不算）"
+    )
+
+
+def _runtime_ready_gap_message() -> str:
+    return (
+        "尚无 worker 报告进程就绪（须 terminal start + wait_for 命中；"
+        "status=running 且 matched；禁止用 code_execute 启长驻进程）"
     )
 
 
@@ -599,6 +860,9 @@ def _files_from_transcript(transcript: list[LLMMessage]) -> list[str]:
 def check_delegate_completion(
     criteria: CompletionCriteria | None,
     results: dict[str, RunState],
+    *,
+    backend: Any = None,
+    file_map: dict[str, str] | None = None,
 ) -> tuple[bool, list[str]]:
     """Return ``(ok, gaps)`` after all workers in a delegate batch finish.
 
@@ -609,7 +873,11 @@ def check_delegate_completion(
     checked; with no matching evidence the result is a gap, never a vacuous
     pass. ``criteria is None`` (omitted) remains unenforced for files/custom,
     but **TypeScript landings always require a verify signal** (D2 — structured
-    from ``files_touched``, not task-text inference).
+    from ``files_touched``, not task-text inference), and **``.ts/.tsx/.vue``
+    landings auto-scan import graph** (like D2; skipped for ``runtime_ready``).
+
+    ``backend`` / ``file_map`` feed ``graph_consistent`` reads (``file_map``
+    preferred when pre-loaded async by drive_finalize).
     """
     # Include all COMPLETED workers — empty body is a valid finish mode
     # (落盘 / handoff-only). Filtering on content.strip() used to drop them
@@ -629,20 +897,46 @@ def check_delegate_completion(
         elif criteria.kind == "code_verified":
             if not any(_run_verified_in_transcript(s.transcript) for s in completed):
                 gaps.append(_verify_gap_message())
+        elif criteria.kind == "runtime_ready":
+            if not any(
+                _run_runtime_ready_in_transcript(s.transcript or []) for s in completed
+            ):
+                gaps.append(_runtime_ready_gap_message())
+        elif criteria.kind == "graph_consistent":
+            _append_graph_gaps(
+                gaps, completed=completed, backend=backend, file_map=file_map
+            )
         elif criteria.kind == "custom":
             # custom is intentionally not engine-verified. Never block completion on it —
             # a gap here used to mark successful delegates as unfinished. Prefer
-            # files_written / code_verified / deliverable.artifacts instead.
+            # files_written / code_verified / runtime_ready / deliverable.artifacts.
             pass
 
     # D2: any .ts/.tsx landing → require verify even when criteria omitted /
     # files_written-only (catches「清单全绿但 tsc 不过」).
-    if _batch_landed_typescript(completed) and not any(
-        _run_verified_in_transcript(s.transcript or []) for s in completed
+    # Skip when batch acceptance is runtime_ready — start ≠ compile/test verify.
+    if (
+        (criteria is None or criteria.kind != "runtime_ready")
+        and _batch_landed_typescript(completed)
+        and not any(
+            _run_verified_in_transcript(s.transcript or []) for s in completed
+        )
     ):
         msg = _verify_gap_message()
         if msg not in gaps:
             gaps.append(msg)
+
+    # Auto graph scan: .ts/.tsx/.vue landings → import closure (parallel to D2).
+    # Explicit graph_consistent already ran above; still run auto when other kinds
+    # (or omitted) so SPA batches cannot green with dangling imports.
+    # Skip runtime_ready batches (process-ready ≠ graph scan).
+    if (
+        (criteria is None or criteria.kind != "runtime_ready")
+        and _batch_landed_graph_sources(completed)
+    ):
+        _append_graph_gaps(
+            gaps, completed=completed, backend=backend, file_map=file_map
+        )
 
     if criteria is not None and criteria.kind == "custom" and not gaps:
         return True, []
@@ -721,6 +1015,119 @@ def format_completion_gap_message(
         )
 
     return "\n".join(parts)
+
+
+def _tool_result_failed(content: str) -> bool:
+    """True when tool_exec stamped the machine failure trailer on this tool message."""
+    return "<!--agentcore:tool_failed-->" in (content or "")
+
+
+def _browser_navigate_failed_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """True when any ``browser_navigate`` result carries the tool-failed trailer."""
+    if not transcript:
+        return False
+    calls = _tool_call_args_map(transcript)
+    for msg in transcript:
+        if msg.role != "tool" or not msg.tool_call_id:
+            continue
+        name, _ = calls.get(msg.tool_call_id, ("", ""))
+        if name != "browser_navigate":
+            continue
+        if _tool_result_failed(msg.content or ""):
+            return True
+    return False
+
+
+def _test_run_failed_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """True when a ``test_run`` was attempted and none succeeded (未过)."""
+    if not transcript:
+        return False
+    calls = _tool_call_args_map(transcript)
+    saw_test_run = False
+    for msg in transcript:
+        if msg.role != "tool" or not msg.tool_call_id:
+            continue
+        name, _ = calls.get(msg.tool_call_id, ("", ""))
+        if name != "test_run":
+            continue
+        saw_test_run = True
+    if not saw_test_run:
+        return False
+    return not _test_run_succeeded_in_transcript(transcript)
+
+
+def _verify_shaped_command_failed_in_transcript(transcript: list[LLMMessage]) -> bool:
+    """True when verify-shaped ``code_execute`` / ``terminal`` ran and none exited 0.
+
+    Mirrors the success predicates used by ``_run_verified_in_transcript``: only
+    typecheck/test/build-shaped commands count. A failed verify attempt with no
+    later success must depress delivery (可用性诚实性 · 丙).
+    """
+    if not transcript:
+        return False
+    calls = _tool_call_args_map(transcript)
+    saw_verify_shaped = False
+    for msg in transcript:
+        if msg.role != "tool" or not msg.tool_call_id:
+            continue
+        name, args_json = calls.get(msg.tool_call_id, ("", ""))
+        if name not in ("code_execute", "terminal"):
+            continue
+        if not _VERIFY_COMMAND_RE.search(args_json or ""):
+            continue
+        saw_verify_shaped = True
+    if not saw_verify_shaped:
+        return False
+    if _code_execute_verify_succeeded_in_transcript(transcript):
+        return False
+    if _terminal_verify_succeeded_in_transcript(transcript):
+        return False
+    return True
+
+
+def _verify_failure_descriptions(transcript: list[LLMMessage]) -> list[str]:
+    """Human one-liners for verify-shaped tool failures present in ``transcript``."""
+    out: list[str] = []
+    if _browser_navigate_failed_in_transcript(transcript):
+        out.append("浏览器验证失败（browser_navigate 未成功打开目标页）")
+    if _test_run_failed_in_transcript(transcript):
+        out.append("测试未通过（test_run 未全部通过）")
+    if _verify_shaped_command_failed_in_transcript(transcript):
+        out.append(
+            "验证命令未通过（verify 形 code_execute / terminal 非零退出或执行失败）"
+        )
+    return out
+
+
+# Machine gap reason for verify-tool failures (可用性诚实性 · 丙).
+# Mirrored as ``REASON_VERIFY_FAILED`` in delivery_status (avoid circular import).
+_VERIFY_FAILED_REASON = "verify_failed"
+
+
+def collect_verify_failure_gaps(
+    plan: RunPlan,
+    results: dict[str, RunState],
+) -> list[tuple[str, list[dict[str, str]]]]:
+    """Per-COMPLETED-worker verify-tool failure gaps (可用性诚实性 · 丙).
+
+    Scans worker transcripts for ``browser_navigate`` / ``test_run`` / verify-shaped
+    ``code_execute``·``terminal`` failures. Each hit becomes a blocking gap row with
+    ``reason=verify_failed`` so ``build_delivery_status`` cannot stay ``delivered``.
+    """
+    out: list[tuple[str, list[dict[str, str]]]] = []
+    for node in plan.nodes:
+        state = results.get(node.run_id)
+        if state is None or state.phase is not RunPhase.COMPLETED:
+            continue
+        descriptions = _verify_failure_descriptions(state.transcript or [])
+        if not descriptions:
+            continue
+        label = node.role or node.run_id
+        rows = [
+            {"description": text, "reason": _VERIFY_FAILED_REASON} for text in descriptions
+        ]
+        out.append((label, rows))
+    return out
 
 
 def collect_worker_gaps(
@@ -836,7 +1243,7 @@ def format_worker_gaps_block(
     if has_cutoff:
         lines.append(
             "结构化交付缺口已由系统对账卡呈现，概览正文不必逐条复述掐断原因；"
-            "可建议续派、绑定本地文件夹或 continue_from_run_id。"
+            "可建议续派、绑定本机执行环境或 continue_from_run_id。"
         )
     if audit_off_with_token_budget:
         lines.append(

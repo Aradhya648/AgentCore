@@ -11,7 +11,12 @@ from pydantic import Field, TypeAdapter, ValidationError
 from agentcore.api.schemas.messages import ResolveInteractionRequest, interaction_result_from_body
 from agentcore.conversation.store.outbox import OutboxStore
 from agentcore.core.logging import get_logger
-from agentcore.core.types import PermissionPreset, preset_to_autonomy
+from agentcore.core.types import (
+    DEFAULT_PERMISSION_AXES,
+    AutonomyPolicy,
+    PermissionAxes,
+    recipe_to_axes,
+)
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.profiles import PLATFORM_MODEL_FLASH
 from agentcore.runtime.interaction import default_interaction_registry
@@ -47,12 +52,11 @@ class HandlerMixin:
         )
         self._root = root.resolve()
         self._creds = self._parse_inference(params.get("inference"))
+        self._apply_browser_bridge(params)
         self._approvals_enabled = bool(params.get("approvalsEnabled", True))
-        self._permission_preset = (
-            self._parse_permission_preset(params.get("permissionPreset"))
-            or PermissionPreset.WORKSPACE
+        self._permission_axes = (
+            self._parse_permission_axes(params) or DEFAULT_PERMISSION_AXES
         )
-        self._autonomy_policy = preset_to_autonomy(self._permission_preset)
         data_dir = str(params.get("dataDir") or "").strip()
         self._paused_store = self._build_paused_store(data_dir)
         self._outbox_store = self._build_outbox_store(data_dir)
@@ -72,7 +76,7 @@ class HandlerMixin:
             root_label=self._root.name,
             inference="cloud-proxy" if self._creds else "platform-fallback",
             approvals=self._approvals_enabled,
-            permission_preset=self._permission_preset.value,
+            permission_axes=self._permission_axes.to_dict(),
             durable_pause=self._paused_store is not None,
             outbox=self._outbox_store is not None,
         )
@@ -176,26 +180,65 @@ class HandlerMixin:
         """
         if "inference" in params:
             self._creds = self._parse_inference(params.get("inference"))
+        # Bridge creds: always apply when key present (including explicit null → clear).
+        if "browserBridge" in params:
+            self._apply_browser_bridge(params)
 
     @staticmethod
-    def _parse_permission_preset(raw: Any) -> PermissionPreset | None:
-        """Coerce the desktop's permissionPreset string; unknown / missing ⇒ ``None``."""
-        try:
-            return PermissionPreset(str(raw or "").strip())
-        except ValueError:
+    def _apply_browser_bridge(params: dict[str, Any]) -> None:
+        """Adopt DesktopBrowserBridge credentials for this turn (B-Arch · C1/C4).
+
+        Mirrors inference refresh: desktop sends ``browserBridge: {baseUrl, token}``
+        on initialize / startTurn / resume. Missing key on initialize → leave env
+        fallback (dev probes). Explicit null / empty → withhold browser this turn.
+        """
+        from agentcore.runtime.browser.desktop_bridge import apply_desktop_bridge_from_turn
+
+        if "browserBridge" not in params:
+            return
+        apply_desktop_bridge_from_turn(params.get("browserBridge"))
+
+    @staticmethod
+    def _parse_permission_axes(params: dict[str, Any]) -> PermissionAxes | None:
+        """Coerce desktop ``permissionAxes`` object (or legacy ``permissionPreset``).
+
+        Prefer the three-axis object. Legacy observe/workspace/full_trust strings map
+        onto cautious / write_code / managed recipes so an un-updated desktop still boots.
+        Unknown / missing ⇒ ``None`` (caller keeps current / default).
+        """
+        raw_axes = params.get("permissionAxes")
+        if isinstance(raw_axes, dict):
+            try:
+                return PermissionAxes.from_mapping(raw_axes)
+            except ValueError:
+                return None
+        legacy = str(params.get("permissionPreset") or "").strip()
+        if not legacy:
             return None
+        legacy_map = {
+            "observe": AutonomyPolicy.CAUTIOUS,
+            "workspace": AutonomyPolicy.WRITE_CODE,
+            "full_trust": AutonomyPolicy.MANAGED,
+            "cautious": AutonomyPolicy.CAUTIOUS,
+            "write_code": AutonomyPolicy.WRITE_CODE,
+            "less_interrupt": AutonomyPolicy.LESS_INTERRUPT,
+            "managed": AutonomyPolicy.MANAGED,
+        }
+        recipe = legacy_map.get(legacy)
+        if recipe is None:
+            return None
+        return recipe_to_axes(recipe)
 
-    def _refresh_permission_preset(self, params: dict[str, Any]) -> None:
-        """Adopt the conversation's CURRENT permission mode from per-turn params.
+    def _refresh_permission_axes(self, params: dict[str, Any]) -> None:
+        """Adopt the conversation's CURRENT permission axes from per-turn params.
 
-        Sidecar has no conversation DB — the desktop re-sends ``permissionPreset`` on
-        every startTurn / resume so a mid-session switch applies to the next turn.
+        Sidecar has no conversation DB — the desktop re-sends axes on every
+        startTurn / resume so a mid-session switch applies to the next turn.
         Absent / invalid ⇒ keep the current value.
         """
-        parsed = self._parse_permission_preset(params.get("permissionPreset"))
+        parsed = self._parse_permission_axes(params)
         if parsed is not None:
-            self._permission_preset = parsed
-            self._autonomy_policy = preset_to_autonomy(parsed)
+            self._permission_axes = parsed
 
     async def _on_start_turn(self, request_id: Any, params: dict[str, Any]) -> None:
         if not self._initialized or self._root is None:
@@ -228,7 +271,7 @@ class HandlerMixin:
 
         # Adopt this turn's cloud-proxy token before it runs (refreshes a rotated TTL).
         self._refresh_creds(params)
-        self._refresh_permission_preset(params)
+        self._refresh_permission_axes(params)
 
         # The response to startTurn is DEFERRED until the turn completes (it carries
         # the final result); the live events flow as ``turn/event`` notifications in
@@ -356,7 +399,7 @@ class HandlerMixin:
         user_message_id = str(params.get("userMessageId") or "").strip()
         # Adopt this turn's cloud-proxy token before it runs (refreshes a rotated TTL).
         self._refresh_creds(params)
-        self._refresh_permission_preset(params)
+        self._refresh_permission_axes(params)
         task = asyncio.create_task(
             self._run_resume(
                 request_id,

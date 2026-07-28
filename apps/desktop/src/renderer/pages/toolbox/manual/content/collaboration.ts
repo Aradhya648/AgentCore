@@ -391,7 +391,7 @@ export const collaborationChapter: ManualChapterContent = {
             },
             {
               title: "工具授权",
-              desc: "敏感操作先征得你同意再执行——弹窗频率由自主度档位决定。",
+              desc: "敏感操作先征得你同意再执行——弹窗频率由权限配方决定。",
             },
             {
               title: "计划复核",
@@ -429,7 +429,7 @@ export const collaborationChapter: ManualChapterContent = {
                 to: MANUAL_SECTION_IDS.collaboration.autonomy,
               },
             },
-            " 联动：档位越高，同类能力越少逐次弹窗。ask_user / plan_review 拍板节点不受自主度改写。",
+            " 联动：配方越托管，同类能力越少逐次弹窗。ask_user / plan_review 拍板节点不受配方改写。",
           ],
         },
         {
@@ -446,28 +446,32 @@ export const collaborationChapter: ManualChapterContent = {
       blocks: [
         {
           type: "lead",
-          text: "自主度管「开工卡 + 可授权工具」弹多少次。ask_user / plan_review 拍板仍会按需出现。",
+          text: "权限配方管「改文件 / 执行命令 / 组团卡」弹多少次。ask_user / plan_review 拍板仍会按需出现。",
         },
         {
           type: "paragraph",
-          text: "三档怎么选",
+          text: "四个配方怎么选",
           emphasis: true,
         },
         {
           type: "cards",
-          cols: 3,
+          cols: 2,
           items: [
             {
-              title: "每次询问",
-              desc: "每个可授权工具调用都弹审批；最稳，批量写文件时会很吵。",
+              title: "谨慎",
+              desc: "改文件逐次问；不预授执行；组团卡按规则。最稳，批量改文件时会很吵。",
             },
             {
-              title: "开工授权（推荐）",
-              desc: "信任工作区写入（建目录/改文件免逐次卡）；跑代码与终端仍在开工卡确认。",
+              title: "写代码（推荐）",
+              desc: "本会话信任改文件；跑代码与终端仍在开工卡确认；组团卡按规则。",
             },
             {
-              title: "完全信任",
-              desc: "不弹开工卡：能力与开工计划确认一并跳过；拍板检查点仍会出现。",
+              title: "少打断",
+              desc: "本会话信任改文件；执行经开工卡；跳过组团卡。",
+            },
+            {
+              title: "托管",
+              desc: "本会话信任改文件；免审执行；跳过组团卡。拍板检查点仍会出现。",
             },
           ],
         },
@@ -475,8 +479,8 @@ export const collaborationChapter: ManualChapterContent = {
           type: "settingsRows",
           rows: [
             {
-              label: "设置 · 自主度",
-              desc: "随时改档；下一回合（或续跑）即按新档生效。",
+              label: "设置 · 权限配方",
+              desc: "新会话默认四选一；对话内徽章可改配方或单独调三轴，下一回合生效。",
               to: APP_PATHS.more.autonomy,
             },
           ],
@@ -493,7 +497,7 @@ export const collaborationChapter: ManualChapterContent = {
                 to: MANUAL_SECTION_IDS.collaboration.checkpoint,
               },
             },
-            " 的关系：自主度减的是工具审批与开工卡疲劳；拍板与计划复核仍走检查点。",
+            " 的关系：配方减的是工具审批与组团卡疲劳；拍板与计划复核仍走检查点。非法组合「免审执行 + 改文件逐次问」选不出。",
           ],
         },
       ],

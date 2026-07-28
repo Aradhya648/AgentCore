@@ -35,6 +35,7 @@ from .governance import (
     create_loop_controller,
     decide_llm_failure,
     maybe_inject_audit_gate,
+    maybe_inject_availability_status_nudge,
     maybe_inject_debate_gate,
     maybe_inject_exec_verify_gate,
     maybe_inject_turn_token_budget_gate,
@@ -322,6 +323,11 @@ async def react_loop(
             ask_user_available=ask_user_available,
         ):
             tool_defs = _resolve_tool_defs()
+        maybe_inject_availability_status_nudge(
+            messages=messages,
+            run_id=run_id or "",
+            role=role,
+        )
     active_model: str | None = base_model
     finish_guard_reworks = 0
     ceiling_reason = "max_rounds"

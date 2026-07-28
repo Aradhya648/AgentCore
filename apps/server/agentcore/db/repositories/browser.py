@@ -23,13 +23,20 @@ class BrowserTakeoverRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, *, conversation_id: str, user_id: str) -> tuple[str, datetime]:
+    async def create(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        session_id: str | None = None,
+    ) -> tuple[str, datetime]:
         """Insert an in-progress takeover episode; return ``(record_id, started_at)``."""
         started_at = datetime.now(UTC)
         row = BrowserTakeoverRow(
             id=new_id(),
             conversation_id=conversation_id,
             user_id=user_id,
+            session_id=session_id,
             started_at=started_at,
         )
         self._session.add(row)

@@ -496,13 +496,13 @@ function CompletedStrip({
                   ? "已跑完 · 交付未过关"
                   : "团队完成"}
           </span>
-          {!isDebate(execution) && (
-            <span className="text-muted-foreground">
-              {` · ${execution.agents.length} 个 Agent · ${completed}/${total} 子任务${
-                duration ? ` · 用时 ${duration}` : ""
-              }${costSegment}`}
-            </span>
-          )}
+          {/* 完成态 meta（Agent 数 / 子任务 / 用时 / ¥）辩论与多 Agent 同口径：
+              ¥ 归状态条（前端成本呈现）；标题仍走辩论预告片文案。 */}
+          <span className="text-muted-foreground">
+            {` · ${execution.agents.length} 个 Agent · ${completed}/${total} 子任务${
+              duration ? ` · 用时 ${duration}` : ""
+            }${costSegment}`}
+          </span>
         </span>
         <StripControls
           execution={execution}
@@ -542,6 +542,7 @@ function FailureStrip({
   teamPreview,
 }: StatusStripProps) {
   const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
+  const detached = useActiveExecField((rt) => rt.executionDetached);
 
   const failedRun = execution.runs.find((s) => s.status === "failed") ?? null;
   const failedAgent = failedRun
@@ -561,7 +562,24 @@ function FailureStrip({
         : null;
 
   return (
-    <div className="px-4 py-3">
+    <div className="px-4 py-3" data-testid="status-strip-failed">
+      {detached ? (
+        <div
+          className="mb-2 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-foreground"
+          data-testid="status-strip-failed-detached"
+        >
+          <Pause size={13} className="shrink-0 text-primary" aria-hidden />
+          <span className="font-medium">团队后台运行中</span>
+          {!isDebate(execution) && (
+            <span className="text-muted-foreground">
+              {detached.completed}/{detached.total}
+            </span>
+          )}
+          <span className="text-muted-foreground">
+            · 对话已因错误收口，团队仍在继续
+          </span>
+        </div>
+      ) : null}
       <div className="flex items-center gap-2">
         <AlertTriangle size={15} className="shrink-0 text-destructive" />
         <span className="flex-1 text-sm text-foreground">
@@ -627,8 +645,8 @@ function userMessageIdForAssistant(
  * Priority: retry-failed XOR regenerate. 「忽略」is implicit — starting a new
  * turn dismisses recoverable projections. Reused by failure / partial-failure /
  * stopped strips and the canvas 指挥台 ({@link CanvasDecisionPanel}).
- * Empty interrupted (no assistant body) does **not** mount this row at message
- * level — re-ask via a new turn.
+ * Empty interrupted (no assistant body) does **not** mount this row — layer 1
+ * recoverability is「再发一条」(+ composer light hint); see composerContinueHint.
  */
 export function RecoveryActions({
   hasFailedRuns = false,

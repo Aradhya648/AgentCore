@@ -6,7 +6,7 @@
  *
  * Money is integer nano-USD throughout (1 USD = 1e9). This never re-prices; it
  * only sums already-priced run totals (§7.2：合计以各 run 已定价之和为准).
- * BYOK: billed `total` stays 0; `estimated_total` may carry a community/user estimate.
+ * BYOK: billed `total` stays 0; `estimated_total` may carry a community estimate.
  */
 
 export type CostLeaf = {
@@ -41,7 +41,7 @@ export function resolveTurnCost(
 
 /**
  * True when the graph did real work that the platform simply cannot price —
- * some run consumed tokens under `pricing_source=unpriced` (BYOK, 三层价卡全落空).
+ * some run consumed tokens under `pricing_source=unpriced` (BYOK, 两层价卡全落空).
  * Callers use this to show an explicit「自带密钥·未计价」badge instead of silently
  * omitting the cost segment (which reads as "free"). Zero-usage runs don't count.
  */
@@ -72,8 +72,7 @@ export function resolveTurnDisplayMoney(
 ): DisplayMoney | null {
   if (turnCost) {
     if (turnCost.total > 0) {
-      const byok = turnCost.pricing_source === "user_defined";
-      return { nano: turnCost.total, estimated: byok };
+      return { nano: turnCost.total, estimated: false };
     }
     const est = turnCost.estimated_total;
     if (est != null && est > 0) return { nano: est, estimated: true };
@@ -81,17 +80,13 @@ export function resolveTurnDisplayMoney(
     return { nano: 0, estimated: false };
   }
   let billed = 0;
-  let byokBilled = 0;
   let estimated = 0;
   for (const c of runCosts) {
     if (!c) continue;
-    const total = c.total ?? 0;
-    if (c.pricing_source === "user_defined" && total > 0) byokBilled += total;
-    else billed += total;
+    billed += c.total ?? 0;
     estimated += c.estimated_total ?? 0;
   }
   if (billed > 0) return { nano: billed, estimated: false };
-  if (byokBilled > 0) return { nano: byokBilled, estimated: true };
   if (estimated > 0) return { nano: estimated, estimated: true };
   return null;
 }

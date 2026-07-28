@@ -65,29 +65,32 @@ export function InlineTeamGraph({
 }) {
   const navigate = useNavigate();
   const conversationId = useConversationStore((s) => s.currentConversationId);
-  // 「在画布打开」/「回放」→ 全屏回合详情页（协作图 / 辩论室 / 对比）。
-  const openInCanvas = useCallback(
-    (autoplay: boolean) => {
-      if (!conversationId) return;
-      navigate(
-        turnDetailPath(conversationId, messageId, undefined, undefined, {
-          autoplay,
-        }),
-      );
-    },
-    [conversationId, messageId, navigate],
-  );
-  // 「改了 N 版」信号 → 深链全屏页的「对比」视图。
-  const openRevisionsInCanvas = useCallback(() => {
-    if (!conversationId) return;
-    navigate(turnDetailPath(conversationId, messageId, "compare"));
-  }, [conversationId, messageId, navigate]);
   const hydrateFromJournal = useExecutionStore((s) => s.hydrateFromJournal);
   useEffect(() => {
     if (journal) hydrateFromJournal(messageId, journal);
   }, [journal, messageId, hydrateFromJournal]);
 
   const execution = useMessageExecution(messageId);
+  // 「打开辩论室」/「在画布打开」/「回放」→ 全屏回合详情；辩论回合传 view=debate
+  //（与右坞 RunDetailBody / RunModeratorLedger 深链一致）。
+  const openInCanvas = useCallback(
+    (autoplay: boolean) => {
+      if (!conversationId) return;
+      const view =
+        execution && isDebate(execution) ? ("debate" as const) : undefined;
+      navigate(
+        turnDetailPath(conversationId, messageId, view, undefined, {
+          autoplay,
+        }),
+      );
+    },
+    [conversationId, messageId, navigate, execution],
+  );
+  // 「改了 N 版」信号 → 深链全屏页的「对比」视图。
+  const openRevisionsInCanvas = useCallback(() => {
+    if (!conversationId) return;
+    navigate(turnDetailPath(conversationId, messageId, "compare"));
+  }, [conversationId, messageId, navigate]);
   const userInterjections = useExecutionStore(
     (s) => s.byId[messageId]?.userInterjections ?? EMPTY_INTERJECTIONS,
   );

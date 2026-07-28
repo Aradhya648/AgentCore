@@ -75,7 +75,7 @@ def test_user_credential_source_estimate_not_billed():
     cost = calculate_cost(DEEPSEEK_V4_FLASH, usage, credential_source="user")
     # Community estimate may be >0; ledger split keeps cost_total_nano at 0.
     assert cost.credential_source == "user"
-    assert cost.pricing_source in ("estimated", "user_defined", "unpriced")
+    assert cost.pricing_source in ("estimated", "unpriced")
     from agentcore.runtime.costing import priced_call_cost
 
     row = priced_call_cost(
@@ -103,7 +103,7 @@ def test_vendor_extras_call_real_price_under_byok_deployment(monkeypatch):
     )
     # explicit user wins over model prefix when credential_source is passed
     assert prefixed.credential_source == "user"
-    assert prefixed.pricing_source in ("estimated", "unpriced", "user_defined")
+    assert prefixed.pricing_source in ("estimated", "unpriced")
     via_prefix = calculate_cost(DOUBAO_SEED_TURBO, usage)
     # no ambient → platform default, but model prefix → vendor → real price
     assert via_prefix.total > 0
@@ -270,9 +270,6 @@ def _provider_row(**kw):
         "default_model": "user-flash",
         "api_key_enc": b"x",
         "base_url": "https://user.example/v1",
-        "price_cache_hit": None,
-        "price_cache_miss": None,
-        "price_output": None,
     }
     defaults.update(kw)
     return SimpleNamespace(**defaults)

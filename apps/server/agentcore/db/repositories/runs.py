@@ -562,6 +562,42 @@ class TurnJournalRepository:
         payload = row[0]
         return dict(payload) if isinstance(payload, dict) else None
 
+    async def find_latest_delivery_status(
+        self, *, conversation_id: str, exclude_turn_id: str | None = None
+    ) -> dict | None:
+        """Newest ``delivery_status`` payload in ``conversation_id`` (可用性短问复用对账).
+
+        Returns the raw journal payload dict or ``None``. ``exclude_turn_id`` drops the
+        current turn so a short follow-up reuses the prior batch's reconciliation.
+        """
+        from sqlalchemy import text
+
+        cid = (conversation_id or "").strip()
+        if not cid:
+            return None
+        exclude = (exclude_turn_id or "").strip()
+        exclusion = "AND turn_id != :ex" if exclude else ""
+        result = await self._session.execute(
+            text(
+                f"""
+                SELECT payload
+                FROM turn_journal
+                WHERE conversation_id = :cid
+                  AND kind = 'delivery_status'
+                  AND COALESCE(payload->>'execution_id', '') != ''
+                  {exclusion}
+                ORDER BY created_at DESC, seq DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": cid, "ex": exclude} if exclude else {"cid": cid},
+        )
+        row = result.first()
+        if not row or row[0] is None:
+            return None
+        payload = row[0]
+        return dict(payload) if isinstance(payload, dict) else None
+
     async def find_latest_presentation_format(
         self, *, conversation_id: str
     ) -> dict | None:
@@ -582,6 +618,39 @@ class TurnJournalRepository:
                 FROM turn_journal
                 WHERE conversation_id = :cid
                   AND kind = 'presentation_format_confirmed'
+                  AND COALESCE(payload->>'format_id', '') != ''
+                ORDER BY created_at DESC, seq DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": cid},
+        )
+        row = result.first()
+        if not row or row[0] is None:
+            return None
+        payload = row[0]
+        return dict(payload) if isinstance(payload, dict) else None
+
+    async def find_latest_automation_delivery(
+        self, *, conversation_id: str
+    ) -> dict | None:
+        """Newest ``automation_delivery_confirmed`` payload for ``conversation_id``.
+
+        Cold rehydrate for Agent/自动化 delivery after process restart / new turn when
+        the hot cache is empty. Returns the raw journal payload dict or ``None``.
+        """
+        from sqlalchemy import text
+
+        cid = (conversation_id or "").strip()
+        if not cid:
+            return None
+        result = await self._session.execute(
+            text(
+                """
+                SELECT payload
+                FROM turn_journal
+                WHERE conversation_id = :cid
+                  AND kind = 'automation_delivery_confirmed'
                   AND COALESCE(payload->>'format_id', '') != ''
                 ORDER BY created_at DESC, seq DESC
                 LIMIT 1

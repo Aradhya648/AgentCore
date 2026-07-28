@@ -4,7 +4,7 @@
 ``autonomy_policy`` 硬编码为 ``FIRST_GRANT``：挂起期间改了设置的用户，续跑照旧按旧档跑。
 本文件钉住修后的两条语义（驱动 REAL ``resume_chat_pipeline``，只换 LLM 与 ApprovalGate 记录桩）：
 
-- 调用方解析出的非默认档（云端 ``conversation/turns.py`` 经 ``resolve_autonomy_policy``；
+- 调用方解析出的非默认档（云端 ``conversation/turns.py`` 经 ``resolve_permission_axes``；
   sidecar 经每回合 ``autonomyPolicy`` 参数）原样进 ``ApprovalGate``；
 - 调用方缺省时回退 ``first_grant``（与 ``run_chat_pipeline`` 相同的回退，行为不变）。
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agentcore.config import settings
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.llm.provider.protocol import LLMChunk, LLMMessage, ToolCall, ToolCallFunction
 from agentcore.runtime import pipeline
 from agentcore.runtime.checkpoints import CheckpointDecision
@@ -113,23 +113,27 @@ async def _run_resume(**kwargs: Any) -> dict:
     )
 
 
-async def test_resume_gate_carries_callers_autonomy_policy(monkeypatch):
+async def test_resume_gate_carries_callers_permission_axes(monkeypatch):
     """续跑沿用调用方解析的非默认档——挂起期间改设置，续跑立即生效。"""
     _patch_seams(monkeypatch)
 
-    result = await _run_resume(autonomy_policy=AutonomyPolicy.ALWAYS_ASK)
+    result = await _run_resume(permission_axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS))
 
     assert result["finish_reason"] == FinishReason.END_TURN
     assert len(_RecordingGate.instances) == 1
-    assert _RecordingGate.instances[0]["autonomy_policy"] is AutonomyPolicy.ALWAYS_ASK
+    assert _RecordingGate.instances[0]["permission_axes"] == recipe_to_axes(
+        AutonomyPolicy.CAUTIOUS
+    )
 
 
-async def test_resume_gate_defaults_to_first_grant_when_caller_omits(monkeypatch):
-    """调用方缺省（旧调用点 / 解析失败）⇒ 与 run_chat_pipeline 相同的 first_grant 回退。"""
+async def test_resume_gate_defaults_to_write_code_when_caller_omits(monkeypatch):
+    """调用方缺省（旧调用点 / 解析失败）⇒ 与 run_chat_pipeline 相同的写代码默认。"""
     _patch_seams(monkeypatch)
 
     result = await _run_resume()
 
     assert result["finish_reason"] == FinishReason.END_TURN
     assert len(_RecordingGate.instances) == 1
-    assert _RecordingGate.instances[0]["autonomy_policy"] is AutonomyPolicy.FIRST_GRANT
+    assert _RecordingGate.instances[0]["permission_axes"] == recipe_to_axes(
+        AutonomyPolicy.WRITE_CODE
+    )

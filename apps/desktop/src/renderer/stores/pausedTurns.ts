@@ -192,10 +192,13 @@ const toOptions = (raw: unknown): AskOption[] =>
           label: String(obj.label ?? ""),
           ...(obj.detail ? { detail: String(obj.detail) } : {}),
           ...(obj.recommended ? { recommended: true } : {}),
-          ...(obj.action === "bind_local_folder" ||
-          obj.action === "grant_readonly_folder"
+          ...(obj.action === "open_local_project" ||
+          obj.action === "bind_local_folder" ||
+          obj.action === "grant_readonly_folder" ||
+          obj.action === "grant_organize_folder"
             ? {
                 action: obj.action as
+                  | "open_local_project"
                   | "bind_local_folder"
                   | "grant_readonly_folder"
                   | "grant_organize_folder",

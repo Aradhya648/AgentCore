@@ -59,7 +59,7 @@ export const TOOL_META: Record<string, { Icon: LucideIcon; label: string }> = {
   file_batch: { Icon: FileText, label: "Batch files" },
   delegate: { Icon: Users, label: "Delegate" },
   replan: { Icon: ListRestart, label: "Replan" },
-  // CEO 编排原语（组队辩论）：气泡侧只在「Composing …」参数组装心跳时露出，
+  // CEO 编排原语（组队辩论）：气泡侧只在「正在组装 …」参数组装心跳时露出，
   // 图标与开工卡的 debate 形态一致（Scale）。
   debate: { Icon: Scale, label: "Debate" },
   ask_user: { Icon: HelpCircle, label: "Ask you" },

@@ -42,16 +42,55 @@ def test_sanitize_and_uniquify_alias():
     assert a == "reports_2"
 
 
-def test_grant_store_add_revoke_clear():
-    m = grant_store.add_grant("c1", root_id="r1", label="报表", alias_hint="reports")
+@pytest.mark.asyncio
+async def test_grant_store_add_revoke_clear():
+    m = await grant_store.add_grant("c1", root_id="r1", label="报表", alias_hint="reports")
     assert m.alias == "reports"
-    assert grant_store.list_grants("c1")[0].root_id == "r1"
+    assert (await grant_store.list_grants("c1"))[0].root_id == "r1"
     # Same root refreshes without duplicating
-    m2 = grant_store.add_grant("c1", root_id="r1", label="报表2")
+    m2 = await grant_store.add_grant("c1", root_id="r1", label="报表2")
     assert m2.alias == "reports"
-    assert len(grant_store.list_grants("c1")) == 1
-    assert grant_store.revoke_grant("c1", alias="reports")
-    assert grant_store.list_grants("c1") == []
+    assert len(await grant_store.list_grants("c1")) == 1
+    assert await grant_store.revoke_grant("c1", alias="reports")
+    assert await grant_store.list_grants("c1") == []
+
+
+@pytest.mark.asyncio
+async def test_grant_store_mode_upgrade():
+    m = await grant_store.add_grant(
+        "c1", root_id="r1", label="桌面", alias_hint="desk", mode="readonly"
+    )
+    assert m.mode == "readonly"
+    m2 = await grant_store.add_grant(
+        "c1", root_id="r1", label="桌面", mode="organize"
+    )
+    assert m2.alias == m.alias
+    assert m2.mode == "organize"
+
+
+@pytest.mark.asyncio
+async def test_build_turn_backend_attaches_external_channel_for_cloud_grants(tmp_path, monkeypatch):
+    """Cloud turn with grants wires attach_external_channel (root_id-only mounts)."""
+    from agentcore.config import settings
+    from agentcore.conversation.turn_backend import build_turn_backend
+    from agentcore.runtime.events.sink import EventSink
+
+    await grant_store.add_grant("conv-cloud", root_id="r-ext", label="桌面", alias_hint="desk")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+
+    backend = await build_turn_backend(
+        user_id="u1",
+        conversation_id="conv-cloud",
+        folder_id=None,
+        sink=EventSink(),
+        local_binding=None,
+    )
+    assert isinstance(backend, ServerWorkspace)
+    assert backend.location == "server"
+    assert backend._external_bridge is not None  # noqa: SLF001
+    assert "desk" in backend._mounts  # noqa: SLF001
+    assert backend._mounts["desk"].root_id == "r-ext"  # noqa: SLF001
+    assert backend._mounts["desk"].abs_path is None  # noqa: SLF001
 
 
 @pytest.mark.asyncio
@@ -229,18 +268,6 @@ async def test_server_organize_move_and_env_skips_organize(tmp_path: Path):
     assert build_external_env(ws._mounts) == {}
 
 
-def test_grant_store_mode_upgrade():
-    m = grant_store.add_grant(
-        "c1", root_id="r1", label="桌面", alias_hint="desk", mode="readonly"
-    )
-    assert m.mode == "readonly"
-    m2 = grant_store.add_grant(
-        "c1", root_id="r1", label="桌面", mode="organize"
-    )
-    assert m2.alias == m.alias
-    assert m2.mode == "organize"
-
-
 @pytest.mark.asyncio
 async def test_cloud_server_external_via_channel_read_and_organize():
     """Cloud ServerWorkspace (no abs_path) routes external ops via per-op root_id."""
@@ -346,27 +373,3 @@ async def test_cloud_server_unknown_and_primary_paths(tmp_path: Path):
     with pytest.raises(PathNotFound):
         await ws.read("external/missing/x.txt")
     channel.request.assert_not_awaited()
-
-
-def test_build_turn_backend_attaches_external_channel_for_cloud_grants(tmp_path, monkeypatch):
-    """Cloud turn with grants wires attach_external_channel (root_id-only mounts)."""
-    from agentcore.config import settings
-    from agentcore.conversation.turn_backend import build_turn_backend
-    from agentcore.runtime.events.sink import EventSink
-
-    grant_store.add_grant("conv-cloud", root_id="r-ext", label="桌面", alias_hint="desk")
-    monkeypatch.setattr(settings, "data_dir", tmp_path)
-
-    backend = build_turn_backend(
-        user_id="u1",
-        conversation_id="conv-cloud",
-        folder_id=None,
-        sink=EventSink(),
-        local_binding=None,
-    )
-    assert isinstance(backend, ServerWorkspace)
-    assert backend.location == "server"
-    assert backend._external_bridge is not None  # noqa: SLF001
-    assert "desk" in backend._mounts  # noqa: SLF001
-    assert backend._mounts["desk"].root_id == "r-ext"  # noqa: SLF001
-    assert backend._mounts["desk"].abs_path is None  # noqa: SLF001

@@ -5,6 +5,7 @@
  */
 
 import { ApiError } from "@/services/api";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -53,13 +54,15 @@ function renderGlobal() {
   const onRenamed = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <RuleSection
-        scope={{ kind: "global" }}
-        activePath={null}
-        onOpen={onOpen}
-        onDeleted={onDeleted}
-        onRenamed={onRenamed}
-      />
+      <TooltipProvider>
+        <RuleSection
+          scope={{ kind: "global" }}
+          activePath={null}
+          onOpen={onOpen}
+          onDeleted={onDeleted}
+          onRenamed={onRenamed}
+        />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   return { onOpen, onDeleted, onRenamed };
@@ -74,13 +77,15 @@ function renderProject(folderId = "F1") {
   const onRenamed = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <RuleSection
-        scope={{ kind: "project", folderId }}
-        activePath={null}
-        onOpen={onOpen}
-        onDeleted={onDeleted}
-        onRenamed={onRenamed}
-      />
+      <TooltipProvider>
+        <RuleSection
+          scope={{ kind: "project", folderId }}
+          activePath={null}
+          onOpen={onOpen}
+          onDeleted={onDeleted}
+          onRenamed={onRenamed}
+        />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   return { onOpen, onDeleted, onRenamed };
@@ -95,22 +100,25 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("RuleSection (global)", () => {
-  it("lists GLOBAL rules without a 项目规则 aggregator", async () => {
+  it("lists GLOBAL rules without a list-tail 新建假行", async () => {
     vi.mocked(listUserRules).mockResolvedValue([
       rule({ id: "g1", name: "语气规则.md" }),
     ]);
     renderGlobal();
 
     expect(await screen.findByText("语气规则.md")).toBeTruthy();
-    expect(screen.getByText("新建规则")).toBeTruthy();
+    // Create hangs on the section header (aria/title), not a list-tail fake row.
+    expect(screen.getByLabelText("新建规则")).toBeTruthy();
+    expect(screen.queryByText("新建规则")).toBeNull();
     expect(screen.queryByText("项目规则")).toBeNull();
     expect(screen.queryByText("你的规则")).toBeNull();
     expect(screen.getByText("规则")).toBeTruthy();
   });
 
-  it("shows an empty hint when there are no global rules yet", async () => {
+  it("shows an empty hint with CTA when there are no global rules yet", async () => {
     renderGlobal();
     expect(await screen.findByText("还没有全局规则")).toBeTruthy();
+    expect(screen.getByText("新建规则")).toBeTruthy();
   });
 
   it("opens a rule in the detail pane (path = its doc id)", async () => {
@@ -123,13 +131,33 @@ describe("RuleSection (global)", () => {
     expect(onOpen).toHaveBeenCalledWith("g1", "语气规则.md");
   });
 
-  it("creates a GLOBAL rule with a fresh name and opens it", async () => {
+  it("creates a GLOBAL rule from the header + and opens it", async () => {
+    vi.mocked(listUserRules).mockResolvedValue([
+      rule({ id: "g1", name: "语气规则.md" }),
+    ]);
     vi.mocked(createRuleDocument).mockResolvedValue(
       rule({ id: "new", name: "新规则.md" }),
     );
     const { onOpen } = renderGlobal();
 
-    await screen.findByText("新建规则");
+    await screen.findByText("语气规则.md");
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("新建规则"));
+    });
+
+    expect(createRuleDocument).toHaveBeenCalledWith("新规则.md", null);
+    await waitFor(() =>
+      expect(onOpen).toHaveBeenCalledWith("new", "新规则.md"),
+    );
+  });
+
+  it("creates a GLOBAL rule from the empty-state CTA", async () => {
+    vi.mocked(createRuleDocument).mockResolvedValue(
+      rule({ id: "new", name: "新规则.md" }),
+    );
+    const { onOpen } = renderGlobal();
+
+    await screen.findByText("还没有全局规则");
     await act(async () => {
       fireEvent.click(screen.getByText("新建规则"));
     });
@@ -148,7 +176,7 @@ describe("RuleSection (global)", () => {
 });
 
 describe("RuleSection (project)", () => {
-  it("lists only that project's rules and creates a project-scoped rule", async () => {
+  it("lists only that project's rules and creates via header +", async () => {
     vi.mocked(listUserRules).mockResolvedValue([
       rule({ id: "g1", name: "全局.md" }),
       rule({ id: "p1", folderId: "F1", name: "部署规则.md" }),
@@ -164,17 +192,19 @@ describe("RuleSection (project)", () => {
     expect(screen.queryByText("全局.md")).toBeNull();
     expect(screen.queryByText("别的项目.md")).toBeNull();
     expect(screen.queryByText("项目规则")).toBeNull();
+    expect(screen.queryByText("新建规则")).toBeNull();
 
     await act(async () => {
-      fireEvent.click(screen.getByText("新建规则"));
+      fireEvent.click(screen.getByLabelText("新建规则"));
     });
     expect(createRuleDocument).toHaveBeenCalledWith("新规则.md", "F1");
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith("p3", "新规则.md"));
   });
 
-  it("shows project empty state", async () => {
+  it("shows project empty state with CTA", async () => {
     renderProject();
     fireEvent.click(screen.getByText("规则"));
     expect(await screen.findByText("本项目还没有规则")).toBeTruthy();
+    expect(screen.getByText("新建规则")).toBeTruthy();
   });
 });

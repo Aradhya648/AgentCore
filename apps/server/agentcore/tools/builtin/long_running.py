@@ -60,7 +60,8 @@ def long_running_redirect_message(
     return (
         head
         + "当前工作区无本机 terminal 托管能力：不要在此启动开发服务器；"
-        "改为给出本地启动步骤，或请用户绑定本地文件夹后再启动。"
+        "改为给出本地启动步骤，或请用户绑定本机执行环境"
+        "（bind_local_folder）/ 打开本地项目（open_local_project）后再启动。"
     )
 
 

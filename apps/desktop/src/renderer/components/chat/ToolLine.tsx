@@ -7,6 +7,7 @@ import {
 import { Badge, Button } from "@/components/ui";
 import { isBrowserTool } from "@/lib/browserActivity";
 import { formatCompact } from "@/lib/format";
+import { runningElapsedSec } from "@/lib/runningElapsed";
 import { runtimeOf, useConversationStore } from "@/stores/conversation";
 import {
   usePersistentDisclosure,
@@ -52,7 +53,7 @@ const PEEK_SUPPRESSED = new Set([
   "queue_user_message",
 ]);
 
-/** Live transport line while the model streams tool-call JSON (不持久化). */
+/** 模型流式组装工具调用 JSON 时的心跳行（不持久化）。 */
 export function ComposingToolLine({
   tool,
 }: {
@@ -63,11 +64,11 @@ export function ComposingToolLine({
     <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
       <Icon size={14} className="shrink-0 text-primary" />
       <span>
-        Composing {label}
+        正在组装 {label}
         {tool.chars > 0 && (
           <span className="text-muted-foreground/70">
             {" · "}
-            {formatCompact(tool.chars)} chars
+            {formatCompact(tool.chars)} 字
           </span>
         )}
       </span>
@@ -95,7 +96,7 @@ function useRunningElapsed(
     return () => clearInterval(id);
   }, [running]);
   if (!running || startedAt == null) return 0;
-  return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  return runningElapsedSec(startedAt);
 }
 
 /** Shimmer placeholder rows shown while web_search is running — turns the bare waiting

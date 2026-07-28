@@ -55,6 +55,7 @@ def test_registry_registers_the_system_skills():
         "team_orchestration_advanced",
         "build_website",
         "build_toolshed",
+        "build_app",
         "debate_and_review",
         "revising_a_product",
         "ask_user_kickoff",
@@ -499,6 +500,17 @@ def test_ask_user_kickoff_skill_teaches_presentation_format_options():
     assert "无法生成" in body or "无执行" in body
 
 
+def test_ask_user_kickoff_skill_teaches_automation_delivery_format_options():
+    """Agent/自动化意图：开工卡必须 format_options 三档；控制台原型才允许 toolshed。"""
+    body = _body("ask_user_kickoff")
+    assert "可运行自动化" in body
+    assert "控制台原型" in body
+    assert "仅方案" in body
+    assert "build_toolshed" in body
+    assert "工作流" in body or "流水线" in body
+    assert "提示词" in body or "调研" in body
+
+
 def test_ask_user_kickoff_skill_teaches_brief_option_dedup():
     # 去重纪律（开工卡「简报剧透选项」的根因修复）：message 只定调、不复述将成为
     # 选项的方案，背景归 context，避免左侧简报与右侧选项读到两遍同样的话。钉住防回退。
@@ -537,6 +549,10 @@ def test_ask_user_midtask_skill_teaches_fork_annotate_and_nonblocking():
     # 定向修订委派须写明局部改纪律（risk_ack → 有界返工环）。
     assert "str_replace" in body
     assert "中间省略" in body or "file_write" in body
+    # 定案 A：优化项目 ≠ 默认催 open_local_project；附件收窄范围时先干活。
+    assert "open_local_project" in body
+    assert "≠默认开项目卡" in body or "收窄本轮" in body
+    assert "开工前置" in body
 
 
 def test_delegate_checkpoint_skill_teaches_wave_boundary_pause():

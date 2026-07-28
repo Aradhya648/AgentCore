@@ -136,13 +136,13 @@ const NANO_PER_USD = 1_000_000_000;
  * BYOK 估算金额的轻量说明（tooltip / title）——与平台记账 ¥ 视觉分离，
  * 明确「非上游账单」。
  */
-export const COST_ESTIMATE_HINT = "按社区价目/自填单价估算，非上游账单";
+export const COST_ESTIMATE_HINT = "按社区价目估算，非上游账单";
 
 /** 费用位标注：自带密钥场景（credential_source=user / estimated_total）。 */
 export const COST_ESTIMATE_LABEL = "自带密钥·估算";
 
 /**
- * 费用位标注：BYOK 且三层价卡全落空（`pricing_source=unpriced`）。
+ * 费用位标注：BYOK 且两层价卡全落空（`pricing_source=unpriced`）。
  * 有真实花费但平台无价可算——显式标注，不得以「省略费用段」暗示免费
  * （拍板 2026-07-20：未计价运行显式标识，金额位仍显「—」绝不冒充数字）。
  */
@@ -150,7 +150,7 @@ export const COST_UNPRICED_LABEL = "自带密钥·未计价";
 
 /** 未计价标注的轻量说明（tooltip / title）。 */
 export const COST_UNPRICED_HINT =
-  "平台无此模型价目（未填单价、社区价目缺），实际费用以上游供应商账单为准";
+  "平台无此模型价目（社区价目缺），实际费用以上游供应商账单为准";
 
 /**
  * 把整数 nano-USD 成本折算成人民币展示串（大众面，§7.2）。
@@ -205,18 +205,13 @@ export function pickCostMoney(
     | {
         total: number;
         estimated_total?: number | null;
-        /** Live BYOK often keeps money in `total` with estimated/user_defined source. */
         pricing_source?: string | null;
       }
     | null
     | undefined,
 ): { nano: number; estimated: boolean } | null {
   if (!cost) return null;
-  if (cost.total > 0) {
-    // user_defined = BYOK 自填单价；live SSE 金额仍在 total 上。
-    const byok = cost.pricing_source === "user_defined";
-    return { nano: cost.total, estimated: byok };
-  }
+  if (cost.total > 0) return { nano: cost.total, estimated: false };
   const est = cost.estimated_total;
   if (est != null && est > 0) return { nano: est, estimated: true };
   return { nano: 0, estimated: false };

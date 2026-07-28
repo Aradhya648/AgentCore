@@ -15,13 +15,13 @@ from agentcore.conversation.common import (
     resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
-    resolve_permission_preset,
+    resolve_permission_axes,
     resolve_profile_set,
 )
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_runner import session_callbacks, suspension_callbacks
 from agentcore.core.logging import get_logger
-from agentcore.core.types import new_id, preset_to_autonomy
+from agentcore.core.types import new_id
 from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import BoardRepository, ConversationRepository
 from agentcore.llm.credentials import bind_credential_pricing_context
@@ -46,7 +46,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-
 def _user_message_from_journal(entries: tuple[dict[str, Any], ...] | list[dict]) -> str | None:
     """Extract the turn's user line from ``turn_started`` (required for worker playbooks)."""
     for entry in entries:
@@ -58,7 +57,6 @@ def _user_message_from_journal(entries: tuple[dict[str, Any], ...] | list[dict])
             return user_message
         return ""
     return None
-
 
 def _captain_run_id_from_journal(
     entries: tuple[dict[str, Any], ...] | list[dict],
@@ -72,7 +70,6 @@ def _captain_run_id_from_journal(
             if isinstance(run_id, str) and run_id:
                 return run_id
     return None
-
 
 async def production_crash_delegate_factory(
     lease: TurnLeaseRow,
@@ -105,13 +102,13 @@ async def production_crash_delegate_factory(
             conversation_history_access = await resolve_conversation_history_access(
                 session, user_id
             )
-            permission_preset = await resolve_permission_preset(session, conversation_id)
+            permission_axes = await resolve_permission_axes(session, conversation_id)
             board = await BoardRepository(session).get_by_conversation_id(
                 conversation_id, user_id=user_id
             )
             board_id = board.id if board else None
 
-        autonomy_policy = preset_to_autonomy(permission_preset)
+        
         profiles = turn_profiles_for_turn(profile_set, llm_credentials)
         bind_credential_pricing_context(llm_credentials)
         # mypy Protocol/async-gen mismatch (prepare/resume are quarantined; this module is not).
@@ -119,7 +116,7 @@ async def production_crash_delegate_factory(
             llm_credentials, user_id=user_id, profiles=profiles
         )
 
-        backend = build_turn_backend(
+        backend = await build_turn_backend(
             user_id=user_id,
             conversation_id=conversation_id,
             folder_id=folder_id,
@@ -178,8 +175,7 @@ async def production_crash_delegate_factory(
             user_message=user_message,
             journal_entries=list(state.entries),
             profiles=profiles,
-            autonomy_policy=autonomy_policy,
-            permission_preset=permission_preset,
+            permission_axes=permission_axes,
             session_saver=session_saver,
             session_loader=session_loader,
             suspension_saver=suspension_saver,

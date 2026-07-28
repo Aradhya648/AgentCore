@@ -16,6 +16,7 @@ from . import (
     audit,
     binding,
     browser_live,
+    browser_sessions,
     browser_takeover,
     crud,
     debate_steer,
@@ -57,3 +58,5 @@ router.include_router(turn_files_diff.router)
 router.include_router(browser_live.router)
 # L3 团队浏览器 M2 用户接管端点（同样追加在末尾）。
 router.include_router(browser_takeover.router)
+# M0 多 session_id：list / create / close（追加在末尾）。
+router.include_router(browser_sessions.router)

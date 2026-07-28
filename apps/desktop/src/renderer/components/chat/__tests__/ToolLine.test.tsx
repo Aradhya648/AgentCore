@@ -22,7 +22,7 @@ vi.mock("@/stores/sidePanel", () => ({
   ),
 }));
 
-import { ToolLine, ToolLineGroup } from "../ToolLine";
+import { ToolLine, ToolLineGroup, ComposingToolLine } from "../ToolLine";
 import { toolDetail, toolGroupSummary } from "../message-bubble/constants";
 
 afterEach(cleanup);
@@ -712,5 +712,25 @@ describe("toolGroupSummary · read_url", () => {
       }),
     ];
     expect(toolGroupSummary(tools)).toBe("Read file foo.ts · bar.ts");
+  });
+});
+
+describe("ComposingToolLine · 中文组装心跳", () => {
+  it("renders 正在组装 + 字数，不留英文 Composing/chars", () => {
+    renderWithTooltip(
+      <ComposingToolLine tool={{ toolName: "web_search", chars: 1280 }} />,
+    );
+    expect(screen.getByText(/正在组装/)).toBeTruthy();
+    expect(screen.getByText(/1\.3k 字/)).toBeTruthy();
+    expect(screen.queryByText(/Composing/i)).toBeNull();
+    expect(screen.queryByText(/chars/i)).toBeNull();
+  });
+
+  it("omits char count when zero", () => {
+    renderWithTooltip(
+      <ComposingToolLine tool={{ toolName: "debate", chars: 0 }} />,
+    );
+    expect(screen.getByText(/正在组装/)).toBeTruthy();
+    expect(screen.queryByText(/字/)).toBeNull();
   });
 });

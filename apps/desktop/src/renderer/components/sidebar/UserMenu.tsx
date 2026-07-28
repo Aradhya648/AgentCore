@@ -1,10 +1,16 @@
 import { IconButton } from "@/components/ui";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { logout } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth";
 import { useSidebarStore } from "@/stores/sidebar";
 import { useUserStore } from "@/stores/user";
-import { LogOut, MoreVertical } from "lucide-react";
+import { LogOut, MoreVertical, Settings } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 export function UserMenu() {
@@ -49,16 +55,33 @@ export function UserMenu() {
         className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"}`}
       >
         {collapsed ? (
-          <SimpleTooltip label="设置" side="right">
-            <button
-              type="button"
-              aria-label="设置"
-              onClick={goSettings}
-              className="rounded-full p-0 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent"
-            >
-              {avatar}
-            </button>
-          </SimpleTooltip>
+          // 折叠态：头像打开同一菜单（设置 / 登出），不另造第三入口。
+          // 不用 SimpleTooltip 包 Trigger——与 DropdownMenuTrigger 双 asChild 易撞 Slot。
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="账户菜单"
+                title="账户"
+                className="rounded-full p-0 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent"
+              >
+                {avatar}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="end" className="min-w-36">
+              <DropdownMenuItem onSelect={goSettings}>
+                <Settings size={14} />
+                设置
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="danger"
+                onSelect={() => void handleLogout()}
+              >
+                <LogOut size={14} />
+                登出
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : (
           <>
             {avatar}

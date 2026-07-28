@@ -82,19 +82,28 @@ export function degradedFinishChipLabel(
   return undefined;
 }
 
+/** Product copy for upstream 429 (mirrors backend LLMRateLimitError / history 注记). */
+export const LLM_RATE_LIMIT_MESSAGE =
+  "上游限流，暂时无法继续本回合。请稍后再试或点重试。";
+
 /** Assistant bubble error text; in dev, append upstream body preview when present. */
 export function formatAssistantErrorMessage(error: {
   message: string;
   code?: string;
   context?: DescribedError["context"];
 }): string {
-  const { message, context } = error;
-  let text = message;
+  const { message, context, code } = error;
+  // Old journals may still carry English "Rate limited…" — normalize to product copy.
+  let text =
+    code === "LLM_RATE_LIMIT" &&
+    (!message || /rate limited/i.test(message) || !message.includes("上游限流"))
+      ? LLM_RATE_LIMIT_MESSAGE
+      : message;
   if (
     context?.sub2api_diagnosis &&
-    !message.includes(context.sub2api_diagnosis)
+    !text.includes(context.sub2api_diagnosis)
   ) {
-    text = `${message}\n诊断：${context.sub2api_diagnosis}`;
+    text = `${text}\n诊断：${context.sub2api_diagnosis}`;
   }
   if (import.meta.env.DEV && context?.upstream_body_preview) {
     text = `${text} — ${context.upstream_body_preview}`;
@@ -116,6 +125,7 @@ const CONNECTIVITY_ERROR_CODES: readonly string[] = [
   "LLM_TIMEOUT",
   "LLM_ERROR",
   "LLM_UPSTREAM_ERROR",
+  "LLM_RATE_LIMIT",
 ];
 
 /** Session-scoped counter for connectivity failures (resets on full page reload). */
@@ -196,14 +206,19 @@ export function resetSessionConnectivityFailures(): void {
 /**
  * When reload lost the error payload but left an empty error-finished bubble,
  * synthesize a minimal card so the user still sees an explanation + retry.
+ * Known ``LLM_RATE_LIMIT`` keeps the upstream-限流 product copy.
  */
 export function syntheticErrorForEmptyFailure(
   finishReason: string | undefined,
+  code?: string | null,
 ): {
   code: string;
   message: string;
 } | null {
   if (finishReason !== "error") return null;
+  if (code === "LLM_RATE_LIMIT") {
+    return { code: "LLM_RATE_LIMIT", message: LLM_RATE_LIMIT_MESSAGE };
+  }
   return {
     code: "LLM_ERROR",
     message: "模型调用失败，请重试。",
@@ -237,6 +252,7 @@ export interface DescribedError {
     empty_diagnosis?: string;
     sub2api_diagnosis?: string;
     sub2api_account?: string;
+    retry_after?: number;
   };
 }
 
@@ -316,6 +332,12 @@ function resolveMessage(f: ErrorFacts): string {
   // A 402 LLM_KEY_REQUIRED is a deliberate BYOK refusal (no DeepSeek key yet);
   // surface the backend's actionable message (or a config hint), never a
   // misleading "service unavailable".
+  if (f.code === "LLM_RATE_LIMIT") {
+    if (f.serverMessage && f.serverMessage.includes("上游限流")) {
+      return f.serverMessage;
+    }
+    return LLM_RATE_LIMIT_MESSAGE;
+  }
   if (f.code === "LLM_KEY_REQUIRED") {
     return (
       f.serverMessage ??

@@ -96,8 +96,22 @@ describe("startBrowserLive · 端点与信封", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("/v1/conversations/conv-42/browser/live");
+    expect(url).not.toContain("session_id=");
     expect(init.method).toBe("GET");
     expect(init.credentials).toBe("include");
+    client.stop();
+  });
+
+  it("appends ?session_id= when opts.sessionId is set", async () => {
+    const s = liveStream();
+    fetchMock.mockResolvedValue(s.response);
+    const h = handlers();
+    const client = startBrowserLive("conv-42", h, { sessionId: "sess-tab-1" });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/conversations/conv-42/browser/live?");
+    expect(url).toContain("session_id=sess-tab-1");
     client.stop();
   });
 

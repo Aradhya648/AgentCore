@@ -78,6 +78,11 @@ from .browser import (
     BrowserInputEvent,
     BrowserInputRequest,
     BrowserInputResponse,
+    BrowserSessionCreateRequest,
+    BrowserSessionListResponse,
+    BrowserSessionNavigateRequest,
+    BrowserSessionNavPatch,
+    BrowserSessionView,
     BrowserTakeoverActionRequest,
     BrowserTakeoverListResponse,
     BrowserTakeoverRecord,
@@ -101,7 +106,7 @@ from .conversations import (
     FolderGroup,
     FolderSummary,
     GroupedConversationsResponse,
-    PermissionPresetUpdate,
+    PermissionAxesUpdate,
     UpdateConversationRequest,
     UpdateFolderRequest,
 )
@@ -234,6 +239,15 @@ from .shared_spaces import (
     UpdateSharedSpaceRequest,
 )
 from .sharing import CreateShareRequest, ShareListResponse, ShareSummary
+from .standing_tasks import (
+    CreateStandingTaskRequest,
+    RotateWebhookSecretResponse,
+    StandingTaskRunListResponse,
+    StandingTaskRunSummary,
+    StandingTaskSummary,
+    TriggerStandingTaskResponse,
+    UpdateStandingTaskRequest,
+)
 from .tools import (
     CapabilitiesResponse,
     CapabilityGuidelines,
@@ -339,7 +353,7 @@ __all__ = [
     "ConversationSummary",
     "ConversationListResponse",
     "UpdateConversationRequest",
-    "PermissionPresetUpdate",
+    "PermissionAxesUpdate",
     "CreateFolderRequest",
     "UpdateFolderRequest",
     "FolderSummary",
@@ -373,6 +387,12 @@ __all__ = [
     "BrowserInputResponse",
     "BrowserTakeoverRecord",
     "BrowserTakeoverListResponse",
+    # M0 多 session_id
+    "BrowserSessionView",
+    "BrowserSessionListResponse",
+    "BrowserSessionCreateRequest",
+    "BrowserSessionNavPatch",
+    "BrowserSessionNavigateRequest",
     # llm providers (多服务商列表)
     "CreateLlmProviderRequest",
     "UpdateLlmProviderRequest",
@@ -476,6 +496,14 @@ __all__ = [
     "ShareSummary",
     "CreateShareRequest",
     "ShareListResponse",
+    # standing tasks
+    "CreateStandingTaskRequest",
+    "UpdateStandingTaskRequest",
+    "StandingTaskSummary",
+    "StandingTaskRunSummary",
+    "StandingTaskRunListResponse",
+    "TriggerStandingTaskResponse",
+    "RotateWebhookSecretResponse",
     # devices
     "DeviceRegistration",
     "DeviceSummary",

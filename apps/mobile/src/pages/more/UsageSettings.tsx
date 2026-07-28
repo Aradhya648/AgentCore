@@ -235,7 +235,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
           </h2>
           <p className="section-note">
             {byok
-              ? "按社区价目/自填单价估算，非上游账单。"
+              ? "按社区价目估算，非上游账单。"
               : "多 Agent 团队按角色拆分的花销，竞品的单 Agent 做不到。"}
           </p>
           <div className="payroll">

@@ -357,7 +357,7 @@ def test_gap_fingerprint_stable_for_streak():
 
 def test_delegate_tool_same_gap_streak_escalates_at_two():
     """Consecutive identical unmet gaps: streak 1 → 2 (escalate threshold)."""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.runtime.events import EventSink
     from agentcore.tools.builtin.delegate import DelegateTool
     from agentcore.tools.registry import ToolRegistry
@@ -371,7 +371,7 @@ def test_delegate_tool_same_gap_streak_escalates_at_two():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=ctx(),
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     fp = gap_fingerprint("code_verified", ["缺验证"])
     assert t.note_completion_gap(fp) == 1
@@ -699,3 +699,323 @@ def test_files_written_gap_lists_landing_tools_from_serialize():
     assert "write_section" in gaps[0]
     assert "file_move" in gaps[0]
     assert "code_execute" in gaps[0]
+
+def _terminal_ready_transcript():
+    return [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="terminal",
+                        arguments='{"subcommand":"start","command":"npm run dev","wait_for":"Local:"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content=(
+                "process_id: abc\nstatus: running\nmatched: True\n"
+                "output:\n  Local: http://localhost:5173/\n"
+                "\n\n【就绪判定】wait_for 已命中，可报告访问地址；"
+            ),
+            tool_call_id="tc1",
+        ),
+    ]
+
+
+def test_parse_runtime_ready():
+    assert parse_completion_criteria("runtime_ready").kind == "runtime_ready"
+
+
+def test_runtime_ready_accepts_terminal_wait_for_matched():
+    criteria = parse_completion_criteria("runtime_ready")
+    ok, gaps = check_delegate_completion(
+        criteria, {"a": _run(transcript=_terminal_ready_transcript())}
+    )
+    assert ok
+    assert gaps == []
+
+
+def test_runtime_ready_rejects_verify_shaped_only():
+    """tsc exit 0 must not satisfy runtime_ready — different acceptance class."""
+    criteria = parse_completion_criteria("runtime_ready")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="terminal",
+                        arguments='{"subcommand":"exec","command":"npx tsc --noEmit"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="status: exited\nexit_code: 0\noutput:\n",
+            tool_call_id="tc1",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    assert not ok
+    assert any("进程就绪" in g for g in gaps)
+
+
+def test_code_verified_rejects_dev_server_start():
+    """npm run dev ready must not satisfy code_verified."""
+    criteria = parse_completion_criteria("code_verified")
+    ok, gaps = check_delegate_completion(
+        criteria, {"a": _run(transcript=_terminal_ready_transcript())}
+    )
+    assert not ok
+    assert any("验证" in g for g in gaps)
+
+
+def test_kind_fit_rejects_code_verified_on_start_task():
+    from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [{"role": "启动员", "task": "执行 npm run dev 启动 Vite 开发服务器并汇报 URL"}],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    msg = validate_criteria_kind_fit("code_verified", plan)
+    assert msg is not None
+    assert "runtime_ready" in msg
+
+
+def test_kind_fit_rejects_runtime_ready_on_verify_task():
+    from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [{"role": "测试", "task": "跑通 pytest 并确保全部通过"}],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    msg = validate_criteria_kind_fit("runtime_ready", plan)
+    assert msg is not None
+    assert "code_verified" in msg
+
+
+def test_kind_fit_allows_runtime_ready_on_start_task():
+    from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [{"role": "启动员", "task": "npm run dev 启动开发服务器"}],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    assert validate_criteria_kind_fit("runtime_ready", plan) is None
+
+
+def test_should_inject_runtime_ready_without_files_form():
+    criteria = CompletionCriteria(kind="runtime_ready")
+    starter = RunSpec(
+        run_id="w1",
+        task="启动开发服务器",
+        deliverable=None,
+        tools=["terminal", "file_read"],
+    )
+    prose_no_exec = RunSpec(
+        run_id="w2",
+        task="旁观",
+        deliverable=Deliverable(form="prose"),
+        tools=["file_read"],
+    )
+    assert should_inject_batch_acceptance(starter, criteria)
+    assert not should_inject_batch_acceptance(prose_no_exec, criteria)
+    line = format_batch_acceptance_for_worker(criteria)
+    assert "runtime_ready" in line
+    assert "wait_for" in line
+
+
+def _fit(task: str, criteria: str):
+    from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [{"role": "A", "task": task}],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    return validate_criteria_kind_fit(criteria, plan)
+
+
+def test_kind_fit_bare_start_research_not_runtime_shape():
+    """裸「启动调研」不得当成进程启动形去拒 code_verified。"""
+    assert _fit("启动调研", "code_verified") is None
+
+
+def test_kind_fit_start_npm_test_is_verify_not_runtime():
+    """「启动 npm test」应以 verify 启发为准，允许 code_verified。"""
+    assert _fit("启动 npm test", "code_verified") is None
+    msg = _fit("启动 npm test", "runtime_ready")
+    assert msg is not None
+    assert "code_verified" in msg
+
+
+def test_kind_fit_colloquial_run_project_blocks_code_verified():
+    assert _fit("把项目跑起来", "code_verified") is not None
+    assert "runtime_ready" in _fit("把项目跑起来", "code_verified")
+
+
+def test_kind_fit_npm_test_without_run_keyword():
+    assert _fit("执行 npm test", "code_verified") is None
+    assert _fit("执行 npm test", "runtime_ready") is not None
+
+
+def test_runtime_ready_rejects_read_without_start():
+    criteria = parse_completion_criteria("runtime_ready")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="terminal",
+                        arguments='{"subcommand":"read","process_id":"abc"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content=(
+                "process_id: abc\nstatus: running\nmatched: True\n"
+                "output:\n  Local: http://localhost:5173/\n"
+            ),
+            tool_call_id="tc1",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    assert not ok
+    assert any("进程就绪" in g for g in gaps)
+
+
+def test_runtime_ready_ignores_matched_true_inside_output():
+    """stdout 里出现 matched: True 不得冒充就绪。"""
+    criteria = parse_completion_criteria("runtime_ready")
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="terminal",
+                        arguments='{"subcommand":"start","command":"npm run dev","wait_for":"Local:"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content=(
+                "process_id: abc\nstatus: running\nmatched: False\n"
+                "output:\n  debug matched: True in log\n  still starting...\n"
+            ),
+            tool_call_id="tc1",
+        ),
+    ]
+    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    assert not ok
+
+
+def test_d2_skipped_when_runtime_ready_even_if_tsx_landed():
+    criteria = parse_completion_criteria("runtime_ready")
+    ok, gaps = check_delegate_completion(
+        criteria,
+        {
+            "a": _run(
+                files=["src/App.tsx"],
+                transcript=_terminal_ready_transcript(),
+            )
+        },
+    )
+    assert ok
+    assert gaps == []
+
+
+def test_d2_still_applies_when_criteria_omitted_with_tsx():
+    ok, gaps = check_delegate_completion(
+        None, {"a": _run(files=["src/App.tsx"])}
+    )
+    assert not ok
+    assert any("验证" in g for g in gaps)
+
+
+def test_graph_consistent_missing_import_gap():
+    from agentcore.runtime.delegate.completion import CompletionCriteria
+
+    criteria = CompletionCriteria(kind="graph_consistent")
+    file_map = {
+        "src/App.vue": "import Home from './views/Home.vue'\n",
+    }
+    ok, gaps = check_delegate_completion(
+        criteria,
+        {"a": _run(files=["src/App.vue"])},
+        file_map=file_map,
+    )
+    assert not ok
+    assert any("import" in g or "缺文件" in g for g in gaps)
+    assert any("Home" in g for g in gaps)
+
+
+def test_graph_consistent_closed_graph_ok():
+    from agentcore.runtime.delegate.completion import CompletionCriteria
+
+    criteria = CompletionCriteria(kind="graph_consistent")
+    file_map = {
+        "src/App.vue": "import Home from './views/Home.vue'\n",
+        "src/views/Home.vue": "<template><div>ok</div></template>\n",
+    }
+    ok, gaps = check_delegate_completion(
+        criteria,
+        {
+            "a": _run(files=["src/App.vue", "src/views/Home.vue"]),
+        },
+        file_map=file_map,
+    )
+    # D2 still requires verify for .ts/.tsx; .vue-only batch without verify is fine
+    # for graph — but if only .vue, typescript D2 won't fire.
+    assert ok
+    assert gaps == []
+
+
+def test_auto_graph_scan_on_vue_landing():
+    file_map = {
+        "src/main.ts": "import App from './App.vue'\n",
+    }
+    # Has .ts → D2 verify gap + graph missing App.vue
+    ok, gaps = check_delegate_completion(
+        None,
+        {"a": _run(files=["src/main.ts"])},
+        file_map=file_map,
+    )
+    assert not ok
+    assert any("缺文件" in g or "App.vue" in g for g in gaps)

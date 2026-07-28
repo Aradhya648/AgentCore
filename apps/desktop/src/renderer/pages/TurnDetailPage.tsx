@@ -1,7 +1,10 @@
+import {
+  ConversationHydrateOverlay,
+  type ConversationHydratePhase,
+} from "@/components/chat/ConversationHydrateOverlay";
 import { TurnCompare } from "@/components/chat/compare/TurnCompare";
 import { DebateArena } from "@/components/chat/debate/arena/DebateArena";
 import { GraphView } from "@/components/graph/GraphView";
-import { defaultTurnDetailView } from "@/components/graph/planCapabilities";
 import { SidePanel } from "@/components/layout/SidePanel";
 import { Button, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
@@ -9,9 +12,18 @@ import {
   fetchMessageWindow,
   shouldSetGeneratingOnHydrate,
 } from "@/services/messages";
-import { loadRecovery } from "@/services/resume";
-import { attachOnOpen, settleCloudRunningAssistant } from "@/services/turns";
+import { loadCachedConversation } from "@/services/offlineCache";
+import { loadRecovery, shouldHydrateLocalRecovery } from "@/services/resume";
 import {
+  attachOnOpen,
+  attachSidecarTurn,
+  projectUnsyncedTurns,
+  settleCloudRunningAssistant,
+} from "@/services/turns";
+import {
+  type MemoryUpdate,
+  type Message,
+  assistantProjectionId,
   getRuntime,
   useActiveMessages,
   useConversationStore,
@@ -20,6 +32,7 @@ import {
   ExecutionScopeContext,
   hasRevisions,
   isDebate,
+  useExecutionStore,
   useMessageExecution,
 } from "@/stores/execution";
 import { useSidePanelStore } from "@/stores/sidePanel";
@@ -35,6 +48,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  isDebateViewPending,
+  resolveTurnDetailView,
+} from "./turnDetailView";
 
 function parseView(raw: string | null): TurnDetailView | null {
   if (raw === "graph" || raw === "debate" || raw === "compare") return raw;
@@ -53,6 +70,9 @@ export function TurnDetailPage() {
   }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [hydratePhase, setHydratePhase] =
+    useState<ConversationHydratePhase>("ready");
+  const [hydrateRetry, setHydrateRetry] = useState(0);
 
   const requestedView = parseView(searchParams.get("view"));
   const autoplay = searchParams.get("autoplay") === "1";
@@ -63,7 +83,9 @@ export function TurnDetailPage() {
     return undefined;
   }, [compareA, compareB]);
 
-  // Ensure conversation data is loaded (same contract as ConversationPage).
+  // Ensure conversation data is loaded (same contract as ConversationPage:
+  // local sidecar branch via shouldHydrateLocalRecovery, cloud via attachOnOpen /
+  // settleCloudRunningAssistant — no third attach semantics).
   useEffect(() => {
     if (!conversationId) return;
     const store = useConversationStore.getState();
@@ -71,7 +93,12 @@ export function TurnDetailPage() {
       store.switchConversation(conversationId);
     }
     const recoveryLoaded = loadRecovery(conversationId);
+    const warm =
+      getRuntime(conversationId).messages.length > 0 ||
+      getRuntime(conversationId).isGenerating;
+    setHydratePhase(warm ? "ready" : "loading");
     let cancelled = false;
+    let attachAbort: AbortController | null = null;
     void (async () => {
       try {
         const win = await fetchMessageWindow(conversationId);
@@ -92,56 +119,161 @@ export function TurnDetailPage() {
             if (shouldSetGeneratingOnHydrate(win.messages)) {
               s.setGenerating(true, conversationId);
             }
-            const last = win.messages.at(-1);
-            if (last) {
-              const recovery = await recoveryLoaded;
-              if (cancelled) return;
-              const canAttach =
-                recovery.cloudLive && recovery.pausedCount === 0;
-              if (last.role === "user" && canAttach) {
-                void attachOnOpen(conversationId);
-              } else if (
-                last.role === "assistant" &&
-                last.status === "running"
-              ) {
-                await settleCloudRunningAssistant(conversationId, recovery);
+            const recovery = await recoveryLoaded;
+            if (cancelled) return;
+            const useLocal = shouldHydrateLocalRecovery(recovery);
+            if (useLocal) {
+              projectUnsyncedTurns(conversationId, recovery.unsynced);
+              if (recovery.sidecarLive && recovery.pausedCount === 0) {
+                attachAbort = new AbortController();
+                await attachSidecarTurn(conversationId, {
+                  signal: attachAbort.signal,
+                });
                 if (cancelled) return;
+              }
+            } else {
+              const last = win.messages.at(-1);
+              if (last) {
+                const canAttach =
+                  recovery.cloudLive && recovery.pausedCount === 0;
+                if (last.role === "user" && canAttach) {
+                  void attachOnOpen(conversationId);
+                } else if (
+                  last.role === "assistant" &&
+                  last.status === "running"
+                ) {
+                  await settleCloudRunningAssistant(conversationId, recovery);
+                  if (cancelled) return;
+                }
               }
             }
           }
         }
+        if (!cancelled) setHydratePhase("ready");
       } catch {
-        /* best-effort history load */
+        // Align with ConversationPage: offline cache, else explicit error (no silent blank).
+        if (cancelled) return;
+        const cached = await loadCachedConversation(conversationId);
+        if (cancelled) return;
+        if (cached) {
+          const s = useConversationStore.getState();
+          if (s.currentConversationId === conversationId) {
+            const rt = getRuntime(conversationId);
+            if (!(rt.isGenerating || rt.messages.length > 0)) {
+              s.setMessageWindow(
+                cached.messages as Message[],
+                {
+                  hasMoreBefore: cached.hasMoreBefore,
+                  hasMoreAfter: cached.hasMoreAfter,
+                },
+                conversationId,
+              );
+              s.setMemoryUpdates(
+                cached.memoryUpdates as MemoryUpdate[],
+                conversationId,
+              );
+            }
+          }
+          setHydratePhase("ready");
+        } else if (!warm) {
+          setHydratePhase("error");
+        }
       }
     })();
     return () => {
       cancelled = true;
+      attachAbort?.abort();
     };
-  }, [conversationId]);
+  }, [conversationId, hydrateRetry]);
 
   const [scopeId, setScopeId] = useState(turnId ?? "");
   useEffect(() => {
     if (turnId) setScopeId(turnId);
   }, [turnId]);
 
-  const execution = useMessageExecution(scopeId);
-  const taskSummary = execution?.taskSummary;
   const messages = useActiveMessages();
+
+  const turnMessage = useMemo(
+    () =>
+      messages.find(
+        (m) =>
+          m.id === scopeId ||
+          (m.role === "assistant" && assistantProjectionId(m) === scopeId),
+      ),
+    [messages, scopeId],
+  );
+  const scopeKey =
+    turnMessage && turnMessage.role === "assistant"
+      ? assistantProjectionId(turnMessage)
+      : scopeId;
+
+  // After a hydrate attempt, release debate-view pending even if journal had no plan.
+  const [journalHydrateAttempted, setJournalHydrateAttempted] = useState(false);
+  useEffect(() => {
+    setJournalHydrateAttempted(false);
+  }, [scopeKey, conversationId]);
+
+  // Project the scoped turn's journal into execution store (cold deep-link /
+  // refresh) — same gate as useCanvasTurns / InlineTeamGraph.
+  useEffect(() => {
+    if (!scopeKey) return;
+    if (!turnMessage) {
+      if (hydratePhase === "ready") setJournalHydrateAttempted(true);
+      return;
+    }
+    if (
+      turnMessage.role === "assistant" &&
+      turnMessage.executionId &&
+      turnMessage.runs
+    ) {
+      const store = useExecutionStore.getState();
+      if (!store.byId[scopeKey]?.plan) {
+        store.hydrateFromJournal(scopeKey, turnMessage.runs);
+      }
+    }
+    setJournalHydrateAttempted(true);
+  }, [turnMessage, scopeKey, hydratePhase]);
+
+  const execution = useMessageExecution(scopeKey);
+  const taskSummary = execution?.taskSummary;
   // Scoped to the turn being viewed — not "conversation is generating somewhere".
   const liveViewedTurn =
-    messages.find((m) => m.id === scopeId)?.isStreaming ?? false;
+    messages.find(
+      (m) =>
+        m.id === scopeKey ||
+        (m.role === "assistant" && assistantProjectionId(m) === scopeKey),
+    )?.isStreaming ?? false;
 
   const debate = !!execution && isDebate(execution);
   // 对比 tab：按「是否存在可修订 run」判断，不按整图是否含辩论
   // （混合图幕 1 热修 + 幕 2 辩论时仍需对比入口）。
   const showCompare = !!execution && hasRevisions(execution);
 
+  const hasJournalToProject = !!(
+    turnMessage?.executionId &&
+    turnMessage.runs &&
+    !journalHydrateAttempted
+  );
+  const debateViewPending = isDebateViewPending({
+    requestedView,
+    debate,
+    hydratePhase,
+    hasJournalToProject,
+    hasExecution: !!execution,
+  });
+  const overlayPhase: ConversationHydratePhase = debateViewPending
+    ? "loading"
+    : hydratePhase;
+
   const view: TurnDetailView = useMemo(() => {
-    if (requestedView === "compare" && showCompare) return "compare";
-    if (requestedView === "debate" && debate) return "debate";
-    if (requestedView === "graph") return "graph";
-    return defaultTurnDetailView(execution, debate);
-  }, [requestedView, debate, showCompare, execution]);
+    if (debateViewPending) return "graph"; // unused while pending (body gated)
+    return resolveTurnDetailView({
+      requestedView,
+      debate,
+      showCompare,
+      execution,
+    });
+  }, [requestedView, debate, showCompare, execution, debateViewPending]);
 
   const setView = useCallback(
     (next: TurnDetailView) => {
@@ -176,13 +308,21 @@ export function TurnDetailPage() {
       const sp = useSidePanelStore.getState();
       const panelVisible =
         sp.open &&
-        sp.tabs.some((t) => t.id === sp.activeTabId && t.messageId === scopeId);
+        sp.tabs.some((t) => {
+          if (t.id !== sp.activeTabId) return false;
+          return (
+            (t.kind === "run" ||
+              t.kind === "content" ||
+              t.kind === "simple-turn") &&
+            t.messageId === scopeKey
+          );
+        });
       if (panelVisible) sp.closePanel();
       else goBack();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goBack, scopeId]);
+  }, [goBack, scopeKey]);
 
   useEffect(() => () => useSidePanelStore.getState().closeContentTabs(), []);
 
@@ -205,7 +345,7 @@ export function TurnDetailPage() {
   if (!conversationId || !turnId) return null;
 
   return (
-    <ExecutionScopeContext.Provider value={scopeId}>
+    <ExecutionScopeContext.Provider value={scopeKey}>
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background">
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 pr-14">
           <Button
@@ -237,10 +377,10 @@ export function TurnDetailPage() {
               <Button
                 variant="ghost"
                 onClick={() => setView("graph")}
-                aria-pressed={view === "graph"}
+                aria-pressed={!debateViewPending && view === "graph"}
                 icon={<Network size={14} />}
                 className={
-                  view === "graph"
+                  !debateViewPending && view === "graph"
                     ? "bg-accent text-foreground hover:bg-accent"
                     : undefined
                 }
@@ -289,34 +429,41 @@ export function TurnDetailPage() {
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-              {view === "graph" && (
+              {!debateViewPending && view === "graph" && (
                 <div className="min-h-0 flex-1">
                   <ReactFlowProvider>
                     <GraphView interactive fitMode="view" autoplay={autoplay} />
                   </ReactFlowProvider>
                 </div>
               )}
-              {view === "debate" && debate && execution && (
+              {!debateViewPending && view === "debate" && debate && execution && (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
                   <DebateArena
                     execution={execution}
-                    messageId={scopeId}
+                    messageId={scopeKey}
                     conversationId={conversationId}
                     interactive={liveViewedTurn}
                   />
                 </div>
               )}
-              {view === "compare" && showCompare && execution && (
-                <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <div className="mx-auto max-w-5xl">
-                    <TurnCompare
-                      execution={execution}
-                      messageId={scopeId}
-                      initialPair={initialComparePair}
-                    />
+              {!debateViewPending &&
+                view === "compare" &&
+                showCompare &&
+                execution && (
+                  <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                    <div className="mx-auto max-w-5xl">
+                      <TurnCompare
+                        execution={execution}
+                        messageId={scopeKey}
+                        initialPair={initialComparePair}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              <ConversationHydrateOverlay
+                phase={overlayPhase}
+                onRetry={() => setHydrateRetry((n) => n + 1)}
+              />
             </div>
           </div>
 

@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R2 Extend 参照实现：ZodString.slug() via regex",
+  "replacements": [
+    {
+      "path": "src/types.ts",
+      "old": "  ulid(message?: errorUtil.ErrMessage) {\n    return this._addCheck({ kind: \"ulid\", ...errorUtil.errToObj(message) });\n  }\n  base64(message?: errorUtil.ErrMessage) {\n",
+      "new": "  ulid(message?: errorUtil.ErrMessage) {\n    return this._addCheck({ kind: \"ulid\", ...errorUtil.errToObj(message) });\n  }\n  /** AgentCore R2 Extend reference: URL slug */\n  slug(message?: errorUtil.ErrMessage) {\n    return this.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, message);\n  }\n  base64(message?: errorUtil.ErrMessage) {\n"
+    }
+  ]
+}

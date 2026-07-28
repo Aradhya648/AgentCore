@@ -39,7 +39,6 @@ from agentcore.db.repositories import (
     MessageRepository,
     PausedTurnRepository,
     TurnLeaseRepository,
-    UserRepository,
 )
 from agentcore.llm.factory import build_provider
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
@@ -361,12 +360,6 @@ async def consolidate_conversation(
                             usage.get("finish_reason") if isinstance(usage, dict) else None
                         ),
                         status=usage.get("status") if isinstance(usage, dict) else None,
-                    )
-                    return False
-                user = await UserRepository(session).get_by_id(user_id)
-                if user is not None and not user.memory_enabled:
-                    await ConversationRepository(session).set_memory_synced_at(
-                        conversation_id, latest
                     )
                     return False
                 synced = conv.memory_synced_at

@@ -1,6 +1,5 @@
 import { SectionLabel, SurfaceNavLink } from "@/components/ui";
 import {
-  Brain,
   Cpu,
   Gauge,
   Info,
@@ -28,6 +27,8 @@ interface NavGroup {
 
 // Settings are grouped by intent: 模型 (组合) + 服务商 (Key) adjacent; 账户 /
 // 偏好 / 关于. Opening /more 落点见 MoreIndexRedirect。
+// 「自动化」已迁至工具箱 #/toolbox/automations。
+// AI 记忆内容管理在「文件」页，不设设置子页。
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "模型",
@@ -39,7 +40,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "AI",
     items: [
-      { icon: Brain, label: "AI 记忆", path: "/more/memory" },
       { icon: SlidersHorizontal, label: "自主度", path: "/more/autonomy" },
     ],
   },
@@ -105,9 +105,9 @@ export function MorePage() {
 function NavRow({ item }: { item: NavItem }) {
   const Icon = item.icon;
   return (
-    <SurfaceNavLink to={item.path}>
+    <SurfaceNavLink to={item.path} className="relative">
       <Icon size={16} className="shrink-0" />
-      <span>{item.label}</span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
     </SurfaceNavLink>
   );
 }

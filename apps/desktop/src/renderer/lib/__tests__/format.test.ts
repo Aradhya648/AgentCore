@@ -79,10 +79,11 @@ describe("formatDisplayCost / pickCostMoney (BYOK ≈)", () => {
     });
   });
 
-  it("marks user_defined pricing as BYOK estimate even when total > 0", () => {
-    expect(
-      pickCostMoney({ total: 100, pricing_source: "user_defined" }),
-    ).toEqual({ nano: 100, estimated: true });
+  it("treats total > 0 as billed (not estimate), even with pricing_source", () => {
+    expect(pickCostMoney({ total: 100, pricing_source: "curated" })).toEqual({
+      nano: 100,
+      estimated: false,
+    });
   });
 
   it("appends 自带密钥·估算 caption for estimates", () => {

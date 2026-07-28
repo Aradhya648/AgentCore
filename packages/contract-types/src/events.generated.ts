@@ -195,10 +195,14 @@ export interface AskAssumption {
  * and the value composed back into the answer; `recommended` is advisory highlight only
  * (NOT a pre-selection). `action` marks an option that the desktop client fulfils with a
  * native client action instead of a plain text answer (unknown/absent → plain option):
- * `bind_local_folder` renders as a folder picker that binds the conversation workspace
- * to the chosen local directory before resuming the turn;
+ * `open_local_project` renders as a folder picker that creates/reuses a local Folder
+ * (mode=local, empty subpath, root=chosen dir) and starts a **new** conversation under
+ * that project — never rewrites the current session's ``folder_id``;
+ * `bind_local_folder` renders as a folder picker that binds the bare-chat scratch
+ * workspace (``conversations/<id>``) for local execution — not 「打开项目」;
  * `grant_readonly_folder` renders as a folder picker that grants a session-scoped
- * read-only mount under ``external/<alias>/`` (W3; does not change workspace binding);
+ * read-only mount under ``external/<alias>/`` (W3; orthogonal to workspace binding —
+ * cloud scratch + desktop online is enough; does not change binding);
  * `grant_organize_folder` is the organize-mode counterpart (move/copy/mkdir/trash-delete).
  * Structured ``op`` / ``source`` / ``destination`` / ``path`` fields carry organize_plan
  * items for plan-bound ``file_batch``. */
@@ -206,7 +210,7 @@ export interface AskOption {
   label: string;
   detail?: string;
   recommended?: boolean;
-  action?: "bind_local_folder" | "grant_readonly_folder" | "grant_organize_folder";
+  action?: "open_local_project" | "bind_local_folder" | "grant_readonly_folder" | "grant_organize_folder";
   op?: "move" | "copy" | "delete" | "mkdir";
   source?: string;
   destination?: string;
@@ -590,6 +594,10 @@ export interface EscalationRequiredPayload {
   awaiting?: "user" | "ceo";
   /** true=用户可在回合仍 running 时接管浏览器完成登录（D16 窄例外）。旧流缺字段按 false。 */
   browser_login?: boolean;
+  /** 写权冲突路径列表；有值时前端呈现「移交写权 / 保持原主」。旧流缺字段按无。 */
+  ownership_paths?: string[];
+  /** 当前写权持有者 run_id。旧流缺字段按无。 */
+  lock_owner_run_id?: string;
 }
 
 /** 阻塞式求决策 settlement. Emitted by the suspending tool's awaiter ONLY; journaled.
@@ -680,7 +688,9 @@ export type DeliveryState =
  * comes from a structured engine signal — known:
  * ``token_budget`` / ``worker_timeout`` / ``degraded_handoff`` /
  * ``unverified_note`` (soft 待核实/示例自注) /
- * ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影).
+ * ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影) /
+ * ``verify_failed`` (验证形工具失败：browser_navigate / test_run /
+ * verify 形 code_execute·terminal).
  * Absent for ordinary contract / criteria prose gaps that have not been projected.
  * Clients may badge known codes and ignore unknown ones (forward-compatible).
  * 
@@ -700,7 +710,9 @@ export interface DeliveryGap {
 
 /** One user action that would close a delivery gap. ``kind`` is a widened string
  * on the wire (like ``ToolPhase``) so the backend can add kinds without a client
- * bump — known: ``bind_local_folder`` (云端无执行环境 → 绑定本地文件夹后可运行生成);
+ * bump — known: ``bind_local_folder`` (云端无执行环境 → 绑定本机执行环境后可运行生成；≠打开项目);
+ * ``export_to_local`` (云端已有 delivered_files → 导出到本机文件夹后即可 npm install / 本地运行；
+ * 与 bind_local_folder 可并存但语义不同);
  * ``website_verify`` (整页 QA 因预算 defer → 一键续派 ``build_website_verify``);
  * ``continue_skipped_runs`` (turn/nested 额度 SKIPPED 未跑节点 → 下一回合续跑);
  * unknown kinds render as a plain hint.
@@ -708,7 +720,7 @@ export interface DeliveryGap {
  * 
  * Optional ``prompt`` is the exact user-turn text a client should send for
  * kinds that open a new message (e.g. ``website_verify``). Absent for
- * non-message actions like ``bind_local_folder``. */
+ * non-message actions like ``bind_local_folder`` / ``export_to_local``. */
 export interface DeliveryAction {
   kind: string;
   description: string;
@@ -1265,6 +1277,8 @@ export interface ErrorContext {
   upstream_body_preview?: string | null;
   retry_attempts?: number;
   empty_diagnosis?: string;
+  /** 上游 429 Retry-After 秒数（原始值；工程重试仍截断 ≤30s）。 */
+  retry_after?: number;
 }
 
 export interface ErrorPayload {

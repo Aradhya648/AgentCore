@@ -359,7 +359,7 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
         # The Sidecar has no DB → history must come from the claimed local frame record.
         captured["history"] = kwargs.get("history")
         # The conversation's CURRENT permission mode rides the resume params.
-        captured["autonomy"] = kwargs.get("autonomy_policy")
+        captured["autonomy"] = kwargs.get("permission_axes")
         captured["permission_preset"] = kwargs.get("permission_preset")
         kwargs["sink"].close()
         return {
@@ -410,8 +410,8 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
     # A non-default per-resume permission mode reached the pipeline (not reset to default).
     from agentcore.core.types import AutonomyPolicy
 
-    assert captured["autonomy"] is AutonomyPolicy.ALWAYS_ASK
-    assert captured.get("permission_preset") is not None or captured["autonomy"] is AutonomyPolicy.ALWAYS_ASK
+    assert captured["autonomy"] is AutonomyPolicy.CAUTIOUS
+    assert captured.get("permission_preset") is not None or captured["autonomy"] is AutonomyPolicy.CAUTIOUS
     # the reloaded history (from the local frame) is threaded into the resume pipeline so
     # window_from_journal can splice it ahead of the folded rounds (Phase 2 ⑤).
     assert captured["history"] == history

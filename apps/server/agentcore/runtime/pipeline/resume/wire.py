@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from agentcore.board.channel import BoardChannel
 from agentcore.config import settings
-from agentcore.core.types import AutonomyPolicy, PermissionPreset, new_id
+from agentcore.core.types import PermissionAxes, new_id
 from agentcore.desktop.channel import DesktopClientChannel
 from agentcore.llm.profiles import TurnProfiles
 from agentcore.runtime.context import build_workspace_context, desktop_client_can_bind
@@ -93,8 +95,7 @@ async def _wire_continuation_toolset(
     journal_entries: list[dict[str, Any]],
     display_journal: list[dict[str, Any]] | None,
     profiles: TurnProfiles,
-    autonomy_policy: AutonomyPolicy,
-    permission_preset: PermissionPreset | None,
+    permission_axes: PermissionAxes | None,
     session_saver: SessionSaver | None,
     session_loader: SessionLoader | None,
     suspension_saver: SuspensionSaver | None,
@@ -130,7 +131,7 @@ async def _wire_continuation_toolset(
     exec_languages = await resolve_exec_languages(backend)
     worker_tools = build_worker_registry(
         backend=backend,
-        permission_preset=permission_preset,
+        permission_axes=permission_axes,
         languages=exec_languages if backend.location == "local" else None,
     )
     _wire_worker_memory_tools(
@@ -203,7 +204,7 @@ async def _wire_continuation_toolset(
         user_id=user_id,
         conversation_id=conversation_id,
         permission_preset=(
-            permission_preset.value if permission_preset is not None else None
+            json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
         deep_research_auto=deep_research_auto,
         deep_research_auto_debate_count=deep_research_auto_debate_count,
@@ -232,7 +233,7 @@ async def _wire_continuation_toolset(
             file_op_tools=approval_class_tool_names(),
             per_call_tools=per_call_tool_names(),
             delegation_grantable_tools=delegation_grantable_tool_names(),
-            autonomy_policy=autonomy_policy,
+            permission_axes=permission_axes,
         )
         if settings.approval_gate_enabled
         else None
@@ -281,7 +282,7 @@ async def _wire_continuation_toolset(
         memory_enabled=memory_enabled,
         conversation_history_access=conversation_history_access,
         has_memory_topics=topics_present,
-        autonomy_policy=autonomy_policy,
+        permission_axes=permission_axes,
         advertise_bind_local_folder=checkpoint_enabled
         and desktop_client_can_bind(x_client_platform),
     )
@@ -329,8 +330,7 @@ async def wire_resume_turn(
     message_id: str,
     captain_run_id: str,
     profiles: TurnProfiles,
-    autonomy_policy: AutonomyPolicy,
-    permission_preset: PermissionPreset | None,
+    permission_axes: PermissionAxes | None,
     session_saver: SessionSaver | None,
     session_loader: SessionLoader | None,
     suspension_saver: SuspensionSaver | None,
@@ -355,8 +355,7 @@ async def wire_resume_turn(
         journal_entries=suspension.journal_entries,
         display_journal=suspension.journal,
         profiles=profiles,
-        autonomy_policy=autonomy_policy,
-        permission_preset=permission_preset,
+        permission_axes=permission_axes,
         session_saver=session_saver,
         session_loader=session_loader,
         suspension_saver=suspension_saver,
@@ -382,8 +381,7 @@ async def wire_crash_turn(
     user_message: str,
     journal_entries: list[dict[str, Any]],
     profiles: TurnProfiles,
-    autonomy_policy: AutonomyPolicy,
-    permission_preset: PermissionPreset | None,
+    permission_axes: PermissionAxes | None,
     session_saver: SessionSaver | None,
     session_loader: SessionLoader | None,
     suspension_saver: SuspensionSaver | None,
@@ -413,8 +411,7 @@ async def wire_crash_turn(
         journal_entries=journal_entries,
         display_journal=None,
         profiles=profiles,
-        autonomy_policy=autonomy_policy,
-        permission_preset=permission_preset,
+        permission_axes=permission_axes,
         session_saver=session_saver,
         session_loader=session_loader,
         suspension_saver=suspension_saver,

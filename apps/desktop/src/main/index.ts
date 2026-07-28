@@ -14,8 +14,13 @@ import { registerLocalStoreIpc } from "./local-store";
 import { registerLogIpc } from "./log-service";
 import { registerNotificationIpc } from "./notification-service";
 import { registerOutboxIpc } from "./outbox-writeback";
+import {
+  registerBrowserIpc,
+  startDesktopBrowserBridge,
+} from "./browser";
 import { registerPreviewIpc } from "./preview/ipc";
 import { PREVIEW_SCHEME } from "./preview/paths";
+import { WORKSPACE_SCHEME } from "./browser/workspace-paths";
 import { registerProcessIpc } from "./process-service";
 import { registerPtyIpc } from "./pty-service";
 import { registerSidecarIpc } from "./sidecar-service";
@@ -112,6 +117,18 @@ protocol.registerSchemesAsPrivileged([
     // standard=true 才有层级 URL 语义 → 相对路径引用（./style.css、img/logo.png）能按文档
     // URL 正确解析；secure=true 给隔离预览页一个安全上下文；stream 支持大文件流式代理。
     scheme: PREVIEW_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  {
+    // Local Browser 工作区 HTML（workspace://<conversationId>/<path>，L1b 第二 partition）。
+    // 特权与 preview 同形；处理器挂在 WORKSPACE_PARTITION，不改 lockPreviewNavigation。
+    scheme: WORKSPACE_SCHEME,
     privileges: {
       standard: true,
       secure: true,
@@ -268,6 +285,15 @@ app.whenReady().then(() => {
   registerAgentTownIpc();
   registerNotificationIpc();
   registerPreviewIpc();
+  registerBrowserIpc();
+  // B-Arch-1: Bridge Ready is part of the control plane — await listen before
+  // window/sidecar work so initialize/startTurn can hand out live credentials.
+  try {
+    const bridge = await startDesktopBrowserBridge();
+    console.info(`[browser-bridge] ready at ${bridge.baseUrl}`);
+  } catch (err) {
+    console.warn("[browser-bridge] failed to start:", err);
+  }
   const mainWindow = createWindow();
   // 自动更新随首个窗口创建后初始化一次（IPC 句柄全局唯一，不在 createWindow 内调用，
   // 以免 macOS 上 activate 重建窗口时重复注册）。

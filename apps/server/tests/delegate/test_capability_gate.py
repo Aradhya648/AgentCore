@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.delegate.completion import (
     execution_capability_warning,
     plan_mentions_binary_artifact,
@@ -207,7 +207,7 @@ async def test_execute_echoes_explicit_acceptance():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=local_ctx(),
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -232,7 +232,7 @@ async def test_execute_passes_code_verified_on_local():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=local_ctx(),
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -318,7 +318,7 @@ async def test_execute_rejects_form_files_while_explore_pending():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -350,7 +350,7 @@ async def test_execute_prose_explore_batch_does_not_auto_files_written():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -382,7 +382,7 @@ async def test_execute_form_files_infers_after_explore_cleared():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -414,7 +414,7 @@ async def test_execute_explicit_criteria_still_binds_during_explore():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -432,3 +432,19 @@ async def test_execute_explicit_criteria_still_binds_during_explore():
     )
     assert result.success is True
     assert "本批验收：files_written（显式声明）" in result.output
+
+
+def test_hard_gate_rejects_runtime_ready_on_cloud():
+    backend = ctx().backend
+    msg = validate_execution_capability("runtime_ready", _plan("启动开发服务器"), backend)
+    assert msg is not None
+    assert "runtime_ready" in msg
+    assert "terminal" in msg
+    assert "bind_local_folder" in msg
+
+
+def test_hard_gate_passes_runtime_ready_on_local():
+    msg = validate_execution_capability(
+        "runtime_ready", _plan("启动开发服务器"), LocalBackend()
+    )
+    assert msg is None

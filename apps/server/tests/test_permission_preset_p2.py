@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from agentcore.core.types import PermissionPreset
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.audit.hooks import (
     bind_recorder,
     on_approval_resolved,
@@ -15,7 +15,7 @@ from agentcore.runtime.audit.hooks import (
 )
 from agentcore.runtime.audit.projector import (
     project_approval_resolved,
-    project_permission_preset_changed,
+    project_permission_axes_changed,
 )
 from agentcore.runtime.audit.recorder import AuditRecorder, current_audit_recorder
 from agentcore.tools.builtin.code_execute import CodeExecuteTool
@@ -26,14 +26,14 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 
 
-def test_permission_preset_changed_projection():
-    draft = project_permission_preset_changed(
-        previous="workspace", next_preset="full_trust"
-    )
+def test_permission_axes_changed_projection():
+    previous = {"file_write": "session", "command": "kickoff", "team_kickoff": "rules"}
+    next_axes = {"file_write": "session", "command": "auto", "team_kickoff": "skip"}
+    draft = project_permission_axes_changed(previous=previous, next_axes=next_axes)
     assert draft.category == "permission"
-    assert draft.action == "permission.preset_changed"
-    assert draft.detail["previous"] == "workspace"
-    assert draft.detail["permission_preset"] == "full_trust"
+    assert draft.action == "permission.axes_changed"
+    assert draft.detail["previous"] == previous
+    assert draft.detail["permission_axes"] == next_axes
     assert draft.detail["decided_by"] == "user"
 
 
@@ -81,14 +81,15 @@ async def test_approval_force_schedules_without_delegation():
 
 
 @pytest.mark.asyncio
-async def test_full_trust_bind_activates_and_snapshots_preset():
+async def test_managed_bind_activates_and_snapshots_axes():
+    managed = recipe_to_axes(AutonomyPolicy.MANAGED)
     recorder, token = bind_recorder(
         user_id="u1",
         conversation_id=str(uuid4()),
         turn_id=str(uuid4()),
         trace_id=None,
         delegated=True,
-        permission_preset=PermissionPreset.FULL_TRUST.value,
+        permission_preset=str(managed.to_dict()),
     )
     try:
         assert recorder.active is True
@@ -188,7 +189,7 @@ async def test_code_execute_network_mode_follows_preset(tmp_path: Path):
         agent_id="a",
         backend=backend,
         user_id="u",
-        permission_preset="full_trust",
+        permission_preset="{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"skip\"}",
     )
     await tool.execute({"code": "print(1)", "language": "python"}, ctx_trust)
     assert captured[-1].network_mode == "restricted"
@@ -199,7 +200,7 @@ async def test_code_execute_network_mode_follows_preset(tmp_path: Path):
         agent_id="a",
         backend=backend,
         user_id="u",
-        permission_preset="workspace",
+        permission_preset="{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}",
     )
     await tool.execute({"code": "print(1)", "language": "python"}, ctx_ws)
     assert captured[-1].network_mode == "none"

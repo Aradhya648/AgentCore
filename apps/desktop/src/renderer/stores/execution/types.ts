@@ -242,6 +242,13 @@ export interface RunEscalation {
    * 不进 conformance ProjectedTurn（golden 无此字段）。缺省 / false = 普通拍板卡。
    */
   browserLogin?: boolean;
+  /**
+   * 写权冲突结构化裁决（wire `ownership_paths`）。有值时呈现「移交写权 / 保持原主」。
+   * Desktop-local — 不进 conformance ProjectedTurn。
+   */
+  ownershipPaths?: string[];
+  /** 当前写权持有者 run_id（wire `lock_owner_run_id`）。 */
+  lockOwnerRunId?: string;
 }
 
 /** 团队便签墙 (§2.2 通): one note a worker broadcast to its CONCURRENT siblings via `post_note`

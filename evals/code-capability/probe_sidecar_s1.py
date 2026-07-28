@@ -6,6 +6,7 @@ Does not modify apps/**. Evidence → logs/probes/code_cap_s1_*.json
 
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import subprocess
@@ -20,6 +21,10 @@ import httpx
 
 REPO = Path(__file__).resolve().parents[2]
 SERVER = REPO / "apps" / "server"
+if str(SERVER) not in sys.path:
+    sys.path.insert(0, str(SERVER))
+
+from agentcore.sidecar.line_buffer import append_stdout_chunk  # noqa: E402
 WS = REPO / "evals" / "code-capability" / "workspaces" / "hello-cli-s1"
 OUT_DIR = REPO / "logs" / "probes"
 FS_ROOTS = Path(os.environ.get("APPDATA", "")) / "agentcore-desktop" / "fs-roots.json"
@@ -86,10 +91,8 @@ class SidecarProc:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
+            # Binary pipes — see probe_sidecar_turn.SidecarClient (Windows TextIO race).
+            bufsize=0,
         )
         assert self._proc.stdin and self._proc.stdout and self._proc.stderr
         self._stdin = self._proc.stdin
@@ -107,36 +110,62 @@ class SidecarProc:
 
     def _stderr_loop(self) -> None:
         assert self._proc.stderr
-        for line in self._proc.stderr:
-            line = line.rstrip("\n")
-            self.stderr_tail.append(line)
-            if len(self.stderr_tail) > 200:
-                self.stderr_tail = self.stderr_tail[-200:]
-            print(f"[sidecar.err] {line}", flush=True)
+        dec = codecs.getincrementaldecoder("utf-8")("replace")
+        buf = ""
+        while True:
+            raw = self._proc.stderr.read(4096)
+            if not raw:
+                return
+            buf += dec.decode(raw)
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                line = line.rstrip("\r")
+                self.stderr_tail.append(line)
+                if len(self.stderr_tail) > 200:
+                    self.stderr_tail = self.stderr_tail[-200:]
+                print(f"[sidecar.err] {line}", flush=True)
+
+    def _handle_line(self, line: str) -> None:
+        line = line.strip()
+        if not line:
+            return
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            print(f"[sidecar.bad] {line[:200]}", flush=True)
+            return
+        with self._cv:
+            if "id" in msg and ("result" in msg or "error" in msg):
+                self._pending[msg["id"]] = msg
+                self._cv.notify_all()
+            elif msg.get("method") == "turn/event":
+                self._events.append(msg.get("params") or {})
+                ev = (msg.get("params") or {}).get("event") or {}
+                et = ev.get("type")
+                if et and et not in {"content_delta", "reasoning_delta"}:
+                    tool = (ev.get("payload") or {}).get("tool_name")
+                    print(f"[event] {et}" + (f" {tool}" if tool else ""), flush=True)
+                self._cv.notify_all()
 
     def _read_loop(self) -> None:
+        # Desktop-homologous chunked framing — do **not** iterate lines / readline.
+        # Large run_context lines mid-write deadlock Windows pipes if the reader
+        # waits for \\n before draining (see agentcore.sidecar.line_buffer).
+        # Binary stdout.read short-reads; not TextIOWrapper.read(n) / readline.
         assert self._stdout
-        for line in self._stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                print(f"[sidecar.bad] {line[:200]}", flush=True)
-                continue
-            with self._cv:
-                if "id" in msg and ("result" in msg or "error" in msg):
-                    self._pending[msg["id"]] = msg
-                    self._cv.notify_all()
-                elif msg.get("method") == "turn/event":
-                    self._events.append(msg.get("params") or {})
-                    ev = (msg.get("params") or {}).get("event") or {}
-                    et = ev.get("type")
-                    if et and et not in {"content_delta", "reasoning_delta"}:
-                        tool = (ev.get("payload") or {}).get("tool_name")
-                        print(f"[event] {et}" + (f" {tool}" if tool else ""), flush=True)
-                    self._cv.notify_all()
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        buffer = ""
+        while True:
+            raw = self._stdout.read(65536)
+            if not raw:
+                chunk = decoder.decode(b"", final=True)
+                if buffer.strip() or chunk.strip():
+                    self._handle_line(buffer + chunk)
+                return
+            chunk = decoder.decode(raw)
+            buffer, lines = append_stdout_chunk(buffer, chunk)
+            for line in lines:
+                self._handle_line(line)
 
     def request(self, method: str, params: dict[str, Any], timeout: float = 900.0) -> dict[str, Any]:
         with self._lock:
@@ -148,7 +177,7 @@ class SidecarProc:
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        self._stdin.write(line + "\n")
+        self._stdin.write((line + "\n").encode("utf-8"))
         self._stdin.flush()
         deadline = time.time() + timeout
         with self._cv:

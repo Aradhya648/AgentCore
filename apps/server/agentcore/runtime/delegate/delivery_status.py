@@ -35,6 +35,8 @@ _MAX_GAPS = 12
 
 REASON_UNVERIFIED_NOTE = "unverified_note"
 REASON_FILES_NOT_LANDED = "files_not_landed"
+# Verify-shaped tool failure (browser_navigate / test_run / verify 形 code_execute·terminal).
+REASON_VERIFY_FAILED = "verify_failed"
 _WRITING_CUTOFF_REASONS = frozenset({"token_budget", "worker_timeout"})
 
 # Per-worker contract + batch files_written criteria share this predicate.
@@ -371,6 +373,7 @@ def build_delivery_status(
     signals the engine already computed; nothing here re-verifies the workspace.
     """
     from agentcore.runtime.delegate.completion import (
+        collect_verify_failure_gaps,
         collect_worker_gaps,
         plan_mentions_binary_artifact,
         plan_suggests_code_verification,
@@ -391,6 +394,15 @@ def build_delivery_status(
             if not text:
                 continue
             raw_gaps.append(_annotate_gap(role, text, reason=reason))
+    # ①b 验证形工具失败（可用性诚实性 · 丙）——COMPLETED 但 browser_navigate /
+    # test_run / verify 形 code_execute·terminal 失败 → 不得仍为 delivered。
+    for role, rows in collect_verify_failure_gaps(plan, results):
+        for row in rows:
+            text = str(row.get("description") or "").strip()
+            if not text:
+                continue
+            reason = str(row.get("reason") or REASON_VERIFY_FAILED).strip()
+            raw_gaps.append(_annotate_gap(role, text, reason=reason or REASON_VERIFY_FAILED))
     # ② 完成验收未满足（completion_criteria 缺口，批次级）。
     for gap in criteria_gaps or []:
         text = str(gap).strip()
@@ -439,11 +451,28 @@ def build_delivery_status(
                 {
                     "kind": "bind_local_folder",
                     "description": (
-                        "本回合为云端会话、未装配执行环境：绑定本地文件夹后，"
+                        "本回合为云端会话、未装配执行环境：绑定本机执行环境"
+                        "（本会话 scratch，≠打开本地项目）后，"
                         "团队可在你的电脑上运行脚本、生成并验证产物。"
                     ),
                 }
             )
+
+    # 云端已交付文件：即使用户面 state=delivered，也提示导出到本机（找不到文件夹）。
+    # 与 bind_local_folder 可并存但语义不同（导出产物 ≠ 绑定执行环境）。
+    if (
+        delivered
+        and backend is not None
+        and getattr(backend, "location", None) != "local"
+    ):
+        actions.append(
+            {
+                "kind": "export_to_local",
+                "description": (
+                    "产物在云端工作区——导出到本机文件夹后即可 npm install / 本地运行"
+                ),
+            }
+        )
 
     if not delivered and not gaps:
         return None
@@ -507,3 +536,122 @@ def maybe_emit_delivery_status(
             execution_id=execution_id,
             exc_info=True,
         )
+
+
+# 可用性短问（甲）：偏窄识别——能用/可用/好了吗/完成了吗；排除长指令与「打开浏览器验证」。
+_AVAILABILITY_STATUS_RE = re.compile(
+    r"^(?:"
+    r"(?:现在|目前|这[个次回]?)?(?:已经|都)?"
+    r"(?:能(?:不能)?用|可以(?:使用|用)?|可用|好了|完成了|搞定了|做好了)"
+    r"(?:了|了吗|吗|了没|没|了没有|没有)?"
+    r"|is\s+it\s+(?:done|ready|usable|working)\??"
+    r"|can\s+(?:i|we)\s+use\s+it\??"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def is_availability_status_question(text: str) -> bool:
+    """True for narrow「能不能用 / 好了吗 / 完成了吗」status asks (可用性诚实性 · 甲)."""
+    compact = re.sub(r"\s+", "", (text or "").strip())
+    if not compact or len(compact) > 24:
+        return False
+    # Drop punctuation commonly glued to short asks.
+    compact = re.sub(r"[？?！!。．.，,、…]+$", "", compact)
+    if not compact or len(compact) > 20:
+        return False
+    return _AVAILABILITY_STATUS_RE.match(compact) is not None
+
+
+def availability_status_nudge_prompt() -> str:
+    """CEO one-shot: short availability ask → card is the main answer."""
+    return (
+        "[系统提示] 可用性短问：用户在问能不能用 / 好了吗 / 完成了吗。"
+        "本回合若已发出（或复用）交付状态卡，以该卡为主答——"
+        "散文只写一句注释指路看卡，禁止另编口头可用性结论，"
+        "禁止用「已完整可用」盖过 partial/blocked 卡。"
+    )
+
+
+def _payload_to_verdict(payload: dict[str, Any]) -> DeliveryVerdict | None:
+    """Build a finish_guard verdict from a journal/wire delivery_status payload."""
+    execution_id = str(payload.get("execution_id") or "").strip()
+    state = str(payload.get("state") or "").strip()
+    if not execution_id or state not in ("delivered", "partial", "blocked", "notes"):
+        return None
+    files = payload.get("delivered_files") or []
+    if not isinstance(files, list):
+        files = []
+    return DeliveryVerdict(
+        state=state,
+        delivered_files=tuple(str(p) for p in files if p),
+        execution_id=execution_id,
+    )
+
+
+async def maybe_reinject_recent_delivery_for_availability_ask(
+    sink: Any,
+    *,
+    conversation_id: str,
+    user_message: str,
+    exclude_turn_id: str | None = None,
+) -> bool:
+    """On narrow availability short asks, re-emit the latest delivery_status onto this turn.
+
+    Reuses the conversation's most recent durable delivery reconciliation (不另造第二套).
+    Sets ``current_delivery_verdict`` for finish_guard. Returns True when a card was
+    re-emitted. Never raises.
+    """
+    if not is_availability_status_question(user_message):
+        return False
+    # Same-turn batch already stamped a verdict — no need to pull prior journal.
+    if current_delivery_verdict.get() is not None:
+        return False
+    cid = (conversation_id or "").strip()
+    if not cid:
+        return False
+    try:
+        from agentcore.db.base import async_session_factory
+        from agentcore.db.repositories import TurnJournalRepository
+
+        async with async_session_factory() as session:
+            repo = TurnJournalRepository(session)
+            payload = await repo.find_latest_delivery_status(
+                conversation_id=cid,
+                exclude_turn_id=exclude_turn_id,
+            )
+        if not isinstance(payload, dict):
+            return False
+        verdict = _payload_to_verdict(payload)
+        if verdict is None:
+            return False
+        # Normalize wire fields for the event factory.
+        gaps = payload.get("gaps") if isinstance(payload.get("gaps"), list) else []
+        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+        files = list(verdict.delivered_files)
+        summary = str(payload.get("summary") or "").strip() or (
+            f"已交付 {len(files)} 个文件" if files else "无交付缺口"
+        )
+        current_delivery_verdict.set(verdict)
+        from agentcore.runtime.events import delivery_status
+
+        sink.emit(
+            delivery_status(
+                execution_id=verdict.execution_id,
+                state=verdict.state,
+                summary=summary,
+                delivered_files=files,
+                gaps=[g for g in gaps if isinstance(g, dict)],
+                actions=[a for a in actions if isinstance(a, dict)],
+            )
+        )
+        return True
+    except Exception:  # noqa: BLE001 — short-ask side channel must never break the turn
+        from agentcore.core.logging import get_logger
+
+        get_logger(__name__).warning(
+            "delegate.availability_delivery_reinject_failed",
+            conversation_id=cid,
+            exc_info=True,
+        )
+        return False

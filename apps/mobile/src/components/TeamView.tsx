@@ -1231,18 +1231,13 @@ function ResourceBlock({
   const { usage, cost, model } = run;
   const money =
     cost && cost.total > 0
-      ? {
-          nano: cost.total,
-          estimated: cost.pricing_source === "user_defined",
-        }
+      ? { nano: cost.total, estimated: false }
       : cost?.estimated_total && cost.estimated_total > 0
         ? { nano: cost.estimated_total, estimated: true }
         : null;
   const tokenTotal = usage ? usage.input + usage.output : 0;
-  const byokUnpriced =
-    cost?.pricing_source === "unpriced" ||
-    cost?.pricing_source === "user_defined";
-  // 未计价 ≠ 估算：三层价卡全落空时连估算值都没有，标注要如实（拍板 2026-07-20，与桌面同口径）。
+  const byokUnpriced = cost?.pricing_source === "unpriced";
+  // 未计价 ≠ 估算：社区价目未命中时连估算值都没有，标注要如实（与桌面同口径）。
   const byokLabel =
     cost?.pricing_source === "unpriced" ? "自带密钥·未计价" : "自带密钥·估算";
   const cacheRate =

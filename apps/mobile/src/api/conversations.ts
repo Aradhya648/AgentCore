@@ -81,15 +81,13 @@ export async function listConversations(
   return data.data;
 }
 
-/** Fetch one conversation (owner-scoped). Includes ``permission_preset``. */
+/** Fetch one conversation (owner-scoped). Includes ``permission_axes``. */
 export async function getConversation(
   id: string,
-): Promise<ConversationSummary & { permission_preset?: string }> {
+): Promise<ConversationSummary> {
   const res = await apiFetch(`/v1/conversations/${id}`);
   if (!res.ok) throw new Error(`加载会话失败 (${res.status})`);
-  return (await res.json()) as ConversationSummary & {
-    permission_preset?: string;
-  };
+  return (await res.json()) as ConversationSummary;
 }
 
 /** Rename a conversation (对话管理 · 重命名). Returns the updated summary. */

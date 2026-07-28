@@ -49,7 +49,9 @@ DELEGATE_DESCRIPTION = (
     "多任务先判生产者→消费者；互不依赖才平铺并行。"
     "≥2 worker 默认协调（立即返回、可同回合追加同一张图）。"
     "跨回合加人 append_to_execution_id=\"latest\"。"
-    "playbook 可选（建站必须 build_website/build_toolshed；其余可省略直接手写 tasks）；与 tasks 二选一。"
+    "playbook 可选（建站必须 build_website/build_toolshed；绿场软件/SPA 必须 "
+    "build_app；Agent 选控制台原型才允许 "
+    "build_toolshed；可运行自动化/仅方案禁 toolshed；其余可省略直接手写 tasks）；与 tasks 二选一。"
     "completion_criteria 仅顶层（勿写入 tasks[]）。"
     "拿不准怎么拆再 consult_skill(team_orchestration_advanced)。"
 )
@@ -118,7 +120,9 @@ DELEGATE_PARAMETERS = {
             "description": (
                 "可选固化形状名（与 tasks 二选一：传此字段时勿再传 tasks，"
                 "槽位进 playbook_args）。建站/落地页必须 build_website；"
-                "控制台/工具台 dense 必须 build_toolshed；其余自由组队可省略，"
+                "控制台/工具台 dense 必须 build_toolshed（Agent 选控制台原型才允许；"
+                "可运行自动化/仅方案禁 toolshed）；"
+                "绿场软件/SPA 完整交付必须 build_app；其余自由组队可省略，"
                 "直接手写 tasks。亦可用 playbook_id。"
             ),
         },
@@ -127,6 +131,8 @@ DELEGATE_PARAMETERS = {
             "description": (
                 "可选 playbook 声明：已知形状名，或字面值 \"none\"（手写 tasks）。"
                 "与 playbook 同义优先。建站意图禁止 none/手写旁路；"
+                "绿场软件/SPA 禁止 none/手写旁路（须 build_app）；"
+                "Agent 可运行自动化/仅方案不强制 toolshed；"
                 "软件意图禁止 none+单前端单 HTML 薄旁路。"
             ),
         },
@@ -168,13 +174,21 @@ DELEGATE_PARAMETERS = {
         },
         "completion_criteria": {
             "description": (
-                "批次验收（仅 delegate 顶层，与 tasks 同级；"
-                "勿写入 tasks[] 元素——多 task 内嵌且值不同会被拒）。"
+                "批次验收（仅 delegate 顶层，与 tasks 同级；勿写入 tasks[]）。"
+                "files_written=落盘；code_verified=编译/测试/build exit 0；"
+                "runtime_ready=terminal 长驻进程 wait_for 就绪；"
+                "graph_consistent=import 图闭合（.ts/.tsx/.vue 落盘时自动扫）；"
+                "启动开发服务器用 runtime_ready，勿用 code_verified。"
             ),
             "oneOf": [
                 {
                     "type": "string",
-                    "enum": ["files_written", "code_verified"],
+                    "enum": [
+                        "files_written",
+                        "code_verified",
+                        "runtime_ready",
+                        "graph_consistent",
+                    ],
                 },
                 {
                     "type": "object",

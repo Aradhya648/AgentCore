@@ -1,10 +1,12 @@
 import { getConversations } from "@/hooks/useConversations";
+import { hasInAppPreview } from "@/lib/capabilities";
 import {
   type FileNode,
   type FilePreviewResult,
   type FileSource,
   baseName,
 } from "@/lib/fileSource";
+import { openWorkspaceHtmlInBrowser } from "@/lib/openWorkspaceHtmlInBrowser";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import {
   createWorkspaceDir,
@@ -13,7 +15,6 @@ import {
   exportWorkspaceMdToDocx,
   listWorkspaceFiles,
   moveWorkspaceFile,
-  openWorkspaceInAppPreview,
   openWorkspaceInBrowser,
   readWorkspaceFile,
   readWorkspaceFileForEdit,
@@ -182,15 +183,15 @@ export function createWorkspaceSource(
   // 系统集成入口按「桌面专属能力是否存在」逐个门控（web stub 均不提供 → web 端不挂，
   // HTML 面板内为源码视图，web 的完整效果出口退化为下载）。二者相互独立：
   // - 「在浏览器打开」依赖 previewArchive（快照解压 + 系统浏览器）；
-  // - 应用内「完整预览」依赖 previewApi（preview:// 独立子窗口，无需打包，按需取字节）。
+  // - 应用内「完整预览」→ 右坞 BrowserPanel + workspace://（browserApi.openWorkspaceHtml）。
   const withExtras: FileSource = { ...source };
   if (window.fsApi?.previewArchive) {
     withExtras.openInBrowser = (path) =>
       openWorkspaceInBrowser(conversationId, path);
   }
-  if (window.previewApi) {
+  if (hasInAppPreview()) {
     withExtras.openInAppPreview = (path) =>
-      openWorkspaceInAppPreview(conversationId, path);
+      openWorkspaceHtmlInBrowser(conversationId, path);
   }
   return withExtras;
 }

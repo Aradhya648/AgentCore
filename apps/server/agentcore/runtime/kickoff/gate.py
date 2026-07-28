@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import PermissionAxes
 
 # Short verbal affirmations that settle a previously proposed kickoff / plan
 # (covers「认可」「就这样」after a free-text collaboration outline — not only card resume).
@@ -50,38 +50,39 @@ should_preview = should_preview_delegate_plan
 def needs_capability_auth(
     *,
     local_gate: bool,
-    autonomy: AutonomyPolicy,
+    axes: PermissionAxes,
 ) -> bool:
     """Whether the capability-auth half of the kickoff applies.
 
-    - ``always_ask``: no kickoff grant (every call prompts) → False
-    - ``full_auto``: auto-grant without listing tools → False (handled silently)
-    - ``first_grant`` + local gate: True (show tools / await grant-or-per-call)
+    - ``command=ask``: no kickoff grant → False
+    - ``command=auto``: silent auto-grant → False
+    - ``command=kickoff`` + local gate: True (show tools / await grant)
     """
     if not local_gate:
         return False
-    if autonomy is AutonomyPolicy.ALWAYS_ASK:
-        return False
-    return autonomy is not AutonomyPolicy.FULL_AUTO
+    return axes.honors_kickoff_grant
 
 
 def should_kickoff(
     *,
     plan_preview: bool,
     local_gate: bool,
-    autonomy: AutonomyPolicy,
+    axes: PermissionAxes,
 ) -> bool:
     """Whether to durable-pause for the merged kickoff card.
 
     ``plan_preview`` is primitive-specific (delegate: :func:`should_preview_delegate_plan`;
-    debate top-level: always True). ``full_auto`` releases the **plan half** as well
-    as capability listing — neither primitive shows the card under full_auto.
+    debate top-level: always True). ``team_kickoff``:
+    - ``skip`` — release both halves (对齐原 full_auto 跳卡)
+    - ``always`` — force plan half on (仍由调用方限定「仍该挂的场景」)
+    - ``rules`` — honor ``plan_preview`` soft-skip rules
     """
-    if autonomy is AutonomyPolicy.FULL_AUTO:
+    if axes.skips_team_kickoff:
         return False
-    if plan_preview:
+    effective_plan = True if axes.forces_team_kickoff else plan_preview
+    if effective_plan:
         return True
-    return needs_capability_auth(local_gate=local_gate, autonomy=autonomy)
+    return needs_capability_auth(local_gate=local_gate, axes=axes)
 
 
 def _sink_journal(tool: Any) -> list[dict[str, Any]]:

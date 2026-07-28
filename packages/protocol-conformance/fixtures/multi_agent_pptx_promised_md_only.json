@@ -170,7 +170,7 @@
         "actions": [
           {
             "kind": "bind_local_folder",
-            "description": "绑定本地文件夹后可在本机运行 build_pptx.py 生成 .pptx。"
+            "description": "绑定本机执行环境后可在本机运行 build_pptx.py 生成 .pptx。"
           }
         ]
       },
@@ -203,7 +203,7 @@
     {
       "type": "content_delta",
       "payload": {
-        "delta": "讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本地后运行脚本。"
+        "delta": "讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本机执行环境后运行脚本。"
       },
       "timestamp": "2026-01-01T00:00:01.111Z"
     },
@@ -234,7 +234,7 @@
   "projected": {
     "status": "completed",
     "finishReason": "end_turn",
-    "content": "讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本地后运行脚本。",
+    "content": "讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本机执行环境后运行脚本。",
     "reasoning": "",
     "captainContext": [],
     "process": [
@@ -251,7 +251,7 @@
       },
       {
         "kind": "content",
-        "text": "讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本地后运行脚本。"
+        "text": "讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本机执行环境后运行脚本。"
       }
     ],
     "citations": [],
@@ -409,7 +409,7 @@
       "actions": [
         {
           "kind": "bind_local_folder",
-          "description": "绑定本地文件夹后可在本机运行 build_pptx.py 生成 .pptx。"
+          "description": "绑定本机执行环境后可在本机运行 build_pptx.py 生成 .pptx。"
         }
       ]
     },

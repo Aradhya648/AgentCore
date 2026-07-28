@@ -31,7 +31,11 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
 async def _live_generator(
-    hub: BrowserLiveHub, conversation_id: str, viewer: BrowserLiveViewer
+    hub: BrowserLiveHub,
+    conversation_id: str,
+    viewer: BrowserLiveViewer,
+    *,
+    session_id: str | None = None,
 ) -> AsyncIterator[str]:
     """Drain the viewer's queue as SSE, heartbeat while idle, detach on disconnect.
 
@@ -50,7 +54,7 @@ async def _live_generator(
                 break
             yield _format_sse(event)
     finally:
-        hub.detach_soon(conversation_id, viewer)
+        hub.detach_soon(conversation_id, viewer, session_id=session_id)
 
 
 @router.get("/{conversation_id}/browser/live")
@@ -58,17 +62,22 @@ async def stream_browser_live(
     conversation_id: str,
     user: AuthUser,
     session: AsyncSession = Depends(get_db),
+    session_id: str | None = None,
 ) -> StreamingResponse:
-    """Attach as a live viewer of the conversation's browser screencast (owner-only)."""
+    """Attach as a live viewer of a browser screencast (owner-only).
+
+    Optional ``session_id`` pins the stream to one tab; omit to use the conversation's
+    unique/active session (thin wrap over the multi-session registry).
+    """
     conv_repo = ConversationRepository(session)
     await _require_owned_conversation(conversation_id, user.user_id, conv_repo)
     # Release the request-scoped DB connection before the long-lived stream (mirrors chat SSE).
     await release_request_db_before_sse(session)
 
     hub = default_browser_live_hub()
-    viewer = await hub.attach(conversation_id)
+    viewer = await hub.attach(conversation_id, session_id=session_id)
     return StreamingResponse(
-        _live_generator(hub, conversation_id, viewer),
+        _live_generator(hub, conversation_id, viewer, session_id=session_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

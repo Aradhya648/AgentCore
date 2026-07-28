@@ -60,7 +60,11 @@ function openBoundConversation(
       opts.messageCount > 0 ? res.user_prompt.slice(0, 80) || null : null,
     folderId: null,
     localContainerRootId: null,
-    permissionPreset: "workspace",
+    permissionAxes: {
+      file_write: "session",
+      command: "kickoff",
+      team_kickoff: "rules",
+    },
   });
   navigate(`/conversations/${res.conversation_id}`);
 }

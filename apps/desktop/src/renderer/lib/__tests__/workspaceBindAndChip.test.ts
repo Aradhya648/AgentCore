@@ -6,6 +6,7 @@ import type { WorkspaceBinding } from "@/services/workspaceBinding";
 import type { FsRoot } from "@shared/ipc-contract";
 import { describe, expect, it } from "vitest";
 import { formatBindLocalFolderAnswer } from "../bindLocalFolder";
+import { formatOpenLocalProjectAnswer } from "../openLocalProject";
 import {
   formatWorkspaceChipLabel,
   resolveEffectiveWorkspace,
@@ -39,8 +40,16 @@ const projectLocal: WorkspaceBinding = {
 
 describe("formatBindLocalFolderAnswer", () => {
   it("appends the folder name so the AI knows what was bound", () => {
-    expect(formatBindLocalFolderAnswer("绑定本地文件夹", "docs")).toBe(
-      "绑定本地文件夹（docs）",
+    expect(formatBindLocalFolderAnswer("绑定本机执行环境", "docs")).toBe(
+      "绑定本机执行环境（docs）",
+    );
+  });
+});
+
+describe("formatOpenLocalProjectAnswer", () => {
+  it("marks the open as a new local project session", () => {
+    expect(formatOpenLocalProjectAnswer("打开本地项目", "MyRepo")).toBe(
+      "打开本地项目（MyRepo · 已打开为本地项目，新会话）",
     );
   });
 });
@@ -56,7 +65,8 @@ describe("composeAnswer with bind_local_folder pick", () => {
         prompt: "工作区",
         kind: "choice",
         options: [
-          { label: "绑定本地文件夹", action: "bind_local_folder" },
+          { label: "打开本地项目", action: "open_local_project" },
+          { label: "绑定本机执行环境", action: "bind_local_folder" },
           { label: "继续用云端" },
         ],
         multiple: false,
@@ -72,7 +82,7 @@ describe("composeAnswer with bind_local_folder pick", () => {
       content,
       {
         q0: [
-          formatBindLocalFolderAnswer("绑定本地文件夹", "AgentCore-desktop"),
+          formatBindLocalFolderAnswer("绑定本机执行环境", "AgentCore-desktop"),
         ],
       },
       {},
@@ -82,8 +92,26 @@ describe("composeAnswer with bind_local_folder pick", () => {
       "",
       false,
     );
-    expect(text).toContain("绑定本地文件夹（AgentCore-desktop）");
+    expect(text).toContain("绑定本机执行环境（AgentCore-desktop）");
     expect(text).toMatch(/^我的答复：/);
+  });
+
+  it("composes open_local_project answer without implying current-session bind", () => {
+    const text = composeAnswer(
+      content,
+      {
+        q0: [formatOpenLocalProjectAnswer("打开本地项目", "AgentCore")],
+      },
+      {},
+      {},
+      null,
+      null,
+      "",
+      false,
+    );
+    expect(text).toContain(
+      "打开本地项目（AgentCore · 已打开为本地项目，新会话）",
+    );
   });
 });
 

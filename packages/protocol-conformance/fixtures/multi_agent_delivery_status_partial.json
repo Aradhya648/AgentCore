@@ -106,7 +106,7 @@
         "actions": [
           {
             "kind": "bind_local_folder",
-            "description": "本回合为云端会话、未装配执行环境：绑定本地文件夹后可在本机运行生成。"
+            "description": "本回合为云端会话、未装配执行环境：绑定本机执行环境（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
           }
         ]
       },
@@ -192,7 +192,7 @@
         "actions": [
           {
             "kind": "bind_local_folder",
-            "description": "本回合为云端会话、未装配执行环境：绑定本地文件夹后可在本机运行生成。"
+            "description": "本回合为云端会话、未装配执行环境：绑定本机执行环境（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
           }
         ]
       },
@@ -211,7 +211,7 @@
     {
       "type": "content_delta",
       "payload": {
-        "delta": "脚本与讲稿已就绪；pptx 需绑定本地文件夹后在本机生成。"
+        "delta": "脚本与讲稿已就绪；pptx 需绑定本机执行环境后在本机生成。"
       },
       "timestamp": "2026-01-01T00:00:01.209Z"
     },
@@ -242,7 +242,7 @@
   "projected": {
     "status": "completed",
     "finishReason": "end_turn",
-    "content": "我来安排团队制作课件。脚本与讲稿已就绪；pptx 需绑定本地文件夹后在本机生成。",
+    "content": "我来安排团队制作课件。脚本与讲稿已就绪；pptx 需绑定本机执行环境后在本机生成。",
     "reasoning": "",
     "captainContext": [],
     "process": [
@@ -256,7 +256,7 @@
       },
       {
         "kind": "content",
-        "text": "脚本与讲稿已就绪；pptx 需绑定本地文件夹后在本机生成。"
+        "text": "脚本与讲稿已就绪；pptx 需绑定本机执行环境后在本机生成。"
       }
     ],
     "citations": [],
@@ -414,7 +414,7 @@
       "actions": [
         {
           "kind": "bind_local_folder",
-          "description": "本回合为云端会话、未装配执行环境：绑定本地文件夹后可在本机运行生成。"
+          "description": "本回合为云端会话、未装配执行环境：绑定本机执行环境（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
         }
       ]
     },

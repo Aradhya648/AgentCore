@@ -2,7 +2,7 @@
 /**
  * L3「团队浏览器」M0 活动卡的渲染 + fold 单测：
  * - 聚合判定：≥2 连续 browser_* 步聚合成一卡，混入他工具 / 单步不聚合。
- * - 卡渲染：折叠态只留「Browser · N steps」标题，展开态出步骤列表（action/detail/url）。
+ * - 卡渲染：折叠态只留「浏览器 · N 步」标题，展开态出步骤列表（action/detail/url）。
  * - 含 frame 的回放重建：卡数据只来自随 tool_use_end 落 journal 的 display —— 给定重建后的
  *   process（display 带 frame），展开即按 conversationId + frame 懒拉原图、点击开 lightbox。
  * 块注释隔开 @vitest-environment 指令，让 organizeImports 保持它在文件首行。
@@ -190,7 +190,7 @@ describe("BrowserActivityCard · 卡渲染", () => {
         conversationId="conv-1"
       />,
     );
-    expect(screen.getByText("Browser · 2 steps")).toBeTruthy();
+    expect(screen.getByText("浏览器 · 2 步")).toBeTruthy();
     // 折叠态不平铺步骤明细。
     expect(screen.queryByText("打开示例站")).toBeNull();
     expect(screen.queryByText("点击登录按钮")).toBeNull();
@@ -204,7 +204,7 @@ describe("BrowserActivityCard · 卡渲染", () => {
         conversationId="conv-1"
       />,
     );
-    fireEvent.click(screen.getByText("Browser · 2 steps"));
+    fireEvent.click(screen.getByText("浏览器 · 2 步"));
     expect(screen.getByText("Navigate")).toBeTruthy();
     expect(screen.getByText("Click")).toBeTruthy();
     expect(screen.getByText("打开示例站")).toBeTruthy();
@@ -233,7 +233,7 @@ describe("BrowserActivityCard · 卡渲染", () => {
         conversationId="conv-1"
       />,
     );
-    fireEvent.click(screen.getByText("Browser · 2 steps"));
+    fireEvent.click(screen.getByText("浏览器 · 2 步"));
     // 无 display 的进行中步仍占一行（verb 由 tool_name 兜底）。
     expect(screen.getByText("Screenshot")).toBeTruthy();
   });
@@ -266,7 +266,7 @@ describe("BrowserActivityCard · 含 frame 的回放重建", () => {
     // 折叠态不拉图（懒加载）。
     expect(mockFetch).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText("Browser · 2 steps"));
+    fireEvent.click(screen.getByText("浏览器 · 2 步"));
 
     await waitFor(() => {
       expect(screen.getByAltText("打开示例站")).toBeTruthy();
@@ -284,7 +284,7 @@ describe("BrowserActivityCard · 含 frame 的回放重建", () => {
         conversationId="conv-1"
       />,
     );
-    fireEvent.click(screen.getByText("Browser · 2 steps"));
+    fireEvent.click(screen.getByText("浏览器 · 2 步"));
     const thumb = await screen.findByTitle("打开示例站");
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(thumb);
@@ -376,7 +376,7 @@ describe("ToolLineGroup · browser 分派", () => {
         conversationId="conv-1"
       />,
     );
-    expect(screen.getByText("Browser · 2 steps")).toBeTruthy();
+    expect(screen.getByText("浏览器 · 2 步")).toBeTruthy();
   });
 
   it("does not fold a mixed browser+other group into the activity card", () => {
@@ -390,6 +390,6 @@ describe("ToolLineGroup · browser 分派", () => {
         conversationId="conv-1"
       />,
     );
-    expect(screen.queryByText(/Browser · \d+ steps/)).toBeNull();
+    expect(screen.queryByText(/浏览器 · \d+ 步/)).toBeNull();
   });
 });

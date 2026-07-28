@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.approvals import ApprovalGate
 from agentcore.runtime.delegate.drive_setup import apply_delegation_grant
 from agentcore.runtime.events import EventSink
@@ -25,7 +25,7 @@ def test_apply_grant_fresh_full_auto_owns_segment():
     gate = _gate()
     tool = SimpleNamespace(
         _auto_grant_pending=False,
-        _autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        _permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     assert apply_delegation_grant(
         tool, execution_id="e1", worker_gate=gate, seed_completed=None
@@ -39,7 +39,7 @@ def test_apply_grant_already_present_does_not_own_revoke():
     gate.grant_delegation("e1")
     tool = SimpleNamespace(
         _auto_grant_pending=False,
-        _autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+        _permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
     )
     assert not apply_delegation_grant(
         tool, execution_id="e1", worker_gate=gate, seed_completed=None
@@ -51,7 +51,7 @@ def test_apply_grant_seed_completed_is_noop():
     gate = _gate()
     tool = SimpleNamespace(
         _auto_grant_pending=True,
-        _autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+        _permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
     )
     assert not apply_delegation_grant(
         tool,

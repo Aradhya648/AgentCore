@@ -43,9 +43,11 @@ function toConversation(c: BackendConversation): Conversation {
     localContainerRootId: c.local_container_root_id ?? null,
     pinned: c.pinned ?? false,
     archived: c.archived ?? false,
-    permissionPreset:
-      (c as { permission_preset?: Conversation["permissionPreset"] })
-        .permission_preset ?? "workspace",
+    permissionAxes: c.permission_axes ?? {
+      file_write: "session",
+      command: "kickoff",
+      team_kickoff: "rules",
+    },
     modelProfileId: c.model_profile_id ?? null,
   };
 }
@@ -98,7 +100,7 @@ export async function deleteConversation(id: string): Promise<void> {
   await api.delete(`/v1/conversations/${id}`);
   // 裸聊本地 scratch → 系统回收站（软删）；项目共享目录不动。
   void trashBareConversationScratch(id);
-  // W3: drop session read-only roots on this device (server grant store cleared too).
+  // W3: drop conversation session roots on this device (server grant rows cleared too).
   void window.fsApi?.clearSessionReadonlyRoots?.(id);
 }
 

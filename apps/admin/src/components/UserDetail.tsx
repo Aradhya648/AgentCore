@@ -172,7 +172,7 @@ export function UserDetail({
 
           {byok && (
             <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-muted-foreground text-xs">
-              BYOK 模式：记账成本恒为 0；「估算」列为按社区价目/自填单价的 ≈¥，
+              BYOK 模式：记账成本恒为 0；「估算」列为按社区价目的 ≈¥，
               非上游账单。
             </div>
           )}

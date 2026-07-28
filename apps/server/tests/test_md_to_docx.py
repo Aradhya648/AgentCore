@@ -15,9 +15,38 @@ from agentcore.docs_export.md_to_docx import (
     docx_path_for_markdown,
     resolve_workspace_image_path,
 )
+import agentcore.docs_export.md_to_docx as md_to_docx_mod
 from agentcore.docs_export.workspace_export import ExportMarkdownError, export_markdown_path
 from agentcore.tools.sandbox import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
+
+
+def test_python_docx_is_lazy_until_convert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Importing the module must not require python-docx until first convert.
+
+    Sidecar mis-bundles historically crashed chat at tool registration via eager
+    ``from docx import …``. Capability still ships in both runtimes; lazy load is
+    import hygiene so a missing stack fails at convert, not at pipeline import.
+    """
+    monkeypatch.setattr(md_to_docx_mod, "_DocumentFactory", None)
+    # Re-bind other sentinels so _ensure_docx runs a real import.
+    for name in (
+        "_WD_ALIGN_PARAGRAPH",
+        "_RT",
+        "_qn",
+        "_OxmlElement",
+        "_Cm",
+        "_Inches",
+        "_Pt",
+        "_RGBColor",
+        "_MAX_IMAGE_WIDTH",
+    ):
+        monkeypatch.setattr(md_to_docx_mod, name, None)
+    assert md_to_docx_mod._DocumentFactory is None
+    out = convert_markdown_to_docx("# hi")
+    assert md_to_docx_mod._DocumentFactory is not None
+    assert out.docx_bytes[:2] == b"PK"
+
 
 
 def _tiny_png() -> bytes:

@@ -274,44 +274,92 @@ async def _settle_resume(
                         reason="missing_or_invalid_style_id",
                         style_id=(style_id or response.style_id or "") or None,
                     )
-            # 演讲/PPT：resume 结构化 format_id 记账
-            # （显式字段优先 → selected 中合法 fN；禁散文独过闸）。
+            # format_options resume：按意图分流 ledger（自动化 vs 演讲；禁短视频 Agent 进演讲账）。
             if (
                 decision is CheckpointDecision.CONTINUE
                 and getattr(suspension, "format_options", None)
             ):
+                fmt_opts = list(suspension.format_options or [])
+                cid = (getattr(suspension, "conversation_id", None) or "").strip()
+                kickoff_blob = " ".join(
+                    p
+                    for p in (
+                        getattr(suspension, "question", "") or "",
+                        getattr(suspension, "context", "") or "",
+                        getattr(suspension, "user_message", "") or "",
+                    )
+                    if p
+                )
+                from agentcore.runtime.runs.automation_delivery import (
+                    format_options_look_like_automation,
+                    is_automation_kickoff_text,
+                    record_delivery_confirmation,
+                    resolve_delivery_from_resume,
+                )
                 from agentcore.runtime.runs.presentation_format import (
+                    is_presentation_kickoff_text,
                     record_format_confirmation,
                     resolve_format_from_resume,
                 )
 
-                resolved_fmt = resolve_format_from_resume(
-                    list(suspension.format_options or []),
-                    format_id=format_id or response.format_id,
-                    selected=list(selected or []),
-                    note=note,
+                route_automation = is_automation_kickoff_text(kickoff_blob) or (
+                    format_options_look_like_automation(fmt_opts)
+                    and not is_presentation_kickoff_text(kickoff_blob)
                 )
-                cid = (getattr(suspension, "conversation_id", None) or "").strip()
-                if resolved_fmt is not None and cid:
-                    record_format_confirmation(
-                        cid,
-                        format_id=resolved_fmt.format_id,
-                        label=resolved_fmt.label,
-                        source="ask_user",
+                if route_automation:
+                    resolved_del = resolve_delivery_from_resume(
+                        fmt_opts,
+                        format_id=format_id or response.format_id,
+                        selected=list(selected or []),
+                        note=note,
                     )
-                    logger.info(
-                        "presentation.format_confirmed",
-                        conversation_id=cid,
-                        format_id=resolved_fmt.format_id,
-                        source="ask_user",
+                    if resolved_del is not None and cid:
+                        record_delivery_confirmation(
+                            cid,
+                            format_id=resolved_del.format_id,
+                            label=resolved_del.label,
+                            source="ask_user",
+                        )
+                        logger.info(
+                            "automation.delivery_confirmed",
+                            conversation_id=cid,
+                            format_id=resolved_del.format_id,
+                            source="ask_user",
+                        )
+                    elif cid:
+                        logger.info(
+                            "automation.delivery_not_confirmed",
+                            conversation_id=cid,
+                            reason="missing_or_invalid_format_id",
+                            format_id=(format_id or response.format_id or "") or None,
+                        )
+                else:
+                    resolved_fmt = resolve_format_from_resume(
+                        fmt_opts,
+                        format_id=format_id or response.format_id,
+                        selected=list(selected or []),
+                        note=note,
                     )
-                elif cid:
-                    logger.info(
-                        "presentation.format_not_confirmed",
-                        conversation_id=cid,
-                        reason="missing_or_invalid_format_id",
-                        format_id=(format_id or response.format_id or "") or None,
-                    )
+                    if resolved_fmt is not None and cid:
+                        record_format_confirmation(
+                            cid,
+                            format_id=resolved_fmt.format_id,
+                            label=resolved_fmt.label,
+                            source="ask_user",
+                        )
+                        logger.info(
+                            "presentation.format_confirmed",
+                            conversation_id=cid,
+                            format_id=resolved_fmt.format_id,
+                            source="ask_user",
+                        )
+                    elif cid:
+                        logger.info(
+                            "presentation.format_not_confirmed",
+                            conversation_id=cid,
+                            reason="missing_or_invalid_format_id",
+                            format_id=(format_id or response.format_id or "") or None,
+                        )
         terminal = result.final_text if result.effect is ToolEffect.INTERACT else None
         return SettledSuspension(result.output, terminal)
 

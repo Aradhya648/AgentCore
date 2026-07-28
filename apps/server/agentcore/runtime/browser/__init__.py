@@ -2,6 +2,7 @@
 
 from agentcore.runtime.browser.keyframes import KeyframeTracker
 from agentcore.runtime.browser.registry import (
+    BrowserSessionInfo,
     BrowserSessionRegistry,
     TakeoverMark,
     default_browser_session_registry,
@@ -13,6 +14,7 @@ from agentcore.runtime.browser.takeover import (
 )
 
 __all__ = [
+    "BrowserSessionInfo",
     "BrowserSessionRegistry",
     "BrowserTakeoverService",
     "KeyframeTracker",

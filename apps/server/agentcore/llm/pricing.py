@@ -14,9 +14,8 @@ across a month of aggregation.
 
 Pricing layers (call-level ``credential_source``):
 
-1. User-defined unit card (highest; only when ``credential_source=user``)
-2. In-repo community estimate table
-3. Curated ``_PRICING`` (platform/vendor ledger authority)
+- User (BYOK): community estimate table → ``unpriced`` (never Flash)
+- Platform/vendor: curated ``_PRICING`` → community → Flash fallback + warning
 
 User path never falls back to Flash — unknown → ``unpriced`` (0). Platform/vendor
 keep Flash fallback + warning (quota must not go blank).
@@ -25,7 +24,7 @@ keep Flash fallback + warning (quota must not go blank).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from agentcore.core.logging import get_logger
@@ -38,7 +37,7 @@ logger = get_logger(__name__)
 # Call-level credential origin for pricing (replaces deployment ``billing_mode``).
 # user = BYOK; platform = operator main key; vendor = doubao/kimi/zhipu extras.
 CredentialSource = Literal["user", "platform", "vendor"]
-PricingSource = Literal["curated", "estimated", "user_defined", "unpriced"]
+PricingSource = Literal["curated", "estimated", "unpriced"]
 _VENDOR_PREFIXES = frozenset({"doubao", "kimi", "zhipu"})
 
 # 1 USD expressed in nano-USD. The ledger and API speak integer nano-USD.
@@ -206,61 +205,17 @@ def resolve_credential_source(
     return "platform"
 
 
-def parse_user_prices(
-    *,
-    cache_hit: str | None = None,
-    cache_miss: str | None = None,
-    output: str | None = None,
-) -> dict[str, Decimal] | None:
-    """Parse optional USD-per-1M decimal strings into a price card, or ``None``.
-
-    Only input (cache_miss) + output are required — most vendors publish just
-    those two. ``cache_hit`` defaults to the input price (no cache discount),
-    which over- rather than under-estimates.
-    """
-    if not (cache_miss and output):
-        return None
-    try:
-        card = {
-            "cache_hit": Decimal(str(cache_hit).strip() if cache_hit else str(cache_miss).strip()),
-            "cache_miss": Decimal(str(cache_miss).strip()),
-            "output": Decimal(str(output).strip()),
-        }
-    except (InvalidOperation, ValueError):
-        return None
-    if any(v < 0 for v in card.values()):
-        return None
-    return card
-
-
-def _ambient_user_prices() -> dict[str, Decimal] | None:
-    try:
-        from agentcore.core.log_context import get_log_value
-
-        return parse_user_prices(
-            cache_hit=get_log_value("user_price_cache_hit") or None,
-            cache_miss=get_log_value("user_price_cache_miss") or None,
-            output=get_log_value("user_price_output") or None,
-        )
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def resolve_price_card(
     model: str,
     *,
     credential_source: CredentialSource,
-    user_prices: dict[str, Decimal] | None = None,
 ) -> tuple[dict[str, Decimal] | None, PricingSource, bool]:
     """Resolve ``(card, pricing_source, used_flash_fallback)`` for one call.
 
-    User: user_defined → community → unpriced (never Flash).
+    User: community → unpriced (never Flash).
     Platform/vendor: curated → community → Flash fallback.
     """
     if credential_source == "user":
-        card = user_prices or _ambient_user_prices()
-        if card is not None:
-            return card, "user_defined", False
         community = community_pricing_for(model)
         if community is not None:
             return community, "estimated", False
@@ -297,15 +252,12 @@ def pricing_for_model(
     *,
     credential_source: CredentialSource | None = None,
     billing_mode: str | None = None,
-    user_prices: dict[str, Decimal] | None = None,
 ) -> dict[str, Decimal] | None:
     """Price card for ``model``, or ``None`` when user path is unpriced."""
     source = resolve_credential_source(
         credential_source=credential_source, billing_mode=billing_mode, model=model
     )
-    card, pricing_source, _fb = resolve_price_card(
-        model, credential_source=source, user_prices=user_prices
-    )
+    card, pricing_source, _fb = resolve_price_card(model, credential_source=source)
     if pricing_source == "unpriced":
         return None
     return card
@@ -318,14 +270,13 @@ def calculate_cost(
     credential_source: CredentialSource | None = None,
     billing_mode: str | None = None,
     provider_name: str | None = None,
-    user_prices: dict[str, Decimal] | None = None,
 ) -> Cost:
     """Convert a run's token usage into money — the only place this happens.
 
     Input is split by cache hit/miss (DeepSeek pre-splits the counts); output is
     priced whole (reasoning already included). Returns integer nano-USD.
 
-    Pricing follows **call-level credential source** and the three-layer card
+    Pricing follows **call-level credential source** and the two-layer card
     resolve, not deployment ``settings.billing_mode``.
 
     Two guards keep the bill honest when upstream usage is imperfect:
@@ -348,7 +299,7 @@ def calculate_cost(
         model=model,
     )
     card, pricing_source, used_fallback = resolve_price_card(
-        model, credential_source=source, user_prices=user_prices
+        model, credential_source=source
     )
     if card is None:
         return Cost(
@@ -390,7 +341,6 @@ def cache_savings(
     *,
     credential_source: CredentialSource | None = None,
     billing_mode: str | None = None,
-    user_prices: dict[str, Decimal] | None = None,
 ) -> int:
     """Nano-USD saved by prefix-cache hits this run vs. paying the miss price.
 
@@ -401,7 +351,6 @@ def cache_savings(
         model,
         credential_source=credential_source,
         billing_mode=billing_mode,
-        user_prices=user_prices,
     )
     if p is None:
         return 0

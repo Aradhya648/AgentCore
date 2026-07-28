@@ -156,9 +156,6 @@ class UserLlmProviderRepository:
         api_key_enc: bytes,
         base_url: str | None = None,
         default_model: str | None = None,
-        price_cache_hit: str | None = None,
-        price_cache_miss: str | None = None,
-        price_output: str | None = None,
         provider_id: str | None = None,
     ) -> UserLlmProvider:
         """Add a provider row (status 'unchecked' — not connectivity-tested yet)."""
@@ -171,9 +168,6 @@ class UserLlmProviderRepository:
             api_key_enc=api_key_enc,
             base_url=resolved_base_url,
             default_model=resolved_model,
-            price_cache_hit=price_cache_hit,
-            price_cache_miss=price_cache_miss,
-            price_output=price_output,
             status="unchecked",
             supports_tools=None,
         )
@@ -191,9 +185,6 @@ class UserLlmProviderRepository:
         api_key_enc: bytes | object = _UNSET,
         base_url: str | object = _UNSET,
         default_model: str | object = _UNSET,
-        price_cache_hit: str | None | object = _UNSET,
-        price_cache_miss: str | None | object = _UNSET,
-        price_output: str | None | object = _UNSET,
     ) -> UserLlmProvider | None:
         """Owner-scoped patch of a provider; changing the key/endpoint/model resets the
         connectivity status to 'unchecked'. Returns None for a missing / non-owned id.
@@ -213,12 +204,6 @@ class UserLlmProviderRepository:
         if default_model is not _UNSET:
             row.default_model = (default_model or DEEPSEEK_V4_FLASH).strip()  # type: ignore[union-attr]
             reset_status = True
-        if price_cache_hit is not _UNSET:
-            row.price_cache_hit = price_cache_hit  # type: ignore[assignment]
-        if price_cache_miss is not _UNSET:
-            row.price_cache_miss = price_cache_miss  # type: ignore[assignment]
-        if price_output is not _UNSET:
-            row.price_output = price_output  # type: ignore[assignment]
         if reset_status:
             row.status = "unchecked"
             row.supports_tools = None

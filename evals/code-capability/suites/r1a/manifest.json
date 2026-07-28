@@ -1,0 +1,25 @@
+{
+  "phase": "R1a",
+  "description": "Find+Fix 首波：V01 click · V02 starlette · V07 more-itertools · V08 uuid；各 ≥4 卡",
+  "vendors": ["V01", "V02", "V07", "V08"],
+  "tasks": [
+    "v07_fix_chunked.json",
+    "v07_fix_first.json",
+    "v07_fix_windowed.json",
+    "v07_find_chunked.json",
+    "v01_fix_bool.json",
+    "v01_fix_int.json",
+    "v01_fix_filename.json",
+    "v01_find_bool.json",
+    "v02_fix_url_eq.json",
+    "v02_fix_headers_case.json",
+    "v02_fix_query_remove.json",
+    "v02_find_url_eq.json",
+    "v08_fix_validate.json",
+    "v08_fix_version.json",
+    "v08_fix_stringify.json",
+    "v08_find_validate.json"
+  ],
+  "control": "evals/code-capability/r1a_control.py --mode matrix",
+  "report": "evals/code-capability/reports/r1a_baseline_latest.json"
+}

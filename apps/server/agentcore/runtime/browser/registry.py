@@ -1,36 +1,38 @@
-"""BrowserSessionRegistry — conversation → long-lived browser session (M0 生命周期).
+"""BrowserSessionRegistry — multi ``session_id`` browser sessions per conversation (M0).
 
-Mirrors ``runtime/sessions.py`` (conversation-scoped, process-wide singleton) but
-for the heavy L3 browser sandboxes, with the extra guarantees the proposal pins:
+Replaces the old ``conversation_id → 单会话`` map. One conversation may hold many live
+entries; the process-wide primary key is ``session_id``. Callers that omit ``session_id``
+resolve via run binding → unique/active session → (on acquire) get-or-create, so the
+legacy single-session path stays testable.
 
-- **lazy create**: a session is opened on the FIRST ``browser_*`` call, not before;
-- **idle TTL** (default 10min) and **max lifetime** (default 2h): a stale/aged
-  session is recycled (lazily on access + by the lifespan reaper loop);
-- **concurrency gate** (``browser_max_sessions``): a new conversation past the cap
-  fails fast with an explainable busy result AFTER an idle reap;
-- **crash → rebuild**: a dead driver is dropped so the next call rebuilds a fresh
-  sandbox (the tool tells the AI its page state was lost);
-- **cascade cleanup**: closing / deleting a conversation tears the session down.
+Guarantees carried over from the L3 lifecycle:
 
-Session creation is injected as a ``factory`` so the whole lifecycle is unit-testable
-with fakes (no gVisor); the default factory goes through the sandbox provider's
-session surface (``SandboxProvider.open_browser_session``).
+- **lazy create**: a session opens on the first ``browser_*`` / explicit create, not before;
+- **idle TTL** + **max lifetime** with lazy + reaper recycle;
+- **concurrency gate** (``browser_max_sessions``): cap is on live *entries*, not conversations;
+- **crash → rebuild**: a dead driver is dropped so the next call rebuilds;
+- **cascade cleanup**: closing / deleting a conversation tears down all its sessions.
+
+Session creation is injected as a ``factory`` so the lifecycle is unit-testable with fakes
+(no gVisor); the default factory goes through the sandbox provider's session surface.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from agentcore.config import settings
 from agentcore.core.logging import get_logger
 from agentcore.runtime.browser.keyframes import KeyframeTracker
 from agentcore.tools.sandbox.browser.protocol import (
     BrowserSession,
+    BrowserSessionAcquireError,
     BrowserSessionRequest,
     BrowserSessionsBusyError,
 )
@@ -38,6 +40,7 @@ from agentcore.tools.sandbox.browser.protocol import (
 logger = get_logger(__name__)
 
 SessionFactory = Callable[[BrowserSessionRequest], Awaitable[BrowserSession]]
+HostKind = Literal["sandbox", "local"]
 
 
 @dataclass(frozen=True)
@@ -45,9 +48,9 @@ class TakeoverMark:
     """The active user-takeover pinned onto a session entry (M2 · D16/D17).
 
     The registry entry is the single in-memory source of truth for「is this session under
-    user takeover」— the tools consult it (busy error) and every teardown path uses it to
-    finalize the durable record. ``record_id`` links to the ``browser_takeovers`` row so a
-    drop can close it; ``started_at`` lets the endpoint reconstruct state on already-active.
+    user takeover」— the tools consult it (``user_in_control``) and every teardown path
+    uses it to finalize the durable record. ``record_id`` links to the ``browser_takeovers``
+    row so a drop can close it; ``started_at`` lets the endpoint reconstruct state.
     """
 
     record_id: str
@@ -69,29 +72,74 @@ class BrowserSessionObserver(Protocol):
     be sync + non-blocking (the hub only schedules work): they run inside registry ops.
     """
 
-    def on_session_ready(self, conversation_id: str) -> None:
+    def on_session_ready(self, conversation_id: str, session_id: str = "") -> None:
         """A fresh session for this conversation now exists (start screencast for viewers)."""
         ...
 
-    def on_session_gone(self, conversation_id: str) -> None:
-        """The conversation's session was dropped / recycled (tell viewers session_closed)."""
+    def on_session_gone(self, conversation_id: str, session_id: str = "") -> None:
+        """A session was dropped / recycled (tell viewers session_closed when relevant)."""
         ...
 
-    def is_watched(self, conversation_id: str) -> bool:
+    def is_watched(self, conversation_id: str, session_id: str | None = None) -> bool:
         """True while ≥1 live viewer is attached — spares the session from idle reaping."""
         ...
 
 
+@dataclass(frozen=True)
+class BrowserSessionInfo:
+    """Public summary of one live registry entry (list/create API + tools)."""
+
+    session_id: str
+    conversation_id: str
+    host_kind: HostKind
+    run_id: str | None
+    created_at: float
+    last_used: float
+    control: Literal["agent", "user"]
+    # L7 最小：最近一次导航的 url/title（Local Bridge / 用户地址栏回写）。
+    url: str | None = None
+    title: str | None = None
+
+
 @dataclass
 class _Entry:
+    session_id: str
+    conversation_id: str
     session: BrowserSession
     keyframes: KeyframeTracker = field(default_factory=KeyframeTracker)
+    host_kind: HostKind = "sandbox"
+    run_id: str | None = None
     # Set while a user is actively driving this session by hand (M2 接管); None otherwise.
     takeover: TakeoverMark | None = None
+    url: str | None = None
+    title: str | None = None
+
+    def info(self) -> BrowserSessionInfo:
+        return BrowserSessionInfo(
+            session_id=self.session_id,
+            conversation_id=self.conversation_id,
+            host_kind=self.host_kind,
+            run_id=self.run_id,
+            created_at=self.session.created_at,
+            last_used=self.session.last_used,
+            control="user" if self.takeover is not None else "agent",
+            url=self.url,
+            title=self.title,
+        )
 
 
 async def _default_factory(request: BrowserSessionRequest) -> BrowserSession:
-    """Open a real gVisor browser session via the sandbox provider's session surface."""
+    """Open a browser session: Local Bridge (host_kind=local) or gVisor sandbox.
+
+    Local never falls back to sandbox (C4) — Bridge failure raises
+    ``BrowserSessionError`` with ``host_unavailable``.
+    """
+    host_kind = getattr(request, "host_kind", None) or "sandbox"
+    if host_kind == "local":
+        from agentcore.runtime.browser.local_session import open_local_bridge_session
+
+        return await open_local_bridge_session(request)
+
     from agentcore.workspace.locate import _default_server_sandbox
 
     sandbox = _default_server_sandbox()
@@ -103,8 +151,12 @@ async def _default_factory(request: BrowserSessionRequest) -> BrowserSession:
     return await sandbox.open_browser_session(request)
 
 
+def _new_session_id() -> str:
+    return uuid.uuid4().hex
+
+
 class BrowserSessionRegistry:
-    """Process-wide ``conversation_id → browser session`` map with TTL + concurrency."""
+    """Process-wide ``session_id → browser session`` map (many per conversation)."""
 
     def __init__(
         self,
@@ -118,7 +170,13 @@ class BrowserSessionRegistry:
         self._max_sessions = max_sessions
         self._idle_ttl = idle_ttl_seconds
         self._max_lifetime = max_lifetime_seconds
+        # Primary key = session_id (single in-memory structure — no parallel registry).
         self._entries: dict[str, _Entry] = {}
+        # conversation_id → ordered session_ids (creation order; active tracked separately).
+        self._by_conversation: dict[str, list[str]] = {}
+        # conversation_id → currently activated session_id (UI / default resolve).
+        self._active: dict[str, str] = {}
+        # Serialize create/acquire per conversation (parallel tool calls).
         self._locks: dict[str, asyncio.Lock] = {}
         # M1 live hub (D13): notified on create/drop, consulted for watch-based TTL sparing.
         self._observer: BrowserSessionObserver | None = None
@@ -133,39 +191,6 @@ class BrowserSessionRegistry:
     def set_takeover_finalizer(self, finalizer: TakeoverFinalizer | None) -> None:
         """Wire the takeover service so a dropped session's open record gets completed."""
         self._takeover_finalizer = finalizer
-
-    # -- M2 takeover state (D16/D17): the entry is the in-memory source of truth ----------
-    def is_taken_over(self, conversation_id: str) -> bool:
-        """True while a live session for this conversation is under user takeover."""
-        entry = self._live(conversation_id)
-        return entry is not None and entry.takeover is not None
-
-    def takeover_mark(self, conversation_id: str) -> TakeoverMark | None:
-        """The active takeover mark for a live session, or None."""
-        entry = self._live(conversation_id)
-        return entry.takeover if entry is not None else None
-
-    def begin_takeover(self, conversation_id: str, mark: TakeoverMark) -> bool:
-        """Pin ``mark`` onto the conversation's live session; False if none is live."""
-        entry = self._live(conversation_id)
-        if entry is None:
-            return False
-        entry.takeover = mark
-        logger.info("browser.takeover_marked", conversation_id=conversation_id)
-        return True
-
-    def end_takeover(self, conversation_id: str) -> TakeoverMark | None:
-        """Clear + return the active takeover mark (explicit end), or None if not marked.
-
-        Clearing here BEFORE any drop ensures an explicit end never double-finalizes: a
-        later teardown finds no mark and skips the finalizer.
-        """
-        entry = self._entries.get(conversation_id)
-        if entry is None or entry.takeover is None:
-            return None
-        mark = entry.takeover
-        entry.takeover = None
-        return mark
 
     # -- config (read live so a test / ops change is honored) -------------------
     @property
@@ -203,67 +228,411 @@ class BrowserSessionRegistry:
             return True
         if (now - s.last_used) > self.idle_ttl:
             # Idle — but spare a session that has live viewers attached (open 直播 tab).
-            watched = self._observer is not None and self._observer.is_watched(s.conversation_id)
+            watched = self._observer is not None and self._observer.is_watched(
+                entry.conversation_id, entry.session_id
+            )
             return not watched
         return False
 
-    def _live(self, conversation_id: str) -> _Entry | None:
-        entry = self._entries.get(conversation_id)
+    def _entry_live(self, session_id: str) -> _Entry | None:
+        entry = self._entries.get(session_id)
         if entry is None:
             return None
         if not entry.session.alive or self._expired(entry, time.time()):
             return None
         return entry
 
-    def peek(self, conversation_id: str) -> BrowserSession | None:
-        """The conversation's live session WITHOUT creating one (live view: no session ⇒ None)."""
-        entry = self._live(conversation_id)
+    def _live_ids(self, conversation_id: str) -> list[str]:
+        """Live (non-expired) session ids for a conversation, preserving creation order."""
+        ids = self._by_conversation.get(conversation_id) or []
+        return [sid for sid in ids if self._entry_live(sid) is not None]
+
+    def resolve_session_id(
+        self,
+        conversation_id: str,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> str | None:
+        """Resolve which live session a caller without an explicit id should use.
+
+        Order: explicit ``session_id`` (if live + owned) → run-bound (when ``run_id``
+        given; no fall-through) → unique live → active live. Returns None when nothing
+        matches (caller may get-or-create).
+        """
+        if session_id:
+            entry = self._entry_live(session_id)
+            if entry is not None and entry.conversation_id == conversation_id:
+                return session_id
+            return None
+        live_ids = self._live_ids(conversation_id)
+        if not live_ids:
+            return None
+        if run_id:
+            for sid in live_ids:
+                entry = self._entries.get(sid)
+                if entry is not None and entry.run_id == run_id:
+                    return sid
+            # Prefer an unbound unique/active tab (bind on acquire) over always creating.
+            if len(live_ids) == 1:
+                only = self._entries.get(live_ids[0])
+                if only is not None and only.run_id is None:
+                    return live_ids[0]
+            active = self._active.get(conversation_id)
+            if active and active in live_ids:
+                act = self._entries.get(active)
+                if act is not None and act.run_id is None:
+                    return active
+            return None
+        if len(live_ids) == 1:
+            return live_ids[0]
+        active = self._active.get(conversation_id)
+        if active and active in live_ids:
+            return active
+        return None
+
+    def set_active(self, conversation_id: str, session_id: str) -> bool:
+        """Mark ``session_id`` as the conversation's activated default (False if not live)."""
+        entry = self._entry_live(session_id)
+        if entry is None or entry.conversation_id != conversation_id:
+            return False
+        self._active[conversation_id] = session_id
+        return True
+
+    def bind_run(self, session_id: str, run_id: str) -> bool:
+        """CAS-bind a live entry to ``run_id`` (ok if unbound or already this run)."""
+        entry = self._entry_live(session_id)
+        if entry is None:
+            return False
+        if entry.run_id is None:
+            entry.run_id = run_id
+            return True
+        return entry.run_id == run_id
+
+    def list_by_conversation(self, conversation_id: str) -> list[BrowserSessionInfo]:
+        """Live entries for a conversation (creation order)."""
+        return [
+            self._entries[sid].info()
+            for sid in self._live_ids(conversation_id)
+            if sid in self._entries
+        ]
+
+    # -- M2 takeover state (D16/D17): the entry is the in-memory source of truth ----------
+    def is_taken_over(
+        self,
+        conversation_id: str,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> bool:
+        """True while the resolved live session is under user takeover."""
+        return self.takeover_mark(conversation_id, session_id=session_id, run_id=run_id) is not None
+
+    def takeover_mark(
+        self,
+        conversation_id: str,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> TakeoverMark | None:
+        """The active takeover mark for the resolved session, or None."""
+        sid = self.resolve_session_id(conversation_id, session_id=session_id, run_id=run_id)
+        if sid is None:
+            return None
+        entry = self._entry_live(sid)
+        return entry.takeover if entry is not None else None
+
+    def begin_takeover(
+        self,
+        conversation_id: str,
+        mark: TakeoverMark,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Pin ``mark`` onto the resolved live session; False if none is live."""
+        sid = self.resolve_session_id(conversation_id, session_id=session_id)
+        if sid is None:
+            return False
+        entry = self._entry_live(sid)
+        if entry is None:
+            return False
+        entry.takeover = mark
+        logger.info(
+            "browser.takeover_marked",
+            conversation_id=conversation_id,
+            session_id=sid,
+        )
+        return True
+
+    def end_takeover(
+        self,
+        conversation_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> TakeoverMark | None:
+        """Clear + return the active takeover mark (explicit end), or None if not marked.
+
+        Clearing here BEFORE any drop ensures an explicit end never double-finalizes: a
+        later teardown finds no mark and skips the finalizer.
+        """
+        sid = self.resolve_session_id(conversation_id, session_id=session_id)
+        if sid is None:
+            return None
+        entry = self._entries.get(sid)
+        if entry is None or entry.takeover is None:
+            return None
+        mark = entry.takeover
+        entry.takeover = None
+        return mark
+
+    def peek(
+        self,
+        conversation_id: str,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> BrowserSession | None:
+        """The resolved live session WITHOUT creating one (live view: no session ⇒ None)."""
+        sid = self.resolve_session_id(conversation_id, session_id=session_id, run_id=run_id)
+        if sid is None:
+            return None
+        entry = self._entry_live(sid)
         return entry.session if entry is not None else None
 
-    def _notify_ready(self, conversation_id: str) -> None:
+    def peek_entry(
+        self,
+        conversation_id: str,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> _Entry | None:
+        """Like :meth:`peek` but returns the full entry (keyframes / takeover / ids)."""
+        sid = self.resolve_session_id(conversation_id, session_id=session_id, run_id=run_id)
+        if sid is None:
+            return None
+        return self._entry_live(sid)
+
+    def update_nav(
+        self,
+        session_id: str,
+        *,
+        url: str | None = None,
+        title: str | None = None,
+    ) -> bool:
+        """L7 最小：回写最近导航 url/title（工具 / Bridge / 用户地址栏）。"""
+        entry = self._entries.get(session_id)
+        if entry is None:
+            return False
+        if url is not None:
+            entry.url = url or None
+        if title is not None:
+            entry.title = title or None
+        return True
+
+    def get(self, session_id: str) -> BrowserSession | None:
+        """Lookup by primary key without creating."""
+        entry = self._entry_live(session_id)
+        return entry.session if entry is not None else None
+
+    def conversation_of(self, session_id: str) -> str | None:
+        """Owning conversation_id for a mapped session (including stale), or None."""
+        entry = self._entries.get(session_id)
+        return entry.conversation_id if entry is not None else None
+
+    def _notify_ready(self, conversation_id: str, session_id: str) -> None:
         if self._observer is None:
             return
         try:
-            self._observer.on_session_ready(conversation_id)
+            self._observer.on_session_ready(conversation_id, session_id)
+        except TypeError:
+            # Older fakes / hubs that only accept conversation_id.
+            try:
+                self._observer.on_session_ready(conversation_id)  # type: ignore[call-arg]
+            except Exception:  # noqa: BLE001
+                logger.warning("browser.observer_ready_failed", conversation_id=conversation_id)
         except Exception:  # noqa: BLE001 - a hub hiccup must not break session creation
             logger.warning("browser.observer_ready_failed", conversation_id=conversation_id)
 
-    def _notify_gone(self, conversation_id: str) -> None:
+    def _notify_gone(self, conversation_id: str, session_id: str) -> None:
         if self._observer is None:
             return
         try:
-            self._observer.on_session_gone(conversation_id)
+            self._observer.on_session_gone(conversation_id, session_id)
+        except TypeError:
+            try:
+                self._observer.on_session_gone(conversation_id)  # type: ignore[call-arg]
+            except Exception:  # noqa: BLE001
+                logger.warning("browser.observer_gone_failed", conversation_id=conversation_id)
         except Exception:  # noqa: BLE001 - a hub hiccup must not break teardown
             logger.warning("browser.observer_gone_failed", conversation_id=conversation_id)
+
+    async def create(
+        self,
+        request: BrowserSessionRequest,
+        *,
+        session_id: str | None = None,
+        host_kind: HostKind = "sandbox",
+        run_id: str | None = None,
+        activate: bool = True,
+    ) -> tuple[BrowserSession, KeyframeTracker, str]:
+        """Open a new session entry (always creates — does not reuse).
+
+        Returns ``(session, keyframes, session_id)``. Raises
+        :class:`BrowserSessionsBusyError` when the concurrency cap is reached.
+        """
+        cid = request.conversation_id
+        async with self._lock_for(cid):
+            await self._enforce_capacity()
+            sid = session_id or _new_session_id()
+            if sid in self._entries:
+                # Stale/dead slot with same id — drop before recreate (tests / recovery).
+                await self._drop(sid, reason="stale")
+            # Stamp so Local Bridge pageId == Registry session_id.
+            request.session_id = sid
+            request.host_kind = host_kind
+            session = await self._factory(request)
+            entry = _Entry(
+                session_id=sid,
+                conversation_id=cid,
+                session=session,
+                host_kind=host_kind,
+                run_id=run_id or getattr(request, "run_id", None),
+            )
+            self._entries[sid] = entry
+            self._by_conversation.setdefault(cid, []).append(sid)
+            if activate or cid not in self._active:
+                self._active[cid] = sid
+            logger.info(
+                "browser.registry_created",
+                conversation_id=cid,
+                session_id=sid,
+                host_kind=host_kind,
+                live=len(self._entries),
+            )
+            self._notify_ready(cid, sid)
+            return entry.session, entry.keyframes, sid
+
+    def _require_host_kind(self, entry: _Entry, host_kind: HostKind) -> None:
+        """Refuse acquire when the live entry is bound to a different host (C4 / M2)."""
+        if entry.host_kind != host_kind:
+            raise BrowserSessionAcquireError(
+                f"session_bound_elsewhere: 浏览器会话已绑定 {entry.host_kind}，"
+                f"无法以 {host_kind} 使用",
+                code="session_bound_elsewhere",
+            )
 
     async def acquire(
         self, request: BrowserSessionRequest
     ) -> tuple[BrowserSession, KeyframeTracker]:
-        """Get the conversation's live session (creating it lazily), plus its keyframes.
+        """Get a live session for the request (resolve or get-or-create), plus keyframes.
 
-        Raises :class:`BrowserSessionsBusyError` when the concurrency cap is reached and no
-        idle session can be reclaimed.
+        Resolution (when ``request.session_id`` absent): run-bound → unique/active →
+        create (+ bind ``run_id`` when provided). Raises
+        :class:`BrowserSessionsBusyError` when the concurrency cap is reached;
+        :class:`BrowserSessionAcquireError` for ``session_not_found`` /
+        ``session_bound_elsewhere`` (host_kind 互斥 / 跨 run 抢绑).
         """
         cid = request.conversation_id
-        entry = self._live(cid)
-        if entry is not None:
-            return entry.session, entry.keyframes
+        want_sid = getattr(request, "session_id", None) or None
+        run_id = getattr(request, "run_id", None) or None
+        host_kind: HostKind = getattr(request, "host_kind", None) or "sandbox"
+
+        # Fast path without the lock only when no unbound→bind is needed. Binding an
+        # unbound entry under ``run_id`` must be serialized (or CAS'd) so two workers
+        # cannot claim the same tab for different runs.
+        sid = self.resolve_session_id(cid, session_id=want_sid, run_id=run_id)
+        if sid is not None:
+            entry = self._entry_live(sid)
+            if entry is not None and not (run_id and entry.run_id is None):
+                self._require_host_kind(entry, host_kind)
+                if run_id and entry.run_id is not None and entry.run_id != run_id:
+                    raise BrowserSessionAcquireError(
+                        "session_bound_elsewhere: 浏览器会话已绑定其它 run",
+                        code="session_bound_elsewhere",
+                    )
+                return entry.session, entry.keyframes
 
         async with self._lock_for(cid):
-            entry = self._live(cid)  # re-check under the lock (parallel tool calls)
-            if entry is not None:
-                return entry.session, entry.keyframes
-            # Drop a dead/expired session for this conversation before recreating.
-            if cid in self._entries:
-                await self._drop(cid, reason="stale")
-            await self._enforce_capacity()
-            session = await self._factory(request)
-            new_entry = _Entry(session=session)
-            self._entries[cid] = new_entry
-            logger.info("browser.registry_created", conversation_id=cid, live=len(self._entries))
-            # Announce so the live hub can start screencast for any already-attached viewers.
-            self._notify_ready(cid)
-            return new_entry.session, new_entry.keyframes
+            # Explicit sid that is missing / dead / wrong conversation → session_not_found
+            # (do not recreate under the same id).
+            if want_sid:
+                mapped = self._entries.get(want_sid)
+                live = self._entry_live(want_sid)
+                if mapped is not None and mapped.conversation_id == cid and live is None:
+                    await self._drop(want_sid, reason="stale")
+                    mapped = None
+                if mapped is None or mapped.conversation_id != cid or live is None:
+                    raise BrowserSessionAcquireError(
+                        f"session_not_found: 浏览器会话不存在（{want_sid}）",
+                        code="session_not_found",
+                    )
+
+            sid = self.resolve_session_id(cid, session_id=want_sid, run_id=run_id)
+            if sid is not None:
+                entry = self._entry_live(sid)
+                if entry is not None:
+                    self._require_host_kind(entry, host_kind)
+                    if run_id and not self.bind_run(sid, run_id):
+                        # Explicit sid already bound to another run — do not steal.
+                        if want_sid:
+                            raise BrowserSessionAcquireError(
+                                "session_bound_elsewhere: 浏览器会话已绑定其它 run",
+                                code="session_bound_elsewhere",
+                            )
+                        # No explicit sid — fall through to create a fresh session.
+                        sid = None
+                        entry = None
+                    if entry is not None:
+                        return entry.session, entry.keyframes
+            # Drop dead/expired entries for this conversation before recreating.
+            for stale_sid in list(self._by_conversation.get(cid) or []):
+                if stale_sid in self._entries and self._entry_live(stale_sid) is None:
+                    await self._drop(stale_sid, reason="stale")
+            session, keyframes, _new_sid = await self._create_unlocked(
+                request,
+                session_id=None,
+                host_kind=host_kind,
+                run_id=run_id,
+            )
+            return session, keyframes
+
+    async def _create_unlocked(
+        self,
+        request: BrowserSessionRequest,
+        *,
+        session_id: str | None,
+        host_kind: HostKind,
+        run_id: str | None,
+    ) -> tuple[BrowserSession, KeyframeTracker, str]:
+        """Create under an already-held conversation lock (used by acquire)."""
+        cid = request.conversation_id
+        await self._enforce_capacity()
+        sid = session_id or _new_session_id()
+        request.session_id = sid
+        request.host_kind = host_kind
+        session = await self._factory(request)
+        entry = _Entry(
+            session_id=sid,
+            conversation_id=cid,
+            session=session,
+            host_kind=host_kind,
+            run_id=run_id,
+        )
+        self._entries[sid] = entry
+        bucket = self._by_conversation.setdefault(cid, [])
+        if sid not in bucket:
+            bucket.append(sid)
+        if cid not in self._active:
+            self._active[cid] = sid
+        logger.info(
+            "browser.registry_created",
+            conversation_id=cid,
+            session_id=sid,
+            host_kind=host_kind,
+            live=len(self._entries),
+        )
+        self._notify_ready(cid, sid)
+        return entry.session, entry.keyframes, sid
 
     async def _enforce_capacity(self) -> None:
         if len(self._entries) < self.max_sessions:
@@ -282,29 +651,53 @@ class BrowserSessionRegistry:
         """
         now = time.time()
         stale = [
-            cid
-            for cid, entry in self._entries.items()
+            sid
+            for sid, entry in self._entries.items()
             if (not entry.session.alive) or self._expired(entry, now)
         ]
-        for cid in stale:
-            await self._drop(cid, reason="reaped")
+        for sid in stale:
+            await self._drop(sid, reason="reaped")
         return len(stale)
 
+    async def close_session(self, session_id: str) -> None:
+        """Tear down one session by primary key."""
+        if session_id in self._entries:
+            await self._drop(session_id, reason="closed")
+
     async def close(self, conversation_id: str) -> None:
-        """Cascade cleanup for one conversation (deletion / explicit close)."""
-        if conversation_id in self._entries:
-            await self._drop(conversation_id, reason="closed")
+        """Cascade cleanup for one conversation (deletion / explicit close of all tabs)."""
+        for sid in list(self._by_conversation.get(conversation_id) or []):
+            await self._drop(sid, reason="closed")
+        self._by_conversation.pop(conversation_id, None)
+        self._active.pop(conversation_id, None)
         self._locks.pop(conversation_id, None)
 
     async def close_all(self) -> None:
-        for cid in list(self._entries):
-            await self._drop(cid, reason="shutdown")
+        for sid in list(self._entries):
+            await self._drop(sid, reason="shutdown")
+        self._by_conversation.clear()
+        self._active.clear()
         self._locks.clear()
 
-    async def _drop(self, conversation_id: str, *, reason: str) -> None:
-        entry = self._entries.pop(conversation_id, None)
+    async def _drop(self, session_id: str, *, reason: str) -> None:
+        entry = self._entries.pop(session_id, None)
         if entry is None:
             return
+        cid = entry.conversation_id
+        bucket = self._by_conversation.get(cid)
+        if bucket is not None:
+            try:
+                bucket.remove(session_id)
+            except ValueError:
+                pass
+            if not bucket:
+                self._by_conversation.pop(cid, None)
+        if self._active.get(cid) == session_id:
+            remaining = self._by_conversation.get(cid) or []
+            if remaining:
+                self._active[cid] = remaining[-1]
+            else:
+                self._active.pop(cid, None)
         # Complete the durable takeover record BEFORE teardown so it lands on EVERY end path
         # (reap / crash / shutdown / delete) — D17. Cleared explicit-end marks are already
         # gone, so this only fires for a still-active takeover.
@@ -314,10 +707,23 @@ class BrowserSessionRegistry:
         try:
             await entry.session.close()
         except Exception:  # noqa: BLE001 - teardown is best-effort
-            logger.warning("browser.registry_close_failed", conversation_id=conversation_id)
-        logger.info("browser.registry_dropped", conversation_id=conversation_id, reason=reason)
-        # Tell any live viewers the session they were watching is gone (session_closed).
-        self._notify_gone(conversation_id)
+            logger.warning(
+                "browser.registry_close_failed",
+                conversation_id=cid,
+                session_id=session_id,
+            )
+        logger.info(
+            "browser.registry_dropped",
+            conversation_id=cid,
+            session_id=session_id,
+            reason=reason,
+        )
+        self._notify_gone(cid, session_id)
+        # If another tab remains (and became active), announce ready so live viewers can
+        # re-attach screencast to the new default.
+        new_active = self._active.get(cid)
+        if new_active and self._entry_live(new_active) is not None:
+            self._notify_ready(cid, new_active)
 
     async def _finalize_takeover(self, mark: TakeoverMark, reason: str) -> None:
         finalizer = self._takeover_finalizer
@@ -331,8 +737,13 @@ class BrowserSessionRegistry:
     def __len__(self) -> int:
         return len(self._entries)
 
-    def __contains__(self, conversation_id: object) -> bool:
-        return conversation_id in self._entries
+    def __contains__(self, key: object) -> bool:
+        """True for a live ``session_id``, or a conversation that still has ≥1 entry."""
+        if not isinstance(key, str):
+            return False
+        if key in self._entries:
+            return True
+        return key in self._by_conversation and bool(self._by_conversation[key])
 
 
 _registry: BrowserSessionRegistry | None = None

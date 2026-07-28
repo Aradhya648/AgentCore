@@ -45,7 +45,7 @@ worker 唯一向上通道。`blocking=false`（默认）= 报后按假设续跑�
 
 ### 自主度三档
 
-琐碎自修 → 执行层试一轮再 escalate → 方案层立刻 escalate。与用户设置 `AutonomyPolicy` 正交。
+琐碎自修 → 执行层试一轮再 escalate → 方案层立刻 escalate。与用户会话 **PermissionAxes** / 权限配方正交。
 
 ### 便签墙
 
@@ -53,9 +53,24 @@ worker 唯一向上通道。`blocking=false`（默认）= 报后按假设续跑�
 
 **否决**点对点直聊；变味信号 = 拿便签来回讨论。
 
-## 三、冲突
+## 三、冲突与文件写权
 
-CEO 唯一裁决；置信度低才 `ask_user`。资源冲突靠 DAG；文件归属冲突可路径级移交。
+CEO 唯一裁决；置信度低才 `ask_user`。资源冲突靠 DAG。
+
+### 交接式写权（C3）
+
+协调会话内一本路径账本（`WriteCoordinator`）：
+
+| 阶段 | 行为 |
+|---|---|
+| **派发 declare** | 无主路径由首个声明 artifact 的节点成为写主；**下游不因祖先关系在派发瞬间抢锁**（只登记计划意图）。嵌套 lead→child 显式允许派发交接。 |
+| **写入 claim** | 真写时：本人 / 无主可写；祖先持有则可交接覆写；无关队友拒写。 |
+| **完成交接** | worker 完成后，若其持有路径恰好被**唯一**未完成依赖方列入 artifacts，则自动移交。 |
+| **显式移交** | `resolve_escalation(transfer_ownership=true)`；或用户写权卡「移交写权 / 保持原主」。 |
+
+写权冲突 escalate：**直达用户**（与 `browser_login` 同属用户直达例外），卡上结构化动作真正转锁——自然语言「移交」 alone 不会改账本。
+
+→ 见代码: `workspace/write_claims.py` · `coordination/append_guard.py` · `EscalationCard`
 
 ## 四、⏳ / 否决
 

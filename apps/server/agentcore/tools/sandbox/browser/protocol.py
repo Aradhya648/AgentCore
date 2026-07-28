@@ -37,6 +37,18 @@ class BrowserSessionsBusyError(BrowserSessionError):
     """
 
 
+class BrowserSessionAcquireError(BrowserSessionError):
+    """Registry ``acquire`` refused — stable ``code`` for tool ``metadata.code``.
+
+    Codes: ``session_not_found`` (explicit sid missing/dead),
+    ``session_bound_elsewhere`` (host_kind mismatch or cross-run bind conflict).
+    """
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class BrowserDriverCrashedError(BrowserSessionError):
     """The in-sandbox driver died / the stdio channel broke.
 
@@ -59,6 +71,11 @@ class BrowserSessionRequest:
     viewport_width: int = 1280
     viewport_height: int = 800
     jpeg_quality: int = 70
+    # Multi-session (M0): optional primary key + run binding + host kind. The registry
+    # resolves/creates; the factory may ignore these (sandbox path only needs conversation).
+    session_id: str | None = None
+    run_id: str | None = None
+    host_kind: str = "sandbox"
 
 
 @dataclass

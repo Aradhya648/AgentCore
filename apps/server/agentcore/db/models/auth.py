@@ -45,8 +45,8 @@ class Credentials(Base):
 
 # --- User LLM providers (BYOK · 多服务商列表) ---
 # 用户自带的 OpenAI 兼容服务商配置。一人多行（多服务商），每行是一个独立端点：
-# label（显示名）+ api_key_enc（AES-256-GCM 密文）+ base_url + default_model + 服务商级
-# 单价卡 + supports_tools + 连通状态（各服务商各测各的）。明文 key 永不落库
+# label（显示名）+ api_key_enc（AES-256-GCM 密文）+ base_url + default_model +
+# supports_tools + 连通状态（各服务商各测各的）。明文 key 永不落库
 # （security.KeyEncryptor 加密，解析见 llm/resolve.py）。账号级 chat/后台默认指针
 # （(provider_id, model) 一对）落在 users 表；会话覆盖指针落在 conversations.model_provider_id。
 
@@ -80,11 +80,6 @@ class UserLlmProvider(Base):
     default_model: Mapped[str] = mapped_column(
         String(200), server_default=text("'deepseek-v4-flash'")
     )
-    # Optional provider-level USD-per-1M unit card (plaintext decimals; not sensitive).
-    # Estimating fallback for models discovered under THIS endpoint; community chain after.
-    price_cache_hit: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    price_cache_miss: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    price_output: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Probe hint: whether the endpoint returned tool_calls on a dummy-tool completion.
     supports_tools: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Last connectivity-test outcome surfaced in 设置·模型配置 ('测试连接'):

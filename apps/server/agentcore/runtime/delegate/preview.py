@@ -23,7 +23,7 @@ from agentcore.runtime.kickoff import (
 from agentcore.runtime.kickoff.summary import worker_rows
 
 if TYPE_CHECKING:
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import PermissionAxes
     from agentcore.runtime.runs.plan import RunPlan
 
 DelegateTool = Any
@@ -38,13 +38,13 @@ def should_kickoff(
     *,
     finalize: bool,
     local_gate: bool,
-    autonomy: AutonomyPolicy,
+    axes: PermissionAxes,
 ) -> bool:
     """Delegate-shaped wrapper: plan_preview from :func:`should_preview_delegate_plan`."""
     return _should_kickoff_core(
         plan_preview=should_preview_delegate_plan(plan, finalize=finalize),
         local_gate=local_gate,
-        autonomy=autonomy,
+        axes=axes,
     )
 
 

@@ -170,26 +170,6 @@ async def test_update_provider_keeps_ciphertext_and_changes_model(client, make_i
     assert body["default_model"] == "deepseek-v4-pro"
 
 
-async def test_provider_price_card_roundtrip(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-PRICE"), "provuser6")
-    r = await client.post(
-        _BASE,
-        json={
-            "api_key": "sk-price-card-abcd",
-            "base_url": "https://api.openai.com/v1",
-            "default_model": "gpt-4o",
-            "price_cache_hit": "0.5",
-            "price_cache_miss": "1.0",
-            "price_output": "2.0",
-        },
-    )
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["price_cache_hit"] == "0.5"
-    assert body["price_cache_miss"] == "1.0"
-    assert body["price_output"] == "2.0"
-
-
 async def test_multiple_providers_and_delete_retargets_profile(client, make_invite, byok):
     await register_and_login(client, await make_invite("INV-P-MULTI"), "provuser7")
     a = (await client.post(_BASE, json={"api_key": "sk-a-1111", "label": "A"})).json()

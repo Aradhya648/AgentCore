@@ -90,7 +90,7 @@ export interface TeamPreviewDisplay {
   /** Orchestration primitive — drives card layout (分工表 vs 辩题/立场). */
   primitive: KickoffPrimitive;
   workers: TeamPreviewWorkerDisplay[];
-  /** Grantable tools listed on the kickoff card (may be empty under full_auto). */
+  /** Grantable tools listed on the kickoff card (may be empty under command=auto). */
   tools: string[];
   motion: string;
   form: string;
@@ -129,8 +129,12 @@ export interface Conversation {
   localRootId?: string | null;
   pinned?: boolean;
   archived?: boolean;
-  /** Session permission mode (observe | workspace | full_trust). */
-  permissionPreset?: "observe" | "workspace" | "full_trust";
+  /** Session three-axis permission (file_write / command / team_kickoff). */
+  permissionAxes?: {
+    file_write: "ask" | "session";
+    command: "ask" | "kickoff" | "auto";
+    team_kickoff: "always" | "rules" | "skip";
+  };
   /**
    * 会话级模型组合引用：非空即「本会话固定用这个组合」（活引用，改组合定义下一 turn 生效）；
    * null/缺省 = 跟随账号默认组合。源自 `ConversationSummary.model_profile_id`，
@@ -198,8 +202,9 @@ export interface Message {
    */
   syncStatus?: "synced_pending" | "synced";
   /** Progressive assistant-row lifecycle from ``messages.usage.status`` (P1 overlay /
-   * P4 hydrate). ``running`` → stream-style partial; ``incomplete`` → interrupted
-   * affordance. null for user / pre-feature rows. */
+   * P4 hydrate). ``running`` → stream-style partial; ``incomplete`` → empty shell
+   * stops spinning, recovery = send a new turn (composer light hint; no resume
+   * button). null for user / pre-feature rows. */
   status?: "running" | "complete" | "incomplete" | "failed" | null;
   composingTool?: { toolName: string; chars: number } | null;
   attachments?: MessageAttachmentMeta[];

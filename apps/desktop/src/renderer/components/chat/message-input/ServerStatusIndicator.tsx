@@ -82,7 +82,8 @@ export function ComposerConnectionNotice() {
       className="flex items-center gap-1.5 px-4 pt-2 text-xs text-destructive"
     >
       <Loader2 size={12} className="shrink-0 animate-spin" />
-      与服务器断开连接。可浏览已缓存的对话与本地文件；发送已禁用。
+      与服务器断开连接。可浏览已缓存的对话与本机文件（只读）；不能发送或跑
+      AI，恢复连接后再试。
     </div>
   );
 }

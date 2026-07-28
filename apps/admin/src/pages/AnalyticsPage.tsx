@@ -235,7 +235,7 @@ function CostPanel({
           <Info size={16} className="mt-0.5 shrink-0 text-primary" />
           <span>
             当前为 <strong className="text-foreground">BYOK（自带 Key）</strong>
-            模式：记账成本恒为 0；下方「估算」列为按社区价目/自填单价的 ≈¥，
+            模式：记账成本恒为 0；下方「估算」列为按社区价目的 ≈¥，
             非上游账单。
           </span>
         </div>

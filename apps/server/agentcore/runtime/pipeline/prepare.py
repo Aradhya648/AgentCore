@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass
 
 import agentcore.runtime.pipeline as pipeline_pkg
@@ -66,20 +68,19 @@ async def prepare_fresh_turn(
     attachments: list[dict] | None,
     memory_enabled: bool,
     conversation_history_access: bool = True,
-    permission_preset,
+    permission_axes,
     llm_credentials: LLMCredentials | None,
     x_client_platform: str | None,
     profiles: TurnProfiles | None = None,
 ) -> PreparedTurn:
     """Build the stable base prompt, worker tools, channels, and tool context."""
-    # Long-term memory injection is gated by the user's master switch (Agent记忆
-    # 与知识系统 §一): when off we inject nothing (an empty body drops the <rules>
-    # memory section entirely), so a user who turned memory off sees zero influence
-    # from it this turn — the privacy off-ramp's inject half (the grow half is
-    # gated in memory/consolidation.py).
+    # Long-term memory injection is gated by the caller-supplied ``memory_enabled``
+    # flag (product resolve is always True / 定案 A): when False we inject nothing
+    # (an empty body drops the <rules> memory section) — retained for internal
+    # False-path tests and durable suspension frames.
     # 记忆作用域 (§5.2): the always-injected core spans global 偏好.md + 画像.md and — when
     # the conversation is in a project — that project's 画像.md, concatenated global-first
-    # (stable prefix) into one <rules> body. Master switch off ⇒ "".
+    # (stable prefix) into one <rules> body. ``memory_enabled=False`` ⇒ "".
     # Look up via ``pipeline.run`` so governance tests can monkeypatch the seam
     # (``test_pipeline_governance._patch_pipeline``).
     from agentcore.runtime.pipeline import run as run_mod
@@ -147,7 +148,7 @@ async def prepare_fresh_turn(
     )
     worker_tools = build_worker_registry(
         backend=backend,
-        permission_preset=permission_preset,
+        permission_axes=permission_axes,
         languages=exec_languages if backend.location == "local" else None,
     )
     _wire_worker_memory_tools(
@@ -236,7 +237,7 @@ async def prepare_fresh_turn(
         user_id=user_id,
         conversation_id=conversation_id,
         permission_preset=(
-            permission_preset.value if permission_preset is not None else None
+            json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
         deep_research_auto=deep_research_auto,
         deep_research_auto_debate_count=deep_research_auto_debate_count,

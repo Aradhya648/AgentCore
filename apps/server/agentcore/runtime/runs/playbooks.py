@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from agentcore.runtime.runs.build_app import _build_app
 from agentcore.runtime.runs.web_quality_rules import anti_slop_prompt_block
 from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
@@ -1436,6 +1437,22 @@ PLAYBOOKS: dict[str, Playbook] = {
             "target(可选,优先文件路径) / artifacts(可选,落盘路径数组)"
         ),
         build=_repair_code,
+    ),
+    "build_app": Playbook(
+        name="build_app",
+        summary=(
+            "绿场软件/SPA：scaffold→shared→N×module→integrate→smoke"
+            "（五波串起不可减；禁单 worker 包整站；import 图须闭合）"
+        ),
+        slots=(
+            "app(必填,要搭建的应用/SPA简述——"
+            "例:app=\"面向运营的 Vue3 数据看板\") / "
+            "modules(可选,功能模块名数组,各派一名实现;"
+            "默认总览页·列表页) / "
+            "stack(可选,技术栈,默认 Vue3+Vite+TS) / "
+            "root(可选,项目目录名,默认从 app 简述派生)"
+        ),
+        build=_build_app,
     ),
     "build_website": Playbook(
         name="build_website",

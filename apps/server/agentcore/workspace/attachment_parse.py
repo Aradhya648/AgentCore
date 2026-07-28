@@ -5,7 +5,7 @@
 xlsx/csv 跳过，保留运行时 ``code_execute``。扫描版 PDF 首版不做 OCR，写入明确
 降级提示。解析失败不阻塞驻留，回落「路径提示 + 委派解析」。
 
-→ 见决策：docs/02-架构/双模式工作区.md §八 引用即驻留 / 分流预解析。
+→ 见决策：docs/02-架构/双模式工作区.md §七（Office 云=本地）与附件驻留实现。
 """
 
 from __future__ import annotations

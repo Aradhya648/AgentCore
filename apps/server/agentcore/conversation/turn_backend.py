@@ -74,7 +74,7 @@ def build_shared_access_hooks(
     return gate, on_mutation
 
 
-def build_turn_backend(
+async def build_turn_backend(
     *,
     user_id: str,
     conversation_id: str,
@@ -89,8 +89,8 @@ def build_turn_backend(
     Project conversations pass ``folder_id`` so cloud mode shares ``folder:<id>``;
     裸聊 passes ``folder_id=None`` for per-conversation ``conv:<id>`` scratch.
 
-    Attaches W3 session external mounts and shared-space second roots when grants
-    exist. ``shared_gate`` re-checks membership/role on each shared file op.
+    Attaches W3 conversation-scoped external mounts and shared-space second roots
+    when grants exist. ``shared_gate`` re-checks membership/role on each shared file op.
     """
     backend = build_workspace(
         user_id=user_id,
@@ -99,7 +99,7 @@ def build_turn_backend(
         sink=sink,
         local_binding=local_binding,
     )
-    mounts = grant_store.grants_as_dict(conversation_id)
+    mounts = await grant_store.grants_as_dict(conversation_id)
     attach = getattr(backend, "attach_external_mounts", None)
     if mounts and callable(attach):
         attach(mounts)

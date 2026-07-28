@@ -8,9 +8,10 @@ import {
 import { useState } from "react";
 
 // 添加 / 编辑一个 BYOK 服务商 (设置·模型配置). Mobile-local vendor presets (no shared package
-// with desktop) prefill the endpoint / label / model list; 「自定义」falls back to free text.
-// Add creates a provider (first one auto-becomes the chat default, server-side); edit PATCHes
-// endpoint / model / label / price and may leave the key untouched (留空保留已存密文).
+// with desktop) prefill the endpoint / label; 「自定义」requires Base URL + default model.
+// Preset vendors: main path = vendor + name + Key; default_model is silent (preset default /
+// keep stored on edit). Base URL override lives under 高级. Chat model pick lives in
+// 模型组合, not this form.
 
 /** Mobile-local BYOK presets. */
 type ProviderId =
@@ -28,7 +29,6 @@ type ProviderPreset = {
   baseUrl: string;
   baseUrlAliases?: readonly string[];
   defaultModel: string;
-  models: readonly string[];
 };
 
 const PROVIDER_PRESETS: readonly ProviderPreset[] = [
@@ -38,14 +38,12 @@ const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     baseUrl: "https://api.deepseek.com",
     baseUrlAliases: ["https://api.deepseek.com/v1"],
     defaultModel: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
   },
   {
     id: "openai",
     label: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-4o",
-    models: ["gpt-4o", "gpt-4o-mini", "o3-mini"],
   },
   {
     id: "moonshot",
@@ -53,37 +51,28 @@ const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     baseUrl: "https://api.moonshot.cn/v1",
     baseUrlAliases: ["https://api.moonshot.ai/v1"],
     defaultModel: "kimi-k2.5",
-    models: ["kimi-k2.5", "kimi-k2", "moonshot-v1-8k", "moonshot-v1-32k"],
   },
   {
     id: "zhipu",
     label: "智谱 GLM",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     defaultModel: "glm-4-plus",
-    models: ["glm-4-plus", "glm-4-flash", "glm-4-air"],
   },
   {
     id: "doubao",
     label: "豆包 (火山方舟)",
     baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     defaultModel: "doubao-pro-32k",
-    models: ["doubao-pro-32k", "doubao-lite-32k"],
   },
   {
     id: "openrouter",
     label: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "openrouter/auto",
-    models: [
-      "openrouter/auto",
-      "anthropic/claude-sonnet-4",
-      "google/gemini-2.5-pro",
-    ],
   },
 ];
 
 const DEFAULT_PROVIDER_ID: Exclude<ProviderId, "custom"> = "deepseek";
-const MODEL_OTHER_VALUE = "__other__";
 
 function normalizeBaseUrl(url: string): string {
   let normalized = url.trim().toLowerCase();
@@ -141,47 +130,29 @@ export function ProviderForm({
   const [defaultModel, setDefaultModel] = useState(
     () => initialModel.trim() || defaultPreset.defaultModel,
   );
-  const [priceCacheMiss, setPriceCacheMiss] = useState(
-    provider?.price_cache_miss ?? "",
-  );
-  const [priceOutput, setPriceOutput] = useState(provider?.price_output ?? "");
-  const [priceCacheHit, setPriceCacheHit] = useState(
-    provider?.price_cache_hit ?? "",
-  );
-  const [customModelMode, setCustomModelMode] = useState(() => {
-    const model = initialModel.trim();
-    if (!model) return false;
-    const resolved = resolveProvider(initialBaseUrl);
-    if (resolved === "custom") return false;
-    return !getPreset(resolved).models.includes(model);
-  });
   const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const hasInitialAdvanced = Boolean(
-    (provider?.price_cache_hit ?? "").trim() ||
-      (provider?.price_cache_miss ?? "").trim() ||
-      (provider?.price_output ?? "").trim(),
-  );
-  const [advancedOpen, setAdvancedOpen] = useState(hasInitialAdvanced);
+  const isCustom = providerId === "custom";
+  const preset = isCustom ? null : getPreset(providerId);
 
-  const preset = providerId === "custom" ? null : getPreset(providerId);
-  const modelSuggestions = preset?.models ?? [];
-  const useModelSelect = modelSuggestions.length > 0;
+  const baseUrlOverride =
+    !isCustom &&
+    preset != null &&
+    baseUrl.trim().length > 0 &&
+    normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(preset.baseUrl) &&
+    !(preset.baseUrlAliases ?? []).some(
+      (alias) => normalizeBaseUrl(alias) === normalizeBaseUrl(baseUrl),
+    );
+  const [advancedOpen, setAdvancedOpen] = useState(() => baseUrlOverride);
+
   const keyOk = editing || apiKey.trim().length > 0;
   const canSave =
     keyOk &&
     baseUrl.trim().length > 0 &&
     defaultModel.trim().length > 0 &&
     !saving;
-
-  const modelSelectValue =
-    useModelSelect &&
-    !customModelMode &&
-    modelSuggestions.includes(defaultModel)
-      ? defaultModel
-      : MODEL_OTHER_VALUE;
 
   function selectProvider(next: ProviderId) {
     setProviderId(next);
@@ -190,37 +161,18 @@ export function ProviderForm({
       setBaseUrl(p.baseUrl);
       setDefaultModel(p.defaultModel);
       setLabel(p.label);
-      setCustomModelMode(false);
-    } else {
-      setCustomModelMode(false);
     }
-  }
-
-  function selectModelOption(value: string) {
-    if (value === MODEL_OTHER_VALUE) {
-      setCustomModelMode(true);
-      return;
-    }
-    setCustomModelMode(false);
-    setDefaultModel(value);
   }
 
   async function save() {
     setSaving(true);
     setError(null);
     try {
-      const miss = priceCacheMiss.trim();
-      const out = priceOutput.trim();
-      const hit = priceCacheHit.trim();
-      const pricesEmpty = !miss && !out && !hit;
       const trimmedKey = apiKey.trim();
       const common = {
         base_url: baseUrl.trim() || null,
         default_model: defaultModel.trim() || null,
         label: label.trim(),
-        price_cache_miss: pricesEmpty ? null : miss || null,
-        price_output: pricesEmpty ? null : out || null,
-        price_cache_hit: pricesEmpty ? null : hit || null,
       };
       let saved: LlmProviderView;
       if (editing && provider) {
@@ -266,6 +218,11 @@ export function ProviderForm({
           ))}
           <option value="custom">自定义</option>
         </select>
+        {!isCustom && (
+          <p className="section-note" style={{ marginTop: 4 }}>
+            选择后将预填名称与端点；对话用哪个模型请在「模型组合」中选择。
+          </p>
+        )}
       </div>
 
       <div className="field">
@@ -308,130 +265,69 @@ export function ProviderForm({
         </div>
       </div>
 
-      <div className="field">
-        <label className="field-label" htmlFor="llm-base-url">
-          Base URL
-        </label>
-        <input
-          id="llm-base-url"
-          type="text"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder={
-            providerId === "custom"
-              ? "https://your-endpoint.example/v1"
-              : preset?.baseUrl
-          }
-          autoComplete="off"
-          spellCheck={false}
-          className="text-input"
-        />
-      </div>
-
-      <div className="field">
-        <label className="field-label" htmlFor="llm-default-model">
-          默认模型名
-        </label>
-        {useModelSelect ? (
-          <select
-            id="llm-default-model"
-            value={modelSelectValue}
-            onChange={(e) => selectModelOption(e.target.value)}
-            className="text-input"
-          >
-            {modelSuggestions.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-            <option value={MODEL_OTHER_VALUE}>其他…</option>
-          </select>
-        ) : (
-          <input
-            id="llm-default-model"
-            type="text"
-            value={defaultModel}
-            onChange={(e) => setDefaultModel(e.target.value)}
-            placeholder="model-name"
-            autoComplete="off"
-            spellCheck={false}
-            className="text-input"
-          />
-        )}
-        {useModelSelect &&
-          (customModelMode || modelSelectValue === MODEL_OTHER_VALUE) && (
+      {isCustom && (
+        <>
+          <div className="field">
+            <label className="field-label" htmlFor="llm-base-url">
+              Base URL
+            </label>
             <input
+              id="llm-base-url"
               type="text"
-              value={defaultModel}
-              onChange={(e) => setDefaultModel(e.target.value)}
-              placeholder={preset?.defaultModel ?? "model-name"}
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://your-endpoint.example/v1"
               autoComplete="off"
               spellCheck={false}
               className="text-input"
-              style={{ marginTop: 8 }}
             />
-          )}
-      </div>
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="llm-default-model">
+              默认模型名
+            </label>
+            <input
+              id="llm-default-model"
+              type="text"
+              value={defaultModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              placeholder="model-name"
+              autoComplete="off"
+              spellCheck={false}
+              className="text-input"
+            />
+            <p className="section-note" style={{ marginTop: 4 }}>
+              连接测试与目录兜底用；日常选用请到「模型组合」。
+            </p>
+          </div>
+        </>
+      )}
 
-      <details
-        open={advancedOpen}
-        onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
-      >
-        <summary className="field-label" style={{ cursor: "pointer" }}>
-          高级选项 · 单价卡
-        </summary>
-        <p className="section-note" style={{ margin: "8px 0 4px" }}>
-          输入与输出成对填写后可显示 ≈¥ 估算；全空清除价卡（USD / 1M）。
-        </p>
-        <div className="field" style={{ marginTop: 8 }}>
-          <label className="field-label" htmlFor="llm-price-miss">
-            输入价
-          </label>
-          <input
-            id="llm-price-miss"
-            type="text"
-            inputMode="decimal"
-            value={priceCacheMiss}
-            onChange={(e) => setPriceCacheMiss(e.target.value)}
-            placeholder="如 0.28"
-            autoComplete="off"
-            spellCheck={false}
-            className="text-input"
-          />
-        </div>
-        <div className="field" style={{ marginTop: 8 }}>
-          <label className="field-label" htmlFor="llm-price-out">
-            输出价
-          </label>
-          <input
-            id="llm-price-out"
-            type="text"
-            inputMode="decimal"
-            value={priceOutput}
-            onChange={(e) => setPriceOutput(e.target.value)}
-            placeholder="如 0.42"
-            autoComplete="off"
-            spellCheck={false}
-            className="text-input"
-          />
-        </div>
-        <div className="field" style={{ marginTop: 8 }}>
-          <label className="field-label" htmlFor="llm-price-hit">
-            缓存命中价（可选）
-          </label>
-          <input
-            id="llm-price-hit"
-            type="text"
-            inputMode="decimal"
-            value={priceCacheHit}
-            onChange={(e) => setPriceCacheHit(e.target.value)}
-            placeholder="缺省=输入价"
-            autoComplete="off"
-            spellCheck={false}
-            className="text-input"
-          />
-        </div>
-      </details>
+      {!isCustom && (
+        <details
+          open={advancedOpen}
+          onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
+        >
+          <summary className="field-label" style={{ cursor: "pointer" }}>
+            高级选项
+          </summary>
+          <div className="field" style={{ marginTop: 8 }}>
+            <label className="field-label" htmlFor="llm-base-url">
+              Base URL
+            </label>
+            <input
+              id="llm-base-url"
+              type="text"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={preset?.baseUrl}
+              autoComplete="off"
+              spellCheck={false}
+              className="text-input"
+            />
+          </div>
+        </details>
+      )}
 
       <div className="field-actions">
         <button

@@ -96,9 +96,109 @@ function complete(name: string): ScriptPlan {
   };
 }
 
+/**
+ * 浏览器活动卡（聊天时间线）：从 `multi_agent_browser_session` 抽 ≥2 个
+ * browser_* 步，去掉 `run_id`，落到消息 process（非 run.process），
+ * 否则活动卡只在 run 详情里、聊天看不见。
+ */
+function browserActivityCard(): ScriptPlan {
+  const fixture = loadFixture("multi_agent_browser_session");
+  const browserEvents = fixture.events
+    .filter(
+      (ev) =>
+        (ev.type === "tool_use_start" || ev.type === "tool_use_end") &&
+        String((ev.payload ?? {}).tool_name ?? "").startsWith("browser_"),
+    )
+    .map((ev) => {
+      const payload = { ...(ev.payload ?? {}) };
+      delete payload.run_id;
+      // 帧路径会打 workspace 拉取——e2e mock 无文件，去掉以免噪音。
+      const display = payload.display as Record<string, unknown> | undefined;
+      if (display && "frame" in display) {
+        const { frame: _frame, ...rest } = display;
+        payload.display = rest;
+      }
+      return { ...ev, payload };
+    });
+  if (browserEvents.length < 4) {
+    throw new Error(
+      "browser_activity_card: expected ≥2 browser tool start/end pairs",
+    );
+  }
+  const initial: ConformanceEvent[] = [
+    {
+      type: "message_start",
+      payload: { message_id: "m1", conversation_id: "conv_demo" },
+      timestamp: "2026-01-01T00:00:00.001Z",
+    },
+    {
+      type: "content_delta",
+      payload: { delta: "我来打开页面看一下。" },
+      timestamp: "2026-01-01T00:00:00.002Z",
+    },
+    ...browserEvents,
+    {
+      type: "content_delta",
+      payload: { delta: " 已查看目标页。" },
+      timestamp: "2026-01-01T00:00:00.090Z",
+    },
+    {
+      type: "message_end",
+      payload: {
+        finish_reason: "end_turn",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 40,
+          reasoning_tokens: 0,
+          cache_hit_tokens: 0,
+          cache_miss_tokens: 0,
+        },
+      },
+      timestamp: "2026-01-01T00:00:00.091Z",
+    },
+  ];
+  return {
+    name: "browser_activity_card",
+    kind: "complete",
+    initial,
+    continueSameStream: [],
+    resumeStream: [],
+  };
+}
+
+/**
+ * browser_login escalate：复用阻塞 escalate pending 向量，仅把
+ * `escalation_required.payload.browser_login` 钉成 true（e2e 壳测 CTA，
+ * 无独立 conformance 向量）。
+ */
+function browserLoginEscalate(): ScriptPlan {
+  const fixture = loadFixture("multi_agent_blocking_escalate_pending");
+  const initial = fixture.events.map((ev) => {
+    if (ev.type !== "escalation_required") return ev;
+    return {
+      ...ev,
+      payload: {
+        ...(ev.payload ?? {}),
+        browser_login: true,
+        question: "请在浏览器完成登录后再继续。",
+      },
+    };
+  });
+  return {
+    name: "browser_login_escalate",
+    kind: "hot_gate",
+    initial,
+    continueSameStream: [],
+    resumeStream: [],
+  };
+}
+
 const PLANS: Record<string, () => ScriptPlan> = {
   single_agent_text: () => complete("single_agent_text"),
   multi_agent_delegate: () => complete("multi_agent_delegate"),
+  multi_agent_debate: () => complete("multi_agent_debate"),
+  browser_activity_card: () => browserActivityCard(),
+  browser_login_escalate: () => browserLoginEscalate(),
   approval_resolved_continue: () =>
     splitHot(loadFixture("approval_resolved_continue")),
   team_preview_resolved_continue: () => splitColdTeamPreview(),

@@ -33,11 +33,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 内置 Python 打包（方案 B）瘦身用的 sidecar 运行时**子集**。来源 = ``agentcore.sidecar.server``
-# 的**静态 import 闭包**：引擎 + 旁路凭证类型（``llm/credentials.py``，无 DB/security）。
-# HTTP 栈、DB（sqlalchemy/asyncpg）、迁移、缓存、对象存储、JWT/密码学（jose/cryptography/
-# pwdlib/passlib）均不在 sidecar 回合路径上，故剔除。``scripts/bundle-sidecar.mjs`` 以
-# ``--no-deps`` 装 agentcore 包本体 + 本组依赖。**改闭包时需同步本组并跑 bundle:sidecar 冒烟。**
+# 内置 Python 打包（方案 B）sidecar 运行时子集。来源 = ``agentcore.sidecar.server`` 静态
+# import 闭包 + **与云对齐的 Office 文档能力**（附件 markitdown 预解析 + 确定性 md→docx）。
+# 仍剔除：FastAPI/uvicorn、迁移、Redis、S3、JWT/密码学（jose/cryptography/pwdlib/passlib）
+# 等不在 sidecar 回合路径上的栈。``scripts/bundle-sidecar.mjs`` 以 ``--no-deps`` 装
+# agentcore 包本体 + 本组依赖。**改闭包时需同步本组并跑 bundle:sidecar 冒烟（含 docx）。**
+# 否决：为瘦身砍掉 Office 却仍跑同一 ``run_chat_pipeline``（缺 ``docx`` → PIPELINE_ERROR）。
 sidecar = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
@@ -45,6 +46,10 @@ sidecar = [
     "structlog>=24.4",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
+    # Office literacy（与主 dependencies 同版本约束；云 API 镜像走主依赖，本地引擎走本组）
+    "markdown-it-py>=3.0",
+    "markitdown[docx,pdf,pptx]>=0.1.6",
+    "python-docx>=1.2.0",
 ]
 dev = [
     "pytest>=8.3",

@@ -1,0 +1,16 @@
+{
+  "format": "replacements_v1",
+  "description": "R2 Extend 参照实现：click.utils.snake_case + 导出",
+  "replacements": [
+    {
+      "path": "src/click/utils.py",
+      "old": "def make_str(value: t.Any) -> str:\n    \"\"\"Converts a value into a valid string.\"\"\"\n",
+      "new": "def snake_case(text: str) -> str:\n    \"\"\"Convert whitespace-separated words to ``snake_case``.\n\n    .. versionadded:: AgentCore R2 Extend (eval reference)\n    \"\"\"\n    return \"_\".join(text.split()).lower()\n\n\ndef make_str(value: t.Any) -> str:\n    \"\"\"Converts a value into a valid string.\"\"\"\n"
+    },
+    {
+      "path": "src/click/__init__.py",
+      "old": "from .utils import open_file as open_file\n",
+      "new": "from .utils import open_file as open_file\nfrom .utils import snake_case as snake_case\n"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: format_filename 的 shorten 条件取反，使 test_filename_formatting 失败。",
+  "replacements": [
+    {
+      "path": "src/click/utils.py",
+      "old": "    if shorten:\n        filename = os.path.basename(filename)\n    else:\n        filename = os.fspath(filename)\n",
+      "new": "    # R1a seed_patch: invert shorten behavior\n    if not shorten:\n        filename = os.path.basename(filename)\n    else:\n        filename = os.fspath(filename)\n"
+    }
+  ]
+}

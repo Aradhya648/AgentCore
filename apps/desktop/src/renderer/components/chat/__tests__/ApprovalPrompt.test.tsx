@@ -7,12 +7,27 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/hooks/useConversations", () => ({
-  getConversations: () => [{ id: "c1", permissionPreset: "workspace" }],
+  getConversations: () => [
+    {
+      id: "c1",
+      permissionAxes: {
+        file_write: "session",
+        command: "kickoff",
+        team_kickoff: "rules",
+      },
+    },
+  ],
   patchConversationCache: vi.fn(),
 }));
 
-vi.mock("@/services/permissionPreset", () => ({
-  setConversationPermissionPreset: vi.fn(),
+vi.mock("@/services/permissionAxes", () => ({
+  setConversationPermissionAxes: vi.fn(),
+  matchRecipe: () => "write_code",
+  recipeToAxes: () => ({
+    file_write: "session",
+    command: "auto",
+    team_kickoff: "skip",
+  }),
 }));
 
 vi.mock("@/services/approvals", async (importOriginal) => {

@@ -6,6 +6,7 @@ import type { LocalStoreApi } from "@shared/local-store-contract";
 import type { LogApi } from "@shared/log-contract";
 import type { NotificationApi } from "@shared/notification-contract";
 import type { OutboxApi } from "@shared/outbox-contract";
+import type { BrowserApi } from "@shared/browser-contract";
 import type { PreviewApi } from "@shared/preview-contract";
 import type { ProcessApi } from "@shared/process-contract";
 import type { PtyApi } from "@shared/pty-contract";
@@ -42,9 +43,11 @@ declare global {
     ptyApi?: PtyApi;
     /** OS 原生通知（窗口失焦时跨对话提醒）；纯浏览器 / 单测环境可能缺失。 */
     notificationApi?: NotificationApi;
-    /** 应用内「完整预览」独立子窗口（preview:// 代理会话工作区字节）；仅 Electron 外壳，
-     *  web / 单测环境缺失 → createWorkspaceSource 据此不挂「完整预览」入口。 */
+    /** @deprecated M3b：旧子窗 / embed（preview://）协议实现保留；产品完整预览走 browserApi。
+     *  web / 单测可缺失。 */
     previewApi?: PreviewApi;
+    /** 右坞本机浏览器（LocalChromiumHost + openWorkspaceHtml）；仅 Electron；web / 单测可 mock。 */
+    browserApi?: BrowserApi;
     windowApi: WindowApi;
     /** 由浏览器入口（生产 web 客户端 main.webapp.tsx / 离线预览 main.web.tsx → browserStubs）
      *  设置，标记「浏览器运行时、无原生 fs/sidecar/updater/window 能力」。能力代理

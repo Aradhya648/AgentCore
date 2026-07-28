@@ -25,9 +25,14 @@ import {
   buildSidecarResumeRpcParams,
 } from "@shared/sidecar-contract";
 import { BrowserWindow, type WebContents, app, ipcMain } from "electron";
+import { getDesktopBrowserBridgeCredentials } from "./browser";
 import { getStoredRoot } from "./fs-service";
 import { listSessionRoots } from "./fs/roots";
-import { assertShape } from "./ipc-validate";
+import {
+  IpcInvalidArgsError,
+  assertShape,
+  ipcInvalidArgsLogFields,
+} from "./ipc-validate";
 import { logDesktop } from "./log-service";
 import { listUnsyncedSummaries, sidecarDataDir } from "./outbox-writeback";
 import { SidecarEventBuffer } from "./sidecar-event-buffer";
@@ -106,6 +111,18 @@ interface SpawnConfig {
   cwd: string;
   /** 额外环境变量，合并覆盖继承的环境（如内置运行时旁路 site-packages 的 `PYTHONPATH`）。 */
   env?: Record<string, string>;
+}
+
+/**
+ * DesktopBrowserBridge 本回合句柄（B-Arch · 与 inference 同构）。
+ * 主进程签发；经 initialize / startTurn / resume 下发，不再依赖 spawn env。
+ */
+function currentBrowserBridge():
+  | { baseUrl: string; token: string }
+  | null {
+  const creds = getDesktopBrowserBridgeCredentials();
+  if (!creds) return null;
+  return { baseUrl: creds.baseUrl, token: creds.token };
 }
 
 /**
@@ -231,6 +248,7 @@ function spawnTransport(config: SpawnConfig): Transport {
       PYTHONUTF8: "1",
       PYTHONIOENCODING: "utf-8",
       ...config.env,
+      // Bridge creds are per-turn via RPC (currentBrowserBridge), not spawn env.
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -501,6 +519,8 @@ export class SidecarManager {
         // its presence flips the engine's local paused-turn store on.
         dataDir: sidecarDataDir(),
         ...(inference ? { inference } : {}),
+        // Always send key (null when Bridge not Ready) so sidecar clears sticky env.
+        browserBridge: currentBrowserBridge(),
       })
       .then(() => {
         this.pushStatus({ rootId, phase: "spawned" });
@@ -558,6 +578,7 @@ export class SidecarManager {
           rootId: r.id,
           label: r.name,
           absPath: r.absPath,
+          mode: r.mode ?? (r.readonly ? "readonly" : "readonly"),
         }));
       const result = await entry.client.request("startTurn", {
         turnId: req.turnId,
@@ -573,10 +594,14 @@ export class SidecarManager {
         // but the token rotates (12h TTL), so the engine adopts the fresh one per turn
         // (initialize-time creds would otherwise 401 after expiry).
         ...(req.inference ? { inference: req.inference } : {}),
-        // 会话权限模式按回合随送：中途切换后下一回合即生效。
-        ...(req.permissionPreset
-          ? { permissionPreset: req.permissionPreset }
-          : {}),
+        // Same for DesktopBrowserBridge (B-Arch): refresh every turn; null = 未装配.
+        browserBridge: currentBrowserBridge(),
+        // 会话三轴权限按回合随送：中途切换后下一回合即生效。
+        ...(req.permissionAxes
+          ? { permissionAxes: req.permissionAxes }
+          : req.permissionPreset
+            ? { permissionPreset: req.permissionPreset }
+            : {}),
       });
       this.emitSyntheticTerminalIfNeeded(req.turnId, "message_end");
       return result as SidecarTurnResult;
@@ -686,9 +711,14 @@ export class SidecarManager {
           rootId: r.id,
           label: r.name,
           absPath: r.absPath,
+          mode: r.mode ?? (r.readonly ? "readonly" : "readonly"),
         }));
       const result = await entry.client.request("resume", {
-        ...buildSidecarResumeRpcParams(req, inference),
+        ...buildSidecarResumeRpcParams(
+          req,
+          inference,
+          currentBrowserBridge(),
+        ),
         ...(externalMounts.length > 0 ? { externalMounts } : {}),
       });
       this.emitSyntheticTerminalIfNeeded(req.messageId, "message_end");
@@ -969,6 +999,30 @@ export class SidecarManager {
   }
 }
 
+/**
+ * sidecar IPC 边界校验：失败时先落 `sidecar.ipc_invalid_args`（desktop.jsonl +
+ * dev stdout），再原样抛出——renderer 横幅可展示字段级原因，排查不再只靠 stderr。
+ */
+function assertSidecarShape(
+  channel: string,
+  payload: unknown,
+  required: readonly string[],
+  optionalStrings: readonly string[] = [],
+): void {
+  try {
+    assertShape(channel, payload, required, optionalStrings);
+  } catch (err) {
+    if (err instanceof IpcInvalidArgsError) {
+      logDesktop({
+        level: "error",
+        event: "sidecar.ipc_invalid_args",
+        fields: ipcInvalidArgsLogFields(err, payload),
+      });
+    }
+    throw err;
+  }
+}
+
 /** 注册全部 sidecar IPC handler。须在 app ready 后调用。 */
 export function registerSidecarIpc(): void {
   const manager = new SidecarManager();
@@ -977,10 +1031,12 @@ export function registerSidecarIpc(): void {
   // 字段（rootId / turnId / …）+ 可选 subpath。畸形入参（仅来自被攻破的 renderer）抛
   // `IpcInvalidArgsError` → invoke reject，与本组句柄「拉不起 / 引擎异常即 reject 让 renderer
   // 降级」的契约一致。数据载荷（history / inference / result）仍由下游 / 引擎宽容消费。
+  // 校验失败另落 `sidecar.ipc_invalid_args`（见 {@link assertSidecarShape}）。
   ipcMain.handle(
     SIDECAR_CHANNELS.startTurn,
     async (e, req: SidecarStartTurnRequest): Promise<SidecarTurnResult> => {
-      assertShape(
+      // permissionAxes 是对象载荷，勿列入 optionalStrings（否则合法请求被拒）。
+      assertSidecarShape(
         SIDECAR_CHANNELS.startTurn,
         req,
         [
@@ -1004,7 +1060,7 @@ export function registerSidecarIpc(): void {
   );
 
   ipcMain.handle(SIDECAR_CHANNELS.cancel, (_e, req: SidecarCancelRequest) => {
-    assertShape(
+    assertSidecarShape(
       SIDECAR_CHANNELS.cancel,
       req,
       ["rootId", "turnId"],
@@ -1014,7 +1070,7 @@ export function registerSidecarIpc(): void {
   });
 
   ipcMain.handle(SIDECAR_CHANNELS.respond, (_e, req: SidecarRespondRequest) => {
-    assertShape(
+    assertSidecarShape(
       SIDECAR_CHANNELS.respond,
       req,
       ["rootId", "requestId", "conversationId"],
@@ -1026,7 +1082,7 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.runRedirect,
     (_e, req: SidecarRunRedirectRequest) => {
-      assertShape(
+      assertSidecarShape(
         SIDECAR_CHANNELS.runRedirect,
         req,
         ["rootId", "conversationId", "executionId", "runId", "feedback"],
@@ -1039,7 +1095,7 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.debateSteer,
     (_e, req: SidecarDebateSteerRequest) => {
-      assertShape(
+      assertSidecarShape(
         SIDECAR_CHANNELS.debateSteer,
         req,
         ["rootId", "conversationId", "executionId", "decision"],
@@ -1052,7 +1108,8 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.resume,
     async (e, req: SidecarResumeRequest): Promise<SidecarTurnResult> => {
-      assertShape(
+      // permissionAxes 是对象载荷，勿列入 optionalStrings（与 startTurn 同）。
+      assertSidecarShape(
         SIDECAR_CHANNELS.resume,
         req,
         [
@@ -1078,7 +1135,7 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.probe,
     async (_e, req: SidecarProbeRequest): Promise<void> => {
-      assertShape(SIDECAR_CHANNELS.probe, req, ["rootId"], ["subpath"]);
+      assertSidecarShape(SIDECAR_CHANNELS.probe, req, ["rootId"], ["subpath"]);
       const root = await getStoredRoot(req.rootId);
       if (!root) throw new Error("本地目录未授权或已移除");
       const workspaceRoot = await resolveWorkspaceRoot(
@@ -1092,7 +1149,7 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.recovery,
     (_e, req: SidecarRecoveryRequest): Promise<SidecarRecoveryResponse> => {
-      assertShape(SIDECAR_CHANNELS.recovery, req, ["conversationId"]);
+      assertSidecarShape(SIDECAR_CHANNELS.recovery, req, ["conversationId"]);
       return manager.recovery(req);
     },
   );
@@ -1100,7 +1157,7 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.attach,
     (e, req: SidecarAttachRequest): SidecarAttachResponse => {
-      assertShape(SIDECAR_CHANNELS.attach, req, ["conversationId"]);
+      assertSidecarShape(SIDECAR_CHANNELS.attach, req, ["conversationId"]);
       return manager.attach(e.sender, req);
     },
   );
@@ -1111,7 +1168,7 @@ export function registerSidecarIpc(): void {
       _e,
       req: SidecarTurnFilesDiffRequest,
     ): Promise<SidecarTurnFilesDiffResult> => {
-      assertShape(
+      assertSidecarShape(
         SIDECAR_CHANNELS.turnFilesDiff,
         req,
         ["rootId", "messageId"],
@@ -1130,7 +1187,7 @@ export function registerSidecarIpc(): void {
   ipcMain.handle(
     SIDECAR_CHANNELS.restoreTurnBaseline,
     async (_e, req: SidecarRestoreTurnBaselineRequest): Promise<void> => {
-      assertShape(
+      assertSidecarShape(
         SIDECAR_CHANNELS.restoreTurnBaseline,
         req,
         ["rootId", "snapshotId"],

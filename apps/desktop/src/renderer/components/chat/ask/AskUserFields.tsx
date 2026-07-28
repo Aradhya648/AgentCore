@@ -13,6 +13,7 @@ import {
   formatGrantReadonlyFolderAnswer,
   pickAndGrantReadonlyFolder,
 } from "@/lib/grantReadonlyFolder";
+import { pickAndOpenLocalProject } from "@/lib/openLocalProject";
 import { usePersistentDisclosure } from "@/stores/disclosure";
 import type {
   AskAssumption,
@@ -29,6 +30,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 /**
  * Shared 结构化问答内核 — the choice/text question UI + answer-state + answer composition
@@ -206,11 +208,31 @@ export function AskQuestionFields({
   /** After a successful bind, resolve the checkpoint with the composed answer. */
   onBindResolve?: (composedAnswer: string) => void | Promise<void>;
 }) {
+  const navigate = useNavigate();
   const [bindBusyLabel, setBindBusyLabel] = useState<string | null>(null);
   const [bindError, setBindError] = useState<string | null>(null);
 
   const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
-    if (!conversationId || !onBindResolve || disabled || bindBusyLabel) return;
+    if (disabled || bindBusyLabel) return;
+
+    if (opt.action === "open_local_project") {
+      if (!hasLocalFiles() || !window.fsApi) return;
+      setBindBusyLabel(opt.label);
+      setBindError(null);
+      const result = await pickAndOpenLocalProject(navigate);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("打开本地项目仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      setBindBusyLabel(null);
+      return;
+    }
+
+    if (!conversationId || !onBindResolve) return;
     setBindBusyLabel(opt.label);
     setBindError(null);
     if (opt.action === "grant_readonly_folder") {
@@ -218,7 +240,7 @@ export function AskQuestionFields({
       if (!result.ok) {
         if (result.reason === "error") setBindError(result.message);
         else if (result.reason === "unavailable") {
-          setBindError("区外目录授权仅桌面本地会话可用");
+          setBindError("区外目录授权仅桌面端可用");
         }
         setBindBusyLabel(null);
         return;
@@ -240,7 +262,7 @@ export function AskQuestionFields({
       if (!result.ok) {
         if (result.reason === "error") setBindError(result.message);
         else if (result.reason === "unavailable") {
-          setBindError("整理授权仅桌面本地会话可用");
+          setBindError("整理授权仅桌面端可用");
         }
         setBindBusyLabel(null);
         return;
@@ -479,8 +501,9 @@ function QuestionField({
   onSetOther: (value: string) => void;
   onBindOption?: (opt: AskOption) => void;
 }) {
+  const canLocalFs = hasLocalFiles() && !!window.fsApi;
   const canBindAction =
-    !!conversationId && !!onBindOption && hasLocalFiles() && !!window.fsApi;
+    !!conversationId && !!onBindOption && canLocalFs;
 
   return (
     <div className="min-w-0">
@@ -518,11 +541,12 @@ function QuestionField({
                 const active = answer.includes(opt.label);
                 const isDefault =
                   !!question.default && opt.label === question.default;
-                const isBindAction =
-                  canBindAction &&
-                  (opt.action === "bind_local_folder" ||
-                    opt.action === "grant_readonly_folder" ||
-                    opt.action === "grant_organize_folder");
+                const isFolderAction =
+                  (opt.action === "open_local_project" && canLocalFs) ||
+                  (canBindAction &&
+                    (opt.action === "bind_local_folder" ||
+                      opt.action === "grant_readonly_folder" ||
+                      opt.action === "grant_organize_folder"));
                 const bindBusy = bindBusyLabel === opt.label;
                 return (
                   <div key={opt.label} className="flex w-full flex-col">
@@ -530,7 +554,7 @@ function QuestionField({
                       variant="ghost"
                       disabled={disabled || (!!bindBusyLabel && !bindBusy)}
                       onClick={() =>
-                        isBindAction
+                        isFolderAction
                           ? onBindOption?.(opt)
                           : onToggleChoice(opt.label)
                       }
@@ -538,7 +562,7 @@ function QuestionField({
                         active || bindBusy ? tone.optActive : tone.optIdle
                       }`}
                       icon={
-                        isBindAction ? (
+                        isFolderAction ? (
                           bindBusy ? (
                             <Loader2
                               size={14}

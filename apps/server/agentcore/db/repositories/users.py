@@ -197,11 +197,10 @@ class UserRepository:
         await self._session.commit()
 
     async def set_memory_enabled(self, user_id: str, enabled: bool) -> None:
-        """Flip the long-term AI memory master switch (Agent记忆与知识系统 §一).
+        """Legacy writer for ``users.memory_enabled`` (column retained; 定案 A).
 
-        Gates both injection (``pipeline/run.py``) and the offline consolidation
-        pass (``memory/consolidation.py``); the memory body itself is untouched, so
-        re-enabling restores it.
+        Product resolve + user API no longer flip this gate. Kept for tests /
+        one-off ops; do not call from user-facing routes.
         """
         await self._session.execute(
             update(User).where(User.user_id == user_id).values(memory_enabled=enabled)
@@ -209,11 +208,10 @@ class UserRepository:
         await self._session.commit()
 
     async def set_conversation_history_access(self, user_id: str, enabled: bool) -> None:
-        """Flip the cross-session conversation-log access gate (跨会话对话日志访问定案).
+        """Legacy writer for ``users.conversation_history_access`` (column retained; 定案 A).
 
-        Off ⇒ Workers do not get log search/read tools wired this turn; on ⇒ register
-        after the worker registry is built (same pattern as ``memory_enabled`` →
-        ``consult_memory``). Does not touch memory files or ``memory_enabled``.
+        Product resolve + user API no longer flip this gate. Kept for tests /
+        one-off ops; do not call from user-facing routes.
         """
         await self._session.execute(
             update(User)
@@ -241,10 +239,8 @@ class UserRepository:
         await self._session.commit()
 
     async def list_memory_enabled_user_ids(self) -> Sequence[str]:
-        """All user ids with the long-term memory master switch on (backfill scan)."""
-        result = await self._session.execute(
-            select(User.user_id).where(User.memory_enabled.is_(True))
-        )
+        """All user ids for memory backfill scans (name kept; gate is product-always-on)."""
+        result = await self._session.execute(select(User.user_id))
         return [row[0] for row in result.all()]
 
     async def set_quota(

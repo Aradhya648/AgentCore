@@ -69,7 +69,10 @@ def _multi_agent_delivery_status_partial() -> list[SSEEvent]:
             actions=[
                 {
                     "kind": "bind_local_folder",
-                    "description": "本回合为云端会话、未装配执行环境：绑定本地文件夹后可在本机运行生成。",
+                    "description": (
+                        "本回合为云端会话、未装配执行环境：绑定本机执行环境"
+                        "（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
+                    ),
                 }
             ],
         ),
@@ -110,12 +113,15 @@ def _multi_agent_delivery_status_partial() -> list[SSEEvent]:
             actions=[
                 {
                     "kind": "bind_local_folder",
-                    "description": "本回合为云端会话、未装配执行环境：绑定本地文件夹后可在本机运行生成。",
+                    "description": (
+                        "本回合为云端会话、未装配执行环境：绑定本机执行环境"
+                        "（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
+                    ),
                 }
             ],
         ),
         tool_use_end("dc1", "delegate", success=True, output="团队已完成。"),
-        content_delta("脚本与讲稿已就绪；pptx 需绑定本地文件夹后在本机生成。"),
+        content_delta("脚本与讲稿已就绪；pptx 需绑定本机执行环境后在本机生成。"),
         message_end(FinishReason.END_TURN, input_tokens=2000, output_tokens=400, cost=_COST),
     ]
 
@@ -189,13 +195,13 @@ def _multi_agent_pptx_promised_md_only() -> list[SSEEvent]:
             actions=[
                 {
                     "kind": "bind_local_folder",
-                    "description": "绑定本地文件夹后可在本机运行 build_pptx.py 生成 .pptx。",
+                    "description": "绑定本机执行环境后可在本机运行 build_pptx.py 生成 .pptx。",
                 }
             ],
         ),
         tool_use_end("dc1", "delegate", success=True, output="团队产出已汇总。"),
         content_delta("课件 PPT 已落盘，可直接打开使用。"),
         content_reset("finish_guard"),
-        content_delta("讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本地后运行脚本。"),
+        content_delta("讲稿与生成脚本已就绪；pptx 尚未生成，请绑定本机执行环境后运行脚本。"),
         message_end(FinishReason.END_TURN, input_tokens=2100, output_tokens=420, cost=_COST),
     ]

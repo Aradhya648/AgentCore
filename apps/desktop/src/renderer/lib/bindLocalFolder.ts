@@ -37,7 +37,9 @@ function describeBindError(e: unknown): string {
 }
 
 /**
- * OS folder picker → authorize root → bind conversation workspace.
+ * OS folder picker → authorize root → bind conversation **scratch** workspace
+ * (``conversations/<id>``) for local execution. Not 「打开项目」—
+ * see {@link pickAndOpenLocalProject} for Folder + new conversation.
  * Returns `cancelled` when the user dismisses the picker (caller must not resolve).
  */
 export async function pickAndBindLocalFolder(

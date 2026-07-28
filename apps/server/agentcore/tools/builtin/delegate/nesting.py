@@ -38,7 +38,7 @@ def make_child(tool: DelegateTool, captain_run_id: str, captain_depth: int) -> D
         checkpoint_timeout_seconds=tool._checkpoint_timeout_seconds,
         checkpoint_enabled=tool._checkpoint_enabled,
         depth=captain_depth,
-        autonomy_policy=tool._autonomy_policy,
+        permission_axes=tool._permission_axes,
     )
     tool._children.append(child)
     return child

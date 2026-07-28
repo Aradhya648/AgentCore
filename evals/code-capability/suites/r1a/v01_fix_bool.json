@@ -1,0 +1,31 @@
+{
+  "id": "r1a_v01_fix_bool",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1a",
+  "vendor_id": "V01",
+  "vendor_dir": "click@b2e30a175449",
+  "language": "python",
+  "user_message": "工作区是 click（src layout）。布尔参数转换结果与预期相反。请做最小修复，使 `python -m pytest tests/test_basic.py::test_boolean_conversion -q` 通过。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v01_break_bool.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_basic.py::test_boolean_conversion", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_basic.py::test_boolean_conversion", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120,
+        "pythonpath": ["src"]
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

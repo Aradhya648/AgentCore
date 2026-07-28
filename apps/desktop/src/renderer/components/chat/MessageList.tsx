@@ -48,7 +48,7 @@ export function MessageList() {
   const takeovers = useBrowserTakeovers(conversationId);
 
   // 权限模式切换系统行 (原侧栏安全台账「权限模式 A → B」条目): 数据源是会话级审计 REST，打开
-  // 会话拉一次，切换成功后由 PermissionPresetBadge 命令式重拉；按时间戳并入时间线、锚到它生效
+  // 会话拉一次，切换成功后由 PermissionAxesBadge 命令式重拉；按时间戳并入时间线、锚到它生效
   // 的那一回合之前。
   usePermissionChangesSync(conversationId);
   const presetChanges = usePermissionChanges(conversationId);

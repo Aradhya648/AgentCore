@@ -199,3 +199,56 @@ async def test_detach_soon_schedules_removal():
     await asyncio.sleep(0.06)
     assert hub.is_watched("c1") is False
     assert s.stopped == 1
+
+
+# -- multi session_id: independent channels (no cross-tab frame bleed) ------------------
+
+
+@pytest.mark.asyncio
+async def test_attach_different_session_ids_do_not_cross_frames():
+    """Two tabs on the same conversation get isolated frame sinks."""
+    s_a = FakeSession("c1")
+    s_b = FakeSession("c1")
+    by_sid = {"sid-a": s_a, "sid-b": s_b}
+
+    hub = BrowserLiveHub(
+        session_lookup=lambda cid, sid=None: by_sid.get(sid) if cid == "c1" else None,
+        grace_seconds=1.0,
+        max_queued_frames=8,
+    )
+    v_a = await hub.attach("c1", session_id="sid-a")
+    v_b = await hub.attach("c1", session_id="sid-b")
+    assert s_a.started == 1 and s_b.started == 1
+    assert (await _next(v_a)).payload["state"] == "started"
+    assert (await _next(v_b)).payload["state"] == "started"
+
+    s_a.push_frame(b64="QUFB", w=100, h=50)
+    s_b.push_frame(b64="QkJC", w=200, h=100)
+
+    ev_a = await _next(v_a)
+    ev_b = await _next(v_b)
+    assert ev_a.type is EventType.BROWSER_LIVE_FRAME
+    assert ev_b.type is EventType.BROWSER_LIVE_FRAME
+    assert ev_a.payload == {"frame_b64": "QUFB", "width": 100, "height": 50}
+    assert ev_b.payload == {"frame_b64": "QkJC", "width": 200, "height": 100}
+    # Queues stay isolated — neither viewer got the other's frame.
+    assert v_a._queue.empty()
+    assert v_b._queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_is_watched_is_scoped_to_session_pin():
+    s_a = FakeSession("c1")
+    s_b = FakeSession("c1")
+    by_sid = {"sid-a": s_a, "sid-b": s_b}
+    hub = BrowserLiveHub(
+        session_lookup=lambda cid, sid=None: by_sid.get(sid) if cid == "c1" else None,
+        grace_seconds=1.0,
+        max_queued_frames=8,
+    )
+    v = await hub.attach("c1", session_id="sid-a")
+    assert hub.is_watched("c1", "sid-a") is True
+    assert hub.is_watched("c1", "sid-b") is False
+    assert hub.is_watched("c1") is True
+    await hub.detach("c1", v, session_id="sid-a")
+    assert hub.is_watched("c1", "sid-a") is False

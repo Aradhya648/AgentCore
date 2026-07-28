@@ -99,6 +99,19 @@ function takeoversPath(conversationId: string): string {
   return `/v1/conversations/${encodeURIComponent(conversationId)}/browser/takeovers`;
 }
 
+/** Optional pin to a registry tab — Local 页必须传当前 `serverSessionId`；省略则后端解析会话唯一/激活页。 */
+export type BrowserTakeoverOpts = {
+  sessionId?: string | null;
+};
+
+function takeoverBody(
+  action: "start" | "end",
+  opts?: BrowserTakeoverOpts,
+): { action: "start" | "end"; session_id?: string } {
+  const sid = opts?.sessionId;
+  return sid ? { action, session_id: sid } : { action };
+}
+
 /**
  * 起接管。解析 200 响应的 {@link BrowserTakeoverState}：`started` | `already_active` 算成功并
  * 返回 state；其余 reason 抛 {@link TakeoverStartError}（调用方以
@@ -106,10 +119,11 @@ function takeoversPath(conversationId: string): string {
  */
 export async function startBrowserTakeover(
   conversationId: string,
+  opts?: BrowserTakeoverOpts,
 ): Promise<BrowserTakeoverState> {
   const state = await api.post<BrowserTakeoverState>(
     takeoverPath(conversationId),
-    { action: "start" },
+    takeoverBody("start", opts),
   );
   if (state.reason === "started" || state.reason === "already_active") {
     return state;
@@ -120,10 +134,12 @@ export async function startBrowserTakeover(
 /** 归还控制：幂等（重复 end / 会话已亡都安全）。尽力而为，收口路径调用。 */
 export async function endBrowserTakeover(
   conversationId: string,
+  opts?: BrowserTakeoverOpts,
 ): Promise<void> {
-  await api.post<BrowserTakeoverState>(takeoverPath(conversationId), {
-    action: "end",
-  });
+  await api.post<BrowserTakeoverState>(
+    takeoverPath(conversationId),
+    takeoverBody("end", opts),
+  );
 }
 
 /** 批量注入输入事件（坐标须已换算到帧像素空间）。空批不发。 */

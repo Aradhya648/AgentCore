@@ -125,6 +125,10 @@ class WorkspaceSettings(BaseModel):
     browser_screencast_max_width: int = 1280
     browser_screencast_max_height: int = 800
     browser_screencast_every_nth_frame: int = 2
+    # Local (Desktop Bridge) live: poll capturePage via screenshot action while watched.
+    # No CDP screencast; interval bounds Bridge/CPU cost (≈4 fps). Only runs when Hub
+    # has viewers (start/stop_screencast); zero overhead when nobody is watching.
+    browser_local_screencast_interval_seconds: float = 0.25
     # Viewer lifecycle (D13): screencast starts on the FIRST viewer attach and stops when
     # the LAST viewer leaves — after this grace window, so a refresh / quick reconnect does
     # not thrash start/stop. A watched session is also spared idle-TTL reaping (max lifetime

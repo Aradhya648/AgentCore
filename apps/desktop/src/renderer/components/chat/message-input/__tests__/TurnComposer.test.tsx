@@ -91,15 +91,46 @@ vi.mock("@/hooks/useModels", () => ({
 vi.mock("@/lib/capabilities", () => ({
   hasLocalFiles: () => false,
 }));
-vi.mock("@/services/permissionPreset", () => ({
-  PERMISSION_PRESET_LABELS: {
-    observe: { short: "观察", description: "只读" },
-    workspace: { short: "开工授权", description: "写工作区" },
-    full_trust: { short: "完全信任", description: "同权" },
+vi.mock("@/services/permissionAxes", () => ({
+  RECIPE_LABELS: {
+    cautious: { short: "谨慎", description: "问" },
+    write_code: { short: "写代码", description: "写" },
+    less_interrupt: { short: "少打断", description: "少" },
+    managed: { short: "托管", description: "同权" },
   },
-  isPermissionDowngrade: () => false,
-  resolveDefaultPermissionPreset: () => Promise.resolve("workspace"),
-  setConversationPermissionPreset: vi.fn(),
+  RECIPE_ORDER: ["cautious", "write_code", "less_interrupt", "managed"],
+  RECIPE_AXES: {
+    write_code: {
+      file_write: "session",
+      command: "kickoff",
+      team_kickoff: "rules",
+    },
+  },
+  DEFAULT_PERMISSION_AXES: {
+    file_write: "session",
+    command: "kickoff",
+    team_kickoff: "rules",
+  },
+  FILE_WRITE_OPTIONS: [],
+  COMMAND_OPTIONS: [],
+  TEAM_KICKOFF_OPTIONS: [],
+  matchRecipe: () => "write_code",
+  axesShortLabel: () => "写代码",
+  recipeToAxes: () => ({
+    file_write: "session",
+    command: "kickoff",
+    team_kickoff: "rules",
+  }),
+  resolveDefaultPermissionAxes: () =>
+    Promise.resolve({
+      file_write: "session",
+      command: "kickoff",
+      team_kickoff: "rules",
+    }),
+  setConversationPermissionAxes: vi.fn(),
+  setComposerDraftAxes: vi.fn(),
+  confirmAutoCommandIfNeeded: () => true,
+  isIllegalAxes: () => false,
 }));
 vi.mock("@/components/chat/message-input/useVoiceInput", () => ({
   useVoiceInput: () => ({
@@ -209,7 +240,7 @@ describe("TurnComposer variants", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "更多选项" }));
     expect(await screen.findByLabelText(/模型组合：/)).toBeTruthy();
-    expect(screen.getByLabelText(/权限模式/)).toBeTruthy();
+    expect(screen.getByLabelText(/权限：/)).toBeTruthy();
     expect(screen.getByLabelText("在哪工作")).toBeTruthy();
   });
 
@@ -242,7 +273,7 @@ describe("TurnComposer variants", () => {
     const send = screen.getByRole("button", { name: "发送" });
     expect((send as HTMLButtonElement).disabled).toBe(true);
     expect(
-      screen.getByText(/可浏览已缓存的对话与本地文件；发送已禁用/),
+      screen.getByText(/可浏览已缓存的对话与本机文件（只读）/),
     ).toBeTruthy();
   });
 

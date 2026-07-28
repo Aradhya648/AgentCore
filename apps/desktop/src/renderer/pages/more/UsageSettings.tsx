@@ -277,7 +277,7 @@ function ByokNote() {
       <KeyRound size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
       <p className="text-xs text-muted-foreground">
         当前为「自带 Key」模式：对话走你配置的模型与端点，平台不设上限。下方以
-        token 为主；有估算价时显示 ≈¥（按社区价目/自填单价，非上游账单）。
+        token 为主；有估算价时显示 ≈¥（按社区价目估算，非上游账单）。
       </p>
     </Card>
   );
@@ -438,7 +438,7 @@ function RolePayroll({
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">
         {estimated
-          ? "按社区价目/自填单价估算，非上游账单。多 Agent 按角色拆分。"
+          ? "按社区价目估算，非上游账单。多 Agent 按角色拆分。"
           : "多 Agent 团队按角色拆分的花销，竞品的单 Agent 做不到。"}
       </p>
       <Card className="mt-3">

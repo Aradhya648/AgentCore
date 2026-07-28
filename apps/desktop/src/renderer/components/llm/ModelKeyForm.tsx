@@ -6,6 +6,7 @@ import {
   getByokProviderPreset,
   isCustomByokProvider,
   listByokProviderOptions,
+  normalizeByokBaseUrl,
   resolveByokProviderFromConfig,
 } from "@/lib/byokProviderPresets";
 import { ApiError } from "@/services/api";
@@ -21,8 +22,6 @@ import { useId, useState } from "react";
 /** Shared chrome for `<select>` (no L2 Select yet). */
 export const MODEL_CONFIG_INPUT_CLASS =
   "h-8 w-full rounded-lg border border-input bg-background px-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
-
-const MODEL_OTHER_VALUE = "__other__";
 
 /** Same phrasing as LoginPage / lib/errors — admin sessions cannot use product APIs. */
 export const ADMIN_PRODUCT_FORBIDDEN_MESSAGE =
@@ -64,10 +63,6 @@ export type ModelKeyFormProps = {
   initialLabel?: string;
   initialBaseUrl?: string;
   initialModel?: string;
-  /** Round-trip existing price card on edit (整卡替换). */
-  initialPriceCacheHit?: string | null;
-  initialPriceCacheMiss?: string | null;
-  initialPriceOutput?: string | null;
   onSaved: (provider: LlmProviderView) => void;
   onCancel?: () => void;
   /** Override primary CTA label (defaults: 保存 / 添加). */
@@ -80,18 +75,16 @@ export type ModelKeyFormProps = {
 
 /**
  * BYOK 服务商表单 — 设置·服务商的「添加服务商」/「编辑服务商」共用单一真相源。
- * 厂商预设 → label / Key / Base URL / 回落模型（+ 可选价卡）；新增走 `createLlmProvider`、
- * 编辑走 `updateLlmProvider`（省略 api_key 保留已存密文）。后台默认模型已上移为账号级指针，
- * 不在本表单（见设置页的「后台任务模型」选择器）。
+ *
+ * 预设厂商：主路径 = 厂商 + 名称 + Key；`default_model` 静默用预设默认（编辑保留已存值）；
+ * Base URL 进高级。自定义端点：Base URL + 默认模型名必填可见。
+ * 对话用哪个模型在「模型组合」/ picker，不在本表单。
  */
 export function ModelKeyForm({
   providerId,
   initialLabel = "",
   initialBaseUrl = "",
   initialModel = "",
-  initialPriceCacheHit = null,
-  initialPriceCacheMiss = null,
-  initialPriceOutput = null,
   onSaved,
   onCancel,
   submitLabel,
@@ -104,9 +97,6 @@ export function ModelKeyForm({
   const apiKeyId = `${formId}-api-key`;
   const baseUrlId = `${formId}-base-url`;
   const defaultModelId = `${formId}-default-model`;
-  const priceCacheMissId = `${formId}-price-cache-miss`;
-  const priceOutputId = `${formId}-price-output`;
-  const priceCacheHitId = `${formId}-price-cache-hit`;
   const [apiKey, setApiKey] = useState("");
   const [providerPreset, setProviderPreset] = useState<ByokProviderId>(() =>
     resolveByokProviderFromConfig(initialBaseUrl),
@@ -126,40 +116,25 @@ export function ModelKeyForm({
     if (initialModel.trim()) return initialModel;
     return getByokProviderPreset(DEFAULT_BYOK_PROVIDER_ID).defaultModel;
   });
-  const [priceCacheMiss, setPriceCacheMiss] = useState(
-    () => initialPriceCacheMiss?.trim() ?? "",
-  );
-  const [priceOutput, setPriceOutput] = useState(
-    () => initialPriceOutput?.trim() ?? "",
-  );
-  const [priceCacheHit, setPriceCacheHit] = useState(
-    () => initialPriceCacheHit?.trim() ?? "",
-  );
-  const [customModelMode, setCustomModelMode] = useState(() => {
-    const model = initialModel.trim();
-    if (!model) return false;
-    const preset = resolveByokProviderFromConfig(initialBaseUrl);
-    if (isCustomByokProvider(preset)) return false;
-    return !getByokProviderPreset(preset).models.includes(model);
-  });
   const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const hasInitialAdvanced = Boolean(
-    initialPriceCacheHit?.trim() ||
-      initialPriceCacheMiss?.trim() ||
-      initialPriceOutput?.trim(),
-  );
-  const [advancedOpen, setAdvancedOpen] = useState(hasInitialAdvanced);
-
-  const preset = !isCustomByokProvider(providerPreset)
-    ? getByokProviderPreset(providerPreset)
-    : null;
-  const modelSuggestions = preset?.models ?? [];
+  const isCustom = isCustomByokProvider(providerPreset);
+  const preset = !isCustom ? getByokProviderPreset(providerPreset) : null;
   const keyHelpUrl =
     preset?.keyHelpUrl ?? "https://platform.openai.com/api-keys";
-  const useModelSelect = modelSuggestions.length > 0;
+
+  const baseUrlOverride =
+    !isCustom &&
+    preset != null &&
+    baseUrl.trim().length > 0 &&
+    normalizeByokBaseUrl(baseUrl) !== normalizeByokBaseUrl(preset.baseUrl) &&
+    !(preset.baseUrlAliases ?? []).some(
+      (alias) =>
+        normalizeByokBaseUrl(alias) === normalizeByokBaseUrl(baseUrl),
+    );
+  const [advancedOpen, setAdvancedOpen] = useState(() => baseUrlOverride);
 
   const selectProvider = (next: ByokProviderId) => {
     setProviderPreset(next);
@@ -168,19 +143,7 @@ export function ModelKeyForm({
       setBaseUrl(p.baseUrl);
       setDefaultModel(p.defaultModel);
       setLabel(p.label);
-      setCustomModelMode(false);
-    } else {
-      setCustomModelMode(false);
     }
-  };
-
-  const selectModelOption = (value: string) => {
-    if (value === MODEL_OTHER_VALUE) {
-      setCustomModelMode(true);
-      return;
-    }
-    setCustomModelMode(false);
-    setDefaultModel(value);
   };
 
   const keyOk = isEdit || apiKey.trim().length > 0;
@@ -195,23 +158,12 @@ export function ModelKeyForm({
     setSaving(true);
     setError(null);
     try {
-      const miss = priceCacheMiss.trim();
-      const out = priceOutput.trim();
-      const hit = priceCacheHit.trim();
-      // 输入+输出成对；全空=清除价卡。只填一侧时仍原样提交，由后端校验报错。
-      const pricesEmpty = !miss && !out && !hit;
-      const priceCard = {
-        price_cache_miss: pricesEmpty ? null : miss || null,
-        price_output: pricesEmpty ? null : out || null,
-        price_cache_hit: pricesEmpty ? null : hit || null,
-      };
       const trimmedKey = apiKey.trim();
       if (isEdit && providerId) {
         const body: UpdateLlmProviderInput = {
           label: label.trim(),
           base_url: baseUrl.trim() || null,
           default_model: defaultModel.trim() || null,
-          ...priceCard,
         };
         // 省略 api_key 保留已存密文——只有用户重新填写时才带上。
         if (trimmedKey) body.api_key = trimmedKey;
@@ -223,7 +175,6 @@ export function ModelKeyForm({
             api_key: trimmedKey,
             base_url: baseUrl.trim() || null,
             default_model: defaultModel.trim() || null,
-            ...priceCard,
           }),
         );
       }
@@ -233,13 +184,6 @@ export function ModelKeyForm({
       setSaving(false);
     }
   };
-
-  const modelSelectValue =
-    useModelSelect &&
-    !customModelMode &&
-    modelSuggestions.includes(defaultModel)
-      ? defaultModel
-      : MODEL_OTHER_VALUE;
 
   return (
     <Card className="p-4">
@@ -260,9 +204,9 @@ export function ModelKeyForm({
               </option>
             ))}
           </select>
-          {!isCustomByokProvider(providerPreset) && (
+          {!isCustom && (
             <p className="mt-1 text-xs text-muted-foreground">
-              选择后将预填名称、Base URL 与常见模型；可按你的 Key 权限修改。
+              选择后将预填名称与端点；对话用哪个模型请在「模型组合」中选择。
             </p>
           )}
         </label>
@@ -305,43 +249,23 @@ export function ModelKeyForm({
             </SimpleTooltip>
           </div>
         </label>
-        <label className="block" htmlFor={baseUrlId}>
-          <span className="text-xs text-muted-foreground">Base URL</span>
-          <Input
-            id={baseUrlId}
-            type="text"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder={
-              isCustomByokProvider(providerPreset)
-                ? "https://your-endpoint.example/v1"
-                : preset?.baseUrl
-            }
-            autoComplete="off"
-            spellCheck={false}
-            className="mt-1 w-full font-mono"
-          />
-        </label>
-        <div>
-          {useModelSelect ? (
-            <label className="block">
-              <span className="text-xs text-muted-foreground">回落模型名</span>
-              <select
-                value={modelSelectValue}
-                onChange={(e) => selectModelOption(e.target.value)}
-                className={`mt-1 ${MODEL_CONFIG_INPUT_CLASS} font-sans`}
-              >
-                {modelSuggestions.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-                <option value={MODEL_OTHER_VALUE}>其他…</option>
-              </select>
+        {isCustom && (
+          <>
+            <label className="block" htmlFor={baseUrlId}>
+              <span className="text-xs text-muted-foreground">Base URL</span>
+              <Input
+                id={baseUrlId}
+                type="text"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="https://your-endpoint.example/v1"
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-1 w-full font-mono"
+              />
             </label>
-          ) : (
             <label className="block" htmlFor={defaultModelId}>
-              <span className="text-xs text-muted-foreground">回落模型名</span>
+              <span className="text-xs text-muted-foreground">默认模型名</span>
               <Input
                 id={defaultModelId}
                 type="text"
@@ -352,87 +276,38 @@ export function ModelKeyForm({
                 spellCheck={false}
                 className="mt-1 w-full font-mono"
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                连接测试与目录兜底用；日常选用请到「模型组合」。
+              </p>
             </label>
-          )}
-          {useModelSelect &&
-            (customModelMode || modelSelectValue === MODEL_OTHER_VALUE) && (
-              <Input
-                type="text"
-                value={defaultModel}
-                onChange={(e) => setDefaultModel(e.target.value)}
-                placeholder={preset?.defaultModel ?? "model-name"}
-                autoComplete="off"
-                spellCheck={false}
-                className="mt-2 w-full font-mono"
-              />
-            )}
-        </div>
-        <details
-          className="rounded-lg border border-border/60 bg-muted/20 p-3"
-          open={advancedOpen}
-          onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
-        >
-          <summary className="cursor-pointer text-xs font-medium text-foreground">
-            高级选项
-          </summary>
-          <div className="mt-3 space-y-3">
-            <div>
-              <p className="text-xs font-medium text-foreground">
-                单价卡（可选）
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                USD / 1M tokens。输入与输出成对填写后，用量页与回合成本可显示 ≈¥
-                估算；全空则清除价卡。
-              </p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                <label className="block" htmlFor={priceCacheMissId}>
-                  <span className="text-xs text-muted-foreground">输入价</span>
-                  <Input
-                    id={priceCacheMissId}
-                    type="text"
-                    inputMode="decimal"
-                    value={priceCacheMiss}
-                    onChange={(e) => setPriceCacheMiss(e.target.value)}
-                    placeholder="如 0.28"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="mt-1 w-full font-mono"
-                  />
-                </label>
-                <label className="block" htmlFor={priceOutputId}>
-                  <span className="text-xs text-muted-foreground">输出价</span>
-                  <Input
-                    id={priceOutputId}
-                    type="text"
-                    inputMode="decimal"
-                    value={priceOutput}
-                    onChange={(e) => setPriceOutput(e.target.value)}
-                    placeholder="如 0.42"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="mt-1 w-full font-mono"
-                  />
-                </label>
-                <label className="block" htmlFor={priceCacheHitId}>
-                  <span className="text-xs text-muted-foreground">
-                    缓存命中价（可选）
-                  </span>
-                  <Input
-                    id={priceCacheHitId}
-                    type="text"
-                    inputMode="decimal"
-                    value={priceCacheHit}
-                    onChange={(e) => setPriceCacheHit(e.target.value)}
-                    placeholder="缺省=输入价"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="mt-1 w-full font-mono"
-                  />
-                </label>
-              </div>
+          </>
+        )}
+        {!isCustom && (
+          <details
+            className="rounded-lg border border-border/60 bg-muted/20 p-3"
+            open={advancedOpen}
+            onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
+          >
+            <summary className="cursor-pointer text-xs font-medium text-foreground">
+              高级选项
+            </summary>
+            <div className="mt-3 space-y-3">
+              <label className="block" htmlFor={baseUrlId}>
+                <span className="text-xs text-muted-foreground">Base URL</span>
+                <Input
+                  id={baseUrlId}
+                  type="text"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder={preset?.baseUrl}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mt-1 w-full font-mono"
+                />
+              </label>
             </div>
-          </div>
-        </details>
+          </details>
+        )}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button
@@ -464,7 +339,7 @@ export function ModelKeyForm({
         className="mt-3 inline-flex items-center gap-1 text-xs text-primary hover:underline"
       >
         <ExternalLink size={14} />
-        {isCustomByokProvider(providerPreset)
+        {isCustom
           ? "前往厂商控制台创建 API Key"
           : `前往 ${preset?.label ?? "厂商"} 创建 API Key`}
       </a>

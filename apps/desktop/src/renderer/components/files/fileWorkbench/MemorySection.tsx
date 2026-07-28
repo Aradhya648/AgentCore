@@ -1,3 +1,4 @@
+import { IconButton } from "@/components/files/parts";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,6 +55,10 @@ export type MemoryScope =
  * (防漂移), so the rail offers **打开 + (主题)删除 + (项目)新建主题** — no 改名 / 移动 / 上传.
  * Opening any leaf reuses the shared editor host via the path-aware memory `FileSource`;
  * 项目画像 routes to the 双栏 editor (`parseProjectProfilePath` → {@link MemoryProfileSplitEditor}).
+ *
+ * Project「新建主题」mirrors {@link WorkspaceSection}: hang on the「主题」sub-folder header
+ * (hover `+` + context menu + empty-state CTA) — no list-tail fake row. Global memory cannot
+ * create topics (unchanged).
  */
 export function MemorySection({
   scope,
@@ -295,35 +300,92 @@ export function MemorySection({
             onClick={() => onOpen(profilePath, profileName)}
           />
 
-          <button
-            type="button"
-            onClick={toggleTopics}
-            aria-expanded={topicsOpen}
-            title="按需查阅的记忆主题（consult_memory 拉取）"
-            style={{ paddingLeft: leafPad }}
-            className="flex h-7 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-sm text-foreground transition-colors hover:bg-accent/60"
-          >
-            {topicsOpen ? (
-              <ChevronDown
-                size={14}
-                className="shrink-0 text-muted-foreground"
-              />
-            ) : (
-              <ChevronRight
-                size={14}
-                className="shrink-0 text-muted-foreground"
-              />
-            )}
-            {topicsOpen ? (
-              <FolderOpen
-                size={14}
-                className="shrink-0 text-muted-foreground"
-              />
-            ) : (
-              <Folder size={14} className="shrink-0 text-muted-foreground" />
-            )}
-            <span className="min-w-0 flex-1 truncate">主题</span>
-          </button>
+          {scope.kind === "project" ? (
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  className="group flex items-center rounded-lg text-sm"
+                  style={{ paddingLeft: leafPad }}
+                  title="按需查阅的记忆主题（consult_memory 拉取）"
+                >
+                  <button
+                    type="button"
+                    onClick={toggleTopics}
+                    aria-expanded={topicsOpen}
+                    className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg pr-0 text-left text-sm text-foreground transition-colors hover:bg-accent/60"
+                  >
+                    {topicsOpen ? (
+                      <ChevronDown
+                        size={14}
+                        className="shrink-0 text-muted-foreground"
+                      />
+                    ) : (
+                      <ChevronRight
+                        size={14}
+                        className="shrink-0 text-muted-foreground"
+                      />
+                    )}
+                    {topicsOpen ? (
+                      <FolderOpen
+                        size={14}
+                        className="shrink-0 text-muted-foreground"
+                      />
+                    ) : (
+                      <Folder
+                        size={14}
+                        className="shrink-0 text-muted-foreground"
+                      />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">主题</span>
+                  </button>
+                  <div className="hidden shrink-0 items-center group-hover:flex">
+                    <IconButton
+                      title="新建主题"
+                      onClick={() => void createTopic()}
+                    >
+                      <FilePlus size={14} />
+                    </IconButton>
+                  </div>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="min-w-36">
+                <ContextMenuItem onSelect={() => void createTopic()}>
+                  <FilePlus size={14} className="shrink-0" />
+                  <span className="flex-1 truncate">新建主题</span>
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleTopics}
+              aria-expanded={topicsOpen}
+              title="按需查阅的记忆主题（consult_memory 拉取）"
+              style={{ paddingLeft: leafPad }}
+              className="flex h-7 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-sm text-foreground transition-colors hover:bg-accent/60"
+            >
+              {topicsOpen ? (
+                <ChevronDown
+                  size={14}
+                  className="shrink-0 text-muted-foreground"
+                />
+              ) : (
+                <ChevronRight
+                  size={14}
+                  className="shrink-0 text-muted-foreground"
+                />
+              )}
+              {topicsOpen ? (
+                <FolderOpen
+                  size={14}
+                  className="shrink-0 text-muted-foreground"
+                />
+              ) : (
+                <Folder size={14} className="shrink-0 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1 truncate">主题</span>
+            </button>
+          )}
 
           {topicsOpen &&
             (topics.isLoading ? (
@@ -414,19 +476,6 @@ export function MemorySection({
                 );
               })
             ))}
-
-          {/* Project memory: create when topics already exist (empty state has its own 新建). */}
-          {scope.kind === "project" && (topics.data ?? []).length > 0 && (
-            <button
-              type="button"
-              onClick={() => void createTopic()}
-              style={{ paddingLeft: leafPad }}
-              className="flex h-7 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-            >
-              <FilePlus size={14} className="shrink-0" />
-              <span className="min-w-0 flex-1 truncate">新建主题</span>
-            </button>
-          )}
         </>
       )}
     </div>

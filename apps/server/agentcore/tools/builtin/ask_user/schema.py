@@ -69,8 +69,9 @@ def normalize_options(
     A bare ``"Postgres"`` becomes ``{"label": "Postgres"}``; an object may add a one-line
     ``detail`` (the trade-off shown under the label), ``recommended`` (the asker's
     advised option — advisory only, never a pre-selection), and ``action`` (a desktop
-    client action such as ``bind_local_folder`` — unknown values drop so a hallucinated
-    action never reaches the wire). Empty-label entries drop, and only the FIRST
+    client action such as ``open_local_project`` / ``bind_local_folder`` — unknown values
+    drop so a hallucinated action never reaches the wire). Empty-label entries drop, and
+    only the FIRST
     ``recommended`` survives (至多一个推荐项), so the card shows one clear「推荐」without
     a wall of badges.
     """
@@ -92,6 +93,7 @@ def normalize_options(
                 recommended_taken = True
             action = str(it.get("action") or "").strip()
             if action in (
+                "open_local_project",
                 "bind_local_folder",
                 "grant_readonly_folder",
                 "grant_organize_folder",
@@ -189,10 +191,10 @@ def normalize_style_options(raw: Any) -> list[dict[str, Any]]:
 
 
 def normalize_format_options(raw: Any) -> list[dict[str, Any]]:
-    """Cap + id the 演讲/PPT 交付形态, accepting either ``{label}`` dicts or bare strings.
+    """Cap + id 交付形态, accepting either ``{label}`` dicts or bare strings.
 
     Wire ids are always ``f0``/``f1``/… (resume ``format_id`` / ``selected`` values).
-    Typical labels: pptx（真 PowerPoint）、marp（Markdown 幻灯片）、outline（仅讲稿）.
+    Typical labels: 演讲 pptx/marp/outline；自动化 可运行自动化/控制台原型/仅方案.
     """
     items = coerce_list_arg(raw, field="format_options")
     out: list[dict[str, Any]] = []

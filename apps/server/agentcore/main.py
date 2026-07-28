@@ -35,6 +35,7 @@ from agentcore.api.routes import (
     shared_spaces,
     sharing,
     simulation,
+    standing_tasks,
     system,
     usage,
     users,
@@ -48,6 +49,7 @@ from agentcore.core.logging import get_logger, setup_logging
 from agentcore.db.migration_check import check_migrations
 from agentcore.memory.consolidation import consolidation_loop, shutdown_scheduler
 from agentcore.middleware.csrf import CsrfMiddleware
+from agentcore.standing_tasks import standing_task_scheduler_loop
 from agentcore.middleware.errors import JSONErrorMiddleware
 from agentcore.middleware.rate_limit import AuthRateLimitMiddleware
 from agentcore.runtime.audit_retention import audit_retention_loop
@@ -237,6 +239,11 @@ async def lifespan(app: FastAPI):
     if settings.structured_suspension_persist_enabled:
         paused_turn_retention_task = asyncio.create_task(paused_turn_retention_loop())
 
+    # Standing tasks / 定时自动化 L1: poll next_run_at + lease, spawn cloud runs.
+    standing_task_scheduler_task: asyncio.Task | None = None
+    if settings.standing_task_scheduler_enabled:
+        standing_task_scheduler_task = asyncio.create_task(standing_task_scheduler_loop())
+
     # Durable RUNNING lease sweeper (crash recover): claim heartbeat-expired leases and
     # redrive unfinished DAG via recover_turn. Boot pass runs inside the loop.
     # Install the DelegateTool factory BEFORE the sweeper so a boot reclaim can redrive
@@ -335,6 +342,10 @@ async def lifespan(app: FastAPI):
             paused_turn_retention_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await paused_turn_retention_task
+        if standing_task_scheduler_task is not None:
+            standing_task_scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await standing_task_scheduler_task
         if browser_reaper_task is not None:
             browser_reaper_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -432,6 +443,8 @@ app.include_router(simulation.router, prefix="/v1")
 # read-only page at the root (/shared/{token}, no /v1, no auth).
 app.include_router(sharing.router, prefix="/v1")
 app.include_router(sharing.public_router)
+app.include_router(standing_tasks.router, prefix="/v1")
+app.include_router(standing_tasks.hooks_router, prefix="/v1")
 app.include_router(usage.router, prefix="/v1")
 app.include_router(users.router, prefix="/v1")
 app.include_router(workspaces.router, prefix="/v1")

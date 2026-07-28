@@ -10,7 +10,7 @@ from agentcore.conversation.common import (
     resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
-    resolve_permission_preset,
+    resolve_permission_axes,
     resolve_profile_set,
 )
 from agentcore.conversation.history import load_chat_context
@@ -26,7 +26,7 @@ from agentcore.conversation.turn_runner import (
 )
 from agentcore.core.log_context import get_log_value, log_context, new_trace_id
 from agentcore.core.logging import get_logger
-from agentcore.core.types import new_id, preset_to_autonomy
+from agentcore.core.types import new_id
 from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import BoardRepository, ConversationRepository, TurnJournalRepository
 from agentcore.llm.resolve import LLMCredentials
@@ -46,7 +46,6 @@ logger = get_logger(__name__)
 # 会话时间序扫描窗口：最近 N 个 distinct turn（非 in-turn seq）。
 _RECENT_TURN_SCAN_LIMIT = 40
 
-
 async def recent_conversation_turn_ids(
     conversation_id: str, *, limit: int = _RECENT_TURN_SCAN_LIMIT
 ) -> list[str]:
@@ -55,7 +54,6 @@ async def recent_conversation_turn_ids(
         return await TurnJournalRepository(db).list_recent_turn_ids(
             conversation_id, limit=limit
         )
-
 
 async def load_stage_card_pending(
     conversation_id: str, stage_card_id: str
@@ -77,7 +75,6 @@ async def load_stage_card_pending(
                 ):
                     return turn_id, dict(rec.payload)
     return None
-
 
 async def prewrite_stage_card_resolved(
     *,
@@ -103,7 +100,6 @@ async def prewrite_stage_card_resolved(
         trace_id=get_log_value("trace_id") or None,
         event=event,
     )
-
 
 async def finalize_stage_card_start_debate(
     *,
@@ -142,7 +138,6 @@ async def finalize_stage_card_start_debate(
         sink=sink,
         reason="superseded",
     )
-
 
 async def run_stage_card_start_debate(
     *,
@@ -194,12 +189,12 @@ async def run_stage_card_start_debate(
         folder_id = conv.folder_id
         local_binding = await resolve_local_binding(session, conv)
         profile_set = await resolve_profile_set(session, conv, user_id)
-            memory_enabled = await resolve_memory_enabled(session, user_id)
-            conversation_history_access = await resolve_conversation_history_access(
-                session, user_id
-            )
-            permission_preset = await resolve_permission_preset(session, conversation_id)
-        autonomy_policy = preset_to_autonomy(permission_preset)
+        memory_enabled = await resolve_memory_enabled(session, user_id)
+        conversation_history_access = await resolve_conversation_history_access(
+            session, user_id
+        )
+        permission_axes = await resolve_permission_axes(session, conversation_id)
+
         board = await BoardRepository(session).get_by_conversation_id(
             conversation_id, user_id=user_id
         )
@@ -213,7 +208,7 @@ async def run_stage_card_start_debate(
         )
         history = await load_chat_context(session, conversation_id, max_messages=40)
 
-    backend = build_turn_backend(
+    backend = await build_turn_backend(
         user_id=user_id,
         conversation_id=conversation_id,
         folder_id=folder_id,
@@ -262,8 +257,7 @@ async def run_stage_card_start_debate(
                     board_id=board_id,
                     memory_enabled=memory_enabled,
                     conversation_history_access=conversation_history_access,
-                    autonomy_policy=autonomy_policy,
-                    permission_preset=permission_preset,
+                    permission_axes=permission_axes,
                     profile_set=profile_set,
                     llm_credentials=llm_credentials,
                     session_saver=session_saver,
@@ -331,7 +325,6 @@ async def run_stage_card_start_debate(
             except Exception:  # noqa: BLE001
                 pass
 
-
 async def run_stage_card_research_first(
     *,
     conversation_id: str,
@@ -367,12 +360,12 @@ async def run_stage_card_research_first(
         folder_id = conv.folder_id
         local_binding = await resolve_local_binding(session, conv)
         profile_set = await resolve_profile_set(session, conv, user_id)
-            memory_enabled = await resolve_memory_enabled(session, user_id)
-            conversation_history_access = await resolve_conversation_history_access(
-                session, user_id
-            )
-            permission_preset = await resolve_permission_preset(session, conversation_id)
-        autonomy_policy = preset_to_autonomy(permission_preset)
+        memory_enabled = await resolve_memory_enabled(session, user_id)
+        conversation_history_access = await resolve_conversation_history_access(
+            session, user_id
+        )
+        permission_axes = await resolve_permission_axes(session, conversation_id)
+
         board = await BoardRepository(session).get_by_conversation_id(
             conversation_id, user_id=user_id
         )
@@ -386,7 +379,7 @@ async def run_stage_card_research_first(
         )
         history = await load_chat_context(session, conversation_id, max_messages=40)
 
-    backend = build_turn_backend(
+    backend = await build_turn_backend(
         user_id=user_id,
         conversation_id=conversation_id,
         folder_id=folder_id,
@@ -414,8 +407,7 @@ async def run_stage_card_research_first(
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
                 conversation_history_access=conversation_history_access,
-                autonomy_policy=autonomy_policy,
-                permission_preset=permission_preset,
+                permission_axes=permission_axes,
                 board_id=board_id,
                 llm_supports_tools=llm_supports_tools,
                 x_client_platform=x_client_platform,
@@ -423,13 +415,11 @@ async def run_stage_card_research_first(
     finally:
         discard_mlr_preauth()
 
-
 def validate_start_debate_card(
     payload: dict[str, Any], motion_override: str | None
 ) -> tuple[dict[str, Any] | None, str]:
     """Return (merged_card, error). error non-empty ⇒ keep pending (inline 报错)."""
     return apply_motion_override(payload, motion_override)
-
 
 async def list_pending_stage_cards(
     conversation_id: str,
@@ -448,7 +438,6 @@ async def list_pending_stage_cards(
                 if rec.kind == "stage_card" and rec.status == "pending":
                     found.append((turn_id, rec.id, dict(rec.payload)))
     return found
-
 
 async def orphan_conversation_stage_cards(
     conversation_id: str,
@@ -496,7 +485,6 @@ async def orphan_conversation_stage_cards(
         )
     return orphaned
 
-
 async def orphan_sibling_stage_cards(
     conversation_id: str,
     *,
@@ -513,7 +501,6 @@ async def orphan_sibling_stage_cards(
         exclude_ids={kid} if kid else None,
     )
 
-
 async def maybe_orphan_stage_cards_at_turn_end(
     conversation_id: str,
     *,
@@ -525,7 +512,6 @@ async def maybe_orphan_stage_cards_at_turn_end(
     if turn_keeps_stage_card():
         return []
     return await orphan_conversation_stage_cards(conversation_id, sink=sink)
-
 
 async def peek_pending_stage_card_for_debate(
     *,
@@ -555,7 +541,6 @@ async def peek_pending_stage_card_for_debate(
     if "stage_card_id" not in merged:
         merged = {**merged, "stage_card_id": card_id}
     return merged, override_arg, "", host_turn_id, card_id
-
 
 async def consume_pending_stage_card_for_debate(
     *,

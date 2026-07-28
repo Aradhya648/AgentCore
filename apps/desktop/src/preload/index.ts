@@ -27,6 +27,11 @@ import {
   type OutboxSyncedPayload,
 } from "@shared/outbox-contract";
 import {
+  BROWSER_CHANNELS,
+  type BrowserApi,
+  type BrowserNavState,
+} from "@shared/browser-contract";
+import {
   PREVIEW_CHANNELS,
   type PreviewApi,
   type PreviewNavState,
@@ -305,6 +310,25 @@ const previewApi: PreviewApi = {
   },
 };
 
+const browserApi: BrowserApi = {
+  show: (input) => ipcRenderer.invoke(BROWSER_CHANNELS.show, input),
+  setBounds: (bounds) => ipcRenderer.send(BROWSER_CHANNELS.setBounds, bounds),
+  hide: () => ipcRenderer.send(BROWSER_CHANNELS.hide),
+  navigate: (input) => ipcRenderer.invoke(BROWSER_CHANNELS.navigate, input),
+  openWorkspaceHtml: (input) =>
+    ipcRenderer.invoke(BROWSER_CHANNELS.openWorkspaceHtml, input),
+  reload: (pageId) =>
+    ipcRenderer.send(BROWSER_CHANNELS.reload, { pageId }),
+  back: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.back, { pageId }),
+  close: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.close, { pageId }),
+  onNavState: (cb) => {
+    const listener = (_e: unknown, payload: BrowserNavState) => cb(payload);
+    ipcRenderer.on(BROWSER_CHANNELS.navState, listener);
+    return () =>
+      ipcRenderer.removeListener(BROWSER_CHANNELS.navState, listener);
+  },
+};
+
 const windowApi: WindowApi = {
   minimize: () => ipcRenderer.send(WINDOW_CHANNELS.minimize),
   maximize: () => ipcRenderer.send(WINDOW_CHANNELS.maximize),
@@ -328,6 +352,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld("ptyApi", ptyApi);
     contextBridge.exposeInMainWorld("notificationApi", notificationApi);
     contextBridge.exposeInMainWorld("previewApi", previewApi);
+    contextBridge.exposeInMainWorld("browserApi", browserApi);
     contextBridge.exposeInMainWorld("windowApi", windowApi);
   } catch (error) {
     console.error(error);
@@ -357,6 +382,8 @@ if (process.contextIsolated) {
   window.notificationApi = notificationApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.previewApi = previewApi;
+  // @ts-ignore - 非隔离环境下直接挂载
+  window.browserApi = browserApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.windowApi = windowApi;
 }

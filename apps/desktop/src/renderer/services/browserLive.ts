@@ -3,9 +3,10 @@ import { BASE_URL, notifyUnauthorized, tryRefresh } from "@/services/api";
 /**
  * L3「团队浏览器」M1 直播帧客户端 (提案 D13–D15)。
  *
- * 一条 per-conversation 的 `GET …/browser/live` fetch 式 SSE 附着通道：观看者附着才开播
- * （无人看零开销）。帧走**旁路非 journal 通道**——EPHEMERAL、无 id/seq、live-only，绝不混入
- * 回合事件分派 / 回放态（故这里独立于 `services/sse` 的 dispatch，用本地 narrow 信封自解析）。
+ * 一条 `GET …/browser/live` fetch 式 SSE 附着通道（可选 `?session_id=` 钉到具体 tab）：观看者
+ * 附着才开播（无人看零开销）。帧走**旁路非 journal 通道**——EPHEMERAL、无 id/seq、live-only，
+ * 绝不混入回合事件分派 / 回放态（故这里独立于 `services/sse` 的 dispatch，用本地 narrow 信封
+ * 自解析）。
  *
  * 断线策略沿 `realtime.ts`：SSE 无法中途换 token，故 401 → 刷新一次后重连，否则跳登录；传输层
  * 掉线按上限指数退避重连。与 `realtime.ts` 的模块级单例不同，直播随「浏览器直播」tab 的挂载/卸载
@@ -54,6 +55,11 @@ export interface BrowserLiveClient {
   stop: () => void;
 }
 
+/** 可选钉到 Registry 某一 tab（`serverSessionId`）；省略则后端解析会话唯一/激活页。 */
+export type BrowserLiveOpts = {
+  sessionId?: string | null;
+};
+
 /** 本地 narrow 信封：只认直播通道的两类事件，其余（心跳注释 / ready 等）忽略。 */
 type BrowserLiveEvent =
   | { type: "browser_live_frame"; payload: BrowserLiveFrame }
@@ -67,14 +73,18 @@ const RECONNECT_MAX_MS = 30_000;
 /**
  * 附着一条会话直播流并把帧/态推给回调，返回可收口的把手。附着即向服务端表明「有观看者」→ 开播。
  * 组件挂载时调用、卸载时 `stop()`，从而实现「无人看零开销」。
+ * 传入 {@link BrowserLiveOpts.sessionId} 时 URL 带 `?session_id=`，避免多 tab 串帧。
  */
 export function startBrowserLive(
   conversationId: string,
   handlers: BrowserLiveHandlers,
+  opts?: BrowserLiveOpts,
 ): BrowserLiveClient {
+  const sid = opts?.sessionId?.trim();
+  const qs = sid ? `?session_id=${encodeURIComponent(sid)}` : "";
   const url = `${BASE_URL}/v1/conversations/${encodeURIComponent(
     conversationId,
-  )}/browser/live`;
+  )}/browser/live${qs}`;
 
   let running = true;
   let controller: AbortController | null = null;

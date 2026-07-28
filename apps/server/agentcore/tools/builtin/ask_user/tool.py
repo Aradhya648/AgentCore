@@ -92,13 +92,14 @@ class AskUserTool:
     # captures it into the frame — the resumed toolset re-wires consult_memory to the same
     # project (Agent记忆与知识系统 §二). ``None`` for 裸聊 / local. Capture-only (unused live).
     folder_id: str | None = None
-    # The memory master switch, captured so resume re-wires consult_memory as this turn did
-    # (off ⇒ stays off). Capture-only; defaults True (always-on).
+    # Caller-supplied memory gate, captured so resume re-wires consult_memory as this
+    # turn did (False ⇒ stays off). Capture-only; defaults True (product always-on).
     memory_enabled: bool = True
-    # Cross-session log access gate, captured for resume wire parity (跨会话对话日志访问定案).
+    # Caller-supplied conversation-log access gate, captured for resume wire parity.
     conversation_history_access: bool = True
-    # Advertise desktop-only ask_user option actions (bind_local_folder /
-    # grant_readonly_folder / grant_organize_folder) when the desktop client can fulfil them.
+    # Advertise desktop-only ask_user option actions (open_local_project /
+    # bind_local_folder / grant_readonly_folder / grant_organize_folder) when the
+    # desktop client can fulfil them.
     advertise_bind_local_folder: bool = False
 
     @property
@@ -138,23 +139,30 @@ class AskUserTool:
             option_properties["action"] = {
                 "type": "string",
                 "enum": [
+                    "open_local_project",
                     "bind_local_folder",
                     "grant_readonly_folder",
                     "grant_organize_folder",
                 ],
                 "description": (
-                    "可选。bind_local_folder=绑定本机工作区；"
-                    "grant_readonly_folder=开只读授权（区外目录、仅本对话）；"
+                    "可选。按意图分流："
+                    "open_local_project=打开本机文件夹为本地项目（新建会话挂 Folder，"
+                    "空 subpath；不改本会话 folder_id）；"
+                    "bind_local_folder=本会话绑本机执行环境（裸聊 scratch，≠打开项目）；"
+                    "grant_readonly_folder=开只读授权（区外目录、仅本对话；与绑定正交，"
+                    "云端草稿+桌面在线亦可）；"
                     "grant_organize_folder=开整理授权（可移动/重命名/复制/删进回收站、仅本对话）。"
                 ),
             }
             questions_desc += (
-                " 本机需求可标绑定本机；区外目录可标开只读授权 / 开整理授权"
-                "（action=bind_local_folder / grant_readonly_folder / grant_organize_folder）。"
+                " 打开本机目录当项目→open_local_project；本会话只要本机执行→"
+                "bind_local_folder；区外只读/整理→grant_*"
+                "（action=open_local_project / bind_local_folder / "
+                "grant_readonly_folder / grant_organize_folder）。"
             )
             tool_desc += (
-                " 桌面在线时可标 bind_local_folder / grant_readonly_folder /"
-                " grant_organize_folder。"
+                " 桌面在线时可标 open_local_project / bind_local_folder / "
+                "grant_readonly_folder / grant_organize_folder（按意图分流）。"
             )
 
         return ToolSchema(
@@ -245,14 +253,18 @@ class AskUserTool:
                     "format_options": {
                         "type": "array",
                         "description": (
-                            "可选：演讲/PPT 交付形态候选（pptx / marp / outline 等）。"
+                            "可选：交付形态候选。演讲/PPT → pptx/marp/outline；"
+                            "Agent/自动化/工作流 → 可运行自动化/控制台原型/仅方案。"
                         ),
                         "items": {
                             "type": "object",
                             "properties": {
                                 "label": {
                                     "type": "string",
-                                    "description": "交付形态名（如 PowerPoint / Marp / 仅讲稿）。",
+                                    "description": (
+                                        "交付形态名（演讲如 PowerPoint/Marp；"
+                                        "自动化如可运行自动化/控制台原型/仅方案）。"
+                                    ),
                                 },
                             },
                             "required": ["label"],
@@ -419,6 +431,23 @@ class AskUserTool:
                     success=False,
                     output="",
                     error=presentation_kickoff_requires_formats_error(),
+                )
+            from agentcore.runtime.runs.automation_delivery import (
+                automation_kickoff_requires_formats_error,
+                is_automation_kickoff_text,
+            )
+
+            if is_automation_kickoff_text(message, ctx_text) and not format_options:
+                logger.info(
+                    "ask_user.automation_delivery_rejected",
+                    conversation_id=self.conversation_id,
+                    reason="empty_format_options",
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=automation_kickoff_requires_formats_error(),
                 )
         # Kickoff gate: user already settled high-leverage / collaboration decisions
         # (same-turn checkpoint_resolved OR prior-turn verbal affirm of a plan outline)

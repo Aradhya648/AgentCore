@@ -119,9 +119,6 @@ async def resolve_and_gate_background(
         base_url=cfg.base_url,
         default_model=cfg.model,
         source="platform" if cfg.source == "platform" else "user",
-        price_cache_hit=cfg.price_cache_hit,
-        price_cache_miss=cfg.price_cache_miss,
-        price_output=cfg.price_output,
         provider_id=cfg.provider_id,
     )
     if cfg.source != "platform":

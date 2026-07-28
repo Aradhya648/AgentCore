@@ -1,0 +1,35 @@
+{
+  "id": "r3_v07_collab_fix_first",
+  "category": "tool_use",
+  "kind": "collab",
+  "phase": "R3",
+  "vendor_id": "V07",
+  "vendor_dir": "more-itertools@64be96ceb2a6",
+  "language": "python",
+  "base_kind": "fix",
+  "collab": {
+    "induce": "force_delegate",
+    "soft_diagnostics": ["run_plan", "worker_files"]
+  },
+  "user_message": "工作区是 more-itertools。`first()` 返回值异常（拿到的不是首元素）。\n\n【多 Agent 强制】你必须以 CEO 身份调用 `delegate` 组建至少 1 个 worker 完成修复；CEO 不要自己直接改生产代码。修好后使 `python -m pytest tests/test_more.py::FirstTests -q` 通过。不要修改 tests/。",
+  "path": "team",
+  "mode": "economy",
+  "toolset": "ceo",
+  "seed_patch": "../r1a/seeds/v07_break_first.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_more.py::FirstTests", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_more.py::FirstTests", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

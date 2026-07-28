@@ -20,7 +20,7 @@ from .batch4_hardening import (
     _multi_agent_stop_gate_run_frames,
     _multi_agent_timeout_hard_gaps,
 )
-from .browser import _multi_agent_browser_session
+from .browser import _multi_agent_browser_login_pending, _multi_agent_browser_session
 from .context import _multi_agent_captain_context, _multi_agent_received_context
 from .cross_turn_append import _multi_agent_cross_turn_append
 from .delegate import (
@@ -127,9 +127,14 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
     ),
     "multi_agent_delegate": ("多 Agent：委派 2 队员，runs 树 + 进度 + 总账", _multi_agent_delegate),
     "multi_agent_browser_session": (
-        "L3 团队浏览器 M0：worker 用 browser_* 六工具（navigate→snapshot→click→screenshot），"
+        "浏览器：worker 用 browser_*（navigate→snapshot→click→screenshot），"
         "每步 tool_use_end.display 携 kind:browser 契约 + 关键帧引用，折入 run.process",
         _multi_agent_browser_session,
+    ),
+    "multi_agent_browser_login_pending": (
+        "浏览器：worker browser_* 后 escalate(browser_login=true) pending——"
+        "登录卡 + 自动揭示右坞壳（shoot）",
+        _multi_agent_browser_login_pending,
     ),
     "multi_agent_cross_turn_append": (
         "跨回合同图追加：m1 建图完成 → m2 graph_append + 同 execution_id merge → 追加批收口；"

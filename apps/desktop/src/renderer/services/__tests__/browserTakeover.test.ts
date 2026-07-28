@@ -66,6 +66,20 @@ describe("browserTakeover · REST", () => {
     expect(state).toEqual({ active: true, reason: "started" });
   });
 
+  it("starts / ends with session_id when provided", async () => {
+    await startBrowserTakeover("conv-42", { sessionId: "sess-local" });
+    expect(mockPost).toHaveBeenCalledWith(
+      "/v1/conversations/conv-42/browser/takeover",
+      { action: "start", session_id: "sess-local" },
+    );
+    mockPost.mockClear();
+    await endBrowserTakeover("conv-42", { sessionId: "sess-local" });
+    expect(mockPost).toHaveBeenCalledWith(
+      "/v1/conversations/conv-42/browser/takeover",
+      { action: "end", session_id: "sess-local" },
+    );
+  });
+
   it("treats reason=already_active as success (idempotent start)", async () => {
     mockPost.mockResolvedValue({
       active: true,

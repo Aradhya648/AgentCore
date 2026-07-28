@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from agentcore.core.types import AutonomyPolicy, ToolEffect
+from agentcore.core.types import AutonomyPolicy, ToolEffect, recipe_to_axes
 from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
 from agentcore.runtime.checkpoints import CheckpointDecision
 from agentcore.runtime.delegate.preview import should_kickoff as delegate_should_kickoff
@@ -133,7 +133,7 @@ def test_full_auto_releases_plan_half():
         should_kickoff(
             plan_preview=True,
             local_gate=True,
-            autonomy=AutonomyPolicy.FULL_AUTO,
+            axes=recipe_to_axes(AutonomyPolicy.MANAGED),
         )
         is False
     )
@@ -141,17 +141,17 @@ def test_full_auto_releases_plan_half():
         should_kickoff(
             plan_preview=True,
             local_gate=False,
-            autonomy=AutonomyPolicy.FULL_AUTO,
+            axes=recipe_to_axes(AutonomyPolicy.MANAGED),
         )
         is False
     )
 
 
 def test_capability_auth_three_tiers():
-    assert needs_capability_auth(local_gate=True, autonomy=AutonomyPolicy.FIRST_GRANT) is True
-    assert needs_capability_auth(local_gate=True, autonomy=AutonomyPolicy.ALWAYS_ASK) is False
-    assert needs_capability_auth(local_gate=True, autonomy=AutonomyPolicy.FULL_AUTO) is False
-    assert needs_capability_auth(local_gate=False, autonomy=AutonomyPolicy.FIRST_GRANT) is False
+    assert needs_capability_auth(local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)) is True
+    assert needs_capability_auth(local_gate=True, axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS)) is False
+    assert needs_capability_auth(local_gate=True, axes=recipe_to_axes(AutonomyPolicy.MANAGED)) is False
+    assert needs_capability_auth(local_gate=False, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)) is False
 
 
 def test_delegate_trigger_rules_unchanged():
@@ -164,19 +164,19 @@ def test_delegate_trigger_rules_unchanged():
     assert should_preview_delegate_plan(solo, finalize=True) is False
     assert (
         delegate_should_kickoff(
-            multi, finalize=False, local_gate=False, autonomy=AutonomyPolicy.FIRST_GRANT
+            multi, finalize=False, local_gate=False, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
         )
         is True
     )
     assert (
         delegate_should_kickoff(
-            multi, finalize=False, local_gate=False, autonomy=AutonomyPolicy.FULL_AUTO
+            multi, finalize=False, local_gate=False, axes=recipe_to_axes(AutonomyPolicy.MANAGED)
         )
         is False
     )
     assert (
         delegate_should_kickoff(
-            solo, finalize=True, local_gate=True, autonomy=AutonomyPolicy.FIRST_GRANT
+            solo, finalize=True, local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
         )
         is True
     )  # capability half only
@@ -194,20 +194,20 @@ def test_checkpoint_after_yields_plan_preview_half():
         should_kickoff(
             plan_preview=False,
             local_gate=True,
-            autonomy=AutonomyPolicy.FIRST_GRANT,
+            axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
         )
         is True
     )
     assert (
         delegate_should_kickoff(
-            with_cp, finalize=False, local_gate=True, autonomy=AutonomyPolicy.FIRST_GRANT
+            with_cp, finalize=False, local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
         )
         is True
     )
     # No local gate + checkpoint batch → no kickoff card at all.
     assert (
         delegate_should_kickoff(
-            with_cp, finalize=False, local_gate=False, autonomy=AutonomyPolicy.FIRST_GRANT
+            with_cp, finalize=False, local_gate=False, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
         )
         is False
     )
@@ -259,8 +259,10 @@ def _debate_tool(
     save,
     drop,
     *,
-    autonomy: AutonomyPolicy = AutonomyPolicy.FIRST_GRANT,
+    permission_axes=None,
 ) -> DebateTool:
+    if permission_axes is None:
+        permission_axes = recipe_to_axes(AutonomyPolicy.WRITE_CODE)
     return DebateTool(
         llm=Provider([]),
         sink=sink,
@@ -273,7 +275,7 @@ def _debate_tool(
         message_id="m1",
         suspension_saver=save,
         suspension_deleter=drop,
-        autonomy_policy=autonomy,
+        permission_axes=permission_axes,
         registry=registry,
         captain_run_id="ceo",
     )
@@ -353,7 +355,7 @@ async def test_debate_full_auto_skips_kickoff():
         pass
 
     tool = _debate_tool(
-        sink, registry, _save, _drop, autonomy=AutonomyPolicy.FULL_AUTO
+        sink, registry, _save, _drop, permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED)
     )
     # skip_kickoff path isn't what we test — full_auto must not suspend before moderator.
     # Without LLM we can't finish moderator; patch _run_moderator.
@@ -463,7 +465,7 @@ async def test_delegate_full_auto_multi_skips_card():
         pass
 
     t = tool_durable(Provider(["AOUT", "BOUT"]), sink, registry, _save, _drop)
-    t._autonomy_policy = AutonomyPolicy.FULL_AUTO
+    t._permission_axes = recipe_to_axes(AutonomyPolicy.MANAGED)
     transcript = [
         LLMMessage(role="user", content="原始请求"),
         LLMMessage(

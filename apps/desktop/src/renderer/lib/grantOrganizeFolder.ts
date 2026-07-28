@@ -1,4 +1,5 @@
 import { hasLocalFiles } from "@/lib/capabilities";
+import { revokeExternalGrant } from "@/lib/revokeExternalGrant";
 import { ApiError, api } from "@/services/api";
 import type { FsRoot } from "@shared/ipc-contract";
 
@@ -30,8 +31,8 @@ export function formatGrantOrganizeFolderAnswer(
 
 /**
  * OS folder picker → session organize root → POST grant to server.
- * Does not change workspace binding. Same root upgrading from readonly requires
- * this fresh card (mode updated on re-grant).
+ * Orthogonal to workspace binding (cloud scratch + desktop online is enough).
+ * Same root upgrading from readonly requires this fresh card (mode updated on re-grant).
  */
 export async function pickAndGrantOrganizeFolder(
   conversationId: string,
@@ -61,7 +62,7 @@ export async function pickAndGrantOrganizeFolder(
         namespace: body.grant.namespace,
       };
     } catch (e) {
-      await window.fsApi.revokeSessionReadonlyRoot?.(conversationId, root.id);
+      await revokeExternalGrant(conversationId, root.id);
       throw e;
     }
   } catch (e) {

@@ -32,7 +32,8 @@
       "subpath",
       "selected",
       "inference",
-      "permissionPreset"
+      "browserBridge",
+      "permissionAxes"
     ],
     "required": [
       "rootId",
@@ -52,7 +53,8 @@
       "note",
       "selected",
       "inference",
-      "permissionPreset"
+      "browserBridge",
+      "permissionAxes"
     ],
     "required": [
       "messageId",
@@ -65,6 +67,10 @@
   "inference": {
     "keys": ["baseUrl", "apiKey", "model"],
     "required": ["baseUrl", "apiKey", "model"]
+  },
+  "browserBridge": {
+    "keys": ["baseUrl", "token"],
+    "required": ["baseUrl", "token"]
   },
   "writeBack": {
     "ipcOnlyTurnResultFields": ["turnId", "model", "error"],

@@ -11,7 +11,7 @@ import { useTurnAudit } from "@/hooks/useTurnAudit";
 import { filterInjectInEdges } from "@/lib/causalInject";
 import { detectReviewConcern } from "@/lib/reviewConcern";
 import type { AgentAuditEvent } from "@/services/audit";
-import { permissionPresetShortLabel } from "@/services/permissionPreset";
+import { permissionAxesShortLabel } from "@/services/permissionAxes";
 import { submitRunRedirect } from "@/services/runRedirect";
 import { useComposerDraftStore } from "@/stores/composer";
 import { activeRuntime, useConversationStore } from "@/stores/conversation";
@@ -55,24 +55,29 @@ import { Section, StatusBadge } from "./sections/shared";
 export { SchedulingDiag, CollabDiag } from "./sections/RunDiagnostics";
 
 /**
- * 本回合生效的权限档位（原安全台账「本回合模式 · X」快照）。回合审计里 `preset_snapshot` 在
- * 回合入口写一次；扫最后一条 permission 快照/切换的 `permission_preset` 即当时生效档。历史回合
- * 的快照持久化在审计里，故回看仍可见。仅 delegate / full_trust 回合会写快照，其余回合无 → null。
+ * 本回合生效的权限配方短名（原安全台账「本回合模式 · X」快照）。回合审计里
+ * ``permission.axes_snapshot`` 在回合入口写一次；扫最后一条 permission 快照/切换的
+ * ``permission_axes`` 即当时生效档。兼容旧 ``preset_*`` 行。
  */
 function turnPresetSnapshot(
   events: AgentAuditEvent[] | null | undefined,
 ): string | null {
-  let preset: string | null = null;
+  let label: string | null = null;
   for (const e of events ?? []) {
     if (
+      e.action === "permission.axes_snapshot" ||
+      e.action === "permission.axes_changed" ||
       e.action === "permission.preset_snapshot" ||
       e.action === "permission.preset_changed"
     ) {
-      const p = e.detail?.permission_preset;
-      if (typeof p === "string") preset = p;
+      const raw =
+        e.detail?.permission_axes ?? e.detail?.permission_preset ?? null;
+      const short = permissionAxesShortLabel(raw);
+      if (short) label = short;
+      else if (typeof raw === "string") label = raw;
     }
   }
-  return preset;
+  return label;
 }
 
 /**
@@ -170,9 +175,7 @@ export function RunDetailBody({
   );
 
   const rawTurnPreset = turnPresetSnapshot(turnAudit.data?.data);
-  const turnPresetLabel = rawTurnPreset
-    ? (permissionPresetShortLabel(rawTurnPreset) ?? rawTurnPreset)
-    : null;
+  const turnPresetLabel = rawTurnPreset;
 
   const process = run.process;
   const showTimeline =

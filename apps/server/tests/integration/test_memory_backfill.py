@@ -27,21 +27,18 @@ async def test_backfill_resets_only_empty_memory_users(session_factory, monkeypa
 
         empty_user = await users.create(username="backfill_empty", display_name="Empty")
         full_user = await users.create(username="backfill_full", display_name="Full")
-        disabled_user = await users.create(username="backfill_off", display_name="Off")
-        await users.set_memory_enabled(disabled_user.user_id, False)
 
         await store.save(full_user.user_id, CORE_MEMORY_FILE, "## 技术栈\n- Rust\n")
 
         synced_at = datetime(2025, 1, 1, tzinfo=UTC)
         empty_conv = await convs.create(user_id=empty_user.user_id, title="empty chat")
         full_conv = await convs.create(user_id=full_user.user_id, title="full chat")
-        off_conv = await convs.create(user_id=disabled_user.user_id, title="off chat")
-        for conv_id in (empty_conv.id, full_conv.id, off_conv.id):
+        for conv_id in (empty_conv.id, full_conv.id):
             await convs.set_memory_synced_at(conv_id, synced_at)
 
     stats = await backfill_empty_memory_watermarks(store=store, dry_run=False)
 
-    assert stats.users_scanned == 2  # empty + full; disabled excluded
+    assert stats.users_scanned == 2  # empty + full
     assert stats.users_reset == 1
     assert stats.conversations_reset == 1
     assert stats.users_skipped_has_memory == 1
@@ -50,11 +47,9 @@ async def test_backfill_resets_only_empty_memory_users(session_factory, monkeypa
         convs = ConversationRepository(session)
         empty_row = await convs.get_by_id_unscoped(empty_conv.id)
         full_row = await convs.get_by_id_unscoped(full_conv.id)
-        off_row = await convs.get_by_id_unscoped(off_conv.id)
 
     assert empty_row is not None and empty_row.memory_synced_at is None
     assert full_row is not None and full_row.memory_synced_at == synced_at
-    assert off_row is not None and off_row.memory_synced_at == synced_at
 
 
 async def test_backfill_is_idempotent(session_factory, monkeypatch, tmp_path):

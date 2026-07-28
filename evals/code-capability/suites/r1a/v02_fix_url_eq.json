@@ -1,0 +1,30 @@
+{
+  "id": "r1a_v02_fix_url_eq",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1a",
+  "vendor_id": "V02",
+  "vendor_dir": "starlette@8ebffd067857",
+  "language": "python",
+  "user_message": "工作区是 starlette。`URL` 相等比较行为异常。请做最小修复，使 `python -m pytest tests/test_datastructures.py::test_url -q` 通过。不要修改 tests/。（依赖：anyio、httpx2）",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v02_break_url_eq.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_datastructures.py::test_url", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_datastructures.py::test_url", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

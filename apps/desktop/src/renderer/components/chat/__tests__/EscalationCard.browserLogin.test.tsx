@@ -2,6 +2,7 @@
 /**
  * EscalationCard · browser_login 薄切片：
  * - pending + browserLogin → 标题「需要你登录」+ CTA「打开浏览器」
+ * - mount 时自动 showBrowser()（揭示右坞壳）；按钮保留作兜底
  * - 主操作「已登录，继续」走 decideEscalation answer（不 auto-resume）
  * - 「打开浏览器」调无参 showBrowser()（tab 恒对当前会话，不传第二份 id）
  */
@@ -79,12 +80,40 @@ describe("EscalationCard · browser_login", () => {
     expect(screen.getByText("已登录，继续")).toBeTruthy();
     expect(screen.getByText("按假设继续")).toBeTruthy();
     expect(screen.getByText("请先登录目标站点")).toBeTruthy();
+    expect(
+      screen.getByText(/在浏览器里完成登录后，点「已登录，继续」/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/在直播里/)).toBeNull();
   });
 
-  it("reveals the browser tab on CTA click", () => {
+  it("auto-reveals the browser shell on mount", () => {
     renderCard();
-    fireEvent.click(screen.getByText("打开浏览器"));
     expect(showBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-reveal on rerender of the same escalation", () => {
+    const { rerender } = renderCard();
+    expect(showBrowser).toHaveBeenCalledTimes(1);
+    rerender(
+      <MemoryRouter>
+        <TooltipProvider>
+          <EscalationCard
+            escalation={loginEsc}
+            role="研究员"
+            conversationId="conv-1"
+            interactive
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+    expect(showBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("reveals again via CTA as a fallback", () => {
+    renderCard();
+    expect(showBrowser).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("打开浏览器"));
+    expect(showBrowser).toHaveBeenCalledTimes(2);
   });
 
   it("resolves with answer「已登录，继续」on primary click", async () => {
@@ -103,5 +132,6 @@ describe("EscalationCard · browser_login", () => {
     expect(screen.queryByText(/需要你登录/)).toBeNull();
     expect(screen.queryByText("打开浏览器直播")).toBeNull();
     expect(screen.getByText(/请你拍板/)).toBeTruthy();
+    expect(showBrowser).not.toHaveBeenCalled();
   });
 });

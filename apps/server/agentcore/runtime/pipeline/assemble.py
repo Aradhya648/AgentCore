@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentcore.config import settings
-from agentcore.core.types import AutonomyPolicy, PermissionPreset, preset_to_autonomy
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes
 from agentcore.llm.profiles import TurnProfiles
 from agentcore.runtime.approvals import ApprovalGate
 from agentcore.runtime.context import (
@@ -37,7 +37,7 @@ class AssembledTurn:
     """Phase-2 outputs: wired CEO tools + assembled chat prompt."""
 
     approval_gate: ApprovalGate | None
-    autonomy_policy: AutonomyPolicy
+    permission_axes: PermissionAxes
     delegate_tool: Any
     debate_tool: Any
     chat_tools: ToolRegistry
@@ -56,8 +56,7 @@ async def assemble_ceo_turn(
     memory_enabled: bool,
     conversation_history_access: bool = True,
     approvals_enabled: bool,
-    autonomy_policy: AutonomyPolicy | None,
-    permission_preset: PermissionPreset | None,
+    permission_axes: PermissionAxes | None,
     profiles: TurnProfiles,
     captain_run_id: str,
     message_id: str,
@@ -91,10 +90,8 @@ async def assemble_ceo_turn(
     # in local mode (双模式工作区 P2d 执行门) — so a delegated worker can't run
     # code / mutate files on the user's real machine without consent, while a
     # cloud team stays un-gated (isolated sandbox).
-    if permission_preset is not None:
-        autonomy_policy = preset_to_autonomy(permission_preset)
-    elif autonomy_policy is None:
-        autonomy_policy = AutonomyPolicy.FIRST_GRANT
+    if permission_axes is None:
+        permission_axes = DEFAULT_PERMISSION_AXES
     approval_gate = (
         ApprovalGate(
             sink=sink,
@@ -105,7 +102,7 @@ async def assemble_ceo_turn(
             file_op_tools=approval_class_tool_names(),
             per_call_tools=per_call_tool_names(),
             delegation_grantable_tools=delegation_grantable_tool_names(),
-            autonomy_policy=autonomy_policy,
+            permission_axes=permission_axes,
         )
         if (settings.approval_gate_enabled and approvals_enabled)
         else None
@@ -156,7 +153,7 @@ async def assemble_ceo_turn(
         conversation_history_access=conversation_history_access,
         folder_id=folder_id,
         has_memory_topics=bool(prepared.memory_topics),
-        autonomy_policy=autonomy_policy,
+        permission_axes=permission_axes,
         # Same live-user gate as ask_user itself, plus desktop-only: web/mobile omit.
         advertise_bind_local_folder=checkpoint_enabled
         and desktop_client_can_bind(x_client_platform),
@@ -217,6 +214,17 @@ async def assemble_ceo_turn(
         conversation_id=conversation_id,
         exclude_message_id=message_id,
     )
+    # 可用性诚实性 · 甲：偏窄短问 → 复用最近 delivery_status 发卡到本回合答复面。
+    from agentcore.runtime.delegate.delivery_status import (
+        maybe_reinject_recent_delivery_for_availability_ask,
+    )
+
+    await maybe_reinject_recent_delivery_for_availability_ask(
+        sink,
+        conversation_id=conversation_id,
+        user_message=user_message,
+        exclude_turn_id=message_id,
+    )
     # Variable tail AFTER the stable hint stack (workspace overview + recent graph +
     # attachments) so the CEO prefix (base + hints) stays byte-identical across turns
     # and rides the prefix cache even when the workspace / attachments change. Empty
@@ -250,7 +258,7 @@ async def assemble_ceo_turn(
 
     return AssembledTurn(
         approval_gate=approval_gate,
-        autonomy_policy=autonomy_policy,
+        permission_axes=permission_axes,
         delegate_tool=delegate_tool,
         debate_tool=debate_tool,
         chat_tools=chat_tools,

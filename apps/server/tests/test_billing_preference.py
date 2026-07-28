@@ -58,9 +58,6 @@ def _prov_row(**kw):
         "default_model": "my-model",
         "api_key_enc": b"x",
         "base_url": "https://user.example/v1",
-        "price_cache_hit": None,
-        "price_cache_miss": None,
-        "price_output": None,
     }
     defaults.update(kw)
     return SimpleNamespace(**defaults)

@@ -1,12 +1,14 @@
-"""In-process session grant registry for external mounts (W3 readonly + organize).
+"""Conversation-scoped external mount grants (W3 readonly + organize).
 
-Grants bind ``conversation_id → alias → ExternalMount`` (desktop ``root_id`` only;
-absolute paths never leave the desktop). Cleared on revoke or conversation delete.
-Not durable across server restarts — session-scoped by product design.
+Durable across API restarts and multi-worker: Postgres
+``conversation_external_grants`` is the source of truth. A short in-process
+cache avoids a DB round-trip on every turn build. Lifecycle follows the
+**conversation** (revoke / soft-delete / hard-delete), not the process.
 
-Cloud turns attach a ``WorkspaceChannel`` on ``ServerWorkspace`` so ``external/``
-ops use per-op ``root_id`` (same transport as ``LocalWorkspace``); ``location``
-stays ``server`` (no worker_gate).
+Grants bind ``conversation_id → alias → ExternalMount`` (desktop ``root_id``
+only; absolute paths never leave the desktop). Cloud turns attach a
+``WorkspaceChannel`` on ``ServerWorkspace`` so ``external/`` ops use per-op
+``root_id``; ``location`` stays ``server`` (no worker_gate).
 """
 
 from __future__ import annotations
@@ -21,20 +23,60 @@ from agentcore.workspace.external_mounts import (
 )
 
 _lock = threading.Lock()
-_grants: dict[str, dict[str, ExternalMount]] = {}
+# Short cache: conversation_id → alias → ExternalMount. Invalidated on writes.
+_cache: dict[str, dict[str, ExternalMount]] = {}
+# Test-only memory backend (no DB). Enabled by ``clear_all_for_tests``.
+_memory: dict[str, dict[str, ExternalMount]] | None = None
 
 
-def list_grants(conversation_id: str) -> list[ExternalMount]:
+def _row_to_mount(row) -> ExternalMount:
+    return ExternalMount(
+        alias=row.alias,
+        root_id=row.root_id,
+        label=row.label or row.alias,
+        abs_path=None,
+        mode=normalize_mount_mode(row.mode),
+    )
+
+
+async def _load_from_db(conversation_id: str) -> dict[str, ExternalMount]:
+    from agentcore.db.base import async_session_factory
+    from agentcore.db.repositories.external_grants import ExternalGrantRepository
+
+    async with async_session_factory() as session:
+        rows = await ExternalGrantRepository(session).list_for_conversation(
+            conversation_id
+        )
+        return {r.alias: _row_to_mount(r) for r in rows}
+
+
+async def _ensure_cached(conversation_id: str) -> dict[str, ExternalMount]:
     with _lock:
-        return list(_grants.get(conversation_id, {}).values())
-
-
-def grants_as_dict(conversation_id: str) -> dict[str, ExternalMount]:
+        if _memory is not None:
+            return dict(_memory.get(conversation_id, {}))
+        hit = _cache.get(conversation_id)
+        if hit is not None:
+            return dict(hit)
+    loaded = await _load_from_db(conversation_id)
     with _lock:
-        return dict(_grants.get(conversation_id, {}))
+        _cache[conversation_id] = dict(loaded)
+        return dict(loaded)
 
 
-def add_grant(
+def _invalidate(conversation_id: str) -> None:
+    with _lock:
+        _cache.pop(conversation_id, None)
+
+
+async def list_grants(conversation_id: str) -> list[ExternalMount]:
+    return list((await _ensure_cached(conversation_id)).values())
+
+
+async def grants_as_dict(conversation_id: str) -> dict[str, ExternalMount]:
+    return await _ensure_cached(conversation_id)
+
+
+async def add_grant(
     conversation_id: str,
     *,
     root_id: str,
@@ -42,69 +84,125 @@ def add_grant(
     alias_hint: str | None = None,
     mode: ExternalMountMode | str = "readonly",
 ) -> ExternalMount:
-    """Register or refresh a session grant. Same ``root_id`` updates label/mode.
+    """Register or refresh a conversation grant. Same ``root_id`` updates label/mode.
 
     Upgrading readonly → organize (or the reverse) on the same root keeps the
     alias stable; the product still requires a fresh authorization card before
     the client calls this with the new mode.
     """
     resolved_mode = normalize_mount_mode(mode if isinstance(mode, str) else mode)
-    with _lock:
-        by_alias = _grants.setdefault(conversation_id, {})
-        for existing in by_alias.values():
-            if existing.root_id == root_id:
-                updated = ExternalMount(
-                    alias=existing.alias,
-                    root_id=root_id,
-                    label=label or existing.label,
-                    abs_path=None,
-                    mode=resolved_mode,
-                )
-                by_alias[existing.alias] = updated
-                return updated
-        taken = set(by_alias)
-        alias = uniquify_alias(alias_hint or label, taken)
-        mount = ExternalMount(
-            alias=alias,
+
+    if _memory is not None:
+        with _lock:
+            by_alias = _memory.setdefault(conversation_id, {})
+            for existing in by_alias.values():
+                if existing.root_id == root_id:
+                    updated = ExternalMount(
+                        alias=existing.alias,
+                        root_id=root_id,
+                        label=label or existing.label,
+                        abs_path=None,
+                        mode=resolved_mode,
+                    )
+                    by_alias[existing.alias] = updated
+                    return updated
+            taken = set(by_alias)
+            alias = uniquify_alias(alias_hint or label, taken)
+            mount = ExternalMount(
+                alias=alias,
+                root_id=root_id,
+                label=label or alias,
+                abs_path=None,
+                mode=resolved_mode,
+            )
+            by_alias[alias] = mount
+            return mount
+
+    current = await _ensure_cached(conversation_id)
+    existing_alias: str | None = None
+    for m in current.values():
+        if m.root_id == root_id:
+            existing_alias = m.alias
+            break
+    if existing_alias is not None:
+        alias = existing_alias
+    else:
+        alias = uniquify_alias(alias_hint or label, set(current))
+
+    from agentcore.db.base import async_session_factory
+    from agentcore.db.repositories.external_grants import ExternalGrantRepository
+
+    async with async_session_factory() as session:
+        row = await ExternalGrantRepository(session).upsert(
+            conversation_id=conversation_id,
             root_id=root_id,
+            alias=alias,
             label=label or alias,
-            abs_path=None,
             mode=resolved_mode,
         )
-        by_alias[alias] = mount
-        return mount
+        mount = _row_to_mount(row)
+    _invalidate(conversation_id)
+    with _lock:
+        by_alias = _cache.setdefault(conversation_id, {})
+        by_alias[mount.alias] = mount
+    return mount
 
 
-def revoke_grant(
+async def revoke_grant(
     conversation_id: str, *, alias: str | None = None, root_id: str | None = None
 ) -> bool:
     """Revoke one grant by alias or root_id, or all when both omitted."""
-    with _lock:
-        by_alias = _grants.get(conversation_id)
-        if not by_alias:
-            return False
+    if _memory is not None:
+        with _lock:
+            by_alias = _memory.get(conversation_id)
+            if not by_alias:
+                return False
+            if alias is None and root_id is None:
+                del _memory[conversation_id]
+                return True
+            removed = False
+            if alias and alias in by_alias:
+                del by_alias[alias]
+                removed = True
+            if root_id:
+                for a, m in list(by_alias.items()):
+                    if m.root_id == root_id:
+                        del by_alias[a]
+                        removed = True
+            if not by_alias:
+                _memory.pop(conversation_id, None)
+            return removed
+
+    from agentcore.db.base import async_session_factory
+    from agentcore.db.repositories.external_grants import ExternalGrantRepository
+
+    async with async_session_factory() as session:
+        repo = ExternalGrantRepository(session)
         if alias is None and root_id is None:
-            del _grants[conversation_id]
+            await repo.clear_conversation(conversation_id)
+            _invalidate(conversation_id)
             return True
-        removed = False
-        if alias and alias in by_alias:
-            del by_alias[alias]
-            removed = True
-        if root_id:
-            for a, m in list(by_alias.items()):
-                if m.root_id == root_id:
-                    del by_alias[a]
-                    removed = True
-        if not by_alias:
-            _grants.pop(conversation_id, None)
-        return removed
+        n = await repo.delete_one(conversation_id, alias=alias, root_id=root_id)
+    _invalidate(conversation_id)
+    return n > 0
 
 
-def clear_conversation(conversation_id: str) -> None:
-    with _lock:
-        _grants.pop(conversation_id, None)
+async def clear_conversation(conversation_id: str) -> None:
+    if _memory is not None:
+        with _lock:
+            _memory.pop(conversation_id, None)
+        return
+    from agentcore.db.base import async_session_factory
+    from agentcore.db.repositories.external_grants import ExternalGrantRepository
+
+    async with async_session_factory() as session:
+        await ExternalGrantRepository(session).clear_conversation(conversation_id)
+    _invalidate(conversation_id)
 
 
 def clear_all_for_tests() -> None:
+    """Enable in-memory backend and wipe state (unit tests only)."""
+    global _memory
     with _lock:
-        _grants.clear()
+        _memory = {}
+        _cache.clear()

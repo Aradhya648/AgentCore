@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.delegate.delivery_status import (
     build_delivery_status,
     maybe_emit_delivery_status,
@@ -339,7 +339,7 @@ async def test_execute_emits_delivery_status_on_criteria_unmet():
         history=[],
         tools=ToolRegistry(),
         base_tool_context=local_ctx(),
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     result = await t.execute(
         {
@@ -355,3 +355,193 @@ async def test_execute_emits_delivery_status_on_criteria_unmet():
     assert len(events) == 1
     assert events[0].payload["state"] == "blocked"
     assert events[0].payload["gaps"][0]["role"] == "验收"
+
+
+def _failed_browser_transcript():
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+
+    return [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="nav1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="browser_navigate",
+                        arguments='{"url":"https://example.com"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="浏览器操作失败：连接超时\n<!--agentcore:tool_failed-->",
+            tool_call_id="nav1",
+        ),
+    ]
+
+
+def _failed_test_run_transcript():
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+
+    return [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tr1",
+                    type="function",
+                    function=ToolCallFunction(name="test_run", arguments="{}"),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="测试未通过（退出码 1）\n- 通过：0 / 失败：2 / 错误：0\n<!--agentcore:tool_failed-->",
+            tool_call_id="tr1",
+        ),
+    ]
+
+
+def _failed_verify_tsc_transcript():
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+
+    return [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="code_execute",
+                        arguments='{"code":"npx tsc -b","language":"bash"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content="stdout:\nerror TS2304\n\n退出码：1\n<!--agentcore:tool_failed-->",
+            tool_call_id="tc1",
+        ),
+    ]
+
+
+def test_verify_failed_browser_navigate_depresses_delivered():
+    """丙：COMPLETED + browser_navigate 失败 → verify_failed，不得 delivered。"""
+    plan = _plan(RunSpec(run_id="w1", task="打开验收", role="质检"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已尝试打开",
+            files_touched=["site/index.html"],
+            transcript=_failed_browser_transcript(),
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-vf-nav")
+    assert payload is not None
+    assert payload["state"] == "partial"
+    assert any(g.get("reason") == "verify_failed" for g in payload["gaps"])
+    assert any("browser_navigate" in g["description"] for g in payload["gaps"])
+
+
+def test_verify_failed_test_run_depresses_delivered():
+    plan = _plan(RunSpec(run_id="w1", task="跑测", role="工程师"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="测完",
+            files_touched=["src/a.ts"],
+            transcript=_failed_test_run_transcript(),
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-vf-test")
+    assert payload is not None
+    assert payload["state"] != "delivered"
+    assert any(g.get("reason") == "verify_failed" for g in payload["gaps"])
+
+
+def test_verify_failed_tsc_depresses_delivered():
+    plan = _plan(RunSpec(run_id="w1", task="类型检查", role="工程师"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="tsc 过了？",
+            files_touched=["src/a.ts"],
+            transcript=_failed_verify_tsc_transcript(),
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-vf-tsc")
+    assert payload is not None
+    assert payload["state"] != "delivered"
+    assert any(g.get("reason") == "verify_failed" for g in payload["gaps"])
+
+
+def test_landed_files_without_verify_failure_still_delivered():
+    """无验证失败且仅落盘 → 仍可为 delivered。"""
+    plan = _plan(RunSpec(run_id="w1", task="写讲稿", role="撰写"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已落盘",
+            files_touched=["讲稿.md"],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ok")
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    assert payload["gaps"] == []
+
+
+def test_cloud_delivered_adds_export_to_local():
+    """云端 backend + delivered_files → 含 export_to_local（即使 state=delivered）。"""
+    plan = _plan(RunSpec(run_id="w1", task="写 SPA", role="前端"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已落盘",
+            files_touched=["app/package.json", "app/src/main.ts"],
+        )
+    }
+    payload = build_delivery_status(
+        plan, results, execution_id="e-export", backend=ctx().backend
+    )
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    kinds = [a["kind"] for a in payload["actions"]]
+    assert "export_to_local" in kinds
+    action = next(a for a in payload["actions"] if a["kind"] == "export_to_local")
+    assert "云端" in action["description"]
+    assert "npm" in action["description"]
+
+
+def test_local_delivered_omits_export_to_local():
+    plan = _plan(RunSpec(run_id="w1", task="写 SPA", role="前端"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已落盘",
+            files_touched=["app/package.json"],
+        )
+    }
+    payload = build_delivery_status(
+        plan, results, execution_id="e-local", backend=LocalBackend()
+    )
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    assert "export_to_local" not in {a["kind"] for a in payload["actions"]}
+
+
+def test_is_availability_status_question_narrow():
+    from agentcore.runtime.delegate.delivery_status import is_availability_status_question
+
+    assert is_availability_status_question("可以使用了吗")
+    assert is_availability_status_question("能不能用")
+    assert is_availability_status_question("好了吗")
+    assert is_availability_status_question("完成了吗？")
+    assert not is_availability_status_question("请继续补全质检面板并接好 API")
+    assert not is_availability_status_question(
+        "刚才做好的那个页面，你能在本地直接打开浏览器帮我验证一下能不能用吗？"
+    )

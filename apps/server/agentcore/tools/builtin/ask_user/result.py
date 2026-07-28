@@ -12,11 +12,11 @@ def ask_user_tool_result(response: CheckpointResponse) -> ToolResult:
     The single source of truth for both the live tool (``AskUserTool.execute``) and
     a durable resume (``runtime/pipeline.resume_chat_pipeline``): submit feeds back as
     a ``CONTINUE`` result (the CEO resumes); stop returns an ``INTERACT`` (terminal)
-    result whose closing note rides as ``final_text`` so the engine — or the resume —
-    ends the turn gracefully with that text; a timeout hands control back to the CEO to
-    wrap up on its own. Pure (no SSE side-effect): the caller streams the stop's
-    ``final_text`` via ``content_delta`` (it is persist-only, the engine never re-emits
-    it).
+    result whose optional closing note rides as ``final_text`` (empty when the user
+    left no note — stop status lives on the interaction card, not a canned assistant
+    line); a timeout hands control back to the CEO to wrap up on its own. Pure (no SSE
+    side-effect): the caller streams a non-empty stop ``final_text`` via
+    ``content_delta`` (it is persist-only, the engine never re-emits it).
 
     答复正文 (α 答复模型): the desktop composes the user's per-question picks + style +
     free-form note into ONE readable ``note`` string (the picks live in the UI, so the
@@ -40,13 +40,12 @@ def ask_user_tool_result(response: CheckpointResponse) -> ToolResult:
             output = "用户确认：按你提出的方向继续。"
         return ToolResult(tool_call_id="", success=True, output=output)
     if decision is CheckpointDecision.STOP:
-        closing = note or "好的，已按你的要求停止本回合。"
         return ToolResult(
             tool_call_id="",
             success=True,
             output="用户选择停止本回合。",
             effect=ToolEffect.INTERACT,
-            final_text=closing,
+            final_text=note,
         )
     # TIMEOUT — never silently picked a branch; let the CEO decide how to close.
     return ToolResult(

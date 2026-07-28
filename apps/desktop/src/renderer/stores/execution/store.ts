@@ -535,9 +535,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
       }),
 
     setDeliveryStatus: (status, messageId) =>
-      patchExec(messageId, (cur) =>
-        cur.plan ? { deliveryStatus: status } : null,
-      ),
+      // 可用性短问可在无 plan 的 CEO 回合复用对账发卡——勿再要求 cur.plan。
+      patchExec(messageId, () => ({ deliveryStatus: status })),
 
     upsertUserInterjection: (item, messageId) =>
       patchExec(messageId, (cur) => {
@@ -553,10 +552,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
 
     setStatus: (status, messageId) =>
       patchExec(messageId, (cur) => {
-        // Terminal / paused turns clear live wait + background chrome (EPHEMERAL).
+        // Terminal / paused turns clear live wait chrome.
+        // failed 保留 executionDetached：对话失败收口与「团队后台运行中」并陈。
         if (
           status === "completed" ||
-          status === "failed" ||
           status === "cancelled" ||
           status === "paused"
         ) {
@@ -565,6 +564,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
             coordinationWait: null,
             coordinationWaitStartedAt: null,
             executionDetached: null,
+          };
+        }
+        if (status === "failed") {
+          return {
+            status,
+            coordinationWait: null,
+            coordinationWaitStartedAt: null,
           };
         }
         return cur.status === status ? null : { status };
@@ -710,8 +716,26 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
             if (frame) frames.push(frame);
           }
         }
-        // No run_plan in the journal → nothing to draw (single-agent / stray).
-        if (!plan) return {};
+        // No run_plan：单 Agent / 可用性短问复用对账——仍可只恢复 deliveryStatus。
+        if (!plan) {
+          if (!deliveryStatus) return {};
+          const cur = state.byId[messageId] ?? EMPTY_EXEC;
+          if (cur.deliveryStatus?.execution_id === deliveryStatus.execution_id) {
+            // Same reconciliation already stamped (live SSE) — keep other fields.
+            return {
+              byId: {
+                ...state.byId,
+                [messageId]: { ...cur, deliveryStatus },
+              },
+            };
+          }
+          return {
+            byId: {
+              ...state.byId,
+              [messageId]: { ...cur, deliveryStatus },
+            },
+          };
+        }
         const cur = state.byId[messageId] ?? EMPTY_EXEC;
         // Newer-wins: catch up after missed graph_append; never roll live back.
         if (!journalIsNewerThan(cur, plan, frames)) return {};

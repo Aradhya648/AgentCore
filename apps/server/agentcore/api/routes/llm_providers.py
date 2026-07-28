@@ -38,9 +38,6 @@ def _provider_to_response(view: ServiceProviderView) -> LlmProviderView:
         status=view.status,
         masked_key=view.masked_key,
         supports_tools=view.supports_tools,
-        price_cache_hit=view.price_cache_hit,
-        price_cache_miss=view.price_cache_miss,
-        price_output=view.price_output,
         message=view.message,
         created_at=view.created_at,
         updated_at=view.updated_at,
@@ -80,9 +77,6 @@ async def create_llm_provider(
         api_key=body.api_key,
         base_url=body.base_url,
         default_model=body.default_model,
-        price_cache_hit=body.price_cache_hit,
-        price_cache_miss=body.price_cache_miss,
-        price_output=body.price_output,
     )
     logger.info(
         "llm_provider.created",
@@ -101,7 +95,7 @@ async def update_llm_provider(
     user: AuthUser,
     service: LlmProviderService = Depends(get_llm_provider_service),
 ):
-    """Update a provider (endpoint / model / label / price; key optional to keep)."""
+    """Update a provider (endpoint / model / label; key optional to keep)."""
     view = await service.update_provider(
         user.user_id,
         provider_id,
@@ -109,9 +103,6 @@ async def update_llm_provider(
         api_key=body.api_key,
         base_url=body.base_url,
         default_model=body.default_model,
-        price_cache_hit=body.price_cache_hit,
-        price_cache_miss=body.price_cache_miss,
-        price_output=body.price_output,
         fields_set=set(body.model_fields_set),
     )
     return _provider_to_response(view)

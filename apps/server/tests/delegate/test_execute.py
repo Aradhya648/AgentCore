@@ -712,6 +712,11 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
     cc = props["completion_criteria"]
     assert "顶层" in cc.get("description", "")
     assert "tasks[]" in cc.get("description", "")
+    assert "runtime_ready" in cc.get("description", "")
+    string_enum = next(
+        branch["enum"] for branch in cc["oneOf"] if branch.get("type") == "string"
+    )
+    assert set(string_enum) == {"files_written", "code_verified", "runtime_ready"}
     t = tool(Provider([]))
     params = t.schema.parameters
     props = params["properties"]

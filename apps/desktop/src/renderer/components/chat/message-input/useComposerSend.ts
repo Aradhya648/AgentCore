@@ -2,6 +2,7 @@ import {
   patchConversationCache,
   upsertConversationFront,
 } from "@/hooks/useConversations";
+import { confirmSendDespitePendingIfNeeded } from "@/lib/composerPendingHint";
 import { isReadOnlyOffline } from "@/lib/offlineMode";
 import { notifyError } from "@/lib/toast";
 import { api } from "@/services/api";
@@ -12,7 +13,11 @@ import {
 import { ensureDefaultContainerRoot } from "@/services/defaultWorkspace";
 import { loadLatestWindow } from "@/services/messages";
 import { getLastUsedProfileId } from "@/services/models";
-import { resolveDefaultPermissionPreset } from "@/services/permissionPreset";
+import {
+  type PermissionAxes,
+  resolveDefaultPermissionAxes,
+  setComposerDraftAxes,
+} from "@/services/permissionAxes";
 import type { OutgoingAttachment } from "@/services/streamConversation";
 import { sendTurn } from "@/services/turns";
 import { sendMidFlightMessage } from "@/services/turns/midFlight";
@@ -63,6 +68,14 @@ export function useComposerSend({
 
     const activeConvId = useConversationStore.getState().currentConversationId;
 
+    // 挂起弱提示：有待确认卡时先二次确认（同会话确认一次后不再弹）；正规续跑/
+    // 提交卡不受影响。生成中插话走 mid-flight，不套本确认。
+    if (
+      !confirmSendDespitePendingIfNeeded(activeConvId, isGenerating)
+    ) {
+      return;
+    }
+
     // Mid-flight：生成中发送走独立 POST SSE（协调短确认 / 经典 turn_queued 后
     // 同连接续流）。经典排队在主路空闲后才插用户气泡并开 turn2，避免与 turn1
     // 收口帧交叉；协调插话无新气泡，徽标走 user_interjection。
@@ -74,6 +87,9 @@ export function useComposerSend({
           const resided = await ensureAttachmentResident(activeConvId, a);
           if (!resided.ok) {
             notifyError(new Error(resided.reason), "附件驻留失败");
+            if (resided.reason.includes("暂存已失效") && a.stagingId) {
+              setAttachments((prev) => prev.filter((x) => x.id !== a.id));
+            }
             return;
           }
           outgoing.push({
@@ -118,6 +134,7 @@ export function useComposerSend({
     if (backgroundMode && isLocal && activeConvId) {
       dispatchBackgroundTask(activeConvId, trimmed);
       setValue("");
+      setAttachments([]);
       closeMenu();
       return;
     }
@@ -140,17 +157,18 @@ export function useComposerSend({
       // 新会话继承上次在聊天里选的组合 id（会话级组合引用）：last_profile_id 作默认建议。
       const inheritedProfileId = getLastUsedProfileId();
       try {
-        const permissionPreset = await resolveDefaultPermissionPreset();
+        const permissionAxes = await resolveDefaultPermissionAxes();
         const conv = await api.post<{
           id: string;
-          permission_preset?: string;
+          permission_axes?: PermissionAxes;
         }>("/v1/conversations", {
           title: null,
           folder_id: targetFolderId,
           local_container_root_id: localContainerRootId,
-          permission_preset: permissionPreset,
+          permission_axes: permissionAxes,
         });
         conversationId = conv.id;
+        setComposerDraftAxes(null);
         upsertConversationFront({
           id: conv.id,
           title: provisionalConversationTitle(trimmed),
@@ -159,12 +177,7 @@ export function useComposerSend({
           lastMessagePreview: null,
           folderId: targetFolderId,
           localContainerRootId,
-          permissionPreset:
-            (conv.permission_preset as
-              | "observe"
-              | "workspace"
-              | "full_trust"
-              | undefined) ?? permissionPreset,
+          permissionAxes: conv.permission_axes ?? permissionAxes,
           modelProfileId: inheritedProfileId,
         });
         // Persist the inherited profile onto the new conversation BEFORE the first
@@ -211,6 +224,9 @@ export function useComposerSend({
         const resided = await ensureAttachmentResident(conversationId, a);
         if (!resided.ok) {
           notifyError(new Error(resided.reason), "附件驻留失败");
+          if (resided.reason.includes("暂存已失效") && a.stagingId) {
+            setAttachments((prev) => prev.filter((x) => x.id !== a.id));
+          }
           return;
         }
         outgoing.push({

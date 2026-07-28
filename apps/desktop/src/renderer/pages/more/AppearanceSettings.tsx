@@ -135,9 +135,8 @@ function LocalEngineToggle() {
       <div className="min-w-0">
         <p className="text-sm text-foreground">本地引擎</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          绑定本机本地文件夹的对话默认在你的电脑上运行（直连本地磁盘、更快），启动失败会自动切回
-          云端。裸聊与云端项目仍走云；AI
-          推理仍在云端，断网时不可用。关闭后全部走云端。
+          绑定本机文件夹的对话默认在本机执行（直连磁盘、更快），启动失败会自动切回云端。裸聊与云端项目仍走云。本地引擎不是离线模式：AI
+          推理仍在云端，断网时只能浏览缓存与本机文件（只读），不能发送。关闭后全部走云端。
         </p>
       </div>
       <Switch checked={enabled} onCheckedChange={onToggle} label="本地引擎" />

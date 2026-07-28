@@ -33,10 +33,6 @@ class LLMCredentials:
     extra_headers: dict[str, str] | None = None
     # Call-level origin for pricing: user BYOK → estimated ledger; platform → billed.
     source: CredentialOrigin = "user"
-    # Optional user-defined USD-per-1M unit card (decimal strings).
-    price_cache_hit: str | None = None
-    price_cache_miss: str | None = None
-    price_output: str | None = None
     # Optional cheaper model for background purposes (legacy carrier; multi-provider
     # resolves the background model via the account-level pointer, not this field).
     background_model: str | None = None
@@ -46,25 +42,18 @@ class LLMCredentials:
 
 
 def bind_credential_pricing_context(creds: LLMCredentials | None) -> None:
-    """Bind call-level pricing keys into structlog context for the turn.
+    """Bind call-level ``credential_source`` into structlog context for the turn.
 
     Fresh turns (:func:`prepare_chat_turn`) and durable resumes must both call this
     before any LLM work — ``calculate_cost`` / ``log_llm_call`` / the call meter read
-    ambient ``credential_source`` (and optional user unit prices) when the call site
-    does not pass an explicit source. Skipping the bind on resume made BYOK calls
-    fall through to ``platform`` and write false billed amounts.
+    ambient ``credential_source`` when the call site does not pass an explicit source.
+    Skipping the bind on resume made BYOK calls fall through to ``platform`` and
+    write false billed amounts.
     """
     from agentcore.core.log_context import bind_log_context
 
     if creds is None:
         bind_log_context(credential_source="platform")
         return
-    bind_kwargs: dict[str, str] = {"credential_source": creds.source}
-    if creds.price_cache_hit:
-        bind_kwargs["user_price_cache_hit"] = creds.price_cache_hit
-    if creds.price_cache_miss:
-        bind_kwargs["user_price_cache_miss"] = creds.price_cache_miss
-    if creds.price_output:
-        bind_kwargs["user_price_output"] = creds.price_output
-    bind_log_context(**bind_kwargs)
+    bind_log_context(credential_source=creds.source)
 

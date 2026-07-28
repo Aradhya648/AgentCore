@@ -52,4 +52,4 @@ def test_log_llm_call_byok_cost_nano_is_zero():
     call = next(c for c in caps if c.get("event") == "llm.call")
     assert call["cost_nano"] == 0  # billed nano (user path never hits quota)
     assert call.get("cost_estimated_nano", 0) >= 0
-    assert call.get("pricing_source") in ("estimated", "unpriced", "user_defined")
+    assert call.get("pricing_source") in ("estimated", "unpriced")

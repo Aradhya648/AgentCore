@@ -184,12 +184,14 @@ class ResolveEscalationInteraction(BaseModel):
     itself. Classic (non-coordination) path asks the user; coordination path awaits CEO
     ``resolve_escalation`` (Invariant B: solo never uses that tool). The user either answers
     (``answer``) or chooses 按假设继续 (``use_assumption`` true → wire status ``assumed``).
+    Write-lock conflicts may set ``transfer_ownership`` to path-handoff to the escalator.
     A wall-clock miss is ``timed_out``. A late resolve falls through as 404.
     """
 
     kind: Literal["escalation"] = "escalation"
     answer: str = Field("", max_length=4000)
     use_assumption: bool = False
+    transfer_ownership: bool = False
 
 
 class ResolveStageCardInteraction(BaseModel):
@@ -242,9 +244,13 @@ def interaction_result_from_body(body: ResolveInteractionRequest) -> Any:
             "error": body.error.model_dump() if body.error else None,
         }
     if isinstance(body, ResolveEscalationInteraction):
-        # 阻塞式求决策: the escalate channel awaits {answer} | {use_assumption}; 按假设继续
-        # is an early timeout (the worker falls back to its assumption).
-        return {"answer": body.answer, "use_assumption": body.use_assumption}
+        # 阻塞式求决策: the escalate channel awaits {answer} | {use_assumption};
+        # transfer_ownership 为写权冲突结构化裁决。
+        return {
+            "answer": body.answer,
+            "use_assumption": body.use_assumption,
+            "transfer_ownership": body.transfer_ownership,
+        }
     if isinstance(body, ResolveStageCardInteraction):
         return {
             "decision": body.decision,

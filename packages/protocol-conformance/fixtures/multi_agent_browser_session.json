@@ -1,6 +1,6 @@
 {
   "name": "multi_agent_browser_session",
-  "description": "L3 团队浏览器 M0：worker 用 browser_* 六工具（navigate→snapshot→click→screenshot），每步 tool_use_end.display 携 kind:browser 契约 + 关键帧引用，折入 run.process",
+  "description": "浏览器：worker 用 browser_*（navigate→snapshot→click→screenshot），每步 tool_use_end.display 携 kind:browser 契约 + 关键帧引用，折入 run.process",
   "events": [
     {
       "type": "message_start",

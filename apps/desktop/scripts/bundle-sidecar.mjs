@@ -7,8 +7,9 @@
  *   1) 一份**独立 CPython 发行版**（python-build-standalone，uv 同源、设计上可重定位）；
  *   2) 一份用 `uv pip install --target` 装好的旁路 site-packages——只装 sidecar **运行时
  *      子集**（pyproject 的 `[project.optional-dependencies].sidecar`）+ `--no-deps` 的
- *      agentcore 包本体，而非整个 server。剔掉 fastapi/uvicorn/alembic/redis/sqlalchemy/
- *      boto3/jose/cryptography 等不在 sidecar 回合路径上的重依赖。
+ *      agentcore 包本体，而非整个 server。剔掉 FastAPI/uvicorn/alembic/redis/boto3/jose/
+ *      cryptography 等不在 sidecar 回合路径上的重依赖；**保留**与云对齐的 Office 栈
+ *      （markitdown[docx,pdf,pptx] + python-docx + markdown-it-py）。
  * 运行期主进程 `resolveSpawnConfig`（`src/main/sidecar-service.ts`）在 `app.isPackaged` 时指向
  * `<resources>/sidecar/python` 的解释器，并以 `PYTHONPATH=<resources>/sidecar/site-packages`
  * 注入引擎包——用 `--target` 旁路目录而非 venv，绕开「venv 记录的 base python 绝对路径在用户机
@@ -238,11 +239,31 @@ function main() {
   //    - 内置 CPython 自带的 `pip`（python-build-standalone 随发行版带）——运行期不装包。
   pruneBundle();
 
-  // 7. 冒烟自检：用内置解释器 + PYTHONPATH 真正 import sidecar 入口（任何缺失依赖在此暴露）。
+  // 7. 冒烟自检：sidecar 入口 + Office 栈（与云同能力；缺 docx 曾导致本地回合 PIPELINE_ERROR）。
   console.log("冒烟自检: import agentcore.sidecar.server");
   run(
     bundledExe,
     ["-c", "import agentcore.sidecar.server; print('sidecar import OK')"],
+    { env: { ...process.env, PYTHONPATH: sitePackages, PYTHONUTF8: "1" } },
+  );
+  console.log("冒烟自检: Office literacy (docx + markitdown extract)");
+  run(
+    bundledExe,
+    [
+      "-c",
+      [
+        "from io import BytesIO",
+        "from docx import Document",
+        "from markitdown import MarkItDown",
+        "from agentcore.docs_export.md_to_docx import convert_markdown_to_docx",
+        "d=Document(); d.add_paragraph('AgentCore sidecar office smoke'); buf=BytesIO(); d.save(buf)",
+        "text=MarkItDown(enable_plugins=False).convert_stream(BytesIO(buf.getvalue()), file_extension='.docx').text_content or ''",
+        "assert 'sidecar office smoke' in text, text[:200]",
+        "out=convert_markdown_to_docx('# Hello\\n\\nworld')",
+        "assert out.docx_bytes.startswith(b'PK'), len(out.docx_bytes)",
+        "print('sidecar office OK')",
+      ].join("; "),
+    ],
     { env: { ...process.env, PYTHONPATH: sitePackages, PYTHONUTF8: "1" } },
   );
 

@@ -37,6 +37,8 @@ class BrowserTakeoverRow(Base):
     id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
     conversation_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False))
     user_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), index=True)
+    # Registry tab id (uuid4 hex); NULL on legacy rows / when unknown at create time.
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

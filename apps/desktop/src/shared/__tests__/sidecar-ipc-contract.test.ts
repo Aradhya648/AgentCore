@@ -45,7 +45,7 @@ describe("sidecar IPC contract (TS ↔ Python single source)", () => {
       | "decision"
       | "note"
       | "selected"
-      | "permissionPreset"
+      | "permissionAxes"
     > = {
       messageId: "m-asst",
       conversationId: "c1",
@@ -53,28 +53,50 @@ describe("sidecar IPC contract (TS ↔ Python single source)", () => {
       decision: "continue",
       note: "",
       selected: ["a"],
-      permissionPreset: "observe",
+      permissionAxes: {
+        file_write: "ask",
+        command: "ask",
+        team_kickoff: "rules",
+      },
     };
-    const withInference = buildSidecarResumeRpcParams(req, {
-      baseUrl: "https://x/v1/inference/v1",
-      apiKey: "tok",
-      model: "deepseek-v4-flash",
-    });
+    const withInference = buildSidecarResumeRpcParams(
+      req,
+      {
+        baseUrl: "https://x/v1/inference/v1",
+        apiKey: "tok",
+        model: "deepseek-v4-flash",
+      },
+      { baseUrl: "http://127.0.0.1:9", token: "bridge-tok" },
+    );
     assertExactKeys(withInference, sidecarIpc.resumeRpcParams.keys);
+    expect(withInference.browserBridge).toEqual({
+      baseUrl: "http://127.0.0.1:9",
+      token: "bridge-tok",
+    });
 
     const withoutInference = buildSidecarResumeRpcParams(req);
     assertExactKeys(withoutInference, [
-      ...sidecarIpc.resumeRpcParams.keys.filter((k) => k !== "inference"),
+      ...sidecarIpc.resumeRpcParams.keys.filter(
+        (k) => k !== "inference" && k !== "browserBridge",
+      ),
     ]);
     expect(withoutInference.selected).toEqual(["a"]);
-    expect(withoutInference.permissionPreset).toBe("observe");
-
-    // 权限模式缺省 ⇒ 键不出现，sidecar 沿用当前值。
-    const withoutPreset = buildSidecarResumeRpcParams({
-      ...req,
-      permissionPreset: undefined,
+    expect(withoutInference.permissionAxes).toEqual({
+      file_write: "ask",
+      command: "ask",
+      team_kickoff: "rules",
     });
-    expect("permissionPreset" in withoutPreset).toBe(false);
+
+    // Explicit null clears sidecar sticky env / prior turn.
+    const clearBridge = buildSidecarResumeRpcParams(req, undefined, null);
+    expect(clearBridge.browserBridge).toBeNull();
+
+    // 权限轴缺省 ⇒ 键不出现，sidecar 沿用当前值。
+    const withoutAxes = buildSidecarResumeRpcParams({
+      ...req,
+      permissionAxes: undefined,
+    });
+    expect("permissionAxes" in withoutAxes).toBe(false);
   });
 
   it("resume IPC request required fields are a superset of renderer routing keys", () => {

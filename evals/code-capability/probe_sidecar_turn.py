@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import codecs
 import json
 import os
 import subprocess
@@ -26,12 +27,54 @@ from typing import Any
 
 import httpx
 
+# Prefer apps/server on path so ``agentcore.sidecar.line_buffer`` resolves when
+# launched via ``uv run`` from that cwd (r_llm_smoke / probe CLI).
+_SERVER_ROOT = Path(__file__).resolve().parents[2] / "apps" / "server"
+if str(_SERVER_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SERVER_ROOT))
+
+from agentcore.sidecar.line_buffer import append_stdout_chunk  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "logs" / "probes"
 DEFAULT_BASE_URL = os.environ.get("PROBE_BASE_URL", "http://127.0.0.1:8000")
 DEFAULT_USERNAME = os.environ.get("DEV_USERNAME", "dev")
 DEFAULT_PASSWORD = os.environ.get("DEV_PASSWORD", "devpassword")
 AGENTCORE_ROOT_ID = "24407ff4-5703-4904-8f10-68314f673384"  # fs-roots: C:\\Project\\AgentCore
+# Unpackaged Electron dumps loopback Bridge creds here (see main/browser/bridge.ts).
+_DEFAULT_DEV_BRIDGE = (
+    Path(os.environ.get("APPDATA", "")) / "agentcore-desktop" / "browser-bridge.dev.json"
+)
+DEV_BRIDGE_FILE = Path(os.environ.get("AGENTCORE_DEV_BRIDGE_FILE", str(_DEFAULT_DEV_BRIDGE)))
+
+
+def _load_desktop_bridge() -> dict[str, str] | None:
+    """Read unpackaged Electron ``browser-bridge.dev.json`` → ``{baseUrl, token}``."""
+    if not DEV_BRIDGE_FILE.is_file():
+        return None
+    try:
+        data = json.loads(DEV_BRIDGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    url = (data.get("baseUrl") or "").strip().rstrip("/")
+    token = (data.get("token") or "").strip()
+    if not url or not token:
+        return None
+    return {"baseUrl": url, "token": token}
+
+
+def _inject_desktop_bridge_env(env: dict[str, str]) -> str | None:
+    """Legacy env fallback; prefer per-turn ``browserBridge`` RPC (B-Arch)."""
+    if env.get("AGENTCORE_BROWSER_BRIDGE_URL") and env.get("AGENTCORE_BROWSER_BRIDGE_TOKEN"):
+        return f"env already set ({env['AGENTCORE_BROWSER_BRIDGE_URL']})"
+    creds = _load_desktop_bridge()
+    if not creds:
+        if not DEV_BRIDGE_FILE.is_file():
+            return None
+        return f"dev bridge file unusable: {DEV_BRIDGE_FILE}"
+    env["AGENTCORE_BROWSER_BRIDGE_URL"] = creds["baseUrl"]
+    env["AGENTCORE_BROWSER_BRIDGE_TOKEN"] = creds["token"]
+    return f"loaded {DEV_BRIDGE_FILE} → {creds['baseUrl']}"
 
 
 def _new_id() -> str:
@@ -121,6 +164,17 @@ class SidecarClient:
 
     async def start(self) -> None:
         env = os.environ.copy()
+        bridge_note = _inject_desktop_bridge_env(env)
+        if bridge_note:
+            print(f"bridge: {bridge_note}", flush=True)
+        else:
+            print(
+                f"bridge: no AGENTCORE_BROWSER_BRIDGE_* and no {DEV_BRIDGE_FILE} "
+                "(start unpackaged desktop first for Local browser_*)",
+                flush=True,
+            )
+        # Sidecar→localhost inference SSE stalls (0 chunks); unary completes.
+        env.setdefault("AGENTCORE_INFERENCE_UNARY", "1")
         # Prefer apps/server venv python via `uv run` from that cwd.
         server_cwd = REPO_ROOT / "apps" / "server"
         self.proc = subprocess.Popen(
@@ -128,67 +182,117 @@ class SidecarClient:
             cwd=str(server_cwd),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
+            # Windows pipe backpressure can stall the sidecar event loop mid-LLM
+            # stream (looks like hang after proxy_spend_enqueued). Discard unless
+            # AGENTCORE_SIDECAR_STDERR=1 for debugging.
+            stderr=(
+                None
+                if os.environ.get("AGENTCORE_SIDECAR_STDERR", "").strip() in {"1", "true", "yes"}
+                else subprocess.DEVNULL
+            ),
+            # Binary pipes: text=True + os.read(fileno) races TextIOWrapper's buffer
+            # on Windows (response lands in BufferedReader, fileno read blocks forever).
+            # Desktop also treats stdout as a byte stream + decode.
+            bufsize=0,
             env=env,
         )
         assert self.proc.stdin and self.proc.stdout
         self._reader = asyncio.create_task(self._read_loop())
-        # Drain stderr in background so the pipe never fills.
-        asyncio.create_task(self._drain_stderr())
+        if self.proc.stderr is not None:
+            asyncio.create_task(self._drain_stderr())
 
     async def _drain_stderr(self) -> None:
         assert self.proc and self.proc.stderr
         loop = asyncio.get_running_loop()
         while True:
-            line = await loop.run_in_executor(None, self.proc.stderr.readline)
-            if not line:
+            raw = await loop.run_in_executor(None, self.proc.stderr.read, 4096)
+            if not raw:
                 return
-            sys.stderr.write(f"[sidecar.err] {line}")
+            sys.stderr.write(f"[sidecar.err] {raw.decode('utf-8', errors='replace')}")
+
+    def _dispatch_line(self, line: str) -> None:
+        line = line.strip()
+        if not line:
+            return
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            sys.stderr.write(f"[sidecar.bad] {line[:200]}\n")
+            return
+        self._lines.append(msg)
+        if "id" in msg and ("result" in msg or "error" in msg):
+            fut = self._pending.pop(msg["id"], None)
+            if fut and not fut.done():
+                fut.set_result(msg)
+        elif msg.get("method") == "turn/event":
+            params = msg.get("params") or {}
+            self.events.append(params)
+            inner = params.get("event")
+            if isinstance(inner, dict):
+                et = inner.get("type") or "?"
+                payload = inner.get("payload") or {}
+            else:
+                et = params.get("type") or "?"
+                payload = params.get("payload") or {}
+            label = et if isinstance(et, str) else "?"
+            if label == "tool_use_start":
+                label = f"tool> {payload.get('tool_name')}"
+            elif label == "tool_use_end":
+                label = f"tool< {payload.get('tool_name')} ({payload.get('status')})"
+            elif label == "run_plan":
+                agents = payload.get("agents") or []
+                label = f"TEAM run_plan agents={len(agents)}"
+            elif label in {"content_delta", "reasoning_delta"}:
+                return  # noisy
+            print(f"  evt {label}", flush=True)
 
     async def _read_loop(self) -> None:
+        """Desktop-homologous chunked framing — do **not** use ``readline()``.
+
+        ``readline`` waits for a full ``\\n``. A large ``run_context`` line written
+        halfway fills the Windows pipe; the probe blocks in readline while the
+        sidecar blocks in write → deadlock. Desktop uses ``data`` chunks + buffer;
+        we ``read(chunk)`` on a binary pipe (short reads) the same way.
+
+        Avoid ``TextIOWrapper.read(n)`` — it keeps reading until *n* chars arrive.
+        """
         assert self.proc and self.proc.stdout
         loop = asyncio.get_running_loop()
+        stdout = self.proc.stdout
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        buffer = ""
+
+        def _read_chunk() -> str:
+            raw = stdout.read(65536)
+            if not raw:
+                return decoder.decode(b"", final=True)
+            return decoder.decode(raw)
+
         while True:
-            line = await loop.run_in_executor(None, self.proc.stdout.readline)
-            if not line:
-                # Reject outstanding futures.
+            try:
+                chunk = await loop.run_in_executor(None, _read_chunk)
+            except Exception as exc:
+                sys.stderr.write(f"[sidecar.read] {exc!r}\n")
+                for fut in self._pending.values():
+                    if not fut.done():
+                        fut.set_exception(exc)
+                return
+            if not chunk:
+                if buffer.strip():
+                    try:
+                        self._dispatch_line(buffer)
+                    except Exception as exc:
+                        sys.stderr.write(f"[sidecar.dispatch] {exc!r}\n")
                 for fut in self._pending.values():
                     if not fut.done():
                         fut.set_exception(RuntimeError("sidecar stdout closed"))
                 return
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                sys.stderr.write(f"[sidecar.bad] {line[:200]}\n")
-                continue
-            self._lines.append(msg)
-            if "id" in msg and ("result" in msg or "error" in msg):
-                fut = self._pending.pop(msg["id"], None)
-                if fut and not fut.done():
-                    fut.set_result(msg)
-            elif msg.get("method") == "turn/event":
-                params = msg.get("params") or {}
-                self.events.append(params)
-                et = (params.get("type") or params.get("event") or "?")
-                payload = params.get("payload") or {}
-                label = et
-                if et == "tool_use_start":
-                    label = f"tool> {payload.get('tool_name')}"
-                elif et == "tool_use_end":
-                    label = f"tool< {payload.get('tool_name')} ({payload.get('status')})"
-                elif et == "run_plan":
-                    agents = payload.get("agents") or []
-                    label = f"TEAM run_plan agents={len(agents)}"
-                elif et in {"content_delta", "reasoning_delta"}:
-                    continue  # noisy
-                print(f"  evt {label}", flush=True)
+            buffer, lines = append_stdout_chunk(buffer, chunk)
+            for line in lines:
+                try:
+                    self._dispatch_line(line)
+                except Exception as exc:
+                    sys.stderr.write(f"[sidecar.dispatch] {exc!r}\n")
 
     def _next_id(self) -> int:
         self._id += 1
@@ -200,8 +304,14 @@ class SidecarClient:
         fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         msg = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
-        self.proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
-        self.proc.stdin.flush()
+        payload = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")
+        stdin = self.proc.stdin
+
+        def _write_req() -> None:
+            stdin.write(payload)
+            stdin.flush()
+
+        await asyncio.to_thread(_write_req)
         return await asyncio.wait_for(fut, timeout=timeout)
 
     async def initialize(
@@ -209,6 +319,7 @@ class SidecarClient:
         *,
         user_id: str,
         inference: dict[str, str] | None,
+        browser_bridge: dict[str, str] | None = None,
         permission_preset: str = "full_trust",
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -220,6 +331,8 @@ class SidecarClient:
         }
         if inference:
             params["inference"] = inference
+        if browser_bridge is not None:
+            params["browserBridge"] = browser_bridge
         return await self.request("initialize", params, timeout=120)
 
     async def start_turn(
@@ -231,6 +344,7 @@ class SidecarClient:
         trace_id: str,
         user_message_id: str,
         inference: dict[str, str] | None,
+        browser_bridge: dict[str, str] | None = None,
         permission_preset: str = "full_trust",
         timeout: float,
     ) -> dict[str, Any]:
@@ -245,6 +359,8 @@ class SidecarClient:
         }
         if inference:
             params["inference"] = inference
+        if browser_bridge is not None:
+            params["browserBridge"] = browser_bridge
         return await self.request("startTurn", params, timeout=timeout)
 
     async def resume(
@@ -256,6 +372,7 @@ class SidecarClient:
         decision: str = "continue",
         note: str = "",
         inference: dict[str, str] | None,
+        browser_bridge: dict[str, str] | None = None,
         timeout: float,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -269,6 +386,8 @@ class SidecarClient:
         }
         if inference:
             params["inference"] = inference
+        if browser_bridge is not None:
+            params["browserBridge"] = browser_bridge
         return await self.request("resume", params, timeout=timeout)
 
     async def close(self) -> None:
@@ -343,9 +462,16 @@ async def main_async(args: argparse.Namespace) -> int:
     t0 = time.time()
     result: dict[str, Any] | None = None
     error: str | None = None
+    browser_bridge = _load_desktop_bridge()
+    if browser_bridge:
+        print(f"browserBridge RPC: {browser_bridge['baseUrl']}", flush=True)
+    else:
+        print("browserBridge RPC: none (env fallback only)", flush=True)
     try:
         await sc.start()
-        init = await sc.initialize(user_id=user_id, inference=inference)
+        init = await sc.initialize(
+            user_id=user_id, inference=inference, browser_bridge=browser_bridge
+        )
         print(f"initialize: {json.dumps(init.get('result') or init.get('error'), ensure_ascii=False)}")
         if "error" in init:
             error = str(init["error"])
@@ -359,6 +485,7 @@ async def main_async(args: argparse.Namespace) -> int:
             trace_id=trace_id,
             user_message_id=user_message_id,
             inference=inference,
+            browser_bridge=browser_bridge,
             timeout=args.timeout,
         )
         if "error" in resp:
@@ -391,6 +518,7 @@ async def main_async(args: argparse.Namespace) -> int:
                 decision="continue",
                 note="S5 eval: continue",
                 inference=inference,
+                browser_bridge=browser_bridge,
                 timeout=args.timeout,
             )
             if "error" in resp:

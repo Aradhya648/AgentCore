@@ -205,6 +205,69 @@ def test_build_feature_requires_feature():
     assert errors and "feature" in errors[0]
 
 
+# ── build_app ─────────────────────────────────────────────────────────────────
+
+
+def test_build_app_five_waves_default_modules():
+    tasks, errors = expand_playbook(
+        "build_app", {"app": "面向运营的 Vue3 数据看板", "stack": "Vue3+Vite+TS"}
+    )
+    assert errors == []
+    by_id = _by_id(tasks)
+    assert "scaffold" in by_id
+    assert "shared" in by_id
+    assert "module_0" in by_id and "module_1" in by_id
+    assert "integrate" in by_id
+    assert "smoke" in by_id
+    assert by_id["shared"]["depends_on"] == ["scaffold"]
+    assert by_id["module_0"]["depends_on"] == ["shared"]
+    assert by_id["module_1"]["depends_on"] == ["shared"]
+    assert set(by_id["integrate"]["depends_on"]) == {"module_0", "module_1"}
+    assert by_id["smoke"]["depends_on"] == ["integrate"]
+    assert by_id["scaffold"]["deliverable"]["strict"] is True
+    assert "铁律" in by_id["scaffold"]["task"]
+    assert "悬空" in by_id["scaffold"]["task"]
+    assert "npm" in by_id["smoke"]["task"].lower() or "build" in by_id["smoke"]["task"]
+    # Scaffold artifacts must include per-module stub views (no dangling router).
+    scaffold_arts = by_id["scaffold"]["deliverable"]["artifacts"]
+    stub_arts = [a for a in scaffold_arts if "/src/views/" in a and a.endswith(".vue")]
+    assert len(stub_arts) == 2
+    assert by_id["module_0"]["deliverable"]["artifacts"][0] in scaffold_arts
+    assert by_id["module_1"]["deliverable"]["artifacts"][0] in scaffold_arts
+
+
+def test_build_app_custom_modules_and_root():
+    tasks, errors = expand_playbook(
+        "build_app",
+        {
+            "app": "看板",
+            "modules": ["仪表盘", "告警"],
+            "root": "ops-board",
+        },
+    )
+    assert errors == []
+    by_id = _by_id(tasks)
+    assert set(by_id) == {
+        "scaffold",
+        "shared",
+        "module_0",
+        "module_1",
+        "integrate",
+        "smoke",
+    }
+    assert "ops-board/" in by_id["scaffold"]["task"]
+    arts = by_id["scaffold"]["deliverable"]["artifacts"]
+    assert any(a.startswith("ops-board/") for a in arts)
+    assert "ops-board/src/views/" in " ".join(arts)
+    assert "ops-board/src/router/index.ts" in arts
+
+
+def test_build_app_requires_app():
+    tasks, errors = expand_playbook("build_app", {})
+    assert tasks == []
+    assert errors and "app" in errors[0]
+
+
 # ── repair_code ───────────────────────────────────────────────────────────────
 
 
@@ -916,6 +979,7 @@ def test_available_playbooks_lists_all_registered():
         "research_report",
         "build_feature",
         "repair_code",
+        "build_app",
         "build_website",
         "build_toolshed",
         "build_website_verify",
@@ -950,6 +1014,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         "research_report": {"topic": "T", "angles": ["a", "b"], "checkpoint": True},
         "build_feature": {"feature": "F", "stack": "S"},
         "repair_code": {"problem": "missing export", "target": "app.ts"},
+        "build_app": {"app": "Ops board", "modules": ["overview", "list"]},
         "build_website": {"site": "Landing", "sections": ["hero", "cta"]},
         "build_toolshed": {"site": "Ops console", "sections": ["应用外壳", "数据表格"]},
         "build_website_verify": {"site": "Landing"},
@@ -961,6 +1026,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         "research_report": 5,
         "build_feature": 3,
         "repair_code": 3,
+        "build_app": 6,  # scaffold + shared + 2 modules + integrate + smoke
         "build_website": 7,  # copy + design + skeleton + 2 sections + assemble + qa
         "build_toolshed": 7,  # same shape, 2 sections
         "build_website_verify": 1,  # qa only

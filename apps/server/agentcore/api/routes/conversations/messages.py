@@ -94,7 +94,7 @@ async def _persist_delivered_interjection_attachments(
         folder_id = conv.folder_id
         local_binding = await resolve_local_binding(session, conv)
 
-    backend = build_turn_backend(
+    backend = await build_turn_backend(
         user_id=user_id,
         conversation_id=conversation_id,
         folder_id=folder_id,

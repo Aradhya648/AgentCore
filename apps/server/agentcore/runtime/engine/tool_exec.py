@@ -498,7 +498,7 @@ async def execute_tools(
                 )
 
             auto_pass = (not force_breaker) and execution_tool_auto_passes(
-                context.backend, name, autonomy_policy=approval_gate.autonomy_policy
+                context.backend, name, permission_axes=approval_gate.permission_axes
             )
             if auto_pass:
                 logger.info("approval.sandbox_auto_pass", tool=name)

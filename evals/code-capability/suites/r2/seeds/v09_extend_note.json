@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R2 Extend 参照实现：Command.note()",
+  "replacements": [
+    {
+      "path": "lib/command.js",
+      "old": "  summary(str) {\n    if (str === undefined) return this._summary;\n    this._summary = str;\n    return this;\n  }\n",
+      "new": "  summary(str) {\n    if (str === undefined) return this._summary;\n    this._summary = str;\n    return this;\n  }\n\n  /**\n   * Store help notes (AgentCore R2 Extend reference).\n   * @param {string} [text]\n   * @return {(string[]|Command)}\n   */\n  note(text) {\n    if (!this._notes) this._notes = [];\n    if (text === undefined) return this._notes;\n    this._notes.push(text);\n    return this;\n  }\n"
+    }
+  ]
+}

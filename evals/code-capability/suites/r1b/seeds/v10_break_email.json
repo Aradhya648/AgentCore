@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: email 校验恒失败（invert regex check）。",
+  "replacements": [
+    {
+      "path": "src/types.ts",
+      "old": "      } else if (check.kind === \"email\") {\n        if (!emailRegex.test(input.data)) {\n",
+      "new": "      } else if (check.kind === \"email\") {\n        // R1b seed_patch: email always invalid\n        if (true || !emailRegex.test(input.data)) {\n"
+    }
+  ]
+}

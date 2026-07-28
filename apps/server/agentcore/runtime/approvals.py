@@ -18,7 +18,7 @@ from enum import StrEnum
 from typing import Any
 
 from agentcore.core.logging import get_logger
-from agentcore.core.types import AutonomyPolicy, ToolApproval
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, ToolApproval
 from agentcore.runtime.events import (
     EventSink,
     approval_required,
@@ -194,31 +194,31 @@ class ApprovalGate:
     # Medium-risk tools a kickoff grant covers (统一授权白名单). Injected from
     # ``delegation_grantable_tool_names`` — see tools.builtin.
     delegation_grantable_tools: frozenset[str] = frozenset()
-    # Capability-authorization posture (能力授权维度). ``always_ask`` forces every
-    # GRANTABLE call through the card; ``first_grant`` / ``full_auto`` honor
-    # kickoff-issued delegation grants and session file-mutation trust.
-    autonomy_policy: AutonomyPolicy = AutonomyPolicy.FIRST_GRANT
+    # Three-axis session permission (能力授权 / 写文件 / 组团卡). ``command=ask``
+    # refuses kickoff grants; ``file_write=session`` trusts reversible mutations;
+    # ``command=auto`` auto-passes execution (see sandbox_approval).
+    permission_axes: PermissionAxes = field(default_factory=lambda: DEFAULT_PERMISSION_AXES)
     _granted: set[str] = field(default_factory=set)
     # Tools the user (or timeout→deny) refused this turn — later calls skip the card.
     _denied: set[str] = field(default_factory=set)
     _delegation_grants: dict[str, DelegationGrant] = field(default_factory=dict)
 
     def _delegation_covers(self, execution_id: str, tool_name: str) -> bool:
-        if self.autonomy_policy is AutonomyPolicy.ALWAYS_ASK:
+        # command=ask: never silently consume a kickoff grant (对齐 observe 执行侧).
+        # command=auto: execution auto-passes elsewhere; grant still covers if present.
+        if not self.permission_axes.honors_kickoff_grant and not self.permission_axes.auto_executes:
             return False
         if not execution_id or tool_name not in self.delegation_grantable_tools:
             return False
         return execution_id in self._delegation_grants
 
     def _session_file_trust_covers(self, tool_name: str, arguments: dict[str, Any]) -> bool:
-        """workspace / full_trust: trust file-mutation class without awaiting kickoff.
+        """file_write=session: trust reversible file-mutation class without per-call cards.
 
-        Aligns Composer「开工授权」with industry accept-edits: reversible workspace
-        writes (incl. ``mkdir`` / git writes) skip per-call cards. ``observe`` never.
         Permanent deletes still prompt. Execution-class tools are not in
-        ``file_op_tools`` and still need kickoff / turn grant / per-call.
+        ``file_op_tools`` and still need kickoff / turn grant / per-call / auto.
         """
-        if self.autonomy_policy is AutonomyPolicy.ALWAYS_ASK:
+        if not self.permission_axes.trusts_file_writes:
             return False
         if tool_name not in self.file_op_tools:
             return False
@@ -252,16 +252,15 @@ class ApprovalGate:
 
         A kickoff grant (``grant_delegation`` / continue on the开工卡) short-circuits
         medium-risk tools for THAT ``execution_id`` before the per-turn grant or
-        per-call prompt — unless ``autonomy_policy`` is ``always_ask``.
-        Under ``first_grant`` / ``full_auto``, the file-mutation class is also
-        session-trusted (no kickoff required; permanent deletes still prompt).
+        per-call prompt — unless ``command=ask``. Under ``file_write=session``, the
+        file-mutation class is also session-trusted (permanent deletes still prompt).
         ``APPROVE_ALWAYS`` also whitelists ``tool_name`` for the rest of the turn;
         ``APPROVE_ALWAYS_FILES`` whitelists the whole ``file_op_tools`` class.
         A prior ``DENY`` for ``tool_name`` this turn short-circuits without re-prompting.
 
         ``force=True`` (safety circuit breaker): skip kickoff / turn / session-file
         grants so catastrophic shapes still require a human click even under
-        ``full_trust``. Turn-wide grants from a forced card are refused (one-shot
+        ``command=auto``. Turn-wide grants from a forced card are refused (one-shot
         only) so a single click cannot silently clear sibling destructive prompts.
         """
         if not force and self._delegation_covers(execution_id, tool_name):

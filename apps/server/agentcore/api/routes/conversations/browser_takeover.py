@@ -1,15 +1,11 @@
-"""L3 团队浏览器 M2 用户接管端点（内置浏览器与Agent浏览器提案.md · D16/D17）.
+"""Browser takeover endpoints — multi ``session_id`` thin wrap (M2 · D8/D17).
 
-Owner-only, like every conversation route. Three endpoints (contract pinned, co-owned with
-the desktop takeover block):
+Owner-only, like every conversation route:
 
-- ``POST …/browser/takeover`` {action: start|end} — start requires no running turn (D16) +
-  a live session; the resulting state (incl. the distinguishable precondition reason) rides
-  the response. End is idempotent.
-- ``POST …/browser/input`` {events:[…]} — a batch of frame-pixel-space events, valid ONLY
-  while takeover is active (else 409). Injection runs through the driver's CDP Input domain;
-  it refreshes the session's idle timer and persists NO frames / key / text content (D17).
-- ``GET …/browser/takeovers`` — the conversation's audit episodes (timeline card).
+- ``POST …/browser/takeover`` {action, session_id?} — start anytime a live session exists
+  (D8; no ``turn_running`` gate); end is idempotent.
+- ``POST …/browser/input`` {events, session_id?} — valid ONLY while takeover is active.
+- ``GET …/browser/takeovers`` — audit episodes (timeline card).
 """
 
 from __future__ import annotations
@@ -53,20 +49,23 @@ async def set_browser_takeover(
     user: AuthUser,
     session: AsyncSession = Depends(get_db),
 ) -> BrowserTakeoverState:
-    """Start or end user takeover of the conversation's team browser (owner-only)."""
+    """Start or end user takeover of a browser session (owner-only)."""
     await _require_owned_conversation(
         conversation_id, user.user_id, ConversationRepository(session)
     )
     service = default_browser_takeover_service()
     if body.action == "start":
-        result = await service.start(conversation_id, user.user_id)
+        result = await service.start(
+            conversation_id, user.user_id, session_id=body.session_id
+        )
     else:
-        result = await service.end(conversation_id)
+        result = await service.end(conversation_id, session_id=body.session_id)
     return BrowserTakeoverState(
         active=result.active,
         reason=result.reason,
         record_id=result.record_id,
         started_at=result.started_at,
+        session_id=result.session_id,
     )
 
 
@@ -82,17 +81,23 @@ async def submit_browser_input(
         conversation_id, user.user_id, ConversationRepository(session)
     )
     service = default_browser_takeover_service()
-    if not service.is_active(conversation_id):
+    sid = body.session_id
+    if not service.is_active(conversation_id, session_id=sid):
         raise ConflictError("浏览器未处于用户接管状态，无法注入输入")
     max_events = int(settings.browser_input_max_events)
     if len(body.events) > max_events:
         raise ValidationError(f"单次输入事件过多（上限 {max_events} 条），请分批发送")
 
-    browser = default_browser_session_registry().peek(conversation_id)
+    reg = default_browser_session_registry()
+    browser = reg.peek(conversation_id, session_id=sid)
     if browser is None:
         # Marked active but the live session vanished under us — end the takeover cleanly
         # (finalizes the record) and tell the client the session is gone.
-        await default_browser_session_registry().close(conversation_id)
+        resolved = reg.resolve_session_id(conversation_id, session_id=sid)
+        if resolved:
+            await reg.close_session(resolved)
+        else:
+            await reg.close(conversation_id)
         raise ConflictError("浏览器会话已失效，接管已结束")
 
     # Only counts/kinds are observable — event CONTENT (key/text, possibly a password) is
@@ -101,7 +106,11 @@ async def submit_browser_input(
     try:
         result = await browser.send(BrowserCommand(action="input", args={"events": events}))
     except BrowserDriverCrashedError:
-        await default_browser_session_registry().close(conversation_id)
+        resolved = reg.resolve_session_id(conversation_id, session_id=sid)
+        if resolved:
+            await reg.close_session(resolved)
+        else:
+            await reg.close(conversation_id)
         raise ConflictError("浏览器会话已失效，接管已结束") from None
     if not result.ok:
         raise ConflictError("浏览器输入注入失败，请重试或重新开始接管")

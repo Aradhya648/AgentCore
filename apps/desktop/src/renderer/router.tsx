@@ -5,7 +5,6 @@ import { AskCommencePreviewPage } from "@/pages/AskCommencePreviewPage";
 import { CapabilityPacksPreviewPage } from "@/pages/CapabilityPacksPreviewPage";
 import { ConversationsPage } from "@/pages/ConversationsPage";
 import { ConversationsPreviewPage } from "@/pages/ConversationsPreviewPage";
-import { ExplorePage } from "@/pages/ExplorePage";
 import { FilesPage } from "@/pages/FilesPage";
 import { MessagesPage } from "@/pages/MessagesPage";
 import { MorePage } from "@/pages/MorePage";
@@ -23,7 +22,6 @@ import { AppearanceSettings } from "@/pages/more/AppearanceSettings";
 import { AutonomySettings } from "@/pages/more/AutonomySettings";
 import { FeedbackSettings } from "@/pages/more/FeedbackSettings";
 import { ImPrivacySettings } from "@/pages/more/ImPrivacySettings";
-import { MemorySettings } from "@/pages/more/MemorySettings";
 import { ModelSettings } from "@/pages/more/ModelSettings";
 import { MoreIndexRedirect } from "@/pages/more/MoreIndexRedirect";
 import { ProviderSettings } from "@/pages/more/ProviderSettings";
@@ -33,12 +31,18 @@ import { TownLauncherPage } from "@/pages/simulation/TownLauncherPage";
 import { GuidelinesPage } from "@/pages/toolbox/GuidelinesPage";
 import { ToolsPage } from "@/pages/toolbox/ToolsPage";
 import {
+  AutomationsPage,
+  InboxPanel,
+  StandingTasksPanel,
+} from "@/pages/toolbox/automations";
+import {
   ManualCollaboration,
   ManualIntro,
   ManualMechanism,
   ManualReference,
   ManualShell,
 } from "@/pages/toolbox/manual";
+import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import { Navigate, createHashRouter } from "react-router-dom";
 
 export const router = createHashRouter([
@@ -68,6 +72,14 @@ export const router = createHashRouter([
       { path: "toolbox/tools", element: <ToolsPage /> },
       { path: "toolbox/guidelines", element: <GuidelinesPage /> },
       {
+        path: "toolbox/automations",
+        element: <AutomationsPage />,
+        children: [
+          { index: true, element: <StandingTasksPanel /> },
+          { path: "inbox", element: <InboxPanel /> },
+        ],
+      },
+      {
         path: "toolbox/manual",
         element: <ManualShell />,
         children: [
@@ -78,7 +90,21 @@ export const router = createHashRouter([
           { path: "reference", element: <ManualReference /> },
         ],
       },
-      { path: "explore", element: <ExplorePage /> },
+      // Day2 公共市场未落地：旧书签 #/explore 收向工具箱，避免「即将上线」空壳。
+      { path: "explore", element: <Navigate to="/toolbox" replace /> },
+      // 设置侧「自动化」已迁到工具箱；旧书签深链重定向。
+      {
+        path: "more/automations",
+        element: (
+          <Navigate to={APP_PATHS.toolbox.automations.root} replace />
+        ),
+      },
+      {
+        path: "more/inbox",
+        element: (
+          <Navigate to={APP_PATHS.toolbox.automations.inbox} replace />
+        ),
+      },
       // Hidden dev route — not in the nav; reach it by typing #/preview. Replays
       // committed conformance vectors through the real dispatch to eyeball every AI
       // state offline (no backend / LLM). See preview/replay.ts.
@@ -107,7 +133,6 @@ export const router = createHashRouter([
           { index: true, element: <MoreIndexRedirect /> },
           { path: "model", element: <ModelSettings /> },
           { path: "providers", element: <ProviderSettings /> },
-          { path: "memory", element: <MemorySettings /> },
           { path: "autonomy", element: <AutonomySettings /> },
           { path: "account", element: <AccountSettings /> },
           { path: "messages", element: <ImPrivacySettings /> },

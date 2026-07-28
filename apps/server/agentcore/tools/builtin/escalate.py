@@ -303,10 +303,19 @@ class EscalateTool:
                         f"{exc} 请直接传 JSON 数组，不要把数组再序列化成字符串。"
                     ),
                 )
-            # browser_login must reach the human (password never touches AI/CEO). Skip
-            # coordination CEO arbitration even when a living CEO is active.
+            # browser_login / 写权冲突 must reach the human (password never touches AI;
+            # 「移交」自然语言不会自动转锁). Skip coordination CEO arbitration.
+            from agentcore.workspace.write_claims import ownership_escalation_hints
+
+            ownership_hints = ownership_escalation_hints(
+                escalator_run_id=context.run_id,
+                question=question,
+                execution_id=context.execution_id,
+                write_ancestors=context.write_ancestors,
+            )
+            ownership_conflict = bool(ownership_hints.get("ownership_paths"))
             awaiting = "user"
-            if not browser_login:
+            if not browser_login and not ownership_conflict:
                 try:
                     from agentcore.runtime.coordination.session import active_coordination
 
@@ -322,6 +331,8 @@ class EscalateTool:
                 kind,
                 awaiting,
                 browser_login=browser_login,
+                ownership_paths=ownership_hints.get("ownership_paths"),
+                lock_owner_run_id=str(ownership_hints.get("lock_owner_run_id") or ""),
             )
             if outcome.status != "degraded":
                 return escalate_tool_result(

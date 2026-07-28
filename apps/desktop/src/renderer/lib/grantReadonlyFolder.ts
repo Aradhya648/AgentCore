@@ -1,4 +1,5 @@
 import { hasLocalFiles } from "@/lib/capabilities";
+import { revokeExternalGrant } from "@/lib/revokeExternalGrant";
 import { ApiError, api } from "@/services/api";
 import type { FsRoot } from "@shared/ipc-contract";
 
@@ -30,7 +31,7 @@ export function formatGrantReadonlyFolderAnswer(
 
 /**
  * OS folder picker → session read-only root → POST grant to server.
- * Does not change workspace binding.
+ * Orthogonal to workspace binding: works for cloud scratch when desktop is online.
  */
 export async function pickAndGrantReadonlyFolder(
   conversationId: string,
@@ -56,7 +57,7 @@ export async function pickAndGrantReadonlyFolder(
         namespace: body.grant.namespace,
       };
     } catch (e) {
-      await window.fsApi.revokeSessionReadonlyRoot?.(conversationId, root.id);
+      await revokeExternalGrant(conversationId, root.id);
       throw e;
     }
   } catch (e) {

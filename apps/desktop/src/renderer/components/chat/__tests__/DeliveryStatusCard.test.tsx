@@ -17,6 +17,7 @@ const {
   getStateMock,
   setValueMock,
   pickAndBindLocalFolderMock,
+  exportWorkspaceToLocalMock,
   showFileMock,
 } = vi.hoisted(() => ({
   sendTurnMock: vi.fn(),
@@ -24,11 +25,17 @@ const {
   getStateMock: vi.fn(),
   setValueMock: vi.fn(),
   pickAndBindLocalFolderMock: vi.fn(),
+  exportWorkspaceToLocalMock: vi.fn(),
   showFileMock: vi.fn(),
 }));
 
 vi.mock("@/services/turns", () => ({
   sendTurn: (...args: unknown[]) => sendTurnMock(...args),
+}));
+
+vi.mock("@/services/workspace", () => ({
+  exportWorkspaceToLocal: (...args: unknown[]) =>
+    exportWorkspaceToLocalMock(...args),
 }));
 
 vi.mock("@/lib/bindLocalFolder", async () => {
@@ -51,7 +58,10 @@ vi.mock("@/stores/conversation", () => ({
 
 vi.mock("@/stores/composer", () => ({
   useComposerDraftStore: {
-    getState: () => ({ setValue: setValueMock }),
+    getState: () => ({
+      setValue: setValueMock,
+      setAttachments: vi.fn(),
+    }),
   },
 }));
 
@@ -76,6 +86,7 @@ beforeEach(() => {
   getStateMock.mockReset();
   setValueMock.mockReset();
   pickAndBindLocalFolderMock.mockReset();
+  exportWorkspaceToLocalMock.mockReset();
   showFileMock.mockReset();
   useConversationStoreMock.mockImplementation((sel: (s: unknown) => unknown) =>
     sel({ byId: { c1: { isGenerating: false } } }),
@@ -102,7 +113,7 @@ const partial: DeliveryStatusPayload = {
   actions: [
     {
       kind: "bind_local_folder",
-      description: "绑定本地文件夹后，团队可在你的电脑上运行脚本生成产物。",
+      description: "绑定本机执行环境后，团队可在你的电脑上运行脚本生成产物。",
     },
   ],
 };
@@ -118,7 +129,7 @@ describe("DeliveryStatusCard", () => {
     expect(screen.getByText(/course\.pptx 未生成/)).toBeTruthy();
     expect(screen.queryByTestId("delivery-gaps-lead")).toBeNull();
     // 已知 bind_local_folder 行动项 → 真按钮（复用 ask_user 卡的绑定通路）。
-    expect(screen.getByRole("button", { name: "绑定本地文件夹" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "绑定本机执行环境" })).toBeTruthy();
   });
 
   it("renders blocked state and treats unknown action kinds as plain hints", () => {
@@ -143,7 +154,7 @@ describe("DeliveryStatusCard", () => {
     expect(screen.queryByText("团队可能重派")).toBeNull();
     expect(screen.getByText("未来的提示行")).toBeTruthy();
     // 未知 kind 不渲染绑定按钮（向前兼容：按普通提示行呈现）——头部折叠按钮不算行动项。
-    expect(screen.queryByRole("button", { name: "绑定本地文件夹" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "绑定本机执行环境" })).toBeNull();
   });
 
   it("hides redispatch hint when unmet has no continue/redispatch actions", () => {
@@ -166,8 +177,8 @@ describe("DeliveryStatusCard", () => {
     expect(screen.queryByText("团队可能重派")).toBeNull();
   });
 
-  it("renders nothing for delivered state (清单由产出文件卡承载)", () => {
-    const { container } = render(
+  it("renders lightweight receipt for delivered state (可用性诚实性 · 甲)", () => {
+    render(
       <DeliveryStatusCard
         status={{
           execution_id: "exec-3",
@@ -180,20 +191,24 @@ describe("DeliveryStatusCard", () => {
         conversationId="c1"
       />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(screen.getByTestId("delivery-status-bound")).toBeTruthy();
+    expect(screen.getByText("交付验收")).toBeTruthy();
+    expect(screen.getByText("已交付")).toBeTruthy();
+    expect(screen.getByText("已交付 2 个文件")).toBeTruthy();
+    expect(screen.getByText(/对账无缺口/)).toBeTruthy();
   });
 
   it("hides bind button without a conversation id (预览/离线回放)", () => {
     render(<DeliveryStatusCard status={partial} conversationId={null} />);
     // 无对话 id 不出绑定按钮；头部折叠按钮仍在（不是行动项）。
-    expect(screen.queryByRole("button", { name: "绑定本地文件夹" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "绑定本机执行环境" })).toBeNull();
   });
 
   it("默认展开；点头部收起 gap 明细与 actions（头部仍可见），再点恢复", () => {
     render(<DeliveryStatusCard status={partial} conversationId="c1" />);
     // 默认展开：gap 明细 + 绑定行动项可见。
     expect(screen.getByText(/course\.pptx 未生成/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "绑定本地文件夹" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "绑定本机执行环境" })).toBeTruthy();
 
     // 整行头部即折叠开关。
     const header = screen.getByRole("button", { name: /交付验收/ });
@@ -201,7 +216,7 @@ describe("DeliveryStatusCard", () => {
 
     // 收起：gap 明细与 actions 区消失，头部（标题 + 状态徽标 + 团队可能重派）仍在。
     expect(screen.queryByText(/course\.pptx 未生成/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "绑定本地文件夹" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "绑定本机执行环境" })).toBeNull();
     expect(screen.getByText("交付验收")).toBeTruthy();
     expect(screen.getByText("部分未满足")).toBeTruthy();
     expect(screen.getByText("团队可能重派")).toBeTruthy();
@@ -248,7 +263,7 @@ describe("DeliveryStatusCard", () => {
     });
 
     render(<DeliveryStatusCard status={partial} conversationId="c1" />);
-    fireEvent.click(screen.getByRole("button", { name: "绑定本地文件夹" }));
+    fireEvent.click(screen.getByRole("button", { name: "绑定本机执行环境" }));
 
     await waitFor(() => {
       expect(pickAndBindLocalFolderMock).toHaveBeenCalledWith("c1");
@@ -256,13 +271,120 @@ describe("DeliveryStatusCard", () => {
       expect(sendTurnMock).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: "c1",
-          content: expect.stringContaining("已绑定本地文件夹（MyDocs）"),
+          content: expect.stringContaining("已绑定本机执行环境（MyDocs）"),
         }),
       );
     });
     expect(
       screen.getByText(/已绑定「MyDocs」为本机工作目录，正在让团队继续/),
     ).toBeTruthy();
+  });
+
+  it("renders export_to_local action as a button; success notes path without sendTurn", async () => {
+    exportWorkspaceToLocalMock.mockResolvedValue({
+      ok: true,
+      destName: "Desktop",
+      fileCount: 3,
+    });
+
+    render(
+      <DeliveryStatusCard
+        status={{
+          execution_id: "exec-export",
+          state: "partial",
+          summary: "已交付 2 个文件；可导出到本地",
+          delivered_files: ["a.md", "b.md"],
+          gaps: [
+            {
+              role: "交付",
+              description: "产物仍在云端工作区，可导出到本机查阅",
+            },
+          ],
+          actions: [
+            {
+              kind: "export_to_local",
+              description: "把云端工作区产物导出到本机目录",
+            },
+          ],
+        }}
+        conversationId="c1"
+      />,
+    );
+    // 已知 export_to_local → 真按钮；导出不是重派 → 不显「团队可能重派」。
+    expect(screen.getByRole("button", { name: "导出到本地" })).toBeTruthy();
+    expect(screen.queryByText("团队可能重派")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "导出到本地" }));
+    await waitFor(() => {
+      expect(exportWorkspaceToLocalMock).toHaveBeenCalledWith("c1");
+      expect(
+        screen.getByText(/已导出 3 个文件到「Desktop」/),
+      ).toBeTruthy();
+    });
+    // 导出 ≠ 续跑：不发 turn。
+    expect(sendTurnMock).not.toHaveBeenCalled();
+  });
+
+  it("export_to_local unavailable shows desktop-only hint; cancelled stays silent", async () => {
+    exportWorkspaceToLocalMock.mockResolvedValue({
+      ok: false,
+      reason: "unavailable",
+    });
+
+    render(
+      <DeliveryStatusCard
+        status={{
+          execution_id: "exec-export-2",
+          state: "partial",
+          summary: "可导出",
+          delivered_files: ["a.md"],
+          gaps: [{ role: "交付", description: "可导出到本机" }],
+          actions: [
+            {
+              kind: "export_to_local",
+              description: "导出到本机",
+            },
+          ],
+        }}
+        conversationId="c1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "导出到本地" }));
+    await waitFor(() => {
+      expect(screen.getByText("导出到本地仅桌面端可用")).toBeTruthy();
+    });
+    expect(sendTurnMock).not.toHaveBeenCalled();
+
+    cleanup();
+    exportWorkspaceToLocalMock.mockResolvedValue({
+      ok: false,
+      reason: "cancelled",
+    });
+    render(
+      <DeliveryStatusCard
+        status={{
+          execution_id: "exec-export-3",
+          state: "partial",
+          summary: "可导出",
+          delivered_files: ["a.md"],
+          gaps: [{ role: "交付", description: "可导出到本机" }],
+          actions: [
+            {
+              kind: "export_to_local",
+              description: "导出到本机",
+            },
+          ],
+        }}
+        conversationId="c1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "导出到本地" }));
+    await waitFor(() => {
+      expect(exportWorkspaceToLocalMock).toHaveBeenCalledWith("c1");
+    });
+    expect(screen.queryByText(/已导出/)).toBeNull();
+    expect(screen.queryByText(/仅桌面端可用/)).toBeNull();
+    expect(sendTurnMock).not.toHaveBeenCalled();
   });
 
   it("renders website_verify action as a send button and posts the prompt", async () => {

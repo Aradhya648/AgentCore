@@ -28,8 +28,9 @@ function renderCard(ui: ReactElement): RenderResult {
   );
 }
 
-const { showFile, openInAppPreview } = vi.hoisted(() => ({
+const { showFile, showChanges, openInAppPreview } = vi.hoisted(() => ({
   showFile: vi.fn(),
+  showChanges: vi.fn(),
   openInAppPreview: vi.fn(),
 }));
 
@@ -39,8 +40,9 @@ vi.mock("@/stores/disclosure", () => ({
 }));
 
 vi.mock("@/stores/sidePanel", () => ({
-  useSidePanelStore: (sel: (s: { showFile: () => void }) => unknown) =>
-    sel({ showFile }),
+  useSidePanelStore: (
+    sel: (s: { showFile: () => void; showChanges: () => void }) => unknown,
+  ) => sel({ showFile, showChanges }),
 }));
 
 vi.mock("@/hooks/useFileAudit", () => ({
@@ -143,10 +145,11 @@ describe("FileArtifactsCard — A1 查看改动", () => {
     vi.mocked(useConversationFileSource).mockReturnValue(null);
   });
 
-  it("有 change 预览时显示「查看改动」，点开只读面板", () => {
+  it("有 change 预览时显示「查看改动」，点击聚焦右坞改动 tab", () => {
     renderCard(
       <FileArtifactsCard
         conversationId="c1"
+        turnKey="msg-1"
         artifacts={[
           {
             path: "src/a.ts",
@@ -158,13 +161,13 @@ describe("FileArtifactsCard — A1 查看改动", () => {
       />,
     );
     fireEvent.click(screen.getByLabelText("查看改动"));
-    expect(screen.getByText(/改动已写入工作区/)).toBeTruthy();
+    expect(showChanges).toHaveBeenCalledWith("msg-1");
+    expect(screen.queryByText(/改动已写入工作区/)).toBeNull();
   });
 
   it("无 change 预览时不显示「查看改动」", () => {
     renderCard(
       <FileArtifactsCard
-        conversationId="c1"
         artifacts={[{ path: "src/a.ts", name: "a.ts", op: "write" }]}
       />,
     );

@@ -18,16 +18,27 @@ import {
   formatGrantReadonlyFolderAnswer,
   pickAndGrantReadonlyFolder,
 } from "@/lib/grantReadonlyFolder";
+import { pickAndOpenLocalProject } from "@/lib/openLocalProject";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
 import type { AskOption, AskQuestion } from "@/types/events";
 import { ChevronRight, FolderOpen, Loader2, Pencil } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AskCardFooter, AskCardShell, AskSectionLabel } from "./AskCardShell";
 import { CommenceNote } from "./AskCommenceParts";
 import { type AskRow, AskRowGroup } from "./AskOptionRow";
 import type { AskUserContent, useAskAnswer } from "./AskUserFields";
 
 const META = ASK_INTENT_META.decision;
+
+function isDesktopFolderAction(action: AskOption["action"] | undefined): boolean {
+  return (
+    action === "open_local_project" ||
+    action === "bind_local_folder" ||
+    action === "grant_readonly_folder" ||
+    action === "grant_organize_folder"
+  );
+}
 
 export function AskDecisionBody({
   content,
@@ -50,15 +61,37 @@ export function AskDecisionBody({
   conversationId?: string | null;
   onBindResolve?: (composedAnswer: string) => void | Promise<void>;
 }) {
+  const navigate = useNavigate();
   const [bindBusyLabel, setBindBusyLabel] = useState<string | null>(null);
   const [bindError, setBindError] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
 
+  const canLocalFs = hasLocalFiles() && !!window.fsApi;
   const canBindAction =
-    !!conversationId && !!onBindResolve && hasLocalFiles() && !!window.fsApi;
+    !!conversationId && !!onBindResolve && canLocalFs;
 
   const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
-    if (!conversationId || !onBindResolve || busy || bindBusyLabel) return;
+    if (busy || bindBusyLabel) return;
+
+    if (opt.action === "open_local_project") {
+      if (!canLocalFs) return;
+      setBindBusyLabel(opt.label);
+      setBindError(null);
+      const result = await pickAndOpenLocalProject(navigate);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("打开本地项目仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      // New conversation started — leave this pause as-is (do not rewrite folder_id).
+      setBindBusyLabel(null);
+      return;
+    }
+
+    if (!conversationId || !onBindResolve) return;
     setBindBusyLabel(opt.label);
     setBindError(null);
 
@@ -67,7 +100,7 @@ export function AskDecisionBody({
       if (!result.ok) {
         if (result.reason === "error") setBindError(result.message);
         else if (result.reason === "unavailable") {
-          setBindError("区外目录授权仅桌面本地会话可用");
+          setBindError("区外目录授权仅桌面端可用");
         }
         setBindBusyLabel(null);
         return;
@@ -90,7 +123,7 @@ export function AskDecisionBody({
       if (!result.ok) {
         if (result.reason === "error") setBindError(result.message);
         else if (result.reason === "unavailable") {
-          setBindError("整理授权仅桌面本地会话可用");
+          setBindError("整理授权仅桌面端可用");
         }
         setBindBusyLabel(null);
         return;
@@ -125,18 +158,16 @@ export function AskDecisionBody({
   const questionRows = (q: AskQuestion): AskRow[] => {
     const picked = answer.answers[q.id] ?? [];
     const rows: AskRow[] = q.options.map((opt) => {
-      const isBindAction =
-        canBindAction &&
-        (opt.action === "bind_local_folder" ||
-          opt.action === "grant_readonly_folder" ||
-          opt.action === "grant_organize_folder");
+      const isFolderAction =
+        isDesktopFolderAction(opt.action) &&
+        (opt.action === "open_local_project" ? canLocalFs : canBindAction);
       const bindBusy = bindBusyLabel === opt.label;
       return {
         key: opt.label,
         label: opt.label,
         detail: opt.detail,
         hint: opt.recommended && q.default !== opt.label ? "推荐" : undefined,
-        icon: isBindAction ? (
+        icon: isFolderAction ? (
           bindBusy ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
@@ -146,7 +177,7 @@ export function AskDecisionBody({
         selected: picked.includes(opt.label) || bindBusy,
         disabled: busy || (!!bindBusyLabel && !bindBusy),
         onSelect: () =>
-          isBindAction
+          isFolderAction
             ? void handleBindOption(q, opt)
             : answer.toggleChoice(q, opt.label),
       };

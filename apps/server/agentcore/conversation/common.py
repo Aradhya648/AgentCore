@@ -354,63 +354,66 @@ resolve_profile_set = resolve_turn_profiles
 
 
 async def resolve_memory_enabled(session: AsyncSession, user_id: str) -> bool:
-    """This turn's long-term-memory master switch (Agent记忆与知识系统 §一).
+    """Long-term memory is product-always-on (定案 A); never read ``users.memory_enabled``.
 
-    Defaults to True for an unknown user (memory on, the product default), so a
-    missing row never silently suppresses injection.
+    ``session`` / ``user_id`` kept so call sites stay unchanged. Runtime may still
+    pass ``memory_enabled=False`` internally (unit tests / suspension frames).
     """
-    user = await UserRepository(session).get_by_id(user_id)
-    return user.memory_enabled if user else True
+    _ = (session, user_id)
+    return True
 
 
 async def resolve_conversation_history_access(
     session: AsyncSession, user_id: str
 ) -> bool:
-    """This turn's cross-session conversation-log access gate (跨会话对话日志访问定案).
+    """Conversation-log access is product-always-on (定案 A); never read the user column.
 
-    Defaults to True for an unknown user (access on, the product default), so a
-    missing row never silently strips Worker log tools.
+    ``session`` / ``user_id`` kept so call sites stay unchanged. Runtime may still
+    pass ``conversation_history_access=False`` internally (unit tests).
     """
-    user = await UserRepository(session).get_by_id(user_id)
-    return user.conversation_history_access if user else True
+    _ = (session, user_id)
+    return True
 
 
 async def resolve_autonomy_policy(session: AsyncSession, user_id: str):
-    """User-global *default* AutonomyPolicy (seeds new conversations only).
+    """User-global *default recipe* AutonomyPolicy (seeds new conversations only).
 
-    Runtime gates must use :func:`resolve_permission_preset` / the conversation
+    Runtime gates must use :func:`resolve_permission_axes` / the conversation
     column — not this. Kept for settings API and create-time seeding.
     """
     from agentcore.core.types import AutonomyPolicy
 
     user = await UserRepository(session).get_by_id(user_id)
-    raw = (user.autonomy_policy if user else None) or AutonomyPolicy.FIRST_GRANT.value
+    raw = (user.autonomy_policy if user else None) or AutonomyPolicy.WRITE_CODE.value
     try:
         return AutonomyPolicy(raw)
     except ValueError:
-        return AutonomyPolicy.FIRST_GRANT
+        return AutonomyPolicy.WRITE_CODE
 
 
-def parse_permission_preset(raw: str | None):
-    """Coerce a stored / wire permission_preset string; unknown → workspace."""
-    from agentcore.core.types import PermissionPreset
+def parse_permission_axes(raw: dict | None):
+    """Coerce a stored / wire permission_axes mapping; unknown → write_code defaults."""
+    from agentcore.core.types import PermissionAxes
 
-    try:
-        return PermissionPreset(raw or PermissionPreset.WORKSPACE.value)
-    except ValueError:
-        return PermissionPreset.WORKSPACE
+    return PermissionAxes.from_mapping(raw)
 
 
-async def resolve_permission_preset(session: AsyncSession, conversation_id: str):
-    """This turn's permission mode — conversation column is the single source of truth."""
+async def resolve_permission_axes(session: AsyncSession, conversation_id: str):
+    """This turn's permission axes — conversation column is the single source of truth."""
     from agentcore.db.repositories import ConversationRepository
 
     conv = await ConversationRepository(session).get_by_id_unscoped(conversation_id)
-    return parse_permission_preset(conv.permission_preset if conv else None)
+    return parse_permission_axes(conv.permission_axes if conv else None)
 
 
-async def default_permission_preset_for_user(session: AsyncSession, user_id: str):
-    """Map the user's autonomy preference → PermissionPreset for a new conversation."""
-    from agentcore.core.types import autonomy_to_preset
+async def default_permission_axes_for_user(session: AsyncSession, user_id: str):
+    """Map the user's autonomy recipe → PermissionAxes for a new conversation."""
+    from agentcore.core.types import recipe_to_axes
 
-    return autonomy_to_preset(await resolve_autonomy_policy(session, user_id))
+    return recipe_to_axes(await resolve_autonomy_policy(session, user_id))
+
+
+# Back-compat aliases used by older call sites during the axes migration.
+resolve_permission_preset = resolve_permission_axes
+default_permission_preset_for_user = default_permission_axes_for_user
+parse_permission_preset = parse_permission_axes

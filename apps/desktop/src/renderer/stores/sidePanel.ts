@@ -1,25 +1,21 @@
 import { uiGet, uiSet } from "@/lib/uiStorage";
 import { create } from "zustand";
+import { useBrowserSessionsStore } from "./browserSessions";
 import { useCommandPanelStore } from "./commandPanel";
 import { useConversationStore } from "./conversation";
 import { projectRuntime, revisionRootId, useExecutionStore } from "./execution";
 
 /**
  * Unified conversation side panel (前端UX设计.md §十) — the chat's single
- * right-docked surface, modelled as ONE flat tab strip:
+ * right-docked surface, modelled as ONE flat tab strip (方案 B · 图1式):
  *
- *  - a fixed, non-closable 「工作区」 home tab (the cloud↔local mode bar + the
- *    files body, with 快照 / 交接 as on-demand overlays), always first;
- *  - in canvas mode only: a fixed, non-closable 「指挥台」 tab (boss decisions /
- *    救火 / 后台云端任务), always second — not a closable run/content detail;
- *  - a closable detail tab per drill: one run-detail tab per revision chain
- *    (or standalone run) from an inline-graph worker node, a content tab for an
- *    endpoint bubble (提问 / 最终回答), or a simple-turn Q&A tab for a canvas
- *    SimpleTurn light card (前端UX设计.md §五/§六).
+ *  - fixed, non-closable 「工作区」 (first) + 「改动」 (second);
+ *  - in canvas mode only: fixed, non-closable 「指挥台」(条件固定，不进 `+`);
+ *  - closable content tabs (≤12, 固定不计): Terminal / File / Browser 多实例、
+ *    run / endpoint / simple-turn 详情、以及 `preview://` 预览 tab。
  *
- * There is no separate "detail mode" — the detail tabs ARE the detail, so the panel
- * never shows an empty detail placeholder. `open` / `width` are persisted; the detail
- * tabs are session-level (rebuilt from the execution slot / live messages).
+ * Content tabs store references only; bodies keep-alive while the tab exists.
+ * `open` / `width` are persisted; content tabs are session-level.
  */
 
 /** Resize bounds for the panel. */
@@ -36,8 +32,8 @@ const MAX_WIDTH_CAP = 960;
 const FALLBACK_VIEWPORT = 1280;
 const DEFAULT_WIDTH = 400;
 
-/** Cap on run-detail tabs: opening a 7th drops the oldest (工作区 is exempt). */
-const MAX_TABS = 6;
+/** Cap on closable content tabs: opening beyond the limit drops the oldest (fixed tabs exempt). */
+const MAX_TABS = 12;
 
 const OPEN_KEY = "side-panel-open";
 const WIDTH_KEY = "side-panel-width";
@@ -64,21 +60,17 @@ export const SIDE_PANEL_MAX_TABS = MAX_TABS;
 /** Reserved id of the fixed 「工作区」 home tab (always first, never closes). */
 export const WORKSPACE_TAB_ID = "workspace";
 
-/** Reserved id of the fixed 「指挥台」 tab (canvas mode only; always second, never closes). */
+/** Reserved id of the fixed 「改动」 tab (always second, never closes). */
+export const CHANGES_TAB_ID = "changes";
+
+/** Reserved id of the fixed 「指挥台」 tab (canvas mode only; never closes; 不进 `+`). */
 export const COMMAND_TAB_ID = "command";
 
-/** Reserved id of the fixed 「终端」 tab（有后台进程或本对话执行记录才出现；不绑画布）。 */
-export const TERMINAL_TAB_ID = "terminal";
-
-/** Reserved id of the 「预览」 tab（应用内内置浏览器；仅当 `previewTab` 有值时出现；可关闭）。 */
-export const PREVIEW_TAB_ID = "preview";
-
 /**
- * Reserved id of the 「浏览器」 tab（L3 团队浏览器；**条件常驻**——本会话曾有 `browser_*` 活动
- * 即显示、不可关闭，判定见 `lib/browserActivity.ts` + `useBrowserRegion`）。故此处**没有**
- * 与之配对的目标字段：tab 是否存在由会话内容派生，本 store 只管「它是不是当前激活 tab」。
+ * Stable content-tab id for the 右坞浏览器壳（顶栏可关内容 tab；`+` / 活动卡共用）。
+ * 产物 HTML 完整预览亦走本 tab（`openWorkspaceHtmlInBrowser`）；旧平行「预览」tab 已拆除（M3b）。
  */
-export const BROWSER_TAB_ID = "browser";
+export const TEAM_BROWSER_TAB_ID = "browser:team";
 
 /** After the last closable detail tab closes → 工作区。 */
 function homeTabAfterDetailClose(): string {
@@ -185,8 +177,44 @@ export interface SimpleTurnDetailTab {
   answerMessageId: string;
 }
 
-/** A side-panel detail tab: a worker run, an endpoint bubble, or a simple-turn Q&A. */
-export type DetailTab = RunDetailTab | ContentDetailTab | SimpleTurnDetailTab;
+/** Top-bar Terminal content tab — reference to a pty session (or unbound hub). */
+export interface TerminalDetailTab {
+  kind: "terminal";
+  /** Dedup identity: `terminal:<instanceId>`. */
+  id: string;
+  title: string;
+  /** Bound pty session id when spawned; null = unbound (shows panel empty / hub). */
+  sessionId: string | null;
+}
+
+/** Top-bar File content tab — path reference only; body keep-alives FileDetail. */
+export interface FileDetailTab {
+  kind: "file";
+  /** Dedup identity: `file:<path>`. */
+  id: string;
+  title: string;
+  path: string;
+  name: string;
+}
+
+/**
+ * Top-bar Browser content tab — 右坞 {@link BrowserPanel} 壳（≠ `preview://`）。
+ * 能力上通常一会话一实例；壳内多页签由 browserSessions store 管理。
+ */
+export interface BrowserDetailTab {
+  kind: "browser";
+  id: string;
+  title: string;
+}
+
+/** A side-panel content tab (详情 / 终端 / 文件 / 浏览器). */
+export type DetailTab =
+  | RunDetailTab
+  | ContentDetailTab
+  | SimpleTurnDetailTab
+  | TerminalDetailTab
+  | FileDetailTab
+  | BrowserDetailTab;
 
 /** Tab-strip id for a run detail. Prefer the continuation-chain root so all beats
  * of the same speaker share one tab; pass the root (or the run itself when it
@@ -202,31 +230,33 @@ export const contentDetailTabId = (
 export const simpleTurnDetailTabId = (messageId: string): string =>
   `simple-turn:${messageId}`;
 
+export const terminalTabId = (instanceId: string): string =>
+  `terminal:${instanceId}`;
+
+export const fileTabId = (path: string): string => `file:${path}`;
+
+let terminalInstanceSeq = 0;
+function nextTerminalInstanceId(): string {
+  terminalInstanceSeq += 1;
+  return `t${terminalInstanceSeq}`;
+}
+
 interface SidePanelState {
   /** Panel visibility (persisted). */
   open: boolean;
   /** Docked width in px, clamped to [280, 动态上限] (persisted)；上限见 sidePanelMaxWidth()。 */
   width: number;
-  /** Open detail tabs (run / content / simple-turn), left→right (session-level;
-   * stale run/content tabs are filtered at render against the live projection;
-   * simple-turn tabs stay live without a plan). The 工作区 home tab is implicit
-   * and is NOT part of this array. */
+  /** Open content tabs (session-level; 固定 工作区/改动/指挥台 不在此数组). */
   tabs: DetailTab[];
-  /** Active tab: `WORKSPACE_TAB_ID` / `COMMAND_TAB_ID` / `TERMINAL_TAB_ID` for fixed tabs, else a detail
-   * tab id. Defaults to the workspace home so a manual open lands on the project files. */
+  /**
+   * Active tab: `WORKSPACE_TAB_ID` / `CHANGES_TAB_ID` / `COMMAND_TAB_ID`
+   * or a content tab id. Defaults to the workspace home.
+   */
   activeTabId: string;
   /**
-   * A file the chat asked to preview (clicking a 产出文件 card row): the workspace
-   * file browser watches this, opens the path in its swap-style preview, then
-   * clears it. `nonce` lets the same path re-fire (re-click). Session-only.
+   * 「改动」tab 聚焦的回合（产物卡「查看改动」写入）；Changes 面板消费后可保留至下次。
    */
-  pendingFilePreview: { path: string; name: string; nonce: number } | null;
-  /**
-   * 应用内「完整预览」（内置浏览器）当前打开的目标：会话 id + 入口 HTML 相对路径 + 展示名。
-   * 非 null → SidePanel 出现可关闭的「预览」tab，激活时挂原生 WebContentsView（见
-   * components/workspace/EmbeddedPreview）。null = 未打开。会话级（不持久）。
-   */
-  previewTab: { conversationId: string; path: string; name: string } | null;
+  changesFocusMessageId: string | null;
   /**
    * Session-level memory of contexts where the user explicitly closed the panel,
    * blocking auto-surface until the panel is opened again or the context clears.
@@ -245,12 +275,15 @@ interface SidePanelState {
   /** Bump the toggle badge when auto-surface is blocked by a dismiss. */
   incrementPendingBadge: () => void;
 
-  /** Open (or re-focus) a detail tab, deduped by id; reveals + activates it. */
-  openTab: (tab: DetailTab, opts?: { activate?: boolean }) => void;
-  /** Close a detail tab; falls back to a neighbour tab, else the 工作区 home.
-   * Never closes the panel (the home tab is always there). */
+  /** Open (or re-focus) a content tab, deduped by id; reveals + activates it. */
+  openTab: (
+    tab: DetailTab,
+    opts?: { activate?: boolean; reveal?: boolean },
+  ) => void;
+  /** Close a content tab; falls back to a neighbour tab, else the 工作区 home.
+   * Never closes the panel (fixed tabs are always there). */
   closeTab: (id: string) => void;
-  /** Activate a tab (`WORKSPACE_TAB_ID` / `COMMAND_TAB_ID` / `TERMINAL_TAB_ID` or a detail tab id). */
+  /** Activate a tab (fixed id or a content tab id). */
   setActiveTab: (id: string) => void;
   /**
    * Pin a run (of a specific message's turn) and reveal it. The inline graph
@@ -281,9 +314,8 @@ interface SidePanelState {
   ) => void;
   /**
    * Drop every reading-context tab (endpoint content + simple-turn Q&A), keeping
-   * run tabs. The canvas calls this when leaving its reading context (放大态 exit /
-   * canvas→chat) so a surfaced 提问 / 最终回答 / 对话 never lingers beside the chat
-   * bubble that already shows it.
+   * run / terminal / file / browser tabs. The canvas calls this when leaving its
+   * reading context (放大态 exit / canvas→chat).
    */
   closeContentTabs: () => void;
   /**
@@ -294,24 +326,27 @@ interface SidePanelState {
   openPanel: () => void;
   /** Reveal the panel on the 工作区 home tab (the chat toggle / Ctrl+J). */
   showWorkspace: () => void;
-  /** Reveal the 工作区 home tab AND request a file preview (产出文件 card click). */
+  /** Reveal the panel on the fixed 「改动」 tab；可选聚焦某回合。 */
+  showChanges: (messageId?: string | null) => void;
+  /** Open / focus a File content tab (path reference); reveals the panel. */
   showFile: (path: string, name: string) => void;
-  /** Consume the pending file-preview request once the files view has applied it. */
-  clearFilePreview: () => void;
   /**
-   * 打开应用内「完整预览」内置浏览器 tab（取代旧独立子窗口）：记下目标、开面板、切到「预览」
-   * tab。EmbeddedPreview 组件据此挂原生视图并上报 bounds。同一 tab 复用（换文件即换目标）。
+   * `+` → 文件：无路径时合理空态（打开一个占位文件 tab，提示从工作区点选）。
+   * 有路径时等同 {@link showFile}。
    */
-  openPreview: (conversationId: string, path: string, name: string) => void;
+  openFileTab: (path?: string, name?: string) => void;
+  /** `+` → 终端：新建顶栏 Terminal 内容 tab（可多开）；可选绑定已有 session。 */
+  openTerminalTab: (opts?: {
+    sessionId?: string | null;
+    title?: string;
+    activate?: boolean;
+    reveal?: boolean;
+  }) => string;
+  /** Update a terminal tab's bound session (after async spawn). */
+  bindTerminalSession: (tabId: string, sessionId: string, title?: string) => void;
   /**
-   * 关闭「预览」tab：销毁原生内嵌视图（经 previewApi.embedClose）、清目标；若当前正处「预览」
-   * tab 则回落 工作区 home。关闭 tab X、切换会话时调用。
-   */
-  closePreview: () => void;
-  /**
-   * 揭示「浏览器」tab（活动卡 / 登录升级卡的快捷入口）：开面板 + 切到该 tab。**无参**——tab 恒对
-   * 当前会话，目标由 {@link BrowserLivePanel} 从当前会话派生，不在此存第二份会话 id。tab 本身
-   * 的存在与消失由会话内容派生（`useBrowserRegion`），故没有配对的 close。
+   * 揭示「浏览器」内容 tab（活动卡 / 登录升级卡 / `+` / 产物完整预览）：开面板 + 开/聚焦浏览器壳；
+   * 无本地页签时建空白页。
    */
   showBrowser: () => void;
   closePanel: () => void;
@@ -327,12 +362,10 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   open: loadOpen(),
   width: loadWidth(),
   tabs: [],
-  // Detail tabs are session-level (rebuilt from the execution slot / live
-  // messages), so a fresh load always starts on the workspace home rather than a
-  // dangling tab id.
+  // Content tabs are session-level, so a fresh load always starts on the workspace
+  // home rather than a dangling tab id.
   activeTabId: WORKSPACE_TAB_ID,
-  pendingFilePreview: null,
-  previewTab: null,
+  changesFocusMessageId: null,
   dismissedContexts: new Set(),
   pendingBadge: 0,
 
@@ -359,7 +392,8 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
     set((s) => ({ pendingBadge: s.pendingBadge + 1 })),
 
   openTab: (tab, opts) => {
-    persistOpen(true);
+    const reveal = opts?.reveal !== false;
+    if (reveal) persistOpen(true);
     set((s) => {
       const exists = s.tabs.some((t) => t.id === tab.id);
       // A re-open replaces the tab wholesale (same id ⇒ same kind, namespaced
@@ -367,12 +401,12 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
       let tabs = exists
         ? s.tabs.map((t) => (t.id === tab.id ? tab : t))
         : [...s.tabs, tab];
-      // Cap the run-tab strip: a new tab beyond the limit pushes out the oldest.
+      // Cap closable content tabs: a new tab beyond the limit pushes out the oldest.
       if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS);
       const activate = opts?.activate !== false;
       return {
         tabs,
-        open: true,
+        ...(reveal ? { open: true as const, pendingBadge: 0 } : {}),
         activeTabId: activate ? tab.id : s.activeTabId,
       };
     });
@@ -465,46 +499,79 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
     set({ open: true, activeTabId: WORKSPACE_TAB_ID, pendingBadge: 0 });
   },
 
-  showFile: (path, name) => {
-    persistOpen(true);
-    set((s) => ({
-      open: true,
-      activeTabId: WORKSPACE_TAB_ID,
-      pendingFilePreview: {
-        path,
-        name,
-        nonce: (s.pendingFilePreview?.nonce ?? 0) + 1,
-      },
-    }));
-  },
-
-  clearFilePreview: () => set({ pendingFilePreview: null }),
-
-  openPreview: (conversationId, path, name) => {
+  showChanges: (messageId) => {
     persistOpen(true);
     set({
       open: true,
-      activeTabId: PREVIEW_TAB_ID,
-      previewTab: { conversationId, path, name },
+      activeTabId: CHANGES_TAB_ID,
+      changesFocusMessageId: messageId ?? null,
       pendingBadge: 0,
     });
   },
 
-  closePreview: () => {
-    // 销毁原生内嵌视图（renderer 侧唯一销毁出口；hide 只在组件卸载时用）。web / 单测无 previewApi
-    // → 可选链安全跳过。
-    if (typeof window !== "undefined") window.previewApi?.embedClose();
-    set((s) => {
-      if (!s.previewTab && s.activeTabId !== PREVIEW_TAB_ID) return s;
-      const activeTabId =
-        s.activeTabId === PREVIEW_TAB_ID ? WORKSPACE_TAB_ID : s.activeTabId;
-      return { previewTab: null, activeTabId };
+  showFile: (path, name) => {
+    get().openFileTab(path, name);
+  },
+
+  openFileTab: (path, name) => {
+    if (path && name) {
+      get().openTab({
+        kind: "file",
+        id: fileTabId(path),
+        title: name,
+        path,
+        name,
+      });
+      return;
+    }
+    // `+` → 文件无路径：占位空态 tab（可多开；不与真实路径 file: 冲突）。
+    const instanceId = nextTerminalInstanceId();
+    get().openTab({
+      kind: "file",
+      id: `file:untitled:${instanceId}`,
+      title: "文件",
+      path: "",
+      name: "",
     });
   },
 
+  openTerminalTab: (opts) => {
+    const instanceId = nextTerminalInstanceId();
+    const id = terminalTabId(instanceId);
+    get().openTab(
+      {
+        kind: "terminal",
+        id,
+        title: opts?.title ?? "终端",
+        sessionId: opts?.sessionId ?? null,
+      },
+      {
+        activate: opts?.activate !== false,
+        reveal: opts?.reveal,
+      },
+    );
+    return id;
+  },
+
+  bindTerminalSession: (tabId, sessionId, title) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.kind === "terminal" && t.id === tabId
+          ? { ...t, sessionId, title: title ?? t.title }
+          : t,
+      ),
+    }));
+  },
+
   showBrowser: () => {
-    persistOpen(true);
-    set({ open: true, activeTabId: BROWSER_TAB_ID, pendingBadge: 0 });
+    const conversationId =
+      useConversationStore.getState().currentConversationId;
+    useBrowserSessionsStore.getState().ensureBlankPage(conversationId);
+    get().openTab({
+      kind: "browser",
+      id: TEAM_BROWSER_TAB_ID,
+      title: "浏览器",
+    });
   },
 
   closePanel: () => {

@@ -16,16 +16,35 @@ import {
   pickAndBindLocalFolder,
 } from "@/lib/bindLocalFolder";
 import { hasLocalFiles } from "@/lib/capabilities";
+import {
+  formatGrantOrganizeFolderAnswer,
+  pickAndGrantOrganizeFolder,
+} from "@/lib/grantOrganizeFolder";
+import {
+  formatGrantReadonlyFolderAnswer,
+  pickAndGrantReadonlyFolder,
+} from "@/lib/grantReadonlyFolder";
+import { pickAndOpenLocalProject } from "@/lib/openLocalProject";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
 import type { AskOption, AskQuestion } from "@/types/events";
 import { ChevronRight, FolderOpen, Loader2, Pencil } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AskCardFooter, AskCardShell, AskSectionLabel } from "./AskCardShell";
 import { CommenceNote, splitBriefContext } from "./AskCommenceParts";
 import { type AskRow, AskRowGroup } from "./AskOptionRow";
 import type { AskUserContent, useAskAnswer } from "./AskUserFields";
 
 const META = ASK_INTENT_META.kickoff;
+
+function isDesktopFolderAction(action: string | undefined): boolean {
+  return (
+    action === "open_local_project" ||
+    action === "bind_local_folder" ||
+    action === "grant_readonly_folder" ||
+    action === "grant_organize_folder"
+  );
+}
 
 export function AskKickoffBody({
   content,
@@ -46,18 +65,86 @@ export function AskKickoffBody({
   conversationId?: string | null;
   onBindResolve?: (composedAnswer: string) => void | Promise<void>;
 }) {
+  const navigate = useNavigate();
   const { lead, points } = splitBriefContext(content.context);
   const [bindBusyLabel, setBindBusyLabel] = useState<string | null>(null);
   const [bindError, setBindError] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
 
+  const canLocalFs = hasLocalFiles() && !!window.fsApi;
   const canBindAction =
-    !!conversationId && !!onBindResolve && hasLocalFiles() && !!window.fsApi;
+    !!conversationId && !!onBindResolve && canLocalFs;
 
   const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
-    if (!conversationId || !onBindResolve || busy || bindBusyLabel) return;
+    if (busy || bindBusyLabel) return;
+
+    if (opt.action === "open_local_project") {
+      if (!canLocalFs) return;
+      setBindBusyLabel(opt.label);
+      setBindError(null);
+      const result = await pickAndOpenLocalProject(navigate);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("打开本地项目仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      setBindBusyLabel(null);
+      return;
+    }
+
+    if (!conversationId || !onBindResolve) return;
     setBindBusyLabel(opt.label);
     setBindError(null);
+
+    if (opt.action === "grant_readonly_folder") {
+      const result = await pickAndGrantReadonlyFolder(conversationId);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("区外目录授权仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      const value = formatGrantReadonlyFolderAnswer(
+        opt.label,
+        result.root.name,
+        result.namespace,
+      );
+      try {
+        await onBindResolve(answer.composeWithAnswer("kickoff", q.id, value));
+      } catch {
+        setBindBusyLabel(null);
+      }
+      return;
+    }
+
+    if (opt.action === "grant_organize_folder") {
+      const result = await pickAndGrantOrganizeFolder(conversationId);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("整理授权仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      const value = formatGrantOrganizeFolderAnswer(
+        opt.label,
+        result.root.name,
+        result.namespace,
+      );
+      try {
+        await onBindResolve(answer.composeWithAnswer("kickoff", q.id, value));
+      } catch {
+        setBindBusyLabel(null);
+      }
+      return;
+    }
+
     const result = await pickAndBindLocalFolder(conversationId);
     if (!result.ok) {
       if (result.reason === "error") setBindError(result.message);
@@ -72,14 +159,13 @@ export function AskKickoffBody({
     }
   };
 
-  /** 一题的行：选项 + 末行「其他…」。绑定文件夹类选项换左侧图标并走 resolve 路径。 */
+  /** 一题的行：选项 + 末行「其他…」。文件夹类选项换左侧图标并走 resolve / 打开项目路径。 */
   const questionRows = (q: AskQuestion): AskRow[] => {
     const picked = answer.answers[q.id] ?? [];
     const rows: AskRow[] = q.options.map((opt) => {
-      const isBindAction =
-        canBindAction &&
-        (opt.action === "bind_local_folder" ||
-          opt.action === "grant_readonly_folder");
+      const isFolderAction =
+        isDesktopFolderAction(opt.action) &&
+        (opt.action === "open_local_project" ? canLocalFs : canBindAction);
       const bindBusy = bindBusyLabel === opt.label;
       return {
         key: opt.label,
@@ -87,7 +173,7 @@ export function AskKickoffBody({
         detail: opt.detail,
         // default 项靠选中态表达；只有推荐 ≠ 默认时才需要这句灰字。
         hint: opt.recommended && q.default !== opt.label ? "推荐" : undefined,
-        icon: isBindAction ? (
+        icon: isFolderAction ? (
           bindBusy ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
@@ -97,7 +183,7 @@ export function AskKickoffBody({
         selected: picked.includes(opt.label) || bindBusy,
         disabled: busy || (!!bindBusyLabel && !bindBusy),
         onSelect: () =>
-          isBindAction
+          isFolderAction
             ? void handleBindOption(q, opt)
             : answer.toggleChoice(q, opt.label),
       };

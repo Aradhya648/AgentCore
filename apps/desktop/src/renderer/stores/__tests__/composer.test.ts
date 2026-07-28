@@ -10,8 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Per-conversation composer drafts (统一输入框草稿): keyed storage + 回填 + the
- * persistence layer (text survives a restart via uiStorage, attachments stay
- * session-only, cap keeps the map bounded).
+ * persistence layer (text + attachment metadata survive a restart via uiStorage;
+ * binary bytes stay in main-process attach-staging; cap keeps the map bounded).
  *
  * Avoid `vi.resetModules()` + dynamic import of `@/stores/conversation` — the
  * conversation graph hangs under module reset in this package.
@@ -19,7 +19,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_LEAF = "composer-drafts";
 
-function persisted(): Record<string, { value: string; updatedAt: number }> {
+function persisted(): Record<
+  string,
+  {
+    value: string;
+    updatedAt: number;
+    attachments?: unknown[];
+  }
+> {
   return uiGet(STORAGE_LEAF) ?? {};
 }
 
@@ -31,6 +38,8 @@ const attachment = {
   text: "content",
   truncated: false,
   kind: "file" as const,
+  stagingId: "stg-alive",
+  workspacePath: undefined as string | undefined,
 };
 
 beforeEach(() => {
@@ -64,6 +73,17 @@ describe("composer draft store", () => {
     expect(useComposerDraftStore.getState().drafts.c2?.value).toBe("另一条");
   });
 
+  it("keeps a draft keyed when only attachments remain", () => {
+    const s = useComposerDraftStore.getState();
+    s.setAttachments("c1", [attachment]);
+    s.setValue("c1", "");
+    expect(useComposerDraftStore.getState().drafts.c1?.attachments).toEqual([
+      attachment,
+    ]);
+    s.setAttachments("c1", []);
+    expect(useComposerDraftStore.getState().drafts.c1).toBeUndefined();
+  });
+
   it("fill appends into the ACTIVE conversation's draft and bumps the focus token", () => {
     useConversationStore.setState({ currentConversationId: "c9" });
 
@@ -85,14 +105,21 @@ describe("composer draft store", () => {
     ).toBe("草稿聊天");
   });
 
-  it("persists draft TEXT (debounced) and restores it on reload; attachments stay session-only", () => {
+  it("persists draft TEXT + attachment metadata and restores both on reload", () => {
     vi.useFakeTimers();
     useComposerDraftStore.getState().setValue("c1", "重启后还在");
     useComposerDraftStore.getState().setAttachments("c1", [attachment]);
     vi.advanceTimersByTime(400);
 
     expect(persisted().c1?.value).toBe("重启后还在");
-    expect(persisted().c1).not.toHaveProperty("attachments");
+    expect(persisted().c1?.attachments).toEqual([
+      expect.objectContaining({
+        id: "a1",
+        name: "x.ts",
+        stagingId: "stg-alive",
+        text: "content",
+      }),
+    ]);
 
     useComposerDraftStore.setState({
       drafts: {},
@@ -102,16 +129,70 @@ describe("composer draft store", () => {
     __reloadComposerDraftsForTests();
     const restored = useComposerDraftStore.getState().drafts.c1;
     expect(restored?.value).toBe("重启后还在");
-    expect(restored?.attachments).toEqual([]);
+    expect(restored?.attachments).toEqual([
+      expect.objectContaining({
+        id: "a1",
+        stagingId: "stg-alive",
+        name: "x.ts",
+      }),
+    ]);
+  });
+
+  it("persists workspacePath chips so they remount after reload", () => {
+    vi.useFakeTimers();
+    const withWs = {
+      ...attachment,
+      id: "a2",
+      stagingId: undefined,
+      workspacePath: "attachments/x.ts",
+      path: "attachments/x.ts",
+    };
+    useComposerDraftStore.getState().setValue("c1", "带工作区附件");
+    useComposerDraftStore.getState().setAttachments("c1", [withWs]);
+    vi.advanceTimersByTime(400);
+
+    __reloadComposerDraftsForTests();
+    expect(
+      useComposerDraftStore.getState().drafts.c1?.attachments[0]?.workspacePath,
+    ).toBe("attachments/x.ts");
+  });
+
+  it("truncates oversized attachment preview text when persisting", () => {
+    vi.useFakeTimers();
+    const huge = {
+      ...attachment,
+      text: "x".repeat(20_000),
+    };
+    useComposerDraftStore.getState().setValue("c1", "有预览");
+    useComposerDraftStore.getState().setAttachments("c1", [huge]);
+    vi.advanceTimersByTime(400);
+
+    const saved = persisted().c1?.attachments?.[0] as
+      | { text?: string; truncated?: boolean }
+      | undefined;
+    expect(saved?.text?.length).toBe(8 * 1024);
+    expect(saved?.truncated).toBe(true);
+
+    // In-memory draft keeps the full preview until reload.
+    expect(
+      useComposerDraftStore.getState().drafts.c1?.attachments[0]?.text.length,
+    ).toBe(20_000);
+
+    __reloadComposerDraftsForTests();
+    expect(
+      useComposerDraftStore.getState().drafts.c1?.attachments[0]?.text.length,
+    ).toBe(8 * 1024);
   });
 
   it("clears the persisted entry once the draft is sent (emptied)", () => {
     vi.useFakeTimers();
     useComposerDraftStore.getState().setValue("c1", "要发送的");
+    useComposerDraftStore.getState().setAttachments("c1", [attachment]);
     vi.advanceTimersByTime(400);
     expect(persisted().c1?.value).toBe("要发送的");
 
     useComposerDraftStore.getState().setValue("c1", "");
+    useComposerDraftStore.getState().setAttachments("c1", []);
     vi.advanceTimersByTime(400);
     expect(uiGet(STORAGE_LEAF)).toBeUndefined();
   });

@@ -61,11 +61,13 @@ export function hasAgentTownLauncher(): boolean {
   );
 }
 
-/** 应用内「完整预览」（preview:// 代理会话工作区字节，主窗口内嵌 WebContentsView）——
- *  仅 Electron 外壳（需 previewApi）；web 降级不暴露。云端会话工作区专属（本地源不走 preview://）。 */
+/** 应用内「完整预览」（workspace:// 代理会话工作区字节，右坞 BrowserPanel 本机页）——
+ *  仅 Electron 外壳（需 browserApi.openWorkspaceHtml）；web 降级不暴露。云端会话工作区专属。 */
 export function hasInAppPreview(): boolean {
   return (
-    typeof window !== "undefined" && !!window.previewApi && !isWebRuntime()
+    typeof window !== "undefined" &&
+    !!window.browserApi?.openWorkspaceHtml &&
+    !isWebRuntime()
   );
 }
 

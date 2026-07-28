@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: version() 切片偏移错误。",
+  "replacements": [
+    {
+      "path": "src/version.ts",
+      "old": "  return parseInt(uuid.slice(14, 15), 16);\n}\n",
+      "new": "  // R1a seed_patch: wrong nibble offset\n  return parseInt(uuid.slice(13, 14), 16);\n}\n"
+    }
+  ]
+}

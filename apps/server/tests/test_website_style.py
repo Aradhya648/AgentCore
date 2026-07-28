@@ -302,5 +302,5 @@ def test_build_website_missing_style_error_mentions_ask_user():
     err = build_website_missing_style_error()
     assert "build_website" in err
     assert "ask_user" in err
-    _ = AutonomyPolicy.FULL_AUTO  # keyed exemption exists in product vocabulary
+    _ = AutonomyPolicy.MANAGED  # keyed exemption exists in product vocabulary
     assert "full_auto" in err.lower()

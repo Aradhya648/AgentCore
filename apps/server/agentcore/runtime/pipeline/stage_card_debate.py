@@ -6,13 +6,15 @@ Skips CEO react_loop: prepare → assemble tools → ``debate.execute(skip_kicko
 
 from __future__ import annotations
 
+import json
+
 import contextlib
 from types import SimpleNamespace
 from typing import Any
 
 from agentcore.core.log_context import get_log_value
 from agentcore.core.logging import get_logger
-from agentcore.core.types import AutonomyPolicy, PermissionPreset, new_id
+from agentcore.core.types import PermissionAxes, new_id
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.profiles import TurnProfiles as ProfileSet
 from agentcore.llm.profiles import turn_profiles_for_turn
@@ -53,8 +55,7 @@ async def run_stage_card_debate_pipeline(
     board_id: str | None = None,
     memory_enabled: bool = True,
     conversation_history_access: bool = True,
-    autonomy_policy: AutonomyPolicy | None = None,
-    permission_preset: PermissionPreset | None = None,
+    permission_axes: PermissionAxes | None = None,
     profile_set: ProfileSet | None = None,
     llm_credentials: LLMCredentials | None = None,
     session_saver: SessionSaver | None = None,
@@ -87,7 +88,7 @@ async def run_stage_card_debate_pipeline(
         captain_run_id=captain_run_id,
         delegated=False,
         permission_preset=(
-            permission_preset.value if permission_preset is not None else None
+            json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
     )
     roster_writer = SessionRosterWriter.wrap(session_saver)
@@ -114,7 +115,7 @@ async def run_stage_card_debate_pipeline(
             attachments=None,
             memory_enabled=memory_enabled,
             conversation_history_access=conversation_history_access,
-            permission_preset=permission_preset,
+            permission_axes=permission_axes,
             llm_credentials=llm_credentials,
             x_client_platform=x_client_platform,
             profiles=profiles,
@@ -134,8 +135,7 @@ async def run_stage_card_debate_pipeline(
             memory_enabled=memory_enabled,
             conversation_history_access=conversation_history_access,
             approvals_enabled=True,
-            autonomy_policy=autonomy_policy,
-            permission_preset=permission_preset,
+            permission_axes=permission_axes,
             profiles=profiles,
             captain_run_id=captain_run_id,
             message_id=message_id,

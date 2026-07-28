@@ -1,5 +1,7 @@
 import { Markdown } from "@/components/chat/Markdown";
 import { RunDetailBody } from "@/components/chat/detail/RunDetailBody";
+import { FileDetail } from "@/components/files/FileDetail";
+import { EmptyHint } from "@/components/files/parts";
 import {
   CommandPanelBody,
   useCommandRegion,
@@ -9,13 +11,19 @@ import {
   useTerminalRegion,
 } from "@/components/terminal/TerminalPanel";
 import { Button, IconButton } from "@/components/ui";
-import { SimpleTooltip } from "@/components/ui/tooltip";
 import {
-  BrowserLivePanel,
-  useBrowserRegion,
-} from "@/components/workspace/BrowserLivePanel";
-import { EmbeddedPreview } from "@/components/workspace/EmbeddedPreview";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+import { useBrowserRegion } from "@/components/workspace/BrowserLivePanel";
+import { BrowserPanel } from "@/components/workspace/BrowserPanel";
+import { ConversationChangesPanel } from "@/components/workspace/ConversationChangesPanel";
 import { WorkspaceMode } from "@/components/workspace/WorkspacePanel";
+import { useConversationFileSource } from "@/hooks/useConversationFileSource";
+import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import {
   useActiveMessageContent,
   useConversationStore,
@@ -26,19 +34,21 @@ import {
   useExecutionStore,
 } from "@/stores/execution";
 import {
-  BROWSER_TAB_ID,
+  CHANGES_TAB_ID,
   COMMAND_TAB_ID,
   type DetailTab,
-  PREVIEW_TAB_ID,
-  TERMINAL_TAB_ID,
+  TEAM_BROWSER_TAB_ID,
   WORKSPACE_TAB_ID,
   useSidePanelStore,
 } from "@/stores/sidePanel";
+import { useUserTerminalStore } from "@/stores/userTerminals";
 import {
+  Diff,
+  FileText,
   FolderOpen,
   Gavel,
-  Globe,
   MessageSquare,
+  Plus,
   Radio,
   Sparkles,
   Terminal,
@@ -47,22 +57,31 @@ import {
 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
 /**
- * Live-check for detail tabs. Run / content tabs need a loaded execution plan (and a
+ * Live-check for content tabs. Run / content tabs need a loaded execution plan (and a
  * run tab additionally needs its run in the PROJECTED execution — §9.3). Simple-turn
- * Q&A tabs have no plan; they stay live while the conversation still holds the answer
- * message (validated at render via message content, not execution).
+ * Q&A tabs have no plan; terminal / file / browser tabs are session references and
+ * stay live while open. Simple-turn stays live while the conversation holds the answer.
  */
 function isDetailTabLive(
   byId: Record<string, ExecutionRuntime>,
   tab: DetailTab,
 ): boolean {
-  if (tab.kind === "simple-turn") return true;
+  if (
+    tab.kind === "simple-turn" ||
+    tab.kind === "terminal" ||
+    tab.kind === "file" ||
+    tab.kind === "browser"
+  ) {
+    return true;
+  }
   const rt = byId[tab.messageId];
   if (!rt?.plan) return false;
   if (tab.kind !== "run") return true;
@@ -70,12 +89,8 @@ function isDetailTabLive(
 }
 
 /**
- * The conversation's single right-docked surface (前端UX设计.md §十), modelled
- * as one flat tab strip: a fixed 「工作区」 home tab (files / snapshots /
- * handoff), then in canvas mode a fixed 「指挥台」 tab (boss decisions), followed
- * by closable run/content detail tabs. The workspace body is lazily mounted and
- * then kept alive (hidden, not unmounted) so its files aren't re-fetched when
- * toggling between it and a run.
+ * The conversation's single right-docked surface (前端UX设计.md §十 · 方案 B):
+ * `[工作区*] [改动*] | 内容 tabs | [+]`，画布态另出条件「指挥台」。
  */
 export function SidePanel() {
   const open = useSidePanelStore((s) => s.open);
@@ -88,11 +103,15 @@ export function SidePanel() {
   const activeTabId = useSidePanelStore((s) => s.activeTabId);
   const setActiveTab = useSidePanelStore((s) => s.setActiveTab);
   const closeTab = useSidePanelStore((s) => s.closeTab);
-  const previewTab = useSidePanelStore((s) => s.previewTab);
-  const closePreview = useSidePanelStore((s) => s.closePreview);
+  const openTerminalTab = useSidePanelStore((s) => s.openTerminalTab);
+  const bindTerminalSession = useSidePanelStore((s) => s.bindTerminalSession);
+  const openFileTab = useSidePanelStore((s) => s.openFileTab);
+  const showBrowser = useSidePanelStore((s) => s.showBrowser);
   const currentConversationId = useConversationStore(
     (s) => s.currentConversationId,
   );
+  const spawnSession = useUserTerminalStore((s) => s.spawnSession);
+
   // 流式性能 (白屏卡死修复·Stage 3 收窄订阅): gate this dock on the SET of live tabs, not on
   // the whole `byId`. Subscribing to `byId` re-ran the panel (tab strip + RunDetailBody) on
   // every streaming token; RunDetailBody self-subscribes to its own slot, so the shell only
@@ -107,9 +126,9 @@ export function SidePanel() {
   // never steals active tab). Hook runs before the `open` early-return so its effect
   // can reveal the panel even while closed. Inert in chat mode (`active` is false).
   const command = useCommandRegion();
-  // 后台进程终端 tab：有存活/曾有进程才出现；不绑画布模式。
+  // 后台进程终端：活动出现时自动补一个 Terminal 内容 tab（不偷焦点），替代旧条件固定 tab。
   const terminal = useTerminalRegion();
-  // L3 团队浏览器 tab：本会话曾用过浏览器才出现，之后常驻整场（同终端 tab 的条件常驻姿势）。
+  // 浏览器：活动出现时自动补一个 Browser 内容 tab（不偷焦点）。
   const browser = useBrowserRegion();
 
   const visibleTabs = useMemo(() => {
@@ -118,17 +137,13 @@ export function SidePanel() {
   }, [tabs, liveTabKey]);
   const activeTab =
     activeTabId === WORKSPACE_TAB_ID ||
-    activeTabId === COMMAND_TAB_ID ||
-    activeTabId === TERMINAL_TAB_ID ||
-    activeTabId === PREVIEW_TAB_ID ||
-    activeTabId === BROWSER_TAB_ID
+    activeTabId === CHANGES_TAB_ID ||
+    activeTabId === COMMAND_TAB_ID
       ? null
       : (visibleTabs.find((t) => t.id === activeTabId) ?? null);
   const workspaceActive = activeTabId === WORKSPACE_TAB_ID;
+  const changesActive = activeTabId === CHANGES_TAB_ID;
   const commandActive = command.show && activeTabId === COMMAND_TAB_ID;
-  const terminalActive = terminal.show && activeTabId === TERMINAL_TAB_ID;
-  const previewActive = previewTab !== null && activeTabId === PREVIEW_TAB_ID;
-  const browserActive = browser.show && activeTabId === BROWSER_TAB_ID;
 
   // Leaving canvas while on 指挥台: fall back to 工作区 (the tab disappears).
   useEffect(() => {
@@ -137,28 +152,28 @@ export function SidePanel() {
     }
   }, [command.show, activeTabId, setActiveTab]);
 
-  // 终端 tab 消失时回落工作区。
+  // 终端活动出现且尚无 terminal 内容 tab → 自动补一个（不激活、不强开面板）。
   useEffect(() => {
-    if (!terminal.show && activeTabId === TERMINAL_TAB_ID) {
-      setActiveTab(WORKSPACE_TAB_ID);
-    }
-  }, [terminal.show, activeTabId, setActiveTab]);
+    if (!terminal.show) return;
+    const hasTerminal = useSidePanelStore
+      .getState()
+      .tabs.some((t) => t.kind === "terminal");
+    if (hasTerminal) return;
+    openTerminalTab({ activate: false, reveal: false });
+  }, [terminal.show, openTerminalTab]);
 
-  // 浏览器 tab 消失时（切到一个没用过浏览器的会话）回落工作区。tab 由会话内容派生，故
-  // 「切换会话即收口」不需要另写一条 effect —— 换会话后 show 转 false 就走这里，SSE 连接
-  // 随组件卸载自行断开。
+  // 浏览器活动出现且尚无 browser 内容 tab → 自动补一个（不激活、不强开面板）。
   useEffect(() => {
-    if (!browser.show && activeTabId === BROWSER_TAB_ID) {
-      setActiveTab(WORKSPACE_TAB_ID);
-    }
-  }, [browser.show, activeTabId, setActiveTab]);
-
-  // 切换会话 → 关闭内置浏览器预览（其内容属旧会话工作区，销毁原生视图 + 回落工作区）。
-  useEffect(() => {
-    if (previewTab && previewTab.conversationId !== currentConversationId) {
-      closePreview();
-    }
-  }, [previewTab, currentConversationId, closePreview]);
+    if (!browser.show) return;
+    const hasBrowser = useSidePanelStore
+      .getState()
+      .tabs.some((t) => t.kind === "browser");
+    if (hasBrowser) return;
+    useSidePanelStore.getState().openTab(
+      { kind: "browser", id: TEAM_BROWSER_TAB_ID, title: "浏览器" },
+      { activate: false, reveal: false },
+    );
+  }, [browser.show]);
 
   // Content / simple-turn tabs read message text via narrow slices so a streaming
   // turn (a new `messages` array every tick) never re-renders this dock (收窄订阅).
@@ -172,16 +187,33 @@ export function SidePanel() {
   const simplePromptText = useActiveMessageContent(simplePromptId);
   const simpleAnswerText = useActiveMessageContent(simpleAnswerId);
 
-  // Pay for the workspace body's first fetch only once it's actually shown; keep
-  // it mounted afterwards so switching back is instant and state survives.
+  const fileSource = useConversationFileSource(currentConversationId);
+
+  // Pay for the workspace / changes bodies' first fetch only once shown; keep
+  // mounted afterwards so switching back is instant and state survives.
   const [wsMounted, setWsMounted] = useState(false);
+  const [changesMounted, setChangesMounted] = useState(false);
   useEffect(() => {
     if (open && workspaceActive) setWsMounted(true);
   }, [open, workspaceActive]);
+  useEffect(() => {
+    if (open && changesActive) setChangesMounted(true);
+  }, [open, changesActive]);
 
-  // 面板宽度上限是「相对窗口」的动态值（sidePanelMaxWidth），窗口尺寸变化时把当前宽度
-  // 收敛到新上限：大屏可拉宽、缩小窗口不会越界挤压主区。面板仅在 open 时渲染，故监听随
-  // 组件挂载/卸载装拆；挂载时先跑一次，修正面板关闭期间发生的窗口变化。
+  // Keep-alive keys for terminal / file bodies (mounted while tab exists).
+  const terminalTabs = useMemo(
+    () => visibleTabs.filter((t): t is Extract<DetailTab, { kind: "terminal" }> => t.kind === "terminal"),
+    [visibleTabs],
+  );
+  const fileTabs = useMemo(
+    () => visibleTabs.filter((t): t is Extract<DetailTab, { kind: "file" }> => t.kind === "file"),
+    [visibleTabs],
+  );
+  const browserTabs = useMemo(
+    () => visibleTabs.filter((t) => t.kind === "browser"),
+    [visibleTabs],
+  );
+
   useEffect(() => {
     reclampWidth();
     const onResize = () => reclampWidth();
@@ -189,8 +221,6 @@ export function SidePanel() {
     return () => window.removeEventListener("resize", onResize);
   }, [reclampWidth]);
 
-  // Drag the left edge to resize. Handwritten pointer tracking (no library);
-  // setWidth clamps + persists, so the value is correct mid-drag and on release.
   const onResizeStart = (e: ReactPointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -204,6 +234,26 @@ export function SidePanel() {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
+
+  const onNewTerminal = useCallback(async () => {
+    const tabId = openTerminalTab();
+    if (!currentConversationId) return;
+    const target = await resolveConversationLocalTarget(currentConversationId);
+    if (!target) return;
+    const result = await spawnSession({
+      conversationId: currentConversationId,
+      rootId: target.rootId,
+      subpath: target.subpath,
+    });
+    if (result.ok) {
+      bindTerminalSession(tabId, result.session_id);
+    }
+  }, [
+    openTerminalTab,
+    currentConversationId,
+    spawnSession,
+    bindTerminalSession,
+  ]);
 
   if (!open) return null;
 
@@ -222,9 +272,17 @@ export function SidePanel() {
 
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pl-2 pr-1">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          <WorkspaceTab
+          <FixedTab
             active={workspaceActive}
             onClick={() => setActiveTab(WORKSPACE_TAB_ID)}
+            icon={<FolderOpen size={14} />}
+            label="工作区"
+          />
+          <FixedTab
+            active={changesActive}
+            onClick={() => setActiveTab(CHANGES_TAB_ID)}
+            icon={<Diff size={14} />}
+            label="改动"
           />
           {command.show && (
             <CommandTab
@@ -233,27 +291,9 @@ export function SidePanel() {
               onClick={() => setActiveTab(COMMAND_TAB_ID)}
             />
           )}
-          {terminal.show && (
-            <TerminalTab
-              active={terminalActive}
-              onClick={() => setActiveTab(TERMINAL_TAB_ID)}
-            />
-          )}
-          {previewTab && (
-            <PreviewTab
-              active={previewActive}
-              onSelect={() => setActiveTab(PREVIEW_TAB_ID)}
-              onClose={closePreview}
-            />
-          )}
-          {browser.show && (
-            <BrowserTab
-              active={browserActive}
-              onClick={() => setActiveTab(BROWSER_TAB_ID)}
-            />
-          )}
+          <div className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
           {visibleTabs.map((tab) => (
-            <RunTabChip
+            <ContentTabChip
               key={tab.id}
               tab={tab}
               active={tab.id === activeTab?.id}
@@ -262,6 +302,27 @@ export function SidePanel() {
             />
           ))}
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <IconButton aria-label="新建标签" title="新建标签">
+              <Plus size={15} />
+            </IconButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-36">
+            <DropdownMenuItem onSelect={() => openFileTab()}>
+              <FileText size={14} />
+              文件
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void onNewTerminal()}>
+              <Terminal size={14} />
+              终端
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => showBrowser()}>
+              <Radio size={14} />
+              浏览器
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <SimpleTooltip label="关闭面板 (Ctrl/Cmd+I)">
           <IconButton onClick={closePanel} aria-label="关闭面板">
             <X size={15} />
@@ -269,13 +330,17 @@ export function SidePanel() {
         </SimpleTooltip>
       </div>
 
-      {/* Content area: 工作区 / 指挥台 / run·内容详情 — one active body at a time. */}
       <div className="relative min-h-0 flex-1">
         {wsMounted && (
           <div
             className={`absolute inset-0 ${workspaceActive ? "" : "hidden"}`}
           >
             <WorkspaceMode />
+          </div>
+        )}
+        {changesMounted && (
+          <div className={`absolute inset-0 ${changesActive ? "" : "hidden"}`}>
+            <ConversationChangesPanel />
           </div>
         )}
         {command.show && (
@@ -288,33 +353,46 @@ export function SidePanel() {
             />
           </div>
         )}
-        {terminal.show && (
-          <div className={`absolute inset-0 ${terminalActive ? "" : "hidden"}`}>
-            <TerminalPanelBody />
+        {terminalTabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`absolute inset-0 ${
+              activeTabId === tab.id ? "" : "hidden"
+            }`}
+          >
+            <TerminalPanelBody preferredSessionId={tab.sessionId} />
           </div>
-        )}
-        {previewTab && (
-          // 内置浏览器：保持挂载（非激活时 hidden），让切 tab 往返保留页面状态；EmbeddedPreview
-          // 据 active 驱动原生视图显隐（遮挡管理）。
-          <div className={`absolute inset-0 ${previewActive ? "" : "hidden"}`}>
-            <EmbeddedPreview
-              conversationId={previewTab.conversationId}
-              path={previewTab.path}
-              name={previewTab.name}
-              active={previewActive}
+        ))}
+        {fileTabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`absolute inset-0 ${
+              activeTabId === tab.id ? "" : "hidden"
+            }`}
+          >
+            <FileTabBody
+              path={tab.path}
+              name={tab.name}
+              source={fileSource}
+              onClose={() => closeTab(tab.id)}
             />
           </div>
-        )}
-        {browserActive && browser.conversationId && (
-          // 浏览器：仅激活时挂载（切走即卸载 → SSE 断开 → 服务端停播，「无人看零开销」）——tab 常驻
-          // 不等于正文常挂。key 绑会话，换会话即重建、重新附着。
-          <div className="absolute inset-0">
-            <BrowserLivePanel
-              key={browser.conversationId}
-              conversationId={browser.conversationId}
-            />
-          </div>
-        )}
+        ))}
+        {browserTabs.map((tab) => {
+          const active = activeTabId === tab.id;
+          // 仅激活时挂载（切走即卸载 → 直播 SSE 随 BrowserLivePanel 断开）。
+          if (!active) return null;
+          return (
+            <div key={tab.id} className="absolute inset-0">
+              <BrowserPanel
+                conversationId={
+                  browser.conversationId ?? currentConversationId
+                }
+                liveAvailable={browser.show}
+              />
+            </div>
+          );
+        })}
         {activeTab?.kind === "run" && (
           <div className="absolute inset-0 overflow-y-auto">
             <RunDetailBody
@@ -325,14 +403,11 @@ export function SidePanel() {
           </div>
         )}
         {activeTab?.kind === "content" && (
-          // An endpoint bubble (提问 / 最终回答) surfaced from the canvas — the
-          // deliverable read as plain Markdown, no run-detail chrome.
           <div className="absolute inset-0 overflow-y-auto p-4">
             <Markdown content={contentTabText} />
           </div>
         )}
         {activeTab?.kind === "simple-turn" && (
-          // Canvas SimpleTurn light card: full Q&A (prompt + answer), no execution.
           <div className="absolute inset-0 overflow-y-auto p-4">
             <section className="space-y-2">
               <h3 className="text-xs font-medium text-muted-foreground">
@@ -358,13 +433,58 @@ export function SidePanel() {
   );
 }
 
-/** The fixed home tab: always first, never closes. */
-function WorkspaceTab({
+function FileTabBody({
+  path,
+  name,
+  source,
+  onClose,
+}: {
+  path: string;
+  name: string;
+  source: ReturnType<typeof useConversationFileSource>;
+  onClose: () => void;
+}) {
+  if (!path || !name) {
+    return (
+      <EmptyHint
+        inline
+        icon={<FileText size={26} className="text-muted-foreground/40" />}
+        title="打开文件"
+        hint="在「工作区」文件树中点击文件，或从产物卡打开——将在此显示为独立标签。"
+      />
+    );
+  }
+  if (!source) {
+    return (
+      <EmptyHint
+        inline
+        icon={<FileText size={26} className="text-muted-foreground/40" />}
+        title={name}
+        hint="当前会话尚无可用文件源。"
+      />
+    );
+  }
+  return (
+    <FileDetail
+      key={path}
+      source={source}
+      path={path}
+      name={name}
+      onClose={onClose}
+    />
+  );
+}
+
+function FixedTab({
   active,
   onClick,
+  icon,
+  label,
 }: {
   active: boolean;
   onClick: () => void;
+  icon: ReactNode;
+  label: string;
 }) {
   return (
     <Button
@@ -375,15 +495,14 @@ function WorkspaceTab({
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/50"
       }`}
-      icon={<FolderOpen size={14} />}
+      icon={icon}
     >
-      工作区
+      {label}
     </Button>
   );
 }
 
-/** Fixed 指挥台 tab (canvas mode only): always second, never closes; badge when
- * there is actionable work the user hasn't switched over to see. */
+/** Fixed 指挥台 tab (canvas mode only): badge when actionable work awaits. */
 function CommandTab({
   active,
   badge,
@@ -414,99 +533,7 @@ function CommandTab({
   );
 }
 
-/** Fixed 终端 tab：有后台进程才出现，不绑画布；永不关闭（随内容消失）。 */
-function TerminalTab({
-  active,
-  onClick,
-}: {
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
-      className={`shrink-0 gap-1.5 px-2.5 py-1 text-sm font-medium ${
-        active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/50"
-      }`}
-      icon={<Terminal size={14} />}
-    >
-      终端
-    </Button>
-  );
-}
-
-/** 内置浏览器「预览」tab chip：有预览目标才出现；可关闭（关闭即销毁原生视图）。 */
-function PreviewTab({
-  active,
-  onSelect,
-  onClose,
-}: {
-  active: boolean;
-  onSelect: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className={`group/tab flex shrink-0 items-center rounded-lg ${
-        active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/50"
-      }`}
-    >
-      <Button
-        variant="ghost"
-        onClick={onSelect}
-        icon={<Globe size={14} />}
-        className="h-auto rounded-none py-1 pl-2.5 pr-1 text-sm font-normal"
-      >
-        预览
-      </Button>
-      <IconButton
-        onClick={onClose}
-        aria-label="关闭预览"
-        className="mr-1 size-5 opacity-0 group-hover/tab:opacity-100"
-      >
-        <X size={12} />
-      </IconButton>
-    </div>
-  );
-}
-
-/**
- * L3 团队浏览器「浏览器」tab：本会话曾用过浏览器才出现，之后常驻整场、**不可关闭**（随会话切换
- * 消失，同「终端」tab）。刻意不叫「浏览器直播」——常驻后它在 turn 之间显示的是最后一帧 / 已结束
- * / 无直播占位，「直播」会变成不准的标签；与「预览」tab 的区分靠图标（Radio vs Globe）。
- */
-function BrowserTab({
-  active,
-  onClick,
-}: {
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
-      className={`shrink-0 gap-1.5 px-2.5 py-1 text-sm font-medium ${
-        active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/50"
-      }`}
-      icon={<Radio size={14} />}
-    >
-      浏览器
-    </Button>
-  );
-}
-
-/** A closable detail tab chip (a run's agent role, or an endpoint's 提问 /
- * 最终回答, + a close affordance). Shared by both detail-tab kinds; a content tab
- * carries an icon (matching its graph endpoint node) so it reads apart from the
- * icon-less run tabs at a glance. */
+/** Closable content-tab chip (terminal / file / browser / run / endpoint / Q&A). */
 export function RunTabChip({
   tab,
   active,
@@ -518,8 +545,27 @@ export function RunTabChip({
   onSelect: () => void;
   onClose: () => void;
 }) {
-  // Content tabs mirror the graph bookends: 你的任务 (UserRound) / CEO 汇总 (Sparkles).
-  // Simple-turn Q&A uses MessageSquare (same cue as the light card).
+  return (
+    <ContentTabChip
+      tab={tab}
+      active={active}
+      onSelect={onSelect}
+      onClose={onClose}
+    />
+  );
+}
+
+function ContentTabChip({
+  tab,
+  active,
+  onSelect,
+  onClose,
+}: {
+  tab: DetailTab;
+  active: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}) {
   const icon =
     tab.kind === "content" ? (
       tab.endpoint === "prompt" ? (
@@ -529,7 +575,14 @@ export function RunTabChip({
       )
     ) : tab.kind === "simple-turn" ? (
       <MessageSquare size={14} className="shrink-0" />
+    ) : tab.kind === "terminal" ? (
+      <Terminal size={14} className="shrink-0" />
+    ) : tab.kind === "file" ? (
+      <FileText size={14} className="shrink-0" />
+    ) : tab.kind === "browser" ? (
+      <Radio size={14} className="shrink-0" />
     ) : null;
+
   return (
     <div
       className={`group/tab flex shrink-0 items-center rounded-lg ${

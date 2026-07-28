@@ -1,5 +1,6 @@
 import { BrandMark } from "@/components/brand/BrandMark";
 import { IconButton, SearchTrigger, SurfaceRowButton } from "@/components/ui";
+import { SimpleTooltip } from "@/components/ui/tooltip";
 import { isWebClient } from "@/lib/capabilities";
 import { startNewConversation } from "@/lib/newConversation";
 import { useUnreadTotal } from "@/stores/messaging";
@@ -13,6 +14,7 @@ import {
   PanelLeftClose,
   Wrench,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   RecentConversations,
@@ -27,6 +29,21 @@ const NAV_ITEMS = [
   { icon: Mail, label: "消息", route: "/messages" },
   { icon: Wrench, label: "工具箱", route: "/toolbox" },
 ] as const;
+
+/** 折叠侧栏图标按钮：右侧 tip，与 UserMenu 习惯一致。 */
+function CollapsedNavTip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <SimpleTooltip label={label} side="right">
+      {children}
+    </SimpleTooltip>
+  );
+}
 
 export function Sidebar() {
   const collapsed = useSidebarStore((s) => s.collapsed);
@@ -99,6 +116,31 @@ export function Sidebar() {
         {NAV_ITEMS.map((item) => {
           const active = isNavActive(item.route);
           const showBadge = item.route === "/messages" && unread > 0;
+          // 折叠仅图标：补 aria-label + SimpleTooltip，与用户区习惯一致。
+          if (collapsed) {
+            return (
+              <CollapsedNavTip key={item.route} label={item.label}>
+                <SurfaceRowButton
+                  active={active}
+                  aria-label={item.label}
+                  onClick={() =>
+                    item.route === "/"
+                      ? handleNewConversation()
+                      : navigate(item.route)
+                  }
+                  className="relative h-8 justify-center px-0 font-medium"
+                >
+                  <item.icon size={16} className="shrink-0" />
+                  {showBadge && (
+                    <span
+                      aria-label={`${unread} 条未读`}
+                      className="absolute right-2 top-1.5 size-2 rounded-full bg-primary"
+                    />
+                  )}
+                </SurfaceRowButton>
+              </CollapsedNavTip>
+            );
+          }
           return (
             <SurfaceRowButton
               key={item.route}
@@ -110,21 +152,15 @@ export function Sidebar() {
               }
               // 与下方列表同高（h-8）——整条侧栏一个 34px 节奏；导航的层级由分隔线 +
               // font-medium + 图标承担，不再靠行高撑。
-              className={`relative h-8 font-medium ${collapsed ? "justify-center px-0" : ""}`}
+              className="relative h-8 font-medium"
             >
               <item.icon size={16} className="shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-              {showBadge &&
-                (collapsed ? (
-                  <span
-                    aria-label={`${unread} 条未读`}
-                    className="absolute right-2 top-1.5 size-2 rounded-full bg-primary"
-                  />
-                ) : (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
-                    {unread > 99 ? "99+" : unread}
-                  </span>
-                ))}
+              <span>{item.label}</span>
+              {showBadge && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </SurfaceRowButton>
           );
         })}

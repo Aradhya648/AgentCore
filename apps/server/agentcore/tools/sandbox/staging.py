@@ -162,8 +162,10 @@ def stage_workspace(src: Path, dst: Path, *, max_bytes: int) -> TreeState:
                 raise SandboxError(
                     f"工作区过大（超过 {max_bytes // (1024 * 1024)}MB），"
                     "无法载入云端沙箱执行。请缩小工作区（清理大文件）后重试，"
-                    "或立即发 ask_user 卡（桌面在线时选项标 action=bind_local_folder，"
-                    "勿用纯文本询问）引导绑定后在本机运行。"
+                    "或立即发 ask_user 卡（桌面在线时：本会话要跑通 → "
+                    "action=bind_local_folder；打开本机目录当项目 → "
+                    "action=open_local_project；勿用纯文本询问；bind≠打开项目）"
+                    "引导后在本机运行。"
                 )
             shutil.copy2(src_file, dst / rel_dir / name)
     prepare_staged_workspace_for_sandbox(dst)

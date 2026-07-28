@@ -1,0 +1,26 @@
+{
+  "phase": "R1b",
+  "description": "Find+Fix 满编波：V03 httpx · V04 flask · V05 attrs · V06 pyyaml · V09 commander · V10 zod；各 ≥2 卡（Find/Fix）",
+  "vendors": ["V03", "V04", "V05", "V06", "V09", "V10"],
+  "tasks": [
+    "v03_fix_url_eq.json",
+    "v03_find_url_eq.json",
+    "v04_fix_flash.json",
+    "v04_find_flash.json",
+    "v05_fix_has.json",
+    "v05_find_has.json",
+    "v06_fix_dump.json",
+    "v06_find_safe_load.json",
+    "v09_fix_description.json",
+    "v09_find_description.json",
+    "v10_fix_email.json",
+    "v10_find_email.json"
+  ],
+  "control": "evals/code-capability/r1_control.py --suite all --mode matrix",
+  "report": "evals/code-capability/reports/r1b_baseline_latest.json",
+  "notes": [
+    "V06：TestExitCode 用 PYTHONPATH=lib 纯 Python，避免 Windows 强制编译 libyaml",
+    "V09：node --test 直跑 JS，无需 bash build",
+    "V10：pin v3.24.2；ts-jest 直跑 src，npm install 由 harness 在副本完成"
+  ]
+}

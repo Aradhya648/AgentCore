@@ -12,7 +12,9 @@ import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
 import {
   COMPOSER_CONTINUE_PLACEHOLDER,
+  COMPOSER_EMPTY_INTERRUPTED_HINT,
   isContinuableAssistant,
+  isEmptyInterruptedAssistant,
 } from "@/lib/composerContinueHint";
 import { TOOLS_GATE_HINT, needsToolsGateHint } from "@/lib/llmToolsGate";
 import { defaultChatSupportsTools } from "@/services/llmProviders";
@@ -23,6 +25,11 @@ import {
   useConversationStore,
 } from "@/stores/conversation";
 import { useFoldersStore } from "@/stores/folders";
+import {
+  usePendingApprovals,
+  usePendingDelegations,
+} from "@/stores/interactions";
+import { usePausedTurnStore } from "@/stores/pausedTurns";
 import { useServerHealthStore } from "@/stores/serverHealth";
 import {
   Cloud,
@@ -37,9 +44,10 @@ import {
 import type { SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttachmentChips } from "./AttachmentChips";
+import { ComposerPendingHintNotice } from "./ComposerPendingHintNotice";
 import { ComposerWorkspaceChip } from "./ComposerWorkspaceChip";
 import { ModelPicker } from "./ModelPicker";
-import { PermissionPresetBadge } from "./PermissionPresetBadge";
+import { PermissionAxesBadge } from "./PermissionPresetBadge";
 import { RecordingBar } from "./RecordingBar";
 import {
   ComposerConnectionNotice,
@@ -121,11 +129,29 @@ export function TurnComposer({
     defaultChatSupportsTools(llmProviders, modelCatalog?.current?.provider_id),
   );
   const conversationId = useConversationStore((s) => s.currentConversationId);
+  const hasPausedDecision = usePausedTurnStore((s) =>
+    conversationId
+      ? s.pending.some((p) => p.conversationId === conversationId)
+      : false,
+  );
+  const pendingApprovals = usePendingApprovals(conversationId);
+  const pendingDelegations = usePendingDelegations(conversationId);
   const lastMessage = useConversationStore((s) => {
     const id = s.currentConversationId;
     if (!id) return null;
     return s.byId[id]?.messages.at(-1) ?? null;
   });
+  const showPendingHint =
+    !!conversationId &&
+    !isGenerating &&
+    (hasPausedDecision ||
+      pendingApprovals.length > 0 ||
+      pendingDelegations.length > 0);
+  // 空中断层 1：轻提示、无按钮；有挂起卡时优先挂起弱提示。
+  const showEmptyInterruptedHint =
+    !isGenerating &&
+    !showPendingHint &&
+    isEmptyInterruptedAssistant(lastMessage);
   const serverStatus = useServerHealthStore((s) => s.status);
   const serverUnhealthy = serverStatus === "offline";
   const resolvedPlaceholder = useMemo(() => {
@@ -566,8 +592,22 @@ export function TurnComposer({
       {/* 断连提示：仅在心跳判定服务器不可达时出现，主动告知「发送前」状态。 */}
       <ComposerConnectionNotice />
 
+      {/* 挂起弱提示：有待确认/续跑卡时常驻；不强拦发送（发送前二次确认见 useComposerSend）。 */}
+      <ComposerPendingHintNotice show={showPendingHint} />
+
+      {/* 空中断层 1：无救火按钮；发送下一条=新回合重试。 */}
+      {showEmptyInterruptedHint && (
+        <div
+          aria-live="polite"
+          data-testid="composer-empty-interrupted-hint"
+          className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground"
+        >
+          {COMPOSER_EMPTY_INTERRUPTED_HINT}
+        </div>
+      )}
+
       {/* 生成中插话提示：发送=插话，交给正在工作的团队（无关内容排到下一回合）。 */}
-      {isGenerating && value.trim() && (
+      {isGenerating && value.trim() && !showPendingHint && (
         <div
           aria-live="polite"
           className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground"
@@ -617,7 +657,7 @@ export function TurnComposer({
               >
                 <div className="flex flex-col gap-1">
                   <ModelPicker disabled={isGenerating} />
-                  <PermissionPresetBadge disabled={isGenerating} />
+                  <PermissionAxesBadge disabled={isGenerating} />
                   <ComposerWorkspaceChip conversationId={conversationId} />
                   {backgroundToggle}
                   {serverUnhealthy && <ServerStatusIndicator />}
@@ -652,7 +692,7 @@ export function TurnComposer({
           <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">
               <ModelPicker disabled={isGenerating} />
-              <PermissionPresetBadge disabled={isGenerating} />
+              <PermissionAxesBadge disabled={isGenerating} />
               <ComposerWorkspaceChip conversationId={conversationId} />
               <IconButton
                 size="md"

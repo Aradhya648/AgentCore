@@ -1,0 +1,30 @@
+{
+  "id": "r1b_v03_fix_url_eq",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1b",
+  "vendor_id": "V03",
+  "vendor_dir": "httpx@26d48e0634e6",
+  "language": "python",
+  "user_message": "工作区是 httpx。`URL` 相等比较行为异常。请做最小修复。验收（避免全量 pytest 对 trustme/trio 的开发依赖）：`python -c \"import httpx; u=httpx.URL('https://example.org:123/path?abc=1#a'); assert u=='https://example.org:123/path?abc=1#a'; assert str(u)==u\"`。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v03_break_url_eq.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-c", "import httpx; u=httpx.URL('https://example.org:123/path?abc=1#a'); assert u=='https://example.org:123/path?abc=1#a'; assert str(u)==u"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-c", "import httpx; u=httpx.URL('https://example.org:123/path?abc=1#a'); assert u=='https://example.org:123/path?abc=1#a'; assert str(u)==u"],
+        "expected_exit": 0,
+        "timeout_sec": 60
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

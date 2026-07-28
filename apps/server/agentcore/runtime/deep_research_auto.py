@@ -1,7 +1,7 @@
 """深度研究自治 — session-level auto-adopt debate helpers.
 
-「深度研究自治」旗标与 ``full_trust`` 蕴含关系收敛于此：运行时判断只走这些
-helpers，禁止在 kickoff / ceo_format / 工具层散落 ``full_trust OR flag`` 双判断。
+「深度研究自治」旗标与托管配方 (command=auto ∧ team_kickoff=skip) 蕴含关系收敛
+于此：运行时判断只走这些 helpers，禁止在 kickoff / ceo_format / 工具层散落双判断。
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from agentcore.core.types import AutonomyPolicy, PermissionPreset
+from agentcore.core.types import PermissionAxes
 
 
 def _is_persistable_conversation_id(conversation_id: str) -> bool:
@@ -31,32 +31,23 @@ AUTO_DEBATE_SESSION_LIMIT = 1
 def deep_research_auto_active(
     *,
     deep_research_auto: bool = False,
-    autonomy: AutonomyPolicy | None = None,
-    permission_preset: PermissionPreset | str | None = None,
+    permission_axes: PermissionAxes | None = None,
 ) -> bool:
-    """True when the session flag is on **or** permission is full_trust.
+    """True when the session flag is on **or** axes imply managed (托管) autonomy.
 
-    ``full_trust`` / ``AutonomyPolicy.FULL_AUTO`` 视同旗标开（蕴含关系）。
+    托管配方 (session/auto/skip) 视同旗标开（对齐原 full_trust 蕴含）。
     """
     if deep_research_auto:
         return True
-    if autonomy is AutonomyPolicy.FULL_AUTO:
+    if permission_axes is not None and permission_axes.implies_deep_research_auto:
         return True
-    if permission_preset is None:
-        return False
-    if isinstance(permission_preset, PermissionPreset):
-        return permission_preset is PermissionPreset.FULL_TRUST
-    try:
-        return PermissionPreset(permission_preset) is PermissionPreset.FULL_TRUST
-    except ValueError:
-        return False
+    return False
 
 
 def may_auto_debate(
     *,
     deep_research_auto: bool = False,
-    autonomy: AutonomyPolicy | None = None,
-    permission_preset: PermissionPreset | str | None = None,
+    permission_axes: PermissionAxes | None = None,
     auto_debate_count: int = 0,
     limit: int = AUTO_DEBATE_SESSION_LIMIT,
 ) -> bool:
@@ -64,14 +55,13 @@ def may_auto_debate(
 
     Used by ceo_format consumption guidance and debate kickoff waiver. Over the
     limit ⇒ False (guidance falls back to present-to-user; kickoff restores the
-    card for flag-only sessions — full_trust still skips via ``should_kickoff``).
+    card for flag-only sessions — managed axes still skip via ``should_kickoff``).
     """
     if int(auto_debate_count or 0) >= limit:
         return False
     return deep_research_auto_active(
         deep_research_auto=deep_research_auto,
-        autonomy=autonomy,
-        permission_preset=permission_preset,
+        permission_axes=permission_axes,
     )
 
 
@@ -80,8 +70,7 @@ def tool_may_auto_debate(tool: Any) -> bool:
     ctx = getattr(tool, "_base_tool_context", None)
     return may_auto_debate(
         deep_research_auto=bool(getattr(ctx, "deep_research_auto", False)),
-        autonomy=getattr(tool, "_autonomy_policy", None),
-        permission_preset=getattr(ctx, "permission_preset", None),
+        permission_axes=getattr(tool, "_permission_axes", None),
         auto_debate_count=int(getattr(ctx, "deep_research_auto_debate_count", 0) or 0),
     )
 

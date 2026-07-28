@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: has() 恒 False，使 TestHas 失败。",
+  "replacements": [
+    {
+      "path": "src/attr/_funcs.py",
+      "old": "    attrs = getattr(cls, \"__attrs_attrs__\", None)\n    if attrs is not None:\n        return True\n",
+      "new": "    attrs = getattr(cls, \"__attrs_attrs__\", None)\n    if attrs is not None:\n        # R1b seed_patch: attrs classes never report as has()\n        return False\n"
+    }
+  ]
+}

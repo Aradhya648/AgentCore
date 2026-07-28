@@ -7,10 +7,14 @@ Check 读 :class:`TurnOutcome`，返回 :class:`CheckOutcome`。
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agentcore.evals.style_lint import style_violations
@@ -340,6 +344,143 @@ class DeliverableIntegrityCheck:
         return CheckOutcome(self.name, True, "ok")
 
 
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _protected_file_map(root: Path, rel_paths: list[str]) -> dict[str, str]:
+    """相对根的受保护文件 → sha256（键用 posix 相对路径，跨平台稳定）。"""
+    out: dict[str, str] = {}
+    for rel in rel_paths:
+        target = (root / rel).resolve()
+        root_resolved = root.resolve()
+        try:
+            target.relative_to(root_resolved)
+        except ValueError:
+            continue
+        if target.is_file():
+            key = PurePosixPath(Path(rel).as_posix()).as_posix()
+            out[key] = _file_sha256(target)
+            continue
+        if not target.is_dir():
+            continue
+        for f in sorted(target.rglob("*")):
+            if not f.is_file():
+                continue
+            # 跳过缓存/编译产物，避免误报「测目录被改」
+            parts = {p.lower() for p in f.parts}
+            if parts & {".pytest_cache", "__pycache__", ".mypy_cache", "node_modules"}:
+                continue
+            if f.suffix in {".pyc", ".pyo"}:
+                continue
+            rel_key = f.relative_to(root_resolved).as_posix()
+            out[rel_key] = _file_sha256(f)
+    return out
+
+
+@dataclass
+class TestExitCodeCheck:
+    """在 ``outcome.workspace_root`` 跑约定测试命令，断言进程退出码（真仓 Fix 硬判据）.
+
+    ``command`` 为 argv 列表（Windows 友好：不经 shell）。缺省期望 ``expected_exit=0``。
+    ``pythonpath`` 为相对工作区的目录列表（默认 ``["."]``）；click 等 src layout 用 ``["src"]``。
+    工作区未挂载 → 失败（避免「没跑测却过」）。
+    """
+
+    command: list[str] = field(default_factory=list)
+    expected_exit: int = 0
+    timeout_sec: int = 120
+    pythonpath: list[str] = field(default_factory=lambda: ["."])
+    name: str = "TestExitCode"
+
+    def run(self, case: EvalCase, outcome: TurnOutcome) -> CheckOutcome:
+        if not self.command:
+            return CheckOutcome(self.name, False, "command empty")
+        root = outcome.workspace_root
+        if not root:
+            return CheckOutcome(self.name, False, "workspace_root missing")
+        cwd = Path(root)
+        if not cwd.is_dir():
+            return CheckOutcome(self.name, False, f"workspace_root not a dir: {root}")
+        env = os.environ.copy()
+        # 保证副本内包可 import（无需 pip install -e；纯源码树）
+        prev = env.get("PYTHONPATH", "")
+        path_entries: list[str] = []
+        for rel in self.pythonpath or ["."]:
+            entry = cwd if rel in (".", "") else (cwd / rel)
+            path_entries.append(str(entry.resolve()))
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [*path_entries, prev]))
+        try:
+            proc = subprocess.run(
+                list(self.command),
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_sec,
+                check=False,
+            )
+        except FileNotFoundError as e:
+            return CheckOutcome(self.name, False, f"exec failed: {e}")
+        except subprocess.TimeoutExpired:
+            return CheckOutcome(self.name, False, f"timeout>{self.timeout_sec}s")
+        ok = proc.returncode == self.expected_exit
+        tail = (proc.stdout or "")[-400:] + (proc.stderr or "")[-400:]
+        detail = f"exit={proc.returncode} want={self.expected_exit}; {tail.strip()}"
+        return CheckOutcome(self.name, ok, detail)
+
+
+@dataclass
+class TestsUnchangedCheck:
+    """禁改测目录作弊闸：工作区受保护路径须与 ``reference_root`` 逐文件哈希一致。
+
+    典型 ``paths=["tests"]``（或仓约定测目录）。缺 ``workspace_root`` / ``reference_root``
+    → 失败。只比受保护树，不限制生产代码修复。
+
+    ``allow_extra``：允许工作区多出的相对路径（posix），供 Extend 追加 GOLDEN 测文件；
+    仍禁止改/删 upstream 测。白名单外的 extra / 任意 changed / missing → 失败。
+    """
+
+    paths: list[str] = field(default_factory=lambda: ["tests"])
+    allow_extra: list[str] = field(default_factory=list)
+    name: str = "TestsUnchanged"
+
+    def run(self, case: EvalCase, outcome: TurnOutcome) -> CheckOutcome:
+        if not outcome.workspace_root:
+            return CheckOutcome(self.name, False, "workspace_root missing")
+        if not outcome.reference_root:
+            return CheckOutcome(self.name, False, "reference_root missing")
+        ws = Path(outcome.workspace_root)
+        ref = Path(outcome.reference_root)
+        if not ws.is_dir() or not ref.is_dir():
+            return CheckOutcome(self.name, False, "workspace/reference not dirs")
+        left = _protected_file_map(ws, self.paths)
+        right = _protected_file_map(ref, self.paths)
+        allow = {PurePosixPath(p).as_posix() for p in self.allow_extra}
+        missing = sorted(set(right) - set(left))
+        extra = sorted(k for k in (set(left) - set(right)) if k not in allow)
+        changed = sorted(k for k in (set(left) & set(right)) if left[k] != right[k])
+        if not missing and not extra and not changed:
+            allowed_n = len(set(left) - set(right))
+            detail = f"ok ({len(right)} upstream"
+            if allowed_n:
+                detail += f", {allowed_n} allow_extra"
+            detail += ")"
+            return CheckOutcome(self.name, True, detail)
+        bits: list[str] = []
+        if changed:
+            bits.append(f"changed={changed[:8]}")
+        if missing:
+            bits.append(f"missing={missing[:8]}")
+        if extra:
+            bits.append(f"extra={extra[:8]}")
+        return CheckOutcome(self.name, False, "; ".join(bits) or "mismatch")
+
+
 # 注册表：check 名 → 从 args 构造实例。新增 Check 在此登记，seed_lint 据键集校验。
 _REGISTRY: dict[str, Callable[[dict[str, Any]], Any]] = {
     "FinishReason": lambda a: FinishReasonCheck(expected=a.get("expected", "end_turn")),
@@ -368,6 +509,16 @@ _REGISTRY: dict[str, Callable[[dict[str, Any]], Any]] = {
         flags=a.get("flags", ""),
     ),
     "DeliverableIntegrity": lambda a: DeliverableIntegrityCheck(),
+    "TestExitCode": lambda a: TestExitCodeCheck(
+        command=list(a.get("command") or []),
+        expected_exit=int(a.get("expected_exit", 0)),
+        timeout_sec=int(a.get("timeout_sec", 120)),
+        pythonpath=list(a.get("pythonpath") or ["."]),
+    ),
+    "TestsUnchanged": lambda a: TestsUnchangedCheck(
+        paths=list(a.get("paths") or ["tests"]),
+        allow_extra=list(a.get("allow_extra") or []),
+    ),
 }
 
 CHECK_NAMES: frozenset[str] = frozenset(_REGISTRY)

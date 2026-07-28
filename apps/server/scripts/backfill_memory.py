@@ -1,8 +1,8 @@
 """Reset memory consolidation watermarks for users with empty memory files.
 
 Use after fixing the extraction prompt so previously "consumed" conversations can
-be re-processed by the offline sweeper. Only touches ``memory_enabled=true`` users
-whose global 偏好+画像 are empty and who hold no topic / project memory notes.
+be re-processed by the offline sweeper. Touches users whose global 偏好+画像 are
+empty and who hold no topic / project memory notes (memory is product-always-on).
 
 Run from ``apps/server``::
 
@@ -23,7 +23,7 @@ from agentcore.memory.backfill import backfill_empty_memory_watermarks
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Reset memory_synced_at for memory-enabled users with empty memory."
+        description="Reset memory_synced_at for users with empty memory."
     )
     parser.add_argument(
         "--apply",
@@ -36,7 +36,7 @@ def _parse_args() -> argparse.Namespace:
 def _print_stats(*, dry_run: bool, stats) -> None:
     mode = "DRY RUN" if dry_run else "APPLIED"
     print(f"\nMemory backfill ({mode})")
-    print(f"  users scanned (memory_enabled): {stats.users_scanned}")
+    print(f"  users scanned:                  {stats.users_scanned}")
     print(f"  users skipped (has memory):     {stats.users_skipped_has_memory}")
     print(f"  users reset:                    {stats.users_reset}")
     print(f"  conversations reset:            {stats.conversations_reset}")

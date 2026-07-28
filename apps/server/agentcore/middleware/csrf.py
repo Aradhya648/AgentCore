@@ -28,6 +28,7 @@ _EXEMPT_PREFIXES = (
     "/v1/auth/register",
     "/v1/auth/refresh",
     "/v1/auth/token",
+    "/v1/hooks/",
     "/shared/",
 )
 

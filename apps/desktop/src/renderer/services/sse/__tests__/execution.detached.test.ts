@@ -195,4 +195,29 @@ describe("execution_detached / execution_completed live path", () => {
     expect(rt().status).toBe("completed");
     expect(refreshMod.refreshAfterExecutionCompleted).toHaveBeenCalledWith(CID);
   });
+
+  it("failed 保留 executionDetached（失败与后台并陈）", () => {
+    seedTurn();
+    const exec = useExecutionStore.getState();
+    exec.startExecution(plan, MID);
+    exec.setExecutionDetached(
+      {
+        execution_id: "exec-bg",
+        conversation_id: CID,
+        completed: 1,
+        total: 2,
+        host_turn_id: MID,
+      },
+      MID,
+    );
+    exec.setStatus("failed", MID);
+    expect(rt().status).toBe("failed");
+    expect(rt().executionDetached).toEqual({
+      execution_id: "exec-bg",
+      conversation_id: CID,
+      completed: 1,
+      total: 2,
+      host_turn_id: MID,
+    });
+  });
 });

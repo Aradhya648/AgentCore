@@ -584,25 +584,36 @@ def project_circuit_breaker(
     )
 
 
-def project_permission_preset_changed(
+def project_permission_axes_changed(
     *,
-    previous: str,
-    next_preset: str,
+    previous: dict,
+    next_axes: dict,
 ) -> AuditDraft:
-    """Session-level mode switch (outside a turn recorder — written via repo)."""
+    """Session-level axes switch (outside a turn recorder — written via repo)."""
     return AuditDraft(
         category="permission",
-        action="permission.preset_changed",
+        action="permission.axes_changed",
         actor_kind="system",
         outcome="ok",
         target_type="interaction",
-        target_ref="permission_preset",
+        target_ref="permission_axes",
         detail={
             "previous": previous,
-            "permission_preset": next_preset,
+            "permission_axes": next_axes,
             "decided_by": "user",
         },
     )
+
+
+def project_permission_preset_changed(
+    *,
+    previous: str | dict,
+    next_preset: str | dict,
+) -> AuditDraft:
+    """Back-compat wrapper — prefer :func:`project_permission_axes_changed`."""
+    prev = previous if isinstance(previous, dict) else {"legacy": previous}
+    nxt = next_preset if isinstance(next_preset, dict) else {"legacy": next_preset}
+    return project_permission_axes_changed(previous=prev, next_axes=nxt)
 
 
 def project_permission_preset_snapshot(
@@ -613,11 +624,11 @@ def project_permission_preset_snapshot(
     """Turn-entry snapshot so the security ledger knows the mode in force."""
     return AuditDraft(
         category="permission",
-        action="permission.preset_snapshot",
+        action="permission.axes_snapshot",
         actor_kind="system",
         outcome="ok",
         run_id=recorder.captain_run_id,
         target_type="interaction",
-        target_ref="permission_preset",
-        detail={"permission_preset": permission_preset},
+        target_ref="permission_axes",
+        detail={"permission_axes": permission_preset},
     )

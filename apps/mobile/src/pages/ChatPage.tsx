@@ -195,7 +195,7 @@ function formatCost(
 type CachedDisplayMoney = {
   nano: number;
   estimated: boolean;
-  /** BYOK 三层价卡全落空（pricing_source=unpriced）：显式标注，金额不出数。 */
+  /** BYOK 社区价目未命中（pricing_source=unpriced）：显式标注，金额不出数。 */
   unpriced?: boolean;
 };
 
@@ -442,7 +442,7 @@ function AssistantBubble({
   const empty =
     !isMulti && p.process.length === 0 && !p.content && !p.reasoning;
   // 回合总账 — populated by message_end (null while streaming, so it appears on finish).
-  // BYOK: billed total is 0; estimated_total may carry a community/user estimate.
+  // BYOK: billed total is 0; estimated_total may carry a community-catalog estimate.
   const turnMoney =
     p.cost && p.cost.total > 0
       ? { nano: p.cost.total, estimated: false }
@@ -691,7 +691,7 @@ export function ChatPage() {
   /** 诚实停止过渡：stopping 时 UI 不先于后端进终态；与 sending 合成 busy。 */
   const [stopPhase, setStopPhase] = useState<StopUiPhase>("idle");
   const [error, setError] = useState<ChatError | null>(null);
-  /** Session permission mode label (只观察 / 开工授权 / 完全信任). */
+  /** Session permission recipe label (谨慎 / 写代码 / 少打断 / 托管 / 自定义). */
   const [permissionLabel, setPermissionLabel] = useState<string | null>(null);
   // 会话级模型组合 (对齐桌面): conversation override profile id (null = follow account default).
   // A draft seeds from last-used profile. Badge shows the combination name; tap opens picker.
@@ -915,14 +915,17 @@ export function ChatPage() {
     void getConversation(conversationId)
       .then((c) => {
         if (cancelled) return;
-        const preset = c.permission_preset ?? "workspace";
-        setPermissionLabel(
-          preset === "observe"
-            ? "只观察"
-            : preset === "full_trust"
-              ? "完全信任"
-              : "开工授权",
-        );
+        const axes = c.permission_axes;
+        const key = axes
+          ? `${axes.file_write}/${axes.command}/${axes.team_kickoff}`
+          : "session/kickoff/rules";
+        const labels: Record<string, string> = {
+          "ask/ask/rules": "谨慎",
+          "session/kickoff/rules": "写代码",
+          "session/kickoff/skip": "少打断",
+          "session/auto/skip": "托管",
+        };
+        setPermissionLabel(labels[key] ?? "自定义");
         setCurrentProfileId(c.model_profile_id ?? null);
       })
       .catch(() => {

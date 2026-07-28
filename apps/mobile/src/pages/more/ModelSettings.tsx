@@ -761,16 +761,6 @@ function ProviderCard({
       {host && <p className="provider-host muted">{host}</p>}
       <span className="masked-key">{provider.masked_key ?? "已配置"}</span>
       <p className="provider-model">模型 {provider.default_model}</p>
-      {(provider.price_cache_miss || provider.price_output) && (
-        <p className="muted" style={{ fontSize: 12 }}>
-          单价 输入 {provider.price_cache_miss ?? "—"} / 输出{" "}
-          {provider.price_output ?? "—"}
-          {provider.price_cache_hit
-            ? ` / 缓存 ${provider.price_cache_hit}`
-            : ""}{" "}
-          USD/1M
-        </p>
-      )}
 
       <div>
         <StatusBadge status={provider.status} message={provider.message} />

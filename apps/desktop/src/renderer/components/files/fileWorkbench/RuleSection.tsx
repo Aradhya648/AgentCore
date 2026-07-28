@@ -1,3 +1,4 @@
+import { IconButton } from "@/components/files/parts";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -68,6 +69,9 @@ function nextRuleName(existing: Iterable<string>): string {
  * Deliberately NOT the generic {@link FileTree} (照 {@link MemorySection} 先例): rules are a
  * flat per-scope list needing only 打开 / 新建 / 重命名 / 删除. Opening a rule reuses the shared
  * editor host via {@link createDocumentSource} (path = the doc id).
+ *
+ * Create entry mirrors {@link WorkspaceSection}: header hover `+` + context menu + empty-state CTA
+ * (no list-tail fake row).
  */
 export function RuleSection({
   scope = { kind: "global" },
@@ -100,22 +104,32 @@ export function RuleSection({
       : loadRulesExpanded().has(foldKey),
   );
 
+  const persistSectionOpen = (next: boolean) => {
+    if (scope.kind === "global") {
+      const set = loadRulesCollapsed();
+      if (next) set.delete(ROOT_KEY);
+      else set.add(ROOT_KEY);
+      saveRulesCollapsed(set);
+    } else {
+      const set = loadRulesExpanded();
+      if (next) set.add(foldKey);
+      else set.delete(foldKey);
+      saveRulesExpanded(set);
+    }
+  };
+
   const toggleSection = () =>
     setSectionOpen((open) => {
       const next = !open;
-      if (scope.kind === "global") {
-        const set = loadRulesCollapsed();
-        if (next) set.delete(ROOT_KEY);
-        else set.add(ROOT_KEY);
-        saveRulesCollapsed(set);
-      } else {
-        const set = loadRulesExpanded();
-        if (next) set.add(foldKey);
-        else set.delete(foldKey);
-        saveRulesExpanded(set);
-      }
+      persistSectionOpen(next);
       return next;
     });
+
+  const ensureSectionOpen = () => {
+    if (sectionOpen) return;
+    setSectionOpen(true);
+    persistSectionOpen(true);
+  };
 
   const rules = useQuery({
     queryKey: RULES_QUERY_KEY,
@@ -138,6 +152,7 @@ export function RuleSection({
     queryClient.invalidateQueries({ queryKey: RULES_QUERY_KEY });
 
   const createRule = async () => {
+    ensureSectionOpen();
     try {
       const doc = await createRuleDocument(
         nextRuleName(scopedRules.map((r) => r.name)),
@@ -207,15 +222,17 @@ export function RuleSection({
     </ContextMenu>
   );
 
-  return (
-    <div>
+  const header = (
+    <div
+      className="group flex items-center rounded-lg text-sm"
+      style={{ paddingLeft: headerPad }}
+    >
       <button
         type="button"
         onClick={toggleSection}
         aria-expanded={sectionOpen}
-        style={{ paddingLeft: headerPad }}
         className={cn(
-          "flex h-7 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-sm text-foreground transition-colors hover:bg-accent/60",
+          "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg pr-0 text-left text-sm text-foreground transition-colors hover:bg-accent/60",
           scope.kind === "global" && "font-medium",
         )}
       >
@@ -231,6 +248,25 @@ export function RuleSection({
         )}
         <span className="min-w-0 flex-1 truncate">规则</span>
       </button>
+      <div className="hidden shrink-0 items-center group-hover:flex">
+        <IconButton title="新建规则" onClick={() => void createRule()}>
+          <FilePlus size={14} />
+        </IconButton>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{header}</ContextMenuTrigger>
+        <ContextMenuContent className="min-w-36">
+          <ContextMenuItem onSelect={() => void createRule()}>
+            <FilePlus size={14} className="shrink-0" />
+            <span className="flex-1 truncate">新建规则</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {sectionOpen &&
         (rules.isLoading ? (
@@ -260,26 +296,27 @@ export function RuleSection({
               加载失败，点此重试
             </button>
           )
-        ) : (
-          <>
-            {scopedRules.length === 0 ? (
-              <div
-                className="flex h-7 items-center text-xs text-muted-foreground/60"
-                style={{ paddingLeft: leafPad }}
-              >
-                {scope.kind === "global"
-                  ? "还没有全局规则"
-                  : "本项目还没有规则"}
-              </div>
-            ) : (
-              scopedRules.map((doc) => renderRuleRow(doc))
-            )}
-            <NewRuleRow
-              paddingLeft={leafPad}
-              label="新建规则"
+        ) : scopedRules.length === 0 ? (
+          <div
+            className="flex flex-col gap-1 py-1"
+            style={{ paddingLeft: leafPad }}
+          >
+            <p className="text-xs text-muted-foreground/60">
+              {scope.kind === "global"
+                ? "还没有全局规则"
+                : "本项目还没有规则"}
+            </p>
+            <button
+              type="button"
               onClick={() => void createRule()}
-            />
-          </>
+              className="flex h-7 w-fit items-center gap-1.5 rounded-lg pr-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            >
+              <FilePlus size={14} className="shrink-0" />
+              新建规则
+            </button>
+          </div>
+        ) : (
+          scopedRules.map((doc) => renderRuleRow(doc))
         ))}
     </div>
   );
@@ -319,26 +356,3 @@ const RuleLeafRow = forwardRef<
   );
 });
 RuleLeafRow.displayName = "RuleLeafRow";
-
-/** The dashed「+ 新建…」affordance closing each scope's rule list. */
-function NewRuleRow({
-  paddingLeft,
-  label,
-  onClick,
-}: {
-  paddingLeft: number;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{ paddingLeft }}
-      className="flex h-7 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-    >
-      <FilePlus size={14} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-    </button>
-  );
-}

@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: flash() 颠倒 category/message，使 test_flashes 失败。",
+  "replacements": [
+    {
+      "path": "src/flask/helpers.py",
+      "old": "    flashes = session.get(\"_flashes\", [])\n    flashes.append((category, message))\n    session[\"_flashes\"] = flashes\n",
+      "new": "    flashes = session.get(\"_flashes\", [])\n    # R1b seed_patch: swap category/message tuple order\n    flashes.append((message, category))\n    session[\"_flashes\"] = flashes\n"
+    }
+  ]
+}

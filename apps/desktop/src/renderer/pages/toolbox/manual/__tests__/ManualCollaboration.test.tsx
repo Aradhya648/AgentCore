@@ -45,7 +45,7 @@ describe("ManualCollaboration", () => {
     expect(screen.queryByText(/后续规划/)).toBeNull();
     expect(screen.getByText(/临时给队员配角色/)).toBeTruthy();
     expect(screen.getAllByText(/带现场续派/).length).toBeGreaterThan(0);
-    expect(screen.getByText("每次询问")).toBeTruthy();
+    expect(screen.getByText("写代码（推荐）")).toBeTruthy();
   });
 
   it("preserves section order and stays text-only (embeds belong to mechanism)", () => {

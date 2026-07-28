@@ -1,0 +1,30 @@
+{
+  "id": "r1a_v07_fix_chunked",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1a",
+  "vendor_id": "V07",
+  "vendor_dir": "more-itertools@64be96ceb2a6",
+  "language": "python",
+  "user_message": "工作区是 more-itertools。`chunked()` 按长度 n 分块时块大小不对。请做最小修复，使 `python -m pytest tests/test_more.py::ChunkedTests -q` 通过。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v07_break_chunked.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_more.py::ChunkedTests", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_more.py::ChunkedTests", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

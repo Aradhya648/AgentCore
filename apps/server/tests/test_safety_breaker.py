@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy, ToolApproval, ToolCategory
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes, ToolApproval, ToolCategory
 from agentcore.llm.provider.protocol import ToolCall, ToolCallFunction
 from agentcore.runtime.approvals import ApprovalDecision, ApprovalGate
 from agentcore.runtime.engine import tool_exec as tool_exec_mod
@@ -236,7 +236,7 @@ async def test_force_authorize_ignores_turn_grant_and_delegation():
         conversation_id="conv-cb",
         registry=registry,
         timeout_seconds=5.0,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
         delegation_grantable_tools=frozenset({"code_execute", "terminal"}),
     )
     gate.grant_delegation("exec-1")
@@ -267,7 +267,7 @@ async def test_force_authorize_refuses_approve_always_grant():
         conversation_id="conv-cb2",
         registry=registry,
         timeout_seconds=5.0,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
     )
     task = asyncio.create_task(
         gate.authorize(
@@ -295,7 +295,7 @@ async def test_full_trust_auto_pass_bypassed_for_destructive_via_tool_exec():
         conversation_id="conv-ft",
         registry=registry,
         timeout_seconds=5.0,
-        autonomy_policy=AutonomyPolicy.FULL_AUTO,
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
         delegation_grantable_tools=frozenset({"code_execute"}),
     )
 
@@ -329,7 +329,7 @@ async def test_full_trust_auto_pass_bypassed_for_destructive_via_tool_exec():
 
     assert (
         execution_tool_auto_passes(
-            _Local(), "code_execute", autonomy_policy=AutonomyPolicy.FULL_AUTO
+            _Local(), "code_execute", permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED)
         )
         is True
     )

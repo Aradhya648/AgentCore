@@ -199,11 +199,11 @@ async def assemble_injected_rules(
     """Load + budget + compose this turn's ``<rules>`` fragments (§二 / §5.7).
 
     Returns ``(user_rules_markdown, memory_markdown)`` for ``assemble_system_prompt``. AI memory
-    is gated by the master switch (off ⇒ no memory fragments); USER rules are the user's own
-    authoritative instructions and are NOT memory, so they are injected regardless of the switch
-    (turning off「AI 记忆」silences AI-maintained memory, not the user's own rules). Ordering
-    within the fragment list is global→project per authorship so the budget's display order and
-    the legacy byte layout line up.
+    is gated by the caller-supplied ``enabled`` flag (product resolve always on / 定案 A;
+    False ⇒ no memory fragments); USER rules are the user's own authoritative instructions
+    and are NOT memory, so they are injected regardless. Ordering within the fragment list
+    is global→project per authorship so the budget's display order and the legacy byte
+    layout line up.
     """
     fragments: list[RuleFragment] = []
     fragments.extend(await _user_rule_fragments(repo, user_id, folder_id=folder_id))

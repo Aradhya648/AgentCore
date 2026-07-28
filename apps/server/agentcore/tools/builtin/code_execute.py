@@ -61,6 +61,24 @@ def render_written_files_marker(paths: list[str]) -> str:
     )
 
 
+def _permission_allows_restricted_network(raw: str | None) -> bool:
+    """True when session axes (or legacy full_trust) allow restricted network in sandbox."""
+    if not raw:
+        return False
+    if raw == "full_trust":
+        return True
+    try:
+        from agentcore.core.types import PermissionAxes
+
+        data = json.loads(raw) if raw.lstrip().startswith("{") else None
+        if isinstance(data, dict):
+            return PermissionAxes.from_mapping(data).auto_executes
+    except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+    # Python dict-repr fallback from early wiring.
+    return "'command': 'auto'" in raw or '"command": "auto"' in raw
+
+
 _USAGE_TAIL = (
     "\n用法要点：① 只跑【会自行退出】的短命令或脚本（如 npm install、pytest、"
     "一次性 node/python）。【禁止】用本工具启动永不退出的进程（npm run dev / "
@@ -264,7 +282,7 @@ class CodeExecuteTool:
             on_output=_make_output_callback(context),
             network_mode=(
                 "restricted"
-                if context.permission_preset == "full_trust"
+                if _permission_allows_restricted_network(context.permission_preset)
                 else "none"
             ),
         )

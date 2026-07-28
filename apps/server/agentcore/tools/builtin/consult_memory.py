@@ -11,9 +11,9 @@ when a topic is relevant it calls
 (``ToolEffect.CONTINUE``), then acts on it. This keeps the常驻 prompt cheap while letting
 deep, occasional knowledge live in the folder.
 
-Gated by the long-term-memory master switch at wiring time (off ⇒ not wired AND the
-directory is not rendered), so a user who turned memory off surfaces zero memory — the
-same privacy off-ramp as the core-memory injection.
+Gated by the caller-supplied ``memory_enabled`` flag at wiring time (product resolve
+is always on / 定案 A; off ⇒ not wired AND the directory is not rendered — retained
+for internal False-path tests and durable frames).
 
 A wrong / unknown name is a soft miss: ``success=True`` (no ``error`` / no red failure),
 lists the available topic names so the model can retry, and still logs

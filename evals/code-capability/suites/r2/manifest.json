@@ -1,0 +1,23 @@
+{
+  "phase": "R2",
+  "description": "Extend 续写：V01 click · V04 flask · V09 commander · V10 zod；各 ≥2 卡；Py+TS",
+  "vendors": ["V01", "V04", "V09", "V10"],
+  "tasks": [
+    "v01_extend_snake_case.json",
+    "v01_extend_clamp.json",
+    "v04_extend_truthy.json",
+    "v04_extend_join_url_paths.json",
+    "v09_extend_example.json",
+    "v09_extend_note.json",
+    "v10_extend_slug.json",
+    "v10_extend_hex_color.json"
+  ],
+  "control": "evals/code-capability/r2_control.py --mode matrix",
+  "report": "evals/code-capability/reports/r2_baseline_latest.json",
+  "notes": [
+    "评测侧只追加 GOLDEN 测；TestsUnchanged.allow_extra 白名单声明",
+    "fixed = GOLDEN + reference_patch；broken = 仅 GOLDEN（缺实现）",
+    "V09：node --test 直跑 JS；V10：npm + ts-jest，勿依赖 bash",
+    "LLM 烟感默认 pending，不挡硬验收"
+  ]
+}

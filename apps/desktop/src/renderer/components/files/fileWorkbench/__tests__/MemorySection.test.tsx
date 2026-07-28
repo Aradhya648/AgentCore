@@ -5,7 +5,14 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/services/memory", () => ({
@@ -35,13 +42,15 @@ function renderGlobal() {
   const onOpenUpdates = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <MemorySection
-        scope={{ kind: "global" }}
-        activePath={null}
-        onOpen={onOpen}
-        onTopicDeleted={onTopicDeleted}
-        onOpenUpdates={onOpenUpdates}
-      />
+      <TooltipProvider>
+        <MemorySection
+          scope={{ kind: "global" }}
+          activePath={null}
+          onOpen={onOpen}
+          onTopicDeleted={onTopicDeleted}
+          onOpenUpdates={onOpenUpdates}
+        />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   return { onOpen, onTopicDeleted, onOpenUpdates };
@@ -55,12 +64,14 @@ function renderProject(folderId = "F1", projectName = "项目甲") {
   const onTopicDeleted = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <MemorySection
-        scope={{ kind: "project", folderId, projectName }}
-        activePath={null}
-        onOpen={onOpen}
-        onTopicDeleted={onTopicDeleted}
-      />
+      <TooltipProvider>
+        <MemorySection
+          scope={{ kind: "project", folderId, projectName }}
+          activePath={null}
+          onOpen={onOpen}
+          onTopicDeleted={onTopicDeleted}
+        />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   return { onOpen, onTopicDeleted };
@@ -114,7 +125,7 @@ describe("MemorySection (project)", () => {
     expect(parseProjectProfilePath(openedPath)).toBe("F1");
   });
 
-  it("lists project topics and opens a note", async () => {
+  it("lists project topics without a list-tail 新建主题假行", async () => {
     vi.mocked(listMemoryTopics).mockResolvedValue(["部署流程"]);
     const { onOpen } = renderProject();
 
@@ -123,11 +134,41 @@ describe("MemorySection (project)", () => {
 
     expect(await screen.findByText("部署流程.md")).toBeTruthy();
     expect(listMemoryTopics).toHaveBeenCalledWith("F1");
+    // Create hangs on the「主题」header (aria/title), not a list-tail fake row.
+    expect(screen.getByLabelText("新建主题")).toBeTruthy();
+    expect(screen.queryByText("新建主题")).toBeNull();
 
     fireEvent.click(screen.getByText("部署流程.md"));
     expect(onOpen).toHaveBeenCalledWith(
       memoryTopicPath("F1", "部署流程"),
       "部署流程.md",
+    );
+  });
+
+  it("creates a project topic from the 主题 header +", async () => {
+    vi.mocked(listMemoryTopics).mockResolvedValue(["部署流程"]);
+    vi.spyOn(window, "prompt").mockReturnValue("发布清单");
+    const { onOpen } = renderProject();
+
+    fireEvent.click(screen.getByText("记忆"));
+    fireEvent.click(screen.getByText("主题"));
+    await screen.findByText("部署流程.md");
+
+    fireEvent.click(screen.getByLabelText("新建主题"));
+
+    await waitFor(() =>
+      expect(writeMemoryTopic).toHaveBeenCalledWith(
+        "发布清单",
+        "# 发布清单\n\n",
+        null,
+        "F1",
+      ),
+    );
+    await waitFor(() =>
+      expect(onOpen).toHaveBeenCalledWith(
+        memoryTopicPath("F1", "发布清单"),
+        "发布清单.md",
+      ),
     );
   });
 
@@ -137,6 +178,7 @@ describe("MemorySection (project)", () => {
     fireEvent.click(screen.getByText("主题"));
     expect(await screen.findByText("本项目还没有记忆")).toBeTruthy();
     expect(screen.getByText("新建")).toBeTruthy();
+    expect(screen.getByLabelText("新建主题")).toBeTruthy();
   });
 
   it("forceOpen expands a collapsed project memory node", () => {
@@ -145,13 +187,15 @@ describe("MemorySection (project)", () => {
     });
     render(
       <QueryClientProvider client={client}>
-        <MemorySection
-          scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
-          activePath={null}
-          onOpen={vi.fn()}
-          onTopicDeleted={vi.fn()}
-          forceOpen
-        />
+        <TooltipProvider>
+          <MemorySection
+            scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
+            activePath={null}
+            onOpen={vi.fn()}
+            onTopicDeleted={vi.fn()}
+            forceOpen
+          />
+        </TooltipProvider>
       </QueryClientProvider>,
     );
     // Expanded → 画像 visible without clicking 记忆.
@@ -165,14 +209,16 @@ describe("MemorySection (project)", () => {
     const onRevealApplied = vi.fn();
     const { rerender } = render(
       <QueryClientProvider client={client}>
-        <MemorySection
-          scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
-          activePath={null}
-          onOpen={vi.fn()}
-          onTopicDeleted={vi.fn()}
-          forceOpen
-          onRevealApplied={onRevealApplied}
-        />
+        <TooltipProvider>
+          <MemorySection
+            scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
+            activePath={null}
+            onOpen={vi.fn()}
+            onTopicDeleted={vi.fn()}
+            forceOpen
+            onRevealApplied={onRevealApplied}
+          />
+        </TooltipProvider>
       </QueryClientProvider>,
     );
     expect(screen.getByText("画像")).toBeTruthy();
@@ -184,14 +230,16 @@ describe("MemorySection (project)", () => {
 
     rerender(
       <QueryClientProvider client={client}>
-        <MemorySection
-          scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
-          activePath={null}
-          onOpen={vi.fn()}
-          onTopicDeleted={vi.fn()}
-          forceOpen
-          onRevealApplied={onRevealApplied}
-        />
+        <TooltipProvider>
+          <MemorySection
+            scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
+            activePath={null}
+            onOpen={vi.fn()}
+            onTopicDeleted={vi.fn()}
+            forceOpen
+            onRevealApplied={onRevealApplied}
+          />
+        </TooltipProvider>
       </QueryClientProvider>,
     );
     // Still collapsed — sticky forceOpen must not re-expand.
@@ -205,14 +253,16 @@ describe("MemorySection (project)", () => {
     });
     render(
       <QueryClientProvider client={client}>
-        <MemorySection
-          scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
-          activePath={memoryTopicPath("F1", "部署流程")}
-          onOpen={vi.fn()}
-          onTopicDeleted={vi.fn()}
-          forceOpen
-          forceOpenTopics
-        />
+        <TooltipProvider>
+          <MemorySection
+            scope={{ kind: "project", folderId: "F1", projectName: "项目甲" }}
+            activePath={memoryTopicPath("F1", "部署流程")}
+            onOpen={vi.fn()}
+            onTopicDeleted={vi.fn()}
+            forceOpen
+            forceOpenTopics
+          />
+        </TooltipProvider>
       </QueryClientProvider>,
     );
     expect(screen.getByText("画像")).toBeTruthy();

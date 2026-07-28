@@ -9,10 +9,20 @@ import {
   formatBindLocalFolderAnswer,
   pickAndBindLocalFolder,
 } from "@/lib/bindLocalFolder";
+import {
+  formatGrantOrganizeFolderAnswer,
+  pickAndGrantOrganizeFolder,
+} from "@/lib/grantOrganizeFolder";
+import {
+  formatGrantReadonlyFolderAnswer,
+  pickAndGrantReadonlyFolder,
+} from "@/lib/grantReadonlyFolder";
+import { pickAndOpenLocalProject } from "@/lib/openLocalProject";
 import type { CheckpointUserDecision } from "@/services/checkpoint";
 import type { AskAssumption, AskOption, AskQuestion } from "@/types/events";
 import { ChevronRight, Loader2, OctagonX, Rocket } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ChoiceQuestion,
   CommenceNote,
@@ -43,6 +53,7 @@ export function AskCommenceKickoffBody({
   conversationId?: string | null;
   onBindResolve?: (composedAnswer: string) => void | Promise<void>;
 }) {
+  const navigate = useNavigate();
   const { lead, points } = splitBriefContext(content.context);
   const [bindBusyLabel, setBindBusyLabel] = useState<string | null>(null);
   const [bindError, setBindError] = useState<string | null>(null);
@@ -51,9 +62,69 @@ export function AskCommenceKickoffBody({
   const [noteOpen, setNoteOpen] = useState(false);
 
   const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
-    if (!conversationId || !onBindResolve || busy || bindBusyLabel) return;
+    if (busy || bindBusyLabel) return;
+    if (opt.action === "open_local_project") {
+      setBindBusyLabel(opt.label);
+      setBindError(null);
+      const result = await pickAndOpenLocalProject(navigate);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        setBindBusyLabel(null);
+        return;
+      }
+      setBindBusyLabel(null);
+      return;
+    }
+    if (!conversationId || !onBindResolve) return;
     setBindBusyLabel(opt.label);
     setBindError(null);
+
+    if (opt.action === "grant_readonly_folder") {
+      const result = await pickAndGrantReadonlyFolder(conversationId);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("区外目录授权仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      const value = formatGrantReadonlyFolderAnswer(
+        opt.label,
+        result.root.name,
+        result.namespace,
+      );
+      try {
+        await onBindResolve(answer.composeWithAnswer("kickoff", q.id, value));
+      } catch {
+        setBindBusyLabel(null);
+      }
+      return;
+    }
+
+    if (opt.action === "grant_organize_folder") {
+      const result = await pickAndGrantOrganizeFolder(conversationId);
+      if (!result.ok) {
+        if (result.reason === "error") setBindError(result.message);
+        else if (result.reason === "unavailable") {
+          setBindError("整理授权仅桌面端可用");
+        }
+        setBindBusyLabel(null);
+        return;
+      }
+      const value = formatGrantOrganizeFolderAnswer(
+        opt.label,
+        result.root.name,
+        result.namespace,
+      );
+      try {
+        await onBindResolve(answer.composeWithAnswer("kickoff", q.id, value));
+      } catch {
+        setBindBusyLabel(null);
+      }
+      return;
+    }
+
     const result = await pickAndBindLocalFolder(conversationId);
     if (!result.ok) {
       if (result.reason === "error") setBindError(result.message);

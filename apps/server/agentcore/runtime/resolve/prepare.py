@@ -76,7 +76,7 @@ def _wire_worker_memory_tools(
 
     Same store + project scope as the CEO path (``folder_id`` ⇒ project-then-global
     resolution). Off or empty topics ⇒ not wired — mirrors ``_assemble_ceo_toolset``
-    (privacy off-ramp + empty-catalog alignment: no directory ⇒ no tool).
+    (caller-supplied ``memory_enabled`` + empty-catalog alignment: no directory ⇒ no tool).
     """
     if memory_enabled and has_memory_topics:
         worker_tools.register(
@@ -128,7 +128,7 @@ def _assemble_ceo_toolset(
     conversation_history_access: bool = True,
     folder_id: str | None = None,
     has_memory_topics: bool = False,
-    autonomy_policy=None,
+    permission_axes=None,
     advertise_bind_local_folder: bool = False,
 ) -> tuple[DelegateTool, Any, ToolRegistry]:
     """Wire the CEO coordinator's toolset (delegate + read/retrieval +
@@ -170,7 +170,7 @@ def _assemble_ceo_toolset(
         folder_id=folder_id,
         memory_enabled=memory_enabled,
         conversation_history_access=conversation_history_access,
-        autonomy_policy=autonomy_policy,
+        permission_axes=permission_axes,
     )
     chat_tools = build_ceo_tool_registry()
     chat_tools.register(delegate_tool)
@@ -203,7 +203,7 @@ def _assemble_ceo_toolset(
         folder_id=folder_id,
         memory_enabled=memory_enabled,
         conversation_history_access=conversation_history_access,
-        autonomy_policy=autonomy_policy,
+        permission_axes=permission_axes,
         registry=default_interaction_registry(),
         # 批 D1：共享会话 roster，开赛探测幕1 透镜 session 作证人。
         session_store=session_store,
@@ -232,8 +232,9 @@ def _assemble_ceo_toolset(
     # pull any advanced-mechanism guidance on demand; the always-on 能力目录 in the
     # prompt lists the skills whose required tools are actually wired this turn.
     chat_tools.register(ConsultSkillTool(registry=skill_registry))
-    # Memory master switch: off ⇒ no remember / consult_memory / update_project_profile
-    # (privacy off-ramp; always-injected 画像 already gated in pipeline/run.py).
+    # Memory gate (caller-supplied ``memory_enabled``; product resolve always on /
+    # 定案 A): False ⇒ no remember / consult_memory / update_project_profile
+    # (always-injected 画像 already gated in pipeline/run.py).
     # consult_memory is further gated by ``has_memory_topics`` — empty catalog ⇒ no tool
     # (aligns with「目录为空不渲染」; compose_ceo_chat_prompt keys the directory on this
     # tool being present). ``remember`` / explore profile stay on whenever memory is on.
@@ -485,9 +486,12 @@ async def _build_attachment_context(
     return (
         "<attached_files>\n"
         "The user attached the following files, directories and past "
-        "conversations as context for this message. Treat them as reference "
-        "material the user provided; cite them by name when relevant. Directory "
-        "entries list file paths only (file contents are not included)."
+        "conversations as actionable inputs for this turn—not mere optional "
+        "reference. When the user narrows scope to these materials and/or "
+        "existing workspace products, start from them (gap analysis or a "
+        "revision); do not idle solely because a full repo is missing. Cite "
+        "them by name when relevant. Directory entries list file paths only "
+        "(file contents are not included)."
         f"{conversation_note}"
         f"{resident_note}{binary_note}{preparsed_note}\n\n"
         f"{body}\n"

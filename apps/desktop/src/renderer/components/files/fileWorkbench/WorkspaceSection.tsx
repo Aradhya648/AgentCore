@@ -382,7 +382,7 @@ export function WorkspaceSection({
 
   const tree = offlineCloud ? (
     <div className="py-1 pl-7 text-xs text-muted-foreground">
-      离线时云端工作区不可用，仅可浏览本地文件夹。
+      离线时云端工作区不可用；本机文件夹可浏览（只读），恢复连接后再改文件。
     </div>
   ) : localUnavailable ? (
     <div className="py-1 pl-7 text-xs text-muted-foreground/70">

@@ -284,11 +284,14 @@ export function TurnFileChangesReview({
   artifacts,
   conversationId = null,
   messageId = null,
+  variant = "card",
 }: {
   artifacts: FileArtifact[];
   conversationId?: string | null;
   /** Assistant message id（= turnKey）；有则尝试 A1+ 真 diff。 */
   messageId?: string | null;
+  /** `card` = 产物卡内嵌（顶部分隔）；`panel` = 右坞「改动」tab 段落内。 */
+  variant?: "card" | "panel";
 }) {
   const ws = useConversationWorkspace(conversationId);
   const isLocal = ws?.location === "local" && !!ws.rootId;
@@ -383,10 +386,25 @@ export function TurnFileChangesReview({
     }
   };
 
-  if (artifacts.length === 0 && phase !== "true") return null;
+  if (artifacts.length === 0 && phase !== "true" && phase !== "loading") {
+    if (variant === "panel") {
+      return (
+        <div className="px-3 py-2.5 text-xs text-muted-foreground">
+          暂无工具参数侧预览；若本回合有工作区基线，上方会显示相对基线的改动。
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
-    <div className="space-y-3 border-t border-border bg-muted/20 px-3 py-2.5">
+    <div
+      className={
+        variant === "panel"
+          ? "space-y-3 px-3 py-2.5"
+          : "space-y-3 border-t border-border bg-muted/20 px-3 py-2.5"
+      }
+    >
       {phase === "loading" && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 size={13} className="animate-spin" />

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from agentcore.core.types import AutonomyPolicy, PermissionPreset, ToolEffect
+from agentcore.core.types import AutonomyPolicy, recipe_to_axes, ToolEffect
 from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
 from agentcore.runtime.deep_research_auto import (
     AUTO_DEBATE_SESSION_LIMIT,
@@ -49,21 +49,16 @@ def _valid_card() -> dict:
 
 
 def test_helper_flag_or_full_trust():
+    managed = recipe_to_axes(AutonomyPolicy.MANAGED)
+    write_code = recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+    cautious = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
     assert deep_research_auto_active(deep_research_auto=True) is True
-    assert deep_research_auto_active(autonomy=AutonomyPolicy.FULL_AUTO) is True
-    assert deep_research_auto_active(
-        permission_preset=PermissionPreset.FULL_TRUST
-    ) is True
-    assert deep_research_auto_active(permission_preset="full_trust") is True
+    assert deep_research_auto_active(permission_axes=managed) is True
     assert deep_research_auto_active(
         deep_research_auto=False,
-        autonomy=AutonomyPolicy.FIRST_GRANT,
-        permission_preset=PermissionPreset.WORKSPACE,
+        permission_axes=write_code,
     ) is False
-    assert deep_research_auto_active(
-        autonomy=AutonomyPolicy.ALWAYS_ASK,
-        permission_preset=PermissionPreset.OBSERVE,
-    ) is False
+    assert deep_research_auto_active(permission_axes=cautious) is False
 
 
 def test_helper_may_auto_debate_respects_session_cap():
@@ -79,14 +74,14 @@ def test_helper_may_auto_debate_respects_session_cap():
     )
     assert (
         may_auto_debate(
-            autonomy=AutonomyPolicy.FULL_AUTO,
+            permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
             auto_debate_count=0,
         )
         is True
     )
     assert (
         may_auto_debate(
-            autonomy=AutonomyPolicy.FULL_AUTO,
+            permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
             auto_debate_count=1,
         )
         is False
@@ -155,8 +150,7 @@ def test_format_for_ceo_falls_back_when_over_cap():
 
 def test_format_for_ceo_full_trust_auto_guidance_no_regression_under_cap():
     t = tool(Provider([]))
-    t._autonomy_policy = AutonomyPolicy.FULL_AUTO
-    t._base_tool_context.permission_preset = "full_trust"
+    t._permission_axes = recipe_to_axes(AutonomyPolicy.MANAGED)
     t._base_tool_context.deep_research_auto_debate_count = 0
     plan = RunPlan(nodes=[RunSpec(run_id="w1", task="汇总", role="汇总")])
     results = {
@@ -187,10 +181,12 @@ def _ctx(**kwargs) -> ToolContext:
 
 def _debate_tool(
     *,
-    autonomy: AutonomyPolicy = AutonomyPolicy.FIRST_GRANT,
+    permission_axes=None,
     deep_research_auto: bool = False,
     debate_count: int = 0,
 ) -> tuple[DebateTool, list, EventSink]:
+    if permission_axes is None:
+        permission_axes = recipe_to_axes(AutonomyPolicy.WRITE_CODE)
     registry = InteractionRegistry()
     sink = EventSink()
     saved: list = []
@@ -217,7 +213,7 @@ def _debate_tool(
         message_id="m1",
         suspension_saver=_save,
         suspension_deleter=_drop,
-        autonomy_policy=autonomy,
+        permission_axes=permission_axes,
         registry=registry,
         captain_run_id="ceo",
     )
@@ -286,7 +282,7 @@ async def test_debate_flag_restores_kickoff_over_cap():
 async def test_debate_full_trust_still_skips_over_cap():
     """full_trust 不因计数上限开始挂卡（行为不回归）。"""
     tool, saved, _sink = _debate_tool(
-        autonomy=AutonomyPolicy.FULL_AUTO, debate_count=1
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED), debate_count=1
     )
 
     async def _fake_run(config, usage_metadata):
@@ -307,22 +303,22 @@ async def test_debate_full_trust_still_skips_over_cap():
 def test_flag_does_not_waive_capability_auth_or_plan_kickoff():
     """只放行 debate 开赛卡；能力审批 / 计划半 kickoff 规则不变。"""
     assert needs_capability_auth(
-        local_gate=True, autonomy=AutonomyPolicy.FIRST_GRANT
+        local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
     ) is True
     assert (
         should_kickoff(
             plan_preview=True,
             local_gate=True,
-            autonomy=AutonomyPolicy.FIRST_GRANT,
+            axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
         )
         is True
     )
-    # full_auto 仍全跳（既有行为）
+    # managed 仍全跳（既有 full_trust 行为）
     assert (
         should_kickoff(
             plan_preview=True,
             local_gate=True,
-            autonomy=AutonomyPolicy.FULL_AUTO,
+            axes=recipe_to_axes(AutonomyPolicy.MANAGED),
         )
         is False
     )

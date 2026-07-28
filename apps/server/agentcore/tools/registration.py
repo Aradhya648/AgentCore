@@ -60,14 +60,14 @@ class ToolRegistration:
     ceo_wire: CeoWire = CeoWire.ALWAYS
     # ``code_execute`` stamps description from backend location.
     needs_location: bool = False
-    # L3 team browser (D11): cloud-only + needs a real gVisor isolation boundary
-    # (a browser can't run in a plain subprocess). Gated by ``browser_execution_enabled_for``
-    # ON TOP OF ``execution_class`` (observe withholds the class; gVisor cloud enables it).
+    # L3 team browser (D11 / C1): gated by ``browser_execution_enabled_for`` ON TOP OF
+    # ``execution_class`` — server+gVisor **or** local+DesktopBrowserBridge healthy.
     browser_class: bool = False
-    # Privacy-/catalog-gated tools: listed on the roster + capability catalog, but NOT
+    # Catalog-gated tools: listed on the roster + capability catalog, but NOT
     # auto-registered by ``build_worker_registry``. Callers wire them after the registry
-    # is built when the user gate is on (e.g. ``conversation_history_access`` →
-    # ``_wire_worker_conversation_log_tools``). Same pattern as ``consult_memory``.
+    # is built when the runtime gate is on (e.g. ``conversation_history_access`` →
+    # ``_wire_worker_conversation_log_tools``; product resolve is always on / 定案 A).
+    # Same pattern as ``consult_memory``.
     manual_wire: bool = False
 
 

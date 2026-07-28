@@ -1,7 +1,8 @@
 import { hasLocalFiles } from "@/lib/capabilities";
+import { pickAndGrantReadonlyFolder } from "@/lib/grantReadonlyFolder";
 import { startNewConversation } from "@/lib/newConversation";
 import { chord } from "@/lib/shortcuts";
-import { notifyError } from "@/lib/toast";
+import { notifyError, notifySuccess } from "@/lib/toast";
 import { exportConversation } from "@/services/conversations";
 import {
   type DemoTapeSummary,
@@ -25,12 +26,14 @@ import {
   Download,
   Files,
   FlaskConical,
+  FolderKey,
   FolderPlus,
   HardDrive,
   Info,
   KeyRound,
   Keyboard,
   type LucideIcon,
+  Inbox,
   Mail,
   MessagesSquare,
   Monitor,
@@ -43,6 +46,7 @@ import {
   Share2,
   Sun,
   Terminal,
+  Timer,
   UserCog,
   Workflow,
   Wrench,
@@ -278,6 +282,49 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
         void openCurrentConversationTerminal();
       },
     },
+    ...(hasLocalFiles()
+      ? [
+          {
+            id: "grant-readonly-folder",
+            title: "授权本机目录（只读）",
+            category: "操作" as const,
+            icon: FolderKey,
+            keywords: [
+              "grant",
+              "readonly",
+              "external",
+              "desktop",
+              "folder",
+              "shouquan",
+              "zhuomian",
+              "quwai",
+              "mulu",
+            ],
+            hint: "不改工作区绑定",
+            run: () => {
+              const id = useConversationStore.getState().currentConversationId;
+              if (!id) {
+                notifyError("请先打开一个对话");
+                return;
+              }
+              void pickAndGrantReadonlyFolder(id).then((result) => {
+                if (!result.ok) {
+                  if (result.reason === "cancelled") return;
+                  if (result.reason === "unavailable") {
+                    notifyError("区外目录授权仅桌面端可用");
+                    return;
+                  }
+                  notifyError(result.message);
+                  return;
+                }
+                notifySuccess(`已授权「${result.root.name}」只读`, {
+                  description: `${result.namespace} · 仅本对话、可撤销`,
+                });
+              });
+            },
+          },
+        ]
+      : []),
 
     // ---- 前往 (navigation) ----
     {
@@ -304,6 +351,21 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
       icon: Files,
       keywords: ["files", "workspace", "wenjian", "gongzuoqu"],
       run: go("/files"),
+    },
+    {
+      id: "nav-whiteboard",
+      title: "白板",
+      category: "前往",
+      icon: Palette,
+      keywords: [
+        "whiteboard",
+        "canvas",
+        "board",
+        "baiban",
+        "huaban",
+        "画板",
+      ],
+      run: go("/whiteboard"),
     },
     {
       id: "nav-messages",
@@ -370,6 +432,40 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
       icon: Settings,
       keywords: ["settings", "shezhi", "more"],
       run: go("/more"),
+    },
+    {
+      id: "nav-automations",
+      title: "工具箱 · 自动化",
+      category: "前往",
+      icon: Timer,
+      keywords: [
+        "toolbox",
+        "automations",
+        "standing",
+        "cron",
+        "webhook",
+        "zhanlirenwu",
+        "自动化",
+        "站立",
+        "定时",
+      ],
+      run: go("/toolbox/automations"),
+    },
+    {
+      id: "nav-automations-inbox",
+      title: "工具箱 · 收件箱",
+      category: "前往",
+      icon: Inbox,
+      keywords: [
+        "toolbox",
+        "inbox",
+        "standing",
+        "shoujianxiang",
+        "收件箱",
+        "待拍板",
+        "自动化",
+      ],
+      run: go("/toolbox/automations/inbox"),
     },
     {
       id: "nav-settings-model",

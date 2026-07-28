@@ -1,0 +1,39 @@
+{
+  "id": "r2_v10_extend_slug",
+  "category": "tool_use",
+  "kind": "extend",
+  "phase": "R2",
+  "vendor_id": "V10",
+  "vendor_dir": "zod@e30870369d5b",
+  "language": "typescript",
+  "user_message": "工作区是 zod（v3 pin）。请为 `ZodString` 新增方法 `slug(message?)`：校验 URL slug（小写字母数字，中间可用单个连字符，如 hello-world）。可用现有 `regex` 实现。Windows 友好：harness 会 npm install，再用 ts-jest 跑追加的 GOLDEN 测。不要修改既有 src/__tests__/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "golden_tests": [
+    {
+      "src": "golden/v10_slug_test.ts",
+      "dest": "src/__tests__/agentcore_extend_slug.test.ts"
+    }
+  ],
+  "reference_patch": "seeds/v10_extend_slug.json",
+  "protected_paths": ["src/__tests__"],
+  "test_command": ["node", "node_modules/jest/bin/jest.js", "--config", "./configs/ts-jest.config.json", "src/__tests__/agentcore_extend_slug.test.ts"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["node", "node_modules/jest/bin/jest.js", "--config", "./configs/ts-jest.config.json", "src/__tests__/agentcore_extend_slug.test.ts"],
+        "expected_exit": 0,
+        "timeout_sec": 300
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": {
+        "paths": ["src/__tests__"],
+        "allow_extra": ["src/__tests__/agentcore_extend_slug.test.ts"]
+      }
+    }
+  ]
+}

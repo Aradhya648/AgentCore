@@ -18,7 +18,7 @@ export function fmtCny(yuan: number): string {
 
 /** BYOK estimate caption — always ≈-prefixed; 0 →「—」. */
 export const COST_ESTIMATE_HINT =
-  "按社区价目/自填单价估算，非上游账单";
+  "按社区价目估算，非上游账单";
 
 export function fmtEstimatedCny(yuan: number): string {
   if (yuan <= 0) return "—";

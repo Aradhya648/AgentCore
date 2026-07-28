@@ -481,6 +481,10 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
           questions: f.questions ?? [],
           ...(f.awaiting === "ceo" ? { awaiting: "ceo" as const } : {}),
           ...(f.browserLogin ? { browserLogin: true as const } : {}),
+          ...(f.ownershipPaths && f.ownershipPaths.length > 0
+            ? { ownershipPaths: f.ownershipPaths }
+            : {}),
+          ...(f.lockOwnerRunId ? { lockOwnerRunId: f.lockOwnerRunId } : {}),
         });
       break;
     }

@@ -43,13 +43,13 @@ describe("resolveTurnDisplayMoney", () => {
     ).toEqual({ nano: 15, estimated: true });
   });
 
-  it("treats user_defined run totals as BYOK estimates", () => {
+  it("sums run billed totals when turn cost is absent", () => {
     expect(
       resolveTurnDisplayMoney(null, [
-        { total: 10, pricing_source: "user_defined" },
-        { total: 5, pricing_source: "user_defined" },
+        { total: 10, pricing_source: "curated" },
+        { total: 5, pricing_source: "curated" },
       ]),
-    ).toEqual({ nano: 15, estimated: true });
+    ).toEqual({ nano: 15, estimated: false });
   });
 
   it("returns null when nothing real to show", () => {

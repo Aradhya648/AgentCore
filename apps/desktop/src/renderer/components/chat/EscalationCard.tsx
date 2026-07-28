@@ -21,7 +21,7 @@ import {
   Megaphone,
   Radio,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OrphanedInteractionCard } from "./OrphanedInteractionCard";
 import {
   AskNoteField,
@@ -65,6 +65,20 @@ export function EscalationCard({
         escalation={escalation}
         role={role}
         conversationId={conversationId}
+      />
+    );
+  }
+  // 写权冲突：结构化「移交写权 / 保持原主」（与 browser_login 同属用户直达例外）。
+  if (
+    escalation.status === "pending" &&
+    (escalation.ownershipPaths?.length ?? 0) > 0
+  ) {
+    return (
+      <PendingOwnershipEscalation
+        escalation={escalation}
+        role={role}
+        conversationId={conversationId}
+        interactive={interactive}
       />
     );
   }
@@ -127,6 +141,16 @@ function PendingBrowserLoginEscalation({
     conversationId,
     escalation.id,
   );
+  // pending browserLogin 出现时自动揭示右坞浏览器壳；按 escalation.id 防 StrictMode / 重渲连弹。
+  // 「打开浏览器」按钮仍保留作兜底。
+  const revealedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversationId) return;
+    const key = escalation.id ?? "browser-login";
+    if (revealedFor.current === key) return;
+    revealedFor.current = key;
+    useSidePanelStore.getState().showBrowser();
+  }, [conversationId, escalation.id]);
 
   return (
     <DecisionCard tone="primary" animate>
@@ -145,7 +169,7 @@ function PendingBrowserLoginEscalation({
             <ManualHelpLink to={MANUAL_HELP.control} />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            在直播里完成登录后，点「已登录，继续」
+            在浏览器里完成登录后，点「已登录，继续」
           </p>
           <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
             {escalation.question}
@@ -182,6 +206,115 @@ function PendingBrowserLoginEscalation({
           }
         >
           已登录，继续
+        </Button>
+        <Button
+          variant="neutral"
+          disabled={busy}
+          onClick={() => send({ kind: "use_assumption" })}
+          icon={
+            submitting === "use_assumption" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <ArrowRight size={13} />
+            )
+          }
+        >
+          按假设继续
+        </Button>
+      </div>
+    </DecisionCard>
+  );
+}
+
+function PendingOwnershipEscalation({
+  escalation,
+  role,
+  conversationId,
+  interactive,
+}: {
+  escalation: RunEscalation;
+  role: string;
+  conversationId: string | null;
+  interactive: boolean;
+}) {
+  const { submitting, busy, send } = useEscalationSubmit(
+    conversationId,
+    escalation.id,
+  );
+  const paths = escalation.ownershipPaths ?? [];
+  if (!interactive) {
+    return <DormantEscalation escalation={escalation} role={role} />;
+  }
+  return (
+    <DecisionCard tone="primary" animate>
+      <div className="flex items-start gap-2">
+        <DecisionCardIcon tone="primary">
+          <HelpCircle size={16} />
+        </DecisionCardIcon>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <p className="min-w-0 flex-1 text-xs font-medium text-primary">
+              {role} · 文件写权冲突
+              {escalationKindTag(escalation)
+                ? ` · ${escalationKindTag(escalation)}`
+                : ""}
+            </p>
+            <ManualHelpLink to={MANUAL_HELP.control} />
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            选择是否把下列路径的写权交给升级方
+          </p>
+          <ul className="mt-1.5 list-inside list-disc text-xs text-foreground">
+            {paths.map((p) => (
+              <li key={p} className="font-mono">
+                {p}
+              </li>
+            ))}
+          </ul>
+          {escalation.lockOwnerRunId ? (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              当前写主：`{escalation.lockOwnerRunId}`
+            </p>
+          ) : null}
+          <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
+            {escalation.question}
+          </p>
+          {escalation.assumption ? (
+            <p className="mt-2 rounded-lg bg-card/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+              未答则按此继续：{escalation.assumption}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-6">
+        <Button
+          variant="primary"
+          disabled={busy}
+          onClick={() => send({ kind: "transfer_ownership" })}
+          icon={
+            submitting === "transfer_ownership" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Check size={13} />
+            )
+          }
+        >
+          移交写权
+        </Button>
+        <Button
+          variant="neutral"
+          disabled={busy}
+          onClick={() => send({ kind: "keep_ownership" })}
+          icon={
+            submitting === "keep_ownership" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <ArrowRight size={13} />
+            )
+          }
+        >
+          保持原主
         </Button>
         <Button
           variant="neutral"

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import contextlib
 import time
 
 from agentcore.core.logging import get_logger
-from agentcore.core.types import AutonomyPolicy, PermissionPreset, new_id
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, new_id
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.profiles import TurnProfiles as ProfileSet
 from agentcore.llm.profiles import turn_profiles_for_turn
@@ -65,8 +67,7 @@ async def run_chat_pipeline(
     approvals_enabled: bool = True,
     memory_enabled: bool = True,
     conversation_history_access: bool = True,
-    autonomy_policy: AutonomyPolicy | None = None,
-    permission_preset: PermissionPreset | None = None,
+    permission_axes: PermissionAxes | None = None,
     profile_set: ProfileSet | None = None,
     llm_credentials: LLMCredentials | None = None,
     session_saver: SessionSaver | None = None,
@@ -88,16 +89,14 @@ async def run_chat_pipeline(
     operates on an isolated server sandbox, so — like cloud-mode workers — it needs
     no gate; leaving it on would deadlock every file/exec tool on a timeout-deny.
 
-    ``memory_enabled`` is the user's long-term-memory master switch (resolved by the
-    caller): False injects no memory <rules> this turn (Agent记忆与知识系统 §一).
+    ``memory_enabled`` is a caller-supplied runtime gate (product resolve is always
+    True / 定案 A): False injects no memory <rules> this turn — kept for internal
+    False-path unit tests and durable suspension frames.
 
-    ``autonomy_policy`` is derived from the conversation's ``permission_preset``
-    (安全权限与治理 · 会话级权限模式): observe→always_ask / workspace→first_grant /
-    full_trust→full_auto. Only the capability-auth dimension — plan_review /
-    checkpoint confirmation is unchanged.
-
-    ``permission_preset`` (when set) also gates worker tool registration: observe
-    withholds the execution class (``code_execute`` / ``test_run`` / ``terminal``).
+    ``permission_axes`` is the conversation's three-axis permission mode
+    (安全权限与治理 · 会话级权限): file_write / command / team_kickoff.
+    ask_user / plan_review / circuit-breakers are orthogonal. ``command=ask``
+    withholds the execution class at worker registry.
 
     ``folder_id`` is the conversation's project (None for a bare/global chat): it selects
     the memory SCOPE so a project conversation also gets that project's memory layer
@@ -157,9 +156,13 @@ async def run_chat_pipeline(
         turn_id=message_id,
         trace_id=get_log_value("trace_id"),
         captain_run_id=captain_run_id,
-        # P2: full_trust turns collect tool side-effects even without delegate.
-        delegated=permission_preset is PermissionPreset.FULL_TRUST,
-        permission_preset=(permission_preset.value if permission_preset is not None else None),
+        # P2: managed axes (command=auto ∧ team_kickoff=skip) collect fuller trail.
+        delegated=(
+            permission_axes is not None and permission_axes.implies_deep_research_auto
+        ),
+        permission_preset=(
+            json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
+        ),
     )
     # Session roster write-through (as-built: 成本配额 §三): fire-and-forget on the hot path,
     # flush with audit at turn-end so cross-turn load-on-miss stays durable.
@@ -206,7 +209,7 @@ async def run_chat_pipeline(
             attachments=attachments,
             memory_enabled=memory_enabled,
             conversation_history_access=conversation_history_access,
-            permission_preset=permission_preset,
+            permission_axes=permission_axes,
             llm_credentials=llm_credentials,
             x_client_platform=x_client_platform,
             profiles=profiles,
@@ -229,8 +232,7 @@ async def run_chat_pipeline(
             memory_enabled=memory_enabled,
             conversation_history_access=conversation_history_access,
             approvals_enabled=approvals_enabled,
-            autonomy_policy=autonomy_policy,
-            permission_preset=permission_preset,
+            permission_axes=permission_axes,
             profiles=profiles,
             captain_run_id=captain_run_id,
             message_id=message_id,

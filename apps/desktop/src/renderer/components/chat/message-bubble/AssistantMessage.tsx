@@ -27,6 +27,7 @@ import {
   fileArtifactsFromExecution,
   fileArtifactsFromProcess,
   mergeArtifacts,
+  type FileArtifact,
 } from "@/lib/fileArtifacts";
 import {
   COST_UNPRICED_LABEL,
@@ -56,6 +57,39 @@ import { SyncStatusHint } from "./SyncStatusHint";
 import { ThinkingDots, ThinkingPanel } from "./Thinking";
 import type { MessageBubbleProps } from "./types";
 import { useCopyAction } from "./useCopyAction";
+
+function SingleAgentDeliveryAndFiles({
+  messageId,
+  artifacts,
+  conversationId,
+}: {
+  messageId: string;
+  artifacts: FileArtifact[];
+  conversationId: string | null;
+}) {
+  // 可用性短问可在无 plan 的 CEO 回合复用 delivery_status——单 Agent 路径也要渲染卡。
+  const deliveryStatus = useExecutionStore(
+    (s) => s.byId[messageId]?.deliveryStatus ?? null,
+  );
+  return (
+    <>
+      {deliveryStatus && (
+        <DeliveryStatusCard
+          status={deliveryStatus}
+          conversationId={conversationId}
+          turnKey={messageId}
+        />
+      )}
+      {artifacts.length > 0 && (
+        <FileArtifactsCard
+          artifacts={artifacts}
+          conversationId={conversationId}
+          turnKey={messageId}
+        />
+      )}
+    </>
+  );
+}
 
 function MultiAgentFileArtifacts({
   messageId,
@@ -373,13 +407,11 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
         </div>
       )}
       {message.executionId === null ? (
-        singleAgentArtifacts.length > 0 && (
-          <FileArtifactsCard
-            artifacts={singleAgentArtifacts}
-            conversationId={conversationId}
-            turnKey={projectionId}
-          />
-        )
+        <SingleAgentDeliveryAndFiles
+          messageId={projectionId}
+          artifacts={singleAgentArtifacts}
+          conversationId={conversationId}
+        />
       ) : (
         <MultiAgentFileArtifacts
           messageId={projectionId}

@@ -78,12 +78,13 @@ def test_result_stop_is_terminal_with_closing_text():
     assert "停止" in res.output
 
 
-def test_result_stop_defaults_closing_when_no_note():
+def test_result_stop_empty_closing_when_no_note():
     res = ask_user_tool_result(
         CheckpointResponse(decision=CheckpointDecision.STOP, note="", selected=[])
     )
     assert res.effect is ToolEffect.INTERACT
-    assert res.final_text  # a non-empty default closing, so the bubble is never blank
+    # No canned assistant line — stop status is on the interaction card.
+    assert res.final_text == ""
 
 
 def test_result_adjust_rejected():

@@ -271,5 +271,5 @@ def test_presentation_missing_format_error_mentions_ask_user():
     err = presentation_missing_format_error()
     assert "ask_user" in err
     assert "format_id" in err
-    _ = AutonomyPolicy.FULL_AUTO
+    _ = AutonomyPolicy.MANAGED
     assert "full_auto" in err.lower()

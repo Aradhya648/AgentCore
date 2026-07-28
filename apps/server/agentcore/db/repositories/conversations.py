@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agentcore.core.types import new_id
 from agentcore.db.models import (
     Conversation,
+    ConversationExternalGrant,
     CostEvent,
     Folder,
     MemoryUpdateRow,
@@ -36,7 +37,7 @@ class ConversationRepository:
         folder_id: str | None = None,
         mode: str = "chat",
         local_container_root_id: str | None = None,
-        permission_preset: str | None = None,
+        permission_axes: dict | None = None,
         deep_research_auto: bool | None = None,
     ) -> Conversation:
         # Omit title when not provided so the DB server_default ('') applies.
@@ -64,8 +65,8 @@ class ConversationRepository:
         # chats ignore it (inherit the folder's immutable binding). Auto-promote is vetoed.
         if local_container_root_id is not None:
             conv.local_container_root_id = local_container_root_id
-        if permission_preset is not None:
-            conv.permission_preset = permission_preset
+        if permission_axes is not None:
+            conv.permission_axes = permission_axes
         if deep_research_auto is not None:
             conv.deep_research_auto = bool(deep_research_auto)
         self._session.add(conv)
@@ -73,14 +74,14 @@ class ConversationRepository:
         await self._session.refresh(conv)
         return conv
 
-    async def set_permission_preset(
-        self, conversation_id: str, *, user_id: str, permission_preset: str
+    async def set_permission_axes(
+        self, conversation_id: str, *, user_id: str, permission_axes: dict
     ) -> Conversation | None:
-        """Owner-scoped update of the session permission mode. Returns None if missing."""
+        """Owner-scoped update of the session permission axes. Returns None if missing."""
         conv = await self.get_by_id(conversation_id, user_id=user_id)
         if not conv:
             return None
-        conv.permission_preset = permission_preset
+        conv.permission_axes = permission_axes
         await self._session.commit()
         await self._session.refresh(conv)
         return conv
@@ -209,14 +210,14 @@ class ConversationRepository:
         offset: int = 0,
         archived: bool = False,
     ) -> tuple[Sequence[Conversation], int]:
-        # Hidden handoff-job conversations (双模式工作区 P2e / e2) never show in the
-        # sidebar — they exist only to host a cloud run's messages/cost/journal.
+        # Hidden system conversations never show in the sidebar:
+        # handoff (双模式 P2e/e2) hosts local→云 job runs; standing hosts 站立任务钉对话.
         # ``archived`` selects one side of the archive split: the default (False) is
         # the live list (sidebar / 全部对话), True backs the「已归档」view.
         base_query = select(Conversation).where(
             Conversation.user_id == user_id,
             Conversation.deleted_at.is_(None),
-            Conversation.mode != "handoff",
+            Conversation.mode.notin_(("handoff", "standing")),
             Conversation.archived == archived,
         )
 
@@ -249,7 +250,7 @@ class ConversationRepository:
     ) -> tuple[Sequence[tuple[Conversation, User | None]], int]:
         """Cross-user conversation roster for the admin 对话 page.
 
-        Excludes hidden handoff-host conversations (same as the user sidebar).
+        Excludes hidden handoff/standing host conversations (same as the user sidebar).
         ``include_deleted`` controls soft-deleted conversations; owner identity
         is always joined (tombstone accounts carry ``User.deleted_at``). Filters
         AND-combine: ``query`` ILIKEs title, ``user_id`` scopes to one account,
@@ -268,7 +269,7 @@ class ConversationRepository:
             select(Conversation, User)
             .outerjoin(User, User.user_id == Conversation.user_id)
             .outerjoin(cost_subq, cost_subq.c.conversation_id == Conversation.id)
-            .where(Conversation.mode != "handoff")
+            .where(Conversation.mode.notin_(("handoff", "standing")))
         )
         if not include_deleted:
             base = base.where(Conversation.deleted_at.is_(None))
@@ -346,7 +347,7 @@ class ConversationRepository:
         stmt = select(Conversation).where(
             Conversation.user_id == user_id,
             Conversation.deleted_at.is_(None),
-            Conversation.mode != "handoff",
+            Conversation.mode.notin_(("handoff", "standing")),
         )
         q = (query or "").strip()
         if q:
@@ -563,7 +564,7 @@ class ConversationRepository:
             select(Conversation.id).where(
                 Conversation.user_id == user_id,
                 Conversation.folder_id == folder_id,
-                Conversation.mode != "handoff",
+                Conversation.mode.notin_(("handoff", "standing")),
             )
         )
         return list(result.scalars().all())
@@ -599,6 +600,12 @@ class ConversationRepository:
         # Conversation-tail 记忆已更新 records (keyed by conversation_id, no message FK).
         await self._session.execute(
             delete(MemoryUpdateRow).where(MemoryUpdateRow.conversation_id == conversation_id)
+        )
+        # W3 external grants (conversation-scoped; absolute paths live on desktop only).
+        await self._session.execute(
+            delete(ConversationExternalGrant).where(
+                ConversationExternalGrant.conversation_id == conversation_id
+            )
         )
         # 现场跟随对话：硬删级联清 run_sessions（与 soft_delete 对称）。
         from agentcore.db.repositories.runs import RunSessionRepository
@@ -732,7 +739,7 @@ class ConversationRepository:
                 Conversation.user_id == user_id,
                 Conversation.deleted_at.is_(None),
                 # Hidden handoff-job conversations (P2e / e2) are not sidebar chats.
-                Conversation.mode != "handoff",
+                Conversation.mode.notin_(("handoff", "standing")),
                 # Archived chats are hidden from the live list (归档对话, reversible).
                 Conversation.archived.is_(False),
             )

@@ -1,0 +1,31 @@
+{
+  "id": "r1b_v04_fix_flash",
+  "category": "tool_use",
+  "kind": "fix",
+  "phase": "R1b",
+  "vendor_id": "V04",
+  "vendor_dir": "flask@22d924701a6a",
+  "language": "python",
+  "user_message": "工作区是 flask（src layout）。`flash()` 消息存储异常。请做最小修复，使 `python -m pytest tests/test_basic.py::test_flashes -q` 通过。不要修改 tests/。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v04_break_flash.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_basic.py::test_flashes", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_basic.py::test_flashes", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120,
+        "pythonpath": ["src"]
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": { "paths": ["tests"] }
+    }
+  ]
+}

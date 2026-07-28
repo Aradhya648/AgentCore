@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from agentcore.config import settings
-from agentcore.core.types import AutonomyPolicy
+from agentcore.core.types import PermissionAxes
 
 if TYPE_CHECKING:
     from agentcore.workspace.protocol import WorkspaceBackend
@@ -56,15 +56,15 @@ def execution_tool_auto_passes(
     backend: WorkspaceBackend | None,
     tool_name: str,
     *,
-    autonomy_policy: AutonomyPolicy | None = None,
+    permission_axes: PermissionAxes | None = None,
 ) -> bool:
     """True when an execution-class tool should skip the approval prompt.
 
-    Cloud gVisor → auto-pass (sandbox isolation). ``full_trust`` (AutonomyPolicy.FULL_AUTO)
-    → auto-pass even on local/sidecar — AI runs with user-equivalent power for exec tools.
+    Cloud gVisor → auto-pass (sandbox isolation). ``command=auto`` → auto-pass even
+    on local/sidecar — AI runs with user-equivalent power for exec tools.
     """
     if tool_name not in ("code_execute", "test_run"):
         return False
-    if autonomy_policy is AutonomyPolicy.FULL_AUTO:
+    if permission_axes is not None and permission_axes.auto_executes:
         return True
     return execution_approval_posture(backend) is ExecutionApprovalPosture.AUTO_PASS

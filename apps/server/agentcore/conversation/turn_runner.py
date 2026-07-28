@@ -34,7 +34,6 @@ from agentcore.workspace.protocol import WorkspaceBackend
 
 logger = get_logger(__name__)
 
-
 def session_callbacks(conversation_id: str):
     """The 留人 跨进程落盘 write-through saver + roster-miss loader, or ``(None, None)``.
 
@@ -50,13 +49,11 @@ def session_callbacks(conversation_id: str):
 
     return _persist_session, load_run_session
 
-
 def suspension_callbacks():
     """The 结构化挂起 2b persist-before-wait / drop-after-resolve closures."""
     if not settings.structured_suspension_persist_enabled:
         return None, None
     return save_paused_turn, delete_paused_turn
-
 
 async def run_and_persist(
     *,
@@ -72,8 +69,7 @@ async def run_and_persist(
     profile_set: ProfileSet | None = None,
     memory_enabled: bool = True,
     conversation_history_access: bool = True,
-    autonomy_policy=None,
-    permission_preset=None,
+    permission_axes=None,
     board_id: str | None = None,
     llm_supports_tools: bool | None = None,
     x_client_platform: str | None = None,
@@ -231,8 +227,7 @@ async def run_and_persist(
                         llm_credentials=llm_credentials,
                         memory_enabled=memory_enabled,
                         conversation_history_access=conversation_history_access,
-                        autonomy_policy=autonomy_policy,
-                        permission_preset=permission_preset,
+                        permission_axes=permission_axes,
                         profile_set=profile_set,
                         session_saver=session_saver,
                         session_loader=session_loader,
@@ -245,14 +240,16 @@ async def run_and_persist(
                 except asyncio.CancelledError:
                     # User /stop + lifespan shutdown = terminal incomplete + release.
                     # True hard kill (no lifespan salvage) = orphan for sweeper.
+                    # Close success → release; close failure/skip → orphan (never
+                    # leave a lease-less RUNNING row).
                     if turn_runs.is_clean_cancel(conversation_id):
-                        release_lease_clean = True
-                        await close_user_stop_turn(
+                        closed = await close_user_stop_turn(
                             sink=sink,
                             conversation_id=conversation_id,
                             trace_id=trace_id,
                             message_id=message_id,
                         )
+                        release_lease_clean = bool(closed)
                     else:
                         release_lease_clean = False
                     raise

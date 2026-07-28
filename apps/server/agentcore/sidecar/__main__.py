@@ -11,9 +11,10 @@ matter here and are set up before anything else:
 2. **UTF-8 both ways.** Windows consoles default to a legacy code page; the streams
    are reconfigured to UTF-8 so non-ASCII content round-trips.
 
-stdin is read line-by-line on a worker thread (``asyncio.to_thread``) so the read
-never blocks the event loop — ``respond`` / ``cancel`` stay serviceable while a
-turn streams.
+Both stdin reads and stdout write+flush run on a worker thread
+(``asyncio.to_thread``) so a blocked pipe never freezes the event loop —
+``respond`` / ``cancel`` stay serviceable while a turn streams. (A sync
+write/flush on a full Windows pipe would otherwise stall the loop mid-turn.)
 """
 
 from __future__ import annotations
@@ -53,10 +54,15 @@ async def _serve(real_stdout: TextIO) -> None:
     async def write_line(line: str) -> None:
         # One writer at a time: turn-event notifications and method responses are
         # produced by concurrent tasks, and an interleaved write would corrupt a
-        # frame. The write+flush is brief, so holding the lock around it is fine.
+        # frame. write+flush goes to a worker thread (stdin already does) so a
+        # blocked pipe cannot freeze the event loop.
         async with write_lock:
-            real_stdout.write(line)
-            real_stdout.flush()
+
+            def _write_and_flush() -> None:
+                real_stdout.write(line)
+                real_stdout.flush()
+
+            await asyncio.to_thread(_write_and_flush)
 
     server = SidecarServer(write_line)
     logger.info("sidecar.ready")

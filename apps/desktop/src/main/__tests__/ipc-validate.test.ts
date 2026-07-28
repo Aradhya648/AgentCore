@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   IpcInvalidArgsError,
   assertShape,
+  ipcInvalidArgsLogFields,
   isRecord,
   requireStringFields,
 } from "../ipc-validate";
@@ -71,10 +72,19 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
       ).not.toThrow();
     });
 
-    it("可选 string 存在但非 string 时抛 IpcInvalidArgsError", () => {
+    it("可选 string 存在但非 string 时抛 IpcInvalidArgsError 并点名字段", () => {
       expect(() =>
         assertShape("c", { rootId: "r", subpath: 5 }, ["rootId"], ["subpath"]),
       ).toThrow(IpcInvalidArgsError);
+      try {
+        assertShape("c", { rootId: "r", subpath: 5 }, ["rootId"], ["subpath"]);
+      } catch (err) {
+        expect(err).toBeInstanceOf(IpcInvalidArgsError);
+        const e = err as IpcInvalidArgsError;
+        expect(e.field).toBe("subpath");
+        expect(e.expected).toBe("string");
+        expect(e.message).toMatch(/subpath/);
+      }
     });
 
     it("必需键缺失 / 非对象时抛 IpcInvalidArgsError", () => {
@@ -86,10 +96,121 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
       );
     });
 
-    it("错误信息含通道名，便于排查", () => {
+    it("错误信息含通道名与字段，便于排查", () => {
       expect(() => assertShape("sidecar:startTurn", {}, ["rootId"])).toThrow(
-        /sidecar:startTurn/,
+        /sidecar:startTurn.*rootId/,
       );
+    });
+
+    it("未列入 optionalStrings 的对象载荷（permissionAxes）不拦合法 startTurn", () => {
+      // 回归：三轴权限迁到对象后，曾误把 permissionAxes 塞进 optionalStrings，
+      // 导致每次本地回合 IPC 边界拒掉。寻址 string 校验 + 对象载荷透传才是正确姿态。
+      const startTurnRequired = [
+        "rootId",
+        "conversationId",
+        "turnId",
+        "traceId",
+        "userMessage",
+        "userMessageId",
+      ] as const;
+      const startTurnOptionalStrings = ["subpath", "permissionPreset"] as const;
+      expect(() =>
+        assertShape(
+          "sidecar:startTurn",
+          {
+            rootId: "r",
+            conversationId: "c",
+            turnId: "t",
+            traceId: "a".repeat(32),
+            userMessage: "hi",
+            userMessageId: "u",
+            subpath: "scratch",
+            permissionAxes: {
+              file_write: "session",
+              command: "kickoff",
+              team_kickoff: "rules",
+            },
+          },
+          startTurnRequired,
+          startTurnOptionalStrings,
+        ),
+      ).not.toThrow();
+    });
+
+    it("resume 同构：permissionAxes 对象 + 可选 string 并存时放行", () => {
+      const resumeRequired = [
+        "rootId",
+        "conversationId",
+        "messageId",
+        "traceId",
+        "decision",
+        "note",
+      ] as const;
+      const resumeOptionalStrings = [
+        "subpath",
+        "userMessageId",
+        "permissionPreset",
+      ] as const;
+      expect(() =>
+        assertShape(
+          "sidecar:resume",
+          {
+            rootId: "r",
+            conversationId: "c",
+            messageId: "m",
+            traceId: "b".repeat(32),
+            decision: "continue",
+            note: "",
+            userMessageId: "u",
+            permissionAxes: {
+              file_write: "ask",
+              command: "auto",
+              team_kickoff: "skip",
+            },
+          },
+          resumeRequired,
+          resumeOptionalStrings,
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  describe("ipcInvalidArgsLogFields（sidecar.ipc_invalid_args 载荷）", () => {
+    it("抽出 channel / field / expected 与寻址 id，不落正文", () => {
+      const err = new IpcInvalidArgsError(
+        "sidecar:startTurn",
+        "permissionAxes",
+        "string",
+      );
+      expect(
+        ipcInvalidArgsLogFields(err, {
+          rootId: "root-1",
+          conversationId: "conv-1",
+          userMessage: "secret body must not appear as a dedicated field",
+          permissionAxes: { file_write: "session" },
+        }),
+      ).toEqual({
+        channel: "sidecar:startTurn",
+        field: "permissionAxes",
+        expected: "string",
+        conversation_id: "conv-1",
+        root_id: "root-1",
+      });
+    });
+
+    it("payload 非对象时仍给出 channel 字段", () => {
+      const err = new IpcInvalidArgsError(
+        "sidecar:probe",
+        "(payload)",
+        "object",
+      );
+      expect(ipcInvalidArgsLogFields(err, null)).toEqual({
+        channel: "sidecar:probe",
+        field: "(payload)",
+        expected: "object",
+        conversation_id: undefined,
+        root_id: undefined,
+      });
     });
   });
 });

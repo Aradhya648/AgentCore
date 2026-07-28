@@ -234,7 +234,7 @@ function DraftChip() {
                 <DraftRow
                   icon={<HardDrive size={14} />}
                   label="本机草稿"
-                  hint="落本机容器，走本地引擎"
+                  hint="落本机容器；本机执行更快，推理需联网"
                   selected={intent.kind === "quick_local"}
                   onClick={pickQuickLocal}
                 />

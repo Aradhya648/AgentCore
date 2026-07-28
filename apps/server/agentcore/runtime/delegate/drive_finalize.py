@@ -302,7 +302,34 @@ async def finalize_successful_drive(
         ),
     )
     criteria = resolved.criteria
-    criteria_ok, gaps = check_delegate_completion(criteria, results)
+    # Preload source texts for graph_consistent (async backend.read).
+    file_map: dict[str, str] = {}
+    backend = tool._base_tool_context.backend
+    if backend is not None:
+        from agentcore.runtime.delegate.completion import (
+            _batch_landed_graph_sources,
+            _collect_graph_source_paths,
+        )
+        from agentcore.runtime.delegate.graph_integrity import load_source_file_map
+        from agentcore.runtime.runs import RunPhase as _RunPhase
+
+        completed = [
+            s for s in results.values() if s.phase is _RunPhase.COMPLETED
+        ]
+        need_graph = (
+            (criteria is not None and criteria.kind == "graph_consistent")
+            or (
+                (criteria is None or criteria.kind != "runtime_ready")
+                and _batch_landed_graph_sources(completed)
+            )
+        )
+        if need_graph:
+            file_map = await load_source_file_map(
+                backend, _collect_graph_source_paths(completed)
+            )
+    criteria_ok, gaps = check_delegate_completion(
+        criteria, results, backend=backend, file_map=file_map or None
+    )
     if not criteria_ok:
         delivered = collect_delivered_files(results)
         kind_for_fp = criteria.kind if criteria is not None else "typescript_verify"

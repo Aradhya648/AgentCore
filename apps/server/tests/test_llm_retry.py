@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from agentcore.core.errors import LLMError, LLMTimeoutError, LLMUpstreamError
+from agentcore.core.errors import LLMError, LLMRateLimitError, LLMTimeoutError, LLMUpstreamError
 from agentcore.llm.errors import is_non_retryable_client_status, is_retryable_upstream_status
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
 from agentcore.llm.provider.openai_compatible import (
@@ -19,6 +19,7 @@ from agentcore.llm.provider.openai_compatible import (
     _MAX_RETRY_AFTER,
     OpenAICompatibleProvider,
     _parse_retry_after,
+    _rate_limit_should_retry,
     _retry_wait,
 )
 from agentcore.llm.provider.protocol import (
@@ -348,20 +349,23 @@ def test_parse_retry_after_http_date():
 
 
 def test_retry_wait_honors_small_retry_after_and_ignores_absurd():
-    # Interactive budgets (title 20s / followups 15s): honor modest Retry-After,
-    # but a spurious 3600 must not become wait_sec (e80c6f99 title.timeout case).
+    # Interactive budgets: honor modest Retry-After; absurd values must not
+    # become wait_sec if somehow slept (helper still clamps), and must refuse retry.
     assert _retry_wait(5.0, 2.0) == (5.0, 5.0)
     assert _retry_wait(None, 2.0) == (2.0, None)
     wait, raw = _retry_wait(3600.0, 2.0)
     assert raw == 3600.0
     assert wait == 2.0
     assert wait <= _MAX_RETRY_AFTER
-    # Exactly at the cap is still honored.
     assert _retry_wait(_MAX_RETRY_AFTER, 2.0) == (_MAX_RETRY_AFTER, _MAX_RETRY_AFTER)
+    assert _rate_limit_should_retry(5.0) is True
+    assert _rate_limit_should_retry(None) is True
+    assert _rate_limit_should_retry(_MAX_RETRY_AFTER) is True
+    assert _rate_limit_should_retry(3600.0) is False
 
 
-async def test_complete_rate_limit_absurd_retry_after_uses_backoff(monkeypatch):
-    """Retry-After: 3600 → sleep backoff, not an hour (log wait_sec ≠ raw header)."""
+async def test_complete_rate_limit_absurd_retry_after_fails_immediately(monkeypatch):
+    """Retry-After: 3600 → no blind backoff chain; raise on first 429."""
     calls = {"n": 0}
     sleeps: list[float] = []
 
@@ -372,20 +376,19 @@ async def test_complete_rate_limit_absurd_retry_after_uses_backoff(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls["n"] += 1
-        if calls["n"] == 1:
-            return httpx.Response(
-                429,
-                headers={"retry-after": "3600"},
-                content=b'{"error":"rate_limited"}',
-            )
-        return httpx.Response(200, json=_ok_body())
+        return httpx.Response(
+            429,
+            headers={"retry-after": "3600"},
+            content=b'{"error":"rate_limited"}',
+        )
 
     provider = await _mock_provider(handler)
     try:
-        result = await provider.complete(_req())
-        assert result.content == "ok"
-        assert calls["n"] == 2
-        assert sleeps == [_INITIAL_BACKOFF]
+        with pytest.raises(LLMRateLimitError) as ei:
+            await provider.complete(_req())
+        assert ei.value.retry_after == 3600.0
+        assert calls["n"] == 1
+        assert sleeps == []
     finally:
         await provider.close()
 

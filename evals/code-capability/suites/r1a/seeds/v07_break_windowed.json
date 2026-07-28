@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: windowed() 首窗取 n-1 个元素，使 WindowedTests 失败。",
+  "replacements": [
+    {
+      "path": "more_itertools/more.py",
+      "old": "    # Generate first window\n    window = deque(islice(iterator, n), maxlen=n)\n",
+      "new": "    # R1a seed_patch: first window short by one\n    window = deque(islice(iterator, n - 1 if n > 1 else n), maxlen=n)\n"
+    }
+  ]
+}

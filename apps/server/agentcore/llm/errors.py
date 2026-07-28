@@ -245,20 +245,32 @@ def is_non_retryable_client_status(status: int) -> bool:
     return status in (400, 401, 402, 403)
 
 
-def error_context_from(exc: BaseException) -> dict[str, int | str | None] | None:
+def error_context_from(exc: BaseException) -> dict[str, int | str | float | None] | None:
     """Extract LLM upstream context for SSE / API payloads."""
     if not isinstance(exc, AgentCoreError):
         return None
+    from agentcore.core.errors import LLMRateLimitError
+
     status = exc.details.get("upstream_status")
-    if status is None:
+    retry_after = exc.details.get("retry_after")
+    if isinstance(exc, LLMRateLimitError) and retry_after is None:
+        retry_after = getattr(exc, "retry_after", None)
+
+    if status is None and retry_after is None and not isinstance(exc, LLMRateLimitError):
         return None
-    ctx: dict[str, int | str | None] = {
-        "upstream_status": status,
-        "upstream_body_preview": exc.details.get("upstream_body_preview"),
-        "retry_attempts": exc.details.get("retry_attempts", 0),
-    }
+
+    ctx: dict[str, int | str | float | None] = {}
+    if status is not None:
+        ctx["upstream_status"] = status
+        ctx["upstream_body_preview"] = exc.details.get("upstream_body_preview")
+        ctx["retry_attempts"] = exc.details.get("retry_attempts", 0)
+    if retry_after is not None:
+        try:
+            ctx["retry_after"] = float(retry_after)
+        except (TypeError, ValueError):
+            pass
     if exc.details.get("sub2api_diagnosis"):
         ctx["sub2api_diagnosis"] = exc.details["sub2api_diagnosis"]
     if exc.details.get("sub2api_account"):
         ctx["sub2api_account"] = exc.details["sub2api_account"]
-    return ctx
+    return ctx or None

@@ -378,18 +378,6 @@
   border-radius: 10px;
 }
 
-.mem-toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.mem-toggle-state {
-  font-size: 14px;
-  color: var(--fg);
-}
-
 .mem-topic + .mem-topic {
   border-top: 1px solid var(--border);
 }

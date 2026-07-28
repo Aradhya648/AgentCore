@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: dump() 恒返回空串（纯 Python lib/；不依赖 C 扩展编译）。",
+  "replacements": [
+    {
+      "path": "lib/yaml/__init__.py",
+      "old": "def dump(data, stream=None, Dumper=Dumper, **kwds):\n    \"\"\"\n    Serialize a Python object into a YAML stream.\n    If stream is None, return the produced string instead.\n    \"\"\"\n    return dump_all([data], stream, Dumper=Dumper, **kwds)\n",
+      "new": "def dump(data, stream=None, Dumper=Dumper, **kwds):\n    \"\"\"\n    Serialize a Python object into a YAML stream.\n    If stream is None, return the produced string instead.\n    \"\"\"\n    # R1b seed_patch: dump always empty\n    return \"\"\n"
+    }
+  ]
+}

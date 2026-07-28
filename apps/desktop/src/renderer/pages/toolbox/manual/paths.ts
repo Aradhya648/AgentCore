@@ -4,8 +4,13 @@
  */
 
 export const APP_PATHS = {
+  files: "/files",
   toolbox: {
     tools: "/toolbox/tools",
+    automations: {
+      root: "/toolbox/automations",
+      inbox: "/toolbox/automations/inbox",
+    },
     manual: {
       root: "/toolbox/manual",
       intro: "/toolbox/manual/intro",
@@ -17,7 +22,6 @@ export const APP_PATHS = {
   more: {
     model: "/more/model",
     providers: "/more/providers",
-    memory: "/more/memory",
     autonomy: "/more/autonomy",
     usage: "/more/usage",
     appearance: "/more/appearance",

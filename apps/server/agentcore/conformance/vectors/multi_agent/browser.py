@@ -1,12 +1,15 @@
-"""Conformance vector — L3 团队浏览器 (M0) worker browser session.
+"""Conformance vector — browser (worker browser_* + login escalate).
 
-A worker drives the six-tool browser surface (navigate → snapshot → click →
-screenshot). Each ``tool_use_end`` carries the shared ``display`` contract
+A worker drives the browser surface (navigate → snapshot → click → screenshot).
+Each ``tool_use_end`` carries the shared ``display`` contract
 (``kind:"browser"`` + action/url/title/detail/frame) — DURABLE, so it folds into
 that run's ``process`` and the desktop/mobile activity card rebuilds verbatim on
 reload/journal replay. Pins: worker browser tool steps carry ``display`` into
 ``run.process`` (not the CEO bubble); state-changing steps + screenshot carry a
 key-frame ``frame`` (``browser/step-NNNN.jpg``), the read-only snapshot does not.
+
+A second scene stops after browser steps at a pending ``escalation_required`` with
+``browser_login=true`` (for shoot / EscalationCard auto-reveal).
 
 See ``vectors/__init__.py`` for the aggregated ``VECTORS`` registry.
 """
@@ -17,6 +20,7 @@ from agentcore.runtime.events import (
     FinishReason,
     SSEEvent,
     content_delta,
+    escalation_required,
     message_end,
     message_start,
     run_completed,
@@ -30,11 +34,14 @@ from agentcore.runtime.events import (
 from .._common import _CONV, _COST, _USAGE
 
 _SITE = "https://example.com/"
+_LOGIN_SITE = "https://example.com/login"
+_LOGIN_Q = "目标站点需要登录才能继续调研，请你在浏览器里完成登录。"
+_LOGIN_A = "用户已登录，继续抓取"
 
 
-def _bd(action: str, *, title: str = "", detail: str = "", frame: str = "") -> dict:
+def _bd(action: str, *, title: str = "", detail: str = "", frame: str = "", url: str = _SITE) -> dict:
     """One browser step's DURABLE display (shared frontend contract; field names fixed)."""
-    d: dict = {"kind": "browser", "action": action, "url": _SITE}
+    d: dict = {"kind": "browser", "action": action, "url": url}
     if title:
         d["title"] = title
     if detail:
@@ -44,7 +51,8 @@ def _bd(action: str, *, title: str = "", detail: str = "", frame: str = "") -> d
     return d
 
 
-def _multi_agent_browser_session() -> list[SSEEvent]:
+def _browser_worker_prefix() -> list[SSEEvent]:
+    """Shared lead-in: delegate + run_plan + navigate/snapshot (worker r1)."""
     agents = [
         {
             "id": "w1",
@@ -90,6 +98,12 @@ def _multi_agent_browser_session() -> list[SSEEvent]:
             display=_bd("snapshot", title="Example Domain", detail="读取页面结构（v1）"),
             run_id="r1",
         ),
+    ]
+
+
+def _multi_agent_browser_session() -> list[SSEEvent]:
+    return [
+        *_browser_worker_prefix(),
         # click → 关键帧 step-0002
         tool_use_start("b3", "browser_click", {"ref": "e1", "snapshot_version": 1}, run_id="r1"),
         tool_use_end(
@@ -126,4 +140,54 @@ def _multi_agent_browser_session() -> list[SSEEvent]:
         tool_use_end("dc1", "delegate", success=True, output="团队完成浏览器调研。"),
         content_delta(" 调研员已实地查看并记录关键帧。"),
         message_end(FinishReason.END_TURN, input_tokens=3200, output_tokens=520, cost=_COST),
+    ]
+
+
+def _multi_agent_browser_login_pending() -> list[SSEEvent]:
+    """Worker 浏览器后撞登录墙 → pending ``escalation_required(browser_login=true)``。
+
+    流到此为止（无 resolve / message_end），供 shoot 看 EscalationCard「需要你登录」+
+    自动揭示右坞浏览器壳。前置 navigate→login 页 + snapshot，保证活动卡/直播入口也有素材。
+    """
+    return [
+        *_browser_worker_prefix(),
+        # 点进登录页 → 关键帧
+        tool_use_start("b3", "browser_click", {"ref": "e-login", "snapshot_version": 1}, run_id="r1"),
+        tool_use_end(
+            "b3",
+            "browser_click",
+            success=True,
+            output='{"action":"click","final_url":"https://example.com/login"}',
+            display=_bd(
+                "click",
+                title="Sign in",
+                detail="点击登录入口",
+                frame="browser/step-0002.jpg",
+                url=_LOGIN_SITE,
+            ),
+            run_id="r1",
+        ),
+        tool_use_start("b4", "browser_snapshot", {}, run_id="r1"),
+        tool_use_end(
+            "b4",
+            "browser_snapshot",
+            success=True,
+            output='{"action":"snapshot","snapshot_version":2,"untrusted_web_content":{"source_url":"https://example.com/login"}}',
+            display=_bd(
+                "snapshot",
+                title="Sign in",
+                detail="读取登录页结构（v2）",
+                url=_LOGIN_SITE,
+            ),
+            run_id="r1",
+        ),
+        # 阻塞挂起：browser_login=true → 桌面 EscalationCard 登录卡 + 自动 reveal 浏览器壳
+        escalation_required(
+            "r1",
+            "w1",
+            escalation_id="esc-browser-login",
+            question=_LOGIN_Q,
+            assumption=_LOGIN_A,
+            browser_login=True,
+        ),
     ]

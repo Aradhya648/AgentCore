@@ -6,26 +6,26 @@ from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
 from agentcore.db.base import telemetry_session_factory
 from agentcore.db.repositories import AgentAuditEventRepository
-from agentcore.runtime.audit.projector import project_permission_preset_changed
+from agentcore.runtime.audit.projector import project_permission_axes_changed
 
 logger = get_logger(__name__)
 
 
-async def record_permission_preset_change(
+async def record_permission_axes_change(
     *,
     user_id: str,
     conversation_id: str,
-    previous: str,
-    next_preset: str,
+    previous: dict,
+    next_axes: dict,
 ) -> None:
-    """Best-effort append of a permission.preset_changed row (category=permission).
+    """Best-effort append of a permission.axes_changed row (category=permission).
 
     Uses ``conversation_id`` as the synthetic ``turn_id`` so the security ledger
     can list mode switches alongside turn audits without a schema change.
     """
-    if previous == next_preset:
+    if previous == next_axes:
         return
-    draft = project_permission_preset_changed(previous=previous, next_preset=next_preset)
+    draft = project_permission_axes_changed(previous=previous, next_axes=next_axes)
     try:
         async with telemetry_session_factory() as db:
             repo = AgentAuditEventRepository(db)
@@ -49,8 +49,12 @@ async def record_permission_preset_change(
             )
     except Exception as e:  # noqa: BLE001 — never block the permission API
         logger.warning(
-            "audit.permission_preset_change_failed",
+            "audit.permission_axes_change_failed",
             conversation_id=conversation_id,
             error=str(e),
             event_id=new_id(),
         )
+
+
+# Back-compat alias
+record_permission_preset_change = record_permission_axes_change

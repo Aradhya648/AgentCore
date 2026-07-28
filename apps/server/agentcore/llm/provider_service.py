@@ -34,7 +34,6 @@ from agentcore.db.repositories import (
 )
 from agentcore.llm.factory import build_provider
 from agentcore.llm.model_profiles import ProfileSlot
-from agentcore.llm.pricing import parse_user_prices
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
 from agentcore.llm.resolve import resolve_provider_credentials
 from agentcore.security.keys import KeyEncryptor
@@ -53,9 +52,6 @@ class LlmProviderView:
     status: str
     masked_key: str | None = None
     supports_tools: bool | None = None
-    price_cache_hit: str | None = None
-    price_cache_miss: str | None = None
-    price_output: str | None = None
     message: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -87,21 +83,6 @@ def _mask_key(api_key: str) -> str:
     if len(api_key) <= 4:
         return "••••"
     return f"••••{api_key[-4:]}"
-
-
-def _validate_price_card(
-    price_cache_hit: str | None,
-    price_cache_miss: str | None,
-    price_output: str | None,
-) -> None:
-    price_fields = (price_cache_hit, price_cache_miss, price_output)
-    has_core = all(p and str(p).strip() for p in (price_cache_miss, price_output))
-    if any(price_fields) and not has_core:
-        raise ValidationError("单价须至少填写输入与输出两项（缓存命中价可选），或全部留空")
-    if has_core and parse_user_prices(
-        cache_hit=price_cache_hit, cache_miss=price_cache_miss, output=price_output
-    ) is None:
-        raise ValidationError("单价须为非负十进制数字（USD per 1M tokens）")
 
 
 class LlmProviderService:
@@ -137,9 +118,6 @@ class LlmProviderService:
             status=row.status,
             masked_key=_mask_key_ciphertext(enc, row.api_key_enc),
             supports_tools=row.supports_tools,
-            price_cache_hit=row.price_cache_hit,
-            price_cache_miss=row.price_cache_miss,
-            price_output=row.price_output,
             message=message,
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -171,9 +149,6 @@ class LlmProviderService:
         api_key: str,
         base_url: str | None = None,
         default_model: str | None = None,
-        price_cache_hit: str | None = None,
-        price_cache_miss: str | None = None,
-        price_output: str | None = None,
     ) -> LlmProviderView:
         """Add a provider. First provider auto-creates a「当前配置」profile as default."""
         api_key = (api_key or "").strip()
@@ -190,7 +165,6 @@ class LlmProviderService:
         resolved_model = (default_model or DEEPSEEK_V4_FLASH).strip()
         if not resolved_model:
             raise ValidationError("模型名称不能为空")
-        _validate_price_card(price_cache_hit, price_cache_miss, price_output)
 
         was_empty = (await self._repo.count_for_user(user_id)) == 0
         row = await self._repo.create(
@@ -199,9 +173,6 @@ class LlmProviderService:
             api_key_enc=enc.encrypt(api_key.encode()),
             base_url=resolved_base_url,
             default_model=resolved_model,
-            price_cache_hit=(price_cache_hit.strip() if price_cache_hit else None),
-            price_cache_miss=(price_cache_miss.strip() if price_cache_miss else None),
-            price_output=(price_output.strip() if price_output else None),
         )
         if was_empty:
             from agentcore.llm.model_profiles import LlmModelProfileService
@@ -225,9 +196,6 @@ class LlmProviderService:
         api_key: str | None = None,
         base_url: str | None = None,
         default_model: str | None = None,
-        price_cache_hit: str | None = None,
-        price_cache_miss: str | None = None,
-        price_output: str | None = None,
         fields_set: set[str],
     ) -> LlmProviderView:
         existing = await self._repo.get(provider_id, user_id=user_id)
@@ -254,16 +222,6 @@ class LlmProviderService:
             if not resolved_model:
                 raise ValidationError("模型名称不能为空")
             kwargs["default_model"] = resolved_model
-        price_touched = {"price_cache_hit", "price_cache_miss", "price_output"} & fields_set
-        if price_touched:
-            _validate_price_card(price_cache_hit, price_cache_miss, price_output)
-            kwargs["price_cache_hit"] = (
-                price_cache_hit.strip() if price_cache_hit else None
-            )
-            kwargs["price_cache_miss"] = (
-                price_cache_miss.strip() if price_cache_miss else None
-            )
-            kwargs["price_output"] = price_output.strip() if price_output else None
 
         row = await self._repo.update(provider_id, user_id=user_id, **kwargs)  # type: ignore[arg-type]
         assert row is not None

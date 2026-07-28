@@ -1,0 +1,40 @@
+{
+  "id": "r2_v01_extend_clamp",
+  "category": "tool_use",
+  "kind": "extend",
+  "phase": "R2",
+  "vendor_id": "V01",
+  "vendor_dir": "click@b2e30a175449",
+  "language": "python",
+  "user_message": "工作区是 click（src layout）。请新增公开 API `click.clamp(value, min_value, max_value) -> float`：把数值钳到闭区间；若 min_value > max_value 则 raise ValueError。实现放在 `src/click/utils.py` 并在 `__init__.py` 导出。不要修改既有 tests/；评测会追加 GOLDEN 测。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "golden_tests": [
+    {
+      "src": "golden/v01_clamp_test.py",
+      "dest": "tests/test_agentcore_extend_clamp.py"
+    }
+  ],
+  "reference_patch": "seeds/v01_extend_clamp.json",
+  "protected_paths": ["tests"],
+  "test_command": ["python", "-m", "pytest", "tests/test_agentcore_extend_clamp.py", "-q"],
+  "checks": [
+    {
+      "name": "TestExitCode",
+      "args": {
+        "command": ["python", "-m", "pytest", "tests/test_agentcore_extend_clamp.py", "-q"],
+        "expected_exit": 0,
+        "timeout_sec": 120,
+        "pythonpath": ["src"]
+      }
+    },
+    {
+      "name": "TestsUnchanged",
+      "args": {
+        "paths": ["tests"],
+        "allow_extra": ["tests/test_agentcore_extend_clamp.py"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1b: safe_load() 恒返回 None（纯 Python lib/；Windows 可读码定位）。",
+  "replacements": [
+    {
+      "path": "lib/yaml/__init__.py",
+      "old": "def safe_load(stream):\n    \"\"\"\n    Parse the first YAML document in a stream\n    and produce the corresponding Python object.\n\n    Resolve only basic YAML tags. This is known\n    to be safe for untrusted input.\n    \"\"\"\n    return load(stream, SafeLoader)\n",
+      "new": "def safe_load(stream):\n    \"\"\"\n    Parse the first YAML document in a stream\n    and produce the corresponding Python object.\n\n    Resolve only basic YAML tags. This is known\n    to be safe for untrusted input.\n    \"\"\"\n    # R1b seed_patch: safe_load always None\n    return None\n"
+    }
+  ]
+}

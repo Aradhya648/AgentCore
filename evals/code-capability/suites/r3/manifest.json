@@ -1,0 +1,19 @@
+{
+  "phase": "R3",
+  "description": "Collab 多 Agent：V01 click · V07 more-itertools；各 ≥2 卡；复用 R1a Fix seed；硬=测绿，软=run_plan/worker 落盘诊断",
+  "vendors": ["V01", "V07"],
+  "tasks": [
+    "v01_collab_fix_int.json",
+    "v01_collab_fix_bool.json",
+    "v07_collab_fix_chunked.json",
+    "v07_collab_fix_first.json"
+  ],
+  "control": "evals/code-capability/r3_control.py --mode matrix",
+  "report": "evals/code-capability/reports/r3_baseline_latest.json",
+  "notes": [
+    "独立 Collab 卡指向 ../r1a/seeds（既有 Fix seed，不改 vendor）",
+    "题面强制/诱导 delegate；path=team · toolset=ceo",
+    "hard_accept = 无 LLM fixed/broken 对照矩阵；collab_diagnostics 软维度不进门",
+    "LLM 烟感默认 pending；有 EVAL_DEEPSEEK_API_KEY 时可 --llm-smoke 抽 1 卡"
+  ]
+}

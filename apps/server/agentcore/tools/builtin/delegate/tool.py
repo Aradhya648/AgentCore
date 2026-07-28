@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 from agentcore.core.logging import get_logger
 from agentcore.core.text import clip_preview
 from agentcore.core.types import (
-    AutonomyPolicy,
+    DEFAULT_PERMISSION_AXES,
+    PermissionAxes,
     ToolApproval,
     ToolCategory,
     ToolEffect,
@@ -153,7 +154,7 @@ class DelegateTool:
         folder_id: str | None = None,
         memory_enabled: bool = True,
         conversation_history_access: bool = True,
-        autonomy_policy: AutonomyPolicy | None = None,
+        permission_axes: PermissionAxes | None = None,
         depth: int = 0,
     ) -> None:
         self._llm = llm
@@ -166,7 +167,7 @@ class DelegateTool:
         self._profile_set = profile_set or default_profile_set()
         self._max_parallel = max_parallel
         self._approval_gate = approval_gate
-        self._autonomy_policy = autonomy_policy or AutonomyPolicy.FIRST_GRANT
+        self._permission_axes = permission_axes or DEFAULT_PERMISSION_AXES
         self._auto_grant_pending = False
         self._captain_run_id = captain_run_id
         self._session_store = session_store
@@ -184,8 +185,8 @@ class DelegateTool:
         # into the frame — the resumed toolset re-wires consult_memory to the same project
         # (Agent记忆与知识系统 §二). Not used by the delegate drive itself.
         self._folder_id = folder_id
-        # Same capture-only role: the memory master switch rides the frame so resume re-wires
-        # consult_memory exactly as this turn did (off ⇒ stays off).
+        # Same capture-only role: the memory gate rides the frame so resume re-wires
+        # consult_memory exactly as this turn did (False ⇒ stays off).
         self._memory_enabled = memory_enabled
         self._conversation_history_access = conversation_history_access
         self._children: list[DelegateTool] = []
@@ -315,10 +316,61 @@ class DelegateTool:
                 contract_failure=True,
             )
 
+        # Agent/自动化开工形态双闸（对齐演讲）：意图命中须有 format 记账；无账拒任意 delegate。
+        # 须先于 playbook 声明闸，以便把记账传入 toolshed/website 禁令。
+        automation_delivery_warning: str | None = None
+        automation_conf = None
+        from agentcore.runtime.runs.automation_delivery import (
+            automation_intent_from_parts,
+            automation_missing_delivery_error,
+            automation_runnable_no_exec_soft_tip,
+            ensure_full_auto_default_delivery,
+            is_runnable_delivery,
+            resolve_delivery_confirmation,
+        )
+        from agentcore.tools.builtin import code_execution_enabled_for
+
+        if automation_intent_from_parts(self._user_message or ""):
+            cid = (self._conversation_id or "").strip()
+            automation_conf = await resolve_delivery_confirmation(cid) if cid else None
+            if automation_conf is None:
+                if self._permission_axes.auto_executes and cid:
+                    automation_conf = ensure_full_auto_default_delivery(cid)
+                    logger.info(
+                        "delegate.automation_delivery_full_auto_default",
+                        conversation_id=cid,
+                        format_id=automation_conf.format_id,
+                    )
+                else:
+                    logger.info(
+                        "delegate.automation_delivery_rejected",
+                        conversation_id=cid or None,
+                        permission_axes=self._permission_axes.to_dict(),
+                        reason="missing_delivery",
+                    )
+                    return ToolResult(
+                        tool_call_id="",
+                        success=False,
+                        output="",
+                        error=automation_missing_delivery_error(),
+                        contract_failure=True,
+                    )
+            if is_runnable_delivery(automation_conf):
+                exec_on = code_execution_enabled_for(self._base_tool_context.backend)
+                if not exec_on:
+                    automation_delivery_warning = automation_runnable_no_exec_soft_tip()
+                    logger.info(
+                        "delegate.automation_delivery_soft_tip",
+                        conversation_id=cid or None,
+                        reason="runnable_no_exec",
+                        format_id=automation_conf.format_id,
+                    )
+
         # Playbook 二分：建站意图硬闸（拒绝 none / 手写旁路）；其余可手写 tasks 不声明。
         declared_playbook, none_reason, decl_error = resolve_playbook_declaration(
             arguments,
             user_message=self._user_message or "",
+            automation_delivery=automation_conf,
         )
         if decl_error:
             gate = declaration_reject_gate(decl_error)
@@ -401,7 +453,7 @@ class DelegateTool:
                 cid = (self._conversation_id or "").strip()
                 conf = await resolve_style_confirmation(cid) if cid else None
                 if conf is None:
-                    if self._autonomy_policy is AutonomyPolicy.FULL_AUTO and cid:
+                    if self._permission_axes.auto_executes and cid:
                         ensure_full_auto_default_style(cid)
                         logger.info(
                             "delegate.website_style_full_auto_default",
@@ -412,7 +464,7 @@ class DelegateTool:
                         logger.info(
                             "delegate.website_style_rejected",
                             conversation_id=cid or None,
-                            autonomy=self._autonomy_policy.value,
+                            permission_axes=self._permission_axes.to_dict(),
                             playbook=playbook,
                         )
                         return ToolResult(
@@ -485,7 +537,7 @@ class DelegateTool:
             conf = await resolve_format_confirmation(cid) if cid else None
             exec_on = code_execution_enabled_for(self._base_tool_context.backend)
             if conf is None:
-                if self._autonomy_policy is AutonomyPolicy.FULL_AUTO and cid:
+                if self._permission_axes.auto_executes and cid:
                     conf = ensure_full_auto_default_format(cid, prefer_pptx=exec_on)
                     logger.info(
                         "delegate.presentation_format_full_auto_default",
@@ -497,7 +549,7 @@ class DelegateTool:
                     logger.info(
                         "delegate.presentation_format_rejected",
                         conversation_id=cid or None,
-                        autonomy=self._autonomy_policy.value,
+                        permission_axes=self._permission_axes.to_dict(),
                         reason="missing_format",
                     )
                     return ToolResult(
@@ -749,6 +801,7 @@ class DelegateTool:
             resolve_completion_with_source,
             validate_cold_start_explore_deliverables,
             validate_completion_against_forms,
+            validate_criteria_kind_fit,
             validate_execution_capability,
         )
 
@@ -802,9 +855,23 @@ class DelegateTool:
                 error=form_conflict,
                 contract_failure=True,
             )
-        # 委派前能力闸（能力闸门与交付诚实性）：resolved code_verified（显式 / 结构化，
-        # 与收尾验收同一解析；文案不再绑定）撞上「无执行环境」硬拒；剩余启发命中
-        # （运行/二进制文案）只软警告、不拦截。能力判定复用 code_execution_enabled_for。
+        kind_fit_err = validate_criteria_kind_fit(completion_criteria, plan)
+        if kind_fit_err:
+            logger.info(
+                "delegate.rejected",
+                errors=[kind_fit_err],
+                reason="criteria_kind_fit",
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=kind_fit_err,
+                contract_failure=True,
+            )
+        # 委派前能力闸（能力闸门与交付诚实性）：resolved code_verified / runtime_ready
+        # （显式 / 结构化，与收尾验收同一解析；文案不再绑定）撞上「无执行环境 /
+        # 无本机 terminal」硬拒；剩余启发命中（运行/二进制文案）只软警告、不拦截。
         # 冷启动探索未完成时抑制 form/artifacts→files_written 推断（仅显式生效）。
         resolved_acceptance = resolve_completion_with_source(
             completion_criteria,
@@ -818,9 +885,14 @@ class DelegateTool:
             self._base_tool_context.backend,
         )
         if capability_error:
+            kind = (
+                resolved_acceptance.criteria.kind
+                if resolved_acceptance.criteria is not None
+                else "unknown"
+            )
             logger.info(
                 "delegate.capability_rejected",
-                criteria="code_verified",
+                criteria=kind,
                 explicit=completion_criteria is not None,
                 backend_location=getattr(self._base_tool_context.backend, "location", None),
             )
@@ -1160,6 +1232,8 @@ class DelegateTool:
                 tails.append(capability_warning)
             if presentation_format_warning:
                 tails.append(presentation_format_warning)
+            if automation_delivery_warning:
+                tails.append(automation_delivery_warning)
             if playbook_notes:
                 tails.extend(playbook_notes)
             if append_to:

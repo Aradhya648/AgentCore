@@ -10,7 +10,7 @@ from agentcore.conversation.common import (
     resolve_conversation_history_access,
     resolve_local_binding,
     resolve_memory_enabled,
-    resolve_permission_preset,
+    resolve_permission_axes,
     resolve_profile_set,
     schedule_title_generation,
 )
@@ -30,7 +30,7 @@ from agentcore.core.error_codes import ErrorCode
 from agentcore.core.errors import error_fields_for
 from agentcore.core.log_context import log_context, new_trace_id
 from agentcore.core.logging import get_logger
-from agentcore.core.types import new_id, preset_to_autonomy
+from agentcore.core.types import new_id
 from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import (
     BoardRepository,
@@ -60,7 +60,6 @@ from agentcore.workspace.locks import workspace_lock
 
 logger = get_logger(__name__)
 
-
 async def stream_chat(
     *,
     conversation_id: str,
@@ -88,8 +87,8 @@ async def stream_chat(
             conversation_history_access = await resolve_conversation_history_access(
                 session, user_id
             )
-            permission_preset = await resolve_permission_preset(session, conversation_id)
-            autonomy_policy = preset_to_autonomy(permission_preset)
+            permission_axes = await resolve_permission_axes(session, conversation_id)
+            
             # AI 协作白板 (§六 M2): if this conversation is a board's dedicated thread, the
             # turn is a 白板会话 — hand its board id to the pipeline so the CEO gets board_ops.
             board = await BoardRepository(session).get_by_conversation_id(
@@ -97,7 +96,7 @@ async def stream_chat(
             )
             board_id = board.id if board else None
 
-        backend = build_turn_backend(
+        backend = await build_turn_backend(
             user_id=user_id,
             conversation_id=conversation_id,
             folder_id=folder_id,
@@ -146,8 +145,7 @@ async def stream_chat(
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
                 conversation_history_access=conversation_history_access,
-                autonomy_policy=autonomy_policy,
-                permission_preset=permission_preset,
+                permission_axes=permission_axes,
                 board_id=board_id,
                 llm_supports_tools=llm_supports_tools,
                 x_client_platform=x_client_platform,
@@ -171,7 +169,6 @@ async def stream_chat(
     finally:
         if not sink._closed:
             sink.close()
-
 
 async def regenerate_chat(
     *,
@@ -215,14 +212,14 @@ async def regenerate_chat(
             conversation_history_access = await resolve_conversation_history_access(
                 session, user_id
             )
-            permission_preset = await resolve_permission_preset(session, conversation_id)
-            autonomy_policy = preset_to_autonomy(permission_preset)
+            permission_axes = await resolve_permission_axes(session, conversation_id)
+            
             board = await BoardRepository(session).get_by_conversation_id(
                 conversation_id, user_id=user_id
             )
             board_id = board.id if board else None
 
-        backend = build_turn_backend(
+        backend = await build_turn_backend(
             user_id=user_id,
             conversation_id=conversation_id,
             folder_id=folder_id,
@@ -250,8 +247,7 @@ async def regenerate_chat(
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
                 conversation_history_access=conversation_history_access,
-                autonomy_policy=autonomy_policy,
-                permission_preset=permission_preset,
+                permission_axes=permission_axes,
                 board_id=board_id,
                 llm_supports_tools=llm_supports_tools,
             )
@@ -272,7 +268,6 @@ async def regenerate_chat(
     finally:
         if not sink._closed:
             sink.close()
-
 
 async def _extract_completed_seed(
     session,
@@ -312,7 +307,6 @@ async def _extract_completed_seed(
         if state.phase != RunPhase.COMPLETED
     ]
     return (seed if seed else None), failed_targets
-
 
 async def retry_failed_chat(
     *,
@@ -362,14 +356,14 @@ async def retry_failed_chat(
             conversation_history_access = await resolve_conversation_history_access(
                 session, user_id
             )
-            permission_preset = await resolve_permission_preset(session, conversation_id)
-            autonomy_policy = preset_to_autonomy(permission_preset)
+            permission_axes = await resolve_permission_axes(session, conversation_id)
+            
             board = await BoardRepository(session).get_by_conversation_id(
                 conversation_id, user_id=user_id
             )
             board_id = board.id if board else None
 
-        backend = build_turn_backend(
+        backend = await build_turn_backend(
             user_id=user_id,
             conversation_id=conversation_id,
             folder_id=folder_id,
@@ -400,8 +394,7 @@ async def retry_failed_chat(
                     profile_set=profile_set,
                     memory_enabled=memory_enabled,
                     conversation_history_access=conversation_history_access,
-                    autonomy_policy=autonomy_policy,
-                    permission_preset=permission_preset,
+                    permission_axes=permission_axes,
                     board_id=board_id,
                     llm_supports_tools=llm_supports_tools,
                 )
@@ -426,7 +419,6 @@ async def retry_failed_chat(
     finally:
         if not sink._closed:
             sink.close()
-
 
 async def resume_chat(
     *,
@@ -466,8 +458,8 @@ async def resume_chat(
             profile_set = await resolve_profile_set(session, conv, user_id)
             # Conversation permission mode (not frozen into the frame): a mid-pause
             # switch applies to the resumed continuation.
-            permission_preset = await resolve_permission_preset(session, conversation_id)
-            autonomy_policy = preset_to_autonomy(permission_preset)
+            permission_axes = await resolve_permission_axes(session, conversation_id)
+            
             history = await load_chat_context(session, conversation_id, max_messages=40)
             # AI 协作白板 (§六 M2): re-derive the board binding (authoritative in the DB, not
             # carried in the frame) so a board turn paused at a checkpoint regains board_ops
@@ -477,7 +469,7 @@ async def resume_chat(
             )
             board_id = board.id if board else None
 
-        backend = build_turn_backend(
+        backend = await build_turn_backend(
             user_id=user_id,
             conversation_id=conversation_id,
             folder_id=folder_id,
@@ -577,22 +569,22 @@ async def resume_chat(
                                 suspension_saver=suspension_saver,
                                 suspension_deleter=suspension_deleter,
                                 llm_supports_tools=llm_supports_tools,
-                                autonomy_policy=autonomy_policy,
-                                permission_preset=permission_preset,
+                                permission_axes=permission_axes,
                                 x_client_platform=x_client_platform,
                             )
                     except asyncio.CancelledError:
                         # User /stop + lifespan shutdown = terminal + release;
                         # true hard kill = orphan for sweeper.
+                        # Close success → release; failure → orphan (no lease-less RUNNING).
                         if turn_runs.is_clean_cancel(conversation_id):
-                            release_lease_clean = True
-                            await close_user_stop_turn(
+                            closed = await close_user_stop_turn(
                                 sink=sink,
                                 conversation_id=conversation_id,
                                 trace_id=trace_id,
                                 message_id=suspension.message_id,
                                 journal_entries=suspension.journal_entries,
                             )
+                            release_lease_clean = bool(closed)
                         else:
                             release_lease_clean = False
                         raise

@@ -150,6 +150,7 @@ def test_cloud_store_satisfies_conversation_store_protocol():
 
 async def test_begin_turn_creates_placeholder(monkeypatch):
     calls: list[dict] = []
+    settled: list[dict] = []
 
     class Repo:
         def __init__(self, _s):
@@ -166,12 +167,21 @@ async def test_begin_turn_creates_placeholder(monkeypatch):
         async def __aexit__(self, *_a):
             return False
 
+    async def _settle(**kw):
+        settled.append(kw)
+        return 0
+
     monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
     monkeypatch.setattr(cloud_mod, "MessageRepository", Repo)
+    monkeypatch.setattr(
+        "agentcore.runtime.turn_interrupt.settle_prior_running_assistants",
+        _settle,
+    )
 
     await CloudStore().begin_turn(
         conversation_id="c1", message_id="m1", trace_id="t" * 32
     )
+    assert settled == [{"conversation_id": "c1", "keep_message_id": "m1"}]
     assert calls == [
         {"conversation_id": "c1", "message_id": "m1", "trace_id": "t" * 32}
     ]
@@ -194,8 +204,15 @@ async def test_begin_turn_propagates_placeholder_failure(monkeypatch):
         async def __aexit__(self, *_a):
             return False
 
+    async def _settle(**_kw):
+        return 0
+
     monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
     monkeypatch.setattr(cloud_mod, "MessageRepository", Repo)
+    monkeypatch.setattr(
+        "agentcore.runtime.turn_interrupt.settle_prior_running_assistants",
+        _settle,
+    )
 
     with pytest.raises(RuntimeError, match="db down"):
         await CloudStore().begin_turn(

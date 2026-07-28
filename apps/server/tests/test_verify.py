@@ -232,6 +232,58 @@ def test_partial_verdict_rejects_all_success_claim():
     assert "全部完成" in reworks[0]
 
 
+def test_partial_verdict_rejects_fully_usable_claim():
+    """可用性诚实性：blocked/partial +「已完整可用」→ finish_guard 回炉。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    reworks = finish_guard(
+        "质检面板已完整可用，可以开始用了。",
+        citation_count=0,
+        delivery_verdict=verdict,
+    )
+    assert len(reworks) == 1
+    assert "已完整可用" in reworks[0] or "完整可用" in reworks[0]
+
+
+def test_blocked_verdict_rejects_fully_usable_claim():
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="blocked",
+        delivered_files=(),
+        execution_id="e1",
+    )
+    reworks = finish_guard(
+        "现在已经可以使用了。",
+        citation_count=0,
+        delivery_verdict=verdict,
+    )
+    assert any("可用" in r for r in reworks)
+
+
+def test_partial_verdict_allows_negated_fully_usable_phrase():
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "尚未完整可用：交互层仍有缺口。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
+
+
 def test_partial_verdict_allows_honest_gap_summary():
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 

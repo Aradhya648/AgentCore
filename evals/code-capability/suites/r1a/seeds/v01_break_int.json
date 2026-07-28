@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: 数字 ParamType.convert 结果 +1，使整数/浮点转换测失败。",
+  "replacements": [
+    {
+      "path": "src/click/types.py",
+      "old": "        try:\n            return self._number_class(value)\n        except ValueError:\n",
+      "new": "        try:\n            # R1a seed_patch: off-by-one on numeric conversion\n            return self._number_class(value) + 1  # type: ignore[operator]\n        except ValueError:\n"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-"""File ownership ledger (C3 · 较强文件归属).
+"""File ownership ledger (C3 · 较强文件归属 / 交接式写权).
 
 Two eras share one class:
 
@@ -6,19 +6,26 @@ Two eras share one class:
   first successful ``file_write`` / ``file_append`` claims the path; concurrent
   unrelated siblings are refused; cross-batch overwrite is intentionally open.
 * **C3 (default on)** — one ledger per coordination ``execution_id`` (session
-  authority, snapshotted). Artifacts are reserved at dispatch; completed owners
-  still hold paths until session end or explicit transfer
-  (``replaces_run_id`` / ``continue_from_run_id`` / ``force`` / ancestor handoff).
+  authority, snapshotted). **交接式写权**：
+
+  - **Dispatch ``declare``** claims a free path; does **not** steal from an
+    ancestor holder (downstream only records intent via plan artifacts). Nested
+    lead→child drives opt into declare-time handoff explicitly.
+  - **Write ``claim``** may hand off from an ancestor (downstream consolidates).
+  - **Completion handoff** moves owned paths to the unique dependent that listed
+    the same artifact.
+  - Explicit transfer: ``replaces_run_id`` / ``continue_from_run_id`` / ``force`` /
+    ``resolve_escalation(transfer_ownership=true)`` / user structured裁决.
+
   Write tools consult the same book (``str_replace`` / ``write_section`` /
   delete / move included). Write ancestors = plan ``depends_on`` closure ∪
-  nested ``parent_run_id`` (lead→child path handoff at nested declare).
-  Non-coordination batches still get a batch-local ledger for intra-batch
-  mutual exclusion.
+  nested ``parent_run_id``. Non-coordination batches still get a batch-local
+  ledger for intra-batch mutual exclusion.
 
 ``code_execute`` workspace write-back is **not** hard-gated this period — only
 observable; do not route it through :meth:`claim` without an explicit follow-up.
 
-→ 见设计: docs/03-AI核心/编排器与CEO主Agent.md §2.3
+→ 见设计: docs/03-AI核心/Agent协作模式.md §三
 """
 
 from __future__ import annotations
@@ -81,9 +88,9 @@ def ownership_conflict_message(
         f"写入冲突：`{path}` 已归队友 {who} 负责{kind_bit}。"
         f"{status_bit}"
         "请改写你自己职责下的文件，或等待其整合完成；"
-        "若你是该锁主嵌套派出的执行者、或需接手该终稿，请 escalate 并由主管用 "
-        "resolve_escalation(..., transfer_ownership=true, paths=[本路径]) 路径级移交"
-        "（或 replaces_run_id / replan / force），不要另起同名终稿文件名抢写。"
+        "若需接手该路径：escalate 后用户卡可点「移交写权」，或由主管 "
+        "resolve_escalation(..., transfer_ownership=true, paths=[本路径])；"
+        "不要另起同名终稿文件名抢写。"
     )
 
 
@@ -172,12 +179,12 @@ class WriteCoordinator:
         *,
         force: bool = False,
     ) -> str | None:
-        """Try to record ``run_id`` as the writer of ``path``.
+        """Try to record ``run_id`` as the writer of ``path`` (write-time).
 
         Returns ``None`` when the write may proceed — unclaimed, already owned by
-        ``run_id``, owned by an ancestor (handoff), or ``force`` — and records
-        ownership. Returns the conflicting owner's run_id (leaving ownership
-        untouched unless ``force``) when an unrelated peer already holds it.
+        ``run_id``, owned by an ancestor (write-time handoff), or ``force`` — and
+        records ownership. Returns the conflicting owner's run_id (leaving
+        ownership untouched unless ``force``) when an unrelated peer already holds it.
         """
         key = _normalize(path)
         if not key:
@@ -196,9 +203,27 @@ class WriteCoordinator:
         ancestors: frozenset[str],
         *,
         force: bool = False,
+        allow_ancestor_handoff: bool = False,
     ) -> str | None:
-        """Dispatch-time reserve (same rules as :meth:`claim`)."""
-        return self.claim(path, run_id, ancestors, force=force)
+        """Dispatch-time reserve — does **not** steal from an ancestor by default.
+
+        Free path → become holder. Same run → ok. Ancestor already holds → keep
+        ancestor (downstream intent only) unless ``allow_ancestor_handoff`` (nested
+        lead→child declare) or ``force``. Unrelated holder → return conflict owner.
+        """
+        key = _normalize(path)
+        if not key:
+            return None
+        rid = (run_id or "").strip() or "unknown"
+        owner = self._owner.get(key)
+        if owner is None or owner == rid or force:
+            self._owner[key] = rid
+            return None
+        if owner in ancestors:
+            if allow_ancestor_handoff:
+                self._owner[key] = rid
+            return None
+        return owner
 
     def transfer(self, path: str, new_owner: str) -> None:
         """Force path → ``new_owner`` (replaces / continue_from / force handoff).

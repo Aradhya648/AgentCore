@@ -30,7 +30,7 @@ class User(Base):
         CheckConstraint("role in ('user', 'admin')", name="ck_users_role"),
         CheckConstraint("status in ('active', 'disabled')", name="ck_users_status"),
         CheckConstraint(
-            "autonomy_policy in ('always_ask', 'first_grant', 'full_auto')",
+            "autonomy_policy in ('cautious', 'write_code', 'less_interrupt', 'managed')",
             name="ck_users_autonomy_policy",
         ),
     )
@@ -66,27 +66,21 @@ class User(Base):
     # unlimited for this user. USD like quota_monthly_cost_usd (→ nano at check time).
     quota_daily_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     quota_daily_requests: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Long-term AI memory master switch (Agent记忆与知识系统 §一). When False the
-    # user's `ai_maintained` memory is neither injected into prompts nor grown by the
-    # offline consolidation pass — the privacy off-ramp ("AI 记忆" 设置页总开关). The
-    # markdown body still lives in the MemoryStore so re-enabling restores it; only
-    # messages sent while OFF are skipped (consolidation advances its watermark past
-    # them). Defaults True (memory on, matching the product default).
+    # Legacy column: product memory gate is always on (定案 A). Retained so we avoid
+    # a destructive migration; resolve + user API ignore this value. Defaults True.
     memory_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true")
     )
-    # Cross-session conversation-log access gate (跨会话对话日志访问定案). When False,
-    # Workers do not get ``search_conversations`` / ``read_conversation`` wired and
-    # deep conversation-attachment reads are refused. Orthogonal to ``memory_enabled``
-    # (facts vs raw transcripts). Defaults True (product default = allow on-demand recall).
+    # Legacy column: conversation-log access is product-always-on (定案 A). Retained
+    # without a drop migration; resolve + user API ignore this value. Defaults True.
     conversation_history_access: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true")
     )
-    # Capability-authorization posture (安全权限与治理 §三 AutonomyPolicy).
-    # always_ask | first_grant (default) | full_auto — only the capability-auth
-    # dimension; plan_review / checkpoint confirmation is unchanged.
+    # Default permission recipe for new conversations (安全权限与治理 · AutonomyPolicy).
+    # cautious | write_code (default · 写代码) | less_interrupt | managed — seeds
+    # conversation.permission_axes; plan_review / checkpoint confirmation unchanged.
     autonomy_policy: Mapped[str] = mapped_column(
-        String(20), default="first_grant", server_default=text("'first_grant'")
+        String(32), default="write_code", server_default=text("'write_code'")
     )
     # --- 账号默认模型组合 (模型组合配置 · llm_model_profiles) ---
     # 指向用户组合或系统预置虚拟 id（5.2 / Grok 4.5）。NULL = 解析时回落系统「5.2」预置。

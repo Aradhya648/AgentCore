@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { useBrowserSessionsStore } from "../browserSessions";
 import { useCommandPanelStore } from "../commandPanel";
 import { useConversationStore } from "../conversation";
 import { type ExecutionPlan, useExecutionStore } from "../execution";
 import {
-  BROWSER_TAB_ID,
+  CHANGES_TAB_ID,
   type DetailTab,
-  PREVIEW_TAB_ID,
   SIDE_PANEL_DEFAULT_WIDTH,
   SIDE_PANEL_MAX_TABS,
   SIDE_PANEL_MIN_WIDTH,
+  TEAM_BROWSER_TAB_ID,
   WORKSPACE_TAB_ID,
   contentDetailTabId,
+  fileTabId,
   runDetailTabId,
   sidePanelMaxWidth,
   simpleTurnDetailTabId,
@@ -48,7 +50,7 @@ beforeEach(() => {
     width: 400,
     tabs: [],
     activeTabId: WORKSPACE_TAB_ID,
-    previewTab: null,
+    changesFocusMessageId: null,
     dismissedContexts: new Set(),
     pendingBadge: 0,
   });
@@ -58,6 +60,7 @@ beforeEach(() => {
     focusedMessageId: null,
   });
   useConversationStore.setState({ currentConversationId: null });
+  useBrowserSessionsStore.setState({ pages: [], activePageId: null });
 });
 
 describe("setWidth", () => {
@@ -393,76 +396,95 @@ describe("closeContentTabs", () => {
   });
 });
 
-describe("openPreview / closePreview（内置浏览器预览 tab）", () => {
-  it("opens the preview tab, reveals the panel and activates it", () => {
-    panel().openPreview("c1", "site/index.html", "index.html");
+describe("showChanges / showFile / openTerminalTab（方案 B 顶栏 IA）", () => {
+  it("showChanges reveals the panel on the fixed 改动 tab and stores focus", () => {
+    panel().showChanges(MID);
     expect(panel().open).toBe(true);
-    expect(panel().activeTabId).toBe(PREVIEW_TAB_ID);
-    expect(panel().previewTab).toEqual({
-      conversationId: "c1",
-      path: "site/index.html",
-      name: "index.html",
+    expect(panel().activeTabId).toBe(CHANGES_TAB_ID);
+    expect(panel().changesFocusMessageId).toBe(MID);
+  });
+
+  it("showFile opens a File content tab (path reference) instead of workspace swap", () => {
+    panel().showFile("src/a.ts", "a.ts");
+    expect(panel().open).toBe(true);
+    expect(panel().activeTabId).toBe(fileTabId("src/a.ts"));
+    expect(panel().tabs[0]).toMatchObject({
+      kind: "file",
+      path: "src/a.ts",
+      name: "a.ts",
     });
   });
 
-  it("reuses the single preview tab when opening another file (swaps target)", () => {
-    panel().openPreview("c1", "a.html", "a.html");
-    panel().openPreview("c1", "b/c.html", "c.html");
-    expect(panel().previewTab).toEqual({
-      conversationId: "c1",
-      path: "b/c.html",
-      name: "c.html",
-    });
-    expect(panel().activeTabId).toBe(PREVIEW_TAB_ID);
+  it("openFileTab without path creates an untitled empty file tab", () => {
+    panel().openFileTab();
+    const tab = panel().tabs[0];
+    expect(tab.kind).toBe("file");
+    expect(tab.title).toBe("文件");
+    if (tab.kind === "file") {
+      expect(tab.path).toBe("");
+    }
   });
 
-  it("closePreview clears the target and falls back to 工作区 when it was active", () => {
-    panel().openPreview("c1", "a.html", "a.html");
-    panel().closePreview();
-    expect(panel().previewTab).toBeNull();
-    expect(panel().activeTabId).toBe(WORKSPACE_TAB_ID);
+  it("openTerminalTab creates multiple independent terminal tabs", () => {
+    const a = panel().openTerminalTab();
+    const b = panel().openTerminalTab();
+    expect(a).not.toBe(b);
+    expect(panel().tabs.filter((t) => t.kind === "terminal")).toHaveLength(2);
+    expect(panel().activeTabId).toBe(b);
   });
 
-  it("closePreview keeps the active tab when preview wasn't the active one", () => {
-    panel().openPreview("c1", "a.html", "a.html");
-    // Switch away to a run tab, then close the (background) preview tab.
-    panel().showRunDetail(MID, "run-1", "研究员");
-    expect(panel().activeTabId).toBe(tabId("run-1"));
-    panel().closePreview();
-    expect(panel().previewTab).toBeNull();
-    expect(panel().activeTabId).toBe(tabId("run-1"));
+  it("bindTerminalSession updates the tab reference in place", () => {
+    const id = panel().openTerminalTab();
+    panel().bindTerminalSession(id, "pty-1", "终端 1");
+    const tab = panel().tabs.find((t) => t.id === id);
+    expect(tab?.kind).toBe("terminal");
+    if (tab?.kind === "terminal") {
+      expect(tab.sessionId).toBe("pty-1");
+      expect(tab.title).toBe("终端 1");
+    }
   });
 });
 
-describe("showBrowser（团队浏览器 tab · 条件常驻）", () => {
-  it("reveals the panel and activates the browser tab", () => {
+describe("showBrowser（浏览器壳 · 可关内容 tab）", () => {
+  it("reveals the panel and opens/activates the browser content tab", () => {
     panel().showBrowser();
     expect(panel().open).toBe(true);
-    expect(panel().activeTabId).toBe(BROWSER_TAB_ID);
+    expect(panel().activeTabId).toBe(TEAM_BROWSER_TAB_ID);
+    expect(panel().tabs[0]).toMatchObject({
+      kind: "browser",
+      id: TEAM_BROWSER_TAB_ID,
+    });
   });
 
-  it("carries no per-tab target state (存在性派生自会话内容，非 store 字段)", () => {
-    panel().showBrowser();
-    // tab 是否显示由 useBrowserRegion 从 execution 投影派生；store 只记「谁是激活 tab」。
-    expect(Object.keys(panel())).not.toContain("browserLiveTab");
-  });
-
-  it("is idempotent — re-revealing keeps the same active tab", () => {
+  it("dedups the browser tab on re-reveal", () => {
     panel().showBrowser();
     panel().showBrowser();
-    expect(panel().activeTabId).toBe(BROWSER_TAB_ID);
+    expect(panel().tabs.filter((t) => t.kind === "browser")).toHaveLength(1);
+    expect(panel().activeTabId).toBe(TEAM_BROWSER_TAB_ID);
   });
 
   it("leaves the browser tab in the background when a run tab is drilled after it", () => {
     panel().showBrowser();
     panel().showRunDetail(MID, "run-1", "研究员");
     expect(panel().activeTabId).toBe(tabId("run-1"));
+    expect(panel().tabs.some((t) => t.id === TEAM_BROWSER_TAB_ID)).toBe(true);
   });
 
   it("clears pendingBadge on reveal (matches other reveal paths)", () => {
     panel().incrementPendingBadge();
     panel().showBrowser();
     expect(panel().pendingBadge).toBe(0);
+  });
+
+  it("creates a blank local page when none exist", () => {
+    useConversationStore.setState({ currentConversationId: "conv-browser" });
+    panel().showBrowser();
+    expect(
+      useBrowserSessionsStore.getState().pagesFor("conv-browser"),
+    ).toHaveLength(1);
+    expect(
+      useBrowserSessionsStore.getState().pagesFor("conv-browser")[0]!.title,
+    ).toBe("新标签页");
   });
 });
 

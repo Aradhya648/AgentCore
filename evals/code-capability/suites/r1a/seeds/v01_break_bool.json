@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: BoolParamType.convert 取反，使 boolean 相关测失败。",
+  "replacements": [
+    {
+      "path": "src/click/types.py",
+      "old": "        return normalized\n\n    def __repr__(self) -> str:\n        return \"BOOL\"\n",
+      "new": "        # R1a seed_patch: invert boolean conversion\n        return not normalized\n\n    def __repr__(self) -> str:\n        return \"BOOL\"\n"
+    }
+  ]
+}

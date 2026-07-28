@@ -135,8 +135,8 @@ export const referenceChapter: ManualChapterContent = {
               desc: "右侧面板「终端」tab：你的交互 shell、后台进程与执行记录——长任务可观测、可停。",
             },
             {
-              title: "右坞团队浏览器",
-              desc: "团队浏览器仅云端隔离环境可用；本地工作区不会出现侧栏「浏览器」tab。云端会话里 AI 用浏览器时，右侧会出现该 tab，可看直播、接管登录。",
+              title: "右坞浏览器",
+              desc: "统一浏览器：桌面可 Local，云端 Sandbox；AI 用浏览器时右侧会出现该 tab，可看直播、接管登录。",
             },
             {
               title: "文件工作台",
@@ -175,8 +175,8 @@ export const referenceChapter: ManualChapterContent = {
             },
             {
               label: "AI 记忆",
-              desc: "长期记忆总开关——关掉则不再读写记忆",
-              to: APP_PATHS.more.memory,
+              desc: "在文件页查看、编辑或清理长期记忆",
+              to: APP_PATHS.files,
             },
             {
               label: "自主度",
@@ -494,7 +494,7 @@ export const referenceChapter: ManualChapterContent = {
             },
             {
               title: "记忆",
-              desc: "团队记住的偏好来自你的对话；想改写或清掉，直接说即可。也可在「设置 · AI 记忆」关总开关。",
+              desc: "团队记住的偏好来自你的对话；想改写或清掉，直接说即可，或在「文件」页的「AI 记忆」里编辑、清理。",
             },
             {
               title: "反馈附带的上下文",
@@ -669,6 +669,24 @@ export const referenceChapter: ManualChapterContent = {
                 {
                   type: "text",
                   text: "你和团队共享的文件空间；项目即工作区，产物都落在这里。",
+                },
+              ],
+            },
+            {
+              q: "本地引擎",
+              a: [
+                {
+                  type: "text",
+                  text: "绑定本机文件夹时，回合可在本机执行（更快、直连磁盘）。这不是离线模式：AI 推理仍走云端，断网时不能发送。",
+                },
+              ],
+            },
+            {
+              q: "断网了还能用吗",
+              a: [
+                {
+                  type: "text",
+                  text: "可以浏览已缓存的对话和本机文件（只读）。不能发送消息、不能改文件、不能跑 AI；恢复连接后再继续。",
                 },
               ],
             },

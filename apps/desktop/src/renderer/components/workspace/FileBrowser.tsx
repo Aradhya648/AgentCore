@@ -1,4 +1,3 @@
-import { FileDetail } from "@/components/files/FileDetail";
 import {
   FileTree,
   type FileTreeChromeState,
@@ -18,21 +17,14 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 
 /**
- * The source-agnostic file UI = a {@link FileTree} (n=1 source) that swaps to an
- * in-panel {@link FileDetail} when a file is opened. This is the **swap** variant,
- * for the *narrow* conversation side panel ({@link FilesSection}, keyed by
- * conversation) where tree + detail can't sit side by side. The cross-project 文件
- * hub uses the **split** variant ({@link FileWorkbench}) instead. Both share the leaf
- * surfaces (FileTree / FileDetail), so "which editor for this file" has one home
- * (FileDetail).
+ * 对话右坞「工作区」tab 内的文件树（前端UX设计.md §十）：树 + 工具栏常驻；
+ * 点文件 → 经 {@link useSidePanelStore.showFile} 开顶栏 File 内容 tab（多开并存），
+ * 不再 swap 掉树。文件中枢页仍用 {@link FileWorkbench} 左右分栏。
  *
- * 单行面板头：本组件持有唯一一条工具栏，左侧嵌 `leading`（工作区/云端选择器）、中段是
- * 文件操作（上传 / 新建 / 折叠 / 刷新，全部经 {@link FileTreeHandle} ref 驱动内部那棵树）、
- * 右侧嵌 `trailing`（快照 / 交接）。这条头常驻在树↔详情切换之上，故预览文件时 `leading`/
- * `trailing` 不会消失；树未挂载时文件操作淡出（disabled）。
+ * 单行面板头：左侧 `leading`（项目·本地/云端 chip）、中段文件操作、右侧 `trailing`（快照等）。
  */
 export function FileBrowser({
   source,
@@ -42,39 +34,20 @@ export function FileBrowser({
 }: {
   /** 已解析的文件源；为 null 时（本地源在本机不可用）保留工具栏（含选择器）但树/操作淡出、正文兜空态。 */
   source: FileSource | null;
-  /** 工具栏最左槽（如云端/本地工作区选择器），常驻、不随预览消失。 */
+  /** 工具栏最左槽（如云端/本地工作区选择器），常驻。 */
   leading?: ReactNode;
-  /** 工具栏最右槽（如快照 / 交接入口），常驻、不随预览消失。 */
+  /** 工具栏最右槽（如快照入口），常驻。 */
   trailing?: ReactNode;
   /** 文件树为空时的提示文案（对话工作区专用）。 */
   emptyTreeHint?: string;
 }) {
-  const [preview, setPreview] = useState<{ path: string; name: string } | null>(
-    null,
-  );
+  const showFile = useSidePanelStore((s) => s.showFile);
   const treeRef = useRef<FileTreeHandle>(null);
   const [chrome, setChrome] = useState<FileTreeChromeState>({
     uploading: false,
     hasExpanded: false,
     loading: false,
   });
-
-  // 聊天里点「本回合产出文件」卡 → side-panel store 投一个预览意图，这里消费它：
-  // 切到该文件的 swap 预览后清除。等 `source` 就绪才应用（本地源异步解析时不丢意图）。
-  const pendingFilePreview = useSidePanelStore((s) => s.pendingFilePreview);
-  const clearFilePreview = useSidePanelStore((s) => s.clearFilePreview);
-  useEffect(() => {
-    if (!pendingFilePreview || !source) return;
-    setPreview({
-      path: pendingFilePreview.path,
-      name: pendingFilePreview.name,
-    });
-    clearFilePreview();
-  }, [pendingFilePreview, source, clearFilePreview]);
-
-  // 预览时树未挂载（被 FileDetail 取代），针对树的操作此刻无的放矢 → 淡出禁用；
-  // leading / trailing 是工作区级、与具体文件无关，保持常亮。
-  const treeIdle = preview !== null;
 
   return (
     <div className="flex h-full flex-col">
@@ -85,7 +58,7 @@ export function FileBrowser({
         {source?.caps.transfer && (
           <Button
             className="shrink-0 disabled:opacity-60"
-            disabled={treeIdle || chrome.uploading}
+            disabled={chrome.uploading}
             onClick={() => treeRef.current?.triggerUpload()}
             icon={
               chrome.uploading ? (
@@ -102,7 +75,6 @@ export function FileBrowser({
           <>
             <SimpleTooltip label="新建文件">
               <IconButton
-                disabled={treeIdle}
                 onClick={() => treeRef.current?.startCreate("file")}
                 aria-label="新建文件"
               >
@@ -111,7 +83,6 @@ export function FileBrowser({
             </SimpleTooltip>
             <SimpleTooltip label="新建文件夹">
               <IconButton
-                disabled={treeIdle}
                 onClick={() => treeRef.current?.startCreate("dir")}
                 aria-label="新建文件夹"
               >
@@ -123,7 +94,7 @@ export function FileBrowser({
 
         <div className="min-w-0 flex-1" />
 
-        {source && !treeIdle && chrome.hasExpanded && (
+        {source && chrome.hasExpanded && (
           <SimpleTooltip label="全部折叠">
             <IconButton
               onClick={() => treeRef.current?.collapseAll()}
@@ -136,11 +107,11 @@ export function FileBrowser({
         {source && (
           <SimpleTooltip label="刷新">
             <IconButton
-              disabled={treeIdle || chrome.loading}
+              disabled={chrome.loading}
               onClick={() => treeRef.current?.refresh()}
               aria-label="刷新"
             >
-              {chrome.loading && !treeIdle ? (
+              {chrome.loading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
                 <RefreshCw size={14} />
@@ -154,23 +125,14 @@ export function FileBrowser({
       </div>
 
       <div className="min-h-0 flex-1">
-        {preview && source ? (
-          // key=path 切文件即重挂编辑器（靠卸载冲刷未保存内容）。
-          <FileDetail
-            key={preview.path}
-            source={source}
-            path={preview.path}
-            name={preview.name}
-            onClose={() => setPreview(null)}
-          />
-        ) : source ? (
+        {source ? (
           <FileTree
             ref={treeRef}
             source={source}
             hideToolbar
             emptyText={emptyTreeHint}
             onChromeState={setChrome}
-            onOpenFile={(path, name) => setPreview({ path, name })}
+            onOpenFile={(path, name) => showFile(path, name)}
           />
         ) : (
           // 仅本地源在本机不可用时到这（如 web 构建无 fsApi）；桌面端本地源恒可解析。

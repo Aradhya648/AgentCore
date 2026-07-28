@@ -1,6 +1,7 @@
 import { Button, IconButton } from "@/components/ui";
 import { statusAccentText, statusChip } from "@/components/ui/tone-presets";
 import { cn } from "@/lib/utils";
+import { RECONNECT_BANNER } from "@/services/turns/helpers";
 import {
   useActiveError,
   useActiveErrorAction,
@@ -25,6 +26,9 @@ import { useNavigate } from "react-router-dom";
  * Conversation-scoped (reads the active conversation's error state) and therefore
  * self-contained wherever it mounts — mirrors {@link import("./ApprovalPrompt").ApprovalPrompt}
  * / {@link import("./ResumePrompt").ResumePrompt}.
+ *
+ * Reconnect drops ({@link RECONNECT_BANNER} · rejoinLiveTurn) label the button
+ * 「重连」; every other retryable failure keeps 「重试」.
  */
 export function RetryBanner() {
   const error = useActiveError();
@@ -33,6 +37,8 @@ export function RetryBanner() {
   const clearError = useConversationStore((s) => s.clearError);
   const navigate = useNavigate();
   if (!error) return null;
+
+  const retryLabel = error === RECONNECT_BANNER ? "重连" : "重试";
 
   return (
     <div
@@ -66,7 +72,7 @@ export function RetryBanner() {
           icon={<RotateCw size={13} />}
           onClick={() => retry()}
         >
-          重试
+          {retryLabel}
         </Button>
       )}
       <IconButton

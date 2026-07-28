@@ -2,7 +2,7 @@
 命中【项目作用域】主题（Agent记忆与知识系统 §二 / resume folder_id+memory_enabled 缺口的端到端活体验证）。
 
 全走正规 HTTP（dev 账号 BYOK），步骤：
-1. 登录；确保长期记忆开关 ON（PUT /users/me/memory/enabled）。
+1. 登录（记忆产品层恒开，无需再拧开关）。
 2. 建项目文件夹 + 绑定会话（POST /folders；POST /conversations{folder_id}）。
 3. 直写一条【项目作用域】主题笔记 + 一条【全局】同名主题（证明 project-first）。
    consult_memory 读的是 主题/<slug>.md，无写 API（offline consolidation 才生成），故探针经
@@ -188,14 +188,7 @@ async def run(args: argparse.Namespace) -> int:
         user_id = _user_id_from_jwt(token)
         print(f"登录 OK  user_id={user_id}")
 
-        # 1) memory ON
-        en = await client.put(
-            f"{base}/v1/users/me/memory/enabled", headers=headers, json={"enabled": True}
-        )
-        en.raise_for_status()
-        print(f"记忆开关: enabled={en.json().get('enabled')}")
-
-        # 2) 项目文件夹 + 绑定会话
+        # 1) 项目文件夹 + 绑定会话
         fr = await client.post(
             f"{base}/v1/folders", headers=headers, json={"name": "记忆resume探针", "mode": "cloud"}
         )
@@ -210,11 +203,11 @@ async def run(args: argparse.Namespace) -> int:
         conv_id = cr.json()["id"]
         print(f"项目 folder_id={folder_id}\n会话 conversation_id={conv_id}")
 
-        # 3) 直写项目+全局同名主题
+        # 2) 直写项目+全局同名主题
         await _seed_topics(user_id, folder_id)
         print(f"已写主题「{TOPIC}」：项目作用域(scope={folder_id}) + 全局各一份")
 
-        # 4) 产出类请求 → ask_user 挂起 → 断线。发问门是判断式触发（非确定性，实测同一句话可能这次
+        # 3) 产出类请求 → ask_user 挂起 → 断线。发问门是判断式触发（非确定性，实测同一句话可能这次
         #    挂起、下次直答）；本探针只需要可靠到达「挂起」态以验 resume，故用一句明确把关键决策权交还
         #    用户、并请其先发问的产出类请求，最大化走发问门概率，再在最多 ATTEMPTS 个新会话间重试。
         msg = (
@@ -250,7 +243,7 @@ async def run(args: argparse.Namespace) -> int:
             return 2
         conv_id = paused_conv
 
-        # 5) 确认持久化帧已落库。断线后在线 run 仍阻塞在 ask_user、握着 folder 级 workspace_lock——
+        # 4) 确认持久化帧已落库。断线后在线 run 仍阻塞在 ask_user、握着 folder 级 workspace_lock——
         #    但探针不再客户端 /stop，直接走 durable /resume：服务端 resume_message 会先
         #    stop_and_drain 掉这个在线 run（cancel 释放锁、留帧），再用帧续跑。这正是「断线未重启 →
         #    fallback durable resume」的真实路径，同时回归验证该服务端自洽防线。
@@ -267,7 +260,7 @@ async def run(args: argparse.Namespace) -> int:
         paused_mid = frame["message_id"]
         print(f"[paused] 帧 kind={frame['kind']} message_id={paused_mid} question={frame.get('question','')[:40]!r}")
 
-        # 6) durable /resume：服务端先 stop_and_drain 在线 run → claim 帧 → 全新 run → 从帧里的
+        # 5) durable /resume：服务端先 stop_and_drain 在线 run → claim 帧 → 全新 run → 从帧里的
         #    folder_id+memory_enabled 重建工具集 → consult_memory 必须仍命中【项目作用域】。
         note = (
             f"请先调用 consult_memory 查阅本项目的『{TOPIC}』记忆主题，把它的全文读出来，"
@@ -297,7 +290,7 @@ async def run(args: argparse.Namespace) -> int:
         )
         print(f"[resume] consult_memory 被调用={consulted}  最终答复前120字：{final[:120]!r}")
 
-    # 7) 读日志验证 scope=project（仅本会话、仅 resume 之后——杜绝陈旧/send 阶段命中冒充）
+    # 6) 读日志验证 scope=project（仅本会话、仅 resume 之后——杜绝陈旧/send 阶段命中冒充）
     await asyncio.sleep(0.4)
     logs = _read_consult_logs_for(conv_id, resume_started)
     print("\n── logs/dev.jsonl 里的 consult_memory 事件（本次探针）──")

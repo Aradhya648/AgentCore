@@ -1,9 +1,9 @@
-"""BrowserTakeoverService (M2 · D16/D17): state machine, mutex, preconditions, 留档 paths.
+"""BrowserTakeoverService (M2 · D8/D17): anytime start, mutex, 留档 paths.
 
 Drives the service + a real ``BrowserSessionRegistry`` with fake sessions and a fake store
-(no gVisor, no DB), asserting the pinned semantics: start preconditions (already_active /
-turn_running / no_session), the tool busy-error while taken over, and record finalization on
-EVERY teardown path (explicit end, idle/lifetime reap, crash, close/delete, shutdown).
+(no gVisor, no DB), asserting: start preconditions (already_active / no_session), D8 anytime
+takeover (no turn_running gate), tool ``user_in_control`` while taken over, and record
+finalization on EVERY teardown path.
 """
 
 from __future__ import annotations
@@ -55,11 +55,22 @@ class FakeStore:
         self.finalized: list[tuple[str, str]] = []
         self._n = 0
 
-    async def create(self, *, conversation_id: str, user_id: str) -> tuple[str, datetime]:
+    async def create(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        session_id: str | None = None,
+    ) -> tuple[str, datetime]:
         self._n += 1
         rid = f"rec{self._n}"
         ts = datetime.now(UTC)
-        self.records[rid] = {"user_id": user_id, "started_at": ts, "ended_at": None}
+        self.records[rid] = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "started_at": ts,
+            "ended_at": None,
+        }
         return rid, ts
 
     async def finalize(self, *, record_id: str, reason: str) -> bool:
@@ -107,8 +118,22 @@ async def test_start_succeeds_with_session_and_no_turn():
     await reg.acquire(_req("c1"))
     res = await svc.start("c1", "u1")
     assert res.active and res.reason == "started" and res.record_id == "rec1"
+    assert res.session_id
     assert reg.is_taken_over("c1")
     assert len(store.records) == 1
+    assert store.records["rec1"]["session_id"] == res.session_id
+
+
+@pytest.mark.asyncio
+async def test_start_persists_explicit_session_id_on_record():
+    reg, store = _make_registry(), FakeStore()
+    svc = _service(reg, store)
+    _, _, sid_a = await reg.create(_req("c1"), activate=True)
+    _, _, sid_b = await reg.create(_req("c1"), activate=False)
+    res = await svc.start("c1", "u1", session_id=sid_b)
+    assert res.active and res.session_id == sid_b
+    assert store.records["rec1"]["session_id"] == sid_b
+    assert store.records["rec1"]["session_id"] != sid_a
 
 
 @pytest.mark.asyncio
@@ -122,65 +147,14 @@ async def test_start_no_session_when_none_live():
 
 
 @pytest.mark.asyncio
-async def test_start_turn_running_blocks_takeover():
+async def test_start_allowed_while_turn_running_d8():
+    """D8: user may take over anytime — turn_running no longer blocks start."""
     reg, store = _make_registry(), FakeStore()
     svc = _service(reg, store, running=True)
     await reg.acquire(_req("c1"))
     res = await svc.start("c1", "u1")
-    assert not res.active and res.reason == "turn_running"
-    assert store.records == {}
-    assert not reg.is_taken_over("c1")
-
-
-@pytest.mark.asyncio
-async def test_start_running_with_browser_login_pending_allows_takeover():
-    """D16 narrow exception: pending escalate(browser_login) skips turn_running."""
-    reg, store = _make_registry(), FakeStore()
-    svc = _service(reg, store, running=True, browser_login_pending=True)
-    await reg.acquire(_req("c1"))
-    res = await svc.start("c1", "u1")
     assert res.active and res.reason == "started" and res.record_id == "rec1"
     assert reg.is_taken_over("c1")
-
-
-@pytest.mark.asyncio
-async def test_start_running_without_browser_login_flag_still_turn_running():
-    reg, store = _make_registry(), FakeStore()
-    svc = _service(reg, store, running=True, browser_login_pending=False)
-    await reg.acquire(_req("c1"))
-    res = await svc.start("c1", "u1")
-    assert not res.active and res.reason == "turn_running"
-    assert store.records == {}
-
-
-@pytest.mark.asyncio
-async def test_start_uses_interaction_registry_for_browser_login_gate():
-    """Default pending probe reads InteractionRegistry (no injectable stub)."""
-    import agentcore.runtime.interaction as interaction_mod
-    from agentcore.runtime.interaction import InteractionKind, InteractionRegistry
-
-    reg, store = _make_registry(), FakeStore()
-    bridge = InteractionRegistry()
-    bridge.create(
-        "esc-login",
-        "c1",
-        kind=InteractionKind.ESCALATION,
-        payload={"browser_login": True, "question": "请登录"},
-    )
-    svc = BrowserTakeoverService(
-        registry=reg,
-        store=store,
-        has_running_turn=lambda _cid: True,
-        has_browser_login_pending=None,  # force default registry path
-    )
-    prev = interaction_mod._registry
-    interaction_mod._registry = bridge
-    try:
-        await reg.acquire(_req("c1"))
-        res = await svc.start("c1", "u1")
-        assert res.active and res.reason == "started"
-    finally:
-        interaction_mod._registry = prev
 
 
 @pytest.mark.asyncio
@@ -194,6 +168,18 @@ async def test_start_already_active_is_distinguished_and_idempotent():
     assert second.reason == "already_active" and second.active
     assert second.record_id == first.record_id  # same episode, not a new one
     assert len(store.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_start_targets_explicit_session_id():
+    reg, store = _make_registry(), FakeStore()
+    svc = _service(reg, store)
+    _, _, sid_a = await reg.create(_req("c1"), activate=True)
+    _, _, sid_b = await reg.create(_req("c1"), activate=False)
+    res = await svc.start("c1", "u1", session_id=sid_b)
+    assert res.active and res.session_id == sid_b
+    assert reg.is_taken_over("c1", session_id=sid_b)
+    assert not reg.is_taken_over("c1", session_id=sid_a)
 
 
 # -- end (explicit) ----------------------------------------------------------------------
@@ -292,7 +278,7 @@ async def test_finalize_on_shutdown_close_all():
     assert store.finalized == [("rec1", "shutdown")]
 
 
-# -- is_active + tool busy error (mutex) -------------------------------------------------
+# -- is_active + tool user_in_control (mutex) --------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -306,7 +292,7 @@ async def test_is_active_reflects_registry_mark():
 
 
 @pytest.mark.asyncio
-async def test_browser_tool_returns_busy_error_during_takeover():
+async def test_browser_tool_returns_user_in_control_during_takeover():
     reg = _make_registry()
     session, _ = await reg.acquire(_req("c1"))
     reg.begin_takeover(
@@ -324,4 +310,5 @@ async def test_browser_tool_returns_busy_error_during_takeover():
     result = await tool.execute({"url": "https://example.com/"}, ctx)
     assert result.success is False
     assert "接管" in (result.output or "")
+    assert (result.metadata or {}).get("code") == "user_in_control"
     assert session.sends == []  # the tool never touched the session (no queue/wait)

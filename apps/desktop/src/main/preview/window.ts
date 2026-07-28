@@ -1,5 +1,8 @@
 /**
- * 预览宿主子窗口 —— 应用内「完整预览」的独立 BrowserWindow。
+ * @deprecated M3b：`preview:open` 子窗不再是完整预览产品主路径（改走 BrowserPanel）。
+ * 本模块保留作协议参考 / 诊断；安全不变量不得削弱。
+ *
+ * 预览宿主子窗口 —— 独立 BrowserWindow（preview://）。
  *
  * 安全不变量（缺一不可）：
  * - 独立**非持久**分区（PREVIEW_PARTITION）——绝不触碰 defaultSession 的登录 cookie；

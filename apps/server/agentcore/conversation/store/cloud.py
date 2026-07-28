@@ -105,10 +105,17 @@ class CloudStore:
     ) -> None:
         """Create the running assistant row at turn start (progressive persistence).
 
-        Failures propagate: a turn must not run SSE / pipeline without a durable
-        assistant row. Finalize only settles that row (content / error / status) —
-        it is not a create-on-failure fallback.
+        Before inserting the new placeholder, settles earlier non-paused RUNNING
+        assistants in this conversation (dead registry / no-lease zombies) via
+        ``close_turn_interrupted``. Failures on the new placeholder propagate: a
+        turn must not run SSE / pipeline without a durable assistant row.
         """
+        from agentcore.runtime.turn_interrupt import settle_prior_running_assistants
+
+        await settle_prior_running_assistants(
+            conversation_id=conversation_id,
+            keep_message_id=message_id,
+        )
         try:
             async with async_session_factory() as session:
                 await MessageRepository(session).create_assistant_placeholder(

@@ -22,8 +22,28 @@ export interface SidecarInference {
   model: string;
 }
 
-/** 会话权限模式三档（安全权限与治理 · 会话级权限模式）——与服务端 `PermissionPreset` 枚举逐字对齐。
- *  sidecar 无会话库，桌面按回合把当前会话模式随参数送达本地引擎。 */
+/**
+ * DesktopBrowserBridge 本回合客户端句柄（与 inference 同构：长活 sidecar 随回合刷新）。
+ * 主进程签发；勿经 renderer。缺省 / null → sidecar 本回合 browser=未装配（C4 明示，不静默 Sandbox）。
+ */
+export interface SidecarBrowserBridge {
+  baseUrl: string;
+  token: string;
+}
+
+/** 会话三轴权限（安全权限与治理）——与服务端 `PermissionAxes` 逐字段对齐。
+ *  sidecar 无会话库，桌面按回合把当前会话轴随参数送达本地引擎。 */
+export type SidecarFileWriteAxis = "ask" | "session";
+export type SidecarCommandAxis = "ask" | "kickoff" | "auto";
+export type SidecarTeamKickoffAxis = "always" | "rules" | "skip";
+
+export interface SidecarPermissionAxes {
+  file_write: SidecarFileWriteAxis;
+  command: SidecarCommandAxis;
+  team_kickoff: SidecarTeamKickoffAxis;
+}
+
+/** @deprecated 旧三档互斥预设；新路径请用 `SidecarPermissionAxes`。 */
 export type SidecarPermissionPreset = "observe" | "workspace" | "full_trust";
 
 /** renderer 发起一次本地回合所需的入参（主进程据此驱动对应 root 的 sidecar）。 */
@@ -56,7 +76,14 @@ export interface SidecarStartTurnRequest {
   history?: SidecarHistoryEntry[];
   /** 云代理凭据；缺省则 sidecar 回退到其自身 server 配置（dev 便利，非生产姿态）。 */
   inference?: SidecarInference;
-  /** 本会话当前权限模式。缺省 = sidecar 沿用当前值（初始默认 workspace）。 */
+  /**
+   * DesktopBrowserBridge 本回合凭证（主进程注入）。与 inference 一样按回合重送，
+   * 避免 spawn-env 过期 / 未注入导致 browser 永久未装配。
+   */
+  browserBridge?: SidecarBrowserBridge;
+  /** 本会话当前三轴权限。缺省 = sidecar 沿用当前值（初始默认写代码）。 */
+  permissionAxes?: SidecarPermissionAxes;
+  /** @deprecated 请用 permissionAxes；sidecar 仍接受旧三档作配方映射。 */
   permissionPreset?: SidecarPermissionPreset;
 }
 
@@ -193,7 +220,11 @@ export interface SidecarResumeRequest {
   formatId?: string;
   /** 云代理凭据（同 `startTurn`）——续跑要跑 LLM；重启后续跑会新拉起引擎，故须随带。 */
   inference?: SidecarInference;
-  /** 本会话当前权限模式（同 `startTurn.permissionPreset`）。 */
+  /** DesktopBrowserBridge 本回合凭证（同 `startTurn.browserBridge`）。 */
+  browserBridge?: SidecarBrowserBridge;
+  /** 本会话当前三轴权限（同 `startTurn.permissionAxes`）。 */
+  permissionAxes?: SidecarPermissionAxes;
+  /** @deprecated 请用 permissionAxes。 */
   permissionPreset?: SidecarPermissionPreset;
 }
 
@@ -252,9 +283,11 @@ export function buildSidecarResumeRpcParams(
     | "styleId"
     | "formatId"
     | "userMessageId"
+    | "permissionAxes"
     | "permissionPreset"
   >,
   inference?: SidecarInference,
+  browserBridge?: SidecarBrowserBridge | null,
 ): Record<string, unknown> {
   return {
     messageId: req.messageId,
@@ -267,6 +300,9 @@ export function buildSidecarResumeRpcParams(
     ...(req.formatId ? { formatId: req.formatId } : {}),
     ...(req.userMessageId ? { userMessageId: req.userMessageId } : {}),
     ...(inference ? { inference } : {}),
+    // Explicit null clears sticky spawn-env leftovers on the Python side.
+    ...(browserBridge !== undefined ? { browserBridge } : {}),
+    ...(req.permissionAxes ? { permissionAxes: req.permissionAxes } : {}),
     ...(req.permissionPreset ? { permissionPreset: req.permissionPreset } : {}),
   };
 }

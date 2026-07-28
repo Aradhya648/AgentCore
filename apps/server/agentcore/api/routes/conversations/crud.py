@@ -27,11 +27,11 @@ from agentcore.api.schemas import (
     CreateConversationRequest,
     FolderGroup,
     GroupedConversationsResponse,
-    PermissionPresetUpdate,
+    PermissionAxesUpdate,
     StatusResponse,
     UpdateConversationRequest,
 )
-from agentcore.conversation.common import default_permission_preset_for_user
+from agentcore.conversation.common import default_permission_axes_for_user
 from agentcore.conversation.export import (
     conversation_to_json,
     conversation_to_markdown,
@@ -80,11 +80,11 @@ async def create_conversation(
         folder = await folder_repo.get_by_id(body.folder_id, user_id=user.user_id)
         if not folder:
             raise NotFoundError("文件夹不存在")
-    # Session permission mode: explicit body wins; else seed from user autonomy default.
-    if body.permission_preset is not None:
-        preset = body.permission_preset.value
+    # Session permission axes: explicit body wins; else seed from user recipe default.
+    if body.permission_axes is not None:
+        axes = body.permission_axes.to_axes().to_dict()
     else:
-        preset = (await default_permission_preset_for_user(repo._session, user.user_id)).value
+        axes = (await default_permission_axes_for_user(repo._session, user.user_id)).to_dict()
     conv = await repo.create(
         user_id=user.user_id,
         title=body.title,
@@ -92,7 +92,7 @@ async def create_conversation(
         # Project chats inherit the project's workspace — never write session-level
         # local_* / container columns. 裸聊 keeps desktop local-first intent.
         local_container_root_id=(body.local_container_root_id if body.folder_id is None else None),
-        permission_preset=preset,
+        permission_axes=axes,
     )
     return ConversationSummary.model_validate(conv)
 
@@ -123,7 +123,7 @@ async def duplicate_conversation(
         title=title,
         folder_id=src.folder_id,
         local_container_root_id=src.local_container_root_id,
-        permission_preset=src.permission_preset,
+        permission_axes=dict(src.permission_axes or {}),
         deep_research_auto=bool(getattr(src, "deep_research_auto", False)),
     )
     count = await msg_repo.copy_all(conversation_id, new_conv.id)
@@ -209,44 +209,45 @@ async def get_conversation(
     return ConversationSummary.model_validate(conv)
 
 
-@router.put("/{conversation_id}/permission-preset", response_model=ConversationSummary)
-async def set_permission_preset(
+@router.put("/{conversation_id}/permission-axes", response_model=ConversationSummary)
+async def set_permission_axes(
     conversation_id: str,
-    body: PermissionPresetUpdate,
+    body: PermissionAxesUpdate,
     user: AuthUser,
     repo: ConversationRepository = Depends(get_conversation_repo),
 ):
-    """Switch the session permission mode (降档/升档确认由客户端负责).
+    """Switch the session permission axes (降档/升档确认由客户端负责).
 
     Takes effect on the next turn / durable resume (gate is built at turn entry).
+    Illegal combo ``command=auto`` ∧ ``file_write=ask`` is rejected by the schema.
     """
     conv = await repo.get_by_id(conversation_id, user_id=user.user_id)
     if not conv:
         raise NotFoundError("对话不存在")
-    previous = conv.permission_preset
-    next_preset = body.permission_preset.value
-    if previous != next_preset:
-        updated = await repo.set_permission_preset(
-            conversation_id, user_id=user.user_id, permission_preset=next_preset
+    previous = dict(conv.permission_axes or {})
+    next_axes = body.permission_axes.to_axes().to_dict()
+    if previous != next_axes:
+        updated = await repo.set_permission_axes(
+            conversation_id, user_id=user.user_id, permission_axes=next_axes
         )
         if not updated:
             raise NotFoundError("对话不存在")
         conv = updated
         logger.info(
-            "conversation.permission_preset_changed",
+            "conversation.permission_axes_changed",
             conversation_id=conversation_id,
             previous=previous,
-            permission_preset=next_preset,
+            permission_axes=next_axes,
         )
         from agentcore.runtime.audit.permission_events import (
-            record_permission_preset_change,
+            record_permission_axes_change,
         )
 
-        await record_permission_preset_change(
+        await record_permission_axes_change(
             user_id=user.user_id,
             conversation_id=conversation_id,
             previous=previous,
-            next_preset=next_preset,
+            next_axes=next_axes,
         )
     return ConversationSummary.model_validate(conv)
 
@@ -309,10 +310,10 @@ async def delete_conversation(
     # kill its read-only links so a stale snapshot can't outlive it. Owner already
     # proven by the soft_delete above, so a blanket per-conversation revoke is safe.
     await share_repo.revoke_all_for_conversation(conversation_id)
-    # W3/P1: drop session external grants + organize plan/journal.
+    # W3/P1: drop conversation external grants + organize plan/journal.
     from agentcore.workspace import grant_store, organize_journal, organize_plan_store
 
-    grant_store.clear_conversation(conversation_id)
+    await grant_store.clear_conversation(conversation_id)
     organize_plan_store.clear_conversation(conversation_id)
     organize_journal.clear_conversation(conversation_id)
     # L3 team-browser: tear down any live sandbox session (no-op when none exists;

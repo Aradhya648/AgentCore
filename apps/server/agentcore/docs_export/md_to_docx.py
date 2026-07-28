@@ -13,18 +13,14 @@ import posixpath
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
 
-from docx import Document as DocumentFactory
-from docx.document import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.opc.constants import RELATIONSHIP_TYPE as RT
-from docx.oxml.ns import qn
-from docx.oxml.shared import OxmlElement
-from docx.shared import Cm, Inches, Pt, RGBColor
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
+
+if TYPE_CHECKING:
+    from docx.document import Document
 
 # CommonMark + GFM tables. html=False keeps raw HTML out of the tree.
 _MD = MarkdownIt("commonmark", {"html": False, "linkify": False, "breaks": False}).enable(
@@ -42,7 +38,46 @@ _FONT_CODE = "Consolas"
 _HEADING_PT = {1: 22, 2: 18, 3: 16, 4: 14}
 _BODY_PT = 12
 _CODE_PT = 10
-_MAX_IMAGE_WIDTH = Inches(5.8)
+_MAX_IMAGE_WIDTH_IN = 5.8
+
+# python-docx is loaded on first convert (not at import). Sidecar / cloud both ship
+# the Office stack; lazy load keeps tool registration from hard-crashing chat if a
+# runtime is mis-bundled — capability still belongs in the dependency matrix.
+_DocumentFactory: Any = None
+_WD_ALIGN_PARAGRAPH: Any = None
+_RT: Any = None
+_qn: Any = None
+_OxmlElement: Any = None
+_Cm: Any = None
+_Inches: Any = None
+_Pt: Any = None
+_RGBColor: Any = None
+_MAX_IMAGE_WIDTH: Any = None
+
+
+def _ensure_docx() -> None:
+    """Bind python-docx symbols used by the converter (idempotent)."""
+    global _DocumentFactory, _WD_ALIGN_PARAGRAPH, _RT, _qn, _OxmlElement
+    global _Cm, _Inches, _Pt, _RGBColor, _MAX_IMAGE_WIDTH
+    if _DocumentFactory is not None:
+        return
+    from docx import Document as DocumentFactory
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.oxml.ns import qn
+    from docx.oxml.shared import OxmlElement
+    from docx.shared import Cm, Inches, Pt, RGBColor
+
+    _DocumentFactory = DocumentFactory
+    _WD_ALIGN_PARAGRAPH = WD_ALIGN_PARAGRAPH
+    _RT = RT
+    _qn = qn
+    _OxmlElement = OxmlElement
+    _Cm = Cm
+    _Inches = Inches
+    _Pt = Pt
+    _RGBColor = RGBColor
+    _MAX_IMAGE_WIDTH = Inches(_MAX_IMAGE_WIDTH_IN)
 
 
 @dataclass(frozen=True)
@@ -117,9 +152,10 @@ def convert_markdown_to_docx(
     when the file was looked up and missing. Remote / non-relative srcs are
     warned and rendered as alt text (+ URL when present).
     """
+    _ensure_docx()
     image_map = dict(images or {})
     warnings: list[str] = []
-    doc = DocumentFactory()
+    doc = _DocumentFactory()
     _apply_document_defaults(doc)
 
     tokens = _MD.parse(markdown or "")
@@ -213,29 +249,29 @@ def convert_markdown_to_docx(
 
 def _apply_document_defaults(doc: Document) -> None:
     section = doc.sections[0]
-    section.top_margin = Cm(2.54)
-    section.bottom_margin = Cm(2.54)
-    section.left_margin = Cm(3.17)
-    section.right_margin = Cm(3.17)
+    section.top_margin = _Cm(2.54)
+    section.bottom_margin = _Cm(2.54)
+    section.left_margin = _Cm(3.17)
+    section.right_margin = _Cm(3.17)
 
     normal = doc.styles["Normal"]
     normal.font.name = _FONT_LATIN
-    normal.font.size = Pt(_BODY_PT)
+    normal.font.size = _Pt(_BODY_PT)
     if normal._element.rPr is not None and normal._element.rPr.rFonts is not None:
-        normal._element.rPr.rFonts.set(qn("w:eastAsia"), _FONT_BODY_CJK)
+        normal._element.rPr.rFonts.set(_qn("w:eastAsia"), _FONT_BODY_CJK)
 
     for level in range(1, 5):
         style = doc.styles[f"Heading {level}"]
         style.font.name = _FONT_LATIN
-        style.font.size = Pt(_HEADING_PT[level])
+        style.font.size = _Pt(_HEADING_PT[level])
         style.font.bold = True
-        style.font.color.rgb = RGBColor(0x1F, 0x23, 0x28)
+        style.font.color.rgb = _RGBColor(0x1F, 0x23, 0x28)
         if style._element.rPr is not None:
             r_fonts = style._element.rPr.rFonts
             if r_fonts is None:
-                r_fonts = OxmlElement("w:rFonts")
+                r_fonts = _OxmlElement("w:rFonts")
                 style._element.rPr.append(r_fonts)
-            r_fonts.set(qn("w:eastAsia"), _FONT_HEADING_CJK)
+            r_fonts.set(_qn("w:eastAsia"), _FONT_HEADING_CJK)
 
 
 def _set_run_font(
@@ -249,21 +285,21 @@ def _set_run_font(
     r = run._element
     r_pr = r.get_or_add_rPr()
     r_fonts = r_pr.get_or_add_rFonts()
-    r_fonts.set(qn("w:eastAsia"), cjk)
-    r_fonts.set(qn("w:ascii"), latin)
-    r_fonts.set(qn("w:hAnsi"), latin)
+    r_fonts.set(_qn("w:eastAsia"), cjk)
+    r_fonts.set(_qn("w:ascii"), latin)
+    r_fonts.set(_qn("w:hAnsi"), latin)
     if size_pt is not None:
-        run.font.size = Pt(size_pt)
+        run.font.size = _Pt(size_pt)
 
 
 def _style_body_paragraph(p: Any) -> None:
-    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.space_after = _Pt(6)
     p.paragraph_format.line_spacing = 1.15
 
 
 def _style_heading_paragraph(p: Any, level: int) -> None:
-    p.paragraph_format.space_before = Pt(12 if level <= 2 else 8)
-    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.space_before = _Pt(12 if level <= 2 else 8)
+    p.paragraph_format.space_after = _Pt(6)
 
 
 # ---------------------------------------------------------------------------
@@ -280,17 +316,17 @@ def _render_fence(doc: Document, token: Token) -> None:
         label = doc.add_paragraph()
         run = label.add_run(lang)
         _set_run_font(run, cjk=_FONT_BODY_CJK, latin=_FONT_CODE, size_pt=9)
-        run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
-        label.paragraph_format.space_after = Pt(0)
+        run.font.color.rgb = _RGBColor(0x6B, 0x72, 0x80)
+        label.paragraph_format.space_after = _Pt(0)
     p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(8)
+    p.paragraph_format.space_after = _Pt(8)
     run = p.add_run(text)
     _set_run_font(run, cjk=_FONT_BODY_CJK, latin=_FONT_CODE, size_pt=_CODE_PT)
     # Light shading via paragraph shading
     p_pr = p._element.get_or_add_pPr()
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:fill"), "F4F4F5")
-    shd.set(qn("w:val"), "clear")
+    shd = _OxmlElement("w:shd")
+    shd.set(_qn("w:fill"), "F4F4F5")
+    shd.set(_qn("w:val"), "clear")
     p_pr.append(shd)
 
 
@@ -319,7 +355,7 @@ def _render_list(
                     inline = tokens[i + 1] if i + 1 < len(tokens) else None
                     p = doc.add_paragraph(style=style)
                     if level:
-                        p.paragraph_format.left_indent = Cm(0.75 * level)
+                        p.paragraph_format.left_indent = _Cm(0.75 * level)
                     if inline is not None and inline.type == "inline":
                         _render_inline(p, inline, images=images, warnings=warnings)
                     i += 3
@@ -414,10 +450,10 @@ def _render_blockquote(
             inline = tokens[i + 1] if i + 1 < len(tokens) else None
             p = doc.add_paragraph()
             _style_body_paragraph(p)
-            p.paragraph_format.left_indent = Cm(0.75)
+            p.paragraph_format.left_indent = _Cm(0.75)
             run_prefix = p.add_run("｜ ")
             _set_run_font(run_prefix, cjk=_FONT_BODY_CJK, size_pt=_BODY_PT)
-            run_prefix.font.color.rgb = RGBColor(0x9C, 0xA3, 0xAF)
+            run_prefix.font.color.rgb = _RGBColor(0x9C, 0xA3, 0xAF)
             if inline is not None and inline.type == "inline":
                 _render_inline(p, inline, images=images, warnings=warnings)
             i += 3
@@ -443,7 +479,7 @@ def _render_image_block(
         p = doc.add_paragraph()
         run = p.add_run(f"[缺图：{alt or src}]")
         _set_run_font(run, cjk=_FONT_BODY_CJK, size_pt=_BODY_PT)
-        run.font.color.rgb = RGBColor(0xB9, 0x1C, 0x1C)
+        run.font.color.rgb = _RGBColor(0xB9, 0x1C, 0x1C)
         return
     if not is_embeddable_relative_src(src) or data is None:
         if is_embeddable_relative_src(src) and src not in images:
@@ -468,14 +504,14 @@ def _render_image_block(
         p = doc.add_paragraph()
         run = p.add_run(f"[图片损坏：{alt or src}]")
         _set_run_font(run, cjk=_FONT_BODY_CJK, size_pt=_BODY_PT)
-        run.font.color.rgb = RGBColor(0xB9, 0x1C, 0x1C)
+        run.font.color.rgb = _RGBColor(0xB9, 0x1C, 0x1C)
         return
     if alt:
         cap = doc.add_paragraph()
-        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap.alignment = _WD_ALIGN_PARAGRAPH.CENTER
         run = cap.add_run(alt)
         _set_run_font(run, cjk=_FONT_BODY_CJK, size_pt=9)
-        run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+        run.font.color.rgb = _RGBColor(0x6B, 0x72, 0x80)
 
 
 # ---------------------------------------------------------------------------
@@ -551,7 +587,7 @@ def _render_inline(
             elif data:
                 try:
                     run = paragraph.add_run()
-                    run.add_picture(io.BytesIO(data), width=Inches(3.2))
+                    run.add_picture(io.BytesIO(data), width=_Inches(3.2))
                 except Exception as exc:  # noqa: BLE001
                     msg = f"图片无法嵌入（{src}）：{exc}"
                     if msg not in warnings:
@@ -593,13 +629,13 @@ def _add_styled_run(
     run.italic = italic
     if code:
         _set_run_font(run, cjk=_FONT_BODY_CJK, latin=_FONT_CODE, size_pt=_CODE_PT)
-        run.font.color.rgb = RGBColor(0x37, 0x40, 0x51)
+        run.font.color.rgb = _RGBColor(0x37, 0x40, 0x51)
     elif heading:
         _set_run_font(run, cjk=_FONT_HEADING_CJK, size_pt=None)
     else:
         _set_run_font(run, cjk=_FONT_BODY_CJK, size_pt=_BODY_PT)
     if link_url and _is_safe_http_url(link_url):
-        run.font.color.rgb = RGBColor(0x05, 0x63, 0xC1)
+        run.font.color.rgb = _RGBColor(0x05, 0x63, 0xC1)
         run.underline = True
 
 
@@ -614,13 +650,13 @@ def _is_safe_http_url(url: str) -> bool:
 def _add_hyperlink(paragraph: Any, text: str, url: str) -> Any:
     """Insert an external hyperlink run into ``paragraph`` (python-docx has no helper)."""
     part = paragraph.part
-    r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
-    hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(qn("r:id"), r_id)
-    new_run = OxmlElement("w:r")
-    r_pr = OxmlElement("w:rPr")
+    r_id = part.relate_to(url, _RT.HYPERLINK, is_external=True)
+    hyperlink = _OxmlElement("w:hyperlink")
+    hyperlink.set(_qn("r:id"), r_id)
+    new_run = _OxmlElement("w:r")
+    r_pr = _OxmlElement("w:rPr")
     new_run.append(r_pr)
-    text_elem = OxmlElement("w:t")
+    text_elem = _OxmlElement("w:t")
     text_elem.text = text
     new_run.append(text_elem)
     hyperlink.append(new_run)

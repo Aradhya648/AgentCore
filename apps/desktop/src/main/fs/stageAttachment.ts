@@ -57,9 +57,76 @@ interface StagingEntry {
 }
 
 const staging = new Map<string, StagingEntry>();
+/** Disk scan once so ``stagingId`` survives app restart (files under attach-staging/). */
+let stagingHydrated = false;
 
 function stagingDir(): string {
   return join(app.getPath("userData"), "attach-staging");
+}
+
+/**
+ * Rebuild in-memory staging index from ``attach-staging/<id>/<name>`` left on disk
+ * after a previous session. Idempotent; call before consume/finalize.
+ */
+export async function hydrateStagingFromDisk(): Promise<void> {
+  if (stagingHydrated) return;
+  stagingHydrated = true;
+  let ids: string[];
+  try {
+    ids = await fs.readdir(stagingDir());
+  } catch {
+    return;
+  }
+  for (const id of ids) {
+    if (staging.has(id)) continue;
+    const idDir = join(stagingDir(), id);
+    let st: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      st = await fs.stat(idDir);
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+    let files: string[];
+    try {
+      files = await fs.readdir(idDir);
+    } catch {
+      continue;
+    }
+    const fileName = files.find((f) => f && !f.startsWith("."));
+    if (!fileName) {
+      try {
+        await fs.rm(idDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+      continue;
+    }
+    const absPath = join(idDir, fileName);
+    const mat = await materializeSource(absPath);
+    if (!mat.ok) {
+      try {
+        await fs.rm(idDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+      continue;
+    }
+    staging.set(id, mat.data);
+  }
+}
+
+/** @internal vitest — forget in-memory index so the next lookup rescans disk. */
+export function __resetStagingMemoryForTests(): void {
+  staging.clear();
+  stagingHydrated = false;
+}
+
+async function lookupStaging(
+  stagingId: string,
+): Promise<StagingEntry | undefined> {
+  await hydrateStagingFromDisk();
+  return staging.get(stagingId);
 }
 
 function safeName(name: string): string {
@@ -459,7 +526,7 @@ export async function finalizeStagedAttachment(
   stagingId: string,
   dest: StageDest,
 ): Promise<FsResult<StagedAttachmentData>> {
-  const entry = staging.get(stagingId);
+  const entry = await lookupStaging(stagingId);
   if (!entry) {
     return {
       ok: false,
@@ -486,7 +553,7 @@ export async function finalizeStagedAttachment(
 export async function consumeStagedBytes(
   stagingId: string,
 ): Promise<FsResult<{ name: string; data: Uint8Array; binary: boolean }>> {
-  const entry = staging.get(stagingId);
+  const entry = await lookupStaging(stagingId);
   if (!entry) {
     return {
       ok: false,

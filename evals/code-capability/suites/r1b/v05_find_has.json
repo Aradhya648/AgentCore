@@ -1,0 +1,34 @@
+{
+  "id": "r1b_v05_find_has",
+  "category": "tool_use",
+  "kind": "find",
+  "phase": "R1b",
+  "vendor_id": "V05",
+  "vendor_dir": "attrs@7bfc49e9b22d",
+  "language": "python",
+  "user_message": "工作区是 attrs（src layout）。`has()` 对 attrs 类判断异常。请定位缺陷所在文件路径与符号（函数名），在回复中明确写出；不要修改代码。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v05_break_has.json",
+  "gold": {
+    "paths": ["src/attr/_funcs.py"],
+    "symbols": ["has"]
+  },
+  "checks": [
+    {
+      "name": "ContentMatches",
+      "args": {
+        "pattern": "attr[/\\\\]_funcs\\.py",
+        "flags": "i"
+      }
+    },
+    {
+      "name": "ContentMatches",
+      "args": {
+        "pattern": "\\bhas\\b",
+        "flags": "i"
+      }
+    }
+  ]
+}

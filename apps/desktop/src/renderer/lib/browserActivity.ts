@@ -12,8 +12,9 @@
  * `message.process` 一律不扫。**若哪天浏览器工具开放给 CEO 直调，这里要一并加 process 侧**
  * （否则 tab 不出现）；不预留半通的防御分支。
  *
- * 本地模式天然不显示：本地/sidecar/subprocess 后端不装配 `browser_*`（`browser_execution_enabled_for`），
- * 没有工具调用就没有判定为真的可能——无需另做后端能力探测。
+ * 本地模式：sidecar 在 DesktopBrowserBridge 健康时装配 `browser_*`
+ * （`browser_execution_enabled_for`：local + `AGENTCORE_BROWSER_BRIDGE_*` 探活）；
+ * Bridge 未注入/不健康则不挂工具。
  */
 
 import { assistantProjectionId } from "@/stores/conversation/runtime";

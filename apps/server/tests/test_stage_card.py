@@ -488,7 +488,7 @@ async def test_orphan_writes_journal_fact(monkeypatch):
 @pytest.mark.asyncio
 async def test_drive_mlr_preauth_skips_team_preview(monkeypatch):
     """research_first 决议 pre-auth → 当次 multi_lens_research 免 team_preview。"""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.runtime.delegate import preview as preview_mod
     from agentcore.runtime.delegate.drive import _team_preview_before_workers
     from agentcore.runtime.runs.plan import RunPlan
@@ -513,7 +513,7 @@ async def test_drive_mlr_preauth_skips_team_preview(monkeypatch):
 
     class _Tool:
         _depth = 0
-        _autonomy_policy = AutonomyPolicy.FIRST_GRANT
+        _permission_axes = AutonomyPolicy.WRITE_CODE
         _active_playbook = "multi_lens_research"
         _pending_pause = False
         _base_tool_context = type("C", (), {"backend": None})()
@@ -692,7 +692,7 @@ async def test_mlr_stop_clears_keep_flag(monkeypatch):
 
     class _Tool:
         _depth = 0
-        _autonomy_policy = AutonomyPolicy.FIRST_GRANT
+        _permission_axes = AutonomyPolicy.WRITE_CODE
         _active_playbook = "multi_lens_research"
         _pending_pause = False
         _base_tool_context = type("C", (), {"backend": None})()
@@ -1102,7 +1102,7 @@ async def test_kickoff_failure_does_not_finalize(monkeypatch):
 
 def _patch_start_debate_harness(monkeypatch, mod, *, pipeline):
     """Shared stubs for ``run_stage_card_start_debate`` without real DB / workspace."""
-    from agentcore.core.types import PermissionPreset
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 
     async def _noop_placeholder(**_k):
         return None
@@ -1117,7 +1117,7 @@ def _patch_start_debate_harness(monkeypatch, mod, *, pipeline):
         return True
 
     async def _preset(*_a, **_k):
-        return PermissionPreset.WORKSPACE
+        return recipe_to_axes(AutonomyPolicy.WRITE_CODE)
 
     async def _empty_history(*_a, **_k):
         return []

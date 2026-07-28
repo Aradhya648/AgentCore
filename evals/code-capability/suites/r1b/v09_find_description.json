@@ -1,0 +1,34 @@
+{
+  "id": "r1b_v09_find_description",
+  "category": "tool_use",
+  "kind": "find",
+  "phase": "R1b",
+  "vendor_id": "V09",
+  "vendor_dir": "commander@ba6d13ddb424",
+  "language": "typescript",
+  "user_message": "工作区是 commander.js。`Command.description()` 读写行为异常。请定位缺陷所在文件路径与符号（方法名），在回复中明确写出；不要修改代码。",
+  "path": "single",
+  "mode": "economy",
+  "toolset": "worker",
+  "seed_patch": "seeds/v09_break_description.json",
+  "gold": {
+    "paths": ["lib/command.js"],
+    "symbols": ["description"]
+  },
+  "checks": [
+    {
+      "name": "ContentMatches",
+      "args": {
+        "pattern": "lib[/\\\\]command\\.js",
+        "flags": "i"
+      }
+    },
+    {
+      "name": "ContentMatches",
+      "args": {
+        "pattern": "\\bdescription\\b",
+        "flags": "i"
+      }
+    }
+  ]
+}

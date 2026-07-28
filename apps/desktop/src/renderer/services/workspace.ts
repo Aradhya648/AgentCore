@@ -307,18 +307,3 @@ export async function openWorkspaceInBrowser(
   const result = await preview(archiveBase64, htmlPath);
   if (!result.ok) throw new Error(result.message);
 }
-
-/**
- * 应用内「完整预览」：打开独立子窗口，主进程经 `preview://` 协议以 Bearer 代理
- * 会话工作区字节，完整跑 JS + 多文件相对资源。比「在浏览器打开」更轻——无需快照/打包/解压，
- * 文件按需从后端取。桌面专属（依赖 previewApi）；失败抛异常（供 UI toast）。
- */
-export async function openWorkspaceInAppPreview(
-  conversationId: string,
-  htmlPath: string,
-): Promise<void> {
-  const open = window.previewApi?.open;
-  if (!open) throw new Error("此环境不支持应用内预览");
-  const result = await open({ conversationId, path: htmlPath });
-  if (!result.ok) throw new Error(result.reason);
-}

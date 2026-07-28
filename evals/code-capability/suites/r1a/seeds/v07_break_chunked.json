@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: chunked() off-by-one（n→n+1），使 ChunkedTests 失败。",
+  "replacements": [
+    {
+      "path": "more_itertools/more.py",
+      "old": "    iterator = iter(partial(take, n, iter(iterable)), [])\n",
+      "new": "    # R1a seed_patch: intentional off-by-one in chunk size\n    iterator = iter(partial(take, n + 1 if n is not None else n, iter(iterable)), [])\n"
+    }
+  ]
+}

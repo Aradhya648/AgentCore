@@ -1,0 +1,11 @@
+{
+  "format": "replacements_v1",
+  "description": "R1a: validate() 恒返回 false。",
+  "replacements": [
+    {
+      "path": "src/validate.ts",
+      "old": "function validate(uuid: unknown) {\n  return typeof uuid === 'string' && REGEX.test(uuid);\n}\n",
+      "new": "function validate(uuid: unknown) {\n  // R1a seed_patch: always invalid\n  return false;\n}\n"
+    }
+  ]
+}

@@ -748,8 +748,8 @@ def _outside_workspace_msg(path: str, *, location: str | None = None) -> str:
     Path contract lives in ``normalize_workspace_path`` / ``resolve_safe_path``;
     this message only points at remaining rejects (true out-of-root absolutes).
 
-    On cloud (``location=server``), also point at the bind card when the model was
-    reaching for the user's machine — desktop-online qualifier matches other hard gates.
+    On cloud (``location=server``), point at open_local_project / bind_local_folder
+    by intent when the model was reaching for the user's machine.
     """
     relative_fix = (
         "请使用工作区相对路径（如 AgentCore/文档/research/report.md；"
@@ -758,8 +758,10 @@ def _outside_workspace_msg(path: str, *, location: str | None = None) -> str:
     if location == "server":
         return (
             f"路径 '{path}' 超出了工作区范围。"
-            "若需访问用户本机目录：桌面在线时立即发 ask_user 卡"
-            "（action=bind_local_folder），勿用纯文本询问；"
+            "若要把该本机目录当【本地项目】打开：桌面在线时立即发 ask_user 卡"
+            "（action=open_local_project；新建会话，不改本会话 folder_id）；"
+            "若本会话仅需本机执行环境：action=bind_local_folder（≠打开项目）；"
+            "勿用纯文本询问。"
             f"若本意是工作区内文件：{relative_fix}"
         )
     return f"路径 '{path}' 超出了工作区范围。{relative_fix}"

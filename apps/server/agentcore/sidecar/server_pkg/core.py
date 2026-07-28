@@ -10,7 +10,7 @@ from typing import Any
 
 from agentcore.conversation.store.outbox import OutboxStore
 from agentcore.core.logging import get_logger
-from agentcore.core.types import AutonomyPolicy, PermissionPreset
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes
 from agentcore.llm.credentials import (
     INFERENCE_CONVERSATION_HEADER,
     INFERENCE_TRACE_HEADER,
@@ -40,8 +40,7 @@ class SidecarServer(HandlerMixin, TurnExecutionMixin):
         self._approvals_enabled = True
         # Conversation permission mode (会话级权限模式). Sidecar has no conversation DB —
         # the desktop sends ``permissionPreset`` on initialize and refreshes it per turn.
-        self._permission_preset: PermissionPreset = PermissionPreset.WORKSPACE
-        self._autonomy_policy: AutonomyPolicy = AutonomyPolicy.FIRST_GRANT
+        self._permission_axes: PermissionAxes = DEFAULT_PERMISSION_AXES
         # The local durable-pause store (§8.6 paused-turn port, local impl), set from
         # ``initialize``'s ``dataDir``. ``None`` ⇒ no data dir ⇒ pauses stay in-memory.
         self._paused_store: LocalPausedTurnStore | None = None

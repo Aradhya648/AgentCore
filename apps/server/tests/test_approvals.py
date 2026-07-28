@@ -269,7 +269,7 @@ async def test_approve_always_files_grants_whole_class():
     Uses always_ask so session file-trust does not short-circuit the file cards
     (that path is covered by test_session_file_trust_*).
     """
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 
     reg = InteractionRegistry()
     sink = EventSink()
@@ -291,7 +291,7 @@ async def test_approve_always_files_grants_whole_class():
         registry=reg,
         timeout_seconds=5.0,
         file_op_tools=file_ops,
-        autonomy_policy=AutonomyPolicy.ALWAYS_ASK,
+        permission_axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS),
     )
 
     # A file_write (the clicked card), a parallel str_replace, and a code_execute.
@@ -845,7 +845,7 @@ async def test_delegation_grant_skips_code_execute_approval():
 
 async def test_always_ask_policy_ignores_kickoff_grant():
     """autonomy=always_ask（安全权限与治理 §三）：开工卡授权不短路——每个可授权调用仍出卡。"""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 
     reg = InteractionRegistry()
     sink = EventSink()
@@ -855,7 +855,7 @@ async def test_always_ask_policy_ignores_kickoff_grant():
         registry=reg,
         timeout_seconds=5.0,
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        autonomy_policy=AutonomyPolicy.ALWAYS_ASK,
+        permission_axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS),
     )
     gate.grant_delegation("exec-1")
     assert gate.has_delegation_grant("exec-1")  # the grant exists…
@@ -905,7 +905,7 @@ def test_delegation_grantable_tool_names_includes_execution_and_file_ops():
 
 async def test_session_file_trust_skips_mkdir_under_first_grant():
     """开工授权：文件改动类会话信任，不必等开工卡（对齐 Composer 心智）。"""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.tools.builtin import approval_class_tool_names
 
     reg = InteractionRegistry()
@@ -917,7 +917,7 @@ async def test_session_file_trust_skips_mkdir_under_first_grant():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+        permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
     )
 
     decision = await gate.authorize(
@@ -931,7 +931,7 @@ async def test_session_file_trust_skips_mkdir_under_first_grant():
 
 async def test_session_file_trust_still_prompts_permanent_delete():
     """永久删除不在会话文件信任内——仍出审批卡。"""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.tools.builtin import approval_class_tool_names
 
     reg = InteractionRegistry()
@@ -943,7 +943,7 @@ async def test_session_file_trust_still_prompts_permanent_delete():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+        permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
     )
 
     resolver = asyncio.create_task(
@@ -961,7 +961,7 @@ async def test_session_file_trust_still_prompts_permanent_delete():
 
 async def test_session_file_trust_does_not_cover_code_execute():
     """执行类仍需开工卡 / 逐次审批，不被文件会话信任短路。"""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.tools.builtin import approval_class_tool_names
 
     reg = InteractionRegistry()
@@ -973,7 +973,7 @@ async def test_session_file_trust_does_not_cover_code_execute():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        autonomy_policy=AutonomyPolicy.FIRST_GRANT,
+        permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
     )
 
     resolver = asyncio.create_task(
@@ -991,7 +991,7 @@ async def test_session_file_trust_does_not_cover_code_execute():
 
 async def test_observe_policy_ignores_session_file_trust():
     """只观察：文件会话信任关闭，mkdir 仍出卡。"""
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.tools.builtin import approval_class_tool_names
 
     reg = InteractionRegistry()
@@ -1003,7 +1003,7 @@ async def test_observe_policy_ignores_session_file_trust():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        autonomy_policy=AutonomyPolicy.ALWAYS_ASK,
+        permission_axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS),
     )
 
     resolver = asyncio.create_task(

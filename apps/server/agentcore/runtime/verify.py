@@ -19,12 +19,13 @@
 2. **结构完整性**——代码围栏未闭合（``` 开了没收尾、后文整片被当代码渲染）、或声明了语言却
    空体（标了 ``python`` 却没有任何内容，等于「答应给代码却没给」）。都是「交付不完整」的
    机械信号，最终交付里几乎不会有意为之，故误报率近零。
-3. **交付验收对照**（仅 CEO：``check_citations`` + 本回合已发射的 ``delivery_verdict``）——
-   ``state=blocked`` 且无落盘时，正文不得宣称「已生成 / 已落盘 / 请下载」；
-   ``state`` 为 ``blocked`` / ``partial``（有 blocking 缺口）时，不得宣称「全部完成 /
-   全部就绪 / 全部交付」等全员成功话术；有交付卡且落地仅为 md/脚本等、无 ``.pptx``
-   时，不得宣称「PPT 已落盘 / 可直接打开」；有交付卡时终稿超
-   ``engine_ceo_overview_max_chars`` → 回炉压缩为概览（细节在卡 / run 详情）。
+    3. **交付验收对照**（仅 CEO：``check_citations`` + 本回合已发射的 ``delivery_verdict``）——
+       ``state=blocked`` 且无落盘时，正文不得宣称「已生成 / 已落盘 / 请下载」；
+       ``state`` 为 ``blocked`` / ``partial``（有 blocking 缺口）时，不得宣称「全部完成 /
+       全部就绪 / 全部交付」等全员成功话术，也不得宣称「已完整可用」等与卡冲突的完整可用句式；
+       有交付卡且落地仅为 md/脚本等、无 ``.pptx``
+       时，不得宣称「PPT 已落盘 / 可直接打开」；有交付卡时终稿超
+       ``engine_ceo_overview_max_chars`` → 回炉压缩为概览（细节在卡 / run 详情）。
 
 刻意**不**纳入「残留 TODO / 填空占位」之类：法律垂直会正当地在合同模板留空待填、worker 也会
 如实写「该资料待客户提供」，机械判会误伤——轻层的立身之本是近零误报，宁缺毋滥。后续轻层（如
@@ -63,6 +64,18 @@ _ALL_SUCCESS_CLAIMS = re.compile(
     r"均已(?:完成|交付|就绪|成功)|"
     r"都已(?:完成|交付|就绪|成功)|"
     r"所有(?:任务|队员|节点)(?:已|都已)(?:完成|交付|就绪)"
+)
+
+# 可用性诚实性 · 与卡矛盾的窄闸（甲所需，非乙全面禁吹）：
+# blocked/partial 时拦「已完整可用 / 已可以使用」等与交付卡冲突的完整可用宣称。
+_FULLY_USABLE_CLAIMS = re.compile(
+    r"(?:"
+    r"已完整可用|已可以使用|已经可以使用|"
+    r"已完全可用|已可直接使用|已经可以直接使用|"
+    r"现在(?:已经)?(?:完整)?可用|"
+    r"质检[^。\n]{0,12}已完整可用|"
+    r"(?:面板|站点|页面|产物)[^。\n]{0,16}已完整可用"
+    r")"
 )
 
 # PPT / 幻灯片「已可打开」类断言：有交付卡且落地文件无 .pptx 时拦（仅 md/脚本 ≠ PPT 已交付）。
@@ -172,6 +185,17 @@ def _overview_length_reworks(
     ]
 
 
+def _claims_fully_usable(content: str) -> bool:
+    """True when prose asserts full usability, ignoring negated forms (尚未可用…)."""
+    for match in _FULLY_USABLE_CLAIMS.finditer(content):
+        start = match.start()
+        prefix = content[max(0, start - 2) : start]
+        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
+            continue
+        return True
+    return False
+
+
 def _claims_all_success(content: str) -> bool:
     """True when prose asserts full-team success, ignoring negated forms (尚未全部…)."""
     for match in _ALL_SUCCESS_CLAIMS.finditer(content):
@@ -253,6 +277,14 @@ def _delivery_claim_reworks(
             f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
             "正文不得宣称全部完成 / 全部就绪 / 全部交付 / 均已完成。"
             "请点名说明缺口与影响，再写简短概览；不要用全员成功话术盖过验收卡。"
+        )
+    # 可用性诚实性 · 与卡矛盾窄闸：blocked/partial 不得写「已完整可用」类。
+    if _claims_fully_usable(content):
+        label = "未满足" if state == "blocked" else "部分未满足"
+        reworks.append(
+            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
+            "正文不得宣称已完整可用 / 已可以使用 / 现在可用。"
+            "请以交付状态卡为主答：点名缺口与待办，散文只作注释；不要用完整可用话术盖过红卡。"
         )
     return reworks
 

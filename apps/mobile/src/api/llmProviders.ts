@@ -14,9 +14,6 @@ export interface LlmProviderView {
   status: string;
   masked_key?: string | null;
   message?: string | null;
-  price_cache_hit?: string | null;
-  price_cache_miss?: string | null;
-  price_output?: string | null;
   supports_tools?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -43,9 +40,6 @@ export interface CreateLlmProviderInput {
   base_url?: string | null;
   default_model?: string | null;
   label?: string;
-  price_cache_hit?: string | null;
-  price_cache_miss?: string | null;
-  price_output?: string | null;
 }
 
 /** Partial update — omit `api_key` to keep the stored ciphertext (edit endpoint/model). */
@@ -54,9 +48,6 @@ export interface UpdateLlmProviderInput {
   base_url?: string | null;
   default_model?: string | null;
   label?: string | null;
-  price_cache_hit?: string | null;
-  price_cache_miss?: string | null;
-  price_output?: string | null;
 }
 
 /** Same phrasing as desktop LoginPage — admin sessions cannot use product APIs. */
@@ -113,7 +104,7 @@ export async function createLlmProvider(
   return readProvider(res, "保存失败");
 }
 
-/** Update one provider (endpoint / model / label / price; key optional to keep). */
+/** Update one provider (endpoint / model / label; key optional to keep). */
 export async function updateLlmProvider(
   id: string,
   input: UpdateLlmProviderInput,

@@ -6,8 +6,8 @@ body, GLOBAL first (the stable prefix that rides DeepSeek's cache), the project 
 appended after a short label so the model reads those bullets as project-scoped. On-demand
 TOPIC names are merged across both scopes for the CEO's 记忆主题目录.
 
-Both are gated by the per-user memory master switch (§1.6): off ⇒ "" / [] so zero memory
-surfaces — the same privacy off-ramp as the rest of the memory system.
+Both are gated by the caller-supplied ``enabled`` flag (product resolve is always
+on / 定案 A): False ⇒ "" / [] so unit tests can still exercise the off path.
 """
 
 from __future__ import annotations

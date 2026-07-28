@@ -16,6 +16,8 @@ import { resolveEffectiveGraphLayout } from "@/lib/graph-layout-utils";
 import { useConversationStore } from "@/stores/conversation";
 import {
   type Execution,
+  isDebate,
+  projectRuntime,
   useExecutionStore,
   useMessageExecution,
 } from "@/stores/execution";
@@ -273,15 +275,19 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
 
   const [menuNodeId, setMenuNodeId] = useState<string | null>(null);
 
+  const execById = useExecutionStore((s) => s.byId);
+
+  // 辩论回合最大化 → view=debate（与 StatusStrip「打开辩论室」/ 右坞深链一致）。
   const maximizeTurn = useCallback(
     (turnId: string) => {
       if (!conversationId) return;
-      navigate(turnDetailPath(conversationId, turnId));
+      const rt = useExecutionStore.getState().byId[turnId];
+      const exec = rt ? projectRuntime(rt) : null;
+      const view = exec && isDebate(exec) ? ("debate" as const) : undefined;
+      navigate(turnDetailPath(conversationId, turnId, view));
     },
     [conversationId, navigate],
   );
-
-  const execById = useExecutionStore((s) => s.byId);
 
   // Project each expanded turn's DAG turn-locally via the shared core.
   const projectedByTurn = useMemo(

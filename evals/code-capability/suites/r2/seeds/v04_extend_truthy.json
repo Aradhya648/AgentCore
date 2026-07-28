@@ -1,0 +1,16 @@
+{
+  "format": "replacements_v1",
+  "description": "R2 Extend 参照实现：flask.helpers.truthy + 导出",
+  "replacements": [
+    {
+      "path": "src/flask/helpers.py",
+      "old": "def get_debug_flag() -> bool:\n    \"\"\"Get whether debug mode should be enabled for the app, indicated by the\n    :envvar:`FLASK_DEBUG` environment variable. The default is ``False``.\n    \"\"\"\n    val = os.environ.get(\"FLASK_DEBUG\")\n    return bool(val and val.lower() not in {\"0\", \"false\", \"no\"})\n",
+      "new": "def truthy(value: str | None) -> bool:\n    \"\"\"Return whether *value* looks truthy (config / env style).\n\n    ``None`` and empty / common falsey tokens → ``False``.\n\n    .. versionadded:: AgentCore R2 Extend (eval reference)\n    \"\"\"\n    if value is None:\n        return False\n    return value.lower() not in {\"\", \"0\", \"false\", \"no\", \"off\", \"n\"}\n\n\ndef get_debug_flag() -> bool:\n    \"\"\"Get whether debug mode should be enabled for the app, indicated by the\n    :envvar:`FLASK_DEBUG` environment variable. The default is ``False``.\n    \"\"\"\n    val = os.environ.get(\"FLASK_DEBUG\")\n    return bool(val and val.lower() not in {\"0\", \"false\", \"no\"})\n"
+    },
+    {
+      "path": "src/flask/__init__.py",
+      "old": "from .helpers import stream_with_context as stream_with_context\nfrom .helpers import url_for as url_for\n",
+      "new": "from .helpers import stream_with_context as stream_with_context\nfrom .helpers import truthy as truthy\nfrom .helpers import url_for as url_for\n"
+    }
+  ]
+}

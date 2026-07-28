@@ -80,9 +80,6 @@ def _credentials_from_config(cfg: ModelConfig, *, conversation_id: str | None, t
         default_model=cfg.model,
         extra_headers=extra or None,
         source="platform" if cfg.source == "platform" else "user",
-        price_cache_hit=cfg.price_cache_hit,
-        price_cache_miss=cfg.price_cache_miss,
-        price_output=cfg.price_output,
         background_model=cfg.background_model,
     )
 
@@ -140,9 +137,6 @@ async def _resolve_inference_credentials(
             api_key=credentials.api_key,
             source="byok",
             purpose="chat",
-            price_cache_hit=credentials.price_cache_hit,
-            price_cache_miss=credentials.price_cache_miss,
-            price_output=credentials.price_output,
             background_model=credentials.background_model,
             provider_id=credentials.provider_id,
         )

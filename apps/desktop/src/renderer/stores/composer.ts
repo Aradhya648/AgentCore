@@ -15,10 +15,11 @@ import { create } from "zustand";
  * subscribing composer is briefly unmounted. Entries self-delete once both text and
  * attachments are empty, so the map stays bounded to conversations with a live draft.
  *
- * Persistence: draft TEXT survives an app restart (`uiStorage`, debounced +
- * flushed on unload, capped to the {@link PERSIST_LIMIT} most recent). Attachments
- * are session-only by design — their payloads are full file contents (up to 256KB
- * each, quota hazard) that go stale on disk anyway; re-attaching is cheap.
+ * Persistence: draft TEXT + attachment *metadata* survive an app restart
+ * (`uiStorage`, debounced + flushed on unload, capped to the {@link PERSIST_LIMIT}
+ * most recent). Binary bytes stay on disk under main-process ``attach-staging``
+ * (indexed by ``stagingId``); we never put file bytes into localStorage. Preview
+ * ``text`` is truncated for the quota; stale staging is honest at send time.
  *
  * 回填 channel: follow-up chips / 下一步推荐 (non-blocking ask no longer writes chips)
  * chip ({@link FollowupChips}) drops its pick into the ACTIVE conversation's draft via
@@ -40,10 +41,76 @@ const COMPOSER_DRAFTS_KEY = "composer-drafts";
 /** Persist at most this many drafts (most recently edited win). */
 const PERSIST_LIMIT = 30;
 const PERSIST_DEBOUNCE_MS = 300;
+/** Cap attachment metadata per draft so ``composer-drafts`` stays bounded. */
+const PERSIST_ATTACH_MAX = 8;
+/** Truncate preview text when writing to uiStorage (full preview stays in-memory). */
+const PERSIST_ATTACH_TEXT_CAP = 8 * 1024;
 
 /** Draft-conversation (no id yet) drafts live under a fixed sentinel key. */
 export function draftKeyFor(conversationId: string | null): string {
   return conversationId ?? "__draft__";
+}
+
+function sanitizeAttachment(raw: unknown): PendingAttachment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Record<string, unknown>;
+  if (typeof a.id !== "string" || !a.id) return null;
+  if (typeof a.key !== "string" || !a.key) return null;
+  if (typeof a.name !== "string" || !a.name) return null;
+  if (typeof a.path !== "string") return null;
+  if (typeof a.text !== "string") return null;
+  if (typeof a.truncated !== "boolean") return null;
+  if (
+    a.kind !== "file" &&
+    a.kind !== "dir" &&
+    a.kind !== "conversation"
+  ) {
+    return null;
+  }
+  const out: PendingAttachment = {
+    id: a.id,
+    key: a.key,
+    name: a.name,
+    path: a.path,
+    text: a.text,
+    truncated: a.truncated,
+    kind: a.kind,
+  };
+  if (typeof a.conversationId === "string")
+    out.conversationId = a.conversationId;
+  if (typeof a.workspacePath === "string") out.workspacePath = a.workspacePath;
+  if (typeof a.stagingId === "string") out.stagingId = a.stagingId;
+  if (typeof a.binary === "boolean") out.binary = a.binary;
+  return out;
+}
+
+function serializeAttachments(
+  attachments: PendingAttachment[],
+): PendingAttachment[] {
+  return attachments.slice(0, PERSIST_ATTACH_MAX).map((a) => {
+    const text =
+      a.text.length > PERSIST_ATTACH_TEXT_CAP
+        ? a.text.slice(0, PERSIST_ATTACH_TEXT_CAP)
+        : a.text;
+    const out: PendingAttachment = {
+      id: a.id,
+      key: a.key,
+      name: a.name,
+      path: a.path,
+      text,
+      truncated: a.truncated || a.text.length > PERSIST_ATTACH_TEXT_CAP,
+      kind: a.kind,
+    };
+    if (a.conversationId) out.conversationId = a.conversationId;
+    if (a.workspacePath) out.workspacePath = a.workspacePath;
+    if (a.stagingId) out.stagingId = a.stagingId;
+    if (a.binary) out.binary = a.binary;
+    return out;
+  });
+}
+
+function draftHasContent(d: Pick<ComposerDraft, "value" | "attachments">): boolean {
+  return Boolean(d.value) || d.attachments.length > 0;
 }
 
 function loadDrafts(): Record<string, ComposerDraft> {
@@ -52,14 +119,22 @@ function loadDrafts(): Record<string, ComposerDraft> {
   const out: Record<string, ComposerDraft> = {};
   for (const [key, entry] of Object.entries(parsed)) {
     if (!entry || typeof entry !== "object") continue;
-    const { value, updatedAt } = entry as {
+    const { value, updatedAt, attachments: rawAtts } = entry as {
       value?: unknown;
       updatedAt?: unknown;
+      attachments?: unknown;
     };
-    if (typeof value !== "string" || !value) continue;
+    const valueStr = typeof value === "string" ? value : "";
+    const attachments = Array.isArray(rawAtts)
+      ? rawAtts
+          .map(sanitizeAttachment)
+          .filter((a): a is PendingAttachment => a !== null)
+          .slice(0, PERSIST_ATTACH_MAX)
+      : [];
+    if (!valueStr && attachments.length === 0) continue;
     out[key] = {
-      value,
-      attachments: [],
+      value: valueStr,
+      attachments,
       updatedAt: typeof updatedAt === "number" ? updatedAt : 0,
     };
   }
@@ -68,12 +143,20 @@ function loadDrafts(): Record<string, ComposerDraft> {
 
 function persistDrafts(drafts: Record<string, ComposerDraft>): void {
   const entries = Object.entries(drafts)
-    .filter(([, d]) => d.value)
+    .filter(([, d]) => draftHasContent(d))
     .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
     .slice(0, PERSIST_LIMIT)
-    .map(
-      ([key, d]) => [key, { value: d.value, updatedAt: d.updatedAt }] as const,
-    );
+    .map(([key, d]) => {
+      const payload: {
+        value: string;
+        updatedAt: number;
+        attachments?: PendingAttachment[];
+      } = { value: d.value, updatedAt: d.updatedAt };
+      if (d.attachments.length > 0) {
+        payload.attachments = serializeAttachments(d.attachments);
+      }
+      return [key, payload] as const;
+    });
   if (entries.length === 0) uiSet(COMPOSER_DRAFTS_KEY, undefined);
   else uiSet(COMPOSER_DRAFTS_KEY, Object.fromEntries(entries));
 }
@@ -89,7 +172,7 @@ function write(
   next: ComposerDraft,
 ): Record<string, ComposerDraft> {
   const out = { ...drafts };
-  if (!next.value && next.attachments.length === 0) delete out[key];
+  if (!draftHasContent(next)) delete out[key];
   else out[key] = next;
   return out;
 }
