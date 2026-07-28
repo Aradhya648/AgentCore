@@ -35,7 +35,7 @@ def build_workspace_context(
     terminal_enabled: bool | None = None,
     browser_enabled: bool | None = None,
     exec_languages: list[str] | tuple[str, ...] | None = None,
-    host_axis: "HostAxis | str | None" = None,
+    host_axis: HostAxis | str | None = None,
 ) -> str:
     """Render the ``<workspace_context>`` block for this turn's backend + client.
 

@@ -211,9 +211,9 @@ async def test_pipeline_leaves_sink_open_for_post_turn_tail(monkeypatch):
 async def test_unproductive_early_stop_reaches_message_end_and_persisted_runs(
     monkeypatch,
 ):
-    # Three rounds of a failing tool with no content → 无产出早停 → the loop force-
-    # finalizes a salvaged answer and surfaces UNPRODUCTIVE. The reason must ride BOTH
-    # the live message_end event AND the persisted runs payload.
+    # Three rounds of a failing tool with no content → 无产出早停 → empty inventory
+    # skips LLM salvage (content '') but still surfaces UNPRODUCTIVE. The reason must
+    # ride BOTH the live message_end event AND the persisted runs payload.
     registry = ToolRegistry()
     registry.register(_StubTool(name="flaky", success=False))
     provider = _ScriptedProvider(
@@ -221,12 +221,11 @@ async def test_unproductive_early_stop_reaches_message_end_and_persisted_runs(
             [_tool_chunk("flaky", '{"q": "a"}')],
             [_tool_chunk("flaky", '{"q": "b"}')],
             [_tool_chunk("flaky", '{"q": "c"}')],
-            [_content_chunk("尽力给出的答复")],  # forced tool-free finalize
         ]
     )
     result, events = await _run_pipeline(monkeypatch, provider, registry)
 
-    assert result["content"] == "尽力给出的答复"
+    assert result["content"] == ""
     assert result["finish_reason"] == FinishReason.UNPRODUCTIVE
     # 1) the SSE message_end the client reads
     assert _message_end(events).payload["finish_reason"] == FinishReason.UNPRODUCTIVE

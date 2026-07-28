@@ -26,7 +26,9 @@ export async function performHostOp(
   }
 }
 
-async function runHostOp(payload: HostOpRequiredPayload): Promise<HostOpResult> {
+async function runHostOp(
+  payload: HostOpRequiredPayload,
+): Promise<HostOpResult> {
   const api = typeof window !== "undefined" ? window.hostApi : undefined;
   if (!api?.runOp) {
     return {

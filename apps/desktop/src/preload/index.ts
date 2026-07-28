@@ -7,6 +7,7 @@ import {
   type BrowserApi,
   type BrowserNavState,
 } from "@shared/browser-contract";
+import { HOST_CHANNELS, type HostApi } from "@shared/host-contract";
 import {
   FS_CHANNELS,
   type FsApi,
@@ -26,10 +27,6 @@ import {
   NOTIFICATION_CHANNELS,
   type NotificationApi,
 } from "@shared/notification-contract";
-import {
-  HOST_CHANNELS,
-  type HostApi,
-} from "@shared/host-contract";
 import {
   OUTBOX_CHANNELS,
   type OutboxApi,

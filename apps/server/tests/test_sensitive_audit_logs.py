@@ -15,11 +15,11 @@ from agentcore.security import create_mfa_pending_token, hash_password
 from agentcore.security.keys import KeyEncryptor
 from tests.conftest import LogSpy
 from tests.test_auth_service import (
+    _PW,
     FakeCredentials,
     FakeInvites,
     FakeRefreshTokens,
     FakeUsers,
-    _PW,
     _make,
 )
 

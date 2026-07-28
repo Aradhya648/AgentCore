@@ -410,10 +410,21 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
     assert captured["decision"] == "adjust"
     assert captured["note"] == "换个方向"
     assert captured["saver"] is not None
-    # A non-default per-resume permission mode reached the pipeline (not reset to default).
-    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+    # Partial axes (no host) reach the pipeline; missing host defaults to ASK.
+    from agentcore.core.types import (
+        CommandAxis,
+        FileWriteAxis,
+        HostAxis,
+        PermissionAxes,
+        TeamKickoffAxis,
+    )
 
-    assert captured["autonomy"] == recipe_to_axes(AutonomyPolicy.CAUTIOUS)
+    assert captured["autonomy"] == PermissionAxes(
+        FileWriteAxis.ASK,
+        CommandAxis.ASK,
+        TeamKickoffAxis.RULES,
+        HostAxis.ASK,
+    )
     # the reloaded history (from the local frame) is threaded into the resume pipeline so
     # window_from_journal can splice it ahead of the folded rounds (Phase 2 ⑤).
     assert captured["history"] == history

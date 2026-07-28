@@ -63,11 +63,13 @@ export const RECIPE_LABELS: Record<
   },
   write_code: {
     short: "写代码",
-    description: "改文件本会话信任 · 执行开工时确认 · 组队按规则 · 本机每次确认",
+    description:
+      "改文件本会话信任 · 执行开工时确认 · 组队按规则 · 本机每次确认",
   },
   less_interrupt: {
     short: "少打断",
-    description: "改文件本会话信任 · 执行开工时确认 · 不弹组队卡 · 本机每次确认",
+    description:
+      "改文件本会话信任 · 执行开工时确认 · 不弹组队卡 · 本机每次确认",
   },
   managed: {
     short: "托管",

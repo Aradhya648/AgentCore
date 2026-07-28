@@ -1,3 +1,6 @@
+import { execFile, spawn } from "node:child_process";
+import os from "node:os";
+import { promisify } from "node:util";
 /**
  * 本机 Host 能力 —— 主进程履行（Win 优先探测；mac/linux stub 同 schema）。
  *
@@ -5,13 +8,10 @@
  * 本 IPC 执行，再 resolveInteraction 回填；不经 BrowserBridge loopback。
  */
 import {
+  HOST_CHANNELS,
   type HostOpInput,
   type HostOpResult,
-  HOST_CHANNELS,
 } from "@shared/host-contract";
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
-import os from "node:os";
 import { ipcMain, shell } from "electron";
 
 const execFileAsync = promisify(execFile);
@@ -69,7 +69,8 @@ function shellFuseBlocks(command: string): string | null {
 }
 
 function clampShellTimeout(raw: unknown): number {
-  if (raw === undefined || raw === null || raw === "") return SHELL_TIMEOUT_DEFAULT;
+  if (raw === undefined || raw === null || raw === "")
+    return SHELL_TIMEOUT_DEFAULT;
   const n = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
   if (!Number.isFinite(n)) return SHELL_TIMEOUT_DEFAULT;
   return Math.max(1, Math.min(SHELL_TIMEOUT_MAX, Math.trunc(n)));
@@ -106,7 +107,10 @@ function ok(value: Record<string, unknown>): HostOpResult {
   return { ok: true, value };
 }
 
-async function runPowerShell(script: string, timeoutMs = 12_000): Promise<string> {
+async function runPowerShell(
+  script: string,
+  timeoutMs = 12_000,
+): Promise<string> {
   const { stdout } = await execFileAsync(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", script],
@@ -211,13 +215,19 @@ async function listAudioDevices(): Promise<HostOpResult> {
   });
 }
 
-type AudioDeviceRow = { name?: string; id?: string; kind?: string; status?: string };
+type AudioDeviceRow = {
+  name?: string;
+  id?: string;
+  kind?: string;
+  status?: string;
+};
 
 function asDeviceRows(value: Record<string, unknown>): AudioDeviceRow[] {
   const devices = value.devices;
   if (!Array.isArray(devices)) return [];
   return devices.filter(
-    (d): d is AudioDeviceRow => !!d && typeof d === "object" && !Array.isArray(d),
+    (d): d is AudioDeviceRow =>
+      !!d && typeof d === "object" && !Array.isArray(d),
   ) as AudioDeviceRow[];
 }
 
@@ -256,7 +266,12 @@ function matchAudioDevice(
       const id = String(d.id ?? "").trim();
       const mm = toMmDeviceId(id);
       const guid = (mm ?? id).split(".").pop()?.toLowerCase() ?? "";
-      if (guid && (guid === idNeedle || `{${idNeedle}}` === guid || idNeedle === guid.replace(/^\{|\}$/g, ""))) {
+      if (
+        guid &&
+        (guid === idNeedle ||
+          `{${idNeedle}}` === guid ||
+          idNeedle === guid.replace(/^\{|\}$/g, ""))
+      ) {
         return d;
       }
     }
@@ -388,7 +403,12 @@ async function restartServiceWin(service: string): Promise<HostOpResult> {
   try {
     const raw = await runPowerShell(ps, 45_000);
     if (!raw) {
-      return ok({ platform: "win32", restarted: true, service, status: "unknown" });
+      return ok({
+        platform: "win32",
+        restarted: true,
+        service,
+        status: "unknown",
+      });
     }
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return ok({ platform: "win32", ...parsed });
@@ -423,7 +443,7 @@ async function restartService(serviceRaw: string): Promise<HostOpResult> {
 async function hostStorageWin(): Promise<HostOpResult> {
   const ps = [
     "$ErrorActionPreference='Stop'",
-    "Get-CimInstance Win32_LogicalDisk -Filter \"DriveType=3\" |",
+    'Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |',
     "  ForEach-Object {",
     "    [PSCustomObject]@{",
     "      device_id = $_.DeviceID",
@@ -548,8 +568,8 @@ async function hostAppsWin(): Promise<HostOpResult> {
     `$limit = ${APPS_SAMPLE_LIMIT}`,
     "$ErrorActionPreference='SilentlyContinue'",
     "$dirs = @(",
-    "  \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\",",
-    "  \"$env:AppData\\Microsoft\\Windows\\Start Menu\\Programs\"",
+    '  "$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",',
+    '  "$env:AppData\\Microsoft\\Windows\\Start Menu\\Programs"',
     ")",
     "$names = New-Object System.Collections.Generic.HashSet[string]",
     "foreach ($d in $dirs) {",
@@ -671,7 +691,9 @@ async function hostShell(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(err(e.message || "host_shell spawn failed", "HostShellSpawnError"));
+      resolve(
+        err(e.message || "host_shell spawn failed", "HostShellSpawnError"),
+      );
     });
     child.on("close", (code) => {
       if (settled) return;
@@ -754,7 +776,9 @@ export async function runHostOp(input: HostOpInput): Promise<HostOpResult> {
       return hostShell(command, timeoutSeconds);
     }
     case "host_open_settings": {
-      const panel = String(args.panel ?? "").trim().toLowerCase();
+      const panel = String(args.panel ?? "")
+        .trim()
+        .toLowerCase();
       if (!panel) return err("panel is required");
       return openSettings(panel);
     }

@@ -284,7 +284,7 @@ def test_tool_registry_declarations_cover_roster():
     )
 
     # Explicit break of「CEO 永不持 GRANTABLE」— Host face only (定案 P3).
-    _CEO_GRANTABLE_EXCEPTIONS = frozenset({"host_shell"})
+    _ceo_grantable_exceptions = frozenset({"host_shell"})
 
     declared = declared_tools()
     assert declared, "DECLARED_TOOLS must not be empty"
@@ -295,7 +295,7 @@ def test_tool_registry_declarations_cover_roster():
         reg = tool_registration(cls)
         if AUDIENCE_CEO in reg.audience:
             schema = cls().schema if not reg.needs_location else cls(location=None).schema
-            if schema.name in _CEO_GRANTABLE_EXCEPTIONS:
+            if schema.name in _ceo_grantable_exceptions:
                 assert schema.approval is ToolApproval.GRANTABLE, schema.name
                 assert reg.host_class, schema.name
                 assert not reg.execution_class, schema.name

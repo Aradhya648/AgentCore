@@ -6,8 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agentcore.core.types import HostAxis, PermissionAxes, ToolApproval
-from agentcore.core.types import CommandAxis, FileWriteAxis, TeamKickoffAxis
+from agentcore.core.types import (
+    CommandAxis,
+    FileWriteAxis,
+    HostAxis,
+    PermissionAxes,
+    TeamKickoffAxis,
+    ToolApproval,
+)
 from agentcore.desktop.channel import DesktopClientChannel, HostOp, HostOpError
 from agentcore.tools.builtin import (
     build_ceo_tool_registry,
@@ -15,10 +21,10 @@ from agentcore.tools.builtin import (
     delegation_grantable_tool_names,
 )
 from agentcore.tools.builtin.host import (
+    HostAudioSetDefaultTool,
     HostInfoTool,
     HostNetworkSummaryTool,
     HostOpenSettingsTool,
-    HostAudioSetDefaultTool,
     HostPingTool,
     HostServiceRestartTool,
     HostShellTool,
@@ -28,6 +34,8 @@ from agentcore.tools.builtin.host import (
 )
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registration import execution_class_tool_names, host_class_tool_names
+
+
 @pytest.mark.asyncio
 async def test_host_ping_requires_channel():
     tool = HostPingTool()

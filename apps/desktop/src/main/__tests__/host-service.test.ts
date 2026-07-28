@@ -135,7 +135,10 @@ describe("runHostOp", () => {
   });
 
   it("host_shell rejects empty command", async () => {
-    const result = await runHostOp({ op: "host_shell", args: { command: "  " } });
+    const result = await runHostOp({
+      op: "host_shell",
+      args: { command: "  " },
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe("HostShellEmptyCommand");
@@ -170,9 +173,7 @@ describe("runHostOp", () => {
 
   it("host_shell times out and reports honestly", async () => {
     const command =
-      process.platform === "win32"
-        ? "Start-Sleep -Seconds 5"
-        : "sleep 5";
+      process.platform === "win32" ? "Start-Sleep -Seconds 5" : "sleep 5";
     const result = await runHostOp({
       op: "host_shell",
       args: { command, timeout_seconds: 1 },

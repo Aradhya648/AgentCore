@@ -451,6 +451,8 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
       const epoch = bumpHydrateEpoch(conversationId);
       const prior = hydrateInflight.get(conversationId);
 
+      // Self-ref Promise：finally 比对 inflight 身份（消 TS2454）。
+      const pRef: { current: Promise<void> | null } = { current: null };
       const p = (async () => {
         try {
           if (prior) await prior.catch(() => undefined);
@@ -467,11 +469,12 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
           );
           set(merged);
         } finally {
-          if (hydrateInflight.get(conversationId) === p) {
+          if (hydrateInflight.get(conversationId) === pRef.current) {
             hydrateInflight.delete(conversationId);
           }
         }
       })();
+      pRef.current = p;
 
       hydrateInflight.set(conversationId, p);
       return p;
