@@ -34,10 +34,10 @@ from agentcore.memory.store import (
     topic_slug,
 )
 from agentcore.memory.user_memory import (
-    PROFILE_SECTIONS,
     _DEFAULT_PREAMBLE,
     _GLOBAL_ONLY_PROFILE_SECTIONS,
     _PROJECT_ONLY_PROFILE_SECTIONS,
+    PROFILE_SECTIONS,
     MarkdownMemoryApplier,
     MemoryAction,
     MemoryApplier,
@@ -47,9 +47,9 @@ from agentcore.memory.user_memory import (
     _extract_json_object,
     _injection_style_marker,
     _MemoryDoc,
-    _Section,
     _parse,
     _render,
+    _Section,
     strip_bullet_timestamp,
 )
 

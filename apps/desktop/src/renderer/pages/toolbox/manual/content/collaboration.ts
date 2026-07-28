@@ -476,14 +476,9 @@ export const collaborationChapter: ManualChapterContent = {
           ],
         },
         {
-          type: "settingsRows",
-          rows: [
-            {
-              label: "设置 · 权限配方",
-              desc: "新会话默认四选一；对话内徽章可改配方或单独调三轴，下一回合生效。",
-              to: APP_PATHS.more.autonomy,
-            },
-          ],
+          type: "callout",
+          variant: "tip",
+          text: "桌面：对话输入区权限徽章选四配方之一后，点「设为新会话默认」写入账户默认（只影响之后新建的对话；自定义三轴不可设为默认）。手机仍可在设置改默认。已有会话请在徽章切配方或三轴，下一回合生效。",
         },
         {
           type: "callout",

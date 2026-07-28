@@ -60,11 +60,7 @@ function sanitizeAttachment(raw: unknown): PendingAttachment | null {
   if (typeof a.path !== "string") return null;
   if (typeof a.text !== "string") return null;
   if (typeof a.truncated !== "boolean") return null;
-  if (
-    a.kind !== "file" &&
-    a.kind !== "dir" &&
-    a.kind !== "conversation"
-  ) {
+  if (a.kind !== "file" && a.kind !== "dir" && a.kind !== "conversation") {
     return null;
   }
   const out: PendingAttachment = {
@@ -109,7 +105,9 @@ function serializeAttachments(
   });
 }
 
-function draftHasContent(d: Pick<ComposerDraft, "value" | "attachments">): boolean {
+function draftHasContent(
+  d: Pick<ComposerDraft, "value" | "attachments">,
+): boolean {
   return Boolean(d.value) || d.attachments.length > 0;
 }
 
@@ -119,7 +117,11 @@ function loadDrafts(): Record<string, ComposerDraft> {
   const out: Record<string, ComposerDraft> = {};
   for (const [key, entry] of Object.entries(parsed)) {
     if (!entry || typeof entry !== "object") continue;
-    const { value, updatedAt, attachments: rawAtts } = entry as {
+    const {
+      value,
+      updatedAt,
+      attachments: rawAtts,
+    } = entry as {
       value?: unknown;
       updatedAt?: unknown;
       attachments?: unknown;

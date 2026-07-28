@@ -5,13 +5,11 @@ import type { ImBubbleLayout } from "@/lib/imMessageLayout";
 import { notifyActionError } from "@/lib/toast";
 import {
   type ChatMessageDetail,
-  type StoredAttachment,
   downloadChatAttachment,
-  fetchChatAttachmentBlob,
   isImageAttachment,
 } from "@/services/messaging";
-import { Download, FileText, Folder, ImageOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Download, FileText, Folder } from "lucide-react";
+import { ChatImageGallery } from "./ChatImageGallery";
 import { avatarInitial, avatarSrc } from "./chatDisplay";
 
 interface Props {
@@ -85,91 +83,14 @@ function formatBytes(bytes: number | null | undefined): string {
 }
 
 /**
- * An inline image attachment: fetched as a blob (the file API is cookie-authed
- * raw bytes, so a bare <img src> URL wouldn't carry auth) and shown via an
- * object URL that is revoked on unmount. The preview loads the server-generated
- * WebP thumbnail (`thumb_path`) when present — the bandwidth win — and falls
- * back to the original when no thumbnail was generated. Clicking always saves the
- * full-resolution original. A small error tile shows if the fetch fails (e.g.
- * the file was removed).
- */
-function ChatImageAttachment({
-  chatId,
-  attachment,
-}: {
-  chatId: string;
-  attachment: StoredAttachment;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  // Show the lightweight thumbnail; download the original.
-  const previewPath = attachment.thumb_path ?? attachment.workspace_path;
-  const originalPath = attachment.workspace_path;
-
-  useEffect(() => {
-    if (!previewPath) {
-      setFailed(true);
-      return;
-    }
-    let active = true;
-    let objectUrl: string | null = null;
-    fetchChatAttachmentBlob(chatId, previewPath)
-      .then((blob) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [chatId, previewPath]);
-
-  if (failed) {
-    return (
-      <div className="flex size-24 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <ImageOff size={18} />
-      </div>
-    );
-  }
-  if (!url) {
-    return <div className="size-24 animate-pulse rounded-lg bg-muted" />;
-  }
-  return (
-    <Button
-      variant="ghost"
-      onClick={() =>
-        originalPath &&
-        void downloadChatAttachment(
-          chatId,
-          originalPath,
-          attachment.name,
-        ).catch((e) => notifyActionError("下载失败", e))
-      }
-      className="block h-auto overflow-hidden rounded-lg border border-border p-0 hover:bg-transparent focus:outline-none focus:ring-2 focus:ring-ring"
-      title={attachment.name}
-    >
-      <img
-        src={url}
-        alt={attachment.name}
-        className="max-h-60 max-w-[260px] object-cover"
-      />
-    </Button>
-  );
-}
-
-/**
  * One IM message bubble. Human chat is rendered as plain wrapped text (not
  * Markdown): a stray `#`/`*` in a person's message shouldn't become a heading,
  * and own-bubble theming (primary background) would fight Markdown's fixed
  * foreground color.
  *
- * 富消息 (Stage 4): image attachments render inline (fetched as blobs); other
- * files render as download chips. `system_card` (official notices) renders as a
- * centered system pill.
+ * 富消息: image attachments render via {@link ChatImageGallery} (thumb grid +
+ * lightbox); other files render as download chips. `system_card` (official
+ * notices) renders as a centered system pill.
  */
 export function ChatBubble({
   message,
@@ -248,17 +169,7 @@ export function ChatBubble({
             )}
 
             {images.length > 0 && (
-              <div
-                className={`flex flex-wrap gap-1.5 ${mine ? "justify-end" : ""}`}
-              >
-                {images.map((a) => (
-                  <ChatImageAttachment
-                    key={a.workspace_path ?? a.path}
-                    chatId={message.chat_id}
-                    attachment={a}
-                  />
-                ))}
-              </div>
+              <ChatImageGallery chatId={message.chat_id} images={images} />
             )}
 
             {files.map((a) => {

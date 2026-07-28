@@ -1,0 +1,49 @@
+{
+  "id": "V10",
+  "name": "zod",
+  "upstream": "https://github.com/colinhacks/zod",
+  "release_tag": "v3.24.2",
+  "commit": "e30870369d5b8f31ff4d0130d4439fd997deb523",
+  "commit12": "e30870369d5b",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "language": "typescript",
+  "role": "schema-parse-errors",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/colinhacks/zod/archive/refs/tags/v3.24.2.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "zod@e30870369d5b",
+  "stripped": [
+    ".devcontainer",
+    ".github",
+    ".gitignore",
+    ".husky",
+    ".vscode",
+    "blog"
+  ],
+  "size_gate": {
+    "app_loc_approx": 12712,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 2256383,
+    "tree_mib": 2.152,
+    "note": "应用代码按 src/**/*.ts 粗计；v4.x monorepo 应用 LOC≈55k 超门，R0b 改为 pin 末代 v3 线（同角色·同 upstream）"
+  },
+  "replaced_from": {
+    "attempted_tag": "v4.4.3",
+    "reason": "app_loc_over_15k",
+    "action": "pin_zod_v3_same_upstream"
+  },
+  "install": {
+    "offline_ok": false,
+    "notes": "npm/pnpm install（勿把 node_modules 写入 vendor）；再 npm test"
+  },
+  "test": {
+    "command": [
+      "npm",
+      "test"
+    ],
+    "full_suite_note": "见 package.json scripts；v3 布局非 monorepo packages/zod"
+  }
+}

@@ -10,7 +10,7 @@ import pytest
 
 from agentcore.api.routes.standing_tasks import _require_cloud_folder
 from agentcore.core.errors import NotFoundError, ValidationError
-from agentcore.db.repositories.standing_tasks import is_task_claimable
+from agentcore.db.repositories.standing_tasks import is_lease_free, is_task_claimable
 from agentcore.runtime.events import FinishReason
 from agentcore.standing_tasks.runner import _finish_is_paused, _truncate_summary
 from agentcore.standing_tasks.schedule import (
@@ -274,7 +274,7 @@ async def test_run_job_succeeded(monkeypatch):
         runner_mod, "resolve_conversation_history_access", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(runner_mod, "resolve_permission_axes", AsyncMock(return_value=None))
-    monkeypatch.setattr(runner_mod, "build_turn_backend", MagicMock())
+    monkeypatch.setattr(runner_mod, "build_turn_backend", AsyncMock(return_value=MagicMock()))
     monkeypatch.setattr(runner_mod, "load_chat_context", AsyncMock(return_value=[]))
 
     class _Lock:
@@ -414,7 +414,7 @@ async def test_run_job_awaiting_user(monkeypatch):
         runner_mod, "resolve_conversation_history_access", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(runner_mod, "resolve_permission_axes", AsyncMock(return_value=None))
-    monkeypatch.setattr(runner_mod, "build_turn_backend", MagicMock())
+    monkeypatch.setattr(runner_mod, "build_turn_backend", AsyncMock(return_value=MagicMock()))
     monkeypatch.setattr(runner_mod, "load_chat_context", AsyncMock(return_value=[]))
 
     class _Lock:
@@ -893,7 +893,7 @@ async def test_run_job_includes_event_text(monkeypatch):
         runner_mod, "resolve_conversation_history_access", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(runner_mod, "resolve_permission_axes", AsyncMock(return_value=None))
-    monkeypatch.setattr(runner_mod, "build_turn_backend", MagicMock())
+    monkeypatch.setattr(runner_mod, "build_turn_backend", AsyncMock(return_value=MagicMock()))
     monkeypatch.setattr(runner_mod, "load_chat_context", AsyncMock(return_value=[]))
 
     class _Lock:
@@ -922,3 +922,381 @@ async def test_run_job_includes_event_text(monkeypatch):
     assert captured["pipeline_msg"] == "常驻目标\n\n本次事件：外部事件"
     assert "advanced" not in captured
     assert "succeeded" in captured
+
+
+# ---------------------------------------------------------------------------
+# GAP-1: task-level lease mutex for webhook / manual dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchLeaseFree:
+    def test_absent_lease_is_free(self):
+        now = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
+        assert is_lease_free(lease_until=None, now=now)
+
+    def test_active_lease_not_free(self):
+        now = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
+        assert not is_lease_free(lease_until=now + timedelta(minutes=5), now=now)
+
+    def test_expired_lease_is_free(self):
+        now = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
+        assert is_lease_free(lease_until=now - timedelta(seconds=1), now=now)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_claims_lease_and_rejects_in_flight(monkeypatch):
+    """Webhook/manual dispatch claims lease; second claim → ConflictError (409)."""
+    from agentcore.core.errors import ConflictError
+    from agentcore.standing_tasks import runner as runner_mod
+
+    task = SimpleNamespace(id="task-1", conversation_id="conv-1", user_id="u1")
+    claims: list[str] = []
+    cleared: list[str] = []
+
+    class _Tasks:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, task_id, *, user_id=None):
+            return task if task_id == "task-1" else None
+
+        async def claim_dispatch(self, task_id, *, owner, lease_seconds, now=None):
+            if claims:
+                return None  # already held
+            claims.append(owner)
+            return task
+
+        async def clear_lease(self, task_id, *, owner=None):
+            cleared.append(owner or "")
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def create(self, **kwargs):
+            return SimpleNamespace(id=f"run-{len(claims)}")
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    spawned: list[dict] = []
+
+    def fake_spawn(**kwargs):
+        spawned.append(kwargs)
+
+    monkeypatch.setattr(runner_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(runner_mod, "StandingTaskRepository", _Tasks)
+    monkeypatch.setattr(runner_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(runner_mod, "spawn_standing_task_run", fake_spawn)
+
+    run1 = await runner_mod.dispatch_standing_task(
+        task_id="task-1",
+        user_id="u1",
+        trigger_source="webhook",
+    )
+    assert run1 == "run-1"
+    assert len(claims) == 1
+    assert spawned[0]["lease_owner"] == claims[0]
+    assert spawned[0]["run_id"] == "run-1"
+
+    with pytest.raises(ConflictError, match="正在执行"):
+        await runner_mod.dispatch_standing_task(
+            task_id="task-1",
+            user_id="u1",
+            trigger_source="webhook",
+        )
+    assert len(spawned) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skips_claim_when_scheduler_owns_lease(monkeypatch):
+    """Scheduler already claimed via claim_due — dispatch must not re-claim."""
+    from agentcore.standing_tasks import runner as runner_mod
+
+    task = SimpleNamespace(id="task-1", conversation_id=None, user_id="u1")
+    claim_calls = 0
+
+    class _Tasks:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, task_id, *, user_id=None):
+            return task
+
+        async def claim_dispatch(self, *a, **k):
+            nonlocal claim_calls
+            claim_calls += 1
+            return task
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def create(self, **kwargs):
+            return SimpleNamespace(id="run-sched")
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    spawned: list[dict] = []
+    monkeypatch.setattr(runner_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(runner_mod, "StandingTaskRepository", _Tasks)
+    monkeypatch.setattr(runner_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(
+        runner_mod, "spawn_standing_task_run", lambda **k: spawned.append(k)
+    )
+
+    run_id = await runner_mod.dispatch_standing_task(
+        task_id="task-1",
+        user_id="u1",
+        lease_owner="sched-abc",
+        trigger_source="schedule",
+        advance_schedule=True,
+    )
+    assert run_id == "run-sched"
+    assert claim_calls == 0
+    assert spawned[0]["lease_owner"] == "sched-abc"
+
+
+@pytest.mark.asyncio
+async def test_fire_webhook_conflict_when_dispatch_busy(monkeypatch):
+    """In-flight lease → webhook returns ConflictError, does not open a second run."""
+    from agentcore.api.routes import standing_tasks as routes
+    from agentcore.core.errors import ConflictError
+    from agentcore.standing_tasks import webhook as wh
+    from agentcore.standing_tasks.webhook import generate_webhook_secret
+
+    wh.reset_webhook_state()
+    raw, hashed = generate_webhook_secret()
+    webhook_task = SimpleNamespace(
+        id="task-w",
+        user_id="user-1",
+        folder_id="folder-1",
+        enabled=True,
+        trigger_kind="webhook",
+        webhook_id="wid-1",
+        webhook_secret_hash=hashed,
+    )
+
+    async def busy_dispatch(**kwargs):
+        raise ConflictError("站立任务正在执行中，请稍后再试")
+
+    monkeypatch.setattr(routes, "dispatch_standing_task", busy_dispatch)
+
+    class _Repo:
+        async def get_by_webhook_id(self, wid):
+            return webhook_task if wid == "wid-1" else None
+
+    class _Folders:
+        async def get_by_id(self, *a, **k):
+            return SimpleNamespace(id="folder-1", local_root_id=None)
+
+    class _Req:
+        headers = {"content-type": "application/json"}
+
+        async def body(self):
+            return b'{"text":"x"}'
+
+    with pytest.raises(ConflictError, match="正在执行"):
+        await routes.fire_standing_webhook(
+            webhook_id="wid-1",
+            request=_Req(),
+            repo=_Repo(),
+            folders=_Folders(),
+            authorization=f"Bearer {raw}",
+            x_agentcore_webhook_secret=None,
+            x_idempotency_key=None,
+        )
+    wh.reset_webhook_state()
+
+
+# ---------------------------------------------------------------------------
+# GAP-2: awaiting_user inbox settlement after resume
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_settle_after_turn_marks_succeeded(monkeypatch):
+    from agentcore.standing_tasks import inbox as inbox_mod
+
+    marks: dict[str, object] = {}
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def list_awaiting_for_conversation(self, conversation_id):
+            return [SimpleNamespace(id="run-a", summary="old")]
+
+        async def mark_succeeded(self, run_id, *, summary):
+            marks["succeeded"] = summary
+
+        async def mark_failed(self, run_id, *, error):
+            marks["failed"] = error
+
+        async def mark_awaiting_user(self, run_id, *, summary=None):
+            marks["awaiting_user"] = summary
+
+    class _Paused:
+        def __init__(self, session):
+            pass
+
+        async def exists_for_conversation(self, conversation_id):
+            return False
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(inbox_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(inbox_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(inbox_mod, "PausedTurnRepository", _Paused)
+
+    n = await inbox_mod.settle_after_turn(
+        conversation_id="conv-1",
+        finish_reason=FinishReason.END_TURN,
+        content="拍板后完成摘要",
+    )
+    assert n == 1
+    assert marks["succeeded"] == "拍板后完成摘要"
+    assert "failed" not in marks
+    assert "awaiting_user" not in marks
+
+
+@pytest.mark.asyncio
+async def test_settle_after_turn_keeps_awaiting_on_repause(monkeypatch):
+    from agentcore.standing_tasks import inbox as inbox_mod
+
+    marks: dict[str, object] = {}
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def list_awaiting_for_conversation(self, conversation_id):
+            return [SimpleNamespace(id="run-a", summary="old")]
+
+        async def mark_succeeded(self, run_id, *, summary):
+            marks["succeeded"] = summary
+
+        async def mark_failed(self, run_id, *, error):
+            marks["failed"] = error
+
+        async def mark_awaiting_user(self, run_id, *, summary=None):
+            marks["awaiting_user"] = summary
+
+    class _Paused:
+        def __init__(self, session):
+            pass
+
+        async def exists_for_conversation(self, conversation_id):
+            return True
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(inbox_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(inbox_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(inbox_mod, "PausedTurnRepository", _Paused)
+
+    n = await inbox_mod.settle_after_turn(
+        conversation_id="conv-1",
+        finish_reason=FinishReason.PAUSED,
+        content="仍需授权",
+    )
+    assert n == 1
+    assert marks["awaiting_user"] == "仍需授权"
+    assert "succeeded" not in marks
+
+
+@pytest.mark.asyncio
+async def test_settle_after_turn_marks_failed(monkeypatch):
+    from agentcore.standing_tasks import inbox as inbox_mod
+
+    marks: dict[str, object] = {}
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def list_awaiting_for_conversation(self, conversation_id):
+            return [SimpleNamespace(id="run-a", summary=None)]
+
+        async def mark_succeeded(self, run_id, *, summary):
+            marks["succeeded"] = summary
+
+        async def mark_failed(self, run_id, *, error):
+            marks["failed"] = error
+
+        async def mark_awaiting_user(self, run_id, *, summary=None):
+            marks["awaiting_user"] = summary
+
+    class _Paused:
+        def __init__(self, session):
+            pass
+
+        async def exists_for_conversation(self, conversation_id):
+            return False
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(inbox_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(inbox_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(inbox_mod, "PausedTurnRepository", _Paused)
+
+    n = await inbox_mod.settle_after_turn(
+        conversation_id="conv-1",
+        finish_reason=FinishReason.ERROR,
+        error="模型失败",
+    )
+    assert n == 1
+    assert marks["failed"] == "模型失败"
+
+
+@pytest.mark.asyncio
+async def test_settle_after_turn_noop_without_open_rows(monkeypatch):
+    from agentcore.standing_tasks import inbox as inbox_mod
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def list_awaiting_for_conversation(self, conversation_id):
+            return []
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(inbox_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(inbox_mod, "StandingTaskRunRepository", _Runs)
+
+    n = await inbox_mod.settle_after_turn(
+        conversation_id="conv-1",
+        finish_reason=FinishReason.END_TURN,
+        content="x",
+    )
+    assert n == 0

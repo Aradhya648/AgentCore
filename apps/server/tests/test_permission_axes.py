@@ -7,9 +7,9 @@ from pydantic import ValidationError
 
 from agentcore.api.schemas.conversations import PermissionAxesModel, PermissionAxesUpdate
 from agentcore.core.types import (
+    DEFAULT_PERMISSION_AXES,
     AutonomyPolicy,
     CommandAxis,
-    DEFAULT_PERMISSION_AXES,
     FileWriteAxis,
     PermissionAxes,
     TeamKickoffAxis,
@@ -26,9 +26,9 @@ class _LocalBackend:
 
 
 def test_default_axes_are_write_code():
-    assert DEFAULT_PERMISSION_AXES == PermissionAxes(
+    assert PermissionAxes(
         FileWriteAxis.SESSION, CommandAxis.KICKOFF, TeamKickoffAxis.RULES
-    )
+    ) == DEFAULT_PERMISSION_AXES
     assert recipe_to_axes(AutonomyPolicy.WRITE_CODE) == DEFAULT_PERMISSION_AXES
 
 

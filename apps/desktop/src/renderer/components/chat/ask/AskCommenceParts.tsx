@@ -373,8 +373,7 @@ export function ChoiceQuestion({
   onBindOption?: (opt: AskOption) => void;
 }) {
   const canLocalFs = hasLocalFiles() && !!window.fsApi;
-  const canBindAction =
-    !!conversationId && !!onBindOption && canLocalFs;
+  const canBindAction = !!conversationId && !!onBindOption && canLocalFs;
   const twoColumn = optionLayout === "card" && optionColumns === 2;
   const compact = optionLayout === "compact";
   return (

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import type { BrowserApi } from "@shared/browser-contract";
 import type { WorkspaceInfo } from "@/services/workspaces";
+import type { BrowserApi } from "@shared/browser-contract";
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

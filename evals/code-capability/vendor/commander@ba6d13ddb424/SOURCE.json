@@ -1,0 +1,43 @@
+{
+  "id": "V09",
+  "name": "commander",
+  "upstream": "https://github.com/tj/commander.js",
+  "release_tag": "v15.0.0",
+  "commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+  "commit12": "ba6d13ddb424",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "language": "typescript",
+  "role": "node-cli-subcommands",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/tj/commander.js/archive/refs/tags/v15.0.0.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "commander@ba6d13ddb424",
+  "stripped": [
+    ".gitattributes",
+    ".github",
+    ".gitignore",
+    "docs",
+    "examples"
+  ],
+  "size_gate": {
+    "app_loc_approx": 3560,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 908395,
+    "tree_mib": 0.866,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": false,
+    "notes": "npm install（strip node_modules）；纯 JS，Windows 友好"
+  },
+  "test": {
+    "command": [
+      "npm",
+      "test"
+    ],
+    "full_suite_note": "jest/mocha 见 package.json"
+  }
+}

@@ -114,7 +114,9 @@ describe("standingTasks mapping", () => {
       webhook_url: "/v1/hooks/standing/wh-uuid-1",
       webhook_secret: null,
     });
-    expect(t.webhookUrl).toMatch(/^https?:\/\/.+\/v1\/hooks\/standing\/wh-uuid-1$/);
+    expect(t.webhookUrl).toMatch(
+      /^https?:\/\/.+\/v1\/hooks\/standing\/wh-uuid-1$/,
+    );
   });
 
   it("maps run wire and accepts read_at alias", () => {
@@ -262,13 +264,20 @@ describe("standingTasks API", () => {
     expect(apiGet).toHaveBeenCalledWith("/v1/standing-task-runs?limit=1");
   });
 
-  it("counts inbox badge (awaiting + unacked failed) without badge field", async () => {
+  it("counts inbox badge (unacked awaiting + unacked failed) without badge field", async () => {
     apiGet.mockResolvedValueOnce({
       items: [
         {
           id: "r1",
           standing_task_id: "st-1",
           status: "awaiting_user",
+          created_at: "2026-07-28T01:00:00Z",
+        },
+        {
+          id: "r1b",
+          standing_task_id: "st-1",
+          status: "awaiting_user",
+          acked_at: "2026-07-28T02:00:00Z",
           created_at: "2026-07-28T01:00:00Z",
         },
         {

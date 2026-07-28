@@ -1,0 +1,45 @@
+{
+  "id": "V02",
+  "name": "starlette",
+  "upstream": "https://github.com/encode/starlette",
+  "release_tag": "1.3.1",
+  "commit": "8ebffd0678570ddd5d5bb11c6f3c3c7fd4682ab9",
+  "commit12": "8ebffd067857",
+  "license": "BSD-3-Clause",
+  "license_file": "LICENSE.md",
+  "language": "python",
+  "role": "asgi-web-middleware",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/encode/starlette/archive/refs/tags/1.3.1.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "starlette@8ebffd067857",
+  "stripped": [
+    ".github",
+    ".gitignore",
+    "docs",
+    "scripts"
+  ],
+  "size_gate": {
+    "app_loc_approx": 5322,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 957899,
+    "tree_mib": 0.914,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": false,
+    "notes": "pip install -e '.[full]' 或最小 deps；Windows 友好纯 Python"
+  },
+  "test": {
+    "command": [
+      "python",
+      "-m",
+      "pytest",
+      "tests",
+      "-q"
+    ],
+    "full_suite_note": "部分测需 httpx/anyio 等 extras"
+  }
+}

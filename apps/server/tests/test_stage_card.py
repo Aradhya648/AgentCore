@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from agentcore.core.log_context import clear_log_context, log_context
@@ -488,7 +490,7 @@ async def test_orphan_writes_journal_fact(monkeypatch):
 @pytest.mark.asyncio
 async def test_drive_mlr_preauth_skips_team_preview(monkeypatch):
     """research_first 决议 pre-auth → 当次 multi_lens_research 免 team_preview。"""
-    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+    from agentcore.core.types import AutonomyPolicy
     from agentcore.runtime.delegate import preview as preview_mod
     from agentcore.runtime.delegate.drive import _team_preview_before_workers
     from agentcore.runtime.runs.plan import RunPlan
@@ -1170,9 +1172,9 @@ def _patch_start_debate_harness(monkeypatch, mod, *, pipeline):
     monkeypatch.setattr(mod, "resolve_local_binding", _none)
     monkeypatch.setattr(mod, "resolve_profile_set", _none)
     monkeypatch.setattr(mod, "resolve_memory_enabled", _true)
-    monkeypatch.setattr(mod, "resolve_permission_preset", _preset)
+    monkeypatch.setattr(mod, "resolve_permission_axes", _preset)
     monkeypatch.setattr(mod, "load_chat_context", _empty_history)
-    monkeypatch.setattr(mod, "build_turn_backend", lambda **_k: object())
+    monkeypatch.setattr(mod, "build_turn_backend", AsyncMock(return_value=object()))
     monkeypatch.setattr(mod, "session_callbacks", lambda *_a: (None, None))
     monkeypatch.setattr(mod, "suspension_callbacks", lambda: (None, None))
     monkeypatch.setattr(mod, "workspace_lock", lambda *_a, **_k: _Lock())

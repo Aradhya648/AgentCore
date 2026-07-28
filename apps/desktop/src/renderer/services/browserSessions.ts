@@ -74,10 +74,12 @@ function fromWire(w: BrowserSessionWire): BrowserSessionInfo {
 export function listBrowserSessions(
   conversationId: string,
 ): Promise<BrowserSessionList> {
-  return api.get<BrowserSessionListWire>(sessionsPath(conversationId)).then((r) => ({
-    sessions: (r.data ?? []).map(fromWire),
-    activeSessionId: r.active_session_id ?? null,
-  }));
+  return api
+    .get<BrowserSessionListWire>(sessionsPath(conversationId))
+    .then((r) => ({
+      sessions: (r.data ?? []).map(fromWire),
+      activeSessionId: r.active_session_id ?? null,
+    }));
 }
 
 /** POST …/browser/sessions —— 显式开一页（Web 地址栏 / 壳侧；默认 sandbox）。 */
@@ -100,9 +102,12 @@ export function navigateBrowserSession(
   url: string,
 ): Promise<BrowserSessionInfo> {
   return api
-    .post<BrowserSessionWire>(`${sessionPath(conversationId, sessionId)}/navigate`, {
-      url,
-    })
+    .post<BrowserSessionWire>(
+      `${sessionPath(conversationId, sessionId)}/navigate`,
+      {
+        url,
+      },
+    )
     .then(fromWire);
 }
 

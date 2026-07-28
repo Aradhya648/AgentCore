@@ -12,14 +12,11 @@
  * 未打包开发态仍可写入 userData ``browser-bridge.dev.json`` 供外部 probe 脚本。
  */
 
-import { writeFileSync, unlinkSync } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { unlinkSync, writeFileSync } from "node:fs";
+import { type Server, createServer } from "node:http";
 import { join } from "node:path";
 import { app } from "electron";
-import {
-  createBridgeAuth,
-  handleBridgeRequest,
-} from "./bridge-handler";
+import { createBridgeAuth, handleBridgeRequest } from "./bridge-handler";
 import { bridgeDispatchLocalBrowser } from "./host";
 
 export {
@@ -51,16 +48,23 @@ let running: {
 
 const DEV_BRIDGE_FILE = "browser-bridge.dev.json";
 /** 打包版短 TTL；未打包 dogfood / probe 用长 TTL，避免 dump 文件几分钟就 401。 */
-const BRIDGE_TOKEN_TTL_MS = app.isPackaged ? 5 * 60_000 : 60 * 60_000;
+function bridgeTokenTtlMs(): number {
+  // vitest 加载 main 图时 electron.app 可能为 undefined——勿在模块顶层读。
+  return app?.isPackaged ? 5 * 60_000 : 60 * 60_000;
+}
 
 /** 未打包时落盘凭证，供本机 sidecar probe；打包版 / 未就绪 → no-op。 */
 function dumpDevBridgeCredentials(baseUrl: string, token: string): void {
-  if (app.isPackaged) return;
+  if (!app || app.isPackaged) return;
   try {
     const path = join(app.getPath("userData"), DEV_BRIDGE_FILE);
     writeFileSync(
       path,
-      JSON.stringify({ baseUrl, token, writtenAt: new Date().toISOString() }, null, 2),
+      JSON.stringify(
+        { baseUrl, token, writtenAt: new Date().toISOString() },
+        null,
+        2,
+      ),
       { encoding: "utf-8", mode: 0o600 },
     );
   } catch (err) {
@@ -69,7 +73,7 @@ function dumpDevBridgeCredentials(baseUrl: string, token: string): void {
 }
 
 function clearDevBridgeCredentials(): void {
-  if (app.isPackaged) return;
+  if (!app || app.isPackaged) return;
   try {
     unlinkSync(join(app.getPath("userData"), DEV_BRIDGE_FILE));
   } catch {
@@ -82,7 +86,7 @@ function clearDevBridgeCredentials(): void {
  */
 export async function startDesktopBrowserBridge(): Promise<DesktopBrowserBridge> {
   if (running) {
-    const token = running.auth.issueToken(BRIDGE_TOKEN_TTL_MS);
+    const token = running.auth.issueToken(bridgeTokenTtlMs());
     const baseUrl = `http://127.0.0.1:${running.port}`;
     dumpDevBridgeCredentials(baseUrl, token);
     return {
@@ -90,15 +94,18 @@ export async function startDesktopBrowserBridge(): Promise<DesktopBrowserBridge>
       token,
       close: stopDesktopBrowserBridge,
       rotateToken: () => {
-        const t = running!.auth.issueToken(BRIDGE_TOKEN_TTL_MS);
-        dumpDevBridgeCredentials(`http://127.0.0.1:${running!.port}`, t);
+        if (!running) {
+          throw new Error("DesktopBrowserBridge: not running");
+        }
+        const t = running.auth.issueToken(bridgeTokenTtlMs());
+        dumpDevBridgeCredentials(`http://127.0.0.1:${running.port}`, t);
         return t;
       },
     };
   }
 
   const auth = createBridgeAuth();
-  const token = auth.issueToken(BRIDGE_TOKEN_TTL_MS);
+  const token = auth.issueToken(bridgeTokenTtlMs());
 
   const server = createServer((req, res) => {
     void handleBridgeRequest(
@@ -123,16 +130,17 @@ export async function startDesktopBrowserBridge(): Promise<DesktopBrowserBridge>
   running = { server, auth, port: addr.port };
   const baseUrl = `http://127.0.0.1:${addr.port}`;
   dumpDevBridgeCredentials(baseUrl, token);
-  console.info(
-    `[browser-bridge] listening on ${baseUrl} (token issued)`,
-  );
+  console.info(`[browser-bridge] listening on ${baseUrl} (token issued)`);
 
   return {
     baseUrl,
     token,
     close: stopDesktopBrowserBridge,
     rotateToken: () => {
-      const t = running!.auth.issueToken(BRIDGE_TOKEN_TTL_MS);
+      if (!running) {
+        throw new Error("DesktopBrowserBridge: not running");
+      }
+      const t = running.auth.issueToken(bridgeTokenTtlMs());
       dumpDevBridgeCredentials(baseUrl, t);
       return t;
     },
@@ -171,12 +179,14 @@ export function getDesktopBrowserBridgeCredentials(): {
 } | null {
   if (!running || !running.auth.state.token) return null;
   // 过期则轮换，避免 sidecar 拿到已失效 token。
-  if (Date.now() >= running.auth.state.expiresAt) {
-    running.auth.issueToken(BRIDGE_TOKEN_TTL_MS);
-  }
+  const token =
+    Date.now() >= running.auth.state.expiresAt
+      ? running.auth.issueToken(bridgeTokenTtlMs())
+      : running.auth.state.token;
+  if (!token) return null;
   const out = {
     baseUrl: `http://127.0.0.1:${running.port}`,
-    token: running.auth.state.token!,
+    token,
   };
   dumpDevBridgeCredentials(out.baseUrl, out.token);
   return out;
@@ -188,7 +198,7 @@ export function rotateDesktopBrowserBridgeCredentials(): {
   token: string;
 } | null {
   if (!running) return null;
-  const token = running.auth.issueToken(BRIDGE_TOKEN_TTL_MS);
+  const token = running.auth.issueToken(bridgeTokenTtlMs());
   const out = {
     baseUrl: `http://127.0.0.1:${running.port}`,
     token,

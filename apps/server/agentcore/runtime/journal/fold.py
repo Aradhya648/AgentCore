@@ -376,7 +376,8 @@ def window_from_journal(
       ``run_head`` (captain / legacy unscoped fold).
     - each ``llm_call`` of the target run that carried ``tool_calls`` → the ``assistant``
       message (``content`` / ``reasoning_content`` echoed verbatim — DeepSeek thinking
-      mode 400s without the reasoning on a tool-call turn, see 平台LLM接入 · DeepSeek 易错 — plus the
+      mode 400s without the reasoning on a tool-call turn, see 平台LLM接入 · DeepSeek
+      易错 — plus the
       ``tool_calls``), followed by one ``tool`` message per **completed** call (result
       matched by ``tool_call_id`` from the execution ``tool_call`` fact — the FULL
       post-annotation text the round carried, 边界① cleared). A call with no ``tool_call``

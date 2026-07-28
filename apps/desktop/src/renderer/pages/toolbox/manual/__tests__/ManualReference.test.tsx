@@ -77,10 +77,10 @@ describe("ManualReference", () => {
     expect(screen.getByText("中途接管")).toBeTruthy();
   });
 
-  it("renders settings rows including memory and autonomy", () => {
+  it("renders settings rows including memory", () => {
     renderReference();
     expect(screen.getByText("AI 记忆")).toBeTruthy();
-    expect(screen.getAllByText("自主度").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("设置 · 自主度")).toBeNull();
   });
 
   it("renders glossary terms aligned with product glossary", () => {

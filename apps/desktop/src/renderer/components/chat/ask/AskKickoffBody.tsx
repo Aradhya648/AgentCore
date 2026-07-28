@@ -72,8 +72,7 @@ export function AskKickoffBody({
   const [noteOpen, setNoteOpen] = useState(false);
 
   const canLocalFs = hasLocalFiles() && !!window.fsApi;
-  const canBindAction =
-    !!conversationId && !!onBindResolve && canLocalFs;
+  const canBindAction = !!conversationId && !!onBindResolve && canLocalFs;
 
   const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
     if (busy || bindBusyLabel) return;

@@ -217,14 +217,14 @@ async def test_read_soft_miss_for_other_or_deleted(monkeypatch):
     )
     monkeypatch.setattr(
         "agentcore.tools.builtin.read_conversation.async_session_factory",
-        lambda: _async_cm(),
+        lambda: _AsyncCm(),
     )
     result = await tool.execute({"conversation_id": "other"}, _ctx())
     assert result.success is True
     assert "无法打开" in result.output
 
 
-class _async_cm:
+class _AsyncCm:
     async def __aenter__(self):
         return MagicMock()
 
@@ -328,7 +328,7 @@ async def test_read_sets_output_limit_above_chunk(monkeypatch):
     )
     monkeypatch.setattr(
         "agentcore.tools.builtin.read_conversation.async_session_factory",
-        lambda: _async_cm(),
+        lambda: _AsyncCm(),
     )
 
     result = await tool.execute({"conversation_id": "past-1"}, _ctx())
@@ -380,7 +380,7 @@ async def test_search_tool_excludes_host(monkeypatch):
     )
     monkeypatch.setattr(
         "agentcore.tools.builtin.search_conversations.async_session_factory",
-        lambda: _async_cm(),
+        lambda: _AsyncCm(),
     )
 
     result = await tool.execute({"query": ""}, _ctx())

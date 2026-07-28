@@ -23,11 +23,13 @@ import { BrowserPanel } from "@/components/workspace/BrowserPanel";
 import { ConversationChangesPanel } from "@/components/workspace/ConversationChangesPanel";
 import { WorkspaceMode } from "@/components/workspace/WorkspacePanel";
 import { useConversationFileSource } from "@/hooks/useConversationFileSource";
+import { conversationHasFileArtifacts } from "@/lib/conversationFileChanges";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import {
   useActiveMessageContent,
   useConversationStore,
 } from "@/stores/conversation";
+import { runtimeOf } from "@/stores/conversation/runtime";
 import {
   type ExecutionRuntime,
   projectRuntime,
@@ -38,7 +40,9 @@ import {
   COMMAND_TAB_ID,
   type DetailTab,
   TEAM_BROWSER_TAB_ID,
+  TEAM_TERMINAL_TAB_ID,
   WORKSPACE_TAB_ID,
+  terminalDismissKey,
   useSidePanelStore,
 } from "@/stores/sidePanel";
 import { useUserTerminalStore } from "@/stores/userTerminals";
@@ -48,6 +52,7 @@ import {
   FolderOpen,
   Gavel,
   MessageSquare,
+  PanelRight,
   Plus,
   Radio,
   Sparkles,
@@ -56,8 +61,8 @@ import {
   X,
 } from "lucide-react";
 import {
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -90,7 +95,8 @@ function isDetailTabLive(
 
 /**
  * The conversation's single right-docked surface (前端UX设计.md §十 · 方案 B):
- * `[工作区*] [改动*] | 内容 tabs | [+]`，画布态另出条件「指挥台」。
+ * `[工作区*] [改动?] | 内容 tabs | [+]`，画布态另出条件「指挥台」。
+ * 「改动」有本对话 AI 文件改动（或深链）才挂，挂后不可关。
  */
 export function SidePanel() {
   const open = useSidePanelStore((s) => s.open);
@@ -107,8 +113,15 @@ export function SidePanel() {
   const bindTerminalSession = useSidePanelStore((s) => s.bindTerminalSession);
   const openFileTab = useSidePanelStore((s) => s.openFileTab);
   const showBrowser = useSidePanelStore((s) => s.showBrowser);
+  const changesFocusMessageId = useSidePanelStore(
+    (s) => s.changesFocusMessageId,
+  );
+  const clearChangesFocus = useSidePanelStore((s) => s.clearChangesFocus);
   const currentConversationId = useConversationStore(
     (s) => s.currentConversationId,
+  );
+  const messages = useConversationStore(
+    (s) => runtimeOf(s, currentConversationId).messages,
   );
   const spawnSession = useUserTerminalStore((s) => s.spawnSession);
 
@@ -122,6 +135,14 @@ export function SidePanel() {
       .map((t) => t.id)
       .join("\u0001"),
   );
+  // Boolean selector：byId 每 token 变，但 true/false 不变则不重渲顶栏；messages 变则换 selector。
+  const hasFileChangesSelector = useCallback(
+    (s: { byId: Record<string, ExecutionRuntime> }) =>
+      conversationHasFileArtifacts(messages, s.byId),
+    [messages],
+  );
+  const hasFileChanges = useExecutionStore(hasFileChangesSelector);
+  const changesTabVisible = hasFileChanges || changesFocusMessageId != null;
   // 图上指挥 (前端UX设计.md §6.2): fixed 指挥台 tab + auto-surface (openPanel + badge,
   // never steals active tab). Hook runs before the `open` early-return so its effect
   // can reveal the panel even while closed. Inert in chat mode (`active` is false).
@@ -152,15 +173,44 @@ export function SidePanel() {
     }
   }, [command.show, activeTabId, setActiveTab]);
 
-  // 终端活动出现且尚无 terminal 内容 tab → 自动补一个（不激活、不强开面板）。
+  // 切对话：清深链聚焦；若仍停在「改动」且新对话无改动 → 由下方 effect 回工作区。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentConversationId is an intentional re-run key
   useEffect(() => {
-    if (!terminal.show) return;
-    const hasTerminal = useSidePanelStore
-      .getState()
-      .tabs.some((t) => t.kind === "terminal");
-    if (hasTerminal) return;
+    clearChangesFocus();
+  }, [currentConversationId, clearChangesFocus]);
+
+  // 「改动」不可见时若仍激活 → 回工作区。
+  useEffect(() => {
+    if (!changesTabVisible && activeTabId === CHANGES_TAB_ID) {
+      setActiveTab(WORKSPACE_TAB_ID);
+    }
+  }, [changesTabVisible, activeTabId, setActiveTab]);
+
+  // 终端「有活动」时自动补壳：用户关掉后记 dismiss，活动清零后才允许再次自动浮出。
+  // 不含 canOpenPty——仅「能开 shell」不应强行挂 tab（否则关不掉）。
+  useEffect(() => {
+    const dismissKey = terminalDismissKey(currentConversationId);
+    if (!terminal.show) {
+      useSidePanelStore.getState().clearAutoSurfaceDismiss(dismissKey);
+      return;
+    }
+    const sp = useSidePanelStore.getState();
+    if (sp.isAutoSurfaceDismissed(dismissKey)) return;
+    if (sp.tabs.some((t) => t.kind === "terminal")) return;
     openTerminalTab({ activate: false, reveal: false });
-  }, [terminal.show, openTerminalTab]);
+  }, [terminal.show, currentConversationId, openTerminalTab]);
+
+  // 收敛历史多开终端顶栏 tab → 唯一壳（不激活、不强开）。
+  useEffect(() => {
+    const terminals = tabs.filter((t) => t.kind === "terminal");
+    if (
+      terminals.length <= 1 &&
+      terminals.every((t) => t.id === TEAM_TERMINAL_TAB_ID)
+    ) {
+      return;
+    }
+    openTerminalTab({ activate: false, reveal: false });
+  }, [tabs, openTerminalTab]);
 
   // 浏览器活动出现且尚无 browser 内容 tab → 自动补一个（不激活、不强开面板）。
   useEffect(() => {
@@ -169,10 +219,12 @@ export function SidePanel() {
       .getState()
       .tabs.some((t) => t.kind === "browser");
     if (hasBrowser) return;
-    useSidePanelStore.getState().openTab(
-      { kind: "browser", id: TEAM_BROWSER_TAB_ID, title: "浏览器" },
-      { activate: false, reveal: false },
-    );
+    useSidePanelStore
+      .getState()
+      .openTab(
+        { kind: "browser", id: TEAM_BROWSER_TAB_ID, title: "浏览器" },
+        { activate: false, reveal: false },
+      );
   }, [browser.show]);
 
   // Content / simple-turn tabs read message text via narrow slices so a streaming
@@ -202,11 +254,18 @@ export function SidePanel() {
 
   // Keep-alive keys for terminal / file bodies (mounted while tab exists).
   const terminalTabs = useMemo(
-    () => visibleTabs.filter((t): t is Extract<DetailTab, { kind: "terminal" }> => t.kind === "terminal"),
+    () =>
+      visibleTabs.filter(
+        (t): t is Extract<DetailTab, { kind: "terminal" }> =>
+          t.kind === "terminal",
+      ),
     [visibleTabs],
   );
   const fileTabs = useMemo(
-    () => visibleTabs.filter((t): t is Extract<DetailTab, { kind: "file" }> => t.kind === "file"),
+    () =>
+      visibleTabs.filter(
+        (t): t is Extract<DetailTab, { kind: "file" }> => t.kind === "file",
+      ),
     [visibleTabs],
   );
   const browserTabs = useMemo(
@@ -270,7 +329,7 @@ export function SidePanel() {
         className="absolute left-0 top-0 z-10 h-full w-1 min-w-0 cursor-col-resize rounded-none bg-transparent p-0 hover:bg-primary/40"
       />
 
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pl-2 pr-1">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-2 py-1.5 pr-1">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <FixedTab
             active={workspaceActive}
@@ -278,12 +337,14 @@ export function SidePanel() {
             icon={<FolderOpen size={14} />}
             label="工作区"
           />
-          <FixedTab
-            active={changesActive}
-            onClick={() => setActiveTab(CHANGES_TAB_ID)}
-            icon={<Diff size={14} />}
-            label="改动"
-          />
+          {changesTabVisible && (
+            <FixedTab
+              active={changesActive}
+              onClick={() => setActiveTab(CHANGES_TAB_ID)}
+              icon={<Diff size={14} />}
+              label="改动"
+            />
+          )}
           {command.show && (
             <CommandTab
               active={commandActive}
@@ -323,9 +384,9 @@ export function SidePanel() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <SimpleTooltip label="关闭面板 (Ctrl/Cmd+I)">
-          <IconButton onClick={closePanel} aria-label="关闭面板">
-            <X size={15} />
+        <SimpleTooltip label="隐藏侧面板 (Ctrl/Cmd+I)">
+          <IconButton onClick={closePanel} aria-pressed aria-label="隐藏侧面板">
+            <PanelRight size={15} />
           </IconButton>
         </SimpleTooltip>
       </div>
@@ -338,7 +399,7 @@ export function SidePanel() {
             <WorkspaceMode />
           </div>
         )}
-        {changesMounted && (
+        {changesMounted && changesTabVisible && (
           <div className={`absolute inset-0 ${changesActive ? "" : "hidden"}`}>
             <ConversationChangesPanel />
           </div>
@@ -385,9 +446,7 @@ export function SidePanel() {
           return (
             <div key={tab.id} className="absolute inset-0">
               <BrowserPanel
-                conversationId={
-                  browser.conversationId ?? currentConversationId
-                }
+                conversationId={browser.conversationId ?? currentConversationId}
                 liveAvailable={browser.show}
               />
             </div>

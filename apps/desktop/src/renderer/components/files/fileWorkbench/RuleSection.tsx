@@ -302,9 +302,7 @@ export function RuleSection({
             style={{ paddingLeft: leafPad }}
           >
             <p className="text-xs text-muted-foreground/60">
-              {scope.kind === "global"
-                ? "还没有全局规则"
-                : "本项目还没有规则"}
+              {scope.kind === "global" ? "还没有全局规则" : "本项目还没有规则"}
             </p>
             <button
               type="button"

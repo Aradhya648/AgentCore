@@ -562,12 +562,11 @@ def test_shared_base_teaches_claim_evidence_soft_constraint():
 
 
 def test_core_guides_out_of_workspace_absolute_paths():
-    # 区外路径：核心只留意图钩子；英文 action 在桌面广告 schema，操作手册在 ask_user_*。
+    # 区外路径：核心钉意图 + action 名；中文标签在 ask_user schema，操作手册在 ask_user_*。
     hint = _CEO_CORE_HINT
     assert "工作区外" in hint
-    assert "开只读授权" in hint
-    assert "开整理授权" in hint
-    assert "grant_organize_folder" not in hint  # 勿绑死英文 action 名于核心
+    assert "grant_readonly_folder" in hint
+    assert "grant_organize_folder" in hint
     assert "ask_user" in hint
     mid = build_system_skill_registry().get("ask_user_midtask")
     assert mid is not None

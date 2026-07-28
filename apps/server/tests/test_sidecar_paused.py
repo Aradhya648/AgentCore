@@ -358,9 +358,8 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
         captured["saver"] = kwargs.get("suspension_saver")
         # The Sidecar has no DB → history must come from the claimed local frame record.
         captured["history"] = kwargs.get("history")
-        # The conversation's CURRENT permission mode rides the resume params.
+        # The conversation's CURRENT permission axes ride the resume params.
         captured["autonomy"] = kwargs.get("permission_axes")
-        captured["permission_preset"] = kwargs.get("permission_preset")
         kwargs["sink"].close()
         return {
             "finish_reason": "end_turn",
@@ -391,7 +390,11 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
                         "conversationId": "c1",
                         "decision": "adjust",
                         "note": "换个方向",
-                        "permissionPreset": "observe",
+                        "permissionAxes": {
+                            "file_write": "ask",
+                            "command": "ask",
+                            "team_kickoff": "rules",
+                        },
                     },
                 }
             )
@@ -408,10 +411,9 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
     assert captured["note"] == "换个方向"
     assert captured["saver"] is not None
     # A non-default per-resume permission mode reached the pipeline (not reset to default).
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 
-    assert captured["autonomy"] is AutonomyPolicy.CAUTIOUS
-    assert captured.get("permission_preset") is not None or captured["autonomy"] is AutonomyPolicy.CAUTIOUS
+    assert captured["autonomy"] == recipe_to_axes(AutonomyPolicy.CAUTIOUS)
     # the reloaded history (from the local frame) is threaded into the resume pipeline so
     # window_from_journal can splice it ahead of the folded rounds (Phase 2 ⑤).
     assert captured["history"] == history

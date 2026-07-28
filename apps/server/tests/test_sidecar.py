@@ -412,16 +412,16 @@ def test_sidecar_binds_local_backend_with_approvals(tmp_path, monkeypatch):
 
 
 def test_sidecar_threads_permission_preset_per_turn(tmp_path, monkeypatch):
-    """Conversation permission mode reaches the local engine: initialize seeds it,
-    a per-turn ``permissionPreset`` refreshes it, and an absent param keeps the
+    """Conversation permission axes reach the local engine: initialize seeds them,
+    a per-turn ``permissionAxes`` refreshes them, and an absent param keeps the
     current value — never a silent reset to the default.
     """
-    from agentcore.core.types import AutonomyPolicy
+    from agentcore.core.types import AutonomyPolicy, PermissionAxes, recipe_to_axes
 
-    captured: list[tuple[AutonomyPolicy]] = []
+    captured: list[PermissionAxes] = []
 
     async def fake_pipeline(**kwargs: Any) -> dict[str, Any]:
-        captured.append((kwargs["permission_axes"], kwargs["permission_preset"]))
+        captured.append(kwargs["permission_axes"])
         kwargs["sink"].close()
         return {"finish_reason": "end_turn", "content": "ok", "rounds": 1}
 
@@ -448,6 +448,9 @@ def test_sidecar_threads_permission_preset_per_turn(tmp_path, monkeypatch):
         )
         await asyncio.gather(*list(server._turns.values()))
 
+    managed = recipe_to_axes(AutonomyPolicy.MANAGED)
+    cautious = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
+
     async def drive() -> None:
         await server.handle_line(
             json.dumps(
@@ -458,21 +461,17 @@ def test_sidecar_threads_permission_preset_per_turn(tmp_path, monkeypatch):
                     "params": {
                         "userId": "u",
                         "workspaceRoot": str(tmp_path),
-                        "permissionPreset": "full_trust",
+                        "permissionAxes": managed.to_dict(),
                     },
                 }
             )
         )
         await start_turn("t1", {})  # no per-turn value → the initialize seed applies
-        await start_turn("t2", {"permissionPreset": "observe"})  # per-turn refresh
+        await start_turn("t2", {"permissionAxes": cautious.to_dict()})  # per-turn refresh
         await start_turn("t3", {})  # absent again → keeps the refreshed value
 
     asyncio.run(drive())
-    assert captured == [
-        (AutonomyPolicy.MANAGED.FULL_TRUST),
-        (AutonomyPolicy.CAUTIOUS.OBSERVE),
-        (AutonomyPolicy.CAUTIOUS.OBSERVE),
-    ]
+    assert captured == [managed, cautious, cautious]
 
 
 def test_creds_for_stamps_conversation_and_trace_headers():

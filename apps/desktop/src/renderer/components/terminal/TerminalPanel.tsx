@@ -2,9 +2,9 @@ import { XtermView } from "@/components/terminal/XtermView";
 /**
  * 右坞「终端」tab —— M1 后台进程 + M2 执行记录 + M3 用户交互 shell。
  *
- * 三区同 tab：你的终端（xterm）+ 后台进程 + 执行记录；选中项看滚屏/交互。
+ * 纵向会话列表（无分区标题）+ 后台进程 / 执行记录；选中项看滚屏/交互。
  */
-import { Button } from "@/components/ui";
+import { Button, IconButton } from "@/components/ui";
 import {
   type ExecutionRecord,
   deriveExecutionRecords,
@@ -41,7 +41,7 @@ type Selection =
 export function TerminalPanelBody({
   preferredSessionId = null,
 }: {
-  /** 顶栏多 Terminal tab：优先选中该 pty；无则走原有回落逻辑。 */
+  /** 顶栏单壳 preferred：优先选中该 pty；无则走原有回落逻辑。 */
   preferredSessionId?: string | null;
 }) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
@@ -272,28 +272,30 @@ export function TerminalPanelBody({
       <div className="max-h-48 shrink-0 space-y-2 overflow-y-auto border-b border-border p-2">
         {showPtySection && (
           <section>
-            <div className="flex items-center gap-1 px-2 pb-1">
-              <h3 className="flex-1 text-xs text-muted-foreground">你的终端</h3>
+            <div className="flex items-center gap-1 px-1 pb-0.5">
+              {sessions.length === 0 && canOpenPty ? (
+                <p className="min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground">
+                  点 + 打开终端
+                </p>
+              ) : (
+                <div className="min-w-0 flex-1" />
+              )}
               {canSpawnMore && (
-                <Button
-                  variant="ghost"
+                <IconButton
                   size="sm"
                   onClick={() => void onSpawn()}
                   disabled={spawnBusy}
-                  className="h-6 w-6 shrink-0 p-0 text-muted-foreground"
-                  icon={<Plus size={14} />}
                   aria-label="新开终端"
-                />
+                  title="新开终端"
+                >
+                  <Plus size={14} />
+                </IconButton>
               )}
             </div>
             {spawnError ? (
               <p className="px-2 pb-1 text-xs text-destructive">{spawnError}</p>
             ) : null}
-            {sessions.length === 0 && canOpenPty ? (
-              <p className="px-2 py-1 text-xs text-muted-foreground">
-                点 + 在工作区打开交互终端
-              </p>
-            ) : (
+            {sessions.length > 0 && (
               <ul className="space-y-0.5">
                 {sessions.map((s) => (
                   <PtyRow
@@ -303,14 +305,16 @@ export function TerminalPanelBody({
                       selection?.kind === "pty" && selection.id === s.session_id
                     }
                     onSelect={() => onSelectPty(s.session_id)}
-                    onClose={() => void killSession(s.session_id)}
+                    onClose={() => {
+                      useSidePanelStore
+                        .getState()
+                        .clearTerminalPreferredSession(s.session_id);
+                      void killSession(s.session_id);
+                    }}
                   />
                 ))}
               </ul>
             )}
-            <p className="px-2 pt-1 text-xs text-muted-foreground/70">
-              AI 可读取此终端输出
-            </p>
           </section>
         )}
         {processes.length > 0 && (
@@ -422,17 +426,17 @@ function PtyRow({
             {duration}
           </span>
         </button>
-        <Button
-          variant="ghost"
+        <IconButton
           size="sm"
           onClick={(e) => {
             e.stopPropagation();
             onClose();
           }}
-          className="h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
-          icon={<X size={12} />}
           aria-label="关闭终端"
-        />
+          className="size-6 text-muted-foreground hover:text-destructive"
+        >
+          <X size={12} />
+        </IconButton>
       </div>
     </li>
   );
@@ -668,7 +672,8 @@ function ScrollOutput({ text }: { text: string }) {
 }
 
 /**
- * Drive 终端 tab 显隐：有后台进程 / 执行记录 / 用户终端，或本对话可开交互 shell。
+ * Drive 终端 tab 自动浮出：仅当本对话确有后台进程 / 执行记录 / 用户终端。
+ * 「可开交互 shell」只影响面板内空态，不强迫挂顶栏 tab（否则用户关了会立刻被加回）。
  */
 export function useTerminalRegion(): { show: boolean } {
   const conversationId = useConversationStore((s) => s.currentConversationId);
@@ -689,8 +694,6 @@ export function useTerminalRegion(): { show: boolean } {
   const ensurePty = useUserTerminalStore((s) => s.ensureSubscribed);
   const hydratePty = useUserTerminalStore((s) => s.hydrateConversation);
 
-  const [canOpenPty, setCanOpenPty] = useState(false);
-
   const recordCount = useMemo(
     () => deriveExecutionRecords(messages, executionById).length,
     [messages, executionById],
@@ -700,7 +703,7 @@ export function useTerminalRegion(): { show: boolean } {
     processCount,
     recordCount,
     ptyCount,
-    canOpenPty,
+    false,
   );
 
   useEffect(() => {
@@ -714,20 +717,6 @@ export function useTerminalRegion(): { show: boolean } {
       void hydratePty(conversationId);
     }
   }, [conversationId, hydrateConversation, hydratePty]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!conversationId) {
-      setCanOpenPty(false);
-      return;
-    }
-    void resolveConversationLocalTarget(conversationId).then((t) => {
-      if (!cancelled) setCanOpenPty(Boolean(t));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId]);
 
   return { show };
 }

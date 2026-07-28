@@ -117,9 +117,7 @@ interface SpawnConfig {
  * DesktopBrowserBridge 本回合句柄（B-Arch · 与 inference 同构）。
  * 主进程签发；经 initialize / startTurn / resume 下发，不再依赖 spawn env。
  */
-function currentBrowserBridge():
-  | { baseUrl: string; token: string }
-  | null {
+function currentBrowserBridge(): { baseUrl: string; token: string } | null {
   const creds = getDesktopBrowserBridgeCredentials();
   if (!creds) return null;
   return { baseUrl: creds.baseUrl, token: creds.token };
@@ -714,11 +712,7 @@ export class SidecarManager {
           mode: r.mode ?? (r.readonly ? "readonly" : "readonly"),
         }));
       const result = await entry.client.request("resume", {
-        ...buildSidecarResumeRpcParams(
-          req,
-          inference,
-          currentBrowserBridge(),
-        ),
+        ...buildSidecarResumeRpcParams(req, inference, currentBrowserBridge()),
         ...(externalMounts.length > 0 ? { externalMounts } : {}),
       });
       this.emitSyntheticTerminalIfNeeded(req.messageId, "message_end");

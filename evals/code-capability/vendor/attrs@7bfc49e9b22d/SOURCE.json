@@ -1,0 +1,46 @@
+{
+  "id": "V05",
+  "name": "attrs",
+  "upstream": "https://github.com/python-attrs/attrs",
+  "release_tag": "26.1.0",
+  "commit": "7bfc49e9b22d5ba25b6e429524c3d49fee27cb36",
+  "commit12": "7bfc49e9b22d",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "language": "python",
+  "role": "data-model-validation",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/python-attrs/attrs/archive/refs/tags/26.1.0.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "attrs@7bfc49e9b22d",
+  "stripped": [
+    ".gitattributes",
+    ".github",
+    ".gitignore",
+    "changelog.d",
+    "docs"
+  ],
+  "size_gate": {
+    "app_loc_approx": 4828,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 1185004,
+    "tree_mib": 1.13,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": true,
+    "notes": "纯 Python；pip install -e . 或 PYTHONPATH=src"
+  },
+  "test": {
+    "command": [
+      "python",
+      "-m",
+      "pytest",
+      "tests",
+      "-q"
+    ],
+    "full_suite_note": "hypothesis 等可选"
+  }
+}

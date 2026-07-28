@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy, recipe_to_axes, ToolApproval, ToolCategory
+from agentcore.core.types import AutonomyPolicy, ToolApproval, ToolCategory, recipe_to_axes
 from agentcore.llm.provider.protocol import ToolCall, ToolCallFunction
 from agentcore.runtime.approvals import ApprovalDecision, ApprovalGate
 from agentcore.runtime.engine import tool_exec as tool_exec_mod

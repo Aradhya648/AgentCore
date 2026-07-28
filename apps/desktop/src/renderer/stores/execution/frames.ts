@@ -438,7 +438,9 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
     case "escalation_required": {
       const p = event.payload as EscalationRequiredPayload;
       const paths = Array.isArray(p.ownership_paths)
-        ? p.ownership_paths.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        ? p.ownership_paths.filter(
+            (x): x is string => typeof x === "string" && x.trim().length > 0,
+          )
         : [];
       return {
         t,
@@ -454,7 +456,8 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
         awaiting: p.awaiting === "ceo" ? "ceo" : "user",
         ...(p.browser_login === true ? { browserLogin: true as const } : {}),
         ...(paths.length > 0 ? { ownershipPaths: paths } : {}),
-        ...(typeof p.lock_owner_run_id === "string" && p.lock_owner_run_id.trim()
+        ...(typeof p.lock_owner_run_id === "string" &&
+        p.lock_owner_run_id.trim()
           ? { lockOwnerRunId: p.lock_owner_run_id.trim() }
           : {}),
       };

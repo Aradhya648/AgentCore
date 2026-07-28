@@ -172,7 +172,9 @@ def bridge_command_url() -> str:
     return f"{base}/command"
 
 
-def parse_bridge_error(payload: dict[str, Any] | None, *, http_status: int) -> tuple[str, str | None]:
+def parse_bridge_error(
+    payload: dict[str, Any] | None, *, http_status: int
+) -> tuple[str, str | None]:
     """Extract (error_message, code) from a Bridge error body."""
     if not payload:
         return f"bridge_http_{http_status}", "host_unavailable" if http_status >= 500 else None

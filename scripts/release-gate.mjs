@@ -228,15 +228,24 @@ async function main() {
       ["run", "python", "scripts/check_workspace_ignore_parity.py"],
       { cwd: SERVER },
     );
-    runLogged(
-      "pytest (unit)",
-      "uv",
-      ["run", "pytest", "--ignore=tests/integration", "--tb=short", "-q"],
-      {
-        cwd: SERVER,
-        env: { LOG_LEVEL: "WARNING" },
-      },
-    );
+    // `-n auto` (pytest-xdist): wall-clock cut for ~5k unit tests; integration
+    // stays serial/excluded here (shared DB). Override with PYTEST_XDIST_N=0 to
+    // force single-process when hunting order flakes.
+    const xdistN = process.env.PYTEST_XDIST_N ?? "auto";
+    const pytestArgs = [
+      "run",
+      "pytest",
+      "--ignore=tests/integration",
+      "--tb=short",
+      "-q",
+    ];
+    if (xdistN !== "0" && xdistN !== "false") {
+      pytestArgs.push("-n", xdistN);
+    }
+    runLogged("pytest (unit)", "uv", pytestArgs, {
+      cwd: SERVER,
+      env: { LOG_LEVEL: "WARNING" },
+    });
   }
 
   if (sectionEnabled("contracts", filter)) {

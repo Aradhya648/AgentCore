@@ -44,10 +44,16 @@ describe("resolveInteraction (统一 choke point)", () => {
       kind: "escalation",
       answer: "选 A",
       use_assumption: false,
+      transfer_ownership: false,
     });
     expect(post).toHaveBeenCalledWith(
       "/v1/conversations/conv-1/interactions/esc-1",
-      { kind: "escalation", answer: "选 A", use_assumption: false },
+      {
+        kind: "escalation",
+        answer: "选 A",
+        use_assumption: false,
+        transfer_ownership: false,
+      },
     );
   });
 
@@ -78,6 +84,7 @@ describe("resolveInteraction (统一 choke point)", () => {
         kind: "escalation",
         answer: "选 A",
         use_assumption: false,
+        transfer_ownership: false,
       }),
     ).rejects.toThrow(/不存在或已处理/);
     expect(post).not.toHaveBeenCalled();

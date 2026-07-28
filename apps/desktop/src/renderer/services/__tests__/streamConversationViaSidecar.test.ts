@@ -38,11 +38,11 @@ vi.mock("@/services/inferenceToken", () => ({
 
 import { notifyWarning } from "@/lib/toast";
 import { resolveSidecarInference } from "@/services/inferenceToken";
-import { resetSidecarEventPumpForTests } from "../sidecarEventPump";
 import { takeRecentSidecarFailure } from "@/services/sidecarStatus";
 import { dispatchSSEEvent } from "@/services/streamConversation";
 import { useConversationStore } from "@/stores/conversation";
 import { useTurnModelStore } from "@/stores/turnModel";
+import { resetSidecarEventPumpForTests } from "../sidecarEventPump";
 import { resumeConversationViaSidecar } from "../streamConversationViaSidecar";
 
 const dispatchSSEEventMock = vi.mocked(dispatchSSEEvent);

@@ -542,7 +542,7 @@ class _NumberParamTypeBase(
     ) -> _ValueT_co:
         try:
             # R1a seed_patch: off-by-one on numeric conversion
-            return self._number_class(value) + 1  # type: ignore[operator]
+            return self._number_class(value)  # type: ignore[operator]
         except ValueError:
             self.fail(
                 _("{value!r} is not a valid {number_type}.").format(

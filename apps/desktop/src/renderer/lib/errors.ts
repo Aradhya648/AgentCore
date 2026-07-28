@@ -99,10 +99,7 @@ export function formatAssistantErrorMessage(error: {
     (!message || /rate limited/i.test(message) || !message.includes("上游限流"))
       ? LLM_RATE_LIMIT_MESSAGE
       : message;
-  if (
-    context?.sub2api_diagnosis &&
-    !text.includes(context.sub2api_diagnosis)
-  ) {
+  if (context?.sub2api_diagnosis && !text.includes(context.sub2api_diagnosis)) {
     text = `${text}\n诊断：${context.sub2api_diagnosis}`;
   }
   if (import.meta.env.DEV && context?.upstream_body_preview) {
@@ -333,7 +330,7 @@ function resolveMessage(f: ErrorFacts): string {
   // surface the backend's actionable message (or a config hint), never a
   // misleading "service unavailable".
   if (f.code === "LLM_RATE_LIMIT") {
-    if (f.serverMessage && f.serverMessage.includes("上游限流")) {
+    if (f.serverMessage?.includes("上游限流")) {
       return f.serverMessage;
     }
     return LLM_RATE_LIMIT_MESSAGE;

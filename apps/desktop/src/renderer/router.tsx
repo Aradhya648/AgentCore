@@ -19,7 +19,6 @@ import { LegalSettingsPage } from "@/pages/legal/LegalSettingsPage";
 import { AboutSettings } from "@/pages/more/AboutSettings";
 import { AccountSettings } from "@/pages/more/AccountSettings";
 import { AppearanceSettings } from "@/pages/more/AppearanceSettings";
-import { AutonomySettings } from "@/pages/more/AutonomySettings";
 import { FeedbackSettings } from "@/pages/more/FeedbackSettings";
 import { ImPrivacySettings } from "@/pages/more/ImPrivacySettings";
 import { ModelSettings } from "@/pages/more/ModelSettings";
@@ -95,15 +94,11 @@ export const router = createHashRouter([
       // 设置侧「自动化」已迁到工具箱；旧书签深链重定向。
       {
         path: "more/automations",
-        element: (
-          <Navigate to={APP_PATHS.toolbox.automations.root} replace />
-        ),
+        element: <Navigate to={APP_PATHS.toolbox.automations.root} replace />,
       },
       {
         path: "more/inbox",
-        element: (
-          <Navigate to={APP_PATHS.toolbox.automations.inbox} replace />
-        ),
+        element: <Navigate to={APP_PATHS.toolbox.automations.inbox} replace />,
       },
       // Hidden dev route — not in the nav; reach it by typing #/preview. Replays
       // committed conformance vectors through the real dispatch to eyeball every AI
@@ -133,7 +128,6 @@ export const router = createHashRouter([
           { index: true, element: <MoreIndexRedirect /> },
           { path: "model", element: <ModelSettings /> },
           { path: "providers", element: <ProviderSettings /> },
-          { path: "autonomy", element: <AutonomySettings /> },
           { path: "account", element: <AccountSettings /> },
           { path: "messages", element: <ImPrivacySettings /> },
           { path: "usage", element: <UsageSettings /> },

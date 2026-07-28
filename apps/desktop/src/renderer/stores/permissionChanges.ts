@@ -36,8 +36,7 @@ function toChanges(
       id: e.id,
       at: e.created_at,
       previous: e.detail?.previous ?? "",
-      next:
-        e.detail?.permission_axes ?? e.detail?.permission_preset ?? "",
+      next: e.detail?.permission_axes ?? e.detail?.permission_preset ?? "",
     }));
 }
 

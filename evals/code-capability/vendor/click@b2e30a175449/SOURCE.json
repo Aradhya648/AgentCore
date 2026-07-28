@@ -1,0 +1,45 @@
+{
+  "id": "V01",
+  "name": "click",
+  "upstream": "https://github.com/pallets/click",
+  "release_tag": "8.4.2",
+  "commit": "b2e30a175449cfda909ee4fbf4a29a6a071cad53",
+  "commit12": "b2e30a175449",
+  "license": "BSD-3-Clause",
+  "license_file": "LICENSE.txt",
+  "language": "python",
+  "role": "cli-argparse-help",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/pallets/click/archive/refs/tags/8.4.2.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "click@b2e30a175449",
+  "stripped": [
+    ".github",
+    ".gitignore",
+    "docs",
+    "examples"
+  ],
+  "size_gate": {
+    "app_loc_approx": 9072,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 1177191,
+    "tree_mib": 1.123,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": true,
+    "notes": "纯 Python；评测副本 pip install -e . 或 PYTHONPATH=src；无原生扩展"
+  },
+  "test": {
+    "command": [
+      "python",
+      "-m",
+      "pytest",
+      "tests",
+      "-q"
+    ],
+    "full_suite_note": "需 pytest；可选 tox"
+  }
+}

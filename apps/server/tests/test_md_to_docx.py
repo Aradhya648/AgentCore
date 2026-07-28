@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 from docx import Document
 
+import agentcore.docs_export.md_to_docx as md_to_docx_mod
 from agentcore.docs_export.md_to_docx import (
     collect_image_srcs,
     convert_markdown_to_docx,
     docx_path_for_markdown,
     resolve_workspace_image_path,
 )
-import agentcore.docs_export.md_to_docx as md_to_docx_mod
 from agentcore.docs_export.workspace_export import ExportMarkdownError, export_markdown_path
 from agentcore.tools.sandbox import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace

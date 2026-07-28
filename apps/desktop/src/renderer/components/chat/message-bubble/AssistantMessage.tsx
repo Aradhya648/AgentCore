@@ -24,10 +24,10 @@ import {
   syntheticErrorForEmptyFailure,
 } from "@/lib/errors";
 import {
+  type FileArtifact,
   fileArtifactsFromExecution,
   fileArtifactsFromProcess,
   mergeArtifacts,
-  type FileArtifact,
 } from "@/lib/fileArtifacts";
 import {
   COST_UNPRICED_LABEL,

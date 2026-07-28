@@ -156,20 +156,22 @@ python evals/code-capability/r4_regress.py --update-baseline --phase r1 \
 
 ```text
 # 从 apps/server；默认 4 张 Fix（V07 chunked · V01 bool · V05 has · V01 int）
+# 默认 --timeout 900；Fix 卡默认加短 prompt_prefix 控空转（--no-prefix 关掉）
 uv run python ../../evals/code-capability/r_llm_smoke.py
-uv run python ../../evals/code-capability/r_llm_smoke.py --timeout 450 --max-resumes 0
+uv run python ../../evals/code-capability/r_llm_smoke.py --cards v07_fix_chunked,v01_fix_bool,v05_fix_has,v04_fix_flash,v06_fix_dump --timeout 900
+uv run python ../../evals/code-capability/r_llm_smoke.py --no-prefix --max-resumes 0
 ```
 
 | 项 | 说明 |
 |----|------|
-| 状态 | **本轮已跑（2026-07-28）** → [`reports/llm_smoke_latest.json`](reports/llm_smoke_latest.json)：**3/3 Fail · fail_class=接缝**（非 pending） |
-| 首波卡 | V07 `v07_fix_chunked` · V01 `v01_fix_bool` · V05 `v05_fix_has`（均有 `conversation_id`/`trace_id`） |
-| 硬测 | 未跑到（`startTurn` 超时，无 `finish_reason`）→ `checks_pass=null` |
-| 已知限制 | auth / mint inference / sidecar `initialize` OK；LLM unary 有回（见 `logs/dev.jsonl`）；**挂在 `inference.proxy_spend_enqueued` 之后**（仅见 `message_start`，无 tool/收口）— Windows sidecar stdio / event-pump 接缝债 |
-| 流程 | copytree vendor → seed → sidecar `startTurn`（prompt=卡内 `user_message`）→ `TestExitCode` + `TestsUnchanged` |
+| 状态 | **本轮已跑（2026-07-28 · timeout=900 · prompt_prefix · 5 卡扩跑）** → [`reports/llm_smoke_latest.json`](reports/llm_smoke_latest.json) · 快照 [`reports/llm_smoke_baseline_20260728.json`](reports/llm_smoke_baseline_20260728.json)：**1/5 pass（20%）· by_fail_class：模型弱=4 · hard_checks_reached=5 · 经典 hang=0**（非接缝；1 卡墙钟空转 timeout） |
+| 本轮卡 | V07 `v07_fix_chunked` · V01 `v01_fix_bool` · V05 `v05_fix_has` · V04 `v04_fix_flash`（**唯一 pass**）· V06 `v06_fix_dump` |
+| 硬测 | turn 有 `finish_reason` 后跑 `TestExitCode` + `TestsUnchanged`；墙钟超时则 `checks_pass=null` |
+| 已知限制 | auth / mint inference / sidecar `initialize` OK。**经典接缝 hang** = `turn_started`+timeout+几乎无 tool（仅 `message_start`/`run_*`）→ `fail_class=接缝`。**大量 tool 后墙钟 timeout**（空转烧预算，如反复 `code_execute`/`terminal`/`delegate`）→ `fail_class=模型弱`（notes 标 `wall_clock`），**勿再记为接缝死锁**。`startTurn` **无** toolset/path 透传；强制 worker 需产品侧透传，本轮用 Fix `prompt_prefix` 代替（勿新造平行 API） |
+| 流程 | copytree vendor → seed → sidecar `startTurn`（prompt=可选 prefix + 卡内 `user_message`）→ 硬 Check |
 | 副本 | `workspaces/llm-smoke/<task_id>/`（禁直绑 `vendor/`） |
 | fail_class | 环境 / 模型弱 / 接缝 / 题面 / 需决策·交互（`ask_user` 默认不 resume） |
-| 门禁 | **不进** PR；**不**改 nightly 强制 job |
+| 门禁 | **不进** PR；**不**改 nightly 强制 job；**不** `--update-baseline` R1–R3 冻结棘轮 |
 
 评测只对 **copytree 隔离副本** 写盘；`seed_patch` / `reference_patch` / GOLDEN 只打副本；禁止直绑 `vendor/`。R 真仓证据性质：真仓快照上的合成任务卡 ≠ 真实用户数据。
 

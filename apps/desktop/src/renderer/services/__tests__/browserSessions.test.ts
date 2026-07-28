@@ -99,7 +99,11 @@ describe("browserSessions service", () => {
       last_used: 2,
       url: "https://example.com/",
     });
-    const info = await navigateBrowserSession("c1", "s1", "https://example.com/");
+    const info = await navigateBrowserSession(
+      "c1",
+      "s1",
+      "https://example.com/",
+    );
     expect(postMock).toHaveBeenCalledWith(
       "/v1/conversations/c1/browser/sessions/s1/navigate",
       { url: "https://example.com/" },

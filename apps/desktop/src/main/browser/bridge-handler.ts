@@ -7,8 +7,8 @@
  * Local live：server 在 Hub attach 后周期 POST screenshot，帧含 frame_b64+width+height。
  */
 
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 const DEFAULT_TTL_MS = 5 * 60_000;
 
@@ -28,9 +28,7 @@ export interface BridgeAuthState {
   expiresAt: number;
 }
 
-export function createBridgeAuth(
-  now: () => number = Date.now,
-): {
+export function createBridgeAuth(now: () => number = Date.now): {
   state: BridgeAuthState;
   issueToken: (ttlMs?: number) => string;
   validateToken: (token: string | undefined | null) => boolean;
@@ -114,7 +112,8 @@ function isBridgeAction(value: string): value is BridgeAction {
 }
 
 function asRecord(body: unknown): Record<string, unknown> | null {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return null;
   return body as Record<string, unknown>;
 }
 
@@ -154,8 +153,7 @@ export async function handleBridgeRequest(
     }
     const rec = asRecord(body);
     const pageId = rec ? pageIdFromBody(rec) : "";
-    const target =
-      rec && typeof rec.url === "string" ? rec.url.trim() : "";
+    const target = rec && typeof rec.url === "string" ? rec.url.trim() : "";
     if (!pageId || !target) {
       sendJson(res, 400, { ok: false, error: "missing_pageId_or_url" });
       return;
@@ -170,7 +168,10 @@ export async function handleBridgeRequest(
       });
       return;
     }
-    sendJson(res, 200, { ok: true, ...(result.data ? { data: result.data } : {}) });
+    sendJson(res, 200, {
+      ok: true,
+      ...(result.data ? { data: result.data } : {}),
+    });
     return;
   }
 
@@ -192,11 +193,19 @@ export async function handleBridgeRequest(
       return;
     }
     const args =
-      typeof rec.args === "object" && rec.args !== null && !Array.isArray(rec.args)
+      typeof rec.args === "object" &&
+      rec.args !== null &&
+      !Array.isArray(rec.args)
         ? (rec.args as Record<string, unknown>)
         : (() => {
-            const { pageId: _p, session_id: _s, sessionId: _S, action: _a, args: _args, ...rest } =
-              rec;
+            const {
+              pageId: _p,
+              session_id: _s,
+              sessionId: _S,
+              action: _a,
+              args: _args,
+              ...rest
+            } = rec;
             return rest;
           })();
     const result = await dispatch(pageId, actionRaw, args);

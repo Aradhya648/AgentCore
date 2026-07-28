@@ -7,9 +7,7 @@ afterEach(cleanup);
 
 describe("ConversationHydrateOverlay", () => {
   it("renders nothing when ready", () => {
-    const { container } = render(
-      <ConversationHydrateOverlay phase="ready" />,
-    );
+    const { container } = render(<ConversationHydrateOverlay phase="ready" />);
     expect(container.firstChild).toBeNull();
   });
 
@@ -21,9 +19,7 @@ describe("ConversationHydrateOverlay", () => {
 
   it("shows error + retry when hydrate failed", () => {
     const onRetry = vi.fn();
-    render(
-      <ConversationHydrateOverlay phase="error" onRetry={onRetry} />,
-    );
+    render(<ConversationHydrateOverlay phase="error" onRetry={onRetry} />);
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.getByText("对话加载失败")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));

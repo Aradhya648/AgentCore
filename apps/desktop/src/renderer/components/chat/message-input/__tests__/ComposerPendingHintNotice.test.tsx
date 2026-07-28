@@ -1,7 +1,7 @@
+import { COMPOSER_PENDING_HINT } from "@/lib/composerPendingHint";
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { COMPOSER_PENDING_HINT } from "@/lib/composerPendingHint";
 import { ComposerPendingHintNotice } from "../ComposerPendingHintNotice";
 
 afterEach(cleanup);

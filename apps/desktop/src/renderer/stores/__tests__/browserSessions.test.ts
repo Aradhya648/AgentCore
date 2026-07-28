@@ -10,6 +10,7 @@ import {
   listBrowserSessions,
 } from "@/services/browserSessions";
 import {
+  hostBrowserPageId,
   mergeHydratedPages,
   normalizeBrowserUrl,
   serverPageId,
@@ -24,6 +25,23 @@ beforeEach(() => {
   useBrowserSessionsStore.setState({ pages: [], activePageId: null });
   listMock.mockReset();
   closeMock.mockReset();
+});
+
+describe("hostBrowserPageId", () => {
+  it("uses bare serverSessionId when present", () => {
+    expect(
+      hostBrowserPageId({
+        id: "browser-server:sess-1",
+        serverSessionId: "sess-1",
+      }),
+    ).toBe("sess-1");
+  });
+
+  it("falls back to React page id for local blanks", () => {
+    expect(
+      hostBrowserPageId({ id: "browser-page:1:uuid", serverSessionId: null }),
+    ).toBe("browser-page:1:uuid");
+  });
 });
 
 describe("normalizeBrowserUrl", () => {
@@ -89,8 +107,8 @@ describe("browserSessions store", () => {
     const id = store().createPage({ conversationId: "c1" });
     store().closePage(id);
     expect(store().pagesFor("c1")).toHaveLength(1);
-    expect(store().pagesFor("c1")[0]!.url).toBe("");
-    expect(store().pagesFor("c1")[0]!.id).not.toBe(id);
+    expect(store().pagesFor("c1")[0]?.url).toBe("");
+    expect(store().pagesFor("c1")[0]?.id).not.toBe(id);
   });
 
   it("closePage activates a sibling", () => {
@@ -155,6 +173,8 @@ describe("mergeHydratedPages", () => {
           runId: null,
           createdAt: 1,
           lastUsed: 2,
+          url: "https://alive.example/",
+          title: "Alive Title",
         },
         {
           sessionId: "newone",
@@ -164,6 +184,8 @@ describe("mergeHydratedPages", () => {
           runId: null,
           createdAt: 3,
           lastUsed: 4,
+          url: "https://new.example/",
+          title: "New Page",
         },
       ],
       "newone",
@@ -175,8 +197,58 @@ describe("mergeHydratedPages", () => {
     expect(c1.find((p) => p.id === blankId)).toBeTruthy();
     expect(c1.find((p) => p.serverSessionId === "gone")).toBeUndefined();
     expect(c1.find((p) => p.serverSessionId === "alive")?.control).toBe("user");
+    expect(c1.find((p) => p.serverSessionId === "alive")?.url).toBe(
+      "https://alive.example/",
+    );
+    expect(c1.find((p) => p.serverSessionId === "alive")?.title).toBe(
+      "Alive Title",
+    );
+    expect(c1.find((p) => p.serverSessionId === "newone")?.url).toBe(
+      "https://new.example/",
+    );
+    expect(c1.find((p) => p.serverSessionId === "newone")?.title).toBe(
+      "New Page",
+    );
     expect(pages.find((p) => p.id === "other-conv")).toBeTruthy();
     expect(activePageId).toBe(serverPageId("newone"));
+  });
+
+  it("prefers server url/title over empty prev when hydrating", () => {
+    const sid = "agent-nav";
+    const { pages } = mergeHydratedPages(
+      [
+        {
+          id: serverPageId(sid),
+          url: "",
+          title: "浏览器 · local · agent-na",
+          conversationId: "c1",
+          serverSessionId: sid,
+          hostKind: "local",
+          control: "agent",
+        },
+      ],
+      "c1",
+      [
+        {
+          sessionId: sid,
+          conversationId: "c1",
+          hostKind: "local",
+          control: "agent",
+          runId: null,
+          createdAt: 1,
+          lastUsed: 2,
+          url: "https://example.com/from-agent",
+          title: "From Agent",
+        },
+      ],
+      sid,
+      serverPageId(sid),
+    );
+    const page = pages.find((p) => p.serverSessionId === sid);
+    expect(page).toBeDefined();
+    if (!page) throw new Error("expected page");
+    expect(page.url).toBe("https://example.com/from-agent");
+    expect(page.title).toBe("From Agent");
   });
 });
 
@@ -193,6 +265,8 @@ describe("hydrateConversation", () => {
           runId: null,
           createdAt: 1,
           lastUsed: 1,
+          url: "https://hydrated.example/",
+          title: "Hydrated",
         },
       ],
       activeSessionId: "s1",
@@ -204,7 +278,11 @@ describe("hydrateConversation", () => {
     const c1 = store().pagesFor("c1");
     expect(c1).toHaveLength(2); // blank + server
     expect(c1.some((p) => !p.serverSessionId)).toBe(true);
-    expect(c1.some((p) => p.serverSessionId === "s1")).toBe(true);
+    const server = c1.find((p) => p.serverSessionId === "s1");
+    expect(server).toMatchObject({
+      url: "https://hydrated.example/",
+      title: "Hydrated",
+    });
     expect(store().activePageId).toBe(serverPageId("s1"));
   });
 });
@@ -225,7 +303,11 @@ describe("closeServerPage", () => {
     await store().closeServerPage(id);
 
     expect(closeMock).toHaveBeenCalledWith("c1", "s1");
-    expect(store().pagesFor("c1").some((p) => p.id === id)).toBe(false);
+    expect(
+      store()
+        .pagesFor("c1")
+        .some((p) => p.id === id),
+    ).toBe(false);
   });
 
   it("does not remove locally when DELETE fails", async () => {

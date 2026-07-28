@@ -156,8 +156,8 @@ def _load_declared_tools() -> tuple[type, ...]:
     from agentcore.tools.builtin.handoff import HandoffTool
     from agentcore.tools.builtin.md_to_docx import MdToDocxTool
     from agentcore.tools.builtin.post_note import PostNoteTool
-    from agentcore.tools.builtin.read_notes import ReadNotesTool
     from agentcore.tools.builtin.read_conversation import ReadConversationTool
+    from agentcore.tools.builtin.read_notes import ReadNotesTool
     from agentcore.tools.builtin.remember import RememberTool
     from agentcore.tools.builtin.replan import ReplanTool
     from agentcore.tools.builtin.search_conversations import SearchConversationsTool

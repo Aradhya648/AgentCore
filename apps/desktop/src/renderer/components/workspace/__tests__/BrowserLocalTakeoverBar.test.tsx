@@ -97,6 +97,6 @@ describe("BrowserLocalTakeoverBar", () => {
     const records =
       useBrowserTakeoverStore.getState().byConversation["conv-1"] ?? [];
     expect(records).toHaveLength(1);
-    expect(records[0]!.endedAt).toBeTruthy();
+    expect(records[0]?.endedAt).toBeTruthy();
   });
 });

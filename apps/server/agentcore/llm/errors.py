@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from dataclasses import dataclass
@@ -265,10 +266,8 @@ def error_context_from(exc: BaseException) -> dict[str, int | str | float | None
         ctx["upstream_body_preview"] = exc.details.get("upstream_body_preview")
         ctx["retry_attempts"] = exc.details.get("retry_attempts", 0)
     if retry_after is not None:
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             ctx["retry_after"] = float(retry_after)
-        except (TypeError, ValueError):
-            pass
     if exc.details.get("sub2api_diagnosis"):
         ctx["sub2api_diagnosis"] = exc.details["sub2api_diagnosis"]
     if exc.details.get("sub2api_account"):

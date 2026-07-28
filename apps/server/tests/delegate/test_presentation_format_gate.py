@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+from agentcore.core.types import AutonomyPolicy, PermissionAxes, recipe_to_axes
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.presentation_format import (
     clear_format_confirmation,
@@ -24,7 +24,7 @@ def _delegate(
     user_message: str,
     conversation_id: str,
     base_ctx,
-    autonomy: AutonomyPolicy = AutonomyPolicy.WRITE_CODE,
+    permission_axes: PermissionAxes | None = None,
 ) -> DelegateTool:
     return DelegateTool(
         llm=Provider(["X"]),
@@ -34,7 +34,7 @@ def _delegate(
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base_ctx,
-        permission_axes=autonomy,
+        permission_axes=permission_axes or recipe_to_axes(AutonomyPolicy.WRITE_CODE),
         conversation_id=conversation_id,
     )
 
@@ -88,7 +88,7 @@ async def test_execute_rejects_presentation_without_format_ledger():
     cid = "pres-gate-missing-format"
     clear_format_confirmation(cid)
     t = _delegate(
-        user_message="写一个多Agent的演讲PPT文件",
+        user_message="写一份演讲PPT课件",
         conversation_id=cid,
         base_ctx=local_ctx(),
     )
@@ -151,7 +151,7 @@ async def test_execute_rejects_pptx_confirmed_silent_md_when_exec_on():
         source="ask_user",
     )
     t = _delegate(
-        user_message="写一个多Agent的演讲PPT文件",
+        user_message="写一份演讲PPT课件",
         conversation_id=cid,
         base_ctx=local_ctx(),
     )

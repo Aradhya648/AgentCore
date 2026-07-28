@@ -66,7 +66,11 @@ const doneFrames: RunFrame[] = [
     outputSummary: "正方陈词",
     durationMs: 1_200,
     cost: {
+      input: 0,
+      cached: 0,
+      output: 0,
       total: 50_000_000,
+      currency: "USD",
       pricing_source: "curated",
     },
   },
@@ -87,7 +91,11 @@ const doneFrames: RunFrame[] = [
     outputSummary: "反方陈词",
     durationMs: 1_100,
     cost: {
+      input: 0,
+      cached: 0,
+      output: 0,
       total: 40_000_000,
+      currency: "USD",
       pricing_source: "curated",
     },
   },

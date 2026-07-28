@@ -22,7 +22,7 @@ vi.mock("@/stores/sidePanel", () => ({
   ),
 }));
 
-import { ToolLine, ToolLineGroup, ComposingToolLine } from "../ToolLine";
+import { ComposingToolLine, ToolLine, ToolLineGroup } from "../ToolLine";
 import { toolDetail, toolGroupSummary } from "../message-bubble/constants";
 
 afterEach(cleanup);

@@ -35,7 +35,7 @@ import {
  * 「本回合产出文件」卡 —— 把一回合内成功的文件写/改/删/移聚合成一张回合级清单，挂在
  * 答复正文下方（前端UX设计.md §九「回合内文件呈现」）。点任一可预览行 → 经 {@link useSidePanelStore}
  * 的 `showFile` 开右坞顶栏 File 内容 tab。例外：HTML 产物在会话具备应用内「完整预览」能力时
- * **直达**内置浏览器 tab（`preview://`）。「查看改动」聚焦右坞固定「改动」tab（与
+ * **直达**内置浏览器 tab（`preview://`）。「查看改动」聚焦右坞「改动」tab（无则先挂；与
  * {@link TurnFileChangesReview} 同源，前端UX设计.md §十）。
  */
 

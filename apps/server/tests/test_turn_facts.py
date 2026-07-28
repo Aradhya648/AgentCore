@@ -161,6 +161,8 @@ def test_execution_only_kinds_match_enum():
         "website_style_confirmed",
         # 演讲/PPT 交付形态双闸：结构化 format_id 确认（resume / full_auto）。
         "presentation_format_confirmed",
+        # Agent / 自动化交付形态双闸：结构化 format_id 确认（resume / full_auto）。
+        "automation_delivery_confirmed",
         # 回合态挂起归宿: resumable turn-state snapshot (process / controller / content).
         "turn_paused",
     } == EXECUTION_ONLY_KINDS

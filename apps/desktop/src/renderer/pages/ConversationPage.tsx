@@ -5,11 +5,11 @@ import {
 } from "@/components/chat/ConversationHydrateOverlay";
 import { ConversationCanvas } from "@/components/graph/ConversationCanvas";
 import { SidePanel } from "@/components/layout/SidePanel";
-import { Button, IconButton } from "@/components/ui";
-import { SimpleTooltip } from "@/components/ui/tooltip";
+import { SidePanelToggle } from "@/components/layout/SidePanelToggle";
+import { Button } from "@/components/ui";
 import { getConversations } from "@/hooks/useConversations";
-import { reconcileExternalGrants } from "@/lib/reconcileExternalGrants";
 import { logEvent } from "@/lib/log";
+import { reconcileExternalGrants } from "@/lib/reconcileExternalGrants";
 import {
   fetchMessageWindow,
   jumpToMessage,
@@ -35,7 +35,7 @@ import {
 } from "@/stores/conversation";
 import { WORKSPACE_TAB_ID, useSidePanelStore } from "@/stores/sidePanel";
 import { useUIStore } from "@/stores/ui";
-import { MessageSquare, Network, PanelRight } from "lucide-react";
+import { MessageSquare, Network } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
@@ -97,6 +97,7 @@ export function ConversationPage() {
 
   // 路由参数是 conversation 的真相来源（刷新/前进后退/直达链接时同步到 store），
   // 并从后端拉取最新一窗消息（含附件元信息）以恢复对话；更早的历史按需上滚加载。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hydrateRetry is an intentional re-run key
   useEffect(() => {
     const store = useConversationStore.getState();
     // 索引路由 `/` = 新草稿：丢弃上一条已打开的会话，渲染空白对话。这样无论从哪个
@@ -277,12 +278,10 @@ export function ConversationPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const panelOpen = useSidePanelStore((s) => s.open);
-  const pendingBadge = useSidePanelStore((s) => s.pendingBadge);
-  const togglePanel = useSidePanelStore((s) => s.togglePanel);
-
   // 聊天 ⇄ 画布双视图（前端UX设计.md §六）。默认聊天；用户在顶栏切到画布（按对话记忆、
   // 持久化）。画布已毕业、入口恒显示；草稿（无 id）恒为聊天。
+  // 右坞：打开后头栏 PanelRight 关闭；关闭时主区右上浮层打开（Ctrl/Cmd+I 始终可用）。
+  const panelOpen = useSidePanelStore((s) => s.open);
   const conversationView = useUIStore((s) =>
     id ? (s.conversationViews[id] ?? "chat") : "chat",
   );
@@ -298,7 +297,7 @@ export function ConversationPage() {
           onRetry={() => setHydrateRetry((n) => n + 1)}
         />
       )}
-      {/* 视图切换段控件（聊天 ⇄ 画布），置于左上，与右上的侧面板开关对称。 */}
+      {/* 视图切换段控件（聊天 ⇄ 画布），置于左上。 */}
       {id && (
         <div className="absolute left-3 top-2 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card/80 p-0.5 backdrop-blur">
           <Button
@@ -329,34 +328,10 @@ export function ConversationPage() {
           </Button>
         </div>
       )}
-      {/* Side-panel toggle — run detail opens by clicking a graph node, but the
-          panel still needs a discoverable show/hide control, so it lives at the
-          chat's top-right and mirrors Ctrl/Cmd+I. Opening restores the active tab
-          (the 工作区 home by default), so a manual open lands on the project
-          files. Stays visible while open (active state) as the close affordance. */}
-      {id && (
-        <SimpleTooltip
-          label={panelOpen ? "隐藏侧面板 (Ctrl/Cmd+I)" : "侧面板 (Ctrl/Cmd+I)"}
-        >
-          <div className="absolute right-3 top-2 z-20">
-            <IconButton
-              size="md"
-              onClick={togglePanel}
-              aria-pressed={panelOpen}
-              aria-label={panelOpen ? "隐藏侧面板" : "侧面板"}
-              className={`relative border border-border backdrop-blur ${
-                panelOpen ? "bg-accent text-foreground" : "bg-card/80"
-              }`}
-            >
-              <PanelRight size={16} />
-              {!panelOpen && pendingBadge > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
-                  {pendingBadge > 9 ? "9+" : pendingBadge}
-                </span>
-              )}
-            </IconButton>
-          </div>
-        </SimpleTooltip>
+      {id && !panelOpen && (
+        <div className="absolute right-3 top-2 z-20">
+          <SidePanelToggle />
+        </div>
       )}
       <SidePanel />
     </>

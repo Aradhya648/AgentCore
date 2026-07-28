@@ -502,8 +502,7 @@ function QuestionField({
   onBindOption?: (opt: AskOption) => void;
 }) {
   const canLocalFs = hasLocalFiles() && !!window.fsApi;
-  const canBindAction =
-    !!conversationId && !!onBindOption && canLocalFs;
+  const canBindAction = !!conversationId && !!onBindOption && canLocalFs;
 
   return (
     <div className="min-w-0">

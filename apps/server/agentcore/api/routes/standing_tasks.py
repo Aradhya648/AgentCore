@@ -208,7 +208,7 @@ async def delete_standing_task(
     ok = await repo.delete(task_id, user_id=user.user_id)
     if not ok:
         raise NotFoundError("站立任务不存在")
-    return StatusResponse(ok=True)
+    return StatusResponse()
 
 
 @router.post(

@@ -215,9 +215,7 @@ function ExportActionRow({
       }
       setDone(true);
       // Align WorkspacePanel toast copy.
-      setNote(
-        `已导出 ${result.fileCount} 个文件到「${result.destName}」`,
-      );
+      setNote(`已导出 ${result.fileCount} 个文件到「${result.destName}」`);
     } catch (e) {
       setNote(e instanceof Error ? e.message : "导出到本地失败");
     } finally {
@@ -560,52 +558,52 @@ export function DeliveryStatusCard({
       {expanded &&
         !isReceipt &&
         (blockingGaps.length > 0 || warningGaps.length > 0) && (
-        <ul className="border-t border-border">
-          {blockingGaps.map((gap, i) => {
-            const reasonLabel =
-              gap.reason && GAP_REASON_LABEL[gap.reason]
-                ? GAP_REASON_LABEL[gap.reason]
-                : null;
-            return (
-              // 无行间横线（统一两卡列表语言）；gap 描述可多行，py-2.5 保换行行与相邻行不糊。
-              <li
-                key={`${gap.role}:${i}`}
-                className="flex items-start gap-2 px-3 py-2.5"
-              >
-                <AlertTriangle
+          <ul className="border-t border-border">
+            {blockingGaps.map((gap, i) => {
+              const reasonLabel =
+                gap.reason && GAP_REASON_LABEL[gap.reason]
+                  ? GAP_REASON_LABEL[gap.reason]
+                  : null;
+              return (
+                // 无行间横线（统一两卡列表语言）；gap 描述可多行，py-2.5 保换行行与相邻行不糊。
+                <li
+                  key={`${gap.role}:${i}`}
+                  className="flex items-start gap-2 px-3 py-2.5"
+                >
+                  <AlertTriangle
+                    size={14}
+                    className={`mt-0.5 shrink-0 ${statusAccentText[meta.tone]}`}
+                  />
+                  <p className="min-w-0 flex-1 text-sm text-foreground">
+                    <span className="text-muted-foreground">{gap.role}：</span>
+                    {reasonLabel && (
+                      <span
+                        className={`mr-1.5 inline-block shrink-0 rounded-full px-1.5 py-0.5 text-xs leading-none ${statusPillSoft[meta.tone]}`}
+                      >
+                        {reasonLabel}
+                      </span>
+                    )}
+                    {gap.description}
+                  </p>
+                </li>
+              );
+            })}
+            {warningGaps.length > 0 && (
+              <SoftNotesRow warnings={warningGaps} tone={meta.tone} />
+            )}
+            {writingIncomplete && (
+              <li className="flex items-start gap-2 px-3 py-2.5">
+                <Info
                   size={14}
-                  className={`mt-0.5 shrink-0 ${statusAccentText[meta.tone]}`}
+                  className={`mt-0.5 shrink-0 ${statusAccentText.primary}`}
                 />
-                <p className="min-w-0 flex-1 text-sm text-foreground">
-                  <span className="text-muted-foreground">{gap.role}：</span>
-                  {reasonLabel && (
-                    <span
-                      className={`mr-1.5 inline-block shrink-0 rounded-full px-1.5 py-0.5 text-xs leading-none ${statusPillSoft[meta.tone]}`}
-                    >
-                      {reasonLabel}
-                    </span>
-                  )}
-                  {gap.description}
+                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  成篇未写完——请在对话框告诉我接着写（从已完成章节继续；勿删稿重写整篇）
                 </p>
               </li>
-            );
-          })}
-          {warningGaps.length > 0 && (
-            <SoftNotesRow warnings={warningGaps} tone={meta.tone} />
-          )}
-          {writingIncomplete && (
-            <li className="flex items-start gap-2 px-3 py-2.5">
-              <Info
-                size={14}
-                className={`mt-0.5 shrink-0 ${statusAccentText.primary}`}
-              />
-              <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-                成篇未写完——请在对话框告诉我接着写（从已完成章节继续；勿删稿重写整篇）
-              </p>
-            </li>
-          )}
-        </ul>
-      )}
+            )}
+          </ul>
+        )}
       {expanded && !isReceipt && actions.length > 0 && (
         <ul className="border-t border-border bg-muted/30">
           {actions.map((action, i) =>

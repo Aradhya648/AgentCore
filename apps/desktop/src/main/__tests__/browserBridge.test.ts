@@ -6,10 +6,10 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
 import {
-  createBridgeAuth,
-  handleBridgeRequest,
   type BridgeDispatch,
   type BridgeHostResult,
+  createBridgeAuth,
+  handleBridgeRequest,
 } from "../browser/bridge-handler";
 
 function mockReqRes(opts: {
@@ -90,7 +90,12 @@ describe("handleBridgeRequest", () => {
       method: "GET",
       url: "/health",
     });
-    await handleBridgeRequest(req, res, (t) => auth.validateToken(t), okDispatch());
+    await handleBridgeRequest(
+      req,
+      res,
+      (t) => auth.validateToken(t),
+      okDispatch(),
+    );
     expect(statusCode()).toBe(401);
     expect(JSON.parse(body())).toMatchObject({
       ok: false,
@@ -106,7 +111,12 @@ describe("handleBridgeRequest", () => {
       url: "/health",
       headers: { authorization: "Bearer wrong-token" },
     });
-    await handleBridgeRequest(req, res, (t) => auth.validateToken(t), okDispatch());
+    await handleBridgeRequest(
+      req,
+      res,
+      (t) => auth.validateToken(t),
+      okDispatch(),
+    );
     expect(statusCode()).toBe(401);
   });
 
@@ -118,7 +128,12 @@ describe("handleBridgeRequest", () => {
       url: "/health",
       headers: { authorization: `Bearer ${token}` },
     });
-    await handleBridgeRequest(req, res, (t) => auth.validateToken(t), okDispatch());
+    await handleBridgeRequest(
+      req,
+      res,
+      (t) => auth.validateToken(t),
+      okDispatch(),
+    );
     expect(statusCode()).toBe(200);
     expect(JSON.parse(body())).toMatchObject({
       ok: true,
@@ -129,8 +144,11 @@ describe("handleBridgeRequest", () => {
   it("navigate accepts pageId+url with token", async () => {
     const auth = createBridgeAuth();
     const token = auth.issueToken();
-    const calls: { pageId: string; action: string; args: Record<string, unknown> }[] =
-      [];
+    const calls: {
+      pageId: string;
+      action: string;
+      args: Record<string, unknown>;
+    }[] = [];
     const { req, res, statusCode, body } = mockReqRes({
       method: "POST",
       url: "/navigate",
@@ -206,7 +224,10 @@ describe("handleBridgeRequest", () => {
         body: JSON.stringify({
           session_id: "sess-1",
           action,
-          args: action === "type" ? { ref: "e1", text: "hi" } : { ref: "e1", dy: 100 },
+          args:
+            action === "type"
+              ? { ref: "e1", text: "hi" }
+              : { ref: "e1", dy: 100 },
         }),
       });
       await handleBridgeRequest(

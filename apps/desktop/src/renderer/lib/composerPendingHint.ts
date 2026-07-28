@@ -1,5 +1,5 @@
-import { usePausedTurnStore } from "@/stores/pausedTurns";
 import { useInteractionStore } from "@/stores/interactions";
+import { usePausedTurnStore } from "@/stores/pausedTurns";
 
 /** Persistent composer hint while a decision card is waiting (弱提示 · 不强拦). */
 export const COMPOSER_PENDING_HINT =

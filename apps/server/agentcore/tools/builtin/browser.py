@@ -87,7 +87,7 @@ def _error(
     out = message
     if session_lost:
         out += "（浏览器会话已重置，下一步操作将从空白页重新开始）"
-    meta = {"code": code} if code else None
+    meta: dict[str, Any] = {"code": code} if code else {}
     return ToolResult(
         tool_call_id="",
         success=False,
@@ -323,7 +323,8 @@ class BrowserNavigateTool(_BrowserToolBase):
             description=(
                 "打开或跳转到指定地址（右坞真实 Chromium：本机 Local Bridge 或云端沙箱）。"
                 "这是打开网页的【唯一】工具——不存在 browser_open；禁止编造未列出的工具名。"
-                "任务是打开某 URL / 取标题时：必须先调本工具；空白页（about:blank）也必须先 navigate，"
+                "任务是打开某 URL / 取标题时：必须先调本工具；空白页（about:blank）也必须先"
+                " navigate，"
                 "禁止靠 browser_screenshot / 假装点地址栏来开页。"
                 "桌面 Local：公网 http(s)，或本会话工作区相对 HTML 路径（如 site/index.html，"
                 "与用户「完整预览」同源）；打开后可继续 click/type/snapshot。"

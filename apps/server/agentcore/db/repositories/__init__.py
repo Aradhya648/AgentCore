@@ -35,8 +35,8 @@ from .chat import ChatRepository
 from .conversation_shares import ConversationShareRepository
 from .conversations import ConversationRepository
 from .devices import PushDeviceRepository
-from .external_grants import ExternalGrantRepository
 from .documents import DocumentRepository
+from .external_grants import ExternalGrantRepository
 from .feedback import FeedbackRepository
 from .folders import FolderRepository
 from .llm_profiles import LlmModelProfileRepository

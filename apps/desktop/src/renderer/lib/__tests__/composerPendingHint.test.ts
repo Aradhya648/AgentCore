@@ -1,5 +1,7 @@
+import { useInteractionStore } from "@/stores/interactions";
+import { usePausedTurnStore } from "@/stores/pausedTurns";
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMPOSER_PENDING_HINT,
   COMPOSER_PENDING_SEND_CONFIRM,
@@ -9,8 +11,6 @@ import {
   resetSendDespitePendingAcks,
   shouldConfirmSendDespitePending,
 } from "../composerPendingHint";
-import { usePausedTurnStore } from "@/stores/pausedTurns";
-import { useInteractionStore } from "@/stores/interactions";
 
 const CID = "conv_pending_hint";
 

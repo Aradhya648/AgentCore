@@ -139,7 +139,17 @@ def test_escalation_required_emits_browser_login_only_when_true():
 async def test_blocking_channel_forwards_browser_login():
     seen: dict = {}
 
-    async def _request(q, a, questions, kind, awaiting="user", *, browser_login=False):
+    async def _request(
+        q,
+        a,
+        questions,
+        kind,
+        awaiting="user",
+        *,
+        browser_login=False,
+        ownership_paths=None,
+        lock_owner_run_id="",
+    ):
         seen["browser_login"] = browser_login
         seen["awaiting"] = awaiting
         return EscalationOutcome(status="resolved", answer="已登录")
@@ -173,7 +183,17 @@ async def test_browser_login_skips_ceo_arbitration_when_coordination_active(monk
     """Password login must stay user-facing even with a living CEO (never CEO-await)."""
     seen: dict = {}
 
-    async def _request(q, a, questions, kind, awaiting="user", *, browser_login=False):
+    async def _request(
+        q,
+        a,
+        questions,
+        kind,
+        awaiting="user",
+        *,
+        browser_login=False,
+        ownership_paths=None,
+        lock_owner_run_id="",
+    ):
         seen["awaiting"] = awaiting
         seen["browser_login"] = browser_login
         return EscalationOutcome(status="resolved", answer="已登录")

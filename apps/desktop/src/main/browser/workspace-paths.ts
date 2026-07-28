@@ -24,22 +24,19 @@ export const WORKSPACE_PARTITION = "agentcore-browser-workspace";
 /** 与预览相同的纵深 CSP（sandbox + 独立分区已是边界）。 */
 export const WORKSPACE_CSP = PREVIEW_CSP;
 
-export {
-  mimeForPath,
-  normalizePreviewPath,
-  workspaceFilePath,
-};
+export { mimeForPath, normalizePreviewPath, workspaceFilePath };
 
 /**
  * 构造要在本机浏览器工作区页里加载的 `workspace://` URL。
  * 会话 id 作 host（小写 UUID）；路径经 {@link normalizePreviewPath} 守卫后逐段编码。
  */
-export function buildWorkspaceUrl(conversationId: string, path: string): string {
+export function buildWorkspaceUrl(
+  conversationId: string,
+  path: string,
+): string {
   const host = conversationId.trim().toLowerCase();
   const rel = normalizePreviewPath(path);
-  const encoded = rel
-    ? rel.split("/").map(encodeURIComponent).join("/")
-    : "";
+  const encoded = rel ? rel.split("/").map(encodeURIComponent).join("/") : "";
   return `${WORKSPACE_SCHEME}://${host}/${encoded}`;
 }
 
@@ -47,7 +44,9 @@ export function buildWorkspaceUrl(conversationId: string, path: string): string 
 export function isWorkspaceBrowserUrl(url: string): boolean {
   if (typeof url !== "string" || url.trim() === "") return false;
   try {
-    return new URL(url.trim()).protocol.toLowerCase() === `${WORKSPACE_SCHEME}:`;
+    return (
+      new URL(url.trim()).protocol.toLowerCase() === `${WORKSPACE_SCHEME}:`
+    );
   } catch {
     return false;
   }

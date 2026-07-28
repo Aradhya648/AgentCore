@@ -18,11 +18,13 @@ import {
   type BrowserNavState,
   type BrowserResult,
 } from "@shared/browser-contract";
-import { BrowserWindow, WebContentsView, session, type WebContents } from "electron";
-import type {
-  BridgeAction,
-  BridgeHostResult,
-} from "./bridge-handler";
+import {
+  BrowserWindow,
+  type WebContents,
+  WebContentsView,
+  session,
+} from "electron";
+import type { BridgeAction, BridgeHostResult } from "./bridge-handler";
 import {
   LOCAL_BROWSER_BLANK,
   type LocalBrowserNavMode,
@@ -355,7 +357,8 @@ function resolveBridgeWindow(): BrowserWindow | null {
  */
 function ensurePageForBridge(pageId: string): BridgeHostResult | PageView {
   const id = pageId.trim();
-  if (!id) return { ok: false, error: "missing_pageId", code: "host_unavailable" };
+  if (!id)
+    return { ok: false, error: "missing_pageId", code: "host_unavailable" };
 
   const existing = pages.get(id);
   if (existing && !existing.view.webContents.isDestroyed()) return existing;
@@ -380,7 +383,9 @@ function ensurePageForBridge(pageId: string): BridgeHostResult | PageView {
   return entry;
 }
 
-async function pageMeta(entry: PageView): Promise<{ final_url: string; title: string }> {
+async function pageMeta(
+  entry: PageView,
+): Promise<{ final_url: string; title: string }> {
   const wc = entry.view.webContents;
   return {
     final_url: wc.getURL(),
@@ -408,7 +413,10 @@ async function captureJpegFrame(
   }
 }
 
-function jpegQualityFromArgs(args: Record<string, unknown>, fallback = 70): number {
+function jpegQualityFromArgs(
+  args: Record<string, unknown>,
+  fallback = 70,
+): number {
   const raw = args.quality;
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string" && raw.trim()) {
@@ -499,7 +507,9 @@ export async function bridgeDispatchLocalBrowser(
         const load = wcNav.loadURL(target);
         await Promise.race([
           load,
-          new Promise<void>((r) => setTimeout(r, Number(args.timeout_ms ?? 45_000))),
+          new Promise<void>((r) =>
+            setTimeout(r, Number(args.timeout_ms ?? 45_000)),
+          ),
         ]);
         await waitLoad(wcNav, 5_000);
         const capture = args.capture !== false;
@@ -510,7 +520,8 @@ export async function bridgeDispatchLocalBrowser(
       }
       case "click": {
         const ref = String(args.ref ?? "").trim();
-        if (!ref) return { ok: false, error: "缺少 ref（先调用 browser_snapshot）" };
+        if (!ref)
+          return { ok: false, error: "缺少 ref（先调用 browser_snapshot）" };
         const version = args.snapshot_version;
         if (
           version !== undefined &&
@@ -532,7 +543,8 @@ export async function bridgeDispatchLocalBrowser(
       }
       case "type": {
         const ref = String(args.ref ?? "").trim();
-        if (!ref) return { ok: false, error: "缺少 ref（先调用 browser_snapshot）" };
+        if (!ref)
+          return { ok: false, error: "缺少 ref（先调用 browser_snapshot）" };
         const version = args.snapshot_version;
         if (
           version !== undefined &&
@@ -599,7 +611,10 @@ export async function bridgeDispatchLocalBrowser(
         const meta = await pageMeta(entry);
         const data: Record<string, unknown> = { ...meta };
         if (args.capture !== false) {
-          const frame = await captureJpegFrame(entry, jpegQualityFromArgs(args));
+          const frame = await captureJpegFrame(
+            entry,
+            jpegQualityFromArgs(args),
+          );
           if (frame) {
             data.frame_b64 = frame.frame_b64;
             data.width = frame.width;

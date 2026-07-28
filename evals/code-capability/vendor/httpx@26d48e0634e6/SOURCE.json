@@ -1,0 +1,45 @@
+{
+  "id": "V03",
+  "name": "httpx",
+  "upstream": "https://github.com/encode/httpx",
+  "release_tag": "0.28.1",
+  "commit": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+  "commit12": "26d48e0634e6",
+  "license": "BSD-3-Clause",
+  "license_file": "LICENSE.md",
+  "language": "python",
+  "role": "http-client-sync-async",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/encode/httpx/archive/refs/tags/0.28.1.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "httpx@26d48e0634e6",
+  "stripped": [
+    ".github",
+    ".gitignore",
+    "docs",
+    "scripts"
+  ],
+  "size_gate": {
+    "app_loc_approx": 6931,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 844591,
+    "tree_mib": 0.805,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": false,
+    "notes": "pip install -e .；纯 Python + httpcore；Windows 友好"
+  },
+  "test": {
+    "command": [
+      "python",
+      "-m",
+      "pytest",
+      "tests",
+      "-q"
+    ],
+    "full_suite_note": "需 pytest-asyncio 等开发依赖"
+  }
+}

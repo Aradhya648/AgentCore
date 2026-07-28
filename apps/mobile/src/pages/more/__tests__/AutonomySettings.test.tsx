@@ -55,7 +55,9 @@ describe("AutonomySettings", () => {
     expect(screen.getByText("少打断")).toBeTruthy();
     expect(screen.getByText("托管")).toBeTruthy();
     expect(
-      screen.getByText(/新会话默认：本会话信任改文件；执行经开工卡；组团卡按规则/),
+      screen.getByText(
+        /新会话默认：本会话信任改文件；执行经开工卡；组团卡按规则/,
+      ),
     ).toBeTruthy();
 
     const selected = screen.getByRole("radio", {

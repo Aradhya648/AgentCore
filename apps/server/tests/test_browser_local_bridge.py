@@ -212,7 +212,7 @@ async def test_tool_navigate_via_fake_bridge_updates_registry(fake_bridge, tmp_p
         return await open_local_bridge_session(req)
 
     reg = BrowserSessionRegistry(factory=factory)
-    backend = LocalBackend()
+    LocalBackend()
     # LocalBackend may not be a full WorkspaceBackend for write_bytes — use ServerWorkspace
     # for keyframe writes while keeping location=local via a thin wrapper.
     ws = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
@@ -336,7 +336,7 @@ async def test_local_screencast_via_live_hub_attach_detach(fake_bridge):
     for _ in range(40):
         try:
             ev = await asyncio.wait_for(viewer.get(), timeout=0.1)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
         if ev is not None and ev.type is EventType.BROWSER_LIVE_FRAME:
             frame_ev = ev

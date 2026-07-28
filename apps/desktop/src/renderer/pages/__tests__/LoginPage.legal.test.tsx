@@ -91,7 +91,10 @@ describe("LoginPage legal gates", () => {
     fireEvent.change(screen.getByPlaceholderText("密码"), {
       target: { value: "secret" },
     });
-    fireEvent.submit(screen.getByPlaceholderText("用户名").closest("form")!);
+    const form = screen.getByPlaceholderText("用户名").closest("form");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("expected login form");
+    fireEvent.submit(form);
 
     await waitFor(() => {
       expect(setAuthenticated).toHaveBeenCalledWith(user);

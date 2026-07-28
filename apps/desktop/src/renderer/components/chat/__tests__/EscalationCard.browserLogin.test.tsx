@@ -98,10 +98,12 @@ describe("EscalationCard · browser_login", () => {
       <MemoryRouter>
         <TooltipProvider>
           <EscalationCard
-            escalation={loginEsc}
-            role="研究员"
-            conversationId="conv-1"
-            interactive
+            {...{
+              escalation: loginEsc,
+              role: "研究员",
+              conversationId: "conv-1",
+              interactive: true as const,
+            }}
           />
         </TooltipProvider>
       </MemoryRouter>,

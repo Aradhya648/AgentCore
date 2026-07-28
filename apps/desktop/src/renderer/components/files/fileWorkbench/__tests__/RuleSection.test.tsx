@@ -4,8 +4,8 @@
  * GLOBAL lists only global rules; project scope filters by folderId.
  */
 
-import { ApiError } from "@/services/api";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ApiError } from "@/services/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,

@@ -192,9 +192,7 @@ export function ApprovalCard({
   const [expanded, setExpanded] = useState(false);
   const [clicked, setClicked] = useState<ApprovalDecision | null>(null);
   const [trustBusy, setTrustBusy] = useState(false);
-  const [axesOverride, setAxesOverride] = useState<PermissionAxes | null>(
-    null,
-  );
+  const [axesOverride, setAxesOverride] = useState<PermissionAxes | null>(null);
   const axes =
     axesOverride ??
     getConversations().find((c) => c.id === approval.conversationId)

@@ -126,9 +126,10 @@ function unwrapSidecarRejectMessage(err: unknown): string | null {
 function describeSidecarTurnError(err: unknown): string | null {
   const unwrapped = unwrapSidecarRejectMessage(err);
   if (!unwrapped) return null;
-  const ipcMatch = /^无效的 IPC 入参：([^\s（]+)(?:（字段 (.+?) 期望 (.+?)）)?$/.exec(
-    unwrapped,
-  );
+  const ipcMatch =
+    /^无效的 IPC 入参：([^\s（]+)(?:（字段 (.+?) 期望 (.+?)）)?$/.exec(
+      unwrapped,
+    );
   if (ipcMatch) {
     const [, channel, field, expected] = ipcMatch;
     if (field && expected) {

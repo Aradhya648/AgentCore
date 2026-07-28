@@ -716,7 +716,12 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
     string_enum = next(
         branch["enum"] for branch in cc["oneOf"] if branch.get("type") == "string"
     )
-    assert set(string_enum) == {"files_written", "code_verified", "runtime_ready"}
+    assert set(string_enum) == {
+        "files_written",
+        "code_verified",
+        "runtime_ready",
+        "graph_consistent",
+    }
     t = tool(Provider([]))
     params = t.schema.parameters
     props = params["properties"]
@@ -724,6 +729,7 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
         "research_report",
         "build_feature",
         "repair_code",
+        "build_app",
         "build_website",
         "build_toolshed",
         "build_website_verify",

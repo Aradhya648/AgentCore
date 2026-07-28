@@ -129,7 +129,9 @@ describe("DeliveryStatusCard", () => {
     expect(screen.getByText(/course\.pptx 未生成/)).toBeTruthy();
     expect(screen.queryByTestId("delivery-gaps-lead")).toBeNull();
     // 已知 bind_local_folder 行动项 → 真按钮（复用 ask_user 卡的绑定通路）。
-    expect(screen.getByRole("button", { name: "绑定本机执行环境" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "绑定本机执行环境" }),
+    ).toBeTruthy();
   });
 
   it("renders blocked state and treats unknown action kinds as plain hints", () => {
@@ -154,7 +156,9 @@ describe("DeliveryStatusCard", () => {
     expect(screen.queryByText("团队可能重派")).toBeNull();
     expect(screen.getByText("未来的提示行")).toBeTruthy();
     // 未知 kind 不渲染绑定按钮（向前兼容：按普通提示行呈现）——头部折叠按钮不算行动项。
-    expect(screen.queryByRole("button", { name: "绑定本机执行环境" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "绑定本机执行环境" }),
+    ).toBeNull();
   });
 
   it("hides redispatch hint when unmet has no continue/redispatch actions", () => {
@@ -201,14 +205,18 @@ describe("DeliveryStatusCard", () => {
   it("hides bind button without a conversation id (预览/离线回放)", () => {
     render(<DeliveryStatusCard status={partial} conversationId={null} />);
     // 无对话 id 不出绑定按钮；头部折叠按钮仍在（不是行动项）。
-    expect(screen.queryByRole("button", { name: "绑定本机执行环境" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "绑定本机执行环境" }),
+    ).toBeNull();
   });
 
   it("默认展开；点头部收起 gap 明细与 actions（头部仍可见），再点恢复", () => {
     render(<DeliveryStatusCard status={partial} conversationId="c1" />);
     // 默认展开：gap 明细 + 绑定行动项可见。
     expect(screen.getByText(/course\.pptx 未生成/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "绑定本机执行环境" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "绑定本机执行环境" }),
+    ).toBeTruthy();
 
     // 整行头部即折叠开关。
     const header = screen.getByRole("button", { name: /交付验收/ });
@@ -216,7 +224,9 @@ describe("DeliveryStatusCard", () => {
 
     // 收起：gap 明细与 actions 区消失，头部（标题 + 状态徽标 + 团队可能重派）仍在。
     expect(screen.queryByText(/course\.pptx 未生成/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "绑定本机执行环境" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "绑定本机执行环境" }),
+    ).toBeNull();
     expect(screen.getByText("交付验收")).toBeTruthy();
     expect(screen.getByText("部分未满足")).toBeTruthy();
     expect(screen.getByText("团队可能重派")).toBeTruthy();
@@ -317,9 +327,7 @@ describe("DeliveryStatusCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "导出到本地" }));
     await waitFor(() => {
       expect(exportWorkspaceToLocalMock).toHaveBeenCalledWith("c1");
-      expect(
-        screen.getByText(/已导出 3 个文件到「Desktop」/),
-      ).toBeTruthy();
+      expect(screen.getByText(/已导出 3 个文件到「Desktop」/)).toBeTruthy();
     });
     // 导出 ≠ 续跑：不发 turn。
     expect(sendTurnMock).not.toHaveBeenCalled();

@@ -86,7 +86,7 @@ class ExternalGrantRepository:
             stmt = stmt.where(ConversationExternalGrant.root_id == root_id)
         result = await self._session.execute(stmt)
         await self._session.commit()
-        return result.rowcount or 0
+        return int(getattr(result, "rowcount", 0) or 0)
 
     async def clear_conversation(self, conversation_id: str) -> None:
         await self._session.execute(

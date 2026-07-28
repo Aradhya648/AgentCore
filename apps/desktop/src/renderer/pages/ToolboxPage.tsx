@@ -8,6 +8,7 @@ import {
 } from "@/components/ui";
 import { type ArtifactKind, artifactColorVar } from "@/lib/catalogColors";
 import { cn } from "@/lib/utils";
+import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import {
   AppWindow,
   BookOpen,
@@ -26,7 +27,6 @@ import {
   Timer,
   Wrench,
 } from "lucide-react";
-import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import { useNavigate } from "react-router-dom";
 
 interface ToolboxEntry {

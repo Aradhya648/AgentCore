@@ -1,0 +1,49 @@
+{
+  "id": "V08",
+  "name": "uuid",
+  "upstream": "https://github.com/uuidjs/uuid",
+  "release_tag": "v14.0.1",
+  "commit": "70177807e9229dfacde2038dc1e722f1828f358a",
+  "commit12": "70177807e922",
+  "license": "MIT",
+  "license_file": "LICENSE.md",
+  "language": "typescript",
+  "role": "small-package-unit-tests",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/uuidjs/uuid/archive/refs/tags/v14.0.1.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "uuid@70177807e922",
+  "stripped": [
+    ".github",
+    ".gitignore",
+    ".vscode",
+    "examples"
+  ],
+  "size_gate": {
+    "app_loc_approx": 2157,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 629122,
+    "tree_mib": 0.6,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": false,
+    "notes": "pnpm/npm install（勿把 node_modules 写入 vendor）；再 npm test"
+  },
+  "test": {
+    "command": [
+      "node",
+      "--test",
+      "--enable-source-maps",
+      "dist-node/test/validate.test.js"
+    ],
+    "full_suite_note": "上游 npm test=全量 dist-node/test/*.js；需先构建。Windows：勿跑 scripts/build.sh（bash）；用 npm ci --ignore-scripts + npx tsc -p tsconfig.json，再将 dist 复制为 dist-node（去掉 *-browser*）。r1a_control 已内置该 prep。",
+    "windows_prep": [
+      "npm ci --ignore-scripts",
+      "npx tsc -p tsconfig.json",
+      "(python/shutil) copy dist → dist-node; drop *-browser*"
+    ]
+  }
+}

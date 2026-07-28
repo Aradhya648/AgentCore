@@ -626,8 +626,10 @@ async def maybe_reinject_recent_delivery_for_availability_ask(
         if verdict is None:
             return False
         # Normalize wire fields for the event factory.
-        gaps = payload.get("gaps") if isinstance(payload.get("gaps"), list) else []
-        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+        raw_gaps = payload.get("gaps")
+        raw_actions = payload.get("actions")
+        gaps: list[Any] = raw_gaps if isinstance(raw_gaps, list) else []
+        actions: list[Any] = raw_actions if isinstance(raw_actions, list) else []
         files = list(verdict.delivered_files)
         summary = str(payload.get("summary") or "").strip() or (
             f"已交付 {len(files)} 个文件" if files else "无交付缺口"

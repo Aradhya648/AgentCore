@@ -49,13 +49,13 @@ from agentcore.core.logging import get_logger, setup_logging
 from agentcore.db.migration_check import check_migrations
 from agentcore.memory.consolidation import consolidation_loop, shutdown_scheduler
 from agentcore.middleware.csrf import CsrfMiddleware
-from agentcore.standing_tasks import standing_task_scheduler_loop
 from agentcore.middleware.errors import JSONErrorMiddleware
 from agentcore.middleware.rate_limit import AuthRateLimitMiddleware
 from agentcore.runtime.audit_retention import audit_retention_loop
 from agentcore.runtime.session_retention import session_retention_loop
 from agentcore.runtime.suspension_retention import paused_turn_retention_loop
 from agentcore.security.keys import KeyEncryptor
+from agentcore.standing_tasks import standing_task_scheduler_loop
 from agentcore.tools.builtin.web.search_backend import (
     aclose_search_backend,
     probe_search_at_startup,

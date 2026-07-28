@@ -100,7 +100,7 @@ async def test_truncated_note_and_directory_listing():
     assert "File paths (contents not included):" in out
 
 
-class _async_cm:
+class _AsyncCm:
     async def __aenter__(self):
         return MagicMock()
 
@@ -141,7 +141,7 @@ def _patch_deep_read(monkeypatch, *, conv, messages, journal_map=None):
     # Lazy imports inside ``_deep_read_conversation_attachment`` — patch sources.
     monkeypatch.setattr(
         "agentcore.db.base.async_session_factory",
-        lambda: _async_cm(),
+        lambda: _AsyncCm(),
     )
     monkeypatch.setattr(
         "agentcore.db.repositories.ConversationRepository",

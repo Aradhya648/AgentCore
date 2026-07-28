@@ -81,7 +81,9 @@ class SearchConversationsTool:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": f"返回条数，默认 {_DEFAULT_LIMIT}，硬顶 {_SEARCH_HARD_CAP}。",
+                        "description": (
+                            f"返回条数，默认 {_DEFAULT_LIMIT}，硬顶 {_SEARCH_HARD_CAP}。"
+                        ),
                     },
                 },
                 "required": [],
@@ -115,7 +117,10 @@ class SearchConversationsTool:
             folder_id = explicit_folder
         elif scope == "project":
             if not self.folder_id:
-                soft_note = "当前是裸聊（无项目）；已按 all 范围检索。请改用 scope=all 或 global_chats。"
+                soft_note = (
+                    "当前是裸聊（无项目）；已按 all 范围检索。"
+                    "请改用 scope=all 或 global_chats。"
+                )
             else:
                 folder_id = self.folder_id
         elif scope == "global_chats":

@@ -3,6 +3,11 @@ import {
   type AgentTownApi,
 } from "@shared/agenttown-contract";
 import {
+  BROWSER_CHANNELS,
+  type BrowserApi,
+  type BrowserNavState,
+} from "@shared/browser-contract";
+import {
   FS_CHANNELS,
   type FsApi,
   type FsChangedEvent,
@@ -26,11 +31,6 @@ import {
   type OutboxApi,
   type OutboxSyncedPayload,
 } from "@shared/outbox-contract";
-import {
-  BROWSER_CHANNELS,
-  type BrowserApi,
-  type BrowserNavState,
-} from "@shared/browser-contract";
 import {
   PREVIEW_CHANNELS,
   type PreviewApi,
@@ -317,8 +317,7 @@ const browserApi: BrowserApi = {
   navigate: (input) => ipcRenderer.invoke(BROWSER_CHANNELS.navigate, input),
   openWorkspaceHtml: (input) =>
     ipcRenderer.invoke(BROWSER_CHANNELS.openWorkspaceHtml, input),
-  reload: (pageId) =>
-    ipcRenderer.send(BROWSER_CHANNELS.reload, { pageId }),
+  reload: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.reload, { pageId }),
   back: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.back, { pageId }),
   close: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.close, { pageId }),
   onNavState: (cb) => {

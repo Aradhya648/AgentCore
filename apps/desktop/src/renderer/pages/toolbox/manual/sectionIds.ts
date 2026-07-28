@@ -28,7 +28,7 @@ export const MANUAL_SECTION_IDS = {
     debate: "debate",
     continuation: "continuation",
     memory: "memory",
-    /** 能力授权三档（设置深链）；目标 IA 未单列，内容仍保留 */
+    /** 权限配方（徽章「设为新会话默认」；手机设置） */
     autonomy: "autonomy",
   },
   mechanism: {

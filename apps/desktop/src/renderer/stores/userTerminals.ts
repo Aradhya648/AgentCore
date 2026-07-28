@@ -200,10 +200,7 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
   },
 
   killSession: async (sessionId) => {
-    const api = typeof window !== "undefined" ? window.ptyApi : undefined;
-    if (!api?.kill) return;
-    const result = await api.kill({ session_id: sessionId });
-    if (!result.ok) return;
+    // 乐观移除：先出列表，避免 IPC 慢/失败时点 × 无反馈；再异步杀主进程 pty。
     set((s) => {
       const updated: Record<string, UserTerminalView[]> = {
         ...s.byConversation,
@@ -217,6 +214,14 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
         selectedId: s.selectedId === sessionId ? null : s.selectedId,
       };
     });
+
+    const api = typeof window !== "undefined" ? window.ptyApi : undefined;
+    if (!api?.kill) return;
+    const result = await api.kill({ session_id: sessionId });
+    if (!result.ok) {
+      // 主进程仍认为存在时，下次 hydrate 会补回；此处不回滚以免闪烁。
+      console.warn("[userTerminals] kill 失败", result.error);
+    }
   },
 
   writeInput: (sessionId, data) => {

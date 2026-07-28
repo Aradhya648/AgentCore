@@ -6,9 +6,8 @@ Skips CEO react_loop: prepare → assemble tools → ``debate.execute(skip_kicko
 
 from __future__ import annotations
 
-import json
-
 import contextlib
+import json
 from types import SimpleNamespace
 from typing import Any
 

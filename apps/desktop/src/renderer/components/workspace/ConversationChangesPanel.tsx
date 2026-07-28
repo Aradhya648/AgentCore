@@ -17,8 +17,8 @@ import { Diff } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 /**
- * 右坞固定「改动」tab —— 本对话 AI 文件改动聚合（前端UX设计.md §十）。
- * 按回合列出，复用 {@link TurnFileChangesReview}（只读真 diff + 回滚）。
+ * 右坞条件「改动」tab 体 —— 本对话 AI 文件改动聚合（前端UX设计.md §十）。
+ * 顶栏有改动记录（或深链）才挂本面板；按回合列出，复用 {@link TurnFileChangesReview}。
  * 产物卡「查看改动」经 {@link useSidePanelStore.showChanges} 聚焦同源入口。
  */
 
@@ -58,10 +58,7 @@ export function ConversationChangesPanel() {
       });
     }
     // 聚焦回合尚未出现在 messages（极端时序）时仍给一个入口。
-    if (
-      focusMessageId &&
-      !out.some((t) => t.messageId === focusMessageId)
-    ) {
+    if (focusMessageId && !out.some((t) => t.messageId === focusMessageId)) {
       out.push({
         messageId: focusMessageId,
         label: "本回合",
@@ -72,6 +69,7 @@ export function ConversationChangesPanel() {
   }, [messages, byId, focusMessageId]);
 
   const focusRef = useRef<HTMLElement | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: turns is an intentional re-run key after list lands
   useEffect(() => {
     if (!focusMessageId) return;
     focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });

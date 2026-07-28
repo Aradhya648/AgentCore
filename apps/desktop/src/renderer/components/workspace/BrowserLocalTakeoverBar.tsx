@@ -104,10 +104,7 @@ export function BrowserLocalTakeoverBar({
         </div>
       ) : (
         <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-3 text-xs">
-          <Hand
-            size={13}
-            className="shrink-0 text-muted-foreground/50"
-          />
+          <Hand size={13} className="shrink-0 text-muted-foreground/50" />
           <span className="text-muted-foreground">本机浏览器</span>
           {takeover === "starting" ? (
             <span className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">

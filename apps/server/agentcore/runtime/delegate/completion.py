@@ -551,9 +551,7 @@ def should_inject_batch_acceptance(spec: Any, criteria: CompletionCriteria | Non
     if criteria.kind == "runtime_ready":
         return True
     deliverable = getattr(spec, "deliverable", None)
-    if deliverable is None or getattr(deliverable, "form", None) != "files":
-        return False
-    return True
+    return not (deliverable is None or getattr(deliverable, "form", None) != "files")
 
 
 def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
@@ -1080,9 +1078,7 @@ def _verify_shaped_command_failed_in_transcript(transcript: list[LLMMessage]) ->
         return False
     if _code_execute_verify_succeeded_in_transcript(transcript):
         return False
-    if _terminal_verify_succeeded_in_transcript(transcript):
-        return False
-    return True
+    return not _terminal_verify_succeeded_in_transcript(transcript)
 
 
 def _verify_failure_descriptions(transcript: list[LLMMessage]) -> list[str]:

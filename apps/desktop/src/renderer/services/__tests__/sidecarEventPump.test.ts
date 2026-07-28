@@ -1,10 +1,10 @@
+import type { SidecarEventPush } from "@shared/sidecar-contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   claimSidecarTurnSink,
   installSidecarEventPump,
   resetSidecarEventPumpForTests,
 } from "../sidecarEventPump";
-import type { SidecarEventPush } from "@shared/sidecar-contract";
 
 type EventCb = (push: SidecarEventPush) => void;
 
@@ -25,11 +25,7 @@ beforeEach(() => {
   });
 });
 
-function push(
-  conversationId: string,
-  turnId: string,
-  delta: string,
-): void {
+function push(conversationId: string, turnId: string, delta: string): void {
   onEventCb?.({
     conversationId,
     turnId,

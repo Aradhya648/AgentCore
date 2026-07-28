@@ -70,9 +70,7 @@ export function useComposerSend({
 
     // 挂起弱提示：有待确认卡时先二次确认（同会话确认一次后不再弹）；正规续跑/
     // 提交卡不受影响。生成中插话走 mid-flight，不套本确认。
-    if (
-      !confirmSendDespitePendingIfNeeded(activeConvId, isGenerating)
-    ) {
+    if (!confirmSendDespitePendingIfNeeded(activeConvId, isGenerating)) {
       return;
     }
 

@@ -20,10 +20,7 @@ import { SimpleTooltip } from "@/components/ui/tooltip";
 import type { FileSource } from "@/lib/fileSource";
 import { notifyActionError, notifyInfo } from "@/lib/toast";
 import { ApiError } from "@/services/api";
-import {
-  type MemoryMoveDirection,
-  moveMemoryBullet,
-} from "@/services/memory";
+import { type MemoryMoveDirection, moveMemoryBullet } from "@/services/memory";
 import {
   GLOBAL_PROFILE_PATH,
   memoryProjectProfilePath,
@@ -119,9 +116,7 @@ export function MemoryProfileSplitEditor({
           targetApi?.reload();
           return;
         }
-        notifyInfo(
-          direction === "to_project" ? "已移到本项目" : "已移到全局",
-        );
+        notifyInfo(direction === "to_project" ? "已移到本项目" : "已移到全局");
         sourceApi.reload();
         targetApi?.reload();
       } catch (e) {

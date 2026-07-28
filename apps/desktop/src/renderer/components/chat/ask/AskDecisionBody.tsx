@@ -31,7 +31,9 @@ import type { AskUserContent, useAskAnswer } from "./AskUserFields";
 
 const META = ASK_INTENT_META.decision;
 
-function isDesktopFolderAction(action: AskOption["action"] | undefined): boolean {
+function isDesktopFolderAction(
+  action: AskOption["action"] | undefined,
+): boolean {
   return (
     action === "open_local_project" ||
     action === "bind_local_folder" ||
@@ -67,8 +69,7 @@ export function AskDecisionBody({
   const [noteOpen, setNoteOpen] = useState(false);
 
   const canLocalFs = hasLocalFiles() && !!window.fsApi;
-  const canBindAction =
-    !!conversationId && !!onBindResolve && canLocalFs;
+  const canBindAction = !!conversationId && !!onBindResolve && canLocalFs;
 
   const handleBindOption = async (q: AskQuestion, opt: AskOption) => {
     if (busy || bindBusyLabel) return;

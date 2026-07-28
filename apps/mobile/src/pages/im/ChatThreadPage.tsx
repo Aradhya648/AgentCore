@@ -22,6 +22,7 @@ import { shareOrDownloadFile } from "@/lib/share";
 import { clock } from "@/lib/time";
 import { usePolling } from "@/lib/usePolling";
 import { useStickScroll } from "@/lib/useStickScroll";
+import { ChatImageGallery } from "@/pages/im/ChatImageGallery";
 import { ImAvatar, userAvatarPath } from "@/pages/im/ImAvatar";
 import { ArrowDown, Loader2, Send } from "lucide-react";
 // 消息线程 (/im/c/:chatId) — one human↔human thread. REST + polling (no SSE): the open
@@ -363,19 +364,11 @@ export function ChatThreadPage() {
       {pending.length > 0 && (
         <div className="attach-tray">
           {pending.map((f, i) => (
-            <span key={`${f.name}-${i}`} className="attach-chip">
-              <span aria-hidden>📎</span>
-              <span className="attach-chip-name">{f.name}</span>
-              <span className="attach-chip-trunc">{formatSize(f.size)}</span>
-              <button
-                type="button"
-                className="attach-chip-x"
-                onClick={() => removePending(i)}
-                aria-label="移除附件"
-              >
-                ×
-              </button>
-            </span>
+            <PendingChip
+              key={`${f.name}-${i}`}
+              file={f}
+              onRemove={() => removePending(i)}
+            />
           ))}
         </div>
       )}
@@ -484,6 +477,10 @@ function MessageRow({
   }
 
   const attachments = message.attachments ?? [];
+  const images = attachments.filter(
+    (a) => a.kind !== "dir" && a.workspace_path && isImageAttachment(a.name),
+  );
+  const files = attachments.filter((a) => !images.includes(a));
   return (
     <div className={`im-msg ${mine ? "mine" : "theirs"}`}>
       <div className="im-msg-row">
@@ -498,10 +495,13 @@ function MessageRow({
           )}
           <div className="im-bubble">
             {message.content}
-            {attachments.length > 0 && (
+            {images.length > 0 && (
+              <ChatImageGallery chatId={chatId} images={images} />
+            )}
+            {files.length > 0 && (
               <div className="im-attachments">
-                {attachments.map((a, i) => (
-                  <Attachment
+                {files.map((a, i) => (
+                  <FileAttachmentChip
                     key={a.workspace_path ?? `${a.name}-${i}`}
                     chatId={chatId}
                     attachment={a}
@@ -517,9 +517,8 @@ function MessageRow({
   );
 }
 
-/** One attachment: an inline image (fetched as a blob — bearer can't ride an <img src>),
- *  else a file chip that shares/saves on tap. */
-function Attachment({
+/** Non-image attachment chip: tap shares/saves via the OS sheet (or download fallback). */
+function FileAttachmentChip({
   chatId,
   attachment,
 }: {
@@ -527,70 +526,79 @@ function Attachment({
   attachment: StoredAttachment;
 }) {
   const path = attachment.workspace_path ?? null;
-  const image = isImageAttachment(attachment.name);
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!image || !path) return;
-    let url: string | null = null;
-    let cancelled = false;
-    fetchChatAttachmentBlob(chatId, path)
-      .then((blob) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setImgUrl(url);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [chatId, path, image]);
+  const [error, setError] = useState<string | null>(null);
 
   async function open() {
     if (!path || busy) return;
     setBusy(true);
+    setError(null);
     try {
       const blob = await fetchChatAttachmentBlob(chatId, path);
       await shareOrDownloadFile(blob, attachment.name, blob.type);
-    } catch {
-      /* best-effort */
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "下载附件失败");
     } finally {
       setBusy(false);
     }
   }
 
-  if (image && path) {
-    return imgUrl ? (
+  return (
+    <div className="im-attach-file-wrap">
       <button
         type="button"
-        className="im-attach-img-btn"
+        className="im-attach-file"
         onClick={() => void open()}
+        disabled={!path || busy}
       >
-        <img className="im-attach-img" src={imgUrl} alt={attachment.name} />
-      </button>
-    ) : (
-      <div className="im-attach-file">
+        <span aria-hidden>📎</span>
         <span className="im-attach-name">{attachment.name}</span>
-      </div>
-    );
-  }
+        {attachment.size_bytes != null && (
+          <span className="im-attach-size">
+            {formatSize(attachment.size_bytes)}
+          </span>
+        )}
+      </button>
+      {error && <span className="im-attach-error">{error}</span>}
+    </div>
+  );
+}
+
+/** Composer pending file chip — images show a local objectURL thumbnail. */
+function PendingChip({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
+  const image = file.type.startsWith("image/") || isImageAttachment(file.name);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!image) return;
+    const url = URL.createObjectURL(file);
+    setThumbUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file, image]);
 
   return (
-    <button
-      type="button"
-      className="im-attach-file"
-      onClick={() => void open()}
-      disabled={!path || busy}
-    >
-      <span aria-hidden>📎</span>
-      <span className="im-attach-name">{attachment.name}</span>
-      {attachment.size_bytes != null && (
-        <span className="im-attach-size">
-          {formatSize(attachment.size_bytes)}
-        </span>
+    <span className={`attach-chip${image && thumbUrl ? " has-thumb" : ""}`}>
+      {image && thumbUrl ? (
+        <img className="attach-chip-thumb" src={thumbUrl} alt="" />
+      ) : (
+        <span aria-hidden>📎</span>
       )}
-    </button>
+      <span className="attach-chip-name">{file.name}</span>
+      <span className="attach-chip-trunc">{formatSize(file.size)}</span>
+      <button
+        type="button"
+        className="attach-chip-x"
+        onClick={onRemove}
+        aria-label="移除附件"
+      >
+        ×
+      </button>
+    </span>
   );
 }

@@ -1,0 +1,43 @@
+{
+  "id": "V06",
+  "name": "pyyaml",
+  "upstream": "https://github.com/yaml/pyyaml",
+  "release_tag": "6.0.3",
+  "commit": "49790e73684bebad1df05ef8d828fa12f685bffb",
+  "commit12": "49790e73684b",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "language": "python",
+  "role": "parser-edge-cases",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/yaml/pyyaml/archive/refs/tags/6.0.3.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "vendor_dir": "pyyaml@49790e73684b",
+  "stripped": [
+    ".github",
+    ".gitignore",
+    "packaging"
+  ],
+  "size_gate": {
+    "app_loc_approx": 4450,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "tree_bytes": 580702,
+    "tree_mib": 0.554,
+    "note": "应用代码按 app_globs 粗计非空非注释行；tests/fixtures 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": false,
+    "notes": "优先用 wheel（含 libyaml）；源码装可能需编译器。Windows 优先 pip install PyYAML==pin",
+    "windows_note": "若本机无编译器，评测装依赖时用 PyPI wheel，vendor 树仅作源码定位/读码"
+  },
+  "test": {
+    "command": [
+      "python",
+      "tests/lib3/test_all.py"
+    ],
+    "full_suite_note": "legacy 布局；部分测依赖 C 扩展 _yaml"
+  },
+  "gate_risk": "native_ext"
+}

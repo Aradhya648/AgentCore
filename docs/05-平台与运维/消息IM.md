@@ -73,6 +73,8 @@ skip_if:
 
 桌面端「消息」两栏收件箱：复用对话页前端内核 + 实时通道，但走**独立 store / service**，与 AI 对话状态解耦。
 
+**媒体显示路径（✅）**：桌面 cookie 鉴权 / 手机 Bearer `fetch` → `createObjectURL` → `<img>`；气泡用 `thumb_path ?? workspace_path`，lightbox 拉 `workspace_path` 原图；prod CSP `img-src` 显式含 `blob:`（只展示本页已鉴权字节，不放宽第三方远程图）。
+
 → 见代码 `apps/desktop/src/renderer/pages/MessagesPage.tsx`、`services/messaging.ts`、`stores/messaging.ts`
 
 ## 七、余项缺口（⏳）与内测全员群关键决策（✅）

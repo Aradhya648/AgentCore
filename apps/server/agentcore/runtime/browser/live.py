@@ -93,7 +93,9 @@ def _channel_key(conversation_id: str, session_id: str | None) -> _ChannelKey:
 
 
 class BrowserLiveHub:
-    """Process-wide ``(conversation_id, session_id?) → live channel`` fan-out + registry observer (D13)."""
+    """Process-wide ``(conversation_id, session_id?) → live channel`` fan-out
+    + registry observer (D13)."""
+
 
     def __init__(
         self,
@@ -342,9 +344,11 @@ class BrowserLiveHub:
         except RuntimeError:
             return
         key = _channel_key(channel.conversation_id, channel.session_id)
-        channel.stop_timer = loop.call_later(
-            self.grace_seconds, lambda k=key: self._schedule(self._grace_stop(k))
-        )
+
+        def _fire(k: _ChannelKey = key) -> None:
+            self._schedule(self._grace_stop(k))
+
+        channel.stop_timer = loop.call_later(self.grace_seconds, _fire)
 
     async def _grace_stop(self, key: _ChannelKey) -> None:
         async with self._lock:

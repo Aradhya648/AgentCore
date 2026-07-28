@@ -189,9 +189,7 @@ def _rate_limit_should_retry(retry_after: float | None) -> bool:
     longer than ``MAX_RETRY_AFTER`` fail immediately so the UI can surface
     rate-limit instead of spinning.
     """
-    if retry_after is not None and retry_after > _MAX_RETRY_AFTER:
-        return False
-    return True
+    return not (retry_after is not None and retry_after > _MAX_RETRY_AFTER)
 
 
 class OpenAICompatibleProvider:

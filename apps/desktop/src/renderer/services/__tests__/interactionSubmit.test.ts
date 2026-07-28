@@ -188,6 +188,7 @@ describe("submitInteraction path table", () => {
         kind: "escalation",
         answer: "",
         use_assumption: true,
+        transfer_ownership: false,
       },
     });
     expect(result).toBe("orphaned");

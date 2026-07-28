@@ -65,9 +65,7 @@ export async function pickAndOpenLocalProject(
 
     startNewConversation(navigate, folder.id);
     notifySuccess(
-      created
-        ? `已创建项目「${folder.name}」`
-        : `已打开项目「${folder.name}」`,
+      created ? `已创建项目「${folder.name}」` : `已打开项目「${folder.name}」`,
     );
     return { ok: true, root: picked.root, folder, created };
   } catch (e) {

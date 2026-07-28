@@ -235,11 +235,11 @@ def resolve_playbook_declaration(
                 "绿场软件须具名 `build_app`。"
             )
         # Agent/自动化记账闸：可运行/仅方案禁 toolshed；仅方案另禁 website。
-        if named == "build_toolshed" and automation_delivery is not None:
-            if is_runnable_delivery(automation_delivery) or is_plan_only_delivery(
-                automation_delivery
-            ):
-                return None, None, automation_toolshed_rejected_message()
+        if named == "build_toolshed" and automation_delivery is not None and (
+            is_runnable_delivery(automation_delivery)
+            or is_plan_only_delivery(automation_delivery)
+        ):
+            return None, None, automation_toolshed_rejected_message()
         if named == "build_website" and is_plan_only_delivery(automation_delivery):
             return None, None, automation_website_rejected_message()
         # 具名 build_app / build_website / build_toolshed 等直接放行。

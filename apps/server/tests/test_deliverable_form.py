@@ -169,7 +169,7 @@ def test_schema_exposes_form_enum():
     deps = DELEGATE_PARAMETERS["properties"]["tasks"]["items"]["properties"]["depends_on"][
         "description"
     ]
-    assert "id 字段字面值" in deps or "同一次 tasks" in deps
+    assert "id 字面值" in deps or "同一次 tasks" in deps
     assert ("role" in deps or "角色名" in deps) and "del_*" in deps
     props_task = DELEGATE_PARAMETERS["properties"]["tasks"]["items"]["properties"]
     assert "require_upstream" in props_task
@@ -190,7 +190,7 @@ def test_schema_depends_on_teaches_when_to_declare_dependency():
     deps = DELEGATE_PARAMETERS["properties"]["tasks"]["items"]["properties"]["depends_on"][
         "description"
     ]
-    assert "id 字段字面值" in deps and "del_*" in deps
+    assert "id 字面值" in deps and "del_*" in deps
     assert "角色名" in deps or "role" in deps
     assert "生产者→消费者" in deps  # 短指针，细节在 core
     # 顶层工具描述仍钉判断线索（勿默认全平铺）。

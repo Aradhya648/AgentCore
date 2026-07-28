@@ -109,7 +109,11 @@ export function AutonomySettings() {
         ) : (
           <>
             {loadError && <p className="error hint">{loadError}</p>}
-            <div className="choice-list" role="radiogroup" aria-label="权限配方">
+            <div
+              className="choice-list"
+              role="radiogroup"
+              aria-label="权限配方"
+            >
               {OPTIONS.map((option) => {
                 const selected = option.value === policy;
                 return (

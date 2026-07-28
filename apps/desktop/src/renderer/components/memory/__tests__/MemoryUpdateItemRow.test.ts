@@ -42,11 +42,7 @@ describe("canMoveMemoryItem", () => {
 
   it("blocks 纠正记录 / 偏好 / remove / missing project", () => {
     expect(
-      canMoveMemoryItem(
-        { ...base, section: "纠正记录" },
-        "to_project",
-        "F1",
-      ),
+      canMoveMemoryItem({ ...base, section: "纠正记录" }, "to_project", "F1"),
     ).toBe(false);
     expect(
       canMoveMemoryItem({ ...base, file: "偏好" }, "to_project", "F1"),

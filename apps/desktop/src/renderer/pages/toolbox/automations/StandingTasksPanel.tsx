@@ -3,7 +3,7 @@ import { Switch } from "@/components/ui/Switch";
 import { notifyError, notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/services/api";
-import { listFolders, type FolderMeta } from "@/services/folders";
+import { type FolderMeta, listFolders } from "@/services/folders";
 import {
   type StandingTask,
   deleteStandingTask,
@@ -210,11 +210,8 @@ export function StandingTasksPanel() {
                               {" · "}下次：{formatNextRun(task.nextRunAt)}
                             </>
                           )}
-                          {task.triggerKind === "webhook" && task.webhookUrl && (
-                            <>
-                              {" · "}Webhook 已就绪
-                            </>
-                          )}
+                          {task.triggerKind === "webhook" &&
+                            task.webhookUrl && <>{" · "}Webhook 已就绪</>}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">

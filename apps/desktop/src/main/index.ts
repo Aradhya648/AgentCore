@@ -9,18 +9,15 @@ import { net, BrowserWindow, app, ipcMain, protocol, shell } from "electron";
 // build/icon.png 派生）。
 import icon from "../../resources/icon.png?asset";
 import { registerAgentTownIpc } from "./agenttown-service";
+import { registerBrowserIpc, startDesktopBrowserBridge } from "./browser";
+import { WORKSPACE_SCHEME } from "./browser/workspace-paths";
 import { registerFsIpc } from "./fs-service";
 import { registerLocalStoreIpc } from "./local-store";
 import { registerLogIpc } from "./log-service";
 import { registerNotificationIpc } from "./notification-service";
 import { registerOutboxIpc } from "./outbox-writeback";
-import {
-  registerBrowserIpc,
-  startDesktopBrowserBridge,
-} from "./browser";
 import { registerPreviewIpc } from "./preview/ipc";
 import { PREVIEW_SCHEME } from "./preview/paths";
-import { WORKSPACE_SCHEME } from "./browser/workspace-paths";
 import { registerProcessIpc } from "./process-service";
 import { registerPtyIpc } from "./pty-service";
 import { registerSidecarIpc } from "./sidecar-service";
@@ -93,7 +90,10 @@ const CONTENT_SECURITY_POLICY = [
   // 渲染期对 <img src=远程> / data.url 零点击取资源（DOMPurify 只清脚本/事件、不挡「取图」这种联网，
   // 故 mermaid strict 也挡不住）。img-src 只放行 自己 + data: 内联 + 你的后端源（头像/favicon），任意
   // 第三方远程图被浏览器拦在网络层——比逐引擎加门卫更治本（连未来新增的图表引擎一并覆盖）。
-  `img-src 'self' data:${API_ORIGIN ? ` ${API_ORIGIN}` : ""}`,
+  // blob:：IM / 工作区等「cookie 鉴权 fetch → createObjectURL → <img>」路径所需（与 preview/paths.ts
+  // 的 PREVIEW_CSP 对齐）。blob: 只展示本页已鉴权拿到的字节，不引入新的网络取图面，故不削弱
+  // 「拦第三方远程图」红队目标。
+  `img-src 'self' data: blob:${API_ORIGIN ? ` ${API_ORIGIN}` : ""}`,
   "font-src 'self' data:",
   CONNECT_SRC,
   "object-src 'none'",
@@ -268,7 +268,7 @@ function createWindow(): BrowserWindow {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Windows 通知中心需要 AppUserModelId，否则 toast 静默失败。
   if (process.platform === "win32") {
     app.setAppUserModelId("com.agentcore.desktop");

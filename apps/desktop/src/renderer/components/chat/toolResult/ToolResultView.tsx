@@ -153,9 +153,7 @@ export function toolResultPeek(d: ToolResultData): string {
     if (typeof d.display.conversation_id === "string") {
       const title = d.display.title?.trim();
       if (title) {
-        return clampLine(
-          d.display.truncated ? `${title} · 已截断` : title,
-        );
+        return clampLine(d.display.truncated ? `${title} · 已截断` : title);
       }
       return d.display.truncated ? "已截断" : "已查阅对话";
     }
@@ -434,7 +432,7 @@ function ConversationLogResult({
         )}
       </div>
       {isRead && conversationId && (
-        <div className="border-border/60 border-b px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+        <div className="border-border/60 border-b px-2.5 py-1 font-mono text-xs text-muted-foreground">
           {conversationId}
         </div>
       )}

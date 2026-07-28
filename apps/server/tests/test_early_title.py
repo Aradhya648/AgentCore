@@ -316,10 +316,14 @@ async def test_stream_chat_schedules_title_before_turn(monkeypatch):
 
     monkeypatch.setattr(
         turns_mod,
-        "resolve_permission_preset",
+        "resolve_permission_axes",
         AsyncMock(return_value=recipe_to_axes(AutonomyPolicy.WRITE_CODE)),
     )
-    monkeypatch.setattr(turns_mod, "build_turn_backend", lambda **_k: SimpleNamespace(location="server"))
+    monkeypatch.setattr(
+        turns_mod,
+        "build_turn_backend",
+        AsyncMock(return_value=SimpleNamespace(location="server")),
+    )
     monkeypatch.setattr(turns_mod, "workspace_lock", lambda *_a, **_k: _Lock())
     monkeypatch.setattr(turns_mod, "workspace_storage_key", lambda **_k: "k")
     monkeypatch.setattr(turns_mod, "persist_attachments", AsyncMock(return_value=[]))
@@ -397,10 +401,14 @@ async def test_stream_chat_skips_title_when_already_named(monkeypatch):
 
     monkeypatch.setattr(
         turns_mod,
-        "resolve_permission_preset",
+        "resolve_permission_axes",
         AsyncMock(return_value=recipe_to_axes(AutonomyPolicy.WRITE_CODE)),
     )
-    monkeypatch.setattr(turns_mod, "build_turn_backend", lambda **_k: SimpleNamespace(location="server"))
+    monkeypatch.setattr(
+        turns_mod,
+        "build_turn_backend",
+        AsyncMock(return_value=SimpleNamespace(location="server")),
+    )
     monkeypatch.setattr(turns_mod, "workspace_lock", lambda *_a, **_k: _Lock())
     monkeypatch.setattr(turns_mod, "workspace_storage_key", lambda **_k: "k")
     monkeypatch.setattr(turns_mod, "persist_attachments", AsyncMock(return_value=[]))

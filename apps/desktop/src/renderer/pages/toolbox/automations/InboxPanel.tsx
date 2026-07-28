@@ -95,7 +95,7 @@ export function InboxPanel() {
   const visible = (runs ?? []).filter((r) => {
     if (filter === "all") return r.status !== "running";
     return (
-      r.status === "awaiting_user" ||
+      (r.status === "awaiting_user" && !r.ackedAt) ||
       (r.status === "failed" && !r.ackedAt)
     );
   });
@@ -112,9 +112,7 @@ export function InboxPanel() {
     setBusyId(run.id);
     try {
       const next = await ackStandingTaskRun(run.id);
-      setRuns((prev) =>
-        (prev ?? []).map((r) => (r.id === run.id ? next : r)),
-      );
+      setRuns((prev) => (prev ?? []).map((r) => (r.id === run.id ? next : r)));
       void refreshBadge();
       notifySuccess("已关闭");
     } catch (e) {
@@ -269,9 +267,7 @@ export function InboxPanel() {
                           icon={<MessageSquare size={14} />}
                           onClick={() => openConversation(run)}
                         >
-                          {run.status === "awaiting_user"
-                            ? "去拍板"
-                            : "进对话"}
+                          {run.status === "awaiting_user" ? "去拍板" : "进对话"}
                         </Button>
                       )}
                       {run.status === "failed" && (
@@ -301,6 +297,16 @@ export function InboxPanel() {
                             </Button>
                           )}
                         </>
+                      )}
+                      {run.status === "awaiting_user" && !run.ackedAt && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void onAck(run)}
+                        >
+                          关闭
+                        </Button>
                       )}
                       {run.status === "succeeded" && !run.ackedAt && (
                         <Button

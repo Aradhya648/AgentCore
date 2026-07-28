@@ -720,7 +720,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
         if (!plan) {
           if (!deliveryStatus) return {};
           const cur = state.byId[messageId] ?? EMPTY_EXEC;
-          if (cur.deliveryStatus?.execution_id === deliveryStatus.execution_id) {
+          if (
+            cur.deliveryStatus?.execution_id === deliveryStatus.execution_id
+          ) {
             // Same reconciliation already stamped (live SSE) — keep other fields.
             return {
               byId: {

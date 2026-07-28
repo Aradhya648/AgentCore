@@ -6,8 +6,8 @@ import { TurnCompare } from "@/components/chat/compare/TurnCompare";
 import { DebateArena } from "@/components/chat/debate/arena/DebateArena";
 import { GraphView } from "@/components/graph/GraphView";
 import { SidePanel } from "@/components/layout/SidePanel";
-import { Button, IconButton } from "@/components/ui";
-import { SimpleTooltip } from "@/components/ui/tooltip";
+import { SidePanelToggle } from "@/components/layout/SidePanelToggle";
+import { Button } from "@/components/ui";
 import {
   fetchMessageWindow,
   shouldSetGeneratingOnHydrate,
@@ -43,15 +43,11 @@ import {
   GitCompare,
   MessagesSquare,
   Network,
-  PanelRight,
   Square,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import {
-  isDebateViewPending,
-  resolveTurnDetailView,
-} from "./turnDetailView";
+import { isDebateViewPending, resolveTurnDetailView } from "./turnDetailView";
 
 function parseView(raw: string | null): TurnDetailView | null {
   if (raw === "graph" || raw === "debate" || raw === "compare") return raw;
@@ -86,6 +82,7 @@ export function TurnDetailPage() {
   // Ensure conversation data is loaded (same contract as ConversationPage:
   // local sidecar branch via shouldHydrateLocalRecovery, cloud via attachOnOpen /
   // settleCloudRunningAssistant — no third attach semantics).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hydrateRetry is an intentional re-run key
   useEffect(() => {
     if (!conversationId) return;
     const store = useConversationStore.getState();
@@ -209,6 +206,7 @@ export function TurnDetailPage() {
 
   // After a hydrate attempt, release debate-view pending even if journal had no plan.
   const [journalHydrateAttempted, setJournalHydrateAttempted] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scopeKey/conversationId are intentional re-run keys
   useEffect(() => {
     setJournalHydrateAttempted(false);
   }, [scopeKey, conversationId]);
@@ -338,16 +336,17 @@ export function TurnDetailPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 右坞：打开后头栏 PanelRight 关闭；关闭时主区右上浮层打开。
   const panelOpen = useSidePanelStore((s) => s.open);
-  const pendingBadge = useSidePanelStore((s) => s.pendingBadge);
-  const togglePanel = useSidePanelStore((s) => s.togglePanel);
 
   if (!conversationId || !turnId) return null;
 
   return (
     <ExecutionScopeContext.Provider value={scopeKey}>
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background">
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 pr-14">
+        <div
+          className={`flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 ${!panelOpen ? "pr-14" : ""}`}
+        >
           <Button
             variant="neutral"
             size="md"
@@ -436,16 +435,19 @@ export function TurnDetailPage() {
                   </ReactFlowProvider>
                 </div>
               )}
-              {!debateViewPending && view === "debate" && debate && execution && (
-                <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <DebateArena
-                    execution={execution}
-                    messageId={scopeKey}
-                    conversationId={conversationId}
-                    interactive={liveViewedTurn}
-                  />
-                </div>
-              )}
+              {!debateViewPending &&
+                view === "debate" &&
+                debate &&
+                execution && (
+                  <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                    <DebateArena
+                      execution={execution}
+                      messageId={scopeKey}
+                      conversationId={conversationId}
+                      interactive={liveViewedTurn}
+                    />
+                  </div>
+                )}
               {!debateViewPending &&
                 view === "compare" &&
                 showCompare &&
@@ -470,28 +472,11 @@ export function TurnDetailPage() {
           <SidePanel />
         </div>
 
-        <SimpleTooltip
-          label={panelOpen ? "隐藏侧面板 (Ctrl/Cmd+I)" : "侧面板 (Ctrl/Cmd+I)"}
-        >
+        {!panelOpen && (
           <div className="absolute right-3 top-2 z-20">
-            <IconButton
-              size="md"
-              onClick={togglePanel}
-              aria-pressed={panelOpen}
-              aria-label={panelOpen ? "隐藏侧面板" : "侧面板"}
-              className={`relative border border-border backdrop-blur ${
-                panelOpen ? "bg-accent text-foreground" : "bg-card/80"
-              }`}
-            >
-              <PanelRight size={16} />
-              {!panelOpen && pendingBadge > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
-                  {pendingBadge > 9 ? "9+" : pendingBadge}
-                </span>
-              )}
-            </IconButton>
+            <SidePanelToggle />
           </div>
-        </SimpleTooltip>
+        )}
       </div>
     </ExecutionScopeContext.Provider>
   );

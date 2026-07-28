@@ -2,9 +2,9 @@ import { useConversations } from "@/hooks/useConversations";
 import { useFolders } from "@/hooks/useFolders";
 import { useConversationWorkspace } from "@/hooks/useWorkspaces";
 import { hasInAppPreview, hasLocalFiles } from "@/lib/capabilities";
-import { type FileSource } from "@/lib/fileSource";
-import { openWorkspaceHtmlInBrowser } from "@/lib/openWorkspaceHtmlInBrowser";
+import type { FileSource } from "@/lib/fileSource";
 import { useReadOnlyOffline } from "@/lib/offlineMode";
+import { openWorkspaceHtmlInBrowser } from "@/lib/openWorkspaceHtmlInBrowser";
 import { asReadOnlyFileSource } from "@/services/sources/readOnlyFileSource";
 import {
   createWorkspaceSource,

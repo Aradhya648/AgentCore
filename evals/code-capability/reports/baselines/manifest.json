@@ -1,0 +1,25 @@
+{
+  "schema": "r4_baselines_v1",
+  "tolerance_pp": 10,
+  "note": "相对冻结基线 pass_rate 回退超过 tolerance_pp 个百分点 → Fail；须 --update-baseline + --reason",
+  "phases": {
+    "r1": {
+      "file": "r1.json",
+      "source": "reports/r1_baseline_latest.json",
+      "frozen_at": "2026-07-28T00:00:00+00:00",
+      "reason": "R4 初冻：R1 Find/Fix 无 LLM hard_accept 对照矩阵（10 仓 · 56 cells）"
+    },
+    "r2": {
+      "file": "r2.json",
+      "source": "reports/r2_baseline_latest.json",
+      "frozen_at": "2026-07-28T00:00:00+00:00",
+      "reason": "R4 初冻：R2 Extend 无 LLM hard_accept 对照矩阵（4 仓 · 16 cells）"
+    },
+    "r3": {
+      "file": "r3.json",
+      "source": "reports/r3_baseline_latest.json",
+      "frozen_at": "2026-07-28T00:00:00+00:00",
+      "reason": "R4 初冻：R3 Collab 无 LLM hard_accept 对照矩阵（2 仓 · 8 cells；软诊断不进 hard_accept）"
+    }
+  }
+}

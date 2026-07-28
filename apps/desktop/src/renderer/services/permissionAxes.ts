@@ -177,9 +177,7 @@ export function recipeToAxes(recipe: AutonomyRecipe): PermissionAxes {
 }
 
 /** Match axes to a built-in recipe, else ``custom``. */
-export function matchRecipe(
-  axes: PermissionAxes,
-): AutonomyRecipe | "custom" {
+export function matchRecipe(axes: PermissionAxes): AutonomyRecipe | "custom" {
   for (const id of RECIPE_ORDER) {
     if (axesEqual(axes, RECIPE_AXES[id])) return id;
   }
@@ -262,7 +260,9 @@ export async function resolveDefaultPermissionAxes(): Promise<PermissionAxes> {
   if (composerDraftAxes) return composerDraftAxes;
   if (cachedDefaultAxes) return cachedDefaultAxes;
   try {
-    const d = await api.get<{ policy: AutonomyRecipe }>("/v1/users/me/autonomy");
+    const d = await api.get<{ policy: AutonomyRecipe }>(
+      "/v1/users/me/autonomy",
+    );
     cachedDefaultAxes = recipeToAxes(d.policy);
     return cachedDefaultAxes;
   } catch {
@@ -272,6 +272,17 @@ export async function resolveDefaultPermissionAxes(): Promise<PermissionAxes> {
 
 export function setCachedDefaultRecipe(policy: AutonomyRecipe): void {
   cachedDefaultAxes = recipeToAxes(policy);
+}
+
+/** Persist user-level default recipe (seeds new conversations only). */
+export async function setUserDefaultRecipe(
+  policy: AutonomyRecipe,
+): Promise<AutonomyRecipe> {
+  const d = await api.put<{ policy: AutonomyRecipe }>("/v1/users/me/autonomy", {
+    policy,
+  });
+  setCachedDefaultRecipe(d.policy);
+  return d.policy;
 }
 
 export function clearDefaultPermissionAxesCache(): void {

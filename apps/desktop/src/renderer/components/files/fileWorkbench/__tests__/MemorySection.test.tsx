@@ -4,8 +4,8 @@
  * GLOBAL lists 最近更新 / 偏好 / 画像 / 主题; project scope is 画像 + 主题.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,

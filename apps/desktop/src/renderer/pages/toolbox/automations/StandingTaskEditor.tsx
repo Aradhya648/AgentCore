@@ -1,17 +1,17 @@
 import { Button, Input, Textarea } from "@/components/ui";
-import { IconButton } from "@/components/ui/icon-button";
+import { Switch } from "@/components/ui/Switch";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/Switch";
+import { IconButton } from "@/components/ui/icon-button";
 import { copyText } from "@/lib/clipboard";
 import { notifyError, notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/services/api";
-import { type FolderMeta } from "@/services/folders";
+import type { FolderMeta } from "@/services/folders";
 import {
   type AutonomyRecipe,
   RECIPE_LABELS,
@@ -21,25 +21,18 @@ import {
 } from "@/services/permissionAxes";
 import {
   type CreateStandingTaskInput,
-  type StandingTask,
-  type TriggerKind,
   SCHEDULE_PRESET_LABELS,
   SCHEDULE_PRESET_ORDER,
+  type SchedulePreset,
+  type StandingTask,
   TRIGGER_KIND_LABELS,
   TRIGGER_KIND_ORDER,
-  type SchedulePreset,
+  type TriggerKind,
   createStandingTask,
   patchStandingTask,
   rotateWebhookSecret,
 } from "@/services/standingTasks";
-import {
-  Check,
-  Copy,
-  KeyRound,
-  Loader2,
-  Play,
-  X,
-} from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, Play, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const SELECT_CLASS =
@@ -82,7 +75,9 @@ export function emptyStandingTaskForm(
   };
 }
 
-export function formFromStandingTask(task: StandingTask): StandingTaskFormState {
+export function formFromStandingTask(
+  task: StandingTask,
+): StandingTaskFormState {
   const recipe = matchRecipe(task.permissionAxes);
   return {
     name: task.name,
@@ -263,7 +258,8 @@ export function StandingTaskEditorDrawer({
       setForm((f) => ({
         ...f,
         revealedSecret: result.webhookSecret,
-        webhookUrl: result.webhookUrl ?? result.task?.webhookUrl ?? f.webhookUrl,
+        webhookUrl:
+          result.webhookUrl ?? result.task?.webhookUrl ?? f.webhookUrl,
         webhookId: result.webhookId ?? result.task?.webhookId ?? f.webhookId,
       }));
       notifySuccess("密钥已轮换 — 请立即复制新密钥");
@@ -320,7 +316,9 @@ export function StandingTaskEditorDrawer({
           )}
 
           <label className="block" htmlFor="st-name">
-            <span className="mb-1 block text-xs text-muted-foreground">名称</span>
+            <span className="mb-1 block text-xs text-muted-foreground">
+              名称
+            </span>
             <Input
               id="st-name"
               className="w-full"
@@ -439,7 +437,9 @@ export function StandingTaskEditorDrawer({
           </label>
 
           <label className="block" htmlFor="st-goal">
-            <span className="mb-1 block text-xs text-muted-foreground">目标</span>
+            <span className="mb-1 block text-xs text-muted-foreground">
+              目标
+            </span>
             <Textarea
               id="st-goal"
               className="w-full text-sm"
@@ -457,7 +457,9 @@ export function StandingTaskEditorDrawer({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs text-muted-foreground">自主度</span>
+            <span className="mb-1 block text-xs text-muted-foreground">
+              自主度
+            </span>
             <select
               className={SELECT_CLASS}
               value={form.recipe}
@@ -573,7 +575,9 @@ function WebhookCredentialsPanel({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             外部系统 POST 到此地址；鉴权用 Bearer 密钥或{" "}
-            <code className="font-mono text-xs">X-AgentCore-Webhook-Secret</code>
+            <code className="font-mono text-xs">
+              X-AgentCore-Webhook-Secret
+            </code>
             。
           </p>
         </div>

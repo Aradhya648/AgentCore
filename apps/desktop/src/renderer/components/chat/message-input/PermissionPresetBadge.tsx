@@ -7,10 +7,10 @@ import { notifyError, notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
   type AutonomyRecipe,
-  type PermissionAxes,
   COMMAND_OPTIONS,
   DEFAULT_PERMISSION_AXES,
   FILE_WRITE_OPTIONS,
+  type PermissionAxes,
   RECIPE_LABELS,
   RECIPE_ORDER,
   TEAM_KICKOFF_OPTIONS,
@@ -22,6 +22,7 @@ import {
   resolveDefaultPermissionAxes,
   setComposerDraftAxes,
   setConversationPermissionAxes,
+  setUserDefaultRecipe,
 } from "@/services/permissionAxes";
 import { useConversationStore } from "@/stores/conversation";
 import { usePermissionChangeStore } from "@/stores/permissionChanges";
@@ -75,10 +76,7 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const apply = async (
-    next: PermissionAxes,
-    opts: { close: boolean },
-  ) => {
+  const apply = async (next: PermissionAxes, opts: { close: boolean }) => {
     if (pending || disabled) return;
     if (isIllegalAxes(next)) return;
     if (
@@ -116,6 +114,20 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
     void apply(recipeToAxes(id), { close: true });
   };
 
+  const setAsSessionDefault = async () => {
+    if (recipe === "custom" || pending || disabled) return;
+    // Only built-in recipes may become the user-level default.
+    setPending(true);
+    try {
+      const saved = await setUserDefaultRecipe(recipe);
+      notifySuccess(`新会话将默认「${RECIPE_LABELS[saved].short}」`);
+    } catch (e) {
+      notifyError(e, "设置默认失败");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const patchAxis = <K extends keyof PermissionAxes>(
     key: K,
     value: PermissionAxes[K],
@@ -132,10 +144,9 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
     void apply(next, { close: false });
   };
 
-  const tip =
-    isCustom
-      ? `自定义：${axesCustomTip(axes)}`
-      : RECIPE_LABELS[recipe].description;
+  const tip = isCustom
+    ? `自定义：${axesCustomTip(axes)}`
+    : RECIPE_LABELS[recipe].description;
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -173,9 +184,7 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
                     onClick={() => applyRecipe(id)}
                     className={cn(
                       "flex w-full items-baseline gap-1.5 rounded-lg px-2.5 py-1.5 text-left",
-                      selected
-                        ? "bg-primary/10"
-                        : "hover:bg-accent/50",
+                      selected ? "bg-primary/10" : "hover:bg-accent/50",
                     )}
                   >
                     <span className="shrink-0 text-sm font-medium text-foreground">
@@ -189,6 +198,32 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
                 </SimpleTooltip>
               );
             })}
+          </div>
+
+          <div className="mt-2 border-t border-border/60 px-1 pt-2">
+            <SimpleTooltip
+              label={
+                isCustom
+                  ? "仅内置配方可设为新会话默认"
+                  : "写入账户默认；只影响之后新建的对话"
+              }
+            >
+              <span className="block">
+                <button
+                  type="button"
+                  disabled={isCustom || pending || disabled}
+                  onClick={() => void setAsSessionDefault()}
+                  className={cn(
+                    "w-full rounded-lg px-2.5 py-1.5 text-left text-xs font-medium",
+                    isCustom || pending || disabled
+                      ? "cursor-not-allowed text-muted-foreground/50"
+                      : "text-foreground hover:bg-accent/50",
+                  )}
+                >
+                  设为新会话默认
+                </button>
+              </span>
+            </SimpleTooltip>
           </div>
 
           <div className="mt-2 border-t border-border/60 pt-2">
@@ -219,9 +254,7 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
                   title="改文件"
                   options={FILE_WRITE_OPTIONS}
                   value={axes.file_write}
-                  disabledOption={(v) =>
-                    v === "ask" && axes.command === "auto"
-                  }
+                  disabledOption={(v) => v === "ask" && axes.command === "auto"}
                   disabledReason="免审执行须同时「本会话信任」改文件"
                   onSelect={(v) => patchAxis("file_write", v)}
                 />
@@ -325,8 +358,7 @@ function AxisSegment<T extends string>({
           );
         })}
       </div>
-      {disabledReason &&
-      options.some((o) => disabledOption?.(o.value)) ? (
+      {disabledReason && options.some((o) => disabledOption?.(o.value)) ? (
         <p className="mt-1 px-1 text-xs text-muted-foreground">
           {disabledReason}
         </p>

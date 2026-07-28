@@ -592,6 +592,11 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     reason:
       "桌面把会话级权限档位切换（PUT permission-preset → 审计 permission.preset_changed，走 REST 非事件通道）在对话流内渲染「权限模式 A → B」系统提示行；手机可在 AutonomySettings 切档，但暂不在对话流内渲染该切换提示行（parity 最小同步，随需后置）",
   },
+  ConversationHydrateOverlay: {
+    verdict: "simplified",
+    reason:
+      "桌面冷加载/hydrate 失败全屏诚实壳（防空草稿可发送）；手机 ChatPage 用自身 loading/error 态承接，不做同构全屏 overlay",
+  },
 
   // —— 物理做不到 ——
   BackgroundTaskCard: {
@@ -694,10 +699,6 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     reason: "反馈设置页，手机暂不做",
   },
-  "more/AutonomySettings": {
-    verdict: "ported",
-    surface: "more/AutonomySettings（/more/autonomy）",
-  },
   "more/LoginSessionsSection": {
     verdict: "ported",
     surface: "more/AccountSettings · 登录会话（sessionDisplay 同源裁决）",
@@ -705,6 +706,23 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
 
   // —— 有意精简 / 保持不做（⑥ 精简陪伴定位 & 明确决策）——
   ToolboxPage: { verdict: "simplified", reason: "工具箱保持不做（⑥）" },
+  "toolbox/automations/AutomationsPage": {
+    verdict: "simplified",
+    reason:
+      "站立任务 / 自动化收件箱仅桌面（云工作区定时·Webhook）；手机本波有意不接",
+  },
+  "toolbox/automations/InboxPanel": {
+    verdict: "simplified",
+    reason: "同上 · 站立任务收件箱仅桌面",
+  },
+  "toolbox/automations/StandingTaskEditor": {
+    verdict: "simplified",
+    reason: "同上 · 站立任务编辑仅桌面",
+  },
+  "toolbox/automations/StandingTasksPanel": {
+    verdict: "simplified",
+    reason: "同上 · 站立任务列表仅桌面",
+  },
   "toolbox/ToolsPage": {
     verdict: "simplified",
     reason: "工具创作保持不做（⑥）",
@@ -748,10 +766,6 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
   "toolbox/manual/embeds/ManualDebateScoreboardPreview": {
     verdict: "simplified",
     reason: "产品手册内嵌预览，手册保持不做（本轮决策）",
-  },
-  ExplorePage: {
-    verdict: "simplified",
-    reason: "探索/公共市场桌面尚为占位（Day 2），手机暂不做",
   },
   "more/AppearanceSettings": {
     verdict: "simplified",

@@ -1,12 +1,12 @@
 /// <reference types="vite/client" />
 
 import type { AgentTownApi } from "@shared/agenttown-contract";
+import type { BrowserApi } from "@shared/browser-contract";
 import type { FsApi } from "@shared/ipc-contract";
 import type { LocalStoreApi } from "@shared/local-store-contract";
 import type { LogApi } from "@shared/log-contract";
 import type { NotificationApi } from "@shared/notification-contract";
 import type { OutboxApi } from "@shared/outbox-contract";
-import type { BrowserApi } from "@shared/browser-contract";
 import type { PreviewApi } from "@shared/preview-contract";
 import type { ProcessApi } from "@shared/process-contract";
 import type { PtyApi } from "@shared/pty-contract";

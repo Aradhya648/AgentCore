@@ -14,6 +14,17 @@ from agentcore.db.models.standing_tasks import StandingTask, StandingTaskRun
 from ._base import strip_nul
 
 
+def is_lease_free(*, lease_until: datetime | None, now: datetime) -> bool:
+    """True when the task lease is absent or expired (safe to claim for dispatch)."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    if lease_until is None:
+        return True
+    if lease_until.tzinfo is None:
+        lease_until = lease_until.replace(tzinfo=UTC)
+    return lease_until < now
+
+
 def is_task_claimable(
     *,
     enabled: bool,
@@ -38,12 +49,7 @@ def is_task_claimable(
         now = now.replace(tzinfo=UTC)
     if next_run_at > now:
         return False
-    if lease_until is not None:
-        if lease_until.tzinfo is None:
-            lease_until = lease_until.replace(tzinfo=UTC)
-        if lease_until >= now:
-            return False
-    return True
+    return is_lease_free(lease_until=lease_until, now=now)
 
 
 class StandingTaskRepository:
@@ -238,6 +244,45 @@ class StandingTaskRepository:
         )
         await self._session.commit()
 
+    async def claim_dispatch(
+        self,
+        task_id: str,
+        *,
+        owner: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> StandingTask | None:
+        """Atomically claim the task lease for webhook / manual dispatch.
+
+        Returns the row when claimed; ``None`` when another owner still holds
+        an unexpired lease (in-flight). Reuses the same ``lease_owner`` /
+        ``lease_until`` columns as ``claim_due`` — no parallel mutex layer.
+        """
+        if now is None:
+            now = datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        lease_until = datetime.fromtimestamp(now.timestamp() + lease_seconds, tz=UTC)
+        result = await self._session.execute(
+            update(StandingTask)
+            .where(
+                StandingTask.id == task_id,
+                or_(
+                    StandingTask.lease_until.is_(None),
+                    StandingTask.lease_until < now,
+                ),
+            )
+            .values(
+                lease_owner=owner,
+                lease_until=lease_until,
+                last_run_at=now,
+            )
+            .returning(StandingTask)
+        )
+        row = result.scalar_one_or_none()
+        await self._session.commit()
+        return row
+
     async def clear_lease(self, task_id: str, *, owner: str | None = None) -> None:
         conditions = [StandingTask.id == task_id]
         if owner is not None:
@@ -357,8 +402,26 @@ class StandingTaskRunRepository:
         )
         await self._session.commit()
 
+    async def list_awaiting_for_conversation(
+        self, conversation_id: str
+    ) -> Sequence[StandingTaskRun]:
+        """Open awaiting_user inbox rows pinned to a standing conversation."""
+        result = await self._session.execute(
+            select(StandingTaskRun)
+            .where(
+                StandingTaskRun.conversation_id == conversation_id,
+                StandingTaskRun.status == "awaiting_user",
+            )
+            .order_by(StandingTaskRun.created_at.desc())
+        )
+        return result.scalars().all()
+
     async def ack(self, run_id: str, *, user_id: str) -> StandingTaskRun | None:
-        """Mark an inbox row acknowledged (read / dismiss failure). Owner-scoped."""
+        """Mark an inbox row acknowledged (read / dismiss failure / dismiss await).
+
+        Owner-scoped. Applies to any terminal status including ``awaiting_user``
+        (badge counts only unacked awaiting_user + failed).
+        """
         result = await self._session.execute(
             update(StandingTaskRun)
             .where(
@@ -376,7 +439,7 @@ class StandingTaskRunRepository:
         return await self.get_by_id(run_id, user_id=user_id)
 
     async def count_badge(self, user_id: str) -> int:
-        """Unread awaiting_user + failed for nav badge."""
+        """Unacked awaiting_user + unacked failed for nav badge."""
         result = await self._session.execute(
             select(func.count())
             .select_from(StandingTaskRun)

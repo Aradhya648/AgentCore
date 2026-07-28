@@ -179,11 +179,6 @@ export const referenceChapter: ManualChapterContent = {
               to: APP_PATHS.files,
             },
             {
-              label: "自主度",
-              desc: "团队遇敏感操作时问你多还是少",
-              to: APP_PATHS.more.autonomy,
-            },
-            {
               label: "用量",
               desc: "查看花费与额度",
               to: APP_PATHS.more.usage,
@@ -655,10 +650,13 @@ export const referenceChapter: ManualChapterContent = {
                   text: [
                     "你定团队遇敏感操作时问你多还是少——见 ",
                     {
-                      text: "设置 · 自主度",
-                      link: { kind: "go", to: APP_PATHS.more.autonomy },
+                      text: "自主度",
+                      link: {
+                        kind: "jump",
+                        to: MANUAL_SECTION_IDS.collaboration.autonomy,
+                      },
                     },
-                    "。",
+                    "。桌面在对话权限徽章选配方后点「设为新会话默认」；手机仍可在设置改。",
                   ],
                 },
               ],

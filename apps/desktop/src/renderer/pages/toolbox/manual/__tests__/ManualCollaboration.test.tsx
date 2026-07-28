@@ -46,6 +46,8 @@ describe("ManualCollaboration", () => {
     expect(screen.getByText(/临时给队员配角色/)).toBeTruthy();
     expect(screen.getAllByText(/带现场续派/).length).toBeGreaterThan(0);
     expect(screen.getByText("写代码（推荐）")).toBeTruthy();
+    expect(screen.getByText(/设为新会话默认/)).toBeTruthy();
+    expect(screen.queryByText("设置 · 权限配方")).toBeNull();
   });
 
   it("preserves section order and stays text-only (embeds belong to mechanism)", () => {

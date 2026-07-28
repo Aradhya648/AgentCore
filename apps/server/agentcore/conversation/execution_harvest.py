@@ -23,7 +23,6 @@ from agentcore.conversation.history import load_chat_context
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_runner import run_and_persist
 from agentcore.core.logging import get_logger
-
 from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import BoardRepository, ConversationRepository
 from agentcore.push import PushNotification, notify_user
@@ -92,7 +91,7 @@ async def run_harvest_closing_turn(
         memory_enabled = await resolve_memory_enabled(db, user_id)
         conversation_history_access = await resolve_conversation_history_access(db, user_id)
         permission_axes = await resolve_permission_axes(db, conversation_id)
-        
+
         board = await BoardRepository(db).get_by_conversation_id(
             conversation_id, user_id=user_id
         )

@@ -10,12 +10,14 @@ import {
   SIDE_PANEL_MAX_TABS,
   SIDE_PANEL_MIN_WIDTH,
   TEAM_BROWSER_TAB_ID,
+  TEAM_TERMINAL_TAB_ID,
   WORKSPACE_TAB_ID,
   contentDetailTabId,
   fileTabId,
   runDetailTabId,
   sidePanelMaxWidth,
   simpleTurnDetailTabId,
+  terminalDismissKey,
   useSidePanelStore,
 } from "../sidePanel";
 
@@ -397,11 +399,18 @@ describe("closeContentTabs", () => {
 });
 
 describe("showChanges / showFile / openTerminalTab（方案 B 顶栏 IA）", () => {
-  it("showChanges reveals the panel on the fixed 改动 tab and stores focus", () => {
+  it("showChanges reveals the panel on the 改动 tab and stores focus", () => {
     panel().showChanges(MID);
     expect(panel().open).toBe(true);
     expect(panel().activeTabId).toBe(CHANGES_TAB_ID);
     expect(panel().changesFocusMessageId).toBe(MID);
+  });
+
+  it("clearChangesFocus drops deep-link focus only", () => {
+    panel().showChanges(MID);
+    panel().clearChangesFocus();
+    expect(panel().changesFocusMessageId).toBeNull();
+    expect(panel().activeTabId).toBe(CHANGES_TAB_ID);
   });
 
   it("showFile opens a File content tab (path reference) instead of workspace swap", () => {
@@ -425,22 +434,81 @@ describe("showChanges / showFile / openTerminalTab（方案 B 顶栏 IA）", () 
     }
   });
 
-  it("openTerminalTab creates multiple independent terminal tabs", () => {
+  it("openTerminalTab dedups to a single terminal hub tab", () => {
     const a = panel().openTerminalTab();
     const b = panel().openTerminalTab();
-    expect(a).not.toBe(b);
-    expect(panel().tabs.filter((t) => t.kind === "terminal")).toHaveLength(2);
-    expect(panel().activeTabId).toBe(b);
+    expect(a).toBe(TEAM_TERMINAL_TAB_ID);
+    expect(b).toBe(TEAM_TERMINAL_TAB_ID);
+    expect(panel().tabs.filter((t) => t.kind === "terminal")).toHaveLength(1);
+    expect(panel().activeTabId).toBe(TEAM_TERMINAL_TAB_ID);
   });
 
-  it("bindTerminalSession updates the tab reference in place", () => {
+  it("openTerminalTab collapses legacy multi-instance terminal tabs", () => {
+    useSidePanelStore.setState({
+      tabs: [
+        {
+          kind: "terminal",
+          id: "terminal:t1",
+          title: "终端",
+          sessionId: "pty-a",
+        },
+        {
+          kind: "terminal",
+          id: "terminal:t2",
+          title: "终端",
+          sessionId: "pty-b",
+        },
+      ],
+      activeTabId: "terminal:t2",
+    });
+    const id = panel().openTerminalTab({ activate: false, reveal: false });
+    expect(id).toBe(TEAM_TERMINAL_TAB_ID);
+    expect(panel().tabs.filter((t) => t.kind === "terminal")).toHaveLength(1);
+    expect(panel().tabs[0]).toMatchObject({
+      id: TEAM_TERMINAL_TAB_ID,
+      sessionId: "pty-b",
+    });
+    expect(panel().activeTabId).toBe(TEAM_TERMINAL_TAB_ID);
+  });
+
+  it("bindTerminalSession updates the hub tab reference in place", () => {
     const id = panel().openTerminalTab();
     panel().bindTerminalSession(id, "pty-1", "终端 1");
-    const tab = panel().tabs.find((t) => t.id === id);
+    const tab = panel().tabs.find((t) => t.id === TEAM_TERMINAL_TAB_ID);
     expect(tab?.kind).toBe("terminal");
     if (tab?.kind === "terminal") {
       expect(tab.sessionId).toBe("pty-1");
       expect(tab.title).toBe("终端 1");
+    }
+  });
+
+  it("closeTab on terminal hub dismisses auto-surface for this conversation", () => {
+    useConversationStore.setState({ currentConversationId: "conv-term" });
+    panel().openTerminalTab();
+    panel().closeTab(TEAM_TERMINAL_TAB_ID);
+    expect(panel().tabs.some((t) => t.kind === "terminal")).toBe(false);
+    expect(
+      panel().isAutoSurfaceDismissed(terminalDismissKey("conv-term")),
+    ).toBe(true);
+  });
+
+  it("openTerminalTab clears a prior terminal dismiss", () => {
+    useConversationStore.setState({ currentConversationId: "conv-term" });
+    panel().dismissAutoSurface(terminalDismissKey("conv-term"));
+    panel().openTerminalTab();
+    expect(
+      panel().isAutoSurfaceDismissed(terminalDismissKey("conv-term")),
+    ).toBe(false);
+  });
+
+  it("clearTerminalPreferredSession drops matching hub binding", () => {
+    const id = panel().openTerminalTab();
+    panel().bindTerminalSession(id, "pty-1");
+    panel().clearTerminalPreferredSession("pty-1");
+    const tab = panel().tabs.find((t) => t.id === TEAM_TERMINAL_TAB_ID);
+    expect(tab?.kind).toBe("terminal");
+    if (tab?.kind === "terminal") {
+      expect(tab.sessionId).toBeNull();
     }
   });
 });
@@ -483,7 +551,7 @@ describe("showBrowser（浏览器壳 · 可关内容 tab）", () => {
       useBrowserSessionsStore.getState().pagesFor("conv-browser"),
     ).toHaveLength(1);
     expect(
-      useBrowserSessionsStore.getState().pagesFor("conv-browser")[0]!.title,
+      useBrowserSessionsStore.getState().pagesFor("conv-browser")[0]?.title,
     ).toBe("新标签页");
   });
 });

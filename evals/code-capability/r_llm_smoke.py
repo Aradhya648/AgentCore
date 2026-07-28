@@ -8,7 +8,8 @@
 
     uv run python ../../evals/code-capability/r_llm_smoke.py
     uv run python ../../evals/code-capability/r_llm_smoke.py --cards v07_fix_chunked,v01_fix_bool,v05_fix_has
-    uv run python ../../evals/code-capability/r_llm_smoke.py --timeout 450
+    uv run python ../../evals/code-capability/r_llm_smoke.py --timeout 900
+    uv run python ../../evals/code-capability/r_llm_smoke.py --no-prefix
 
 产物：``reports/llm_smoke_latest.json``；工作区副本在 ``workspaces/llm-smoke/<task_id>/``。
 """
@@ -45,6 +46,28 @@ _DEFAULT_CARD_STEMS = (
     "v01_fix_bool",
     "v05_fix_has",
     "v01_fix_int",
+)
+
+# Fix 烟感短前缀：控空转；不改任务 JSON 题面。可用 --no-prefix 关掉。
+_FIX_PROMPT_PREFIX = (
+    "[eval smoke] Minimal fix only. Prefer file_read / grep / file_replace; "
+    "avoid repeated code_execute or terminal loops. Verify once with the card's "
+    "pytest command, then stop."
+)
+
+# 墙钟 timeout 时：tool 数 ≥ 此阈值 → 模型弱（空转烧预算），非接缝死锁
+_WALL_CLOCK_TOOL_MIN = 3
+# 仅 message_start / run_* 等无实质 tool → 经典接缝 hang
+_SEAM_HANG_EVENT_ALLOWLIST = frozenset(
+    {
+        "message_start",
+        "message_end",
+        "run_started",
+        "run_finished",
+        "run_error",
+        "turn_started",
+        "turn_finished",
+    }
 )
 
 if str(_SERVER_ROOT) not in sys.path:
@@ -197,6 +220,28 @@ def _run_hard_checks(
     return rows
 
 
+def _is_classic_seam_hang(*, tool_names: list[Any], event_types: list[str]) -> bool:
+    """turn 已起但几乎无 tool：经典 post_llm hang（接缝），非墙钟空转。"""
+    n_tools = len([t for t in tool_names if t])
+    if n_tools > 0:
+        return False
+    if any(t.startswith("tool_use_") for t in event_types):
+        return False
+    if not event_types:
+        return True
+    return all(
+        t in _SEAM_HANG_EVENT_ALLOWLIST or t.startswith("run_") for t in event_types
+    )
+
+
+def _is_wall_clock_spin(*, tool_names: list[Any], event_types: list[str]) -> bool:
+    """timeout 前已有较多 tool / 已见 tool_use_* → 空转烧墙钟，非接缝死锁。"""
+    n_tools = len([t for t in tool_names if t])
+    if n_tools >= _WALL_CLOCK_TOOL_MIN:
+        return True
+    return any(t.startswith("tool_use_") for t in event_types)
+
+
 def _classify_fail(
     *,
     error: str | None,
@@ -204,18 +249,27 @@ def _classify_fail(
     checks: list[dict[str, Any]] | None,
     checks_all_pass: bool,
     turn_started: bool = False,
-    event_count: int = 0,
+    tool_names: list[Any] | None = None,
+    event_types: list[str] | None = None,
 ) -> str | None:
     if checks_all_pass and not error:
         return None
     err_l = (error or "").lower()
     fin = (finish or "").lower()
+    tools = tool_names or []
+    evts = event_types or []
 
     if fin in {"ask_user", "plan_review", "paused", "needs_input", "suspended"}:
         return "需决策/交互"
     if error:
-        # startTurn 已发出且无 finish：常见为 sidecar 在 proxy_spend 后挂起（接缝）
-        if turn_started and ("timeout" in err_l or err_l.strip() == "" or "timed out" in err_l):
+        is_timeout = "timeout" in err_l or "timed out" in err_l or err_l.strip() == ""
+        if turn_started and is_timeout:
+            # 墙钟预算耗尽（大量 tool 后）→ 模型弱；经典无 tool hang → 接缝
+            if _is_wall_clock_spin(tool_names=tools, event_types=evts):
+                return "模型弱"
+            if _is_classic_seam_hang(tool_names=tools, event_types=evts):
+                return "接缝"
+            # 有少量 tool 但未达阈值：仍偏接缝（未形成稳定空转证据）
             return "接缝"
         if any(
             k in err_l
@@ -258,6 +312,7 @@ async def _run_one_card(
     root_id: str,
     timeout: float,
     max_resumes: int,
+    prompt_prefix: str | None,
 ) -> dict[str, Any]:
     task = _load_task(task_path)
     suite_dir = _suite_dir(task_path)
@@ -269,6 +324,13 @@ async def _run_one_card(
             "fail_class": "题面",
             "error": "missing user_message",
         }
+
+    # Fix 卡烟感短前缀（不改 JSON 题面）；非 Fix 或 --no-prefix 不加
+    kind = (task.get("kind") or "").lower()
+    applied_prefix = False
+    if prompt_prefix and kind == "fix":
+        prompt = prompt_prefix.rstrip() + "\n\n" + prompt
+        applied_prefix = True
 
     workspace, vendor = _prepare_workspace(task, suite_dir)
     try:
@@ -308,7 +370,10 @@ async def _run_one_card(
         "fail_class": None,
         "error": None,
         "notes": [],
+        "prompt_prefix_applied": applied_prefix,
     }
+    if applied_prefix:
+        row["notes"].append("fix prompt_prefix applied (smoke idle control; task JSON unchanged)")
 
     conv_id: str | None = None
     folder_id: str | None = None
@@ -350,6 +415,7 @@ async def _run_one_card(
     error: str | None = None
     finish: str | None = None
     turn_started = False
+    elapsed = 0.0
 
     try:
         await sc.start()
@@ -408,11 +474,7 @@ async def _run_one_card(
     except TimeoutError as e:
         detail = str(e).strip() or "asyncio.wait_for exceeded"
         error = f"timeout: {detail}"
-        if turn_started:
-            row["notes"].append(
-                "startTurn timeout after RPC sent; often hangs after "
-                "inference.proxy_spend_enqueued (sidecar stdio/event-pump seam)"
-            )
+        # notes 在收集 tool/events 后补写（区分接缝 hang vs 墙钟空转）
     except Exception as e:
         error = str(e) if str(e).strip() else repr(e)
         print(f"[{task['id']}] ERROR: {e}", file=sys.stderr, flush=True)
@@ -433,6 +495,24 @@ async def _run_one_card(
     row["event_types"] = [t for e in unwrapped if (t := e.get("type")) and isinstance(t, str)]
     row["error"] = error
     row["turn_started"] = turn_started
+
+    if error and "timeout" in error.lower() and turn_started:
+        n_tools = len([t for t in row["tool_names"] if t])
+        if _is_wall_clock_spin(tool_names=row["tool_names"], event_types=row["event_types"]):
+            row["notes"].append(
+                f"wall_clock_timeout_with_tools n={n_tools}; "
+                "NOT classic message_start-only hang → fail_class=模型弱"
+            )
+        elif _is_classic_seam_hang(tool_names=row["tool_names"], event_types=row["event_types"]):
+            row["notes"].append(
+                "classic post_llm_hang (turn_started+timeout, almost no tools); "
+                "sidecar stdio/event-pump seam"
+            )
+        else:
+            row["notes"].append(
+                f"startTurn timeout after RPC; tools={n_tools} "
+                "(below wall-clock spin threshold; treated as seam)"
+            )
 
     # 挂起交互：不做硬测强求（仍可跑一眼，但 verdict 归交互类）
     interactive = isinstance(finish, str) and finish.lower() in {
@@ -475,7 +555,8 @@ async def _run_one_card(
             checks=checks,
             checks_all_pass=checks_all_pass,
             turn_started=turn_started,
-            event_count=len(sc.events),
+            tool_names=row["tool_names"],
+            event_types=row["event_types"],
         )
 
     # 探针产物（无 key）
@@ -492,6 +573,7 @@ async def _run_one_card(
         "fail_class": row["fail_class"],
         "error": error,
         "prompt_preview": prompt[:400],
+        "prompt_prefix_applied": applied_prefix,
     }
     art_path = OUT_DIR / f"llm_smoke_{task['id']}_{ts}.json"
     art_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -558,6 +640,7 @@ async def main_async(args: argparse.Namespace) -> int:
         await sc.close()
 
     rows: list[dict[str, Any]] = []
+    prefix = None if args.no_prefix else (args.prompt_prefix or _FIX_PROMPT_PREFIX)
     for i, path in enumerate(card_paths):
         print(f"\n======== card {i + 1}/{len(card_paths)}: {path.name} ========", flush=True)
         row = await _run_one_card(
@@ -568,11 +651,13 @@ async def main_async(args: argparse.Namespace) -> int:
             root_id=args.root_id,
             timeout=args.timeout,
             max_resumes=args.max_resumes,
+            prompt_prefix=prefix,
         )
         rows.append(row)
         print(
             f"[{row['task_id']}] verdict={row['verdict']} fail_class={row.get('fail_class')} "
-            f"checks_pass={row.get('checks_pass')}",
+            f"checks_pass={row.get('checks_pass')} tools={len(row.get('tool_names') or [])} "
+            f"finish={row.get('finish_reason')}",
             flush=True,
         )
         # 首卡若纯环境失败且无 conversation，后续多半同样挂——仍继续记，但标注
@@ -581,10 +666,27 @@ async def main_async(args: argparse.Namespace) -> int:
 
     n_pass = sum(1 for r in rows if r.get("verdict") == "pass")
     n_fail = len(rows) - n_pass
-    seam_hangs = sum(
+    classic_seam = sum(
         1
         for r in rows
-        if r.get("fail_class") == "接缝" and r.get("turn_started") and not r.get("finish_reason")
+        if r.get("fail_class") == "接缝"
+        and r.get("turn_started")
+        and not r.get("finish_reason")
+        and _is_classic_seam_hang(
+            tool_names=r.get("tool_names") or [],
+            event_types=r.get("event_types") or [],
+        )
+    )
+    wall_clock_weak = sum(
+        1
+        for r in rows
+        if r.get("fail_class") == "模型弱"
+        and r.get("error")
+        and "timeout" in str(r.get("error")).lower()
+        and _is_wall_clock_spin(
+            tool_names=r.get("tool_names") or [],
+            event_types=r.get("event_types") or [],
+        )
     )
     report = {
         "generated_at": _utc_now(),
@@ -593,6 +695,7 @@ async def main_async(args: argparse.Namespace) -> int:
         "control": "LLM Agent real turn + hard TestExitCode/TestsUnchanged",
         "timeout_sec": args.timeout,
         "max_resumes": args.max_resumes,
+        "prompt_prefix_enabled": prefix is not None,
         "model_hint": "via /v1/inference/token (platform)",
         "summary": {
             "total": len(rows),
@@ -604,19 +707,29 @@ async def main_async(args: argparse.Namespace) -> int:
             "auth_inference": "preflight ok",
             "sidecar_initialize": "preflight ok",
             "hard_checks_reached": n_pass + sum(1 for r in rows if r.get("checks") is not None),
-            "post_llm_hang_cards": seam_hangs,
+            "classic_post_llm_hang_cards": classic_seam,
+            "wall_clock_timeout_model_weak_cards": wall_clock_weak,
+            "worker_toolset": (
+                "sidecar startTurn 现无 toolset/path 透传（run_chat_pipeline 未接）；"
+                "强制 worker 需产品透传，本轮用 Fix prompt_prefix 代替，勿新造平行 API"
+            ),
             "seam_note": (
-                "startTurn may hang after inference.proxy_spend_enqueued "
-                "(message_start only); Windows sidecar stdio/event-pump"
-                if seam_hangs
-                else None
+                "经典接缝 hang = turn_started+timeout+几乎无 tool（仅 message_start/run_*）；"
+                "大量 tool 后墙钟 timeout → fail_class=模型弱（notes 标 wall_clock），"
+                "勿再记为接缝死锁"
+                if classic_seam or wall_clock_weak
+                else (
+                    "经典接缝 hang = turn_started+timeout+几乎无 tool；"
+                    "多 tool 后墙钟 timeout → 模型弱（非接缝）"
+                )
             ),
         },
         "rows": rows,
         "notes": [
             "首波 Fix 烟感；不进 PR 门禁；禁直绑 vendor 写盘",
             "ask_user 默认 max_resumes=0 → fail_class=需决策/交互",
-            "若 startTurn 在 LLM proxy_spend 后无 finish：记 fail_class=接缝（Windows sidecar stdio/event-pump）",
+            "经典 post_llm_hang（几乎无 tool）→ 接缝；多 tool 后墙钟 timeout → 模型弱",
+            "强制 worker toolset 需产品透传 startTurn；本轮 prompt_prefix 代替",
         ],
     }
     out = _write_report(report)
@@ -655,12 +768,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--user", default=DEFAULT_USERNAME)
     p.add_argument("--password", default=DEFAULT_PASSWORD)
     p.add_argument("--root-id", default=AGENTCORE_ROOT_ID)
-    p.add_argument("--timeout", type=float, default=450.0, help="单卡 startTurn timeout 秒")
+    p.add_argument("--timeout", type=float, default=900.0, help="单卡 startTurn timeout 秒")
     p.add_argument(
         "--max-resumes",
         type=int,
         default=0,
         help="ask_user/plan_review 自动 resume 次数（烟感默认 0，勿死等）",
+    )
+    p.add_argument(
+        "--prompt-prefix",
+        default=None,
+        help="覆盖默认 Fix 烟感短前缀（不改任务 JSON）；空则用内置控空转前缀",
+    )
+    p.add_argument(
+        "--no-prefix",
+        action="store_true",
+        help="不加 Fix prompt_prefix（仅用卡内 user_message）",
     )
     return p
 

@@ -29,11 +29,11 @@ import {
   FolderKey,
   FolderPlus,
   HardDrive,
+  Inbox,
   Info,
   KeyRound,
   Keyboard,
   type LucideIcon,
-  Inbox,
   Mail,
   MessagesSquare,
   Monitor,
@@ -314,7 +314,9 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
                     notifyError("区外目录授权仅桌面端可用");
                     return;
                   }
-                  notifyError(result.message);
+                  if (result.reason === "error") {
+                    notifyError(result.message);
+                  }
                   return;
                 }
                 notifySuccess(`已授权「${result.root.name}」只读`, {
@@ -357,14 +359,7 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
       title: "白板",
       category: "前往",
       icon: Palette,
-      keywords: [
-        "whiteboard",
-        "canvas",
-        "board",
-        "baiban",
-        "huaban",
-        "画板",
-      ],
+      keywords: ["whiteboard", "canvas", "board", "baiban", "huaban", "画板"],
       run: go("/whiteboard"),
     },
     {

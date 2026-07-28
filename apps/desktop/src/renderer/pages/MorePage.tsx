@@ -9,7 +9,6 @@ import {
   MessageSquarePlus,
   Palette,
   Shield,
-  SlidersHorizontal,
   UserCog,
 } from "lucide-react";
 import { Outlet } from "react-router-dom";
@@ -29,18 +28,13 @@ interface NavGroup {
 // 偏好 / 关于. Opening /more 落点见 MoreIndexRedirect。
 // 「自动化」已迁至工具箱 #/toolbox/automations。
 // AI 记忆内容管理在「文件」页，不设设置子页。
+// 新会话默认权限配方：对话内权限徽章「设为新会话默认」（无设置子页）。
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "模型",
     items: [
       { icon: Cpu, label: "模型", path: "/more/model" },
       { icon: KeyRound, label: "服务商", path: "/more/providers" },
-    ],
-  },
-  {
-    label: "AI",
-    items: [
-      { icon: SlidersHorizontal, label: "自主度", path: "/more/autonomy" },
     ],
   },
   {

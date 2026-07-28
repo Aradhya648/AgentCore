@@ -42,10 +42,12 @@ describe("EscalationCard ownership", () => {
   it("renders transfer / keep actions and POSTs transfer_ownership", async () => {
     render(
       <EscalationCard
-        escalation={ownershipEsc()}
-        role="骨架工程师"
-        conversationId="conv-1"
-        interactive
+        {...{
+          escalation: ownershipEsc(),
+          role: "工程师",
+          conversationId: "conv-1",
+          interactive: true as const,
+        }}
       />,
     );
     expect(screen.getByText(/文件写权冲突/)).toBeTruthy();
@@ -61,10 +63,12 @@ describe("EscalationCard ownership", () => {
   it("keep_ownership posts without transfer flag", async () => {
     render(
       <EscalationCard
-        escalation={ownershipEsc()}
-        role="骨架工程师"
-        conversationId="conv-1"
-        interactive
+        {...{
+          escalation: ownershipEsc(),
+          role: "工程师",
+          conversationId: "conv-1",
+          interactive: true as const,
+        }}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "保持原主" }));

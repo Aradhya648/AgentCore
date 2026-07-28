@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from agentcore.board.channel import BoardChannel
 from agentcore.config import settings
-from agentcore.core.types import PermissionAxes, new_id
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, new_id
 from agentcore.desktop.channel import DesktopClientChannel
 from agentcore.llm.profiles import TurnProfiles
 from agentcore.runtime.context import build_workspace_context, desktop_client_can_bind
@@ -223,6 +222,8 @@ async def _wire_continuation_toolset(
     bound_execution_id = base_tool_context.execution_id
     execution_id_token = current_execution_id.set(bound_execution_id)
     current_delivery_verdict.set(None)
+    if permission_axes is None:
+        permission_axes = DEFAULT_PERMISSION_AXES
     approval_gate = (
         resume_pipeline_mod.ApprovalGate(
             sink=sink,

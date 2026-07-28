@@ -131,8 +131,7 @@ export function ModelKeyForm({
     baseUrl.trim().length > 0 &&
     normalizeByokBaseUrl(baseUrl) !== normalizeByokBaseUrl(preset.baseUrl) &&
     !(preset.baseUrlAliases ?? []).some(
-      (alias) =>
-        normalizeByokBaseUrl(alias) === normalizeByokBaseUrl(baseUrl),
+      (alias) => normalizeByokBaseUrl(alias) === normalizeByokBaseUrl(baseUrl),
     );
   const [advancedOpen, setAdvancedOpen] = useState(() => baseUrlOverride);
 

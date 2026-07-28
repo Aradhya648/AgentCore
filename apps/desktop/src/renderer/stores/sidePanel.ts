@@ -11,8 +11,8 @@ import { projectRuntime, revisionRootId, useExecutionStore } from "./execution";
  *
  *  - fixed, non-closable 「工作区」 (first) + 「改动」 (second);
  *  - in canvas mode only: fixed, non-closable 「指挥台」(条件固定，不进 `+`);
- *  - closable content tabs (≤12, 固定不计): Terminal / File / Browser 多实例、
- *    run / endpoint / simple-turn 详情、以及 `preview://` 预览 tab。
+ *  - closable content tabs (≤12, 固定不计): File 多实例、Terminal / Browser 各一壳
+ *   （壳内各自管会话/页签）、run / endpoint / simple-turn 详情。
  *
  * Content tabs store references only; bodies keep-alive while the tab exists.
  * `open` / `width` are persisted; content tabs are session-level.
@@ -60,7 +60,10 @@ export const SIDE_PANEL_MAX_TABS = MAX_TABS;
 /** Reserved id of the fixed 「工作区」 home tab (always first, never closes). */
 export const WORKSPACE_TAB_ID = "workspace";
 
-/** Reserved id of the fixed 「改动」 tab (always second, never closes). */
+/**
+ * Reserved id of the conditional 「改动」 tab（有本对话 AI 文件改动或深链时出现；
+ * 出现后位次第二、不可关；前端UX设计.md §十）。
+ */
 export const CHANGES_TAB_ID = "changes";
 
 /** Reserved id of the fixed 「指挥台」 tab (canvas mode only; never closes; 不进 `+`). */
@@ -71,6 +74,17 @@ export const COMMAND_TAB_ID = "command";
  * 产物 HTML 完整预览亦走本 tab（`openWorkspaceHtmlInBrowser`）；旧平行「预览」tab 已拆除（M3b）。
  */
 export const TEAM_BROWSER_TAB_ID = "browser:team";
+
+/**
+ * Stable content-tab id for the 右坞终端壳（顶栏可关；`+` / 后台进程活动共用）。
+ * 多 pty / 后台进程 / 执行记录在壳内列表管理，不另开顶栏 tab。
+ */
+export const TEAM_TERMINAL_TAB_ID = "terminal:hub";
+
+/** Auto-surface dismiss key for the terminal hub (scoped per conversation). */
+export function terminalDismissKey(conversationId: string | null): string {
+  return conversationId ? `terminal:${conversationId}` : "terminal";
+}
 
 /** After the last closable detail tab closes → 工作区。 */
 function homeTabAfterDetailClose(): string {
@@ -177,13 +191,13 @@ export interface SimpleTurnDetailTab {
   answerMessageId: string;
 }
 
-/** Top-bar Terminal content tab — reference to a pty session (or unbound hub). */
+/** Top-bar Terminal content tab — singleton hub; sessionId focuses a pty inside. */
 export interface TerminalDetailTab {
   kind: "terminal";
-  /** Dedup identity: `terminal:<instanceId>`. */
+  /** Dedup identity: always {@link TEAM_TERMINAL_TAB_ID}. */
   id: string;
   title: string;
-  /** Bound pty session id when spawned; null = unbound (shows panel empty / hub). */
+  /** Preferred pty session to select inside the hub; null = panel default selection. */
   sessionId: string | null;
 }
 
@@ -230,15 +244,16 @@ export const contentDetailTabId = (
 export const simpleTurnDetailTabId = (messageId: string): string =>
   `simple-turn:${messageId}`;
 
-export const terminalTabId = (instanceId: string): string =>
-  `terminal:${instanceId}`;
+/** @deprecated Prefer {@link TEAM_TERMINAL_TAB_ID}; kept for call-site greps. */
+export const terminalTabId = (_instanceId?: string): string =>
+  TEAM_TERMINAL_TAB_ID;
 
 export const fileTabId = (path: string): string => `file:${path}`;
 
-let terminalInstanceSeq = 0;
-function nextTerminalInstanceId(): string {
-  terminalInstanceSeq += 1;
-  return `t${terminalInstanceSeq}`;
+let untitledFileSeq = 0;
+function nextUntitledFileId(): string {
+  untitledFileSeq += 1;
+  return `u${untitledFileSeq}`;
 }
 
 interface SidePanelState {
@@ -246,7 +261,7 @@ interface SidePanelState {
   open: boolean;
   /** Docked width in px, clamped to [280, 动态上限] (persisted)；上限见 sidePanelMaxWidth()。 */
   width: number;
-  /** Open content tabs (session-level; 固定 工作区/改动/指挥台 不在此数组). */
+  /** Open content tabs (session-level; 固定 工作区 / 条件「改动」/ 指挥台 不在此数组). */
   tabs: DetailTab[];
   /**
    * Active tab: `WORKSPACE_TAB_ID` / `CHANGES_TAB_ID` / `COMMAND_TAB_ID`
@@ -254,7 +269,8 @@ interface SidePanelState {
    */
   activeTabId: string;
   /**
-   * 「改动」tab 聚焦的回合（产物卡「查看改动」写入）；Changes 面板消费后可保留至下次。
+   * 「改动」tab 聚焦的回合（产物卡「查看改动」写入）；亦作深链期间强制挂 tab 的信号。
+   * 切对话时应清掉（避免旧 messageId 在无改动对话上空挂）。
    */
   changesFocusMessageId: string | null;
   /**
@@ -326,8 +342,12 @@ interface SidePanelState {
   openPanel: () => void;
   /** Reveal the panel on the 工作区 home tab (the chat toggle / Ctrl+J). */
   showWorkspace: () => void;
-  /** Reveal the panel on the fixed 「改动」 tab；可选聚焦某回合。 */
+  /**
+   * 揭示面板并激活「改动」tab（无 tab 时先挂再聚焦）；可选聚焦某回合。
+   */
   showChanges: (messageId?: string | null) => void;
+  /** 清除改动深链聚焦（切对话时调用）。 */
+  clearChangesFocus: () => void;
   /** Open / focus a File content tab (path reference); reveals the panel. */
   showFile: (path: string, name: string) => void;
   /**
@@ -335,15 +355,21 @@ interface SidePanelState {
    * 有路径时等同 {@link showFile}。
    */
   openFileTab: (path?: string, name?: string) => void;
-  /** `+` → 终端：新建顶栏 Terminal 内容 tab（可多开）；可选绑定已有 session。 */
+  /** `+` → 终端：开/聚焦唯一 Terminal 壳；可选绑定 preferred session。 */
   openTerminalTab: (opts?: {
     sessionId?: string | null;
     title?: string;
     activate?: boolean;
     reveal?: boolean;
   }) => string;
-  /** Update a terminal tab's bound session (after async spawn). */
-  bindTerminalSession: (tabId: string, sessionId: string, title?: string) => void;
+  /** Update the hub tab's preferred session (after async spawn). */
+  bindTerminalSession: (
+    tabId: string,
+    sessionId: string,
+    title?: string,
+  ) => void;
+  /** Clear hub preferredSessionId when that pty was closed. */
+  clearTerminalPreferredSession: (sessionId: string) => void;
   /**
    * 揭示「浏览器」内容 tab（活动卡 / 登录升级卡 / `+` / 产物完整预览）：开面板 + 开/聚焦浏览器壳；
    * 无本地页签时建空白页。
@@ -413,6 +439,12 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   },
 
   closeTab: (id) => {
+    const closing = get().tabs.find((t) => t.id === id);
+    if (closing?.kind === "terminal") {
+      const conversationId =
+        useConversationStore.getState().currentConversationId;
+      get().dismissAutoSurface(terminalDismissKey(conversationId));
+    }
     set((s) => {
       const idx = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
@@ -509,6 +541,12 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
     });
   },
 
+  clearChangesFocus: () => {
+    set((s) =>
+      s.changesFocusMessageId == null ? s : { changesFocusMessageId: null },
+    );
+  },
+
   showFile: (path, name) => {
     get().openFileTab(path, name);
   },
@@ -525,7 +563,7 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
       return;
     }
     // `+` → 文件无路径：占位空态 tab（可多开；不与真实路径 file: 冲突）。
-    const instanceId = nextTerminalInstanceId();
+    const instanceId = nextUntitledFileId();
     get().openTab({
       kind: "file",
       id: `file:untitled:${instanceId}`,
@@ -536,14 +574,39 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   },
 
   openTerminalTab: (opts) => {
-    const instanceId = nextTerminalInstanceId();
-    const id = terminalTabId(instanceId);
+    const id = TEAM_TERMINAL_TAB_ID;
+    const conversationId =
+      useConversationStore.getState().currentConversationId;
+    // User explicitly opened (or auto-surface after dismiss cleared) → allow future auto-surface.
+    get().clearAutoSurfaceDismiss(terminalDismissKey(conversationId));
+
+    const state = get();
+    const terminals = state.tabs.filter(
+      (t): t is TerminalDetailTab => t.kind === "terminal",
+    );
+    const activeTerminal = terminals.find((t) => t.id === state.activeTabId);
+    const existing =
+      terminals.find((t) => t.id === id) ?? activeTerminal ?? terminals[0];
+    const activeWasTerminal = Boolean(activeTerminal);
+
+    // Collapse legacy multi-instance terminal tabs into the singleton hub.
+    if (terminals.length > 1 || (existing && existing.id !== id)) {
+      set((s) => ({
+        tabs: s.tabs.filter((t) => t.kind !== "terminal"),
+        activeTabId: activeWasTerminal ? id : s.activeTabId,
+      }));
+    }
+
+    const sessionId =
+      opts?.sessionId !== undefined
+        ? opts.sessionId
+        : (existing?.sessionId ?? null);
     get().openTab(
       {
         kind: "terminal",
         id,
         title: opts?.title ?? "终端",
-        sessionId: opts?.sessionId ?? null,
+        sessionId,
       },
       {
         activate: opts?.activate !== false,
@@ -553,11 +616,26 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
     return id;
   },
 
-  bindTerminalSession: (tabId, sessionId, title) => {
+  bindTerminalSession: (_tabId, sessionId, title) => {
     set((s) => ({
       tabs: s.tabs.map((t) =>
-        t.kind === "terminal" && t.id === tabId
-          ? { ...t, sessionId, title: title ?? t.title }
+        t.kind === "terminal"
+          ? {
+              ...t,
+              id: TEAM_TERMINAL_TAB_ID,
+              sessionId,
+              title: title ?? t.title,
+            }
+          : t,
+      ),
+    }));
+  },
+
+  clearTerminalPreferredSession: (sessionId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.kind === "terminal" && t.sessionId === sessionId
+          ? { ...t, sessionId: null }
           : t,
       ),
     }));

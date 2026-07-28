@@ -14,6 +14,9 @@ from agentcore.conversation.common import (
     resolve_profile_set,
     schedule_title_generation,
 )
+
+# Patch point for tests (alias of resolve_permission_axes).
+resolve_permission_preset = resolve_permission_axes
 from agentcore.conversation.history import load_chat_context
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_persistence import (
@@ -88,7 +91,7 @@ async def stream_chat(
                 session, user_id
             )
             permission_axes = await resolve_permission_axes(session, conversation_id)
-            
+
             # AI 协作白板 (§六 M2): if this conversation is a board's dedicated thread, the
             # turn is a 白板会话 — hand its board id to the pipeline so the CEO gets board_ops.
             board = await BoardRepository(session).get_by_conversation_id(
@@ -213,7 +216,7 @@ async def regenerate_chat(
                 session, user_id
             )
             permission_axes = await resolve_permission_axes(session, conversation_id)
-            
+
             board = await BoardRepository(session).get_by_conversation_id(
                 conversation_id, user_id=user_id
             )
@@ -357,7 +360,7 @@ async def retry_failed_chat(
                 session, user_id
             )
             permission_axes = await resolve_permission_axes(session, conversation_id)
-            
+
             board = await BoardRepository(session).get_by_conversation_id(
                 conversation_id, user_id=user_id
             )
@@ -454,12 +457,13 @@ async def resume_chat(
                 sink.emit(message_end(FinishReason.ERROR))
                 return
             folder_id = conv.folder_id
+            conversation_mode = conv.mode
             local_binding = await resolve_local_binding(session, conv)
             profile_set = await resolve_profile_set(session, conv, user_id)
             # Conversation permission mode (not frozen into the frame): a mid-pause
             # switch applies to the resumed continuation.
             permission_axes = await resolve_permission_axes(session, conversation_id)
-            
+
             history = await load_chat_context(session, conversation_id, max_messages=40)
             # AI 协作白板 (§六 M2): re-derive the board binding (authoritative in the DB, not
             # carried in the frame) so a board turn paused at a checkpoint regains board_ops
@@ -638,6 +642,29 @@ async def resume_chat(
                         duration_ms=duration_ms,
                         kind="resume",
                     )
+                    # Standing inbox: truth source follows the resumed turn outcome
+                    # (awaiting_user → succeeded / failed / still awaiting).
+                    if conversation_mode == "standing":
+                        try:
+                            from agentcore.standing_tasks.inbox import settle_after_turn
+
+                            await settle_after_turn(
+                                conversation_id=conversation_id,
+                                finish_reason=finish,
+                                content=result.get("content")
+                                if isinstance(result, dict)
+                                else None,
+                                error=result.get("error")
+                                if isinstance(result, dict)
+                                else None,
+                            )
+                        except Exception as settle_err:  # noqa: BLE001 — resume must not fail
+                            logger.error(
+                                "standing_task.inbox_settle_failed",
+                                conversation_id=conversation_id,
+                                error=str(settle_err),
+                                exc_info=True,
+                            )
                 finally:
                     if lease_stop is not None:
                         lease_stop.set()

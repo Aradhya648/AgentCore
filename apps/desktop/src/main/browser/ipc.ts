@@ -4,10 +4,7 @@
  * 装 `browser:*` 句柄；畸形入参在边界拒。不触碰 preview IPC / lockPreviewNavigation。
  */
 
-import {
-  BROWSER_CHANNELS,
-  type BrowserResult,
-} from "@shared/browser-contract";
+import { BROWSER_CHANNELS, type BrowserResult } from "@shared/browser-contract";
 import { BrowserWindow, ipcMain } from "electron";
 import { isRecord, requireStringFields } from "../ipc-validate";
 import {

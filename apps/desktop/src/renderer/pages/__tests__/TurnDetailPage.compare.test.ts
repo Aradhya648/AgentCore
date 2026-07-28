@@ -1,9 +1,6 @@
-import { hasRevisions, isDebate, type Execution } from "@/stores/execution";
+import { type Execution, hasRevisions, isDebate } from "@/stores/execution";
 import { describe, expect, it } from "vitest";
-import {
-  isDebateViewPending,
-  resolveTurnDetailView,
-} from "../turnDetailView";
+import { isDebateViewPending, resolveTurnDetailView } from "../turnDetailView";
 
 /**
  * Mirrors TurnDetailPage showCompare gate: revisable runs only — never

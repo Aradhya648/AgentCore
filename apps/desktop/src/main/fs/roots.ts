@@ -70,10 +70,18 @@ async function saveSessionGrants(): Promise<void> {
   const byConv: SessionGrantsFile = {};
   for (const r of roots.values()) {
     if (!r.sessionOnly || !r.conversationId) continue;
-    (byConv[r.conversationId] ??= []).push(sessionRootPayload(r));
+    let list = byConv[r.conversationId];
+    if (!list) {
+      list = [];
+      byConv[r.conversationId] = list;
+    }
+    list.push(sessionRootPayload(r));
   }
   try {
-    await fs.writeFile(sessionGrantsFilePath(), JSON.stringify(byConv, null, 2));
+    await fs.writeFile(
+      sessionGrantsFilePath(),
+      JSON.stringify(byConv, null, 2),
+    );
   } catch (e) {
     console.error("[fs-service] 持久化会话授权根失败:", e);
   }
@@ -189,7 +197,12 @@ export const __test = {
     const byConv: SessionGrantsFile = {};
     for (const r of roots.values()) {
       if (!r.sessionOnly || !r.conversationId) continue;
-      (byConv[r.conversationId] ??= []).push(sessionRootPayload(r));
+      let list = byConv[r.conversationId];
+      if (!list) {
+        list = [];
+        byConv[r.conversationId] = list;
+      }
+      list.push(sessionRootPayload(r));
     }
     return byConv;
   },

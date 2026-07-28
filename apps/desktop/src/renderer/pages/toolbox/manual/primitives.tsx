@@ -293,11 +293,6 @@ const DEFAULT_SETTINGS_ROWS: { label: string; desc: string; to: string }[] = [
     desc: "在文件页查看、编辑或清理长期记忆",
     to: APP_PATHS.files,
   },
-  {
-    label: "自主度",
-    desc: "团队遇敏感操作时问你多还是少",
-    to: APP_PATHS.more.autonomy,
-  },
   { label: "用量", desc: "查看花费与额度", to: APP_PATHS.more.usage },
   {
     label: "外观",

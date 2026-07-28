@@ -5,7 +5,11 @@
  * - Local 有 serverSessionId 时挂 {@link BrowserLocalTakeoverBar}（无 sid 隐藏接管）。
  *
  * 有 conversationId 时 mount / 聚焦 hydrate（list sessions）；空白页不 POST create。
- * 关闭带 serverSessionId 的页 → DELETE 再本地移除；本机页 → browserApi.close。
+ * 关闭带 serverSessionId 的页 → DELETE + browserApi.close(裸 sid) 再本地移除；
+ * 本机空白页 → browserApi.close(React page id)。
+ *
+ * Local+serverSession 时 browserApi 一律用裸 serverSessionId（与 Bridge/Registry 同轨）；
+ * React 页签 id 仍可为 `browser-server:${sid}`。
  *
  * 地址栏回车：
  * - 有 browserApi → store + browserApi.navigate（Local 真画面）；
@@ -21,6 +25,7 @@ import {
   patchBrowserSessionNav,
 } from "@/services/browserSessions";
 import {
+  hostBrowserPageId,
   normalizeBrowserUrl,
   useBrowserSessionsStore,
 } from "@/stores/browserSessions";
@@ -120,6 +125,7 @@ export function BrowserPanel({
   const [draftUrl, setDraftUrl] = useState("");
   const [nav, setNav] = useState<BrowserNavState | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activePage?.id is an intentional re-run key when switching tabs with same url
   useEffect(() => {
     setDraftUrl(activePage?.url ?? "");
     setNav(null);
@@ -152,18 +158,21 @@ export function BrowserPanel({
     return { x: r.left, y: r.top, width: r.width, height: r.height };
   }, []);
 
+  const hostPageId = activePage ? hostBrowserPageId(activePage) : null;
+  const pageUrlRef = useRef(activePage?.url ?? "");
+  pageUrlRef.current = activePage?.url ?? "";
+
   // 本机视图显隐 + bounds；激活页变 → 重新 show（url 变更由 onSubmit 导航，不重挂）。
   useEffect(() => {
     if (!browserApi || !useLocalHost) {
       browserApi?.hide();
       return;
     }
-    if (!localVisible || !activePage) {
+    if (!localVisible || !hostPageId) {
       browserApi.hide();
       return;
     }
-    const pageId = activePage.id;
-    const pageUrl = activePage.url;
+    const pageId = hostPageId;
     let raf = 0;
     let shown = false;
     const sync = () => {
@@ -176,6 +185,7 @@ export function BrowserPanel({
         } else {
           shown = true;
           void browserApi.show({ pageId, bounds: b }).then((r) => {
+            const pageUrl = pageUrlRef.current;
             if (r.ok && pageUrl) {
               void browserApi.navigate({ pageId, url: pageUrl });
             }
@@ -193,8 +203,7 @@ export function BrowserPanel({
       ro.disconnect();
       window.removeEventListener("resize", sync);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅 pageId 切换时重挂；url 由地址栏驱动
-  }, [browserApi, useLocalHost, localVisible, activePage?.id, measure]);
+  }, [browserApi, useLocalHost, localVisible, hostPageId, measure]);
 
   // 卸载 → hide 保活（关页才 close）。
   useEffect(() => {
@@ -205,13 +214,19 @@ export function BrowserPanel({
 
   useEffect(() => {
     if (!browserApi) return;
+    const hostId = activePage ? hostBrowserPageId(activePage) : activePageId;
     return browserApi.onNavState((state) => {
       setNav(state);
-      if (state.pageId === activePageId && state.url && state.url !== "about:blank") {
+      if (
+        hostId &&
+        state.pageId === hostId &&
+        state.url &&
+        state.url !== "about:blank"
+      ) {
         setDraftUrl(state.url);
       }
     });
-  }, [browserApi, activePageId]);
+  }, [browserApi, activePageId, activePage]);
 
   const onSubmitUrl = (e: FormEvent) => {
     e.preventDefault();
@@ -222,7 +237,7 @@ export function BrowserPanel({
 
     // 桌面 Local 真画面路径（有 browserApi）。
     if (browserApi && useLocalHost) {
-      const pageId = activePage.id;
+      const pageId = hostBrowserPageId(activePage);
       void (async () => {
         const b = measure();
         if (b) {
@@ -298,21 +313,38 @@ export function BrowserPanel({
   const onClosePage = (pageId: string) => {
     const page = pages.find((p) => p.id === pageId);
     if (page?.serverSessionId && page.conversationId) {
+      // DELETE 之外须销毁本机 WebContents（裸 sid = Bridge 同轨）；失败仅降级日志。
+      try {
+        browserApi?.close(page.serverSessionId);
+      } catch (err) {
+        console.warn(
+          "[browser] close local host after server DELETE failed",
+          err,
+        );
+      }
       void closeServerPage(pageId).catch((err) => {
         notifyError(err, "关闭浏览器会话失败");
       });
       return;
     }
-    browserApi?.close(pageId);
+    if (page) browserApi?.close(hostBrowserPageId(page));
+    else browserApi?.close(pageId);
     closePage(pageId);
   };
 
-  const canGoBack =
-    Boolean(nav && nav.pageId === activePage?.id && nav.canGoBack);
+  const hostId = activePage ? hostBrowserPageId(activePage) : null;
+  const canGoBack = Boolean(
+    nav && hostId && nav.pageId === hostId && nav.canGoBack,
+  );
   const canReload = Boolean(
     useLocalHost &&
       activePage &&
-      (activePage.url || (nav && nav.pageId === activePage.id && nav.url && nav.url !== "about:blank")),
+      (activePage.url ||
+        (nav &&
+          hostId &&
+          nav.pageId === hostId &&
+          nav.url &&
+          nav.url !== "about:blank")),
   );
 
   const showPlaceholder = !showLive && !useLocalHost;
@@ -320,14 +352,14 @@ export function BrowserPanel({
   return (
     <div className="flex h-full flex-col bg-card">
       {/* 页签条 */}
-      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border bg-muted/30 px-1">
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border bg-muted/30 px-1.5 py-1">
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {pages.map((page) => {
             const active = page.id === activePage?.id;
             return (
               <div
                 key={page.id}
-                className={`group/btab flex max-w-[140px] shrink-0 items-center rounded-md ${
+                className={`group/btab flex max-w-[140px] shrink-0 items-center rounded-lg ${
                   active
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-accent/50"
@@ -366,12 +398,14 @@ export function BrowserPanel({
       {/* 导航条：后退 / 刷新 / 地址栏 */}
       <form
         onSubmit={onSubmitUrl}
-        className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5"
+        className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2 py-1"
       >
         <IconButton
           size="sm"
           disabled={!canGoBack || !activePage}
-          onClick={() => activePage && browserApi?.back(activePage.id)}
+          onClick={() =>
+            activePage && browserApi?.back(hostBrowserPageId(activePage))
+          }
           aria-label="后退"
           title={canGoBack ? "后退" : "后退"}
         >
@@ -380,7 +414,9 @@ export function BrowserPanel({
         <IconButton
           size="sm"
           disabled={!canReload || !activePage}
-          onClick={() => activePage && browserApi?.reload(activePage.id)}
+          onClick={() =>
+            activePage && browserApi?.reload(hostBrowserPageId(activePage))
+          }
           aria-label="刷新"
           title={canReload ? "刷新" : "刷新"}
         >
@@ -400,11 +436,11 @@ export function BrowserPanel({
 
       {/* 内容区 */}
       <div className="relative min-h-0 flex-1">
-        {showLive ? (
+        {showLive && conversationId && activePage?.serverSessionId ? (
           <BrowserLivePanel
-            key={activePage!.serverSessionId!}
-            conversationId={conversationId!}
-            sessionId={activePage!.serverSessionId!}
+            key={activePage.serverSessionId}
+            conversationId={conversationId}
+            sessionId={activePage.serverSessionId}
           />
         ) : useLocalHost ? (
           <div className="flex h-full min-h-0 flex-col">

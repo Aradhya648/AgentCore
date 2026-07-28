@@ -6,11 +6,11 @@
  * `GET …/browser/sessions` 合并进来。
  */
 import {
-  closeBrowserSession,
-  listBrowserSessions,
   type BrowserControl,
   type BrowserHostKind,
   type BrowserSessionInfo,
+  closeBrowserSession,
+  listBrowserSessions,
 } from "@/services/browserSessions";
 import { create } from "zustand";
 
@@ -63,10 +63,7 @@ interface BrowserSessionsState {
    */
   attachServerSession: (
     pageId: string,
-    info: Pick<
-      BrowserSessionInfo,
-      "sessionId" | "hostKind" | "control"
-    >,
+    info: Pick<BrowserSessionInfo, "sessionId" | "hostKind" | "control">,
   ) => void;
   setPageTitle: (id: string, title: string) => void;
   /** 清掉某会话的全部页（切会话可选调用）。 */
@@ -113,6 +110,16 @@ export function serverPageId(sessionId: string): string {
   return `browser-server:${sessionId}`;
 }
 
+/**
+ * Local Bridge / WebContents 键：有 `serverSessionId` 用裸 session id
+ *（与 Registry / Bridge 一致）；本地空白页用 React page id。
+ */
+export function hostBrowserPageId(
+  page: Pick<BrowserPage, "id" | "serverSessionId">,
+): string {
+  return page.serverSessionId || page.id;
+}
+
 export function titleForServerSession(s: BrowserSessionInfo): string {
   const short = s.sessionId.length > 8 ? s.sessionId.slice(0, 8) : s.sessionId;
   return `浏览器 · ${s.hostKind} · ${short}`;
@@ -140,12 +147,15 @@ export function mergeHydratedPages(
         p.conversationId === conversationId &&
         p.serverSessionId === s.sessionId,
     );
+    const serverUrl = typeof s.url === "string" ? s.url.trim() : "";
+    const serverTitle = typeof s.title === "string" ? s.title.trim() : "";
+    const prevTitle =
+      prev?.title && prev.serverSessionId === s.sessionId ? prev.title : "";
     return {
       id: prev?.id ?? id,
-      url: prev?.url ?? "",
-      title: prev?.title && prev.serverSessionId === s.sessionId
-        ? prev.title
-        : titleForServerSession(s),
+      // 优先服务端 url（Agent 导航后 list 带回）；勿因 prev 空串锁死丢弃。
+      url: serverUrl || prev?.url || "",
+      title: serverTitle || prevTitle || titleForServerSession(s),
       conversationId,
       serverSessionId: s.sessionId,
       hostKind: s.hostKind,
@@ -157,12 +167,11 @@ export function mergeHydratedPages(
 
   let activePageId = prevActivePageId;
   if (activeSessionId) {
-    const match = serverPages.find((p) => p.serverSessionId === activeSessionId);
+    const match = serverPages.find(
+      (p) => p.serverSessionId === activeSessionId,
+    );
     if (match) activePageId = match.id;
-  } else if (
-    !activePageId ||
-    !pages.some((p) => p.id === activePageId)
-  ) {
+  } else if (!activePageId || !pages.some((p) => p.id === activePageId)) {
     const scoped = [...localBlanks, ...serverPages];
     activePageId = scoped[scoped.length - 1]?.id ?? null;
   }
@@ -214,9 +223,9 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
       if (existing.length > 0) {
         const active = get().activePageId;
         if (!existing.some((p) => p.id === active)) {
-          set({ activePageId: existing[existing.length - 1]!.id });
+          set({ activePageId: existing[existing.length - 1]?.id });
         }
-        return get().activePageId ?? existing[0]!.id;
+        return get().activePageId ?? existing[0]?.id;
       }
       return get().createPage({ conversationId, url: "", title: "新标签页" });
     },

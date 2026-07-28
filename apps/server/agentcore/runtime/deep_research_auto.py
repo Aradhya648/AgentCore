@@ -39,9 +39,7 @@ def deep_research_auto_active(
     """
     if deep_research_auto:
         return True
-    if permission_axes is not None and permission_axes.implies_deep_research_auto:
-        return True
-    return False
+    return bool(permission_axes is not None and permission_axes.implies_deep_research_auto)
 
 
 def may_auto_debate(

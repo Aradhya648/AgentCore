@@ -83,9 +83,10 @@ describe("paletteCommands · 前往发现性", () => {
     expect(board).toBeTruthy();
     expect(board?.title).toBe("白板");
     expect(board?.category).toBe("前往");
-    expect(commandMatches(board!, "baiban")).toBe(true);
+    if (!board) return;
+    expect(commandMatches(board, "baiban")).toBe(true);
 
-    board!.run();
+    board?.run();
     expect(baseCtx.navigate).toHaveBeenCalledWith("/whiteboard");
 
     expect(cmds.some((c) => c.id.includes("explore"))).toBe(false);
@@ -114,6 +115,7 @@ describe("paletteCommands · 区外只读授权", () => {
     const grant = cmds.find((c) => c.id === "grant-readonly-folder");
     expect(grant).toBeTruthy();
     expect(grant?.title).toContain("授权本机目录");
-    expect(commandMatches(grant!, "zhuomian")).toBe(true);
+    if (!grant) return;
+    expect(commandMatches(grant, "zhuomian")).toBe(true);
   });
 });

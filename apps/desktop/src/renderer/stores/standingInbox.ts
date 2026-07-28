@@ -1,5 +1,5 @@
 /**
- * Standing-task inbox badge (awaiting_user + unacked failed).
+ * Standing-task inbox badge (unacked awaiting_user + unacked failed).
  * Polled at the app shell so More 导航 stays live off the inbox page.
  */
 

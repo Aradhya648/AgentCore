@@ -7,9 +7,12 @@
  * like `folders` / `handoff`; wire stays snake_case for the backend sketch.
  */
 
-import { api, BASE_URL } from "@/services/api";
+import { BASE_URL, api } from "@/services/api";
 import type { PermissionAxes } from "@/services/permissionAxes";
-import { DEFAULT_PERMISSION_AXES, normalizeAxes } from "@/services/permissionAxes";
+import {
+  DEFAULT_PERMISSION_AXES,
+  normalizeAxes,
+} from "@/services/permissionAxes";
 
 /** Built-in schedule presets (UI + create/patch). Custom uses `cron`. */
 export type SchedulePreset =
@@ -445,9 +448,7 @@ export async function listStandingTaskRuns(
 }
 
 /** Mark a run card read / dismiss a failure card. */
-export async function ackStandingTaskRun(
-  id: string,
-): Promise<StandingTaskRun> {
+export async function ackStandingTaskRun(id: string): Promise<StandingTaskRun> {
   const res = await api.post<StandingTaskRunWire>(
     `/v1/standing-task-runs/${id}/ack`,
     {},
@@ -456,7 +457,7 @@ export async function ackStandingTaskRun(
 }
 
 /**
- * Badge = awaiting_user + unacked failed (定案 §5.3 / §5.4).
+ * Badge = unacked awaiting_user + unacked failed (定案 §5.3 / §5.4；ack 可清待拍板).
  * Prefer server ``badge`` on the list payload; fall back to client filter.
  */
 export async function countInboxBadge(): Promise<number> {
@@ -465,11 +466,13 @@ export async function countInboxBadge(): Promise<number> {
     const n = (res as { badge?: unknown }).badge;
     if (typeof n === "number" && Number.isFinite(n)) return n;
   }
-  const runs = unwrapList<StandingTaskRunWire>(res, ["items", "data", "runs"]).map(
-    toStandingTaskRun,
-  );
+  const runs = unwrapList<StandingTaskRunWire>(res, [
+    "items",
+    "data",
+    "runs",
+  ]).map(toStandingTaskRun);
   return runs.filter((r) => {
-    if (r.status === "awaiting_user") return true;
+    if (r.status === "awaiting_user" && !r.ackedAt) return true;
     if (r.status === "failed" && !r.ackedAt) return true;
     return false;
   }).length;

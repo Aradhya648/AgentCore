@@ -131,9 +131,9 @@ def format_pipeline_progress(
         if consume_delta and newly:
             session.progress_reported_completed |= newly
 
+    lines: list[str] = [head]
     if live is None or not live.nodes:
         summary = session.worker_progress_summary()
-        lines = [head]
         if newly:
             labels = _labels_for_ids(session, newly)
             if labels:
@@ -142,7 +142,6 @@ def format_pipeline_progress(
         return "\n".join(lines)
 
     _completed, failed, running, dep_blocked, pending = _classify_nodes(session)
-    lines: list[str] = [head]
 
     if newly:
         labels = _labels_for_ids(session, newly)

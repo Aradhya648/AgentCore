@@ -12,13 +12,9 @@ afterEach(() => cleanup());
 describe("ServiceUnavailablePage", () => {
   it("说明会自动重试，并保留手动重试", () => {
     const onRetry = vi.fn();
-    render(
-      <ServiceUnavailablePage reason="后端未启动" onRetry={onRetry} />,
-    );
+    render(<ServiceUnavailablePage reason="后端未启动" onRetry={onRetry} />);
     expect(screen.getByText("服务暂时不可用")).toBeTruthy();
-    expect(
-      screen.getByText(/正在自动重试，服务恢复后会自动进入/),
-    ).toBeTruthy();
+    expect(screen.getByText(/正在自动重试，服务恢复后会自动进入/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

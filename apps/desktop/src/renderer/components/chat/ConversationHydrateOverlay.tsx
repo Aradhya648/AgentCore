@@ -19,9 +19,8 @@ export function ConversationHydrateOverlay({
 
   if (phase === "loading") {
     return (
-      <div
+      <output
         className="absolute inset-0 z-30 flex flex-col bg-background"
-        role="status"
         aria-live="polite"
         aria-label="正在加载对话"
       >
@@ -35,7 +34,7 @@ export function ConversationHydrateOverlay({
           <Loader2 size={14} className="animate-spin" />
           正在加载对话…
         </div>
-      </div>
+      </output>
     );
   }
 

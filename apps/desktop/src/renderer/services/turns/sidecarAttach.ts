@@ -12,8 +12,8 @@
  */
 import { logEvent } from "@/lib/log";
 import {
-  claimSidecarTurnSink,
   type SidecarTurnClaim,
+  claimSidecarTurnSink,
 } from "@/services/sidecarEventPump";
 import {
   clearActiveSidecarTurn,

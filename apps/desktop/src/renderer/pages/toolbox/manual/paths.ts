@@ -22,7 +22,6 @@ export const APP_PATHS = {
   more: {
     model: "/more/model",
     providers: "/more/providers",
-    autonomy: "/more/autonomy",
     usage: "/more/usage",
     appearance: "/more/appearance",
     shortcuts: "/more/shortcuts",

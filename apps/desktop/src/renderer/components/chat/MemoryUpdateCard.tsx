@@ -104,7 +104,9 @@ export function MemoryUpdateCard({ update }: { update: MemoryUpdate }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <Brain size={16} className={`shrink-0 ${chrome.accent}`} />
-        <span className={`min-w-0 truncate text-xs font-medium ${chrome.accent}`}>
+        <span
+          className={`min-w-0 truncate text-xs font-medium ${chrome.accent}`}
+        >
           {title}
         </span>
         {update.items.length > 0 && (

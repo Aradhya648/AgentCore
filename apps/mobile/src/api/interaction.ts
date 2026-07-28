@@ -65,5 +65,7 @@ export function decideEscalation(
     kind: "escalation",
     answer: decision.kind === "answer" ? decision.answer : "",
     use_assumption: decision.kind === "use_assumption",
+    // Mobile 尚未接写权移交 UI；契约字段必填，恒 false。
+    transfer_ownership: false,
   });
 }

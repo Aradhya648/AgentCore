@@ -20,6 +20,7 @@ Session creation is injected as a ``factory`` so the lifecycle is unit-testable 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -686,10 +687,8 @@ class BrowserSessionRegistry:
         cid = entry.conversation_id
         bucket = self._by_conversation.get(cid)
         if bucket is not None:
-            try:
+            with contextlib.suppress(ValueError):
                 bucket.remove(session_id)
-            except ValueError:
-                pass
             if not bucket:
                 self._by_conversation.pop(cid, None)
         if self._active.get(cid) == session_id:

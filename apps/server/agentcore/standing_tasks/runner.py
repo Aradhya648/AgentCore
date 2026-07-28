@@ -353,23 +353,54 @@ async def dispatch_standing_task(
     Used by the scheduler (``advance_schedule=True``), webhook hook, and the
     manual「立即跑一次」endpoint (``advance_schedule=False`` so the cron clock
     is untouched).
+
+    Task-level mutex: when ``lease_owner`` is omitted (webhook / manual), claims
+    the existing lease columns before spawning. An unexpired lease →
+    ``ConflictError`` (HTTP 409) — never a silent second run. The scheduler
+    path already claimed via ``claim_due`` and passes ``lease_owner``.
     """
+    from uuid import uuid4
+
+    from agentcore.config import settings
+    from agentcore.core.errors import ConflictError
+
+    claimed_owner = lease_owner
     async with async_session_factory() as session:
-        task = await StandingTaskRepository(session).get_by_id(task_id, user_id=user_id)
+        tasks = StandingTaskRepository(session)
+        task = await tasks.get_by_id(task_id, user_id=user_id)
         if task is None:
             raise LookupError("standing task not found")
-        run = await StandingTaskRunRepository(session).create(
-            standing_task_id=task_id,
-            user_id=user_id,
-            conversation_id=task.conversation_id,
-            status="running",
-            trigger_source=trigger_source,
-        )
-        run_id = run.id
+        # Capture before claim commit (expire_on_commit may detach the row).
+        pinned_conversation_id = task.conversation_id
+
+        if claimed_owner is None:
+            claimed_owner = f"dispatch-{uuid4().hex[:12]}"
+            claimed = await tasks.claim_dispatch(
+                task_id,
+                owner=claimed_owner,
+                lease_seconds=settings.standing_task_lease_seconds,
+            )
+            if claimed is None:
+                raise ConflictError("站立任务正在执行中，请稍后再试")
+
+        try:
+            run = await StandingTaskRunRepository(session).create(
+                standing_task_id=task_id,
+                user_id=user_id,
+                conversation_id=pinned_conversation_id,
+                status="running",
+                trigger_source=trigger_source,
+            )
+            run_id = run.id
+        except Exception:
+            if lease_owner is None and claimed_owner is not None:
+                await tasks.clear_lease(task_id, owner=claimed_owner)
+            raise
+
     spawn_standing_task_run(
         run_id=run_id,
         task_id=task_id,
-        lease_owner=lease_owner,
+        lease_owner=claimed_owner,
         advance_schedule=advance_schedule,
         event_text=event_text,
     )

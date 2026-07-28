@@ -4,9 +4,15 @@
  * live 仅当当前页带 serverSessionId。
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { BrowserApi, BrowserNavState } from "@shared/browser-contract";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserApi } from "@shared/browser-contract";
 
 vi.mock("@/components/workspace/BrowserLivePanel", () => ({
   BrowserLivePanel: ({
@@ -37,15 +43,15 @@ vi.mock("@/lib/toast", () => ({
   notifyError: vi.fn(),
 }));
 
-import { BrowserPanel, isLocalhostBrowserUrl } from "../BrowserPanel";
+import { notifyError } from "@/lib/toast";
 import {
   closeBrowserSession,
   createBrowserSession,
   listBrowserSessions,
   navigateBrowserSession,
 } from "@/services/browserSessions";
-import { notifyError } from "@/lib/toast";
 import { useBrowserSessionsStore } from "@/stores/browserSessions";
+import { BrowserPanel, isLocalhostBrowserUrl } from "../BrowserPanel";
 
 const listMock = vi.mocked(listBrowserSessions);
 const closeMock = vi.mocked(closeBrowserSession);
@@ -66,6 +72,20 @@ function mockBrowserApi(overrides: Partial<BrowserApi> = {}): BrowserApi {
     onNavState: vi.fn().mockReturnValue(() => {}),
     ...overrides,
   };
+}
+
+function submitAddressBar(input: HTMLElement) {
+  const form = input.closest("form");
+  expect(form).not.toBeNull();
+  if (!form) throw new Error("expected address form");
+  fireEvent.submit(form);
+}
+
+function firstPage(conversationId: string) {
+  const page = useBrowserSessionsStore.getState().pagesFor(conversationId)[0];
+  expect(page).toBeDefined();
+  if (!page) throw new Error("expected browser page");
+  return page;
 }
 
 beforeEach(() => {
@@ -112,9 +132,7 @@ afterEach(() => {
 
 describe("BrowserPanel", () => {
   it("shows chrome + browse placeholder when there is no live session and no browserApi", async () => {
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     expect(screen.getByLabelText("地址栏")).toBeTruthy();
     expect(screen.getByLabelText("新标签页")).toBeTruthy();
     expect(screen.getByText("输入地址开始浏览")).toBeTruthy();
@@ -129,9 +147,7 @@ describe("BrowserPanel", () => {
   });
 
   it("does not mount BrowserLivePanel for blank local page even when liveAvailable", () => {
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={true} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={true} />);
     expect(screen.queryByTestId("browser-live")).toBeNull();
   });
 
@@ -150,9 +166,7 @@ describe("BrowserPanel", () => {
       ],
       activePageId: "browser-server:sess-live",
     });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     expect(screen.getByTestId("browser-live").textContent).toBe(
       "conv-1:sess-live",
     );
@@ -175,9 +189,7 @@ describe("BrowserPanel", () => {
       ],
       activePageId: "browser-server:sess-local",
     });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={true} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={true} />);
     expect(screen.queryByTestId("browser-live")).toBeNull();
     expect(screen.getByText("接管")).toBeTruthy();
   });
@@ -198,18 +210,14 @@ describe("BrowserPanel", () => {
       ],
       activePageId: "browser-server:sess-local-remote",
     });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={true} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={true} />);
     expect(screen.getByTestId("browser-live").textContent).toBe(
       "conv-1:sess-local-remote",
     );
   });
 
   it("creates another local blank page via the new-tab button (no POST create)", async () => {
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     fireEvent.click(screen.getByLabelText("新标签页"));
     expect(useBrowserSessionsStore.getState().pagesFor("conv-1")).toHaveLength(
       2,
@@ -239,9 +247,7 @@ describe("BrowserPanel", () => {
       ],
       activeSessionId: "sess-abc",
     });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     await waitFor(() => {
       const pages = useBrowserSessionsStore.getState().pagesFor("conv-1");
       expect(pages.some((p) => p.serverSessionId === "sess-abc")).toBe(true);
@@ -249,10 +255,10 @@ describe("BrowserPanel", () => {
   });
 
   it("closes a server page with DELETE then removes it", async () => {
+    const api = mockBrowserApi();
+    window.browserApi = api;
     listMock.mockResolvedValue({ sessions: [], activeSessionId: null });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     useBrowserSessionsStore.setState((s) => ({
       pages: [
         ...s.pages,
@@ -274,6 +280,7 @@ describe("BrowserPanel", () => {
     );
     fireEvent.click(closeBtn);
 
+    expect(api.close).toHaveBeenCalledWith("sess-1");
     await waitFor(() => {
       expect(closeMock).toHaveBeenCalledWith("conv-1", "sess-1");
     });
@@ -289,9 +296,7 @@ describe("BrowserPanel", () => {
 
   it("keeps server page locally when DELETE fails", async () => {
     closeMock.mockRejectedValue(new Error("nope"));
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     useBrowserSessionsStore.setState((s) => ({
       pages: [
         ...s.pages,
@@ -324,13 +329,11 @@ describe("BrowserPanel", () => {
   });
 
   it("navigates the active page from the address bar (store)", async () => {
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "example.com" } });
-    fireEvent.submit(input.closest("form")!);
-    const page = useBrowserSessionsStore.getState().pagesFor("conv-1")[0]!;
+    submitAddressBar(input);
+    const page = firstPage("conv-1");
     expect(page.url).toBe("https://example.com");
     expect(page.title).toBe("example.com");
     await waitFor(() => {
@@ -357,12 +360,10 @@ describe("BrowserPanel", () => {
       ],
       activeSessionId: "sess-created",
     });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "https://example.com" } });
-    fireEvent.submit(input.closest("form")!);
+    submitAddressBar(input);
 
     await waitFor(() => {
       expect(createMock).toHaveBeenCalledWith("conv-1", {
@@ -384,12 +385,10 @@ describe("BrowserPanel", () => {
 
   it("Web address bar: rejects localhost without create", async () => {
     window.browserApi = undefined;
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "http://127.0.0.1:3000" } });
-    fireEvent.submit(input.closest("form")!);
+    submitAddressBar(input);
 
     await waitFor(() => {
       expect(notifyMock).toHaveBeenCalled();
@@ -402,13 +401,11 @@ describe("BrowserPanel", () => {
   it("calls browserApi.navigate on address submit when Local host is active", async () => {
     const api = mockBrowserApi();
     window.browserApi = api;
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
-    const page = useBrowserSessionsStore.getState().pagesFor("conv-1")[0]!;
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    const page = firstPage("conv-1");
     const input = screen.getByLabelText("地址栏");
     fireEvent.change(input, { target: { value: "https://example.com" } });
-    fireEvent.submit(input.closest("form")!);
+    submitAddressBar(input);
     await waitFor(() => {
       expect(api.navigate).toHaveBeenCalledWith({
         pageId: page.id,
@@ -418,38 +415,86 @@ describe("BrowserPanel", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it("Local host show/navigate uses bare serverSessionId when present", async () => {
+    const api = mockBrowserApi();
+    window.browserApi = api;
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 10,
+        y: 20,
+        top: 20,
+        left: 10,
+        bottom: 420,
+        right: 810,
+        width: 800,
+        height: 400,
+        toJSON: () => ({}),
+      } as DOMRect);
+    useBrowserSessionsStore.setState({
+      pages: [
+        {
+          id: "browser-server:sess-local",
+          url: "https://example.com/agent",
+          title: "Agent Page",
+          conversationId: "conv-1",
+          serverSessionId: "sess-local",
+          hostKind: "local",
+          control: "agent",
+        },
+      ],
+      activePageId: "browser-server:sess-local",
+    });
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitFor(() => {
+      expect(api.show).toHaveBeenCalledWith(
+        expect.objectContaining({ pageId: "sess-local" }),
+      );
+    });
+    const input = screen.getByLabelText("地址栏");
+    fireEvent.change(input, { target: { value: "https://example.com/next" } });
+    submitAddressBar(input);
+    await waitFor(() => {
+      expect(api.navigate).toHaveBeenCalledWith({
+        pageId: "sess-local",
+        url: "https://example.com/next",
+      });
+    });
+    expect(api.navigate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ pageId: "browser-server:sess-local" }),
+    );
+    expect(api.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ pageId: "browser-server:sess-local" }),
+    );
+    rectSpy.mockRestore();
+  });
+
   it("calls browserApi.close when closing a local page", () => {
     const api = mockBrowserApi();
     window.browserApi = api;
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
-    const page = useBrowserSessionsStore.getState().pagesFor("conv-1")[0]!;
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    const page = firstPage("conv-1");
     fireEvent.click(screen.getByLabelText(`关闭 ${page.title || "新标签页"}`));
     expect(api.close).toHaveBeenCalledWith(page.id);
   });
 
   it("enables back when navState reports canGoBack", async () => {
-    let navCb: ((s: {
-      pageId: string;
-      url: string;
-      canGoBack: boolean;
-    }) => void) | null = null;
+    const nav = {
+      cb: null as ((s: BrowserNavState) => void) | null,
+    };
     const api = mockBrowserApi({
       onNavState: (cb) => {
-        navCb = cb;
+        nav.cb = cb;
         return () => {};
       },
     });
     window.browserApi = api;
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    const page = firstPage("conv-1");
+    expect((screen.getByLabelText("后退") as HTMLButtonElement).disabled).toBe(
+      true,
     );
-    const page = useBrowserSessionsStore.getState().pagesFor("conv-1")[0]!;
-    expect(
-      (screen.getByLabelText("后退") as HTMLButtonElement).disabled,
-    ).toBe(true);
-    navCb!({
+    nav.cb?.({
       pageId: page.id,
       url: "https://example.com/b",
       canGoBack: true,
@@ -463,24 +508,62 @@ describe("BrowserPanel", () => {
     expect(api.back).toHaveBeenCalledWith(page.id);
   });
 
+  it("back/reload for serverSession page use bare session id", async () => {
+    const nav = {
+      cb: null as ((s: BrowserNavState) => void) | null,
+    };
+    const api = mockBrowserApi({
+      onNavState: (cb) => {
+        nav.cb = cb;
+        return () => {};
+      },
+    });
+    window.browserApi = api;
+    useBrowserSessionsStore.setState({
+      pages: [
+        {
+          id: "browser-server:sess-nav",
+          url: "https://example.com",
+          title: "Ex",
+          conversationId: "conv-1",
+          serverSessionId: "sess-nav",
+          hostKind: "local",
+          control: "user",
+        },
+      ],
+      activePageId: "browser-server:sess-nav",
+    });
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    nav.cb?.({
+      pageId: "sess-nav",
+      url: "https://example.com/b",
+      canGoBack: true,
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("后退") as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    fireEvent.click(screen.getByLabelText("后退"));
+    expect(api.back).toHaveBeenCalledWith("sess-nav");
+    fireEvent.click(screen.getByLabelText("刷新"));
+    expect(api.reload).toHaveBeenCalledWith("sess-nav");
+  });
+
   it("disables back and refresh without browserApi", () => {
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    expect((screen.getByLabelText("后退") as HTMLButtonElement).disabled).toBe(
+      true,
     );
-    expect(
-      (screen.getByLabelText("后退") as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByLabelText("刷新") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect((screen.getByLabelText("刷新") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it("hides Local takeover when the page has no serverSessionId", () => {
     const api = mockBrowserApi();
     window.browserApi = api;
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     expect(screen.queryByText("接管")).toBeNull();
     expect(screen.queryByText("归还控制")).toBeNull();
   });
@@ -502,9 +585,7 @@ describe("BrowserPanel", () => {
       ],
       activePageId: "browser-server:sess-local",
     });
-    render(
-      <BrowserPanel conversationId="conv-1" liveAvailable={false} />,
-    );
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
     expect(screen.getByText("接管")).toBeTruthy();
     expect(screen.queryByTestId("browser-live")).toBeNull();
   });

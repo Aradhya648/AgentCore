@@ -108,7 +108,7 @@ async def production_crash_delegate_factory(
             )
             board_id = board.id if board else None
 
-        
+
         profiles = turn_profiles_for_turn(profile_set, llm_credentials)
         bind_credential_pricing_context(llm_credentials)
         # mypy Protocol/async-gen mismatch (prepare/resume are quarantined; this module is not).

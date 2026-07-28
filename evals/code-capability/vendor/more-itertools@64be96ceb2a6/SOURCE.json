@@ -1,0 +1,32 @@
+{
+  "id": "V07",
+  "name": "more-itertools",
+  "upstream": "https://github.com/more-itertools/more-itertools",
+  "release_tag": "v11.1.0",
+  "commit": "64be96ceb2a6e836f76f069f4a96d2394d59fd0c",
+  "commit12": "64be96ceb2a6",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "language": "python",
+  "role": "pure-algorithm-utils",
+  "fetched_at": "2026-07-28",
+  "fetch_method": "github_release_tag_tarball",
+  "fetch_url": "https://github.com/more-itertools/more-itertools/archive/refs/tags/v11.1.0.tar.gz",
+  "vendor_layout": "source_tree_no_git",
+  "stripped": [".git", ".github", ".gitattributes", ".gitignore", ".readthedocs.yaml", "docs"],
+  "size_gate": {
+    "app_loc_py": 7109,
+    "tests_loc_py": 8652,
+    "app_loc_limit": 15000,
+    "app_loc_ok": true,
+    "note": "应用代码（more_itertools/*.py）计入体积门；tests 不计入 ≤15k 建议门"
+  },
+  "install": {
+    "offline_ok": true,
+    "notes": "纯 Python，无原生扩展；评测副本设 PYTHONPATH=<workspace> 即可 import，无需联网 pip"
+  },
+  "test": {
+    "command": ["python", "-m", "pytest", "tests/test_more.py::ChunkedTests", "-q"],
+    "full_suite_note": "全量 tests/ 亦可；R0 烟感卡只用 ChunkedTests 降噪"
+  }
+}
