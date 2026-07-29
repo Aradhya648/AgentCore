@@ -29,64 +29,6 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 
 
-def test_is_website_build_intent_construction_vs_audit():
-    from agentcore.runtime.runs.website_style import (
-        is_site_build_intent,
-        is_toolshed_build_intent,
-        is_website_build_intent,
-        is_website_followup_exempt,
-    )
-
-    assert is_website_build_intent("帮我做个官网")
-    assert is_website_build_intent("构建一个完整的 GEO 官网")
-    assert is_website_build_intent("Build a landing page for GEO")
-    assert is_website_build_intent(
-        "build_website playbook未在能力目录中确认可用，手写内容+前端两阶段任务构建官网"
-    )
-    # Bare 官网 in audit framing is NOT greenfield construction.
-    assert not is_website_build_intent("对 GEO 官网的两个交付物进行独立审计")
-    assert not is_website_build_intent("写一份调研报告")
-    assert is_website_followup_exempt("质量敏感成品独立审计，1名审计员")
-    assert is_website_followup_exempt("小范围精准修复审计发现的两个问题")
-
-    assert is_toolshed_build_intent("帮我做一个运营控制台")
-    assert is_toolshed_build_intent("搭建管理后台")
-    assert is_toolshed_build_intent("Build an admin dashboard")
-    assert is_toolshed_build_intent("手写构建工具台")
-    assert not is_toolshed_build_intent("对控制台做独立审计")
-    assert is_site_build_intent("帮我做个官网")
-    assert is_site_build_intent("帮我搭一个工具台")
-    assert not is_site_build_intent("写一份调研报告")
-
-
-def test_website_continuation_and_shaped_call():
-    from agentcore.runtime.runs.website_style import (
-        is_website_continuation_intent,
-        is_website_shaped_call,
-    )
-
-    # Continuation alone is not enough — needs a site / toolshed anchor.
-    assert not is_website_continuation_intent("继续完成")
-    assert not is_website_continuation_intent("讨论继续完成项目的开发")
-    assert is_website_continuation_intent("继续完成官网剩余分区")
-    assert is_website_continuation_intent("把剩下的官网分区补全")
-    assert is_website_continuation_intent("接着完成官网")
-    assert not is_website_continuation_intent("继续")  # bare 继续 不触发
-    assert not is_website_continuation_intent("改一下超时")
-
-    # Strong site signals only — bare HTML/CSS/JS / HTML5 game framing do not count.
-    assert is_website_shaped_call("写完官网剩余分区 HTML/CSS/JS")
-    assert is_website_shaped_call("playbook=build_website 补全分区")
-    assert is_website_shaped_call("落地页 index.html styles.css")
-    assert not is_website_shaped_call("前端 HTML5 游戏画布与卡牌逻辑")
-    assert not is_website_shaped_call("实现 CSS 动画与 JS 交互")
-    assert not is_website_shaped_call("把超时配置从 30s 调到 60s")
-    assert not is_website_shaped_call("改一行配置")
-    # File-extension paths alone must not look website-shaped.
-    assert not is_website_shaped_call("整理 docs/原型打印卡牌.html")
-    assert not is_website_shaped_call("更新 原型打印卡牌.html 与 notes.css")
-
-
 def test_resolve_style_from_resume_by_explicit_style_id():
     opts = [{"id": "s0", "label": "深色科技"}, {"id": "s1", "label": "简约商务"}]
     conf = resolve_style_from_resume(opts, style_id="s1", note="· 风格：深色科技")

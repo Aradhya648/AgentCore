@@ -10,6 +10,19 @@ import {
 const SKIP_LABEL: Record<string, string> = {
   fast: "快速档 · 已跳过庭前取证",
   dossier_sufficient: "案卷已充分 · 庭前取证秒过",
+  evidence_pack: "共享证据包已齐 · 跳过外证",
+};
+
+const COMPLETENESS_LABEL: Record<string, string> = {
+  full: "完整度 · 齐全",
+  partial: "完整度 · 不完整",
+  empty: "完整度 · 空",
+};
+
+const EXTERNAL_MODE_LABEL: Record<string, string> = {
+  skip: "外证 · 已跳过",
+  gap_fill: "外证 · 有界补证",
+  investigators: "外证 · 取证员",
 };
 
 const STATUS_BADGE: Record<
@@ -41,6 +54,26 @@ export function PretrialSection({
     pretrial.status === "skipped" && pretrial.skipReason
       ? (SKIP_LABEL[pretrial.skipReason] ?? "已跳过庭前取证")
       : null;
+  // 权威=completed：running 不渲染完整度；缺字段=未知不告警；intentional skip 非失败态。
+  const completeness = pretrial.completeness;
+  const showCompleteness =
+    pretrial.status !== "running" && completeness != null;
+  const completenessLine = showCompleteness
+    ? (COMPLETENESS_LABEL[completeness] ?? `完整度 · ${completeness}`)
+    : null;
+  const completenessToneBad =
+    pretrial.incomplete === true ||
+    (pretrial.incomplete !== false &&
+      pretrial.completeness != null &&
+      pretrial.completeness !== "full");
+  const showIncompleteAlarm =
+    pretrial.incomplete === true &&
+    pretrial.status !== "running" &&
+    !pretrial.skipReason;
+  const externalLine = pretrial.externalEvidenceMode
+    ? (EXTERNAL_MODE_LABEL[pretrial.externalEvidenceMode] ??
+      `外证 · ${pretrial.externalEvidenceMode}`)
+    : null;
   const useSplit = layoutMode === "split" && pretrial.sides.length === 2;
 
   return (
@@ -58,9 +91,26 @@ export function PretrialSection({
           {pretrial.evidenceLedgerCount > 0 ? (
             <Badge tone="muted">台账 {pretrial.evidenceLedgerCount} 条</Badge>
           ) : null}
+          {completenessLine ? (
+            <Badge tone={completenessToneBad ? "destructive" : "success"}>
+              {completenessLine}
+            </Badge>
+          ) : null}
+          {externalLine ? <Badge tone="muted">{externalLine}</Badge> : null}
         </p>
         {skipLine ? (
           <p className="mt-1 text-xs text-muted-foreground">{skipLine}</p>
+        ) : null}
+        {showIncompleteAlarm ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            取证不完整
+            {pretrial.failedSides && pretrial.failedSides.length > 0
+              ? ` · 缺口方 ${pretrial.failedSides.join("、")}`
+              : ""}
+            {pretrial.externalEvidenceMode === "gap_fill"
+              ? " · 已跑有界补证"
+              : ""}
+          </p>
         ) : null}
         {pretrial.status === "degraded" && pretrial.fallbackSelfSearch ? (
           <p className="mt-1 text-xs text-muted-foreground">

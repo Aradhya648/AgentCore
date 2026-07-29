@@ -78,6 +78,7 @@ def _patch_persistence(
             events.append(("msg_id", "assistant", kw.get("message_id")))
             events.append(("trace", "assistant", kw.get("trace_id")))
             events.append(("usage", "assistant", kw.get("metadata")))
+            events.append(("content", "assistant", kw.get("content")))
             return SimpleNamespace(id="assistant-id")
 
         async def get_by_id(self, message_id, *, conversation_id):
@@ -268,7 +269,7 @@ async def test_record_local_turn_empty_with_runs_settles(monkeypatch):
 
 
 async def test_record_local_turn_empty_error_settles_assistant(monkeypatch):
-    """Empty ERROR still upserts failed + error_code (normal empty end_turn still skips)."""
+    """Empty ERROR still upserts failed + error_code and surfaces the error as body."""
     from agentcore.core.error_codes import ErrorCode
 
     events: list = []
@@ -294,6 +295,8 @@ async def test_record_local_turn_empty_error_settles_assistant(monkeypatch):
     usage = next(e for e in events if e[0] == "usage")
     assert usage[2]["status"] == "failed"
     assert usage[2]["error_code"] == ErrorCode.LLM_TIMEOUT
+    content = next(e for e in events if e[0] == "content")
+    assert content[2] == "超时"
     assert result["assistant_message_id"] == "assistant-id"
     assert result["noop"] is False
 

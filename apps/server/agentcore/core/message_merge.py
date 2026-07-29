@@ -129,3 +129,25 @@ def pick_longest(*candidates: str | None) -> str:
     for c in candidates:
         best = pick_monotonic_content(best, c)
     return best
+
+
+# User-visible body when a failed turn has no deliverable prose (stream stall /
+# hard LLM error). Prefer the live error string; never leave the assistant blank.
+_DEFAULT_FAILED_ASSISTANT_CONTENT = "模型调用失败，请稍后重试。"
+
+
+def visible_failed_assistant_content(
+    *,
+    content: str | None,
+    error: str | None,
+) -> str:
+    """Pick user-visible assistant body for a FAILED / ERROR settle.
+
+    Keeps any partial deliverable. When the body would otherwise be blank, surfaces
+    the turn error (or a short default) so reload / history never show an empty bubble.
+    """
+    body = content or ""
+    if body.strip():
+        return body
+    err = (error or "").strip()
+    return err or _DEFAULT_FAILED_ASSISTANT_CONTENT

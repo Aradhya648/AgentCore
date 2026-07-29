@@ -12,6 +12,8 @@ from agentcore.runtime.events import SSEEvent
 from .debate_followup import _multi_agent_debate_followup
 from .debate_multibeat import _multi_agent_debate_multibeat
 from .debate_pretrial import (
+    _multi_agent_debate_pretrial_evidence_pack_full,
+    _multi_agent_debate_pretrial_evidence_pack_gap_fill,
     _multi_agent_debate_pretrial_fast,
     _multi_agent_debate_pretrial_thorough,
 )
@@ -33,6 +35,14 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
     "multi_agent_debate_pretrial_fast": (
         "庭前取证：thorough=False 不带队秒过（skip_reason=fast）",
         _multi_agent_debate_pretrial_fast,
+    ),
+    "multi_agent_debate_pretrial_evidence_pack_full": (
+        "庭前取证：Evidence Pack 完整 → skip 外证（budget=0、completeness=full）",
+        _multi_agent_debate_pretrial_evidence_pack_full,
+    ),
+    "multi_agent_debate_pretrial_evidence_pack_gap_fill": (
+        "庭前取证：Evidence Pack 截断 → 有界 gap_fill（reason + partial/failed_sides）",
+        _multi_agent_debate_pretrial_evidence_pack_gap_fill,
     ),
     "multi_agent_debate_followup": ("多 Agent：辩论收场带用户追问（user_interjections verbatim 复盘）", _multi_agent_debate_followup),
     "multi_agent_roundtable_rounds": (

@@ -206,11 +206,15 @@ class CircuitBreak:
 
     ``parse_only`` names tools whose failures so far are *all* argument-JSON parse
     failures — their steer text must guide「修复格式、原样重发」, never「换不同的输入」.
+
+    ``retire_message`` is an optional hard-stop steer (e.g. browser egress
+    unavailable) that replaces the generic「已多次失败」disable copy when set.
     """
 
     warned: tuple[str, ...] = ()
     disabled: tuple[str, ...] = ()
     parse_only: frozenset[str] = frozenset()
+    retire_message: str | None = None
 
     def __bool__(self) -> bool:
         return bool(self.warned or self.disabled)
@@ -221,27 +225,45 @@ class CircuitBreak:
         Anchored to the concrete fact (which tool, what now happens) like the
         nudge messages — disable first (the stronger action), then warn.
         Parse-only failures get a typed steer so the model fixes JSON escaping
-        instead of rewriting/shortening the payload.
+        instead of rewriting/shortening the payload. ``read_url`` disable/warn
+        uses a research-specific stop-read steer (do not say「换不同的输入」—
+        that encourages URL thrashing after egress storms).
         """
         parts: list[str] = []
         if self.disabled:
-            parse_d = tuple(n for n in self.disabled if n in self.parse_only)
-            other_d = tuple(n for n in self.disabled if n not in self.parse_only)
-            if other_d:
-                names = "、".join(f"`{n}`" for n in other_d)
-                parts.append(
-                    f"工具 {names} 已多次失败，本回合起停用，无法再调用——"
-                    "请改用其他工具或基于已有信息推进。"
-                )
-            if parse_d:
-                names = "、".join(f"`{n}`" for n in parse_d)
-                parts.append(
-                    f"工具 {names} 因参数不是合法 JSON 已多次失败，本回合起停用，无法再调用——"
-                    "请改用其他工具或基于已有信息推进。"
-                )
+            if self.retire_message:
+                parts.append(self.retire_message.strip())
+            else:
+                parse_d = tuple(n for n in self.disabled if n in self.parse_only)
+                other_d = tuple(n for n in self.disabled if n not in self.parse_only)
+                read_d = tuple(n for n in other_d if n == "read_url")
+                other_d = tuple(n for n in other_d if n != "read_url")
+                if read_d:
+                    from agentcore.tools.builtin.web._net import READ_URL_RETIRE_STEER
+
+                    parts.append(READ_URL_RETIRE_STEER)
+                if other_d:
+                    names = "、".join(f"`{n}`" for n in other_d)
+                    parts.append(
+                        f"工具 {names} 已多次失败，本回合起停用，无法再调用——"
+                        "请改用其他工具或基于已有信息推进。"
+                    )
+                if parse_d:
+                    names = "、".join(f"`{n}`" for n in parse_d)
+                    parts.append(
+                        f"工具 {names} 因参数不是合法 JSON 已多次失败，本回合起停用，无法再调用——"
+                        "请改用其他工具或基于已有信息推进。"
+                    )
         if self.warned:
             parse_w = tuple(n for n in self.warned if n in self.parse_only)
             other_w = tuple(n for n in self.warned if n not in self.parse_only)
+            read_w = tuple(n for n in other_w if n == "read_url")
+            other_w = tuple(n for n in other_w if n != "read_url")
+            if read_w:
+                parts.append(
+                    "工具 `read_url` 已多次失败，请不要再换 URL / 同策略空转重读——"
+                    "改用已有 web_search 摘要与已读材料推进写作，或换一个非外网读页工具。"
+                )
             if other_w:
                 names = "、".join(f"`{n}`" for n in other_w)
                 parts.append(
@@ -344,6 +366,9 @@ class LoopController:
         self._tool_succeeded_after_fail: dict[str, bool] = {}
         self._tool_warned: set[str] = set()
         self._tool_disabled: set[str] = set()
+        # One-shot hard-stop steer from a tool that retires a family (e.g. browser
+        # egress_unavailable). Consumed by :meth:`tool_circuit_breaker`.
+        self._pending_retire_message: str | None = None
         # B2 no-output early stop: consecutive unproductive rounds (all tools failed,
         # no content). Reset by any productive round (content OR a tool success).
         self._consecutive_unproductive = 0
@@ -596,7 +621,28 @@ class LoopController:
                     self._tool_last_error[name] = cap_error_summary(summary)
                 # A later failure re-opens the gap until a subsequent success.
                 self._tool_succeeded_after_fail[name] = False
-            elif attempt.success and self._tool_failures.get(attempt.tool_name, 0) > 0:
+            # Explicit hard-stop retire (browser egress / file_read same-path ceiling)
+            # must apply even when ``contract_failure`` — otherwise tip thrashing
+            # never disables the tool (P2: attachment file_read tip×N).
+            if not attempt.success:
+                retire = attempt.meta.get("retire_tools") if attempt.meta else None
+                if isinstance(retire, (list, tuple, set, frozenset)) and retire:
+                    summary = (attempt.error_summary or "").strip()
+                    for sibling in retire:
+                        sname = str(sibling).strip()
+                        if not sname:
+                            continue
+                        self._tool_failures[sname] = max(
+                            int(self._tool_failures.get(sname, 0)),
+                            self._tool_failure_disable,
+                        )
+                        if summary and sname not in self._tool_last_error:
+                            self._tool_last_error[sname] = cap_error_summary(summary)
+                        self._tool_succeeded_after_fail[sname] = False
+                    retire_msg = attempt.meta.get("retire_message") if attempt.meta else None
+                    if isinstance(retire_msg, str) and retire_msg.strip():
+                        self._pending_retire_message = retire_msg.strip()
+            if attempt.success and self._tool_failures.get(attempt.tool_name, 0) > 0:
                 self._tool_succeeded_after_fail[attempt.tool_name] = True
             # Over-investigation bookkeeping (收敛治理): tally read-only investigation
             # breadth. Counts every call (incl. failures) — a wide scan is breadth
@@ -687,10 +733,15 @@ class LoopController:
             if self._tool_failures[name] > 0
             and self._tool_parse_failures.get(name, 0) == self._tool_failures[name]
         )
+        retire_message = None
+        if newly_disabled and self._pending_retire_message:
+            retire_message = self._pending_retire_message
+            self._pending_retire_message = None
         return CircuitBreak(
             warned=tuple(newly_warned),
             disabled=tuple(newly_disabled),
             parse_only=parse_only,
+            retire_message=retire_message,
         )
 
     def tool_failure_count(self, tool_name: str) -> int:

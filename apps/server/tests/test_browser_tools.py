@@ -17,6 +17,7 @@ from agentcore.runtime.browser.keyframes import KeyframeTracker
 from agentcore.tools.builtin import browser_execution_enabled_for, build_worker_registry
 from agentcore.tools.builtin.browser import (
     BROWSER_TOOL_CLASSES,
+    BROWSER_TOOL_NAMES,
     BrowserNavigateTool,
     BrowserScreenshotTool,
     BrowserSnapshotTool,
@@ -24,10 +25,12 @@ from agentcore.tools.builtin.browser import (
 )
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registration import AUDIENCE_WORKER_ONLY, ToolSurface, tool_registration
+from agentcore.tools.sandbox.browser.netns import EGRESS_UNAVAILABLE_CODE
 from agentcore.tools.sandbox.browser.protocol import (
     BrowserCommandResult,
     BrowserDriverCrashedError,
     BrowserSessionAcquireError,
+    BrowserSessionError,
     BrowserSessionsBusyError,
 )
 from agentcore.tools.sandbox.cloud_health import set_cloud_sandbox_health_for_tests
@@ -152,7 +155,7 @@ class _FakeRegistry:
         keyframes=None,
         busy=False,
         taken_over=False,
-        acquire_error: BrowserSessionAcquireError | None = None,
+        acquire_error: Exception | None = None,
     ):
         self._session = session
         self._keyframes = keyframes or KeyframeTracker()
@@ -270,6 +273,44 @@ async def test_acquire_session_not_found_metadata_code(tmp_path):
     result = await tool.execute({"url": "https://x/", "session_id": "x"}, _ctx(tmp_path))
     assert not result.success
     assert (result.metadata or {}).get("code") == "session_not_found"
+
+
+@pytest.mark.asyncio
+async def test_egress_unavailable_retires_all_browser_tools(tmp_path):
+    """NetnsError / egress hard-fail: one shot → retire whole browser_* surface."""
+    tool = BrowserNavigateTool(
+        registry=_FakeRegistry(
+            acquire_error=BrowserSessionError(
+                "云端浏览器沙箱网络隔离不可用（netns 创建失败）",
+                code=EGRESS_UNAVAILABLE_CODE,
+            )
+        )
+    )
+    result = await tool.execute({"url": "https://x/"}, _ctx(tmp_path))
+    assert not result.success
+    assert (result.metadata or {}).get("code") == EGRESS_UNAVAILABLE_CODE
+    assert set(result.metadata.get("retire_tools") or []) == BROWSER_TOOL_NAMES
+    assert "retire_message" in (result.metadata or {})
+    assert "web_search" in result.output and "browser_" in result.output
+    # No double「浏览器会话启动失败」prefix on the classified path.
+    assert result.output.count("浏览器会话启动失败") == 0
+
+
+@pytest.mark.asyncio
+async def test_egress_unavailable_from_wrapped_netns_message(tmp_path):
+    """Legacy wrapped NetnsError string still classifies without an explicit code."""
+    tool = BrowserNavigateTool(
+        registry=_FakeRegistry(
+            acquire_error=BrowserSessionError(
+                "浏览器会话启动失败：NetnsError: ip netns add acbrw0 failed (1): "
+                "mkdir /run/netns failed: Permission denied"
+            )
+        )
+    )
+    result = await tool.execute({"url": "https://x/"}, _ctx(tmp_path))
+    assert not result.success
+    assert (result.metadata or {}).get("code") == EGRESS_UNAVAILABLE_CODE
+    assert set(result.metadata.get("retire_tools") or []) == BROWSER_TOOL_NAMES
 
 
 @pytest.mark.asyncio

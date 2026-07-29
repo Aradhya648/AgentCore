@@ -235,6 +235,20 @@ function resolvePretrial(execution: Execution): DebatePretrialView | null {
     fallbackSelfSearch: raw.fallbackSelfSearch,
     evidenceReady: raw.evidenceReady,
     sides,
+    completeness: raw.completeness,
+    incomplete: raw.incomplete,
+    failedSides: raw.failedSides ?? [],
+    ...(raw.externalEvidenceMode != null
+      ? { externalEvidenceMode: raw.externalEvidenceMode }
+      : {}),
+    ...(raw.externalEvidenceReason != null
+      ? { externalEvidenceReason: raw.externalEvidenceReason }
+      : {}),
+    ...(raw.retrievalBudgetPerInvestigator != null
+      ? {
+          retrievalBudgetPerInvestigator: raw.retrievalBudgetPerInvestigator,
+        }
+      : {}),
   };
 }
 

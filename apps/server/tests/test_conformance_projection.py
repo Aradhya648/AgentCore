@@ -285,6 +285,9 @@ def test_debate_pretrial_thorough_projection(projected):
     assert pt is not None
     assert pt["status"] == "done"
     assert pt["evidenceReady"] is True
+    assert pt["completeness"] == "full"
+    assert pt["incomplete"] is False
+    assert pt["failedSides"] == []
     assert len(pt["investigators"]) == 2
     inv_parents = {i["parent_run_id"] for i in pt["investigators"]}
     run_ids = {r["id"] for r in p["runs"]}
@@ -300,7 +303,46 @@ def test_debate_pretrial_fast_projection(projected):
     assert pt["status"] == "skipped"
     assert pt["skipReason"] == "fast"
     assert pt["investigators"] == []
+    assert pt["completeness"] == "empty"
+    assert pt["incomplete"] is False
     assert not any("_inv_" in r["id"] for r in p["runs"])
+
+
+def test_debate_pretrial_evidence_pack_full_projection(projected):
+    """Evidence Pack 齐全：skip 外证、budget=0、completeness=full。"""
+    p = projected["multi_agent_debate_pretrial_evidence_pack_full"]
+    pt = p.get("debatePretrial")
+    assert pt is not None
+    assert pt["status"] == "skipped"
+    assert pt["skipReason"] == "evidence_pack"
+    assert pt["completeness"] == "full"
+    assert pt["incomplete"] is False
+    assert pt["failedSides"] == []
+    assert pt["externalEvidenceMode"] == "skip"
+    assert pt["externalEvidenceReason"] == "evidence_pack_full"
+    assert pt["retrievalBudgetPerInvestigator"] == 0
+    assert pt["investigators"] == []
+    assert pt["evidenceReady"] is True
+    assert not any("_inv_" in r["id"] for r in p["runs"])
+
+
+def test_debate_pretrial_evidence_pack_gap_fill_projection(projected):
+    """Evidence Pack 截断：有界 gap_fill + reason；一侧失败 → partial。"""
+    from agentcore.runtime.debate.constants import BOUNDED_GAP_FILL_RETRIEVAL_BUDGET
+
+    p = projected["multi_agent_debate_pretrial_evidence_pack_gap_fill"]
+    pt = p.get("debatePretrial")
+    assert pt is not None
+    assert pt["status"] == "degraded"
+    assert pt["completeness"] == "partial"
+    assert pt["incomplete"] is True
+    assert pt["failedSides"] == ["con"]
+    assert pt["externalEvidenceMode"] == "gap_fill"
+    assert pt["externalEvidenceReason"] == "evidence_pack_gap"
+    assert pt["retrievalBudgetPerInvestigator"] == BOUNDED_GAP_FILL_RETRIEVAL_BUDGET
+    assert len(pt["investigators"]) == 2
+    assert {i["ok"] for i in pt["investigators"]} == {True, False}
+    assert any("_inv_" in r["id"] for r in p["runs"])
 
 
 def test_debate_team_preview_research_first_recommended(projected):

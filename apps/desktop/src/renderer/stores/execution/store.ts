@@ -2,6 +2,7 @@ import { mergeEvidenceLedger } from "@/lib/evidenceLedger";
 import type {
   CoordinationWaitPayload,
   DebateNarrativeRound,
+  DebatePretrialCompletedPayload,
   DebateResultPayload,
   DebateRoundPayload,
   DebateRoundStartedPayload,
@@ -81,7 +82,8 @@ export interface ExecutionRuntime {
   debateOpening: string | null;
   /** 庭前取证（`debate_pretrial_*`）：开赛后首轮前；null = 无 / 老 journal。 */
   debatePretrial: DebatePretrialState | null;
-  /** 场级证据台账（`debate_round.evidence_ledger_delta` 累积；收场由 `debate.evidence_ledger`
+  /** 场级证据台账（`debate_pretrial_completed` / `debate_round` 的
+   * `evidence_ledger_delta` 累积；收场由 `debate.evidence_ledger`
    * 权威覆盖）。驱动辩论徽章 `#eN` 溯源；不进 ProjectedTurn。 */
   evidenceLedger: EvidenceLedgerEntry[];
   /** Worker-scoped `tool_use_progress` (run_id present), keyed by run id. Transport-only —
@@ -144,7 +146,8 @@ interface ExecutionState {
    * upsertDebateRound}; a no-plan slot ignores it. Drives the进行中 per-round overlay
    * before {@link recordDebateResult}'s 收场 product lands. */
   recordDebateRound: (round: DebateNarrativeRound, messageId: string) => void;
-  /** Merge one `debate_round.evidence_ledger_delta` into the slot's live evidence ledger. */
+  /** Merge one `debate_pretrial_completed` / `debate_round` `evidence_ledger_delta`
+   * into the slot's live evidence ledger. */
   recordEvidenceLedgerDelta: (
     delta: EvidenceLedgerEntry[],
     messageId: string,
@@ -667,6 +670,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
               event.type,
               event.payload,
             );
+            // 与 live SSE / debate_round 同路径：pretrial_completed delta 并入场级台账。
+            if (event.type === "debate_pretrial_completed") {
+              const p = event.payload as DebatePretrialCompletedPayload;
+              if (p.evidence_ledger_delta?.length) {
+                evidenceLedger = mergeEvidenceLedger(
+                  evidenceLedger,
+                  p.evidence_ledger_delta,
+                );
+              }
+            }
           } else if (event.type === "debate_round_started") {
             // P2 DURABLE：刷新后从 journal 重建辩论进行态（与 live recordDebateRound 同 fold）。
             const p = event.payload as DebateRoundStartedPayload;

@@ -92,6 +92,8 @@ function emptyRunningPretrial(
     evidenceLedgerCount: 0,
     fallbackSelfSearch: false,
     evidenceReady: false,
+    // running 不宣称完整度（权威=completed）；orders 亦不强吸。
+    failedSides: [],
   };
 }
 
@@ -147,6 +149,10 @@ export function foldDebatePretrial(
   }
   // completed — authoritative replace
   const p = payload as DebatePretrialCompletedPayload;
+  // 缺 completeness/incomplete（旧 journal）= 未知，勿默认 empty→incomplete。
+  const completeness = p.completeness != null ? p.completeness : undefined;
+  const incomplete =
+    typeof p.incomplete === "boolean" ? p.incomplete : undefined;
   return {
     status: p.status || "done",
     thorough: p.thorough !== false,
@@ -170,6 +176,21 @@ export function foldDebatePretrial(
     evidenceLedgerCount: p.evidence_ledger_count ?? 0,
     fallbackSelfSearch: Boolean(p.fallback_self_search),
     evidenceReady: Boolean(p.evidence_ready),
+    ...(completeness != null ? { completeness } : {}),
+    ...(incomplete != null ? { incomplete } : {}),
+    failedSides: Array.isArray(p.failed_sides) ? [...p.failed_sides] : [],
+    ...(p.external_evidence_mode != null
+      ? { externalEvidenceMode: p.external_evidence_mode }
+      : {}),
+    ...(p.external_evidence_reason != null
+      ? { externalEvidenceReason: p.external_evidence_reason }
+      : {}),
+    ...("retrieval_budget_per_investigator" in p
+      ? {
+          retrievalBudgetPerInvestigator:
+            p.retrieval_budget_per_investigator ?? 0,
+        }
+      : {}),
   };
 }
 

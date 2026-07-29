@@ -347,8 +347,12 @@ def debater_task(
         ),
         "draft_system": draft_system(config, side, beat="opening"),
     }
-    # 有案卷或庭前取证已汇流时残搜收紧（案卷已覆盖底料；2026-07-22 复测 4→2；无案卷不写入）。
-    if has_dossier or getattr(config, "pretrial_evidence_ready", False):
+    # 有案卷或庭前取证已汇流时：优先用庭前按完整度写下的 per-side 预算（full→0 / 缺口→有界）；
+    # 未写入时保留案卷残搜旧路径（CEO 案卷、无庭前）。
+    side_budgets = getattr(config, "debater_retrieval_budgets", None) or {}
+    if side.key in side_budgets:
+        payload["retrieval_budget"] = int(side_budgets[side.key])
+    elif has_dossier or getattr(config, "pretrial_evidence_ready", False):
         from agentcore.runtime.runs.retrieval_budget import (
             DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER,
         )

@@ -218,6 +218,26 @@ def test_circuit_breaker_leaps_straight_to_disable_without_redundant_warn():
     assert cb.warned == ()
 
 
+def test_circuit_breaker_read_url_warn_and_disable_use_stop_read_steer():
+    """read_url steers must not say「换不同的输入」(that fuels URL thrashing)."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_fail("a", "read_url"), _fail("b", "read_url")])
+    warn = c.tool_circuit_breaker()
+    assert warn.warned == ("read_url",)
+    msg = warn.message() or ""
+    assert "换不同的输入" not in msg
+    assert "read_url" in msg
+    assert "web_search" in msg or "收口" in msg or "重读" in msg
+
+    c.record([_fail("c", "read_url")])
+    disable = c.tool_circuit_breaker()
+    assert disable.disabled == ("read_url",)
+    dmsg = disable.message() or ""
+    assert "换不同的输入" not in dmsg
+    assert "停用" in dmsg
+    assert "web_search" in dmsg or "收口" in dmsg
+
+
 def test_circuit_breaker_counts_failures_per_tool_and_ignores_success():
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
     c.record([_ok("a", "t"), _ok("b", "t")])  # successes never count
@@ -248,6 +268,78 @@ def test_circuit_breaker_still_counts_real_execution_failures():
     c.record([real, real, real])
     cb = c.tool_circuit_breaker()
     assert cb.disabled == ("file_write",)
+
+
+def test_retire_tools_hard_disables_family_on_first_failure():
+    """Permanent capability fail (browser egress): one shot retires the whole family."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    family = (
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_snapshot",
+        "browser_screenshot",
+    )
+    steer = "browser_* 因沙箱出网能力不可用已全部停用"
+    c.record(
+        [
+            ToolAttempt(
+                "a",
+                "browser_navigate",
+                success=False,
+                error_summary="egress_unavailable",
+                meta={
+                    "code": "egress_unavailable",
+                    "retire_tools": list(family),
+                    "retire_message": steer,
+                },
+            )
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert set(cb.disabled) == set(family)
+    assert cb.warned == ()
+    assert cb.retire_message == steer
+    msg = cb.message()
+    assert msg is not None and steer in msg
+    assert "已多次失败" not in msg
+    # Idempotent: further failures do not re-fire.
+    c.record(
+        [
+            ToolAttempt(
+                "b",
+                "browser_navigate",
+                success=False,
+                meta={"retire_tools": list(family), "retire_message": steer},
+            )
+        ]
+    )
+    assert not c.tool_circuit_breaker()
+
+
+def test_retire_tools_honored_even_with_contract_failure():
+    """file_read same-path tip is contract_failure but must still hard-stop via retire."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    steer = "file_read 因同路径触顶已停用：请基于已有正文写作"
+    c.record(
+        [
+            ToolAttempt(
+                "tip",
+                "file_read",
+                success=False,
+                error_summary="已多次读取",
+                contract_failure=True,
+                meta={"retire_tools": ["file_read"], "retire_message": steer},
+            )
+        ]
+    )
+    # Without retire honor, contract_failure would leave failures at 0.
+    assert c.tool_failure_count("file_read") >= 3
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ("file_read",)
+    assert cb.retire_message == steer
+    assert "基于已有正文" in (cb.message() or "")
 
 
 def test_circuit_breaker_ignores_contract_failures_in_one_round():

@@ -93,7 +93,7 @@ async def test_old_string_not_found(tmp_path: Path):
     # 阶段3：失败回执必须带回磁盘片段（真源），不能只报「找不到」。
     assert "磁盘原文" in (result.error or "")
     assert "hello world" in (result.error or "")
-    assert "禁止用骨架" in (result.error or "")
+    assert "勿残缺骨架交差" in (result.error or "")
     assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "hello world\nsecond line\n"
 
 

@@ -7,6 +7,7 @@ from dataclasses import asdict
 from agentcore.core.logging import get_logger
 from agentcore.llm.provider.protocol import TokenUsage
 from agentcore.runtime.citations import merge_citations, reconcile_citations
+from agentcore.runtime.closing_posture import reconcile_resume_closing
 from agentcore.runtime.costing import aggregate_cost, captain_run_cost_from_state
 from agentcore.runtime.engine import join_segments
 from agentcore.runtime.events import EventSink, FinishReason, citations_event, message_end
@@ -57,7 +58,8 @@ async def finish_resume_turn(
     # unbilled. No-op when nothing is paused.
     await delegate_tool.dispose_open_supervised()
 
-    final_content = join_segments(pre_pause_content, captain_state.content)
+    # 完成态互斥：禁「请确认」pre_pause ∪「已全部收卷」续写硬拼（cef27dfa / e8fb470c）。
+    final_content = reconcile_resume_closing(pre_pause_content, captain_state.content)
     final_reasoning = join_segments(pre_pause_reasoning, captain_state.reasoning or "") or None
     rounds = captain_state.rounds
     turn_usage = (
@@ -177,7 +179,7 @@ def finish_terminal_resume(
     journal_entries = _journal_entries_for_turn(current_fact_log.get(), sink=sink, finish=finish)
     return {
         "message_id": message_id,
-        "content": join_segments(pre_pause_content, closing),
+        "content": reconcile_resume_closing(pre_pause_content, closing),
         "reasoning_content": pre_pause_reasoning or None,
         "input_tokens": 0,
         "output_tokens": 0,

@@ -744,6 +744,9 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "evidenceLedgerCount": 0,
                 "fallbackSelfSearch": False,
                 "evidenceReady": False,
+                "completeness": "empty",
+                "incomplete": True,
+                "failedSides": [],
             }
 
         elif etype == "debate_pretrial_orders":
@@ -758,6 +761,9 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                     "evidenceLedgerCount": 0,
                     "fallbackSelfSearch": False,
                     "evidenceReady": False,
+                    "completeness": "empty",
+                    "incomplete": True,
+                    "failedSides": [],
                 }
             debate_pretrial["orders"] = list(p.get("orders") or [])
             debate_pretrial["investigatorCountPerSide"] = int(
@@ -773,6 +779,7 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 )
 
         elif etype == "debate_pretrial_completed":
+            completeness = p.get("completeness") or "empty"
             debate_pretrial = {
                 "status": p.get("status") or "done",
                 "thorough": bool(p.get("thorough", True)),
@@ -783,7 +790,22 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "evidenceLedgerCount": int(p.get("evidence_ledger_count") or 0),
                 "fallbackSelfSearch": bool(p.get("fallback_self_search")),
                 "evidenceReady": bool(p.get("evidence_ready")),
+                "completeness": completeness,
+                "incomplete": bool(p.get("incomplete", completeness != "full")),
+                "failedSides": list(p.get("failed_sides") or []),
             }
+            if p.get("external_evidence_mode") is not None:
+                debate_pretrial["externalEvidenceMode"] = p.get(
+                    "external_evidence_mode"
+                )
+            if p.get("external_evidence_reason") is not None:
+                debate_pretrial["externalEvidenceReason"] = p.get(
+                    "external_evidence_reason"
+                )
+            if "retrieval_budget_per_investigator" in p:
+                debate_pretrial["retrievalBudgetPerInvestigator"] = int(
+                    p.get("retrieval_budget_per_investigator") or 0
+                )
 
         elif etype == "team_note_posted":
             # 团队便签墙 (§2.2 通): a worker broadcast a one-line decision / heads-up to its

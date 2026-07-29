@@ -123,8 +123,8 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 - 证据驱动流水线：调研 → 结构定稿（主拍板）→ 产出
 - 独立审查：审查者 ≠ 作者，产出结构化问题清单
 - 有界返工环：审查发现 → 原作者带现场续派修订 → 复核，≤2 轮，到限交代缺口；\
-修订按审校意见逐条用 `str_replace` 局部改、扩写用 `file_append`，**禁止** `file_write` \
-全文重写已有成品（反例：惰性写「……（中间省略，已保留首尾）……」致残缺交付）
+修订按审校意见逐条用 `str_replace` 局部改（优先）、扩写用 `file_append`；\
+整文件 `file_write` 覆盖允许但勿惰性省略中段（反例：「……（中间省略，已保留首尾）……」致残缺交付）
 - 契约共享面：wall + seed_notes 播种口径 / 接口 / 约束，decision 便签广播
 - 独立多透镜诊断：对既有材料 N 透镜并审 → 风险分级汇总 → 风险确认卡\
 （`ask_user` 带 `card="risk_ack"`）让用户勾选要处理项 → 定向修订
@@ -141,14 +141,15 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 
 教学示例形状（playbook）：下列是词汇表的可实例化示例——对照学形状，勿「是就直接套」。\
 形态贴合时可设 `playbook` + `playbook_args` 生成骨架（与手写 tasks 二选一）；否则按词汇手写。\
-【自由组队】非建站可不声明 playbook，直接手写 `tasks`。\
+【自由组队】可不声明 playbook，直接手写 `tasks`。\
+建站 / 工具台 / 绿场软件【推荐】具名 playbook（见 consult `build_website` / \
+`build_toolshed` / `build_app`）；手写 / `none` 不再硬拒，勿在此复读全文。\
 【成篇调研】要落盘的中篇实务/研究报告/论文且尚需 ≥2 可并行取证角 → 【宜】\
 `research_report`（内含末环审校；禁止一人自搜+成文）；手写同构须齐【各角调研/讨论笔记 + \
 主笔终稿 + 独立审校】：各角与主笔均 `form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）；\
 末节点审校 `depends_on` 撰稿（role 含审校/审计/审查，审计者≠作者）——\
 【禁止】仅「调研→撰稿」两节点收工；【禁止】「角 prose、仅主笔落盘」（中途停则用户零文件）。\
 材料已齐扩写 / 短文落盘仍单人（成篇落盘仍【宜】另派独立审校）。\
-建站 / 工具台硬约束见 consult `build_website` / `build_toolshed`（勿在此复读全文）。\
 本地修码：单文件/单符号一刀切 → 宜显式 `complexity_hint=light`+短任务（可 \
 `requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`（`playbook_args` 必填 \
 `problem` + `verify` 怎么算修好）。\
@@ -442,11 +443,10 @@ _REVISING_A_PRODUCT = """\
 结果里标注的 run_id）——原作者带着 ReAct 轨迹接着干，而不是从零另派看不到旧稿的新人。
 task 正文写清续干指令（改哪里 / 新任务是什么）；可与 depends_on / deliverable 同用。
 
-【修订落盘纪律·写进续派 task】已有成品按审校意见【逐条】用 `str_replace` 局部改；扩写章节用 \
-`file_append`；**禁止**对已有成篇成品再 `file_write` 全文重写——LLM 惰性省略中段（正文自带\
-「……（中间省略，已保留首尾）……」）会直接残缺交付。非空代码文件（哪怕短）亦禁止骨架/最小实现 \
-`file_write` 整文件覆盖冒充修复——补丁失败时对照失败回执盘片段再改或 escalate。结构性重组等\
-确需整体换稿时再例外。
+【修订落盘纪律·写进续派 task】已有成品按审校意见【逐条】用 `str_replace` 局部改（优先）；扩写章节用 \
+`file_append`；整文件 `file_write` 覆盖允许，但须写出完整正文——勿惰性省略中段（正文自带\
+「……（中间省略，已保留首尾）……」会残缺交付）。非空代码文件亦优先 `str_replace`；确需整盖时\
+写出完整实现，勿用残缺骨架交差——补丁失败时对照失败回执盘片段再改或 escalate。
 
 什么时候【不要】带现场续派，而改用冷委派（不设 continue_from_run_id）：要换一个角色来改、
 原稿本身是失败的、要把多份产物合并了再改、或独立新任务（防上下文污染）。若续派提示找不
@@ -473,13 +473,14 @@ Agent / 自动化 / 工作流 / 流水线场面 → 填非空 `format_options` �
 与演讲共用字段）。CEO 显式带了对应 options 才挂选项并在 resume 结构化记账；引擎【不】因正文像某某意图而拒调。\
 选定风格 id 写入 `site/DESIGN.md`；演讲有 `code_execute` 默认倾向 pptx，无执行默认 marp 并在选项文案\
 明示「当前环境无法生成 .pptx」；自动化选控制台原型才允许 `build_toolshed`，可运行自动化禁止默认 toolshed\
-（自由组队 / `build_feature`，无执行如实降级），仅方案不进 toolshed/website 硬锁。纯「做控制台/官网」走建站 style 账。\
+（自由组队 / `build_feature`，无执行如实降级），仅方案禁具名 `build_toolshed` / \
+`build_website`。纯「做控制台/官网」走建站 style 账。\
 【做软件 / 应用 / 工具软件】提案卡【必须】把「技术栈 / 交付形态」放进 `questions`（高杠杆），\
 【禁止】塞进 `assumptions` 用「拿不准宁可默认」吞掉——选项至少覆盖：可运行单页原型 / 本地多文件小工具 / \
 前后端应用 / 仅方案文档。用户选「基础版 / 风格方向」【不等于】默许「单 HTML」；未问清交付形态前\
 勿按单文件开工。\
-【绿场完整交付】从 0 到 1 / 搭建完整项目 / 完整 Vue·React·Vite·SPA / 数据看板【必须】\
-`playbook="build_app"`（禁止 none / 手写旁路）；局部单功能可手写多角色或选用可选形状 \
+【绿场完整交付】从 0 到 1 / 搭建完整项目 / 完整 Vue·React·Vite·SPA / 数据看板【推荐】\
+`playbook="build_app"`；局部单功能可手写多角色或选用可选形状 \
 `playbook="build_feature"`。\
 【已确认勿再开】：用户已口头认可协作方案 / 高杠杆决策（如「认可」「就这样」「开干」），或本回合\
 已拍过开工提案卡——禁止再开开工提案卡，直接 `delegate` 或推进。
@@ -566,8 +567,8 @@ _ASK_USER_MIDTASK = """\
 - 风险确认卡 `card="risk_ack"`（审查诊断型）：审查 / 诊断汇总出问题清单后，让用户勾选【要处理哪些】。\
 `multiple=true`、options 1–10 项：每项 `label` 以严重度开头（如「[高] 退款条款缺违约金上限」）、\
 `detail`=一行影响与修法建议；高危项可标 `recommended`。用户勾选后，把选中项转成定向修订委派\
-（唤回原作者，衔接有界返工环；task 写明按勾选项用 `str_replace` 逐条改、扩写用 `file_append`，\
-禁止 `file_write` 全文重写已有成品——防惰性「中间省略」残缺交付）；未勾选项在收尾里注明\
+（唤回原作者，衔接有界返工环；task 写明按勾选项用 `str_replace` 逐条改（优先）、扩写用 `file_append`，\
+整盖允许但须完整正文——防惰性「中间省略」残缺交付）；未勾选项在收尾里注明\
 「已知、按用户决定未处理」。
 两种卡都是主拍板（每任务恰好一张，见主拍板纪律）——用了就不再叠开工提案或提纲把关。
 
@@ -706,7 +707,7 @@ _DEEP_MULTI_LENS_RESEARCH = """\
 
 【二、CEO 纪律：禁止自搜替代四路】
 你【禁止】用自己的 `web_search` / 长检索串把四路调研做完再假装组队——那是 solo 塌缩。\
-探路检索至多【3 轮】，只为写清各路任务书（边界 / 关键词 / 忌重叠）；每次 web_search 须精简到\
+探路检索至多【5 轮】，只为写清各路任务书（边界 / 关键词 / 忌重叠）；每次 web_search 须精简到\
 纯拉丁≤8 词（建议 2–3 核心词），超限会被拒绝且不改写。取证与交叉验证交给队员。\
 广度调查归团队（见 team_orchestration_advanced）。
 
@@ -767,10 +768,10 @@ Followups 芯片」却不点名该字段——正文 markdown 表与 key_points 
 
 _BUILD_WEBSITE = f"""\
 <build_website>
-【硬约束】建站 / 落地页 / 营销官网【必须】`delegate(playbook="build_website", playbook_args={{...}})`。\
-控制台 / 后台 / 工具台 dense【必须】改用 `consult_skill(build_toolshed)` → `playbook="build_toolshed"`，\
-勿误套本营销 playbook。\
-机制会拒绝 `playbook_id="none"` 手糊「内容→前端」两节点（不可靠旁路绕过 P1 质量管线）。
+【推荐】建站 / 落地页 / 营销官网用 `delegate(playbook="build_website", playbook_args={{...}})`\
+（质量管线更稳；手写 / `none` 仍可用，但不走本 playbook 流水线）。\
+控制台 / 后台 / 工具台 dense【推荐】改用 `consult_skill(build_toolshed)` → `playbook="build_toolshed"`，\
+勿误套本营销 playbook。
 
 形状：{_BUILD_WEBSITE_PLAYBOOK.summary}
 槽位：{_BUILD_WEBSITE_PLAYBOOK.slots}
@@ -793,10 +794,10 @@ _BUILD_WEBSITE = f"""\
 
 _BUILD_TOOLSHED = f"""\
 <build_toolshed>
-【硬约束】控制台 / 后台 / 工具台 / SaaS admin dense UI【必须】\
-`delegate(playbook="build_toolshed", playbook_args={{...}})`。\
-营销落地页 / 官网【必须】改用 `consult_skill(build_website)` → `playbook="build_website"`。\
-机制会拒绝 `playbook_id="none"` 手糊旁路（与营销建站同闸）。
+【推荐】控制台 / 后台 / 工具台 / SaaS admin dense UI 用\
+`delegate(playbook="build_toolshed", playbook_args={{...}})`\
+（手写 / `none` 仍可用，但不走本 playbook 流水线）。\
+营销落地页 / 官网【推荐】改用 `consult_skill(build_website)` → `playbook="build_website"`。
 
 形状：{_BUILD_TOOLSHED_PLAYBOOK.summary}
 槽位：{_BUILD_TOOLSHED_PLAYBOOK.slots}
@@ -814,9 +815,9 @@ _BUILD_TOOLSHED = f"""\
 
 _BUILD_APP = f"""\
 <build_app>
-【硬约束】绿场软件 / SPA 完整交付（从 0 到 1、搭建完整项目、完整 Vue·React·Vite·SPA / \
-数据看板）【必须】`delegate(playbook="build_app", playbook_args={{...}})`。\
-机制会拒绝 `playbook_id="none"` 与缺省手写 tasks 旁路。\
+【推荐】绿场软件 / SPA 完整交付（从 0 到 1、搭建完整项目、完整 Vue·React·Vite·SPA / \
+数据看板）用 `delegate(playbook="build_app", playbook_args={{...}})`\
+（scaffold-first 多波更稳；手写 / `none` 仍可用）。\
 营销落地页 / 官网改用 `build_website`；控制台 dense 改用 `build_toolshed`；\
 局部单功能改码可用手写 tasks 或可选 `build_feature`。
 
@@ -849,8 +850,8 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="build_website",
         summary=(
-            "建站/落地页/营销官网：糊→先 ask_user；规格已齐→可直接 "
-            "playbook=build_website（禁止 none 手糊）；"
+            "建站/落地页/营销官网：糊→先 ask_user；规格已齐→推荐 "
+            "playbook=build_website；"
             "五波含 DESIGN/质量闸；控制台勿用本 skill"
         ),
         body=_BUILD_WEBSITE,
@@ -859,7 +860,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="build_toolshed",
         summary=(
-            "控制台/后台/工具台 dense：必须 playbook=build_toolshed（禁止 none）；"
+            "控制台/后台/工具台 dense：推荐 playbook=build_toolshed；"
             "pack=tool_dense；先 ask_user 选风格；营销落地页改用 build_website"
         ),
         body=_BUILD_TOOLSHED,
@@ -868,7 +869,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="build_app",
         summary=(
-            "绿场软件/SPA 完整交付：必须 playbook=build_app（禁止 none 手糊）；"
+            "绿场软件/SPA 完整交付：推荐 playbook=build_app；"
             "scaffold→shared→modules→integrate→smoke；局部单功能改用 build_feature"
         ),
         body=_BUILD_APP,

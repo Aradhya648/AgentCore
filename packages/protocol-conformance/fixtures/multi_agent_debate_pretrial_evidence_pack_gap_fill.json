@@ -1,6 +1,6 @@
 {
-  "name": "multi_agent_debate_pretrial_thorough",
-  "description": "庭前取证：thorough 带队完整阶段流（点单→取证员 parent=主辩→立论）",
+  "name": "multi_agent_debate_pretrial_evidence_pack_gap_fill",
+  "description": "庭前取证：Evidence Pack 截断 → 有界 gap_fill（reason + partial/failed_sides）",
   "events": [
     {
       "type": "message_start",
@@ -13,28 +13,28 @@
     {
       "type": "content_delta",
       "payload": {
-        "delta": "我来组织一场辩论。"
+        "delta": "附件截断，启动有界补证。"
       },
       "timestamp": "2026-01-01T00:00:00.002Z"
     },
     {
       "type": "run_plan",
       "payload": {
-        "execution_id": "exec_pt",
+        "execution_id": "exec_ep_gap",
         "plan_type": "debate",
         "task_summary": "正反辩论：是否采用方案 A",
         "agents": [
           {
-            "id": "debate_mod_pt",
+            "id": "debate_mod_ep_gap",
             "role": "主持人",
             "thinking": false
           }
         ],
         "runs": [
           {
-            "id": "debate_mod_pt",
-            "agent_id": "debate_mod_pt",
-            "task": "主持正反辩论：是否采用方案 A",
+            "id": "debate_mod_ep_gap",
+            "agent_id": "debate_mod_ep_gap",
+            "task": "主持正反辩论：长约缺口补证",
             "depends_on": [],
             "parent_run_id": "captain1"
           }
@@ -45,8 +45,8 @@
     {
       "type": "run_started",
       "payload": {
-        "run_id": "debate_mod_pt",
-        "agent_id": "debate_mod_pt",
+        "run_id": "debate_mod_ep_gap",
+        "agent_id": "debate_mod_ep_gap",
         "parent_run_id": "captain1",
         "kind": "agent"
       },
@@ -55,8 +55,8 @@
     {
       "type": "debate_pretrial_started",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "thorough": true,
         "sides": [
           {
@@ -72,53 +72,10 @@
       "timestamp": "2026-01-01T00:00:00.005Z"
     },
     {
-      "type": "run_plan",
-      "payload": {
-        "execution_id": "exec_pt",
-        "plan_type": "debate",
-        "task_summary": "庭前取证·主辩点单",
-        "agents": [
-          {
-            "id": "d_pro",
-            "role": "支持方",
-            "thinking": true
-          },
-          {
-            "id": "d_con",
-            "role": "反对方",
-            "thinking": true
-          }
-        ],
-        "runs": [
-          {
-            "id": "debate_mod_pt_r1_pro",
-            "agent_id": "d_pro",
-            "task": "论证支持采用方案 A",
-            "depends_on": [],
-            "parent_run_id": "debate_mod_pt",
-            "stance": "pro",
-            "group": "debate:debate",
-            "round": 1
-          },
-          {
-            "id": "debate_mod_pt_r1_con",
-            "agent_id": "d_con",
-            "task": "论证反对采用方案 A",
-            "depends_on": [],
-            "parent_run_id": "debate_mod_pt",
-            "stance": "con",
-            "group": "debate:debate",
-            "round": 1
-          }
-        ]
-      },
-      "timestamp": "2026-01-01T00:00:00.006Z"
-    },
-    {
       "type": "debate_pretrial_orders",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "thorough": true,
         "sides": [
           {
@@ -135,61 +92,136 @@
             "side_key": "pro",
             "tasks": [
               {
-                "query": "方案 A 成本可控的来源",
-                "purpose": "立论底料"
+                "query": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖",
+                "purpose": "有界缺口补证"
               }
             ],
-            "source": "debater"
+            "source": "auto"
           },
           {
             "side_key": "con",
             "tasks": [
               {
-                "query": "方案 A 风险敞口的来源",
-                "purpose": "立论底料"
+                "query": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖",
+                "purpose": "有界缺口补证"
               }
             ],
-            "source": "debater"
+            "source": "auto"
           }
         ],
         "investigator_count_per_side": 1,
-        "retrieval_budget_per_investigator": 14
+        "retrieval_budget_per_investigator": 2,
+        "evidence_pack": {
+          "motion": "是否采用方案 A",
+          "completeness": "partial",
+          "notes": "从主持人上下文组装共享证据包（截断附件）",
+          "sources": [
+            {
+              "source_id": "att:long",
+              "kind": "attachment",
+              "label": "长约.md",
+              "path": "attachments/长约.md",
+              "excerpt": "条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…",
+              "complete": false,
+              "failure": "truncated"
+            }
+          ],
+          "dispute_candidates": []
+        },
+        "path": "evidence_pack_gap_fill",
+        "completeness": "partial",
+        "incomplete": true,
+        "external_evidence": {
+          "mode": "gap_fill",
+          "retrieval_budget": 2,
+          "sides": [
+            "pro",
+            "con"
+          ],
+          "allow_read_url": true,
+          "max_tasks_per_side": 1,
+          "reason": "evidence_pack_gap",
+          "allow_external": true
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_ep_gap",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "支持方",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "反对方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_ep_gap_r1_pro",
+            "agent_id": "d_pro",
+            "task": "论证支持（含补证）",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_ep_gap",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "debate_mod_ep_gap_r1_con",
+            "agent_id": "d_con",
+            "task": "论证反对（含补证）",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_ep_gap",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ]
       },
       "timestamp": "2026-01-01T00:00:00.007Z"
     },
     {
       "type": "run_plan",
       "payload": {
-        "execution_id": "exec_pt",
+        "execution_id": "exec_ep_gap",
         "plan_type": "debate",
         "task_summary": "",
         "agents": [
           {
-            "id": "debate_mod_pt_inv_pro_0",
+            "id": "debate_mod_ep_gap_inv_pro_0",
             "role": "取证·支持方",
             "thinking": true
           },
           {
-            "id": "debate_mod_pt_inv_con_0",
+            "id": "debate_mod_ep_gap_inv_con_0",
             "role": "取证·反对方",
             "thinking": true
           }
         ],
         "runs": [
           {
-            "id": "debate_mod_pt_inv_pro_0",
-            "agent_id": "debate_mod_pt_inv_pro_0",
-            "task": "为支持方取证：方案 A 成本可控的来源",
+            "id": "debate_mod_ep_gap_inv_pro_0",
+            "agent_id": "debate_mod_ep_gap_inv_pro_0",
+            "task": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖",
             "depends_on": [],
-            "parent_run_id": "debate_mod_pt_r1_pro",
+            "parent_run_id": "debate_mod_ep_gap_r1_pro",
             "group": "pretrial:investigators:pro"
           },
           {
-            "id": "debate_mod_pt_inv_con_0",
-            "agent_id": "debate_mod_pt_inv_con_0",
-            "task": "为反对方取证：方案 A 风险敞口的来源",
+            "id": "debate_mod_ep_gap_inv_con_0",
+            "agent_id": "debate_mod_ep_gap_inv_con_0",
+            "task": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖",
             "depends_on": [],
-            "parent_run_id": "debate_mod_pt_r1_con",
+            "parent_run_id": "debate_mod_ep_gap_r1_con",
             "group": "pretrial:investigators:con"
           }
         ]
@@ -199,9 +231,9 @@
     {
       "type": "run_started",
       "payload": {
-        "run_id": "debate_mod_pt_inv_pro_0",
-        "agent_id": "debate_mod_pt_inv_pro_0",
-        "parent_run_id": "debate_mod_pt_r1_pro",
+        "run_id": "debate_mod_ep_gap_inv_pro_0",
+        "agent_id": "debate_mod_ep_gap_inv_pro_0",
+        "parent_run_id": "debate_mod_ep_gap_r1_pro",
         "kind": "agent"
       },
       "timestamp": "2026-01-01T00:00:00.009Z"
@@ -209,18 +241,18 @@
     {
       "type": "run_output_delta",
       "payload": {
-        "run_id": "debate_mod_pt_inv_pro_0",
-        "agent_id": "debate_mod_pt_inv_pro_0",
-        "delta": "笔记：成本可控【已核实·#e1】"
+        "run_id": "debate_mod_ep_gap_inv_pro_0",
+        "agent_id": "debate_mod_ep_gap_inv_pro_0",
+        "delta": "补证找到权威来源。"
       },
       "timestamp": "2026-01-01T00:00:00.010Z"
     },
     {
       "type": "run_completed",
       "payload": {
-        "run_id": "debate_mod_pt_inv_pro_0",
-        "agent_id": "debate_mod_pt_inv_pro_0",
-        "output_summary": "取证完成",
+        "run_id": "debate_mod_ep_gap_inv_pro_0",
+        "agent_id": "debate_mod_ep_gap_inv_pro_0",
+        "output_summary": "支持方补证",
         "duration_ms": 800,
         "role": "member",
         "model": "deepseek-v4-flash",
@@ -245,42 +277,33 @@
     {
       "type": "debate_pretrial_progress",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "side_key": "pro",
-        "investigator_run_id": "debate_mod_pt_inv_pro_0",
-        "parent_run_id": "debate_mod_pt_r1_pro",
+        "investigator_run_id": "debate_mod_ep_gap_inv_pro_0",
+        "parent_run_id": "debate_mod_ep_gap_r1_pro",
         "status": "completed",
-        "evidence_ledger_count": 1
+        "evidence_ledger_count": 2
       },
       "timestamp": "2026-01-01T00:00:00.810Z"
     },
     {
       "type": "run_started",
       "payload": {
-        "run_id": "debate_mod_pt_inv_con_0",
-        "agent_id": "debate_mod_pt_inv_con_0",
-        "parent_run_id": "debate_mod_pt_r1_con",
+        "run_id": "debate_mod_ep_gap_inv_con_0",
+        "agent_id": "debate_mod_ep_gap_inv_con_0",
+        "parent_run_id": "debate_mod_ep_gap_r1_con",
         "kind": "agent"
       },
       "timestamp": "2026-01-01T00:00:00.811Z"
     },
     {
-      "type": "run_output_delta",
-      "payload": {
-        "run_id": "debate_mod_pt_inv_con_0",
-        "agent_id": "debate_mod_pt_inv_con_0",
-        "delta": "笔记：风险敞口【已核实·#e2】"
-      },
-      "timestamp": "2026-01-01T00:00:00.812Z"
-    },
-    {
       "type": "run_completed",
       "payload": {
-        "run_id": "debate_mod_pt_inv_con_0",
-        "agent_id": "debate_mod_pt_inv_con_0",
-        "output_summary": "取证完成",
-        "duration_ms": 900,
+        "run_id": "debate_mod_ep_gap_inv_con_0",
+        "agent_id": "debate_mod_ep_gap_inv_con_0",
+        "output_summary": "反对方补证失败",
+        "duration_ms": 400,
         "role": "member",
         "model": "deepseek-v4-flash",
         "usage": {
@@ -299,26 +322,26 @@
           "pricing_source": "curated"
         }
       },
-      "timestamp": "2026-01-01T00:00:01.711Z"
+      "timestamp": "2026-01-01T00:00:01.211Z"
     },
     {
       "type": "debate_pretrial_progress",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "side_key": "con",
-        "investigator_run_id": "debate_mod_pt_inv_con_0",
-        "parent_run_id": "debate_mod_pt_r1_con",
-        "status": "completed",
+        "investigator_run_id": "debate_mod_ep_gap_inv_con_0",
+        "parent_run_id": "debate_mod_ep_gap_r1_con",
+        "status": "failed",
         "evidence_ledger_count": 2
       },
-      "timestamp": "2026-01-01T00:00:01.712Z"
+      "timestamp": "2026-01-01T00:00:01.212Z"
     },
     {
       "type": "debate_pretrial_completed",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "thorough": true,
         "sides": [
           {
@@ -330,181 +353,139 @@
             "name": "反对方"
           }
         ],
-        "status": "done",
+        "status": "degraded",
         "orders": [
           {
             "side_key": "pro",
             "tasks": [
               {
-                "query": "方案 A 成本可控的来源",
-                "purpose": "立论底料"
+                "query": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖",
+                "purpose": "有界缺口补证"
               }
             ],
-            "source": "debater"
+            "source": "auto"
           },
           {
             "side_key": "con",
             "tasks": [
               {
-                "query": "方案 A 风险敞口的来源",
-                "purpose": "立论底料"
+                "query": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖",
+                "purpose": "有界缺口补证"
               }
             ],
-            "source": "debater"
+            "source": "auto"
           }
         ],
         "investigators": [
           {
             "side_key": "pro",
-            "run_id": "debate_mod_pt_inv_pro_0",
-            "parent_run_id": "debate_mod_pt_r1_pro",
+            "run_id": "debate_mod_ep_gap_inv_pro_0",
+            "parent_run_id": "debate_mod_ep_gap_r1_pro",
             "ok": true,
-            "task_query": "方案 A 成本可控的来源"
+            "task_query": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖"
           },
           {
             "side_key": "con",
-            "run_id": "debate_mod_pt_inv_con_0",
-            "parent_run_id": "debate_mod_pt_r1_con",
-            "ok": true,
-            "task_query": "方案 A 风险敞口的来源"
+            "run_id": "debate_mod_ep_gap_inv_con_0",
+            "parent_run_id": "debate_mod_ep_gap_r1_con",
+            "ok": false,
+            "task_query": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖"
           }
         ],
         "fallback_self_search": false,
         "evidence_ready": true,
-        "completeness": "full",
-        "incomplete": false,
-        "failed_sides": [],
+        "completeness": "partial",
+        "incomplete": true,
+        "failed_sides": [
+          "con"
+        ],
+        "evidence_pack": {
+          "motion": "是否采用方案 A",
+          "completeness": "partial",
+          "notes": "从主持人上下文组装共享证据包（截断附件）",
+          "sources": [
+            {
+              "source_id": "att:long",
+              "kind": "attachment",
+              "label": "长约.md",
+              "path": "attachments/长约.md",
+              "excerpt": "条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…",
+              "complete": false,
+              "failure": "truncated"
+            }
+          ],
+          "dispute_candidates": []
+        },
+        "external_evidence_mode": "gap_fill",
+        "external_evidence_reason": "evidence_pack_gap",
+        "retrieval_budget_per_investigator": 2,
         "evidence_ledger_count": 2,
         "evidence_ledger_delta": [
           {
             "id": "#e1",
-            "url": "https://example.com/a",
-            "title": "成本报告",
+            "url": "",
+            "title": "长约.md",
+            "snippet": "条款正文…",
+            "site": "",
+            "date": "",
+            "tier": "primary",
+            "side_key": "evidence_pack"
+          },
+          {
+            "id": "#e2",
+            "url": "https://example.com/gap",
+            "title": "补证来源",
             "snippet": "",
             "site": "",
             "date": "",
             "tier": "media",
             "side_key": "pro"
-          },
-          {
-            "id": "#e2",
-            "url": "https://example.com/b",
-            "title": "风险备忘",
-            "snippet": "",
-            "site": "",
-            "date": "",
-            "tier": "media",
-            "side_key": "con"
           }
         ]
       },
-      "timestamp": "2026-01-01T00:00:01.713Z"
+      "timestamp": "2026-01-01T00:00:01.213Z"
     },
     {
       "type": "debate_round_started",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "round_no": 1,
-        "focus": "成本与风险",
-        "cross_exam_enabled": true,
-        "opening": "先从成本与风险切入。",
+        "focus": "缺口与风险",
+        "cross_exam_enabled": false,
+        "opening": "补证未齐，仍开立论。",
         "form": "debate"
       },
-      "timestamp": "2026-01-01T00:00:01.714Z"
-    },
-    {
-      "type": "run_plan",
-      "payload": {
-        "execution_id": "exec_pt",
-        "plan_type": "debate",
-        "task_summary": "",
-        "agents": [
-          {
-            "id": "d_pro",
-            "role": "支持方",
-            "thinking": true
-          },
-          {
-            "id": "d_con",
-            "role": "反对方",
-            "thinking": true
-          }
-        ],
-        "runs": [
-          {
-            "id": "debate_mod_pt_r1_pro",
-            "agent_id": "d_pro",
-            "task": "论证支持采用方案 A",
-            "depends_on": [],
-            "parent_run_id": "debate_mod_pt",
-            "stance": "pro",
-            "group": "debate:debate",
-            "round": 1
-          },
-          {
-            "id": "debate_mod_pt_r1_con",
-            "agent_id": "d_con",
-            "task": "论证反对采用方案 A",
-            "depends_on": [],
-            "parent_run_id": "debate_mod_pt",
-            "stance": "con",
-            "group": "debate:debate",
-            "round": 1
-          }
-        ]
-      },
-      "timestamp": "2026-01-01T00:00:01.715Z"
+      "timestamp": "2026-01-01T00:00:01.214Z"
     },
     {
       "type": "run_started",
       "payload": {
-        "run_id": "debate_mod_pt_r1_pro",
-        "agent_id": "debate_mod_pt_r1_pro",
-        "parent_run_id": "debate_mod_pt",
+        "run_id": "debate_mod_ep_gap_r1_pro",
+        "agent_id": "debate_mod_ep_gap_r1_pro",
+        "parent_run_id": "debate_mod_ep_gap",
         "kind": "agent",
         "stance": "pro",
         "round": 1
       },
-      "timestamp": "2026-01-01T00:00:01.716Z"
-    },
-    {
-      "type": "run_context",
-      "payload": {
-        "run_id": "debate_mod_pt_r1_pro",
-        "agent_id": "debate_mod_pt_r1_pro",
-        "blocks": [
-          {
-            "channel": "task",
-            "heading": "立论",
-            "body": "支持方案 A",
-            "chars": 6,
-            "truncated": false,
-            "source_role": "",
-            "source_run_id": "",
-            "fidelity": "",
-            "files": []
-          }
-        ]
-      },
-      "timestamp": "2026-01-01T00:00:01.717Z"
+      "timestamp": "2026-01-01T00:00:01.215Z"
     },
     {
       "type": "run_output_delta",
       "payload": {
-        "run_id": "debate_mod_pt_r1_pro",
-        "agent_id": "debate_mod_pt_r1_pro",
-        "delta": "### 成本可控\n有据可依【已核实·#e1】。"
+        "run_id": "debate_mod_ep_gap_r1_pro",
+        "agent_id": "debate_mod_ep_gap_r1_pro",
+        "delta": "支持方案 A【已核实·#e2】。"
       },
-      "timestamp": "2026-01-01T00:00:01.718Z"
+      "timestamp": "2026-01-01T00:00:01.216Z"
     },
     {
       "type": "run_completed",
       "payload": {
-        "run_id": "debate_mod_pt_r1_pro",
-        "agent_id": "debate_mod_pt_r1_pro",
-        "output_summary": "支持方立论",
-        "duration_ms": 1200,
+        "run_id": "debate_mod_ep_gap_r1_pro",
+        "agent_id": "debate_mod_ep_gap_r1_pro",
+        "output_summary": "支持方",
+        "duration_ms": 600,
         "role": "member",
         "model": "deepseek-v4-flash",
         "usage": {
@@ -523,57 +504,36 @@
           "pricing_source": "curated"
         }
       },
-      "timestamp": "2026-01-01T00:00:02.916Z"
+      "timestamp": "2026-01-01T00:00:01.815Z"
     },
     {
       "type": "run_started",
       "payload": {
-        "run_id": "debate_mod_pt_r1_con",
-        "agent_id": "debate_mod_pt_r1_con",
-        "parent_run_id": "debate_mod_pt",
+        "run_id": "debate_mod_ep_gap_r1_con",
+        "agent_id": "debate_mod_ep_gap_r1_con",
+        "parent_run_id": "debate_mod_ep_gap",
         "kind": "agent",
         "stance": "con",
         "round": 1
       },
-      "timestamp": "2026-01-01T00:00:02.917Z"
-    },
-    {
-      "type": "run_context",
-      "payload": {
-        "run_id": "debate_mod_pt_r1_con",
-        "agent_id": "debate_mod_pt_r1_con",
-        "blocks": [
-          {
-            "channel": "task",
-            "heading": "立论",
-            "body": "反对方案 A",
-            "chars": 6,
-            "truncated": false,
-            "source_role": "",
-            "source_run_id": "",
-            "fidelity": "",
-            "files": []
-          }
-        ]
-      },
-      "timestamp": "2026-01-01T00:00:02.918Z"
+      "timestamp": "2026-01-01T00:00:01.816Z"
     },
     {
       "type": "run_output_delta",
       "payload": {
-        "run_id": "debate_mod_pt_r1_con",
-        "agent_id": "debate_mod_pt_r1_con",
-        "delta": "### 风险未兜底\n敞口仍在【已核实·#e2】。"
+        "run_id": "debate_mod_ep_gap_r1_con",
+        "agent_id": "debate_mod_ep_gap_r1_con",
+        "delta": "反对方案 A（补证缺口仍在）。"
       },
-      "timestamp": "2026-01-01T00:00:02.919Z"
+      "timestamp": "2026-01-01T00:00:01.817Z"
     },
     {
       "type": "run_completed",
       "payload": {
-        "run_id": "debate_mod_pt_r1_con",
-        "agent_id": "debate_mod_pt_r1_con",
-        "output_summary": "反对方立论",
-        "duration_ms": 1100,
+        "run_id": "debate_mod_ep_gap_r1_con",
+        "agent_id": "debate_mod_ep_gap_r1_con",
+        "output_summary": "反对方",
+        "duration_ms": 600,
         "role": "member",
         "model": "deepseek-v4-flash",
         "usage": {
@@ -592,15 +552,15 @@
           "pricing_source": "curated"
         }
       },
-      "timestamp": "2026-01-01T00:00:04.017Z"
+      "timestamp": "2026-01-01T00:00:02.416Z"
     },
     {
       "type": "run_completed",
       "payload": {
-        "run_id": "debate_mod_pt",
-        "agent_id": "debate_mod_pt",
-        "output_summary": "1 轮·收敛",
-        "duration_ms": 5000,
+        "run_id": "debate_mod_ep_gap",
+        "agent_id": "debate_mod_ep_gap",
+        "output_summary": "1 轮·有界补证",
+        "duration_ms": 2000,
         "role": "主持人",
         "model": "deepseek-v4-flash",
         "usage": {
@@ -619,56 +579,59 @@
           "pricing_source": "curated"
         }
       },
-      "timestamp": "2026-01-01T00:00:05.004Z"
+      "timestamp": "2026-01-01T00:00:02.417Z"
     },
     {
       "type": "debate_result",
       "payload": {
-        "execution_id": "exec_pt",
-        "moderator_run_id": "debate_mod_pt",
+        "execution_id": "exec_ep_gap",
+        "moderator_run_id": "debate_mod_ep_gap",
         "form": "debate",
         "motion": "是否采用方案 A",
         "stop_reason": "converged",
-        "opening": "先从成本与风险切入。",
+        "opening": "补证未齐，仍开立论。",
         "narrative_first": false,
         "sides": [
           {
             "key": "pro",
             "name": "支持方",
-            "stance": "支持采用方案 A",
+            "stance": "支持",
             "is_subject": false
           },
           {
             "key": "con",
             "name": "反对方",
-            "stance": "反对采用方案 A",
+            "stance": "反对",
             "is_subject": false
           }
         ],
+        "moderator_model": "deepseek-v4-flash",
         "rounds": [
           {
             "round_no": 1,
-            "focus": "成本与风险",
-            "summary": "双方围绕成本与风险交锋。",
+            "focus": "缺口与风险",
+            "summary": "补证部分失败",
             "verdict": {
               "real_clash": true,
               "new_arguments": false,
               "converged": true,
               "stop_reason": "converged",
-              "rationale": "核心分歧已暴露"
+              "rationale": "补证未齐仍收敛交锋"
             },
             "sides": [
               {
                 "key": "pro",
                 "name": "支持方",
-                "run_id": "debate_mod_pt_r1_pro",
-                "ok": true
+                "run_id": "debate_mod_ep_gap_r1_pro",
+                "ok": true,
+                "arguments": []
               },
               {
                 "key": "con",
                 "name": "反对方",
-                "run_id": "debate_mod_pt_r1_con",
-                "ok": true
+                "run_id": "debate_mod_ep_gap_r1_con",
+                "ok": true,
+                "arguments": []
               }
             ],
             "clashes": [],
@@ -678,56 +641,55 @@
         ],
         "closings": [],
         "brief": {
-          "crux": "成本 vs 风险",
+          "crux": "补证缺口",
           "strongest_points": {
-            "pro": "成本可控",
-            "con": "风险未兜底"
+            "pro": "支持",
+            "con": "反对"
           },
           "handoffs": [],
-          "decisive": "需用户权衡",
+          "decisive": "",
           "leaning": "未决",
-          "confidence": "medium",
-          "recommendation": "先补风险兜底再定"
+          "confidence": "low",
+          "recommendation": "补齐反对方外证后再决"
         },
         "evidence_ledger": [
           {
             "id": "#e1",
-            "url": "https://example.com/a",
-            "title": "成本报告",
-            "snippet": "",
-            "site": "",
+            "url": "",
+            "title": "长约.md",
+            "snippet": "条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…",
+            "site": "长约.md",
             "date": "",
-            "tier": "media",
-            "side_key": "pro"
+            "tier": "unknown",
+            "side_key": "evidence_pack",
+            "dossier_path": "attachments/长约.md",
+            "origin_id": "",
+            "dossier_label": "长约.md"
           },
           {
             "id": "#e2",
-            "url": "https://example.com/b",
-            "title": "风险备忘",
+            "url": "https://example.com/gap",
+            "title": "补证来源",
             "snippet": "",
             "site": "",
             "date": "",
             "tier": "media",
-            "side_key": "con"
+            "side_key": "pro",
+            "dossier_path": "",
+            "origin_id": "",
+            "dossier_label": ""
           }
         ]
       },
-      "timestamp": "2026-01-01T00:00:05.005Z"
-    },
-    {
-      "type": "content_delta",
-      "payload": {
-        "delta": "辩论结束，简报如上。"
-      },
-      "timestamp": "2026-01-01T00:00:05.006Z"
+      "timestamp": "2026-01-01T00:00:02.418Z"
     },
     {
       "type": "message_end",
       "payload": {
         "finish_reason": "end_turn",
         "usage": {
-          "input_tokens": 2000,
-          "output_tokens": 400,
+          "input_tokens": 800,
+          "output_tokens": 120,
           "reasoning_tokens": 0,
           "cache_hit_tokens": 0,
           "cache_miss_tokens": 0
@@ -742,27 +704,23 @@
         },
         "rounds": 0
       },
-      "timestamp": "2026-01-01T00:00:05.007Z"
+      "timestamp": "2026-01-01T00:00:02.419Z"
     }
   ],
   "projected": {
     "status": "completed",
     "finishReason": "end_turn",
-    "content": "我来组织一场辩论。辩论结束，简报如上。",
+    "content": "附件截断，启动有界补证。",
     "reasoning": "",
     "captainContext": [],
     "process": [
       {
         "kind": "content",
-        "text": "我来组织一场辩论。"
+        "text": "附件截断，启动有界补证。"
       },
       {
         "kind": "team",
-        "execution_id": "exec_pt"
-      },
-      {
-        "kind": "content",
-        "text": "辩论结束，简报如上。"
+        "execution_id": "exec_ep_gap"
       }
     ],
     "citations": [],
@@ -770,7 +728,7 @@
     "citedIds": [],
     "agents": [
       {
-        "id": "debate_mod_pt",
+        "id": "debate_mod_ep_gap",
         "role": "主持人",
         "thinking": false,
         "status": "completed",
@@ -800,36 +758,36 @@
         "toolProgress": null
       },
       {
-        "id": "debate_mod_pt_inv_pro_0",
+        "id": "debate_mod_ep_gap_inv_pro_0",
         "role": "取证·支持方",
         "thinking": true,
         "status": "completed",
         "currentRunId": null,
-        "output": "笔记：成本可控【已核实·#e1】",
+        "output": "补证找到权威来源。",
         "reasoning": "",
         "toolProgress": null
       },
       {
-        "id": "debate_mod_pt_inv_con_0",
+        "id": "debate_mod_ep_gap_inv_con_0",
         "role": "取证·反对方",
         "thinking": true,
         "status": "completed",
         "currentRunId": null,
-        "output": "笔记：风险敞口【已核实·#e2】",
+        "output": "",
         "reasoning": "",
         "toolProgress": null
       }
     ],
     "runs": [
       {
-        "id": "debate_mod_pt",
-        "agentId": "debate_mod_pt",
-        "task": "主持正反辩论：是否采用方案 A",
+        "id": "debate_mod_ep_gap",
+        "agentId": "debate_mod_ep_gap",
+        "task": "主持正反辩论：长约缺口补证",
         "status": "completed",
         "dependsOn": [],
-        "outputSummary": "1 轮·收敛",
+        "outputSummary": "1 轮·有界补证",
         "debrief": null,
-        "durationMs": 5000,
+        "durationMs": 2000,
         "error": null,
         "parentRunId": "captain1",
         "kind": "agent",
@@ -863,16 +821,16 @@
         "process": []
       },
       {
-        "id": "debate_mod_pt_r1_pro",
+        "id": "debate_mod_ep_gap_r1_pro",
         "agentId": "d_pro",
-        "task": "论证支持采用方案 A",
+        "task": "论证支持（含补证）",
         "status": "completed",
         "dependsOn": [],
-        "outputSummary": "支持方立论",
+        "outputSummary": "支持方",
         "debrief": null,
-        "durationMs": 1200,
+        "durationMs": 600,
         "error": null,
-        "parentRunId": "debate_mod_pt",
+        "parentRunId": "debate_mod_ep_gap",
         "kind": "agent",
         "role": "member",
         "model": "deepseek-v4-flash",
@@ -899,38 +857,26 @@
         "replacesRunId": null,
         "actId": "act-1",
         "checkpoint": null,
-        "receivedContext": [
-          {
-            "channel": "task",
-            "heading": "立论",
-            "body": "支持方案 A",
-            "chars": 6,
-            "truncated": false,
-            "source_role": "",
-            "source_run_id": "",
-            "fidelity": "",
-            "files": []
-          }
-        ],
+        "receivedContext": [],
         "escalations": [],
         "process": [
           {
             "kind": "content",
-            "text": "### 成本可控\n有据可依【已核实·#e1】。"
+            "text": "支持方案 A【已核实·#e2】。"
           }
         ]
       },
       {
-        "id": "debate_mod_pt_r1_con",
+        "id": "debate_mod_ep_gap_r1_con",
         "agentId": "d_con",
-        "task": "论证反对采用方案 A",
+        "task": "论证反对（含补证）",
         "status": "completed",
         "dependsOn": [],
-        "outputSummary": "反对方立论",
+        "outputSummary": "反对方",
         "debrief": null,
-        "durationMs": 1100,
+        "durationMs": 600,
         "error": null,
-        "parentRunId": "debate_mod_pt",
+        "parentRunId": "debate_mod_ep_gap",
         "kind": "agent",
         "role": "member",
         "model": "deepseek-v4-flash",
@@ -957,38 +903,26 @@
         "replacesRunId": null,
         "actId": "act-1",
         "checkpoint": null,
-        "receivedContext": [
-          {
-            "channel": "task",
-            "heading": "立论",
-            "body": "反对方案 A",
-            "chars": 6,
-            "truncated": false,
-            "source_role": "",
-            "source_run_id": "",
-            "fidelity": "",
-            "files": []
-          }
-        ],
+        "receivedContext": [],
         "escalations": [],
         "process": [
           {
             "kind": "content",
-            "text": "### 风险未兜底\n敞口仍在【已核实·#e2】。"
+            "text": "反对方案 A（补证缺口仍在）。"
           }
         ]
       },
       {
-        "id": "debate_mod_pt_inv_pro_0",
-        "agentId": "debate_mod_pt_inv_pro_0",
-        "task": "为支持方取证：方案 A 成本可控的来源",
+        "id": "debate_mod_ep_gap_inv_pro_0",
+        "agentId": "debate_mod_ep_gap_inv_pro_0",
+        "task": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖",
         "status": "completed",
         "dependsOn": [],
-        "outputSummary": "取证完成",
+        "outputSummary": "支持方补证",
         "debrief": null,
         "durationMs": 800,
         "error": null,
-        "parentRunId": "debate_mod_pt_r1_pro",
+        "parentRunId": "debate_mod_ep_gap_r1_pro",
         "kind": "agent",
         "role": "member",
         "model": "deepseek-v4-flash",
@@ -1020,21 +954,21 @@
         "process": [
           {
             "kind": "content",
-            "text": "笔记：成本可控【已核实·#e1】"
+            "text": "补证找到权威来源。"
           }
         ]
       },
       {
-        "id": "debate_mod_pt_inv_con_0",
-        "agentId": "debate_mod_pt_inv_con_0",
-        "task": "为反对方取证：方案 A 风险敞口的来源",
+        "id": "debate_mod_ep_gap_inv_con_0",
+        "agentId": "debate_mod_ep_gap_inv_con_0",
+        "task": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖",
         "status": "completed",
         "dependsOn": [],
-        "outputSummary": "取证完成",
+        "outputSummary": "反对方补证失败",
         "debrief": null,
-        "durationMs": 900,
+        "durationMs": 400,
         "error": null,
-        "parentRunId": "debate_mod_pt_r1_con",
+        "parentRunId": "debate_mod_ep_gap_r1_con",
         "kind": "agent",
         "role": "member",
         "model": "deepseek-v4-flash",
@@ -1063,12 +997,7 @@
         "checkpoint": null,
         "receivedContext": [],
         "escalations": [],
-        "process": [
-          {
-            "kind": "content",
-            "text": "笔记：风险敞口【已核实·#e2】"
-          }
-        ]
+        "process": []
       }
     ],
     "acts": [
@@ -1094,51 +1023,54 @@
       "pricing_source": "curated"
     },
     "debate": {
-      "execution_id": "exec_pt",
-      "moderator_run_id": "debate_mod_pt",
+      "execution_id": "exec_ep_gap",
+      "moderator_run_id": "debate_mod_ep_gap",
       "form": "debate",
       "motion": "是否采用方案 A",
       "stop_reason": "converged",
-      "opening": "先从成本与风险切入。",
+      "opening": "补证未齐，仍开立论。",
       "narrative_first": false,
       "sides": [
         {
           "key": "pro",
           "name": "支持方",
-          "stance": "支持采用方案 A",
+          "stance": "支持",
           "is_subject": false
         },
         {
           "key": "con",
           "name": "反对方",
-          "stance": "反对采用方案 A",
+          "stance": "反对",
           "is_subject": false
         }
       ],
+      "moderator_model": "deepseek-v4-flash",
       "rounds": [
         {
           "round_no": 1,
-          "focus": "成本与风险",
-          "summary": "双方围绕成本与风险交锋。",
+          "focus": "缺口与风险",
+          "summary": "补证部分失败",
           "verdict": {
             "real_clash": true,
             "new_arguments": false,
             "converged": true,
             "stop_reason": "converged",
-            "rationale": "核心分歧已暴露"
+            "rationale": "补证未齐仍收敛交锋"
           },
           "sides": [
             {
               "key": "pro",
               "name": "支持方",
-              "run_id": "debate_mod_pt_r1_pro",
-              "ok": true
+              "run_id": "debate_mod_ep_gap_r1_pro",
+              "ok": true,
+              "arguments": []
             },
             {
               "key": "con",
               "name": "反对方",
-              "run_id": "debate_mod_pt_r1_con",
-              "ok": true
+              "run_id": "debate_mod_ep_gap_r1_con",
+              "ok": true,
+              "arguments": []
             }
           ],
           "clashes": [],
@@ -1148,44 +1080,50 @@
       ],
       "closings": [],
       "brief": {
-        "crux": "成本 vs 风险",
+        "crux": "补证缺口",
         "strongest_points": {
-          "pro": "成本可控",
-          "con": "风险未兜底"
+          "pro": "支持",
+          "con": "反对"
         },
         "handoffs": [],
-        "decisive": "需用户权衡",
+        "decisive": "",
         "leaning": "未决",
-        "confidence": "medium",
-        "recommendation": "先补风险兜底再定"
+        "confidence": "low",
+        "recommendation": "补齐反对方外证后再决"
       },
       "evidence_ledger": [
         {
           "id": "#e1",
-          "url": "https://example.com/a",
-          "title": "成本报告",
-          "snippet": "",
-          "site": "",
+          "url": "",
+          "title": "长约.md",
+          "snippet": "条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…",
+          "site": "长约.md",
           "date": "",
-          "tier": "media",
-          "side_key": "pro"
+          "tier": "unknown",
+          "side_key": "evidence_pack",
+          "dossier_path": "attachments/长约.md",
+          "origin_id": "",
+          "dossier_label": "长约.md"
         },
         {
           "id": "#e2",
-          "url": "https://example.com/b",
-          "title": "风险备忘",
+          "url": "https://example.com/gap",
+          "title": "补证来源",
           "snippet": "",
           "site": "",
           "date": "",
           "tier": "media",
-          "side_key": "con"
+          "side_key": "pro",
+          "dossier_path": "",
+          "origin_id": "",
+          "dossier_label": ""
         }
       ]
     },
     "debateRounds": [
       {
         "round_no": 1,
-        "focus": "成本与风险",
+        "focus": "缺口与风险",
         "summary": "",
         "verdict": null,
         "sides": [],
@@ -1197,7 +1135,7 @@
       }
     ],
     "debatePretrial": {
-      "status": "done",
+      "status": "degraded",
       "thorough": true,
       "skipReason": null,
       "sides": [
@@ -1215,48 +1153,53 @@
           "side_key": "pro",
           "tasks": [
             {
-              "query": "方案 A 成本可控的来源",
-              "purpose": "立论底料"
+              "query": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖",
+              "purpose": "有界缺口补证"
             }
           ],
-          "source": "debater"
+          "source": "auto"
         },
         {
           "side_key": "con",
           "tasks": [
             {
-              "query": "方案 A 风险敞口的来源",
-              "purpose": "立论底料"
+              "query": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖",
+              "purpose": "有界缺口补证"
             }
           ],
-          "source": "debater"
+          "source": "auto"
         }
       ],
       "investigators": [
         {
           "side_key": "pro",
-          "run_id": "debate_mod_pt_inv_pro_0",
-          "parent_run_id": "debate_mod_pt_r1_pro",
+          "run_id": "debate_mod_ep_gap_inv_pro_0",
+          "parent_run_id": "debate_mod_ep_gap_r1_pro",
           "ok": true,
-          "task_query": "方案 A 成本可控的来源"
+          "task_query": "是否采用方案 A：补证「长约.md」—支持「支持方」的权威外证；禁对已注入附件重复深挖"
         },
         {
           "side_key": "con",
-          "run_id": "debate_mod_pt_inv_con_0",
-          "parent_run_id": "debate_mod_pt_r1_con",
-          "ok": true,
-          "task_query": "方案 A 风险敞口的来源"
+          "run_id": "debate_mod_ep_gap_inv_con_0",
+          "parent_run_id": "debate_mod_ep_gap_r1_con",
+          "ok": false,
+          "task_query": "是否采用方案 A：补证「长约.md」—支持「反对方」的权威外证；禁对已注入附件重复深挖"
         }
       ],
       "evidenceLedgerCount": 2,
       "fallbackSelfSearch": false,
       "evidenceReady": true,
-      "completeness": "full",
-      "incomplete": false,
-      "failedSides": []
+      "completeness": "partial",
+      "incomplete": true,
+      "failedSides": [
+        "con"
+      ],
+      "externalEvidenceMode": "gap_fill",
+      "externalEvidenceReason": "evidence_pack_gap",
+      "retrievalBudgetPerInvestigator": 2
     },
-    "crossExamEnabled": true,
-    "debateOpening": "先从成本与风险切入。",
+    "crossExamEnabled": false,
+    "debateOpening": "补证未齐，仍开立论。",
     "teamSynthesisPreview": null,
     "deliveryStatus": null,
     "turnWarning": null,

@@ -4,6 +4,7 @@
 // static 进行中 — and clears a tool's phase the moment it ends.
 
 import {
+  extractEvidenceLedger,
   extractGraphAppendActKinds,
   extractGraphAppendAuthorizedBy,
   extractStageCardTraces,
@@ -386,5 +387,58 @@ describe("extractWorkerToolPhases", () => {
       }),
     ]);
     expect(phases.size).toBe(0);
+  });
+});
+
+describe("extractEvidenceLedger", () => {
+  it("合并 debate_pretrial_completed.evidence_ledger_delta（#e1 不靠收场后再补）", () => {
+    const ledger = extractEvidenceLedger([
+      ev("debate_pretrial_completed", {
+        execution_id: "exec1",
+        moderator_run_id: "mod",
+        status: "done",
+        evidence_ledger_delta: [
+          {
+            id: "#e1",
+            title: "庭前证据",
+            url: "https://example.com/e1",
+            site: "example.com",
+          },
+        ],
+      }),
+    ]);
+    expect(ledger.map((e) => e.id)).toEqual(["#e1"]);
+  });
+
+  it("pretrial delta 与 round delta 累积；debate_result 权威覆盖", () => {
+    const ledger = extractEvidenceLedger([
+      ev("debate_pretrial_completed", {
+        execution_id: "exec1",
+        moderator_run_id: "mod",
+        evidence_ledger_delta: [
+          { id: "#e1", title: "pretrial", url: "https://a.example" },
+        ],
+      }),
+      ev("debate_round", {
+        execution_id: "exec1",
+        moderator_run_id: "mod",
+        round_no: 1,
+        focus: "焦点",
+        summary: "",
+        verdict: null,
+        sides: [],
+        clashes: [],
+        evidence_ledger_delta: [
+          { id: "#e2", title: "round", url: "https://b.example" },
+        ],
+      }),
+      ev("debate_result", {
+        execution_id: "exec1",
+        evidence_ledger: [
+          { id: "#e9", title: "final", url: "https://z.example" },
+        ],
+      }),
+    ]);
+    expect(ledger.map((e) => e.id)).toEqual(["#e9"]);
   });
 });

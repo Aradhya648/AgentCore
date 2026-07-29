@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from agentcore.runtime.debate.types import DebateForm
-from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
+from agentcore.runtime.runs.retrieval_budget import (
+    DEFAULT_RETRIEVAL_BUDGET,
+    DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER,
+)
 
 DEBATE_OUTPUT_LIMIT = 16000
 
@@ -23,6 +26,10 @@ MAX_INVESTIGATORS_PER_SIDE = 2
 MAX_EVIDENCE_ORDER_TASKS = 3
 # 取证员 per-run 检索预算（各方同额；对齐统一默认）。
 DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET = DEFAULT_RETRIEVAL_BUDGET
+# 缺口有界补证：复用案卷残搜槽位常量（retrieval_budget 同一计数器），不平行发明第二套。
+BOUNDED_GAP_FILL_RETRIEVAL_BUDGET = DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER
+# 增量补证每方任务硬顶（禁止回到「双调查员对同一附件无限 ReAct」）。
+MAX_GAP_FILL_TASKS_PER_SIDE = 1
 
 # 辩手发言长度指引：旧观测里单方动辄数千 token（一条就几十秒），既拖慢又稀释论点。引导「宁深
 # 勿长」——聚焦最有力的少数论点，显著降低每轮墙钟与 token。首轮立论与后续轮续写都注入。

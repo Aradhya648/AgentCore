@@ -358,8 +358,8 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                 "file_append 或 str_replace 填空，一章写完再下一章；③ 中等篇幅可一次 "
                 "file_write 写完全文；④ 预算/token 不够写完下一章时，停在完整章边界，"
                 "handoff 标明已完成章节与待续章节，勿在章中部截断；⑤ 禁止整篇 "
-                "file_delete 后重写长文，也禁止对已成篇草稿 file_write 全文覆盖——"
-                "修订用 str_replace；⑥ 写回执即 artifact manifest，禁止再对本文件 "
+                "file_delete 后重写长文；修订优先 str_replace，整文件 file_write "
+                "覆盖允许但须完整正文（勿惰性省略）；⑥ 写回执即 artifact manifest，禁止再对本文件 "
                 "file_read 回读正文验真。"
             ),
             "depends_on": ["outline"],
@@ -993,7 +993,8 @@ def _build_catalog_site(
                 f"若存在 `{_BUILD_WEBSITE_SECTIONS_DIR}/sN.css` / `.js`，"
                 f"用 file_append 追加进 `{_BUILD_WEBSITE_CSS}` / `{_BUILD_WEBSITE_JS}`"
                 "（加分区注释分隔）。"
-                f"【禁止】file_write 整文件重写 `{_BUILD_WEBSITE_HTML}`；"
+                f"【流程偏好·多写者协作】组装用 write_section / file_append 注入，"
+                f"勿 file_write 整文件重写 `{_BUILD_WEBSITE_HTML}`（防抢写骨架）；"
                 "【禁止】改文案 / DESIGN / 契约正文。"
                 f"{anti_slop}"
                 "组装后抽查标记对齐全、无残留空壳占位；缺口用 post_note(kind=heads_up) 上报。"

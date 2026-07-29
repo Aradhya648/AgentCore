@@ -259,7 +259,10 @@ async def test_read_url_fake_ip_proxy_shows_environment_hint(monkeypatch):
     assert result.success is False
     assert "fake-IP" in result.error
     assert "probe_egress.py" in result.error
-    assert result.metadata.get("policy_failure") is True
+    # SSRF / fake-IP counts toward the run circuit breaker (not policy_failure) so
+    # consecutive environmental refusals hard-stop research empty-spins.
+    assert result.metadata.get("policy_failure") is not True
+    assert "停止" in result.error or "收口" in result.error
 
 
 # --- read_url: HTML extraction ---
@@ -479,8 +482,58 @@ async def test_read_url_snippet_falls_back_to_body_when_no_meta(monkeypatch):
 async def test_read_url_rejects_private_without_network():
     result = await ReadUrlTool().execute({"url": "http://127.0.0.1:9999/"}, _ctx())
     assert result.success is False
-    assert result.error == _URLBlock.PRIVATE_IP.value
-    assert result.metadata.get("policy_failure") is True
+    assert _URLBlock.PRIVATE_IP.value in (result.error or "")
+    # Environmental SSRF refusals count toward the run breaker (not policy_failure).
+    assert result.metadata.get("policy_failure") is not True
+    assert "收口" in (result.error or "") or "停止" in (result.error or "")
+
+
+async def test_read_url_retire_latch_blocks_fetch_after_disable(monkeypatch):
+    """Run-scoped retirement survives a fresh tool call (simulates Wave retry)."""
+    from agentcore.tools.builtin.web._net import (
+        READ_URL_RETIRE_STEER,
+        clear_read_url_retired,
+        mark_read_url_retired,
+    )
+
+    run_id = "retire-latch-run"
+    clear_read_url_retired(run_id)
+    mark_read_url_retired(run_id, message=READ_URL_RETIRE_STEER)
+
+    fetched = {"n": 0}
+
+    async def _should_not_fetch(*_a, **_k):
+        fetched["n"] += 1
+        raise AssertionError("retired read_url must not fetch")
+
+    monkeypatch.setattr(read_url_mod, "_safe_request", _should_not_fetch)
+    result = await ReadUrlTool().execute(
+        {"url": "https://example.com/x"}, _ctx(run_id=run_id)
+    )
+    assert result.success is False
+    assert fetched["n"] == 0
+    assert "停用" in (result.error or "")
+    assert result.metadata.get("retire_tools") == ["read_url"]
+    clear_read_url_retired(run_id)
+
+
+async def test_read_url_403_steers_stop_read(monkeypatch):
+    async def _allow(_url: str):
+        return None
+
+    async def _forbidden(_client, _method, url, **_kwargs):
+        req = httpx.Request("GET", url)
+        raise httpx.HTTPStatusError(
+            "denied", request=req, response=httpx.Response(403, request=req)
+        )
+
+    monkeypatch.setattr(read_url_mod, "_classify_url", _allow)
+    monkeypatch.setattr(read_url_mod, "_safe_request", _forbidden)
+    result = await ReadUrlTool().execute({"url": "https://example.com/pay"}, _ctx())
+    assert result.success is False
+    assert "403" in (result.error or "")
+    assert "收口" in (result.error or "") or "停止" in (result.error or "")
+    assert result.metadata.get("policy_failure") is not True
 
 
 async def test_read_url_requires_url():

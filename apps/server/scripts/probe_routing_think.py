@@ -708,7 +708,7 @@ async def _run_one(
     last_reasoning = ""
     pre_action_reasoning = ""
     pre_action_frozen = False
-    # 与生产 CEO 环同步：探路累计≥3 一律硬收调查工具
+    # 与生产 CEO 环同步：探路累计≥5 一律硬收调查工具
     # （成篇意图另追加形状句；本地改文件 → 摸仓≥2 独立硬催派）
     inv_tools = frozenset(_RECON)
     gate_controller = create_loop_controller(inv_tools)

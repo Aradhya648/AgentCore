@@ -18,6 +18,7 @@ from agentcore.tools.builtin.file_ops import (
     FileReadTool,
     FileWriteTool,
     MkdirTool,
+    StrReplaceTool,
     expand_brace_globs,
 )
 from agentcore.tools.protocol import ToolContext
@@ -46,20 +47,19 @@ async def test_write_creates_file(tmp_path: Path):
     assert (tmp_path / "notes" / "report.md").read_text(encoding="utf-8") == "# Hi"
 
 
-async def test_write_rejects_substantial_overwrite(tmp_path: Path):
+async def test_write_allows_substantial_overwrite(tmp_path: Path):
+    """成篇 md/html 整盖允许（不再硬拒）；磁盘被新内容覆盖。"""
     body = "成篇正文。" * 80  # well over substantial threshold
     target = tmp_path / "site" / "index.html"
     target.parent.mkdir(parents=True)
     target.write_text(body, encoding="utf-8")
+    new_body = "<html><body>rewrite complete page</body></html>"
     result = await FileWriteTool().execute(
-        {"path": "site/index.html", "content": "<html>rewrite</html>"},
+        {"path": "site/index.html", "content": new_body},
         _ctx(tmp_path),
     )
-    assert result.success is False
-    assert "拒绝整文件覆盖" in (result.error or "")
-    assert "str_replace" in (result.error or "")
-    assert result.contract_failure is True
-    assert target.read_text(encoding="utf-8") == body
+    assert result.success is True
+    assert target.read_text(encoding="utf-8") == new_body
 
 
 async def test_write_allows_tiny_overwrite(tmp_path: Path):
@@ -71,23 +71,41 @@ async def test_write_allows_tiny_overwrite(tmp_path: Path):
     assert (tmp_path / "stub.txt").read_text(encoding="utf-8") == "still small"
 
 
-async def test_write_rejects_non_empty_code_overwrite(tmp_path: Path):
-    """短非空代码文件也不能骨架整写冒充修复（阶段3）。"""
+async def test_write_allows_non_empty_code_overwrite(tmp_path: Path):
+    """非空代码整盖允许（优先局部劝导；不再硬拒）。"""
     body = "export function TopBar() {\n  return <header>App</header>;\n}\n"
     target = tmp_path / "src" / "TopBar.tsx"
     target.parent.mkdir(parents=True)
     target.write_text(body, encoding="utf-8")
-    skeleton = "export function TopBar() {\n  return null;\n}\n"
+    rewritten = "export function TopBar() {\n  return <header>New</header>;\n}\n"
     result = await FileWriteTool().execute(
-        {"path": "src/TopBar.tsx", "content": skeleton},
+        {"path": "src/TopBar.tsx", "content": rewritten},
         _ctx(tmp_path),
     )
-    assert result.success is False
-    assert "拒绝整文件覆盖" in (result.error or "")
-    assert "非空代码" in (result.error or "")
-    assert "str_replace" in (result.error or "")
-    assert result.contract_failure is True
-    assert target.read_text(encoding="utf-8") == body
+    assert result.success is True
+    assert target.read_text(encoding="utf-8") == rewritten
+
+
+async def test_write_allows_css_js_overwrite(tmp_path: Path):
+    """非空 css/js 整盖成功。"""
+    css_old = "body { color: red; }\n" + "/* pad */\n" * 20
+    js_old = "export const x = 1;\n" + "// pad\n" * 20
+    (tmp_path / "styles").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "styles" / "main.css").write_text(css_old, encoding="utf-8")
+    (tmp_path / "scripts" / "app.js").write_text(js_old, encoding="utf-8")
+    css_new = "body { color: blue; }\n"
+    js_new = "export const x = 2;\n"
+    css_r = await FileWriteTool().execute(
+        {"path": "styles/main.css", "content": css_new}, _ctx(tmp_path)
+    )
+    js_r = await FileWriteTool().execute(
+        {"path": "scripts/app.js", "content": js_new}, _ctx(tmp_path)
+    )
+    assert css_r.success is True
+    assert js_r.success is True
+    assert (tmp_path / "styles" / "main.css").read_text(encoding="utf-8") == css_new
+    assert (tmp_path / "scripts" / "app.js").read_text(encoding="utf-8") == js_new
 
 
 async def test_write_allows_empty_code_shell(tmp_path: Path):
@@ -185,6 +203,7 @@ async def test_file_read_allows_up_to_same_path_max(tmp_path: Path):
 
 async def test_file_read_rejects_same_path_over_max(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "site").mkdir()
     (tmp_path / "site" / "DESIGN.md").write_text("tokens", encoding="utf-8")
@@ -197,6 +216,8 @@ async def test_file_read_rejects_same_path_over_max(tmp_path: Path):
     assert blocked.contract_failure is True
     assert "已多次读取" in (blocked.error or "")
     assert "site/DESIGN.md" in (blocked.error or "")
+    assert blocked.metadata.get("retire_tools") == ["file_read"]
+    assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
 
 
 async def test_file_read_same_path_limit_is_per_path(tmp_path: Path):
@@ -213,6 +234,7 @@ async def test_file_read_same_path_limit_is_per_path(tmp_path: Path):
 
 async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "doc.md").write_text("# Doc\nbody", encoding="utf-8")
     ctx = _ctx(tmp_path)
@@ -234,10 +256,13 @@ async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
     assert blocked.contract_failure is True
     assert "再读次数已用尽" in (blocked.error or "")
     assert "请使用对话中已有正文" not in (blocked.error or "")
+    assert blocked.metadata.get("retire_tools") == ["file_read"]
+    assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
 
 
 async def test_file_read_reread_not_granted_while_verbatim_present(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "keep.md").write_text("keep", encoding="utf-8")
     ctx = _ctx(tmp_path)
@@ -250,6 +275,60 @@ async def test_file_read_reread_not_granted_while_verbatim_present(tmp_path: Pat
     assert blocked.success is False
     assert blocked.contract_failure is True
     assert "请使用对话中已有正文" in (blocked.error or "")
+    assert blocked.metadata.get("retire_tools") == ["file_read"]
+    assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
+
+
+async def test_file_read_ceiling_retire_trips_breaker_despite_contract_failure(
+    tmp_path: Path,
+):
+    """P2: tip alone was ignored; retire_tools must hard-disable file_read."""
+    from agentcore.runtime.loop_controller import LoopController, ToolAttempt
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
+
+    (tmp_path / "attachments").mkdir()
+    (tmp_path / "attachments" / "PRD.md").write_text("# PRD\n" + ("x" * 200), encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    tool = FileReadTool()
+    for _ in range(FILE_READ_SAME_PATH_MAX):
+        assert (await tool.execute({"path": "attachments/PRD.md"}, ctx)).success is True
+    blocked = await tool.execute({"path": "attachments/PRD.md"}, ctx)
+    assert blocked.success is False
+    assert blocked.contract_failure is True
+
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record(
+        [
+            ToolAttempt(
+                "ceil",
+                "file_read",
+                success=False,
+                error_summary=blocked.error or "",
+                contract_failure=True,
+                meta=dict(blocked.metadata),
+            )
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ("file_read",)
+    assert cb.retire_message == _FILE_READ_PATH_CEILING_RETIRE_STEER
+    msg = cb.message() or ""
+    assert "基于" in msg and "正文" in msg
+    assert "已多次失败" not in msg
+    # Further tip retries must not re-fire breaker noise.
+    c.record(
+        [
+            ToolAttempt(
+                "ceil2",
+                "file_read",
+                success=False,
+                contract_failure=True,
+                meta=dict(blocked.metadata),
+            )
+        ]
+    )
+    assert not c.tool_circuit_breaker()
 
 
 # --- file_append ---
@@ -400,9 +479,9 @@ async def test_file_read_author_and_reader_share_same_path_cap(tmp_path: Path):
 
 
 async def test_write_nudge_on_omission_marker(tmp_path: Path):
-    # Keep under substantial-overwrite threshold so soft nudge still applies.
-    old = "A" * 120 + "\n完整中段内容\n" + "B" * 120
-    assert len(old) < 400
+    # ≥400 成篇整盖成功，省略标记仅 soft nudge（不硬拒）。
+    old = "A" * 200 + "\n完整中段内容\n" + "B" * 200
+    assert len(old) >= 400
     (tmp_path / "draft.md").write_text(old, encoding="utf-8")
     truncated = (
         "A" * 40
@@ -421,10 +500,10 @@ async def test_write_nudge_on_omission_marker(tmp_path: Path):
 
 
 async def test_write_nudge_on_severe_shrink(tmp_path: Path):
-    old = "字" * 300
-    assert len(old) < 400
+    old = "字" * 500
+    assert len(old) >= 400
     (tmp_path / "essay.md").write_text(old, encoding="utf-8")
-    short = "字" * 100  # ~33% of old — below 60% threshold
+    short = "字" * 100  # well below 60% threshold
     result = await FileWriteTool().execute(
         {"path": "essay.md", "content": short}, _ctx(tmp_path)
     )
@@ -446,11 +525,11 @@ async def test_write_no_nudge_on_new_file(tmp_path: Path):
 
 
 async def test_write_no_nudge_on_modest_edit(tmp_path: Path):
-    old = "字" * 300
-    assert len(old) < 400
+    old = "字" * 500
+    assert len(old) >= 400
     (tmp_path / "essay.md").write_text(old, encoding="utf-8")
     # ~80% of old length, no omission markers — normal small revision.
-    modest = "字" * 240
+    modest = "字" * 400
     result = await FileWriteTool().execute(
         {"path": "essay.md", "content": modest}, _ctx(tmp_path)
     )
@@ -545,6 +624,10 @@ def test_write_schema_teaches_artifact_first():
     assert "短骨架" in write_desc or "骨架" in write_desc
     assert "中间省略" in write_desc
     assert "manifest" in write_desc
+    assert "优先" in write_desc and "str_replace" in write_desc
+    assert "整文件覆盖亦允许" in write_desc or "整盖" in write_desc
+    assert "硬拒绝】整文件" not in write_desc
+    assert "系统会【硬拒绝】" not in write_desc
     content_desc = FileWriteTool().schema.parameters["properties"]["content"]["description"]
     assert "骨架" in content_desc or "一次写完" in content_desc
 
@@ -552,6 +635,11 @@ def test_write_schema_teaches_artifact_first():
     assert "骨架" in append_desc
     assert "file_write" in append_desc
     assert "成篇" in append_desc or "禁止" in append_desc
+
+    replace_desc = StrReplaceTool().schema.description
+    assert "优先" in replace_desc
+    assert "整文件覆盖亦允许" in replace_desc or "整盖" in replace_desc
+    assert "禁止改用骨架 file_write" not in replace_desc
 
 
 def test_length_nudge_helpers_pin_threshold():

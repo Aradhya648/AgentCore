@@ -6,7 +6,7 @@ legitimate ``fN`` in ``selected``; prose note alone never confirms.
 
 Keyed on conversation — delegate hard-gate reads this ledger
 (:func:`resolve_format_confirmation` / pptx-vs-md delivery check).
-Orthogonal to website ``style_id`` / software_app questions.
+Orthogonal to website ``style_id`` / kickoff delivery questions.
 
 Persistence (与挂起恢复同构):
 - Durable fact ``presentation_format_confirmed`` via :func:`record_turn_fact`.

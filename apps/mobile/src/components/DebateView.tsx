@@ -146,6 +146,30 @@ function PretrialBlock({
   if (!pretrial) return null;
   const status = PRETRIAL_STATUS[pretrial.status] ?? pretrial.status;
   const sideNames = pretrial.sides.map((s) => s.name).join(" · ");
+  // 权威=completed：running 不宣称完整度；缺字段=未知；intentional skip 非失败态。
+  const showCompleteness =
+    pretrial.status !== "running" && pretrial.completeness != null;
+  const completeness = !showCompleteness
+    ? ""
+    : pretrial.completeness === "full"
+      ? "齐全"
+      : pretrial.completeness === "partial"
+        ? "不完整"
+        : pretrial.completeness === "empty"
+          ? "空"
+          : String(pretrial.completeness);
+  const showIncompleteAlarm =
+    pretrial.incomplete === true &&
+    pretrial.status !== "running" &&
+    !pretrial.skipReason;
+  const external =
+    pretrial.externalEvidenceMode === "skip"
+      ? "外证跳过"
+      : pretrial.externalEvidenceMode === "gap_fill"
+        ? "有界补证"
+        : pretrial.externalEvidenceMode === "investigators"
+          ? "取证员外证"
+          : "";
   return (
     <div className="debate-field">
       <span className="debate-field-label">庭前取证</span>
@@ -154,6 +178,9 @@ function PretrialBlock({
         {pretrial.evidenceLedgerCount > 0
           ? ` · 台账 ${pretrial.evidenceLedgerCount} 条`
           : ""}
+        {completeness ? ` · 完整度 ${completeness}` : ""}
+        {external ? ` · ${external}` : ""}
+        {showIncompleteAlarm ? " · 取证不完整" : ""}
         {sideNames ? ` · ${sideNames}` : ""}
       </span>
     </div>

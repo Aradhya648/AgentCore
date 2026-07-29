@@ -19,6 +19,7 @@ from agentcore.core.message_merge import (
     should_advance_status,
     should_apply_checkpoint_content,
     status_rank,
+    visible_failed_assistant_content,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "should_advance_status",
     "should_apply_checkpoint_content",
     "status_rank",
+    "visible_failed_assistant_content",
 ]

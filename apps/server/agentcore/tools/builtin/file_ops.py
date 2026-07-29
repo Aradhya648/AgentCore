@@ -70,41 +70,14 @@ _CHARS_PER_TOKEN_EST = 4
 _WRITE_LENGTH_WARN_TOKENS = 2000
 _WRITE_LENGTH_WARN_CHARS = _WRITE_LENGTH_WARN_TOKENS * _CHARS_PER_TOKEN_EST
 
-# Hard reject: clobbering an existing substantial file via whole-file overwrite.
-# Skeleton+append and tiny stubs stay allowed; threshold is "成篇" not "non-empty".
+# "成篇" threshold: delete gate + classify_write_kind / prose-append still depend on it.
+# file_write whole-file overwrite is allowed (prefer str_replace; soft integrity nudge only).
 _SUBSTANTIAL_FILE_CHARS = 400
 
 
 def is_substantial_existing_body(content: str) -> bool:
     """True when ``content`` looks like a finished article / page worth protecting."""
     return len((content or "").strip()) >= _SUBSTANTIAL_FILE_CHARS
-
-
-def substantial_overwrite_rejection(path: str, old_chars: int) -> str:
-    """User-facing error when ``file_write`` would clobber a substantial file."""
-    return (
-        f"拒绝整文件覆盖：`{path}` 已是成篇成品（约 {old_chars} 字，阈值 "
-        f"{_SUBSTANTIAL_FILE_CHARS} 字）。请改用 str_replace 局部修订；"
-        "确需整体换稿时先说明并拆成局部补丁。"
-        "超长新建应先短骨架再按节填空；中等单篇一次 file_write 写完。"
-        "补丁失败或读不到原文 ≠ 用骨架 file_write 交差——应对照盘文再改或 escalate。"
-    )
-
-
-def is_empty_shell(content: str) -> bool:
-    """True when ``content`` is missing or whitespace-only (新建 / 真·空壳例外)."""
-    return not (content or "").strip()
-
-
-def non_empty_code_overwrite_rejection(path: str, old_chars: int) -> str:
-    """User-facing error when ``file_write`` would skeleton-clobber existing code."""
-    return (
-        f"拒绝整文件覆盖：`{path}` 已是非空代码文件（约 {old_chars} 字）。"
-        "修订须基于磁盘原文用 str_replace 局部改；"
-        "补丁失败或读不到原文 ≠ 用骨架 / 最小实现 file_write 整文件重写交差——"
-        "应对照 str_replace 失败回执中的盘片段再改，或 escalate。"
-        "仅新建文件或真·空壳（空白）可用 file_write。"
-    )
 
 
 def substantial_delete_rejection(path: str, old_chars: int) -> str:
@@ -543,7 +516,8 @@ async def _assemble_str_replace_fail_receipt(
     except WorkspaceError as e:
         return (
             f"{head}\n（无法读取磁盘：{e}）\n"
-            "请 escalate 或改用其它路径；禁止用骨架 file_write 整文件重写冒充修复。"
+            "请 escalate 或改用其它路径；优先对照盘文再 str_replace，"
+            "确需整盖须写出完整正文（勿残缺骨架交差）。"
         )
 
     blocks: list[str] = []
@@ -576,7 +550,7 @@ async def _assemble_str_replace_fail_receipt(
 
     guidance = (
         "\n请对照上方盘片段重写精确 old_string 后再 str_replace；"
-        "禁止用骨架 / 最小实现 file_write 整文件覆盖冒充修复；仍对不上则 escalate。"
+        "确需整文件覆盖可用 file_write（须完整正文，勿残缺骨架交差）；仍对不上则 escalate。"
     )
     return head + "\n\n" + "\n\n".join(blocks) + guidance
 
@@ -725,12 +699,28 @@ def _render_file_tree(
     return "\n".join(lines) + footer
 
 
-def _error(error: str, start: float, *, contract_failure: bool = False) -> ToolResult:
+# Same-path ceiling hard-stop: tip alone was ignored (contract_failure skipped the
+# breaker), so attach retire_tools to strip file_read and force write-from-context.
+_FILE_READ_PATH_CEILING_RETIRE_STEER = (
+    "file_read 因同路径触顶已停用：请基于对话中已有正文或清理摘要直接写作 / handoff，"
+    "禁止再 file_read 空转。"
+)
+
+
+def _error(
+    error: str,
+    start: float,
+    *,
+    contract_failure: bool = False,
+    metadata: dict[str, Any] | None = None,
+) -> ToolResult:
     """Build a failed ToolResult with elapsed timing.
 
     ``contract_failure`` marks a self-correctable argument-contract rejection (e.g. a
     concurrent-write collision the model fixes by renaming) so the run-scoped tool
-    circuit breaker skips it — see :class:`~agentcore.tools.protocol.ToolResult`.
+    circuit breaker skips normal failure tallies — see
+    :class:`~agentcore.tools.protocol.ToolResult`. Explicit ``retire_tools`` in
+    ``metadata`` still hard-disables named tools (same-path ceiling).
     """
     return ToolResult(
         tool_call_id="",
@@ -739,6 +729,20 @@ def _error(error: str, start: float, *, contract_failure: bool = False) -> ToolR
         error=error,
         duration_ms=int((time.monotonic() - start) * 1000),
         contract_failure=contract_failure,
+        metadata=dict(metadata or {}),
+    )
+
+
+def _file_read_path_ceiling_error(error: str, start: float) -> ToolResult:
+    """Reject a same-path over-cap read and retire ``file_read`` for this run."""
+    return _error(
+        error,
+        start,
+        contract_failure=True,
+        metadata={
+            "retire_tools": ["file_read"],
+            "retire_message": _FILE_READ_PATH_CEILING_RETIRE_STEER,
+        },
     )
 
 
@@ -938,8 +942,8 @@ class FileReadTool:
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
                 "同一相对路径本 run 有成功读取次数上限（整读与 offset/limit 合计）；"
-                "已落盘产物优先以写/append 回执中的 artifact manifest 验真，"
-                "勿为空转反复 file_read。"
+                "触顶后本 run 停用 file_read，须基于已有正文写作 / handoff，勿空转重读。"
+                "已落盘产物优先以写/append 回执中的 artifact manifest 验真。"
             ),
             parameters={
                 "type": "object",
@@ -991,7 +995,7 @@ class FileReadTool:
                 body_present = verbatim is None or path_key in verbatim
                 remaining = int(context.file_read_reread_remaining.get(path_key, 0))
                 if body_present:
-                    return _error(
+                    return _file_read_path_ceiling_error(
                         (
                             f"已多次读取 `{path_key}`（本 run 上限 "
                             f"{FILE_READ_SAME_PATH_MAX} 次）。请使用对话中已有正文，"
@@ -999,17 +1003,15 @@ class FileReadTool:
                             "或基于已注入的契约摘要直接落盘。"
                         ),
                         start,
-                        contract_failure=True,
                     )
                 if remaining <= 0:
-                    return _error(
+                    return _file_read_path_ceiling_error(
                         (
                             f"已多次读取 `{path_key}`，且上下文中的正文已被清理、"
                             "再读次数已用尽。请依据清理摘要推进，或读取其它文件 / 落盘；"
                             "勿空转重复 file_read。"
                         ),
                         start,
-                        contract_failure=True,
                     )
                 using_reread = True
 
@@ -1078,19 +1080,18 @@ class FileWriteTool:
             name="file_write",
             description=(
                 "把内容写入文件：会创建该文件（含所有上级目录），或【整体覆盖】"
-                "已有文件。用它来【新建】文件。"
+                "已有文件。用它来【新建】文件；修订时【优先】str_replace 局部改，"
+                "整文件覆盖亦允许（结构性换稿 / 确需整盖时可用）。"
                 "【Artifact-first】中等单篇默认一次写完；超长先短骨架（标题/锚点/"
                 "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空——"
                 "禁止先写成篇正文再同文件 append。"
                 "成功回执为 artifact manifest（优先以此验真；反复 file_read "
                 "受同 path 次数上限约束）。"
-                "【修订已有成品】禁止用它全文重写——对已存在成篇非空文件，"
-                "系统会【硬拒绝】整文件覆盖并引导改用 str_replace"
-                "（反例：惰性「……（中间省略，已保留首尾）……」会残缺交付）。"
-                "【代码文件】已存在的非空代码（.ts/.tsx/.js 等）禁止整文件覆盖——"
-                "哪怕短于成篇阈值；仅新建或真·空壳可用 file_write。"
-                "补丁失败（str_replace NoMatch）或读不到原文 ≠ 用骨架 file_write "
-                "整文件重写交差；应对照失败回执中的盘片段再改，或 escalate。"
+                "【修订已有成品】优先 str_replace；整盖允许但勿惰性省略中段"
+                "（反例：「……（中间省略，已保留首尾）……」会残缺交付——"
+                "省略/字数骤降仅软提示，不拦截写入）。"
+                "补丁失败（str_replace NoMatch）或读不到原文 ≠ 用残缺骨架交差；"
+                "应对照失败回执中的盘片段再改，或 escalate；确需整盖须写出完整正文。"
                 "【代码完整性】对 .ts/.tsx/.js 等：无 SECTION 骨架标记时，"
                 "括号结构不完整或含省略标记 → 硬拒绝（防截断类缺 `}`）。"
                 "只改一部分优先 str_replace；骨架填空才用 file_append。"
@@ -1144,7 +1145,7 @@ class FileWriteTool:
             rel_path, content, context
         )
 
-        # Pre-read for overwrite integrity nudge + substantial-file hard reject.
+        # Pre-read for overwrite integrity / length soft nudge (whole-file overwrite allowed).
         old_content: str | None = None
         try:
             old_content = await context.backend.read(rel_path)
@@ -1152,42 +1153,6 @@ class FileWriteTool:
             old_content = None
         except WorkspaceError:
             old_content = None
-
-        if old_content is not None and is_substantial_existing_body(old_content):
-            old_chars = len(old_content.strip())
-            logger.info(
-                "file_write.substantial_overwrite_rejected",
-                path=rel_path,
-                old_chars=old_chars,
-            )
-            if coordinator is not None and release_on_fail:
-                coordinator.release(rel_path, context.run_id)
-            return _error(
-                substantial_overwrite_rejection(rel_path, old_chars),
-                start,
-                contract_failure=True,
-            )
-
-        # 编码闭环·阶段3：已存在非空代码文件禁止整文件覆盖（堵短文件骨架冒充修复）。
-        # 保留新建 / 真·空壳窄例外；成篇阈值之上已由 substantial 闸覆盖。
-        if (
-            old_content is not None
-            and not is_empty_shell(old_content)
-            and is_brace_code_path(rel_path)
-        ):
-            old_chars = len(old_content.strip())
-            logger.info(
-                "file_write.non_empty_code_overwrite_rejected",
-                path=rel_path,
-                old_chars=old_chars,
-            )
-            if coordinator is not None and release_on_fail:
-                coordinator.release(rel_path, context.run_id)
-            return _error(
-                non_empty_code_overwrite_rejection(rel_path, old_chars),
-                start,
-                contract_failure=True,
-            )
 
         # 代码落盘完整性闸 (D1)：括号截断 / 省略标记硬拒；SECTION 骨架豁免。
         if is_brace_code_path(rel_path):
@@ -1597,13 +1562,14 @@ class StrReplaceTool:
         return ToolSchema(
             name="str_replace",
             description=(
-                "通过替换【完全精确匹配的文本片段】来编辑已有文件。改文件时优先"
+                "通过替换【完全精确匹配的文本片段】来编辑已有文件。改文件时【优先】"
                 "用它而非 file_write：它只重写匹配到的片段，因此对大文件安全、也"
-                "不会误伤无关内容。在 old_string 里放足够的上下文，确保在文件中"
-                "【唯一匹配一次】（包括空白、缩进与换行）。若 old_string 不存在、"
-                "或匹配多于一次（除非 replace_all=true），则失败；失败回执会附带"
-                "磁盘原文有界片段（模糊候选会标明非精确）——以盘文为真源重锚再改，"
-                "禁止改用骨架 file_write 整文件重写交差。要新建文件请改用 file_write。"
+                "不会误伤无关内容；整文件覆盖亦允许（结构性换稿时）。在 old_string "
+                "里放足够的上下文，确保在文件中【唯一匹配一次】（包括空白、缩进与换行）。"
+                "若 old_string 不存在、或匹配多于一次（除非 replace_all=true），则失败；"
+                "失败回执会附带磁盘原文有界片段（模糊候选会标明非精确）——以盘文为真源"
+                "重锚再改；确需整盖可用 file_write（须完整正文，勿残缺骨架交差）。"
+                "要新建文件请改用 file_write。"
             ),
             parameters={
                 "type": "object",
@@ -1965,7 +1931,8 @@ class FileDeleteTool:
             return denied
         coordinator = context.write_coordinator
 
-        # 成篇质量：禁止「删长文 → 整篇重写」烧预算；与 file_write 成篇覆盖硬拒同阈值。
+        # 成篇质量：禁止「删长文 → 整篇重写」烧预算（delete 闸）；
+        # file_write 整盖已允许，仅软 integrity / length nudge。
         old_content: str | None = None
         try:
             old_content = await context.backend.read(rel_path)

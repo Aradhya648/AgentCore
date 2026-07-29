@@ -376,7 +376,6 @@ async def resume_chat_pipeline(
             with contextlib.suppress(Exception):
                 await sink.flush_stream_state()
             from agentcore.conversation.store.merge import pick_longest
-            from agentcore.runtime.engine import join_segments
             from agentcore.runtime.events.stream_checkpointer import (
                 CHANNEL_CAPTAIN_CONTENT,
                 CHANNEL_CAPTAIN_REASONING,
@@ -388,7 +387,9 @@ async def resume_chat_pipeline(
                 captain_state.content,
                 sink.streamed_content(),
             )
-            salvaged_content = join_segments(pre_pause, post)
+            from agentcore.runtime.closing_posture import reconcile_resume_closing
+
+            salvaged_content = reconcile_resume_closing(pre_pause, post)
             salvaged_reasoning = pick_longest(
                 mem.get(CHANNEL_CAPTAIN_REASONING),
                 captain_state.reasoning,
@@ -460,7 +461,6 @@ async def resume_chat_pipeline(
         with contextlib.suppress(Exception):
             await sink.flush_stream_state()
         from agentcore.conversation.store.merge import pick_longest
-        from agentcore.runtime.engine import join_segments
         from agentcore.runtime.events.stream_checkpointer import (
             CHANNEL_CAPTAIN_CONTENT,
             CHANNEL_CAPTAIN_REASONING,
@@ -469,7 +469,11 @@ async def resume_chat_pipeline(
         mem = sink.stream_memory_snapshot()
         post = pick_longest(mem.get(CHANNEL_CAPTAIN_CONTENT), sink.streamed_content())
         # pre_pause may be unbound if the crash was before it was computed.
-        salvaged_content = join_segments(pre_pause, post) if pre_pause or post else ""
+        from agentcore.runtime.closing_posture import reconcile_resume_closing
+
+        salvaged_content = (
+            reconcile_resume_closing(pre_pause, post) if pre_pause or post else ""
+        )
         salvaged_reasoning = pick_longest(
             mem.get(CHANNEL_CAPTAIN_REASONING),
             sink.streamed_reasoning(),

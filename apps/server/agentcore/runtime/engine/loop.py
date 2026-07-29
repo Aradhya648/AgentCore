@@ -248,6 +248,13 @@ async def react_loop(
         cutoff_reason_sink.clear()
 
     disabled_tools: set[str] = set()
+    # Re-apply run-scoped read_url retirement from a prior pass (stream-stall →
+    # Wave retry, or contract write_pass/retry) so the tool is not re-offered.
+    if run_id:
+        from agentcore.tools.builtin.web._net import is_read_url_retired
+
+        if is_read_url_retired(run_id):
+            disabled_tools.add("read_url")
     # B·收尾窗口：预算软顶 / 超时预警后收窄到落盘+handoff（不改硬顶语义）。
     wind_down_active = False
     wind_down_effective_allowed: list[str] | None = None

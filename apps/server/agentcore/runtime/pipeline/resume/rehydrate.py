@@ -153,9 +153,18 @@ def bootstrap_resume_display(
 
 
 def arm_content_reset_reinjection(sink: EventSink, pre_pause: str) -> None:
-    """G6: after each ``content_reset``, display-only reinject ``pre_pause`` (+ joiner)."""
-    if pre_pause:
-        sink.set_content_reset_reinjection(pre_pause + "\n\n")
+    """G6: after each ``content_reset``, display-only reinject ``pre_pause`` (+ joiner).
+
+    Stale「请确认」ask framing is not reinjected — the question already lives on the
+    ask_user card; reinjecting it and then streaming「已全部收卷」recreates A∪C live.
+    """
+    if not pre_pause:
+        return
+    from agentcore.runtime.closing_posture import claims_full_delivery, claims_needs_confirm
+
+    if claims_needs_confirm(pre_pause) and not claims_full_delivery(pre_pause):
+        return
+    sink.set_content_reset_reinjection(pre_pause + "\n\n")
 
 
 def batch_shape_for_settled_suspension(

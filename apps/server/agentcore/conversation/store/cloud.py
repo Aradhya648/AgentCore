@@ -21,6 +21,7 @@ from agentcore.conversation.store.merge import (
     MESSAGE_STATUS_RUNNING,
     merge_usage_status,
     pick_merged_content,
+    visible_failed_assistant_content,
 )
 from agentcore.conversation.turn_stats import turn_worker_stats
 from agentcore.core.error_codes import ErrorCode
@@ -390,6 +391,19 @@ class CloudStore:
             msg_repo = MessageRepository(session)
 
             if message_id:
+                # Failed settle with no prose: keep any longer checkpoint body via
+                # merge; only when both sides are blank, land the error as visible
+                # content (stream stall / hard LLM fail → no empty bubble).
+                if terminal_status == MESSAGE_STATUS_FAILED and not assistant_reply.strip():
+                    existing = await msg_repo.get_by_id(
+                        message_id, conversation_id=conversation_id
+                    )
+                    existing_body = (existing.content if existing else None) or ""
+                    if not existing_body.strip():
+                        assistant_reply = visible_failed_assistant_content(
+                            content="",
+                            error=str(turn_error) if turn_error else None,
+                        )
                 await msg_repo.upsert_assistant(
                     conversation_id=conversation_id,
                     message_id=message_id,
@@ -776,6 +790,14 @@ class CloudStore:
                     content_to_write,
                     incoming_status=terminal_status,
                 )
+                if terminal_status == MESSAGE_STATUS_FAILED and not (content or "").strip():
+                    err_msg = (
+                        run_error.get("message") if isinstance(run_error, dict) else None
+                    )
+                    content = visible_failed_assistant_content(
+                        content="",
+                        error=str(err_msg) if err_msg else None,
+                    )
                 assistant_msg = await MessageRepository(session).upsert_assistant(
                     conversation_id=conversation_id,
                     message_id=message_id,

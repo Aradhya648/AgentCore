@@ -138,10 +138,20 @@ async def frame_round(
             if dossier
             else ""
         )
+        completeness = getattr(config, "evidence_completeness", "full") or "full"
+        failed_sides = list(getattr(config, "pretrial_failed_sides", None) or [])
+        incomplete_block = ""
+        if completeness != "full":
+            sides = "、".join(failed_sides) if failed_sides else "共享包或一方取证"
+            incomplete_block = (
+                f"\n【庭前取证完整度={completeness}】缺口涉及：{sides}。"
+                "开场白与首轮焦点须【显式承认证据不完整】，禁止宣称双方已充分取证；"
+                "把可核实缺口标进争议焦点，勿用「材料已齐」口吻掩盖。\n"
+            )
         user = (
             f"辩论命题：{config.motion}\n\n参与方：\n{_sides_block(config)}\n\n"
             f"{_frame_form_hint(config.form)}\n"
-            f"{kickoff_block}{dossier_block}\n"
+            f"{kickoff_block}{dossier_block}{incomplete_block}\n"
             "请把命题拆成【第一轮】各方应集中交锋的一个最核心争议焦点——挑命题里【最承重】的"
             "那个争议点开场（分量最大、最能带出后续交锋的），别开在边角枝节上。"
             "焦点必须是【一句短语、不超过 30 字】、像一个小标题，聚焦【单一】具体可辩的争议点——"

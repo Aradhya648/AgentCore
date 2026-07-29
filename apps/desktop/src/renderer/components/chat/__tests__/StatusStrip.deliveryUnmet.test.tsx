@@ -124,9 +124,33 @@ describe("StatusStrip · delivery unmet 词轴", () => {
       MID,
     );
     const exec = projectExecution(plan, doneFrames, "completed");
-    renderStrip(exec);
+    const { container } = renderStrip(exec);
     expect(screen.getByText("已跑完 · 交付未过关")).toBeTruthy();
     expect(screen.queryByText("团队完成")).toBeNull();
+    expect(screen.getByTestId("status-strip-delivery-unmet-icon")).toBeTruthy();
+    expect(container.querySelector(".text-success")).toBeNull();
+    expect(container.querySelector(".text-warning")).toBeTruthy();
+  });
+
+  it("blocked 未过关用 destructive 警示图标，非绿勾", () => {
+    useExecutionStore.getState().startExecution(plan, MID);
+    useExecutionStore.getState().setDeliveryStatus(
+      {
+        execution_id: "exec-delivery",
+        state: "blocked",
+        summary: "未交付",
+        delivered_files: [],
+        gaps: [{ role: "验收", description: "无产物" }],
+        actions: [],
+      },
+      MID,
+    );
+    const exec = projectExecution(plan, doneFrames, "completed");
+    const { container } = renderStrip(exec);
+    expect(screen.getByText("已跑完 · 交付未过关")).toBeTruthy();
+    expect(screen.getByTestId("status-strip-delivery-unmet-icon")).toBeTruthy();
+    expect(container.querySelector(".text-success")).toBeNull();
+    expect(container.querySelector(".text-destructive")).toBeTruthy();
   });
 
   it("delivered 对账不改「团队完成」（卡本身也不出）", () => {

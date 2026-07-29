@@ -23,7 +23,9 @@
        ``state=blocked`` 且无落盘时，正文不得宣称「已生成 / 已落盘 / 请下载」；
        ``state`` 为 ``blocked`` / ``partial``（有 blocking 缺口）时，不得宣称「全部完成 /
        全部就绪 / 全部交付」等全员成功话术，也不得宣称「已完整可用」等与卡冲突的完整可用句式，
-       也不得宣称「已修好 / 验证通过 / 已跑通」等与卡冲突的修码完成话术；
+       也不得宣称「已修好 / 验证通过 / 已跑通」等与卡冲突的修码完成话术，
+       也不得宣称闭集「已完成交付 / 交付完成…」或「站点/网站/页面…做好了」等与卡冲突的交付完成话术
+       （经 ``_claims_*`` + 否定前缀豁免；裸「已交付」不升到有文件闸，新词不进无否定空盘闸）；
        有交付卡且落地仅为 md/脚本等、无 ``.pptx``
        时，不得宣称「PPT 已落盘 / 可直接打开」；有交付卡时终稿超
        ``engine_ceo_overview_max_chars`` → 回炉压缩为概览（细节在卡 / run 详情）。
@@ -59,10 +61,12 @@ _BLOCKED_EMPTY_DELIVERY_CLAIMS = re.compile(
 
 # All-success claims when delivery_status is blocked/partial (blocking gaps present).
 # Prefer「全部/均已/都已」over bare「已就绪」to avoid FP on honest partial acknowledgments.
+# 「已全部收卷」与 closing_posture A 姿势同源（cef27dfa 误报面）。
 _ALL_SUCCESS_CLAIMS = re.compile(
+    r"已全部收卷|全部收卷|已收卷|"
     r"已全部(?:完成|交付|就位|成功|就绪)|"
     r"全部(?:完成|交付|就位|成功|就绪)|"
-    r"均已(?:完成|交付|就绪|成功)|"
+    r"均已(?:完成|交付|就绪|成功|落盘)|"
     r"都已(?:完成|交付|就绪|成功)|"
     r"所有(?:任务|队员|节点)(?:已|都已)(?:完成|交付|就绪)"
 )
@@ -86,6 +90,17 @@ _FIXED_OR_VERIFIED_CLAIMS = re.compile(
     r"已修好|修复已完成|bug\s*已修复|缺陷已修复|问题已修复|"
     r"已验证通过|验证通过|验证已绿|验证已通过|"
     r"测试已通过|已跑通测试|测试已跑通"
+    r")"
+)
+
+# 交付完成闭集 + 站点族「做好了」（窄闸）：blocked/partial 时拦与卡冲突的交付完成话术。
+# 仅经 _claims_* + 否定前缀豁免；故意不拦裸「已交付/已经交付」、弱「可用」；新词不进空盘闸。
+# 与 closing_posture A 姿势对齐（含收卷）。
+_DELIVERY_DONE_CLAIMS = re.compile(
+    r"(?:"
+    r"已完成交付|交付已完成|完成交付|交付完成|已经交付完成|"
+    r"已全部收卷|全部收卷|已收卷|"
+    r"(?:站点|网站|页面)[^。\n]{0,16}(?:做好了|已做好)"
     r")"
 )
 
@@ -128,8 +143,10 @@ def finish_guard(
        - ``[n]``（仅 ``check_citations``）：越界角标 → 编造引用。
        - ``#rN``（``citable_ids`` 非 None 且正文出现标记）：id ∉ 可引用台账 → 回炉项。
     2. **结构完整性**（始终查）：:func:`_code_fence_reworks`。
-    3. **交付验收对照**（仅 ``check_citations`` + ``delivery_verdict``）：假完成 /
-       全员成功话术；有交付卡时的概览篇幅（``overview_max_chars``，默认读设置）。
+    3. **交付验收对照**（仅 ``check_citations``）：
+       - 完成态互斥 A∪C（不依赖 ``delivery_verdict``）：同条不得既「请确认」又「已全部收卷」；
+       - 有 ``delivery_verdict`` 时另拦假完成 / 全员成功 / 交付完成闭集等与卡矛盾话术；
+       - 有交付卡时的概览篇幅（``overview_max_chars``，默认读设置）。
     """
     reworks: list[str] = []
     if check_citations:
@@ -151,6 +168,12 @@ def finish_guard(
         )
     reworks.extend(_code_fence_reworks(content))
     if check_citations:
+        # 完成态互斥（A∪C）：不依赖 delivery_verdict——单段正文自相矛盾即回炉。
+        from agentcore.runtime.closing_posture import mutual_exclusion_rework
+
+        conflict = mutual_exclusion_rework(content)
+        if conflict:
+            reworks.append(conflict)
         reworks.extend(_delivery_claim_reworks(content, delivery_verdict))
         reworks.extend(
             _overview_length_reworks(
@@ -210,6 +233,17 @@ def _claims_fully_usable(content: str) -> bool:
 def _claims_fixed_or_verified(content: str) -> bool:
     """True when prose asserts fix/verify-green done, ignoring negated forms (尚未修好…)."""
     for match in _FIXED_OR_VERIFIED_CLAIMS.finditer(content):
+        start = match.start()
+        prefix = content[max(0, start - 2) : start]
+        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
+            continue
+        return True
+    return False
+
+
+def _claims_delivery_done(content: str) -> bool:
+    """True when prose asserts delivery-done / site-ready, ignoring negated forms."""
+    for match in _DELIVERY_DONE_CLAIMS.finditer(content):
         start = match.start()
         prefix = content[max(0, start - 2) : start]
         if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
@@ -316,6 +350,15 @@ def _delivery_claim_reworks(
             "正文不得宣称已修好 / 修复已完成 / 验证通过 / 测试已通过 / 已跑通。"
             "请以交付状态卡为主答：点名未过验收的缺口，散文只作注释；"
             "不要用修码完成或验绿话术盖过红卡。"
+        )
+    # 交付完成闭集 / 站点做好了：blocked/partial 不得写与卡冲突的交付完成话术。
+    if _claims_delivery_done(content):
+        label = "未满足" if state == "blocked" else "部分未满足"
+        reworks.append(
+            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
+            "正文不得宣称已完成交付 / 交付完成 / 已全部收卷 / 站点（网站/页面）做好了。"
+            "请以交付状态卡为主答：点名缺口与待办，散文只作注释；"
+            "不要用交付完成话术盖过红卡。"
         )
     return reworks
 

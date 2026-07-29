@@ -938,6 +938,19 @@ def test_debater_task_injects_research_dossier_index():
         "grep",
     }
 
+    # 庭前完整度驱动：full pack → 辩手 retrieval_budget=0（禁外证扫网）
+    cfg_full = DebateConfig(
+        motion="X",
+        form=DebateForm.DEBATE,
+        sides=sides,
+        research_dossier_index=idx,
+        pretrial_evidence_ready=True,
+        evidence_completeness="full",
+        debater_retrieval_budgets={"pro": 0, "con": 0},
+    )
+    full_payload = debater_task(cfg_full, sides[0], 0, round_no=1, focus="焦点")
+    assert full_payload.get("retrieval_budget") == 0
+
 
 def test_debater_task_clips_oversized_background():
     """超长底料进 prompt 前头尾裁剪（与 _clip 同思路），防撑爆首轮。"""

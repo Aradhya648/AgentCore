@@ -482,6 +482,16 @@ function CompletedStrip({
       <div className="flex items-center gap-2">
         {stopped ? (
           <Square size={15} className="shrink-0 text-muted-foreground" />
+        ) : deliveryUnmet ? (
+          <AlertTriangle
+            size={15}
+            className={
+              deliveryStatus?.state === "blocked"
+                ? "shrink-0 text-destructive"
+                : "shrink-0 text-warning"
+            }
+            data-testid="status-strip-delivery-unmet-icon"
+          />
         ) : (
           <CheckCircle2 size={15} className="shrink-0 text-success" />
         )}

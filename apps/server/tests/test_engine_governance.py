@@ -1002,6 +1002,66 @@ async def test_circuit_breaker_warns_then_disables_failing_tool():
     assert provider.offered[-1] == ["other"]
 
 
+async def test_read_url_disable_survives_react_loop_restart():
+    """After CB disables read_url, a fresh react_loop with the same run_id must not
+    re-offer it (stream-stall → Wave retry / contract write_pass)."""
+    from agentcore.tools.builtin.web._net import (
+        clear_read_url_retired,
+        is_read_url_retired,
+    )
+
+    run_id = "read-url-survive-restart"
+    clear_read_url_retired(run_id)
+    ctx = ToolContext(
+        execution_id="e",
+        run_id=run_id,
+        agent_id="a",
+        backend=ServerWorkspace(root=Path("."), sandbox=SubprocessSandbox()),
+        user_id="u",
+    )
+    reg = ToolRegistry()
+    reg.register(_StubTool(success=False, name="read_url"))
+    reg.register(_StubTool(success=True, name="other"))
+    provider = _ToolsRecordingProvider(
+        [
+            [_content_chunk("t0"), _tool_chunk("read_url", '{"url": "a"}')],
+            [_content_chunk("t1"), _tool_chunk("read_url", '{"url": "b"}')],
+            [_content_chunk("t2"), _tool_chunk("read_url", '{"url": "c"}')],
+            [_content_chunk("done")],
+        ]
+    )
+    messages: list[LLMMessage] = [LLMMessage(role="user", content="go")]
+    await react_loop(
+        messages=messages,
+        llm=provider,
+        tools=reg,
+        sink=EventSink(),
+        tool_context=ctx,
+        profile=make_profile_params(max_rounds=20),
+        turn_model="m",
+        run_id=run_id,
+    )
+    assert is_read_url_retired(run_id)
+    steers = [m.content or "" for m in messages if m.role == "user"]
+    assert any("停用" in s and "read_url" in s for s in steers)
+    assert "read_url" not in provider.offered[-1]
+
+    # Fresh loop = Wave / contract retry: retirement latch keeps read_url off the surface.
+    provider2 = _ToolsRecordingProvider([[_content_chunk("done2")]])
+    await react_loop(
+        messages=[LLMMessage(role="user", content="retry")],
+        llm=provider2,
+        tools=reg,
+        sink=EventSink(),
+        tool_context=ctx,
+        profile=make_profile_params(max_rounds=5),
+        turn_model="m",
+        run_id=run_id,
+    )
+    assert provider2.offered[0] == ["other"]
+    clear_read_url_retired(run_id)
+
+
 async def test_unproductive_rounds_early_stop_and_salvage_answer():
     # Every round: one tool call that FAILS (varied args → not a repeated pattern) and
     # no content. After the unproductive threshold (3) consecutive such rounds the loop

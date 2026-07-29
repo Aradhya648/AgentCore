@@ -448,7 +448,8 @@ export interface Execution {
   debateOpening: string | null;
   /** 庭前取证（`debate_pretrial_*`）：开赛后首轮前；null = 无 / 老 journal。 */
   debatePretrial: DebatePretrialProjection | null;
-  /** 场级证据台账（`debate_round.evidence_ledger_delta` 累积 / `debate_result.evidence_ledger`
+  /** 场级证据台账（`debate_pretrial_completed` / `debate_round` 的
+   * `evidence_ledger_delta` 累积 / `debate_result.evidence_ledger`
    * 权威覆盖）：辩论徽章 `#eN` 溯源。桌面 UI 态——不进 conformance ProjectedTurn（oracle 经
    * `debate.evidence_ledger` 承载收场权威；live delta 同路径累积）。非辩论 / 旧 fixture 可缺省。 */
   evidenceLedger?: EvidenceLedgerEntry[];

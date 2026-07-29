@@ -1197,13 +1197,39 @@ export interface DebatePretrialInvestigator {
   task_query?: string;
 }
 
+export interface DebateEvidencePackSource {
+  source_id: string;
+  kind: "attachment" | "conversation" | "background" | "dossier" | "workspace";
+  label: string;
+  path?: string | null;
+  excerpt?: string;
+  complete?: boolean;
+  failure?: string | null;
+}
+
+export interface DebateEvidencePackDispute {
+  claim: string;
+  why_contested?: string | null;
+  related_source_ids?: string[];
+}
+
+/** 共享证据包（庭前附件路径）；完整度一等公民。 */
+export interface DebateEvidencePack {
+  motion?: string | null;
+  completeness?: "full" | "partial" | "empty";
+  notes?: string | null;
+  sources?: DebateEvidencePackSource[];
+  dispute_candidates?: DebateEvidencePackDispute[];
+  ledger_ids?: Record<string, string> | null;
+}
+
 export interface DebatePretrialStartedPayload {
   execution_id: string;
   moderator_run_id: string;
   thorough?: boolean;
   sides?: DebatePretrialSideInfo[];
   /** Set when pretrial is skipped immediately; absent when phase proceeds. */
-  skip_reason?: "fast" | "dossier_sufficient";
+  skip_reason?: "fast" | "dossier_sufficient" | "evidence_pack";
 }
 
 export interface DebatePretrialOrdersPayload {
@@ -1214,6 +1240,16 @@ export interface DebatePretrialOrdersPayload {
   orders?: DebatePretrialOrder[];
   investigator_count_per_side?: number;
   retrieval_budget_per_investigator?: number;
+  /** Present when pretrial takes the shared evidence-pack path. */
+  evidence_pack?: DebateEvidencePack;
+  /** Present when orders event is emitted for the evidence-pack / gap-fill path. */
+  path?: "evidence_pack" | "evidence_pack_gap_fill";
+  /** Evidence completeness when path=evidence_pack*. */
+  completeness?: "full" | "partial" | "empty";
+  /** True when completeness is not full (evidence-pack path). */
+  incomplete?: boolean;
+  /** Gap-driven external-evidence plan (mode/budget/sides/reason). */
+  external_evidence?: Record<string, unknown>;
 }
 
 export interface DebatePretrialProgressPayload {
@@ -1233,13 +1269,23 @@ export interface DebatePretrialCompletedPayload {
   sides?: DebatePretrialSideInfo[];
   status?: "done" | "skipped" | "degraded";
   /** Present when status=skipped. */
-  skip_reason?: "fast" | "dossier_sufficient";
+  skip_reason?: "fast" | "dossier_sufficient" | "evidence_pack";
   orders?: DebatePretrialOrder[];
   investigators?: DebatePretrialInvestigator[];
   fallback_self_search?: boolean;
   evidence_ready?: boolean;
   evidence_ledger_count?: number;
   evidence_ledger_delta?: EvidenceLedgerEntry[];
+  completeness?: "full" | "partial" | "empty";
+  incomplete?: boolean;
+  failed_sides?: string[];
+  /** Present when pretrial assembled a shared evidence pack from host attachments. */
+  evidence_pack?: DebateEvidencePack;
+  /** Resolved external-evidence mode (completeness-driven). */
+  external_evidence_mode?: "skip" | "gap_fill" | "investigators";
+  /** Skip/allow reason: evidence_pack_full | evidence_pack_gap | failed_sides_gap | … */
+  external_evidence_reason?: string;
+  retrieval_budget_per_investigator?: number;
 }
 
 /** 协作质量: turn-level orchestration signals for 诊断模式. Omitted on single-agent

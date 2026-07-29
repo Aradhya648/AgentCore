@@ -342,7 +342,7 @@ class DelegateTool:
                     format_id=automation_conf.format_id,
                 )
 
-        # Playbook 二分：建站意图硬闸（拒绝 none / 手写旁路）；其余可手写 tasks 不声明。
+        # Playbook 声明闸：结构校验 + 自动化开工卡记账；建站/绿场 none 不再硬拒。
         declared_playbook, none_reason, decl_error = resolve_playbook_declaration(
             arguments,
             user_message=self._user_message or "",
@@ -355,7 +355,6 @@ class DelegateTool:
                 playbook_id=arguments.get("playbook_id") or arguments.get("playbook"),
                 has_tasks=bool(arguments.get("tasks")),
                 gate=gate,
-                website_build_gate=gate == "website",
             )
             return ToolResult(
                 tool_call_id="",
@@ -394,26 +393,24 @@ class DelegateTool:
             )
 
         # 拆·playbook 固化 (§2.1): a固化形状 instantiates the whole tasks array, then flows through
-        # the SAME pipeline below as a hand-written one (纯加法). playbook XOR tasks — expanding a
-        # playbook AND passing tasks is ambiguous, so reject rather than silently pick one.
+        # the SAME pipeline below as a hand-written one (纯加法). playbook XOR tasks is enforced
+        # in resolve_playbook_declaration (and re-checked here as defense in depth).
         playbook = declared_playbook
         if playbook is not None:
+            from agentcore.runtime.delegate.playbook_declaration import (
+                PLAYBOOK_TASKS_XOR_MSG,
+            )
             from agentcore.runtime.runs.playbooks import (
                 collect_playbook_notes,
                 expand_playbook,
             )
 
             if arguments.get("tasks"):
-                msg = (
-                    "playbook 与 tasks 二选一，不可同时传。"
-                    "手写 tasks：去掉具名 playbook/playbook_id，只传 tasks；"
-                    "用可选形状：只传 playbook（+playbook_args 槽位），不要传 tasks。"
-                )
                 return ToolResult(
                     tool_call_id="",
                     success=False,
                     output="",
-                    error=msg,
+                    error=PLAYBOOK_TASKS_XOR_MSG,
                     # 契约自纠拒绝——勿进熔断（CEO 连试换 none/去掉 tasks 会误禁用）。
                     contract_failure=True,
                 )

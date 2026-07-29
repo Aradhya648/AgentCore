@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 # (strip investigation tools). 按轮不计同轮并行工具次数——一轮里 git×2+file_list
 # 只计 1 轮，避免并行烧尽额度。No soft nudge. long_content 事后丢稿闸门已撤：
 # 改由 CEO 提示词「路由·第一拍」在展开前显式表态（见 prompt._CEO_CORE_HINT）。
-TEAM_GATE_INVESTIGATION_THRESHOLD = 3
+TEAM_GATE_INVESTIGATION_THRESHOLD = 5
 # 本地改文件：允许多摸 1～2 次 file_list/file_read/grep，再硬催派（与网页独搜分阈）。
 TEAM_GATE_LOCAL_EDIT_THRESHOLD = 2
 LOCAL_RECON_TOOLS = frozenset({"file_list", "file_read", "grep"})
@@ -821,6 +821,15 @@ def apply_circuit_breaker(
                 run_id=run_id,
                 failure_count=controller.tool_failure_count(tool_name),
             )
+            # Persist read_url disable across react_loop restart (stream-stall →
+            # Wave retry / contract write_pass). Same process + run_id.
+            if tool_name == "read_url":
+                from agentcore.tools.builtin.web._net import (
+                    READ_URL_RETIRE_STEER,
+                    mark_read_url_retired,
+                )
+
+                mark_read_url_retired(run_id, message=READ_URL_RETIRE_STEER)
     breaker_message = breaker.message()
     if breaker_message is not None:
         logger.info(

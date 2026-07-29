@@ -26,7 +26,15 @@ STATE_CHANGING_ACTIONS = frozenset({"navigate", "click", "type", "scroll"})
 
 
 class BrowserSessionError(Exception):
-    """Base for browser-session failures (mapped to a model-facing ToolResult)."""
+    """Base for browser-session failures (mapped to a model-facing ToolResult).
+
+    Optional ``code`` is a stable machine token for tool ``metadata.code`` (e.g.
+    ``egress_unavailable`` / ``host_unavailable``). Subclasses may set it.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class BrowserSessionsBusyError(BrowserSessionError):
@@ -45,8 +53,7 @@ class BrowserSessionAcquireError(BrowserSessionError):
     """
 
     def __init__(self, message: str, *, code: str) -> None:
-        super().__init__(message)
-        self.code = code
+        super().__init__(message, code=code)
 
 
 class BrowserDriverCrashedError(BrowserSessionError):

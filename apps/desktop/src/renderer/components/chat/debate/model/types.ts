@@ -241,6 +241,18 @@ export interface DebatePretrialView {
   fallbackSelfSearch: boolean;
   evidenceReady: boolean;
   sides: DebatePretrialSideView[];
+  /** 取证完整度（权威=completed）；缺字段=未知，不展示。 */
+  completeness?: "full" | "partial" | "empty" | string;
+  /** 明确 incomplete 字段时才有；intentional skip 不靠此告警。 */
+  incomplete?: boolean;
+  /** 未有效交付的 side_key。 */
+  failedSides?: string[];
+  /** 外证计划 mode：skip / gap_fill / investigators。 */
+  externalEvidenceMode?: string | null;
+  /** 外证跳过/允许原因。 */
+  externalEvidenceReason?: string | null;
+  /** 庭前取证员/补证 per-run 检索预算。 */
+  retrievalBudgetPerInvestigator?: number;
 }
 
 export interface DebatePretrialSideView {

@@ -462,10 +462,14 @@ def test_revise_skill_teaches_recall_and_delegate_fallback():
     # The fallback boundary: 换角色 / 救失败稿 / 合并 → 冷委派 + replaces_run_id.
     assert "冷委派" in body and "replaces_run_id" in body
     assert "补派" in body or "接手" in body
-    # P2 毕业考 P0：修订落盘纪律——str_replace / file_append，禁 file_write 全文重写。
+    # 修订落盘纪律：优先 str_replace / file_append；整盖允许但勿惰性省略。
     assert "str_replace" in body and "file_append" in body
-    assert "禁止" in body and "file_write" in body
+    assert "file_write" in body
+    assert "优先" in body
     assert "中间省略" in body
+    assert "全文重写" not in body
+    assert "**禁止**对已有成篇成品再 `file_write`" not in body
+    assert "禁止骨架/最小实现" not in body
 
 
 def test_team_orchestration_skill_teaches_revision_local_edit():
@@ -654,7 +658,7 @@ def test_deep_multi_lens_research_teaches_parallel_lenses_and_motion_card():
     assert "见分歧" in body  # 严禁见分歧就建议开辩
     assert "真对立轴" in body  # 存在真对立轴则必须产卡
     # CEO 禁止自搜替代四路；先调研后辩；探路 query 须遵守 A3 ≤8 词
-    assert "3 轮" in body or "至多" in body
+    assert "5 轮" in body
     assert "禁止自搜" in body or ("禁止" in body and "替代四路" in body)
     assert "≤8 词" in body
     assert "本回合" in body and "debate" in body

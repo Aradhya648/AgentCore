@@ -386,6 +386,119 @@ def test_partial_verdict_allows_honest_fix_gap_summary():
     )
 
 
+def test_partial_verdict_rejects_delivery_done_claims():
+    """交付完成闭集 / 站点做好了：partial + 文件 → 回炉。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    for claim in (
+        "已完成交付，可以收工。",
+        "交付已完成。",
+        "完成交付。",
+        "交付完成。",
+        "已经交付完成。",
+        "已全部收卷。",
+        "站点做好了。",
+        "网站已经做好了。",
+        "页面基本做好了。",
+    ):
+        reworks = finish_guard(
+            claim,
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        assert any(
+            "已完成交付" in r or "交付完成" in r or "做好了" in r or "收卷" in r
+            for r in reworks
+        ), claim
+
+
+def test_partial_verdict_allows_negated_delivery_done_phrase():
+    """否定前缀「尚未完成交付」放行。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "尚未完成交付：交互层仍有缺口。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
+
+
+def test_partial_verdict_allows_honest_delivery_gap_with_landed_file():
+    """诚实「已落盘 X；缺口」放行（未命中交付完成闭集）。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "已落盘 `site/index.html`；验收缺口仍在，下回补交互层。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
+
+
+def test_delivery_done_claim_skipped_for_workers():
+    """worker check_citations=False：交付完成闸不继承。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "已完成交付，站点做好了。",
+            citation_count=0,
+            check_citations=False,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
+
+
+def test_partial_with_files_allows_bare_delivered_and_weak_usable():
+    """故意不拦：裸「已交付 / 已经交付」与弱「可用」——勿写成失败。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    for claim in (
+        "主页已交付，详见产物卡。",
+        "已经交付 `site/index.html`，仍有缺口。",
+        "产物可用，但验收未过。",
+    ):
+        assert (
+            finish_guard(
+                claim,
+                citation_count=0,
+                delivery_verdict=verdict,
+            )
+            == []
+        ), claim
+
+
 def test_partial_verdict_allows_negated_all_success_phrase():
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
@@ -423,12 +536,13 @@ def test_blocked_with_files_rejects_all_success_not_file_claim():
         == []
     )
     reworks = finish_guard(
-        "全部交付完成，可以收工。",
+        "全部完成，可以收工。",
         citation_count=0,
         delivery_verdict=verdict,
     )
     assert len(reworks) == 1
     assert "未满足" in reworks[0]
+    assert "全部完成" in reworks[0]
 
 
 def test_notes_verdict_allows_all_success_claim():

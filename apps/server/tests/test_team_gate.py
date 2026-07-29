@@ -137,7 +137,7 @@ async def _run_captain(
 def test_hard_stop_copy_strips_and_steers_delegate():
     text = team_gate_hard_stop_prompt()
     assert "硬上限" in text
-    assert "3 轮" in text  # 按探路轮计，非同轮并行工具次数
+    assert "5 轮" in text  # 按探路轮计，非同轮并行工具次数
     assert "调查类工具已收回" in text
     assert "delegate" in text
     assert "归类理由" in text
@@ -157,7 +157,7 @@ def test_team_gate_research_shape_copy_when_flagged():
 
 
 def test_team_gate_counts_rounds_not_parallel_calls():
-    """同轮并行多工具只计 1 轮：calls 再高、rounds<3 不硬闸。"""
+    """同轮并行多工具只计 1 轮：calls 再高、rounds<5 不硬闸。"""
     controller = create_loop_controller(frozenset({"search", "git", "file_list"}))
     controller._investigation_calls = 5
     controller._investigation_rounds = 1
@@ -176,13 +176,27 @@ def test_team_gate_counts_rounds_not_parallel_calls():
         is False
     )
     assert disabled == set()
-    controller._investigation_rounds = 3
+    controller._investigation_rounds = 4
     assert (
         maybe_inject_team_gate(
             controller,
             messages=messages,
             run_id="r",
             round_idx=1,
+            role="captain",
+            disabled_tools=disabled,
+            investigation_tools=frozenset({"search", "git", "file_list"}),
+        )
+        is False
+    )
+    assert disabled == set()
+    controller._investigation_rounds = 5
+    assert (
+        maybe_inject_team_gate(
+            controller,
+            messages=messages,
+            run_id="r",
+            round_idx=2,
             role="captain",
             disabled_tools=disabled,
             investigation_tools=frozenset({"search", "git", "file_list"}),
@@ -194,7 +208,7 @@ def test_team_gate_counts_rounds_not_parallel_calls():
 
 def test_hard_stop_research_intent_injects_shape():
     controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_rounds = 3
+    controller._investigation_rounds = 5
     disabled: set[str] = set()
     messages = [
         LLMMessage(
@@ -223,9 +237,9 @@ def test_hard_stop_research_intent_injects_shape():
 
 
 def test_soft_gate_non_research_skips_shape():
-    """开放问答：≥3 轮硬收并剥工具，但不追加成篇形状句。"""
+    """开放问答：≥5 轮硬收并剥工具，但不追加成篇形状句。"""
     controller = create_loop_controller(frozenset({"search"}))
-    controller._investigation_rounds = 3
+    controller._investigation_rounds = 5
     disabled: set[str] = set()
     messages = [LLMMessage(role="user", content="查一下 X 和 Y 的区别")]
     assert maybe_inject_team_gate(
@@ -246,7 +260,7 @@ def test_soft_gate_non_research_skips_shape():
 def test_research_intent_forces_hard_stop_and_shape():
     """成篇调研意图：闸门走硬停 + 形状句。"""
     controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_rounds = 3
+    controller._investigation_rounds = 5
     disabled: set[str] = set()
     messages = [
         LLMMessage(
@@ -271,7 +285,7 @@ def test_research_intent_forces_hard_stop_and_shape():
 def test_competitor_compare_intent_forces_hard_stop_and_shape():
     """竞品对比落盘：须硬停卸调查工具 + 成篇形状句。"""
     controller = create_loop_controller(frozenset({"web_search", "read_url"}))
-    controller._investigation_rounds = 3
+    controller._investigation_rounds = 5
     disabled: set[str] = set()
     messages = [
         LLMMessage(
@@ -379,7 +393,7 @@ def test_local_file_edit_below_threshold_no_gate():
 
 def test_hard_stop_disables_investigation_tools_when_intent_clear():
     controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_rounds = 3  # threshold met
+    controller._investigation_rounds = 5  # threshold met
     disabled: set[str] = set()
     messages = [
         LLMMessage(role="assistant", content="协作方案与团队分工如下……"),
@@ -402,9 +416,9 @@ def test_hard_stop_disables_investigation_tools_when_intent_clear():
 
 
 def test_soft_path_keeps_tools_without_team_intent():
-    """开放问答无组队意图：≥3 轮仍硬收剥工具（无 soft）。"""
+    """开放问答无组队意图：≥5 轮仍硬收剥工具（无 soft）。"""
     controller = create_loop_controller(frozenset({"search"}))
-    controller._investigation_rounds = 3
+    controller._investigation_rounds = 5
     disabled: set[str] = set()
     messages = [LLMMessage(role="user", content="查一下 X 和 Y 的区别")]
     assert (
@@ -425,7 +439,7 @@ def test_soft_path_keeps_tools_without_team_intent():
 
 @pytest.mark.asyncio
 async def test_investigation_threshold_fires_once_for_captain():
-    # ≥3 investigation rounds → hard gate once; tools stripped so 4th search
+    # ≥5 investigation rounds → hard gate once; tools stripped so 6th search
     # cannot execute; subsequent rounds stay quiet.
     search = _StubTool(name="search")
     provider = _ScriptedProvider(
@@ -434,6 +448,8 @@ async def test_investigation_threshold_fires_once_for_captain():
             [_tool_chunk("search", '{"q": "2"}')],
             [_tool_chunk("search", '{"q": "3"}')],
             [_tool_chunk("search", '{"q": "4"}')],
+            [_tool_chunk("search", '{"q": "5"}')],
+            [_tool_chunk("search", '{"q": "6"}')],
             [_content_chunk("ok")],
         ]
     )
@@ -443,17 +459,19 @@ async def test_investigation_threshold_fires_once_for_captain():
     gates = _team_gate_msgs(messages)
     assert len(gates) == 1
     assert "探路已达硬上限" in (gates[0].content or "")
-    assert search.calls == 3  # hard path stripped tools — 4th must not execute
+    assert search.calls == 5  # hard path stripped tools — 6th must not execute
 
 
 @pytest.mark.asyncio
 async def test_below_investigation_threshold_no_gate():
-    # Two calls stay under threshold=3; gate must not fire.
+    # Four calls stay under threshold=5; gate must not fire.
     search = _StubTool(name="search")
     provider = _ScriptedProvider(
         [
             [_tool_chunk("search", '{"q": "1"}')],
             [_tool_chunk("search", '{"q": "2"}')],
+            [_tool_chunk("search", '{"q": "3"}')],
+            [_tool_chunk("search", '{"q": "4"}')],
             [_content_chunk("short answer")],
         ]
     )
@@ -531,6 +549,8 @@ async def test_investigation_fires_at_most_once():
             [_tool_chunk("search", '{"q": "1"}')],
             [_tool_chunk("search", '{"q": "2"}')],
             [_tool_chunk("search", '{"q": "3"}')],
+            [_tool_chunk("search", '{"q": "4"}')],
+            [_tool_chunk("search", '{"q": "5"}')],
             [_content_chunk("甲" * 500)],
         ]
     )

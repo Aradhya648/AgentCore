@@ -21,6 +21,7 @@ from agentcore.conversation.store.merge import (
     should_advance_status,
     should_apply_checkpoint_content,
     status_rank,
+    visible_failed_assistant_content,
 )
 from agentcore.runtime.events import FinishReason
 from agentcore.runtime.ports import ConversationStore
@@ -139,6 +140,24 @@ def test_d7_salvage_paths_keep_monotonic_protection():
     )
 
 
+def test_visible_failed_assistant_content_keeps_partial_or_surfaces_error():
+    """Empty ERROR settle must not land a blank bubble; partial prose wins."""
+    assert (
+        visible_failed_assistant_content(content="已有半成品", error="模型流式响应停滞")
+        == "已有半成品"
+    )
+    assert (
+        visible_failed_assistant_content(
+            content="", error="模型流式响应停滞（长时间无输出），请稍后重试"
+        )
+        == "模型流式响应停滞（长时间无输出），请稍后重试"
+    )
+    assert (
+        visible_failed_assistant_content(content="   ", error=None)
+        == "模型调用失败，请稍后重试。"
+    )
+
+
 # --- Protocol shape ---
 
 
@@ -221,7 +240,7 @@ async def test_begin_turn_propagates_placeholder_failure(monkeypatch):
 
 
 async def test_finalize_cloud_settles_empty_error_with_error_code(monkeypatch):
-    """First-turn / soft-fail: empty content ERROR still upserts failed + error_code."""
+    """Empty content ERROR upserts failed + error_code and surfaces the error as body."""
     from agentcore.core.error_codes import ErrorCode
 
     upserted: dict[str, Any] = {}
@@ -229,6 +248,9 @@ async def test_finalize_cloud_settles_empty_error_with_error_code(monkeypatch):
     class MsgRepo:
         def __init__(self, _s):
             pass
+
+        async def get_by_id(self, *_a, **_k):
+            return None
 
         async def upsert_assistant(self, **kw):
             upserted.update(kw)
@@ -295,11 +317,81 @@ async def test_finalize_cloud_settles_empty_error_with_error_code(monkeypatch):
     )
 
     assert upserted["message_id"] == "m-first"
-    assert upserted["content"] == ""
+    assert upserted["content"] == "连接超时"
     meta = upserted["metadata"]
     assert meta["status"] == MESSAGE_STATUS_FAILED
     assert meta["error_code"] == ErrorCode.LLM_TIMEOUT
     assert meta["finish_reason"] == FinishReason.ERROR.value
+
+
+async def test_finalize_cloud_keeps_existing_partial_on_empty_error(monkeypatch):
+    """Stream-stall ERROR with empty salvage must not erase a longer pause checkpoint."""
+    from agentcore.core.error_codes import ErrorCode
+
+    upserted: dict[str, Any] = {}
+
+    class MsgRepo:
+        def __init__(self, _s):
+            pass
+
+        async def get_by_id(self, *_a, **_k):
+            return SimpleNamespace(content="暂停前已交付的半成品正文", usage={"status": "running"})
+
+        async def upsert_assistant(self, **kw):
+            upserted.update(kw)
+            return SimpleNamespace(id=kw["message_id"])
+
+    class MetricsRepo:
+        def __init__(self, _s):
+            pass
+
+        async def record(self, **_kw):
+            return None
+
+    class CM:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
+    monkeypatch.setattr(cloud_mod, "MessageRepository", MsgRepo)
+    monkeypatch.setattr(
+        "agentcore.billing.turn_ledger.reconcile_turn_cost_ledger",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(cloud_mod, "TurnMetricsRepository", MetricsRepo)
+    monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
+    monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction", lambda *_a, **_k: None)
+    monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
+
+    await CloudStore().finalize(
+        mode="cloud",
+        result={
+            "message_id": "m-partial",
+            "content": "",
+            "error": "模型流式响应停滞（长时间无输出），请稍后重试",
+            "error_code": ErrorCode.LLM_TIMEOUT,
+            "finish_reason": FinishReason.ERROR,
+            "rounds": 1,
+        },
+        conversation_id="c1",
+        user_id="u1",
+        folder_id=None,
+        backend=SimpleNamespace(location="cloud"),
+        sink=SimpleNamespace(emit=lambda *_a, **_k: None),
+        user_message="hi",
+        llm_credentials=None,
+        trace_id="c" * 32,
+        turn_id="turn-partial",
+        duration_ms=10,
+    )
+
+    # Incoming stayed empty so upsert merge (not pre-fill) keeps the checkpoint body.
+    assert upserted["content"] == ""
+    assert upserted["metadata"]["status"] == MESSAGE_STATUS_FAILED
 
 
 async def test_finalize_local_settles_empty_error_with_error_code(monkeypatch):
@@ -373,10 +465,92 @@ async def test_finalize_local_settles_empty_error_with_error_code(monkeypatch):
     assert result is not None
     assert result["assistant_message_id"] == "m-err"
     assert upserted["message_id"] == "m-err"
+    assert upserted["content"] == "超时"
     meta = upserted["metadata"]
     assert meta["status"] == MESSAGE_STATUS_FAILED
     assert meta["error_code"] == ErrorCode.LLM_TIMEOUT
     assert meta["finish_reason"] == FinishReason.ERROR.value
+
+
+async def test_finalize_local_keeps_existing_partial_on_empty_error(monkeypatch):
+    """Local ERROR salvage must keep a longer existing body (not replace with error text)."""
+    from agentcore.core.error_codes import ErrorCode
+
+    upserted: dict[str, Any] = {}
+
+    class MsgRepo:
+        def __init__(self, _s):
+            pass
+
+        async def get_by_id(self, message_id, **_k):
+            if message_id == "m-partial":
+                return SimpleNamespace(
+                    content="暂停前半成品",
+                    usage={"status": MESSAGE_STATUS_RUNNING},
+                )
+            return None
+
+        async def create(self, **kw):
+            return SimpleNamespace(id=kw["message_id"])
+
+        async def upsert_assistant(self, **kw):
+            upserted.update(kw)
+            return SimpleNamespace(id=kw["message_id"])
+
+        async def user_message_for_assistant(self, **_k):
+            return None
+
+        async def set_followups(self, *_a, **_k):
+            pass
+
+    class ConvRepo:
+        def __init__(self, _s):
+            pass
+
+        async def get_by_id_unscoped(self, _cid):
+            return SimpleNamespace(title="t")
+
+    class CM:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
+    monkeypatch.setattr(cloud_mod, "MessageRepository", MsgRepo)
+    monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
+    monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(
+        cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=AsyncMock())
+    )
+    monkeypatch.setattr(cloud_mod, "resolve_user_model", lambda *_a, **_k: "m")
+    monkeypatch.setattr(cloud_mod, "mint_followups", AsyncMock(return_value=[]))
+    monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
+
+    result = await CloudStore().finalize(
+        mode="local",
+        conversation_id="c1",
+        user_id="u1",
+        user_message="hi",
+        assistant_content="",
+        runs={
+            "events": [],
+            "finish_reason": "error",
+            "error": {
+                "code": ErrorCode.LLM_TIMEOUT,
+                "message": "模型流式响应停滞（长时间无输出），请稍后重试",
+            },
+        },
+        user_message_id="u1m",
+        message_id="m-partial",
+        trace_id="d" * 32,
+        finish_reason=FinishReason.ERROR.value,
+    )
+    assert result is not None
+    assert upserted["content"] == "暂停前半成品"
+    assert upserted["metadata"]["status"] == MESSAGE_STATUS_FAILED
 
 
 async def test_checkpoint_delegates_to_message_repo(monkeypatch):

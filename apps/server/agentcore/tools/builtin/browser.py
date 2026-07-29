@@ -37,6 +37,10 @@ from agentcore.tools.registration import (
     ToolRegistration,
     ToolSurface,
 )
+from agentcore.tools.sandbox.browser.netns import (
+    EGRESS_UNAVAILABLE_CODE,
+    is_netns_capability_error,
+)
 from agentcore.tools.sandbox.browser.protocol import (
     STATE_CHANGING_ACTIONS,
     BrowserCommand,
@@ -63,6 +67,29 @@ _NO_FRAME_NOTE = (
 _SCREENSHOT_NO_FRAME_MSG = (
     "未截到画面，无法确认视觉内容；请勿描述像素细节。"
     "可用 browser_snapshot 确认页面结构。"
+)
+
+# Netns / sandbox egress hard-fail: one shot → retire the whole browser_* surface.
+BROWSER_TOOL_NAMES = frozenset(
+    {
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_snapshot",
+        "browser_screenshot",
+    }
+)
+
+_EGRESS_UNAVAILABLE_MSG = (
+    "云端浏览器出网能力不可用（沙箱网络隔离失败），本回合所有 browser_* 已停用；"
+    "请勿再调用 browser_navigate / click / type / scroll / snapshot / screenshot；"
+    "改用 web_search、read_url 等非浏览器工具继续。"
+)
+
+_EGRESS_RETIRE_STEER = (
+    "browser_* 因沙箱出网能力不可用已全部停用——请改用 web_search / read_url 等非浏览器路径，"
+    "勿再尝试任何浏览器工具。"
 )
 
 _PURPOSE_PARAM = {
@@ -93,11 +120,19 @@ def _error(
     *,
     session_lost: bool = False,
     code: str | None = None,
+    retire_tools: frozenset[str] | None = None,
+    retire_message: str | None = None,
 ) -> ToolResult:
     out = message
     if session_lost:
         out += "（浏览器会话已重置，下一步操作将从空白页重新开始）"
-    meta: dict[str, Any] = {"code": code} if code else {}
+    meta: dict[str, Any] = {}
+    if code:
+        meta["code"] = code
+    if retire_tools:
+        meta["retire_tools"] = sorted(retire_tools)
+        if retire_message:
+            meta["retire_message"] = retire_message
     return ToolResult(
         tool_call_id="",
         success=False,
@@ -105,6 +140,29 @@ def _error(
         error=out,
         duration_ms=int((time.monotonic() - start) * 1000),
         metadata=meta,
+    )
+
+
+def _classify_session_error(exc: BrowserSessionError) -> str | None:
+    """Map a session-open failure to a stable metadata code (or None)."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and code:
+        return code
+    msg = str(exc)
+    if "host_unavailable" in msg:
+        return "host_unavailable"
+    if is_netns_capability_error(exc):
+        return EGRESS_UNAVAILABLE_CODE
+    return None
+
+
+def _egress_unavailable_result(start: float, *, message: str | None = None) -> ToolResult:
+    return _error(
+        message or _EGRESS_UNAVAILABLE_MSG,
+        start,
+        code=EGRESS_UNAVAILABLE_CODE,
+        retire_tools=BROWSER_TOOL_NAMES,
+        retire_message=_EGRESS_RETIRE_STEER,
     )
 
 
@@ -184,13 +242,12 @@ class _BrowserToolBase:
         except BrowserSessionAcquireError as exc:
             return _error(str(exc), start, code=exc.code)
         except BrowserSessionError as exc:
-            msg = str(exc)
-            code = "host_unavailable" if "host_unavailable" in msg else None
-            return _error(
-                f"浏览器会话启动失败：{exc}" if not code else msg,
-                start,
-                code=code,
-            )
+            code = _classify_session_error(exc)
+            if code == EGRESS_UNAVAILABLE_CODE:
+                return _egress_unavailable_result(start)
+            if code == "host_unavailable":
+                return _error(str(exc), start, code=code)
+            return _error(f"浏览器会话启动失败：{exc}", start, code=code)
 
         entry = registry.peek_entry(
             context.conversation_id, session_id=want_sid, run_id=context.run_id or None

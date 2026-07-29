@@ -29,6 +29,7 @@ from agentcore.tools.builtin.web._net import (
     circuit_remaining,
     note_failure,
     note_success,
+    read_url_retire_message,
 )
 from agentcore.tools.builtin.web.github_page import try_fetch_github_page
 from agentcore.tools.builtin.web.source_domains import default_source_domain_registry
@@ -54,10 +55,16 @@ _SNIPPET_MAX = 200  # citation preview length — a sentence or two, not the who
 # legitimate article URLs rarely carry a 64+ char opaque query. The query-length AND
 # novel-domain conjunction keeps the common search→deep-read and plain-URL reads quiet.
 _SUSPICIOUS_QUERY_LEN = 64
-# Policy/environment blocks (SSRF, egress breaker) are honest failures but must not
-# trip the run-scoped tool circuit breaker — the tool itself is fine; the URL or
-# network posture is what rejected the fetch.
+# Novel-domain exfil refusal is a true policy block (tool is fine; call refused).
+# SSRF / host-circuit / transport hard-fails are NOT policy_failure: continuous
+# environmental failures must feed the run-scoped circuit breaker so research
+# workers stop empty-spinning after stall→Wave retry (P1 2026-07-29).
 _POLICY_FAILURE = "policy_failure"
+# Shared stop-read trailer for hard-dead fetch classes (403/404/timeout/SSRF/egress).
+_STOP_READ_HINT = (
+    "——请停止对该来源换 URL / 同策略重试；基于已有 web_search 摘要与已读材料收口写作，"
+    "不要再空转外网深读"
+)
 
 
 def _query_len(url: str) -> int:
@@ -327,15 +334,33 @@ class ReadUrlTool:
                 duration_ms=0,
             )
 
-        block = await _classify_url(url)
-        if block is not None:
+        # Run-scoped retirement (survives react_loop restart after stream-stall /
+        # Wave retry): refuse without fetching and re-trip the loop breaker.
+        retire_msg = read_url_retire_message(context.run_id)
+        if retire_msg:
             return ToolResult(
                 tool_call_id="",
                 success=False,
                 output="",
-                error=block.value,
+                error=f"网页读取失败：{retire_msg}",
                 duration_ms=int((time.monotonic() - start) * 1000),
-                metadata={_POLICY_FAILURE: True},
+                metadata={
+                    "retire_tools": ["read_url"],
+                    # CircuitBreak.message() prefixes ``[系统提示]`` once.
+                    "retire_message": retire_msg,
+                },
+            )
+
+        block = await _classify_url(url)
+        if block is not None:
+            # SSRF / DNS / blocked-host: count toward the run breaker (not policy_failure)
+            # so consecutive environmental refusals hard-stop empty URL thrashing.
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=f"{block.value}{_STOP_READ_HINT}",
+                duration_ms=int((time.monotonic() - start) * 1000),
             )
 
         try:
@@ -405,6 +430,7 @@ class ReadUrlTool:
                 output="",
                 error=exfil_block,
                 duration_ms=int((time.monotonic() - start) * 1000),
+                metadata={_POLICY_FAILURE: True},
             )
 
         headers = {
@@ -455,12 +481,11 @@ class ReadUrlTool:
         except Exception as e:
             reason = describe_net_error(e)
             logger.warning("tool.read_url_error", url=url, error=reason, error_repr=repr(e))
-            # Anti-crawl / access-denied (401/403/429/451): a retry or a different URL
-            # won't help. Steer the model back to the web_search snippet it already has
-            # instead of re-reading / re-searching — this closes the 403→re-search storm
-            # seen in the team evals (the failure text is what the model reads, so the
-            # guidance must ride the runtime error, not only the tool description).
-            hint = ""
+            # Hard-dead classes (anti-crawl / 404 / timeout / connect / host-circuit /
+            # pinned SSRF): retries and URL thrashing do not help. Steer toward
+            # existing materials; these failures COUNT toward the run circuit breaker
+            # (no policy_failure) so Wave/contract restarts still trip disable.
+            hint = _STOP_READ_HINT
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (
                 401,
                 403,
@@ -468,18 +493,30 @@ class ReadUrlTool:
                 451,
             ):
                 hint = (
-                    "。该站点反爬 / 拒绝访问，换 URL 或重试都读不到——"
-                    "改用你已有的 web_search 摘要继续作答，不要对该来源反复重读、"
-                    "也不要为此再补一轮搜索"
+                    "。该站点反爬 / 拒绝访问，换 URL 或重试都读不到"
+                    f"{_STOP_READ_HINT}"
                 )
-            policy = isinstance(e, (EgressError, PinnedAddressError))
+            elif isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+                hint = f"。页面不存在（404）{_STOP_READ_HINT}"
+            elif isinstance(e, (EgressError, PinnedAddressError)):
+                hint = f"。出网受限或地址不可达{_STOP_READ_HINT}"
+            elif isinstance(
+                e,
+                (
+                    httpx.ConnectTimeout,
+                    httpx.ReadTimeout,
+                    httpx.ConnectError,
+                    httpx.NetworkError,
+                    httpx.TimeoutException,
+                ),
+            ):
+                hint = f"。连接/读取失败{_STOP_READ_HINT}"
             return ToolResult(
                 tool_call_id="",
                 success=False,
                 output="",
                 error=f"网页读取失败：{reason}{hint}",
                 duration_ms=int((time.monotonic() - start) * 1000),
-                metadata={_POLICY_FAILURE: True} if policy else {},
             )
 
         # GitHub API path has no HTML extract leg; still advance the phase row once.

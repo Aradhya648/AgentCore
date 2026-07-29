@@ -141,6 +141,17 @@ class DebateConfig:
     research_dossier_index: str = ""
     # 庭前取证已汇流（§二之二）：True → 首轮辩手检索预算按有案卷下调，引用台账为主。
     pretrial_evidence_ready: bool = False
+    # 共享证据包（附件已在主持人上下文时由庭前组装；非 wire 必填；空 = 未走 pack 路径）。
+    evidence_pack: Any | None = None
+    # 庭前证据完整度（一等公民）：full / partial / empty；非 full 时主持人 frame / 辩手须显式感知缺口。
+    evidence_completeness: Literal["full", "partial", "empty"] = "full"
+    # 调查员路径下未有效交付的 side_key；pack 路径通常为空。
+    pretrial_failed_sides: list[str] = field(default_factory=list)
+    # 庭前解析后的辩手 per-side 检索预算（None 键不写 = 沿用案卷残搜旧路径；0 = 禁外证）。
+    debater_retrieval_budgets: dict[str, int] = field(default_factory=dict)
+    # 外证计划观测：skip / gap_fill / investigators 及原因（非 wire 必填）。
+    external_evidence_mode: str = ""
+    external_evidence_reason: str = ""
     # 裁判选型（§7.5）：开赛前 resolve；用户点名优先，可与辩手同模；route 写入主持人 LLM 调用。
     moderator_model: str = ""
     moderator_origin: str = ""

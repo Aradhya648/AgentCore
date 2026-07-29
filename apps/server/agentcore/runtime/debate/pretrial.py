@@ -1,11 +1,18 @@
 """庭前取证与辩方团队（辩论编排设计.md §二之二）。
 
-开赛后、首轮立论前的固有阶段：主辩点单 → 主持人代派取证员 → 并行取证 → 定焦开辩。
+开赛后、首轮立论前的固有阶段：
+
+1. **共享证据包优先**（附件已在主持人上下文）→ 组装 Evidence Pack
+   - ``completeness=full``：不派双调查员、不开外证扫网
+   - ``partial``/``empty``：有界增量补证（复用 ``retrieval_budget``，每方 ≤1 任务）
+2. 否则：主辩点单 → 主持人代派取证员 → 并行取证（外证 / 无可用正文附件）→ 定焦开辩
 
 边界（就地否决）：
 - 取证员由主持人代派；``parent_run_id`` 指向本方主辩；与辩手同 depth 只读叶子
 - 不给辩手 ``delegate``、不动 ``MAX_DELEGATION_DEPTH``
 - ``thorough=False`` 不带队（秒过）；预算对称；台账强制汇流
+- 禁止以 file_read 上限 / 同批去重 / retry 冒充「共享事实库」改造
+- 外证预算由完整度驱动（产品约束），禁止 stall/502 自愈补跑当主方案
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ from agentcore.runtime.debate.constants import (
     DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
     INVESTIGATOR_TOOLS,
     MAX_EVIDENCE_ORDER_TASKS,
+    MAX_GAP_FILL_TASKS_PER_SIDE,
     MAX_INVESTIGATORS_PER_SIDE,
 )
 from agentcore.runtime.debate.moderator_common import _parse_json_object
@@ -30,6 +38,7 @@ from agentcore.workspace.stage_dirs import RESEARCH_DIR
 
 if TYPE_CHECKING:
     from agentcore.runtime.debate.evidence_ledger import EvidenceLedger
+    from agentcore.runtime.debate.evidence_pack import EvidencePack, ExternalEvidencePlan
     from agentcore.runtime.debate.moderator_common import CompleteJson
     from agentcore.runtime.debate.types import DebateConfig, DebateSide
     from agentcore.tools.builtin.debate.tool import DebateTool
@@ -37,7 +46,8 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 OrderSource = Literal["debater", "auto", "empty"]
-SkipReason = Literal["", "fast", "dossier_sufficient"]
+SkipReason = Literal["", "fast", "dossier_sufficient", "evidence_pack"]
+PackCompleteness = Literal["full", "partial", "empty"]
 
 _ORDER_SYSTEM = (
     "你是辩论主持人，代各方主辩产出【庭前取证任务单】。"
@@ -102,11 +112,32 @@ class PretrialResult:
     fallback_self_search: bool = False
     evidence_ready: bool = False
     debater_run_ids: dict[str, str] = field(default_factory=dict)
+    evidence_pack: Any | None = None
+    # 取证完整度一等公民：失败 / 截断不得伪装成满分完成。
+    completeness: PackCompleteness = "empty"
+    failed_sides: list[str] = field(default_factory=list)
+    # 缺口驱动外证计划（观测 / 完成载荷）。
+    external_evidence_mode: str = ""
+    external_evidence_reason: str = ""
+    retrieval_budget_per_investigator: int = 0
+
+    @property
+    def incomplete(self) -> bool:
+        # 仅「实际走了取证且未 full」为 true；intentional 秒过（fast / dossier /
+        # evidence_pack skip）completeness 可能是 empty，不得标 incomplete。
+        if self.skipped:
+            return False
+        return self.completeness != "full"
 
     def to_completed_payload(self) -> dict[str, Any]:
-        status = "skipped" if self.skipped else (
-            "degraded" if self.fallback_self_search else "done"
-        )
+        # skipped = 未派调查员（fast / dossier / pack full）；degraded = 取证不完整或全败自搜回退。
+        if self.skipped:
+            status = "skipped"
+        elif self.fallback_self_search or self.incomplete:
+            status = "degraded"
+        else:
+            status = "done"
+        pack = self.evidence_pack
         return {
             "status": status,
             "skip_reason": self.skip_reason or None,
@@ -114,6 +145,13 @@ class PretrialResult:
             "investigators": [i.to_wire() for i in self.investigators],
             "fallback_self_search": self.fallback_self_search,
             "evidence_ready": self.evidence_ready,
+            "evidence_pack": pack.to_wire() if pack is not None else None,
+            "completeness": self.completeness,
+            "incomplete": self.incomplete,
+            "failed_sides": list(self.failed_sides),
+            "external_evidence_mode": self.external_evidence_mode or None,
+            "external_evidence_reason": self.external_evidence_reason or None,
+            "retrieval_budget_per_investigator": self.retrieval_budget_per_investigator,
         }
 
 
@@ -316,6 +354,8 @@ def investigator_task_payload(
     index: int,
     retrieval_budget: int,
     turn_model: str = "",
+    allow_read_url: bool = True,
+    gap_fill: bool = False,
 ) -> dict[str, Any]:
     """取证员 task：只检索/只读，交付证据笔记，无发言、无成稿。"""
     dossier = (config.research_dossier_index or "").strip()
@@ -325,13 +365,27 @@ def investigator_task_payload(
         else ""
     )
     purpose = f"（用途：{task.purpose}）" if task.purpose else ""
+    tools = list(INVESTIGATOR_TOOLS)
+    if not allow_read_url:
+        tools = [t for t in tools if t != "read_url"]
+    if gap_fill:
+        posture = (
+            "【有界缺口补证】仅补共享证据包未覆盖的外证缺口；"
+            "【禁止】对已注入附件做重复深挖 file_read/grep。"
+            "检索预算耗尽即停，基于已得材料交付。\n"
+        )
+    else:
+        posture = ""
     body = (
         f"你是「{side.name}」队的取证员（不发言、不写辩词）。\n"
         f"本方立场：{side.stance}\n"
         f"辩题：{config.motion}\n"
         f"{dossier_line}"
+        f"{posture}"
         f"取证任务：{task.query}{purpose}\n\n"
-        "用 web_search / read_url / file_read 取证；【证据笔记写进正文交付】："
+        "用 web_search"
+        + (" / read_url" if allow_read_url else "")
+        + " / file_read 取证；【证据笔记写进正文交付】："
         "条目化事实 + 来源 URL/标题；关键事实标【已核实·#eN】（沿用工具注解 id）。"
         "勿只靠 handoff 摘要、勿尝试写盘（工具集只读）。\n"
         "来源策略：优先判决书/裁判文书、权威媒体与官方通报；"
@@ -343,7 +397,7 @@ def investigator_task_payload(
         "role": f"取证·{side.name}",
         "task": body,
         "objective": f"为「{side.name}」取证：{task.query[:80]}",
-        "tools": list(INVESTIGATOR_TOOLS),
+        "tools": tools,
         # 离开 debate: 参与者命名空间——前端 isDebateParticipant 只认辩形态白名单；
         # 若挂 debate:* 且 parent=主辩，会把主辩晋升独立 debateUnits → ELK 假分带。
         "group": f"pretrial:investigators:{side.key}",
@@ -361,6 +415,78 @@ def investigator_task_payload(
     if route:
         payload["model"] = route
     return payload
+
+
+def gap_fill_orders_for_pack(
+    config: DebateConfig,
+    pack: EvidencePack,
+    *,
+    plan: ExternalEvidencePlan,
+) -> list[SideOrder]:
+    """按外证计划生成增量补证点单（每方 ≤ max_tasks；禁对同一附件无限深挖）。"""
+    incomplete = [
+        s
+        for s in pack.sources
+        if (not s.complete) or s.failure
+    ]
+    gap_labels = "、".join(s.label for s in incomplete[:3]) or "共享包缺口"
+    n = max(0, min(plan.max_tasks_per_side, MAX_GAP_FILL_TASKS_PER_SIDE))
+    if n <= 0 or not plan.sides:
+        return []
+    by_key = {s.key: s for s in config.sides}
+    orders: list[SideOrder] = []
+    for sk in plan.sides:
+        side = by_key.get(sk)
+        if side is None:
+            continue
+        tasks = [
+            EvidenceTask(
+                query=(
+                    f"{config.motion}：补证「{gap_labels}」"
+                    f"—支持「{(side.stance or side.name).strip()}」的权威外证；"
+                    "禁对已注入附件重复深挖"
+                ),
+                purpose="有界缺口补证",
+            )
+        ][:n]
+        orders.append(SideOrder(side_key=sk, tasks=tasks, source="auto"))
+    return orders
+
+
+def _apply_debater_budgets(
+    config: DebateConfig,
+    *,
+    completeness: PackCompleteness,
+    failed_sides: Sequence[str],
+) -> None:
+    from agentcore.runtime.debate.evidence_pack import debater_budgets_from_completeness
+
+    config.debater_retrieval_budgets = debater_budgets_from_completeness(
+        side_keys=[s.key for s in config.sides],
+        completeness=completeness,
+        failed_sides=failed_sides,
+    )
+
+
+def _log_external_plan(plan: ExternalEvidencePlan, *, path: str) -> None:
+    logger.info(
+        "debate.pretrial.external_evidence_plan",
+        path=path,
+        mode=plan.mode,
+        reason=plan.reason,
+        retrieval_budget=plan.retrieval_budget,
+        sides=list(plan.sides),
+        allow_read_url=plan.allow_read_url,
+        max_tasks_per_side=plan.max_tasks_per_side,
+        allow_external=plan.allow_external,
+    )
+    if not plan.allow_external:
+        logger.info(
+            "debate.pretrial.external_evidence_skipped",
+            path=path,
+            reason=plan.reason,
+            completeness_driven=True,
+        )
 
 
 async def _persist_investigator_notes(
@@ -421,6 +547,8 @@ async def run_investigators(
     orders: Sequence[SideOrder],
     debater_ids: Mapping[str, str],
     retrieval_budget: int = DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
+    allow_read_url: bool = True,
+    gap_fill: bool = False,
     on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> list[InvestigatorOutcome]:
     """并行派取证员：同 depth 叶子、parent=本方主辩。"""
@@ -454,6 +582,8 @@ async def run_investigators(
                     index=idx,
                     retrieval_budget=retrieval_budget,
                     turn_model=turn_model,
+                    allow_read_url=allow_read_url,
+                    gap_fill=gap_fill,
                 )
             )
             meta.append((side.key, idx, parent, task))
@@ -576,16 +706,7 @@ async def run_investigators(
         on_node_done=_on_investigator_done,
         metrics_sink=batch_metrics,
     )
-    logger.info(
-        "debate.pretrial.investigators_done",
-        nodes=len(plan.nodes),
-        wall_ms=int((time.monotonic() - t0) * 1000),
-        completed=sum(
-            1
-            for n in plan.nodes
-            if (results.get(n.run_id) and results[n.run_id].phase is RunPhase.COMPLETED)
-        ),
-    )
+    wall_ms = int((time.monotonic() - t0) * 1000)
 
     # Stable order matching plan.nodes / meta（回调可能乱序完成）。
     outcomes: list[InvestigatorOutcome] = []
@@ -614,6 +735,40 @@ async def run_investigators(
                 task_query=task.query,
             )
         outcomes.append(outcome)
+
+    from agentcore.runtime.debate.evidence_pack import (
+        completeness_from_investigator_outcomes,
+    )
+
+    completeness, failed_sides = completeness_from_investigator_outcomes(outcomes)
+    delivery_ok = sum(1 for o in outcomes if o.ok)
+    delivery_failed = len(outcomes) - delivery_ok
+    phase_completed = sum(
+        1
+        for n in plan.nodes
+        if (results.get(n.run_id) and results[n.run_id].phase is RunPhase.COMPLETED)
+    )
+    # completed = 有效交付数（不得把 phase COMPLETED 空交付伪装成满分完成）。
+    logger.info(
+        "debate.pretrial.investigators_done",
+        nodes=len(outcomes),
+        wall_ms=wall_ms,
+        completed=delivery_ok,
+        failed=delivery_failed,
+        phase_completed=phase_completed,
+        completeness=completeness,
+        failed_sides=failed_sides,
+        incomplete=completeness != "full",
+    )
+    if completeness != "full":
+        logger.warning(
+            "debate.pretrial.evidence_incomplete",
+            path="investigators",
+            completeness=completeness,
+            failed_sides=failed_sides,
+            completed=delivery_ok,
+            failed=delivery_failed,
+        )
     return outcomes
 
 
@@ -685,16 +840,32 @@ async def run_pretrial_phase(
     on_completed: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> PretrialResult:
     """庭前阶段编排入口。"""
+    from agentcore.runtime.debate.evidence_pack import resolve_external_evidence_plan
+
     base_payload = {
         "execution_id": execution_id,
         "moderator_run_id": moderator_run_id,
         "thorough": bool(config.policy.thorough),
         "sides": [{"key": s.key, "name": s.name} for s in config.sides],
     }
+    side_keys = [s.key for s in config.sides]
 
     # 快速档：不带队秒过
     if not config.policy.thorough:
-        result = PretrialResult(skipped=True, skip_reason="fast")
+        plan = resolve_external_evidence_plan(
+            completeness="empty", path="fast", side_keys=side_keys
+        )
+        _log_external_plan(plan, path="fast")
+        result = PretrialResult(
+            skipped=True,
+            skip_reason="fast",
+            completeness="empty",
+            external_evidence_mode=plan.mode,
+            external_evidence_reason=plan.reason,
+            retrieval_budget_per_investigator=0,
+        )
+        config.external_evidence_mode = plan.mode
+        config.external_evidence_reason = plan.reason
         if on_started is not None:
             await on_started({**base_payload, "skip_reason": "fast"})
         if on_completed is not None:
@@ -704,26 +875,62 @@ async def run_pretrial_phase(
     if on_started is not None:
         await on_started(base_payload)
 
+    # 共享证据包优先：附件已在主持人上下文 → 组装 pack；full 跳过外证，partial 有界补证。
+    pack_result = await _try_evidence_pack_path(
+        tool,
+        execution_id=execution_id,
+        moderator_run_id=moderator_run_id,
+        config=config,
+        base_payload=base_payload,
+        on_orders=on_orders,
+        on_progress=on_progress,
+        on_completed=on_completed,
+    )
+    if pack_result is not None:
+        return pack_result
+
     orders = await collect_order_sheets(complete_json, config)
     n = symmetric_investigator_count(orders)
     if n == 0:
+        plan = resolve_external_evidence_plan(
+            completeness="full", path="dossier_sufficient", side_keys=side_keys
+        )
+        _log_external_plan(plan, path="dossier_sufficient")
         result = PretrialResult(
             skipped=True,
             skip_reason="dossier_sufficient",
             orders=orders,
+            completeness="full",
+            external_evidence_mode=plan.mode,
+            external_evidence_reason=plan.reason,
+            retrieval_budget_per_investigator=0,
         )
+        config.evidence_completeness = "full"
+        config.pretrial_failed_sides = []
+        config.external_evidence_mode = plan.mode
+        config.external_evidence_reason = plan.reason
+        _apply_debater_budgets(config, completeness="full", failed_sides=[])
         if on_orders is not None:
             await on_orders(
                 {
                     **base_payload,
                     "orders": [o.to_wire() for o in orders],
                     "investigator_count_per_side": 0,
+                    "external_evidence": plan.to_wire(),
                 }
             )
         if on_completed is not None:
             await on_completed({**base_payload, **result.to_completed_payload()})
         return result
 
+    inv_plan = resolve_external_evidence_plan(
+        completeness="empty",
+        path="investigators",
+        side_keys=side_keys,
+    )
+    _log_external_plan(inv_plan, path="investigators")
+    # 对称任务数仍受计划 max_tasks 夹紧（产品上限，非模型自停）。
+    n = min(n, inv_plan.max_tasks_per_side)
     orders = pad_orders_for_symmetry(orders, n=n, config=config)
     # 对称后仍可能某方空（极端）——再 pad 保证每方恰好 n
     for i, order in enumerate(orders):
@@ -745,7 +952,8 @@ async def run_pretrial_phase(
                 **base_payload,
                 "orders": [o.to_wire() for o in orders],
                 "investigator_count_per_side": n,
-                "retrieval_budget_per_investigator": DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
+                "retrieval_budget_per_investigator": inv_plan.retrieval_budget,
+                "external_evidence": inv_plan.to_wire(),
             }
         )
 
@@ -763,10 +971,18 @@ async def run_pretrial_phase(
         config=config,
         orders=orders,
         debater_ids=debater_ids,
-        retrieval_budget=DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
+        retrieval_budget=inv_plan.retrieval_budget,
+        allow_read_url=inv_plan.allow_read_url,
+        gap_fill=False,
         on_progress=on_progress,
     )
 
+    from agentcore.runtime.debate.evidence_pack import (
+        completeness_from_investigator_outcomes,
+        format_evidence_completeness_notice,
+    )
+
+    completeness, failed_sides = completeness_from_investigator_outcomes(investigators)
     any_ok = any(i.ok for i in investigators)
     all_failed = bool(investigators) and not any_ok
     result = PretrialResult(
@@ -776,6 +992,18 @@ async def run_pretrial_phase(
         fallback_self_search=all_failed,
         evidence_ready=any_ok,
         debater_run_ids=debater_ids,
+        completeness=completeness,
+        failed_sides=failed_sides,
+        external_evidence_mode=inv_plan.mode,
+        external_evidence_reason=inv_plan.reason,
+        retrieval_budget_per_investigator=inv_plan.retrieval_budget,
+    )
+    config.evidence_completeness = completeness
+    config.pretrial_failed_sides = list(failed_sides)
+    config.external_evidence_mode = inv_plan.mode
+    config.external_evidence_reason = inv_plan.reason
+    _apply_debater_budgets(
+        config, completeness=completeness, failed_sides=failed_sides
     )
 
     # 刷新案卷索引（新落盘的庭前笔记）
@@ -806,6 +1034,16 @@ async def run_pretrial_phase(
             logger.exception("debate.pretrial.refresh_dossier_failed")
             config.pretrial_evidence_ready = True
 
+    # 不完整 → 写入案卷索引，供主持人 frame / 辩手可见（禁止静默满分）。
+    if result.incomplete:
+        notice = format_evidence_completeness_notice(
+            completeness=completeness,
+            failed_sides=failed_sides,
+            path="investigators",
+        )
+        prev = (config.research_dossier_index or "").strip()
+        config.research_dossier_index = f"{notice}\n{prev}" if prev else notice
+
     if on_completed is not None:
         payload = {
             **base_payload,
@@ -814,6 +1052,247 @@ async def run_pretrial_phase(
             "evidence_ledger_delta": tool._evidence_ledger.drain_delta(),
         }
         await on_completed(payload)
+    return result
+
+
+async def _try_evidence_pack_path(
+    tool: DebateTool,
+    *,
+    execution_id: str,
+    moderator_run_id: str,
+    config: DebateConfig,
+    base_payload: Mapping[str, Any],
+    on_orders: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    on_completed: Callable[[dict[str, Any]], Awaitable[None]] | None,
+) -> PretrialResult | None:
+    """附件已在主持人上下文 → 组装共享证据包；full 跳过外证，partial 有界补证。
+
+    无可用正文 → ``None``（回落调查员全量路径）。
+    """
+    from agentcore.runtime.debate.evidence_pack import (
+        assemble_evidence_pack_from_host,
+        format_evidence_completeness_notice,
+        merge_gap_fill_completeness,
+        merge_pack_into_dossier_index,
+        register_evidence_pack_on_ledger,
+        resolve_external_evidence_plan,
+    )
+
+    pack = assemble_evidence_pack_from_host(
+        system_prompt=getattr(tool, "_system_prompt", "") or "",
+        motion=config.motion,
+        sides=config.sides,
+        background=config.background,
+    )
+    if pack is None or not pack.has_usable_body():
+        return None
+
+    register_evidence_pack_on_ledger(tool._evidence_ledger, pack)
+    config.evidence_pack = pack
+    config.research_dossier_index = merge_pack_into_dossier_index(
+        config.research_dossier_index, pack
+    )
+    config.pretrial_evidence_ready = True
+
+    side_keys = [s.key for s in config.sides]
+    plan = resolve_external_evidence_plan(
+        completeness=pack.completeness,
+        path="evidence_pack",
+        side_keys=side_keys,
+    )
+    _log_external_plan(plan, path="evidence_pack")
+    config.external_evidence_mode = plan.mode
+    config.external_evidence_reason = plan.reason
+
+    logger.info(
+        "debate.pretrial.evidence_pack_assembled",
+        sources=len(pack.sources),
+        usable=sum(
+            1
+            for s in pack.sources
+            if (s.excerpt or "").strip() and s.failure not in ("binary_no_text", "empty_body")
+        ),
+        completeness=pack.completeness,
+        incomplete=pack.completeness != "full",
+        external_mode=plan.mode,
+        external_reason=plan.reason,
+    )
+
+    # full pack：不启动双调查员深挖，也不开外证扫网。
+    if not plan.allow_external:
+        config.evidence_completeness = pack.completeness
+        config.pretrial_failed_sides = []
+        _apply_debater_budgets(
+            config, completeness=pack.completeness, failed_sides=[]
+        )
+        result = PretrialResult(
+            skipped=True,
+            skip_reason="evidence_pack",
+            evidence_ready=True,
+            evidence_pack=pack,
+            completeness=pack.completeness,
+            failed_sides=[],
+            external_evidence_mode=plan.mode,
+            external_evidence_reason=plan.reason,
+            retrieval_budget_per_investigator=0,
+        )
+        if pack.completeness != "full":
+            logger.warning(
+                "debate.pretrial.evidence_incomplete",
+                path="evidence_pack",
+                completeness=pack.completeness,
+                failed_sides=[],
+                sources=len(pack.sources),
+            )
+        if on_orders is not None:
+            await on_orders(
+                {
+                    **base_payload,
+                    "orders": [],
+                    "investigator_count_per_side": 0,
+                    "retrieval_budget_per_investigator": 0,
+                    "evidence_pack": pack.to_wire(),
+                    "path": "evidence_pack",
+                    "completeness": pack.completeness,
+                    "incomplete": pack.completeness != "full",
+                    "external_evidence": plan.to_wire(),
+                }
+            )
+        if on_completed is not None:
+            await on_completed(
+                {
+                    **base_payload,
+                    **result.to_completed_payload(),
+                    "evidence_ledger_count": len(tool._evidence_ledger),
+                    "evidence_ledger_delta": tool._evidence_ledger.drain_delta(),
+                }
+            )
+        return result
+
+    # partial/empty：有界增量补证（复用 retrieval_budget；每方 ≤1；禁同一附件无限 ReAct）。
+    orders = gap_fill_orders_for_pack(config, pack, plan=plan)
+    if on_orders is not None:
+        await on_orders(
+            {
+                **base_payload,
+                "orders": [o.to_wire() for o in orders],
+                "investigator_count_per_side": plan.max_tasks_per_side,
+                "retrieval_budget_per_investigator": plan.retrieval_budget,
+                "evidence_pack": pack.to_wire(),
+                "path": "evidence_pack_gap_fill",
+                "completeness": pack.completeness,
+                "incomplete": True,
+                "external_evidence": plan.to_wire(),
+            }
+        )
+
+    debater_ids = declare_debater_skeleton(
+        tool,
+        execution_id=execution_id,
+        moderator_run_id=moderator_run_id,
+        config=config,
+    )
+    investigators = await run_investigators(
+        tool,
+        execution_id=execution_id,
+        moderator_run_id=moderator_run_id,
+        config=config,
+        orders=orders,
+        debater_ids=debater_ids,
+        retrieval_budget=plan.retrieval_budget,
+        allow_read_url=plan.allow_read_url,
+        gap_fill=True,
+        on_progress=on_progress,
+    )
+
+    completeness, failed_sides = merge_gap_fill_completeness(pack, investigators)
+    pack.completeness = completeness
+    config.evidence_pack = pack
+    config.evidence_completeness = completeness
+    config.pretrial_failed_sides = list(failed_sides)
+    _apply_debater_budgets(
+        config, completeness=completeness, failed_sides=failed_sides
+    )
+
+    # 补证笔记汇入案卷索引。
+    any_ok = any(i.ok for i in investigators)
+    if any_ok:
+        try:
+            from agentcore.runtime.debate.research_dossier import (
+                format_research_dossier_index,
+                list_research_artifact_paths,
+                preregister_research_dossier,
+            )
+
+            await preregister_research_dossier(
+                tool._evidence_ledger, tool._base_tool_context.backend
+            )
+            paths = await list_research_artifact_paths(tool._base_tool_context.backend)
+            ledger_lines = [
+                f"- {e.get('id')} · {e.get('title') or e.get('site') or ''}"
+                for e in tool._evidence_ledger.all_entries()
+                if (e.get("side_key") or "") not in ("", "dossier", "moderator")
+            ][:40]
+            dossier = format_research_dossier_index(
+                paths, ledger_lines=ledger_lines or None
+            )
+            config.research_dossier_index = merge_pack_into_dossier_index(dossier, pack)
+        except Exception:  # noqa: BLE001
+            logger.exception("debate.pretrial.refresh_dossier_failed")
+            config.research_dossier_index = merge_pack_into_dossier_index(
+                config.research_dossier_index, pack
+            )
+
+    if completeness != "full":
+        notice = format_evidence_completeness_notice(
+            completeness=completeness,
+            failed_sides=failed_sides,
+            path="evidence_pack_gap_fill",
+        )
+        prev = (config.research_dossier_index or "").strip()
+        config.research_dossier_index = f"{notice}\n{prev}" if prev else notice
+        logger.warning(
+            "debate.pretrial.evidence_incomplete",
+            path="evidence_pack_gap_fill",
+            completeness=completeness,
+            failed_sides=failed_sides,
+            retrieval_budget=plan.retrieval_budget,
+        )
+
+    logger.info(
+        "debate.pretrial.gap_fill_done",
+        completeness=completeness,
+        failed_sides=failed_sides,
+        investigators=len(investigators),
+        retrieval_budget=plan.retrieval_budget,
+        budget_reason=plan.reason,
+    )
+
+    result = PretrialResult(
+        skipped=False,
+        skip_reason="",
+        orders=orders,
+        investigators=investigators,
+        fallback_self_search=bool(investigators) and not any_ok,
+        evidence_ready=True,
+        debater_run_ids=debater_ids,
+        evidence_pack=pack,
+        completeness=completeness,
+        failed_sides=failed_sides,
+        external_evidence_mode=plan.mode,
+        external_evidence_reason=plan.reason,
+        retrieval_budget_per_investigator=plan.retrieval_budget,
+    )
+    if on_completed is not None:
+        await on_completed(
+            {
+                **base_payload,
+                **result.to_completed_payload(),
+                "evidence_ledger_count": len(tool._evidence_ledger),
+                "evidence_ledger_delta": tool._evidence_ledger.drain_delta(),
+            }
+        )
     return result
 
 

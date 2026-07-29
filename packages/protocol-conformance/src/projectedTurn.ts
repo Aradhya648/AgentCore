@@ -369,7 +369,24 @@ export interface DebatePretrialProjection {
   evidenceLedgerCount: number;
   fallbackSelfSearch: boolean;
   evidenceReady: boolean;
+  /**
+   * 取证完整度：full / partial / empty（权威=completed）。
+   * 缺字段（旧 journal / running）= 未知，勿默认 empty。
+   */
+  completeness?: "full" | "partial" | "empty" | string;
+  /**
+   * 明确 incomplete 字段时才有值；缺则未知（勿用 completeness 缺省推 incomplete）。
+   */
+  incomplete?: boolean;
+  /** 未有效交付的 side_key。 */
+  failedSides: string[];
   investigatorCountPerSide?: number;
+  /** 外证计划 mode：skip / gap_fill / investigators。 */
+  externalEvidenceMode?: string | null;
+  /** 外证跳过/允许原因（evidence_pack_full / evidence_pack_gap / …）。 */
+  externalEvidenceReason?: string | null;
+  /** 庭前取证员/补证 per-run 检索预算。 */
+  retrievalBudgetPerInvestigator?: number;
 }
 
 export interface ProjectedTurn {
