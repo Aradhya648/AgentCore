@@ -98,13 +98,15 @@ def build_builtin_registry(
     and worker-only tools are separate surfaces.
 
     ``include_execution_tools`` gates the code-execution class as a unit
-    (``test_run`` + ``code_execute``): the worker registry withholds BOTH on a backend
-    that can't run code safely (see ``code_execution_enabled_for``).
+    (``test_run`` + ``code_execute`` + local ``terminal``): the worker registry
+    withholds the class on a backend that can't run code safely (see
+    ``code_execution_enabled_for``). ``terminal`` is additionally ``local_only``.
 
     ``include_host_tools`` gates the Host face (``host_class``): only when the
     desktop backfill channel is reachable and ``host≠off``.
 
-    ``location`` stamps ``code_execute``'s description to match the turn's backend.
+    ``location`` stamps ``code_execute``'s description to match the turn's backend
+    and gates ``local_only`` tools (``terminal`` only when ``location=="local"``).
     ``languages`` trims ``code_execute``'s language enum after a local/sidecar probe
     (cloud / catalog leave ``None`` → full fixed surface).
     """
@@ -114,6 +116,8 @@ def build_builtin_registry(
         if reg.execution_class and not include_execution_tools:
             continue
         if reg.host_class and not include_host_tools:
+            continue
+        if reg.local_only and location != "local":
             continue
         registry.register(
             instantiate_declared(cls, location=location, languages=languages)
@@ -177,19 +181,30 @@ def build_ceo_tool_registry(
     *,
     desktop_online: bool = False,
     permission_axes: "PermissionAxes | None" = None,
+    backend_location: str | None = None,
 ) -> ToolRegistry:
-    """The CEO chat agent's DIRECT toolset: read / retrieval builtins + Host face.
+    """The CEO chat agent's DIRECT toolset: read / retrieval + Host + local terminal.
 
     Collects ``surface=builtin`` tools whose declared audience includes ``ceo``.
     Historically aligned with ``approval=NEVER``; **P3 exception**: ``host_shell``
     is GRANTABLE and CEO-holdable (Host face only — L2/L3 stay worker-only).
+    **B2**: local ``terminal`` is also CEO-holdable (schema NEVER; ``start`` elevates
+    at runtime like ``git`` write) for pure start/stop/list of workspace long-running
+    processes — not a GRANTABLE schema exception.
     Orchestration primitives are wired separately in ``_assemble_ceo_toolset``.
     Host tools appear only when ``desktop_online`` ∧ ``host≠off``.
+    ``terminal`` appears only when ``backend_location=="local"``.
     """
     include_host = desktop_online and (
         permission_axes is None or not permission_axes.host_disabled
     )
-    full = build_builtin_registry(include_host_tools=include_host)
+    location: Literal["server", "local"] | None = (
+        "local" if backend_location == "local" else None
+    )
+    full = build_builtin_registry(
+        include_host_tools=include_host,
+        location=location,
+    )
     registry = ToolRegistry()
     ceo_names = {
         declared_tool_name(cls)

@@ -184,6 +184,12 @@ def test_schema_exposes_form_enum():
     coord = DELEGATE_PARAMETERS["properties"]["coordinate"]["description"]
     assert "协调" in coord
     assert "阻塞" in coord
+    cf = props_task["continue_from_run_id"]["description"]
+    assert "同人" in cf or "续派" in cf
+    assert "调查" in cf or "改稿" in cf
+    assert "tools" in props_task
+    tools_desc = props_task["tools"]["description"]
+    assert "只增不减" in tools_desc or "超集" in tools_desc
 
 
 def test_schema_depends_on_teaches_when_to_declare_dependency():

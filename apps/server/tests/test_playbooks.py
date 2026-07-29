@@ -147,10 +147,10 @@ def test_research_report_review_explicit_wall_clock_survives_build():
     by_role = {n.role: n for n in plan.nodes}
     # review 有上游；墙钟显式 300s；token 顶走统一 backstop。
     assert by_role["学术审校员"].policy.timeout_s == 300
-    assert by_role["学术审校员"].token_ceiling == 1_000_000
-    # 提纲同为依赖上游的节点、未显式声明墙钟 → 统一 backstop 600s / 1M。
+    assert by_role["学术审校员"].token_ceiling == 2_000_000
+    # 提纲同为依赖上游的节点、未显式声明墙钟 → 统一 backstop 600s / 2M。
     assert by_role["提纲编辑"].policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
-    assert by_role["提纲编辑"].token_ceiling == 1_000_000
+    assert by_role["提纲编辑"].token_ceiling == 2_000_000
 
 
 def test_research_report_requires_topic():
@@ -322,25 +322,20 @@ def test_repair_code_requires_verify_how_fixed():
 # ── build_website ─────────────────────────────────────────────────────────────
 
 
-def test_build_website_five_waves_default_sections():
+def test_build_website_three_chain_default_sections():
     tasks, errors = expand_playbook(
         "build_website",
         {"site": "GEO 官网落地页", "stack": "静态 HTML", "audience": "中小商家"},
     )
     assert errors == []
     by_id = _by_id(tasks)
-    section_ids = [f"section_{i}" for i in range(3)]
-    assert set(by_id) == {"copy", "design", "skeleton", *section_ids, "assemble", "qa"}
-    assert by_id["design"]["depends_on"] == ["copy"]
-    assert by_id["skeleton"]["depends_on"] == ["design"]
-    assert by_id["design"]["deliverable"]["artifacts"] == ["site/DESIGN.md"]
-    assert "site/DESIGN.md" in by_id["design"]["task"] or "DESIGN" in by_id["design"]["task"]
-    assert "DESIGN" in by_id["skeleton"]["task"] or "site/DESIGN.md" in by_id["skeleton"]["task"]
-    assert "DESIGN" in by_id["section_0"]["task"] or "site/DESIGN.md" in by_id["section_0"]["task"]
-    for sid in section_ids:
-        assert by_id[sid]["depends_on"] == ["skeleton"]
-    assert by_id["assemble"]["depends_on"] == section_ids
-    assert by_id["qa"]["depends_on"] == ["assemble"]
+    assert set(by_id) == {"copy", "frontend", "qa"}
+    assert len(tasks) == 3
+    assert by_id["frontend"]["depends_on"] == ["copy"]
+    assert by_id["qa"]["depends_on"] == ["frontend"]
+    assert by_id["copy"]["role"] == "内容文案"
+    assert by_id["frontend"]["role"] == "前端开发者"
+    assert by_id["qa"]["role"] == "页面 QA"
     # 全节点 form=files + 约定路径
     assert by_id["copy"]["deliverable"]["form"] == "files"
     assert by_id["copy"]["deliverable"]["artifacts"] == ["site/copy.md"]
@@ -349,258 +344,87 @@ def test_build_website_five_waves_default_sections():
     assert by_id["copy"]["deliverable"].get("must_contain_soft") is True
     assert "visual thesis" in by_id["copy"]["task"]
     assert "anti-slop" in by_id["copy"]["task"]
-    assert by_id["skeleton"]["deliverable"].get("web_quality_scan") is True
-    assert by_id["skeleton"]["deliverable"].get("web_quality_soft_exempt") is True
-    assert by_id["skeleton"]["deliverable"].get("strict") is True
-    assert by_id["section_0"]["deliverable"].get("web_quality_scan") is True
-    assert by_id["section_0"]["deliverable"].get("strict") is True
-    assert by_id["section_0"]["deliverable"]["artifacts"] == ["site/sections/s0.html"]
-    assert by_id["assemble"]["deliverable"]["artifacts"] == [
+    assert "首屏英雄区" in by_id["copy"]["task"]
+    assert "卖点能力区" in by_id["copy"]["task"]
+    assert "行动号召区" in by_id["copy"]["task"]
+    # 前端一人包 DESIGN + 整页 + CONTRACT
+    assert by_id["frontend"]["deliverable"]["form"] == "files"
+    assert by_id["frontend"]["deliverable"]["artifacts"] == [
+        "site/DESIGN.md",
         "site/index.html",
         "site/styles.css",
         "site/main.js",
+        "site/CONTRACT.md",
     ]
-    assert by_id["assemble"]["deliverable"].get("strict") is True
+    assert by_id["frontend"]["deliverable"].get("web_quality_scan") is True
+    assert by_id["frontend"]["deliverable"].get("strict") is True
+    assert by_id["frontend"]["deliverable"]["placeholder_hard_exempt_artifacts"] == [
+        "site/CONTRACT.md",
+        "site/DESIGN.md",
+    ]
+    assert "site/copy.md" in by_id["frontend"]["task"]
+    assert "DESIGN" in by_id["frontend"]["task"]
+    assert "静态 HTML" in by_id["frontend"]["task"]
+    assert "pack=marketing" in by_id["frontend"]["task"]
+    # QA
     assert by_id["qa"]["deliverable"].get("web_quality_scan") is True
     assert by_id["qa"]["deliverable"].get("visual_critic") is True
     assert by_id["qa"]["deliverable"].get("strict") is True
     assert by_id["qa"].get("ceiling_priority") is True
-    # Wave3 D：assemble+QA 均 ceiling_priority，交付预留窗口保验收路径
-    assert by_id["assemble"].get("ceiling_priority") is True
-    # Wave3 B：分区强制注入契约/设计/文案摘要路径 + 少空转读纪律
-    assert by_id["section_0"].get("context_inject_files") == [
-        "site/CONTRACT.md",
-        "site/DESIGN.md",
-        "site/copy.md",
-    ]
-    assert "分区上下文预算" in by_id["section_0"]["task"]
-    assert "禁止" in by_id["section_0"]["task"] and "反复 file_read" in by_id["section_0"]["task"]
-    assert "写前确认" in by_id["section_0"]["task"]
-    assert by_id["skeleton"]["deliverable"]["form"] == "files"
-    assert "site/CONTRACT.md" in by_id["skeleton"]["deliverable"]["artifacts"]
-    assert "site/index.html" in by_id["skeleton"]["deliverable"]["artifacts"]
     assert by_id["qa"]["deliverable"]["form"] == "files"
     assert by_id["qa"]["deliverable"]["artifacts"] == ["site/QA.md"]
     assert by_id["qa"]["deliverable"]["web_seam_scope"] == "site/"
-    # 文案 / 栈 / 受众嵌入任务书
-    assert "GEO 官网落地页" in by_id["copy"]["task"]
-    assert "中小商家" in by_id["copy"]["task"]
-    assert "静态 HTML" in by_id["skeleton"]["task"]
-    # Wave3 A：分区只写独立片段；assemble 单写者注入；QA 接缝 / 截图诚实
-    assert "site/sections/s0.html" in by_id["section_0"]["task"]
-    assert "分区独立片段" in by_id["section_0"]["task"]
-    assert "site/index.html" in by_id["section_0"]["task"]  # forbid mention
-    assert "禁止" in by_id["section_0"]["task"]
-    assert "write_section" in by_id["assemble"]["task"]
-    assert "str_replace" in by_id["assemble"]["task"]  # forbidden for placeholder guess
-    assert "site/sections/s0.html" in by_id["assemble"]["task"]
+    assert by_id["qa"]["deliverable"]["placeholder_hard_exempt"] is True
     assert "web_seam" in by_id["qa"]["task"]
     assert "browser_screenshot" in by_id["qa"]["task"]
     assert "未目验" in by_id["qa"]["task"] or "谎称" in by_id["qa"]["task"]
     assert by_id["qa"]["timeout_ms"] == 300_000
-    # 默认三分区角色名
-    assert by_id["section_0"]["role"] == "首屏英雄区实现"
-    assert by_id["section_1"]["role"] == "卖点能力区实现"
-    assert by_id["section_2"]["role"] == "行动号召区实现"
-    # 骨架埋 SECTION 标记对；分区写片段；assemble 注入
-    assert "SECTION" in by_id["skeleton"]["task"]
-    assert "SECTION:s0 START" in by_id["skeleton"]["task"]
-    assert "SECTION:s0 START" in by_id["assemble"]["task"]
-    # 三分区 artifacts 互不交叉（并行不撞同文件）
-    arts = [tuple(by_id[sid]["deliverable"]["artifacts"]) for sid in section_ids]
-    assert len(arts) == len(set(arts))
-    assert all("site/index.html" not in a for a in arts)
-    # 内部协调产物占位符硬扫豁免
-    assert by_id["skeleton"]["deliverable"]["placeholder_hard_exempt_artifacts"] == [
-        "site/CONTRACT.md",
-        "site/DESIGN.md",
-    ]
-    assert by_id["qa"]["deliverable"]["placeholder_hard_exempt"] is True
+    # 文案 / 受众嵌入任务书
+    assert "GEO 官网落地页" in by_id["copy"]["task"]
+    assert "中小商家" in by_id["copy"]["task"]
+    # 无旧五波节点
+    assert "design" not in by_id
+    assert "skeleton" not in by_id
+    assert "assemble" not in by_id
+    assert not any(t["id"].startswith("section_") for t in tasks)
 
 
-# Back-compat name used by older docs / external refs.
-test_build_website_four_waves_default_sections = test_build_website_five_waves_default_sections
-
-
-def test_build_website_section_marker_guidance_per_slot():
-    """Merged section slots list every constituent fragment path."""
-    tasks, _ = expand_playbook(
+def test_build_website_sections_coverage_only_no_fanout():
+    """sections 仅作文案/前端覆盖清单，节点数恒为 3。"""
+    tasks, errors = expand_playbook(
         "build_website",
         {"site": "S", "sections": ["导航", "定价", "FAQ"]},
     )
+    assert errors == []
     by_id = _by_id(tasks)
-    # N=3 → 1:1; section_1 is 定价 alone → s1 fragment only
-    assert "site/sections/s1.html" in by_id["section_1"]["task"]
-    assert "【定价】" in by_id["section_1"]["task"]
-    assert by_id["section_1"]["deliverable"]["artifacts"] == ["site/sections/s1.html"]
-    # N=8 merge: section_0 covers 区0+区1 → s0 and s1 fragments
+    assert set(by_id) == {"copy", "frontend", "qa"}
+    assert "导航" in by_id["copy"]["task"] and "导航" in by_id["frontend"]["task"]
+    assert "定价" in by_id["copy"]["task"] and "定价" in by_id["frontend"]["task"]
+    assert "FAQ" in by_id["copy"]["task"] and "FAQ" in by_id["frontend"]["task"]
+    assert not any(t["id"].startswith("section_") for t in tasks)
+    assert "assemble" not in by_id
+
     eight = [f"区{i}" for i in range(8)]
-    tasks8, _ = expand_playbook("build_website", {"site": "S", "sections": eight})
+    tasks8, errors8 = expand_playbook("build_website", {"site": "S", "sections": eight})
+    assert errors8 == []
+    assert len(tasks8) == 3
     by_id8 = _by_id(tasks8)
-    assert "site/sections/s0.html" in by_id8["section_0"]["task"]
-    assert "site/sections/s1.html" in by_id8["section_0"]["task"]
-    assert by_id8["section_0"]["deliverable"]["artifacts"] == [
-        "site/sections/s0.html",
-        "site/sections/s1.html",
-    ]
+    assert set(by_id8) == {"copy", "frontend", "qa"}
+    assert "区0" in by_id8["copy"]["task"]
+    assert "区7" in by_id8["frontend"]["task"]
 
 
-def test_build_website_n3_unchanged_single_copy():
-    """N=3：1:1 分区、单文案 worker、无合并 note；含 assemble。"""
-    from agentcore.runtime.runs.playbooks import collect_playbook_notes
-
-    sections = ["首屏英雄区", "卖点能力区", "行动号召区"]
-    tasks, errors = expand_playbook(
-        "build_website",
-        {"site": "S", "sections": sections, "audience": "访客"},
-    )
-    assert errors == []
-    by_id = _by_id(tasks)
-    assert set(by_id) == {
-        "copy",
-        "design",
-        "skeleton",
-        "section_0",
-        "section_1",
-        "section_2",
-        "assemble",
-        "qa",
-    }
-    assert by_id["design"]["depends_on"] == ["copy"]
-    assert by_id["skeleton"]["depends_on"] == ["design"]
-    assert by_id["copy"]["deliverable"]["artifacts"] == ["site/copy.md"]
-    assert "site/copy/" not in by_id["copy"]["task"]
-    assert collect_playbook_notes(tasks) == []
-    assert by_id["section_0"]["role"] == "首屏英雄区实现"
-    assert "site/copy.md" in by_id["section_0"]["task"]
-    assert "跨段口吻一致性" not in by_id["qa"]["task"]
-    assert by_id["qa"]["depends_on"] == ["assemble"]
-
-
-def test_build_website_n8_pairs_then_width2_single_copy():
-    """N=8 → 相邻配对后再按 width=2 折叠为 2 分区节点；单文案；带 note。"""
-    from agentcore.runtime.runs.playbooks import collect_playbook_notes
-
-    eight = [
-        "首屏英雄区",
-        "卖点能力区",
-        "案例证明区",
-        "定价方案区",
-        "信任背书区",
-        "对比表区",
-        "常见 FAQ",
-        "底部 CTA + 联系表单区",
-    ]
-    tasks, errors = expand_playbook(
-        "build_website",
-        {"site": "S", "sections": eight, "audience": "中小商家"},
-    )
-    assert errors == []
-    by_id = _by_id(tasks)
-    assert "copy_a" not in by_id and "copy_b" not in by_id
-    assert set(by_id) >= {"copy", "design", "skeleton", "assemble", "qa"}
-    section_nodes = [t for t in tasks if t["id"].startswith("section_")]
-    assert len(section_nodes) == 2
-    assert by_id["design"]["depends_on"] == ["copy"]
-    assert by_id["skeleton"]["depends_on"] == ["design"]
-    assert by_id["copy"]["deliverable"]["artifacts"] == ["site/copy.md"]
-    assert "中小商家" in by_id["copy"]["task"]
-    assert "site/DESIGN.md" in by_id["skeleton"]["task"] or "DESIGN" in by_id["skeleton"]["task"]
-    assert "site/copy.md" in by_id["qa"]["task"]
-    assert "跨段口吻一致性" not in by_id["qa"]["task"]
-    # 所有分区节点读同一文案包
-    assert "site/copy.md" in by_id["section_0"]["task"]
-    assert "site/copy.md" in by_id["section_1"]["task"]
-    # width=2 折叠：首节点保留首对，末节点吞尾
-    assert "首屏英雄区" in by_id["section_0"]["role"] and "卖点能力区" in by_id["section_0"]["role"]
-    assert "常见 FAQ" in by_id["section_1"]["role"] or "常见 FAQ" in by_id["section_1"]["task"]
-    assert (
-        "底部 CTA + 联系表单区" in by_id["section_1"]["role"]
-        or "底部 CTA + 联系表单区" in by_id["section_1"]["task"]
-    )
-    assert "分区独立片段" in by_id["section_0"]["task"]
-    assert "site/index.html" not in by_id["section_0"]["deliverable"]["artifacts"]
-    assert by_id["assemble"]["depends_on"] == ["section_0", "section_1"]
-    notes = collect_playbook_notes(tasks)
-    assert notes and "分区合并" in notes[0]
-    assert "宽度上限" in notes[0] or "折叠" in notes[0]
-    assert "首屏英雄区" in by_id["copy"]["task"]
-    assert "底部 CTA + 联系表单区" in by_id["copy"]["task"]
-    assert "常见 FAQ" in by_id["skeleton"]["task"]
-
-
-def test_build_website_n13_width2_capped_with_tail_fold():
-    """N=13 → 配对后宽度封顶 2，尾部折叠进末组；单文案。"""
-    from agentcore.runtime.runs.playbooks import (
-        _BUILD_WEBSITE_SECTION_MAX_WIDTH,
-        collect_playbook_notes,
-    )
-
-    thirteen = [f"区{i}" for i in range(13)]
-    tasks, errors = expand_playbook(
-        "build_website", {"site": "S", "sections": thirteen}
-    )
-    assert errors == []
-    section_nodes = [t for t in tasks if t["id"].startswith("section_")]
-    assert len(section_nodes) == _BUILD_WEBSITE_SECTION_MAX_WIDTH
-    by_id = _by_id(tasks)
-    last = by_id[f"section_{_BUILD_WEBSITE_SECTION_MAX_WIDTH - 1}"]
-    # Pair-then-fold: last group absorbs the odd 13th + its pair mate(s).
-    assert "区12" in last["role"] or "区12" in last["task"]
-    assert "区10" in last["role"] or "区10" in last["task"]
-    notes = collect_playbook_notes(tasks)
-    assert notes and "分区合并" in notes[0]
-    assert "宽度上限" in notes[0] or "折叠" in notes[0]
-    assert "copy" in by_id
-    assert "copy_a" not in by_id and "copy_b" not in by_id
-    assert by_id["design"]["depends_on"] == ["copy"]
-    assert by_id["skeleton"]["depends_on"] == ["design"]
-    assert "assemble" in by_id
-    assert by_id["qa"]["depends_on"] == ["assemble"]
-    # 全局 MAX_PLAYBOOK_FANOUT 仍为 6（调研/compare）；建站分区宽独立为 2
-    from agentcore.runtime.runs.playbooks import MAX_PLAYBOOK_FANOUT
-
-    assert MAX_PLAYBOOK_FANOUT == 6
-    assert _BUILD_WEBSITE_SECTION_MAX_WIDTH == 2
-    assert len(section_nodes) < MAX_PLAYBOOK_FANOUT
-
-def test_build_website_custom_sections_small_no_merge():
-    from agentcore.runtime.runs.playbooks import collect_playbook_notes
-
+def test_build_website_custom_sections_still_three_nodes():
     tasks, errors = expand_playbook(
         "build_website",
         {"site": "S", "sections": ["导航", "定价"]},
     )
     assert errors == []
     by_id = _by_id(tasks)
-    assert by_id["assemble"]["depends_on"] == ["section_0", "section_1"]
-    assert by_id["qa"]["depends_on"] == ["assemble"]
-    assert by_id["section_1"]["role"] == "定价实现"
-    assert "定价" in by_id["section_1"]["task"]
-    assert collect_playbook_notes(tasks) == []
+    assert set(by_id) == {"copy", "frontend", "qa"}
+    assert by_id["qa"]["depends_on"] == ["frontend"]
     assert by_id["copy"]["deliverable"]["artifacts"] == ["site/copy.md"]
-
-
-def test_build_website_partition_artifacts_disjoint():
-    """验收 A：三分区并行 artifacts 互不交叉，且均不含共享 index.html。"""
-    tasks, errors = expand_playbook(
-        "build_website",
-        {"site": "S", "sections": ["首屏英雄区", "卖点能力区", "行动号召区"]},
-    )
-    assert errors == []
-    by_id = _by_id(tasks)
-    section_arts = [
-        set(by_id[f"section_{i}"]["deliverable"]["artifacts"]) for i in range(3)
-    ]
-    for arts in section_arts:
-        assert arts
-        assert "site/index.html" not in arts
-        assert all(p.startswith("site/sections/") for p in arts)
-    # pairwise disjoint
-    assert not (section_arts[0] & section_arts[1])
-    assert not (section_arts[0] & section_arts[2])
-    assert not (section_arts[1] & section_arts[2])
-    assert by_id["assemble"]["depends_on"] == ["section_0", "section_1", "section_2"]
+    assert "定价" in by_id["frontend"]["task"]
 
 
 def test_build_website_requires_site():
@@ -632,6 +456,7 @@ def test_build_toolshed_five_waves_injects_tool_dense():
         "assemble",
         "qa",
     }
+    assert len(tasks) >= 7
     assert by_id["qa"]["depends_on"] == ["assemble"]
     assert by_id["assemble"]["depends_on"] == ["section_0", "section_1", "section_2"]
     sk = by_id["skeleton"]["task"]
@@ -684,14 +509,14 @@ def test_build_website_qa_shares_helper_deferred_ok():
 
 
 def test_build_website_files_form_builds_run_plan():
-    """form=files + artifacts 经真实 builder 接通；五波次 DAG 可 waves()。"""
+    """form=files + artifacts 经真实 builder 接通；三串 DAG 可 waves()。"""
     tasks, errors = expand_playbook(
         "build_website", {"site": "T", "sections": ["A", "B"]}
     )
     assert errors == []
     plan, plan_errors = build_run_plan(tasks, id_prefix="pb_bw")
     assert plan_errors == []
-    assert len(plan.nodes) == 7  # copy + design + skeleton + 2 sections + assemble + qa
+    assert len(plan.nodes) == 3  # copy + frontend + qa
     waves = plan.waves()
     assert waves  # no cycle
     by_role = {n.role: n for n in plan.nodes}
@@ -699,46 +524,39 @@ def test_build_website_files_form_builds_run_plan():
     assert by_role["内容文案"].deliverable.form == "files"
     assert by_role["内容文案"].deliverable.requires_files is True
     assert by_role["内容文案"].deliverable.strict is True
-    assert by_role["设计契约"].deliverable.artifacts == ["site/DESIGN.md"]
-    assert by_role["骨架工程师"].deliverable.artifacts is not None
-    assert "site/CONTRACT.md" in by_role["骨架工程师"].deliverable.artifacts
-    assert by_role["骨架工程师"].deliverable.placeholder_hard_exempt_artifacts == [
+    assert by_role["前端开发者"].deliverable.artifacts == [
+        "site/DESIGN.md",
+        "site/index.html",
+        "site/styles.css",
+        "site/main.js",
+        "site/CONTRACT.md",
+    ]
+    assert by_role["前端开发者"].deliverable.placeholder_hard_exempt_artifacts == [
         "site/CONTRACT.md",
         "site/DESIGN.md",
     ]
-    assert by_role["页面组装"].deliverable.artifacts is not None
-    assert "site/index.html" in by_role["页面组装"].deliverable.artifacts
     assert by_role["页面 QA"].deliverable.form == "files"
     assert by_role["页面 QA"].deliverable.placeholder_hard_exempt is True
     assert by_role["页面 QA"].policy.timeout_s == 300
     assert by_role["页面 QA"].ceiling_priority is True
-    assert by_role["页面组装"].ceiling_priority is True
-    section_nodes = [n for n in plan.nodes if "实现" in (n.role or "")]
-    assert section_nodes
-    assert section_nodes[0].context_inject_files == [
-        "site/CONTRACT.md",
-        "site/DESIGN.md",
-        "site/copy.md",
-    ]
+    assert "设计契约" not in by_role
+    assert "骨架工程师" not in by_role
+    assert "页面组装" not in by_role
 
 
-def test_build_website_single_copy_builds_run_plan():
-    """单文案 + width=2 分区经真实 builder 接通。"""
+def test_build_website_many_sections_still_three_nodes_run_plan():
+    """多分区仍三节点，经真实 builder 接通。"""
     eight = [f"区{i}" for i in range(8)]
     tasks, errors = expand_playbook("build_website", {"site": "T", "sections": eight})
     assert errors == []
     plan, plan_errors = build_run_plan(tasks, id_prefix="pb_bw8")
     assert plan_errors == []
-    # copy + design + skeleton + 2 sections + assemble + qa = 7
-    assert len(plan.nodes) == 7
+    assert len(plan.nodes) == 3
     assert plan.waves()
     by_role = {n.role: n for n in plan.nodes}
     assert by_role["内容文案"].deliverable.artifacts == ["site/copy.md"]
-    assert "内容文案·前半" not in by_role and "内容文案·后半" not in by_role
-    assert by_role["设计契约"].deliverable.artifacts == ["site/DESIGN.md"]
-    assert "页面组装" in by_role
-    section_nodes = [n for n in plan.nodes if "实现" in (n.role or "")]
-    assert len(section_nodes) == 2
+    assert by_role["前端开发者"].deliverable.artifacts[0] == "site/DESIGN.md"
+    assert "页面 QA" in by_role
 
 
 # ── compare_options ───────────────────────────────────────────────────────────
@@ -1055,7 +873,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         "build_feature": 3,
         "repair_code": 3,
         "build_app": 6,  # scaffold + shared + 2 modules + integrate + smoke
-        "build_website": 7,  # copy + design + skeleton + 2 sections + assemble + qa
+        "build_website": 3,  # copy + frontend + qa
         "build_toolshed": 7,  # same shape, 2 sections
         "build_website_verify": 1,  # qa only
         "compare_options": 4,

@@ -130,6 +130,30 @@ def test_apply_escalation_gate_scheme_emits_and_accumulates():
     ].payload.get("question", "")
 
 
+def test_apply_escalation_gate_dedupes_same_question_across_rounds():
+    """同 run 内相同 question 只 live 上报一次（对齐 harvest 去重）。"""
+    sink = _RecordingSink()
+    gate_sink: list[dict] = []
+    attempt = ToolAttempt("fp1", "file_write", success=False)
+    msg = LLMMessage(role="tool", content="超出权限，需改接口契约", tool_call_id="c1")
+    kwargs = dict(
+        attempts=[attempt],
+        tool_results=[msg],
+        sink=sink,
+        run_id="run-w",
+        agent_id="worker-1",
+        gate_escalation_sink=gate_sink,
+    )
+    apply_escalation_gate(**kwargs)
+    apply_escalation_gate(**kwargs)
+
+    assert len(gate_sink) == 1
+    banners = [e for e in sink.emitted if e.type == EventType.RUN_ESCALATION]
+    assert len(banners) == 1
+    gate_events = [e for e in sink.emitted if e.type == EventType.RUN_ESCALATION_GATE]
+    assert len(gate_events) == 1
+
+
 def test_apply_escalation_gate_execution_is_silent():
     sink = _RecordingSink()
     gate_sink: list[dict] = []

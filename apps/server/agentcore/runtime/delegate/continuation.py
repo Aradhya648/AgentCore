@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from agentcore.core.logging import get_logger
@@ -26,6 +27,54 @@ class ContinuationRejectedError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
+
+
+def merge_continuation_tools(
+    prior: list[str] | None,
+    declared: list[str] | None,
+) -> list[str] | None:
+    """续写有效工具面：新 task ``tools`` 只增不减（超集 merge）。
+
+    - ``declared is None``（未声明）→ 沿用 ``prior``
+    - ``prior is None``（原现场无限制）→ 保持 ``None``（不得减面成白名单）
+    - 双方皆为列表 → 并集（先 prior 序，再追加新名）；子集声明不减面
+    """
+    if declared is None:
+        return prior
+    if prior is None:
+        return None
+    seen = set(prior)
+    out = list(prior)
+    for name in declared:
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+async def apply_continuation_tool_merges(plan: RunPlan, tool: DelegateTool) -> None:
+    """入闸前：对 ``continue_from`` 节点把声明 tools merge 进现场有效面（只增不减）。
+
+    同步回写 ``session.spec.tools``，使 ``continue_run`` 与能力闸看到同一超集。
+    双 miss 的节点跳过（后续 ``resolve_session`` 仍会明确拒绝）。
+    """
+    for node in plan.nodes:
+        cf = (node.continue_from_run_id or "").strip()
+        if not cf:
+            continue
+        session = None
+        if tool._session_store is not None:
+            session = tool._session_store.get(cf)
+        if session is None and tool._session_loader is not None:
+            session = await tool._session_loader(cf)
+            if session is not None and tool._session_store is not None:
+                tool._session_store.put(session)
+        if session is None:
+            continue
+        merged = merge_continuation_tools(session.spec.tools, node.tools)
+        node.tools = merged
+        if merged != session.spec.tools:
+            session.spec = replace(session.spec, tools=merged)
 
 
 async def resolve_session(
@@ -108,6 +157,13 @@ async def run_continuation(
         # 折成 FAILED 交回 CEO，并标记调度层不可重试（复用 executor contract.failed 的
         # non-retryable 机制）：输入校验是确定性的，重跑必再拒——避免同错在日志里重放两次。
         return RunState(phase=RunPhase.FAILED, error=exc.message, error_retryable=False)
+
+    # 工具面只增不减：新 task 声明的 tools merge 进现场（入闸可能已做过，此处幂等）。
+    merged_tools = merge_continuation_tools(session.spec.tools, spec.tools)
+    if merged_tools != session.spec.tools:
+        session.spec = replace(session.spec, tools=merged_tools)
+    if merged_tools != spec.tools:
+        spec.tools = merged_tools
 
     # 依赖产物：与冷开局同构，写入续干 feedback 正文（LLM）+ continuation 通道块（UI）。
     feedback, context_blocks = _continuation_prompt(spec, completed)

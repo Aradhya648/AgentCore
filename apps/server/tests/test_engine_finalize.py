@@ -245,6 +245,39 @@ async def test_force_finalize_skips_empty_inventory():
 
 
 @pytest.mark.asyncio
+async def test_force_finalize_salvages_when_tool_inventory_present():
+    """零正文但有 tool 结果 → 允许一次 salvage LLM（不定案里的触顶放行）。"""
+    from agentcore.llm.provider.protocol import TokenUsage
+
+    provider = _ScriptedProvider([[_content_chunk("根因：X；拟改：Y")]])
+    messages = [
+        LLMMessage(role="user", content="go"),
+        LLMMessage(role="tool", content="viewport.ts excerpt…", tool_call_id="t1"),
+    ]
+    reg = _registry()
+    content, _r, _u, _rounds, coordination = await force_finalize(
+        messages=messages,
+        llm=provider,
+        profile=make_profile_params(),
+        active_model="m",
+        tools=reg,
+        allowed_tool_names=["handoff"],
+        disabled_tools=set(),
+        emit_content=lambda _d: None,
+        emit_reasoning=lambda _d: None,
+        final_content="",
+        final_reasoning="",
+        total_usage=TokenUsage(),
+        rounds=4,
+        reason="max_rounds",
+        run_id="diag1",
+    )
+    assert coordination is None
+    assert "根因" in content
+    assert provider.calls >= 1
+
+
+@pytest.mark.asyncio
 async def test_empty_soft_finalize_with_prior_falls_back_to_tool_free():
     """有 prior 半成品时：empty soft → hard tool-free salvage 仍可用。"""
     provider = _ScriptedProvider([[], [_content_chunk("hard answer")]])

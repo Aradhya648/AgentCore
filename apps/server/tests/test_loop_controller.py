@@ -478,8 +478,23 @@ def test_no_tool_round_is_not_unproductive():
 
 def test_reflection_due_fires_on_cadence():
     c = LoopController(reflection_start_round=3, reflection_interval=3)
-    # 4th / 7th / 10th round (0-indexed 3 / 6 / 9)
+    # 4th / 7th / 10th round (0-indexed 3 / 6 / 9) — cadence alone, no latch yet
     assert [r for r in range(11) if c.reflection_due(r)] == [3, 6, 9]
+
+
+def test_reflection_latches_one_per_idle_streak():
+    """Soft 进度复盘每空转段一次；再空转交给 zero_write/convergence，不重复同文案。"""
+    c = LoopController(reflection_start_round=3, reflection_interval=3)
+    assert c.reflection_due(3)
+    c.mark_reflection_injected()
+    assert not c.reflection_due(6)
+    assert not c.reflection_due(9)
+    # Progress clears the latch → cadence can fire again.
+    c.record([_ok("w", "file_write")])
+    c.record([_ok("r", "web_search")])
+    c.record([_ok("r2", "web_search")])
+    assert not c.has_recent_progress()
+    assert c.reflection_due(9)
 
 
 def test_reflection_not_due_before_start_round():
@@ -807,3 +822,44 @@ def test_different_targets_still_trip_zero_write():
     assert c.same_target_investigation_streak == 0
     assert c.convergence_action() is Intervention.FINALIZE
     assert c.is_thrashing()
+
+
+def _prose_worker(*, idle: int = 3, finalize: int = 30) -> LoopController:
+    return LoopController(
+        convergence_finalize_rounds=finalize,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=idle,
+        prose_idle=True,
+        investigation_tools=frozenset({"file_read", "grep", "code_search"}),
+    )
+
+
+def test_prose_idle_finalizes_and_handoff_counts_as_delivery():
+    c = _prose_worker(idle=3)
+    for i in range(2):
+        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+        assert c.convergence_action() is Intervention.CONTINUE
+    assert c.zero_write_warn_due()
+    c.record([ToolAttempt(fingerprint="f2", tool_name="file_read", success=True)])
+    assert c.convergence_action() is Intervention.FINALIZE
+
+    c2 = _prose_worker(idle=3)
+    c2.record([ToolAttempt(fingerprint="a", tool_name="file_read", success=True)])
+    c2.record([ToolAttempt(fingerprint="b", tool_name="file_read", success=True)])
+    c2.record([ToolAttempt(fingerprint="h", tool_name="handoff", success=True)])
+    assert c2.landing_succeeded
+    assert c2.zero_write_investigation_rounds == 0
+    assert c2.convergence_action() is Intervention.CONTINUE
+
+
+def test_prose_idle_warn_prompt_mentions_prose_not_landing():
+    from agentcore.runtime.loop_controller import (
+        zero_write_finalize_prompt,
+        zero_write_warn_prompt,
+    )
+
+    warn = zero_write_warn_prompt(rounds=2, prose_idle=True)
+    assert "散文" in warn or "诊断" in warn
+    assert "str_replace" not in warn
+    fin = zero_write_finalize_prompt(rounds=3, prose_idle=True)
+    assert "散文" in fin or "根因" in fin

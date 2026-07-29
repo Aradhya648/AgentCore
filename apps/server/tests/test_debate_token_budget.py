@@ -6,11 +6,11 @@ from agentcore.config.engine import EngineSettings
 
 
 def test_debate_uses_unified_worker_token_ceiling():
-    """辩手不再有独立 ceiling；统一顶默认 1M（高于原辩论档 120k）。"""
+    """辩手不再有独立 ceiling；统一顶默认 2M（高于原辩论档 120k）。"""
     s = EngineSettings()
     assert not hasattr(s, "engine_debate_token_ceiling")
     assert not hasattr(s, "engine_worker_token_wind_down_ratio")
-    assert s.engine_worker_token_ceiling == 1_000_000
+    assert s.engine_worker_token_ceiling == 2_000_000
     assert s.engine_worker_token_ceiling >= 120_000
     assert s.engine_worker_token_wind_down_reserve == 30_000
 

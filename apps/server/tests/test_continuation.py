@@ -5,6 +5,7 @@ from pathlib import Path
 from agentcore.llm.provider.protocol import LLMChunk, LLMMessage, TokenUsage
 from agentcore.runtime.delegate.continuation import (
     ContinuationRejectedError,
+    merge_continuation_tools,
     register_completed_session,
     resolve_session,
     run_continuation,
@@ -22,11 +23,30 @@ from agentcore.runtime.runs.plan import RunPlan
 from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
 from agentcore.runtime.sessions import SessionStore
 from agentcore.tools.builtin.delegate import DelegateTool
-from agentcore.tools.protocol import ToolContext
+from agentcore.tools.protocol import ToolCategory, ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registry import ToolRegistry
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 from tests.delegate.conftest import _upstream_body
+
+
+class _NamedStub:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.schema = ToolSchema(
+            name=name,
+            description=name,
+            parameters={"type": "object", "properties": {}},
+            category=ToolCategory.SEARCH,
+        )
+
+    async def execute(self, arguments, context):  # noqa: ARG002
+        return ToolResult(tool_call_id="", success=True, output="ok")
+
+
+def _register_names(reg: ToolRegistry, *names: str) -> None:
+    for n in names:
+        reg.register(_NamedStub(n))
 
 
 class _Provider:
@@ -347,3 +367,150 @@ async def test_continue_from_failed_run_is_allowed():
     assert result.success is True
     assert "续写修正版" in result.output
     assert store.get("t_1").recall_count == 1
+
+
+# ── D1：tools 只增不减 ───────────────────────────────────────────────────────
+
+
+def test_merge_continuation_tools_undeclared_keeps_prior():
+    assert merge_continuation_tools(["file_read", "grep"], None) == [
+        "file_read",
+        "grep",
+    ]
+    assert merge_continuation_tools(None, None) is None
+
+
+def test_merge_continuation_tools_superset_adds():
+    assert merge_continuation_tools(
+        ["file_read", "grep"],
+        ["file_read", "grep", "test_run"],
+    ) == ["file_read", "grep", "test_run"]
+    assert merge_continuation_tools(["file_read"], ["test_run"]) == [
+        "file_read",
+        "test_run",
+    ]
+
+
+def test_merge_continuation_tools_subset_does_not_shrink():
+    assert merge_continuation_tools(
+        ["file_read", "grep", "test_run"],
+        ["file_read"],
+    ) == ["file_read", "grep", "test_run"]
+
+
+def test_merge_continuation_tools_unrestricted_prior_stays_open():
+    """原现场 tools=None（无限制）不得被白名单声明减面。"""
+    assert merge_continuation_tools(None, ["file_read"]) is None
+
+
+async def test_continue_from_tools_superset_is_effective_on_session():
+    """乙续派声明更大 tools → session / 续写有效面为超集。"""
+    store = SessionStore()
+    provider = _Provider(["第一版", "续写版"])
+    await _seed(store, provider)
+    session = store.get("t_1")
+    assert session is not None
+    # 模拟调查批只读面
+    from dataclasses import replace
+
+    session.spec = replace(
+        session.spec,
+        tools=["file_read", "grep", "web_search"],
+    )
+    store.put(session)
+
+    sink = EventSink()
+    tool = _tool(store, provider, sink)
+    _register_names(
+        tool._tools, "file_read", "grep", "web_search", "test_run", "str_replace"
+    )
+
+    result = await tool.execute(
+        {
+            "tasks": [
+                {
+                    "role": "研究员",
+                    "task": "按结论改码并验",
+                    "continue_from_run_id": "t_1",
+                    "tools": ["file_read", "grep", "web_search", "test_run", "str_replace"],
+                }
+            ],
+            "coordinate": False,
+            "complexity_hint": "light",
+        },
+        _ctx(),
+    )
+    assert result.success is True
+    effective = store.get("t_1").spec.tools
+    assert effective is not None
+    assert "test_run" in effective
+    assert "str_replace" in effective
+    assert "file_read" in effective
+
+
+async def test_continue_from_tools_subset_does_not_shrink_session():
+    """试图减面 → 保持原超集。"""
+    store = SessionStore()
+    provider = _Provider(["第一版", "续写版"])
+    await _seed(store, provider)
+    session = store.get("t_1")
+    from dataclasses import replace
+
+    session.spec = replace(
+        session.spec,
+        tools=["file_read", "grep", "test_run"],
+    )
+    store.put(session)
+
+    tool = _tool(store, provider)
+    _register_names(tool._tools, "file_read", "grep", "test_run")
+
+    result = await tool.execute(
+        {
+            "tasks": [
+                {
+                    "role": "研究员",
+                    "task": "只读复核",
+                    "continue_from_run_id": "t_1",
+                    "tools": ["file_read"],
+                }
+            ],
+            "coordinate": False,
+            "complexity_hint": "light",
+        },
+        _ctx(),
+    )
+    assert result.success is True
+    effective = store.get("t_1").spec.tools
+    assert effective == ["file_read", "grep", "test_run"]
+
+
+async def test_continue_from_undeclared_tools_keeps_session_tools():
+    store = SessionStore()
+    provider = _Provider(["第一版", "续写版"])
+    await _seed(store, provider)
+    session = store.get("t_1")
+    from dataclasses import replace
+
+    session.spec = replace(session.spec, tools=["file_read", "grep"])
+    store.put(session)
+
+    tool = _tool(store, provider)
+    _register_names(tool._tools, "file_read", "grep")
+
+    result = await tool.execute(
+        {
+            "tasks": [
+                {
+                    "role": "研究员",
+                    "task": "接着写",
+                    "continue_from_run_id": "t_1",
+                }
+            ],
+            "coordinate": False,
+            "complexity_hint": "light",
+        },
+        _ctx(),
+    )
+    assert result.success is True
+    assert store.get("t_1").spec.tools == ["file_read", "grep"]

@@ -75,8 +75,14 @@ LANDING_TOOLS = frozenset(
 )
 
 
-def zero_write_warn_prompt(*, rounds: int) -> str:
-    """Hard steer before zero-write FINALIZE (files-expected investigation idle)."""
+def zero_write_warn_prompt(*, rounds: int, prose_idle: bool = False) -> str:
+    """Hard steer before idle FINALIZE (files zero-write or prose short idle)."""
+    if prose_idle:
+        return (
+            f"[系统提示] 只读不交卷告警（已连续 {rounds} 轮仅调查、无散文交付）："
+            "请立即基于已读内容写出短诊断/验证结论（或 handoff 交接），"
+            "禁止继续换文件通读空转。下一轮仍无正文将强制收口。"
+        )
     return (
         f"[系统提示] 只读空转告警（已连续 {rounds} 轮仅调查、零落盘）："
         "任务要求写盘交付。请立即 str_replace / file_write 落地，或 handoff 诚实说明阻塞；"
@@ -84,8 +90,13 @@ def zero_write_warn_prompt(*, rounds: int) -> str:
     )
 
 
-def zero_write_finalize_prompt(*, rounds: int) -> str:
-    """Injected on zero-write FINALIZE so salvage answers name the idle pattern."""
+def zero_write_finalize_prompt(*, rounds: int, prose_idle: bool = False) -> str:
+    """Injected on idle FINALIZE so salvage answers name the idle pattern."""
+    if prose_idle:
+        return (
+            f"[系统提示] 只读不交卷强制收口（连续 {rounds} 轮调查且无散文交付）："
+            "请基于已读内容写出根因/结论并 handoff，勿再展开新调研。"
+        )
     return (
         f"[系统提示] 只读空转强制收口（连续 {rounds} 轮调查且零落盘）："
         "请基于已读内容交接当前缺口，勿再展开新调研。"
@@ -318,6 +329,7 @@ class LoopController:
         convergence_finalize_rounds: int = 0,
         convergence_spin_rounds: int = DEFAULT_THRESHOLD,
         zero_write_finalize_rounds: int = 0,
+        prose_idle: bool = False,
         investigation_tools: frozenset[str] = frozenset(),
     ) -> None:
         self._window = window
@@ -344,9 +356,11 @@ class LoopController:
         # disables the absolute cap; ``spin_rounds <= 0`` disables spinning detection.
         self._convergence_finalize_rounds = max(0, convergence_finalize_rounds)
         self._convergence_spin_rounds = max(0, convergence_spin_rounds)
-        # Files-expected zero-write thrashing: investigation-only + no landing success.
-        # ``<= 0`` disables. Landing tool *attempt* (even fail) resets the streak.
+        # Delivery-idle thrashing: investigation-only with no delivery success.
+        # Files mode = landing write; prose_idle = handoff (or landing if present).
+        # ``<= 0`` disables. Landing/handoff *attempt* resets; success latches done.
         self._zero_write_finalize_rounds = max(0, zero_write_finalize_rounds)
+        self._prose_idle = bool(prose_idle)
         self._zero_write_investigation_rounds = 0
         self._zero_write_warned = False
         self._landing_succeeded = False
@@ -375,19 +389,20 @@ class LoopController:
         # B2 reflection skip: rounds since a successful PROGRESS_TOOLS call (0 = this
         # round). ``None`` = never had progress. Skip inject when ≤1 (本轮或近轮).
         self._rounds_since_progress: int | None = None
+        # One soft 进度复盘 per idle streak; further cadence hits defer to zero_write /
+        # convergence instead of re-nagging the same「请落盘/handoff」copy.
+        self._reflection_latched_since_progress: bool = False
         # Post-delegate synthesis mode (优化六): after delegate returns, steer the CEO away
         # from repeating investigation work the team already did.
         self._post_delegate: bool = False
         self._post_delegate_investigation_count: int = 0
         # Soft team-gate nudge (协作优先阶段 3): at most once per run, captain-only.
         self._team_gate_fired: bool = False
-        # 跑/打开验证能力策略闸：意图命中即硬收探路工具，captain-only、每 run 一次。
-        self._exec_verify_gate_fired: bool = False
-        # ask 终向但工具面无 ask_user：强制正文结案（清空 tool_defs，禁空转 max_rounds）。
-        self._exec_verify_text_exit: bool = False
+        # 闸后长文直答再催：每 run 一次。
+        self._team_gate_direct_reject_fired: bool = False
         # Soft audit-gate nudge (协作优先阶段 3 返工环): at most once per run, captain-only.
         self._audit_gate_fired: bool = False
-        # 成篇硬门：research_report / 字数承诺 / 手写调研成篇 — nudge 后仍不可直接 end_turn。
+        # 成篇硬门：research_report / deliverable 结构信号 — nudge 后仍不可直接 end_turn。
         self._audit_hard_required: bool = False
         self._audit_includes_review: bool = False
         # Soft debate-commitment nudge: user picked a debate form on kickoff; at most once.
@@ -410,7 +425,7 @@ class LoopController:
 
         ``node_count`` / ``has_deps`` describe this batch so the audit gate can tell
         a substantial first batch (nodes ≥3 or any depends_on) from a light one.
-        ``audit_hard`` / ``includes_review`` stamp成篇硬门（research_report / 字数承诺）.
+        ``audit_hard`` / ``includes_review`` stamp成篇硬门（research_report / 结构字段）.
         """
         self._post_delegate = True
         self._post_delegate_investigation_count = 0
@@ -464,22 +479,13 @@ class LoopController:
         self._team_gate_fired = True
 
     @property
-    def exec_verify_gate_fired(self) -> bool:
-        """True after the run/open-verify capability gate has been injected."""
-        return self._exec_verify_gate_fired
+    def team_gate_direct_reject_fired(self) -> bool:
+        """True after the post-gate long-answer reject has fired."""
+        return self._team_gate_direct_reject_fired
 
-    def mark_exec_verify_gate_fired(self) -> None:
-        """Latch the one-shot exec-verify gate so it cannot fire again this run."""
-        self._exec_verify_gate_fired = True
-
-    @property
-    def exec_verify_text_exit(self) -> bool:
-        """True when exec-verify ask terminal must end in prose (no ask_user tool)."""
-        return self._exec_verify_text_exit
-
-    def mark_exec_verify_text_exit(self) -> None:
-        """Latch forced prose exit: no tools from this point (eval / no live user)."""
-        self._exec_verify_text_exit = True
+    def mark_team_gate_direct_reject_fired(self) -> None:
+        """Latch the one-shot team-gate direct-answer reject."""
+        self._team_gate_direct_reject_fired = True
 
     @property
     def audit_gate_fired(self) -> bool:
@@ -523,8 +529,7 @@ class LoopController:
             "post_delegate": self._post_delegate,
             "delegate_count": self._delegate_count,
             "team_gate_fired": self._team_gate_fired,
-            "exec_verify_gate_fired": self._exec_verify_gate_fired,
-            "exec_verify_text_exit": self._exec_verify_text_exit,
+            "team_gate_direct_reject_fired": self._team_gate_direct_reject_fired,
             "audit_gate_fired": self._audit_gate_fired,
             "first_batch_substantial": self._first_batch_substantial,
             "audit_hard_required": self._audit_hard_required,
@@ -539,8 +544,9 @@ class LoopController:
         self._post_delegate = bool(seed.get("post_delegate", False))
         self._delegate_count = int(seed.get("delegate_count", 0) or 0)
         self._team_gate_fired = bool(seed.get("team_gate_fired", False))
-        self._exec_verify_gate_fired = bool(seed.get("exec_verify_gate_fired", False))
-        self._exec_verify_text_exit = bool(seed.get("exec_verify_text_exit", False))
+        self._team_gate_direct_reject_fired = bool(
+            seed.get("team_gate_direct_reject_fired", False)
+        )
         self._audit_gate_fired = bool(seed.get("audit_gate_fired", False))
         self._first_batch_substantial = bool(seed.get("first_batch_substantial", False))
         self._audit_hard_required = bool(seed.get("audit_hard_required", False))
@@ -590,7 +596,14 @@ class LoopController:
             attempt.success and attempt.tool_name in LANDING_TOOLS for attempt in attempts
         )
         landing_attempt = any(attempt.tool_name in LANDING_TOOLS for attempt in attempts)
-        if landing_success:
+        handoff_success = any(
+            attempt.success and attempt.tool_name == "handoff" for attempt in attempts
+        )
+        delivery_success = landing_success or (self._prose_idle and handoff_success)
+        delivery_attempt = landing_attempt or (
+            self._prose_idle and any(a.tool_name == "handoff" for a in attempts)
+        )
+        if delivery_success:
             self._landing_succeeded = True
             self._zero_write_investigation_rounds = 0
             self._zero_write_warned = False
@@ -598,6 +611,7 @@ class LoopController:
             self._same_target_investigation_streak = 0
             self._prev_investigation_fps = frozenset()
             self._rounds_since_progress = 0
+            self._reflection_latched_since_progress = False
         elif self._rounds_since_progress is not None:
             self._rounds_since_progress += 1
 
@@ -669,13 +683,13 @@ class LoopController:
                     self._same_target_investigation_streak = 0
                 self._prev_investigation_fps = current
 
-        # Zero-write thrashing (files-expected): investigation-only round with no landing
-        # attempt bumps the streak; landing intent/success resets. Non-investigation rounds
-        # (handoff / ask / progress) clear the idle clock without requiring a write.
+        # Delivery-idle thrashing (files zero-write / prose short idle): investigation-only
+        # round with no delivery attempt bumps the streak; delivery intent/success resets.
+        # Non-investigation rounds (ask / progress / exec) clear the idle clock.
         if self._zero_write_finalize_rounds > 0 and not self._landing_succeeded:
             tool_names = {a.tool_name for a in attempts if a.tool_name}
             investigation_only = bool(tool_names) and tool_names <= self._investigation_tools
-            if landing_attempt or landing_success:
+            if delivery_attempt or delivery_success:
                 self._zero_write_investigation_rounds = 0
                 self._zero_write_warned = False
             elif investigation_only:
@@ -801,15 +815,22 @@ class LoopController:
         Fires on a fixed cadence — at ``reflection_start_round`` (0-indexed) and every
         ``reflection_interval`` rounds after (default: round_idx 3 / 6 / 9 …, i.e. the
         4th / 7th / 10th round). Skipped when this or the previous round already had a
-        successful progress tool (落盘 / 交接 / 委派 / 提问) — reflection guards idle
-        drift, not runs that are already advancing. The prompt comes from
+        successful progress tool (落盘 / 交接 / 委派 / 提问), **or** when a reflection
+        was already injected since the last progress (one soft review per idle streak;
+        zero_write / convergence handle sustained thrashing). The prompt comes from
         :func:`progress_review_prompt`. Independent of the stuck detector.
         """
         if round_idx < self._reflection_start_round:
             return False
         if self.has_recent_progress():
             return False
+        if self._reflection_latched_since_progress:
+            return False
         return (round_idx - self._reflection_start_round) % self._reflection_interval == 0
+
+    def mark_reflection_injected(self) -> None:
+        """Latch soft 进度复盘 until the next successful PROGRESS_TOOLS call."""
+        self._reflection_latched_since_progress = True
 
     @property
     def investigation_tool_names(self) -> frozenset[str]:
@@ -833,17 +854,22 @@ class LoopController:
 
     @property
     def zero_write_finalize_rounds(self) -> int:
-        """Configured zero-write thrashing threshold (0 = disabled)."""
+        """Configured delivery-idle thrashing threshold (0 = disabled)."""
         return self._zero_write_finalize_rounds
 
     @property
+    def prose_idle(self) -> bool:
+        """True when idle ladder is prose short-budget mode (handoff = delivery)."""
+        return self._prose_idle
+
+    @property
     def zero_write_investigation_rounds(self) -> int:
-        """Consecutive investigation-only rounds with no landing write (files-expected)."""
+        """Consecutive investigation-only rounds with no delivery (landing / handoff)."""
         return self._zero_write_investigation_rounds
 
     @property
     def landing_succeeded(self) -> bool:
-        """True once any landing tool succeeded this run."""
+        """True once delivery succeeded (landing write, or handoff in prose_idle)."""
         return self._landing_succeeded
 
     def zero_write_warn_due(self) -> bool:

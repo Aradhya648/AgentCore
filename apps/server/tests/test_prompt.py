@@ -225,15 +225,16 @@ def test_visualization_block_rides_only_the_composed_ceo_prompt():
 
 
 def test_core_states_coordinator_tool_boundary():
-    # 协调者 CEO: the CEO holds only read/retrieval tools and must delegate any work
-    # that produces or changes an artifact (even a single file). Pin that the
-    # boundary is taught, so the prompt can't silently regress to a do-it-all CEO
-    # whose instructions no longer match its (read-only) toolset.
+    # 协调者 CEO: mainly read/retrieval; production/mutation → delegate. Narrow
+    # exceptions (host_shell · local terminal for pure start/stop/list) stay pinned.
     hint = _CEO_CORE_HINT
     assert "只读" in hint
     assert "delegate" in hint
     # The hint must steer production/mutation to a worker, not the CEO's own hands.
     assert "交给 worker" in hint
+    assert "本机运行态" in hint
+    assert "禁止" in hint and "host_shell" in hint
+    assert "terminal" in hint
 
 
 def test_core_teaches_split_criterion_over_count():
@@ -434,16 +435,19 @@ def test_core_teaches_delegate_point_dont_answer():
 
 
 def test_core_teaches_execution_and_recall_routing():
-    # 短指针：跑/修/打开验证终向由引擎能力策略收口；对照 workspace 能力行。
+    # 短指针：跑/修/打开验证终向靠提示词（对照 workspace）；引擎不扫用户文硬分叉。
     hint = _CEO_CORE_HINT
     assert "【执行 / 运行 / 打开】" in hint
     assert "workspace_context" in hint
-    assert "能力策略" in hint
     assert "ask_user" in hint
     assert 'completion_criteria={"type":"code_verified"' in hint
+    assert "打开 + 浏览器看效果" in hint or "打开+浏览器看效果" in hint
+    assert "省略" in hint
+    assert "勿默认" in hint and "runtime_ready" in hint
     assert "delegate" in hint
     assert "读文件" in hint or "列目录" in hint
     assert "冒充已跑或已验" in hint
+    assert "不扫用户文" in hint or "硬分叉" in hint
     # 不再叠长禁令散文
     assert "不要先读完口述" not in hint
     assert "禁止 DIRECT" not in hint
@@ -476,10 +480,14 @@ def test_core_teaches_delivery_honesty_when_no_execution():
     hint = _CEO_CORE_HINT
     assert "code_verified" in hint
     assert "runtime_ready" in hint
-    assert "能力策略" in hint
+    assert "ask_user" in hint
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "不要设" in skill or "显式声明会被硬拒" in skill
     assert "未运行验证" in skill or "交付缺口" in skill
+    # C：打开+浏览器看效果 → 省略 completion_criteria，勿默认 runtime_ready
+    assert "打开 + 浏览器看效果" in skill or "打开+浏览器看效果" in skill
+    assert "省略" in skill and "勿默认" in skill
+    assert "browser_navigate" in skill
 
 
 def test_core_teaches_delivery_path_by_workspace_type():
@@ -534,7 +542,7 @@ def test_core_teaches_automation_delivery_format_options():
 
 def test_skill_teaches_environment_capability_constraint():
     # 编排 skill：无执行环境时不设 code_verified（显式会被硬拒）、改交付形态、显式标缺口。
-    # 轻对齐：跑/验终向由引擎能力策略收口。
+    # 轻对齐：跑/验终向靠提示词对照 workspace（引擎不扫用户文硬分叉）。
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "环境能力约束" in skill
     assert "code_execute=未装配" in skill
@@ -544,9 +552,8 @@ def test_skill_teaches_environment_capability_constraint():
     assert "不】从任务文案推断" in skill or "不从任务文案推断" in skill
     assert "执行成功证据" in skill
     assert "禁止只验" in skill
-    assert "能力策略" in skill
-    assert "冒充已跑或已验" not in skill  # 长禁令已收回，改由引擎闸
-    assert "打开浏览器验证" not in skill or "能力策略" in skill
+    assert "不扫用户文" in skill or "硬改工具面" in skill
+    assert "能力策略收口" not in skill
 
 
 def test_shared_base_teaches_delivery_baseline():
@@ -655,6 +662,17 @@ def test_ceo_core_teaches_memory_must_not_override_routing():
     hint = _CEO_CORE_HINT
     assert "长期记忆与路由" not in hint
     assert "不得改变本回合" not in hint
+
+
+def test_ceo_core_teaches_memory_history_user_facing_framing():
+    """记忆/历史：对外白话 + 须说明派人查找，禁止装不知道。"""
+    hint = _CEO_CORE_HINT
+    assert "记忆/历史·对外口径" in hint
+    assert "跨会话原文" in hint
+    assert "派队员" in hint
+    assert "装不知道" in hint
+    assert "禁止报工具名" in hint or "禁止报工具名与内部角色名" in hint
+    assert "画像细节" in hint
 
 
 def test_ceo_core_teaches_intent_routing_for_adversarial_entry():

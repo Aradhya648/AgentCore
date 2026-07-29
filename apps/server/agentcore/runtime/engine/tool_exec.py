@@ -338,7 +338,6 @@ async def execute_tools(
                     tc.function.arguments = json.dumps(args, ensure_ascii=False)
 
         sink.emit(tool_use_start(tc.id, name, args, run_id=event_run_id))
-        logger.debug("tool.execute_start", tool=name)
 
         if allowed_set is not None and name not in allowed_set:
             error_msg = (
@@ -357,6 +356,7 @@ async def execute_tools(
                 tool=name or raw_name,
                 status="allowlist_deny",
                 duration_ms=0,
+                reason=error_msg,
             )
             return (
                 _failed_tool_message(tc.id, error_msg),
@@ -500,6 +500,14 @@ async def execute_tools(
             auto_pass = (not force_breaker) and execution_tool_auto_passes(
                 context.backend, name, permission_axes=approval_gate.permission_axes
             )
+            # INFO（非 debug）：round_end 后若长时间无 execute_end，靠此定位卡在审批还是执行。
+            logger.info(
+                "tool.execute_start",
+                tool=name,
+                tool_call_id=tc.id,
+                run_id=run_id or "",
+                awaiting_approval=not auto_pass,
+            )
             if auto_pass:
                 logger.info("approval.sandbox_auto_pass", tool=name)
             else:
@@ -529,6 +537,14 @@ async def execute_tools(
                         ToolAttempt(fingerprint, name, success=False, policy_failure=True),
                         [],
                     )
+        else:
+            logger.info(
+                "tool.execute_start",
+                tool=name,
+                tool_call_id=tc.id,
+                run_id=run_id or "",
+                awaiting_approval=False,
+            )
 
         # 检索预算 (提案 A1): reserve a per-run slot immediately before execute so
         # approval / breaker denials never consume budget. Orthogonal to

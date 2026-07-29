@@ -47,6 +47,8 @@ worker 唯一向上通道。`blocking=false`（默认）= 报后按假设续跑�
 
 琐碎自修 → 执行层试一轮再 escalate → 方案层立刻 escalate。与用户会话 **PermissionAxes** / 权限配方正交。
 
+Worker 工具后还有确定性 **Escalation Gate**（模型漏报兜底）：扫非语料工具输出的方案层词；`file_read` / `grep` / `code_search` / `web_search` / `read_url` 的正文当语料、不触发（真矛盾走 `escalate` 工具）。同 run 同 question 只 live 上报一次。
+
 ### 便签墙
 
 `coordination=wall|none`（缺省 `none`）。贴事实、不要求回应；四能力：`decision` / `heads_up` / `claim` + `read_notes`；`amend_note` 改写/作废；仅推 ACTIVE。缺「还不存在」的输入走 `escalate kind=dep`，不走便签。

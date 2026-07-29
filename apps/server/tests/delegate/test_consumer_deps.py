@@ -1,4 +1,4 @@
-"""Consumer-missing-depends gate unit tests."""
+"""Consumer-missing-depends soft gate unit tests."""
 
 from agentcore.runtime.delegate.consumer_deps import (
     check_consumer_missing_depends,
@@ -6,9 +6,9 @@ from agentcore.runtime.delegate.consumer_deps import (
 )
 
 
-def test_reject_goldbach_style_summarizer_empty_deps():
-    """哥德巴赫三人：两调研 +「基于前两位队员的产出」汇总且空依赖 → 拒收。"""
-    err = check_consumer_missing_depends(
+def test_soft_warn_goldbach_style_summarizer_empty_deps():
+    """哥德巴赫三人：两调研 +「基于前两位队员的产出」汇总且空依赖 → 软告警，不拒收。"""
+    warn = check_consumer_missing_depends(
         [
             {"id": "r1", "role": "调研甲", "task": "调研偶数哥德巴赫猜想相关文献"},
             {"id": "r2", "role": "调研乙", "task": "调研奇数哥德巴赫猜想相关文献"},
@@ -19,16 +19,16 @@ def test_reject_goldbach_style_summarizer_empty_deps():
             },
         ]
     )
-    assert err is not None
-    assert "汇总" in err
-    assert "depends_on" in err
-    assert "r1" in err
-    assert "r2" in err
-    assert "force=true" in err
+    assert warn is not None
+    assert "汇总" in warn
+    assert "depends_on" in warn
+    assert "r1" in warn
+    assert "r2" in warn
+    assert "force=true" not in warn
 
 
 def test_ok_when_depends_on_declared():
-    err = check_consumer_missing_depends(
+    warn = check_consumer_missing_depends(
         [
             {"id": "r1", "role": "调研甲", "task": "调研 A"},
             {"id": "r2", "role": "调研乙", "task": "调研 B"},
@@ -40,36 +40,22 @@ def test_ok_when_depends_on_declared():
             },
         ]
     )
-    assert err is None
+    assert warn is None
 
 
 def test_ok_independent_roles_without_teammate_cue():
-    err = check_consumer_missing_depends(
+    warn = check_consumer_missing_depends(
         [
             {"id": "a", "role": "前端", "task": "实现登录页"},
             {"id": "b", "role": "后端", "task": "实现鉴权 API"},
             {"id": "c", "role": "测试", "task": "补集成测试用例"},
         ]
     )
-    assert err is None
-
-
-def test_force_bypasses():
-    err = check_consumer_missing_depends(
-        [
-            {"id": "r1", "role": "调研甲", "task": "调研"},
-            {
-                "role": "汇总",
-                "task": "基于前两位队员的产出写综述",
-            },
-        ],
-        force=True,
-    )
-    assert err is None
+    assert warn is None
 
 
 def test_single_task_skips():
-    err = check_consumer_missing_depends(
+    warn = check_consumer_missing_depends(
         [
             {
                 "role": "写手",
@@ -77,13 +63,13 @@ def test_single_task_skips():
             },
         ]
     )
-    assert err is None
+    assert warn is None
 
 
 def test_public_report_cue_does_not_false_positive():
     """「基于公开报告」无队友指称 → 不误伤。"""
     assert not task_claims_teammate_output("基于公开报告写一份摘要")
-    err = check_consumer_missing_depends(
+    warn = check_consumer_missing_depends(
         [
             {"id": "a", "role": "甲", "task": "收集公开资料"},
             {
@@ -93,11 +79,11 @@ def test_public_report_cue_does_not_false_positive():
             },
         ]
     )
-    assert err is None
+    assert warn is None
 
 
 def test_null_and_empty_depends_both_count_as_empty():
-    # missing key / explicit null / [] 都算空
+    # missing key / explicit null / [] 都算空 → 软告警
     cases: list[dict | None] = [None, {"depends_on": None}, {"depends_on": []}]
     for extra in cases:
         task: dict = {
@@ -107,19 +93,19 @@ def test_null_and_empty_depends_both_count_as_empty():
         }
         if extra:
             task.update(extra)
-        err = check_consumer_missing_depends(
+        warn = check_consumer_missing_depends(
             [
                 {"id": "r1", "role": "调研", "task": "调研"},
                 task,
             ]
         )
-        assert err is not None, f"expected reject for extra={extra!r}"
-        assert "汇总" in err
-        assert "r1" in err
+        assert warn is not None, f"expected soft warn for extra={extra!r}"
+        assert "汇总" in warn
+        assert "r1" in warn
 
 
 def test_suggests_role_when_peer_has_no_id():
-    err = check_consumer_missing_depends(
+    warn = check_consumer_missing_depends(
         [
             {"role": "调研甲", "task": "调研"},
             {"role": "调研乙", "task": "调研"},
@@ -130,14 +116,14 @@ def test_suggests_role_when_peer_has_no_id():
             },
         ]
     )
-    assert err is not None
-    assert "汇总写手" in err
-    assert "调研甲" in err
-    assert "调研乙" in err
+    assert warn is not None
+    assert "汇总写手" in warn
+    assert "调研甲" in warn
+    assert "调研乙" in warn
 
 
 def test_english_based_on_previous_triggers():
-    err = check_consumer_missing_depends(
+    warn = check_consumer_missing_depends(
         [
             {"id": "a", "role": "A", "task": "research X"},
             {
@@ -147,6 +133,6 @@ def test_english_based_on_previous_triggers():
             },
         ]
     )
-    assert err is not None
-    assert "B" in err
-    assert "a" in err
+    assert warn is not None
+    assert "B" in warn
+    assert "a" in warn

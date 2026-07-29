@@ -12,6 +12,13 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 
 
+def test_schema_old_string_min_length():
+    """Schema 层声明 minLength=1，引导模型勿传空 old_string。"""
+    props = StrReplaceTool().schema.parameters["properties"]["old_string"]
+    assert props["type"] == "string"
+    assert props["minLength"] == 1
+
+
 def _ctx(workspace: Path) -> ToolContext:
     return ToolContext(
         execution_id="e",
@@ -32,6 +39,36 @@ async def test_requires_old_string(tmp_path: Path):
     )
     assert result.success is False
     assert "old_string 不能为空" in result.error
+    # 参数契约拒绝：不得计入 run 级工具熔断（连续空参空转）。
+    assert result.contract_failure is True
+
+
+async def test_empty_old_string_does_not_trip_circuit_breaker(tmp_path: Path):
+    """回归：空 old_string 打回须跳过 cumulative breaker warn/disable。"""
+    from agentcore.runtime.loop_controller import LoopController, ToolAttempt
+
+    (tmp_path / "f.txt").write_text("hi", encoding="utf-8")
+    tool = StrReplaceTool()
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    for i in range(5):
+        result = await tool.execute(
+            {"path": "f.txt", "old_string": "", "new_string": "x"}, _ctx(tmp_path)
+        )
+        assert result.contract_failure is True
+        c.record(
+            [
+                ToolAttempt(
+                    f"empty-{i}",
+                    "str_replace",
+                    success=False,
+                    contract_failure=True,
+                    error_summary=result.error or "",
+                )
+            ]
+        )
+        assert not c.tool_circuit_breaker(), (
+            f"empty old_string round {i + 1} must not trip circuit breaker"
+        )
 
 
 async def test_rejects_identical_strings(tmp_path: Path):
@@ -41,6 +78,7 @@ async def test_rejects_identical_strings(tmp_path: Path):
     )
     assert result.success is False
     assert "相同" in result.error
+    assert result.contract_failure is True
 
 
 async def test_rejects_path_outside_workspace(tmp_path: Path):

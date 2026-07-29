@@ -178,9 +178,18 @@ def test_code_execute_description_routes_long_running_to_terminal():
     assert "WSL" in ce
 
     td = TerminalTool().schema.description
-    assert "禁止改走 code_execute" in td
+    assert "禁止改走 code_execute" in td or "禁止改走 code_execute / host_shell" in td
+    assert "host_shell" in td
     assert "wait_for" in td
     assert "code_execute" in td  # short commands still pointed there
+    assert "CEO" in td
+
+
+def test_ceo_registry_holds_terminal_only_when_local():
+    assert "terminal" not in {s.name for s in build_ceo_tool_registry().list_all()}
+    assert "terminal" in {
+        s.name for s in build_ceo_tool_registry(backend_location="local").list_all()
+    }
 
 
 def test_code_execute_description_server_omits_local_wsl_hint():

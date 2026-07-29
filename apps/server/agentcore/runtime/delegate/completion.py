@@ -497,6 +497,7 @@ def validate_execution_capability(
     - ``runtime_ready`` needs a local workspace with ``terminal``.
 
     Returns the CEO-facing rejection message, or ``None`` when fine.
+    Orthogonal to :func:`validate_code_verified_worker_tools` (worker tool surface).
     """
     if _resolved_runtime_ready(raw, plan):
         if backend is None or getattr(backend, "location", None) == "local":
@@ -527,6 +528,29 @@ def validate_execution_capability(
         "（deliverable.form=files，completion_criteria=files_written，任务文案不写"
         "「运行 / 跑通」类要求），并在收尾向用户显式标出「未运行验证」的交付缺口；"
         "③ 交付形态拿不准 → 先 ask_user 与用户对齐再委派。"
+    )
+
+
+def validate_code_verified_worker_tools(raw: Any, plan: RunPlan) -> str | None:
+    """Hard gate: ``code_verified`` requires ≥1 worker with execution-class tools.
+
+    Uses the same execution-class set as :func:`node_holds_execution_tools`
+    (``code_execute`` / ``test_run`` / ``terminal``). Orthogonal to the environment
+    capability gate — both may fire independently. Call after
+    ``apply_continuation_tool_merges`` so continue_from effective tools are visible.
+    """
+    if not _resolved_code_verified(raw, plan):
+        return None
+    if any(node_holds_execution_tools(node) for node in plan.nodes):
+        return None
+    return (
+        "无法按 code_verified 验收：本批无人持有执行类工具（code_execute / test_run / "
+        "terminal），验证无法落地。出路："
+        "① 给至少一名 worker 的 tools 补上 test_run（或 code_execute / terminal）；"
+        "乙续派可在原调查面声明超集 tools（只增不减 merge）；"
+        "② 省略 completion_criteria，或改用不需执行验证的 files_written；"
+        "③ 无先验调查批的修码 → playbook=repair_code（内含持 test_run 的验证员）；"
+        "④ 真换职能验证 → 冷开验证员（不设 continue_from_run_id），tools 含 test_run。"
     )
 
 
@@ -1092,9 +1116,18 @@ def collect_delivered_files(results: dict[str, RunState]) -> list[str]:
     return out
 
 
-def gap_fingerprint(criteria_kind: str, gaps: list[str]) -> tuple[str, ...]:
-    """Stable key for same-gap streak tracking across consecutive delegates."""
-    return (criteria_kind, *gaps)
+def gap_fingerprint(
+    criteria_kind: str | None, gaps: list[str]
+) -> tuple[str, ...]:
+    """Stable key for same-gap streak tracking across consecutive delegates.
+
+    ``criteria_kind`` is the **binding** kind only. Unbound (``None``) uses an
+    empty-string sentinel — not a fake enum like ``typescript_verify`` — so
+    overlay-only gaps (TS verify / graph) still streak together without
+    polluting the criteria vocabulary.
+    """
+    kind_key = criteria_kind if criteria_kind is not None else ""
+    return (kind_key, *gaps)
 
 
 def format_completion_gap_message(
@@ -1146,6 +1179,15 @@ def format_completion_gap_message(
             "同一验收缺口已连续出现 2 次：请修正验收声明"
             "（delegate 顶层 completion_criteria / deliverable.form），"
             "或接受当前交付并收口向用户说明——不要再以相同标准重派。"
+        )
+    elif criteria_kind == "runtime_ready":
+        # Soft-gap remediation: batch already finished — do not re-spawn the same
+        # server or append_to a dead graph; reuse / browser-only first.
+        parts.append(
+            "补救：本批调度已结束（非仍在跑）。先用 terminal list/read 复用已有进程，"
+            "或只补 browser_navigate；禁止再起同一套开发服务器；"
+            "禁止对已结束图 append_to=latest；"
+            "勿整锅重派，除非确认确无可用进程。"
         )
 
     return "\n".join(parts)

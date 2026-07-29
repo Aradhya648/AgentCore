@@ -1,6 +1,5 @@
 import { notifyInfo } from "@/lib/toast";
-import { ApiError } from "@/services/api";
-import { resolveInteraction } from "@/services/interaction";
+import { fulfillClientToolOnce } from "@/services/clientToolFulfill";
 import type { BoardOp, BoardOpRequiredPayload } from "@/types/events";
 
 /**
@@ -16,6 +15,9 @@ import type { BoardOp, BoardOpRequiredPayload } from "@/types/events";
  * its timeout). If the board's canvas is not open (no applier registered), we resolve a
  * clean error so the tool reports「画布未打开」instead of the turn hanging. A stale
  * request (404) is a no-op.
+ *
+ * Same ``request_id`` is de-duplicated in-process so attach rehang does not
+ * re-apply board ops.
  */
 
 /** What the canvas applier returns after applying a batch (rides the resolve回执). */
@@ -47,22 +49,21 @@ export async function performBoardOp(
   payload: BoardOpRequiredPayload,
   conversationId: string,
 ): Promise<void> {
-  const result = await runBoardOps(payload);
-  // Visible feedback that the AI just drew (the canvas has no chat surface): the model's
-  // one-line summary, or a generic notice. Only on success — a failure settles silently
-  // and the tool result tells the model the ops didn't land.
-  if (result.ok) {
-    notifyInfo(payload.summary?.trim() || "AI 已更新白板");
-  }
-  try {
-    await resolveInteraction(conversationId, payload.request_id, {
-      kind: "client_tool",
-      ...result,
-    });
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return; // stale — no-op
-    console.error("[boardOps] 回填失败", err);
-  }
+  await fulfillClientToolOnce({
+    requestId: payload.request_id,
+    conversationId,
+    logLabel: "boardOps",
+    perform: async () => {
+      const result = await runBoardOps(payload);
+      // Visible feedback that the AI just drew (the canvas has no chat surface): the model's
+      // one-line summary, or a generic notice. Only on success — a failure settles silently
+      // and the tool result tells the model the ops didn't land.
+      if (result.ok) {
+        notifyInfo(payload.summary?.trim() || "AI 已更新白板");
+      }
+      return result;
+    },
+  });
 }
 
 type ClientToolResult =

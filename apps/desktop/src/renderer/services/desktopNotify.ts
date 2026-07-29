@@ -1,5 +1,4 @@
-import { ApiError } from "@/services/api";
-import { resolveInteraction } from "@/services/interaction";
+import { fulfillClientToolOnce } from "@/services/clientToolFulfill";
 import type { DesktopNotifyRequiredPayload } from "@/types/events";
 
 /**
@@ -7,22 +6,19 @@ import type { DesktopNotifyRequiredPayload } from "@/types/events";
  *
  * After the user approves the GRANTABLE tool call, the server suspends and streams
  * ``desktop_notify_required``; we show an OS notification and settle the paused op
- * over the unified interaction bridge (kind ``client_tool``).
+ * over the unified interaction bridge (kind ``client_tool``). Same ``request_id``
+ * is de-duplicated in-process so attach rehang does not re-show the notification.
  */
 export async function performDesktopNotify(
   payload: DesktopNotifyRequiredPayload,
   conversationId: string,
 ): Promise<void> {
-  const result = await runDesktopNotify(payload, conversationId);
-  try {
-    await resolveInteraction(conversationId, payload.request_id, {
-      kind: "client_tool",
-      ...result,
-    });
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return;
-    console.error("[desktopNotify] 回填失败", err);
-  }
+  await fulfillClientToolOnce({
+    requestId: payload.request_id,
+    conversationId,
+    logLabel: "desktopNotify",
+    perform: () => runDesktopNotify(payload, conversationId),
+  });
 }
 
 type ClientToolResult =

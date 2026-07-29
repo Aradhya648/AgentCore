@@ -286,32 +286,37 @@ class HandoffTool:
                 output="",
                 error=_MOTION_CARD_MISSING_TIP,
             )
-        # 成篇质量：有下游依赖时禁止空 body 交接（避免写作节点吃到「上游空白」）。
+        # 成篇质量：有下游时禁止空交（地板 = 合同 min_length，0 则仅要求非空）。
         # 豁免认 landed_artifact_kinds 中的 prose（跨 replace 存活）；骨架/空落盘不算。
         # 勿依赖 has_landed_files bool——经 dataclasses.replace 会丢。
         if context.handoff_requires_body:
             from agentcore.runtime.runs.research_quality import (
-                MIN_UPSTREAM_BODY_CHARS,
                 upstream_body_floor_satisfied,
             )
 
             body_chars = _body_chars(context)
+            floor = max(0, int(context.handoff_min_body_chars or 0))
             if not upstream_body_floor_satisfied(
                 body_chars=body_chars,
                 landed_artifact_kinds=context.landed_artifact_kinds,
+                min_body_chars=floor,
             ):
                 kinds = context.landed_artifact_kinds or {}
                 only_skeleton = bool(kinds) and all(v == "skeleton" for v in kinds.values())
+                floor_hint = (
+                    f"至少 {floor} 字（合同 min_length）"
+                    if floor > 0
+                    else "非空正文"
+                )
                 land_hint = (
                     "已落盘的是骨架/提纲（skeleton），不算成篇交付；请补写实质正文并 "
-                    "file_write/file_append 成 prose，或在本轮写出至少 "
-                    f"{MIN_UPSTREAM_BODY_CHARS} 字正文后再 handoff。"
+                    f"file_write/file_append 成 prose，或在本轮写出{floor_hint}后再 handoff。"
                     if only_skeleton
                     else (
-                        f"本轮正文仅 {body_chars} 字（至少 {MIN_UPSTREAM_BODY_CHARS} 字，"
+                        f"本轮正文仅 {body_chars} 字（须{floor_hint}，"
                         "或先落盘成篇 prose 产物后再交；骨架/空文件不算）。"
-                        "请先写完调研正文并落盘，或在本轮写出足够正文后再调用 handoff——"
-                        "禁止空壳简报进入写作任务。"
+                        "请先写完交付正文并落盘，或在本轮写出足够正文后再调用 handoff——"
+                        "禁止空壳简报进入下游任务。"
                     )
                 )
                 logger.info(
@@ -323,6 +328,7 @@ class HandoffTool:
                     has_motion_card=card is not None,
                     rejected="empty_body",
                     only_skeleton=only_skeleton,
+                    min_body_chars=floor,
                 )
                 return ToolResult(
                     tool_call_id="",

@@ -187,6 +187,7 @@ def _format_one(session: CoordinationSession, ev: CoordinationEvent) -> str:
                 f"- all_completed：团队调度结束（完成 {done}/{total}，失败 {failed_n}），"
                 "但批次验收未满足——不得视为成功交付；请按缺口说明处理，"
                 "勿向用户宣称全部完成。"
+                "调度已结束：勿再启同服，优先复用已有进程或只补浏览器。"
             ]
         else:
             lines = [

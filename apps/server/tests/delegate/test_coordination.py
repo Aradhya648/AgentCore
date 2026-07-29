@@ -1387,6 +1387,31 @@ def test_all_completed_inject_without_output_still_has_audit_hint():
     assert "团队成品" not in text
 
 
+def test_all_completed_criteria_unmet_inject_steers_reuse_not_respawn():
+    from agentcore.runtime.coordination.inject import format_coordination_events
+
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    text = format_coordination_events(
+        session,
+        [
+            CoordinationEvent(
+                kind=CoordinationEventKind.ALL_COMPLETED,
+                payload={
+                    "completed": 2,
+                    "total": 2,
+                    "failed": 0,
+                    "criteria_met": False,
+                },
+            )
+        ],
+    )
+    assert "批次验收未满足" in text
+    assert "调度已结束" in text
+    assert "勿再启同服" in text
+    assert "复用" in text or "只补浏览器" in text
+    assert "团队已全部结束" not in text
+
+
 def test_checkpoint_boundary_yield_instructs_ask_user():
     from agentcore.runtime.coordination.inject import format_coordination_events
 

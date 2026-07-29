@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // rejection from the real request (user code) is tracked normally, so the
 // stale-404 swallow can be asserted cleanly. Mirrors auth.test.ts.
 import { BASE_URL } from "@/services/api";
+import { resetClientToolFulfillmentForTests } from "@/services/clientToolFulfill";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import { performWorkspaceOp } from "@/services/workspaceOps";
 import type { WorkspaceOpRequiredPayload } from "@/types/events";
@@ -34,11 +35,20 @@ const stubFsApi = (workspaceOp: unknown) =>
 
 const OPS_URL = `${BASE_URL}/v1/conversations/c1/interactions/r1`;
 
+// `headers.get` is read by api.request's captureCsrf before the status check.
+const noHeaders = { get: () => null };
+
 // Minimal Response stand-ins for the two outcomes request() cares about.
-const okResponse = () => ({ ok: true, status: 200, json: async () => ({}) });
+const okResponse = () => ({
+  ok: true,
+  status: 200,
+  headers: noHeaders,
+  json: async () => ({}),
+});
 const errResponse = (status: number, body: string) => ({
   ok: false,
   status,
+  headers: noHeaders,
   text: async () => body,
 });
 
@@ -48,12 +58,16 @@ const postedBody = (fetchMock: ReturnType<typeof vi.fn>, call = 0) =>
 
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
+  resetClientToolFulfillmentForTests();
   fetchMock = vi.fn().mockResolvedValue(okResponse());
   vi.stubGlobal("fetch", fetchMock);
   resolveTarget.mockReset();
   resolveTarget.mockResolvedValue(null);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  resetClientToolFulfillmentForTests();
+  vi.unstubAllGlobals();
+});
 
 describe("performWorkspaceOp (本地工作区 op 回填)", () => {
   it("runs the op on the bound root and posts the ok result (client_tool kind)", async () => {
@@ -180,6 +194,17 @@ describe("performWorkspaceOp (本地工作区 op 回填)", () => {
     fetchMock.mockResolvedValue(errResponse(404, "gone"));
 
     await expect(performWorkspaceOp(payload(), "c1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-run the workspace op on a second perform with the same request_id", async () => {
+    const workspaceOp = vi.fn().mockResolvedValue({ ok: true, value: "hello" });
+    stubFsApi(workspaceOp);
+
+    await performWorkspaceOp(payload(), "c1");
+    await performWorkspaceOp(payload(), "c1");
+
+    expect(workspaceOp).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

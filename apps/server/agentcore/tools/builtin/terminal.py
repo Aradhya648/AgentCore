@@ -1,12 +1,14 @@
 """Background-process tool — spawn / read / stop / list long-lived commands.
 
-Worker-only, local-mode only (``backend.location == "local"``). Processes are held
+CEO + worker, local-mode only (``backend.location == "local"``). Processes are held
 by the desktop main process; this tool routes four ``WorkspaceOp`` values over the
 existing ``workspace_op_required`` channel (云 LocalWorkspace 与 sidecar 同路).
 
-Schema stays ``ToolApproval.NEVER`` so read / stop / list skip the gate; ``start``
-is gated via ``tool_call_requires_approval`` (same posture as ``git`` write
-subcommands). See docs/03-AI核心/工具与能力系统.md (terminal 行).
+CEO holds it for pure start/stop/list of workspace long-running processes (B2);
+write/repair/install still goes through ``delegate``. Schema stays
+``ToolApproval.NEVER`` so read / stop / list skip the gate; ``start`` is gated via
+``tool_call_requires_approval`` (same posture as ``git`` write subcommands).
+See docs/03-AI核心/工具与能力系统.md (terminal 行).
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from agentcore.tools.builtin.long_running import (
 )
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
-    AUDIENCE_WORKER_ONLY,
+    AUDIENCE_BOTH,
     ToolRegistration,
     ToolSurface,
 )
@@ -211,8 +213,8 @@ class TerminalTool:
     """Spawn and manage long-lived processes on the user's desktop."""
 
     registration = ToolRegistration(
-        surface=ToolSurface.WORKER_ONLY,
-        audience=AUDIENCE_WORKER_ONLY,
+        surface=ToolSurface.BUILTIN,
+        audience=AUDIENCE_BOTH,
         execution_class=True,
         local_only=True,
     )
@@ -223,13 +225,15 @@ class TerminalTool:
             name="terminal",
             description=(
                 "在用户本机启动/管理长时后台进程（dev server、watch、长脚本等）。"
-                "【凡永不退出的命令必须用本工具，禁止改走 code_execute】"
+                "【凡永不退出的命令必须用本工具，禁止改走 code_execute / host_shell】"
                 "典型：npm run dev / vite / next dev / uvicorn --reload。"
+                "CEO 可对「只启服 / 重启 / 看是否活着」直接使用本工具；"
+                "改代码、装依赖、修报错仍须 delegate。"
                 "start：spawn 并返回 process_id + 首段输出；宣称「已就绪」前应用 "
                 "wait_for（如 Local:|ready in）等到 ready 信号，勿仅凭首段输出下结论；"
                 "read：读尾部输出或按正则等待；stop：终止；list：列本对话进程"
                 "（可能含用户交互终端「用户终端 #N」，可读不可停）。"
-                "会自行退出的短命令（npm install、build、test）请用 code_execute。"
+                "会自行退出的短命令（npm install、build、test）请用 code_execute（worker）。"
                 "仅本地模式可用，进程跨回合存活。"
             ),
             parameters=TERMINAL_TOOL_PARAMETERS,

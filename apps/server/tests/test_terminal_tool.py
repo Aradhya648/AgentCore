@@ -111,9 +111,20 @@ def test_tool_call_requires_approval_only_for_start():
         )
 
 
-def test_terminal_not_in_builtin_or_ceo_registry():
+def test_terminal_omitted_without_local_backend():
+    """Default / cloud catalogs omit local-only terminal; CEO needs backend_location=local."""
     assert "terminal" not in {s.name for s in build_builtin_registry().list_all()}
     assert "terminal" not in {s.name for s in build_ceo_tool_registry().list_all()}
+    assert "terminal" in {
+        s.name for s in build_builtin_registry(location="local").list_all()
+    }
+    assert "terminal" in {
+        s.name for s in build_ceo_tool_registry(backend_location="local").list_all()
+    }
+    assert (
+        build_ceo_tool_registry(backend_location="local").get("terminal").schema.approval
+        is TerminalTool().schema.approval
+    )
 
 
 def test_worker_registry_registers_terminal_only_on_local():

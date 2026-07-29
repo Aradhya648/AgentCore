@@ -150,6 +150,17 @@ async def _attach_generator(
     try:
         for event in replay:
             yield _format_sse(event)
+        # EPHEMERAL client_tool re-hang: after journal/history replay (DURABLE-only
+        # for cursor path) and after take_over cleared the live queue (no double
+        # delivery), re-emit still-open CLIENT_TOOL ``*_required`` frames.
+        conv_id = sink.conversation_id
+        if conv_id:
+            from agentcore.runtime.events.client_tool_reattach import (
+                pending_client_tool_events,
+            )
+
+            for event in pending_client_tool_events(conv_id):
+                yield _format_sse(event)
         while True:
             try:
                 event = await asyncio.wait_for(sink.get(), _HEARTBEAT_INTERVAL_S)

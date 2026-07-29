@@ -91,7 +91,22 @@ DELEGATE_PARAMETERS = {
                         "enum": ["pass_through", "summarize"],
                     },
                     "replaces_run_id": {"type": "string"},
-                    "continue_from_run_id": {"type": "string"},
+                    "continue_from_run_id": {
+                        "type": "string",
+                        "description": (
+                            "同人带现场续派（调查后确认修 / 同人改稿）；"
+                            "填已完成 run_id。可另声明超集 tools（只增不减）。"
+                        ),
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "可选工具白名单。乙续派：声明超集只增不减 merge 进原现场；"
+                            "省略=沿用现场；不得减面。code_verified 批须至少一人含 "
+                            "test_run/code_execute/terminal。"
+                        ),
+                    },
                     "checkpoint_after": {"type": "boolean"},
                     "bind_after_deps": {"type": "boolean"},
                     "require_upstream": {

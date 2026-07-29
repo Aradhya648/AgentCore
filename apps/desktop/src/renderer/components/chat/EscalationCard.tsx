@@ -14,6 +14,8 @@ import { useSidePanelStore } from "@/stores/sidePanel";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   HelpCircle,
   Loader2,
@@ -600,6 +602,21 @@ function ResolvedEscalation({
   );
 }
 
+/** 列表序对齐 faceBudget：待拍板 > 已结案 > 边干边上报（raised 置底降噪）。 */
+export function escalationListRank(status: RunEscalation["status"]): number {
+  if (status === "pending") return 0;
+  if (status === "raised") return 2;
+  return 1; // resolved / assumed / timed_out
+}
+
+/** ≥2 条 raised，或同时有待拍板时，默认收起边干边上报。 */
+export function shouldCollapseRaised(
+  raisedCount: number,
+  pendingCount: number,
+): boolean {
+  return raisedCount >= 2 || (raisedCount >= 1 && pendingCount >= 1);
+}
+
 export function EscalationCards({
   messageId,
   conversationId,
@@ -611,6 +628,7 @@ export function EscalationCards({
 }) {
   const execution = useMessageExecution(messageId);
   const orphanedEscalations = useInteractionStore((s) => s.byId);
+  const [raisedOpen, setRaisedOpen] = useState(false);
   if (!execution) return null;
 
   const roleById = new Map(execution.agents.map((a) => [a.id, a.role]));
@@ -632,7 +650,20 @@ export function EscalationCards({
     : [];
   if (items.length === 0 && orphaned.length === 0) return null;
 
-  const pendingCount = items.filter((i) => i.esc.status === "pending").length;
+  const ordered = [...items].sort(
+    (a, b) =>
+      escalationListRank(a.esc.status) - escalationListRank(b.esc.status),
+  );
+  const pending = ordered.filter((i) => i.esc.status === "pending");
+  const settled = ordered.filter(
+    (i) =>
+      i.esc.status === "resolved" ||
+      i.esc.status === "assumed" ||
+      i.esc.status === "timed_out",
+  );
+  const raised = ordered.filter((i) => i.esc.status === "raised");
+  const collapseRaised = shouldCollapseRaised(raised.length, pending.length);
+  const showRaisedCards = !collapseRaised || raisedOpen;
 
   return (
     <div className="mt-2 space-y-2">
@@ -643,12 +674,12 @@ export function EscalationCards({
           detail="该升级请求已不可答复（服务已重启或回合已结束）。"
         />
       ))}
-      {pendingCount > 0 && (
+      {pending.length > 0 && (
         <p className="text-xs font-medium text-primary">
-          团队有 {pendingCount} 项待你拍板
+          团队有 {pending.length} 项待你拍板
         </p>
       )}
-      {items.map((i) => (
+      {pending.map((i) => (
         <EscalationCard
           key={i.key}
           escalation={i.esc}
@@ -657,6 +688,44 @@ export function EscalationCards({
           interactive={interactive}
         />
       ))}
+      {settled.map((i) => (
+        <EscalationCard
+          key={i.key}
+          escalation={i.esc}
+          role={i.role}
+          conversationId={conversationId}
+          interactive={interactive}
+        />
+      ))}
+      {raised.length > 0 && collapseRaised && (
+        <button
+          type="button"
+          className="flex w-full items-center gap-1.5 rounded-lg bg-card/60 px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-card"
+          onClick={() => setRaisedOpen((v) => !v)}
+          aria-expanded={showRaisedCards}
+        >
+          {showRaisedCards ? (
+            <ChevronDown size={14} className="shrink-0" />
+          ) : (
+            <ChevronRight size={14} className="shrink-0" />
+          )}
+          <Megaphone size={14} className="shrink-0" />
+          <span>
+            {raised.length} 条边干边上报（无需你拍板）
+            {showRaisedCards ? " · 收起" : " · 展开"}
+          </span>
+        </button>
+      )}
+      {showRaisedCards &&
+        raised.map((i) => (
+          <EscalationCard
+            key={i.key}
+            escalation={i.esc}
+            role={i.role}
+            conversationId={conversationId}
+            interactive={interactive}
+          />
+        ))}
     </div>
   );
 }

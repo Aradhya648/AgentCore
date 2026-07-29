@@ -75,7 +75,7 @@ def test_build_plan_applies_unified_backstop_regardless_of_shape():
     )
     assert errors == []
     for node in plan.nodes:
-        assert node.token_ceiling == 1_000_000
+        assert node.token_ceiling == 2_000_000
         assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
 
 
@@ -93,7 +93,7 @@ def test_build_plan_research_root_still_gets_research_retrieval():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 1_000_000
+    assert node.token_ceiling == 2_000_000
     assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
     from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 
@@ -115,7 +115,7 @@ def test_explicit_timeout_ms_wins_over_backstop():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 1_000_000
+    assert node.token_ceiling == 2_000_000
     assert node.policy.timeout_s == 90  # CEO 显式优先
 
 
@@ -317,9 +317,12 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
         files_expected=False,
         short_write_posture=True,
         tighten_verify_exec_thrash=True,
+        max_rounds=4,
     )
-    # Still the same LoopController — zero_write stays off for non-files verify.
-    assert tightened.zero_write_finalize_rounds == 0
+    # Prose short idle shares the zero_write counter (scaled under max_rounds); not a
+    # parallel fuse. files zero_write gate stays separate (should_enable_zero_write).
+    assert tightened.prose_idle is True
+    assert tightened.zero_write_finalize_rounds == 3  # max(2, min(7, 4-1))
     # disable<=2：两次同工具失败即 disable（默认 3 才 disable）
     tightened.record(
         [ToolAttempt(fingerprint="fp0", tool_name="code_execute", success=False)]
@@ -361,3 +364,42 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
         had_tool_calls=True, all_failed=True, had_content=False
     )
     assert baseline.unproductive_early_stop()
+
+
+def test_prose_idle_gate_and_scaled_bar():
+    """短散文节点启用 idle 梯；bar 缩进 max_rounds 下，与 files zero_write 门分立。"""
+    from agentcore.runtime.engine.governance import create_loop_controller
+    from agentcore.runtime.runs.worker_budget import (
+        resolve_prose_idle_finalize_rounds,
+        should_enable_prose_idle,
+        should_enable_zero_write,
+    )
+
+    assert should_enable_prose_idle(files_expected=False, short_write_posture=True)
+    assert not should_enable_prose_idle(files_expected=True, short_write_posture=True)
+    assert not should_enable_prose_idle(files_expected=False, short_write_posture=False)
+    # files gate unchanged
+    assert not should_enable_zero_write(files_expected=False, short_write_posture=True)
+    assert resolve_prose_idle_finalize_rounds(4) == 3
+    assert resolve_prose_idle_finalize_rounds(6) == 5
+
+    ctrl = create_loop_controller(
+        frozenset({"file_read", "grep"}),
+        files_expected=False,
+        short_write_posture=True,
+        max_rounds=4,
+    )
+    assert ctrl.prose_idle is True
+    assert ctrl.zero_write_finalize_rounds == 3
+    # Short max_rounds pulls reflection earlier (default start 3 → 2).
+    assert ctrl.reflection_due(2)
+    assert not ctrl.reflection_due(1)
+
+    files = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=True,
+        short_write_posture=True,
+        max_rounds=4,
+    )
+    assert files.prose_idle is False
+    assert files.zero_write_finalize_rounds > 0

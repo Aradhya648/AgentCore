@@ -92,6 +92,7 @@ def test_controller_seed_round_trip_json_safe():
     c = LoopController()
     c.mark_post_delegate(node_count=3, has_deps=True)
     c.mark_team_gate_fired()
+    c.mark_team_gate_direct_reject_fired()
     c.mark_audit_gate_fired()
     c.mark_debate_gate_fired()
     c.mark_debate_executed()
@@ -101,8 +102,7 @@ def test_controller_seed_round_trip_json_safe():
         "post_delegate": True,
         "delegate_count": 1,
         "team_gate_fired": True,
-        "exec_verify_gate_fired": False,
-        "exec_verify_text_exit": False,
+        "team_gate_direct_reject_fired": True,
         "audit_gate_fired": True,
         "first_batch_substantial": True,
         "audit_hard_required": False,
@@ -118,6 +118,7 @@ def test_controller_seed_round_trip_json_safe():
     assert restored.has_delegated is True
     assert restored.delegate_count == 1
     assert restored.team_gate_fired is True
+    assert restored.team_gate_direct_reject_fired is True
     assert restored.audit_gate_fired is True
     assert restored.first_batch_substantial is True
     assert restored.debate_gate_fired is True

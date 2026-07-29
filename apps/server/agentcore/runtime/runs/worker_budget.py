@@ -1,6 +1,6 @@
 """派单时为 worker 回填统一 token 顶与墙钟超时 backstop.
 
-全局 ``engine_worker_token_ceiling``（默认 1M）与统一墙钟 600s 是防失控安全阀，
+全局 ``engine_worker_token_ceiling``（默认 2M）与统一墙钟 600s 是防失控安全阀，
 **不做**按任务规格的四档启发式分档。CEO 显式 ``timeout_ms`` / 预置 ``token_ceiling``
 恒优先（已写入则不动）。
 
@@ -33,6 +33,8 @@ __all__ = [
     "is_directed_search_role",
     "is_research_root",
     "is_short_write_posture",
+    "resolve_prose_idle_finalize_rounds",
+    "should_enable_prose_idle",
     "should_enable_zero_write",
     "should_tighten_verify_exec_thrash",
 ]
@@ -137,6 +139,40 @@ def should_enable_zero_write(
     if short_write_posture is None:
         short_write_posture = is_short_write_posture(max_rounds=max_rounds)
     return bool(files_expected and short_write_posture)
+
+
+def should_enable_prose_idle(
+    *,
+    files_expected: bool,
+    short_write_posture: bool | None = None,
+    max_rounds: int | None = None,
+) -> bool:
+    """Gate for prose short-budget idle ladder (symmetric to files zero_write).
+
+    Short-stamped workers that expect prose (not files landing) — e.g. repair
+    ``diagnose`` / ``verify`` — get the same investigation-only streak → warn →
+    FINALIZE path, with handoff counting as delivery success.
+    """
+    if short_write_posture is None:
+        short_write_posture = is_short_write_posture(max_rounds=max_rounds)
+    return bool(short_write_posture and not files_expected)
+
+
+def resolve_prose_idle_finalize_rounds(max_rounds: int | None) -> int:
+    """Scale prose idle FINALIZE bar so warn+cut fire before short ``max_rounds``.
+
+    Default files zero_write bar (7) never trips inside diagnose's 4 rounds; prose
+    idle uses ``max(2, min(settings_bar, max_rounds - 1))`` so a 4-round worker
+    warns at streak 2 and cuts at 3.
+    """
+    from agentcore.config import settings
+
+    base = max(0, int(settings.engine_zero_write_finalize_rounds))
+    if base <= 0:
+        return 0
+    if max_rounds is not None and max_rounds > 0:
+        return max(2, min(base, max_rounds - 1))
+    return max(2, min(base, 4))
 
 
 def should_tighten_verify_exec_thrash(
@@ -285,4 +321,4 @@ def _settings_default_token_ceiling() -> int:
             return ceiling
     except Exception:  # noqa: BLE001 — settings optional in unit stubs
         pass
-    return 1_000_000
+    return 2_000_000

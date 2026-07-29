@@ -1,5 +1,4 @@
-import { ApiError } from "@/services/api";
-import { resolveInteraction } from "@/services/interaction";
+import { fulfillClientToolOnce } from "@/services/clientToolFulfill";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import type { WorkspaceOpRequiredPayload } from "@/types/events";
 import type { WorkspaceOpName, WorkspaceOpResult } from "@shared/ipc-contract";
@@ -26,21 +25,20 @@ const PROCESS_OPS = new Set<string>([
  * logged and left to the server timeout. A non-desktop runtime (no `fsApi`) or a
  * thrown IPC error becomes a typed error envelope, so the tool reports a clean
  * failure instead of the turn hanging.
+ *
+ * Same ``request_id`` is de-duplicated in-process so attach rehang does not
+ * re-run write / execute side effects.
  */
 export async function performWorkspaceOp(
   payload: WorkspaceOpRequiredPayload,
   conversationId: string,
 ): Promise<void> {
-  const result = await runLocalOp(payload, conversationId);
-  try {
-    await resolveInteraction(conversationId, payload.request_id, {
-      kind: "client_tool",
-      ...result,
-    });
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return; // stale — no-op
-    console.error("[workspaceOps] 回填失败", err);
-  }
+  await fulfillClientToolOnce({
+    requestId: payload.request_id,
+    conversationId,
+    logLabel: "workspaceOps",
+    perform: () => runLocalOp(payload, conversationId),
+  });
 }
 
 async function runLocalOp(

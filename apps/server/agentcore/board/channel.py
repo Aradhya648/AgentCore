@@ -23,6 +23,12 @@ from typing import Any
 from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
 from agentcore.runtime.events import EventSink, board_op_required, board_read_required
+from agentcore.runtime.events.client_tool_reattach import (
+    CHANNEL_BOARD,
+    CHANNEL_BOARD_READ,
+    client_tool_payload,
+)
+from agentcore.runtime.events.types import EventType
 from agentcore.runtime.interaction import InteractionKind
 from agentcore.runtime.ports import ClientRequestBridge
 
@@ -78,7 +84,15 @@ class BoardChannel:
                 request_id,
                 self.conversation_id,
                 kind=InteractionKind.CLIENT_TOOL,
-                payload={"board_id": self.board_id, "ops": ops, "summary": summary},
+                payload=client_tool_payload(
+                    CHANNEL_BOARD,
+                    EventType.BOARD_OP_REQUIRED.value,
+                    params={
+                        "board_id": self.board_id,
+                        "ops": ops,
+                        "summary": summary,
+                    },
+                ),
                 timeout=self.timeout_seconds,
                 on_suspended=lambda: self.sink.emit(
                     board_op_required(
@@ -120,7 +134,11 @@ class BoardChannel:
                 request_id,
                 self.conversation_id,
                 kind=InteractionKind.CLIENT_TOOL,
-                payload={"board_id": self.board_id, "ids": ids},
+                payload=client_tool_payload(
+                    CHANNEL_BOARD_READ,
+                    EventType.BOARD_READ_REQUIRED.value,
+                    params={"board_id": self.board_id, "ids": ids},
+                ),
                 timeout=self.timeout_seconds,
                 on_suspended=lambda: self.sink.emit(
                     board_read_required(

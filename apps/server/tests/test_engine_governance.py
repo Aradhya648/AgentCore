@@ -1088,10 +1088,10 @@ async def test_unproductive_rounds_early_stop_and_salvage_answer():
 
 async def test_reflection_injected_on_long_run_cadence():
     # Distinct SUCCESSFUL tool calls each round (no repeat / failure / unproductive /
-    # circuit-breaker / over-investigation interference) over a long run → only the
-    # periodic reflection fires, on the round_idx 3 / 6 cadence (the 4th / 7th round),
-    # anchored to the round number. A non-investigation tool (EXECUTION, not a read) keeps
-    # the convergence safety net dormant so this stays an isolated reflection-cadence check.
+    # circuit-breaker / over-investigation interference) over a long run → soft
+    # 进度复盘 fires once per idle streak (first cadence hit at round_idx 3), then
+    # latches until progress. A non-investigation tool (EXECUTION, not a read) keeps
+    # the convergence safety net dormant so this stays an isolated reflection check.
     rounds: list[list[LLMChunk]] = [[_tool_chunk("compute", '{"q": "%d"}' % i)] for i in range(8)]
     rounds.append([_content_chunk("final")])
     provider = _ScriptedProvider(rounds)
@@ -1101,9 +1101,8 @@ async def test_reflection_injected_on_long_run_cadence():
 
     assert content == "final"
     reviews = [m for m in messages if m.role == "user" and m.content and "进度复盘" in m.content]
-    assert len(reviews) == 2  # injected after round_idx 3 and 6
+    assert len(reviews) == 1  # one soft review per idle streak (round_idx 3)
     assert any("已进行 4 轮" in (m.content or "") for m in reviews)
-    assert any("已进行 7 轮" in (m.content or "") for m in reviews)
 
 
 async def test_reflection_skipped_when_progress_tools_succeed():

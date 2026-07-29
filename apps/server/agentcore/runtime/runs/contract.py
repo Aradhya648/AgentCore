@@ -536,6 +536,50 @@ def has_salvageable_half_product(
     return debrief_meets_minimum(debrief)
 
 
+def transcript_has_tool_inventory(messages: list[Any] | tuple[Any, ...] | None) -> bool:
+    """True when the transcript holds at least one successful non-empty tool result.
+
+    Used by force-finalize: investigation-only workers may have zero prose / disk /
+    brief yet still have readable tool inventory worth one salvage LLM round.
+    Failed tool messages (``<!--agentcore:tool_failed-->`` trailer) do **not** count —
+    otherwise unproductive all-fail loops would burn a useless salvage call.
+    Does **not** widen :func:`has_salvageable_half_product` (keeps degraded_synth
+    from minting empty briefs off tool chatter alone).
+    """
+    if not messages:
+        return False
+    from agentcore.runtime.engine.tool_exec import TOOL_FAILED_MARKER
+
+    for msg in messages:
+        if getattr(msg, "role", None) != "tool":
+            continue
+        content = getattr(msg, "content", None)
+        text = str(content) if content is not None else ""
+        if not text.strip():
+            continue
+        if TOOL_FAILED_MARKER in text:
+            continue
+        return True
+    return False
+
+
+def should_attempt_force_finalize_salvage(
+    content: str,
+    files_touched: list[str] | None,
+    debrief: dict[str, Any] | None = None,
+    *,
+    messages: list[Any] | tuple[Any, ...] | None = None,
+) -> bool:
+    """Whether force_finalize should spend an LLM salvage round.
+
+    Half-product (body / disk / brief) **or** non-empty tool inventory in
+    ``messages``. Empty everything → skip (``force_finalize_skipped_empty``).
+    """
+    if has_salvageable_half_product(content, files_touched, debrief):
+        return True
+    return transcript_has_tool_inventory(messages)
+
+
 def format_feedback(
     verdict: ContractVerdict, *, checked_files: list[str] | None = None
 ) -> str:

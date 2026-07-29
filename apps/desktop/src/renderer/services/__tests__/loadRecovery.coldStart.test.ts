@@ -6,6 +6,7 @@
  * deliberately do NOT prefill conversation/workspace query caches and do NOT
  * mock resolveSidecarRoot: local recovery must fire from main-process facts alone.
  */
+import { useInteractionStore } from "@/stores/interactions";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
 import type { SidecarUnsyncedTurnSummary } from "@shared/sidecar-contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,6 +61,7 @@ function unsyncedSummary(
 
 beforeEach(() => {
   usePausedTurnStore.getState().clear();
+  useInteractionStore.getState().clear();
   apiGet.mockReset();
   vi.unstubAllGlobals();
 });
@@ -294,6 +296,91 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
       suggestions: [],
     });
     expect(without?.ceoReview).toBeUndefined();
+  });
+
+  it("empty recovery pending does not wipe live approval cards", async () => {
+    useInteractionStore.getState().upsertRequired({
+      kind: "approval",
+      conversationId: CID,
+      messageId: "m1",
+      payload: {
+        approval_id: "a-live",
+        tool_name: "host_shell",
+        arguments: {},
+      },
+    });
+
+    apiGet.mockResolvedValue({
+      live_running: true,
+      paused: [],
+      pending_interactions: [],
+    });
+
+    vi.stubGlobal("window", { __WEB__: true });
+
+    await loadRecovery(CID);
+    expect(useInteractionStore.getState().get("a-live")?.status).toBe(
+      "pending",
+    );
+  });
+
+  it("empty recovery pending clears when not live (resolved/orphan)", async () => {
+    useInteractionStore.getState().upsertRequired({
+      kind: "approval",
+      conversationId: CID,
+      messageId: "m1",
+      payload: {
+        approval_id: "a-done",
+        tool_name: "file_write",
+        arguments: {},
+      },
+    });
+
+    apiGet.mockResolvedValue({
+      live_running: false,
+      paused: [],
+      pending_interactions: [],
+    });
+
+    vi.stubGlobal("window", { __WEB__: true });
+
+    await loadRecovery(CID);
+    expect(useInteractionStore.getState().get("a-done")).toBeUndefined();
+  });
+
+  it("sidecar live + empty cloud pending keeps local approval cards", async () => {
+    useInteractionStore.getState().upsertRequired({
+      kind: "approval",
+      conversationId: CID,
+      messageId: "m1",
+      payload: {
+        approval_id: "a-sidecar",
+        tool_name: "host_shell",
+        arguments: {},
+      },
+    });
+
+    const recoveryIpc = vi.fn(async () => ({
+      liveRunning: true,
+      turnId: "turn-1",
+      unsynced: [],
+      paused: [],
+    }));
+    apiGet.mockResolvedValue({
+      live_running: false,
+      paused: [],
+      pending_interactions: [],
+    });
+
+    vi.stubGlobal("window", {
+      __WEB__: false,
+      sidecarApi: { recovery: recoveryIpc },
+    });
+
+    await loadRecovery(CID);
+    expect(useInteractionStore.getState().get("a-sidecar")?.status).toBe(
+      "pending",
+    );
   });
 
   it("empty recovery snapshot does not wipe non-empty live frames", async () => {

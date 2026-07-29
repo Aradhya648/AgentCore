@@ -13,6 +13,10 @@ from typing import Any
 from agentcore.core.logging import get_logger
 from agentcore.core.types import ToolApproval, ToolCategory
 from agentcore.desktop.channel import HostOp, HostOpError
+from agentcore.tools.builtin.long_running import (
+    DEFAULT_DEV_WAIT_FOR,
+    long_running_command_match,
+)
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
     AUDIENCE_BOTH,
@@ -358,10 +362,13 @@ class HostShellTool:
         return ToolSchema(
             name=_HOST_SHELL,
             description=(
-                "在用户本机执行一条通用命令（Cursor 同款 Host shell）。"
+                "在用户本机执行一条通用短时命令（Cursor 同款 Host shell）。"
                 "经桌面回填通道；禁止云进程 loopback。"
                 "CEO 与 worker 均可持有；按 host 轴授权（ask 逐次 / session 会话）；"
                 "不吃 kickoff / command=auto 静默授。"
+                "【禁止】启动永不退出的长驻进程"
+                "（npm/pnpm/yarn/bun run dev|start、vite/next/nuxt、uvicorn --reload 等）——"
+                "那些请用 terminal start + wait_for。"
                 "参数：command（必填）；可选 timeout_seconds（默认 60，上限 120）。"
                 "P3 首版不支持 cwd——固定用户 home / 默认 shell cwd。"
                 "结构化 host_* 仍可作快捷路径；毁灭性命令有启发式熔断（非完整边界）。"
@@ -406,6 +413,20 @@ class HostShellTool:
                 success=False,
                 output="",
                 error=fuse,
+            )
+        matched_long = long_running_command_match(command)
+        if matched_long is not None:
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=(
+                    f"禁止用 host_shell 启动长驻进程（检测到：{matched_long}）。"
+                    "host_shell 有超时上限、不托管后台进程。"
+                    "请改用 terminal：subcommand=start，填入同一命令，并设 wait_for"
+                    f"（如 {DEFAULT_DEV_WAIT_FOR}）等到就绪信号；"
+                    "用 list/read 确认进程仍在跑。"
+                ),
             )
         timeout_seconds = clamp_shell_timeout(arguments.get("timeout_seconds"))
         channel = context.desktop_channel

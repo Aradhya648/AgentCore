@@ -37,7 +37,6 @@ from .governance import (
     maybe_inject_audit_gate,
     maybe_inject_availability_status_nudge,
     maybe_inject_debate_gate,
-    maybe_inject_exec_verify_gate,
     maybe_inject_turn_token_budget_gate,
     resolve_openai_tool_defs,
 )
@@ -272,8 +271,6 @@ async def react_loop(
     controller: LoopController | None = None
 
     def _resolve_tool_defs() -> list[dict[str, Any]] | None:
-        if controller is not None and controller.exec_verify_text_exit:
-            return None
         return resolve_openai_tool_defs(tools, _effective_allowed(), disabled_tools)
 
     tool_defs = _resolve_tool_defs()
@@ -304,34 +301,10 @@ async def react_loop(
         files_expected=files_expected,
         short_write_posture=short_write_posture,
         tighten_verify_exec_thrash=tighten_verify_exec_thrash,
+        max_rounds=profile.max_rounds,
     )
-    # 跑/打开验证：意图命中则在首轮 LLM 前硬收探路工具（仿 team_gate，零阈值）。
+    # 跑/修·打开验证·贴码写回：引擎不再扫用户文硬分叉；选型/验收靠提示词 + 结构字段。
     if role == "captain":
-        from agentcore.tools.builtin import (
-            browser_execution_enabled_for,
-            code_execution_enabled_for,
-        )
-
-        backend = tool_context.backend
-        ask_user_available = (
-            "ask_user" in allowed_tool_names
-            if allowed_tool_names is not None
-            else "ask_user" in tools.names
-        )
-        if maybe_inject_exec_verify_gate(
-            controller,
-            messages=messages,
-            run_id=run_id or "",
-            round_idx=0,
-            role=role,
-            code_execute=code_execution_enabled_for(backend),
-            browser=browser_execution_enabled_for(backend),
-            local_open=backend.location == "local",
-            disabled_tools=disabled_tools,
-            investigation_tools=investigation_tools,
-            ask_user_available=ask_user_available,
-        ):
-            tool_defs = _resolve_tool_defs()
         maybe_inject_availability_status_nudge(
             messages=messages,
             run_id=run_id or "",
@@ -747,28 +720,19 @@ async def react_loop(
                     )
                     # Soft debate-commitment / audit-gate: captain wrap-up —
                     # discard the draft, inject nudge, continue (one-shot each).
-                    # text_exit: skip soft gates; empty → Finalize 兜底防 max_rounds 空转。
-                    if controller.exec_verify_text_exit:
-                        from .directive import Finalize, Return
-
-                        if isinstance(directive, Return) and outcome.content:
-                            pass
-                        else:
-                            directive = Finalize(reason="exec_verify_text_exit")
-                    else:
-                        directive, rolled = maybe_soft_gate_no_tool_return(
-                            directive=directive,
-                            outcome=outcome,
-                            controller=controller,
-                            messages=messages,
-                            role=role,
-                            round_idx=round_idx,
-                            run_id=run_id,
-                            content_before_round=content_before_round,
-                            emit_reset=emit_reset,
-                        )
-                        if rolled is not None:
-                            final_content = rolled
+                    directive, rolled = maybe_soft_gate_no_tool_return(
+                        directive=directive,
+                        outcome=outcome,
+                        controller=controller,
+                        messages=messages,
+                        role=role,
+                        round_idx=round_idx,
+                        run_id=run_id,
+                        content_before_round=content_before_round,
+                        emit_reset=emit_reset,
+                    )
+                    if rolled is not None:
+                        final_content = rolled
                 else:
                     # Wind-down breach: non-whitelist tool → nudge+handoff-only, or
                     # local synth close (2nd breach / already at hard ceiling).

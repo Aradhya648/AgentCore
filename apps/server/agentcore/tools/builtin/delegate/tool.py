@@ -369,29 +369,6 @@ class DelegateTool:
             none_reason=(none_reason[:120] if none_reason else ""),
         )
 
-        # 点名 N 实体对比却少派：提示词易被合理化绕开 → 窄硬闸（force 可旁路）。
-        from agentcore.runtime.delegate.named_entity_fanout import (
-            check_named_entity_fanout,
-        )
-
-        fanout_error = check_named_entity_fanout(
-            arguments,
-            user_message=self._user_message or "",
-        )
-        if fanout_error:
-            logger.info(
-                "delegate.named_entity_fanout_rejected",
-                task_count=len(arguments.get("tasks") or []),
-                force=bool(arguments.get("force")),
-            )
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error=fanout_error,
-                contract_failure=True,
-            )
-
         # 拆·playbook 固化 (§2.1): a固化形状 instantiates the whole tasks array, then flows through
         # the SAME pipeline below as a hand-written one (纯加法). playbook XOR tasks is enforced
         # in resolve_playbook_declaration (and re-checked here as defense in depth).
@@ -568,28 +545,18 @@ class DelegateTool:
                     cap=MAX_WORKER_SUBDELEGATIONS,
                 )
                 return ToolResult(tool_call_id="", success=False, output="", error=msg)
-        # 消费者漏边：task 写明吃同批队友产出但 depends_on 为空 → 拒收入图（force 可旁路）。
-        # playbook 展开后的 tasks 也过闸；有边则自然通过。引擎不猜边改图。
+        # 消费者漏边：task 写明吃同批队友产出但 depends_on 为空 → 软告警一次，不拒收入图。
+        # playbook 展开后的 tasks 也过闸；有边则无告警。引擎不猜边改图。
         from agentcore.runtime.delegate.consumer_deps import (
             check_consumer_missing_depends,
         )
 
-        consumer_deps_error = check_consumer_missing_depends(
-            tasks_raw,
-            force=bool(arguments.get("force")),
-        )
-        if consumer_deps_error:
+        consumer_deps_warn = check_consumer_missing_depends(tasks_raw)
+        if consumer_deps_warn:
             logger.info(
-                "delegate.consumer_deps_rejected",
+                "delegate.consumer_deps_soft_warn",
                 task_count=len(tasks_raw),
-                force=bool(arguments.get("force")),
-            )
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error=consumer_deps_error,
-                contract_failure=True,
+                hint=consumer_deps_warn[:200],
             )
 
         # 跨回合同图追加：须在 build_run_plan 之前加载宿主计划，以便 depends_on 解析
@@ -727,10 +694,14 @@ class DelegateTool:
             has_checkpoint=any(n.checkpoint_after for n in plan.nodes),
         )
         widen_post_checkpoint_deps(plan, parallelism)
+        from agentcore.runtime.delegate.continuation import apply_continuation_tool_merges
         from agentcore.runtime.runs.research_quality import (
             batch_includes_review_role,
             plan_signals_long_form_audit,
         )
+
+        # 乙续派：新 task.tools 只增不减 merge 进现场，供后续能力闸与 continue_run 共用。
+        await apply_continuation_tool_merges(plan, self)
 
         batch_includes_review = (
             playbook == "research_report" or batch_includes_review_role(tasks_raw)
@@ -746,6 +717,7 @@ class DelegateTool:
             hoist_task_completion_criteria,
             resolve_completion_with_source,
             validate_cold_start_explore_deliverables,
+            validate_code_verified_worker_tools,
             validate_completion_against_forms,
             validate_criteria_kind_fit,
             validate_execution_capability,
@@ -898,6 +870,30 @@ class DelegateTool:
                 error=capability_error,
                 contract_failure=True,
             )
+        # 与环境能力闸正交：code_verified 须批内至少一人持执行类 tools。
+        tools_surface_error = validate_code_verified_worker_tools(
+            completion_criteria,
+            plan,
+        )
+        if tools_surface_error:
+            kind = (
+                resolved_acceptance.criteria.kind
+                if resolved_acceptance.criteria is not None
+                else "unknown"
+            )
+            logger.info(
+                "delegate.capability_rejected",
+                criteria=kind,
+                reason="no_execution_tools",
+                explicit=completion_criteria is not None,
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=tools_surface_error,
+                contract_failure=True,
+            )
         capability_warning = execution_capability_warning(
             completion_criteria,
             plan,
@@ -908,12 +904,20 @@ class DelegateTool:
                 "delegate.capability_warning",
                 backend_location=getattr(self._base_tool_context.backend, "location", None),
             )
+        # execution_id when already known at kickoff (append host / same-turn graph)
+        # so analysts can join acceptance_resolved ↔ completion_criteria_unmet.
+        kickoff_execution_id = append_to or self._base_tool_context.execution_id
         logger.info(
             "delegate.acceptance_resolved",
             criteria=(
                 resolved_acceptance.criteria.kind if resolved_acceptance.criteria else None
             ),
             source=resolved_acceptance.source,
+            **(
+                {"execution_id": kickoff_execution_id}
+                if kickoff_execution_id
+                else {}
+            ),
         )
         if self._depth >= 1:
             self._sub_workers_spawned += len(plan.nodes)

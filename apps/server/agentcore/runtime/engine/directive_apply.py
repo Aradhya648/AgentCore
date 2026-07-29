@@ -274,17 +274,6 @@ async def apply_loop_directive(
                     tool_defs = resolve_openai_tool_defs(
                         tools, allowed_tool_names, disabled_tools
                     )
-                from agentcore.tools.builtin import (
-                    browser_execution_enabled_for,
-                    code_execution_enabled_for,
-                )
-
-                backend = tool_context.backend
-                ask_user_available = (
-                    "ask_user" in allowed_tool_names
-                    if allowed_tool_names is not None
-                    else "ask_user" in tools.names
-                )
                 _ = govern_after_tools(
                     outcome=RoundOutcome(
                         content=coordination.content,
@@ -302,13 +291,7 @@ async def apply_loop_directive(
                     role=role,
                     disabled_tools=disabled_tools,
                     investigation_tools=controller.investigation_tool_names,
-                    code_execute=code_execution_enabled_for(backend),
-                    browser=browser_execution_enabled_for(backend),
-                    local_open=backend.location == "local",
-                    ask_user_available=ask_user_available,
                 )
-                if controller.exec_verify_text_exit:
-                    tool_defs = None
                 return DirectiveApplyResult(
                     action="continue",
                     final_content=final_content,

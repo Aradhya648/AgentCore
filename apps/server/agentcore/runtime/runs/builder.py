@@ -498,7 +498,9 @@ def build_added_nodes(
     from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_specs
 
     apply_artifact_dir_to_specs(specs)
-    _align_prose_upstream_body_floor(RunPlan(nodes=[*plan.nodes, *specs], origin=plan.origin))
+    _sanitize_deliverable_length_bounds(
+        RunPlan(nodes=[*plan.nodes, *specs], origin=plan.origin)
+    )
     return specs, []
 
 
@@ -704,31 +706,23 @@ def _dag_plan(
                 f"（run_id={node.run_id}）。若确需先拿上游结果，补 depends_on 或分批 delegate；"
                 "本就独立可忽略。"
             )
-    _align_prose_upstream_body_floor(plan)
+    _sanitize_deliverable_length_bounds(plan)
     return plan, []
 
 
-def _align_prose_upstream_body_floor(plan: RunPlan) -> None:
-    """prose ∧ 有下游：``min_length`` 与 ``MIN_UPSTREAM_BODY_CHARS`` 同一来源（≥地板）。
+def _sanitize_deliverable_length_bounds(plan: RunPlan) -> None:
+    """同一契约内保证 ``min_length ≤ max_length``；绝不发明地板。
 
-    禁止合同写 40、交接却要求 80 的漂移；不把地板降到合同侧。Mutates deliverables
-    in place. Leaf / non-prose nodes unchanged.
+    旧逻辑在 prose∧有下游时把 ``min_length`` 抬到 80，却不动 ``max_length``，
+    可写出 ``min=80 ∧ max=50`` 的非法合同（打招呼链翻车根因）。交接地板现只
+    认 deliverable；需要实质篇幅的 playbook 须自己声明 ``min_length``。
     """
-    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
-
-    has_downstream = {
-        dep
-        for node in plan.nodes
-        for dep in (node.depends_on or [])
-    }
     for node in plan.nodes:
-        if node.run_id not in has_downstream:
-            continue
         d = node.deliverable
-        if d is None or d.form != "prose":
+        if d is None:
             continue
-        if d.min_length < MIN_UPSTREAM_BODY_CHARS:
-            d.min_length = MIN_UPSTREAM_BODY_CHARS
+        if d.max_length > 0 and d.min_length > d.max_length:
+            d.min_length = d.max_length
 
 
 def _inline_spec(

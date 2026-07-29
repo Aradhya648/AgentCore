@@ -216,12 +216,13 @@ async def force_finalize(
     When ``coordination_result.kind == "coordination_tools"``, the caller must execute
     those tools and continue the loop instead of ending the turn.
 
-    Empty inventory (零正文 ∧ 零落盘 ∧ 无合格 brief) skips meaningless LLM salvage —
-    wall-clock semantics stay absolute; callers hard-fail the empty product.
+    Empty inventory (零正文 ∧ 零落盘 ∧ 无合格 brief ∧ 无工具结果) skips meaningless
+    LLM salvage — wall-clock semantics stay absolute; callers hard-fail the empty
+    product. Non-empty tool results count as salvage inventory (one soft/hard round).
     """
     from agentcore.runtime.runs.contract import (
         debrief_meets_minimum,
-        has_salvageable_half_product,
+        should_attempt_force_finalize_salvage,
     )
     from agentcore.runtime.runs.serialize import (
         debrief_from_transcript,
@@ -230,8 +231,10 @@ async def force_finalize(
 
     prior_brief = debrief_from_transcript(messages)
     prior_files = files_touched_from_transcript(messages)
-    if not has_salvageable_half_product(final_content, prior_files, prior_brief):
-        # No half-product to salvage — skip soft/hard LLM rounds (and empty synth).
+    if not should_attempt_force_finalize_salvage(
+        final_content, prior_files, prior_brief, messages=messages
+    ):
+        # No half-product or tool inventory — skip soft/hard LLM rounds.
         logger.info(
             "engine.force_finalize_skipped_empty",
             reason=reason,

@@ -32,13 +32,16 @@ AgentCore/
 ├── 记忆/                 AI 维护（ai_maintained=true）
 │   ├── 偏好.md           always · 仅全局 · 沟通/习惯
 │   ├── 画像.md           always · 技术栈/事实（可全局可项目）
-│   └── 主题/<slug>.md    on_demand · consult_memory
+│   ├── 导航.md           always · 仅项目 · 短入口（一句话定位 + 任务路由）⏳
+│   └── 主题/<slug>.md    on_demand · consult_memory（单次软顶 5；总数≤memory_max_topic_files）⏳
 └── 文档/                 工作区盘 · 永不进 <rules> · 按需 file_read
+    └── 项目/…            厚案卷（探索 pending 不写；闸清后/普通回合）⏳
 ```
 
 - 叠加注入：绑定文件夹的对话 = 全局 + 该项目；预算紧张时**全局优先**；项目层无 `偏好.md`。
+- **双层项目知识**：短入口 = `导航.md`（always，只指路、不塞长文）；厚内容 = `主题/` + `文档/项目/`（按需查）。不写用户仓库根 `AGENTS.md` / `docs/`。
 - 冲突：靠措辞 + 就近相关性；用户硬规则恒胜。
-- `文档/` 与 `.agentcore/index/`（code_search）正交，勿与 `~/Documents/AgentCore/` 工作区容器混淆。
+- `文档/` 与 `.agentcore/index/`（code_search）正交：索引管符号检索；导航/主题管叙事路由。勿与 `~/Documents/AgentCore/` 工作区容器混淆。
 - 主题继续 `name=主题/<slug>.md`（非真实嵌套 folder）——有意设计。
 
 → 见代码：`memory/document_store.py`、`memory/migrate_agentcore.py`
@@ -49,7 +52,7 @@ AgentCore/
 
 1. 工作记忆经 `load_recent_history` 进窗口（CEO / worker 共用）。
 2. 长期记忆折叠进共享 `<rules>` 基座：用户规则在前（权威）、AI 记忆在后（软措辞）；无用户规则时与旧 memory-only 块逐字节一致（护前缀缓存）。
-3. always 序：**全局偏好 → 全局画像 → 项目画像**；on_demand 主题只列目录，按需 `consult_memory`（项目优先、全局兜底）。
+3. always 序：**全局偏好 → 全局画像 → 项目画像 → 项目导航**（⏳ 导航落地后接入；缺文件跳过）；on_demand 主题只列目录，按需 `consult_memory`（项目优先、全局兜底）。
 4. 注入前剥人面 chrome（H1 + 说明引用块），文件本身不动。
 5. 装配顺序权威 → [执行引擎 §七](/docs/03-AI核心/执行引擎架构设计.md) / `runtime/context/`（`SectionOrder`）。
 
@@ -72,10 +75,27 @@ AgentCore/
 
 ### 两种「冷启动」（正交、禁混名）
 
-| | **巩固冷启动** `_is_cold_start` | **冷启动探索幕** |
+| | **巩固冷启动** `_is_cold_start` | **冷启动探索幕**（含 ⏳ 导航 / 指纹重探） |
 |---|---|---|
-| 闸看 | **全局** `偏好.md`+`画像.md` 皆空 | **项目** `画像.md` 空 **或** `explore_workspace_key` 与当前绑定不一致 |
-| 行为 | 巩固抽取降门槛 | CEO 组队探索 → `update_project_profile` 中途直写项目画像（可选 ≤3 主题）；禁经 `remember` 落规则 |
+| 闸看 | **全局** `偏好.md`+`画像.md` 皆空 | 见下表「探索触发」 |
+| 行为 | 巩固抽取降门槛 | CEO 组队探索 → 合并写项目画像 + **导航** + 主题/文档骨架；禁经 `remember` 落规则 |
+
+#### 探索触发与挡请求（已确认）
+
+| 触发 | 信号 | 与当前用户请求 |
+|---|---|---|
+| 首次 / 空仓 | 项目 `画像.md` 空（或导航约定落地后二者皆空） | **挡**：先探索再继续原请求（与现一致） |
+| 换绑 | `explore_workspace_key` ≠ 当前绑定 | **挡** |
+| 指纹漂移 | 顶层树 + 关键清单指纹相对上次探索写入已变（README / package·锁文件 / pyproject / 顶层目录名等；**不做**纯天数、**不以** commit 为唯一闸） | **不挡**。**一期（R2）**：只记脏标记 + 软提示「项目结构已变，可点名刷新」；当前回合继续用旧入口。**二期（R1）**：consolidation 同级旁路静默合并更新（无 team_preview、不占当前对话） |
+| 用户点名 | 「先了解 / 重新了解 / 刷新项目记忆」 | **挡**（强制开幕、合并更新；点名硬闸与 pending 与空仓同级 ⏳） |
+
+**产物谁写（D1）**：挡请求探索幕 **仍禁** worker `form=files` / `artifacts`；画像 / 导航 / 主题经 CEO `update_project_profile`（及同族工具）写。`文档/项目/` 厚案卷只在探索闸清除后、或普通回合按需落盘——**不**在 pending 探索批内写。
+
+**主题上限（T2）**：取消单次硬顶 3；单次探索/更新 **软顶 5**（超额截断+warning）；仓库主题总数仍受 `memory_max_topic_files`（现状 24）约束；多轮探索可累加主题。
+
+**一期范围**：`导航.md` 约定 + 空仓/换绑/点名路径写入与 always 注入；指纹计算并写入 meta；漂移 → 脏标记 + 软提示（不做真后台跑探索）；主题按 T2。**二期**：R1 旁路静默重探；百科级模块/接缝长文；点名硬闸若一期未完则补齐。
+
+**否决仍成立**：不写用户仓根文档；不做向量 chunk 自动灌 prompt；不新建独立 `知识/` 注入层。指纹**不**注入 `<cold_start_explore>` 挡请求块（与空仓/换绑文案分套分离）。旧「不做指纹自动重探」改为：一期脏标记、二期旁路（因短入口会过时）。
 
 → 见代码：`memory/episodic.py`、`memory/explore_profile.py`；编排 → [编排器 · 冷启动探索幕](/docs/03-AI核心/编排器与CEO主Agent.md)
 
@@ -84,6 +104,8 @@ AgentCore/
 ## 四、跨会话对话日志
 
 Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历史原文（messages + turn_journal）；CEO **只 `delegate` 查阅员**。用户 `@` 对话附件走服务端 `log_export` 深读。能力**产品层恒开**（无独立隐私闸）；控制面为编辑/清空长期记忆与删除对话，而非总开关。
+
+**对外口径**（CEO 对用户说话）：白话三层——当前会话 / 偏好与笔记 / 点名可派队员查旧场；不报工具名与内部角色；手头无原文时说明「需要派人去查」再行动，禁止装不知道或空口编造。→ 见代码：`runtime/resolve/prompt.py`（【记忆/历史·对外口径】【跨会话原文】）
 
 → 见代码：`conversation/log_export.py`、`tools/builtin/search_conversations.py`
 

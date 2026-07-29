@@ -73,8 +73,8 @@ def test_skip_after_confirmed_ask():
     assert skip_after_confirmed_ask(tool_empty) is False
 
 
-def test_skip_after_verbal_affirm_of_plan():
-    """Prior-turn verbal「认可」after a collaboration plan outline skips kickoff."""
+def test_skip_after_verbal_affirm_of_plan_no_longer_skips():
+    """Prior-turn verbal「认可」after a plan outline does NOT skip kickoff."""
     history = [
         {"role": "user", "content": "讨论下协作结构"},
         {
@@ -87,21 +87,13 @@ def test_skip_after_verbal_affirm_of_plan():
         user_message="认可",
         history=history,
     )
-    assert skip_after_confirmed_ask(tool) is True
-    # Affirm without a prior plan outline → still show kickoff.
+    assert skip_after_confirmed_ask(tool) is False
     tool_no_plan = SimpleNamespace(
         _sink=SimpleNamespace(execution_journal=lambda: None),
         user_message="认可",
         history=[{"role": "user", "content": "你好"}],
     )
     assert skip_after_confirmed_ask(tool_no_plan) is False
-    # Long non-affirm message → still show kickoff even with a plan on screen.
-    tool_long = SimpleNamespace(
-        _sink=SimpleNamespace(execution_journal=lambda: None),
-        user_message="认可，不过我想先改一下交付格式再开干",
-        history=history,
-    )
-    assert skip_after_confirmed_ask(tool_long) is False
 
 
 def test_worker_rows_shape():

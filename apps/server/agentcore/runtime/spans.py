@@ -397,7 +397,9 @@ def spans_from_entries(entries: list[dict[str, Any]] | None) -> Span | None:
         total_rea += agg.reasoning_tokens if agg is not None else 0
 
     # Tool spans: hang each tool under its run (by the tool_call fact's run_id), timed
-    # best-effort from the tool_use_start/end pair.
+    # best-effort from the tool_use_start/end pair. Also surface in-flight starts that
+    # never got a tool_call fact (cancelled mid-approval / mid-execute) so hangs are
+    # visible in 会话复盘.
     tool_spans: dict[str, list[Span]] = {}
     for tcid in tool_order:
         info = tool_run[tcid]
@@ -411,6 +413,41 @@ def spans_from_entries(entries: list[dict[str, Any]] | None) -> Span | None:
             attributes={
                 "gen_ai.operation.name": "execute_tool",
                 "gen_ai.tool.name": name,
+            },
+        )
+        start = tool_start_ms.get(tcid)
+        end = tool_end_ms.get(tcid)
+        if start is not None and end is not None and end >= start:
+            tspan.duration_ms = int(end - start)
+        tool_spans.setdefault(info["run_id"], []).append(tspan)
+
+    # Orphan starts: tool_use_start without a completed tool_call fact
+    # (cancelled mid-approval / mid-execute) so hangs are visible in 会话复盘.
+    orphan_starts: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if (entry.get("kind") or "") != EventType.TOOL_USE_START.value:
+            continue
+        payload = entry.get("payload") or {}
+        tcid = payload.get("tool_call_id") or ""
+        if not tcid or tcid in tool_run:
+            continue
+        orphan_starts[tcid] = {
+            "run_id": payload.get("run_id") or "",
+            "name": payload.get("tool_name") or "",
+        }
+    for tcid, info in orphan_starts.items():
+        name = info["name"]
+        tspan = Span(
+            span_id=f"tool:{tcid}",
+            parent_span_id=None,
+            name=f"execute_tool {name}" if name else "execute_tool",
+            operation="execute_tool",
+            status="unset",
+            attributes={
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.name": name,
+                "agentcore.tool.in_flight": True,
+                "agentcore.tool.orphan_start": True,
             },
         )
         start = tool_start_ms.get(tcid)

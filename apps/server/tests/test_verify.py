@@ -259,11 +259,30 @@ def test_blocked_verdict_rejects_fully_usable_claim():
         execution_id="e1",
     )
     reworks = finish_guard(
-        "现在已经可以使用了。",
+        "已经可以使用了。",
         citation_count=0,
         delivery_verdict=verdict,
     )
     assert any("可用" in r for r in reworks)
+
+
+def test_bare_now_usable_does_not_trigger_fully_usable_gate():
+    """收窄：裸「现在可用」不再触发；仍仅在 blocked/partial 生效。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "质检面板现在可用，可以开始试用。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
 
 
 def test_partial_verdict_allows_negated_fully_usable_phrase():

@@ -34,6 +34,7 @@ PLAYBOOK_TASKS_XOR_MSG = (
     "playbook 与 tasks 二选一，不可同时传。"
     "手写 tasks：去掉具名 playbook/playbook_id，只传 tasks；"
     "用可选形状：只传 playbook（+playbook_args 槽位），不要传 tasks。"
+    "已有调查批要按结论修码：去掉 playbook，手写 tasks 并设 continue_from_run_id。"
 )
 
 PLAYBOOK_ID_CONFLICT_MSG = (

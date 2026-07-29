@@ -209,6 +209,36 @@ def test_has_salvageable_half_product_gates_empty_synth():
     assert "无正文" in empty["summary"]
 
 
+def test_force_finalize_salvage_accepts_tool_inventory_without_widening_half_product():
+    from agentcore.llm.provider.protocol import LLMMessage
+    from agentcore.runtime.engine.tool_exec import with_tool_failed_marker
+    from agentcore.runtime.runs.contract import (
+        has_salvageable_half_product,
+        should_attempt_force_finalize_salvage,
+        transcript_has_tool_inventory,
+    )
+
+    msgs = [
+        LLMMessage(role="user", content="go"),
+        LLMMessage(role="tool", content="file body here", tool_call_id="c1"),
+    ]
+    assert transcript_has_tool_inventory(msgs)
+    assert not has_salvageable_half_product("", [], None)
+    assert should_attempt_force_finalize_salvage("", [], None, messages=msgs)
+    assert not should_attempt_force_finalize_salvage(
+        "", [], None, messages=[LLMMessage(role="user", content="go")]
+    )
+    failed_only = [
+        LLMMessage(
+            role="tool",
+            content=with_tool_failed_marker("boom"),
+            tool_call_id="f1",
+        )
+    ]
+    assert not transcript_has_tool_inventory(failed_only)
+    assert not should_attempt_force_finalize_salvage("", [], None, messages=failed_only)
+
+
 def test_describe_deliverable_renders_rules():
     desc = describe_deliverable(
         Deliverable(

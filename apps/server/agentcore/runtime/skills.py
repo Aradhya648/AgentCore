@@ -150,9 +150,11 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 末节点审校 `depends_on` 撰稿（role 含审校/审计/审查，审计者≠作者）——\
 【禁止】仅「调研→撰稿」两节点收工；【禁止】「角 prose、仅主笔落盘」（中途停则用户零文件）。\
 材料已齐扩写 / 短文落盘仍单人（成篇落盘仍【宜】另派独立审校）。\
-本地修码：单文件/单符号一刀切 → 宜显式 `complexity_hint=light`+短任务（可 \
-`requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`（`playbook_args` 必填 \
-`problem` + `verify` 怎么算修好）。\
+本地修码：【无先验调查批】单文件/单符号一刀切 → 宜显式 `complexity_hint=light`+短任务（可 \
+`requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`（单症状三波；`playbook_args` 必填 \
+`problem` + `verify`）。【已有多角调查/审查批、用户确认按结论修】→ **禁止**再套 \
+`repair_code` 冷开新三角色；手写 tasks + 对各调查 run 设 `continue_from_run_id`（可并行；\
+可改 task 正文/title，换马甲≠换职能；可声明超集 tools 只增不减）。\
 **禁止**把 `none` 当修码默认、禁止触顶后再派马甲从零读。\
 可用：""" + _PLAYBOOK_LISTING + """。槽位见 `delegate` 的 playbook_args。
 
@@ -259,16 +261,21 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 `completion_criteria={"type":"code_verified","verify_command":"…"}`（写清怎么算修好；\
 引擎验 worker 是否用 `code_execute` / `test_run` / \
 `terminal` 跑通 verify 形态命令且 exit 0；**启动开发服务器不算**；纯 prose 交卷不算过门；\
-修码 / `repair_code` / light 要验缺 `verify_command` 会被契约拒绝）；\
-② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL】才算交付 → 【必须】\
-`completion_criteria=runtime_ready`（引擎验 `terminal` start + `wait_for` 就绪；\
-**禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
+修码 / `repair_code` / light 要验缺 `verify_command` 会被契约拒绝；\
+**批内至少一名 worker 须持执行类 tools**，否则入闸硬拒——乙续派可声明超集 tools 扩面）；\
+② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL】→ \
+「打开 + 浏览器看效果」→ `delegate` 启服 + `browser_navigate`，**【省略】** \
+`completion_criteria`（勿默认 `runtime_ready`）；\
+若**仅启服/看活**且 CEO 本回合 `terminal=已装配` → CEO 自己 `terminal`（勿为此再派）；\
+`runtime_ready` **仅**改码后要队员启服、或整批必须引擎担保就绪时用\
+（引擎验 `terminal` start + `wait_for` 就绪；**禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
 ③ 纯写文件、只需阅读编辑不必启动进程 → `files_written`（常配合 `deliverable.form=files`）。\
 省略 = 本批不强制（引擎【不】从任务文案推断验收）。\
-跑/修/打开验证类终向由引擎能力策略收口（对照 `<workspace_context>`）；要执行成功证据时用\
+跑/修/打开验证类：对照 `<workspace_context>`，缺能力 → `ask_user`；有执行面 → \
+`delegate`+显式对应验收（靠提示词，引擎不扫用户文硬改工具面）；要执行成功证据时用\
 对应种类，禁止只验 `files_written` 却声称「已跑通 / 已启动」。\
-别混用：能跑通测试才算完的活用带 `verify_command` 的 `code_verified`；启动服务用 `runtime_ready`；全员 prose \
-的批次别设 `files_written`。\
+别混用：能跑通测试才算完的活用带 `verify_command` 的 `code_verified`；须引擎担保进程就绪才用 \
+`runtime_ready`（打开+看效果省略验收，见上）；全员 prose 的批次别设 `files_written`。\
 `type=custom`【不被引擎验证】——设了也不会机械验收，却可能误导你以为已加闸；需要可验证完成条件时用 \
 `files_written` / `code_verified` / `runtime_ready`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
 - 环境能力约束（委派前先对照 `<workspace_context>`）：`code_execute=未装配`（以能力行实际标注为准，勿默认\
@@ -324,8 +331,9 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 结论互相影响、互相审查）→ `coordination="wall"`；各写各的、互不依赖的正交扇出 → 保持缺省\
 `none`（不建墙、不授便签三件套，省开销与 UI 噪音）。传了非空 `seed_notes` / `team_brief` 会\
 隐含升级为 wall；`complexity_hint=light` 隐含 none（且会缩短 worker 轮次预算；\
-单文件一刀切修码即使 `requires_files` 也可显式 light；有症状/需验用 \
-`playbook="repair_code"`；禁 none 当修码默认）。`build_feature` / `build_website` \
+单文件一刀切修码即使 `requires_files` 也可显式 light；无调查批且有症状/需验用 \
+`playbook="repair_code"`；已有调查批确认修 → 手写+`continue_from_run_id`，禁再套 \
+repair_code；禁 none 当修码默认）。`build_feature` / `build_website` \
 教学示例默认 wall（接口或页面契约经便签对齐）。**主 Agent 可在 `delegate` 上预置共识**：`seed_notes`（`[{kind,text}]` \
 写入便签墙，首波并行 worker 开局即见）与 `team_brief`（回合级「团队共识」块注入每个 worker 开局上下文，\
 跨多波 `delegate` 仍沿用直至覆盖）——brief 写总述、seed 钉关键决定，减少在各 task 里重复粘贴同一段背景。\
@@ -443,16 +451,27 @@ _REVISING_A_PRODUCT = """\
 结果里标注的 run_id）——原作者带着 ReAct 轨迹接着干，而不是从零另派看不到旧稿的新人。
 task 正文写清续干指令（改哪里 / 新任务是什么）；可与 depends_on / deliverable 同用。
 
+【调查/审查批 → 用户确认按结论修·默认乙】多角调查或审查已收口、用户确认「按结论修」时：\
+【默认】对手头各调查/审查 run 手写 tasks，并设 `continue_from_run_id`（可并行多角；task \
+正文改成改码/落实指令即可）。换 title / 马甲文案（如「审查员」→「修复员」）【不算】换职能，\
+【禁止】因此冷开新人。【禁止】此时再套 `playbook=repair_code` 冷开诊断→修补→验证新三角色——\
+`repair_code` 仅覆盖【无先验调查批】的单症状修码。\
+【工具面·只增不减】乙续派可在该 task 声明超集 `tools`（merge 进原现场；未声明则沿用）；\
+只读调查面不够验码时 → 声明含 `test_run`（或 `code_execute` / `terminal`）的超集，或甲冷开\
+验证员；**禁止**指望引擎静默减面/换马甲。若批次 `completion_criteria=code_verified` 而全员\
+无执行类工具 → 入闸硬拒。
+
 【修订落盘纪律·写进续派 task】已有成品按审校意见【逐条】用 `str_replace` 局部改（优先）；扩写章节用 \
 `file_append`；整文件 `file_write` 覆盖允许，但须写出完整正文——勿惰性省略中段（正文自带\
 「……（中间省略，已保留首尾）……」会残缺交付）。非空代码文件亦优先 `str_replace`；确需整盖时\
 写出完整实现，勿用残缺骨架交差——补丁失败时对照失败回执盘片段再改或 escalate。
 
-什么时候【不要】带现场续派，而改用冷委派（不设 continue_from_run_id）：要换一个角色来改、
-原稿本身是失败的、要把多份产物合并了再改、或独立新任务（防上下文污染）。若续派提示找不
-到该 run、已达唤回上限、或目标仍在进行中，也按同样方式改冷委派，并设 replaces_run_id
-标接手（值 = 被替换的原 run_id）。协调态里对失败 worker 的补派同理：必填 replaces_run_id，
-否则下游 depends_on 不会接到补跑。
+什么时候【不要】带现场续派，而改用冷委派（不设 continue_from_run_id）——仅甲：真换职能\
+（需另一专长从头干，非仅改 title）、找不到可续现场、要把多份产物合并了再改、调查失败且无\
+可用现场、或独立新任务（防上下文污染）。原稿 FAILED 但 transcript 仍在 → 仍可乙续派改写。\
+若续派提示找不到该 run、已达唤回上限、或目标仍在进行中，也按同样方式改冷委派，并设 \
+replaces_run_id 标接手（值 = 被替换的原 run_id）。协调态里对失败 worker 的补派同理：必填 \
+replaces_run_id，否则下游 depends_on 不会接到补跑。
 </revising_a_product>"""
 
 _ASK_USER_KICKOFF = """\
@@ -785,9 +804,9 @@ _BUILD_WEBSITE = f"""\
 【禁止】自拟视觉施工图（配色 / 动效 / 板块清单交给 playbook）。槽位拿不准再查本 skill。
 3. 糊需求经用户确认后：若尚未读过本指引再 `consult_skill(build_website)`，然后调 `delegate`：\
 `playbook="build_website"`；`playbook_args` 规则同上。
-4. playbook 展开流水线不可减（文案 → DESIGN.md → 骨架+契约 → 分区独立片段 → assemble 组装 → 独立 QA），\
-含 `web_quality_scan` / 风格记账 / catalog / visual critic；勿自行减波；\
-分区禁并行 str_replace 同一 index.html（只写 `site/sections/sN.*`，由 assemble 单写者注入）。
+4. playbook 三串：文案 → 前端（一人包 DESIGN.md + 整页 HTML/CSS/JS + 轻量 CONTRACT）→ 独立 QA；\
+含 `web_quality_scan` / 风格记账 / marketing catalog / visual critic；\
+`sections` 仅覆盖清单，不扇出分区节点。
 
 组队进阶旋钮（协调墙 / deliverable 等）见 `consult_skill(team_orchestration_advanced)`。
 </build_website>"""
@@ -807,7 +826,8 @@ _BUILD_TOOLSHED = f"""\
 可复用营销气质对照，或偏「高对比工作台 / 紧凑数据台」；引擎不扫正文猜意图）。
 2. 用户确认后调 `delegate`：`playbook="build_toolshed"`；`playbook_args.site` 填产品控制台简述，\
 可选 `sections` / `stack` / `audience`——**只传事实输入**，【禁止】自拟视觉施工图。
-3. 流水线同 `build_website`（含分区独立片段 → assemble）；强制注入 catalog pack `tool_dense` + anti-slop `domain=tool`；\
+3. 流水线仍为五波（文案 → DESIGN → 骨架+契约 → N×分区独立片段 → assemble → 独立 QA）；\
+强制注入 catalog pack `tool_dense` + anti-slop `domain=tool`；\
 【禁止】套营销 hero / pricing 皮；勿自行减波；分区禁并行写同 index。
 
 组队进阶旋钮见 `consult_skill(team_orchestration_advanced)`。
@@ -852,7 +872,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
         summary=(
             "建站/落地页/营销官网：糊→先 ask_user；规格已齐→推荐 "
             "playbook=build_website；"
-            "五波含 DESIGN/质量闸；控制台勿用本 skill"
+            "三串文案→前端→QA；控制台勿用本 skill"
         ),
         body=_BUILD_WEBSITE,
         requires_tools=("delegate",),
@@ -886,7 +906,10 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     ),
     SystemSkill(
         name="revising_a_product",
-        summary="带现场续派：唤回原作者改稿或接强相关新任务",
+        summary=(
+            "带现场续派：唤回原作者改稿/接强相关新任务；"
+            "调查批确认修默认乙（换 title≠换职能；禁再套 repair_code 冷开）"
+        ),
         body=_REVISING_A_PRODUCT,
     ),
     SystemSkill(

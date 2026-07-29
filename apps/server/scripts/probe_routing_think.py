@@ -40,7 +40,6 @@ from agentcore.runtime.context import build_workspace_context
 from agentcore.runtime.engine.governance import (
     LOCAL_RECON_TOOLS,
     create_loop_controller,
-    maybe_inject_exec_verify_gate,
     maybe_inject_team_gate,
     resolve_openai_tool_defs,
 )
@@ -463,7 +462,7 @@ def _spin_counts_for_gate(
         return False
     act = (action or "").upper()
     fa = (first_action or "").upper()
-    if ("exec_verify_gate" in trail or "team_gate" in trail) and act in {
+    if ("team_gate" in trail) and act in {
         "ASK",
         "DIRECT",
     }:
@@ -714,26 +713,8 @@ async def _run_one(
     gate_controller = create_loop_controller(inv_tools)
     disabled_tools: set[str] = set()
     live_tool_defs = tool_defs
-    ask_user_available = "ask_user" in chat_tools.names
-    # 跑/打开验证：首轮前注入能力策略（与 react_loop 同形）
-    if maybe_inject_exec_verify_gate(
-        gate_controller,
-        messages=messages,
-        run_id=str(ctx.run_id or "probe"),
-        round_idx=0,
-        role="captain",
-        code_execute=code_execute,
-        browser=browser,
-        disabled_tools=disabled_tools,
-        investigation_tools=inv_tools,
-        ask_user_available=ask_user_available,
-    ):
-        trail.append("exec_verify_gate")
-        live_tool_defs = (
-            None
-            if gate_controller.exec_verify_text_exit
-            else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
-        )
+    # code_execute / browser 仍由调用方注入 workspace 上下文；引擎不再做 exec_verify 硬闸。
+    _ = (code_execute, browser)
 
     def _freeze_pre_action(reasoning: str) -> None:
         nonlocal pre_action_reasoning, pre_action_frozen
@@ -846,38 +827,7 @@ async def _run_one(
                         parsed_tasks = None
                     if isinstance(parsed_tasks, list):
                         dargs = {**dargs, "tasks": parsed_tasks}
-                from agentcore.runtime.delegate.named_entity_fanout import (
-                    check_named_entity_fanout,
-                )
-
-                fanout_err = check_named_entity_fanout(
-                    dargs,
-                    user_message=user_message,
-                )
-                if fanout_err:
-                    # 契约拒单：回灌错误让 CEO 重派（不真跑 worker）
-                    messages.append(
-                        LLMMessage(
-                            role="assistant",
-                            content=resp.content or None,
-                            tool_calls=calls,
-                        )
-                    )
-                    # 同轮若夹了其它 tool call，须一并给结果，否则续跑协议不合法。
-                    for tc in calls:
-                        if tc.id == dc.id:
-                            content = f"(error: {fanout_err})"[:1500]
-                        else:
-                            content = "(skipped: delegate contract rejected)"
-                        messages.append(
-                            LLMMessage(
-                                role="tool",
-                                tool_call_id=tc.id,
-                                content=content,
-                            )
-                        )
-                    trail.append("delegate")
-                    continue
+                # named_entity_fanout 用户扫硬拒已移除；点名对比扇出靠提示词。
                 delegate_summary = _parse_delegate(json.dumps(dargs, ensure_ascii=False))
                 if delegate_summary.get("proxy_answer_flag"):
                     flags = [*flags, "代答方案"]
@@ -929,24 +879,6 @@ async def _run_one(
                     gate_controller._investigation_calls += 1
                     if name in LOCAL_RECON_TOOLS:
                         gate_controller._local_recon_calls += 1
-            if maybe_inject_exec_verify_gate(
-                gate_controller,
-                messages=messages,
-                run_id=str(ctx.run_id or "probe"),
-                round_idx=r,
-                role="captain",
-                code_execute=code_execute,
-                browser=browser,
-                disabled_tools=disabled_tools,
-                investigation_tools=inv_tools,
-                ask_user_available=ask_user_available,
-            ):
-                trail.append("exec_verify_gate")
-                live_tool_defs = (
-                    None
-                    if gate_controller.exec_verify_text_exit
-                    else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
-                )
             if maybe_inject_team_gate(
                 gate_controller,
                 messages=messages,
@@ -957,11 +889,7 @@ async def _run_one(
                 investigation_tools=inv_tools,
             ):
                 trail.append("team_gate")
-                live_tool_defs = (
-                    None
-                    if gate_controller.exec_verify_text_exit
-                    else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
-                )
+                live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
             continue
 
         # 其它工具：也喂回继续，避免卡死
@@ -976,24 +904,6 @@ async def _run_one(
                 gate_controller._investigation_calls += 1
                 if name in LOCAL_RECON_TOOLS:
                     gate_controller._local_recon_calls += 1
-        if maybe_inject_exec_verify_gate(
-            gate_controller,
-            messages=messages,
-            run_id=str(ctx.run_id or "probe"),
-            round_idx=r,
-            role="captain",
-            code_execute=code_execute,
-            browser=browser,
-            disabled_tools=disabled_tools,
-            investigation_tools=inv_tools,
-            ask_user_available=ask_user_available,
-        ):
-            trail.append("exec_verify_gate")
-            live_tool_defs = (
-                None
-                if gate_controller.exec_verify_text_exit
-                else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
-            )
         if maybe_inject_team_gate(
             gate_controller,
             messages=messages,
@@ -1004,11 +914,8 @@ async def _run_one(
             investigation_tools=inv_tools,
         ):
             trail.append("team_gate")
-            live_tool_defs = (
-                None
-                if gate_controller.exec_verify_text_exit
-                else resolve_openai_tool_defs(chat_tools, None, disabled_tools)
-            )
+            live_tool_defs = resolve_openai_tool_defs(chat_tools, None, disabled_tools)
+        continue
 
     return _pack(
         "RECON_UNDECIDED",

@@ -14,11 +14,13 @@ from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.delegate.completion import (
     execution_capability_warning,
     plan_mentions_binary_artifact,
+    validate_code_verified_worker_tools,
     validate_execution_capability,
 )
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs import build_run_plan
 from agentcore.tools.builtin.delegate import DelegateTool
+from agentcore.tools.protocol import ToolCategory, ToolResult, ToolSchema
 from agentcore.tools.registry import ToolRegistry
 from tests.delegate.conftest import LocalBackend, Provider, ctx, local_ctx, tool
 
@@ -33,6 +35,39 @@ def _plan(task: str = "写一份分析"):
     )
     assert not errors
     return plan
+
+
+def _plan_with_tools(tools: list[str] | None, *, task: str = "写一份分析"):
+    plan, errors = build_run_plan(
+        [{"role": "专家", "task": task, **({"tools": tools} if tools is not None else {})}],
+        valid_tools=set(tools or []) | {"file_read", "grep", "test_run", "code_execute", "terminal"},
+        id_prefix="cap",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    return plan
+
+
+class _NamedStub:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.schema = ToolSchema(
+            name=name,
+            description=name,
+            parameters={"type": "object", "properties": {}},
+            category=ToolCategory.SEARCH,
+        )
+
+    async def execute(self, arguments, context):  # noqa: ARG002
+        return ToolResult(tool_call_id="", success=True, output="ok")
+
+
+def _registry(*names: str) -> ToolRegistry:
+    reg = ToolRegistry()
+    for n in names:
+        reg.register(_NamedStub(n))
+    return reg
 
 
 # ── 函数级：硬闸 ─────────────────────────────────────────────────────────────
@@ -578,3 +613,82 @@ async def test_execute_repair_code_forces_code_verified_acceptance():
     assert "怎么算修好：pytest tests/test_app.py -q" in result.output
     # 无真实 verify 工具成功 → 验收缺口（不能靠 prose 过门）
     assert "完成条件未满足" in result.output or "验证" in result.output
+
+
+# ── D1：code_verified × 无执行类 tools 硬拒 ───────────────────────────────────
+
+
+def test_worker_tools_gate_rejects_code_verified_without_execution_tools():
+    plan = _plan_with_tools(["file_read", "grep", "web_search"])
+    msg = validate_code_verified_worker_tools(
+        {"type": "code_verified", "verify_command": "pytest -q"},
+        plan,
+    )
+    assert msg is not None
+    assert "无人持有执行类工具" in msg
+    assert "test_run" in msg
+    assert "只增不减" in msg or "超集" in msg
+    assert "repair_code" in msg
+    assert "省略" in msg
+
+
+def test_worker_tools_gate_passes_when_one_holds_test_run():
+    plan = _plan_with_tools(["file_read", "test_run"])
+    assert (
+        validate_code_verified_worker_tools(
+            {"type": "code_verified", "verify_command": "pytest -q"},
+            plan,
+        )
+        is None
+    )
+
+
+def test_worker_tools_gate_passes_unrestricted_tools():
+    # tools=None → 无限制，视为持有执行类
+    plan = _plan()
+    assert validate_code_verified_worker_tools("code_verified", plan) is None
+
+
+def test_worker_tools_gate_silent_when_not_code_verified():
+    plan = _plan_with_tools(["file_read"])
+    assert validate_code_verified_worker_tools("files_written", plan) is None
+    assert validate_code_verified_worker_tools(None, plan) is None
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_code_verified_when_all_workers_lack_execution_tools():
+    """手写 code_verified + 全员无执行类 tools → 入闸拒绝（带出路文案）。"""
+    reg = _registry("file_read", "grep", "web_search")
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="验一下",
+        history=[],
+        tools=reg,
+        base_tool_context=local_ctx(),
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "调研员",
+                    "task": "只读调查",
+                    "tools": ["file_read", "grep", "web_search"],
+                }
+            ],
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "pytest -q",
+            },
+            "complexity_hint": "standard",
+            "coordinate": False,
+        },
+        local_ctx(),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "无人持有执行类工具" in (result.error or "")
+    assert "test_run" in (result.error or "")
+    assert "repair_code" in (result.error or "")

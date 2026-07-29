@@ -183,7 +183,8 @@ def build_workspace_context(
         host_guide_line = (
             "本机 Host 指引：host=已装配（经桌面回填通道，非云进程直探本机）。"
             "本机排查可先用 L1 host_info / host_audio_devices，也可直接 host_shell"
-            "（Cursor 同款本机命令，不必先 delegate）；结构化 host_* 仍作快捷路径。"
+            "（短时本机命令，不必先 delegate）；结构化 host_* 仍作快捷路径。"
+            "长驻进程（dev server）用 terminal，禁止 host_shell 启服。"
             "禁止用通识 FAQ 冒充已查本机；打开声音设置 / L3 动作用 worker"
             "（host_open_settings / host_audio_set_default 等）。"
         )

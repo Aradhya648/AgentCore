@@ -31,19 +31,30 @@ def apply_escalation_gate(
     if not verdict.should_escalate:
         return
     payloads = signals_as_dicts(verdict.signals)
-    gate_escalation_sink.extend(payloads)
+    # Live + harvest 同口径：同 run 内按 question 去重，避免语料误伤/同信号多轮刷屏。
+    seen = {str(e.get("question", "")) for e in gate_escalation_sink if e.get("question")}
+    unique: list[dict[str, Any]] = []
+    for payload in payloads:
+        question = str(payload.get("question", ""))
+        if not question or question in seen:
+            continue
+        seen.add(question)
+        unique.append(payload)
+    if not unique:
+        return
+    gate_escalation_sink.extend(unique)
     sink.emit(
         run_escalation_gate(
             run_id,
             agent_id,
             layer=verdict.layer.value,
             action=verdict.action,
-            signals=payloads,
+            signals=unique,
         )
     )
     # Also surface via the existing live escalate banner so the team UI lights up
     # without a separate Gate card (Phase 1).
-    for payload in payloads:
+    for payload in unique:
         sink.emit(
             escalation_raised(
                 run_id,

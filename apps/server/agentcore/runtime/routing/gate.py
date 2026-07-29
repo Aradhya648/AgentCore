@@ -22,11 +22,16 @@ from agentcore.runtime.routing.models import (
 logger = get_logger(__name__)
 
 # 方案层：需求 / 契约 / 权限 / 范围矛盾（命中 → escalate）
+# CONTRADICTION 不用裸词 ``contradict``：用户仓库/游戏文案（证人、证词）高频误伤；
+# 只认任务口语（中文短语 / conflicting requirements / requirements contradict…）。
 _SCHEME_PATTERNS: tuple[tuple[EscalationKind, re.Pattern[str]], ...] = (
     (
         EscalationKind.CONTRADICTION,
         re.compile(
-            r"需求矛盾|互相矛盾|冲突的要求|无法同时满足|contradict|conflicting\s+requirements",
+            r"需求矛盾|互相矛盾|冲突的要求|无法同时满足|"
+            r"conflicting\s+requirements|"
+            r"requirements?\s+contradict|"
+            r"contradict(?:s|ed|ing)?\s+(?:each\s+other|one\s+another)",
             re.IGNORECASE,
         ),
     ),
@@ -77,9 +82,12 @@ _SKIP_TOOLS = frozenset(
     {"escalate", "post_note", "read_notes", "amend_note", "handoff", "delegate"}
 )
 
-# 检索语料全文（网页 snippet / 深读正文）可含方案层词，但不代表本任务矛盾。
+# 语料全文可含方案层词，但不代表本任务矛盾——与网页检索同理。
+# 含：外网检索 + 工作区读/搜（file_read / grep / code_search）。
 # 只跳过对该工具 *输出* 的 scheme 匹配；模型自述仍走 escalate 工具通道。
-_SCHEME_SKIP_OUTPUT_TOOLS = frozenset({"web_search", "read_url"})
+_SCHEME_SKIP_OUTPUT_TOOLS = frozenset(
+    {"web_search", "read_url", "file_read", "grep", "code_search"}
+)
 
 
 def evaluate_after_tools(
@@ -100,7 +108,7 @@ def evaluate_after_tools(
         if attempt.tool_name in _SKIP_TOOLS:
             continue
         text = outputs[idx] if idx < len(outputs) else ""
-        # 检索语料：不扫 tool 输出做方案层词；失败仍按执行层自愈。
+        # 语料类工具：不扫 tool 输出做方案层词；失败仍按执行层自愈。
         if attempt.tool_name in _SCHEME_SKIP_OUTPUT_TOOLS:
             if not attempt.success:
                 logger.debug(

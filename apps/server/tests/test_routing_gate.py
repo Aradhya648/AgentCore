@@ -42,11 +42,53 @@ def test_scheme_contradiction_escalates():
 
 
 def test_scheme_dep_escalates():
-    attempts = [ToolAttempt("fp1", "file_read", success=False)]
+    attempts = [ToolAttempt("fp1", "str_replace", success=False)]
     outputs = ["卡在缺输入：依赖不存在，还没人产出"]
     verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
     assert verdict.should_escalate
     assert verdict.signals[0].kind is EscalationKind.DEP
+
+
+def test_file_read_corpus_with_contradict_does_not_escalate():
+    """工作区正文含裸词 contradict / 需求矛盾 ≠ 本任务矛盾（与 web_search 同理）。"""
+    attempts = [ToolAttempt("fp1", "file_read", success=True)]
+    outputs = [
+        "// courtroom: the witness may contradict earlier testimony\n"
+        "export function noteContradict() { /* 需求矛盾仅作剧情文案 */ }"
+    ]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs, run_id="r1")
+    assert not verdict.should_escalate
+    assert verdict.layer is ProblemLayer.EXECUTION
+
+
+def test_grep_corpus_with_scheme_phrase_does_not_escalate():
+    attempts = [ToolAttempt("fp1", "grep", success=True)]
+    outputs = ["src/a.ts:12: 无法同时满足 A 与 B（剧情选项）"]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
+    assert not verdict.should_escalate
+
+
+def test_code_search_corpus_with_scope_phrase_does_not_escalate():
+    attempts = [ToolAttempt("fp1", "code_search", success=True)]
+    outputs = ["hit: out of scope comment in legacy module"]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
+    assert not verdict.should_escalate
+
+
+def test_bare_contradict_in_tool_output_does_not_escalate():
+    """裸词 contradict 不再当方案层；须任务口语短语。"""
+    attempts = [ToolAttempt("fp1", "str_replace", success=True)]
+    outputs = ["note: do not contradict the prior patch style"]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
+    assert not verdict.should_escalate
+
+
+def test_requirements_contradict_phrase_still_escalates():
+    attempts = [ToolAttempt("fp1", "str_replace", success=True)]
+    outputs = ["these requirements contradict each other; cannot ship both"]
+    verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)
+    assert verdict.should_escalate
+    assert verdict.signals[0].kind is EscalationKind.CONTRADICTION
 
 
 def test_escalate_tool_skipped():
@@ -119,7 +161,7 @@ def test_read_url_body_with_scope_phrase_does_not_escalate():
 
 
 def test_non_retrieval_tool_with_contradiction_still_escalates():
-    """非检索工具输出仍可触发方案层（回归：跳过仅限检索语料）。"""
+    """非语料工具输出仍可触发方案层（回归：跳过仅限语料类输出）。"""
     attempts = [ToolAttempt("fp1", "str_replace", success=True)]
     outputs = ["需求矛盾：无法同时满足 A 与 B"]
     verdict = evaluate_after_tools(attempts=attempts, tool_outputs=outputs)

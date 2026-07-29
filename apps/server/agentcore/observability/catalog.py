@@ -388,7 +388,19 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='debate.witness.unexamined'),
     EventSpec(name='debate_steer.queued'),
     EventSpec(name='deep_research_auto.record_failed'),
-    EventSpec(name='delegate.acceptance_resolved'),
+    EventSpec(
+        name='delegate.acceptance_resolved',
+        description=(
+            'kickoff 绑定验收：criteria=binding kind（可 null）；'
+            'gaps overlay 不在此事件；同图用 execution_id（及时间）join unmet；'
+            '勿跨批/跨 trace 比 kind 当漂移'
+        ),
+        fields={
+            'criteria': FieldType('str'),
+            'source': FieldType('str'),
+            'execution_id': FieldType('str'),
+        },
+    ),
     EventSpec(name='delegate.automation_delivery_soft_tip'),
     EventSpec(name='delegate.availability_delivery_reinject_failed'),
     EventSpec(name='delegate.capability_rejected'),
@@ -405,10 +417,26 @@ EVENTS: list[EventSpec] = [
         },
     ),
     EventSpec(name='delegate.completion_criteria_hoisted'),
-    EventSpec(name='delegate.completion_criteria_unmet'),
+    EventSpec(
+        name='delegate.completion_criteria_unmet',
+        description=(
+            '批次验收未过：criteria=binding kind（可 null，勿当伪 kind）；'
+            'gaps 可含 TS/图叠加 overlay；同图用 execution_id（及时间）join '
+            'acceptance_resolved；勿跨批/跨 trace 比 kind 当漂移'
+        ),
+        fields={
+            'criteria': FieldType('str'),
+            'source': FieldType('str'),
+            'gaps': FieldType('list'),
+            'streak': FieldType('int'),
+            'escalate': FieldType('bool'),
+            'delivered_files': FieldType('list'),
+            'execution_id': FieldType('str'),
+        },
+    ),
     EventSpec(name='delegate.complexity_hint_ignored'),
     EventSpec(name='delegate.complexity_hint_inferred'),
-    EventSpec(name='delegate.consumer_deps_rejected'),
+    EventSpec(name='delegate.consumer_deps_soft_warn'),
     EventSpec(name='delegate.continuation_failed'),
     EventSpec(
         name='delegate.continuation_ok',
@@ -438,7 +466,6 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='delegate.inherit_notes'),
     EventSpec(name='delegate.isomorphic_rejected'),
     EventSpec(name='delegate.mlr_preauth_skip_team_preview'),
-    EventSpec(name='delegate.named_entity_fanout_rejected'),
     EventSpec(name='delegate.nested_turn_token_envelope'),
     EventSpec(name='delegate.parallelism_widened'),
     EventSpec(name='delegate.partial_failure_stashed'),
@@ -569,7 +596,6 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='engine.coordination_listen'),
     EventSpec(name='engine.debate_gate_nudge'),
     EventSpec(name='engine.degraded'),
-    EventSpec(name='engine.exec_verify_gate_nudge'),
     EventSpec(name='engine.finish_guard_rework'),
     EventSpec(name='engine.force_finalize_failed'),
     EventSpec(name='engine.force_finalize_hard_failed'),
@@ -1001,9 +1027,12 @@ EVENTS: list[EventSpec] = [
     ),
     EventSpec(
         name='tool.execute_start',
-        description='',
+        description='工具进入执行/审批前门（INFO；用于定位 round_end 后无 execute_end 的挂起）',
         fields={
             'tool': FieldType('str'),
+            'tool_call_id': FieldType('str'),
+            'run_id': FieldType('str'),
+            'awaiting_approval': FieldType('bool'),
         },
     ),
     EventSpec(name='tool.multi_terminal'),

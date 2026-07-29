@@ -16,6 +16,12 @@ from typing import Any
 from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
 from agentcore.runtime.events import EventSink, desktop_notify_required, host_op_required
+from agentcore.runtime.events.client_tool_reattach import (
+    CHANNEL_HOST,
+    CHANNEL_NOTIFY,
+    client_tool_payload,
+)
+from agentcore.runtime.events.types import EventType
 from agentcore.runtime.interaction import InteractionKind
 from agentcore.runtime.ports import ClientRequestBridge
 
@@ -70,10 +76,11 @@ class DesktopClientChannel:
                 request_id,
                 self.conversation_id,
                 kind=InteractionKind.CLIENT_TOOL,
-                payload={
-                    "title": title,
-                    "body": body,
-                },
+                payload=client_tool_payload(
+                    CHANNEL_NOTIFY,
+                    EventType.DESKTOP_NOTIFY_REQUIRED.value,
+                    params={"title": title, "body": body},
+                ),
                 timeout=self.timeout_seconds,
                 on_suspended=lambda: self.sink.emit(
                     desktop_notify_required(
@@ -121,7 +128,11 @@ class DesktopClientChannel:
                 request_id,
                 self.conversation_id,
                 kind=InteractionKind.CLIENT_TOOL,
-                payload={"op": op_name, "args": payload_args},
+                payload=client_tool_payload(
+                    CHANNEL_HOST,
+                    EventType.HOST_OP_REQUIRED.value,
+                    params={"op": op_name, "args": payload_args},
+                ),
                 timeout=deadline,
                 on_suspended=lambda: self.sink.emit(
                     host_op_required(

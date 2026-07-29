@@ -269,6 +269,24 @@ async def test_host_shell_fuse_blocks_rm_rf_root():
     ctx.desktop_channel.request_host.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_host_shell_rejects_long_running_dev_server():
+    tool = HostShellTool()
+    ctx = ToolContext(
+        execution_id="e1",
+        run_id="r1",
+        agent_id="ceo",
+        backend=MagicMock(location="local"),
+        user_id="u1",
+        desktop_channel=MagicMock(),
+    )
+    result = await tool.execute({"command": "npm run dev"}, ctx)
+    assert not result.success
+    assert "长驻" in (result.error or "")
+    assert "terminal" in (result.error or "")
+    ctx.desktop_channel.request_host.assert_not_called()
+
+
 def test_shell_fuse_and_timeout_helpers():
     assert shell_fuse_blocks("shutdown /s /t 0")
     assert shell_fuse_blocks("Format-Volume -DriveLetter C")

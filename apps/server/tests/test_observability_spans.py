@@ -404,13 +404,30 @@ def test_noop_exporter_returns_none():
     assert NoopSpanExporter().export(root, trace_id="t", conversation_id="c", turn_id="m") is None
 
 
-def test_infer_gen_ai_system_from_model_and_base_url():
-    assert infer_gen_ai_system("deepseek-v4-flash") == "deepseek"
-    assert infer_gen_ai_system("gpt-4o") == "openai"
-    assert infer_gen_ai_system("kimi/moonshot-v1") == "moonshot"
-    assert infer_gen_ai_system("glm-4", base_url="https://open.bigmodel.cn/api/paas/v4") == "zhipu"
-    assert infer_gen_ai_system(None, base_url="https://api.deepseek.com") == "deepseek"
-    assert infer_gen_ai_system("my-custom-model") == "openai_compatible"
+def test_orphan_tool_use_start_surfaces_in_flight_span():
+    """Cancelled mid-approval/execute: start without tool_call fact still projects."""
+    entries = [
+        _started(),
+        _run_started("w1", "coder", kind="agent", parent=None, ts="t0"),
+        _fact(
+            "tool_use_start",
+            {
+                "tool_call_id": "hang1",
+                "tool_name": "host_shell",
+                "run_id": "w1",
+            },
+            ts="2026-06-18T08:00:00.000Z",
+        ),
+        _fact("turn_end", {"finish_reason": "cancelled"}),
+    ]
+    root = spans_from_entries(entries)
+    spans = _by_id(root)
+    tool = spans["tool:hang1"]
+    assert tool.parent_span_id == "run:w1"
+    assert tool.status == "unset"
+    assert tool.attributes["gen_ai.tool.name"] == "host_shell"
+    assert tool.attributes.get("agentcore.tool.in_flight") is True
+    assert tool.attributes.get("agentcore.tool.orphan_start") is True
 
 
 def test_spans_gen_ai_system_follows_run_model():

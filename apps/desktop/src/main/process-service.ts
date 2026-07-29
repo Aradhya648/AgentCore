@@ -17,7 +17,12 @@ import { BrowserWindow, app, ipcMain } from "electron";
 import { resolveCwdInside } from "./fs/pathGuard";
 import type { StoredRoot } from "./fs/roots";
 import { requireStringFields } from "./ipc-validate";
-import { ptyService } from "./pty-service";
+import { ptyService, stripAnsi } from "./pty-service";
+
+/** `wait_for` 匹配前剥 ANSI，避免 Vite 等把 `Local:` 拆成 `Local\x1b[22m:` 假阴性。 */
+export function bufferMatchesWait(buffer: string, re: RegExp): boolean {
+  return re.test(stripAnsi(buffer));
+}
 
 /** 单进程环形输出上限（约 1MB）。 */
 export const PROCESS_BUFFER_CAP = 1024 * 1024;
@@ -420,8 +425,10 @@ class ProcessService {
     re: RegExp,
     timeoutSeconds: number,
   ): Promise<boolean> {
-    if (re.test(rec.buffer)) return Promise.resolve(true);
-    if (rec.status === "exited") return Promise.resolve(re.test(rec.buffer));
+    if (bufferMatchesWait(rec.buffer, re)) return Promise.resolve(true);
+    if (rec.status === "exited") {
+      return Promise.resolve(bufferMatchesWait(rec.buffer, re));
+    }
 
     return new Promise((resolveMatch) => {
       let settled = false;
@@ -434,17 +441,17 @@ class ProcessService {
       };
 
       const poll = setInterval(() => {
-        if (re.test(rec.buffer)) {
+        if (bufferMatchesWait(rec.buffer, re)) {
           finish(true);
           return;
         }
         if (rec.status === "exited") {
-          finish(re.test(rec.buffer));
+          finish(bufferMatchesWait(rec.buffer, re));
         }
       }, 50);
 
       const timer = setTimeout(
-        () => finish(re.test(rec.buffer)),
+        () => finish(bufferMatchesWait(rec.buffer, re)),
         timeoutSeconds * 1000,
       );
     });

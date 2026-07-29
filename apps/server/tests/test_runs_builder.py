@@ -616,10 +616,8 @@ def test_dag_step_deliverable_parsed_independently():
     assert plan.by_id("t_s2").deliverable is None
 
 
-def test_prose_with_downstream_min_length_aligned_to_body_floor():
-    """交付真相项4：prose ∧ 有下游 → min_length ≥ MIN_UPSTREAM_BODY_CHARS。"""
-    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
-
+def test_prose_with_downstream_keeps_declared_min_length():
+    """交付契约是唯一真理源：prose∧有下游不再抬 min 到 80。"""
     plan, errs = build_run_plan(
         [
             {
@@ -641,8 +639,63 @@ def test_prose_with_downstream_min_length_aligned_to_body_floor():
     assert errs == []
     d = plan.by_id("t_diagnose").deliverable
     assert d is not None
-    assert d.min_length == MIN_UPSTREAM_BODY_CHARS
-    assert d.min_length >= 80
+    assert d.min_length == 40
+
+
+def test_deliverable_min_clamped_to_max_when_illegal():
+    """min > max 时压 min，禁止写出无解合同（不再抬 min 留 max）。"""
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "g1",
+                "role": "Greeter",
+                "task": "一句话打招呼",
+                "deliverable": {
+                    "form": "prose",
+                    "min_length": 80,
+                    "max_length": 50,
+                },
+            },
+            {
+                "id": "g2",
+                "role": "Greeter2",
+                "task": "继续",
+                "depends_on": ["g1"],
+            },
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    d = plan.by_id("t_g1").deliverable
+    assert d is not None
+    assert d.max_length == 50
+    assert d.min_length == 50
+
+
+def test_short_max_without_min_not_inflated():
+    """仅 max_length=50、无 min：不发明地板（打招呼链合法区间保留）。"""
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "g1",
+                "role": "Greeter",
+                "task": "只说一句话",
+                "deliverable": {"form": "prose", "max_length": 50},
+            },
+            {
+                "id": "g2",
+                "role": "Greeter2",
+                "task": "接着说",
+                "depends_on": ["g1"],
+            },
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    d = plan.by_id("t_g1").deliverable
+    assert d is not None
+    assert d.max_length == 50
+    assert d.min_length == 0
 
 
 def test_deliverable_invalid_output_format_falls_back_to_text():

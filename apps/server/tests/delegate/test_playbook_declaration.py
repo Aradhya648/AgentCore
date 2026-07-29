@@ -34,6 +34,8 @@ def test_resolve_playbook_xor_tasks_rejected():
     )
     assert name is None and reason is None
     assert err == PLAYBOOK_TASKS_XOR_MSG
+    assert "continue_from_run_id" in PLAYBOOK_TASKS_XOR_MSG
+    assert "调查批" in PLAYBOOK_TASKS_XOR_MSG
 
 
 def test_resolve_playbook_id_conflict_rejected():

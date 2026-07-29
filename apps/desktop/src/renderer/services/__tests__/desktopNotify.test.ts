@@ -7,6 +7,7 @@ vi.mock("@/services/interaction", () => ({
   resolveInteraction: (...args: unknown[]) => resolveInteraction(...args),
 }));
 
+import { resetClientToolFulfillmentForTests } from "../clientToolFulfill";
 import { performDesktopNotify } from "../desktopNotify";
 
 function payload(
@@ -23,6 +24,7 @@ function payload(
 
 describe("performDesktopNotify", () => {
   beforeEach(() => {
+    resetClientToolFulfillmentForTests();
     resolveInteraction.mockClear();
     vi.stubGlobal("window", {
       notificationApi: {
@@ -57,5 +59,12 @@ describe("performDesktopNotify", () => {
       "req-1",
       expect.objectContaining({ ok: false }),
     );
+  });
+
+  it("does not re-show on a second perform with the same request_id", async () => {
+    await performDesktopNotify(payload(), "conv-1");
+    await performDesktopNotify(payload(), "conv-1");
+    expect(window.notificationApi?.show).toHaveBeenCalledTimes(1);
+    expect(resolveInteraction).toHaveBeenCalledTimes(1);
   });
 });

@@ -41,9 +41,25 @@ export function shouldHydrateLocalRecovery(r: ConversationRecovery): boolean {
   return r.sidecarLive || r.unsynced.length > 0 || r.pausedCount > 0;
 }
 
+/** Local turn still looks open (recovery `live_running` can lag the message window). */
+function localTurnActive(conversationId: string): boolean {
+  const rt = getRuntime(conversationId);
+  if (rt.isGenerating) return true;
+  const last = [...rt.messages]
+    .reverse()
+    .find((m) => m.role === "assistant");
+  if (!last) return false;
+  return (
+    last.isStreaming === true ||
+    last.status === "running" ||
+    last.finishReason === "paused"
+  );
+}
+
 function hydratePendingInteractions(
   conversationId: string,
   items: PendingInteractionSummary[],
+  liveRunning: boolean,
 ): void {
   useInteractionStore.getState().hydratePending(
     conversationId,
@@ -53,6 +69,9 @@ function hydratePendingInteractions(
       messageId: i.message_id,
       payload: i.payload ?? {},
     })),
+    {
+      liveRunning: liveRunning || localTurnActive(conversationId),
+    },
   );
 }
 
@@ -124,7 +143,11 @@ export async function loadRecovery(
           origin: "server" as const,
         })),
       );
-      hydratePendingInteractions(conversationId, cloud.pending);
+      hydratePendingInteractions(
+        conversationId,
+        cloud.pending,
+        cloud.cloudLive,
+      );
       return {
         sidecarLive: false,
         cloudLive: cloud.cloudLive,
@@ -147,6 +170,7 @@ export async function loadRecovery(
   let sidecarPaused: PausedTurnSummary[] = [];
   let cloudLive = false;
   let cloudPaused: PausedTurnSummary[] = [];
+  let cloudPending: PendingInteractionSummary[] | null = null;
 
   const localP = window.sidecarApi
     .recovery({ conversationId })
@@ -164,13 +188,23 @@ export async function loadRecovery(
     .then((cloud) => {
       cloudLive = cloud.cloudLive;
       cloudPaused = cloud.paused;
-      hydratePendingInteractions(conversationId, cloud.pending);
+      cloudPending = cloud.pending;
     })
     .catch(() => {
       /* cloud failure must not block local */
     });
 
   await Promise.all([localP, cloudP]);
+
+  // Apply after both facts land so live = cloud ∨ sidecar (early empty must
+  // not wipe while either engine still has a live turn).
+  if (cloudPending !== null) {
+    hydratePendingInteractions(
+      conversationId,
+      cloudPending,
+      cloudLive || sidecarLive,
+    );
+  }
 
   const merged = mergePausedWithOrigin(sidecarPaused, cloudPaused);
   usePausedTurnStore.getState().setForConversation(conversationId, merged);

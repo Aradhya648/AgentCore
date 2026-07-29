@@ -95,10 +95,19 @@ class ConsultSkillTool:
                 from agentcore.runtime.runs.playbooks import PLAYBOOKS
 
                 if name in PLAYBOOKS:
-                    msg += (
-                        f" 『{name}』是 playbook 不是 skill，"
-                        f"请用 `delegate(playbook=\"{name}\", …)`。"
-                    )
+                    if name == "repair_code":
+                        msg += (
+                            f" 『{name}』是 playbook 不是 skill。"
+                            "尚无调查批：用 `delegate(playbook=\"repair_code\", …)`；"
+                            "已有调查/审查批且用户确认按结论修：勿套 playbook 冷开三角色，"
+                            "手写 tasks 并对各调查 run 设 `continue_from_run_id`"
+                            "（见 revising_a_product）。"
+                        )
+                    else:
+                        msg += (
+                            f" 『{name}』是 playbook 不是 skill，"
+                            f"请用 `delegate(playbook=\"{name}\", …)`。"
+                        )
             logger.info("consult_skill.miss", name=name)
             return ToolResult(tool_call_id="", success=False, output=msg, error=msg)
 

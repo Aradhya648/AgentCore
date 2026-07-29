@@ -332,20 +332,22 @@ async def finalize_successful_drive(
     )
     if not criteria_ok:
         delivered = collect_delivered_files(results)
-        kind_for_fp = criteria.kind if criteria is not None else "typescript_verify"
-        fp = gap_fingerprint(kind_for_fp, gaps)
+        # Binding kind only — never invent a fake enum (e.g. typescript_verify).
+        # TS / graph overlays live in gaps; unbound criteria → None for logs + fp.
+        binding_kind = criteria.kind if criteria is not None else None
+        fp = gap_fingerprint(binding_kind, gaps)
         streak = tool.note_completion_gap(fp)
         escalate = streak >= 2
         gap_msg = format_completion_gap_message(
             gaps,
-            criteria_kind=kind_for_fp,
+            criteria_kind=binding_kind,
             source=resolved.source or "structured",
             escalate=escalate,
             delivered_files=delivered,
         )
         logger.info(
             "delegate.completion_criteria_unmet",
-            criteria=kind_for_fp,
+            criteria=binding_kind,
             source=resolved.source or "structured",
             gaps=gaps,
             streak=streak,

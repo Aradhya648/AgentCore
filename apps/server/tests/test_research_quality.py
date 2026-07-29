@@ -20,9 +20,9 @@ from agentcore.runtime.loop_controller import LoopController
 from agentcore.runtime.runs.plan import RunPlan
 from agentcore.runtime.runs.research_quality import (
     MIN_UPSTREAM_BODY_CHARS,
+    deliverable_signals_long_form,
     has_landed_prose_artifact,
-    has_word_count_commitment,
-    is_research_report_intent,
+    plan_signals_long_form_audit,
     upstream_body_floor_satisfied,
 )
 from agentcore.runtime.runs.types import Deliverable, RunPhase, RunSpec, RunState
@@ -47,37 +47,38 @@ def _ctx(tmp_path: Path, **kwargs) -> ToolContext:
     )
 
 
-def test_research_report_intent_and_word_count():
-    assert is_research_report_intent("写一篇起诉第三者立案实务研究报告")
-    assert is_research_report_intent("帮我写一篇关于多Agent的成本可控问题论文研究")
-    assert is_research_report_intent("撰写一篇学术论文")
-    assert has_word_count_commitment("约 5000–8000 字可直接使用")
-    assert not is_research_report_intent("把超时改成 30s")
+def test_long_form_audit_only_structured_deliverable():
+    """成篇硬审计不扫自由文；只认 deliverable.min_length≥3000 等结构腿。"""
+    assert not deliverable_signals_long_form({"min_length": 500})
+    assert deliverable_signals_long_form({"min_length": 3000})
+    assert deliverable_signals_long_form({"min_length": 5000, "name": "报告"})
+    # Free-text task/role alone must not trip the audit signal.
+    assert not plan_signals_long_form_audit(
+        [
+            {
+                "role": "撰稿",
+                "task": "写一篇起诉第三者立案实务研究报告，约 5000–8000 字",
+                "deliverable": {"min_length": 200},
+            }
+        ]
+    )
+    assert plan_signals_long_form_audit(
+        [
+            {
+                "role": "撰稿",
+                "task": "随便写点",
+                "deliverable": {"min_length": 4000},
+            }
+        ]
+    )
 
 
-def test_research_report_intent_covers_competitor_compare_deliverable():
-    """竞品对比「调研+Markdown 落盘」须命中成篇/对比意图（team_gate 硬收）。"""
-    from agentcore.runtime.runs.research_quality import is_local_file_edit_intent
+def test_prose_research_intent_no_longer_a_predicate():
+    """Former is_research_report_intent / word-count RE predicates removed."""
+    from agentcore.runtime.runs import research_quality as rq
 
-    competitor = (
-        "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
-        "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 AgentCore/文档/research/km-compare.md。"
-    )
-    lawsuit = (
-        "写一篇关于起诉第三者如何才能立案的实务研究，婚姻家事领域，实务指南，"
-        "中等篇幅 4000–6000 字，Markdown 落盘。"
-    )
-    readme = (
-        "帮我改一下项目根目录的 README.md：在最上面加一小节「快速开始」，"
-        "写三条安装命令，其余内容别动。"
-    )
-    assert is_research_report_intent(competitor)
-    assert is_research_report_intent(lawsuit)
-    assert not is_research_report_intent("今天天气怎么样，随便聊聊")
-    assert not is_research_report_intent(readme)
-    assert is_local_file_edit_intent(readme)
-    assert not is_local_file_edit_intent(competitor)
-    assert not is_local_file_edit_intent("随便聊聊")
+    assert not hasattr(rq, "is_research_report_intent")
+    assert not hasattr(rq, "has_word_count_commitment")
 
 
 def test_paper_parallel_merge_discipline_constant():
@@ -183,20 +184,39 @@ async def test_file_delete_allows_tiny(tmp_path: Path):
 
 
 def test_upstream_body_floor_predicate():
-    assert upstream_body_floor_satisfied(body_chars=MIN_UPSTREAM_BODY_CHARS, landed_artifact_kinds={})
-    assert not upstream_body_floor_satisfied(body_chars=10, landed_artifact_kinds={})
+    # No contract floor: non-empty body OK; empty blocked unless prose landed.
+    assert upstream_body_floor_satisfied(
+        body_chars=1, landed_artifact_kinds={}, min_body_chars=0
+    )
     assert not upstream_body_floor_satisfied(
-        body_chars=0, landed_artifact_kinds={"a.md": "skeleton"}
+        body_chars=0, landed_artifact_kinds={}, min_body_chars=0
+    )
+    # Explicit contract floor.
+    assert upstream_body_floor_satisfied(
+        body_chars=MIN_UPSTREAM_BODY_CHARS,
+        landed_artifact_kinds={},
+        min_body_chars=MIN_UPSTREAM_BODY_CHARS,
+    )
+    assert not upstream_body_floor_satisfied(
+        body_chars=10, landed_artifact_kinds={}, min_body_chars=MIN_UPSTREAM_BODY_CHARS
+    )
+    assert not upstream_body_floor_satisfied(
+        body_chars=0, landed_artifact_kinds={"a.md": "skeleton"}, min_body_chars=80
     )
     assert has_landed_prose_artifact({"a.md": "prose"})
     assert upstream_body_floor_satisfied(
-        body_chars=0, landed_artifact_kinds={"a.md": "prose"}
+        body_chars=0, landed_artifact_kinds={"a.md": "prose"}, min_body_chars=80
     )
 
 
 @pytest.mark.asyncio
 async def test_handoff_rejects_empty_body_when_required(tmp_path: Path):
-    ctx = _ctx(tmp_path, handoff_requires_body=True, round_content_chars=10)
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
+        round_content_chars=10,
+    )
     result = await HandoffTool().execute({"summary": "结论够长" * 10}, ctx)
     assert result.success is False
     assert "空交付不得交接" in (result.error or "")
@@ -205,11 +225,25 @@ async def test_handoff_rejects_empty_body_when_required(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_handoff_allows_short_body_when_no_contract_floor(tmp_path: Path):
+    """无 min_length 时：有下游只挡空交，不挡「一句话」级短正文。"""
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=0,
+        round_content_chars=19,
+    )
+    result = await HandoffTool().execute({"summary": "Greeter 问好"}, ctx)
+    assert result.success is True
+
+
+@pytest.mark.asyncio
 async def test_handoff_allows_empty_body_when_prose_landed(tmp_path: Path):
     """手工 stamp prose kinds（同 ctx）仍应放行；bool 豁免路径已退役。"""
     ctx = _ctx(
         tmp_path,
         handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
         round_content_chars=0,
         landed_artifact_kinds={"notes.md": "prose"},
     )
@@ -222,6 +256,7 @@ async def test_handoff_rejects_empty_body_when_only_skeleton_landed(tmp_path: Pa
     ctx = _ctx(
         tmp_path,
         handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
         round_content_chars=0,
         landed_artifact_kinds={"outline.md": "skeleton"},
         has_landed_files=True,  # bool 不得单独豁免
@@ -235,7 +270,11 @@ async def test_handoff_rejects_empty_body_when_only_skeleton_landed(tmp_path: Pa
 async def test_handoff_prose_landed_survives_replace_empty_body(tmp_path: Path):
     """生产路径：多轮 replace + file_write 置位后，下一轮空 body handoff 应成功。"""
     assert len(_PROSE_BODY) >= 400
-    base = _ctx(tmp_path, handoff_requires_body=True)
+    base = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
+    )
     # tool_round stamps round_content_chars; tool_exec replace()s again per call.
     write_round = replace(base, round_content_chars=12)
     write_ctx = replace(write_round)
@@ -255,7 +294,11 @@ async def test_handoff_prose_landed_survives_replace_empty_body(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_handoff_skeleton_write_after_replace_still_blocks(tmp_path: Path):
-    base = _ctx(tmp_path, handoff_requires_body=True)
+    base = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
+    )
     write_ctx = replace(replace(base, round_content_chars=0))
     written = await FileWriteTool().execute(
         {"path": "outline.md", "content": _SKELETON_BODY}, write_ctx
@@ -274,6 +317,7 @@ async def test_handoff_allows_sufficient_body(tmp_path: Path):
     ctx = _ctx(
         tmp_path,
         handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
         round_content_chars=MIN_UPSTREAM_BODY_CHARS + 5,
     )
     result = await HandoffTool().execute({"summary": "调研要点已齐"}, ctx)

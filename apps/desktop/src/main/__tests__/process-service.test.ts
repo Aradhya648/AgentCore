@@ -13,6 +13,7 @@ import type { StoredRoot } from "../fs/roots";
 import {
   PROCESS_BUFFER_CAP,
   appendRingBuffer,
+  bufferMatchesWait,
   resolveProcessCwd,
   tailLines,
 } from "../process-service";
@@ -45,6 +46,19 @@ describe("tailLines", () => {
 
   it("returns last n lines", () => {
     expect(tailLines("a\nb\nc\nd", 2)).toBe("c\nd");
+  });
+});
+
+describe("bufferMatchesWait", () => {
+  it("matches Local: when ANSI splits the colon (Vite-style)", () => {
+    const buffer = "  ➜  Local\x1b[22m: http://localhost:5173/";
+    expect(bufferMatchesWait(buffer, /Local:/)).toBe(true);
+  });
+
+  it("still matches plain Local:", () => {
+    expect(bufferMatchesWait("Local: http://localhost:5173/", /Local:/)).toBe(
+      true,
+    );
   });
 });
 

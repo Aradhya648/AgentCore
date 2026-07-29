@@ -39,8 +39,8 @@ def _plan(*nodes: RunSpec) -> RunPlan:
     return plan
 
 
-async def test_ask_user_kickoff_refuses_after_verbal_affirm():
-    """User「认可」after a collaboration plan → ask_user kickoff rejected, no pause."""
+async def test_ask_user_kickoff_allows_after_verbal_affirm():
+    """User「认可」after a collaboration plan → still may open kickoff (no verbal skip)."""
     history = [
         {"role": "user", "content": "讨论下协作结构"},
         {
@@ -55,9 +55,11 @@ async def test_ask_user_kickoff_refuses_after_verbal_affirm():
         user_message="认可",
         history=history,
     )
-    assert user_confirmed_kickoff_decisions(tool) is True
+    assert user_confirmed_kickoff_decisions(tool) is False
+    # Without assumptions/questions the kickoff proposal body gate rejects —
+    # point is: verbal affirm alone does not trip the "勿再开开工提案卡" settle path.
     result = await tool.execute(
-        {"message": "开工前再确认几个决策"},
+        {"message": "开工前再确认几个决策", "assumptions": ["按四路并行开干"]},
         ToolContext(
             execution_id="e",
             run_id="s",
@@ -66,9 +68,7 @@ async def test_ask_user_kickoff_refuses_after_verbal_affirm():
             user_id="u",
         ),
     )
-    assert result.success is False
-    assert "勿再开开工提案卡" in (result.error or "")
-    assert result.effect is not ToolEffect.SUSPEND
+    assert "勿再开开工提案卡" not in (result.error or "")
 
 
 async def test_ask_user_kickoff_refuses_after_team_preview_resolved():

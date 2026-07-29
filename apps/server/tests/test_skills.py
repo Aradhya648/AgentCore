@@ -206,6 +206,17 @@ async def test_consult_skill_playbook_name_miss_hints_delegate():
     assert result.output.count("build_feature") >= 1
 
 
+async def test_consult_skill_repair_code_miss_hints_continue_from_when_investigated():
+    """repair_code 误当 skill → 分流：无调查批用 playbook；已有调查批 → 手写+continue_from。"""
+    tool = ConsultSkillTool(registry=build_system_skill_registry())
+    result = await tool.execute({"name": "repair_code"}, _ctx())
+    assert not result.success
+    assert "playbook" in result.output
+    assert "continue_from_run_id" in result.output
+    assert "调查" in result.output
+    assert "revising_a_product" in result.output
+
+
 async def test_consult_skill_handles_missing_name_arg():
     tool = ConsultSkillTool(registry=build_system_skill_registry())
     result = await tool.execute({}, _ctx())
@@ -459,9 +470,17 @@ def test_revise_skill_teaches_recall_and_delegate_fallback():
     body = _body("revising_a_product")
     assert "continue_from_run_id" in body
     assert "delegate" in body
-    # The fallback boundary: 换角色 / 救失败稿 / 合并 → 冷委派 + replaces_run_id.
+    # 调查批确认修 → 默认乙；换 title ≠ 换职能；禁再套 repair_code 冷开。
+    assert "默认乙" in body or "确认按结论修" in body
+    assert "不算" in body and ("换职能" in body or "title" in body)
+    assert "repair_code" in body and "禁止" in body
+    # 甲边界：真换职能 / 无现场 / 合并 → 冷委派 + replaces_run_id.
     assert "冷委派" in body and "replaces_run_id" in body
+    assert "真换职能" in body or "非仅改 title" in body
     assert "补派" in body or "接手" in body
+    # D1：乙可声明超集 tools；只读不够则扩面或冷开验证。
+    assert "只增不减" in body or "超集" in body
+    assert "test_run" in body
     # 修订落盘纪律：优先 str_replace / file_append；整盖允许但勿惰性省略。
     assert "str_replace" in body and "file_append" in body
     assert "file_write" in body

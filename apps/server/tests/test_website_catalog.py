@@ -118,30 +118,23 @@ def test_build_website_injects_catalog_pointers():
     )
     assert errors == []
     by_id = {t["id"]: t for t in tasks}
-    sk = by_id["skeleton"]["task"]
-    assert f"pack={PACK_MARKETING}" in sk
-    assert "catalog:hero" in sk
-    assert f"{CATALOG_POINTER_PREFIX}/hero.html" in sk
-    assert "catalog:features" in sk
-    assert "catalog:cta" in sk
-    assert "【禁止】临场另起 nav" in sk or "禁止】临场另起 nav" in sk
-    assert "data-catalog=\"hero\"" in sk  # shell body embedded
-    assert "var(--color-fg)" in sk or "var(--" in sk
-    assert "catalog:_shared.css" in sk
-    assert ".site-hero" in sk
-    assert "CONTRACT 起步表" in sk
-    assert "| s0 |" in sk
-    assert f"pack={PACK_TOOL_DENSE}" not in sk
-
-    s0 = by_id["section_0"]["task"]
-    assert "catalog:hero" in s0
-    assert f"{CATALOG_POINTER_PREFIX}/hero.html" in s0
-    assert "禁止】另起 nav" in s0 or "【禁止】另起 nav" in s0
-
-    s1 = by_id["section_1"]["task"]
-    assert "catalog:features" in s1
-    s2 = by_id["section_2"]["task"]
-    assert "catalog:cta" in s2
+    assert set(by_id) == {"copy", "frontend", "qa"}
+    fe = by_id["frontend"]["task"]
+    assert f"pack={PACK_MARKETING}" in fe
+    assert "catalog:hero" in fe
+    assert f"{CATALOG_POINTER_PREFIX}/hero.html" in fe
+    assert "catalog:features" in fe
+    assert "catalog:cta" in fe
+    assert "【禁止】临场另起 nav" in fe or "禁止】临场另起 nav" in fe
+    assert "data-catalog=\"hero\"" in fe  # shell body embedded
+    assert "var(--color-fg)" in fe or "var(--" in fe
+    assert "catalog:_shared.css" in fe
+    assert ".site-hero" in fe
+    assert "CONTRACT 起步表" in fe
+    assert "| s0 |" in fe
+    assert f"pack={PACK_TOOL_DENSE}" not in fe
+    assert "skeleton" not in by_id
+    assert "section_0" not in by_id
 
 
 def test_build_website_catalog_mapping_for_custom_labels():
@@ -151,12 +144,13 @@ def test_build_website_catalog_mapping_for_custom_labels():
     )
     assert errors == []
     by_id = {t["id"]: t for t in tasks}
-    sk = by_id["skeleton"]["task"]
-    assert "catalog:nav" in sk
-    assert "catalog:pricing" in sk
-    assert "catalog:faq" in sk
-    assert "website_catalog/marketing/pricing.html" in by_id["section_1"]["task"]
-    assert "catalog:faq" in by_id["section_2"]["task"]
+    fe = by_id["frontend"]["task"]
+    assert "catalog:nav" in fe
+    assert "catalog:pricing" in fe
+    assert "catalog:faq" in fe
+    assert "website_catalog/marketing/pricing.html" in fe
+    assert "catalog:faq" in fe
+    assert set(by_id) == {"copy", "frontend", "qa"}
 
 
 def test_build_toolshed_injects_tool_dense_pointers():

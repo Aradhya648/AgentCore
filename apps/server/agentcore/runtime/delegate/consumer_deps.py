@@ -1,8 +1,8 @@
-"""Consumer-missing-depends gate: task 写明吃同批队友产出但 depends_on 为空 → 结构化拒绝.
+"""Consumer-missing-depends soft gate: task 写明吃同批队友产出但 depends_on 为空 → 软告警.
 
-产品判据：同批 ≥2 tasks 时，文案明确要吃队友 / 上游产出却漏声明边 → 拒收入图并给可改边纠错。
-判定只看「是否吃同批上游」cue，不按职位名一刀切；``force=true`` 可旁路。
-引擎不猜边、不自动改图——只拒收。
+产品判据：同批 ≥2 tasks 时，文案明确要吃队友 / 上游产出却漏声明边 → 记一次软告警，
+不拒收入图、不 contract_failure。判定只看「是否吃同批上游」cue，不按职位名一刀切。
+引擎不猜边、不自动改图——靠提示词 + 可选软提示纠正。
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _peer_ref(task: dict[str, Any]) -> str:
     return ""
 
 
-def consumer_missing_depends_reject_message(
+def consumer_missing_depends_soft_message(
     *,
     violators: list[dict[str, Any]],
     peers: list[str],
@@ -62,26 +62,22 @@ def consumer_missing_depends_reject_message(
         cited = "、".join(peers)
         example = "[" + ", ".join(f'"{p}"' for p in peers) + "]"
         dep_hint = (
-            f"请将同批其它任务的 id（无则 role）写入 `depends_on`"
+            f"建议将同批其它任务的 id（无则 role）写入 `depends_on`"
             f"（建议引用：{cited}，例如 `depends_on: {example}`）"
         )
     else:
-        dep_hint = "请将同批其它任务的 id（无则 role）写入 `depends_on`"
+        dep_hint = "建议将同批其它任务的 id（无则 role）写入 `depends_on`"
     return (
         f"{roles}的 task 写明要吃同批队友产出，但 `depends_on` 为空——"
         f"{dep_hint}；"
-        "若本就独立，请改文案去掉依赖表述，或显式传 `force=true` 旁路。"
+        "若本就独立，请改文案去掉依赖表述。"
     )
 
 
 def check_consumer_missing_depends(
     tasks: list[Any],
-    *,
-    force: bool = False,
 ) -> str | None:
-    """同批消费者漏边时返回拒绝文案；否则 None。"""
-    if force is True:
-        return None
+    """同批消费者漏边时返回软告警文案（不拒收）；否则 None。"""
     if not isinstance(tasks, list) or len(tasks) < 2:
         return None
 
@@ -113,7 +109,7 @@ def check_consumer_missing_depends(
         seen.add(ref)
         peers.append(ref)
 
-    return consumer_missing_depends_reject_message(
+    return consumer_missing_depends_soft_message(
         violators=violators,
         peers=peers,
     )

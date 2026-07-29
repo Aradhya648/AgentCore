@@ -1580,7 +1580,10 @@ class StrReplaceTool:
                     },
                     "old_string": {
                         "type": "string",
-                        "description": ("要替换的精确文本，需带足够的上下文以在文件中唯一。"),
+                        "minLength": 1,
+                        "description": (
+                            "要替换的精确文本（不可为空），需带足够的上下文以在文件中唯一。"
+                        ),
                     },
                     "new_string": {
                         "type": "string",
@@ -1605,10 +1608,21 @@ class StrReplaceTool:
         new_string = arguments.get("new_string", "")
         replace_all = bool(arguments.get("replace_all", False))
 
+        # 参数契约拒绝：空 / 无改动的 old_string 是零成本可修正打回，须标
+        # contract_failure，否则连续空参会烧穿 run 级工具熔断（warn→disable）。
         if not old_string:
-            return _error("old_string 不能为空", start)
+            return _error(
+                "old_string 不能为空：请填入磁盘文件中要替换的精确原文"
+                "（含足够上下文以保证唯一匹配），不要传空字符串",
+                start,
+                contract_failure=True,
+            )
         if old_string == new_string:
-            return _error("old_string 与 new_string 相同，没有需要改动的内容", start)
+            return _error(
+                "old_string 与 new_string 相同，没有需要改动的内容",
+                start,
+                contract_failure=True,
+            )
 
         denied, release_on_fail = _claim_write_path(
             context, rel_path, event="str_replace.collision", start=start

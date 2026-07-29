@@ -63,19 +63,19 @@ class EngineSettings(BaseModel):
     # 上下文瘦身,这只是防失控的安全阀。每轮末比对累计 input+output tokens,到顶即收口。
     # 经 ``apply_worker_budgets`` 统一回填到各 worker；CEO 显式 ``token_ceiling`` 优先。
     # ≤0 关闭 (CEO/solo 路径不传此上限,保持 0)。
-    engine_worker_token_ceiling: int = 1_000_000
+    engine_worker_token_ceiling: int = 2_000_000
     # 用户回合 turn 级累计 token 硬顶（CEO + 全树 worker，含续派）：触顶后禁新
     # delegate / debate / 新波派发，在飞跑完不 cancel。与 per-worker 顶正交。≤0 关闭。
-    engine_turn_token_ceiling: int = 6_000_000
+    engine_turn_token_ceiling: int = 12_000_000
     # 嵌套子团队（depth≥1）准入拨付信封：开工时从父剩余原子预留
     # min(本值, 父剩余)；子 DAG 波内只看信封触顶，中途不以父顶砍子尾。
     # 消耗仍计入回合总量。≤0 关闭并回退「全树共父顶」现状。
-    engine_nested_turn_token_ceiling: int = 2_500_000
+    engine_nested_turn_token_ceiling: int = 5_000_000
     # Turn 交付预留（对齐 worker wind_down）：spent ≥ ceiling − reserve 时只放行
     # ``ceiling_priority`` 节点（如 build_website QA），未开跑的次要节点软跳过以便依赖汇合。
-    # 默认 200k（够一次 QA/目验；不随 worker 顶同步抬）；≤0 或
+    # 默认 400k（够一次 QA/目验；不随 worker 顶同步抬）；≤0 或
     # reserve ≥ ceiling 关闭预留软闸（硬顶仍在）。
-    engine_turn_token_delivery_reserve: int = 200_000
+    engine_turn_token_delivery_reserve: int = 400_000
     # 预算收尾窗口：累计 token ≥ ceiling − reserve 时强制进入落盘/handoff-only 轮，
     # 降低硬顶后 degraded_synth。收尾需要的空间是绝对量（成篇落盘一次就是上万
     # token），不该随 ceiling 缩放；比例制在低 ceiling 下留量过薄、实测触顶超标。

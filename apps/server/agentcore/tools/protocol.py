@@ -291,9 +291,12 @@ class ToolContext:
     # ``handoff`` can log ``body_chars`` (deliverable) separately from ``chars`` (summary).
     # ``None`` when unset (CEO / tests / tools that do not need it).
     round_content_chars: int | None = None
-    # 成篇交接：有下游依赖时 handoff 须带非空交付正文（或已落盘 prose）；由 worker
-    # executor 按 DAG 写入。False/默认 = 叶节点或不强制。
+    # 成篇交接：有下游依赖时 handoff 须带可消费交付（非空正文或已落盘 prose）；
+    # 由 worker executor 按 DAG 写入。False/默认 = 叶节点或不强制。
     handoff_requires_body: bool = False
+    # 与 deliverable.min_length 同值（契约唯一真理源）。0 = 无字数地板，仅要求非空。
+    # 旧拓扑常量 80 已撤；禁止与 max_length 互殴。
+    handoff_min_body_chars: int = 0
     # True when this run already landed at least one file (file_write / append /
     # str_replace) on the *current* ToolContext object. Best-effort same-ctx
     # signal only — ``dataclasses.replace`` drops this bool. Handoff / executor

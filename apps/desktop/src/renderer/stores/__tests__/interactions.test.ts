@@ -151,6 +151,64 @@ describe("InteractionStore", () => {
     expect(store().get("d1")?.kind).toBe("delegation_authorization");
   });
 
+  it("empty hydratePending keeps live pending (early empty recovery race)", () => {
+    store().upsertRequired({
+      kind: "approval",
+      conversationId: "c1",
+      messageId: "m1",
+      payload: { approval_id: "a1", tool_name: "host_shell", arguments: {} },
+    });
+    store().hydratePending("c1", [], { liveRunning: true });
+    expect(store().get("a1")?.status).toBe("pending");
+    expect(store().listPending("c1")).toHaveLength(1);
+  });
+
+  it("empty hydratePending clears when turn is not live (resolved/orphan)", () => {
+    store().upsertRequired({
+      kind: "approval",
+      conversationId: "c1",
+      messageId: "m1",
+      payload: { approval_id: "a1", tool_name: "file_write", arguments: {} },
+    });
+    store().hydratePending("c1", [], { liveRunning: false });
+    expect(store().get("a1")).toBeUndefined();
+    expect(store().listPending("c1")).toHaveLength(0);
+  });
+
+  it("empty hydratePending without liveRunning flag clears (terminal default)", () => {
+    store().upsertRequired({
+      kind: "approval",
+      conversationId: "c1",
+      messageId: "m1",
+      payload: { approval_id: "a1", tool_name: "x", arguments: {} },
+    });
+    store().hydratePending("c1", []);
+    expect(store().get("a1")).toBeUndefined();
+  });
+
+  it("non-empty hydratePending replaces even while live", () => {
+    store().upsertRequired({
+      kind: "approval",
+      conversationId: "c1",
+      messageId: "m1",
+      payload: { approval_id: "old", tool_name: "x", arguments: {} },
+    });
+    store().hydratePending(
+      "c1",
+      [
+        {
+          kind: "approval",
+          id: "new",
+          messageId: "m1",
+          payload: { approval_id: "new", tool_name: "y", arguments: {} },
+        },
+      ],
+      { liveRunning: true },
+    );
+    expect(store().get("old")).toBeUndefined();
+    expect(store().get("new")?.status).toBe("pending");
+  });
+
   it("applyInteractionWireEvent handles orphaned + required + resolved", () => {
     applyInteractionWireEvent(
       "approval_required",

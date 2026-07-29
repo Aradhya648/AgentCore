@@ -33,6 +33,11 @@ from typing import Any, NoReturn
 from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
 from agentcore.runtime.events import EventSink, workspace_op_required
+from agentcore.runtime.events.client_tool_reattach import (
+    CHANNEL_WORKSPACE,
+    client_tool_payload,
+)
+from agentcore.runtime.events.types import EventType
 from agentcore.runtime.interaction import InteractionKind
 from agentcore.runtime.ports import ClientRequestBridge
 from agentcore.workspace.protocol import (
@@ -176,7 +181,11 @@ class WorkspaceChannel:
                 request_id,
                 self.conversation_id,
                 kind=InteractionKind.CLIENT_TOOL,
-                payload={"root_id": rid, "op": op_name, "args": args},
+                payload=client_tool_payload(
+                    CHANNEL_WORKSPACE,
+                    EventType.WORKSPACE_OP_REQUIRED.value,
+                    params={"root_id": rid, "op": op_name, "args": args},
+                ),
                 timeout=deadline,
                 on_suspended=lambda: self.sink.emit(
                     workspace_op_required(

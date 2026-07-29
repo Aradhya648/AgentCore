@@ -82,8 +82,8 @@ class AskUserTool:
     captain_run_id: str | None = None
     base_system_prompt: str = ""
     user_message: str = ""
-    # Prior conversation turns (same shape as DelegateTool._history) — used by the
-    # kickoff skip gate to recognize verbal affirmation of an already-proposed plan.
+    # Prior conversation turns (same shape as DelegateTool._history); captured on
+    # suspend for resume parity. Kickoff skip is journal checkpoint_resolved only.
     history: list[dict[str, Any]] | None = None
     message_id: str | None = None
     suspension_saver: SuspensionSaver | None = None
@@ -398,7 +398,7 @@ class AskUserTool:
         # 建站 / 演讲 / 自动化：引擎不扫正文猜意图。CEO 显式带 style_options /
         # format_options 才挂选项并在 resume 记账；缺省放行（后果闸在 ledger+playbook）。
         # Kickoff gate: user already settled high-leverage / collaboration decisions
-        # (same-turn checkpoint_resolved OR prior-turn verbal affirm of a plan outline)
+        # (same-turn journal checkpoint_resolved only; verbal「好的」不再跳卡)
         # → refuse re-opening 开工提案卡; mid-task cards (decision / proposal_pick / …) pass.
         # Also refuse after team_preview_resolved (开工卡已拍板) — ask_user-side only;
         # gate skip_after_confirmed_ask deliberately does NOT recognize team_preview

@@ -29,9 +29,10 @@ class RunSession:
     assistant/tool turn + its final answer when complete) — replayable as the
     starting point for a revision. ``spec`` is the source :class:`RunSpec` (carries
     role / model tier / allowed tools / contract), so a continuation runs as the
-    same author under the same policy. ``recall_count`` is how many times this run
-    has been revised (the 改次闸 reads it). ``content`` mirrors the latest answer
-    for quick display.
+    same author; tools follow「只增不减」— new task may declare a tools superset
+    that merges into the session (never silently shrink). ``recall_count`` is how
+    many times this run has been revised (the 改次闸 reads it). ``content`` mirrors
+    the latest answer for quick display.
 
     ``partial`` marks a mid-flight salvage from a redirect cancel (尚未 COMPLETED、
     但有可序列化 transcript)。热路径 ``continue_run`` 吃这份草稿；空 transcript 不

@@ -323,6 +323,29 @@ def test_format_gap_escalates_after_same_gap_streak():
     assert "不要再以相同标准重派" in msg
 
 
+def test_format_gap_runtime_ready_appends_remediation():
+    msg = format_completion_gap_message(
+        ["尚无 worker 报告进程就绪（须 terminal start + wait_for 命中"],
+        criteria_kind="runtime_ready",
+        source="explicit",
+    )
+    assert "调度已结束" in msg
+    assert "terminal list/read" in msg
+    assert "browser_navigate" in msg
+    assert "禁止再起同一套开发服务器" in msg
+    assert "append_to=latest" in msg
+    assert "勿整锅重派" in msg
+    # Escalate path owns its own copy — remediation is soft-gap only.
+    escalated = format_completion_gap_message(
+        ["尚无 worker 报告进程就绪（须 terminal start + wait_for 命中"],
+        criteria_kind="runtime_ready",
+        source="explicit",
+        escalate=True,
+    )
+    assert "补救：" not in escalated
+    assert "不要再以相同标准重派" in escalated
+
+
 def test_plan_suggests_code_verification_on_run_open_tasks():
     plan = RunPlan(
         nodes=[
@@ -413,6 +436,17 @@ def test_gap_fingerprint_stable_for_streak():
     assert a != c
 
 
+def test_gap_fingerprint_unbound_criteria_no_fake_kind():
+    """criteria=None must not invent typescript_verify; same gaps still streak."""
+    a = gap_fingerprint(None, ["缺验证"])
+    b = gap_fingerprint(None, ["缺验证"])
+    bound = gap_fingerprint("code_verified", ["缺验证"])
+    assert a == b
+    assert a != bound
+    assert a[0] == ""
+    assert "typescript_verify" not in a
+
+
 def test_delegate_tool_same_gap_streak_escalates_at_two():
     """Consecutive identical unmet gaps: streak 1 → 2 (escalate threshold)."""
     from agentcore.core.types import AutonomyPolicy, recipe_to_axes
@@ -438,6 +472,31 @@ def test_delegate_tool_same_gap_streak_escalates_at_two():
     other = gap_fingerprint("files_written", ["缺落盘"])
     assert t.note_completion_gap(other) == 1
     t.clear_completion_gap_streak()
+    assert t.note_completion_gap(fp) == 1
+
+
+def test_delegate_tool_unbound_criteria_same_gap_streak():
+    """Overlay-only unmet (binding None) keeps same-gap streak via empty sentinel."""
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+    from agentcore.runtime.events import EventSink
+    from agentcore.tools.builtin.delegate import DelegateTool
+    from agentcore.tools.registry import ToolRegistry
+    from tests.delegate.conftest import Provider, ctx
+
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="u",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=ctx(),
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
+    )
+    fp = gap_fingerprint(None, ["缺验证"])
+    assert t.note_completion_gap(fp) == 1
+    assert t.note_completion_gap(fp) == 2
+    assert t.note_completion_gap(gap_fingerprint("code_verified", ["缺验证"])) == 1
     assert t.note_completion_gap(fp) == 1
 
 

@@ -29,95 +29,79 @@ logger = get_logger(__name__)
 # Team-gate (协作优先): investigation-only, captain-only, one shot per run.
 # ≥ TEAM_GATE_INVESTIGATION_THRESHOLD **探路轮** → always hard-stop
 # (strip investigation tools). 按轮不计同轮并行工具次数——一轮里 git×2+file_list
-# 只计 1 轮，避免并行烧尽额度。No soft nudge. long_content 事后丢稿闸门已撤：
-# 改由 CEO 提示词「路由·第一拍」在展开前显式表态（见 prompt._CEO_CORE_HINT）。
+# 只计 1 轮，避免并行烧尽额度。No soft nudge.
+# **不扫用户原文猜意图**分叉闸门（禁成篇/改文件/摸底正则路径）；统一文案：
+# delegate 或短答+自报归类；闸后长文由 soft_gates 丢稿再催一次。
+# 成篇形状 / 修码选型靠提示词与结构验收（playbook、冷启动拒单 worker 等），不靠分类器。
 TEAM_GATE_INVESTIGATION_THRESHOLD = 5
-# 本地改文件：允许多摸 1～2 次 file_list/file_read/grep，再硬催派（与网页独搜分阈）。
-TEAM_GATE_LOCAL_EDIT_THRESHOLD = 2
+# 本地摸仓计数仍由 LoopController 维护（观测 / probe）；不再用于分阈硬闸。
 LOCAL_RECON_TOOLS = frozenset({"file_list", "file_read", "grep"})
 
 
-# 闸后形状（B）：成篇调研意图命中时追加——治「立刻 delegate」塌成 none+单人/无审校。
-_TEAM_GATE_RESEARCH_SHAPE = (
-    "【成篇调研形状】用户要落盘的中篇实务/研究报告/论文且可多角取证 → "
-    "下一拍 delegate【宜】`playbook=\"research_report\"`（`playbook_args`：topic + angles；"
-    "内含末环审校）或手写同构（≥2 角并行调研/讨论笔记 → 提纲 → 撰稿 → 独立审校；"
-    "各角与主笔均 `form=files`+`artifacts`；审校 depends_on 撰稿，审计者≠作者）；"
-    "【禁止】`playbook=none` 单 task 一人包办自搜+成文；"
-    "【禁止】仅「调研→撰稿」两节点收工；"
-    "【禁止】「角 prose、仅主笔落盘」。"
-    "材料已齐仅扩写 / 短文落盘不适用本条。"
-)
-
-
-def team_gate_hard_stop_prompt(*, research_shape: bool = False) -> str:
-    """Hard gate: investigation tools stripped; delegate or answer, no more recon."""
+def team_gate_hard_stop_prompt() -> str:
+    """Hard gate: investigation tools stripped; delegate or short classified answer."""
     n = TEAM_GATE_INVESTIGATION_THRESHOLD
-    text = (
-        f"[系统提示] 探路已达硬上限（{n} 轮）：调查类工具已收回。"
-        "请立即 delegate；若坚持直答，直接作答并给出归类理由"
-        "（闲聊/单点事实/追问），禁止再搜 / 再读。"
-    )
-    if research_shape:
-        text += _TEAM_GATE_RESEARCH_SHAPE
-    return text
-
-
-def team_gate_local_edit_prompt() -> str:
-    """Hard gate for local file-edit recon: strip tools after a short peek."""
-    n = TEAM_GATE_LOCAL_EDIT_THRESHOLD
     return (
-        f"[系统提示] 本地改文件探路已够（已摸仓 ≥{n} 次）：调查类工具已收回。"
-        "请立即 delegate：单文件一刀切用 `complexity_hint=light`（可带 "
-        "requires_files）；有症状/需验用 `playbook=\"repair_code\"`；"
-        "禁止 none 当修码默认、禁止继续 "
-        "file_list / file_read / grep 空转。"
+        f"[系统提示] 探路已达硬上限（{n} 轮）：调查类工具已收回。"
+        "请立即 delegate（成规模摸底 / 成篇调研须 ≥2 角并行，禁止一人包办）；"
+        "若坚持直答，仅限短答并写明归类理由（闲聊/单点事实/追问）；"
+        "禁止长文直答交差；禁止再搜 / 再读。"
     )
 
 
-def _research_shape_from_messages(messages: list[LLMMessage]) -> bool:
-    """True when any real user turn asks for a research / practical long-form write-up.
-
-    Must not key off the *latest* user line alone — kickoff settle ("认可" / continue)
-    would otherwise erase the original research-report intent after ask_user.
-    """
-    from agentcore.runtime.kickoff import is_short_affirmation
-    from agentcore.runtime.runs.research_quality import is_research_report_intent
-
-    chunks: list[str] = []
-    for msg in messages:
-        if msg.role != "user" or not msg.content:
-            continue
-        text = msg.content.strip()
-        if not text or text.startswith("[系统提示]"):
-            continue
-        if is_short_affirmation(text):
-            continue
-        chunks.append(text)
-    return is_research_report_intent(*chunks)
+# 闸后长文再催：字符阈值；短答放行（归类由提示约束，引擎不扫正文做意图分类）。
+TEAM_GATE_DIRECT_REJECT_MIN_CHARS = 400
 
 
-def _local_edit_from_messages(messages: list[LLMMessage]) -> bool:
-    """True when any real user turn asks to tweak an existing workspace file."""
-    from agentcore.runtime.kickoff import is_short_affirmation
-    from agentcore.runtime.runs.research_quality import is_local_file_edit_intent
-
-    chunks: list[str] = []
-    for msg in messages:
-        if msg.role != "user" or not msg.content:
-            continue
-        text = msg.content.strip()
-        if not text or text.startswith("[系统提示]"):
-            continue
-        if is_short_affirmation(text):
-            continue
-        chunks.append(text)
-    return is_local_file_edit_intent(*chunks)
+def team_gate_direct_reject_prompt() -> str:
+    """One-shot reject after team_gate when wrap-up prose is too long."""
+    return (
+        "[系统提示] 探路硬闸后禁止长文直答：刚才的长文草稿已丢弃。"
+        "请立即 delegate，或短答并写明归类（闲聊/单点事实/追问）；禁止再搜 / 再读。"
+    )
 
 
-def _local_recon_call_count(controller: LoopController) -> int:
-    """Run-scoped local peek count (file_list / file_read / grep)."""
-    return int(controller.local_recon_calls)
+def should_team_gate_direct_reject(
+    controller: LoopController,
+    *,
+    role: str,
+    content: str,
+) -> bool:
+    """Whether to discard a post-gate long wrap-up and re-nudge once."""
+    if role != "captain" or not controller.team_gate_fired:
+        return False
+    if controller.team_gate_direct_reject_fired or controller.has_delegated:
+        return False
+    return len((content or "").strip()) >= TEAM_GATE_DIRECT_REJECT_MIN_CHARS
+
+
+def maybe_inject_team_gate_direct_reject(
+    controller: LoopController,
+    *,
+    messages: list[LLMMessage],
+    run_id: str,
+    round_idx: int,
+    role: str,
+    content: str,
+) -> bool:
+    """Inject one-shot direct-answer reject after team_gate. Returns True if injected."""
+    if not should_team_gate_direct_reject(controller, role=role, content=content):
+        return False
+    controller.mark_team_gate_direct_reject_fired()
+    nudge = team_gate_direct_reject_prompt()
+    logger.info(
+        "engine.team_gate_nudge",
+        trigger="direct_reject",
+        round=round_idx,
+        hard_stop=False,
+        direct_reject=True,
+        content_chars=len((content or "").strip()),
+    )
+    messages.append(LLMMessage(role="user", content=nudge))
+    record_turn_fact(
+        NoteFact(role="user", content=nudge, reason="team_gate", run_id=run_id).to_fact()
+    )
+    return True
 
 
 def _user_intent_chunks(messages: list[LLMMessage]) -> list[str]:
@@ -135,46 +119,6 @@ def _user_intent_chunks(messages: list[LLMMessage]) -> list[str]:
             continue
         chunks.append(text)
     return chunks
-
-
-def exec_verify_ask_prompt() -> str:
-    """Hard gate: missing exec/browser/local_open or unclear artifact → ask_user only."""
-    return (
-        "[系统提示] 能力策略：用户要跑/修或打开验证，"
-        "当前缺执行/浏览器/本机打开能力或可验产物路径不清。"
-        "探路与委派工具已收回。请立即 ask_user（绑定/授权/请用户指路径或附文件）；"
-        "禁止委派/翻目录冒充。"
-    )
-
-
-def exec_verify_ask_text_exit_prompt() -> str:
-    """Ask terminal but no ask_user tool: force prose close (no card, no tool spin)."""
-    return (
-        "[系统提示] 能力策略：用户要跑/修或打开验证，当前缺执行/浏览器/本机打开能力，"
-        "且本回合未装配 ask_user（无法开卡）。探路与委派工具已收回，工具面已清空。"
-        "请用正文说明能力限制并立即结束；禁止再调工具、禁止委派/翻目录冒充。"
-    )
-
-
-def exec_verify_delegate_prompt() -> str:
-    """Hard gate: has capability → delegate with the matching acceptance kind."""
-    return (
-        "[系统提示] 能力策略：用户要跑/修或打开验证，且本回合已装配对应执行能力。"
-        "探路工具已收回。请立即 delegate：测试/build→"
-        'completion_criteria={"type":"code_verified","verify_command":"…"}；'
-        "启动开发服务器→runtime_ready（勿混用）。"
-        "本地修码：单文件一刀切→`complexity_hint=light`；有症状/需验→"
-        '`playbook="repair_code"`（playbook_args 填 problem+verify）；'
-        "禁止直答、翻目录收口或 none 当修码默认。"
-    )
-
-
-def paste_writeback_delegate_prompt() -> str:
-    """Hard gate: pasted code + write-back → delegate to disk (no verbal fix)."""
-    return (
-        "[系统提示] 能力策略：消息已贴代码且要求写回文件。"
-        "探路工具已收回。请立即 delegate 落盘；禁止口述修复当直答。"
-    )
 
 
 def maybe_inject_availability_status_nudge(
@@ -211,106 +155,6 @@ def maybe_inject_availability_status_nudge(
     return True
 
 
-def maybe_inject_exec_verify_gate(
-    controller: LoopController,
-    *,
-    messages: list[LLMMessage],
-    run_id: str,
-    round_idx: int,
-    role: str,
-    code_execute: bool,
-    browser: bool,
-    local_open: bool = False,
-    disabled_tools: set[str] | None = None,
-    investigation_tools: frozenset[str] | None = None,
-    ask_user_available: bool = True,
-) -> bool:
-    """Inject run/open/paste-writeback capability strategy once. Returns True if injected.
-
-    Fires immediately on narrow intent (no recon threshold): strips investigation
-    tools and steers terminal to ``ask_user`` or ``delegate`` (+code_verified when run/open).
-    When terminal is ``ask_user`` but the live tool surface has no ``ask_user``,
-    latches ``exec_verify_text_exit`` so the loop clears tools and forces prose close.
-    """
-    if (
-        role != "captain"
-        or controller.exec_verify_gate_fired
-        or controller.has_delegated
-        or controller.team_gate_fired
-    ):
-        return False
-
-    chunks = _user_intent_chunks(messages)
-    if not chunks:
-        return False
-
-    from agentcore.runtime.runs.exec_verify import (
-        has_clear_verifiable_artifact_path,
-        is_open_browser_verify_intent,
-        is_open_local_app_intent,
-        is_paste_writeback_intent,
-        is_run_fix_script_intent,
-        resolve_exec_verify_terminal,
-    )
-
-    run_fix = is_run_fix_script_intent(*chunks)
-    open_verify = is_open_browser_verify_intent(*chunks)
-    open_app = is_open_local_app_intent(*chunks)
-    paste_writeback = is_paste_writeback_intent(*chunks)
-    clear_path = has_clear_verifiable_artifact_path(*chunks)
-    terminal = resolve_exec_verify_terminal(
-        run_fix=run_fix,
-        open_verify=open_verify,
-        open_app=open_app,
-        paste_writeback=paste_writeback,
-        code_execute=code_execute,
-        browser=browser,
-        local_open=local_open,
-        clear_artifact_path=clear_path,
-    )
-    if terminal is None:
-        return False
-
-    controller.mark_exec_verify_gate_fired()
-    text_exit = terminal == "ask_user" and not ask_user_available
-    if text_exit:
-        controller.mark_exec_verify_text_exit()
-    if disabled_tools is not None:
-        if investigation_tools:
-            disabled_tools.update(investigation_tools)
-        # ask 终向：收回探路后仍可 delegate/debate 绕开（如派重建冒充打开）
-        if terminal == "ask_user":
-            disabled_tools.update(("delegate", "debate"))
-    if paste_writeback and terminal == "delegate":
-        nudge = paste_writeback_delegate_prompt()
-    elif terminal == "delegate":
-        nudge = exec_verify_delegate_prompt()
-    elif text_exit:
-        nudge = exec_verify_ask_text_exit_prompt()
-    else:
-        nudge = exec_verify_ask_prompt()
-    logger.info(
-        "engine.exec_verify_gate_nudge",
-        round=round_idx,
-        terminal=terminal,
-        run_fix=run_fix,
-        open_verify=open_verify,
-        open_app=open_app,
-        paste_writeback=paste_writeback,
-        code_execute=code_execute,
-        browser=browser,
-        local_open=local_open,
-        clear_artifact_path=clear_path,
-        ask_user_available=ask_user_available,
-        text_exit=text_exit,
-    )
-    messages.append(LLMMessage(role="user", content=nudge))
-    record_turn_fact(
-        NoteFact(role="user", content=nudge, reason="exec_verify_gate", run_id=run_id).to_fact()
-    )
-    return True
-
-
 def maybe_inject_team_gate(
     controller: LoopController,
     *,
@@ -324,46 +168,13 @@ def maybe_inject_team_gate(
 ) -> bool:
     """Inject the team-gate once for the CEO captain. Returns True if injected.
 
-    Investigation path: after :data:`TEAM_GATE_INVESTIGATION_THRESHOLD` **探路轮**
-    (``investigation_rounds``; 同轮并行多工具只计 1), always strip investigation
-    tools and inject hard-stop copy (delegate or 直答+归类理由; no more recon).
-    ``research_shape`` only controls whether the research-report shape sentence is
-    appended.
-
-    Local file-edit intent is a separate light hard path: after
-    :data:`TEAM_GATE_LOCAL_EDIT_THRESHOLD` local peeks, strip tools and催派 — not the
-    web-solo-search knife.
+    After :data:`TEAM_GATE_INVESTIGATION_THRESHOLD` **探路轮**
+    (``investigation_rounds``; 同轮并行多工具只计 1), strip investigation tools and
+    inject one hard-stop copy: delegate or short classified answer. Does **not**
+    branch on user-text intent classifiers.
     """
     if role != "captain" or controller.team_gate_fired or controller.has_delegated:
         return False
-
-    research_shape = _research_shape_from_messages(messages)
-    local_edit = (not research_shape) and _local_edit_from_messages(messages)
-    local_calls = _local_recon_call_count(controller)
-
-    if local_edit:
-        if local_calls < TEAM_GATE_LOCAL_EDIT_THRESHOLD:
-            return False
-        controller.mark_team_gate_fired()
-        if disabled_tools is not None and investigation_tools:
-            disabled_tools.update(investigation_tools)
-        nudge = team_gate_local_edit_prompt()
-        logger.info(
-            "engine.team_gate_nudge",
-            trigger=trigger,
-            round=round_idx,
-            investigation_calls=controller.investigation_calls,
-            investigation_rounds=controller.investigation_rounds,
-            local_recon_calls=local_calls,
-            hard_stop=True,
-            research_shape=False,
-            local_edit=True,
-        )
-        messages.append(LLMMessage(role="user", content=nudge))
-        record_turn_fact(
-            NoteFact(role="user", content=nudge, reason="team_gate", run_id=run_id).to_fact()
-        )
-        return True
 
     if controller.investigation_rounds < TEAM_GATE_INVESTIGATION_THRESHOLD:
         return False
@@ -371,7 +182,7 @@ def maybe_inject_team_gate(
     controller.mark_team_gate_fired()
     if disabled_tools is not None and investigation_tools:
         disabled_tools.update(investigation_tools)
-    nudge = team_gate_hard_stop_prompt(research_shape=research_shape)
+    nudge = team_gate_hard_stop_prompt()
     logger.info(
         "engine.team_gate_nudge",
         trigger=trigger,
@@ -379,8 +190,6 @@ def maybe_inject_team_gate(
         investigation_calls=controller.investigation_calls,
         investigation_rounds=controller.investigation_rounds,
         hard_stop=True,
-        research_shape=research_shape,
-        local_edit=False,
     )
     messages.append(LLMMessage(role="user", content=nudge))
     record_turn_fact(
@@ -405,9 +214,10 @@ def audit_gate_nudge_prompt() -> str:
 
 
 def audit_gate_hard_prompt() -> str:
-    """Hard audit gate for research_report / word-count commitments."""
+    """Hard audit gate for research_report / structured long-form deliverables."""
     return (
-        "[系统提示] 成篇审计硬门：本回合含调研成篇 / 明确字数承诺，"
+        "[系统提示] 成篇审计硬门：本回合含 playbook=research_report "
+        "或 deliverable 结构成篇信号（如 min_length≥3000），"
         "收尾前【必须】派独立审计员（审计者≠作者）审校落盘成稿，"
         "或用 playbook=research_report（内含审校）完成路径。"
         "禁止在仅收到软提示后直接 end_turn 把半残稿当完结。"
@@ -670,31 +480,47 @@ def create_loop_controller(
     files_expected: bool = False,
     short_write_posture: bool = False,
     tighten_verify_exec_thrash: bool = False,
+    max_rounds: int | None = None,
 ) -> LoopController:
     """Build per-run convergence controller from engine settings.
 
     ``seed`` restores the five cross-suspension latches (see
     :meth:`LoopController.apply_seed`); omit on a fresh turn.
-    Zero-write thrashing enables only when ``files_expected`` **and**
-    ``short_write_posture`` (light / repair / stamped short ``max_rounds``).
+    Delivery-idle thrashing enables when short-write posture and either:
+    - ``files_expected`` → files zero-write (landing = delivery), or
+    - not files → prose idle (handoff = delivery; bar scaled under ``max_rounds``).
     Standard files workers keep it off — still bounded by convergence_spin /
     max_rounds / contract.
+
+    Short ``max_rounds`` also pulls ``reflection_start_round`` earlier so the
+    progress-review inject is not collinear with the hard ceiling.
 
     ``tighten_verify_exec_thrash`` (repair verify short posture): lower
     unproductive + tool-failure disable thresholds so same-fail / no-output
     ``code_execute`` ladders reach nudge→finalize sooner — still the same
     LoopController paths, not a parallel fuse.
     """
-    from agentcore.runtime.runs.worker_budget import should_enable_zero_write
-
-    zero_write = (
-        int(settings.engine_zero_write_finalize_rounds)
-        if should_enable_zero_write(
-            files_expected=files_expected,
-            short_write_posture=short_write_posture,
-        )
-        else 0
+    from agentcore.runtime.runs.worker_budget import (
+        resolve_prose_idle_finalize_rounds,
+        should_enable_prose_idle,
+        should_enable_zero_write,
     )
+
+    files_idle = should_enable_zero_write(
+        files_expected=files_expected,
+        short_write_posture=short_write_posture,
+    )
+    prose_idle = should_enable_prose_idle(
+        files_expected=files_expected,
+        short_write_posture=short_write_posture,
+    )
+    if files_idle:
+        zero_write = int(settings.engine_zero_write_finalize_rounds)
+    elif prose_idle:
+        zero_write = resolve_prose_idle_finalize_rounds(max_rounds)
+    else:
+        zero_write = 0
+
     tool_failure_warn = settings.engine_tool_failure_warn
     tool_failure_disable = settings.engine_tool_failure_disable
     unproductive_threshold = settings.engine_unproductive_threshold
@@ -702,16 +528,23 @@ def create_loop_controller(
         # Same ladders, earlier trip for verify-only short posture.
         tool_failure_disable = min(int(tool_failure_disable), 2)
         unproductive_threshold = min(int(unproductive_threshold), 2)
+
+    reflection_start = int(settings.engine_reflection_start_round)
+    if short_write_posture and max_rounds is not None and max_rounds > 0:
+        # Leave ≥1 react round after inject before hard ceiling (max_rounds=4 → start 2).
+        reflection_start = min(reflection_start, max(1, max_rounds - 2))
+
     controller = LoopController(
         empty_threshold=settings.engine_empty_response_threshold,
         tool_failure_warn=tool_failure_warn,
         tool_failure_disable=tool_failure_disable,
         unproductive_threshold=unproductive_threshold,
-        reflection_start_round=settings.engine_reflection_start_round,
+        reflection_start_round=reflection_start,
         reflection_interval=settings.engine_reflection_interval,
         convergence_finalize_rounds=settings.engine_convergence_finalize_rounds,
         convergence_spin_rounds=settings.engine_convergence_spin_rounds,
         zero_write_finalize_rounds=zero_write,
+        prose_idle=prose_idle,
         investigation_tools=investigation_tools,
     )
     if seed:
@@ -869,10 +702,6 @@ def govern_after_tools(
     role: str = "",
     disabled_tools: set[str] | None = None,
     investigation_tools: frozenset[str] | None = None,
-    code_execute: bool = False,
-    browser: bool = False,
-    local_open: bool = False,
-    ask_user_available: bool = True,
 ) -> LoopDirective:
     """Run post-tool convergence governance and return the next directive.
 
@@ -916,19 +745,6 @@ def govern_after_tools(
         record_turn_fact(
             NoteFact(role="user", content=reflection, reason="nudge", run_id=run_id).to_fact()
         )
-        maybe_inject_exec_verify_gate(
-            controller,
-            messages=messages,
-            run_id=run_id,
-            round_idx=round_idx,
-            role=role,
-            code_execute=code_execute,
-            browser=browser,
-            local_open=local_open,
-            disabled_tools=disabled_tools,
-            investigation_tools=investigation_tools,
-            ask_user_available=ask_user_available,
-        )
         maybe_inject_team_gate(
             controller,
             messages=messages,
@@ -967,12 +783,16 @@ def govern_after_tools(
     if breaker_message is None and controller.zero_write_warn_due():
         from agentcore.runtime.loop_controller import zero_write_warn_prompt
 
-        warn = zero_write_warn_prompt(rounds=controller.zero_write_investigation_rounds)
+        warn = zero_write_warn_prompt(
+            rounds=controller.zero_write_investigation_rounds,
+            prose_idle=controller.prose_idle,
+        )
         controller.mark_zero_write_warned()
         logger.info(
             "engine.zero_write_warn",
             round=round_idx,
             zero_write_rounds=controller.zero_write_investigation_rounds,
+            prose_idle=controller.prose_idle,
         )
         messages.append(LLMMessage(role="user", content=warn))
         record_turn_fact(
@@ -990,7 +810,8 @@ def govern_after_tools(
             from agentcore.runtime.loop_controller import zero_write_finalize_prompt
 
             fin = zero_write_finalize_prompt(
-                rounds=controller.zero_write_investigation_rounds
+                rounds=controller.zero_write_investigation_rounds,
+                prose_idle=controller.prose_idle,
             )
             messages.append(LLMMessage(role="user", content=fin))
             record_turn_fact(
@@ -1005,6 +826,7 @@ def govern_after_tools(
             investigation_calls=controller.investigation_calls,
             zero_write_rounds=controller.zero_write_investigation_rounds,
             zero_write_cut=zero_write_cut,
+            prose_idle=controller.prose_idle,
         )
         # Mid-loop zero_write FINALIZE aligns with ceiling: DEGRADED + same source.
         if zero_write_cut:
@@ -1021,20 +843,8 @@ def govern_after_tools(
         record_turn_fact(
             NoteFact(role="user", content=review, reason="reflection", run_id=run_id).to_fact()
         )
+        controller.mark_reflection_injected()
 
-    maybe_inject_exec_verify_gate(
-        controller,
-        messages=messages,
-        run_id=run_id,
-        round_idx=round_idx,
-        role=role,
-        code_execute=code_execute,
-        browser=browser,
-        local_open=local_open,
-        disabled_tools=disabled_tools,
-        investigation_tools=investigation_tools,
-        ask_user_available=ask_user_available,
-    )
     maybe_inject_team_gate(
         controller,
         messages=messages,

@@ -55,7 +55,13 @@ interface InteractionState {
   clear: (conversationId?: string) => void;
   /** Sidecar / process death: flip hot pending cards to orphaned 灰态. */
   orphanConversation: (conversationId: string, hotOnly?: boolean) => void;
-  /** Replace this conversation's pending set from recovery hydrate. */
+  /**
+   * Replace this conversation's pending set from recovery hydrate.
+   * Empty snapshots are authoritative only when the turn is not live: an early
+   * empty `/recovery` must not wipe journal/SSE pending that is still valid
+   * while the turn is running (or locally still active). Non-empty snapshots
+   * always replace. Resolved/orphan empties with `liveRunning: false` clear.
+   */
   hydratePending: (
     conversationId: string,
     entries: Array<{
@@ -64,6 +70,7 @@ interface InteractionState {
       messageId: string;
       payload: Record<string, unknown>;
     }>,
+    opts?: { liveRunning?: boolean },
   ) => void;
   get: (id: string) => InteractionEntry | undefined;
   listForConversation: (conversationId: string) => InteractionEntry[];
@@ -229,8 +236,20 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
     });
   },
 
-  hydratePending: (conversationId, entries) => {
+  hydratePending: (conversationId, entries, opts) => {
     set((state) => {
+      if (entries.length === 0 && opts?.liveRunning) {
+        // Early empty recovery while the turn is still live — keep journal/SSE
+        // pending (aligns with e2e mock guard against wipe-on-race).
+        for (const entry of state.byId.values()) {
+          if (
+            entry.conversationId === conversationId &&
+            (entry.status === "pending" || entry.status === "submitting")
+          ) {
+            return {};
+          }
+        }
+      }
       const next = mapCopy(state.byId);
       // Drop prior pending/submitting for this conversation (recovery is authoritative
       // for the live pending set); keep resolved/orphaned history.

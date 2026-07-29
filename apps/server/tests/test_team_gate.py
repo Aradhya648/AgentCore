@@ -1,11 +1,10 @@
 """Team-gate for the CEO captain ReAct loop (hard stop after investigation threshold).
 
 Covers investigation trigger, one-shot latch, worker isolation, hard-stop tool
-strip, research shape copy, and local-edit threshold. Scripted fake provider —
-zero LLM.
+strip, and post-gate long-answer reject. Scripted fake provider — zero LLM.
 
-long_content post-hoc discard was removed; solo-collapse defense for early long
-answers is prompt-side「路由·第一拍」（see test_prompt / _CEO_CORE_HINT）.
+**不扫用户原文猜意图**分叉（无成篇/改文件/摸底正则路径）；统一硬闸文案。
+闸前长文直答仍靠提示词「路由·第一拍」（see test_prompt / _CEO_CORE_HINT）。
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from agentcore.runtime.engine.governance import (
     create_loop_controller,
     maybe_inject_team_gate,
     team_gate_hard_stop_prompt,
-    team_gate_local_edit_prompt,
 )
 from agentcore.runtime.events import EventSink
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
@@ -141,19 +139,13 @@ def test_hard_stop_copy_strips_and_steers_delegate():
     assert "调查类工具已收回" in text
     assert "delegate" in text
     assert "归类理由" in text
+    assert "禁止长文直答" in text
+    assert "≥2 角" in text or "2 角" in text
     assert "禁止再搜" in text
     assert "组队意图已明确" not in text
-    assert "research_report" not in text  # 默认无成篇形状句
-
-
-def test_team_gate_research_shape_copy_when_flagged():
-    hard = team_gate_hard_stop_prompt(research_shape=True)
-    assert "成篇调研形状" in hard
-    assert "research_report" in hard
-    assert "禁止" in hard and "一人" in hard
-    # 定案 A：形状句亦禁「角 prose、仅主笔落盘」
-    assert "角 prose" in hard and "仅主笔落盘" in hard
-    assert "form=files" in hard
+    assert "research_report" not in text  # 不靠正则追加成篇形状句
+    assert "广度摸底探路" not in text
+    assert "本地改文件" not in text
 
 
 def test_team_gate_counts_rounds_not_parallel_calls():
@@ -182,162 +174,64 @@ def test_team_gate_counts_rounds_not_parallel_calls():
             controller,
             messages=messages,
             run_id="r",
-            round_idx=1,
+            round_idx=0,
             role="captain",
             disabled_tools=disabled,
             investigation_tools=frozenset({"search", "git", "file_list"}),
         )
         is False
     )
-    assert disabled == set()
     controller._investigation_rounds = 5
-    assert (
-        maybe_inject_team_gate(
-            controller,
-            messages=messages,
-            run_id="r",
-            round_idx=2,
-            role="captain",
-            disabled_tools=disabled,
-            investigation_tools=frozenset({"search", "git", "file_list"}),
-        )
-        is True
+    assert maybe_inject_team_gate(
+        controller,
+        messages=messages,
+        run_id="r",
+        round_idx=0,
+        role="captain",
+        disabled_tools=disabled,
+        investigation_tools=frozenset({"search", "git", "file_list"}),
     )
     assert disabled == {"search", "git", "file_list"}
 
 
-def test_hard_stop_research_intent_injects_shape():
-    controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_rounds = 5
-    disabled: set[str] = set()
-    messages = [
-        LLMMessage(
-            role="user",
-            content="写一篇起诉第三者立案实务研究报告，4000–6000 字落盘",
-        ),
-        LLMMessage(role="assistant", content="协作方案与团队分工如下……"),
-        LLMMessage(role="user", content="认可"),
+def test_user_text_does_not_branch_gate_copy():
+    """成篇 / 摸底 / 改文件用户话 → 同一套硬闸文案（不扫原文分叉）。"""
+    cases = [
+        "写一篇起诉第三者立案实务研究报告，4000 字 Markdown 落盘",
+        "深度理解 https://github.com/Lawofall/AgentCore 代码",
+        "帮我改一下项目根目录的 README.md：加一小节快速开始。",
+        "查一下 X 和 Y 的区别",
     ]
-    assert (
-        maybe_inject_team_gate(
+    for content in cases:
+        controller = create_loop_controller(frozenset({"search"}))
+        controller._investigation_rounds = 5
+        disabled: set[str] = set()
+        messages = [LLMMessage(role="user", content=content)]
+        assert maybe_inject_team_gate(
             controller,
             messages=messages,
             run_id="r",
             round_idx=0,
             role="captain",
             disabled_tools=disabled,
-            investigation_tools=frozenset({"search", "read_url"}),
+            investigation_tools=frozenset({"search"}),
         )
-        is True
-    )
-    gates = [m.content or "" for m in messages if m.role == "user" and "探路已达硬上限" in (m.content or "")]
-    assert len(gates) == 1
-    assert "research_report" in gates[0]
-    assert "成篇调研形状" in gates[0]
-
-
-def test_soft_gate_non_research_skips_shape():
-    """开放问答：≥5 轮硬收并剥工具，但不追加成篇形状句。"""
-    controller = create_loop_controller(frozenset({"search"}))
-    controller._investigation_rounds = 5
-    disabled: set[str] = set()
-    messages = [LLMMessage(role="user", content="查一下 X 和 Y 的区别")]
-    assert maybe_inject_team_gate(
-        controller,
-        messages=messages,
-        run_id="r",
-        round_idx=0,
-        role="captain",
-        disabled_tools=disabled,
-        investigation_tools=frozenset({"search"}),
-    )
-    hard = next(m.content or "" for m in messages if "探路已达硬上限" in (m.content or ""))
-    assert "research_report" not in hard
-    assert "成篇调研形状" not in hard
-    assert disabled == {"search"}
-
-
-def test_research_intent_forces_hard_stop_and_shape():
-    """成篇调研意图：闸门走硬停 + 形状句。"""
-    controller = create_loop_controller(frozenset({"search", "read_url"}))
-    controller._investigation_rounds = 5
-    disabled: set[str] = set()
-    messages = [
-        LLMMessage(
-            role="user",
-            content="写一篇起诉第三者立案实务研究报告，4000 字 Markdown 落盘",
+        hard = next(
+            m.content or "" for m in messages if "探路已达硬上限" in (m.content or "")
         )
-    ]
-    assert maybe_inject_team_gate(
-        controller,
-        messages=messages,
-        run_id="r",
-        round_idx=0,
-        role="captain",
-        disabled_tools=disabled,
-        investigation_tools=frozenset({"search", "read_url"}),
-    )
-    assert disabled == {"search", "read_url"}
-    hard = next(m.content or "" for m in messages if "探路已达硬上限" in (m.content or ""))
-    assert "research_report" in hard
+        assert "research_report" not in hard
+        assert "成篇调研形状" not in hard
+        assert "广度摸底探路" not in hard
+        assert "本地改文件" not in hard
+        assert disabled == {"search"}
 
 
-def test_competitor_compare_intent_forces_hard_stop_and_shape():
-    """竞品对比落盘：须硬停卸调查工具 + 成篇形状句。"""
-    controller = create_loop_controller(frozenset({"web_search", "read_url"}))
-    controller._investigation_rounds = 5
-    disabled: set[str] = set()
-    messages = [
-        LLMMessage(
-            role="user",
-            content=(
-                "调研一下 Notion、Obsidian、Logseq 三家在个人知识管理上的定位差异，"
-                "整理成一份 Markdown 对比表（功能、定价、适合谁），落盘到 AgentCore/文档/research/km-compare.md。"
-            ),
-        )
-    ]
-    assert maybe_inject_team_gate(
-        controller,
-        messages=messages,
-        run_id="r",
-        round_idx=0,
-        role="captain",
-        disabled_tools=disabled,
-        investigation_tools=frozenset({"web_search", "read_url"}),
-    )
-    assert disabled == {"web_search", "read_url"}
-    hard = next(m.content or "" for m in messages if "探路已达硬上限" in (m.content or ""))
-    assert "成篇调研形状" in hard
-    assert "research_report" in hard
-
-
-def test_local_edit_prompt_urges_delegate_not_research_shape():
-    text = team_gate_local_edit_prompt()
-    assert "本地改文件" in text
-    assert "delegate" in text
-    assert "research_report" not in text
-    # D10′：light vs repair_code；禁 none 当修码默认
-    assert "complexity_hint=light" in text
-    assert "repair_code" in text
-    assert "none 当修码默认" in text
-
-
-def test_ceo_prompt_d10_repair_routing_rules():
-    """CEO 主提示含 D10′ light / repair_code 选型（契约文案，非意图分类器）."""
-    from agentcore.runtime.resolve import prompt as prompt_mod
-
-    core = prompt_mod._CEO_CORE_HINT
-    assert "单文件/单符号一刀切" in core
-    assert "complexity_hint=light" in core
-    assert 'playbook="repair_code"' in core
-    assert "修码默认" in core
-
-
-def test_local_file_edit_fires_after_two_local_peeks():
-    """改 README：本地摸仓 ≥2 次后硬催派并卸调查工具（阈低于网页独搜）。"""
+def test_local_edit_does_not_early_gate_on_two_peeks():
+    """改 README：本地摸仓 2 次不再单独硬闸（与网页探路同阈）。"""
     tools = frozenset({"file_list", "file_read", "grep", "web_search"})
     controller = create_loop_controller(tools)
     controller._investigation_calls = 2
+    controller._investigation_rounds = 2
     controller._local_recon_calls = 2
     disabled: set[str] = set()
     messages = [
@@ -347,33 +241,6 @@ def test_local_file_edit_fires_after_two_local_peeks():
                 "帮我改一下项目根目录的 README.md：在最上面加一小节「快速开始」，"
                 "写三条安装命令，其余内容别动。"
             ),
-        )
-    ]
-    assert maybe_inject_team_gate(
-        controller,
-        messages=messages,
-        run_id="r",
-        round_idx=0,
-        role="captain",
-        disabled_tools=disabled,
-        investigation_tools=tools,
-    )
-    assert disabled == tools
-    hard = next(m.content or "" for m in messages if "本地改文件探路已够" in (m.content or ""))
-    assert "delegate" in hard
-    assert "research_report" not in hard
-
-
-def test_local_file_edit_below_threshold_no_gate():
-    tools = frozenset({"file_list", "file_read"})
-    controller = create_loop_controller(tools)
-    controller._investigation_calls = 1
-    controller._local_recon_calls = 1
-    disabled: set[str] = set()
-    messages = [
-        LLMMessage(
-            role="user",
-            content="帮我改一下项目根目录的 README.md：加一小节快速开始。",
         )
     ]
     assert (
@@ -389,6 +256,22 @@ def test_local_file_edit_below_threshold_no_gate():
         is False
     )
     assert disabled == set()
+
+
+def test_ceo_prompt_d10_repair_routing_rules():
+    """CEO 主提示含 D10′ light / repair_code 选型（契约文案，非意图分类器）."""
+    from agentcore.runtime.resolve import prompt as prompt_mod
+
+    core = prompt_mod._CEO_CORE_HINT
+    assert "单文件/单符号一刀切" in core
+    assert "complexity_hint=light" in core
+    assert 'playbook="repair_code"' in core
+    assert "修码默认" in core
+    assert "不扫原文做意图分类" in core
+    # 会后修复分流：已有调查批 → continue_from；换 title≠换职能；禁再套 repair_code。
+    assert "continue_from_run_id" in core
+    assert "换 title" in core or "换职能" in core
+    assert "冷开新三角色" in core or "再套" in core
 
 
 def test_hard_stop_disables_investigation_tools_when_intent_clear():
@@ -415,8 +298,8 @@ def test_hard_stop_disables_investigation_tools_when_intent_clear():
     assert any("探路已达硬上限" in (m.content or "") for m in messages)
 
 
-def test_soft_path_keeps_tools_without_team_intent():
-    """开放问答无组队意图：≥5 轮仍硬收剥工具（无 soft）。"""
+def test_open_qa_still_hard_stops_at_threshold():
+    """开放问答：≥5 轮仍硬收剥工具（无 soft、无意图分叉）。"""
     controller = create_loop_controller(frozenset({"search"}))
     controller._investigation_rounds = 5
     disabled: set[str] = set()
@@ -483,7 +366,7 @@ async def test_below_investigation_threshold_no_gate():
 
 @pytest.mark.asyncio
 async def test_no_tool_long_answer_does_not_fire_team_gate():
-    """long_content post-hoc discard removed: early long prose is kept as-is."""
+    """闸前长文不触发 team_gate（无探路轮）；靠提示词第一拍约束。"""
     long = "甲" * 500
     provider = _ScriptedProvider([[_content_chunk(long)]])
     content, messages = await _run_captain(provider, _registry())
@@ -543,6 +426,7 @@ async def test_after_delegate_no_gate():
 @pytest.mark.asyncio
 async def test_investigation_fires_at_most_once():
     # Investigation gate first; further investigation rounds must not inject again.
+    # Post-gate wrap-up uses short prose so direct-reject soft gate stays quiet.
     search = _StubTool(name="search")
     provider = _ScriptedProvider(
         [
@@ -551,9 +435,66 @@ async def test_investigation_fires_at_most_once():
             [_tool_chunk("search", '{"q": "3"}')],
             [_tool_chunk("search", '{"q": "4"}')],
             [_tool_chunk("search", '{"q": "5"}')],
-            [_content_chunk("甲" * 500)],
+            [_content_chunk("归类：单点事实。X 与 Y 的差异是超时默认值不同。")],
         ]
     )
     _content, messages = await _run_captain(provider, _registry(search))
 
     assert len(_team_gate_msgs(messages)) == 1
+
+
+def test_direct_reject_predicates():
+    from agentcore.runtime.engine.governance import (
+        TEAM_GATE_DIRECT_REJECT_MIN_CHARS,
+        should_team_gate_direct_reject,
+        team_gate_direct_reject_prompt,
+    )
+
+    prompt = team_gate_direct_reject_prompt()
+    assert "禁止长文直答" in prompt
+    assert "delegate" in prompt
+    assert "归类" in prompt
+
+    c = create_loop_controller(frozenset())
+    c.mark_team_gate_fired()
+    long = "甲" * TEAM_GATE_DIRECT_REJECT_MIN_CHARS
+    assert should_team_gate_direct_reject(c, role="captain", content=long) is True
+    # 长文即使自报归类也拒（统一：闸后禁长文）
+    assert (
+        should_team_gate_direct_reject(
+            c, role="captain", content="归类：追问。" + long
+        )
+        is True
+    )
+    assert should_team_gate_direct_reject(c, role="captain", content="短") is False
+
+
+@pytest.mark.asyncio
+async def test_post_gate_long_answer_rejected_once():
+    """闸后长文 → 丢稿再催；第二次短答放行。"""
+    search = _StubTool(name="search")
+    long = "甲" * 500
+    provider = _ScriptedProvider(
+        [
+            [_tool_chunk("search", '{"q": "1"}')],
+            [_tool_chunk("search", '{"q": "2"}')],
+            [_tool_chunk("search", '{"q": "3"}')],
+            [_tool_chunk("search", '{"q": "4"}')],
+            [_tool_chunk("search", '{"q": "5"}')],
+            [_content_chunk(long)],
+            [_content_chunk("归类：单点事实。差异在超时默认值。")],
+        ]
+    )
+    content, messages = await _run_captain(provider, _registry(search))
+
+    assert content == "归类：单点事实。差异在超时默认值。"
+    assert len(_team_gate_msgs(messages)) == 1
+    reject_msgs = [
+        m
+        for m in messages
+        if m.role == "user"
+        and m.content
+        and "禁止长文直答" in m.content
+        and "草稿已丢弃" in m.content
+    ]
+    assert len(reject_msgs) == 1

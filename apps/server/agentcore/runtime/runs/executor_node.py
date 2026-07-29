@@ -357,8 +357,13 @@ async def execute_agent_node(
             ),
             # Debate evidence posture: structured run signal → web_search filter.
             search_policy=spec.search_policy or "",
-            # 成篇交接：有下游时禁止空 body handoff。
+            # 成篇交接：有下游时禁止空交；地板 = 合同 min_length（0 → 仅非空）。
             handoff_requires_body=node_has_dependents(env.plan, spec.run_id),
+            handoff_min_body_chars=(
+                int(deliverable.min_length)
+                if deliverable is not None and int(deliverable.min_length or 0) > 0
+                else 0
+            ),
         )
         # 阶段2 嵌套子任务: hand this worker delegation tools when opted in.
         worker_tools = env.tools
@@ -1131,27 +1136,34 @@ async def execute_agent_node(
         )
         warnings = _apply_cutoff_reasons(cutoff_reasons, warnings=warnings)
         delivery_gaps = _delivery_gaps_from_warnings(warnings, debrief)
-        # 成篇质量：有下游 + 空正文且无成篇 prose 落盘 → 失败（与 handoff 工具闸同口径）。
+        # 成篇质量：有下游 + 相对合同未满足且无成篇 prose 落盘 → 失败（与 handoff 同口径）。
         # 认 tool_ctx.landed_artifact_kinds（跨 replace 存活）；勿用 has_landed_files /
-        # 泛 files_touched（骨架落盘会误豁免）。
+        # 泛 files_touched（骨架落盘会误豁免）。地板只认 deliverable.min_length。
         from agentcore.runtime.runs.research_quality import (
-            MIN_UPSTREAM_BODY_CHARS,
             upstream_body_floor_satisfied,
         )
 
         body_chars = len((content or "").strip())
+        floor = (
+            int(deliverable.min_length)
+            if deliverable is not None and int(deliverable.min_length or 0) > 0
+            else 0
+        )
         if node_has_dependents(env.plan, spec.run_id) and not upstream_body_floor_satisfied(
             body_chars=body_chars,
             landed_artifact_kinds=tool_ctx.landed_artifact_kinds,
+            min_body_chars=floor,
         ):
+            floor_hint = f"不足 {floor} 字（合同 min_length）" if floor > 0 else "为空"
             reason = (
-                f"空交付不得进入下游：正文不足 {MIN_UPSTREAM_BODY_CHARS} 字"
+                f"空交付不得进入下游：正文{floor_hint}"
                 "且无成篇落盘（prose；骨架/空文件不算）"
             )
             logger.info(
                 "handoff.empty_body_blocked",
                 run_id=spec.run_id,
                 body_chars=body_chars,
+                min_body_chars=floor,
             )
             env.sink.emit(
                 run_failed(
