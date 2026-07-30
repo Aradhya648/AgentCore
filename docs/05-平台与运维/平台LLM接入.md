@@ -10,7 +10,7 @@ skip_if:
 
 # 平台 LLM 接入
 
-> **现状**：生产 `billing_mode=platform`（全量代付、`PLATFORM_MODELS` allowlist、合作中转、`PLATFORM_FREE_TIER_ENABLED=false`）；**dev 默认仍 BYOK**。计费 / 配额口径 → [成本配额与计费](/docs/05-平台与运维/成本配额与计费.md)。本文只记上游接入事实（厂商坑、BYOK 去向、platform 排查）。
+> **现状**：目标仍是 `billing_mode=platform`；**现网临时 `byok` + 免费档关**（平台代付休眠，见 [成本配额与计费](/docs/05-平台与运维/成本配额与计费.md) 文首）。**dev 默认仍 BYOK**。本文只记上游接入事实（厂商坑、BYOK 去向、platform 排查）。
 
 ## 一、三条上游路径
 
@@ -29,7 +29,7 @@ skip_if:
 `llm/resolve.py` 单点：
 
 - **主对话**：用户 key 优先；无 key 才 platform。
-- **后台档**（title/memory/compaction/followups）：**平台优先** + 必过 `enforce_quota`（防白嫖）；平台不可用才回落组合后台槽。调用点 `billing/gate.py::resolve_and_gate_background`（耗尽 → `None`，不 429 主回合）。
+- **后台档**（title/memory/compaction/followups）：**平台优先** + 必过 `enforce_quota`（防白嫖）；平台不可用（配置缺失 **或** 上游 auth 拒绝）才回落用户 BYOK。统一入口 `billing/gate.py::run_background_llm`（`resolve_and_gate_background` 解析 + 一次 auth→BYOK；耗尽 / 两边都失败 → `None`，不 429 主回合）。禁止调用点各自 try/except 拼回落、禁止进程内 auth 熔断缓存。
 - **`platform_billing_selectable`**：`billing_mode=platform` 恒可选；BYOK 部署仅免费档开时可选。
 - **Worker 槽**：空 = 跟随主模型；跨 origin 时 `build_turn_router` 注入 extras。Sidecar `cost_role=member` 按 Worker 槽重解析。
 - **统一目录** `GET /v1/users/me/models`：键 `(id, origin, provider_id)`；BYOK 行代理发现（禁硬编码清单）；platform 行有补贴才列。

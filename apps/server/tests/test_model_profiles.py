@@ -47,6 +47,10 @@ async def test_list_profiles_hides_missing_catalog_models(monkeypatch):
         "agentcore.billing.preference.platform_billing_selectable",
         lambda: True,
     )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
     svc = LlmModelProfileService(MagicMock())
     svc._default_id = AsyncMock(return_value=None)  # type: ignore[method-assign]
     svc._repo.list_for_user = AsyncMock(return_value=[])  # type: ignore[method-assign]
@@ -61,6 +65,29 @@ async def test_list_profiles_hides_missing_catalog_models(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_profiles_hides_system_when_platform_billing_off(monkeypatch):
+    """byok + free-tier off: allowlist may still list 5.2/grok — presets must hide."""
+    monkeypatch.setattr(
+        "agentcore.llm.catalog._platform_model_ids",
+        lambda: ["5.2", "grok-4.5"],
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.platform_billing_selectable",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
+    svc = LlmModelProfileService(MagicMock())
+    svc._default_id = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    svc._repo.list_for_user = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    views = await svc.list_profiles("u1")
+    assert views == []
+
+
+@pytest.mark.asyncio
 async def test_list_profiles_marks_default_when_both_present(monkeypatch):
     monkeypatch.setattr(
         "agentcore.llm.catalog._platform_model_ids",
@@ -68,6 +95,10 @@ async def test_list_profiles_marks_default_when_both_present(monkeypatch):
     )
     monkeypatch.setattr(
         "agentcore.billing.preference.platform_billing_selectable",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
         lambda: True,
     )
     svc = LlmModelProfileService(MagicMock())
@@ -89,6 +120,10 @@ async def test_expand_none_and_dangling_fall_back_to_52(monkeypatch):
     )
     monkeypatch.setattr(
         "agentcore.billing.preference.platform_billing_selectable",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
         lambda: True,
     )
     svc = LlmModelProfileService(MagicMock())
@@ -115,6 +150,10 @@ async def test_expand_unavailable_grok_falls_back_to_52(monkeypatch):
         "agentcore.billing.preference.platform_billing_selectable",
         lambda: True,
     )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
     svc = LlmModelProfileService(MagicMock())
     svc._default_id = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
@@ -131,6 +170,14 @@ async def test_set_default_rejects_unavailable_system_preset(monkeypatch):
         "agentcore.llm.catalog._platform_model_ids",
         lambda: ["5.2"],
     )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.platform_billing_selectable",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
     svc = LlmModelProfileService(MagicMock())
     with pytest.raises(ValidationError, match="不可用"):
         await svc.set_default("u1", SYSTEM_PROFILE_GROK)
@@ -143,6 +190,14 @@ async def test_ensure_rejects_unavailable_system_preset(monkeypatch):
     monkeypatch.setattr(
         "agentcore.llm.catalog._platform_model_ids",
         lambda: ["5.2"],
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.platform_billing_selectable",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
     )
     svc = LlmModelProfileService(MagicMock())
     with pytest.raises(ValidationError, match="不可用"):

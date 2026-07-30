@@ -82,8 +82,20 @@ def _system_preset_display_name(model_id: str) -> str:
 
 
 def _system_preset_available(profile_id: str) -> bool:
+    """True when this system preset may appear in list / be selected.
+
+    Align with catalog ``platform_rows_on``: platform billing selectable ∧
+    credentials configured ∧ model in ``PLATFORM_MODELS`` allowlist. Late-import
+    the gates so tests can monkeypatch ``billing.preference``.
+    """
+    from agentcore.billing.preference import (
+        is_platform_available,
+        platform_billing_selectable as _platform_selectable,
+    )
     from agentcore.llm.catalog import _platform_model_ids
 
+    if not _platform_selectable() or not is_platform_available():
+        return False
     model_id = SYSTEM_PRESETS[profile_id]
     return model_id in _platform_model_ids()
 
