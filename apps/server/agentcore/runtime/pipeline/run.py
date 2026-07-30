@@ -187,7 +187,9 @@ async def run_chat_pipeline(
     memory_cache_token = consulted_memory_cache.set({})
     # 回合共享调研台账（引用即出处 P1）：与引用池同入口创建；captain / 调研 worker
     # 注入同一对象，并行登记原子拿 ``#rN``。辩论场级 ``#e`` 台账不经此路径。
+    # 跨回合 hydrate：合并本会话历史 assistant 的 evidence_ledger（引擎核；LLM 可不带全文）。
     evidence_ledger = EvidenceLedgerCore(id_prefix="#r")
+    evidence_ledger.merge_history_ledgers(history)
     ledger_token = turn_evidence_ledger.set(evidence_ledger)
     # CEO 协调模式: turn-level execution_id for registry lookup (captain wait path).
     # Bound after base_tool_context is minted (inside try); reset in finally.
@@ -244,6 +246,14 @@ async def run_chat_pipeline(
         if latency_probe is not None:
             latency_probe.mark_assemble(int((time.monotonic() - assemble_t0) * 1000))
 
+        # 出处诚实：hydrate 后注入「已登记来源」结构化摘要（对照台账字段，禁占位叙事）。
+        from agentcore.runtime.evidence_ledger import format_registered_sources_prompt
+
+        sources_block = format_registered_sources_prompt(evidence_ledger)
+        chat_system_prompt = assembled.chat_system_prompt
+        if sources_block:
+            chat_system_prompt = f"{chat_system_prompt}\n\n{sources_block}"
+
         # --- Phase 3: Execute ---
         sink.emit(message_start(message_id, conversation_id=conversation_id))
 
@@ -254,7 +264,7 @@ async def run_chat_pipeline(
 
         record_turn_fact(
             TurnStartedFact(
-                system_prompt=assembled.chat_system_prompt,
+                system_prompt=chat_system_prompt,
                 user_message=user_message,
                 model_profile=turn_model,
                 history_len=len(history),
@@ -283,7 +293,7 @@ async def run_chat_pipeline(
             tools=assembled.chat_tools,
             sink=sink,
             base_tool_context=prepared.base_tool_context,
-            chat_system_prompt=assembled.chat_system_prompt,
+            chat_system_prompt=chat_system_prompt,
             history=history,
             user_message=user_message,
             profile=profile,

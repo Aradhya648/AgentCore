@@ -297,6 +297,8 @@ async def _continue_run_scoped(
         finish_override: list[FinishReason] = []
         cutoff_reasons: list[str] = []
         tool_failures: list[dict] = []
+        from agentcore.runtime.suspension import turn_evidence_ledger as _turn_ledger_var
+
         use_two_phase = bool(
             spec.research_then_draft and (draft_brief or "").strip()
         )
@@ -350,8 +352,6 @@ async def _continue_run_scoped(
             _record_continuation_run_head(
                 continuation_run_id, messages, from_context_blocks=bool(context_blocks)
             )
-            from agentcore.runtime.suspension import turn_evidence_ledger as _turn_ledger_var
-
             content, reasoning, round_usage, round_rounds = await _react_and_capture(
                 messages,
                 llm=llm,
@@ -386,7 +386,8 @@ async def _continue_run_scoped(
         # the landed files too (same semantics as the cold executor), so a file-form draft
         # the author corrects on disk is not re-failed for「缺章节 / 太短」on empty prose.
         load_contents = needs_file_contents(
-            deliverable, landed_paths=touched_for_gate
+            deliverable,
+            landed_paths=touched_for_gate,
         )
         if deliverable and deliverable.artifacts:
             live_index = await _safe_index_files(tool_ctx.backend)
@@ -419,6 +420,7 @@ async def _continue_run_scoped(
                 artifact_contents,
                 web_quality_scan=True,
             )
+        turn_ledger = _turn_ledger_var.get()
         verdict = check_contract(
             content,
             deliverable,
@@ -426,6 +428,12 @@ async def _continue_run_scoped(
             debrief=debrief_from_transcript(messages),
             workspace_paths=workspace_paths,
             artifact_contents=artifact_contents,
+            ledger_entries=(
+                turn_ledger.all_entries() if turn_ledger is not None else None
+            ),
+            citable_ids=(
+                turn_ledger.draft_citable_ids() if turn_ledger is not None else None
+            ),
         )
         record_turn_fact(
             MessageFinalFact(

@@ -143,6 +143,30 @@ describe("ChatImageGallery", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("falls back to workspace_path when thumb fetch rejects", async () => {
+    mockFetch
+      .mockRejectedValueOnce(new Error("thumb gone"))
+      .mockResolvedValueOnce(new Blob(["orig"], { type: "image/png" }));
+    const images = [
+      imageAttachment({
+        name: "a.png",
+        workspace_path: "attachments/a.png",
+        thumb_path: "attachments/a.png.thumb.webp",
+      }),
+    ];
+    render(<ChatImageGallery chatId="chat-1" images={images} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "chat-1",
+        "attachments/a.png.thumb.webp",
+      );
+      expect(mockFetch).toHaveBeenCalledWith("chat-1", "attachments/a.png");
+    });
+    expect(await screen.findByTitle("a.png")).toBeTruthy();
+    expect(screen.queryByLabelText("图片加载失败")).toBeNull();
+  });
+
   it("switches originals with next/prev in a multi-image lightbox", async () => {
     const images = [
       imageAttachment({

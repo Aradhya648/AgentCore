@@ -108,7 +108,9 @@ async def settle_successful_turn(
 
         led = turn_evidence_ledger.get()
         if led is not None:
-            citable_ids = led.citable_ids()
+            # settle：正文实际引用且已 deep_read → 持久 selected（跨回合 hydrate 保留）。
+            led.mark_selected_from_content(final_content)
+            citable_ids = led.draft_citable_ids()
     except Exception:
         logger.warning("citations.ledger_lookup_failed", message_id=message_id, exc_info=True)
     final_content, citations, stray_n, stray_r = reconcile_citations(

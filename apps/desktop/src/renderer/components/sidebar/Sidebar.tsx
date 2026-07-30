@@ -1,10 +1,13 @@
 import { BrandMark } from "@/components/brand/BrandMark";
-import { IconButton, SearchTrigger, SurfaceRowButton } from "@/components/ui";
+import { Button, IconButton, SearchTrigger, SurfaceRowButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { isWebClient } from "@/lib/capabilities";
 import { startNewConversation } from "@/lib/newConversation";
 import { useUnreadTotal } from "@/stores/messaging";
-import { useSidebarStore } from "@/stores/sidebar";
+import {
+  SIDEBAR_COLLAPSED_WIDTH,
+  useSidebarStore,
+} from "@/stores/sidebar";
 import { useUIStore } from "@/stores/ui";
 import {
   Files,
@@ -14,7 +17,7 @@ import {
   PanelLeftClose,
   Wrench,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   RecentConversations,
@@ -47,6 +50,11 @@ function CollapsedNavTip({
 
 export function Sidebar() {
   const collapsed = useSidebarStore((s) => s.collapsed);
+  const width = useSidebarStore((s) => s.width);
+  const resizing = useSidebarStore((s) => s.resizing);
+  const setWidth = useSidebarStore((s) => s.setWidth);
+  const setResizing = useSidebarStore((s) => s.setResizing);
+  const resetWidth = useSidebarStore((s) => s.resetWidth);
   const toggleCollapsed = useSidebarStore((s) => s.toggleCollapsed);
   const openSearch = useUIStore((s) => s.openSearch);
   const unread = useUnreadTotal();
@@ -69,13 +77,43 @@ export function Sidebar() {
   // 「对话」入口默认就是新建一个空白对话；回到旧对话走下方列表 /「全部对话」。
   const handleNewConversation = () => startNewConversation(navigate);
 
+  const onResizeStart = (e: ReactPointerEvent) => {
+    if (collapsed) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    setResizing(true);
+    const onMove = (ev: PointerEvent) =>
+      setWidth(startWidth + (ev.clientX - startX));
+    const onUp = () => {
+      setResizing(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   return (
     <aside
-      className={`flex flex-shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ${collapsed ? "w-14" : "w-60"}`}
-      style={{ backgroundImage: "var(--sidebar-gradient)" }}
+      className={`relative flex flex-shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground ${resizing ? "" : "transition-[width] duration-200"}`}
+      style={{
+        width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : width,
+        backgroundImage: "var(--sidebar-gradient)",
+      }}
     >
-      {/* 浏览器版头部：品牌 + 折叠按钮 + 紧凑搜索（替代被隐藏的桌面顶栏）。折叠成 w-14
-          图标条时按钮仍在，展开 w-60 时显示品牌，两种状态都够得着。 */}
+      {!collapsed && (
+        <Button
+          variant="ghost"
+          aria-label="拖拽调整侧栏宽度（双击还原默认）"
+          onPointerDown={onResizeStart}
+          onDoubleClick={resetWidth}
+          className="absolute right-0 top-0 z-10 h-full w-1 min-w-0 cursor-col-resize rounded-none bg-transparent p-0 hover:bg-primary/40"
+        />
+      )}
+
+      {/* 浏览器版头部：品牌 + 折叠按钮 + 紧凑搜索（替代被隐藏的桌面顶栏）。折叠成图标条时
+          按钮仍在，展开时显示品牌，两种状态都够得着。 */}
       {webClient && (
         <>
           <div className="space-y-2 px-2 pt-2">

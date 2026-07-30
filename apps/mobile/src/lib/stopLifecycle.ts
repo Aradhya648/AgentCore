@@ -32,6 +32,7 @@ export function allowsEventWhileStopping(eventType: string): boolean {
     eventType === "turn_saved" ||
     eventType === "title_generated" ||
     eventType === "followups_generated" ||
+    eventType === "followups_unavailable" ||
     eventType === "citations" ||
     eventType === "evidence_ledger" ||
     eventType === "execution_detached" ||

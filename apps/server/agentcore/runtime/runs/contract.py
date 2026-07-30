@@ -20,6 +20,10 @@ A worker's product is accepted only if it satisfies its node's delivery spec
 ``PLACEHOLDER``、``[占位]``、lorem ipsum 等）则 fail；软信号（「示例数据」「待核实」等自注）
 仅写入 :class:`ContractVerdict` 的 ``warnings``（不阻断验收）。代码文件豁免 TODO/XXX 习惯。
 
+引用 / 书目质量（台账接通时）：对内容类 ``artifact_contents`` 复用
+:func:`~agentcore.runtime.verify.citation_quality_reworks`（与 chat ``finish_guard`` 同源）——
+非法 ``#rN``、无绑定 GB/T ``[D]/[J]`` 著录等 → fail → 合同返工。
+
 判「写得好不好」的语义裁判（额外一次 LLM 调用）留作后续增强。
 
 校验的后续处置（带反馈返工 / 按 ``strict`` 决定硬退或软提醒）在执行器里，本模块只产出结论
@@ -36,6 +40,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agentcore.runtime.runs.placeholder_scan import (
+    is_content_deliverable_path,
     needs_placeholder_scan,
     scan_placeholder_signals,
 )
@@ -104,14 +109,18 @@ def needs_file_contents(
 
     Consumers that read file contents: the JSON file gate (``output_format="json"`` +
     ``artifacts``), the file-form content channel (length / keyword / section on a file
-    deliverable), the web seam gate (HTML + CSS/JS in ``landed_paths``), and the
-    placeholder scan (content surfaces such as HTML / Markdown in ``landed_paths``). A
-    file deliverable with only existence / ``requires_files`` rules needs no read unless
-    the landed batch is a web artifact set or a content surface. The executor uses this
-    to skip file I/O when the contract would ignore the contents anyway.
+    deliverable), the web seam gate (HTML + CSS/JS in ``landed_paths``), the
+    placeholder scan, and (when the executor passes ledger ids into
+    :func:`check_contract`) the citation / bibliography gate on the same content
+    surfaces. A file deliverable with only existence / ``requires_files`` rules needs
+    no read unless the landed batch is a web artifact set or a content surface. The
+    executor uses this to skip file I/O when the contract would ignore the contents
+    anyway.
     """
     if landed_paths and is_web_artifact_batch(landed_paths):
         return True
+    # Content surfaces: placeholder + citation/bibliography (ledger-connected) share
+    # this load path.
     if landed_paths and needs_placeholder_scan(landed_paths):
         return True
     if deliverable is None:
@@ -162,6 +171,8 @@ def check_contract(
     debrief: dict[str, Any] | None = None,
     workspace_paths: list[str] | None = None,
     artifact_contents: dict[str, str] | None = None,
+    ledger_entries: list[dict[str, Any]] | None = None,
+    citable_ids: frozenset[str] | set[str] | None = None,
 ) -> ContractVerdict:
     """Check ``content`` against ``deliverable``; return a verdict + human reasons.
 
@@ -187,9 +198,13 @@ def check_contract(
     requiring the chat body to be JSON. When the same map holds an HTML+CSS/JS web batch,
     the web seam gate cross-checks HTML class/id tokens against CSS/JS selectors. When it
     holds content surfaces (HTML / Markdown / …), the placeholder scan flags hard
-    placeholders as failures and soft self-notes as ``warnings``. Callers that cannot
-    supply contents still get existence checks via ``artifacts``; parseability / seam /
-    placeholder checks are enforced when contents are given.
+    placeholders as failures and soft self-notes as ``warnings``. When
+    ``ledger_entries`` is not ``None`` (turn evidence ledger connected; empty list
+    still counts), content surfaces are also checked with
+    :func:`~agentcore.runtime.verify.citation_quality_reworks` (same rules as chat
+    ``finish_guard``). Callers that cannot supply contents still get existence checks
+    via ``artifacts``; parseability / seam / placeholder / citation checks are
+    enforced when contents are given.
 
     交付形态对齐: for a FILE deliverable (:func:`is_file_deliverable` — ``form=files`` /
     ``requires_files`` / ``artifacts``) the same texts back the length / keyword / section
@@ -211,7 +226,12 @@ def check_contract(
     if deliverable is None:
         web_failures = check_web_seam_failures(artifact_contents)
         ph = scan_placeholder_signals(artifact_contents)
-        failures = [*web_failures, *ph.failures]
+        cite_failures = _artifact_citation_failures(
+            artifact_contents,
+            ledger_entries=ledger_entries,
+            citable_ids=citable_ids,
+        )
+        failures = [*web_failures, *ph.failures, *cite_failures]
         if failures:
             return ContractVerdict(ok=False, failures=failures, warnings=ph.warnings)
         return ContractVerdict(ok=True, warnings=ph.warnings)
@@ -304,6 +324,14 @@ def check_contract(
     # Internal coordination paths may declare hard exemption on the deliverable.
     ph = scan_placeholder_signals(artifact_contents, hard_exempt_paths=exempt_paths)
     failures.extend(ph.failures)
+    # 引用 / 书目：与 chat finish_guard 同源；仅台账接通时扫内容类落盘。
+    failures.extend(
+        _artifact_citation_failures(
+            artifact_contents,
+            ledger_entries=ledger_entries,
+            citable_ids=citable_ids,
+        )
+    )
     soft_failures: list[str] = []
     # 前端质量门禁（独立于 placeholder / web_seam）：硬=语法损坏+编造联系方式；软=anti-slop。
     if deliverable.web_quality_scan:
@@ -326,6 +354,38 @@ def check_contract(
 def missing_artifacts(patterns: list[str], workspace_paths: list[str]) -> list[str]:
     """Return artifact patterns with no match in ``workspace_paths`` (stable order)."""
     return [p for p in patterns if p and not artifact_present(p, workspace_paths)]
+
+
+def _artifact_citation_failures(
+    artifact_contents: dict[str, str] | None,
+    *,
+    ledger_entries: list[dict[str, Any]] | None,
+    citable_ids: frozenset[str] | set[str] | None,
+) -> list[str]:
+    """Scan content-surface files with chat-side citation / bibliography rules.
+
+    No-op when the turn evidence ledger is not connected (``ledger_entries is None``)
+    and ``citable_ids is None``. Code / binary paths are skipped.
+    """
+    if artifact_contents is None:
+        return []
+    if ledger_entries is None and citable_ids is None:
+        return []
+    from agentcore.runtime.verify import citation_quality_reworks
+
+    failures: list[str] = []
+    for path, text in artifact_contents.items():
+        if not path or not text or not text.strip():
+            continue
+        if not is_content_deliverable_path(path):
+            continue
+        for msg in citation_quality_reworks(
+            text,
+            citable_ids=citable_ids,
+            ledger_entries=ledger_entries,
+        ):
+            failures.append(f"`{path}`：{msg}")
+    return failures
 
 
 def artifact_present(pattern: str, workspace_paths: list[str]) -> bool:

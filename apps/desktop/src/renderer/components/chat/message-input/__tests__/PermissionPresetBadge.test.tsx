@@ -26,7 +26,7 @@ vi.mock("@/services/permissionAxes", async (importOriginal) => {
   return {
     ...actual,
     resolveDefaultPermissionAxes: vi.fn(
-      async () => actual.RECIPE_AXES.write_code,
+      async () => actual.RECIPE_AXES.less_interrupt,
     ),
     setUserDefaultRecipe: vi.fn(async (p: string) => p),
     setConversationPermissionAxes: vi.fn(),
@@ -64,16 +64,16 @@ describe("PermissionAxesBadge", () => {
   it("sets user default when current axes match a built-in recipe", async () => {
     renderBadge();
     await waitFor(() => {
-      expect(screen.getByLabelText("权限：写代码")).toBeTruthy();
+      expect(screen.getByLabelText("权限：少打断")).toBeTruthy();
     });
-    fireEvent.click(screen.getByLabelText("权限：写代码"));
+    fireEvent.click(screen.getByLabelText("权限：少打断"));
     const btn = screen.getByRole("button", { name: "设为新会话默认" });
     expect((btn as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(btn);
     await waitFor(() => {
-      expect(setUserDefaultMock).toHaveBeenCalledWith("write_code");
+      expect(setUserDefaultMock).toHaveBeenCalledWith("less_interrupt");
       expect(notifySuccess).toHaveBeenCalledWith(
-        expect.stringContaining("写代码"),
+        expect.stringContaining("少打断"),
       );
     });
   });

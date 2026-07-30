@@ -17,6 +17,13 @@ describe("syntheticErrorForEmptyFailure", () => {
     });
   });
 
+  it("synthesizes a card for empty unproductive-finished turns", () => {
+    expect(syntheticErrorForEmptyFailure("unproductive")).toEqual({
+      code: "LLM_UNPRODUCTIVE",
+      message: "工具连续无有效进展或参数无效，请重试。",
+    });
+  });
+
   it("keeps upstream rate-limit product copy when code is known", () => {
     expect(syntheticErrorForEmptyFailure("error", "LLM_RATE_LIMIT")).toEqual({
       code: "LLM_RATE_LIMIT",
@@ -24,9 +31,10 @@ describe("syntheticErrorForEmptyFailure", () => {
     });
   });
 
-  it("returns null for non-error finishes", () => {
+  it("returns null for non-failure finishes", () => {
     expect(syntheticErrorForEmptyFailure("end_turn")).toBeNull();
     expect(syntheticErrorForEmptyFailure("degraded")).toBeNull();
+    expect(syntheticErrorForEmptyFailure("max_rounds")).toBeNull();
     expect(syntheticErrorForEmptyFailure(undefined)).toBeNull();
   });
 });

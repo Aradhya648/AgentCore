@@ -46,6 +46,24 @@ async def test_generate_title_degrades_to_truncated_on_llm_failure():
     assert out.title == fallback_title(user)
 
 
+async def test_generate_title_reraise_llm_auth_error():
+    import pytest
+
+    from agentcore.core.errors import LLMAuthError
+
+    class _AuthBoom:
+        async def complete(self, _request):
+            raise LLMAuthError(provider_name="platform")
+
+    with pytest.raises(LLMAuthError):
+        await generate_title(
+            provider=_AuthBoom(),  # type: ignore[arg-type]
+            conversation_id="c1",
+            user_message="帮我设计登录",
+            assistant_reply="好的",
+        )
+
+
 async def test_generate_title_falls_back_on_truncated_json_body():
     """Empty/half JSON after length-truncation → user-message prefix, never `{\"title`."""
     from agentcore.llm import LLMResponse
@@ -180,11 +198,18 @@ async def test_mint_writes_fallback_and_emits_when_llm_fails(monkeypatch):
 
     monkeypatch.setattr(common, "async_session_factory", lambda: _FakeSessionCM())
     monkeypatch.setattr(common, "ConversationRepository", _ConvRepo)
-    monkeypatch.setattr(
-        common,
-        "resolve_and_gate_background",
-        AsyncMock(return_value=SimpleNamespace()),
-    )
+
+    async def _run_bg(user_id, *, purpose="title", runner):
+        from agentcore.billing.gate import BackgroundLlmResult
+        from agentcore.llm.credentials import LLMCredentials
+
+        creds = LLMCredentials(
+            api_key="sk", base_url="https://x", default_model="flash", source="platform"
+        )
+        value = await runner(creds)
+        return BackgroundLlmResult(value=value, credentials=creds)
+
+    monkeypatch.setattr(common, "run_background_llm", _run_bg)
     monkeypatch.setattr(common, "resolve_turn_model", lambda _c: "flash")
     monkeypatch.setattr(
         common,
@@ -240,11 +265,18 @@ async def test_mint_emits_best_effort_when_sink_closed(monkeypatch):
 
     monkeypatch.setattr(common, "async_session_factory", lambda: _FakeSessionCM())
     monkeypatch.setattr(common, "ConversationRepository", _ConvRepo)
-    monkeypatch.setattr(
-        common,
-        "resolve_and_gate_background",
-        AsyncMock(return_value=SimpleNamespace()),
-    )
+
+    async def _run_bg(user_id, *, purpose="title", runner):
+        from agentcore.billing.gate import BackgroundLlmResult
+        from agentcore.llm.credentials import LLMCredentials
+
+        creds = LLMCredentials(
+            api_key="sk", base_url="https://x", default_model="flash", source="platform"
+        )
+        value = await runner(creds)
+        return BackgroundLlmResult(value=value, credentials=creds)
+
+    monkeypatch.setattr(common, "run_background_llm", _run_bg)
     monkeypatch.setattr(common, "resolve_turn_model", lambda _c: "flash")
     monkeypatch.setattr(
         common,
@@ -317,7 +349,7 @@ async def test_stream_chat_schedules_title_before_turn(monkeypatch):
     monkeypatch.setattr(
         turns_mod,
         "resolve_permission_axes",
-        AsyncMock(return_value=recipe_to_axes(AutonomyPolicy.WRITE_CODE)),
+        AsyncMock(return_value=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)),
     )
     monkeypatch.setattr(
         turns_mod,
@@ -402,7 +434,7 @@ async def test_stream_chat_skips_title_when_already_named(monkeypatch):
     monkeypatch.setattr(
         turns_mod,
         "resolve_permission_axes",
-        AsyncMock(return_value=recipe_to_axes(AutonomyPolicy.WRITE_CODE)),
+        AsyncMock(return_value=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)),
     )
     monkeypatch.setattr(
         turns_mod,

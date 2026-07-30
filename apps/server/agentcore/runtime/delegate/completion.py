@@ -41,9 +41,11 @@ CriteriaSource = Literal["explicit", "structured", "text_inferred"]
 # Must stay aligned with ``code_execution_enabled_for`` / worker registry execution class.
 _EXECUTION_TOOL_NAMES = frozenset({"code_execute", "test_run", "terminal"})
 
-# D2: TypeScript landings require a real verify signal (not task-text inference).
+# Soft overlay: TypeScript landings may remind about verify (not task-text inference).
+# Soft only — never blocks the batch / criteria_unmet; explicit code_verified still binds.
 _TYPESCRIPT_SUFFIXES = frozenset({".ts", ".tsx"})
-# Graph auto-scan: .ts/.tsx/.vue landings (parallel to D2).
+# Soft overlay: .ts/.tsx/.vue landings may remind about import closure (parallel to D2).
+# Soft only; explicit graph_consistent still binds.
 _GRAPH_SOURCE_SUFFIXES = frozenset({".ts", ".tsx", ".vue"})
 
 # Commands that count as code verification when run via terminal / code_execute.
@@ -1009,10 +1011,27 @@ def _run_runtime_ready_in_transcript(transcript: list[LLMMessage]) -> bool:
 
 
 def _verify_gap_message() -> str:
+    """Binding gap copy for explicit ``code_verified``."""
     return (
         "尚无 worker 成功验证代码（须 code_execute / test_run / terminal 跑通 "
-        "tsc|typecheck|test|build 等；落盘了 .ts/.tsx 时强制；启动开发服务器不算）"
+        "tsc|typecheck|test|build 等；启动开发服务器不算）"
     )
+
+
+def _overlay_verify_soft_note() -> str:
+    """Soft reminder when .ts/.tsx landed without a verify signal (D2 overlay)."""
+    return (
+        "提醒（不阻断验收）：已落盘 .ts/.tsx，建议补一次验证"
+        "（code_execute / test_run / terminal 跑通 tsc|typecheck|test|build；"
+        "启动开发服务器不算）"
+    )
+
+
+def _as_overlay_soft_note(msg: str) -> str:
+    """Mark auto-scan / overlay copy as soft for delivery_status (warning / notes)."""
+    if "不阻断验收" in (msg or ""):
+        return msg
+    return f"提醒（不阻断验收）：{msg}"
 
 
 def _runtime_ready_gap_message() -> str:
@@ -1040,54 +1059,59 @@ def check_delegate_completion(
     *,
     backend: Any = None,
     file_map: dict[str, str] | None = None,
-) -> tuple[bool, list[str]]:
-    """Return ``(ok, gaps)`` after all workers in a delegate batch finish.
+) -> tuple[bool, list[str], list[str]]:
+    """Return ``(ok, binding_gaps, soft_notes)`` after all workers finish.
 
-    Explicit ``criteria`` is evaluated against every COMPLETED worker's real
-    signals (``files_touched``, transcript tool results, handoff ``debrief``,
-    prose ``content``)—not only workers with non-empty body text. A pure
-    file_write / handoff finish with empty streamed content must still be
-    checked; with no matching evidence the result is a gap, never a vacuous
-    pass. ``criteria is None`` (omitted) remains unenforced for files/custom,
-    but **TypeScript landings always require a verify signal** (D2 — structured
-    from ``files_touched``, not task-text inference), and **``.ts/.tsx/.vue``
-    landings auto-scan import graph** (like D2; skipped for ``runtime_ready``).
+    Explicit / structured ``criteria`` is evaluated against every COMPLETED
+    worker's real signals (``files_touched``, transcript tool results, handoff
+    ``debrief``, prose ``content``)—not only workers with non-empty body text.
+    A pure file_write / handoff finish with empty streamed content must still be
+    checked; with no matching evidence the result is a binding gap, never a
+    vacuous pass.
 
-    ``backend`` / ``file_map`` feed ``graph_consistent`` reads (``file_map``
-    preferred when pre-loaded async by drive_finalize).
+    ``ok`` is True iff ``binding_gaps`` is empty. Soft overlays (D2: .ts/.tsx
+    without verify; auto import-graph scan on .ts/.tsx/.vue) produce
+    ``soft_notes`` only — they do **not** block the batch, do **not** fire
+    ``criteria_unmet``, and do **not** feed gap fingerprint / streak. Explicit
+    ``code_verified`` / ``graph_consistent`` remain binding. Soft overlays are
+    skipped for ``runtime_ready`` batches and when the matching kind is already
+    the binding criteria.
+
+    ``backend`` / ``file_map`` feed ``graph_consistent`` / auto-scan reads
+    (``file_map`` preferred when pre-loaded async by drive_finalize).
     """
     # Include all COMPLETED workers — empty body is a valid finish mode
     # (落盘 / handoff-only). Filtering on content.strip() used to drop them
     # and vacuous-pass when the filtered set was empty.
     completed = [s for s in results.values() if s.phase is RunPhase.COMPLETED]
     if not completed:
-        return True, []
+        return True, [], []
 
-    gaps: list[str] = []
+    binding_gaps: list[str] = []
     if criteria is not None:
         if criteria.kind == "files_written":
             if not any(_worker_files_written(s) for s in completed):
                 from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
 
                 tools = format_file_landing_tools_slash()
-                gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
+                binding_gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
         elif criteria.kind == "code_verified":
             if not any(_run_verified_in_transcript(s.transcript) for s in completed):
-                gaps.append(_verify_gap_message())
+                binding_gaps.append(_verify_gap_message())
             # 乙第二刀：真绿 verify 之外还须至少一次成功落盘——零写 + 预存绿测不得当修好。
             if not any(_worker_files_written(s) for s in completed):
                 from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
 
                 tools = format_file_landing_tools_slash()
-                gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
+                binding_gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
         elif criteria.kind == "runtime_ready":
             if not any(
                 _run_runtime_ready_in_transcript(s.transcript or []) for s in completed
             ):
-                gaps.append(_runtime_ready_gap_message())
+                binding_gaps.append(_runtime_ready_gap_message())
         elif criteria.kind == "graph_consistent":
             _append_graph_gaps(
-                gaps, completed=completed, backend=backend, file_map=file_map
+                binding_gaps, completed=completed, backend=backend, file_map=file_map
             )
         elif criteria.kind == "custom":
             # custom is intentionally not engine-verified. Never block completion on it —
@@ -1095,36 +1119,34 @@ def check_delegate_completion(
             # files_written / code_verified / runtime_ready / deliverable.artifacts.
             pass
 
-    # D2: any .ts/.tsx landing → require verify even when criteria omitted /
-    # files_written-only (catches「清单全绿但 tsc 不过」).
-    # Skip when batch acceptance is runtime_ready — start ≠ compile/test verify.
+    soft_notes: list[str] = []
+    kind = criteria.kind if criteria is not None else None
+    # Soft D2: .ts/.tsx landed without verify — remind only (not criteria_unmet).
+    # Skip when binding is already code_verified, or batch is runtime_ready.
     if (
-        (criteria is None or criteria.kind != "runtime_ready")
+        kind not in ("runtime_ready", "code_verified")
         and _batch_landed_typescript(completed)
         and not any(
             _run_verified_in_transcript(s.transcript or []) for s in completed
         )
     ):
-        msg = _verify_gap_message()
-        if msg not in gaps:
-            gaps.append(msg)
+        soft_notes.append(_overlay_verify_soft_note())
 
-    # Auto graph scan: .ts/.tsx/.vue landings → import closure (parallel to D2).
-    # Explicit graph_consistent already ran above; still run auto when other kinds
-    # (or omitted) so SPA batches cannot green with dangling imports.
-    # Skip runtime_ready batches (process-ready ≠ graph scan).
-    if (
-        (criteria is None or criteria.kind != "runtime_ready")
-        and _batch_landed_graph_sources(completed)
+    # Soft auto graph scan: .ts/.tsx/.vue landings → import closure reminder.
+    # Explicit graph_consistent already ran as binding; skip duplicate.
+    if kind not in ("runtime_ready", "graph_consistent") and _batch_landed_graph_sources(
+        completed
     ):
+        overlay_graph: list[str] = []
         _append_graph_gaps(
-            gaps, completed=completed, backend=backend, file_map=file_map
+            overlay_graph, completed=completed, backend=backend, file_map=file_map
         )
+        for msg in overlay_graph:
+            note = _as_overlay_soft_note(msg)
+            if note not in soft_notes:
+                soft_notes.append(note)
 
-    if criteria is not None and criteria.kind == "custom" and not gaps:
-        return True, []
-
-    return (not gaps, gaps)
+    return (not binding_gaps, binding_gaps, soft_notes)
 
 
 def collect_delivered_files(results: dict[str, RunState]) -> list[str]:
@@ -1146,10 +1168,10 @@ def gap_fingerprint(
 ) -> tuple[str, ...]:
     """Stable key for same-gap streak tracking across consecutive delegates.
 
-    ``criteria_kind`` is the **binding** kind only. Unbound (``None``) uses an
-    empty-string sentinel — not a fake enum like ``typescript_verify`` — so
-    overlay-only gaps (TS verify / graph) still streak together without
-    polluting the criteria vocabulary.
+    Callers must pass **binding** gaps only. Soft overlays (D2 / auto graph)
+    never enter fingerprint / streak. ``criteria_kind`` is the binding kind;
+    unbound (``None``) uses an empty-string sentinel — not a fake enum like
+    ``typescript_verify``.
     """
     kind_key = criteria_kind if criteria_kind is not None else ""
     return (kind_key, *gaps)

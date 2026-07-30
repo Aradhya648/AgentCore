@@ -49,6 +49,14 @@ logger = get_logger(__name__)
 
 _MAX_PAGE_SIZE = 100
 _DEFAULT_PAGE_SIZE = 50
+# Reply-quote body preview: keep short for bubble quote bars.
+_REPLY_PREVIEW_MAX = 100
+_OFFICIAL_DISPLAY_NAME = "官方号"
+_ATTACHMENT_PREVIEW_LABELS = {
+    "image": "[图片]",
+    "file": "[文件]",
+    "system_card": "[系统消息]",
+}
 
 
 @dataclass(frozen=True)
@@ -185,17 +193,34 @@ class MessagingService:
         return ChatView(chat=chat, member=member, peer=peer, unread=0)
 
     async def join_auto_join_chats(self, *, user_id: str) -> None:
-        """Enroll a user into every auto-join chat (the 内测全员群 mechanism).
+        """Enroll a user into every auto-join chat (内测群 + official broadcast).
 
         Called once at registration. Idempotent per chat — a user already in a
         chat is left untouched (so re-running never resets their state). Pinned on
-        join so the 内测群 surfaces at the top of a brand-new user's list.
+        join so the chat surfaces at the top of a brand-new user's list.
         """
         chats = await self._chats.list_auto_join_chats()
         for chat in chats:
             await self._chats.add_member(chat.id, user_id, pinned=True)
         if chats:
             logger.info("chat.auto_join", user=user_id, chats=[c.id for c in chats])
+
+    async def ensure_official_membership(self, *, user_id: str) -> None:
+        """Idempotent enrollment into the official broadcast chat.
+
+        Leave is forbidden on the official chat, so login / list-chats may call
+        this as a兜底 for accounts that missed registration auto-join (e.g.
+        created before the official chat migration). Does **not** re-enroll
+        leavers of the 内测群 (that chat remains registration-only). No-ops when
+        the official chat row is absent (pre-migration).
+        """
+        chat = await self._chats.get_official_chat()
+        if chat is None:
+            return
+        if await self._chats.get_member(chat.id, user_id) is not None:
+            return
+        await self._chats.add_member(chat.id, user_id, pinned=True)
+        logger.info("chat.auto_join", user=user_id, chats=[chat.id])
 
     async def list_members(self, *, chat_id: str, user_id: str) -> list[MemberView]:
         """The members of a chat (for the group roster + member panel).
@@ -223,11 +248,12 @@ class MessagingService:
         return views
 
     async def leave_chat(self, *, chat_id: str, user_id: str) -> None:
-        """Leave a group/official chat (removes this user's membership).
+        """Leave a group chat (removes this user's membership).
 
-        Non-members 404. Dms can't be "left" (they're a pair, not a room) — that
-        is a hide/delete semantic, out of scope here. Auto-join fires only at
-        registration, so leaving the 内测群 sticks (no re-enrollment on login).
+        Non-members 404. Dms can't be "left" (they're a pair, not a room). The
+        official broadcast chat also refuses leave (422) — membership is
+        mandatory and list/login兜底 would re-enroll anyway. Auto-join for the
+        内测群 fires only at registration, so leaving that group sticks.
         """
         member = await self._chats.get_member(chat_id, user_id)
         if member is None:
@@ -235,6 +261,8 @@ class MessagingService:
         chat = await self._chats.get_chat(chat_id)
         if chat is not None and chat.type == "dm":
             raise ValidationError("单聊不支持退出")
+        if chat is not None and chat.type == "official":
+            raise ValidationError("官方号不支持退出")
         await self._chats.remove_member(chat_id, user_id)
         logger.info("chat.left", chat=chat_id, user=user_id)
 
@@ -314,6 +342,49 @@ class MessagingService:
         logger.info("chat.announced", chat=chat_id, by=actor_id)
         return message
 
+    async def publish_product_notice(
+        self,
+        *,
+        notice_id: str,
+        title: str,
+        body: str,
+        severity: str,
+        surface: str,
+        cta_label: str | None = None,
+        cta_url: str | None = None,
+    ) -> ChatMessage | None:
+        """Mirror a published product Notice into the official broadcast chat.
+
+        Only ``surface ∈ {inbox, both}`` writes an IM message (banner-only stays
+        on the Notice surfaces). One shared ``system_card`` for all members —
+        never per-user copies. Returns ``None`` when the surface skips IM.
+        """
+        if surface not in ("inbox", "both"):
+            return None
+        chat = await self._chats.get_or_create_official_chat()
+        payload: dict[str, Any] = {
+            "kind": "product_notice",
+            "notice_id": notice_id,
+            "severity": severity,
+        }
+        if cta_label:
+            payload["cta_label"] = cta_label
+        if cta_url:
+            payload["cta_url"] = cta_url
+        content = f"{title}\n{body}".strip() if body else title
+        message = await self._post_system_card(
+            chat_id=chat.id,
+            content=content,
+            payload=payload,
+        )
+        logger.info(
+            "chat.product_notice_published",
+            chat=chat.id,
+            notice_id=notice_id,
+            surface=surface,
+        )
+        return message
+
     async def _require_moderatable_group(self, chat_id: str) -> Chat:
         """Resolve a chat that supports moderation (group/official, not a dm)."""
         chat = await self._chats.get_chat(chat_id)
@@ -375,7 +446,11 @@ class MessagingService:
     async def list_chats(self, *, user_id: str) -> list[ChatView]:
         """The user's chat list (pinned first, then recent), with unread counts and
         dm peers resolved in batch (no N+1).
+
+        Ensures official-chat membership before listing (兜底 for accounts that
+        missed registration auto-join after the official chat was introduced).
         """
+        await self.ensure_official_membership(user_id=user_id)
         memberships = await self._chats.list_memberships(user_id)
         # Resolve "the other human" only for dms — a group/official chat has no
         # single peer (the client renders its title), and picking an arbitrary
@@ -410,15 +485,19 @@ class MessagingService:
         content_type: str = "text",
         attachments: list | None = None,
         reply_to_message_id: str | None = None,
+        mentions: list[dict[str, Any]] | None = None,
         client_msg_id: str | None = None,
     ) -> ChatMessage:
         """Send a message into a chat the user belongs to.
 
-        Non-members get 404 (IDOR-safe — no existence leak). In a dm, a block in
-        either direction refuses the send. A reply by the party who was holding a
-        pending message-request accepts it. The stored message is fanned out to
-        every member's live connections (sender included, for multi-device).
-        ``content`` may be empty for a 富消息 carrying only ``attachments``.
+        Non-members get 404 (IDOR-safe — no existence leak). Users cannot send
+        into the official broadcast chat (422 — read-only fan-in). In a dm, a
+        block in either direction refuses the send. A reply by the party who was
+        holding a pending message-request accepts it. The stored message is
+        fanned out to every member's live connections (sender included, for
+        multi-device). ``content`` may be empty for a 富消息 carrying only
+        ``attachments``. Structured ``mentions`` are validated and frozen onto
+        the row (accepted members only; ``@所有人`` = group + platform admin).
         """
         member = await self._chats.get_member(chat_id, sender_id)
         if member is None:
@@ -426,6 +505,8 @@ class MessagingService:
         chat = await self._chats.get_chat(chat_id)
         if chat is None:
             raise NotFoundError("会话不存在")
+        if chat.type == "official":
+            raise ValidationError("官方号不支持发送消息")
         if member.muted_by_admin:
             raise AuthorizationError("你已被管理员禁言，暂时无法发言")
 
@@ -435,13 +516,22 @@ class MessagingService:
             if peer_id and await self._blocks.is_blocked_between(sender_id, peer_id):
                 raise AuthorizationError("无法向该用户发送消息")
 
+        reply_id, reply_snapshot = await self._resolve_reply_to(
+            chat_id=chat_id, reply_to_message_id=reply_to_message_id
+        )
+        frozen_mentions = await self._resolve_mentions(
+            chat=chat, sender_id=sender_id, mentions=mentions
+        )
+
         message = await self._chats.add_message(
             chat_id=chat_id,
             sender_user_id=sender_id,
             content=content,
             content_type=content_type,
             attachments=attachments,
-            reply_to_message_id=reply_to_message_id,
+            reply_to_message_id=reply_id,
+            reply_to=reply_snapshot,
+            mentions=frozen_mentions,
             client_msg_id=client_msg_id,
         )
 
@@ -451,6 +541,102 @@ class MessagingService:
         members = await self._chats.list_members(chat_id)
         await self._events.publish([m.user_id for m in members], self._message_event(message))
         return message
+
+    async def _resolve_reply_to(
+        self, *, chat_id: str, reply_to_message_id: str | None
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        """Validate ``reply_to_message_id`` and freeze a lightweight quote snapshot.
+
+        Target must exist and share ``chat_id`` (else 422). Snapshot is written onto
+        the new message so a later recall of the target still leaves a readable quote.
+        """
+        if not reply_to_message_id:
+            return None, None
+        target = await self._chats.get_message(reply_to_message_id)
+        if target is None or target.chat_id != chat_id:
+            raise ValidationError("回复的消息不存在或不属于当前会话")
+        display_name = _OFFICIAL_DISPLAY_NAME
+        if target.sender_user_id:
+            user = await self._users.get_by_id(target.sender_user_id)
+            display_name = (
+                (user.display_name if user and user.display_name else None)
+                or (user.username if user else None)
+                or "用户"
+            )
+        return reply_to_message_id, {
+            "sender_user_id": target.sender_user_id,
+            "sender_display_name": display_name,
+            "body_preview": self._body_preview(target),
+        }
+
+    async def _resolve_mentions(
+        self,
+        *,
+        chat: Chat,
+        sender_id: str,
+        mentions: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]]:
+        """Validate and freeze structured mentions (deduped; source of truth).
+
+        ``kind=user``: ``user_id`` must be an *accepted* member of this chat (422).
+        ``kind=everyone``: group only (422 on dm); caller must be platform admin
+        (``users.role == 'admin'``) else 403. Same rule for 内测全员群 and other groups.
+        """
+        if not mentions:
+            return []
+
+        members = await self._chats.list_members(chat.id)
+        accepted_ids = {m.user_id for m in members if m.state == "accepted"}
+
+        frozen: list[dict[str, Any]] = []
+        seen_users: set[str] = set()
+        saw_everyone = False
+
+        for raw in mentions:
+            kind = raw.get("kind") if isinstance(raw, dict) else None
+            if kind == "user":
+                user_id = raw.get("user_id")
+                if not isinstance(user_id, str) or not user_id:
+                    raise ValidationError("@提及的用户无效")
+                if user_id in seen_users:
+                    continue
+                if user_id not in accepted_ids:
+                    raise ValidationError("@提及的用户不是本会话成员")
+                seen_users.add(user_id)
+                frozen.append({"kind": "user", "user_id": user_id})
+            elif kind == "everyone":
+                if saw_everyone:
+                    continue
+                if chat.type != "group":
+                    raise ValidationError("单聊不支持@所有人")
+                sender = await self._users.get_by_id(sender_id)
+                if sender is None or getattr(sender, "role", None) != "admin":
+                    raise AuthorizationError("仅平台管理员可@所有人")
+                saw_everyone = True
+                frozen.append({"kind": "everyone"})
+            else:
+                raise ValidationError("@提及类型无效")
+
+        return frozen
+
+    @staticmethod
+    def _body_preview(message: ChatMessage) -> str:
+        """Truncate body text, or fall back to an attachment-type label."""
+        text = (message.content or "").strip()
+        if text:
+            return text[:_REPLY_PREVIEW_MAX]
+        label = _ATTACHMENT_PREVIEW_LABELS.get(message.content_type)
+        if label:
+            return label
+        attachments = message.attachments or []
+        if attachments:
+            # Prefer image label when any attachment carries a thumbnail.
+            if any(
+                isinstance(a, dict) and a.get("thumb_path") for a in attachments
+            ):
+                return "[图片]"
+            return "[文件]"
+        return ""
 
     # --- Attachments (富消息: 图/文件，复用工作区存储) ---
     # A chat owns a shared ``ServerWorkspace`` (build_chat_workspace) under
@@ -476,6 +662,9 @@ class MessagingService:
         """
         if await self._chats.get_member(chat_id, user_id) is None:
             raise NotFoundError("会话不存在")
+        chat = await self._chats.get_chat(chat_id)
+        if chat is not None and chat.type == "official":
+            raise ValidationError("官方号不支持发送消息")
         backend = build_chat_workspace(chat_id)
         try:
             size_bytes = await backend.write_bytes(path, data)
@@ -599,6 +788,8 @@ class MessagingService:
                 "attachments": message.attachments or [],
                 "payload": message.payload,
                 "reply_to_message_id": message.reply_to_message_id,
+                "reply_to": message.reply_to,
+                "mentions": message.mentions or [],
                 "created_at": (message.created_at.isoformat() if message.created_at else None),
             },
         }

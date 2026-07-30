@@ -62,8 +62,8 @@ function openBoundConversation(
     localContainerRootId: null,
     permissionAxes: {
       file_write: "session",
-      command: "kickoff",
-      team_kickoff: "rules",
+      command: "auto",
+      team_kickoff: "skip",
       host: "ask",
     },
   });

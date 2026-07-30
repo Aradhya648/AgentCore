@@ -37,7 +37,7 @@ def test_parse_defaults_to_no_enforcement_when_omitted():
 
 def test_omitted_criteria_is_backward_compatible():
     criteria = parse_completion_criteria(None)
-    ok, gaps = check_delegate_completion(criteria, {"a": _run()})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run()})
     assert ok
     assert gaps == []
 
@@ -45,23 +45,23 @@ def test_omitted_criteria_is_backward_compatible():
 def test_custom_criteria_does_not_block_completion():
     # custom is not engine-verified — must not mark successful delegates unfinished.
     criteria = parse_completion_criteria({"type": "custom", "description": "用户满意即可"})
-    ok, gaps = check_delegate_completion(criteria, {"a": _run()})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run()})
     assert ok
     assert gaps == []
 
     criteria_bare = parse_completion_criteria("custom")
-    ok, gaps = check_delegate_completion(criteria_bare, {"a": _run()})
+    ok, gaps, _soft = check_delegate_completion(criteria_bare, {"a": _run()})
     assert ok
     assert gaps == []
 
 
 def test_files_written_requires_workspace_write():
     criteria = parse_completion_criteria("files_written")
-    ok, gaps = check_delegate_completion(criteria, {"a": _run()})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run()})
     assert not ok
     assert "落盘" in gaps[0]
 
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(files=["main.py"])})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(files=["main.py"])})
     assert ok
     assert gaps == []
 
@@ -69,7 +69,7 @@ def test_files_written_requires_workspace_write():
 def test_code_verified_rejects_bare_code_execute():
     """Non-verify code_execute must not satisfy code_verified (no compat fallback)."""
     criteria = parse_completion_criteria("code_verified")
-    ok, _ = check_delegate_completion(criteria, {"a": _run()})
+    ok, _, _soft = check_delegate_completion(criteria, {"a": _run()})
     assert not ok
 
     bare = [
@@ -85,7 +85,7 @@ def test_code_verified_rejects_bare_code_execute():
         ),
         LLMMessage(role="tool", content="stdout:\n1\n", tool_call_id="tc1"),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=bare)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=bare)})
     assert not ok
     assert any("验证" in g or "code_execute" in g for g in gaps)
 
@@ -113,7 +113,7 @@ def test_code_verified_accepts_verify_shaped_code_execute_exit_zero():
         ),
     ]
     # 乙第二刀：验绿之外还须落盘信号，避免「零写预存绿测」假绿。
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run(files=["src/fixed.ts"], transcript=transcript)}
     )
     assert ok
@@ -140,7 +140,7 @@ def test_code_verified_green_verify_without_landing_is_gap():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
     assert not ok
     assert any("落盘" in g for g in gaps)
     assert not any("验证" in g for g in gaps)  # verify 已绿，缺口只在落盘
@@ -166,7 +166,7 @@ def test_code_verified_green_verify_with_files_touched_passes():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run(files=["app.py"], transcript=transcript)}
     )
     assert ok
@@ -192,7 +192,7 @@ def test_code_execute_verify_requires_explicit_exit_zero():
         ),
         LLMMessage(role="tool", content="stdout:\nok\n", tool_call_id="tc1"),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=no_exit)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=no_exit)})
     assert not ok
     assert gaps
 
@@ -216,18 +216,21 @@ def test_code_execute_verify_requires_explicit_exit_zero():
             tool_call_id="tc2",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=nonzero)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=nonzero)})
     assert not ok
     assert gaps
 
 
-def test_typescript_landing_requires_verify_even_when_criteria_omitted():
-    """D2: .ts/.tsx 落盘后，省略 completion_criteria 也不得空过验证。"""
-    ok, gaps = check_delegate_completion(
+def test_typescript_landing_soft_note_when_criteria_omitted():
+    """D2 overlay: .ts/.tsx 落盘无 verify → soft note only，不挡批次 / 无 unmet。"""
+    ok, gaps, soft = check_delegate_completion(
         None, {"a": _run(files=["src/canvas/renderer.ts"])}
     )
-    assert not ok
-    assert any("验证" in g for g in gaps)
+    assert ok
+    assert gaps == []
+    assert soft
+    assert any("不阻断验收" in g for g in soft)
+    assert any("验证" in g for g in soft)
 
     transcript = [
         LLMMessage(
@@ -249,12 +252,13 @@ def test_typescript_landing_requires_verify_even_when_criteria_omitted():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(
+    ok, gaps, soft = check_delegate_completion(
         None,
         {"a": _run(files=["src/canvas/renderer.ts"], transcript=transcript)},
     )
     assert ok
     assert gaps == []
+    assert soft == []
 
 
 def test_terminal_tsc_counts_as_verify():
@@ -279,7 +283,7 @@ def test_terminal_tsc_counts_as_verify():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run(files=["src/main.ts"], transcript=transcript)}
     )
     assert ok
@@ -287,7 +291,7 @@ def test_terminal_tsc_counts_as_verify():
 
 
 def test_md_landing_without_verify_still_ok_when_omitted():
-    ok, gaps = check_delegate_completion(None, {"a": _run(files=["notes.md"])})
+    ok, gaps, _soft = check_delegate_completion(None, {"a": _run(files=["notes.md"])})
     assert ok
     assert gaps == []
 
@@ -476,7 +480,7 @@ def test_delegate_tool_same_gap_streak_escalates_at_two():
 
 
 def test_delegate_tool_unbound_criteria_same_gap_streak():
-    """Overlay-only unmet (binding None) keeps same-gap streak via empty sentinel."""
+    """Fingerprint API still streaks on None binding; soft overlays never call it."""
     from agentcore.core.types import AutonomyPolicy, recipe_to_axes
     from agentcore.runtime.events import EventSink
     from agentcore.tools.builtin.delegate import DelegateTool
@@ -607,7 +611,7 @@ def test_format_worker_gaps_audit_off_token_budget_tip():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run(files=["fixed.py"], transcript=transcript)}
     )
     assert ok
@@ -628,7 +632,7 @@ def _run_empty_body(*, files: list[str] | None = None, debrief: dict | None = No
 def test_files_written_empty_body_with_disk_write_passes():
     """Pure file_write finish (empty content) must still satisfy files_written."""
     criteria = parse_completion_criteria("files_written")
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run_empty_body(files=["index.html"])}
     )
     assert ok
@@ -638,7 +642,7 @@ def test_files_written_empty_body_with_disk_write_passes():
 def test_files_written_empty_body_without_evidence_is_gap_not_vacuous_pass():
     """COMPLETED + empty body + no 落盘 must gap — never vacuous-pass the empty set."""
     criteria = parse_completion_criteria("files_written")
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria,
         {"a": _run_empty_body(debrief={"summary": "写完了"})},
     )
@@ -648,7 +652,7 @@ def test_files_written_empty_body_without_evidence_is_gap_not_vacuous_pass():
 
 def test_code_verified_empty_body_without_verify_is_gap():
     criteria = parse_completion_criteria("code_verified")
-    ok, gaps = check_delegate_completion(criteria, {"a": _run_empty_body()})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run_empty_body()})
     assert not ok
     assert any("验证" in g or "code_execute" in g for g in gaps)
     assert any("落盘" in g for g in gaps)
@@ -826,7 +830,7 @@ def test_files_written_gap_lists_landing_tools_from_serialize():
     from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
 
     criteria = parse_completion_criteria("files_written")
-    ok, gaps = check_delegate_completion(criteria, {"a": _run()})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run()})
     assert not ok
     expected = format_file_landing_tools_slash()
     assert expected in gaps[0]
@@ -870,7 +874,7 @@ def test_parse_runtime_ready():
 
 def test_runtime_ready_accepts_terminal_wait_for_matched():
     criteria = parse_completion_criteria("runtime_ready")
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run(transcript=_terminal_ready_transcript())}
     )
     assert ok
@@ -900,7 +904,7 @@ def test_runtime_ready_rejects_verify_shaped_only():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
     assert not ok
     assert any("进程就绪" in g for g in gaps)
 
@@ -908,7 +912,7 @@ def test_runtime_ready_rejects_verify_shaped_only():
 def test_code_verified_rejects_dev_server_start():
     """npm run dev ready must not satisfy code_verified."""
     criteria = parse_completion_criteria("code_verified")
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria, {"a": _run(transcript=_terminal_ready_transcript())}
     )
     assert not ok
@@ -1048,7 +1052,7 @@ def test_runtime_ready_rejects_read_without_start():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
     assert not ok
     assert any("进程就绪" in g for g in gaps)
 
@@ -1079,13 +1083,13 @@ def test_runtime_ready_ignores_matched_true_inside_output():
             tool_call_id="tc1",
         ),
     ]
-    ok, gaps = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
+    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(transcript=transcript)})
     assert not ok
 
 
 def test_d2_skipped_when_runtime_ready_even_if_tsx_landed():
     criteria = parse_completion_criteria("runtime_ready")
-    ok, gaps = check_delegate_completion(
+    ok, gaps, soft = check_delegate_completion(
         criteria,
         {
             "a": _run(
@@ -1096,14 +1100,17 @@ def test_d2_skipped_when_runtime_ready_even_if_tsx_landed():
     )
     assert ok
     assert gaps == []
+    assert soft == []
 
 
-def test_d2_still_applies_when_criteria_omitted_with_tsx():
-    ok, gaps = check_delegate_completion(
+def test_d2_overlay_soft_note_when_criteria_omitted_with_tsx():
+    ok, gaps, soft = check_delegate_completion(
         None, {"a": _run(files=["src/App.tsx"])}
     )
-    assert not ok
-    assert any("验证" in g for g in gaps)
+    assert ok
+    assert gaps == []
+    assert soft
+    assert any("不阻断验收" in g and "验证" in g for g in soft)
 
 
 def test_graph_consistent_missing_import_gap():
@@ -1113,7 +1120,7 @@ def test_graph_consistent_missing_import_gap():
     file_map = {
         "src/App.vue": "import Home from './views/Home.vue'\n",
     }
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria,
         {"a": _run(files=["src/App.vue"])},
         file_map=file_map,
@@ -1131,31 +1138,35 @@ def test_graph_consistent_closed_graph_ok():
         "src/App.vue": "import Home from './views/Home.vue'\n",
         "src/views/Home.vue": "<template><div>ok</div></template>\n",
     }
-    ok, gaps = check_delegate_completion(
+    ok, gaps, soft = check_delegate_completion(
         criteria,
         {
             "a": _run(files=["src/App.vue", "src/views/Home.vue"]),
         },
         file_map=file_map,
     )
-    # D2 still requires verify for .ts/.tsx; .vue-only batch without verify is fine
-    # for graph — but if only .vue, typescript D2 won't fire.
+    # .vue-only: no D2 soft verify; closed graph → no soft graph note either.
     assert ok
     assert gaps == []
+    assert soft == []
 
 
-def test_auto_graph_scan_on_vue_landing():
+def test_auto_graph_scan_soft_note_on_vue_landing():
     file_map = {
         "src/main.ts": "import App from './App.vue'\n",
     }
-    # Has .ts → D2 verify gap + graph missing App.vue
-    ok, gaps = check_delegate_completion(
+    # Has .ts → soft D2 verify note + soft graph missing App.vue; batch still ok.
+    ok, gaps, soft = check_delegate_completion(
         None,
         {"a": _run(files=["src/main.ts"])},
         file_map=file_map,
     )
-    assert not ok
-    assert any("缺文件" in g or "App.vue" in g for g in gaps)
+    assert ok
+    assert gaps == []
+    assert soft
+    assert any("不阻断验收" in g for g in soft)
+    assert any("缺文件" in g or "App.vue" in g for g in soft)
+    assert any("验证" in g for g in soft)
 
 
 # ── E1/E2 修码收口：怎么算修好 + code_verified 过门 ──────────────────────────
@@ -1239,7 +1250,7 @@ def test_code_verified_prose_only_never_passes():
     criteria = parse_completion_criteria(
         {"type": "code_verified", "verify_command": "pytest -q"}
     )
-    ok, gaps = check_delegate_completion(
+    ok, gaps, _soft = check_delegate_completion(
         criteria,
         {
             "verify": _run(
@@ -1253,7 +1264,7 @@ def test_code_verified_prose_only_never_passes():
     assert any("验证" in g for g in gaps)
     assert any("落盘" in g for g in gaps)
     # content-only run still gaps (验 + 落盘 dual gap)
-    ok2, gaps2 = check_delegate_completion(
+    ok2, gaps2, _soft2 = check_delegate_completion(
         criteria,
         {
             "verify": RunState(

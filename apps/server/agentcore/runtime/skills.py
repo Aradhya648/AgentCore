@@ -637,8 +637,8 @@ _LONG_FORM_WRITING = """\
 <long_form_writing>
 ## 长文骨架填空（Artifact-first）
 
-用户要产出超长单文档（报告、论文、综述、长 README、多章节手册）时：中等单篇一次 \
-file_write 写完；超长不要先写成篇正文再同文件 append——先短骨架再按节填空。
+用户要产出超长单文档（报告、论文、综述、长 README、多章节手册）时：【禁止】整篇一次 \
+file_write；一律先短骨架再按节填空。短笔记 / 小配置 / 小片段仍可一次写完。
 
 【与 research_report 划界】尚需广度取证且可拆 ≥2 独立角（实务研究 / 多源调研成文）→ \
 先走 `research_report`（或同构 N 角调研笔记→提纲→撰稿；各角与主笔均 `form=files`+`artifacts`，\
@@ -650,8 +650,7 @@ file_write 写完；超长不要先写成篇正文再同文件 append——先�
 `checkpoint_after=true`（或 `research_report` playbook），走结构化 durable 卡，勿纯聊天代卡；\
 自主确认场景（用户未明文 / 任务轻量）才可对话式或自确认，必要时 ask_user。
 2. 单写手：先用一次短 file_write 落【主文件】骨架（标题/锚点，或 `<!-- OUTLINE -->` / \
-章节小标题）；再按节用 file_append 或 str_replace 填空。中等篇幅直接一次 file_write \
-成文，勿无骨架分段 append。
+章节小标题）；再按节用 file_append 或 str_replace 填空。【禁止】无骨架整篇一次写入。
 3. 多 worker 并行拆章（论文/综述/长报告允许）：各章可写到临时路径以免并发冲突，\
 但【必须】在同一次 delegate 里写死——① 最终主文件同一路径（各章 brief + \
 `deliverable.artifacts` 均指向它）；② 合并责任（末尾 merge worker `depends_on` 各章，\
@@ -663,6 +662,7 @@ file_write 写完；超长不要先写成篇正文再同文件 append——先�
 纪律：
 - 追加前确认 path 与主文件一致；每节 content 自行带好段落分隔（如 leading `\\n\\n`）。
 - 单节仍过长时，再拆成多轮 file_append / str_replace，不要硬塞万行单次调用。
+- 连续写失败（含参数不是合法 JSON）→ 强制改分段写，勿停用写文件，勿教用户修引号转义。
 - 本门禁仅约束「一篇成文」交付；调研透镜多报告、代码多文件、建站 site/ 多产物【不】套用。
 </long_form_writing>"""
 
@@ -959,7 +959,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="long_form_writing",
         summary=(
-            "超长单文档骨架填空：大纲优先；中篇一次写完；可并行拆章但验收须单主文件+合并责任"
+            "超长单文档骨架填空：大纲优先；禁止整篇一次写；可并行拆章但验收须单主文件+合并责任"
         ),
         body=_LONG_FORM_WRITING,
         requires_tools=("delegate",),

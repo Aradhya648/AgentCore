@@ -3,10 +3,7 @@ import {
   type ResolveInteractionBody,
   resolveInteraction,
 } from "@/api/interaction";
-import {
-  OrphanedInteractionCard,
-  WaitingForDecisionHint,
-} from "@/components/OrphanedInteractionCard";
+import { WaitingForDecisionHint } from "@/components/WaitingForDecisionHint";
 import type { ProjectedInteraction } from "@agentcore/protocol-conformance";
 import { useState } from "react";
 
@@ -33,14 +30,7 @@ export function DelegationAuthorizationCard({
   conversationId: string;
   onResolved?: () => void;
 }) {
-  if (pending.status === "orphaned") {
-    return (
-      <OrphanedInteractionCard
-        title="团队授权已失效"
-        detail="该委派授权请求已不可答复（服务已重启或回合已结束）。"
-      />
-    );
-  }
+  // Orphaned / non-pending: silent dismiss (no tombstone card).
   if (pending.status !== "pending") return null;
 
   return (

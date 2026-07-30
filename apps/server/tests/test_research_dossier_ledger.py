@@ -63,6 +63,17 @@ def test_ensure_anchors_appends_footer_when_missing():
     assert extract_research_ledger_anchors(out)
 
 
+def test_ensure_anchors_skips_footer_when_unbound_bibliography():
+    """Unbound GB/T [D] must not get a footer #rN dump (false comfort)."""
+    body = "郝万鑫. 某问题研究[D]. 长江大学, 2026."
+    out = ensure_research_file_anchors(
+        body,
+        [{"id": "#r1", "url": "https://a.example", "title": "A"}],
+    )
+    assert out == body
+    assert "## 来源台账锚" not in out
+
+
 @pytest.mark.asyncio
 async def test_preregister_research_dossier_maps_r_to_e(tmp_path: Path):
     research = tmp_path / "AgentCore" / "文档" / "research"

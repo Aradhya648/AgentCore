@@ -235,6 +235,10 @@ def test_core_states_coordinator_tool_boundary():
     assert "本机运行态" in hint
     assert "禁止" in hint and "host_shell" in hint
     assert "terminal" in hint
+    # 高代价本机探测前先澄清：短句多解时禁止立刻 host_shell 扫路径。
+    assert "本机 Host" in hint
+    assert "澄清意图" in hint
+    assert "扫路径" in hint or "盲探" in hint
 
 
 def test_core_teaches_split_criterion_over_count():
@@ -265,6 +269,10 @@ def test_core_teaches_split_criterion_over_count():
     assert "内部术语" in hint
     assert "内部工具名" in hint
     assert "短文" in hint and "存文件" in hint
+    assert "禁止" in hint and "整篇一次" in hint
+    assert "贴报错自诊" in hint
+    assert "参数不是合法 JSON" in hint
+    assert "修引号" in hint or "转义" in hint
     assert "勿先" in hint and "ask_user_kickoff" in hint
     assert "糊建站" in hint or "做个网站" in hint
     assert "开卡最小字段" in hint
@@ -561,6 +569,8 @@ def test_shared_base_teaches_delivery_baseline():
     from agentcore.runtime.resolve.prompt import _DEFAULT_SYSTEM_PROMPT
 
     assert "<delivery_baseline>" in _DEFAULT_SYSTEM_PROMPT
+    assert "成稿可引用集" in _DEFAULT_SYSTEM_PROMPT or "deep_read" in _DEFAULT_SYSTEM_PROMPT
+    assert "出处" in _DEFAULT_SYSTEM_PROMPT
     assert "围栏必须成对闭合" in _DEFAULT_SYSTEM_PROMPT
     assert "#rN" in _DEFAULT_SYSTEM_PROMPT
     assert "真假引擎查" in _DEFAULT_SYSTEM_PROMPT

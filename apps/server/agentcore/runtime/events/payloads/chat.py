@@ -126,6 +126,18 @@ class FollowupsGeneratedPayload(WirePayload):
     followups: list[str]
 
 
+class FollowupsUnavailablePayload(WirePayload):
+    """Soft empty state when followups could not be minted (not a turn error).
+
+    Emitted only on failure paths with zero chips — legitimate empty model output does
+    not emit this. EPHEMERAL / fold no-op; clients show a quiet hint above the composer.
+    """
+
+    conversation_id: str
+    message_id: str
+    reason: str
+
+
 class TurnSavedPayload(WirePayload):
     user_message_id: str
 

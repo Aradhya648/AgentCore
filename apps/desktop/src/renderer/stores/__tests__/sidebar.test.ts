@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useSidebarStore } from "../sidebar";
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  useSidebarStore,
+} from "../sidebar";
 
 const store = () => useSidebarStore.getState();
 
 beforeEach(() => {
   useSidebarStore.setState({
     collapsed: false,
+    width: SIDEBAR_DEFAULT_WIDTH,
     expandedSections: { "folder-a": true },
   });
 });
@@ -30,6 +36,34 @@ describe("sidebar store", () => {
 
       store().setCollapsed(false);
       expect(store().collapsed).toBe(false);
+    });
+  });
+
+  describe("setWidth / resetWidth", () => {
+    it("sets width within bounds", () => {
+      store().setWidth(320);
+      expect(store().width).toBe(320);
+    });
+
+    it("clamps below min (only widen — floor is default)", () => {
+      store().setWidth(SIDEBAR_MIN_WIDTH - 40);
+      expect(store().width).toBe(SIDEBAR_MIN_WIDTH);
+    });
+
+    it("clamps above max", () => {
+      store().setWidth(SIDEBAR_MAX_WIDTH + 80);
+      expect(store().width).toBe(SIDEBAR_MAX_WIDTH);
+    });
+
+    it("rounds to nearest px", () => {
+      store().setWidth(300.6);
+      expect(store().width).toBe(301);
+    });
+
+    it("resetWidth restores default", () => {
+      store().setWidth(360);
+      store().resetWidth();
+      expect(store().width).toBe(SIDEBAR_DEFAULT_WIDTH);
     });
   });
 

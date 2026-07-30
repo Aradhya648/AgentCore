@@ -149,6 +149,10 @@ export interface ConversationState {
     messageId: string | null | undefined,
     conversationId?: string | null,
   ) => void;
+  markFollowupsUnavailable: (
+    messageId: string | null | undefined,
+    conversationId?: string | null,
+  ) => void;
   recordTurnWarning: (warning: string, conversationId?: string | null) => void;
   stampPendingTurnWarning: (conversationId?: string | null) => void;
   attachCostToLastMessage: (
@@ -578,7 +582,27 @@ export const useConversationStore = create<ConversationState>((set, get) => {
             (m.id === messageId || m.serverMessageId === messageId),
         );
         if (idx < 0) return null;
-        messages[idx] = { ...messages[idx], followups };
+        messages[idx] = {
+          ...messages[idx],
+          followups,
+          followupsUnavailable: undefined,
+        };
+        return { messages };
+      }),
+
+    markFollowupsUnavailable: (messageId, conversationId) =>
+      patchConversation(conversationId, (rt) => {
+        if (!messageId) return null;
+        const messages = [...rt.messages];
+        const idx = messages.findIndex(
+          (m) =>
+            m.role === "assistant" &&
+            (m.id === messageId || m.serverMessageId === messageId),
+        );
+        if (idx < 0) return null;
+        const row = messages[idx];
+        if (row.followups && row.followups.length > 0) return null;
+        messages[idx] = { ...row, followupsUnavailable: true };
         return { messages };
       }),
 

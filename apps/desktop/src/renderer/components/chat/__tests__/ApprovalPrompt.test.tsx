@@ -33,7 +33,7 @@ vi.mock("@/hooks/useConversations", () => ({
 
 vi.mock("@/services/permissionAxes", () => ({
   setConversationPermissionAxes: vi.fn(),
-  matchRecipe: () => "write_code",
+  matchRecipe: () => "less_interrupt",
   recipeToAxes: () => ({
     file_write: "session",
     command: "auto",

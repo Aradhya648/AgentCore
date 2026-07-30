@@ -129,8 +129,37 @@ class FakeChats:
             await self.add_member(chat.id, uid)
         return chat
 
+    async def create_official(self, *, title="官方号", auto_join=True, member_ids=()):
+        """Test helper: the singleton official broadcast chat."""
+        from types import SimpleNamespace
+
+        chat = SimpleNamespace(
+            id=new_id(),
+            type="official",
+            created_by=None,
+            dm_key=None,
+            title=title,
+            avatar_url=None,
+            auto_join=auto_join,
+            last_message_at=None,
+            last_message_preview=None,
+        )
+        self._chats[chat.id] = chat
+        for uid in member_ids:
+            await self.add_member(chat.id, uid, pinned=True)
+        return chat
+
     async def list_auto_join_chats(self):
         return [c for c in self._chats.values() if getattr(c, "auto_join", False)]
+
+    async def get_official_chat(self):
+        return next((c for c in self._chats.values() if c.type == "official"), None)
+
+    async def get_or_create_official_chat(self):
+        existing = await self.get_official_chat()
+        if existing is not None:
+            return existing
+        return await self.create_official()
 
     async def add_member(self, chat_id, user_id, *, role="member", state="accepted", pinned=False):
         from types import SimpleNamespace
@@ -195,6 +224,19 @@ class FakeChats:
                 out.setdefault(m.chat_id, m.user_id)
         return out
 
+    async def list_co_member_ids(self, user_id):
+        my_chats = {m.chat_id for m in self._members if m.user_id == user_id}
+        return sorted(
+            {
+                m.user_id
+                for m in self._members
+                if m.chat_id in my_chats and m.user_id != user_id
+            }
+        )
+
+    async def get_message(self, message_id):
+        return next((m for m in self._messages if m.id == message_id), None)
+
     async def add_message(
         self,
         *,
@@ -206,6 +248,8 @@ class FakeChats:
         attachments=None,
         payload=None,
         reply_to_message_id=None,
+        reply_to=None,
+        mentions=None,
         client_msg_id=None,
     ):
         from types import SimpleNamespace
@@ -233,6 +277,8 @@ class FakeChats:
             attachments=attachments or [],
             payload=payload,
             reply_to_message_id=reply_to_message_id,
+            reply_to=reply_to,
+            mentions=list(mentions) if mentions is not None else [],
             client_msg_id=client_msg_id,
             created_at=self._now(),
         )
@@ -471,11 +517,207 @@ async def test_send_message_persists_and_fans_out():
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
     msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="hello bob")
     assert msg.content == "hello bob"
+    assert msg.reply_to_message_id is None
+    assert msg.reply_to is None
     assert len(events.published) == 1
     recipients, event = events.published[0]
     assert set(recipients) == {alice.user_id, bob.user_id}
     assert event["type"] == "chat_message"
     assert event["message"]["id"] == msg.id
+    assert event["message"]["reply_to"] is None
+    assert event["message"]["mentions"] == []
+    assert msg.mentions == []
+
+
+async def test_send_message_mentions_user_accepted_member():
+    svc, users, chats, _blocks, _directory, events = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    carol = users.add("carol")
+    chat = await chats.create_group(member_ids=(alice.user_id, bob.user_id, carol.user_id))
+    msg = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=alice.user_id,
+        content="hey @bob",
+        mentions=[{"kind": "user", "user_id": bob.user_id}],
+    )
+    assert msg.mentions == [{"kind": "user", "user_id": bob.user_id}]
+    _recipients, event = events.published[-1]
+    assert event["message"]["mentions"] == [{"kind": "user", "user_id": bob.user_id}]
+
+
+async def test_send_message_mentions_non_member_rejected():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    stranger = users.add("stranger")
+    chat = await chats.create_group(member_ids=(alice.user_id, bob.user_id))
+    with pytest.raises(ValidationError, match="@提及的用户不是本会话成员"):
+        await svc.send_message(
+            chat_id=chat.id,
+            sender_id=alice.user_id,
+            content="hey stranger",
+            mentions=[{"kind": "user", "user_id": stranger.user_id}],
+        )
+
+
+async def test_send_message_mentions_pending_member_rejected():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    # bob is pending until they accept; @ requires accepted membership.
+    with pytest.raises(ValidationError, match="@提及的用户不是本会话成员"):
+        await svc.send_message(
+            chat_id=chat.id,
+            sender_id=alice.user_id,
+            content="hey bob",
+            mentions=[{"kind": "user", "user_id": bob.user_id}],
+        )
+
+
+async def test_send_message_mentions_everyone_admin_ok():
+    svc, users, chats, _blocks, _directory, events = _make()
+    admin = users.add("admin", role="admin")
+    bob = users.add("bob")
+    chat = await chats.create_group(member_ids=(admin.user_id, bob.user_id))
+    msg = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=admin.user_id,
+        content="@所有人 standup",
+        mentions=[{"kind": "everyone"}],
+    )
+    assert msg.mentions == [{"kind": "everyone"}]
+    _recipients, event = events.published[-1]
+    assert event["message"]["mentions"] == [{"kind": "everyone"}]
+
+
+async def test_send_message_mentions_everyone_non_admin_403():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")  # platform role=user
+    bob = users.add("bob")
+    chat = await chats.create_group(member_ids=(alice.user_id, bob.user_id))
+    with pytest.raises(AuthorizationError, match="仅平台管理员可@所有人"):
+        await svc.send_message(
+            chat_id=chat.id,
+            sender_id=alice.user_id,
+            content="@所有人",
+            mentions=[{"kind": "everyone"}],
+        )
+
+
+async def test_send_message_mentions_everyone_dm_rejected():
+    svc, users, *_ = _make()
+    admin = users.add("admin", role="admin")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=admin.user_id, peer_id=bob.user_id)).chat
+    with pytest.raises(ValidationError, match="单聊不支持@所有人"):
+        await svc.send_message(
+            chat_id=chat.id,
+            sender_id=admin.user_id,
+            content="@所有人",
+            mentions=[{"kind": "everyone"}],
+        )
+
+
+async def test_send_message_mentions_dedupes_user_and_everyone():
+    svc, users, chats, *_ = _make()
+    admin = users.add("admin", role="admin")
+    bob = users.add("bob")
+    chat = await chats.create_group(member_ids=(admin.user_id, bob.user_id))
+    msg = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=admin.user_id,
+        content="hey",
+        mentions=[
+            {"kind": "user", "user_id": bob.user_id},
+            {"kind": "user", "user_id": bob.user_id},
+            {"kind": "everyone"},
+            {"kind": "everyone"},
+        ],
+    )
+    assert msg.mentions == [
+        {"kind": "user", "user_id": bob.user_id},
+        {"kind": "everyone"},
+    ]
+
+
+async def test_send_message_reply_freezes_snapshot():
+    svc, users, _chats, _blocks, _directory, events = _make()
+    alice = users.add("alice", display_name="Alice Chen")
+    bob = users.add("bob", display_name="Bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    original = await svc.send_message(
+        chat_id=chat.id, sender_id=alice.user_id, content="hello bob"
+    )
+    reply = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=bob.user_id,
+        content="hi alice",
+        reply_to_message_id=original.id,
+    )
+    assert reply.reply_to_message_id == original.id
+    assert reply.reply_to == {
+        "sender_user_id": alice.user_id,
+        "sender_display_name": "Alice Chen",
+        "body_preview": "hello bob",
+    }
+    _recipients, event = events.published[-1]
+    assert event["message"]["reply_to_message_id"] == original.id
+    assert event["message"]["reply_to"] == reply.reply_to
+
+
+async def test_send_message_reply_attachment_preview_label():
+    svc, users, *_ = _make()
+    alice = users.add("alice", display_name="Alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    original = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=alice.user_id,
+        content=None,
+        content_type="image",
+        attachments=[{"name": "a.png", "path": "a.png", "thumb_path": "a.png.thumb.webp"}],
+    )
+    reply = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=bob.user_id,
+        content="nice pic",
+        reply_to_message_id=original.id,
+    )
+    assert reply.reply_to["body_preview"] == "[图片]"
+    assert reply.reply_to["sender_display_name"] == "Alice"
+
+
+async def test_send_message_reply_unknown_id_rejected():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    with pytest.raises(ValidationError, match="回复的消息"):
+        await svc.send_message(
+            chat_id=chat.id,
+            sender_id=alice.user_id,
+            content="orphan reply",
+            reply_to_message_id=new_id(),
+        )
+
+
+async def test_send_message_reply_cross_chat_rejected():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    carol = users.add("carol")
+    chat_ab = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    chat_ac = (await svc.start_dm(requester_id=alice.user_id, peer_id=carol.user_id)).chat
+    in_ab = await svc.send_message(chat_id=chat_ab.id, sender_id=alice.user_id, content="to bob")
+    with pytest.raises(ValidationError, match="回复的消息"):
+        await svc.send_message(
+            chat_id=chat_ac.id,
+            sender_id=alice.user_id,
+            content="cross",
+            reply_to_message_id=in_ab.id,
+        )
 
 
 async def test_send_message_blocked_dm_raises():
@@ -722,6 +964,121 @@ async def test_leave_chat_dm_rejected():
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
     with pytest.raises(ValidationError):
         await svc.leave_chat(chat_id=chat.id, user_id=alice.user_id)
+
+
+async def test_leave_chat_official_rejected():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    official = await chats.create_official(member_ids=[alice.user_id])
+    with pytest.raises(ValidationError, match="官方号"):
+        await svc.leave_chat(chat_id=official.id, user_id=alice.user_id)
+    assert await chats.get_member(official.id, alice.user_id) is not None
+
+
+async def test_send_message_official_rejected():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    official = await chats.create_official(member_ids=[alice.user_id])
+    with pytest.raises(ValidationError, match="官方号"):
+        await svc.send_message(
+            chat_id=official.id, sender_id=alice.user_id, content="hello"
+        )
+
+
+async def test_ensure_official_membership_enrolls_pinned():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    official = await chats.create_official(member_ids=())
+    await svc.ensure_official_membership(user_id=alice.user_id)
+    member = await chats.get_member(official.id, alice.user_id)
+    assert member is not None
+    assert member.pinned is True
+    # Idempotent — second call does not reset flags.
+    await chats.set_membership_flags(official.id, alice.user_id, pinned=False)
+    await svc.ensure_official_membership(user_id=alice.user_id)
+    member = await chats.get_member(official.id, alice.user_id)
+    assert member.pinned is False
+
+
+async def test_list_chats_ensures_official_membership():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    official = await chats.create_official(member_ids=())
+    views = await svc.list_chats(user_id=alice.user_id)
+    assert any(v.chat.id == official.id for v in views)
+    assert await chats.get_member(official.id, alice.user_id) is not None
+
+
+async def test_ensure_official_does_not_rejoin_beta_group():
+    """Login/list兜底 only touches official — leaving the 内测群 still sticks."""
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    group = await chats.create_group(auto_join=True, member_ids=[alice.user_id])
+    await chats.create_official(member_ids=())
+    await svc.leave_chat(chat_id=group.id, user_id=alice.user_id)
+    await svc.ensure_official_membership(user_id=alice.user_id)
+    assert await chats.get_member(group.id, alice.user_id) is None
+
+
+async def test_publish_product_notice_inbox_posts_system_card():
+    svc, users, chats, _blocks, _directory, events = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    official = await chats.create_official(member_ids=[alice.user_id, bob.user_id])
+    msg = await svc.publish_product_notice(
+        notice_id="notice-1",
+        title="维护公告",
+        body="今晚 22:00 维护",
+        severity="high",
+        surface="inbox",
+        cta_label="详情",
+        cta_url="https://example.com",
+    )
+    assert msg is not None
+    assert msg.chat_id == official.id
+    assert msg.sender_type == "official"
+    assert msg.content_type == "system_card"
+    assert msg.content == "维护公告\n今晚 22:00 维护"
+    assert msg.payload == {
+        "kind": "product_notice",
+        "notice_id": "notice-1",
+        "severity": "high",
+        "cta_label": "详情",
+        "cta_url": "https://example.com",
+    }
+    # One shared message, fanned out to every member (not N copies).
+    assert len(chats._messages) == 1
+    assert set(events.published[-1][0]) == {alice.user_id, bob.user_id}
+
+
+async def test_publish_product_notice_banner_skips_im():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    await chats.create_official(member_ids=[alice.user_id])
+    msg = await svc.publish_product_notice(
+        notice_id="notice-2",
+        title="横幅",
+        body="只上 Banner",
+        severity="normal",
+        surface="banner",
+    )
+    assert msg is None
+    assert chats._messages == []
+
+
+async def test_publish_product_notice_both_posts_once():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    await chats.create_official(member_ids=[alice.user_id])
+    msg = await svc.publish_product_notice(
+        notice_id="notice-3",
+        title="双面",
+        body="Banner + Inbox",
+        severity="normal",
+        surface="both",
+    )
+    assert msg is not None
+    assert len(chats._messages) == 1
 
 
 async def test_set_chat_flags_updates_and_returns_view():
@@ -1015,3 +1372,18 @@ async def test_send_message_attachments_only_no_content(tmp_path: Path, monkeypa
     _recipients, event = events.published[-1]
     assert event["message"]["content_type"] == "image"
     assert event["message"]["attachments"] == att
+
+
+async def test_list_co_member_ids_excludes_self_and_strangers():
+    """Presence audience = distinct co-chat users (dm + group), never self."""
+    _svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    carol = users.add("carol")
+    stranger = users.add("stranger")
+    await chats.create_dm(creator_id=alice.user_id, peer_id=bob.user_id)
+    await chats.create_group(member_ids=[alice.user_id, carol.user_id])
+    ids = await chats.list_co_member_ids(alice.user_id)
+    assert set(ids) == {bob.user_id, carol.user_id}
+    assert stranger.user_id not in ids
+    assert alice.user_id not in ids

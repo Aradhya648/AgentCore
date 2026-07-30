@@ -460,6 +460,7 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
       case "turn_saved":
       case "title_generated":
       case "followups_generated":
+      case "followups_unavailable":
       case "board_op_required":
       case "board_read_required":
       case "desktop_notify_required":

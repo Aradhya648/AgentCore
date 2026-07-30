@@ -75,8 +75,7 @@ class AutonomyPolicy(StrEnum):
     """
 
     CAUTIOUS = "cautious"  # ask / ask / rules / off
-    WRITE_CODE = "write_code"  # session / kickoff / rules / ask (default · 写代码)
-    LESS_INTERRUPT = "less_interrupt"  # session / kickoff / skip / ask
+    LESS_INTERRUPT = "less_interrupt"  # session / auto / skip / ask (default)
     MANAGED = "managed"  # session / auto / skip / session
 
 
@@ -95,8 +94,8 @@ class PermissionAxes:
     """
 
     file_write: FileWriteAxis = FileWriteAxis.SESSION
-    command: CommandAxis = CommandAxis.KICKOFF
-    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
+    command: CommandAxis = CommandAxis.AUTO
+    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.SKIP
     host: HostAxis = HostAxis.ASK
 
     def __post_init__(self) -> None:
@@ -115,9 +114,9 @@ class PermissionAxes:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> PermissionAxes:
-        """Parse stored / wire JSON; unknown / missing → write_code defaults.
+        """Parse stored / wire JSON; unknown / missing → less_interrupt defaults.
 
-        Explicitly resolves ``host`` (缺省 = 写代码默认 ``ask``); never silently drop it.
+        Explicitly resolves ``host`` (缺省 = 默认 ``ask``); never silently drop it.
         """
         if not raw:
             return DEFAULT_PERMISSION_AXES
@@ -126,9 +125,9 @@ class PermissionAxes:
                 file_write=FileWriteAxis(
                     str(raw.get("file_write") or FileWriteAxis.SESSION.value)
                 ),
-                command=CommandAxis(str(raw.get("command") or CommandAxis.KICKOFF.value)),
+                command=CommandAxis(str(raw.get("command") or CommandAxis.AUTO.value)),
                 team_kickoff=TeamKickoffAxis(
-                    str(raw.get("team_kickoff") or TeamKickoffAxis.RULES.value)
+                    str(raw.get("team_kickoff") or TeamKickoffAxis.SKIP.value)
                 ),
                 host=HostAxis(str(raw.get("host") or HostAxis.ASK.value)),
             )
@@ -171,7 +170,7 @@ class PermissionAxes:
 
     @property
     def implies_deep_research_auto(self) -> bool:
-        """托管配方 (session/auto/skip) 蕴含深度研究自治，对齐原 full_trust."""
+        """command=auto ∧ team_kickoff=skip（少打断 / 托管）蕴含深度研究自治."""
         return (
             self.command is CommandAxis.AUTO
             and self.team_kickoff is TeamKickoffAxis.SKIP
@@ -180,8 +179,8 @@ class PermissionAxes:
 
 DEFAULT_PERMISSION_AXES = PermissionAxes(
     file_write=FileWriteAxis.SESSION,
-    command=CommandAxis.KICKOFF,
-    team_kickoff=TeamKickoffAxis.RULES,
+    command=CommandAxis.AUTO,
+    team_kickoff=TeamKickoffAxis.SKIP,
     host=HostAxis.ASK,
 )
 
@@ -192,13 +191,7 @@ _RECIPE_TO_AXES: dict[AutonomyPolicy, PermissionAxes] = {
         TeamKickoffAxis.RULES,
         HostAxis.OFF,
     ),
-    AutonomyPolicy.WRITE_CODE: DEFAULT_PERMISSION_AXES,
-    AutonomyPolicy.LESS_INTERRUPT: PermissionAxes(
-        FileWriteAxis.SESSION,
-        CommandAxis.KICKOFF,
-        TeamKickoffAxis.SKIP,
-        HostAxis.ASK,
-    ),
+    AutonomyPolicy.LESS_INTERRUPT: DEFAULT_PERMISSION_AXES,
     AutonomyPolicy.MANAGED: PermissionAxes(
         FileWriteAxis.SESSION,
         CommandAxis.AUTO,

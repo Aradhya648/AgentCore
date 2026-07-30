@@ -30,7 +30,7 @@ export const referenceChapter: ManualChapterContent = {
             },
             {
               title: "其他创作工具（即将上线）",
-              desc: "文档 / 思维导图 / 表格 / 幻灯片 / 流程图 / 表单 / 可运行产物——尚未开放。",
+              desc: "文档 / 思维导图 / 表格 / 幻灯片 / 可运行产物——尚未开放。",
             },
             {
               title: "MCP（规划中）",

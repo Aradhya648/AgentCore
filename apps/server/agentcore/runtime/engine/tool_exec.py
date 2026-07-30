@@ -32,13 +32,26 @@ from agentcore.tools.registry import ToolRegistry
 
 from .constants import MAX_PARALLEL_TOOLS
 from .timeout import resolve_tool_timeout
-from .tool_protocol_sanitize import sanitize_tool_args, sanitize_tool_name
+from .tool_protocol_sanitize import (
+    sanitize_raw_tool_arguments,
+    sanitize_tool_args,
+    sanitize_tool_name,
+)
 
 logger = get_logger(__name__)
 
 # Marker in tool_use_start.arguments when JSON parse failed — must not look like a
 # successfully parsed empty object ``{}`` (journal / UI 假象).
 _ARGS_PARSE_FAILED_MARKER: dict[str, Any] = {"__args_parse_failed__": True}
+
+# Write/landing tools: parse failures are usually「整篇正文塞进 tool JSON」— steer to
+# segmented writing, never disable the pen, never teach the user to escape quotes.
+_WRITE_PARSE_TOOLS = frozenset(
+    {"file_write", "file_append", "str_replace", "write_section", "file_move"}
+)
+
+# User-visible process-line copy for write-tool args parse failures (人话).
+_USER_WRITE_PARSE_MSG = "长文保存失败，改成分段写入继续。"
 
 # 工具失败机器尾注 (files_touched 成功口径 · 消费方见 runtime/runs/serialize.py):
 # LLMMessage 无独立 success 字段；失败/拒绝路径在 tool content 末追加此 marker，让
@@ -218,8 +231,15 @@ def _missing_tool_feedback(
     return error_msg, "not_found", False
 
 
-def _format_args_parse_error(tool_name: str, raw: str, exc: json.JSONDecodeError) -> str:
-    """Model-facing Chinese error for illegal tool-call arguments JSON."""
+def _format_args_parse_error(
+    tool_name: str, raw: str, exc: json.JSONDecodeError
+) -> tuple[str, str]:
+    """Return ``(model_facing, user_facing)`` for illegal tool-call arguments JSON.
+
+    Write/landing tools get a segmented-write steer for the model and a short human
+    line for the process timeline — never「请修复转义后原样重发」exposed to users.
+    Other tools keep the technical tip for both surfaces.
+    """
     pos = exc.pos if isinstance(exc.pos, int) else 0
     # Window around the failure so the model can spot unescaped quotes without a full dump.
     left = max(0, pos - 24)
@@ -230,11 +250,42 @@ def _format_args_parse_error(tool_name: str, raw: str, exc: json.JSONDecodeError
     if right < len(raw):
         snippet = snippet + "…"
     detail = (exc.msg or "JSON decode error").strip()
-    return (
+    technical = (
         f"工具 '{tool_name}' 的参数不是合法 JSON（{detail}；失败位置 {pos}，附近片段："
-        f"{snippet}）。请修复转义（尤其是字符串内的引号）后，原样重发全部参数；"
+        f"{snippet}）。"
+    )
+    if tool_name in _WRITE_PARSE_TOOLS:
+        truncated = "Unterminated string" in detail or (
+            isinstance(exc.pos, int) and len(raw) >= 4000 and exc.pos < 200
+        )
+        trunc_hint = (
+            "【信号】输出长度截断导致参数 JSON 未闭合（finish_reason=length 同类）——"
+            if truncated
+            else "【策略】这通常是整篇正文塞进一次工具调用导致的转义失败——"
+        )
+        model_msg = (
+            technical
+            + trunc_hint
+            + "不要原样重发整段，也不要再整篇一次 file_write / 大块 str_replace；"
+            "改为短骨架 file_write + 按节 file_append / str_replace 分段落盘"
+            "（每节远小于一次输出上限）。"
+            "勿向用户讲解 JSON 引号转义。"
+        )
+        return model_msg, _USER_WRITE_PARSE_MSG
+    if tool_name in {"delegate", "ask_user"}:
+        model_msg = (
+            technical
+            + "【策略】参数必须是单一合法 JSON 对象，禁止混入 XML/"
+            "<parameter>/<object> 等协议标签；按工具 schema 重发精简参数，"
+            "勿把整篇正文塞进 task 字段。"
+        )
+        return model_msg, model_msg
+    model_msg = (
+        technical
+        + "请修复转义（尤其是字符串内的引号）后，原样重发全部参数；"
         "禁止改写、缩短或删减内容。"
     )
+    return model_msg, model_msg
 
 
 async def execute_tools(
@@ -305,12 +356,20 @@ async def execute_tools(
                 cleaned_name=name[:80],
             )
         raw_args = tc.function.arguments or ""
+        # Strip vendor/XML protocol residue before parse so hybrid leaks
+        # (``{"tasks"><parameter…>``) become retryable JSON when salvageable.
+        parse_args = sanitize_raw_tool_arguments(raw_args)
+        if parse_args != raw_args:
+            with contextlib.suppress(TypeError, ValueError):
+                tc.function.arguments = parse_args
+            raw_args = parse_args
         fingerprint = fingerprint_tool_call(name, raw_args)
         try:
             args = json.loads(raw_args) if raw_args else {}
         except json.JSONDecodeError as exc:
-            error_msg = _format_args_parse_error(name or raw_name, raw_args, exc)
+            model_msg, user_msg = _format_args_parse_error(name or raw_name, raw_args, exc)
             # Honest wire pair: marker args (not ``{}``) + error end — never run the tool.
+            # UI/process line gets人话 for write tools; model transcript keeps technical tip.
             sink.emit(
                 tool_use_start(
                     tc.id, name or raw_name, dict(_ARGS_PARSE_FAILED_MARKER), run_id=event_run_id
@@ -321,7 +380,7 @@ async def execute_tools(
                     tc.id,
                     name or raw_name,
                     success=False,
-                    output=error_msg,
+                    output=user_msg,
                     run_id=event_run_id,
                 )
             )
@@ -340,14 +399,14 @@ async def execute_tools(
                 duration_ms=0,
             )
             return (
-                _failed_tool_message(tc.id, error_msg),
+                _failed_tool_message(tc.id, model_msg),
                 None,
                 ToolAttempt(
                     fingerprint,
                     name or raw_name,
                     success=False,
                     parse_failure=True,
-                    error_summary=error_msg,
+                    error_summary=model_msg,
                 ),
                 [],
             )

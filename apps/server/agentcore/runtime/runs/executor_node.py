@@ -737,8 +737,14 @@ async def execute_agent_node(
             # run's own writes. Also loads when this run's writes are a web batch
             # (HTML+CSS/JS) so the seam gate can cross-check selectors. ``needs_file_contents``
             # skips the read for prose / existence-only non-web deliverables.
+            # Citation / bibliography: when the turn evidence ledger is connected,
+            # check_contract scans the same content surfaces already loaded here.
             artifact_contents: dict[str, str] | None = None
-            load_contents = needs_file_contents(deliverable, landed_paths=touched_now)
+            turn_ledger = env.turn_evidence_ledger
+            load_contents = needs_file_contents(
+                deliverable,
+                landed_paths=touched_now,
+            )
             if deliverable and deliverable.artifacts:
                 live_index = await _safe_index_files(tool_ctx.backend)
                 workspace_paths = list(dict.fromkeys([*live_index, *touched_now]))
@@ -779,6 +785,12 @@ async def execute_agent_node(
                 debrief=debrief_now,
                 workspace_paths=workspace_paths,
                 artifact_contents=artifact_contents,
+                ledger_entries=(
+                    turn_ledger.all_entries() if turn_ledger is not None else None
+                ),
+                citable_ids=(
+                    turn_ledger.draft_citable_ids() if turn_ledger is not None else None
+                ),
             )
             # P1c visual critic: only after web_quality / contract **hard** gates pass.
             if (

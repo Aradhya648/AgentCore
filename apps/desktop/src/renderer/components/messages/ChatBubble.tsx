@@ -1,16 +1,35 @@
-import { Button } from "@/components/ui";
+import {
+  noticeSeverityTone,
+  openNoticeCta,
+} from "@/components/layout/ProductNoticeBanner";
+import { Button, IconButton } from "@/components/ui";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { statusPillInline } from "@/components/ui/tone-presets";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { formatMessageTimeOfDay } from "@/lib/format";
 import type { ImBubbleLayout } from "@/lib/imMessageLayout";
 import { notifyActionError } from "@/lib/toast";
 import {
   type ChatMessageDetail,
+  type MessageReplyTo,
   downloadChatAttachment,
   isImageAttachment,
 } from "@/services/messaging";
-import { Download, FileText, Folder } from "lucide-react";
+import { Download, FileText, Folder, Reply } from "lucide-react";
+import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { ChatImageGallery } from "./ChatImageGallery";
-import { avatarInitial, avatarSrc } from "./chatDisplay";
+import {
+  avatarInitial,
+  avatarSrc,
+  messageMentionsUser,
+  splitContentByMentions,
+} from "./chatDisplay";
 
 interface Props {
   message: ChatMessageDetail;
@@ -23,6 +42,54 @@ interface Props {
   /** Profile image when available. */
   senderAvatarUrl?: string | null;
   layout: ImBubbleLayout;
+  /** Brief flash after scroll-to-reply lands on this message. */
+  highlighted?: boolean;
+  /** Viewing user id — drives self-mention highlight in body text. */
+  myUserId?: string | null;
+  /** Resolve a mentioned user's display name for body `@token` matching. */
+  resolveMentionName?: (userId: string) => string | undefined;
+  /** Start a reply to this message (hover button / context menu). */
+  onReply?: (message: ChatMessageDetail) => void;
+  /** Click the quote block → scroll to the original message. */
+  onScrollToReply?: (messageId: string) => void;
+}
+
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: "紧急",
+  high: "重要",
+  normal: "一般",
+};
+
+/** Backend product_notice payload on a system_card (graceful if fields missing). */
+interface ProductNoticePayload {
+  kind: "product_notice";
+  notice_id?: string;
+  severity?: string;
+  cta_label?: string;
+  cta_url?: string;
+}
+
+function asProductNoticePayload(
+  payload: ChatMessageDetail["payload"],
+): ProductNoticePayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  if (payload.kind !== "product_notice") return null;
+  return payload as unknown as ProductNoticePayload;
+}
+
+/** Official publish stores `title\\nbody` in content; degrade when empty. */
+function splitNoticeContent(content: string | null | undefined): {
+  title: string;
+  body: string;
+} {
+  const raw = (content ?? "").trim();
+  if (!raw) return { title: "[公告]", body: "" };
+  const nl = raw.indexOf("\n");
+  if (nl === -1) return { title: raw, body: "" };
+  return {
+    title: raw.slice(0, nl).trim() || "[公告]",
+    body: raw.slice(nl + 1).trim(),
+  };
 }
 
 function textBubbleRadius(
@@ -82,6 +149,145 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+/** Inline reply quote inside a bubble (not the AI-chat @attachment chip). */
+function ReplyQuote({
+  reply,
+  mine,
+  onClick,
+}: {
+  reply: MessageReplyTo;
+  mine: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`mb-1.5 w-full rounded-lg border-l-2 px-2 py-1 text-left transition-colors ${
+        mine
+          ? "border-primary-foreground/40 bg-primary-foreground/10 text-primary-foreground/80 hover:bg-primary-foreground/15"
+          : "border-primary/50 bg-muted/60 text-muted-foreground hover:bg-muted"
+      } ${onClick ? "cursor-pointer" : "cursor-default"}`}
+    >
+      <span className="block truncate text-xs font-medium">
+        {reply.sender_display_name}
+      </span>
+      <span className="block truncate text-xs opacity-80">
+        {reply.body_preview}
+      </span>
+    </button>
+  );
+}
+
+/** Render body text with light @ mention highlights (structured mentions as source). */
+function MentionBody({
+  content,
+  mentions,
+  mine,
+  myUserId,
+  resolveMentionName,
+}: {
+  content: string;
+  mentions: ChatMessageDetail["mentions"];
+  mine: boolean;
+  myUserId?: string | null;
+  resolveMentionName?: (userId: string) => string | undefined;
+}): ReactNode {
+  const segments = splitContentByMentions(
+    content,
+    mentions,
+    resolveMentionName ?? (() => undefined),
+    myUserId,
+  );
+  let offset = 0;
+  return (
+    <>
+      {segments.map((seg) => {
+        const key =
+          seg.type === "text"
+            ? `t:${offset}:${seg.text}`
+            : `m:${offset}:${seg.text}`;
+        offset += seg.text.length;
+        if (seg.type === "text") {
+          return <span key={key}>{seg.text}</span>;
+        }
+        const selfTone = seg.self
+          ? mine
+            ? "bg-primary-foreground/25 text-primary-foreground"
+            : "bg-primary/15 text-primary"
+          : mine
+            ? "bg-primary-foreground/15 text-primary-foreground"
+            : "bg-muted text-foreground";
+        return (
+          <span
+            key={key}
+            className={`rounded-lg px-0.5 font-medium ${selfTone}`}
+          >
+            {seg.text}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/** Centered product-notice card (title / body / optional CTA). */
+function ProductNoticeCard({
+  message,
+  payload,
+}: {
+  message: ChatMessageDetail;
+  payload: ProductNoticePayload;
+}) {
+  const navigate = useNavigate();
+  const { title, body } = splitNoticeContent(message.content);
+  const severity =
+    typeof payload.severity === "string" ? payload.severity : "normal";
+  const tone = noticeSeverityTone(severity);
+  const ctaLabel =
+    typeof payload.cta_label === "string" ? payload.cta_label : null;
+  const ctaUrl = typeof payload.cta_url === "string" ? payload.cta_url : null;
+  const time = formatMessageTimeOfDay(message.created_at);
+
+  return (
+    <div className="group flex justify-center py-1">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card px-3 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
+            {title}
+          </span>
+          <span className={statusPillInline[tone]}>
+            {SEVERITY_LABEL[severity] ?? severity}
+          </span>
+        </div>
+        {body ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+            {body}
+          </p>
+        ) : null}
+        {ctaLabel && ctaUrl ? (
+          <div className="mt-3">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => openNoticeCta(ctaUrl, navigate)}
+            >
+              {ctaLabel}
+            </Button>
+          </div>
+        ) : null}
+        {time ? (
+          <SimpleTooltip label={new Date(message.created_at).toLocaleString()}>
+            <span className="mt-2 block cursor-default text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+              {time}
+            </span>
+          </SimpleTooltip>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /**
  * One IM message bubble. Human chat is rendered as plain wrapped text (not
  * Markdown): a stray `#`/`*` in a person's message shouldn't become a heading,
@@ -89,8 +295,8 @@ function formatBytes(bytes: number | null | undefined): string {
  * foreground color.
  *
  * 富消息: image attachments render via {@link ChatImageGallery} (thumb grid +
- * lightbox); other files render as download chips. `system_card` (official
- * notices) renders as a centered system pill.
+ * lightbox); other files render as download chips. `system_card` renders as a
+ * centered pill, or a product-notice card when `payload.kind === "product_notice"`.
  */
 export function ChatBubble({
   message,
@@ -99,10 +305,19 @@ export function ChatBubble({
   avatarName,
   senderAvatarUrl,
   layout,
+  highlighted = false,
+  myUserId,
+  resolveMentionName,
+  onReply,
+  onScrollToReply,
 }: Props) {
   const time = formatMessageTimeOfDay(message.created_at);
 
   if (message.content_type === "system_card") {
+    const notice = asProductNoticePayload(message.payload);
+    if (notice) {
+      return <ProductNoticeCard message={message} payload={notice} />;
+    }
     return (
       <div className="flex justify-center py-1">
         <span className="rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
@@ -118,17 +333,140 @@ export function ChatBubble({
   );
   const files = attachments.filter((a) => !images.includes(a));
   const hasText = Boolean(message.content);
+  const reply = message.reply_to ?? null;
+  const canReply = Boolean(onReply);
+  const replyTargetId = message.reply_to_message_id ?? null;
+  const mentionedMe = !mine && messageMentionsUser(message, myUserId ?? null);
 
   const avatarLabel = avatarName ?? senderName ?? "?";
 
-  return (
+  const bubbleBody = (
     <div
-      className={`group flex max-w-[75%] flex-col ${
+      className={`flex min-w-0 flex-col ${
+        mine ? "items-end" : "flex-1 items-start"
+      }`}
+    >
+      {!mine && layout.showSenderName && senderName && (
+        <span className="mb-0.5 px-1 text-xs text-muted-foreground">
+          {senderName}
+        </span>
+      )}
+
+      <div
+        className={`flex flex-col gap-1.5 ${
+          mine ? "items-end" : "items-start"
+        }`}
+      >
+        {(hasText || reply) && (
+          <div
+            className={`whitespace-pre-wrap break-words px-3 py-2 text-sm ${textBubbleRadius(
+              mine,
+              layout.clusterPosition,
+            )} ${
+              mine
+                ? "bg-primary text-primary-foreground"
+                : mentionedMe
+                  ? "border border-primary/40 bg-primary/5 text-foreground"
+                  : "border border-border bg-card text-foreground"
+            }`}
+          >
+            {reply && (
+              <ReplyQuote
+                reply={reply}
+                mine={mine}
+                onClick={
+                  replyTargetId && onScrollToReply
+                    ? () => onScrollToReply(replyTargetId)
+                    : undefined
+                }
+              />
+            )}
+            {hasText && message.content ? (
+              <MentionBody
+                content={message.content}
+                mentions={message.mentions}
+                mine={mine}
+                myUserId={myUserId}
+                resolveMentionName={resolveMentionName}
+              />
+            ) : null}
+          </div>
+        )}
+
+        {images.length > 0 && (
+          <ChatImageGallery chatId={message.chat_id} images={images} />
+        )}
+
+        {files.map((a) => {
+          const downloadable = a.kind !== "dir" && Boolean(a.workspace_path);
+          return (
+            <Button
+              key={a.workspace_path ?? a.path}
+              variant="ghost"
+              disabled={!downloadable}
+              onClick={() =>
+                downloadable &&
+                a.workspace_path &&
+                void downloadChatAttachment(
+                  message.chat_id,
+                  a.workspace_path,
+                  a.name,
+                ).catch((e) => notifyActionError("下载失败", e))
+              }
+              className={`h-auto w-full max-w-[260px] gap-2 rounded-xl border border-border bg-card px-3 py-2 font-normal ${
+                mine ? "justify-end text-right" : "justify-start text-left"
+              } ${downloadable ? "hover:bg-accent" : "opacity-70"}`}
+            >
+              <span className="flex w-full items-center gap-2">
+                {a.kind === "dir" ? (
+                  <Folder
+                    size={16}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                ) : (
+                  <FileText
+                    size={16}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                )}
+                <span className="min-w-0 flex-1">
+                  <SimpleTooltip label={a.name}>
+                    <span className="block truncate text-sm text-foreground">
+                      {a.name}
+                      {a.kind === "dir" ? "/" : ""}
+                    </span>
+                  </SimpleTooltip>
+                  {a.size_bytes != null && (
+                    <span className="block text-xs text-muted-foreground">
+                      {formatBytes(a.size_bytes)}
+                    </span>
+                  )}
+                </span>
+                {downloadable && (
+                  <Download
+                    size={14}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                )}
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const content = (
+    <div
+      data-message-id={message.id}
+      className={`group flex max-w-[75%] flex-col rounded-xl transition-colors ${
         mine ? "ml-auto items-end" : "items-start"
-      } ${layout.tightTop ? "-mt-1" : ""}`}
+      } ${layout.tightTop ? "-mt-1" : ""} ${
+        highlighted ? "bg-primary/10 ring-1 ring-primary/30" : ""
+      }`}
     >
       <div
-        className={`flex items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}
+        className={`flex items-start gap-1.5 ${mine ? "flex-row-reverse" : ""}`}
       >
         <div
           className={`mt-0.5 shrink-0 ${layout.showAvatar ? "" : "invisible"}`}
@@ -137,99 +475,20 @@ export function ChatBubble({
           <ChatAvatar name={avatarLabel} url={senderAvatarUrl} />
         </div>
 
-        <div
-          className={`flex min-w-0 flex-col ${
-            mine ? "items-end" : "flex-1 items-start"
-          }`}
-        >
-          {!mine && layout.showSenderName && senderName && (
-            <span className="mb-0.5 px-1 text-xs text-muted-foreground">
-              {senderName}
-            </span>
-          )}
+        {bubbleBody}
 
-          <div
-            className={`flex flex-col gap-1.5 ${
-              mine ? "items-end" : "items-start"
-            }`}
-          >
-            {hasText && (
-              <div
-                className={`whitespace-pre-wrap break-words px-3 py-2 text-sm ${textBubbleRadius(
-                  mine,
-                  layout.clusterPosition,
-                )} ${
-                  mine
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-border bg-card text-foreground"
-                }`}
-              >
-                {message.content}
-              </div>
-            )}
-
-            {images.length > 0 && (
-              <ChatImageGallery chatId={message.chat_id} images={images} />
-            )}
-
-            {files.map((a) => {
-              const downloadable =
-                a.kind !== "dir" && Boolean(a.workspace_path);
-              return (
-                <Button
-                  key={a.workspace_path ?? a.path}
-                  variant="ghost"
-                  disabled={!downloadable}
-                  onClick={() =>
-                    downloadable &&
-                    a.workspace_path &&
-                    void downloadChatAttachment(
-                      message.chat_id,
-                      a.workspace_path,
-                      a.name,
-                    ).catch((e) => notifyActionError("下载失败", e))
-                  }
-                  className={`h-auto w-full max-w-[260px] gap-2 rounded-xl border border-border bg-card px-3 py-2 font-normal ${
-                    mine ? "justify-end text-right" : "justify-start text-left"
-                  } ${downloadable ? "hover:bg-accent" : "opacity-70"}`}
-                >
-                  <span className="flex w-full items-center gap-2">
-                    {a.kind === "dir" ? (
-                      <Folder
-                        size={16}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                    ) : (
-                      <FileText
-                        size={16}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <SimpleTooltip label={a.name}>
-                        <span className="block truncate text-sm text-foreground">
-                          {a.name}
-                          {a.kind === "dir" ? "/" : ""}
-                        </span>
-                      </SimpleTooltip>
-                      {a.size_bytes != null && (
-                        <span className="block text-xs text-muted-foreground">
-                          {formatBytes(a.size_bytes)}
-                        </span>
-                      )}
-                    </span>
-                    {downloadable && (
-                      <Download
-                        size={14}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                    )}
-                  </span>
-                </Button>
-              );
-            })}
-          </div>
-        </div>
+        {canReply && (
+          <SimpleTooltip label="回复">
+            <IconButton
+              size="sm"
+              onClick={() => onReply?.(message)}
+              aria-label="回复"
+              className="mt-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <Reply size={14} />
+            </IconButton>
+          </SimpleTooltip>
+        )}
       </div>
 
       {time && (
@@ -244,5 +503,19 @@ export function ChatBubble({
         </SimpleTooltip>
       )}
     </div>
+  );
+
+  if (!canReply) return content;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onReply?.(message)}>
+          <Reply size={14} />
+          回复
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

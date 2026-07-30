@@ -1,6 +1,10 @@
 /**
  * Product notices (全局公告) — banner + inbox, polled at the app shell.
  * Distinct from IM unread and standing-task inbox badge.
+ *
+ * Banner close is always available:
+ * - ``once`` → server dismiss (不回潮)
+ * - ``never`` → session snooze banner only (inbox 仍可见；刷新会话后横幅可再出现)
  */
 
 import {
@@ -15,16 +19,28 @@ const POLL_MS = 60_000;
 interface ProductNoticesState {
   banner: ActiveNotice | null;
   inbox: ActiveNotice[];
+  /** Banner ids snoozed for this session (``dismiss_policy=never``). */
+  sessionSnoozed: string[];
   loading: boolean;
   refresh: () => Promise<void>;
   startPolling: () => () => void;
   dismiss: (id: string) => Promise<void>;
 }
 
+function pickBanner(
+  banner: ActiveNotice | null | undefined,
+  snoozed: string[],
+): ActiveNotice | null {
+  if (!banner) return null;
+  if (snoozed.includes(banner.id)) return null;
+  return banner;
+}
+
 export const useProductNoticesStore = create<ProductNoticesState>(
   (set, get) => ({
     banner: null,
     inbox: [],
+    sessionSnoozed: [],
     loading: false,
 
     refresh: async () => {
@@ -32,8 +48,9 @@ export const useProductNoticesStore = create<ProductNoticesState>(
       set({ loading: true });
       try {
         const res = await fetchActive();
+        const snoozed = get().sessionSnoozed;
         set({
-          banner: res.banner ?? null,
+          banner: pickBanner(res.banner, snoozed),
           inbox: Array.isArray(res.inbox) ? res.inbox : [],
         });
       } catch {
@@ -52,7 +69,28 @@ export const useProductNoticesStore = create<ProductNoticesState>(
     },
 
     dismiss: async (id: string) => {
-      await dismissNotice(id);
+      const { banner, inbox, sessionSnoozed } = get();
+      const notice =
+        banner?.id === id ? banner : (inbox.find((n) => n.id === id) ?? null);
+
+      // Optimistic: hide banner immediately.
+      if (banner?.id === id) {
+        set({ banner: null });
+      }
+
+      // ``never``: session-snooze banner only (API would 409).
+      if (notice?.dismiss_policy === "never") {
+        if (!sessionSnoozed.includes(id)) {
+          set({ sessionSnoozed: [...sessionSnoozed, id] });
+        }
+        return;
+      }
+
+      try {
+        await dismissNotice(id);
+      } catch {
+        // Soft-fail: still refresh so server truth wins.
+      }
       await get().refresh();
     },
   }),

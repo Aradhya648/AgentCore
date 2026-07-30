@@ -327,19 +327,18 @@ async def finalize_successful_drive(
             file_map = await load_source_file_map(
                 backend, _collect_graph_source_paths(completed)
             )
-    criteria_ok, gaps = check_delegate_completion(
+    criteria_ok, binding_gaps, soft_notes = check_delegate_completion(
         criteria, results, backend=backend, file_map=file_map or None
     )
     if not criteria_ok:
         delivered = collect_delivered_files(results)
-        # Binding kind only — never invent a fake enum (e.g. typescript_verify).
-        # TS / graph overlays live in gaps; unbound criteria → None for logs + fp.
+        # Binding kind + binding gaps only — soft overlays never streak / escalate.
         binding_kind = criteria.kind if criteria is not None else None
-        fp = gap_fingerprint(binding_kind, gaps)
+        fp = gap_fingerprint(binding_kind, binding_gaps)
         streak = tool.note_completion_gap(fp)
         escalate = streak >= 2
         gap_msg = format_completion_gap_message(
-            gaps,
+            binding_gaps,
             criteria_kind=binding_kind,
             source=resolved.source or "structured",
             escalate=escalate,
@@ -349,21 +348,20 @@ async def finalize_successful_drive(
             "delegate.completion_criteria_unmet",
             criteria=binding_kind,
             source=resolved.source or "structured",
-            gaps=gaps,
+            gaps=binding_gaps,
             streak=streak,
             escalate=escalate,
             delivered_files=delivered[:24],
             execution_id=execution_id,
         )
-        # 交付状态（诚实对账）：验收未满足即是用户可见的交付缺口，连同批次级
-        # criteria 缺口一起结构化发出（含可推导的 bind_local_folder 行动项）。
+        # 交付状态：binding 缺口 + soft overlay notes（后者 severity=warning）。
         maybe_emit_delivery_status(
             tool._sink,
             plan,
             results,
             execution_id=execution_id,
             backend=tool._base_tool_context.backend,
-            criteria_gaps=gaps,
+            criteria_gaps=[*binding_gaps, *soft_notes],
         )
         # Same terminal post as the success path — criteria gap is still end-of-batch,
         # but must not present as failed=0 success（交付真相）.
@@ -393,14 +391,15 @@ async def finalize_successful_drive(
     tool.clear_completion_gap_streak()
 
     # 交付状态（诚实对账）：正常收尾（含 finalize 单人直出）——有落盘文件或缺口才发，
-    # 纯 prose 成功批次保持无声。放在 direct_result / format_for_ceo 分叉之前，两条
-    # 收尾路径共用这一次发射。
+    # 纯 prose 成功批次保持无声。Soft overlay notes → state=notes（不 blocking）。
+    # 放在 direct_result / format_for_ceo 分叉之前，两条收尾路径共用这一次发射。
     maybe_emit_delivery_status(
         tool._sink,
         plan,
         results,
         execution_id=execution_id,
         backend=tool._base_tool_context.backend,
+        criteria_gaps=soft_notes or None,
     )
 
     if finalize and len(plan.nodes) == 1:

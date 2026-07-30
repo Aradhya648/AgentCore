@@ -71,18 +71,53 @@ async def _run_worker(
     return result, messages, sink, resets
 
 
-def _seed_ledger(*urls: str, weak_url: str | None = None) -> EvidenceLedgerCore:
+def _seed_ledger(
+    *urls: str, weak_url: str | None = None, deep_read: bool = True
+) -> EvidenceLedgerCore:
+    """默认 deep_read=True，使成稿闸可引；search-only 测例显式传 deep_read=False。"""
     led = EvidenceLedgerCore(id_prefix="#r")
     for url in urls:
-        led.register_sync(url=url, title=url, registrant="worker:w1")
+        led.register_sync(
+            url=url, title=url, registrant="worker:w1", deep_read=deep_read
+        )
     if weak_url:
         led.register_sync(
             url=weak_url,
             title="weak",
             registrant="worker:w1",
             tier="weak",
+            deep_read=deep_read,
         )
     return led
+
+
+def test_finish_guard_search_only_blocked():
+    """search-only（无 deep_read / selected）不得进成稿闸。"""
+    reworks = finish_guard(
+        "见 #r1。",
+        citation_count=0,
+        check_citations=False,
+        citable_ids=frozenset(),  # draft 空 = search-only 被排除后
+    )
+    assert reworks and "#r1" in reworks[0]
+
+
+async def test_worker_search_only_rn_reworks():
+    led = _seed_ledger("https://example.com/a", deep_read=False)
+    assert led.draft_citable_ids() == frozenset()
+    assert led.citable_ids() == frozenset({"#r1"})
+    provider = _ScriptedProvider(
+        [
+            [_content_chunk("结论见 #r1。")],
+            [_content_chunk("无引用的干净结论。")],
+        ]
+    )
+    (content, _r, _u, rounds), _messages, _sink, resets = await _run_worker(
+        provider, ledger=led
+    )
+    assert content == "无引用的干净结论。"
+    assert rounds == 2
+    assert resets == ["finish_guard"]
 
 
 # --- finish_guard 纯函数 -------------------------------------------------------
@@ -259,7 +294,9 @@ async def test_ceo_ledger_ref_uses_config_max_reworks():
 
 def test_turn_paused_captures_and_rehydrates_ledger():
     led = EvidenceLedgerCore(id_prefix="#r")
-    led.register_sync(url="https://example.com/a", title="A", registrant="ceo")
+    led.register_sync(
+        url="https://example.com/a", title="A", registrant="ceo", deep_read=True
+    )
     led.register_sync(url="https://example.com/b", title="B", registrant="worker:w1")
     token = turn_evidence_ledger.set(led)
     try:
@@ -277,16 +314,17 @@ def test_turn_paused_captures_and_rehydrates_ledger():
     assert fact.evidence_ledger[0]["id"] == "#r1"
     assert fact.evidence_ledger[1]["id"] == "#r2"
 
-    # rehydrate → load_entries → id 连续、合法 #rN 仍可引用
+    # rehydrate → load_entries → id 连续；成稿闸仅 deep_read∪selected
     restored = EvidenceLedgerCore(id_prefix="#r")
     restored.load_entries(fact.evidence_ledger or [])
     assert restored.citable_ids() == frozenset({"#r1", "#r2"})
+    assert restored.draft_citable_ids() == frozenset({"#r1"})
     assert (
         finish_guard(
             "挂起前已引用 #r1。",
             citation_count=0,
             check_citations=False,
-            citable_ids=restored.citable_ids(),
+            citable_ids=restored.draft_citable_ids(),
         )
         == []
     )

@@ -135,12 +135,92 @@ def test_ledger_ref_gate_dual_track():
         citable_ids=frozenset({"#r1"}),
     )
     assert bad and "#r9" in bad[0]
+    assert "弱源不可引用" not in bad[0]
     assert (
         finish_guard(
             "无标记正文",
             citation_count=0,
             check_citations=False,
             citable_ids=frozenset(),
+        )
+        == []
+    )
+
+
+def test_bibliography_announcement_rework():
+    entries = [
+        {
+            "id": "#r1",
+            "url": "https://example.com/x",
+            "title": "研究生开题答辩公告",
+            "snippet": "公示安排",
+            "deep_read": True,
+            "doc_kind": "announcement",
+        }
+    ]
+    reworks = finish_guard(
+        "参见张三. 某问题研究[D]. #r1",
+        citation_count=0,
+        check_citations=False,
+        citable_ids=frozenset({"#r1"}),
+        ledger_entries=entries,
+    )
+    assert reworks and any("开题" in r or "公告" in r for r in reworks)
+
+
+def test_bibliography_requires_deep_read():
+    entries = [
+        {
+            "id": "#r1",
+            "url": "https://example.com/paper",
+            "title": "正式论文",
+            "snippet": "",
+            "deep_read": False,
+            "doc_kind": "",
+        }
+    ]
+    reworks = finish_guard(
+        "李四. 某某研究[J]. #r1",
+        citation_count=0,
+        check_citations=False,
+        citable_ids=frozenset(),  # search-only 也不在 draft
+        ledger_entries=entries,
+    )
+    assert reworks
+    assert any("deep_read" in r for r in reworks)
+
+
+def test_bibliography_unbound_type_marker_rework():
+    """GB/T [D] without any #rN must rework (fabricated thesis-style cite)."""
+    reworks = finish_guard(
+        "郝万鑫. 某问题研究[D]. 长江大学, 2026.",
+        citation_count=0,
+        check_citations=False,
+        citable_ids=frozenset(),
+        ledger_entries=[],  # ledger connected (empty ok)
+    )
+    assert reworks
+    assert any("#rN" in r or "编造" in r or "未核验" in r for r in reworks)
+
+
+def test_bibliography_bound_type_marker_skips_unbound_gate():
+    entries = [
+        {
+            "id": "#r1",
+            "url": "https://example.com/paper",
+            "title": "正式论文",
+            "snippet": "",
+            "deep_read": True,
+            "doc_kind": "thesis",
+        }
+    ]
+    assert (
+        finish_guard(
+            "张三. 某问题研究[D]. #r1",
+            citation_count=0,
+            check_citations=False,
+            citable_ids=frozenset({"#r1"}),
+            ledger_entries=entries,
         )
         == []
     )

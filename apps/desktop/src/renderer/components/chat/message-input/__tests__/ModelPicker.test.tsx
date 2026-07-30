@@ -258,4 +258,14 @@ describe("ModelPicker", () => {
     renderPicker();
     expect(screen.getByText("Grok 4.5")).toBeTruthy();
   });
+
+  it("empty profile list shows providers guide and keeps manage-combinations link", () => {
+    mockProfiles(profiles({ data: [] }));
+    renderPicker();
+    fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
+    expect(screen.getByText("暂无可用组合")).toBeTruthy();
+    const providersLink = screen.getByRole("link", { name: "接入服务商" });
+    expect(providersLink.getAttribute("href")).toBe("/more/providers");
+    expect(screen.getByText("管理组合…")).toBeTruthy();
+  });
 });

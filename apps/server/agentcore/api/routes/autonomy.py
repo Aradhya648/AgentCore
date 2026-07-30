@@ -11,14 +11,14 @@ router = APIRouter(prefix="/users/me/autonomy", tags=["autonomy"])
 
 
 class AutonomyView(BaseModel):
-    policy: AutonomyPolicy = AutonomyPolicy.WRITE_CODE
+    policy: AutonomyPolicy = AutonomyPolicy.LESS_INTERRUPT
 
 
 class AutonomyUpdate(BaseModel):
     policy: AutonomyPolicy = Field(
         ...,
         description=(
-            "New-session default recipe: cautious | write_code | less_interrupt | managed"
+            "New-session default recipe: cautious | less_interrupt | managed"
         ),
     )
 
@@ -28,11 +28,11 @@ async def get_autonomy(
     users: UserRepository = Depends(get_user_repo),
 ) -> AutonomyView:
     row = await users.get_by_id(user.user_id)
-    raw = (row.autonomy_policy if row else None) or AutonomyPolicy.WRITE_CODE.value
+    raw = (row.autonomy_policy if row else None) or AutonomyPolicy.LESS_INTERRUPT.value
     try:
         return AutonomyView(policy=AutonomyPolicy(raw))
     except ValueError:
-        return AutonomyView(policy=AutonomyPolicy.WRITE_CODE)
+        return AutonomyView(policy=AutonomyPolicy.LESS_INTERRUPT)
 
 
 @router.put("", response_model=AutonomyView)

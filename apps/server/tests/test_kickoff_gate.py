@@ -5,7 +5,24 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from agentcore.core.types import AutonomyPolicy, ToolEffect, recipe_to_axes
+from agentcore.core.types import (
+    AutonomyPolicy,
+    CommandAxis,
+    FileWriteAxis,
+    HostAxis,
+    PermissionAxes,
+    TeamKickoffAxis,
+    ToolEffect,
+    recipe_to_axes,
+)
+
+# Explicit kickoff-command axes for授/开工卡 (no longer a built-in recipe).
+_KICKOFF_RULES = PermissionAxes(
+    FileWriteAxis.SESSION,
+    CommandAxis.KICKOFF,
+    TeamKickoffAxis.RULES,
+    HostAxis.ASK,
+)
 from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
 from agentcore.runtime.checkpoints import CheckpointDecision
 from agentcore.runtime.delegate.preview import should_kickoff as delegate_should_kickoff
@@ -148,10 +165,10 @@ def test_full_auto_releases_plan_half():
 
 
 def test_capability_auth_three_tiers():
-    assert needs_capability_auth(local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)) is True
+    assert needs_capability_auth(local_gate=True, axes=_KICKOFF_RULES) is True
     assert needs_capability_auth(local_gate=True, axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS)) is False
     assert needs_capability_auth(local_gate=True, axes=recipe_to_axes(AutonomyPolicy.MANAGED)) is False
-    assert needs_capability_auth(local_gate=False, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)) is False
+    assert needs_capability_auth(local_gate=False, axes=_KICKOFF_RULES) is False
 
 
 def test_delegate_trigger_rules_unchanged():
@@ -164,7 +181,7 @@ def test_delegate_trigger_rules_unchanged():
     assert should_preview_delegate_plan(solo, finalize=True) is False
     assert (
         delegate_should_kickoff(
-            multi, finalize=False, local_gate=False, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+            multi, finalize=False, local_gate=False, axes=_KICKOFF_RULES
         )
         is True
     )
@@ -176,7 +193,7 @@ def test_delegate_trigger_rules_unchanged():
     )
     assert (
         delegate_should_kickoff(
-            solo, finalize=True, local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+            solo, finalize=True, local_gate=True, axes=_KICKOFF_RULES
         )
         is True
     )  # capability half only
@@ -194,20 +211,20 @@ def test_checkpoint_after_yields_plan_preview_half():
         should_kickoff(
             plan_preview=False,
             local_gate=True,
-            axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+            axes=_KICKOFF_RULES,
         )
         is True
     )
     assert (
         delegate_should_kickoff(
-            with_cp, finalize=False, local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+            with_cp, finalize=False, local_gate=True, axes=_KICKOFF_RULES
         )
         is True
     )
     # No local gate + checkpoint batch → no kickoff card at all.
     assert (
         delegate_should_kickoff(
-            with_cp, finalize=False, local_gate=False, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+            with_cp, finalize=False, local_gate=False, axes=_KICKOFF_RULES
         )
         is False
     )
@@ -262,7 +279,7 @@ def _debate_tool(
     permission_axes=None,
 ) -> DebateTool:
     if permission_axes is None:
-        permission_axes = recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+        permission_axes = _KICKOFF_RULES
     return DebateTool(
         llm=Provider([]),
         sink=sink,

@@ -1114,6 +1114,7 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
       case "turn_saved":
       case "title_generated":
       case "followups_generated":
+      case "followups_unavailable":
       case "board_op_required":
       case "board_read_required":
       case "desktop_notify_required":
@@ -1307,6 +1308,25 @@ export function extractFollowups(events: SSEEvent[]): string[] {
     return p.followups;
   }
   return [];
+}
+
+/** Soft empty when followups mint failed (live-only; no chips). */
+export function extractFollowupsUnavailable(events: SSEEvent[]): boolean {
+  if (extractFollowups(events).length > 0) return false;
+  let turnMessageId: string | null = null;
+  for (const ev of events) {
+    if (ev.type === "message_start") {
+      turnMessageId = (ev.payload as MessageStartPayload).message_id;
+    }
+  }
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].type !== "followups_unavailable") continue;
+    const p = events[i].payload as { message_id?: string };
+    if (!p.message_id) return false;
+    if (turnMessageId && p.message_id !== turnMessageId) continue;
+    return true;
+  }
+  return false;
 }
 
 /** FIFO 排队态（``turn_queued``）：传输态 sibling——不进 {@link ProjectedTurn}。

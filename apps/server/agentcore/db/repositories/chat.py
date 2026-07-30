@@ -5,10 +5,16 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.core.types import new_id
 from agentcore.db.models import Chat, ChatMember, ChatMessage
+
+# Fixed id shared with the official-chat migration so create_all test DBs and
+# production converge on the same singleton row.
+OFFICIAL_CHAT_ID = "0de7a000-0000-4000-a000-000000000002"
+OFFICIAL_CHAT_TITLE = "官方号"
 
 
 class ChatRepository:
@@ -60,10 +66,49 @@ class ChatRepository:
         """Chats every new user is auto-joined to (the 内测全员群 mechanism).
 
         Queried at registration to enroll the new account; a handful of rows in
-        practice (the 内测群, later an official broadcast channel).
+        practice (the 内测群 + the official broadcast channel).
         """
         result = await self._session.execute(select(Chat).where(Chat.auto_join.is_(True)))
         return result.scalars().all()
+
+    async def get_official_chat(self) -> Chat | None:
+        """The site-wide singleton official broadcast chat (``type=official``).
+
+        At most one row (partial unique index ``uq_chats_official_singleton``).
+        """
+        result = await self._session.execute(
+            select(Chat).where(Chat.type == "official").limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_or_create_official_chat(self) -> Chat:
+        """Return the official broadcast chat, creating the singleton if missing.
+
+        Production is seeded by migration; this covers create_all test DBs and
+        any environment that reached head without the data row.
+        """
+        existing = await self.get_official_chat()
+        if existing is not None:
+            return existing
+        chat = Chat(
+            id=OFFICIAL_CHAT_ID,
+            type="official",
+            title=OFFICIAL_CHAT_TITLE,
+            auto_join=True,
+            created_by=None,
+        )
+        self._session.add(chat)
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            # Concurrent create / unique violation — re-read the winner.
+            await self._session.rollback()
+            existing = await self.get_official_chat()
+            if existing is not None:
+                return existing
+            raise
+        await self._session.refresh(chat)
+        return chat
 
     async def add_member(
         self,
@@ -186,6 +231,30 @@ class ChatRepository:
             out.setdefault(chat_id, uid)
         return out
 
+    async def list_co_member_ids(self, user_id: str) -> list[str]:
+        """Distinct user ids that share ≥1 chat with ``user_id`` (excludes self).
+
+        Audience for presence fan-out: anyone who can see this user in a dm peer
+        slot or a group roster — not a site-wide broadcast.
+        """
+        my_chats = select(ChatMember.chat_id).where(ChatMember.user_id == user_id)
+        result = await self._session.execute(
+            select(ChatMember.user_id)
+            .where(
+                ChatMember.chat_id.in_(my_chats),
+                ChatMember.user_id != user_id,
+            )
+            .distinct()
+        )
+        return [row[0] for row in result.all()]
+
+    async def get_message(self, message_id: str) -> ChatMessage | None:
+        """Load one message by id (no membership gate — service validates chat)."""
+        result = await self._session.execute(
+            select(ChatMessage).where(ChatMessage.id == message_id)
+        )
+        return result.scalar_one_or_none()
+
     async def add_message(
         self,
         *,
@@ -197,6 +266,8 @@ class ChatRepository:
         attachments: list | None = None,
         payload: dict | None = None,
         reply_to_message_id: str | None = None,
+        reply_to: dict | None = None,
+        mentions: list | None = None,
         client_msg_id: str | None = None,
     ) -> ChatMessage:
         """Append a message and refresh the chat's list-row preview.
@@ -204,6 +275,8 @@ class ChatRepository:
         Idempotent for human sends: a retry with the same ``client_msg_id`` returns
         the already-stored row instead of duplicating (the unique index is the
         backstop). The chat's ``last_message_*`` are bumped so the list re-sorts.
+        ``reply_to`` is the frozen quote snapshot (paired with ``reply_to_message_id``).
+        ``mentions`` is the frozen @list (empty when omitted).
         """
         if client_msg_id is not None and sender_user_id is not None:
             existing = await self._session.execute(
@@ -224,6 +297,8 @@ class ChatRepository:
             content=content,
             content_type=content_type,
             reply_to_message_id=reply_to_message_id,
+            reply_to=reply_to,
+            mentions=list(mentions) if mentions is not None else [],
             client_msg_id=client_msg_id,
         )
         if attachments is not None:

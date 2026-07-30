@@ -63,9 +63,9 @@ _OMISSION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Soft length nudge on oversized ``file_write`` content (never blocks).
+# Hard length gate on oversized ``file_write`` bodies (Artifact-first · 长文分段).
 # ≈2000 tokens at the project-wide 4 chars/token estimate — catches whole-site HTML /
-# long-doc dumps (accident: ~8–9k token single write) without hard-rejecting medium files.
+# long-doc dumps. Short / medium files stay one-shot; oversized prose must skeleton + segment.
 _CHARS_PER_TOKEN_EST = 4
 _WRITE_LENGTH_WARN_TOKENS = 2000
 _WRITE_LENGTH_WARN_CHARS = _WRITE_LENGTH_WARN_TOKENS * _CHARS_PER_TOKEN_EST
@@ -145,22 +145,40 @@ def overwrite_integrity_nudge(
 
 
 def is_oversized_write(content: str) -> bool:
-    """True when ``content`` meets/exceeds the soft length-warn threshold."""
+    """True when ``content`` meets/exceeds the hard length-gate threshold."""
     return len(content) >= _WRITE_LENGTH_WARN_CHARS
 
 
-def length_nudge_text(*, path: str, chars: int) -> str:
-    """Soft warning appended when a successful ``file_write`` body is oversized."""
+def requires_segmented_write(content: str) -> bool:
+    """True when a single ``file_write`` of ``content`` must be hard-rejected.
+
+    Oversized finished prose is always rejected. Explicit SECTION/OUTLINE markers
+    do not exempt a body that is already huge (filled outline dumped in one call).
+    Short / medium files and true short skeletons stay one-shot.
+    """
+    text = content or ""
+    if not is_oversized_write(text):
+        return False
+    if classify_write_kind(text) == "prose":
+        return True
+    return _prose_body_chars(text) >= _WRITE_LENGTH_WARN_CHARS
+
+
+def oversized_write_rejection(*, path: str, chars: int) -> str:
+    """Model-facing hard reject when ``file_write`` tries to dump a long body once."""
     approx_tokens = max(1, chars // _CHARS_PER_TOKEN_EST)
     return (
-        f"\n\n[系统提示] 本次 file_write 内容较长（`{path}`：约 {approx_tokens} token / "
-        f"{chars} 字，阈值 ≈{_WRITE_LENGTH_WARN_TOKENS} token / "
-        f"{_WRITE_LENGTH_WARN_CHARS} 字）。"
-        "Artifact-first：超长应先短骨架（标题/锚点/`<!-- SECTION: -->`）再按节 "
-        "file_append 或 str_replace 填空；中等单篇应一次写完。"
-        "勿对已成篇正文再同文件 append。"
-        "系统只提示、绝不拦截本次写入。"
+        f"拒绝整篇一次写入：`{path}` 正文过长（约 {approx_tokens} token / {chars} 字，"
+        f"阈值 ≈{_WRITE_LENGTH_WARN_TOKENS} token / {_WRITE_LENGTH_WARN_CHARS} 字）。"
+        "长交付物必须先短骨架 file_write（标题/锚点/`<!-- SECTION: -->`），"
+        "再按节 file_append 或 str_replace 填空；短文件仍可一次写完。"
+        "系统已拦截本次写入。"
     )
+
+
+def length_nudge_text(*, path: str, chars: int) -> str:
+    """Deprecated alias kept for tests — same copy as the hard-reject body (no soft path)."""
+    return oversized_write_rejection(path=path, chars=chars)
 
 
 # Skeleton vs prose (Artifact-first Writing) ---------------------------------
@@ -283,7 +301,7 @@ def prose_append_rejection(path: str) -> str:
     """Hard reject when appending after a same-run prose ``file_write``."""
     return (
         f"拒绝追加：`{path}` 本 run 已落成篇正文（非骨架）。"
-        "中等单篇应一次 file_write 写完；超长应先短骨架再按节 "
+        "短文件应一次 file_write 写完；长交付物应先短骨架再按节 "
         "file_append / str_replace 填空；修订请用 str_replace。"
     )
 
@@ -327,10 +345,36 @@ def _mark_landed_files(
 
 
 def write_length_nudge(path: str, content: str) -> str | None:
-    """Return a soft length nudge for oversized ``file_write`` content, else None."""
-    if not is_oversized_write(content):
+    """Return None — oversized prose is hard-rejected before write (compat shim)."""
+    del path, content
+    return None
+
+
+def segmented_write_rejection(path: str, content: str) -> str | None:
+    """Return hard-reject text when ``content`` must not land in one ``file_write``."""
+    if not requires_segmented_write(content):
         return None
-    return length_nudge_text(path=path, chars=len(content))
+    return oversized_write_rejection(path=path, chars=len(content or ""))
+
+
+def oversized_chunk_rejection(*, path: str, tool: str, chars: int) -> str:
+    """Hard reject when ``file_append`` / ``str_replace`` dumps an oversized chunk once."""
+    approx_tokens = max(1, chars // _CHARS_PER_TOKEN_EST)
+    return (
+        f"拒绝单次过大写入：`{tool}` → `{path}` 本段过长（约 {approx_tokens} token / "
+        f"{chars} 字，阈值 ≈{_WRITE_LENGTH_WARN_TOKENS} token / "
+        f"{_WRITE_LENGTH_WARN_CHARS} 字）。"
+        "请把这一节拆成多次更小的 file_append / str_replace（每节远小于阈值）；"
+        "短骨架仍用 file_write。系统已拦截本次写入。"
+    )
+
+
+def chunk_length_rejection(path: str, content: str, *, tool: str) -> str | None:
+    """Hard reject oversized single-chunk append / replace bodies (length-truncation 防)."""
+    text = content or ""
+    if len(text) < _WRITE_LENGTH_WARN_CHARS:
+        return None
+    return oversized_chunk_rejection(path=path, tool=tool, chars=len(text))
 
 
 def _truncate_content_lines(content: str, max_lines: int) -> str:
@@ -1082,9 +1126,10 @@ class FileWriteTool:
                 "把内容写入文件：会创建该文件（含所有上级目录），或【整体覆盖】"
                 "已有文件。用它来【新建】文件；修订时【优先】str_replace 局部改，"
                 "整文件覆盖亦允许（结构性换稿 / 确需整盖时可用）。"
-                "【Artifact-first】中等单篇默认一次写完；超长先短骨架（标题/锚点/"
-                "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空——"
-                "禁止先写成篇正文再同文件 append。"
+                "【Artifact-first】短文件可一次写完；长交付物（综述/报告/长文/"
+                "整页 HTML）【禁止】整篇一次写入——先短骨架（标题/锚点/"
+                "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空。"
+                "超长成篇正文硬拒绝（非仅提示）。"
                 "成功回执为 artifact manifest（优先以此验真；反复 file_read "
                 "受同 path 次数上限约束）。"
                 "【修订已有成品】优先 str_replace；整盖允许但勿惰性省略中段"
@@ -1107,7 +1152,7 @@ class FileWriteTool:
                     "content": {
                         "type": "string",
                         "description": (
-                            "要写入的内容。中等单篇一次写完；超长只放短骨架，"
+                            "要写入的内容。短文件一次写完；长交付物只放短骨架，"
                             "其余按节 file_append / str_replace 填空。"
                         ),
                     },
@@ -1181,6 +1226,19 @@ class FileWriteTool:
                         coordinator.release(rel_path, context.run_id)
                     return _error(struct_err, start, contract_failure=True)
 
+        # Artifact-first 硬闸：超长成篇正文禁止整篇一次 file_write（短骨架/短文件放行）。
+        segment_err = segmented_write_rejection(rel_path, write_content)
+        if segment_err is not None:
+            logger.info(
+                "file_write.length_rejected",
+                path=rel_path,
+                chars=len(write_content),
+                warn_chars=_WRITE_LENGTH_WARN_CHARS,
+            )
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            return _error(segment_err, start, contract_failure=True)
+
         try:
             written = await context.backend.write(rel_path, write_content)
         except OutsideWorkspace:
@@ -1221,16 +1279,6 @@ class FileWriteTool:
                     new_chars=len(write_content),
                 )
                 output += nudge
-        # Soft length nudge: Artifact-first guidance for oversized bodies.
-        length_nudge = write_length_nudge(rel_path, write_content)
-        if length_nudge:
-            logger.info(
-                "file_write.length_nudge",
-                path=rel_path,
-                chars=len(write_content),
-                warn_chars=_WRITE_LENGTH_WARN_CHARS,
-            )
-            output += length_nudge
         _mark_landed_files(context, path_key, kind=kind)
         return ToolResult(
             tool_call_id="",
@@ -1257,10 +1305,10 @@ class FileAppendTool:
                 "末尾拼接，不重写全文。"
                 "仅用于骨架填空 / 建站 SECTION 壳：短骨架或 `<!-- SECTION: -->` 落盘后"
                 "按节追加。禁止对「本 run 已 file_write 成篇正文」再 append——"
-                "中篇应一次写完，修订用 str_replace。"
+                "短文件应一次写完，长交付物先骨架再分段填空；修订用 str_replace。"
                 "成功回执为 artifact manifest（优先以此验真；反复 file_read "
                 "受同 path 次数上限约束）。"
-                "若要【整体覆盖】或中等单篇一次成文，用 file_write；改中间某段用 "
+                "若要【整体覆盖】短文件，用 file_write；改中间某段用 "
                 "str_replace。路径必须是相对于工作区的相对路径。"
             ),
             parameters={
@@ -1345,6 +1393,20 @@ class FileAppendTool:
                     if coordinator is not None and release_on_fail:
                         coordinator.release(rel_path, context.run_id)
                     return _error(struct_err, start, contract_failure=True)
+
+        # Same length gate as file_write: one huge append still hits model length trunc.
+        chunk_err = chunk_length_rejection(rel_path, content or "", tool="file_append")
+        if chunk_err is not None:
+            logger.info(
+                "file_write.length_rejected",
+                path=rel_path,
+                chars=len(content or ""),
+                warn_chars=_WRITE_LENGTH_WARN_CHARS,
+                tool="file_append",
+            )
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            return _error(chunk_err, start, contract_failure=True)
 
         try:
             appended = await context.backend.append(rel_path, content)
@@ -1623,6 +1685,19 @@ class StrReplaceTool:
                 start,
                 contract_failure=True,
             )
+
+        # Oversized new_string in one call → same length-truncation failure mode as
+        # whole-file write; force smaller chunks (log samples: chapter-sized replace).
+        chunk_err = chunk_length_rejection(rel_path, new_string or "", tool="str_replace")
+        if chunk_err is not None:
+            logger.info(
+                "file_write.length_rejected",
+                path=rel_path,
+                chars=len(new_string or ""),
+                warn_chars=_WRITE_LENGTH_WARN_CHARS,
+                tool="str_replace",
+            )
+            return _error(chunk_err, start, contract_failure=True)
 
         denied, release_on_fail = _claim_write_path(
             context, rel_path, event="str_replace.collision", start=start

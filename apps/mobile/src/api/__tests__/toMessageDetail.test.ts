@@ -33,6 +33,8 @@ describe("toMessageDetail evidence_ledger", () => {
             deep_read: false,
             registrant: "ceo",
             citable: true,
+            selected: false,
+            doc_kind: "",
           },
         ],
       }),

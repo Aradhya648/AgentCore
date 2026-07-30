@@ -4,6 +4,7 @@ import {
   StreamHttpError,
   describeStreamHttpError,
   emptyChatCopy,
+  emptyFailureNotice,
   errorActionForCode,
 } from "../errors";
 
@@ -67,5 +68,21 @@ describe("emptyChatCopy", () => {
     expect(copy.title).toBe("开始新对话");
     expect(copy.subtitle).toContain("Agent 团队");
     expect(copy.action).toBeNull();
+  });
+});
+
+describe("emptyFailureNotice", () => {
+  it("explains empty error / unproductive finishes", () => {
+    expect(emptyFailureNotice("error")).toBe("模型调用失败，请重试。");
+    expect(emptyFailureNotice("unproductive")).toBe(
+      "工具连续无有效进展或参数无效，请重试。",
+    );
+  });
+
+  it("stays silent for normal / other finishes", () => {
+    expect(emptyFailureNotice("end_turn")).toBeNull();
+    expect(emptyFailureNotice("degraded")).toBeNull();
+    expect(emptyFailureNotice(null)).toBeNull();
+    expect(emptyFailureNotice(undefined)).toBeNull();
   });
 });

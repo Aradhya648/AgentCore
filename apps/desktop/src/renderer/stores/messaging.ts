@@ -1,7 +1,14 @@
 import {
+  chatDisplayName,
+  messageMentionsUser,
+} from "@/components/messages/chatDisplay";
+import { notifyInfo } from "@/lib/toast";
+import {
+  type ChatMention,
   type ChatMessageDetail,
   type ChatParticipant,
   type ChatSummary,
+  type MessageReplyTo,
   type SendContentType,
   type StoredAttachment,
   announce as apiAnnounce,
@@ -62,8 +69,14 @@ function previewOf(message: ChatMessageDetail): string {
       return "[图片]";
     case "file":
       return "[文件]";
-    case "system_card":
+    case "system_card": {
+      // product_notice content is `title\nbody` — list row shows the title.
+      if (message.payload?.kind === "product_notice") {
+        const title = (message.content ?? "").split("\n")[0]?.trim();
+        return title || "[公告]";
+      }
       return "[通知]";
+    }
     default:
       return message.content ?? "";
   }
@@ -106,6 +119,11 @@ interface MessagingState {
   /** Group rosters keyed by chat id — resolves per-message sender names + the
    * member panel. Loaded lazily when a group thread opens. */
   membersByChat: Record<string, ChatParticipant[]>;
+  /**
+   * Muted chats that still need a list unread badge because of an @ mention
+   * (消息IM.md §8.1 静音 × 被 @). Cleared when the chat is marked read.
+   */
+  mentionAlertByChat: Record<string, boolean>;
   activeChatId: string | null;
   /** Transient zh error for the last failed send, or null. */
   sendError: string | null;
@@ -120,11 +138,15 @@ interface MessagingState {
   /** Load (or refresh) a chat's member roster — used by group threads. */
   loadMembers: (chatId: string) => Promise<void>;
   /** Send a text and/or attachment message. Files are uploaded to the chat's
-   * space first, then referenced; optimistic with rollback on failure. */
+   * space first, then referenced; optimistic with rollback on failure.
+   * Optional `replyTo` carries the S1 reply target id + local quote snapshot.
+   * Optional `mentions` is the S2 structured @ list (body still has `@显示名`). */
   sendMessage: (
     chatId: string,
     content: string,
     files?: File[],
+    replyTo?: { messageId: string; snapshot: MessageReplyTo } | null,
+    mentions?: ChatMention[],
   ) => Promise<void>;
   markChatRead: (chatId: string) => Promise<void>;
   /** Toggle this user's per-chat flags (mute / pin); optimistic with rollback. */
@@ -149,6 +171,8 @@ interface MessagingState {
   upsertChat: (chat: ChatSummary) => void;
   /** Ingest a realtime message (from the firehose): merge + unread + reorder. */
   applyIncoming: (chatId: string, message: ChatMessageDetail) => void;
+  /** Apply a firehose ``presence`` event: flip ``online`` on dm peers + rosters. */
+  applyPresence: (userId: string, online: boolean) => void;
   clearSendError: () => void;
 }
 
@@ -161,6 +185,7 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
   loadingMessages: {},
   loadingOlderMessages: {},
   membersByChat: {},
+  mentionAlertByChat: {},
   activeChatId: null,
   sendError: null,
 
@@ -263,12 +288,16 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
     }
   },
 
-  sendMessage: async (chatId, content, files) => {
+  sendMessage: async (chatId, content, files, replyTo, mentions) => {
     const text = content.trim();
     const pending = files ?? [];
     if (!text && pending.length === 0) return;
 
     const clientMsgId = crypto.randomUUID();
+    const replyToMessageId = replyTo?.messageId ?? null;
+    const replySnapshot = replyTo?.snapshot ?? null;
+    const mentionList =
+      mentions && mentions.length > 0 ? [...mentions] : undefined;
 
     // Upload attachments first, so the message references durable paths. A failed
     // upload aborts the send (nothing optimistic was added yet) and surfaces a zh
@@ -317,7 +346,9 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
       content_type: contentType,
       attachments,
       payload: null,
-      reply_to_message_id: null,
+      reply_to_message_id: replyToMessageId,
+      reply_to: replySnapshot,
+      mentions: mentionList ?? [],
       created_at: new Date().toISOString(),
     };
 
@@ -342,6 +373,8 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
         contentType,
         attachments,
         clientMsgId,
+        replyToMessageId: replyToMessageId ?? undefined,
+        mentions: mentionList,
       });
       // Swap the optimistic twin for the stored message. The firehose also
       // delivers this same message (sender included, multi-device) — dedupe by
@@ -376,9 +409,14 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
   markChatRead: async (chatId) => {
     // Clear the local unread badge immediately (optimistic), then persist the
     // cursor to the newest known message. No messages yet → just clear the badge.
-    set((s) => ({
-      chats: s.chats.map((c) => (c.id === chatId ? { ...c, unread: 0 } : c)),
-    }));
+    set((s) => {
+      const mentionAlertByChat = { ...s.mentionAlertByChat };
+      delete mentionAlertByChat[chatId];
+      return {
+        chats: s.chats.map((c) => (c.id === chatId ? { ...c, unread: 0 } : c)),
+        mentionAlertByChat,
+      };
+    });
     const list = get().messagesByChat[chatId];
     const last = list?.[list.length - 1];
     if (!last || last.id.startsWith("local:")) return;
@@ -424,11 +462,14 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
       delete messagesMetaByChat[chatId];
       const membersByChat = { ...s.membersByChat };
       delete membersByChat[chatId];
+      const mentionAlertByChat = { ...s.mentionAlertByChat };
+      delete mentionAlertByChat[chatId];
       return {
         chats: s.chats.filter((c) => c.id !== chatId),
         messagesByChat,
         messagesMetaByChat,
         membersByChat,
+        mentionAlertByChat,
         activeChatId: s.activeChatId === chatId ? null : s.activeChatId,
       };
     });
@@ -479,6 +520,14 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
 
   applyIncoming: (chatId, message) => {
     const known = get().chats.some((c) => c.id === chatId);
+    const me = useAuthStore.getState().user?.id ?? null;
+    const isMine =
+      message.sender_user_id !== null && message.sender_user_id === me;
+    const active = get().activeChatId === chatId;
+    const chatBefore = get().chats.find((c) => c.id === chatId);
+    const mentioned = !isMine && !active && messageMentionsUser(message, me);
+    const mutedMention = mentioned && !!chatBefore?.muted;
+
     set((s) => {
       const list = s.messagesByChat[chatId];
       // Only merge into an already-loaded slice; an unopened chat re-syncs from
@@ -488,10 +537,7 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
           ? { ...s.messagesByChat, [chatId]: [...list, message] }
           : s.messagesByChat;
 
-      const me = useAuthStore.getState().user?.id ?? null;
-      const isMine =
-        message.sender_user_id !== null && message.sender_user_id === me;
-      const incUnread = s.activeChatId === chatId || isMine ? 0 : 1;
+      const incUnread = active || isMine ? 0 : 1;
       const chats = bumpChat(
         s.chats,
         chatId,
@@ -499,11 +545,50 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
         message.created_at,
         incUnread,
       );
-      return { messagesByChat, chats };
+      const mentionAlertByChat =
+        mutedMention && incUnread > 0
+          ? { ...s.mentionAlertByChat, [chatId]: true }
+          : s.mentionAlertByChat;
+      return { messagesByChat, chats, mentionAlertByChat };
     });
+
+    // 静音 × 被 @: weak desktop toast (可点进会话); no modal.
+    if (mutedMention) {
+      const label = chatBefore ? chatDisplayName(chatBefore) : "会话";
+      notifyInfo(`${label} 有人提到了你`, {
+        action: {
+          label: "查看",
+          onClick: () => {
+            window.location.hash = `#/messages/${chatId}`;
+          },
+        },
+      });
+    }
+
     // A message for a chat we don't know yet (a new incoming request): pull the
     // list so the row appears. Done outside set() to avoid a nested update.
     if (!known) void get().fetchChats();
+  },
+
+  applyPresence: (userId, online) => {
+    set((s) => {
+      const chats = s.chats.map((c) => {
+        if (c.peer?.id !== userId) return c;
+        if (!!c.peer.online === online) return c;
+        return { ...c, peer: { ...c.peer, online } };
+      });
+      const membersByChat: Record<string, ChatParticipant[]> = {};
+      for (const [chatId, members] of Object.entries(s.membersByChat)) {
+        let changed = false;
+        const next = members.map((m) => {
+          if (m.id !== userId || !!m.online === online) return m;
+          changed = true;
+          return { ...m, online };
+        });
+        membersByChat[chatId] = changed ? next : members;
+      }
+      return { chats, membersByChat };
+    });
   },
 
   clearSendError: () => set({ sendError: null }),

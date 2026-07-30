@@ -31,8 +31,6 @@ export type TurnCost = Schemas["TurnCost"];
 export type UsageWindow = Schemas["UsageWindow"];
 /** Free-tier limits (决策④); 0 = unlimited. Money is USD nano internally. */
 export type QuotaStatus = Schemas["QuotaStatus"];
-/** One role's monthly spend — the team payroll grouped by role (本月各角色花销). */
-export type RoleCostLine = Schemas["RoleCostLine"];
 /** One UTC day's total spend — a point in the dashboard 7-day trend sparkline. */
 export type DailyCost = Schemas["DailyCost"];
 /** Account dashboard payload (`GET /v1/usage/summary`). */

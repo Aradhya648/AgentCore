@@ -116,11 +116,17 @@ export function ChatView() {
   // 下一步推荐 chips: surface the latest finished assistant turn's followups directly above
   // the composer — the 「what next」 affordance belongs where you type and stays put regardless
   // of scroll. Persisted (messages.followups) so a refresh replays them; a NEW turn retires the
-  // prior turn's chips (they leave the last-message slot). FollowupChips renders nothing if empty.
+  // prior turn's chips (they leave the last-message slot). Soft-unavailable is live-only.
   const followups =
     !isGenerating && last?.role === "assistant" && !last.isStreaming
       ? (last.followups ?? [])
       : [];
+  const followupsUnavailable =
+    !isGenerating &&
+    last?.role === "assistant" &&
+    !last.isStreaming &&
+    Boolean(last?.followupsUnavailable) &&
+    followups.length === 0;
   const { scrollRef, atBottom, jumpToBottom } = useChatScroll({
     messages,
     resetKey: conversationId,
@@ -218,7 +224,10 @@ export function ChatView() {
               />
               <RetryBanner />
               <StageCardDock />
-              <FollowupChips followups={followups} />
+              <FollowupChips
+                followups={followups}
+                unavailable={followupsUnavailable}
+              />
               <StreamingIndicator />
             </>
           )}

@@ -415,6 +415,7 @@ async def me(
     user: AuthUser,
     response: Response,
     creds_repo: CredentialsRepository = Depends(get_credentials_repo),
+    messaging: MessagingService = Depends(get_messaging_service),
 ):
     # Re-establish the CSRF token for a session resumed via the access cookie: app
     # cold-start calls /me (not login/refresh), so without this the client holds a
@@ -423,6 +424,12 @@ async def me(
     # signature for this user verifies, so minting one here is safe and idempotent.
     if settings.csrf_enabled:
         issue_csrf_token(response, user.user_id)
+    # Official broadcast membership兜底 (leave forbidden; missed registration after
+    # the official-chat migration). Best-effort — never block /me.
+    try:
+        await messaging.ensure_official_membership(user_id=user.user_id)
+    except Exception:
+        logger.warning("chat.auto_join_failed", user=user.user_id, exc_info=True)
     return await _user_response_for(user, creds_repo)
 
 

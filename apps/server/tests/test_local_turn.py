@@ -18,7 +18,6 @@ Covered:
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -130,13 +129,18 @@ def _patch_persistence(
         "schedule_consolidation",
         lambda cid: consolidation_calls.append(cid),
     )
-    # Local derived mint (title/followups) now goes through billing gate; fake
-    # session has no execute — stub gate like test_early_title / test_compaction.
-    monkeypatch.setattr(
-        cloud_mod,
-        "resolve_and_gate_background",
-        AsyncMock(return_value=SimpleNamespace()),
-    )
+    # Local derived mint (title/followups) now goes through run_background_llm.
+    async def _run_bg(user_id, *, purpose="title", runner):
+        from agentcore.billing.gate import BackgroundLlmResult
+        from agentcore.llm.credentials import LLMCredentials
+
+        creds = LLMCredentials(
+            api_key="sk", base_url="https://x", default_model="m", source="platform"
+        )
+        value = await runner(creds)
+        return BackgroundLlmResult(value=value, credentials=creds)
+
+    monkeypatch.setattr(cloud_mod, "run_background_llm", _run_bg)
     monkeypatch.setattr(cloud_mod, "resolve_user_model", lambda *_a, **_k: "m")
     monkeypatch.setattr(
         cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=_noop_close)
@@ -152,7 +156,9 @@ def _patch_persistence(
     monkeypatch.setattr(local_turn_mod, "get_cloud_store", cloud_mod.get_cloud_store)
 
     async def _fake_followups(**_kw):
-        return ["建议一", "建议二"]
+        from agentcore.conversation.common import FollowupsMintResult
+
+        return FollowupsMintResult(items=["建议一", "建议二"])
 
     monkeypatch.setattr(cloud_mod, "mint_followups", _fake_followups)
     return consolidation_calls

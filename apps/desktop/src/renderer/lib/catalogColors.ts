@@ -9,8 +9,6 @@ export type ArtifactKind =
   | "canvas"
   | "slides"
   | "app"
-  | "diagram"
-  | "form"
   | "connectors"
   | "workflow"
   | "tools"

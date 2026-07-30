@@ -83,7 +83,7 @@ export interface SidecarStartTurnRequest {
    * 避免 spawn-env 过期 / 未注入导致 browser 永久未装配。
    */
   browserBridge?: SidecarBrowserBridge;
-  /** 本会话当前权限轴。缺省 = sidecar 沿用当前值（初始默认写代码）。 */
+  /** 本会话当前权限轴。缺省 = sidecar 沿用当前值（初始默认少打断）。 */
   permissionAxes?: SidecarPermissionAxes;
   /** @deprecated 请用 permissionAxes；sidecar 仍接受旧三档作配方映射。 */
   permissionPreset?: SidecarPermissionPreset;

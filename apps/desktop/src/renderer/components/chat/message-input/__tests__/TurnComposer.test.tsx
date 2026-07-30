@@ -94,41 +94,40 @@ vi.mock("@/lib/capabilities", () => ({
 vi.mock("@/services/permissionAxes", () => ({
   RECIPE_LABELS: {
     cautious: { short: "谨慎", description: "问" },
-    write_code: { short: "写代码", description: "写" },
     less_interrupt: { short: "少打断", description: "少" },
     managed: { short: "托管", description: "同权" },
   },
-  RECIPE_ORDER: ["cautious", "write_code", "less_interrupt", "managed"],
+  RECIPE_ORDER: ["cautious", "less_interrupt", "managed"],
   RECIPE_AXES: {
-    write_code: {
+    less_interrupt: {
       file_write: "session",
-      command: "kickoff",
-      team_kickoff: "rules",
+      command: "auto",
+      team_kickoff: "skip",
       host: "ask",
     },
   },
   DEFAULT_PERMISSION_AXES: {
     file_write: "session",
-    command: "kickoff",
-    team_kickoff: "rules",
+    command: "auto",
+    team_kickoff: "skip",
     host: "ask",
   },
   FILE_WRITE_OPTIONS: [],
   COMMAND_OPTIONS: [],
   TEAM_KICKOFF_OPTIONS: [],
-  matchRecipe: () => "write_code",
-  axesShortLabel: () => "写代码",
+  matchRecipe: () => "less_interrupt",
+  axesShortLabel: () => "少打断",
   recipeToAxes: () => ({
     file_write: "session",
-    command: "kickoff",
-    team_kickoff: "rules",
+    command: "auto",
+    team_kickoff: "skip",
     host: "ask",
   }),
   resolveDefaultPermissionAxes: () =>
     Promise.resolve({
       file_write: "session",
-      command: "kickoff",
-      team_kickoff: "rules",
+      command: "auto",
+      team_kickoff: "skip",
       host: "ask",
     }),
   setConversationPermissionAxes: vi.fn(),

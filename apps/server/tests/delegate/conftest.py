@@ -314,6 +314,10 @@ def tool_durable(
     folder_id: str | None = None,
     memory_enabled: bool = True,
 ):
+    # Pin CAUTIOUS: DEFAULT axes are 少打断 (team_kickoff=skip) and would skip the
+    # durable kickoff card these helpers exist to exercise.
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+
     return DelegateTool(
         llm=provider,
         sink=sink,
@@ -332,6 +336,7 @@ def tool_durable(
         captain_run_id="CEO",
         folder_id=folder_id,
         memory_enabled=memory_enabled,
+        permission_axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS),
     )
 
 

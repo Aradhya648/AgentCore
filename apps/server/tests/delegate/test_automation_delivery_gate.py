@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+from agentcore.core.types import (
+    AutonomyPolicy,
+    CommandAxis,
+    FileWriteAxis,
+    HostAxis,
+    PermissionAxes,
+    TeamKickoffAxis,
+    recipe_to_axes,
+)
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.automation_delivery import (
     automation_toolshed_rejected_message,
@@ -20,14 +28,26 @@ from agentcore.tools.builtin.delegate import DelegateTool
 from agentcore.tools.registry import ToolRegistry
 from tests.delegate.conftest import Provider, local_ctx
 
+# Explicit kickoff axes: style/delivery gates must still hang (not full_auto default).
+_KICKOFF_RULES = PermissionAxes(
+    FileWriteAxis.SESSION,
+    CommandAxis.KICKOFF,
+    TeamKickoffAxis.RULES,
+    HostAxis.ASK,
+)
+
 
 def _delegate(
     *,
     user_message: str,
     conversation_id: str,
     base_ctx,
-    autonomy: AutonomyPolicy = AutonomyPolicy.WRITE_CODE,
+    autonomy: AutonomyPolicy | None = None,
+    permission_axes: PermissionAxes | None = None,
 ) -> DelegateTool:
+    axes = permission_axes or (
+        recipe_to_axes(autonomy) if autonomy is not None else _KICKOFF_RULES
+    )
     return DelegateTool(
         llm=Provider(["X"]),
         sink=EventSink(),
@@ -36,7 +56,7 @@ def _delegate(
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base_ctx,
-        permission_axes=recipe_to_axes(autonomy),
+        permission_axes=axes,
         conversation_id=conversation_id,
     )
 

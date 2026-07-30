@@ -30,6 +30,7 @@ from agentcore.tools.builtin.host import (
     HostShellTool,
     HostStorageTool,
     clamp_shell_timeout,
+    shell_cmd_env_blocks,
     shell_fuse_blocks,
 )
 from agentcore.tools.protocol import ToolContext
@@ -253,6 +254,26 @@ async def test_host_shell_rejects_empty_command():
 
 
 @pytest.mark.asyncio
+async def test_host_shell_rejects_cmd_style_env():
+    tool = HostShellTool()
+    ctx = ToolContext(
+        execution_id="e1",
+        run_id="r1",
+        agent_id="ceo",
+        backend=MagicMock(location="local"),
+        user_id="u1",
+        desktop_channel=MagicMock(),
+    )
+    result = await tool.execute(
+        {"command": "if (Test-Path '%APPDATA%\\Cursor\\logs') { 'ok' }"},
+        ctx,
+    )
+    assert not result.success
+    assert "%VAR%" in (result.error or "") or "$env:" in (result.error or "")
+    ctx.desktop_channel.request_host.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_host_shell_fuse_blocks_rm_rf_root():
     tool = HostShellTool()
     ctx = ToolContext(
@@ -291,6 +312,9 @@ def test_shell_fuse_and_timeout_helpers():
     assert shell_fuse_blocks("shutdown /s /t 0")
     assert shell_fuse_blocks("Format-Volume -DriveLetter C")
     assert shell_fuse_blocks("echo hi") is None
+    assert shell_cmd_env_blocks("Get-ChildItem $env:APPDATA") is None
+    assert shell_cmd_env_blocks("dir %APPDATA%\\Cursor\\logs")
+    assert shell_cmd_env_blocks("echo %LOCALAPPDATA%")
     assert clamp_shell_timeout(None) == 60
     assert clamp_shell_timeout(999) == 120
     assert clamp_shell_timeout(0) == 1

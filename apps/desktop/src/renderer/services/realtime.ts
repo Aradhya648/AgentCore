@@ -11,9 +11,10 @@ import { useMessagingStore } from "@/stores/messaging";
  * Per-user realtime firehose client for the 消息 page (消息IM.md §四).
  *
  * One long-lived `GET /v1/realtime` SSE stream carries every chat's new messages
- * to this user (server→client; sending stays POST). It runs at the app shell for
- * the whole authenticated session — not the 消息 page — so unread badges and
- * incoming messages update even while the user is on the 对话 page.
+ * and presence transitions to this user (server→client; sending stays POST). It
+ * runs at the app shell for the whole authenticated session — not the 消息 page
+ * — so unread badges, online dots, and incoming messages update even while the
+ * user is on the 对话 page.
  *
  * SSE can't refresh a token mid-stream, so this mirrors the POST stream's policy
  * (streamConversation.ts): on a 401, refresh once and reconnect; otherwise drop
@@ -47,6 +48,13 @@ interface SharedSpaceInviteEvent {
   type: "shared_space_invite";
   space_id: string;
   space_name?: string;
+}
+
+/** IM presence: a co-chat user connected/disconnected their firehose. */
+interface PresenceEvent {
+  type: "presence";
+  user_id: string;
+  online: boolean;
 }
 
 /** 记忆更新对话内可见 (§1.6): one offline-consolidation pass that changed a memory
@@ -136,6 +144,11 @@ function handleFrame(frame: string): void {
       // Refetch space lists / events / mounted trees; the ledger dialog and the
       // files rail pick the change up via their invalidated queries.
       invalidateAllSharedSpaces();
+    } else if (event.type === "presence") {
+      const e = event as PresenceEvent;
+      if (e.user_id) {
+        useMessagingStore.getState().applyPresence(e.user_id, !!e.online);
+      }
     }
     // "ready" and any other event types: no-op here.
   } catch {

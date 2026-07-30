@@ -20,7 +20,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
-from agentcore.billing.gate import resolve_and_gate_background
+from agentcore.billing.gate import run_background_llm
 from agentcore.config import settings
 from agentcore.conversation.history import load_recent_history
 from agentcore.conversation.store.merge import (
@@ -39,6 +39,7 @@ from agentcore.db.repositories import (
     MessageRepository,
     PausedTurnRepository,
 )
+from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.factory import build_provider
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
 from agentcore.memory.episodic import (
@@ -264,6 +265,11 @@ async def run_semantic_for_scope(
     ):
         return False
     if credentials is None:
+        logger.info(
+            "memory.consolidation_skipped_no_credentials",
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
         return False
 
     model = resolve_user_model(credentials)
@@ -371,44 +377,49 @@ async def consolidate_conversation(
                     conversation_id,
                     max_messages=settings.memory_consolidation_window_messages,
                 )
-                credentials = await resolve_and_gate_background(
-                    session, user_id, purpose="memory"
-                )
 
-            if window and credentials is None:
-                return False
-
+            credentials: LLMCredentials | None = None
             wrote_episodic = False
             if window:
-                model = resolve_user_model(credentials)
-                provider = build_provider(credentials, purpose="platform_internal")
-                try:
-                    summarizer = LLMEpisodicSummarizer(provider, model=model)
-                    summary = await summarizer.summarize(
-                        window, max_chars=settings.memory_episodic_summary_max_chars
-                    )
-                    if not summary.strip():
-                        summary = fallback_episode_summary(
+
+                async def _episodic_runner(creds: LLMCredentials) -> str:
+                    model = resolve_user_model(creds)
+                    provider = build_provider(creds, purpose="platform_internal")
+                    try:
+                        summarizer = LLMEpisodicSummarizer(provider, model=model)
+                        summary = await summarizer.summarize(
                             window, max_chars=settings.memory_episodic_summary_max_chars
                         )
-                    episode = await append_episode(
-                        store,
-                        user_id=user_id,
-                        conversation_id=conversation_id,
-                        summary=summary,
-                        scope=folder_id,
-                        max_chars=settings.memory_episodic_summary_max_chars,
-                    )
-                    wrote_episodic = True
-                    await _record_and_publish(
-                        conversation_id=conversation_id,
-                        user_id=user_id,
-                        kind="episodic",
-                        items=[],
-                        summary=episode.summary,
-                    )
-                finally:
-                    await provider.close()
+                        if not summary.strip():
+                            summary = fallback_episode_summary(
+                                window, max_chars=settings.memory_episodic_summary_max_chars
+                            )
+                        return summary
+                    finally:
+                        await provider.close()
+
+                bg = await run_background_llm(
+                    user_id, purpose="memory", runner=_episodic_runner
+                )
+                if bg is None:
+                    return False
+                credentials = bg.credentials
+                episode = await append_episode(
+                    store,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    summary=bg.value,
+                    scope=folder_id,
+                    max_chars=settings.memory_episodic_summary_max_chars,
+                )
+                wrote_episodic = True
+                await _record_and_publish(
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    kind="episodic",
+                    items=[],
+                    summary=episode.summary,
+                )
 
             async with async_session_factory() as session:
                 await ConversationRepository(session).set_memory_synced_at(
@@ -434,7 +445,14 @@ async def consolidate_conversation(
             )
             return wrote_episodic
     except Exception as e:
-        logger.warning("memory.consolidation_failed", conversation_id=conversation_id, error=str(e))
+        from agentcore.llm.background_failure import classify_background_llm_failure
+
+        logger.warning(
+            "memory.consolidation_failed",
+            conversation_id=conversation_id,
+            error=str(e),
+            reason=classify_background_llm_failure(e),
+        )
         return False
 
 

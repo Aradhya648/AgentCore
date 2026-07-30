@@ -93,7 +93,7 @@ class CitationsPayload(WirePayload):
 class TurnEvidenceLedgerEntry(WirePayload):
     """回合调研台账条目（辩论 ``EvidenceLedgerEntry`` 超集）。
 
-    ``registrant`` ↔ 辩论 ``side_key``。
+    ``registrant`` ↔ 辩论 ``side_key``。``selected`` / ``doc_kind`` 随 ledger JSON 透传。
     """
 
     id: str  # #r1, #r2, …
@@ -105,6 +105,8 @@ class TurnEvidenceLedgerEntry(WirePayload):
     tier: str = "unknown"  # official | media | unknown | weak
     query: str = ""
     deep_read: bool = False
+    selected: bool = False
+    doc_kind: str = ""  # 可选；启发式如 announcement
     registrant: str = ""
     citable: bool = True
 

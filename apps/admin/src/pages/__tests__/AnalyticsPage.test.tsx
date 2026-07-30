@@ -67,7 +67,6 @@ function usageSummary(p?: Partial<AdminUsageSummary>): AdminUsageSummary {
     cny_per_usd: 7,
     today: usageWindow(12.5, 3),
     month: usageWindow(88, 9),
-    month_by_role: [],
     month_by_model: [],
     month_by_user: [
       {

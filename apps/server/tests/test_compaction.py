@@ -375,8 +375,13 @@ def _wire_runner(monkeypatch, *, conv, messages, provider, credentials=...) -> d
         async def list_after(self, conversation_id, *, after, limit):
             return ([m for m in messages if m.created_at > after], False)
 
-    async def _resolve(session, user_id, *, purpose="compaction"):
-        return credentials
+    async def _run_bg(user_id, *, purpose="compaction", runner):
+        from agentcore.billing.gate import BackgroundLlmResult
+
+        if credentials is None:
+            return None
+        value = await runner(credentials)
+        return BackgroundLlmResult(value=value, credentials=credentials)
 
     def _build(creds, purpose="platform_internal"):
         rec["built"] = True
@@ -384,7 +389,7 @@ def _wire_runner(monkeypatch, *, conv, messages, provider, credentials=...) -> d
 
     monkeypatch.setattr(compaction, "ConversationRepository", _FakeConvRepo)
     monkeypatch.setattr(compaction, "MessageRepository", _FakeMsgRepo)
-    monkeypatch.setattr(compaction, "resolve_and_gate_background", _resolve)
+    monkeypatch.setattr(compaction, "run_background_llm", _run_bg)
     monkeypatch.setattr(compaction, "build_provider", _build)
     monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
     monkeypatch.setattr(compaction.settings, "billing_mode", "platform", raising=True)

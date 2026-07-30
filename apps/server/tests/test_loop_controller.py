@@ -267,7 +267,34 @@ def test_circuit_breaker_still_counts_real_execution_failures():
     real = ToolAttempt("a", "file_write", success=False, policy_failure=False)
     c.record([real, real, real])
     cb = c.tool_circuit_breaker()
-    assert cb.disabled == ("file_write",)
+    # Write tools stay enabled — force segmented instead of circuit-disable.
+    assert cb.disabled == ()
+    assert "file_write" in cb.force_segmented
+    assert c.tool_failure_count("file_write") == 3
+    msg = cb.message() or ""
+    assert "短骨架" in msg or "分段" in msg
+    assert "停用" not in msg
+
+
+def test_circuit_breaker_parse_only_write_tools_force_segmented_not_disable():
+    """Parse-only file_write failures must not retire the pen."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    parse = ToolAttempt("a", "file_write", success=False, parse_failure=True)
+    c.record([parse])
+    assert not c.tool_circuit_breaker()
+    c.record([ToolAttempt("b", "file_write", success=False, parse_failure=True)])
+    warn = c.tool_circuit_breaker()
+    assert warn.warned == ("file_write",)
+    assert "file_write" in warn.parse_only
+    warn_msg = warn.message() or ""
+    assert "分段" in warn_msg or "短骨架" in warn_msg
+    assert "原样重发全部参数" not in warn_msg
+    c.record([ToolAttempt("c", "file_write", success=False, parse_failure=True)])
+    disable = c.tool_circuit_breaker()
+    assert disable.disabled == ()
+    assert "file_write" in disable.force_segmented
+    assert "停用" not in (disable.message() or "")
+    assert "原样重发" not in (disable.message() or "")
 
 
 def test_retire_tools_hard_disables_family_on_first_failure():
@@ -401,7 +428,7 @@ def test_circuit_breaker_tally_survives_nudge_window_clear():
 
 
 def test_circuit_breaker_parse_failures_get_typed_warn_message():
-    """Parse failures still trip warn@2, but must not say「换不同的输入」."""
+    """Parse failures still trip warn@2; orchestration stays enabled at disable threshold."""
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
     parse = ToolAttempt("a", "delegate", success=False, parse_failure=True)
     c.record([parse])
@@ -411,13 +438,24 @@ def test_circuit_breaker_parse_failures_get_typed_warn_message():
     assert cb.warned == ("delegate",)
     assert "delegate" in cb.parse_only
     msg = cb.message() or ""
-    assert "不是合法 JSON" in msg or "原样重发" in msg
+    assert "不是合法 JSON" in msg
+    assert "XML" in msg or "parameter" in msg or "合法 JSON" in msg
     assert "换不同的输入" not in msg
-    # Threshold behaviour unchanged: one more parse failure still disables.
+    # Parse-only: keep dispatcher (do not circuit-disable delegate).
     c.record([ToolAttempt("c", "delegate", success=False, parse_failure=True)])
     cb2 = c.tool_circuit_breaker()
-    assert cb2.disabled == ("delegate",)
+    assert cb2.disabled == ()
+    assert "停用" not in (cb2.message() or "")
     assert c.tool_failure_count("delegate") == 3
+
+
+def test_circuit_breaker_orchestration_still_disables_on_real_failures():
+    """Mixed / non-parse failures still retire delegate at disable threshold."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    real = ToolAttempt("a", "delegate", success=False, parse_failure=False)
+    c.record([real, real, real])
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ("delegate",)
 
 
 def test_circuit_breaker_mixed_failures_keep_generic_warn():
@@ -471,6 +509,29 @@ def test_no_tool_round_is_not_unproductive():
     c = LoopController(unproductive_threshold=1)
     c.note_round_productivity(had_tool_calls=False, all_failed=False, had_content=False)
     assert not c.unproductive_early_stop()
+
+
+def test_parse_failure_only_rounds_do_not_count_unproductive():
+    """纯协议失败轮不计入 unproductive streak。"""
+    c = LoopController(unproductive_threshold=2)
+    c.note_round_productivity(
+        had_tool_calls=True,
+        all_failed=True,
+        had_content=False,
+        all_parse_failures=True,
+    )
+    c.note_round_productivity(
+        had_tool_calls=True,
+        all_failed=True,
+        had_content=False,
+        all_parse_failures=True,
+    )
+    assert not c.unproductive_early_stop()
+    # 执行失败仍计
+    _unproductive(c)
+    assert not c.unproductive_early_stop()
+    _unproductive(c)
+    assert c.unproductive_early_stop()
 
 
 # --- B2: periodic reflection injection ---

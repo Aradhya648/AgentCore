@@ -8,18 +8,14 @@ import type {
 } from "@shared/sidecar-contract";
 
 /** User-global default recipe id (seeds new conversations). */
-export type AutonomyRecipe =
-  | "cautious"
-  | "write_code"
-  | "less_interrupt"
-  | "managed";
+export type AutonomyRecipe = "cautious" | "less_interrupt" | "managed";
 
 export type PermissionAxes = SidecarPermissionAxes;
 
 export const DEFAULT_PERMISSION_AXES: PermissionAxes = {
   file_write: "session",
-  command: "kickoff",
-  team_kickoff: "rules",
+  command: "auto",
+  team_kickoff: "skip",
   host: "ask",
 };
 
@@ -31,13 +27,7 @@ export const RECIPE_AXES: Record<AutonomyRecipe, PermissionAxes> = {
     team_kickoff: "rules",
     host: "off",
   },
-  write_code: DEFAULT_PERMISSION_AXES,
-  less_interrupt: {
-    file_write: "session",
-    command: "kickoff",
-    team_kickoff: "skip",
-    host: "ask",
-  },
+  less_interrupt: DEFAULT_PERMISSION_AXES,
   managed: {
     file_write: "session",
     command: "auto",
@@ -48,7 +38,6 @@ export const RECIPE_AXES: Record<AutonomyRecipe, PermissionAxes> = {
 
 export const RECIPE_ORDER: AutonomyRecipe[] = [
   "cautious",
-  "write_code",
   "less_interrupt",
   "managed",
 ];
@@ -61,15 +50,9 @@ export const RECIPE_LABELS: Record<
     short: "谨慎",
     description: "改文件每次问 · 执行每次确认 · 组队按规则 · 本机关闭",
   },
-  write_code: {
-    short: "写代码",
-    description:
-      "改文件本会话信任 · 执行开工时确认 · 组队按规则 · 本机每次确认",
-  },
   less_interrupt: {
     short: "少打断",
-    description:
-      "改文件本会话信任 · 执行开工时确认 · 不弹组队卡 · 本机每次确认",
+    description: "改文件本会话信任 · 自动执行 · 不弹组队卡 · 本机每次确认",
   },
   managed: {
     short: "托管",
@@ -256,10 +239,10 @@ export function permissionAxesShortLabel(raw: unknown): string | null {
     // Legacy three-tier ids (old audit rows).
     const legacy: Record<string, string> = {
       observe: "谨慎",
-      workspace: "写代码",
+      workspace: "少打断",
       full_trust: "托管",
       always_ask: "谨慎",
-      first_grant: "写代码",
+      first_grant: "少打断",
       full_auto: "托管",
     };
     if (trimmed in legacy) return legacy[trimmed];

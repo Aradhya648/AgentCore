@@ -8,7 +8,9 @@
 - 同 URL（:func:`normalize_citation_url`）去重 → 返回既有 id
 - 空 URL（底料等）按归一化 title 去重
 - ``tier`` 单源 :func:`citation_tier_for_url`；``blocked`` 默拒登记
-- ``citable``：P2 起已登记档（含 ``weak``）均为 ``True``；``blocked`` 不进台账
+- ``citable``：登记仍宽——已登记档（含 ``weak``）均为 ``True``；``blocked`` 不进台账
+- 成稿闸（``#r``）：``draft_citable_ids`` = ``deep_read ∪ selected``（对齐辩论
+  ``commit_research`` 精神；search-only 不得进成稿闸）
 - asyncio 单进程内对分配路径加锁，支撑并行登记不撞号
 """
 
@@ -22,14 +24,49 @@ from urllib.parse import urlparse
 
 from agentcore.runtime.citations import citation_tier_for_url, normalize_citation_url
 
+# 书目形态 / 公告类启发式（禁域名黑名单；仅 title/snippet/显式 doc_kind）。
+_ANNOUNCEMENT_KIND_RE = re.compile(
+    r"开题|答辩|公告|公示|征稿|通知|招标|中标|听证会"
+)
+_DOC_KIND_ANNOUNCEMENT = "announcement"
+
 
 def _norm_title(title: str) -> str:
     return re.sub(r"\s+", "", (title or "").strip().casefold())
 
 
 def citable_for_tier(tier: str) -> bool:
-    """P2：已登记档均可 ``#rN`` / ``#eN`` 引用（含 ``weak``）；``blocked`` 不进台账。"""
+    """登记宽：已登记档均可挂台账 id（含 ``weak``）；``blocked`` 不进台账。
+
+    成稿 ``#rN`` 闸见 :meth:`EvidenceLedgerCore.draft_citable_ids`（更窄）。
+    """
     return tier != "blocked"
+
+
+def infer_doc_kind(
+    *,
+    title: str = "",
+    snippet: str = "",
+    doc_kind: str = "",
+) -> str:
+    """可选 ``doc_kind``；未给时用 title/snippet 启发式（开题/答辩/公告…）。"""
+    explicit = (doc_kind or "").strip()
+    if explicit:
+        return explicit
+    blob = f"{title or ''} {snippet or ''}"
+    if _ANNOUNCEMENT_KIND_RE.search(blob):
+        return _DOC_KIND_ANNOUNCEMENT
+    return ""
+
+
+def is_announcement_doc_kind(doc_kind: str, *, title: str = "", snippet: str = "") -> bool:
+    """书目形态闸：元数据呈开题/答辩/公告类 → True。"""
+    kind = (doc_kind or "").strip().casefold()
+    if kind in {_DOC_KIND_ANNOUNCEMENT, "notice", "defense", "proposal"}:
+        return True
+    if kind:
+        return False
+    return bool(_ANNOUNCEMENT_KIND_RE.search(f"{title or ''} {snippet or ''}"))
 
 
 @dataclass
@@ -62,11 +99,37 @@ class EvidenceLedgerCore:
         return [dict(e) for e in self._entries]
 
     def citable_ids(self) -> frozenset[str]:
-        """允许被 id 引用的条目 id 集（``citable=true``）。"""
+        """登记宽：``citable=true`` 的全量 id（含 search-only）。
+
+        成稿 / ``finish_guard`` / settle reconcile 须用 :meth:`draft_citable_ids`。
+        """
         return frozenset(e["id"] for e in self._entries if e.get("citable"))
 
+    def draft_citable_ids(self) -> frozenset[str]:
+        """成稿 ``#rN`` 闸：``deep_read ∪ selected``（search-only 不得进）。"""
+        return frozenset(
+            e["id"]
+            for e in self._entries
+            if e.get("citable") and (e.get("deep_read") or e.get("selected"))
+        )
+
+    def mark_selected_from_content(self, content: str) -> frozenset[str]:
+        """settle：正文实际引用且已 ``deep_read`` 的 id 持久标 ``selected``。"""
+        from agentcore.runtime.citations import extract_ledger_ref_ids
+
+        cited = set(extract_ledger_ref_ids(content or ""))
+        newly: set[str] = set()
+        for e in self._entries:
+            eid = e["id"]
+            if eid not in cited or not e.get("deep_read"):
+                continue
+            if not e.get("selected"):
+                newly.add(eid)
+            e["selected"] = True
+        return frozenset(newly)
+
     def load_entries(self, entries: list[dict[str, Any]]) -> None:
-        """从 pause 快照再水化台账（保留既有 id，后续登记续号）。
+        """从 pause / 历史快照再水化台账（保留既有 id，后续登记续号）。
 
         ``_cursor`` 置到末尾，避免把快照条目当成新 delta 重放。
         """
@@ -82,17 +145,25 @@ class EvidenceLedgerCore:
                 continue
             norm_url = normalize_citation_url(str(raw.get("url") or ""))
             title = str(raw.get("title") or "")
+            snippet = str(raw.get("snippet") or "")
             tier = str(raw.get("tier") or "unknown")
+            doc_kind = infer_doc_kind(
+                title=title,
+                snippet=snippet,
+                doc_kind=str(raw.get("doc_kind") or ""),
+            )
             entry = {
                 "id": entry_id,
                 "url": norm_url or str(raw.get("url") or ""),
                 "title": title,
-                "snippet": str(raw.get("snippet") or ""),
+                "snippet": snippet,
                 "site": str(raw.get("site") or ""),
                 "date": str(raw.get("date") or ""),
                 "tier": tier,
                 "query": str(raw.get("query") or ""),
                 "deep_read": bool(raw.get("deep_read")),
+                "selected": bool(raw.get("selected")),
+                "doc_kind": doc_kind,
                 "registrant": str(raw.get("registrant") or ""),
                 "citable": bool(raw["citable"])
                 if "citable" in raw
@@ -109,6 +180,50 @@ class EvidenceLedgerCore:
                 if title_key:
                     self._by_title[title_key] = entry_id
         self._cursor = len(self._entries)
+
+    def merge_history_ledgers(self, history: list[dict[str, Any]] | None) -> int:
+        """跨回合 hydrate：合并历史 assistant ``evidence_ledger``（同 id 后写覆盖）。
+
+        返回合并条数。LLM history 仍可只带 role/content；引擎核经此补齐。
+        """
+        by_id: dict[str, dict[str, Any]] = {}
+        for msg in history or ():
+            if not isinstance(msg, dict) or msg.get("role") != "assistant":
+                continue
+            raw_list = msg.get("evidence_ledger")
+            if not isinstance(raw_list, list):
+                continue
+            for raw in raw_list:
+                if not isinstance(raw, dict):
+                    continue
+                eid = str(raw.get("id") or "").strip()
+                if not eid:
+                    continue
+                prev = by_id.get(eid)
+                if prev is None:
+                    by_id[eid] = dict(raw)
+                    continue
+                # 后写覆盖字段，但对 deep_read / selected 取并集，避免丢成稿资格。
+                merged = dict(prev)
+                merged.update(raw)
+                merged["deep_read"] = bool(prev.get("deep_read")) or bool(
+                    raw.get("deep_read")
+                )
+                merged["selected"] = bool(prev.get("selected")) or bool(
+                    raw.get("selected")
+                )
+                by_id[eid] = merged
+        if not by_id:
+            return 0
+
+        def _id_sort_key(entry: dict[str, Any]) -> tuple[int, str]:
+            eid = str(entry.get("id") or "")
+            num = "".join(ch for ch in eid if ch.isdigit())
+            return (int(num) if num else 10**9, eid)
+
+        ordered = sorted(by_id.values(), key=_id_sort_key)
+        self.load_entries(ordered)
+        return len(ordered)
 
     def drain_delta(self) -> list[dict[str, Any]]:
         """自上次 drain 以来的新登记条目。"""
@@ -128,6 +243,8 @@ class EvidenceLedgerCore:
         tier: str | None = None,
         query: str = "",
         deep_read: bool = False,
+        selected: bool = False,
+        doc_kind: str = "",
         dossier_path: str = "",
         origin_id: str = "",
         dossier_label: str = "",
@@ -144,6 +261,8 @@ class EvidenceLedgerCore:
                 tier=tier,
                 query=query,
                 deep_read=deep_read,
+                selected=selected,
+                doc_kind=doc_kind,
                 dossier_path=dossier_path,
                 origin_id=origin_id,
                 dossier_label=dossier_label,
@@ -161,6 +280,8 @@ class EvidenceLedgerCore:
         tier: str | None = None,
         query: str = "",
         deep_read: bool = False,
+        selected: bool = False,
+        doc_kind: str = "",
         dossier_path: str = "",
         origin_id: str = "",
         dossier_label: str = "",
@@ -180,6 +301,8 @@ class EvidenceLedgerCore:
             tier=tier,
             query=query,
             deep_read=deep_read,
+            selected=selected,
+            doc_kind=doc_kind,
             dossier_path=dossier_path,
             origin_id=origin_id,
             dossier_label=dossier_label,
@@ -199,6 +322,8 @@ class EvidenceLedgerCore:
             tier=citation.get("tier") if isinstance(citation.get("tier"), str) else None,
             query=str(citation.get("query") or ""),
             deep_read=bool(citation.get("deep_read")),
+            selected=bool(citation.get("selected")),
+            doc_kind=str(citation.get("doc_kind") or ""),
         )
 
     def register_citation_sync(
@@ -215,6 +340,8 @@ class EvidenceLedgerCore:
             tier=citation.get("tier") if isinstance(citation.get("tier"), str) else None,
             query=str(citation.get("query") or ""),
             deep_read=bool(citation.get("deep_read")),
+            selected=bool(citation.get("selected")),
+            doc_kind=str(citation.get("doc_kind") or ""),
         )
 
     async def register_citations(
@@ -234,6 +361,8 @@ class EvidenceLedgerCore:
                     tier=c.get("tier") if isinstance(c.get("tier"), str) else None,
                     query=str(c.get("query") or ""),
                     deep_read=bool(c.get("deep_read")),
+                    selected=bool(c.get("selected")),
+                    doc_kind=str(c.get("doc_kind") or ""),
                 )
                 if eid is not None:
                     out.append(eid)
@@ -262,6 +391,8 @@ class EvidenceLedgerCore:
         tier: str | None = None,
         query: str = "",
         deep_read: bool = False,
+        selected: bool = False,
+        doc_kind: str = "",
         dossier_path: str = "",
         origin_id: str = "",
         dossier_label: str = "",
@@ -275,6 +406,10 @@ class EvidenceLedgerCore:
         ):
             return None
 
+        resolved_kind = infer_doc_kind(
+            title=title, snippet=snippet, doc_kind=doc_kind
+        )
+
         if norm_url:
             existing = self._by_url.get(norm_url)
             if existing is not None:
@@ -282,6 +417,8 @@ class EvidenceLedgerCore:
                     existing,
                     query=query,
                     deep_read=deep_read,
+                    selected=selected,
+                    doc_kind=resolved_kind,
                     dossier_path=dossier_path,
                     origin_id=origin_id,
                     dossier_label=dossier_label,
@@ -296,6 +433,8 @@ class EvidenceLedgerCore:
                         existing,
                         query=query,
                         deep_read=deep_read,
+                        selected=selected,
+                        doc_kind=resolved_kind,
                         dossier_path=dossier_path,
                         origin_id=origin_id,
                         dossier_label=dossier_label,
@@ -315,6 +454,8 @@ class EvidenceLedgerCore:
             "tier": resolved_tier,
             "query": query or "",
             "deep_read": bool(deep_read),
+            "selected": bool(selected),
+            "doc_kind": resolved_kind,
             "registrant": registrant,
             "citable": citable_for_tier(resolved_tier),
             "dossier_path": dossier_path or "",
@@ -336,13 +477,21 @@ class EvidenceLedgerCore:
         *,
         query: str = "",
         deep_read: bool = False,
+        selected: bool = False,
+        doc_kind: str = "",
         dossier_path: str = "",
         origin_id: str = "",
         dossier_label: str = "",
     ) -> None:
         """同 URL / 底料去重命中时：``read_url`` 可升级 ``deep_read``；空字段可补填。"""
         if not (
-            deep_read or query or dossier_path or origin_id or dossier_label
+            deep_read
+            or selected
+            or query
+            or doc_kind
+            or dossier_path
+            or origin_id
+            or dossier_label
         ):
             return
         for e in self._entries:
@@ -350,8 +499,12 @@ class EvidenceLedgerCore:
                 continue
             if deep_read and not e.get("deep_read"):
                 e["deep_read"] = True
+            if selected and not e.get("selected"):
+                e["selected"] = True
             if query and not (e.get("query") or "").strip():
                 e["query"] = query
+            if doc_kind and not (e.get("doc_kind") or "").strip():
+                e["doc_kind"] = doc_kind
             if dossier_path and not (e.get("dossier_path") or "").strip():
                 e["dossier_path"] = dossier_path
             if origin_id and not (e.get("origin_id") or "").strip():
@@ -359,3 +512,31 @@ class EvidenceLedgerCore:
             if dossier_label and not (e.get("dossier_label") or "").strip():
                 e["dossier_label"] = dossier_label
             return
+
+
+def format_registered_sources_prompt(ledger: EvidenceLedgerCore | None) -> str:
+    """hydrate 后注入「已登记来源」结构化摘要（id/url/query/registrant/deep_read）。"""
+    if ledger is None or len(ledger) == 0:
+        return ""
+    lines: list[str] = []
+    for e in ledger.all_entries():
+        eid = e.get("id") or "?"
+        url = (e.get("url") or "").strip() or "（无 URL）"
+        query = (e.get("query") or "").strip() or "—"
+        registrant = (e.get("registrant") or "").strip() or "—"
+        deep = "是" if e.get("deep_read") else "否"
+        selected = "是" if e.get("selected") else "否"
+        draft_ok = "是" if (e.get("deep_read") or e.get("selected")) else "否"
+        lines.append(
+            f"- {eid} · url={url} · query={query} · registrant={registrant} · "
+            f"deep_read={deep} · selected={selected} · 成稿可引={draft_ok}"
+        )
+    body = "\n".join(lines)
+    return (
+        "<registered_sources>\n"
+        "【已登记来源】本会话台账（引擎核，跨回合 hydrate 后可见）。"
+        "回答某 #rN 出处必须对照下列字段，禁止占位/巧合叙事；"
+        "成稿闸仅允许 deep_read 或 selected 的 id。\n"
+        f"{body}\n"
+        "</registered_sources>"
+    )

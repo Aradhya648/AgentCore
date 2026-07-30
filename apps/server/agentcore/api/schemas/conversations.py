@@ -19,8 +19,8 @@ class PermissionAxesModel(BaseModel):
     """Session permission axes (运行时单一真相源 · file_write/command/team_kickoff/host)."""
 
     file_write: FileWriteAxis = FileWriteAxis.SESSION
-    command: CommandAxis = CommandAxis.KICKOFF
-    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
+    command: CommandAxis = CommandAxis.AUTO
+    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.SKIP
     host: HostAxis = HostAxis.ASK
 
     @model_validator(mode="after")
@@ -62,7 +62,7 @@ class CreateConversationRequest(BaseModel):
     # binding instead.
     local_container_root_id: str | None = Field(None, max_length=200)
     # Session permission axes. Omit → seed from the user's autonomy recipe
-    # (default recipe = write_code → session/kickoff/rules/ask).
+    # (default recipe = less_interrupt → session/auto/skip/ask).
     permission_axes: PermissionAxesModel | None = None
 
 

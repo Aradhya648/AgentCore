@@ -237,10 +237,21 @@ async def run_llm_round(
 def _citable_ids(
     turn_evidence_ledger: EvidenceLedgerCore | None,
 ) -> frozenset[str] | None:
-    """``None`` = 未接通台账（不做 #rN 闸）；空 frozenset = 台账空（任何 #rN 均非法）。"""
+    """成稿闸可引用集：``None`` = 未接通；空 frozenset = 台账空 / 无可成稿引用。
+
+    使用 ``draft_citable_ids``（``deep_read ∪ selected``），非登记宽 ``citable_ids``。
+    """
     if turn_evidence_ledger is None:
         return None
-    return turn_evidence_ledger.citable_ids()
+    return turn_evidence_ledger.draft_citable_ids()
+
+
+def _ledger_entries(
+    turn_evidence_ledger: EvidenceLedgerCore | None,
+) -> list[dict] | None:
+    if turn_evidence_ledger is None:
+        return None
+    return turn_evidence_ledger.all_entries()
 
 
 def finish_guard_max_reworks(
@@ -281,6 +292,7 @@ def decide_no_tool_round(
             citation_count=len(citation_sink or []),
             check_citations=annotate_citations,
             citable_ids=_citable_ids(turn_evidence_ledger),
+            ledger_entries=_ledger_entries(turn_evidence_ledger),
             delivery_verdict=current_delivery_verdict.get(),
         )
         max_reworks = finish_guard_max_reworks(
@@ -329,6 +341,7 @@ def apply_finish_guard_rework(
         citation_count=len(citation_sink or []),
         check_citations=annotate_citations,
         citable_ids=_citable_ids(turn_evidence_ledger),
+        ledger_entries=_ledger_entries(turn_evidence_ledger),
         delivery_verdict=current_delivery_verdict.get(),
     )
     steer = format_guard_steer(reworks)

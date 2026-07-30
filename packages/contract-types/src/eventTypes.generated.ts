@@ -33,6 +33,7 @@ export type SSEEventType =
   | "execution_completed"
   | "execution_detached"
   | "followups_generated"
+  | "followups_unavailable"
   | "graph_append"
   | "handoff_apply_done"
   | "handoff_job_started"

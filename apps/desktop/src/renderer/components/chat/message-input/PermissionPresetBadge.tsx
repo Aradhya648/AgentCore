@@ -187,7 +187,7 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
                   >
                     <span className="shrink-0 text-sm font-medium text-foreground">
                       {meta.short}
-                      {id === "write_code" ? " · 荐" : ""}
+                      {id === "less_interrupt" ? " · 荐" : ""}
                     </span>
                     <span className="min-w-0 truncate text-xs text-muted-foreground">
                       {meta.description}

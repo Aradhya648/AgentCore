@@ -14,8 +14,10 @@
 1. **造引用拦截**——双轨：
    - 池序角标 ``[n]`` 指向不存在的来源卡（编号 < 1 或 > 来源数）；仅 CEO 路径开
      （``check_citations``）。
-   - 台账 id ``#rN`` 必须 ∈ 本回合可引用台账（``citable=true``）；仅当正文出现约定
-     ``#rN`` 标记时启用（Q5）；CEO / 调研 worker 在接通 ``citable_ids`` 时均查。
+   - 台账 id ``#rN`` 必须 ∈ 本回合成稿可引用集（``deep_read ∪ selected``）；仅当正文出现约定
+     ``#rN`` 标记时启用（Q5）；CEO / 调研 worker 在接通 ``citable_ids``（实为 draft 子集）时均查。
+     另：书目著录形态绑定 ``#rN`` 时须 deep_read，且不得把开题/答辩/公告类元数据当学位论文；
+     GB/T ``[D]/[J]`` 等类型标若同段无任何 ``#rN`` 亦回炉（拦编造著录）。
 2. **结构完整性**——代码围栏未闭合（``` 开了没收尾、后文整片被当代码渲染）、或声明了语言却
    空体（标了 ``python`` 却没有任何内容，等于「答应给代码却没给」）。都是「交付不完整」的
    机械信号，最终交付里几乎不会有意为之，故误报率近零。
@@ -46,10 +48,22 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from agentcore.runtime.citations import invalid_ledger_ref_ids, out_of_range_markers
+from agentcore.runtime.citations import (
+    extract_ledger_ref_ids,
+    invalid_ledger_ref_ids,
+    out_of_range_markers,
+)
+from agentcore.runtime.evidence_ledger import is_announcement_doc_kind
 
 if TYPE_CHECKING:
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+# 学位论文 / 期刊式著录形态（与 #rN 同段出现时触发书目形态闸）。
+_BIBLIO_FORM_RE = re.compile(
+    r"\[D\]|\[J\]|\[M\]|\[C\]|\[N\]|学位论文|期刊论文|硕士论文|博士论文"
+)
+# 强 GB/T 文献类型标（近零误报）：无 #rN 绑定时视为未核验/编造著录。
+_BIBLIO_TYPE_MARKER_RE = re.compile(r"\[(?:D|J|M|C|N)\]")
 
 # CEO false-completion claims when delivery_status is blocked with no landed files.
 # Near-zero FP: only fire with an explicit success claim, never on acknowledgment alone.
@@ -126,6 +140,7 @@ def finish_guard(
     citation_count: int,
     check_citations: bool = True,
     citable_ids: frozenset[str] | set[str] | None = None,
+    ledger_entries: list[dict] | None = None,
     delivery_verdict: DeliveryVerdict | None = None,
     overview_max_chars: int | None = None,
 ) -> list[str]:
@@ -140,7 +155,10 @@ def finish_guard(
 
     1. **造引用**：
        - ``[n]``（仅 ``check_citations``）：越界角标 → 编造引用。
-       - ``#rN``（``citable_ids`` 非 None 且正文出现标记）：id ∉ 可引用台账 → 回炉项。
+       - ``#rN``（``citable_ids`` 非 None 且正文出现标记）：id ∉ 成稿可引用集
+         （``deep_read ∪ selected``）→ 回炉项。
+       - 书目形态 + 公告启发式（有 ``ledger_entries`` 时）：见 :func:`_bibliography_reworks`
+         （含无 #rN 绑定的 GB/T ``[D]/[J]`` 著录）。
     2. **结构完整性**（始终查）：:func:`_code_fence_reworks`。
     3. **交付验收对照**（仅 ``check_citations``）：
        - 完成态互斥 A∪C（不依赖 ``delivery_verdict``）：同条不得既「请确认」又「已全部收卷」；
@@ -157,14 +175,13 @@ def finish_guard(
                 "它们指向不存在的来源卡，属于编造引用（违反「绝不编造引用」）。请删除这些角标、"
                 "改成真实存在的来源编号，或为该论断补上可检索到的来源；没有依据就直接去掉这处引用。"
             )
-    bad_refs = invalid_ledger_ref_ids(content, citable_ids)
-    if bad_refs:
-        marks = "、".join(bad_refs)
-        reworks.append(
-            f"正文用了 {marks} 这些台账引用来源，但它们不在本回合已登记且可引用的来源台账中"
-            "（伪造、越界或弱源不可引用）。请改成提示中「已登记来源」列出的 #rN，"
-            "或删除这些引用标记；没有依据就直接去掉这处引用。"
+    reworks.extend(
+        citation_quality_reworks(
+            content,
+            citable_ids=citable_ids,
+            ledger_entries=ledger_entries,
         )
+    )
     reworks.extend(_code_fence_reworks(content))
     if check_citations:
         # 完成态互斥（A∪C）：不依赖 delivery_verdict——单段正文自相矛盾即回炉。
@@ -180,6 +197,137 @@ def finish_guard(
                 delivery_verdict,
                 overview_max_chars=overview_max_chars,
             )
+        )
+    return reworks
+
+
+def citation_quality_reworks(
+    content: str,
+    *,
+    citable_ids: frozenset[str] | set[str] | None = None,
+    ledger_entries: list[dict] | None = None,
+) -> list[str]:
+    """``#rN`` 合法性 + 书目形态闸（chat ``finish_guard`` 与文件合同闸共用）。
+
+    ``ledger_entries is None`` → 书目闸关闭；空列表仍开通 unbound ``[D]/[J]`` 检查。
+    ``citable_ids is None`` → 跳过非法 ``#rN`` 检查。
+    """
+    reworks: list[str] = []
+    bad_refs = invalid_ledger_ref_ids(content, citable_ids)
+    if bad_refs:
+        marks = "、".join(bad_refs)
+        reworks.append(
+            f"正文用了 {marks} 这些台账引用来源，但它们不在本回合成稿可引用集中"
+            "（须 deep_read 或 selected；search-only / 伪造 / 越界均不可）。"
+            "请改成提示中「已登记来源」里成稿可引的 #rN，"
+            "或先 read_url 深读后再引用；没有依据就直接去掉这处引用。"
+        )
+    reworks.extend(_bibliography_reworks(content, ledger_entries))
+    return reworks
+
+
+def _bibliography_bound_ref_ids(content: str) -> list[str]:
+    """正文中与学位论文/期刊式著录同段绑定的 ``#rN``（首次出现序）。"""
+    if not content or not content.strip():
+        return []
+    if not _BIBLIO_FORM_RE.search(content):
+        return []
+    refs = extract_ledger_ref_ids(content)
+    if not refs:
+        return []
+    # 同段：按空行切段；段内同时有书目形态与 #rN 才算绑定。
+    bound: list[str] = []
+    seen: set[str] = set()
+    for para in re.split(r"\n\s*\n", content):
+        if not _BIBLIO_FORM_RE.search(para):
+            continue
+        for eid in extract_ledger_ref_ids(para):
+            if eid not in seen:
+                seen.add(eid)
+                bound.append(eid)
+    # 无空行分段时：整篇有书目形态 + 任意 #rN 视为绑定（近零漏报）。
+    if not bound and _BIBLIO_FORM_RE.search(content):
+        return refs
+    return bound
+
+
+def _unbound_bibliography_reworks(content: str) -> list[str]:
+    """GB/T ``[D]/[J]/…`` 著录未绑任何 ``#rN`` → 回炉（拦编造学位论文式引用）。"""
+    if not content or not content.strip():
+        return []
+    if not _BIBLIO_TYPE_MARKER_RE.search(content):
+        return []
+    unbound_paras: list[str] = []
+    for para in re.split(r"\n\s*\n", content):
+        if not _BIBLIO_TYPE_MARKER_RE.search(para):
+            continue
+        if extract_ledger_ref_ids(para):
+            continue
+        # 取段内首个类型标作锚，便于模型定位。
+        m = _BIBLIO_TYPE_MARKER_RE.search(para)
+        unbound_paras.append(m.group(0) if m else "[D]")
+    if not unbound_paras:
+        # 无空行分段：整篇有类型标且全文无任何 #rN。
+        if not extract_ledger_ref_ids(content):
+            marks = sorted({m.group(0) for m in _BIBLIO_TYPE_MARKER_RE.finditer(content)})
+            return [
+                "正文出现学位论文/期刊式著录标记（"
+                + "、".join(marks)
+                + "）但未就地绑定本回合台账 #rN——"
+                "属于未核验或编造引用。请改为「已登记来源」中的 #rN（须 deep_read），"
+                "或删除该书目式表述；禁止占位/巧合叙事。"
+            ]
+        return []
+    marks_joined = "、".join(dict.fromkeys(unbound_paras))
+    return [
+        f"正文以 {marks_joined} 等著录形态写了文献条目，但同段未绑定任何台账 #rN——"
+        "属于未核验或编造引用。请就地补上成稿可引的 #rN（须 deep_read），"
+        "或删除该书目式表述；禁止占位/巧合叙事。"
+    ]
+
+
+def _bibliography_reworks(
+    content: str, ledger_entries: list[dict] | None
+) -> list[str]:
+    """书目形态闸：无绑定 #rN 的 GB/T 著录；著录式绑定须 deep_read；禁公告当学位论文。"""
+    if ledger_entries is None:
+        return []
+    reworks = _unbound_bibliography_reworks(content)
+    bound = _bibliography_bound_ref_ids(content)
+    if not bound:
+        return reworks
+    by_id = {
+        str(e.get("id") or ""): e
+        for e in ledger_entries
+        if isinstance(e, dict) and e.get("id")
+    }
+    need_deep: list[str] = []
+    announcements: list[str] = []
+    for eid in bound:
+        entry = by_id.get(eid)
+        if entry is None:
+            continue
+        if not entry.get("deep_read"):
+            need_deep.append(eid)
+            continue
+        if is_announcement_doc_kind(
+            str(entry.get("doc_kind") or ""),
+            title=str(entry.get("title") or ""),
+            snippet=str(entry.get("snippet") or ""),
+        ):
+            announcements.append(eid)
+    if need_deep:
+        marks = "、".join(need_deep)
+        reworks.append(
+            f"正文以学位论文/期刊式著录绑定了 {marks}，但这些来源尚未 deep_read——"
+            "请先 read_url 深读后再用著录形态引用，或删除该书目式表述与 #rN。"
+        )
+    if announcements:
+        marks = "、".join(announcements)
+        reworks.append(
+            f"正文以学位论文/期刊式著录绑定了 {marks}，但台账元数据呈开题/答辩/公告类——"
+            "不得把公告/开题材料当作学位论文或期刊论文著录。请改写出处表述，"
+            "或换用深读后的正式文献；禁止占位/巧合叙事。"
         )
     return reworks
 

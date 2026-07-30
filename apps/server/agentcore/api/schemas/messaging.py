@@ -5,11 +5,30 @@ Shares the frontend chat core, not the AI conversation/messages schemas.
 """
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from .messages import StoredAttachment
+
+
+class MessageMentionUser(BaseModel):
+    """@ a specific accepted chat member (structured mention; not body-regex)."""
+
+    kind: Literal["user"] = "user"
+    user_id: str = Field(..., min_length=1, max_length=64)
+
+
+class MessageMentionEveryone(BaseModel):
+    """@所有人 — group chats only; platform admin gate enforced in service."""
+
+    kind: Literal["everyone"] = "everyone"
+
+
+MessageMention = Annotated[
+    MessageMentionUser | MessageMentionEveryone,
+    Field(discriminator="kind"),
+]
 
 
 class UserSearchResult(BaseModel):
@@ -38,6 +57,9 @@ class ChatParticipant(BaseModel):
     is_admin: bool = False
     # Admin-imposed 禁言 (Stage 3): this group member can read but not send.
     muted_by_admin: bool = False
+    # Live presence: true iff ChatHub reports ≥1 ``/v1/realtime`` subscription
+    # (same semantics as admin roster ``online``; not persisted / not last_seen).
+    online: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -97,6 +119,18 @@ class AnnounceRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=2000)
 
 
+class ReplyToSnapshot(BaseModel):
+    """Frozen quote of the message being replied to (written at send time).
+
+    Survives later recall/delete of the target — clients render this snapshot,
+    not a live join. ``sender_user_id`` is null for official/system senders.
+    """
+
+    sender_user_id: str | None
+    sender_display_name: str
+    body_preview: str
+
+
 class ChatMessageDetail(BaseModel):
     id: str
     chat_id: str
@@ -109,6 +143,10 @@ class ChatMessageDetail(BaseModel):
     # system_card deep-link payload (e.g. {kind, conversation_id}); None otherwise.
     payload: dict[str, Any] | None = None
     reply_to_message_id: str | None = None
+    # Frozen reply quote; null when this message is not a reply.
+    reply_to: ReplyToSnapshot | None = None
+    # Frozen @mentions written at send time; empty when none.
+    mentions: list[MessageMention] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -138,6 +176,9 @@ class SendChatMessageRequest(BaseModel):
     # Client-minted id for retry-safe idempotent send (dedup at the unique index).
     client_msg_id: str | None = Field(None, max_length=100)
     reply_to_message_id: str | None = Field(None, max_length=64)
+    # Structured @mentions (source of truth — not body regex). Service validates
+    # membership / @所有人 admin gate and freezes the list onto the stored row.
+    mentions: list[MessageMention] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def _require_content_or_attachments(self) -> "SendChatMessageRequest":

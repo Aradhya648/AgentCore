@@ -730,6 +730,11 @@ def govern_after_tools(
         had_tool_calls=outcome.has_tool_calls,
         all_failed=outcome.all_tools_failed,
         had_content=bool(outcome.content),
+        all_parse_failures=(
+            bool(outcome.attempts)
+            and all(not a.success for a in outcome.attempts)
+            and all(a.parse_failure for a in outcome.attempts)
+        ),
     )
 
     signal = controller.detect()

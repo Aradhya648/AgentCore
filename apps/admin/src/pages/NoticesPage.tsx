@@ -46,13 +46,13 @@ const SEVERITY: Record<NoticeSeverity, { label: string; tone: Tone }> = {
 
 const SURFACE: Record<NoticeSurface, string> = {
   banner: "横幅",
-  inbox: "公告列表",
-  both: "横幅 + 公告列表",
+  inbox: "IM 官方号",
+  both: "横幅 + IM 官方号",
 };
 
 const DISMISS: Record<NoticeDismissPolicy, string> = {
-  once: "可关闭一次",
-  never: "不可关闭",
+  once: "可关闭（不回潮）",
+  never: "横幅可关、官方号常驻",
 };
 
 const PAGE_SIZE = 50;
@@ -240,7 +240,8 @@ export function NoticesPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">公告</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            产品全局通知 · 共 {total} 条
+            产品全局 Notice · 发布后写入桌面顶栏横幅与/或 IM「AgentCore 官方」· 共{" "}
+            {total} 条
             {statusFilter === "all"
               ? ""
               : `（筛选：${STATUS[statusFilter].label}）`}
@@ -475,8 +476,8 @@ function NoticeFormDialog({
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {isNew
-                ? "创建后为草稿，确认无误再发布"
-                : "已归档的公告不可修改；已发布内容修改后立即对用户生效"}
+                ? "创建后为草稿；首次发布且含官方号展示面时，会写入 IM「AgentCore 官方」一条共享卡片"
+                : "已归档不可改；已发布内容修改后立即对用户生效（不回填历史 IM）"}
             </p>
           </div>
           <button
@@ -548,9 +549,9 @@ function NoticeFormDialog({
                 }
                 className={selectClass}
               >
-                <option value="both">横幅 + 收件箱</option>
+                <option value="both">横幅 + IM 官方号</option>
                 <option value="banner">仅横幅</option>
-                <option value="inbox">仅收件箱</option>
+                <option value="inbox">仅 IM 官方号</option>
               </select>
             </label>
             <label className="flex flex-col gap-1.5">
@@ -566,8 +567,8 @@ function NoticeFormDialog({
                 }
                 className={selectClass}
               >
-                <option value="once">可关闭一次</option>
-                <option value="never">不可关闭</option>
+                <option value="once">可关闭（不回潮）</option>
+                <option value="never">横幅可关、官方号常驻</option>
               </select>
             </label>
           </div>

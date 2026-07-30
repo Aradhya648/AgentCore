@@ -204,11 +204,17 @@ class _GrantableTool:
 
 
 def _gate(timeout_seconds: float) -> ApprovalGate:
+    # Pin CAUTIOUS: DEFAULT_PERMISSION_AXES is 少打断 (command=auto) which
+    # auto-passes code_execute via permission_axes.auto_executes — that would
+    # skip the gate and defeat deny-path assertions.
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+
     return ApprovalGate(
         sink=EventSink(),
         conversation_id="conv-1",
         registry=InteractionRegistry(),
         timeout_seconds=timeout_seconds,
+        permission_axes=recipe_to_axes(AutonomyPolicy.CAUTIOUS),
     )
 
 

@@ -552,10 +552,10 @@ def test_has_omission_marker_covers_en_and_cn():
     assert "绝不代派" in text
 
 
-# --- file_write oversized soft length nudge ---
+# --- file_write oversized hard length gate ---
 
 
-async def test_write_length_nudge_on_oversized_content(tmp_path: Path):
+async def test_write_rejects_oversized_prose(tmp_path: Path):
     from agentcore.tools.builtin.file_ops import (
         _WRITE_LENGTH_WARN_CHARS,
         _WRITE_LENGTH_WARN_TOKENS,
@@ -565,17 +565,50 @@ async def test_write_length_nudge_on_oversized_content(tmp_path: Path):
     result = await FileWriteTool().execute(
         {"path": "big.html", "content": body}, _ctx(tmp_path)
     )
-    assert result.success is True
-    assert (tmp_path / "big.html").read_text(encoding="utf-8") == body
-    assert "内容较长" in result.output
-    assert "Artifact-first" in result.output
-    assert "短骨架" in result.output
-    assert "绝不拦截本次写入" in result.output
-    assert str(_WRITE_LENGTH_WARN_TOKENS) in result.output
-    assert str(_WRITE_LENGTH_WARN_CHARS) in result.output
+    assert result.success is False
+    assert result.contract_failure is True
+    assert not (tmp_path / "big.html").exists()
+    assert "拒绝整篇一次写入" in (result.error or "")
+    assert "短骨架" in (result.error or "")
+    assert "已拦截" in (result.error or "")
+    assert str(_WRITE_LENGTH_WARN_TOKENS) in (result.error or "")
+    assert str(_WRITE_LENGTH_WARN_CHARS) in (result.error or "")
 
 
-async def test_write_no_length_nudge_below_threshold(tmp_path: Path):
+async def test_append_rejects_oversized_chunk(tmp_path: Path):
+    from agentcore.tools.builtin.file_ops import _WRITE_LENGTH_WARN_CHARS, FileAppendTool
+
+    (tmp_path / "a.md").write_text("# skeleton\n", encoding="utf-8")
+    body = "y" * _WRITE_LENGTH_WARN_CHARS
+    result = await FileAppendTool().execute(
+        {"path": "a.md", "content": body}, _ctx(tmp_path)
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "拒绝单次过大写入" in (result.error or "")
+    assert "file_append" in (result.error or "")
+
+
+async def test_str_replace_rejects_oversized_new_string(tmp_path: Path):
+    from agentcore.tools.builtin.file_ops import _WRITE_LENGTH_WARN_CHARS, StrReplaceTool
+
+    (tmp_path / "a.md").write_text("## 参考文献\n", encoding="utf-8")
+    result = await StrReplaceTool().execute(
+        {
+            "path": "a.md",
+            "old_string": "## 参考文献",
+            "new_string": "z" * _WRITE_LENGTH_WARN_CHARS,
+        },
+        _ctx(tmp_path),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "拒绝单次过大写入" in (result.error or "")
+    assert "str_replace" in (result.error or "")
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "## 参考文献\n"
+
+
+async def test_write_allows_short_file_below_threshold(tmp_path: Path):
     from agentcore.tools.builtin.file_ops import _WRITE_LENGTH_WARN_CHARS
 
     body = "x" * (_WRITE_LENGTH_WARN_CHARS - 1)
@@ -583,8 +616,20 @@ async def test_write_no_length_nudge_below_threshold(tmp_path: Path):
         {"path": "ok.md", "content": body}, _ctx(tmp_path)
     )
     assert result.success is True
-    assert "内容较长" not in result.output
-    assert "Artifact-first" not in result.output
+    assert (tmp_path / "ok.md").read_text(encoding="utf-8") == body
+    assert "拒绝整篇一次写入" not in (result.output or "")
+
+
+async def test_write_allows_short_skeleton_with_section_markers(tmp_path: Path):
+    skeleton = (
+        "# Outline\n\n<!-- OUTLINE -->\n"
+        "<!-- SECTION:s0 START -->\n<!-- SECTION:s0 END -->\n"
+    )
+    result = await FileWriteTool().execute(
+        {"path": "report.md", "content": skeleton}, _ctx(tmp_path)
+    )
+    assert result.success is True
+    assert "kind: skeleton" in result.output
 
 
 async def test_write_then_append_segmented_path(tmp_path: Path):
@@ -601,7 +646,6 @@ async def test_write_then_append_segmented_path(tmp_path: Path):
         {"path": "site/index.html", "content": skeleton}, ctx
     )
     assert w.success is True
-    assert "内容较长" not in w.output
     assert ctx.landed_artifact_kinds.get("site/index.html") == "skeleton"
 
     a1 = await FileAppendTool().execute(
@@ -622,6 +666,7 @@ def test_write_schema_teaches_artifact_first():
     write_desc = FileWriteTool().schema.description
     assert "Artifact-first" in write_desc
     assert "短骨架" in write_desc or "骨架" in write_desc
+    assert "禁止" in write_desc and ("整篇" in write_desc or "一次写" in write_desc)
     assert "中间省略" in write_desc
     assert "manifest" in write_desc
     assert "优先" in write_desc and "str_replace" in write_desc
@@ -642,13 +687,15 @@ def test_write_schema_teaches_artifact_first():
     assert "禁止改用骨架 file_write" not in replace_desc
 
 
-def test_length_nudge_helpers_pin_threshold():
+def test_length_gate_helpers_pin_threshold():
     from agentcore.tools.builtin.file_ops import (
         _CHARS_PER_TOKEN_EST,
         _WRITE_LENGTH_WARN_CHARS,
         _WRITE_LENGTH_WARN_TOKENS,
         is_oversized_write,
-        length_nudge_text,
+        oversized_write_rejection,
+        requires_segmented_write,
+        segmented_write_rejection,
         write_length_nudge,
     )
 
@@ -656,9 +703,13 @@ def test_length_nudge_helpers_pin_threshold():
     assert not is_oversized_write("x" * (_WRITE_LENGTH_WARN_CHARS - 1))
     assert is_oversized_write("x" * _WRITE_LENGTH_WARN_CHARS)
     assert write_length_nudge("a.md", "short") is None
-    text = length_nudge_text(path="a.md", chars=_WRITE_LENGTH_WARN_CHARS)
-    assert "Artifact-first" in text
-    assert "绝不拦截本次写入" in text
+    assert not requires_segmented_write("short")
+    assert requires_segmented_write("x" * _WRITE_LENGTH_WARN_CHARS)
+    text = oversized_write_rejection(path="a.md", chars=_WRITE_LENGTH_WARN_CHARS)
+    assert "拒绝整篇一次写入" in text
+    assert "已拦截" in text
+    assert segmented_write_rejection("a.md", "x" * _WRITE_LENGTH_WARN_CHARS) is not None
+    assert segmented_write_rejection("a.md", "short") is None
 
 
 def test_classify_write_kind_helpers():

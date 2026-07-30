@@ -68,6 +68,30 @@ function shellFuseBlocks(command: string): string | null {
   return null;
 }
 
+/**
+ * Refuse cmd/bash idioms that break under Windows PowerShell host_shell.
+ * Keep in rough lockstep with server ``shell_cmd_env_blocks`` (+ win32 ||/&&).
+ */
+function shellPowershellIdiomBlocks(command: string): string | null {
+  if (/%[A-Za-z_][A-Za-z0-9_]*%/.test(command)) {
+    return (
+      "host_shell 在 Windows 上走 PowerShell，不会展开 cmd 风格 %VAR%。" +
+      "请改用 $env:APPDATA / $env:LOCALAPPDATA / $env:USERPROFILE 等；" +
+      "路径含空格时加引号。"
+    );
+  }
+  if (
+    process.platform === "win32" &&
+    (command.includes("||") || command.includes("&&"))
+  ) {
+    return (
+      "Windows host_shell 是 PowerShell：不支持 bash/cmd 的 || / && 链式。" +
+      "请用 `;` 分隔，或 `if (...) { }`，或拆成多次 host_shell。"
+    );
+  }
+  return null;
+}
+
 function clampShellTimeout(raw: unknown): number {
   if (raw === undefined || raw === null || raw === "")
     return SHELL_TIMEOUT_DEFAULT;
@@ -637,6 +661,10 @@ async function hostShell(
   const fuse = shellFuseBlocks(cmd);
   if (fuse) {
     return err(fuse, "HostShellFuse");
+  }
+  const idiom = shellPowershellIdiomBlocks(cmd);
+  if (idiom) {
+    return err(idiom, "HostShellIdiom");
   }
   const cwd = os.homedir();
   const timeoutMs = timeoutSeconds * 1000;

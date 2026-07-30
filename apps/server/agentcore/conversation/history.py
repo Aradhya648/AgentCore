@@ -108,7 +108,12 @@ def _fold_history_messages(messages: list[Any]) -> list[dict]:
             history.append({"role": "user", "content": content})
         elif role == "assistant" and content:
             flush_failures()
-            history.append({"role": "assistant", "content": content})
+            item: dict[str, Any] = {"role": "assistant", "content": content}
+            # 引擎跨回合 hydrate 用；拼 LLMMessage 时只取 role/content，不带入模型窗口。
+            ledger = getattr(msg, "evidence_ledger", None)
+            if isinstance(ledger, list) and ledger:
+                item["evidence_ledger"] = list(ledger)
+            history.append(item)
         elif _is_failed_empty_assistant(msg):
             pending_failures.append(_failure_category_label(msg))
         # else: empty non-failed assistant / other roles — skip
@@ -147,7 +152,12 @@ async def load_recent_history(
     history = []
     for msg in messages:
         if msg.role in ("user", "assistant") and msg.content:
-            history.append({"role": msg.role, "content": msg.content})
+            item: dict[str, Any] = {"role": msg.role, "content": msg.content}
+            if msg.role == "assistant":
+                ledger = getattr(msg, "evidence_ledger", None)
+                if isinstance(ledger, list) and ledger:
+                    item["evidence_ledger"] = list(ledger)
+            history.append(item)
     return history
 
 

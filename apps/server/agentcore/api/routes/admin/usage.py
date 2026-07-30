@@ -14,7 +14,6 @@ from agentcore.api.schemas import (
     AdminUserCostLine,
     DailyCost,
     ModelCostLine,
-    RoleCostLine,
     UsageWindow,
 )
 from agentcore.config import settings
@@ -48,7 +47,6 @@ async def usage_summary(
     today = await repo.aggregate_for_window(since=day_start)
     month = await repo.aggregate_for_window(since=month_start)
     month_by_user = await repo.aggregate_by_user_for_window(since=month_start, limit=_TOP_USERS)
-    month_by_role = await repo.aggregate_by_role_for_window(since=month_start)
     month_by_model = await repo.aggregate_by_model_for_window(since=month_start)
 
     # 近 7 日趋势: zero-fill the daily map into a fixed, oldest-first series ending
@@ -82,15 +80,6 @@ async def usage_summary(
                 turns=int(row["turns"]),
             )
             for row in month_by_user
-        ],
-        month_by_role=[
-            RoleCostLine(
-                role=row["role"],
-                cost_total=int(row["cost_total"]),
-                cost_estimated_total=int(row.get("cost_estimated_total", 0) or 0),
-                turns=int(row["turns"]),
-            )
-            for row in month_by_role
         ],
         month_by_model=[
             ModelCostLine(

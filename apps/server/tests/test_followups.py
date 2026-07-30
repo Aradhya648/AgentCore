@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 import agentcore.memory.followups as followups_mod
 from agentcore.llm import LLMRequest, LLMResponse
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
@@ -201,8 +203,8 @@ async def test_generator_blank_output_returns_empty():
     assert out == []
 
 
-async def test_generator_times_out_returns_empty(monkeypatch):
-    """A stalled model degrades to no chips, not a hang."""
+async def test_generator_times_out_raises(monkeypatch):
+    """A stalled model raises TimeoutError so the common wrapper can mark unavailable."""
 
     class _StallProvider:
         async def complete(self, request: LLMRequest) -> LLMResponse:
@@ -210,11 +212,10 @@ async def test_generator_times_out_returns_empty(monkeypatch):
             raise AssertionError("unreachable")
 
     monkeypatch.setattr(followups_mod, "_FOLLOWUPS_TIMEOUT_SECONDS", 0.01)
-    out = await LLMFollowupsGenerator(_StallProvider()).generate(
-        FollowupInput(conversation_id="c1", messages=[{"role": "user", "content": "你好"}])
-    )
-    assert out == []
-
+    with pytest.raises(TimeoutError):
+        await LLMFollowupsGenerator(_StallProvider()).generate(
+            FollowupInput(conversation_id="c1", messages=[{"role": "user", "content": "你好"}])
+        )
 
 # --- generate_followups (conversation/common wrapper: best-effort, never raises) ---
 
@@ -229,7 +230,8 @@ async def test_common_wrapper_returns_list_for_good_reply():
         user_message="帮我设计登录",
         assistant_reply="好的，方案如下……",
     )
-    assert out == ["帮我导出 PDF", "再做一版竞品对比"]
+    assert out.items == ["帮我导出 PDF", "再做一版竞品对比"]
+    assert out.unavailable_reason is None
 
 
 async def test_common_wrapper_skips_when_reply_empty():
@@ -242,7 +244,7 @@ async def test_common_wrapper_skips_when_reply_empty():
         user_message="帮我设计登录",
         assistant_reply="   ",
     )
-    assert out == []
+    assert out.items == []
     assert provider.requests == []
 
 
@@ -259,7 +261,25 @@ async def test_common_wrapper_swallows_provider_error():
         user_message="帮我设计登录",
         assistant_reply="好的，方案如下……",
     )
-    assert out == []
+    assert out.items == []
+    assert out.unavailable_reason is not None
+
+
+async def test_common_wrapper_reraise_llm_auth_error():
+    from agentcore.conversation.common import generate_followups
+    from agentcore.core.errors import LLMAuthError
+
+    class _AuthBoom:
+        async def complete(self, request: LLMRequest) -> LLMResponse:
+            raise LLMAuthError(provider_name="platform")
+
+    with pytest.raises(LLMAuthError):
+        await generate_followups(
+            provider=_AuthBoom(),
+            conversation_id="c1",
+            user_message="帮我设计登录",
+            assistant_reply="好的，方案如下……",
+        )
 
 
 # --- Deterministic motion_card「开辩」chip ---
@@ -419,9 +439,9 @@ async def test_common_wrapper_injects_motion_card_first():
         assistant_reply="分析结论……建议开辩。",
         motion_card=_sample_card(),
     )
-    assert out[0] == "就『一审判决是否过重』开一场正反辩论"
-    assert "帮我导出 PDF" in out
-    assert len(out) <= FOLLOWUPS_MAX
+    assert out.items[0] == "就『一审判决是否过重』开一场正反辩论"
+    assert "帮我导出 PDF" in out.items
+    assert len(out.items) <= FOLLOWUPS_MAX
 
 
 async def test_common_wrapper_injects_when_llm_fails():
@@ -438,7 +458,7 @@ async def test_common_wrapper_injects_when_llm_fails():
         assistant_reply="分析结论……",
         motion_card=_sample_card(),
     )
-    assert out == ["就『一审判决是否过重』开一场正反辩论"]
+    assert out.items == ["就『一审判决是否过重』开一场正反辩论"]
 
 
 async def test_common_wrapper_injects_when_provider_missing():
@@ -451,7 +471,7 @@ async def test_common_wrapper_injects_when_provider_missing():
         assistant_reply="分析结论……",
         motion_card=_sample_card(form="red_team", motion="方案有盲区"),
     )
-    assert out == ["就『方案有盲区』开一场红队审查"]
+    assert out.items == ["就『方案有盲区』开一场红队审查"]
 
 
 async def test_common_wrapper_no_card_unchanged():
@@ -465,7 +485,7 @@ async def test_common_wrapper_no_card_unchanged():
         assistant_reply="好的，方案如下……",
         motion_card=None,
     )
-    assert out == ["帮我导出 PDF", "再做一版竞品对比"]
+    assert out.items == ["帮我导出 PDF", "再做一版竞品对比"]
 
 
 # --- MessageDetail followups projection (DERIVED 持久化 read seam) ---

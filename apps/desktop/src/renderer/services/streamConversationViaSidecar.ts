@@ -463,6 +463,7 @@ function applyReconcile(
     assistant_message_id?: string | null;
     title?: string | null;
     followups?: string[] | null;
+    followups_unavailable_reason?: string | null;
   },
 ): void {
   const messages = getRuntime(conversationId).messages;
@@ -484,6 +485,10 @@ function applyReconcile(
         saved.assistant_message_id,
         conversationId,
       );
+  } else if (saved.followups_unavailable_reason && saved.assistant_message_id) {
+    useConversationStore
+      .getState()
+      .markFollowupsUnavailable(saved.assistant_message_id, conversationId);
   }
 }
 

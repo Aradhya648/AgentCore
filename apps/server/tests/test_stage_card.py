@@ -515,7 +515,7 @@ async def test_drive_mlr_preauth_skips_team_preview(monkeypatch):
 
     class _Tool:
         _depth = 0
-        _permission_axes = AutonomyPolicy.WRITE_CODE
+        _permission_axes = AutonomyPolicy.LESS_INTERRUPT
         _active_playbook = "multi_lens_research"
         _pending_pause = False
         _base_tool_context = type("C", (), {"backend": None})()
@@ -694,7 +694,7 @@ async def test_mlr_stop_clears_keep_flag(monkeypatch):
 
     class _Tool:
         _depth = 0
-        _permission_axes = AutonomyPolicy.WRITE_CODE
+        _permission_axes = AutonomyPolicy.LESS_INTERRUPT
         _active_playbook = "multi_lens_research"
         _pending_pause = False
         _base_tool_context = type("C", (), {"backend": None})()
@@ -1119,7 +1119,7 @@ def _patch_start_debate_harness(monkeypatch, mod, *, pipeline):
         return True
 
     async def _preset(*_a, **_k):
-        return recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+        return recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)
 
     async def _empty_history(*_a, **_k):
         return []

@@ -178,6 +178,34 @@ def test_soft_notes_only_are_notes_state_not_partial():
     assert payload["actions"] == []
 
 
+def test_overlay_soft_criteria_gaps_are_notes_not_partial():
+    """D2 / auto-graph soft notes via criteria_gaps → notes, never partial/blocked."""
+    plan = _plan(RunSpec(run_id="w1", task="写组件", role="前端"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["src/App.tsx"],
+        )
+    }
+    payload = build_delivery_status(
+        plan,
+        results,
+        execution_id="e-overlay",
+        criteria_gaps=[
+            "提醒（不阻断验收）：已落盘 .ts/.tsx，建议补一次验证"
+            "（code_execute / test_run / terminal 跑通 tsc|typecheck|test|build；"
+            "启动开发服务器不算）"
+        ],
+    )
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert payload["gaps"][0]["severity"] == "warning"
+    assert "partial" not in payload["state"]
+    assert "blocked" not in payload["state"]
+    assert payload["actions"] == []
+
+
 def test_partial_writing_cutoff_summary_without_continue_writing():
     plan = _plan(RunSpec(run_id="w1", task="写成篇", role="撰稿人"))
     results = {

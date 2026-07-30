@@ -1,7 +1,7 @@
-"""Cost & usage observability endpoints (团队工资单 + 对话累计 + 账户仪表盘).
+"""Cost & usage observability endpoints (单回合工资单 + 对话累计 + 账户仪表盘).
 
-成本是产品差异点：AgentCore 是 multi-agent，花销天然能按 Agent/角色拆开，所以这些
-读接口呈现的是「团队工资单」而非单一总额。
+成本是产品差异点：AgentCore 是 multi-agent，单回合花销能按 Agent/角色拆开（工资单），
+账户仪表盘则给窗口总额 / 额度 / 趋势。
 
 All three reads are scoped to the authenticated user via ``cost_events.user_id``,
 so a non-owner can never read another user's spend (IDOR-safe) — the message /
@@ -27,7 +27,6 @@ from agentcore.api.schemas import (
     ConversationCost,
     DailyCost,
     QuotaStatus,
-    RoleCostLine,
     TurnCost,
     UsageSummary,
     UsageWindow,
@@ -171,15 +170,15 @@ async def get_usage_summary(
     user_repo: UserRepository = Depends(get_user_repo),
     provider_repo: UserLlmProviderRepository = Depends(get_user_llm_provider_repo),
 ) -> UsageSummary:
-    """Account dashboard: today's tokens/cost, the month's cost + per-role payroll,
-    the recent daily-cost trend, and the quota.
+    """Account dashboard: today's tokens/cost, the month's cost, the recent
+    daily-cost trend, and the quota.
 
     Windows are bounded at the current UTC day / month start (MVP — a per-user
-    timezone is a later refinement). ``month_by_role`` splits this month's spend by
-    role (团队工资单, spend-desc) — the multi-agent differentiator;
-    ``recent_daily_cost`` is the last ``_TREND_DAYS`` UTC days (zero-filled,
-    oldest-first) for the sparkline. Also carries ``cny_per_usd`` so the client
-    formats money from the single server-owned rate.
+    timezone is a later refinement). ``recent_daily_cost`` is the last
+    ``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline. Also
+    carries ``cny_per_usd`` so the client formats money from the single
+    server-owned rate. Per-role split lives on the turn payroll
+    (``GET /messages/{id}/cost``), not this monthly account view.
 
     ``quota`` mirrors what ``enforce_quota`` will actually apply to this user
     (D7): per-user override columns first, else free-tier defaults on a byok
@@ -192,7 +191,6 @@ async def get_usage_summary(
 
     today = await repo.aggregate_for_window(user_id=user.user_id, since=day_start)
     month = await repo.aggregate_for_window(user_id=user.user_id, since=month_start)
-    month_by_role = await repo.aggregate_by_role_for_window(user_id=user.user_id, since=month_start)
 
     # 近 7 日趋势: zero-fill the daily map into a fixed, oldest-first series ending
     # today, so the sparkline is a stable length even for sparse spend.
@@ -230,15 +228,6 @@ async def get_usage_summary(
             estimated_cost=estimated_cost_breakdown(cost=month.get("estimated_cost") or {}),
             requests=month["turns"],
         ),
-        month_by_role=[
-            RoleCostLine(
-                role=row["role"],
-                cost_total=int(row["cost_total"]),
-                cost_estimated_total=int(row.get("cost_estimated_total", 0) or 0),
-                turns=int(row["turns"]),
-            )
-            for row in month_by_role
-        ],
         recent_daily_cost=recent_daily_cost,
         quota=QuotaStatus(
             daily_tokens=limits.daily_tokens,

@@ -16,6 +16,7 @@ import {
   type AutonomyRecipe,
   RECIPE_LABELS,
   RECIPE_ORDER,
+  confirmAutoCommandIfNeeded,
   matchRecipe,
   recipeToAxes,
 } from "@/services/permissionAxes";
@@ -67,7 +68,7 @@ export function emptyStandingTaskForm(
     cron: "",
     folderId: cloudFolders[0]?.id ?? "",
     goal: "",
-    recipe: "write_code",
+    recipe: "less_interrupt",
     enabled: true,
     webhookUrl: null,
     webhookId: null,
@@ -86,7 +87,7 @@ export function formFromStandingTask(
     cron: task.cron ?? "",
     folderId: task.folderId,
     goal: task.goal,
-    recipe: recipe === "custom" ? "write_code" : recipe,
+    recipe: recipe === "custom" ? "less_interrupt" : recipe,
     enabled: task.enabled,
     webhookUrl: task.webhookUrl,
     webhookId: task.webhookId,
@@ -463,12 +464,18 @@ export function StandingTaskEditorDrawer({
               className={SELECT_CLASS}
               value={form.recipe}
               disabled={pendingDismiss}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  recipe: e.target.value as AutonomyRecipe,
-                }))
-              }
+              onChange={(e) => {
+                const next = e.target.value as AutonomyRecipe;
+                if (
+                  !confirmAutoCommandIfNeeded(
+                    recipeToAxes(form.recipe),
+                    recipeToAxes(next),
+                  )
+                ) {
+                  return;
+                }
+                setForm((f) => ({ ...f, recipe: next }));
+              }}
             >
               {RECIPE_ORDER.map((id) => (
                 <option key={id} value={id}>

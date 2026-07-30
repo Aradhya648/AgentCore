@@ -1,0 +1,133 @@
+import type { ChatMessageDetail } from "@/api/messaging";
+import { describe, expect, it } from "vitest";
+import {
+  EVERYONE_MENTION_LABEL,
+  buildReplySnapshot,
+  mentionAtToken,
+  messageMentionsUser,
+  replyBodyPreview,
+  splitContentByMentions,
+  truncateReplyPreview,
+} from "../chatDisplay";
+
+function msg(
+  partial: Partial<ChatMessageDetail> & Pick<ChatMessageDetail, "id">,
+): ChatMessageDetail {
+  return {
+    chat_id: "c1",
+    sender_user_id: "u1",
+    sender_type: "user",
+    content: null,
+    content_type: "text",
+    attachments: [],
+    payload: null,
+    reply_to_message_id: null,
+    reply_to: null,
+    created_at: "2026-01-01T00:00:00Z",
+    ...partial,
+  };
+}
+
+describe("reply preview helpers", () => {
+  it("truncates long text with an ellipsis", () => {
+    const long = "a".repeat(100);
+    expect(truncateReplyPreview(long).endsWith("…")).toBe(true);
+    expect(truncateReplyPreview(long).length).toBe(81);
+  });
+
+  it("uses attachment labels when content is empty", () => {
+    expect(
+      replyBodyPreview(
+        msg({
+          id: "m1",
+          content_type: "image",
+          attachments: [
+            {
+              name: "a.png",
+              path: "a.png",
+              kind: "file",
+              binary: true,
+              truncated: false,
+              workspace_path: "attachments/a.png",
+            },
+          ],
+        }),
+      ),
+    ).toBe("[图片]");
+    expect(
+      replyBodyPreview(
+        msg({
+          id: "m2",
+          content_type: "file",
+          attachments: [
+            {
+              name: "doc.pdf",
+              path: "doc.pdf",
+              kind: "file",
+              binary: true,
+              truncated: false,
+              workspace_path: "attachments/doc.pdf",
+            },
+          ],
+        }),
+      ),
+    ).toBe("[文件]");
+  });
+
+  it("builds a local reply snapshot from the target message", () => {
+    expect(
+      buildReplySnapshot(
+        msg({ id: "m3", content: "hello world", sender_user_id: "u2" }),
+        "Bob",
+      ),
+    ).toEqual({
+      sender_user_id: "u2",
+      sender_display_name: "Bob",
+      body_preview: "hello world",
+    });
+  });
+});
+
+describe("IM mention helpers", () => {
+  const names = (id: string) => ({ u1: "Alice", u2: "Bob", me: "Me" })[id];
+
+  it("detects user and everyone mentions", () => {
+    expect(
+      messageMentionsUser(
+        { mentions: [{ kind: "user", user_id: "me" }] },
+        "me",
+      ),
+    ).toBe(true);
+    expect(
+      messageMentionsUser(
+        { mentions: [{ kind: "user", user_id: "u1" }] },
+        "me",
+      ),
+    ).toBe(false);
+    expect(
+      messageMentionsUser({ mentions: [{ kind: "everyone" }] }, "me"),
+    ).toBe(true);
+    expect(messageMentionsUser({ mentions: undefined }, "me")).toBe(false);
+  });
+
+  it("builds @ tokens and splits content by structured mentions", () => {
+    expect(mentionAtToken({ kind: "everyone" }, names)).toBe(
+      `@${EVERYONE_MENTION_LABEL}`,
+    );
+    expect(mentionAtToken({ kind: "user", user_id: "u1" }, names)).toBe(
+      "@Alice",
+    );
+    const segments = splitContentByMentions(
+      "hey @Alice see @所有人",
+      [{ kind: "user", user_id: "u1" }, { kind: "everyone" }],
+      names,
+      "me",
+    );
+    expect(segments).toEqual([
+      { type: "text", text: "hey " },
+      { type: "mention", text: "@Alice", self: false },
+      { type: "text", text: " see " },
+      { type: "mention", text: "@所有人", self: true },
+    ]);
+  });
+});

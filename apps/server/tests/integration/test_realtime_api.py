@@ -130,3 +130,54 @@ async def test_non_member_not_in_fanout(client, new_client, make_invite):
                 pass
         finally:
             hub.unsubscribe(sub)
+
+
+async def test_rest_online_and_presence_to_co_member(
+    client, new_client, make_invite, session_factory, monkeypatch
+):
+    """REST peer.online tracks hub; presence fans to users sharing a chat."""
+    import agentcore.messaging.presence as presence_mod
+    from agentcore.messaging.presence import broadcast_presence, presence_event
+
+    # Presence opens a short-lived session via async_session_factory; point it at
+    # the per-test schema (get_db override alone does not cover that path).
+    monkeypatch.setattr(presence_mod, "async_session_factory", session_factory)
+
+    code_a = await make_invite("INV-PR-A")
+    code_b = await make_invite("INV-PR-B")
+    await register_and_login(client, code_a, "pr_alice")
+    alice_id = await _user_id(client)
+
+    async with new_client() as bob:
+        await register_and_login(bob, code_b, "pr_bob")
+        bob_id = await _user_id(bob)
+
+        r = await bob.post("/v1/messages/chats/dm", json={"user_id": alice_id})
+        assert r.status_code == 201, r.text
+        chat_id = r.json()["id"]
+
+        chats = (await client.get("/v1/messages/chats")).json()["data"]
+        dm = next(c for c in chats if c["id"] == chat_id)
+        assert dm["peer"]["id"] == bob_id
+        assert dm["peer"]["online"] is False
+
+        hub = default_chat_hub()
+        bob_sub = hub.subscribe(bob_id)
+        try:
+            chats = (await client.get("/v1/messages/chats")).json()["data"]
+            dm = next(c for c in chats if c["id"] == chat_id)
+            assert dm["peer"]["online"] is True
+
+            alice_sub = hub.subscribe(alice_id)
+            try:
+                await broadcast_presence(bob_id, online=False, hub=hub)
+                event = await asyncio.wait_for(alice_sub.get(), timeout=5.0)
+                assert event == presence_event(user_id=bob_id, online=False)
+            finally:
+                hub.unsubscribe(alice_sub)
+        finally:
+            hub.unsubscribe(bob_sub)
+
+        chats = (await client.get("/v1/messages/chats")).json()["data"]
+        dm = next(c for c in chats if c["id"] == chat_id)
+        assert dm["peer"]["online"] is False

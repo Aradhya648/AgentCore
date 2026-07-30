@@ -58,7 +58,6 @@ function makeSummary(quota: Partial<QuotaStatus>): UsageSummary {
   return {
     today: usageWindow(2_000_000_000),
     month: usageWindow(3_000_000_000),
-    month_by_role: [],
     recent_daily_cost: [],
     quota: {
       daily_tokens: 0,

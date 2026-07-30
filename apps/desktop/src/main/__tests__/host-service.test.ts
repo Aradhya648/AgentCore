@@ -156,6 +156,33 @@ describe("runHostOp", () => {
     }
   });
 
+  it("host_shell rejects cmd-style %VAR% env", async () => {
+    const result = await runHostOp({
+      op: "host_shell",
+      args: { command: "Get-ChildItem '%APPDATA%\\Cursor\\logs'" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("HostShellIdiom");
+      expect(result.error.detail).toMatch(/\$env:/);
+    }
+  });
+
+  it("host_shell rejects bash || chain on Windows", async () => {
+    if (process.platform !== "win32") return;
+    const result = await runHostOp({
+      op: "host_shell",
+      args: {
+        command: "Test-Path $env:APPDATA\\Cursor\\logs || echo missing",
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("HostShellIdiom");
+      expect(result.error.detail).toMatch(/\|\|/);
+    }
+  });
+
   it("host_shell runs a trivial command", async () => {
     const command =
       process.platform === "win32" ? "Write-Output 'p3ok'" : "echo p3ok";

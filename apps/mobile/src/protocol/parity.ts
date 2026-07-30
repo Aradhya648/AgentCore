@@ -194,7 +194,9 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
   approval_resolved: { verdict: "ported", surface: "PauseCard" },
   interaction_orphaned: {
     verdict: "ported",
-    surface: "OrphanedInteractionCard",
+    surface: "静默撤卡（无 OrphanedInteractionCard 墓碑）",
+    reason:
+      "定案 A：不可操作交互静默消失；store/fold 仍记 orphaned，UI 不渲染灰态卡",
   },
   delegation_authorization_required: {
     verdict: "ported",
@@ -229,6 +231,10 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
   followups_generated: {
     verdict: "ported",
     surface: "ChatPage · 下一步 chips",
+  },
+  followups_unavailable: {
+    verdict: "ported",
+    surface: "ChatPage · 跟进不可用标记（fold / stopLifecycle）",
   },
 
   // —— 收尾 / 错误 ——
@@ -401,9 +407,9 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     reason:
       "桌面 ResumePrompt 复用 CheckpointCard 全 intent UI；手机精简 ResumeCard 降级承接（与 CheckpointCard 同缺口）",
   },
-  OrphanedInteractionCard: {
+  WaitingForDecisionHint: {
     verdict: "ported",
-    surface: "OrphanedInteractionCard",
+    surface: "WaitingForDecisionHint",
   },
   FileArtifactsCard: { verdict: "ported", surface: "FileArtifactsCard" },
   TurnFileChangesReview: {
@@ -703,10 +709,10 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     reason: "反馈设置页，手机暂不做",
   },
-  "more/ProductNoticesSettings": {
+  "more/RedirectToOfficialChat": {
     verdict: "simplified",
     reason:
-      "产品全局公告列表（设置·公告 inbox）；手机本波无对等公告 Banner/列表面",
+      "桌面旧 #/more/notices 跳转 IM 官方号；手机公告走消息页官方会话（无独立公告设置页）",
   },
   "more/LoginSessionsSection": {
     verdict: "ported",

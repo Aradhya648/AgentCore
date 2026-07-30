@@ -126,8 +126,8 @@ async def test_resume_gate_carries_callers_permission_axes(monkeypatch):
     )
 
 
-async def test_resume_gate_defaults_to_write_code_when_caller_omits(monkeypatch):
-    """调用方缺省（旧调用点 / 解析失败）⇒ 与 run_chat_pipeline 相同的写代码默认。"""
+async def test_resume_gate_defaults_to_less_interrupt_when_caller_omits(monkeypatch):
+    """调用方缺省（旧调用点 / 解析失败）⇒ 与 run_chat_pipeline 相同的少打断默认。"""
     _patch_seams(monkeypatch)
 
     result = await _run_resume()
@@ -135,5 +135,5 @@ async def test_resume_gate_defaults_to_write_code_when_caller_omits(monkeypatch)
     assert result["finish_reason"] == FinishReason.END_TURN
     assert len(_RecordingGate.instances) == 1
     assert _RecordingGate.instances[0]["permission_axes"] == recipe_to_axes(
-        AutonomyPolicy.WRITE_CODE
+        AutonomyPolicy.LESS_INTERRUPT
     )

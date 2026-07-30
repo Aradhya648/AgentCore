@@ -89,6 +89,23 @@ def shell_fuse_blocks(command: str) -> str | None:
     return None
 
 
+# cmd.exe %VAR% — PowerShell does not expand these (prod thrash: %APPDATA% → NOT_FOUND).
+_SHELL_CMD_ENV_RE = re.compile(r"%[A-Za-z_][A-Za-z0-9_]*%")
+
+
+def shell_cmd_env_blocks(command: str) -> str | None:
+    """Refuse cmd-style ``%VAR%`` env expansion (broken under Windows PowerShell)."""
+    if not _SHELL_CMD_ENV_RE.search(command):
+        return None
+    return (
+        "host_shell 在 Windows 上走 PowerShell，不会展开 cmd 风格 %VAR%。"
+        "请改用 $env:APPDATA / $env:LOCALAPPDATA / $env:USERPROFILE 等；"
+        "Unix 请用 $VAR 或 ${VAR}。"
+        "路径含空格时加引号，例如 "
+        "Get-ChildItem -LiteralPath \"$env:APPDATA\\Cursor\\logs\"。"
+    )
+
+
 def clamp_shell_timeout(raw: Any) -> int:
     """Parse optional timeout_seconds; default 60, clamp to [1, 120]."""
     if raw is None or raw == "":
@@ -369,6 +386,8 @@ class HostShellTool:
                 "【禁止】启动永不退出的长驻进程"
                 "（npm/pnpm/yarn/bun run dev|start、vite/next/nuxt、uvicorn --reload 等）——"
                 "那些请用 terminal start + wait_for。"
+                "Shell：Windows=powershell.exe（禁 bash/cmd 的 ||/&& 与 %VAR%；"
+                "用 $env:NAME、`;`、if；路径空格加引号）；Unix=$SHELL -lc（可用 ||/&&）。"
                 "参数：command（必填）；可选 timeout_seconds（默认 60，上限 120）。"
                 "P3 首版不支持 cwd——固定用户 home / 默认 shell cwd。"
                 "结构化 host_* 仍可作快捷路径；毁灭性命令有启发式熔断（非完整边界）。"
@@ -378,7 +397,11 @@ class HostShellTool:
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "要在用户本机执行的一条命令（非空）。",
+                        "description": (
+                            "本机短时命令（非空）。"
+                            "Windows 写 PowerShell（$env:APPDATA、'; if；禁 %VAR%/||/&&）；"
+                            "Unix 写 POSIX shell。"
+                        ),
                     },
                     "timeout_seconds": {
                         "type": "integer",
@@ -413,6 +436,14 @@ class HostShellTool:
                 success=False,
                 output="",
                 error=fuse,
+            )
+        cmd_env = shell_cmd_env_blocks(command)
+        if cmd_env:
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=cmd_env,
             )
         matched_long = long_running_command_match(command)
         if matched_long is not None:

@@ -12,10 +12,7 @@ import {
 // durable ResumeCard (the single cold resume path).
 //
 // This is mobile's own UI (cross-platform-frontend.mdc: zero shared business components).
-import {
-  OrphanedInteractionCard,
-  WaitingForDecisionHint,
-} from "@/components/OrphanedInteractionCard";
+import { WaitingForDecisionHint } from "@/components/WaitingForDecisionHint";
 import type { ApprovalDecision } from "@agentcore/contract-types";
 import type { ProjectedInteraction } from "@agentcore/protocol-conformance";
 import { type ReactNode, useState } from "react";
@@ -66,14 +63,7 @@ export function PauseCard({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  if (pending.status === "orphaned") {
-    return (
-      <OrphanedInteractionCard
-        title="审批已失效"
-        detail="该工具确认已不可答复（服务已重启或回合已结束）。"
-      />
-    );
-  }
+  // Orphaned / non-pending: silent dismiss (no tombstone card).
   if (pending.status !== "pending") return null;
 
   async function submit(body: ResolveInteractionBody) {

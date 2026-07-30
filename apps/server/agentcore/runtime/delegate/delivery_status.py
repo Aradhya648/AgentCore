@@ -403,11 +403,12 @@ def build_delivery_status(
                 continue
             reason = str(row.get("reason") or REASON_VERIFY_FAILED).strip()
             raw_gaps.append(_annotate_gap(role, text, reason=reason or REASON_VERIFY_FAILED))
-    # ② 完成验收未满足（completion_criteria 缺口，批次级）。
+    # ② 完成验收未满足 / soft overlay notes（批次级）。
+    # Soft markers（「不阻断验收」等）经 _annotate_gap → severity=warning → state=notes。
     for gap in criteria_gaps or []:
         text = str(gap).strip()
         if text:
-            raw_gaps.append({"role": "验收", "description": text})
+            raw_gaps.append(_annotate_gap("验收", text))
     # ③ 失败 / 未执行 / 取消的计划节点（热修已接手的取消节点不算缺口）。
     raw_gaps.extend(_node_gaps(plan, results))
     # 用户面：零落盘（worker 契约 + 批次 files_written）合并为一条 files_not_landed。

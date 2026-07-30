@@ -1,7 +1,9 @@
 import { Button, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { buildImThreadItems } from "@/lib/imMessageLayout";
+import { notifyInfo } from "@/lib/toast";
 import { useStickToBottom } from "@/lib/useStickToBottom";
+import type { ChatMessageDetail } from "@/services/messaging";
 import { useAuthStore } from "@/stores/auth";
 import {
   useActiveChat,
@@ -9,13 +11,18 @@ import {
   useChatMembers,
   useMessagingStore,
 } from "@/stores/messaging";
-import { ArrowDown, Info } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, BadgeCheck, Info } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatBubble } from "./ChatBubble";
-import { ChatComposer } from "./ChatComposer";
+import { ChatComposer, type ComposerReplyTarget } from "./ChatComposer";
 import { ChatDateDivider } from "./ChatDateDivider";
 import { GroupInfoDialog } from "./GroupInfoDialog";
-import { avatarInitial, chatDisplayName } from "./chatDisplay";
+import { PresenceAvatar } from "./PresenceAvatar";
+import {
+  avatarInitial,
+  buildReplySnapshot,
+  chatDisplayName,
+} from "./chatDisplay";
 
 interface Props {
   chatId: string;
@@ -39,7 +46,13 @@ export function ChatThread({ chatId }: Props) {
   const myId = user?.id ?? null;
 
   const isGroup = chat?.type === "group";
+  const isOfficial = chat?.type === "official";
+  const showInfo = isGroup || isOfficial;
   const [infoOpen, setInfoOpen] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(
+    null,
+  );
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   // Group threads label each message with its sender, so they need the roster;
   // load it when a group opens (dms render the single peer's name in the header).
@@ -47,11 +60,29 @@ export function ChatThread({ chatId }: Props) {
     if (isGroup) void loadMembers(chatId);
   }, [isGroup, chatId, loadMembers]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chatId resets reply draft on switch.
+  useEffect(() => {
+    setReplyTarget(null);
+    setHighlightId(null);
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const t = window.setTimeout(() => setHighlightId(null), 1600);
+    return () => window.clearTimeout(t);
+  }, [highlightId]);
+
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of members) map.set(m.id, m.display_name || m.username);
+    if (chat?.peer) {
+      map.set(chat.peer.id, chat.peer.display_name || chat.peer.username);
+    }
+    if (myId) {
+      map.set(myId, user?.displayName || user?.username || "我");
+    }
     return map;
-  }, [members]);
+  }, [members, chat?.peer, myId, user?.displayName, user?.username]);
 
   const threadItems = useMemo(() => buildImThreadItems(messages), [messages]);
 
@@ -64,10 +95,61 @@ export function ChatThread({ chatId }: Props) {
 
   const name = chat ? chatDisplayName(chat) : "";
   const memberCount = isGroup && members.length > 0 ? members.length : null;
+  const onlineCount = isGroup ? members.filter((m) => m.online).length : null;
+  const peerOnline = chat?.type === "dm" ? !!chat.peer?.online : false;
   const hasMessages = messages.length > 0;
   // viewer.state === pending means someone opened this dm with us and we have
   // not replied yet — a message request (replying accepts it, 消息IM.md §五).
   const isRequest = chat?.state === "pending";
+
+  let headerSubtitle: string | null = null;
+  if (chat?.type === "dm") {
+    headerSubtitle = peerOnline ? "在线" : "离线";
+  } else if (isOfficial) {
+    headerSubtitle = "官方广播";
+  } else if (isGroup && members.length > 0) {
+    headerSubtitle = `${onlineCount} 人在线`;
+  } else if (memberCount) {
+    headerSubtitle = `${memberCount} 名成员`;
+  }
+
+  const resolveSenderLabel = useCallback(
+    (message: ChatMessageDetail): string => {
+      if (myId && message.sender_user_id === myId) {
+        return user?.displayName || user?.username || "我";
+      }
+      if (isGroup && message.sender_user_id) {
+        return nameById.get(message.sender_user_id) ?? "成员";
+      }
+      return name || "成员";
+    },
+    [isGroup, myId, name, nameById, user?.displayName, user?.username],
+  );
+
+  const handleReply = useCallback(
+    (message: ChatMessageDetail) => {
+      setReplyTarget({
+        messageId: message.id,
+        snapshot: buildReplySnapshot(message, resolveSenderLabel(message)),
+      });
+    },
+    [resolveSenderLabel],
+  );
+
+  const handleScrollToReply = useCallback(
+    (messageId: string) => {
+      const el = scrollRef.current?.querySelector(
+        `[data-message-id="${CSS.escape(messageId)}"]`,
+      );
+      if (!(el instanceof HTMLElement)) {
+        notifyInfo("原消息不在当前已加载范围");
+        return;
+      }
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightId(messageId);
+    },
+    [scrollRef],
+  );
 
   async function handleLoadOlder() {
     const el = scrollRef.current;
@@ -84,25 +166,31 @@ export function ChatThread({ chatId }: Props) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-          {avatarInitial(name || "?")}
-        </span>
+        <PresenceAvatar
+          label={avatarInitial(name || "?")}
+          sizeClass="size-7"
+          textClass="text-xs"
+          online={chat?.type === "dm" && peerOnline}
+        />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-base font-medium text-foreground">
-            {name}
+          <span className="flex items-center gap-1 truncate text-base font-medium text-foreground">
+            {isOfficial && (
+              <BadgeCheck size={14} className="shrink-0 text-primary" />
+            )}
+            <span className="min-w-0 truncate">{name}</span>
           </span>
-          {memberCount && (
+          {headerSubtitle && (
             <span className="text-xs text-muted-foreground">
-              {memberCount} 名成员
+              {headerSubtitle}
             </span>
           )}
         </span>
-        {isGroup && (
-          <SimpleTooltip label="群信息">
+        {showInfo && (
+          <SimpleTooltip label={isOfficial ? "会话设置" : "群信息"}>
             <IconButton
               size="md"
               onClick={() => setInfoOpen(true)}
-              aria-label="群信息"
+              aria-label={isOfficial ? "会话设置" : "群信息"}
               className="ml-auto shrink-0"
             >
               <Info size={18} />
@@ -164,6 +252,11 @@ export function ChatThread({ chatId }: Props) {
                     avatarName={avatarName}
                     senderAvatarUrl={senderAvatarUrl}
                     layout={item.layout}
+                    highlighted={highlightId === m.id}
+                    myUserId={myId}
+                    resolveMentionName={(id) => nameById.get(id)}
+                    onReply={isOfficial ? undefined : handleReply}
+                    onScrollToReply={handleScrollToReply}
                   />
                 );
               })}
@@ -171,7 +264,11 @@ export function ChatThread({ chatId }: Props) {
           ) : (
             <div className="flex h-full items-center justify-center">
               <p className="text-sm text-muted-foreground">
-                {loading ? "加载中…" : "还没有消息，发送第一条消息吧"}
+                {loading
+                  ? "加载中…"
+                  : isOfficial
+                    ? "暂无公告"
+                    : "还没有消息，发送第一条消息吧"}
               </p>
             </div>
           )}
@@ -190,9 +287,15 @@ export function ChatThread({ chatId }: Props) {
         )}
       </div>
 
-      <ChatComposer chatId={chatId} />
+      {!isOfficial && (
+        <ChatComposer
+          chatId={chatId}
+          replyTarget={replyTarget}
+          onClearReply={() => setReplyTarget(null)}
+        />
+      )}
 
-      {isGroup && (
+      {showInfo && (
         <GroupInfoDialog
           chatId={chatId}
           open={infoOpen}

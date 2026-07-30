@@ -150,6 +150,30 @@ async def test_default_chat_hub_is_singleton():
     assert default_chat_hub() is default_chat_hub()
 
 
+async def test_online_presence_queries():
+    """Admin presence read model: online = ≥1 live subscription (not DB status)."""
+    hub = ChatHub()
+    assert hub.online_user_count() == 0
+    assert hub.online_user_ids() == frozenset()
+    assert hub.is_online("u1") is False
+
+    sub_a = hub.subscribe("u1")
+    sub_b = hub.subscribe("u1")  # multi-device still counts as one online user
+    hub.subscribe("u2")
+    assert hub.is_online("u1") is True
+    assert hub.is_online("u2") is True
+    assert hub.is_online("u3") is False
+    assert hub.online_user_count() == 2
+    assert hub.online_user_ids() == frozenset({"u1", "u2"})
+
+    hub.unsubscribe(sub_a)
+    assert hub.is_online("u1") is True  # still one connection
+    hub.unsubscribe(sub_b)
+    assert hub.is_online("u1") is False
+    assert hub.online_user_count() == 1
+    assert hub.online_user_ids() == frozenset({"u2"})
+
+
 # --- SSE firehose generator (route helper) ---
 
 
@@ -196,3 +220,36 @@ async def test_firehose_stops_on_sentinel():
     except StopAsyncIteration:
         pass
     assert hub.connection_count("u1") == 0
+
+
+async def test_firehose_notifies_offline_on_last_unsubscribe():
+    """Last connection drop invokes notify_presence(user, False); multi-device does not."""
+    hub = ChatHub()
+    seen: list[tuple[str, bool]] = []
+
+    async def notify(user_id: str, online: bool) -> None:
+        seen.append((user_id, online))
+
+    sub_a = hub.subscribe("u1")
+    sub_b = hub.subscribe("u1")
+
+    # Dropping one of two connections must not announce offline.
+    hub.unsubscribe(sub_a)
+    assert hub.is_online("u1") is True
+
+    gen = _firehose(sub_b, hub, notify_presence=notify)
+    assert (await gen.__anext__()).startswith("event: ready\n")
+    await gen.aclose()
+    assert seen == [("u1", False)]
+    assert hub.is_online("u1") is False
+
+
+def test_presence_event_shape():
+    from agentcore.messaging.presence import presence_event
+
+    assert presence_event(user_id="u1", online=True) == {
+        "type": "presence",
+        "user_id": "u1",
+        "online": True,
+    }
+    assert presence_event(user_id="u1", online=False)["online"] is False

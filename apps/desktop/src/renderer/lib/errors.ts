@@ -200,9 +200,14 @@ export function resetSessionConnectivityFailures(): void {
   _countedErrorMessageIds.clear();
 }
 
+/** Product copy for empty unproductive turns (tool loop / invalid args). */
+export const LLM_UNPRODUCTIVE_MESSAGE =
+  "工具连续无有效进展或参数无效，请重试。";
+
 /**
- * When reload lost the error payload but left an empty error-finished bubble,
- * synthesize a minimal card so the user still sees an explanation + retry.
+ * When reload lost the error payload but left an empty failure-finished bubble
+ * (`error` / `unproductive`), synthesize a minimal card so the user still sees
+ * an explanation + retry — same surface as a real `message.error` card.
  * Known ``LLM_RATE_LIMIT`` keeps the upstream-限流 product copy.
  */
 export function syntheticErrorForEmptyFailure(
@@ -212,6 +217,9 @@ export function syntheticErrorForEmptyFailure(
   code: string;
   message: string;
 } | null {
+  if (finishReason === "unproductive") {
+    return { code: "LLM_UNPRODUCTIVE", message: LLM_UNPRODUCTIVE_MESSAGE };
+  }
   if (finishReason !== "error") return null;
   if (code === "LLM_RATE_LIMIT") {
     return { code: "LLM_RATE_LIMIT", message: LLM_RATE_LIMIT_MESSAGE };

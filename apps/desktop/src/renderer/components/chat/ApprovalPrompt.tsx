@@ -1,9 +1,6 @@
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { CodeBlock } from "@/components/chat/CodeBlock";
-import {
-  OrphanedInteractionCard,
-  WaitingForDecisionHint,
-} from "@/components/chat/OrphanedInteractionCard";
+import { WaitingForDecisionHint } from "@/components/chat/WaitingForDecisionHint";
 import {
   codeExecuteLanguage,
   deriveCodeExecuteRiskTags,
@@ -35,7 +32,6 @@ import {
   type ApprovalView,
   isToolGranted,
   useInteractionStore,
-  useOrphanedApprovals,
   usePendingApprovals,
 } from "@/stores/interactions";
 import { usePermissionChangeStore } from "@/stores/permissionChanges";
@@ -151,24 +147,16 @@ export function ApprovalPrompt({
 }) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const pending = usePendingApprovals(conversationId);
-  const orphaned = useOrphanedApprovals(conversationId);
   const visible = pending.filter(
     (p) => conversationId != null && !isToolGranted(conversationId, p.toolName),
   );
-  if (visible.length === 0 && orphaned.length === 0) return null;
+  if (visible.length === 0) return null;
 
   return (
     <div
       className={cn("space-y-2", attached ? "px-0" : "mx-4 mb-2")}
       data-approval-dock={attached ? "composer" : "panel"}
     >
-      {orphaned.map((o) => (
-        <OrphanedInteractionCard
-          key={o.id}
-          title="审批已失效"
-          detail="该工具放行请求已不可答复（服务已重启或回合已结束）。"
-        />
-      ))}
       {visible.map((approval) => (
         <ApprovalCard
           key={approval.approvalId}

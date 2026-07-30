@@ -22,10 +22,11 @@ Design (mirrors the offline memory consolidation pattern):
   exact-prefix cache (runtime/resolve/prompt.py) — the one thing this must never do.
 
 Robust by construction: credentials resolve platform-first via
-``resolve_and_gate_background`` (quota-gated), the pass is gated so a trivial fold
-never spends an LLM call, and ANY failure (LLM down, timeout, empty output, quota
-skip) leaves the stored state untouched and returns without raising — the turn
-already completed; compaction is best-effort enrichment.
+``run_background_llm`` (quota-gated + one BYOK retry on platform auth reject),
+the pass is gated so a trivial fold never spends an LLM call, and ANY failure
+(LLM down, timeout, empty output, quota skip) leaves the stored state untouched
+and returns without raising — the turn already completed; compaction is
+best-effort enrichment.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-from agentcore.billing.gate import resolve_and_gate_background
+from agentcore.billing.gate import run_background_llm
 from agentcore.config import settings
 from agentcore.core.logging import get_logger
 from agentcore.core.text import truncate_head_tail
@@ -41,6 +42,7 @@ from agentcore.db.base import async_session_factory
 from agentcore.db.models import Message
 from agentcore.db.repositories import ConversationRepository, MessageRepository
 from agentcore.llm import LLMMessage
+from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.factory import build_provider
 from agentcore.llm.profiles import build_request, get_profile
 from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
@@ -196,23 +198,24 @@ async def compact_conversation(
                 return False
             new_watermark = fold_msgs[-1].created_at
             old_summary = conv.compaction_summary or ""
-            credentials = await resolve_and_gate_background(
-                session, conv.user_id, purpose="compaction"
-            )
+            user_id = conv.user_id
 
-        # No usable platform/BYOK key, or platform quota exhausted: skip WITHOUT
-        # advancing the watermark so a later pass can retry.
-        if credentials is None:
+        async def _runner(credentials: LLMCredentials) -> str:
+            model = resolve_user_model(credentials)
+            provider = build_provider(credentials, purpose="platform_internal")
+            try:
+                return await _summarize(provider, old_summary, fold_msgs, model=model)
+            finally:
+                close = getattr(provider, "close", None)
+                if close is not None:
+                    await close()
+
+        # No usable platform/BYOK key, platform quota exhausted, or auth failed
+        # both sides: skip WITHOUT advancing the watermark so a later pass can retry.
+        bg = await run_background_llm(user_id, purpose="compaction", runner=_runner)
+        if bg is None:
             return False
-
-        model = resolve_user_model(credentials)
-        provider = build_provider(credentials, purpose="platform_internal")
-        try:
-            summary = await _summarize(provider, old_summary, fold_msgs, model=model)
-        finally:
-            close = getattr(provider, "close", None)
-            if close is not None:
-                await close()
+        summary = bg.value
 
         # Empty output (timeout / error / refusal): leave the stored state intact and
         # let the next over-threshold turn retry — never persist a blank summary.

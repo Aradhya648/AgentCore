@@ -207,3 +207,91 @@ def test_deep_read_upgrades_existing_entry():
     assert e["deep_read"] is True
     assert e["query"] == "q1"  # 首登 query 保留
     assert e["registrant"] == "worker:w1"
+
+
+def test_draft_citable_requires_deep_read_or_selected():
+    led = EvidenceLedgerCore(id_prefix="#r")
+    led.register_sync(
+        url="https://example.com/search-hit",
+        title="Hit",
+        registrant="ceo",
+        deep_read=False,
+    )
+    led.register_sync(
+        url="https://example.com/read",
+        title="Read",
+        registrant="ceo",
+        deep_read=True,
+    )
+    assert led.citable_ids() == frozenset({"#r1", "#r2"})
+    assert led.draft_citable_ids() == frozenset({"#r2"})
+    # read_url 升级后进入成稿闸
+    led.register_sync(
+        url="https://example.com/search-hit",
+        title="Hit",
+        registrant="ceo",
+        deep_read=True,
+    )
+    assert led.draft_citable_ids() == frozenset({"#r1", "#r2"})
+
+
+def test_mark_selected_from_content_and_hydrate():
+    led = EvidenceLedgerCore(id_prefix="#r")
+    led.register_sync(
+        url="https://example.com/a",
+        title="A",
+        registrant="ceo",
+        deep_read=True,
+    )
+    led.register_sync(
+        url="https://example.com/b",
+        title="B",
+        registrant="ceo",
+        deep_read=False,
+    )
+    newly = led.mark_selected_from_content("结论见 #r1 与 #r2。")
+    assert newly == frozenset({"#r1"})  # #r2 无 deep_read → 不标
+    assert led.get("#r1")["selected"] is True
+    assert led.get("#r2")["selected"] is False
+
+    restored = EvidenceLedgerCore(id_prefix="#r")
+    restored.load_entries(led.all_entries())
+    assert restored.get("#r1")["selected"] is True
+    assert restored.draft_citable_ids() == frozenset({"#r1"})
+
+
+def test_merge_history_ledgers_and_doc_kind():
+    led = EvidenceLedgerCore(id_prefix="#r")
+    n = led.merge_history_ledgers(
+        [
+            {"role": "user", "content": "q"},
+            {
+                "role": "assistant",
+                "content": "见 #r1",
+                "evidence_ledger": [
+                    {
+                        "id": "#r1",
+                        "url": "https://example.com/thesis-notice",
+                        "title": "2024 开题答辩安排公告",
+                        "snippet": "公示",
+                        "deep_read": True,
+                        "selected": True,
+                        "registrant": "ceo",
+                        "citable": True,
+                    }
+                ],
+            },
+        ]
+    )
+    assert n == 1
+    e = led.get("#r1")
+    assert e is not None
+    assert e["selected"] is True
+    assert e["deep_read"] is True
+    assert e["doc_kind"] == "announcement"
+    from agentcore.runtime.evidence_ledger import format_registered_sources_prompt
+
+    prompt = format_registered_sources_prompt(led)
+    assert "<registered_sources>" in prompt
+    assert "#r1" in prompt
+    assert "deep_read=是" in prompt

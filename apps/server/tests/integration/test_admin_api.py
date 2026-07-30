@@ -701,44 +701,6 @@ async def test_admin_usage_summary_aggregates_across_users(client, make_admin, s
     assert b["billing_mode"] == settings.billing_mode
 
 
-async def test_admin_usage_summary_splits_month_by_role(client, make_admin, session_factory):
-    """全站工资单 also splits this month's spend by ledger role (含 vision 读图子调用),
-    aggregated across *every* account and ordered spend-desc — the platform-wide
-    counterpart of the per-user by-role payroll."""
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-    alice = await _seed_user(session_factory, "alice")
-    bob = await _seed_user(session_factory, "bob")
-
-    # Two accounts, two roles: captain spend dwarfs the vision read-image sub-calls,
-    # and each role spans both users so the split is a true cross-user merge.
-    await _seed_spend(session_factory, user_id=alice, total=5000, role="captain")
-    await _seed_spend(session_factory, user_id=bob, total=3000, role="captain")
-    await _seed_spend(session_factory, user_id=alice, total=400, role="vision")
-    await _seed_spend(session_factory, user_id=bob, total=200, role="vision")
-
-    r = await client.get("/v1/admin/usage/summary")
-    assert r.status_code == 200, r.text
-    rows = r.json()["month_by_role"]
-
-    # Spend-desc across the whole platform: captain (8000, 2 turns) leads vision
-    # (600, 2 turns); each role merges both accounts' spend.
-    assert [row["role"] for row in rows] == ["captain", "vision"]
-    by_role = {row["role"]: row for row in rows}
-    assert by_role["captain"] == {
-        "role": "captain",
-        "cost_total": 8000,
-        "cost_estimated_total": 0,
-        "turns": 2,
-    }
-    assert by_role["vision"] == {
-        "role": "vision",
-        "cost_total": 600,
-        "cost_estimated_total": 0,
-        "turns": 2,
-    }
-
-
 async def test_admin_usage_summary_splits_month_by_model(client, make_admin, session_factory):
     """全站看板 splits this month's spend by model from ``cost_calls`` (GROUP BY model),
     never ``cost_events.model`` — multi-model runs would otherwise mis-attribute."""
@@ -816,7 +778,6 @@ async def test_admin_usage_summary_empty_is_zero(client, make_admin):
     b = r.json()
     assert b["today"]["cost"]["total"] == 0
     assert b["month_by_user"] == []
-    assert b["month_by_role"] == []
     assert b["month_by_model"] == []
     assert [p["cost_total"] for p in b["recent_daily_cost"]] == [0] * 7
 
@@ -1291,7 +1252,7 @@ async def test_admin_user_detail_unknown_404(client, make_admin):
 
 async def test_admin_user_detail_composes_account_view(client, make_admin, session_factory):
     """The drill-down stitches one account's record + its own usage (today/month/
-    trend/by-role) + recent conversations (with message counts) + recent turns —
+    trend/by-model) + recent conversations (with message counts) + recent turns —
     all scoped to that account (another user's spend/turns never leak in)."""
     username, password = await make_admin()
     await login_admin(client, username, password)
@@ -1321,11 +1282,6 @@ async def test_admin_user_detail_composes_account_view(client, make_admin, sessi
     assert b["today"]["cost"]["total"] == 11200
     assert b["month"]["cost"]["total"] == 11200
     assert b["today"]["requests"] == 2
-
-    # by-role payroll (spend-desc, >0 only): both alice turns are captain → merged.
-    roles = {row["role"]: row for row in b["month_by_role"]}
-    assert roles["captain"]["cost_total"] == 11200
-    assert roles["captain"]["turns"] == 2
 
     # 7-day trend: fixed length, today carries all of alice's spend.
     assert len(b["recent_daily_cost"]) == 7

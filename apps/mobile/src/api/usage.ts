@@ -51,7 +51,6 @@ export type CostBreakdown = Schemas["CostBreakdown"];
 export type UsageBreakdown = Schemas["UsageBreakdown"];
 export type UsageWindow = Schemas["UsageWindow"];
 export type QuotaStatus = Schemas["QuotaStatus"];
-export type RoleCostLine = Schemas["RoleCostLine"];
 export type DailyCost = Schemas["DailyCost"];
 export type UsageSummary = Schemas["UsageSummary"];
 

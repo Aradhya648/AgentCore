@@ -23,8 +23,8 @@ import { FeedbackSettings } from "@/pages/more/FeedbackSettings";
 import { ImPrivacySettings } from "@/pages/more/ImPrivacySettings";
 import { ModelSettings } from "@/pages/more/ModelSettings";
 import { MoreIndexRedirect } from "@/pages/more/MoreIndexRedirect";
-import { ProductNoticesSettings } from "@/pages/more/ProductNoticesSettings";
 import { ProviderSettings } from "@/pages/more/ProviderSettings";
+import { RedirectToOfficialChat } from "@/pages/more/RedirectToOfficialChat";
 import { ShortcutsSettings } from "@/pages/more/ShortcutsSettings";
 import { UsageSettings } from "@/pages/more/UsageSettings";
 import { TownLauncherPage } from "@/pages/simulation/TownLauncherPage";
@@ -101,6 +101,8 @@ export const router = createHashRouter([
         path: "more/inbox",
         element: <Navigate to={APP_PATHS.toolbox.automations.inbox} replace />,
       },
+      // 产品公告 inbox 已迁 IM 官方号；旧书签 / 手册路径收向消息页。
+      { path: "more/notices", element: <RedirectToOfficialChat /> },
       // Hidden dev route — not in the nav; reach it by typing #/preview. Replays
       // committed conformance vectors through the real dispatch to eyeball every AI
       // state offline (no backend / LLM). See preview/replay.ts.
@@ -135,7 +137,6 @@ export const router = createHashRouter([
           { path: "appearance", element: <AppearanceSettings /> },
           { path: "shortcuts", element: <ShortcutsSettings /> },
           { path: "feedback", element: <FeedbackSettings /> },
-          { path: "notices", element: <ProductNoticesSettings /> },
           { path: "about", element: <AboutSettings /> },
           { path: "legal/:docId", element: <LegalSettingsPage /> },
         ],

@@ -82,3 +82,18 @@ export function emptyChatCopy(): {
     action: null,
   };
 }
+
+/**
+ * Visible notice for an empty assistant bubble that finished abnormally
+ * (`error` / `unproductive`). Desktop synthesizes a full error card; mobile
+ * has no that path yet — this keeps the failure readable instead of a blank
+ * / hidden bubble.
+ */
+export function emptyFailureNotice(
+  finishReason: string | null | undefined,
+): string | null {
+  if (finishReason === "error") return "模型调用失败，请重试。";
+  if (finishReason === "unproductive")
+    return "工具连续无有效进展或参数无效，请重试。";
+  return null;
+}

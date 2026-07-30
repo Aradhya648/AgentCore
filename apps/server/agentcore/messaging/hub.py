@@ -12,6 +12,10 @@ drain sheds its oldest undelivered events rather than growing without bound or
 stalling the publisher; the client re-syncs anything it missed on reconnect via
 the chat's ``last_read_message_id`` (离线补偿, §五), so a drop is recoverable, not
 a lost message.
+
+Presence (online = ≥1 live subscription) is read from this hub; connect/disconnect
+transitions fan ``presence`` events to co-chat users via
+:mod:`agentcore.messaging.presence` (not stored).
 """
 
 import asyncio
@@ -113,6 +117,18 @@ class ChatHub:
     def connection_count(self, user_id: str) -> int:
         """How many live firehose connections ``user_id`` currently holds."""
         return len(self._subscribers.get(user_id, ()))
+
+    def is_online(self, user_id: str) -> bool:
+        """True when ``user_id`` holds ≥1 live ``/v1/realtime`` subscription."""
+        return self.connection_count(user_id) > 0
+
+    def online_user_ids(self) -> frozenset[str]:
+        """User ids with ≥1 live firehose connection (admin + IM presence read model)."""
+        return frozenset(self._subscribers)
+
+    def online_user_count(self) -> int:
+        """Distinct users currently online (same semantics as :meth:`online_user_ids`)."""
+        return len(self._subscribers)
 
     async def publish(self, user_ids: Sequence[str], event: dict[str, Any]) -> None:
         """Fan ``event`` out to every live connection of each user (best-effort).

@@ -42,7 +42,6 @@ from agentcore.api.schemas import (
     AdminUserResponse,
     DailyCost,
     ModelCostLine,
-    RoleCostLine,
     StatusResponse,
     TurnMetricLine,
     UsageWindow,
@@ -277,7 +276,7 @@ async def user_detail(
     llm_providers: UserLlmProviderRepository = Depends(get_user_llm_provider_repo),
 ) -> AdminUserDetail:
     """用户详情下钻 (用户管理 P0): one account's record + configured model names +
-    its own usage (today / month / 7-day trend / by-role / by-model) + recent
+    its own usage (today / month / 7-day trend / by-model) + recent
     conversations + recent turn activity.
 
     The per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped
@@ -304,7 +303,6 @@ async def user_detail(
 
     today = await cost_repo.aggregate_for_window(user_id=user_id, since=day_start)
     month = await cost_repo.aggregate_for_window(user_id=user_id, since=month_start)
-    month_by_role = await cost_repo.aggregate_by_role_for_window(user_id=user_id, since=month_start)
     recent_by_model = await cost_repo.aggregate_by_model_for_window(
         user_id=user_id, since=since_30d
     )
@@ -352,15 +350,6 @@ async def user_detail(
             estimated_cost=estimated_cost_breakdown(cost=month.get("estimated_cost") or {}),
             requests=month["turns"],
         ),
-        month_by_role=[
-            RoleCostLine(
-                role=row["role"],
-                cost_total=int(row["cost_total"]),
-                cost_estimated_total=int(row.get("cost_estimated_total", 0) or 0),
-                turns=int(row["turns"]),
-            )
-            for row in month_by_role
-        ],
         recent_by_model=[
             ModelCostLine(
                 model=row["model"],

@@ -188,6 +188,9 @@ KEY_DESC: dict[str, str] = {
     "auth.mfa_recovery_used": "敏感操作审计：Admin MFA 恢复码成功消费",
     "llm_provider.key_updated": "敏感操作审计：BYOK API Key 轮换保存（无明文）",
     "llm_provider.deleted": "敏感操作审计：BYOK 服务商（含密钥）删除",
+    "billing.background_platform_auth_fallback": (
+        "后台 chrome 平台 key 被上游 auth 拒绝后一次回落用户 BYOK"
+    ),
 }
 
 

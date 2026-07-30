@@ -91,7 +91,7 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 | `complexity_hint` | `light`/`standard`：编排姿态（如 light 隐含 `coordination=none`），**不**映射 worker token/超时 |
 | `coordination` | 便签墙档；缺省 `none`；权威 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md) |
 | `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema`。`form=prose` = 纯文字、引擎不授写文件工具；`form=files` / 省略 = 可写盘。`form=prose` 不得同时声明 `requires_files` / 非空 `artifacts`（硬拒）。批次 `files_written` / `code_verified` / `graph_consistent` 须**至少一名**可写盘 worker（全员 prose 硬拒）；`repair_code` 形（修补 `files` + 诊断/验证 `prose`）合法。仅 `runtime_ready` 允许全员 prose |
-| `completion_criteria` | 批次验收；省略不强制；文案推断已废除。`files_written` / `code_verified`（编译·测试·build，**默认走有界验证 `test_run`**）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；落盘此类文件时自动扫）互不混用；启动开发服务器用 `runtime_ready`；慢 build/tsc/`npm install` **硬拒**塞进 `code_execute`（改 `test_run`） |
+| `completion_criteria` | 批次验收；省略不强制（含不自动 overlay 挡；落 TS 的 D2/图扫仅为 soft note）；文案推断已废除。`files_written` / `code_verified`（编译·测试·build，**默认走有界验证 `test_run`**）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；显式声明才 binding，落盘此类文件时自动扫仅为 soft note）互不混用；启动开发服务器用 `runtime_ready`；慢 build/tsc/`npm install` **硬拒**塞进 `code_execute`（改 `test_run`） |
 | `continue_from_run_id` | 带现场续派；权威 → [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md) |
 | worker 模型 | CEO **不**选 per-task 模型档；力度用协作结构表达；用户侧「模型组合」可选 Worker 槽 |
 

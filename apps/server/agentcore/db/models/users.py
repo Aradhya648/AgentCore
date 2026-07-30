@@ -30,7 +30,7 @@ class User(Base):
         CheckConstraint("role in ('user', 'admin')", name="ck_users_role"),
         CheckConstraint("status in ('active', 'disabled')", name="ck_users_status"),
         CheckConstraint(
-            "autonomy_policy in ('cautious', 'write_code', 'less_interrupt', 'managed')",
+            "autonomy_policy in ('cautious', 'less_interrupt', 'managed')",
             name="ck_users_autonomy_policy",
         ),
     )
@@ -77,10 +77,10 @@ class User(Base):
         Boolean, default=True, server_default=text("true")
     )
     # Default permission recipe for new conversations (安全权限与治理 · AutonomyPolicy).
-    # cautious | write_code (default · 写代码) | less_interrupt | managed — seeds
-    # conversation.permission_axes; plan_review / checkpoint confirmation unchanged.
+    # cautious | less_interrupt (default) | managed — seeds conversation.permission_axes;
+    # plan_review / checkpoint confirmation unchanged.
     autonomy_policy: Mapped[str] = mapped_column(
-        String(32), default="write_code", server_default=text("'write_code'")
+        String(32), default="less_interrupt", server_default=text("'less_interrupt'")
     )
     # --- 账号默认模型组合 (模型组合配置 · llm_model_profiles) ---
     # 指向用户组合或系统预置虚拟 id（5.2 / Grok 4.5）。NULL = 解析时回落系统「5.2」预置。

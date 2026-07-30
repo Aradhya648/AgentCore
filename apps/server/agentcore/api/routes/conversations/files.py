@@ -10,6 +10,7 @@ from agentcore.api.dependencies import (
     AuthUser,
     get_conversation_repo,
 )
+from agentcore.api.download_headers import download_headers
 from agentcore.api.schemas import (
     CloneRepoRequest,
     CloneRepoResponse,
@@ -257,7 +258,7 @@ async def download_workspace_file(
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=download_headers(filename),
     )
 
 

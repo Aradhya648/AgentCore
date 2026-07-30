@@ -13,6 +13,7 @@ import mimetypes
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from agentcore.api.dependencies import AdminUser, AuthUser, get_messaging_service
+from agentcore.api.download_headers import download_headers
 from agentcore.api.schemas import (
     AdminMuteRequest,
     AnnounceRequest,
@@ -40,6 +41,7 @@ from agentcore.config import settings
 from agentcore.conversation.rate_limit import enforce_user_message_rate_limit
 from agentcore.core.errors import ValidationError
 from agentcore.messaging import ChatView, DirectoryView, MessagingService
+from agentcore.messaging.hub import default_chat_hub
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -47,13 +49,20 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 # --- ORM/domain → schema conversion (kept in the route, per repo convention) ---
 
 
-def _participant(user, *, is_admin: bool = False, muted_by_admin: bool = False) -> ChatParticipant:
+def _participant(
+    user,
+    *,
+    is_admin: bool = False,
+    muted_by_admin: bool = False,
+    online: bool = False,
+) -> ChatParticipant:
     return ChatParticipant(
         id=user.user_id,
         username=user.username,
         display_name=user.display_name,
         is_admin=is_admin,
         muted_by_admin=muted_by_admin,
+        online=online,
     )
 
 
@@ -65,14 +74,25 @@ def _blocked_user(user) -> BlockedUser:
     return BlockedUser(id=user.user_id, username=user.username, display_name=user.display_name)
 
 
-def _chat_summary(view: ChatView) -> ChatSummary:
+def _chat_summary(
+    view: ChatView,
+    *,
+    online_ids: frozenset[str] | None = None,
+) -> ChatSummary:
     chat, member = view.chat, view.member
+    peer = None
+    if view.peer is not None:
+        if online_ids is None:
+            online = default_chat_hub().is_online(view.peer.user_id)
+        else:
+            online = view.peer.user_id in online_ids
+        peer = _participant(view.peer, online=online)
     return ChatSummary(
         id=chat.id,
         type=chat.type,
         title=chat.title,
         avatar_url=chat.avatar_url,
-        peer=_participant(view.peer) if view.peer else None,
+        peer=peer,
         last_message_at=chat.last_message_at,
         last_message_preview=chat.last_message_preview,
         unread=view.unread,
@@ -116,7 +136,8 @@ async def list_chats(
 ):
     """This user's chat list (recent first), with unread counts and dm peers."""
     views = await svc.list_chats(user_id=user.user_id)
-    data = [_chat_summary(v) for v in views]
+    online_ids = default_chat_hub().online_user_ids()
+    data = [_chat_summary(v, online_ids=online_ids) for v in views]
     return ChatListResponse(data=data, total=len(data))
 
 
@@ -147,8 +168,15 @@ async def list_chat_members(
     carries the member's platform-admin and admin-mute flags for the panel.
     """
     members = await svc.list_members(chat_id=chat_id, user_id=user.user_id)
+    online_ids = default_chat_hub().online_user_ids()
     data = [
-        _participant(m.user, is_admin=m.is_admin, muted_by_admin=m.muted_by_admin) for m in members
+        _participant(
+            m.user,
+            is_admin=m.is_admin,
+            muted_by_admin=m.muted_by_admin,
+            online=m.user.user_id in online_ids,
+        )
+        for m in members
     ]
     return ChatMembersResponse(data=data, total=len(data))
 
@@ -176,7 +204,9 @@ async def leave_chat(
     user: AuthUser,
     svc: MessagingService = Depends(get_messaging_service),
 ):
-    """Leave a group/official chat. 404 if not a member; 422 for a dm (can't leave)."""
+    """Leave a group chat. 404 if not a member; 422 for a dm or the official
+    broadcast chat (can't leave).
+    """
     await svc.leave_chat(chat_id=chat_id, user_id=user.user_id)
     return StatusResponse()
 
@@ -277,6 +307,7 @@ async def send_chat_message(
         content_type=body.content_type,
         attachments=[a.model_dump() for a in body.attachments],
         reply_to_message_id=body.reply_to_message_id,
+        mentions=[m.model_dump() for m in body.mentions],
         client_msg_id=body.client_msg_id,
     )
     return ChatMessageDetail.model_validate(message)
@@ -336,10 +367,12 @@ async def download_chat_file(
     data = await svc.download_attachment(chat_id=chat_id, user_id=user.user_id, path=path)
     filename = path.rsplit("/", 1)[-1] or "download"
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    # Must use RFC 5987 — bare filename= with CJK latin-1-crashes Starlette ASGI
+    # encode (IM 中文图名 → 500 → 客户端 ImageOff). Same helper as workspace downloads.
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers=download_headers(filename, disposition="inline"),
     )
 
 

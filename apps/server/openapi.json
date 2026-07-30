@@ -1081,13 +1081,6 @@
             "title": "Month By Model",
             "type": "array"
           },
-          "month_by_role": {
-            "items": {
-              "$ref": "#/components/schemas/RoleCostLine"
-            },
-            "title": "Month By Role",
-            "type": "array"
-          },
           "month_by_user": {
             "items": {
               "$ref": "#/components/schemas/AdminUserCostLine"
@@ -1110,7 +1103,6 @@
           "today",
           "month",
           "month_by_user",
-          "month_by_role",
           "month_by_model",
           "recent_daily_cost",
           "cny_per_usd",
@@ -1120,7 +1112,7 @@
         "type": "object"
       },
       "AdminUserCostLine": {
-        "description": "One account's spend over a window — the platform 工资单 by user (全站看板).\n\nThe cross-user counterpart of ``RoleCostLine``. Money is integer nano-USD; the\nclient formats ¥ from the summary's single ``cny_per_usd`` (no re-pricing).",
+        "description": "One account's spend over a window — the platform 工资单 by user (全站看板).\n\nMoney is integer nano-USD; the client formats ¥ from the summary's single\n``cny_per_usd`` (no re-pricing).",
         "properties": {
           "cost_total": {
             "title": "Cost Total",
@@ -1154,7 +1146,7 @@
         "type": "object"
       },
       "AdminUserDetail": {
-        "description": "One account's drill-down (``GET /v1/admin/users/{id}/detail``, admin-only).\n\nStitches the per-user views an operator needs to understand an account: the\nfull record (``user``), the account BYOK default chat/background model names +\nprovider count (from the ``users`` pointers / ``user_llm_providers`` — never the\nAPI key), this account's usage (today/month/\ntrend/by-role/by-model — the per-user counterpart of ``AdminUsageSummary``),\nits recent conversations, and its recent turn activity (``turn_metrics``, each\ndrillable into 会话复盘). Money is integer nano-USD; the client folds the single\n``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).",
+        "description": "One account's drill-down (``GET /v1/admin/users/{id}/detail``, admin-only).\n\nStitches the per-user views an operator needs to understand an account: the\nfull record (``user``), the account BYOK default chat/background model names +\nprovider count (from the ``users`` pointers / ``user_llm_providers`` — never the\nAPI key), this account's usage (today/month/\ntrend/by-model — the per-user counterpart of ``AdminUsageSummary``),\nits recent conversations, and its recent turn activity (``turn_metrics``, each\ndrillable into 会话复盘). Money is integer nano-USD; the client folds the single\n``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).",
         "properties": {
           "background_model": {
             "anyOf": [
@@ -1196,13 +1188,6 @@
           "month": {
             "$ref": "#/components/schemas/UsageWindow"
           },
-          "month_by_role": {
-            "items": {
-              "$ref": "#/components/schemas/RoleCostLine"
-            },
-            "title": "Month By Role",
-            "type": "array"
-          },
           "provider_count": {
             "default": 0,
             "title": "Provider Count",
@@ -1240,7 +1225,6 @@
           "user",
           "today",
           "month",
-          "month_by_role",
           "recent_by_model",
           "recent_daily_cost",
           "conversations",
@@ -1908,7 +1892,6 @@
         "description": "User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).\n\nRuntime gates read the conversation's ``permission_axes`` — not this column.\nStored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).",
         "enum": [
           "cautious",
-          "write_code",
           "less_interrupt",
           "managed"
         ],
@@ -1919,7 +1902,7 @@
         "properties": {
           "policy": {
             "$ref": "#/components/schemas/AutonomyPolicy",
-            "description": "New-session default recipe: cautious | write_code | less_interrupt | managed"
+            "description": "New-session default recipe: cautious | less_interrupt | managed"
           }
         },
         "required": [
@@ -1932,7 +1915,7 @@
         "properties": {
           "policy": {
             "$ref": "#/components/schemas/AutonomyPolicy",
-            "default": "write_code"
+            "default": "less_interrupt"
           }
         },
         "title": "AutonomyView",
@@ -3062,6 +3045,27 @@
             "title": "Id",
             "type": "string"
           },
+          "mentions": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "everyone": "#/components/schemas/MessageMentionEveryone",
+                  "user": "#/components/schemas/MessageMentionUser"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MessageMentionUser"
+                },
+                {
+                  "$ref": "#/components/schemas/MessageMentionEveryone"
+                }
+              ]
+            },
+            "title": "Mentions",
+            "type": "array"
+          },
           "payload": {
             "anyOf": [
               {
@@ -3073,6 +3077,16 @@
               }
             ],
             "title": "Payload"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyToSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reply_to_message_id": {
             "anyOf": [
@@ -3168,6 +3182,11 @@
           "muted_by_admin": {
             "default": false,
             "title": "Muted By Admin",
+            "type": "boolean"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
             "type": "boolean"
           },
           "username": {
@@ -5471,6 +5490,11 @@
             "title": "Deep Read",
             "type": "boolean"
           },
+          "doc_kind": {
+            "default": "",
+            "title": "Doc Kind",
+            "type": "string"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -5484,6 +5508,11 @@
             "default": "",
             "title": "Registrant",
             "type": "string"
+          },
+          "selected": {
+            "default": false,
+            "title": "Selected",
+            "type": "boolean"
           },
           "site": {
             "default": "",
@@ -6789,7 +6818,7 @@
           },
           "platform_available": {
             "default": false,
-            "description": "Whether platform models are available on this deployment",
+            "description": "Whether platform-billed models are usable on this deployment (billing selectable ∧ platform credentials). False while BYOK-dormant even if PLATFORM_API_KEY is still configured.",
             "title": "Platform Available",
             "type": "boolean"
           },
@@ -7780,6 +7809,41 @@
         "title": "MessageListResponse",
         "type": "object"
       },
+      "MessageMentionEveryone": {
+        "description": "@所有人 — group chats only; platform admin gate enforced in service.",
+        "properties": {
+          "kind": {
+            "const": "everyone",
+            "default": "everyone",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "MessageMentionEveryone",
+        "type": "object"
+      },
+      "MessageMentionUser": {
+        "description": "@ a specific accepted chat member (structured mention; not body-regex).",
+        "properties": {
+          "kind": {
+            "const": "user",
+            "default": "user",
+            "title": "Kind",
+            "type": "string"
+          },
+          "user_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "MessageMentionUser",
+        "type": "object"
+      },
       "MfaConfirmRequest": {
         "properties": {
           "code": {
@@ -8681,7 +8745,7 @@
         "properties": {
           "command": {
             "$ref": "#/components/schemas/CommandAxis",
-            "default": "kickoff"
+            "default": "auto"
           },
           "file_write": {
             "$ref": "#/components/schemas/FileWriteAxis",
@@ -8693,7 +8757,7 @@
           },
           "team_kickoff": {
             "$ref": "#/components/schemas/TeamKickoffAxis",
-            "default": "rules"
+            "default": "skip"
           }
         },
         "title": "PermissionAxesModel",
@@ -9257,6 +9321,37 @@
         "title": "ReplaySpan",
         "type": "object"
       },
+      "ReplyToSnapshot": {
+        "description": "Frozen quote of the message being replied to (written at send time).\n\nSurvives later recall/delete of the target — clients render this snapshot,\nnot a live join. ``sender_user_id`` is null for official/system senders.",
+        "properties": {
+          "body_preview": {
+            "title": "Body Preview",
+            "type": "string"
+          },
+          "sender_display_name": {
+            "title": "Sender Display Name",
+            "type": "string"
+          },
+          "sender_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender User Id"
+          }
+        },
+        "required": [
+          "sender_user_id",
+          "sender_display_name",
+          "body_preview"
+        ],
+        "title": "ReplyToSnapshot",
+        "type": "object"
+      },
       "ResolveApprovalInteraction": {
         "description": "Settle a paused GRANTABLE tool call (``approval`` interaction).\n\n``decision`` is one of ``approve`` (allow this one call), ``approve_always``\n(allow this tool for the rest of the turn), or ``deny`` (refuse).",
         "properties": {
@@ -9511,35 +9606,6 @@
           "rewritten"
         ],
         "title": "RewriteResponse",
-        "type": "object"
-      },
-      "RoleCostLine": {
-        "description": "One persona/role's spend over a window — the team payroll grouped by label.\n\nThe account dashboard's product differentiator (§7.3D): multi-agent spend\nsplits by ``COALESCE(persona, role)`` (调研员 / CEO / …, falling back to the\nstructural captain/member bucket for legacy rows), which a single-agent\ncompetitor can't show. Money is integer nano-USD; the client formats ¥ from\nthe summary's single ``cny_per_usd`` (no per-row re-pricing here).",
-        "properties": {
-          "cost_estimated_total": {
-            "default": 0,
-            "title": "Cost Estimated Total",
-            "type": "integer"
-          },
-          "cost_total": {
-            "title": "Cost Total",
-            "type": "integer"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          },
-          "turns": {
-            "title": "Turns",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "role",
-          "cost_total",
-          "turns"
-        ],
-        "title": "RoleCostLine",
         "type": "object"
       },
       "RotateWebhookSecretResponse": {
@@ -9969,6 +10035,28 @@
             ],
             "title": "Content Type",
             "type": "string"
+          },
+          "mentions": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "everyone": "#/components/schemas/MessageMentionEveryone",
+                  "user": "#/components/schemas/MessageMentionUser"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MessageMentionUser"
+                },
+                {
+                  "$ref": "#/components/schemas/MessageMentionEveryone"
+                }
+              ]
+            },
+            "maxItems": 50,
+            "title": "Mentions",
+            "type": "array"
           },
           "reply_to_message_id": {
             "anyOf": [
@@ -13047,13 +13135,6 @@
           "month": {
             "$ref": "#/components/schemas/UsageWindow"
           },
-          "month_by_role": {
-            "items": {
-              "$ref": "#/components/schemas/RoleCostLine"
-            },
-            "title": "Month By Role",
-            "type": "array"
-          },
           "quota": {
             "$ref": "#/components/schemas/QuotaStatus"
           },
@@ -13071,7 +13152,6 @@
         "required": [
           "today",
           "month",
-          "month_by_role",
           "recent_daily_cost",
           "quota",
           "cny_per_usd",
@@ -13676,7 +13756,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.19"
+    "version": "0.3.20"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -14924,7 +15004,7 @@
     },
     "/v1/admin/notices/{notice_id}/publish": {
       "post": {
-        "description": "Admin: publish a notice (sets published_at).",
+        "description": "Admin: publish a notice (sets published_at).\n\nWhen ``surface ∈ {inbox, both}``, also inserts one shared ``system_card`` into\nthe official IM broadcast chat (first publish only — re-publish does not\nduplicate). Banner-only surfaces skip IM.",
         "operationId": "publish_notice_v1_admin_notices__notice_id__publish_post",
         "parameters": [
           {
@@ -15773,7 +15853,7 @@
     },
     "/v1/admin/users/{user_id}/detail": {
       "get": {
-        "description": "用户详情下钻 (用户管理 P0): one account's record + configured model names +\nits own usage (today / month / 7-day trend / by-role / by-model) + recent\nconversations + recent turn activity.\n\nThe per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped\nto one account — composed with the account's recent conversation roster (message\ncounts batched, no N+1) and its recent turns (each carries ``conversation_id`` to\ndrill into 会话复盘). Configured model names come from the account's BYOK default\npointers (``users`` row; never the API key) + provider count from\n``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30 days). Admin\ncross-user; 404 for an unknown id.",
+        "description": "用户详情下钻 (用户管理 P0): one account's record + configured model names +\nits own usage (today / month / 7-day trend / by-model) + recent\nconversations + recent turn activity.\n\nThe per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped\nto one account — composed with the account's recent conversation roster (message\ncounts batched, no N+1) and its recent turns (each carries ``conversation_id`` to\ndrill into 会话复盘). Configured model names come from the account's BYOK default\npointers (``users`` row; never the API key) + provider count from\n``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30 days). Admin\ncross-user; 404 for an unknown id.",
         "operationId": "user_detail_v1_admin_users__user_id__detail_get",
         "parameters": [
           {
@@ -27560,7 +27640,7 @@
     },
     "/v1/messages/chats/{chat_id}/leave": {
       "post": {
-        "description": "Leave a group/official chat. 404 if not a member; 422 for a dm (can't leave).",
+        "description": "Leave a group chat. 404 if not a member; 422 for a dm or the official\nbroadcast chat (can't leave).",
         "operationId": "leave_chat_v1_messages_chats__chat_id__leave_post",
         "parameters": [
           {
@@ -28677,7 +28757,7 @@
     },
     "/v1/realtime": {
       "get": {
-        "description": "Open this user's realtime firehose (server→client SSE).\n\nSubscribes the connection to the in-process hub; a new message in any chat the\nuser belongs to arrives as a ``chat_message`` event. Heartbeat comments keep\nthe stream warm, and the subscription is released when the client disconnects.",
+        "description": "Open this user's realtime firehose (server→client SSE).\n\nSubscribes the connection to the in-process hub; a new message in any chat the\nuser belongs to arrives as a ``chat_message`` event. The first subscription\n(and last disconnect) also fans a ``presence`` event to co-chat users.\nHeartbeat comments keep the stream warm; the subscription is released when\nthe client disconnects.",
         "operationId": "realtime_firehose_v1_realtime_get",
         "parameters": [
           {
@@ -31722,7 +31802,7 @@
     },
     "/v1/usage/summary": {
       "get": {
-        "description": "Account dashboard: today's tokens/cost, the month's cost + per-role payroll,\nthe recent daily-cost trend, and the quota.\n\nWindows are bounded at the current UTC day / month start (MVP — a per-user\ntimezone is a later refinement). ``month_by_role`` splits this month's spend by\nrole (团队工资单, spend-desc) — the multi-agent differentiator;\n``recent_daily_cost`` is the last ``_TREND_DAYS`` UTC days (zero-filled,\noldest-first) for the sparkline. Also carries ``cny_per_usd`` so the client\nformats money from the single server-owned rate.\n\n``quota`` mirrors what ``enforce_quota`` will actually apply to this user\n(D7): per-user override columns first, else free-tier defaults on a byok\ndeployment's platform-paid path (keyless free-tier riders), else global\n``quota_*`` — so the meters never show a cap the gate wouldn't enforce.",
+        "description": "Account dashboard: today's tokens/cost, the month's cost, the recent\ndaily-cost trend, and the quota.\n\nWindows are bounded at the current UTC day / month start (MVP — a per-user\ntimezone is a later refinement). ``recent_daily_cost`` is the last\n``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline. Also\ncarries ``cny_per_usd`` so the client formats money from the single\nserver-owned rate. Per-role split lives on the turn payroll\n(``GET /messages/{id}/cost``), not this monthly account view.\n\n``quota`` mirrors what ``enforce_quota`` will actually apply to this user\n(D7): per-user override columns first, else free-tier defaults on a byok\ndeployment's platform-paid path (keyless free-tier riders), else global\n``quota_*`` — so the meters never show a cap the gate wouldn't enforce.",
         "operationId": "get_usage_summary_v1_usage_summary_get",
         "parameters": [
           {

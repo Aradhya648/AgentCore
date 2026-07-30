@@ -4,6 +4,7 @@ import { useChatMembers, useMessagingStore } from "@/stores/messaging";
 import { LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PresenceAvatar } from "./PresenceAvatar";
 import { avatarInitial, chatDisplayName } from "./chatDisplay";
 
 interface Props {
@@ -47,9 +48,8 @@ function Toggle({
 }
 
 /**
- * 群信息面板: the active group's roster + this user's per-chat controls (mute,
- * pin, leave). Leaving the 内测群 sticks — auto-join only fires at registration —
- * so the leave action confirms inline before removing membership.
+ * 群信息 / 官方号会话设置: per-chat mute & pin. Groups also show roster + leave;
+ * the official broadcast chat omits leave (backend 422) and the member list.
  */
 export function GroupInfoDialog({ chatId, open, onClose }: Props) {
   const chat = useMessagingStore(
@@ -66,12 +66,13 @@ export function GroupInfoDialog({ chatId, open, onClose }: Props) {
   useEffect(() => {
     if (open) {
       setConfirmingLeave(false);
-      void loadMembers(chatId);
+      if (chat?.type !== "official") void loadMembers(chatId);
     }
-  }, [open, chatId, loadMembers]);
+  }, [open, chatId, loadMembers, chat?.type]);
 
   if (!chat) return null;
   const name = chatDisplayName(chat);
+  const isOfficial = chat.type === "official";
 
   const handleLeave = async () => {
     setLeaving(true);
@@ -92,7 +93,7 @@ export function GroupInfoDialog({ chatId, open, onClose }: Props) {
           </span>
           <DialogTitle className="text-center">{name}</DialogTitle>
           <span className="text-xs text-muted-foreground">
-            {members.length} 名成员
+            {isOfficial ? "官方广播" : `${members.length} 名成员`}
           </span>
         </div>
 
@@ -113,73 +114,80 @@ export function GroupInfoDialog({ chatId, open, onClose }: Props) {
           />
         </div>
 
-        <div className="min-h-0 border-t border-border">
-          <p className="px-5 pb-1 pt-3 text-xs font-medium text-muted-foreground">
-            成员
-          </p>
-          <ul className="max-h-60 overflow-y-auto px-2 pb-2">
-            {members.map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center gap-3 rounded-lg px-3 py-1.5 hover:bg-accent/50"
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
-                  {avatarInitial(m.display_name || m.username)}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="flex items-center gap-1.5">
-                    <span className="truncate text-sm text-foreground">
-                      {m.display_name || m.username}
-                    </span>
-                    {m.is_admin && (
-                      <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
-                        管理员
+        {!isOfficial && (
+          <div className="min-h-0 border-t border-border">
+            <p className="px-5 pb-1 pt-3 text-xs font-medium text-muted-foreground">
+              成员
+            </p>
+            <ul className="max-h-60 overflow-y-auto px-2 pb-2">
+              {members.map((m) => (
+                <li
+                  key={m.id}
+                  className="flex items-center gap-3 rounded-lg px-3 py-1.5 hover:bg-accent/50"
+                >
+                  <PresenceAvatar
+                    label={avatarInitial(m.display_name || m.username)}
+                    sizeClass="size-8"
+                    textClass="text-sm"
+                    online={!!m.online}
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm text-foreground">
+                        {m.display_name || m.username}
                       </span>
-                    )}
+                      {m.is_admin && (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
+                          管理员
+                        </span>
+                      )}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {m.online ? "在线" : `@${m.username}`}
+                    </span>
                   </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    @{m.username}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-        <div className="border-t border-border px-5 py-4">
-          {confirmingLeave ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">
-                退出后需重新邀请才能再加入
-              </span>
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  variant="neutral"
-                  onClick={() => setConfirmingLeave(false)}
-                >
-                  取消
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="disabled:opacity-50"
-                  disabled={leaving}
-                  onClick={() => void handleLeave()}
-                >
-                  {leaving ? "退出中…" : "确认退出"}
-                </Button>
+        {!isOfficial && (
+          <div className="border-t border-border px-5 py-4">
+            {confirmingLeave ? (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-muted-foreground">
+                  退出后需重新邀请才能再加入
+                </span>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="neutral"
+                    onClick={() => setConfirmingLeave(false)}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="disabled:opacity-50"
+                    disabled={leaving}
+                    onClick={() => void handleLeave()}
+                  >
+                    {leaving ? "退出中…" : "确认退出"}
+                  </Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <Button
-              variant="danger"
-              className="h-auto w-full py-2 text-sm"
-              icon={<LogOut size={16} />}
-              onClick={() => setConfirmingLeave(true)}
-            >
-              退出群聊
-            </Button>
-          )}
-        </div>
+            ) : (
+              <Button
+                variant="danger"
+                className="h-auto w-full py-2 text-sm"
+                icon={<LogOut size={16} />}
+                onClick={() => setConfirmingLeave(true)}
+              >
+                退出群聊
+              </Button>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

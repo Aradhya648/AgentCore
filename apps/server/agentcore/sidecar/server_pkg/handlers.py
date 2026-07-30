@@ -203,7 +203,7 @@ class HandlerMixin:
         """Coerce desktop ``permissionAxes`` object (or legacy ``permissionPreset``).
 
         Prefer the three-axis object. Legacy observe/workspace/full_trust strings map
-        onto cautious / write_code / managed recipes so an un-updated desktop still boots.
+        onto cautious / less_interrupt / managed recipes.
         Unknown / missing ⇒ ``None`` (caller keeps current / default).
         """
         raw_axes = params.get("permissionAxes")
@@ -217,10 +217,9 @@ class HandlerMixin:
             return None
         legacy_map = {
             "observe": AutonomyPolicy.CAUTIOUS,
-            "workspace": AutonomyPolicy.WRITE_CODE,
+            "workspace": AutonomyPolicy.LESS_INTERRUPT,
             "full_trust": AutonomyPolicy.MANAGED,
             "cautious": AutonomyPolicy.CAUTIOUS,
-            "write_code": AutonomyPolicy.WRITE_CODE,
             "less_interrupt": AutonomyPolicy.LESS_INTERRUPT,
             "managed": AutonomyPolicy.MANAGED,
         }

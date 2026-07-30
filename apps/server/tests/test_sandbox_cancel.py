@@ -2,38 +2,79 @@
 
 A ``code_execute`` call aborted mid-flight — by the engine's tool-timeout backstop
 or a user stop propagating ``CancelledError`` into the await — must not leave the
-child process running as an orphan. We prove it with a sentinel: code that sleeps
-THEN writes a file, so the file appears only if the process survived the cancel and
-ran to completion. A working kill means it never appears.
+child process running as an orphan. Cancel path: assert the child PID is dead (not
+a wall-clock race against ``sleep`` + sentinel write, which flaps on slow Win
+``taskkill``). Timeout paths still use the sentinel proof.
 """
+
+from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+import sys
+import time
 from pathlib import Path
 
 from agentcore.tools.sandbox.protocol import ExecutionRequest
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 
 
+def _pid_alive(pid: int) -> bool:
+    """True if ``pid`` still refers to a live process."""
+    if sys.platform == "win32":
+        import ctypes
+
+        # SYNCHRONIZE is enough to probe existence without needing PROCESS_QUERY_*.
+        handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+async def _wait_until(predicate, *, timeout: float, interval: float = 0.05) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(interval)
+    return predicate()
+
+
 async def test_cancel_kills_subprocess_no_orphan(tmp_path: Path):
+    pid_file = tmp_path / "pid.txt"
     sentinel = tmp_path / "ran.txt"
+    # Long sleep so cancel always wins the race once the child has published its pid;
+    # the assertion is "pid dead", not "wait past sleep then check sentinel".
     code = (
-        "import time, pathlib\n"
-        "time.sleep(1.0)\n"
-        f"pathlib.Path('{sentinel.as_posix()}').write_text('done')\n"
+        "import os, time, pathlib\n"
+        f"pathlib.Path(r'{pid_file.as_posix()}').write_text(str(os.getpid()))\n"
+        "time.sleep(30.0)\n"
+        f"pathlib.Path(r'{sentinel.as_posix()}').write_text('done')\n"
     )
     sandbox = SubprocessSandbox()
-    request = ExecutionRequest(code=code, language="python", timeout_seconds=30)
+    request = ExecutionRequest(code=code, language="python", timeout_seconds=60)
 
     task = asyncio.create_task(sandbox.execute(request))
-    await asyncio.sleep(0.3)  # let the subprocess actually start
+    assert await _wait_until(pid_file.exists, timeout=5.0), "child never published pid"
+    pid = int(pid_file.read_text(encoding="utf-8").strip())
+    assert _pid_alive(pid)
+
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
 
-    # Wait past when the sentinel would have been written had the child survived the
-    # cancel; a correctly-killed process never gets there.
-    await asyncio.sleep(1.2)
+    assert await _wait_until(lambda: not _pid_alive(pid), timeout=10.0), (
+        f"child pid {pid} still alive after cancel"
+    )
     assert not sentinel.exists()
 
 

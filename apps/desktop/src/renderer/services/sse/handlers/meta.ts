@@ -4,6 +4,7 @@ import type {
   CitationsPayload,
   EvidenceLedgerPayload,
   FollowupsGeneratedPayload,
+  FollowupsUnavailablePayload,
   SSEEvent,
   TitleGeneratedPayload,
   TurnSavedPayload,
@@ -29,6 +30,13 @@ export function handleMetaEvent(
       useConversationStore
         .getState()
         .attachFollowups(payload.followups, payload.message_id, conversationId);
+      return true;
+    }
+    case "followups_unavailable": {
+      const payload = event.payload as FollowupsUnavailablePayload;
+      useConversationStore
+        .getState()
+        .markFollowupsUnavailable(payload.message_id, conversationId);
       return true;
     }
     case "turn_saved": {

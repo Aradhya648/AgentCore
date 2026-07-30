@@ -1,7 +1,6 @@
 import { Button, Card, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
-import { agentColorVar } from "@/lib/agentIdentity";
 import {
   formatCompact,
   formatCost,
@@ -52,7 +51,7 @@ export function UsageSettings() {
             ? "自带 Key 模式：平台不限额。有估算价时显示 ≈¥（非上游账单），并以 token 用量为主。"
             : freeTierActive
               ? "本月免费额度与今日用量。额度用完可接入自己的模型继续。"
-              : "本月额度与今日用量。成本按团队角色拆分，以人民币展示。"
+              : "本月额度与今日用量，以人民币展示。"
         }
         action={
           // Manual refresh once data exists — numbers go stale after running tasks
@@ -242,18 +241,6 @@ function Dashboard({
         <CostTrend points={summary.recent_daily_cost} cnyPerUsd={cnyPerUsd} />
       )}
 
-      {/* 本月各角色花销 (§7.3D, 团队工资单 by role) — platform ¥ always;
-          BYOK shows ≈¥ when cost_estimated_total > 0. */}
-      {summary.month_by_role.length > 0 &&
-        (!byok ||
-          summary.month_by_role.some((l) => l.cost_estimated_total > 0)) && (
-          <RolePayroll
-            lines={summary.month_by_role}
-            cnyPerUsd={cnyPerUsd}
-            estimated={byok}
-          />
-        )}
-
       <UsageDetail summary={summary} cnyPerUsd={cnyPerUsd} byok={byok} />
     </div>
   );
@@ -399,78 +386,6 @@ function CostTrend({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-/** Ledger system roles → 大众-facing zh labels. Unknown roles fall back to raw. */
-const ROLE_LABELS: Record<string, string> = {
-  captain: "CEO",
-  member: "队员",
-  arena: "辩论",
-  title: "标题生成",
-  memory: "记忆整理",
-  vision: "视觉读图",
-};
-
-function roleLabel(role: string): string {
-  return ROLE_LABELS[role] ?? role;
-}
-
-/**
- * 本月各角色花销 (§7.3D) — the team payroll grouped by role, the multi-agent
- * differentiator a single-agent tool can't show. ¥ per role is 大众-visible
- * (money is never gated, §7.1); BYOK rows use ≈¥ from cost_estimated_total.
- */
-function RolePayroll({
-  lines,
-  cnyPerUsd,
-  estimated = false,
-}: {
-  lines: Summary["month_by_role"];
-  cnyPerUsd: number;
-  estimated?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-sm text-foreground">
-        {estimated ? "本月各角色估算" : "本月各角色花销"}
-      </p>
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        {estimated
-          ? "按社区价目估算，非上游账单。多 Agent 按角色拆分。"
-          : "多 Agent 团队按角色拆分的花销，竞品的单 Agent 做不到。"}
-      </p>
-      <Card className="mt-3">
-        {lines.map((line, i) => {
-          const nano = estimated ? line.cost_estimated_total : line.cost_total;
-          return (
-            <div
-              key={line.role}
-              className={`flex items-center justify-between px-4 py-2.5 text-sm ${
-                i > 0 ? "border-t border-border" : ""
-              }`}
-            >
-              <span className="flex items-center gap-2 text-foreground">
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: agentColorVar(line.role) }}
-                  aria-hidden
-                />
-                <span>
-                  {roleLabel(line.role)}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {line.turns} 回合
-                  </span>
-                </span>
-              </span>
-              <span className="tabular-nums text-foreground">
-                {formatDisplayCost(nano, cnyPerUsd, estimated)}
-              </span>
-            </div>
-          );
-        })}
-      </Card>
     </div>
   );
 }

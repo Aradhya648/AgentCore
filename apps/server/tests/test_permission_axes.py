@@ -21,19 +21,33 @@ from agentcore.runtime.kickoff.gate import needs_capability_auth, should_kickoff
 from agentcore.runtime.sandbox_approval import execution_tool_auto_passes
 from agentcore.tools.builtin import build_worker_registry
 
+# Explicit kickoff-command axes for授/开工卡 tests (no longer a built-in recipe).
+_KICKOFF_RULES = PermissionAxes(
+    FileWriteAxis.SESSION,
+    CommandAxis.KICKOFF,
+    TeamKickoffAxis.RULES,
+    HostAxis.ASK,
+)
+_KICKOFF_SKIP = PermissionAxes(
+    FileWriteAxis.SESSION,
+    CommandAxis.KICKOFF,
+    TeamKickoffAxis.SKIP,
+    HostAxis.ASK,
+)
+
 
 class _LocalBackend:
     location = "local"
 
 
-def test_default_axes_are_write_code():
+def test_default_axes_are_less_interrupt():
     assert PermissionAxes(
         FileWriteAxis.SESSION,
-        CommandAxis.KICKOFF,
-        TeamKickoffAxis.RULES,
+        CommandAxis.AUTO,
+        TeamKickoffAxis.SKIP,
         HostAxis.ASK,
     ) == DEFAULT_PERMISSION_AXES
-    assert recipe_to_axes(AutonomyPolicy.WRITE_CODE) == DEFAULT_PERMISSION_AXES
+    assert recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT) == DEFAULT_PERMISSION_AXES
     assert DEFAULT_PERMISSION_AXES.host is HostAxis.ASK
 
 
@@ -46,7 +60,7 @@ def test_builtin_recipes():
     )
     assert recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT) == PermissionAxes(
         FileWriteAxis.SESSION,
-        CommandAxis.KICKOFF,
+        CommandAxis.AUTO,
         TeamKickoffAxis.SKIP,
         HostAxis.ASK,
     )
@@ -61,11 +75,11 @@ def test_builtin_recipes():
 def test_from_mapping_roundtrip_and_legacy_missing_host():
     axes = recipe_to_axes(AutonomyPolicy.MANAGED)
     assert PermissionAxes.from_mapping(axes.to_dict()) == axes
-    # Old JSON without host → write_code default ask (not silently dropped).
+    # Partial JSON without host → host defaults to ask (not silently dropped).
     legacy = PermissionAxes.from_mapping(
         {"file_write": "session", "command": "kickoff", "team_kickoff": "rules"}
     )
-    assert legacy == DEFAULT_PERMISSION_AXES
+    assert legacy == _KICKOFF_RULES
     assert legacy.host is HostAxis.ASK
     # Cautious seed persists host=off through dict roundtrip.
     cautious = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
@@ -115,15 +129,15 @@ def test_command_ask_withholds_execution_tools():
     assert "web_search" in names
 
 
-def test_write_code_keeps_kickoff_capability_auth():
-    axes = DEFAULT_PERMISSION_AXES
+def test_kickoff_command_keeps_capability_auth():
+    axes = _KICKOFF_RULES
     assert needs_capability_auth(local_gate=True, axes=axes) is True
     assert should_kickoff(plan_preview=False, local_gate=True, axes=axes) is True
     assert should_kickoff(plan_preview=True, local_gate=False, axes=axes) is True
 
 
-def test_team_kickoff_skip_releases_card():
-    axes = recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)
+def test_team_kickoff_skip_with_kickoff_command():
+    axes = _KICKOFF_SKIP
     assert should_kickoff(plan_preview=True, local_gate=True, axes=axes) is False
     # command still kickoff — capability auth would apply if card were shown
     assert needs_capability_auth(local_gate=True, axes=axes) is True
@@ -152,20 +166,28 @@ def test_command_auto_skips_kickoff_and_local_exec_auto_pass():
         execution_tool_auto_passes(
             _LocalBackend(),
             "code_execute",
-            permission_axes=DEFAULT_PERMISSION_AXES,
+            permission_axes=_KICKOFF_RULES,
         )
         is False
     )
 
 
-def test_less_interrupt_skips_card_but_keeps_kickoff_grant_semantics():
-    """少打断: team_kickoff=skip releases card; command=kickoff still wants grant."""
+def test_less_interrupt_auto_skip_semantics():
+    """少打断: session/auto/skip/ask — 跳卡、静默执行、深度研究自治、host=ask."""
     axes = recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)
+    assert axes == DEFAULT_PERMISSION_AXES
     assert should_kickoff(plan_preview=True, local_gate=True, axes=axes) is False
-    assert needs_capability_auth(local_gate=True, axes=axes) is True
-    assert axes.honors_kickoff_grant is True
-    assert axes.auto_executes is False
+    assert needs_capability_auth(local_gate=True, axes=axes) is False
+    assert axes.honors_kickoff_grant is False
+    assert axes.auto_executes is True
+    assert axes.implies_deep_research_auto is True
     assert axes.host is HostAxis.ASK
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(), "code_execute", permission_axes=axes
+        )
+        is True
+    )
 
 
 def test_command_ask_no_capability_auth():

@@ -1,7 +1,9 @@
 import { Button } from "@/components/ui";
 import { formatMessageTime } from "@/lib/format";
 import type { ChatSummary } from "@/services/messaging";
-import { BellOff, Pin, Users } from "lucide-react";
+import { useMessagingStore } from "@/stores/messaging";
+import { BadgeCheck, BellOff, Pin, Users } from "lucide-react";
+import { PresenceAvatar } from "./PresenceAvatar";
 import { avatarInitial, chatDisplayName } from "./chatDisplay";
 
 interface Props {
@@ -18,6 +20,15 @@ export function ChatListItem({ chat, active, onSelect }: Props) {
     : "";
   const preview =
     chat.last_message_preview ?? (chat.state === "pending" ? "消息请求" : "");
+  const peerOnline = chat.type === "dm" && !!chat.peer?.online;
+  const isOfficial = chat.type === "official";
+  // Official membership is pinned on enroll; still show pin affordance if flagged.
+  const showPin = chat.pinned || isOfficial;
+  // 静音 × 被 @: still show the unread badge when a mention alert is pending.
+  const mentionAlert = useMessagingStore(
+    (s) => s.mentionAlertByChat[chat.id] ?? false,
+  );
+  const showUnreadBadge = chat.unread > 0 && (!chat.muted || mentionAlert);
 
   return (
     <Button
@@ -28,15 +39,21 @@ export function ChatListItem({ chat, active, onSelect }: Props) {
       }`}
     >
       <span className="flex w-full items-center gap-3 text-left">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
-          {avatarInitial(name)}
-        </span>
+        <PresenceAvatar
+          label={avatarInitial(name)}
+          sizeClass="size-9"
+          textClass="text-sm"
+          online={peerOnline}
+        />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-1">
             {chat.type === "group" && (
               <Users size={12} className="shrink-0 text-muted-foreground" />
             )}
-            {chat.pinned && (
+            {isOfficial && (
+              <BadgeCheck size={12} className="shrink-0 text-primary" />
+            )}
+            {showPin && (
               <Pin size={11} className="shrink-0 text-muted-foreground" />
             )}
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
@@ -52,17 +69,16 @@ export function ChatListItem({ chat, active, onSelect }: Props) {
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
               {preview}
             </span>
-            {chat.muted ? (
+            {chat.muted && (
               <BellOff
                 size={12}
                 className="shrink-0 text-muted-foreground/60"
               />
-            ) : (
-              chat.unread > 0 && (
-                <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
-                  {chat.unread > 99 ? "99+" : chat.unread}
-                </span>
-              )
+            )}
+            {showUnreadBadge && (
+              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
+                {chat.unread > 99 ? "99+" : chat.unread}
+              </span>
             )}
           </span>
         </span>

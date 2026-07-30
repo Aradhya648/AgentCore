@@ -187,10 +187,143 @@
   border: 1px solid var(--border);
 }
 
-.im-msg-time {
+.im-bubble.im-bubble-mentioned {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.im-reply-quote {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.im-reply-quote.mine {
+  border-left-color: color-mix(in srgb, var(--fg) 35%, transparent);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.im-reply-quote-name,
+.im-reply-quote-body {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.im-reply-quote-name {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.im-msg.mine .im-reply-quote-name {
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
+}
+
+.im-reply-quote-body {
+  opacity: 0.85;
+  color: var(--muted);
+}
+
+.im-msg.mine .im-reply-quote-body {
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
+}
+
+.im-mention {
+  border-radius: 4px;
+  padding: 0 2px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.im-mention.im-mention-self {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.im-mention.mine {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.im-mention.mine.im-mention-self {
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+  color: var(--fg);
+}
+
+.im-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 3px 4px 0;
+}
+
+.im-msg.mine .im-msg-meta {
+  flex-direction: row-reverse;
+}
+
+.im-msg-time {
   font-size: 11px;
   color: var(--muted);
+}
+
+.im-reply-action {
+  padding: 0;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+}
+
+.im-reply-action:active {
+  color: var(--accent);
+}
+
+.im-reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.im-reply-bar-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent);
+}
+
+.im-reply-bar-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.im-reply-bar-preview {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.im-reply-bar-x {
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 18px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
 }
 
 /* A centered system/announcement card. */

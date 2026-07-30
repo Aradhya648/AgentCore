@@ -749,3 +749,79 @@ def test_format_feedback_annotates_checked_channels():
 def test_format_feedback_no_channel_note_for_prose():
     fb = format_feedback(check_contract("短", RunContract(min_length=10)))
     assert "落盘文件" not in fb
+
+
+def test_artifact_unbound_bibliography_fails_when_ledger_connected():
+    """File deliverable with GB/T [D] and no #rN fails contract when ledger is on."""
+    contract = Deliverable(form="files", requires_files=True, min_length=5)
+    body = "郝万鑫. 某问题研究[D]. 长江大学, 2026."
+    v = check_contract(
+        "已写入综述",
+        contract,
+        files_written=1,
+        workspace_paths=["paper.md"],
+        artifact_contents={"paper.md": body},
+        ledger_entries=[],
+        citable_ids=frozenset(),
+    )
+    assert not v.ok
+    assert any("paper.md" in f and ("#rN" in f or "编造" in f or "未核验" in f) for f in v.failures)
+
+
+def test_artifact_bound_bibliography_passes():
+    contract = Deliverable(form="files", requires_files=True, min_length=5)
+    entries = [
+        {
+            "id": "#r1",
+            "url": "https://example.com/paper",
+            "title": "正式论文",
+            "snippet": "",
+            "deep_read": True,
+            "doc_kind": "thesis",
+        }
+    ]
+    v = check_contract(
+        "已写入",
+        contract,
+        files_written=1,
+        workspace_paths=["paper.md"],
+        artifact_contents={"paper.md": "张三. 某问题研究[D]. #r1\n\n正文足够长了。"},
+        ledger_entries=entries,
+        citable_ids=frozenset({"#r1"}),
+    )
+    assert v.ok
+
+
+def test_artifact_bibliography_skipped_without_ledger():
+    """Without ledger connection, unbound [D] in files does not fail (legacy scope)."""
+    contract = Deliverable(form="files", requires_files=True, min_length=5)
+    v = check_contract(
+        "已写入综述",
+        contract,
+        files_written=1,
+        workspace_paths=["paper.md"],
+        artifact_contents={"paper.md": "郝万鑫. 某问题研究[D]. 长江大学, 2026."},
+    )
+    assert v.ok
+
+
+def test_artifact_invalid_r_ref_fails():
+    contract = Deliverable(form="files", requires_files=True, min_length=5)
+    v = check_contract(
+        "已写入",
+        contract,
+        files_written=1,
+        workspace_paths=["note.md"],
+        artifact_contents={"note.md": "结论见 #r99，详见上文分析。"},
+        ledger_entries=[],
+        citable_ids=frozenset({"#r1"}),
+    )
+    assert not v.ok
+    assert any("note.md" in f and "#r99" in f for f in v.failures)
+
+
+def test_needs_file_contents_loads_md_for_citation_surfaces():
+    assert needs_file_contents(
+        Deliverable(requires_files=True),
+        landed_paths=["AgentCore/文档/research/综述.md"],
+    )

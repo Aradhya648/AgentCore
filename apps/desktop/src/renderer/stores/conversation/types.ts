@@ -246,6 +246,8 @@ export interface Message {
    * `followups_generated` (matched by `message_id` → `id || serverMessageId`); on reload
    * `toMessage` replays them so reopening a conversation still shows the last turn's chips. */
   followups?: string[];
+  /** Soft empty: followups mint failed this live turn (not persisted). */
+  followupsUnavailable?: boolean;
   /** 回复反馈 (点赞/点踩, 对话基础功能补齐): the user's satisfaction rating on this assistant
    * reply — `"up"` / `"down"`, or `null` / undefined for 未评价. Persisted (messages.feedback
    * column) so a reloaded bubble replays the rating; toggled via the footer thumbs. */

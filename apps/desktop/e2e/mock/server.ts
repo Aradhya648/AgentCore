@@ -442,8 +442,8 @@ async function route(
     let localRoot: string | null = null;
     let axes: NonNullable<ConversationSummary["permission_axes"]> = {
       file_write: "session",
-      command: "kickoff",
-      team_kickoff: "rules",
+      command: "auto",
+      team_kickoff: "skip",
       host: "ask",
     };
     try {
@@ -554,7 +554,7 @@ async function route(
   }
 
   if (method === "GET" && path === "/v1/users/me/autonomy") {
-    json(req, res, 200, { policy: "write_code" });
+    json(req, res, 200, { policy: "less_interrupt" });
     return;
   }
 

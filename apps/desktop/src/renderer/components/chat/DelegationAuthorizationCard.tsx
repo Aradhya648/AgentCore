@@ -1,14 +1,10 @@
-import {
-  OrphanedInteractionCard,
-  WaitingForDecisionHint,
-} from "@/components/chat/OrphanedInteractionCard";
+import { WaitingForDecisionHint } from "@/components/chat/WaitingForDecisionHint";
 import { Badge, Button, DecisionCard, DecisionCardIcon } from "@/components/ui";
 import { notifyError } from "@/lib/toast";
 import { decideDelegationAuthorization } from "@/services/delegationAuth";
 import { useConversationStore } from "@/stores/conversation";
 import {
   type DelegationAuthView,
-  useOrphanedDelegations,
   usePendingDelegations,
 } from "@/stores/interactions";
 import type { DelegationAuthorizationDecision } from "@/types/events";
@@ -36,18 +32,10 @@ function toolLabel(name: string): string {
 export function DelegationAuthorizationPrompt() {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const pending = usePendingDelegations(conversationId);
-  const orphaned = useOrphanedDelegations(conversationId);
-  if (pending.length === 0 && orphaned.length === 0) return null;
+  if (pending.length === 0) return null;
 
   return (
     <div className="mx-4 mb-2 space-y-2">
-      {orphaned.map((o) => (
-        <OrphanedInteractionCard
-          key={o.id}
-          title="团队授权已失效"
-          detail="该委派授权请求已不可答复（服务已重启或回合已结束）。"
-        />
-      ))}
       {pending.map((authorization) => (
         <DelegationAuthorizationCard
           key={authorization.authorizationId}

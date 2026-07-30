@@ -20,7 +20,7 @@ ROLE_MEMORY = "memory"
 # ``vision`` tags a board_read 读图 sub-call (AI协作白板.md §九.4): an in-turn tool-layer
 # call to a SEPARATE vision model (qwen-vl ≠ the run's DeepSeek). It is NOT a Run/Agent —
 # it gets its own priced ledger row (one model = one row, 同跨档不复价) so its spend shows
-# as its own line on the team payroll + the by-role dashboard.
+# as its own line on the turn team payroll (``GET /messages/{id}/cost``).
 ROLE_VISION = "vision"
 PERSONA_CEO = "CEO"
 # The four money keys carried in cost_events.cost (integer nano-USD). The Cost

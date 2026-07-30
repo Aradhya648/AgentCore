@@ -63,8 +63,8 @@ export function conversationSummary(
     deep_research_auto: partial.deep_research_auto ?? false,
     permission_axes: partial.permission_axes ?? {
       file_write: "session",
-      command: "kickoff",
-      team_kickoff: "rules",
+      command: "auto",
+      team_kickoff: "skip",
       host: "ask",
     },
   };

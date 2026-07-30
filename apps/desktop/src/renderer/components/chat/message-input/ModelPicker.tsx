@@ -29,7 +29,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 /**
  * 输入框「模型组合」选择器 — 只选组合 +「跟随账号默认」，不做裸模型列表。
@@ -306,7 +306,17 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
               </div>
             ) : visibleProfiles.length === 0 ? (
               <div className="px-2.5 py-4 text-xs text-muted-foreground">
-                暂无可用组合
+                <p>暂无可用组合</p>
+                <p className="mt-1">
+                  请先{" "}
+                  <Link
+                    to="/more/providers"
+                    onClick={() => setOpen(false)}
+                    className="text-primary underline-offset-2 hover:underline"
+                  >
+                    接入服务商
+                  </Link>
+                </p>
               </div>
             ) : (
               <>

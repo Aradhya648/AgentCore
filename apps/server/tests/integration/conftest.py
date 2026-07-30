@@ -37,6 +37,7 @@ from agentcore.db.repositories import (
     InviteRepository,
     UserRepository,
 )
+from agentcore.db.repositories.chat import OFFICIAL_CHAT_ID, OFFICIAL_CHAT_TITLE
 from agentcore.main import app
 from agentcore.security import hash_password
 from agentcore.security.keys import KeyEncryptor
@@ -142,6 +143,18 @@ async def session_factory() -> AsyncIterator[async_sessionmaker]:
             await conn.execute(text(f"DROP SCHEMA IF EXISTS {_TEST_SCHEMA} CASCADE"))
             await conn.execute(text(f"CREATE SCHEMA {_TEST_SCHEMA}"))
             await conn.run_sync(Base.metadata.create_all)
+            # Mirror the official-chat migration seed (create_all does not run
+            # alembic data inserts). Required so notice publish → IM works.
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO chats (id, type, title, auto_join, created_at, updated_at)
+                    VALUES (CAST(:id AS uuid), 'official', :title, true, now(), now())
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                ),
+                {"id": OFFICIAL_CHAT_ID, "title": OFFICIAL_CHAT_TITLE},
+            )
     except (OperationalError, InterfaceError, OSError) as exc:
         await engine.dispose()
         pytest.skip(f"PostgreSQL not available for integration tests: {exc}")

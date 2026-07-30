@@ -2,13 +2,11 @@
 //
 // Cloud-only rounds: no sidecar local cache — read/write the user preference
 // directly. Schema matches desktop GET/PUT /v1/users/me/autonomy.
+// Recipes: cautious | less_interrupt | managed (seeds new conversations).
 import { apiFetch } from "@/api/client";
-import type { components } from "@/types/api.generated";
 
-type Schemas = components["schemas"];
-
-export type AutonomyPolicy = Schemas["AutonomyPolicy"];
-export type AutonomyView = Schemas["AutonomyView"];
+export type AutonomyPolicy = "cautious" | "less_interrupt" | "managed";
+export type AutonomyView = { policy: AutonomyPolicy };
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {

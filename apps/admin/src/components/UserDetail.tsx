@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import {
-  agentColorVar,
   cn,
   COST_ESTIMATE_HINT,
   fmtCny,
@@ -15,7 +14,6 @@ import {
   fmtMs,
   fmtNanoCny,
   fmtTime,
-  roleLabel,
 } from "@/lib/utils";
 import { errorMessage } from "@/services/api";
 import type { UsageWindow } from "@/services/adminUsage";
@@ -24,7 +22,6 @@ import {
   type AdminConversationLine,
   type AdminUserDetail,
   type ModelCostLine,
-  type RoleCostLine,
   fetchUserDetail,
 } from "@/services/adminUsers";
 import { ArrowLeft, ExternalLink, KeyRound, MessageSquare, RefreshCw } from "lucide-react";
@@ -191,69 +188,6 @@ export function UserDetail({
               cnyPerUsd={data.cny_per_usd}
             />
           </section>
-
-          {data.month_by_role.length > 0 && (
-            <section className="overflow-hidden rounded-xl border border-border bg-card">
-              <div className="border-border border-b px-5 py-3.5">
-                <h2 className="text-base font-semibold text-foreground">
-                  本月各角色花销
-                </h2>
-                <p className="mt-0.5 text-muted-foreground text-xs">
-                  多 Agent 团队工资单（按成本降序）
-                  {byok ? ` · ${COST_ESTIMATE_HINT}` : ""}
-                </p>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-border border-b bg-muted/40 text-left text-xs text-muted-foreground">
-                    <th className="px-5 py-2.5 font-medium">角色</th>
-                    <th className="px-5 py-2.5 text-right font-medium">成本</th>
-                    <th className="px-5 py-2.5 text-right font-medium">估算</th>
-                    <th className="px-5 py-2.5 text-right font-medium">回合数</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.month_by_role.map((row: RoleCostLine) => (
-                    <tr
-                      key={row.role}
-                      className="border-border border-b last:border-0"
-                    >
-                      <td className="px-5 py-3 text-foreground">
-                        <span className="inline-flex items-center gap-2">
-                          <span
-                            className="size-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: agentColorVar(row.role) }}
-                            aria-hidden
-                          />
-                          {roleLabel(row.role)}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-right font-medium text-foreground tabular-nums">
-                        {fmtNanoCny(row.cost_total, data.cny_per_usd)}
-                      </td>
-                      <td
-                        className="px-5 py-3 text-right text-muted-foreground tabular-nums"
-                        title={
-                          row.cost_estimated_total > 0
-                            ? COST_ESTIMATE_HINT
-                            : undefined
-                        }
-                      >
-                        {fmtNanoCny(
-                          row.cost_estimated_total,
-                          data.cny_per_usd,
-                          true,
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right text-muted-foreground tabular-nums">
-                        {fmtInt(row.turns)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
 
           <section className="overflow-hidden rounded-xl border border-border bg-card">
             <div className="border-border border-b px-5 py-3.5">

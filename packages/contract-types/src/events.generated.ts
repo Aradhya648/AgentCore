@@ -1062,7 +1062,7 @@ export interface EvidenceLedgerEntry {
 
 /** 回合调研台账条目（辩论 ``EvidenceLedgerEntry`` 超集）。
  * 
- * ``registrant`` ↔ 辩论 ``side_key``。 */
+ * ``registrant`` ↔ 辩论 ``side_key``。``selected`` / ``doc_kind`` 随 ledger JSON 透传。 */
 export interface TurnEvidenceLedgerEntry {
   id: string;
   url?: string;
@@ -1073,6 +1073,8 @@ export interface TurnEvidenceLedgerEntry {
   tier?: string;
   query?: string;
   deep_read?: boolean;
+  selected?: boolean;
+  doc_kind?: string;
   registrant?: string;
   citable?: boolean;
 }
@@ -1597,6 +1599,16 @@ export interface FollowupsGeneratedPayload {
   followups: string[];
 }
 
+/** Soft empty state when followups could not be minted (not a turn error).
+ * 
+ * Emitted only on failure paths with zero chips — legitimate empty model output does
+ * not emit this. EPHEMERAL / fold no-op; clients show a quiet hint above the composer. */
+export interface FollowupsUnavailablePayload {
+  conversation_id: string;
+  message_id: string;
+  reason: string;
+}
+
 export interface TurnSavedPayload {
   user_message_id: string;
 }
@@ -1793,6 +1805,7 @@ export type SSEPayloadMap = {
   browser_live_frame: BrowserLiveFramePayload;
   browser_live_status: BrowserLiveStatusPayload;
   followups_generated: FollowupsGeneratedPayload;
+  followups_unavailable: FollowupsUnavailablePayload;
   turn_saved: TurnSavedPayload;
   citations: CitationsPayload;
   evidence_ledger: EvidenceLedgerPayload;

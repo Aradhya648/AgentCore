@@ -3,7 +3,10 @@ import { WindowControls } from "@/components/layout/WindowControls";
 import { WindowFrameMenu } from "@/components/layout/WindowFrameMenu";
 import { IconButton, TitleBarSearchTrigger } from "@/components/ui";
 import { isMac, macTitleBarInsetClass } from "@/lib/platform";
-import { useSidebarStore } from "@/stores/sidebar";
+import {
+  SIDEBAR_COLLAPSED_WIDTH,
+  useSidebarStore,
+} from "@/stores/sidebar";
 import { useUIStore } from "@/stores/ui";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
 
@@ -13,6 +16,8 @@ const shellClass = `flex h-10 shrink-0 items-center border-b border-sidebar-bord
 
 export function TitleBar() {
   const collapsed = useSidebarStore((s) => s.collapsed);
+  const width = useSidebarStore((s) => s.width);
+  const resizing = useSidebarStore((s) => s.resizing);
   const toggleCollapsed = useSidebarStore((s) => s.toggleCollapsed);
   const openSearch = useUIStore((s) => s.openSearch);
 
@@ -20,7 +25,8 @@ export function TitleBar() {
     <header className={shellClass}>
       {/* Left: brand + sidebar toggle — width syncs with sidebar */}
       <div
-        className={`flex items-center gap-2 px-3 transition-[width] duration-200 ${collapsed ? "w-14" : "w-60"}`}
+        className={`flex items-center gap-2 px-3 ${resizing ? "" : "transition-[width] duration-200"}`}
+        style={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : width }}
       >
         {!collapsed && (
           <span className="flex flex-1 items-center gap-1.5 text-sidebar-foreground [-webkit-app-region:no-drag]">

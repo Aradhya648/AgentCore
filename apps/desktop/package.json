@@ -1,6 +1,6 @@
 {
   "name": "agentcore-desktop",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "description": "AgentCore Desktop - Multi-Agent AI Workspace",
   "author": "AgentCore",
   "main": "./out/main/index.js",

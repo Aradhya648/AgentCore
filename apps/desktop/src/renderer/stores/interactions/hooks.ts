@@ -78,25 +78,6 @@ export function usePendingApprovals(
   }, [byId, conversationId]);
 }
 
-/** Orphaned approval entries for 已失效灰态. */
-export function useOrphanedApprovals(conversationId: string | null) {
-  const byId = useInteractionStore((s) => s.byId);
-  return useMemo(() => {
-    if (!conversationId) return [];
-    const out: InteractionEntry[] = [];
-    for (const e of byId.values()) {
-      if (
-        e.conversationId === conversationId &&
-        e.kind === "approval" &&
-        e.status === "orphaned"
-      ) {
-        out.push(e);
-      }
-    }
-    return out;
-  }, [byId, conversationId]);
-}
-
 export function usePendingDelegations(
   conversationId: string | null,
 ): DelegationAuthView[] {
@@ -109,24 +90,6 @@ export function usePendingDelegations(
       if (e.kind !== "delegation_authorization") continue;
       if (e.status !== "pending" && e.status !== "submitting") continue;
       out.push(entryToDelegationAuth(e));
-    }
-    return out;
-  }, [byId, conversationId]);
-}
-
-export function useOrphanedDelegations(conversationId: string | null) {
-  const byId = useInteractionStore((s) => s.byId);
-  return useMemo(() => {
-    if (!conversationId) return [];
-    const out: InteractionEntry[] = [];
-    for (const e of byId.values()) {
-      if (
-        e.conversationId === conversationId &&
-        e.kind === "delegation_authorization" &&
-        e.status === "orphaned"
-      ) {
-        out.push(e);
-      }
     }
     return out;
   }, [byId, conversationId]);

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentcore.billing.gate import resolve_and_gate_background
+from agentcore.billing.gate import run_background_llm
+from agentcore.core.errors import LLMAuthError
 from agentcore.core.log_context import log_context
 from agentcore.core.logging import get_logger
 from agentcore.core.text import clip_preview
@@ -137,8 +139,10 @@ async def generate_title(
     """Best-effort title via the fast model; falls back to truncation.
 
     ``LLMTitleGenerator`` already retries once on an empty model body (timeout
-    does not retry). An empty result after that — or any call-level error —
-    degrades to ``fallback_title`` (first user message, ≤30 chars).
+    does not retry). An empty result after that — or any non-auth call-level
+    error — degrades to ``fallback_title`` (first user message, ≤30 chars).
+
+    ``LLMAuthError`` is **re-raised** so ``run_background_llm`` can try user BYOK.
     """
     fallback = fallback_title(user_message)
     if not user_message.strip():
@@ -154,8 +158,18 @@ async def generate_title(
         )
         title = result.title or fallback
         return TitleResult(title=title)
+    except LLMAuthError:
+        # Must surface so ``run_background_llm`` can try user BYOK once.
+        raise
     except Exception as e:
-        logger.warning("chat.title_failed", conversation_id=conversation_id, error=str(e))
+        from agentcore.llm.background_failure import classify_background_llm_failure
+
+        logger.warning(
+            "chat.title_failed",
+            conversation_id=conversation_id,
+            error=str(e),
+            reason=classify_background_llm_failure(e),
+        )
         return TitleResult(title=fallback)
 
 
@@ -178,19 +192,12 @@ async def _mint_title_background(
             if conv is None or (conv.title and str(conv.title).strip()):
                 return
 
-        async with async_session_factory() as session:
-            credentials = await resolve_and_gate_background(
-                session, user_id, purpose="title"
-            )
-        if credentials is None:
-            # No platform/BYOK key or platform quota exhausted — degrade to truncation.
-            minted_title = fallback_title(user_message)
-        else:
+        async def _runner(credentials: LLMCredentials) -> TitleResult:
             model = resolve_turn_model(credentials)
             provider = build_provider(credentials, purpose="platform_internal")
             try:
                 # Cloud early path: first user message only — do not wait for assistant reply.
-                minted = await generate_title(
+                return await generate_title(
                     provider=provider,
                     conversation_id=conversation_id,
                     user_message=user_message,
@@ -199,7 +206,13 @@ async def _mint_title_background(
                 )
             finally:
                 await provider.close()
-            minted_title = minted.title
+
+        result = await run_background_llm(user_id, purpose="title", runner=_runner)
+        # No platform/BYOK key, platform quota exhausted, or auth failed both sides
+        # → degrade to truncation.
+        minted_title = (
+            result.value.title if result is not None else fallback_title(user_message)
+        )
 
         if not minted_title:
             return
@@ -214,10 +227,13 @@ async def _mint_title_background(
         with contextlib.suppress(Exception):
             sink.emit(title_generated(minted_title, conversation_id=conversation_id))
     except Exception as e:
+        from agentcore.llm.background_failure import classify_background_llm_failure
+
         logger.warning(
             "chat.title_schedule_failed",
             conversation_id=conversation_id,
             error=str(e),
+            reason=classify_background_llm_failure(e),
         )
     finally:
         _title_inflight.discard(conversation_id)
@@ -256,6 +272,14 @@ def schedule_title_generation(
     task.add_done_callback(_title_tasks.discard)
 
 
+@dataclass(frozen=True)
+class FollowupsMintResult:
+    """Minted chips plus optional soft-unavailable reason (None = legitimate empty)."""
+
+    items: list[str]
+    unavailable_reason: str | None = None
+
+
 async def generate_followups(
     *,
     provider: LLMProvider | None,
@@ -264,25 +288,24 @@ async def generate_followups(
     assistant_reply: str,
     model: str | None = None,
     motion_card: dict | None = None,
-) -> list[str]:
-    """Best-effort turn-level「下一步」suggestions; returns ``[]`` on any failure.
+) -> FollowupsMintResult:
+    """Best-effort turn-level「下一步」suggestions; never raises except ``LLMAuthError``.
 
-    Pure garnish (CEO→user quick-reply chips), so every LLM failure mode — empty input,
-    empty model output, timeout, network/parse error, missing provider/credentials —
-    collapses to「no LLM chips」and is swallowed here; it never blocks or fails the
-    turn it garnishes.
+    Pure garnish (CEO→user quick-reply chips). Non-auth failures collapse to empty
+    chips + ``unavailable_reason``. ``LLMAuthError`` re-raises so
+    ``run_background_llm`` can try user BYOK once.
 
     When ``motion_card`` is a compliant worker proposition card, a deterministic「开辩」
-    chip is always prepended (even if the LLM path yields nothing) — see
-    :func:`agentcore.memory.followups.format_motion_card_followup`.
+    chip is always prepended (even if the LLM path yields nothing).
     """
+    from agentcore.llm.background_failure import classify_background_llm_failure
     from agentcore.memory.followups import (
         format_motion_card_followup,
         merge_motion_card_followup,
     )
 
     if not assistant_reply.strip():
-        return []
+        return FollowupsMintResult(items=[])
 
     injected: str | None = None
     if isinstance(motion_card, dict):
@@ -296,18 +319,29 @@ async def generate_followups(
     messages.append({"role": "assistant", "content": assistant_reply})
 
     llm_items: list[str] = []
+    fail_reason: str | None = None
     if provider is not None:
         try:
             llm_items = await LLMFollowupsGenerator(provider, model=model).generate(
                 FollowupInput(conversation_id=conversation_id, messages=messages)
             )
+        except LLMAuthError:
+            # Must surface so ``run_background_llm`` can try user BYOK once.
+            raise
         except Exception as e:
+            fail_reason = classify_background_llm_failure(e)
             logger.warning(
-                "chat.followups_failed", conversation_id=conversation_id, error=str(e)
+                "chat.followups_failed",
+                conversation_id=conversation_id,
+                error=str(e),
+                reason=fail_reason,
             )
             llm_items = []
 
-    return merge_motion_card_followup(injected, llm_items)
+    items = merge_motion_card_followup(injected, llm_items)
+    if items:
+        return FollowupsMintResult(items=items)
+    return FollowupsMintResult(items=[], unavailable_reason=fail_reason)
 
 
 async def resolve_turn_profiles(
@@ -384,15 +418,15 @@ async def resolve_autonomy_policy(session: AsyncSession, user_id: str):
     from agentcore.core.types import AutonomyPolicy
 
     user = await UserRepository(session).get_by_id(user_id)
-    raw = (user.autonomy_policy if user else None) or AutonomyPolicy.WRITE_CODE.value
+    raw = (user.autonomy_policy if user else None) or AutonomyPolicy.LESS_INTERRUPT.value
     try:
         return AutonomyPolicy(raw)
     except ValueError:
-        return AutonomyPolicy.WRITE_CODE
+        return AutonomyPolicy.LESS_INTERRUPT
 
 
 def parse_permission_axes(raw: dict | None):
-    """Coerce a stored / wire permission_axes mapping; unknown → write_code defaults."""
+    """Coerce a stored / wire permission_axes mapping; unknown → less_interrupt defaults."""
     from agentcore.core.types import PermissionAxes
 
     return PermissionAxes.from_mapping(raw)

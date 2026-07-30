@@ -285,8 +285,12 @@ class LLMFollowupsGenerator:
                 self._provider.complete(request), timeout=_FOLLOWUPS_TIMEOUT_SECONDS
             )
         except TimeoutError:
-            logger.warning("followups.timeout", conversation_id=data.conversation_id)
-            return []
+            logger.warning(
+                "followups.timeout",
+                conversation_id=data.conversation_id,
+                reason="timeout",
+            )
+            raise
         self.last_usage = response.usage
         self.last_model = response.model or self._model or ""
         return _sanitize_followups(response.content)

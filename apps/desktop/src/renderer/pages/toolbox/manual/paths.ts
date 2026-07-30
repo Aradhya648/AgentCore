@@ -26,6 +26,7 @@ export const APP_PATHS = {
     appearance: "/more/appearance",
     shortcuts: "/more/shortcuts",
     feedback: "/more/feedback",
+    /** Legacy; `#/more/notices` redirects to the IM official chat. */
     notices: "/more/notices",
     about: "/more/about",
     legal: {

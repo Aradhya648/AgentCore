@@ -2,22 +2,13 @@ import { type UsageSummary, getUsageSummary } from "@/api/usage";
 // 用量 (/more/usage) — the account spend dashboard (mirrors desktop UsageSettings).
 //
 // Leads with quota meters (or a BYOK note when the user runs on their own key), then
-// this month's cost, the team payroll by role (the multi-agent differentiator), and a
-// 7-day trend. Money is formatted from the summary's single server-owned FX rate
-// (cny_per_usd) — the client never re-prices. The desktop's global「用量明细」Power
-// toggle lives in a UI store there; mobile shows the core figures inline.
+// this month's cost and a 7-day trend. Money is formatted from the summary's single
+// server-owned FX rate (cny_per_usd) — the client never re-prices. The desktop's
+// global「用量明细」Power toggle lives in a UI store there; mobile shows the core
+// figures inline.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "@/pages/more/more.css";
-
-const ROLE_LABELS: Record<string, string> = {
-  captain: "CEO",
-  member: "队员",
-  arena: "辩论",
-  title: "标题生成",
-  memory: "记忆整理",
-  vision: "视觉读图",
-};
 
 function cny(nanoUsd: number, rate: number, estimated = false): string {
   if (nanoUsd <= 0) return "—";
@@ -103,9 +94,6 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
   // 0 = 不限不画。平台翻转后才会 >0（byok/免费档留 0）。
   const dayCostLimit = quota.daily_cost_nano;
   const dayCostUsed = today.cost.total;
-  const hasRoleEstimate = summary.month_by_role.some(
-    (l) => l.cost_estimated_total > 0,
-  );
   const todayEst = today.estimated_cost?.total ?? 0;
   const monthEst = month.estimated_cost?.total ?? 0;
 
@@ -227,36 +215,6 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
           )}
         </div>
       </div>
-
-      {summary.month_by_role.length > 0 && (!byok || hasRoleEstimate) && (
-        <div className="section">
-          <h2 className="section-title">
-            {byok ? "本月各角色估算" : "本月各角色花销"}
-          </h2>
-          <p className="section-note">
-            {byok
-              ? "按社区价目估算，非上游账单。"
-              : "多 Agent 团队按角色拆分的花销，竞品的单 Agent 做不到。"}
-          </p>
-          <div className="payroll">
-            {summary.month_by_role.map((line) => (
-              <div key={line.role} className="payroll-row">
-                <span>
-                  {ROLE_LABELS[line.role] ?? line.role}
-                  <span className="payroll-turns">{line.turns} 回合</span>
-                </span>
-                <span className="payroll-cost">
-                  {cny(
-                    byok ? line.cost_estimated_total : line.cost_total,
-                    rate,
-                    byok,
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {summary.recent_daily_cost.some((p) => p.cost_total > 0) && !byok && (
         <CostTrend points={summary.recent_daily_cost} rate={rate} />

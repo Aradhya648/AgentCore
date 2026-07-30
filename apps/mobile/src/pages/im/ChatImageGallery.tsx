@@ -12,10 +12,14 @@ type ImageStatus = "loading" | "ready" | "failed";
 /**
  * Bearer-authed fetch → object URL for an IM attachment path. Fetch rejection and
  * `<img onError>` both land on `failed` — no silent `.catch(() => {})`.
+ *
+ * When `fallbackPath` is set (bubble preview: thumb → original), a failed primary
+ * fetch retries the fallback once before surfacing ImageOff.
  */
 function useChatImageBlob(
   chatId: string,
   path: string | null | undefined,
+  fallbackPath?: string | null,
 ): {
   url: string | null;
   blob: Blob | null;
@@ -38,25 +42,37 @@ function useChatImageBlob(
     setUrl(null);
     setBlob(null);
     setStatus("loading");
-    fetchChatAttachmentBlob(chatId, path)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setBlob(b);
-        setUrl(objectUrl);
-        setStatus("ready");
-      })
-      .catch(() => {
-        if (!active) return;
-        setUrl(null);
-        setBlob(null);
-        setStatus("failed");
-      });
+
+    const load = (candidate: string, allowFallback: boolean) =>
+      fetchChatAttachmentBlob(chatId, candidate)
+        .then((b) => {
+          if (!active) return;
+          objectUrl = URL.createObjectURL(b);
+          setBlob(b);
+          setUrl(objectUrl);
+          setStatus("ready");
+        })
+        .catch(() => {
+          if (!active) return;
+          const next =
+            allowFallback && fallbackPath && fallbackPath !== candidate
+              ? fallbackPath
+              : null;
+          if (next) {
+            void load(next, false);
+            return;
+          }
+          setUrl(null);
+          setBlob(null);
+          setStatus("failed");
+        });
+
+    void load(path, true);
     return () => {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [chatId, path]);
+  }, [chatId, path, fallbackPath]);
 
   const markFailed = useCallback(() => {
     setStatus("failed");
@@ -86,7 +102,7 @@ function LoadingTile({ className }: { className?: string }) {
   );
 }
 
-/** Bubble thumbnail: `thumb_path ?? workspace_path`. Click opens lightbox (does not share). */
+/** Bubble thumbnail: prefer `thumb_path`, fall back to `workspace_path` on fetch miss. */
 function ChatImageThumb({
   chatId,
   attachment,
@@ -99,7 +115,15 @@ function ChatImageThumb({
   onOpen: () => void;
 }) {
   const previewPath = attachment.thumb_path ?? attachment.workspace_path;
-  const { url, status, markFailed } = useChatImageBlob(chatId, previewPath);
+  const fallbackPath =
+    attachment.thumb_path && attachment.workspace_path
+      ? attachment.workspace_path
+      : null;
+  const { url, status, markFailed } = useChatImageBlob(
+    chatId,
+    previewPath,
+    fallbackPath,
+  );
   const tileClass =
     count === 1
       ? "im-img-tile solo"

@@ -107,7 +107,7 @@ async def resume_chat_pipeline(
 
     ``permission_axes`` mirrors :func:`run_chat_pipeline`: the conversation's CURRENT
     three-axis permission mode, resolved by the caller at resume time — not frozen
-    into the frame. ``None`` falls back to write_code defaults.
+    into the frame. ``None`` falls back to less_interrupt defaults.
     """
     if permission_axes is None:
         permission_axes = DEFAULT_PERMISSION_AXES

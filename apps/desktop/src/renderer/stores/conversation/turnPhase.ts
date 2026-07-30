@@ -69,6 +69,7 @@ export function allowsSseEvent(phase: TurnPhase, eventType: string): boolean {
     eventType === "turn_saved" ||
     eventType === "title_generated" ||
     eventType === "followups_generated" ||
+    eventType === "followups_unavailable" ||
     eventType === "citations" ||
     eventType === "evidence_ledger" ||
     // 异步团队：detached 可落在 message_end 前后；completed 常在 terminal 后同连接到达。

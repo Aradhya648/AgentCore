@@ -205,6 +205,11 @@ async def refresh_project_explore_from_snapshot(
         )
         return False
     except Exception as e:  # noqa: BLE001
+        from agentcore.core.errors import LLMAuthError
+
+        if isinstance(e, LLMAuthError):
+            # Must surface so ``run_background_llm`` can try user BYOK once.
+            raise
         logger.warning(
             "memory.explore_refresh_llm_failed",
             user_id=user_id,
@@ -297,37 +302,36 @@ async def refresh_project_explore_from_snapshot(
 
 
 async def _default_refresh_runner(pending: _PendingRefresh) -> bool:
-    from agentcore.billing.gate import resolve_and_gate_background
-    from agentcore.db.base import async_session_factory
+    from agentcore.billing.gate import run_background_llm
+    from agentcore.llm.credentials import LLMCredentials
     from agentcore.llm.factory import build_provider
     from agentcore.llm.resolve import resolve_turn_model as resolve_user_model
 
-    async with async_session_factory() as session:
-        credentials = await resolve_and_gate_background(
-            session, pending.user_id, purpose="memory"
-        )
-    if credentials is None:
+    async def _runner(credentials: LLMCredentials) -> bool:
+        model = resolve_user_model(credentials)
+        provider = build_provider(credentials, purpose="platform_internal")
+        try:
+            return await refresh_project_explore_from_snapshot(
+                user_id=pending.user_id,
+                folder_id=pending.folder_id,
+                workspace_key=pending.workspace_key,
+                snapshot=pending.snapshot,
+                live_fingerprint=pending.live_fingerprint,
+                provider=provider,
+                model=model,
+            )
+        finally:
+            await provider.close()
+
+    bg = await run_background_llm(pending.user_id, purpose="memory", runner=_runner)
+    if bg is None:
         logger.info(
             "memory.explore_refresh_skipped_no_credentials",
             user_id=pending.user_id,
             folder_id=pending.folder_id,
         )
         return False
-
-    model = resolve_user_model(credentials)
-    provider = build_provider(credentials, purpose="platform_internal")
-    try:
-        return await refresh_project_explore_from_snapshot(
-            user_id=pending.user_id,
-            folder_id=pending.folder_id,
-            workspace_key=pending.workspace_key,
-            snapshot=pending.snapshot,
-            live_fingerprint=pending.live_fingerprint,
-            provider=provider,
-            model=model,
-        )
-    finally:
-        await provider.close()
+    return bg.value
 
 
 class ExploreRefreshScheduler:

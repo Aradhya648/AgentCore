@@ -45,32 +45,30 @@ class Conversation(Base):
     # Permission axes (会话级权限 · 安全权限与治理):
     # {file_write, command, team_kickoff, host}. Runtime gates read THIS column — not
     # users.autonomy_policy (which only seeds new conversations with a recipe).
-    # Default = 写代码: session + kickoff + rules + ask.
+    # Default = 少打断: session + auto + skip + ask.
     # Legacy rows / server_default may omit ``host``; ``PermissionAxes.from_mapping`` fills ask.
     permission_axes: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
         default=lambda: {
             "file_write": "session",
-            "command": "kickoff",
-            "team_kickoff": "rules",
+            "command": "auto",
+            "team_kickoff": "skip",
             "host": "ask",
         },
-        # Keep legacy three-key JSON as DB default; app-layer default + from_mapping
-        # always materialize ``host`` (ask) so we don't need a column ALTER for P0.
         server_default=text(
-            "'{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}'::jsonb"
+            "'{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"skip\",\"host\":\"ask\"}'::jsonb"
         ),
     )
     # 深度研究自治（会话级独立旗标）: when True, CEO may auto-adopt worker motion_cards
     # and call debate without a team_preview kickoff (prompt-layer fork + debate-only
-    # kickoff waiver). Managed axes (command=auto ∧ team_kickoff=skip) imply the same
-    # via runtime helper — this column is the explicit single-flag path.
+    # kickoff waiver). Axes with command=auto ∧ team_kickoff=skip (少打断 / 托管) imply
+    # the same via runtime helper — this column is the explicit single-flag path.
     deep_research_auto: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false")
     )
-    # Auto-adopted debates started under 深度研究自治 (flag or managed axes). Cap = 1 per
-    # session; over the limit kickoff + ceo_format gracefully degrade (no error).
+    # Auto-adopted debates started under 深度研究自治 (flag or auto+skip axes). Cap = 1
+    # per session; over the limit kickoff + ceo_format gracefully degrade (no error).
     deep_research_auto_debate_count: Mapped[int] = mapped_column(
         Integer, server_default=text("0")
     )
@@ -193,8 +191,9 @@ class Message(Base):
     citations: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
-    # 回合调研台账（引用即出处 P1, DERIVED）：除 blocked 外全量登记条目（含 id/tier/
-    # query/deep_read/registrant/citable）。与 citations 池正交；[] = legacy / 无台账。
+    # 回合调研台账（引用即出处 P1, DERIVED）：除 blocked 外全量登记（登记宽）；
+    # 成稿闸用 deep_read∪selected。含 id/tier/query/deep_read/selected/doc_kind/
+    # registrant/citable。与 citations 池正交；[] = legacy / 无台账。
     evidence_ledger: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )

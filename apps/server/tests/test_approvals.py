@@ -917,7 +917,7 @@ async def test_session_file_trust_skips_mkdir_under_first_grant():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+        permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
     )
 
     decision = await gate.authorize(
@@ -943,7 +943,7 @@ async def test_session_file_trust_still_prompts_permanent_delete():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+        permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
     )
 
     resolver = asyncio.create_task(
@@ -973,7 +973,7 @@ async def test_session_file_trust_does_not_cover_code_execute():
         timeout_seconds=5.0,
         file_op_tools=approval_class_tool_names(),
         delegation_grantable_tools=delegation_grantable_tool_names(),
-        permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+        permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
     )
 
     resolver = asyncio.create_task(

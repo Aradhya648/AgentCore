@@ -503,6 +503,8 @@ class EvidenceLedgerEntryRest(BaseModel):
     tier: str = "unknown"
     query: str = ""
     deep_read: bool = False
+    selected: bool = False
+    doc_kind: str = ""
     registrant: str = ""
     citable: bool = True
 

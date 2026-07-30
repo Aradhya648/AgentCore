@@ -169,10 +169,6 @@ async def test_usage_summary_windows_and_quota(client, make_invite, session_fact
     assert body["month"]["cost"]["total"] == 2500
     assert body["today"]["requests"] == 1
     assert body["today"]["usage"]["input"] == 100
-    # The single captain row also lands in this month's per-role payroll.
-    assert body["month_by_role"] == [
-        {"role": "captain", "cost_total": 2500, "cost_estimated_total": 0, "turns": 1}
-    ]
     # The 7-day trend is a fixed-length series; today's spend is its last point.
     trend = body["recent_daily_cost"]
     assert len(trend) == 7
@@ -210,49 +206,6 @@ async def test_usage_summary_quota_shows_free_tier_limits(client, make_invite, m
     assert quota["monthly_cost_nano"] == int(settings.free_tier_monthly_cost_usd * 1_000_000_000)
     assert quota["daily_cost_nano"] == int(settings.free_tier_daily_cost_usd * 1_000_000_000)
     assert quota["daily_requests"] == settings.free_tier_daily_requests
-
-
-async def test_usage_summary_groups_month_by_role(client, make_invite, session_factory):
-    # 本月各角色花销 (团队工资单 by role): the month window groups by the ledger role
-    # and ranks by spend desc; only roles that actually spent (>0) appear.
-    code = await make_invite("INV-ROLES")
-    user_id = await register_and_login(client, code, "rolesuser")
-
-    async with session_factory() as session:
-        repo = CostEventRepository(session)
-        # Turn 1: a captain + two members (one message_id).
-        msg1 = new_id()
-        await repo.record_runs(
-            user_id=user_id,
-            conversation_id=new_id(),
-            message_id=msg1,
-            runs=[
-                _run(new_id(), role="captain", total=400),
-                _run(new_id(), role="member", total=900),
-                _run(new_id(), role="member", total=600),
-            ],
-        )
-        # Turn 2: another captain (second distinct message_id) + a free title run.
-        msg2 = new_id()
-        await repo.record_runs(
-            user_id=user_id,
-            conversation_id=new_id(),
-            message_id=msg2,
-            runs=[
-                _run(new_id(), role="captain", total=200),
-                _run(new_id(), role="title", total=0),  # 0 spend → excluded
-            ],
-        )
-
-    r = await client.get("/v1/usage/summary")
-    assert r.status_code == 200, r.text
-    rows = r.json()["month_by_role"]
-
-    # Ranked by spend desc: member (1500) > captain (600); the 0-spend title is out.
-    assert rows == [
-        {"role": "member", "cost_total": 1500, "cost_estimated_total": 0, "turns": 1},
-        {"role": "captain", "cost_total": 600, "cost_estimated_total": 0, "turns": 2},
-    ]
 
 
 async def test_usage_summary_recent_daily_cost_buckets_by_utc_day(
@@ -316,6 +269,5 @@ async def test_usage_summary_empty_is_zero(client, make_invite):
     assert body["today"]["cost"]["total"] == 0
     assert body["today"]["requests"] == 0
     assert body["month"]["usage"]["input"] == 0
-    assert body["month_by_role"] == []
     # The trend is still a fixed 7-point series, all zero.
     assert [p["cost_total"] for p in body["recent_daily_cost"]] == [0] * 7

@@ -49,6 +49,34 @@ def test_sanitize_tool_args_recursive():
     assert out["nested"]["q"] == "x"
 
 
+def test_sanitize_raw_tool_arguments_strips_xml_hybrid():
+    from agentcore.runtime.engine.tool_protocol_sanitize import (
+        sanitize_raw_tool_arguments,
+    )
+
+    raw = (
+        '{"tasks"><parameter name="list"><object>'
+        '<parameter name="role": "导师审稿人", "task": "审阅全文"}'
+    )
+    cleaned = sanitize_raw_tool_arguments(raw)
+    assert "<parameter" not in cleaned
+    assert "<object>" not in cleaned
+    assert '"tasks":' in cleaned
+    assert '"role":' in cleaned
+    # Salvageable enough to parse as JSON object with tasks key shape attempt.
+    # Full array brackets may still be missing — parse honesty preserved if invalid.
+    assert cleaned.startswith('{"tasks":')
+
+
+def test_sanitize_raw_tool_arguments_noop_on_clean_json():
+    from agentcore.runtime.engine.tool_protocol_sanitize import (
+        sanitize_raw_tool_arguments,
+    )
+
+    raw = '{"tasks": [{"role": "研究员", "task": "调研"}]}'
+    assert sanitize_raw_tool_arguments(raw) == raw
+
+
 @pytest.mark.asyncio
 async def test_execute_tools_sanitizes_name_and_runs():
     class _Echo:

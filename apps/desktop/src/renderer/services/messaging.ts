@@ -37,6 +37,14 @@ export type StoredAttachment = Schemas["StoredAttachment"];
 /** One row in the IM chat list (消息页左栏), plus this user's per-chat state. */
 export type ChatSummary = Schemas["ChatSummary"];
 
+/** Frozen quote snapshot on a replied message (generated from `ReplyToSnapshot`). */
+export type MessageReplyTo = Schemas["ReplyToSnapshot"];
+
+/** Structured @ mention on an IM message (generated from OpenAPI). */
+export type ChatMention =
+  | Schemas["MessageMentionUser"]
+  | Schemas["MessageMentionEveryone"];
+
 /** One message in a chat thread (generated from `ChatMessageDetail`). */
 export type ChatMessageDetail = Schemas["ChatMessageDetail"];
 
@@ -177,6 +185,8 @@ export interface SendMessageInput {
   /** Client-minted id for retry-safe idempotent send (server dedups). */
   clientMsgId?: string;
   replyToMessageId?: string;
+  /** Structured @ mentions (S2); body still carries visible `@显示名` / `@所有人`. */
+  mentions?: ChatMention[];
 }
 
 /** Send a message into a chat the user belongs to (text and/or attachments). */
@@ -190,6 +200,9 @@ export async function sendMessage(
     attachments: input.attachments ?? [],
     client_msg_id: input.clientMsgId,
     reply_to_message_id: input.replyToMessageId,
+    ...(input.mentions && input.mentions.length > 0
+      ? { mentions: input.mentions }
+      : {}),
   });
 }
 

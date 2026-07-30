@@ -99,9 +99,17 @@ def ensure_research_file_anchors(
 
     ``ledger_entries`` 为本 worker 已登记的调研台账条目（含 url/title）。
     无条目 / 空正文 → 原样返回。
+
+    若正文已有未绑定 ``#rN`` 的 GB/T 书目形态（``[D]/[J]``…），**不**补脚注——
+    避免文末锚制造假安心；交由合同闸 ``citation_quality_reworks`` 返工。
     """
     text = content or ""
     if extract_research_ledger_anchors(text):
+        return text
+    # 有未核验书目形态时不补脚注（与合同闸对齐，勿用文末 #rN 蒙混段内 [D]）。
+    from agentcore.runtime.verify import citation_quality_reworks
+
+    if citation_quality_reworks(text, ledger_entries=list(ledger_entries) or []):
         return text
     usable = [
         e

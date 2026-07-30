@@ -13,11 +13,18 @@ import { Sparkles } from "lucide-react";
  *
  * Tied to the latest finished assistant turn (the caller gates on that); a「what now」
  * affordance that belongs where you type and stays put regardless of scroll — transport-
- * only, so a new turn or a refresh retires it. Renders nothing for an empty list.
+ * only, so a new turn or a refresh retires it. Soft empty (`unavailable`) shows a quiet
+ * hint when mint failed; legitimate empty list still renders nothing.
  */
-export function FollowupChips({ followups }: { followups: string[] }) {
+export function FollowupChips({
+  followups,
+  unavailable = false,
+}: {
+  followups: string[];
+  unavailable?: boolean;
+}) {
   const fill = useComposerDraftStore((s) => s.fill);
-  if (followups.length === 0) return null;
+  if (followups.length === 0 && !unavailable) return null;
 
   return (
     <div className="px-4 pb-2">
@@ -25,18 +32,22 @@ export function FollowupChips({ followups }: { followups: string[] }) {
         <Sparkles size={12} className="shrink-0" />
         <span>下一步</span>
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {followups.map((text) => (
-          <Button
-            key={text}
-            variant="neutral"
-            className="h-auto whitespace-normal border border-border bg-card py-1 text-left text-muted-foreground hover:border-primary/40 hover:text-foreground"
-            onClick={() => fill(text)}
-          >
-            {text}
-          </Button>
-        ))}
-      </div>
+      {followups.length === 0 ? (
+        <p className="text-xs text-muted-foreground">推荐暂时不可用</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {followups.map((text) => (
+            <Button
+              key={text}
+              variant="neutral"
+              className="h-auto whitespace-normal border border-border bg-card py-1 text-left text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              onClick={() => fill(text)}
+            >
+              {text}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

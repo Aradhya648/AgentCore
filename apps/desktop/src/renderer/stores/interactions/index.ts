@@ -44,8 +44,6 @@ export {
 } from "./adapters";
 export {
   useMessageInteractionCards,
-  useOrphanedApprovals,
-  useOrphanedDelegations,
   usePendingApprovals,
   usePendingDelegations,
 } from "./hooks";

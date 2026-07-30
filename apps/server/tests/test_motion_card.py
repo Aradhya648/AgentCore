@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentcore.core.types import ToolEffect
+from agentcore.core.types import AutonomyPolicy, ToolEffect, recipe_to_axes
 from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
 from agentcore.runtime.delegate.ceo_format import format_for_ceo
 from agentcore.runtime.runs.plan import RunPlan
@@ -330,7 +330,11 @@ def test_state_json_round_trips_motion_card():
 
 
 def test_format_for_ceo_surfaces_motion_card_section():
+    # Default-mode guidance (阶段推进卡 / 勿口头征求). Pin CAUTIOUS so
+    # DEFAULT_PERMISSION_AXES (少打断 → implies_deep_research_auto) does not
+    # flip this fixture onto the auto-adopt guidance branch.
     t = tool(Provider([]))
+    t._permission_axes = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
     plan = RunPlan(nodes=[RunSpec(run_id="w1", task="汇总分析", role="汇总分析师")])
     results = {
         "w1": RunState(

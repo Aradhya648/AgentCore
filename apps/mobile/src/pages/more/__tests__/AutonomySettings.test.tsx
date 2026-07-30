@@ -39,29 +39,29 @@ beforeEach(() => {
   mockGet.mockReset();
   mockSet.mockReset();
   mockNavigate.mockReset();
-  mockGet.mockResolvedValue({ policy: "write_code" });
+  mockGet.mockResolvedValue({ policy: "less_interrupt" });
   mockSet.mockResolvedValue({ policy: "managed" });
 });
 
 describe("AutonomySettings", () => {
-  it("loads and renders the four recipe options with the current selection", async () => {
+  it("loads and renders the three recipe options with the current selection", async () => {
     render(<AutonomySettings />);
     expect(screen.getByText("加载中…")).toBeTruthy();
 
     await waitFor(() =>
-      expect(screen.getByText("写代码（推荐）")).toBeTruthy(),
+      expect(screen.getByText("少打断（推荐）")).toBeTruthy(),
     );
     expect(screen.getByText("谨慎")).toBeTruthy();
-    expect(screen.getByText("少打断")).toBeTruthy();
     expect(screen.getByText("托管")).toBeTruthy();
+    expect(screen.queryByText(/写代码/)).toBeNull();
     expect(
       screen.getByText(
-        /新会话默认：本会话信任改文件；执行经开工卡；组团卡按规则/,
+        /新会话默认：本会话信任改文件；自动执行；跳过组团卡；本机每次确认/,
       ),
     ).toBeTruthy();
 
     const selected = screen.getByRole("radio", {
-      name: /写代码/,
+      name: /少打断/,
     });
     expect((selected as HTMLInputElement).checked).toBe(true);
   });
@@ -70,8 +70,7 @@ describe("AutonomySettings", () => {
     render(<AutonomySettings />);
     await waitFor(() => expect(screen.getByText("托管")).toBeTruthy());
 
-    // jsdom may not implement window.confirm; stub accept.
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    // less_interrupt → managed: both already command=auto, no confirm.
     fireEvent.click(screen.getByText("托管"));
     await waitFor(() => expect(mockSet).toHaveBeenCalledWith("managed"));
     await waitFor(() =>
@@ -93,7 +92,7 @@ describe("AutonomySettings", () => {
     );
 
     const selected = screen.getByRole("radio", {
-      name: /写代码/,
+      name: /少打断/,
     });
     expect((selected as HTMLInputElement).checked).toBe(true);
   });
@@ -101,9 +100,21 @@ describe("AutonomySettings", () => {
   it("does not PUT when re-selecting the already-active policy", async () => {
     render(<AutonomySettings />);
     await waitFor(() =>
-      expect(screen.getByText("写代码（推荐）")).toBeTruthy(),
+      expect(screen.getByText("少打断（推荐）")).toBeTruthy(),
     );
-    fireEvent.click(screen.getByText("写代码（推荐）"));
+    fireEvent.click(screen.getByText("少打断（推荐）"));
     expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  it("confirms when entering command=auto from cautious", async () => {
+    mockGet.mockResolvedValue({ policy: "cautious" });
+    mockSet.mockResolvedValue({ policy: "less_interrupt" });
+    render(<AutonomySettings />);
+    await waitFor(() => expect(screen.getByText("谨慎")).toBeTruthy());
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByText("少打断（推荐）"));
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith("less_interrupt"));
+    expect(window.confirm).toHaveBeenCalled();
   });
 });

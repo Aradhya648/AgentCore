@@ -62,13 +62,12 @@ class StandingTask(Base):
         nullable=False,
         default=lambda: {
             "file_write": "session",
-            "command": "kickoff",
-            "team_kickoff": "rules",
+            "command": "auto",
+            "team_kickoff": "skip",
             "host": "ask",
         },
-        # Legacy three-key JSON ok; from_mapping / model_validate fill host=ask.
         server_default=text(
-            "'{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}'::jsonb"
+            "'{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"skip\",\"host\":\"ask\"}'::jsonb"
         ),
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

@@ -35,6 +35,13 @@ class Chat(Base):
         # Per-user chat list ordering: chats a user belongs to (chat_members join),
         # ordered by recency. Index the sort key.
         Index("ix_chats_last_message_at", "last_message_at"),
+        # Site-wide singleton official broadcast channel (product notices).
+        Index(
+            "uq_chats_official_singleton",
+            "type",
+            unique=True,
+            postgresql_where=text("type = 'official'"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
@@ -139,6 +146,13 @@ class ChatMessage(Base):
     # system_card deep-link payload (e.g. {kind, conversation_id}); NULL otherwise.
     payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     reply_to_message_id: Mapped[str | None] = mapped_column(PG_UUID(as_uuid=False), nullable=True)
+    # Frozen reply preview ({sender_user_id, sender_display_name, body_preview}).
+    # Written at send time so S3 recall of the target still leaves a readable quote.
+    reply_to: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Frozen @mentions list written at send time ([{kind:user,user_id}|{kind:everyone}]).
+    mentions: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     # Client-minted dedup key for retry-safe sends.
     client_msg_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

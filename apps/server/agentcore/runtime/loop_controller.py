@@ -73,6 +73,9 @@ PROGRESS_TOOLS = frozenset(
 LANDING_TOOLS = frozenset(
     {"file_write", "file_append", "str_replace", "write_section", "file_move"}
 )
+# CEO orchestration primitives: parse-only thrashing must not retire them
+# (same posture as LANDING_TOOLS keeping the pen — keep the dispatcher).
+ORCHESTRATION_TOOLS = frozenset({"delegate", "ask_user"})
 
 
 def zero_write_warn_prompt(*, rounds: int, prose_idle: bool = False) -> str:
@@ -229,7 +232,11 @@ class CircuitBreak:
     means nothing tripped this round.
 
     ``parse_only`` names tools whose failures so far are *all* argument-JSON parse
-    failures — their steer text must guide「修复格式、原样重发」, never「换不同的输入」.
+    failures — their steer text must guide format/strategy, never「换不同的输入」.
+
+    ``force_segmented`` names write/landing tools that hit the disable threshold
+    but stay enabled — steer forces skeleton + section writes instead of retiring
+    the pen (长文落盘定案：失败换分段，不关写文件).
 
     ``retire_message`` is an optional hard-stop steer (e.g. browser egress
     unavailable) that replaces the generic「已多次失败」disable copy when set.
@@ -238,20 +245,21 @@ class CircuitBreak:
     warned: tuple[str, ...] = ()
     disabled: tuple[str, ...] = ()
     parse_only: frozenset[str] = frozenset()
+    force_segmented: frozenset[str] = frozenset()
     retire_message: str | None = None
 
     def __bool__(self) -> bool:
-        return bool(self.warned or self.disabled)
+        return bool(self.warned or self.disabled or self.force_segmented)
 
     def message(self) -> str | None:
         """The single ``[系统提示]`` to inject this round, or ``None``.
 
         Anchored to the concrete fact (which tool, what now happens) like the
-        nudge messages — disable first (the stronger action), then warn.
-        Parse-only failures get a typed steer so the model fixes JSON escaping
-        instead of rewriting/shortening the payload. ``read_url`` disable/warn
-        uses a research-specific stop-read steer (do not say「换不同的输入」—
-        that encourages URL thrashing after egress storms).
+        nudge messages — disable first (the stronger action), then force-segmented
+        write steer, then warn. Parse-only write failures steer to segmented
+        landing (not「原样重发」). ``read_url`` disable/warn uses a research-specific
+        stop-read steer (do not say「换不同的输入」— that encourages URL thrashing
+        after egress storms).
         """
         parts: list[str] = []
         if self.disabled:
@@ -278,6 +286,13 @@ class CircuitBreak:
                         f"工具 {names} 因参数不是合法 JSON 已多次失败，本回合起停用，无法再调用——"
                         "请改用其他工具或基于已有信息推进。"
                     )
+        if self.force_segmented:
+            names = "、".join(f"`{n}`" for n in self.force_segmented)
+            parts.append(
+                f"工具 {names} 连续写盘失败：写文件能力保持可用。"
+                "【强制】改用短骨架 file_write + 按节 file_append / str_replace，"
+                "禁止再整篇一次写入；勿向用户讲解 JSON 转义。"
+            )
         if self.warned:
             parse_w = tuple(n for n in self.warned if n in self.parse_only)
             other_w = tuple(n for n in self.warned if n not in self.parse_only)
@@ -295,12 +310,33 @@ class CircuitBreak:
                     "换不同的输入、换一个工具，或基于已有信息直接推进。"
                 )
             if parse_w:
-                names = "、".join(f"`{n}`" for n in parse_w)
-                parts.append(
-                    f"工具 {names} 的调用参数不是合法 JSON，已多次解析失败："
-                    "请修复 JSON 格式（尤其是字符串内引号转义）后原样重发全部参数，"
-                    "不要改写、缩短或删减内容；也可换一个工具或基于已有信息直接推进。"
+                write_pw = tuple(n for n in parse_w if n in LANDING_TOOLS)
+                orch_pw = tuple(n for n in parse_w if n in ORCHESTRATION_TOOLS)
+                other_pw = tuple(
+                    n for n in parse_w if n not in LANDING_TOOLS and n not in ORCHESTRATION_TOOLS
                 )
+                if write_pw:
+                    names = "、".join(f"`{n}`" for n in write_pw)
+                    parts.append(
+                        f"工具 {names} 的调用参数不是合法 JSON，已多次解析失败"
+                        "（常见于整篇正文塞进一次调用）："
+                        "【强制】改用短骨架 + 分段 file_append / str_replace 落盘，"
+                        "不要原样重发整段，也不要整篇一次 file_write。"
+                    )
+                if orch_pw:
+                    names = "、".join(f"`{n}`" for n in orch_pw)
+                    parts.append(
+                        f"工具 {names} 的调用参数不是合法 JSON，已多次解析失败："
+                        "【强制】只发单一合法 JSON（禁止 XML/<parameter> 混入），"
+                        "按 schema 精简重试；工具保持可用，勿改用空回复交差。"
+                    )
+                if other_pw:
+                    names = "、".join(f"`{n}`" for n in other_pw)
+                    parts.append(
+                        f"工具 {names} 的调用参数不是合法 JSON，已多次解析失败："
+                        "请修复 JSON 格式（尤其是字符串内引号转义）后原样重发全部参数，"
+                        "不要改写、缩短或删减内容；也可换一个工具或基于已有信息直接推进。"
+                    )
         if not parts:
             return None
         return "[系统提示] " + " ".join(parts)
@@ -395,6 +431,10 @@ class LoopController:
         self._tool_succeeded_after_fail: dict[str, bool] = {}
         self._tool_warned: set[str] = set()
         self._tool_disabled: set[str] = set()
+        # Write/landing tools that hit disable threshold but stay enabled (强制分段).
+        self._tool_segmented_forced: set[str] = set()
+        # Orchestration tools kept alive despite parse-only disable-threshold hits.
+        self._tool_parse_kept: set[str] = set()
         # One-shot hard-stop steer from a tool that retires a family (e.g. browser
         # egress_unavailable). Consumed by :meth:`tool_circuit_breaker`.
         self._pending_retire_message: str | None = None
@@ -742,20 +782,48 @@ class LoopController:
         :meth:`CircuitBreak.message` and removes any ``disabled`` tools from the
         toolset for the remaining rounds. A tool that leaps straight to the disable
         count is only disabled (no redundant warn).
+
+        Landing / write tools (``LANDING_TOOLS``) are never circuit-disabled: hitting
+        the disable threshold yields ``force_segmented`` instead (keep the pen, force
+        skeleton + section writes). Orchestration tools (``ORCHESTRATION_TOOLS``) are
+        never disabled on **parse-only** failures either (keep the dispatcher; typed
+        JSON-format steer). Non-landing tools (e.g. ``read_url`` via ``retire_tools``)
+        still disable normally.
         """
         newly_warned: list[str] = []
         newly_disabled: list[str] = []
+        newly_force_segmented: list[str] = []
         for name, count in self._tool_failures.items():
-            if name in self._tool_disabled:
+            if (
+                name in self._tool_disabled
+                or name in self._tool_segmented_forced
+                or name in self._tool_parse_kept
+            ):
                 continue
             if count >= self._tool_failure_disable:
+                parse_only_tool = (
+                    self._tool_failures[name] > 0
+                    and self._tool_parse_failures.get(name, 0) == self._tool_failures[name]
+                )
+                if name in LANDING_TOOLS:
+                    self._tool_segmented_forced.add(name)
+                    self._tool_warned.discard(name)
+                    newly_force_segmented.append(name)
+                    continue
+                if name in ORCHESTRATION_TOOLS and parse_only_tool:
+                    # Keep delegate/ask_user available; one-shot format steer via warn path.
+                    self._tool_parse_kept.add(name)
+                    if name not in self._tool_warned:
+                        self._tool_warned.add(name)
+                        newly_warned.append(name)
+                    continue
                 self._tool_disabled.add(name)
                 self._tool_warned.discard(name)
                 newly_disabled.append(name)
             elif count >= self._tool_failure_warn and name not in self._tool_warned:
                 self._tool_warned.add(name)
                 newly_warned.append(name)
-        tripped = (*newly_warned, *newly_disabled)
+        tripped = (*newly_warned, *newly_disabled, *newly_force_segmented)
         parse_only = frozenset(
             name
             for name in tripped
@@ -770,6 +838,7 @@ class LoopController:
             warned=tuple(newly_warned),
             disabled=tuple(newly_disabled),
             parse_only=parse_only,
+            force_segmented=frozenset(newly_force_segmented),
             retire_message=retire_message,
         )
 
@@ -804,7 +873,12 @@ class LoopController:
         return [f for f in self.tool_failure_facts() if f.outstanding]
 
     def note_round_productivity(
-        self, *, had_tool_calls: bool, all_failed: bool, had_content: bool
+        self,
+        *,
+        had_tool_calls: bool,
+        all_failed: bool,
+        had_content: bool,
+        all_parse_failures: bool = False,
     ) -> None:
         """Track consecutive *unproductive* rounds (B2 无产出早停).
 
@@ -812,7 +886,12 @@ class LoopController:
         produced no content. Any productive round — content this round, a tool
         success, or a no-tool round (handled by the empty/degraded path) — resets
         the streak, so only a sustained all-failing-no-output run escalates.
+
+        Pure protocol failures（仅 ``args_parse_failed`` / ``parse_failure``）不计入
+        streak（既不递增也不重置），避免因纯协议失败触发 UNPRODUCTIVE。
         """
+        if all_parse_failures:
+            return
         unproductive = had_tool_calls and all_failed and not had_content
         self._consecutive_unproductive = self._consecutive_unproductive + 1 if unproductive else 0
 

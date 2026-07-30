@@ -463,44 +463,6 @@ class CostEventRepository:
             conditions.append(CostEvent.user_id == user_id)
         return await self._aggregate(*conditions)
 
-    async def aggregate_by_role_for_window(
-        self, *, user_id: str | None = None, since: datetime
-    ) -> list[dict]:
-        """Per-persona spend since a cutoff (本月各角色花销 — 团队工资单).
-
-        Groups by ``COALESCE(persona, role)`` so new rows with human-facing
-        labels (调研员 / CEO) surface as persona payroll, while legacy rows
-        without ``persona`` still roll up under the structural role bucket.
-        """
-        bucket = func.coalesce(CostEvent.persona, CostEvent.role)
-        total = _sum_int(CostEvent.cost_total_nano)
-        estimated = _sum_int(CostEvent.cost_estimated_nano)
-        conditions: list[ColumnElement] = [CostEvent.created_at >= since]
-        if user_id is not None:
-            conditions.append(CostEvent.user_id == user_id)
-        stmt = (
-            select(
-                bucket.label("role"),
-                total.label("c_total"),
-                estimated.label("c_estimated"),
-                func.count(distinct(CostEvent.message_id)).label("turns"),
-            )
-            .where(*conditions)
-            .group_by(bucket)
-            .having((total > 0) | (estimated > 0))
-            .order_by(total.desc(), estimated.desc())
-        )
-        rows = (await self._session.execute(stmt)).all()
-        return [
-            {
-                "role": row.role,
-                "cost_total": int(row.c_total),
-                "cost_estimated_total": int(row.c_estimated),
-                "turns": int(row.turns),
-            }
-            for row in rows
-        ]
-
     async def aggregate_by_model_for_window(
         self, *, user_id: str | None = None, since: datetime
     ) -> list[dict]:
@@ -576,13 +538,12 @@ class CostEventRepository:
     async def aggregate_by_user_for_window(self, *, since: datetime, limit: int = 20) -> list[dict]:
         """Per-user spend since a cutoff — the platform 工资单 by user (admin 全站看板).
 
-        The cross-user counterpart of ``aggregate_by_role_for_window``: groups the
-        (platform-wide) window by ``user_id`` and SUMs the scalar ``cost_total_nano``
-        plus a distinct-turn count, joining ``users`` for the display identity. Only
-        accounts that actually spent (>0) are returned, ordered by spend desc and
-        capped at ``limit`` (Top spenders) — no user filter, this is the whole
-        platform. Money is integer nano-USD; the caller formats ¥ from the single
-        ``cny_per_usd`` rate.
+        Groups the (platform-wide) window by ``user_id`` and SUMs the scalar
+        ``cost_total_nano`` plus a distinct-turn count, joining ``users`` for the
+        display identity. Only accounts that actually spent (>0) are returned,
+        ordered by spend desc and capped at ``limit`` (Top spenders) — no user
+        filter, this is the whole platform. Money is integer nano-USD; the caller
+        formats ¥ from the single ``cny_per_usd`` rate.
         """
         total = _sum_int(CostEvent.cost_total_nano)
         stmt = (

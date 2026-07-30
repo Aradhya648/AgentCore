@@ -239,6 +239,20 @@ def followups_generated(
     )
 
 
+def followups_unavailable(
+    *, conversation_id: str, message_id: str, reason: str
+) -> SSEEvent:
+    """Soft hint that followups mint failed — not a turn-blocking error."""
+    return SSEEvent(
+        type=EventType.FOLLOWUPS_UNAVAILABLE,
+        payload={
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "reason": reason,
+        },
+    )
+
+
 def turn_saved(*, user_message_id: str) -> SSEEvent:
     return SSEEvent(
         type=EventType.TURN_SAVED,

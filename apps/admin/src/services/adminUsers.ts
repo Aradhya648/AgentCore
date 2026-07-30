@@ -16,7 +16,6 @@ export type AdminUpdateUserRequest =
 export type AdminUserDetail = components["schemas"]["AdminUserDetail"];
 export type AdminConversationLine =
   components["schemas"]["AdminConversationLine"];
-export type RoleCostLine = components["schemas"]["RoleCostLine"];
 export type ModelCostLine = components["schemas"]["ModelCostLine"];
 export type AdminResetPasswordResponse =
   components["schemas"]["AdminResetPasswordResponse"];
@@ -67,7 +66,7 @@ export async function updateUser(
 }
 
 /**
- * 用户详情下钻: one account's record + its own usage (today/month/trend/by-role)
+ * 用户详情下钻: one account's record + its own usage (today/month/trend/by-model)
  * + recent conversations + recent turn activity (each drillable into 会话复盘).
  */
 export async function fetchUserDetail(

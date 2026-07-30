@@ -46,6 +46,7 @@ import {
   StreamHttpError,
   describeStreamHttpError,
   emptyChatCopy,
+  emptyFailureNotice,
 } from "@/lib/errors";
 import {
   fileArtifactsFromEvents,
@@ -76,6 +77,7 @@ import {
   extractEscalationSlots,
   extractEvidenceLedger,
   extractFollowups,
+  extractFollowupsUnavailable,
   extractGraphAppendActKinds,
   extractGraphAppendAuthorizedBy,
   extractHotDecisionTraces,
@@ -441,6 +443,10 @@ function AssistantBubble({
     : undefined;
   const empty =
     !isMulti && p.process.length === 0 && !p.content && !p.reasoning;
+  // 对齐桌面：空正文 + error/unproductive → 可见失败说明（不必整泡无 process）。
+  const failureNotice = !(p.content ?? "").trim()
+    ? emptyFailureNotice(p.finishReason)
+    : null;
   // 回合总账 — populated by message_end (null while streaming, so it appears on finish).
   // BYOK: billed total is 0; estimated_total may carry a community-catalog estimate.
   const turnMoney =
@@ -465,11 +471,11 @@ function AssistantBubble({
           ）
         </div>
       )}
-      {empty ? (
+      {empty && !failureNotice ? (
         <span className="muted">
           {live ? (turnQueued ? "等待上一回合结束…" : "…") : ""}
         </span>
-      ) : (
+      ) : !empty ? (
         <AssistantContent
           process={p.process}
           content={p.content}
@@ -490,7 +496,8 @@ function AssistantBubble({
           graphAppendAuthorizedBy={graphAppendAuthorizedBy}
           onFill={onFill}
         />
-      )}
+      ) : null}
+      {failureNotice && <div className="error">{failureNotice}</div>}
       <FileArtifactsCard
         artifacts={artifacts}
         conversationId={conversationId}
@@ -621,18 +628,25 @@ function HistoryAssistant({
   const interrupted =
     m.status === "incomplete" || m.runs?.finish_reason === "interrupted";
   const stopped = m.runs?.finish_reason === "cancelled";
-
-  if (
+  const emptyBody =
     !team &&
     (!process || process.length === 0) &&
     !m.content &&
     !m.reasoning_content &&
     m.citations.length === 0 &&
-    artifacts.length === 0 &&
+    artifacts.length === 0;
+  const failureNotice =
+    !streaming && !(m.content ?? "").trim()
+      ? emptyFailureNotice(m.runs?.finish_reason)
+      : null;
+
+  if (
+    emptyBody &&
     !turnWarning &&
     !interrupted &&
     !stopped &&
-    !streaming
+    !streaming &&
+    !failureNotice
   ) {
     return null;
   }
@@ -644,7 +658,7 @@ function HistoryAssistant({
       {turnWarning && <div className="turn-warning">{turnWarning}</div>}
       {streaming && !m.content && !m.reasoning_content && !process?.length ? (
         <span className="muted">…</span>
-      ) : (
+      ) : emptyBody && failureNotice ? null : (
         <AssistantContent
           process={process}
           content={m.content ?? ""}
@@ -665,6 +679,7 @@ function HistoryAssistant({
           onFill={onFill}
         />
       )}
+      {failureNotice && <div className="error">{failureNotice}</div>}
       <FileArtifactsCard
         artifacts={artifacts}
         conversationId={conversationId}
@@ -691,7 +706,7 @@ export function ChatPage() {
   /** 诚实停止过渡：stopping 时 UI 不先于后端进终态；与 sending 合成 busy。 */
   const [stopPhase, setStopPhase] = useState<StopUiPhase>("idle");
   const [error, setError] = useState<ChatError | null>(null);
-  /** Session permission recipe label (谨慎 / 写代码 / 少打断 / 托管 / 自定义). */
+  /** Session permission recipe label (谨慎 / 少打断 / 托管 / 自定义). */
   const [permissionLabel, setPermissionLabel] = useState<string | null>(null);
   // 会话级模型组合 (对齐桌面): conversation override profile id (null = follow account default).
   // A draft seeds from last-used profile. Badge shows the combination name; tap opens picker.
@@ -919,11 +934,10 @@ export function ChatPage() {
         const host = axes?.host ?? "ask";
         const key = axes
           ? `${axes.file_write}/${axes.command}/${axes.team_kickoff}/${host}`
-          : "session/kickoff/rules/ask";
+          : "session/auto/skip/ask";
         const labels: Record<string, string> = {
           "ask/ask/rules/off": "谨慎",
-          "session/kickoff/rules/ask": "写代码",
-          "session/kickoff/skip/ask": "少打断",
+          "session/auto/skip/ask": "少打断",
           "session/auto/skip/session": "托管",
         };
         setPermissionLabel(labels[key] ?? "自定义");
@@ -1128,6 +1142,12 @@ export function ChatPage() {
     }
     return [];
   }, [busy, liveTurn, history]);
+
+  const followupsUnavailable = useMemo(() => {
+    if (busy || followups.length > 0) return false;
+    if (liveTurn) return extractFollowupsUnavailable(liveTurn.events);
+    return false;
+  }, [busy, liveTurn, followups.length]);
 
   // Stage picked files as text attachments (composer 附件). Each is read on the spot (the
   // pick is the grant); images / binaries are refused with a reason and skipped. The input
@@ -1938,24 +1958,28 @@ export function ChatPage() {
         </div>
       )}
 
-      {followups.length > 0 && (
+      {(followups.length > 0 || followupsUnavailable) && (
         <div className="followups">
           <div className="followups-label">
             <Sparkles size={12} />
             <span>下一步</span>
           </div>
-          <div className="followups-row">
-            {followups.map((text) => (
-              <button
-                key={text}
-                type="button"
-                className="followup-chip"
-                onClick={() => fillFollowup(text)}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
+          {followups.length === 0 ? (
+            <div className="followups-empty muted">推荐暂时不可用</div>
+          ) : (
+            <div className="followups-row">
+              {followups.map((text) => (
+                <button
+                  key={text}
+                  type="button"
+                  className="followup-chip"
+                  onClick={() => fillFollowup(text)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

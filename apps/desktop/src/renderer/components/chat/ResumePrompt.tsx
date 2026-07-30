@@ -1,4 +1,3 @@
-import { OrphanedInteractionCard } from "@/components/chat/OrphanedInteractionCard";
 import {
   Badge,
   Button,
@@ -47,24 +46,18 @@ export function ResumePrompt() {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const pending = usePausedTurnStore((s) => s.pending);
   const byId = useInteractionStore((s) => s.byId);
-  const visible = pending.filter((p) => p.conversationId === conversationId);
+  // Orphaned: silent dismiss (no tombstone card).
+  const visible = pending.filter((p) => {
+    if (p.conversationId !== conversationId) return false;
+    return byId.get(p.checkpointId)?.status !== "orphaned";
+  });
   if (visible.length === 0) return null;
 
   return (
     <div className="mx-4 mb-2 space-y-2">
-      {visible.map((turn) => {
-        const entry = byId.get(turn.checkpointId);
-        if (entry?.status === "orphaned") {
-          return (
-            <OrphanedInteractionCard
-              key={turn.messageId}
-              title="确认已失效"
-              detail="该暂停确认已不可答复（服务已重启或回合已结束）。"
-            />
-          );
-        }
-        return <ResumeCard key={turn.messageId} turn={turn} />;
-      })}
+      {visible.map((turn) => (
+        <ResumeCard key={turn.messageId} turn={turn} />
+      ))}
     </div>
   );
 }

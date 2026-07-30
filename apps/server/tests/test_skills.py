@@ -626,6 +626,8 @@ def test_long_form_writing_skill_teaches_skeleton_fill():
     assert "code_execute" in body
     assert "handoff" in body
     assert "禁止" in body and "file_read" in body
+    assert "禁止" in body and ("整篇一次" in body or "一次 file_write" in body)
+    assert "连续写失败" in body or "分段写" in body
     # B1 轻教法：明文把关 → checkpoint_after / research_report；自主确认才可对话式。
     assert "明文要求" in body
     assert "checkpoint_after" in body
@@ -642,7 +644,7 @@ def test_long_form_writing_skill_teaches_skeleton_fill():
     assert "各写各的" in body
     assert "建站" in body
     assert "单主文件" in skill.summary or "合并" in skill.summary
-    assert "骨架" in skill.summary or "一次写完" in skill.summary
+    assert "骨架" in skill.summary or "禁止整篇" in skill.summary
 
 
 def test_deep_multi_lens_research_listed_and_gated_on_delegate():

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from agentcore.core.types import AutonomyPolicy, PermissionAxes, recipe_to_axes
+from agentcore.core.types import (
+    CommandAxis,
+    FileWriteAxis,
+    HostAxis,
+    PermissionAxes,
+    TeamKickoffAxis,
+)
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.presentation_format import (
     clear_format_confirmation,
@@ -16,6 +22,13 @@ from agentcore.runtime.runs.presentation_format import (
 from agentcore.tools.builtin.delegate import DelegateTool
 from agentcore.tools.registry import ToolRegistry
 from tests.delegate.conftest import Provider, ctx, local_ctx
+
+_KICKOFF_RULES = PermissionAxes(
+    FileWriteAxis.SESSION,
+    CommandAxis.KICKOFF,
+    TeamKickoffAxis.RULES,
+    HostAxis.ASK,
+)
 
 
 def _delegate(
@@ -33,7 +46,7 @@ def _delegate(
         history=[],
         tools=ToolRegistry(),
         base_tool_context=base_ctx,
-        permission_axes=permission_axes or recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+        permission_axes=permission_axes or _KICKOFF_RULES,
         conversation_id=conversation_id,
     )
 

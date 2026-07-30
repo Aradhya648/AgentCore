@@ -22,13 +22,18 @@ export function noticeSeverityTone(severity: string): StatusTone {
   }
 }
 
-/** http(s) → system browser; in-app path → navigate. */
+/** http(s) → system browser; in-app `#/…` or `/…` path → navigate. */
 export function openNoticeCta(
   url: string,
   navigate: (to: string) => void,
 ): void {
   const trimmed = url.trim();
   if (!trimmed) return;
+  // Hash-router deep links from ops CTA (e.g. `#/more/providers`).
+  if (trimmed.startsWith("#/")) {
+    navigate(trimmed.slice(1));
+    return;
+  }
   if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
     navigate(trimmed);
     return;
@@ -64,7 +69,6 @@ function NoticeBannerRow({
   navigate: (to: string) => void;
 }) {
   const tone = noticeSeverityTone(notice.severity);
-  const canDismiss = notice.dismiss_policy !== "never";
   const Icon = tone === "destructive" ? AlertTriangle : Info;
 
   return (
@@ -91,15 +95,14 @@ function NoticeBannerRow({
           {notice.cta_label}
         </Button>
       ) : null}
-      {canDismiss ? (
-        <IconButton
-          onClick={() => void onDismiss(notice.id)}
-          aria-label="关闭公告"
-          className="text-muted-foreground hover:bg-transparent hover:text-foreground"
-        >
-          <X size={14} />
-        </IconButton>
-      ) : null}
+      {/* Banner always closable (industry default). once → server dismiss; never → session snooze. */}
+      <IconButton
+        onClick={() => void onDismiss(notice.id)}
+        aria-label="关闭公告"
+        className="text-muted-foreground hover:bg-transparent hover:text-foreground"
+      >
+        <X size={14} />
+      </IconButton>
     </div>
   );
 }

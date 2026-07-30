@@ -35,7 +35,7 @@ def build_provider(
     """Build an upstream provider from resolved credentials.
 
     ``purpose`` is retained for call-site clarity; credentials are authoritative.
-    Background callers resolve platform-first via ``resolve_and_gate_background`` /
+    Background callers resolve platform-first via ``run_background_llm`` /
     ``resolve_model_config`` — this factory must not override a resolved user-key
     fallback with the platform key. Missing credentials still fall back to the
     platform key when configured (legacy free-tier paths); prefer passing explicit

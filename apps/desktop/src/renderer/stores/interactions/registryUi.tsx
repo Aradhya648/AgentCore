@@ -12,7 +12,6 @@ import {
   StageCardTrace,
 } from "@/components/chat/HotDecisionTrace";
 import { NonBlockingAskCard } from "@/components/chat/NonBlockingAskCard";
-import { OrphanedInteractionCard } from "@/components/chat/OrphanedInteractionCard";
 import { PlanReviewCard } from "@/components/chat/PlanReviewCard";
 import { TeamPreviewCard } from "@/components/chat/TeamPreviewCard";
 import type {
@@ -131,17 +130,10 @@ function EscalationTimelineSlot({
   const execution = useMessageExecution(messageId);
   const orphaned = useInteractionStore((s) => {
     const e = s.byId.get(escalationId);
-    return e?.kind === "escalation" && e.status === "orphaned" ? e : null;
+    return e?.kind === "escalation" && e.status === "orphaned";
   });
-
-  if (orphaned) {
-    return (
-      <OrphanedInteractionCard
-        title="升级确认已失效"
-        detail="该升级请求已不可答复（服务已重启或回合已结束）。"
-      />
-    );
-  }
+  // Orphaned: silent dismiss (no tombstone card).
+  if (orphaned) return null;
 
   if (!execution) return null;
 

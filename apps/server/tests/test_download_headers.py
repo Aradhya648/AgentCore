@@ -2,6 +2,8 @@
 
 from urllib.parse import unquote
 
+import pytest
+
 from agentcore.api.download_headers import download_headers
 
 
@@ -31,3 +33,39 @@ def test_download_headers_all_non_ascii_falls_back():
     cd = headers["Content-Disposition"]
     assert 'filename="download"' in cd
     assert unquote(cd.split("filename*=UTF-8''", 1)[1]) == "中文名"
+
+
+def test_download_headers_inline_disposition_for_im_preview():
+    """IM blob fetch uses inline; must still be latin-1-safe with CJK names."""
+    name = "微信图片.jpg"
+    headers = download_headers(name, disposition="inline")
+    cd = headers["Content-Disposition"]
+    assert cd.startswith("inline;")
+    cd.encode("latin-1")  # Starlette ASGI header encode
+    assert unquote(cd.split("filename*=UTF-8''", 1)[1]) == name
+
+
+def test_inline_response_with_cjk_filename_survives_asgi_encode():
+    """Regression: bare filename=\"微信…\" latin-1-crashes ASGI → IM ImageOff."""
+    from starlette.responses import Response
+
+    name = "截图.png.thumb.webp"
+    r = Response(
+        content=b"webp",
+        media_type="image/webp",
+        headers=download_headers(name, disposition="inline"),
+    )
+    for key, value in r.headers.items():
+        key.encode("latin-1")
+        value.encode("latin-1")
+
+
+def test_bare_inline_filename_with_cjk_still_crashes_asgi():
+    """Document the pre-fix failure mode so we don't regress to it."""
+    from starlette.responses import Response
+
+    with pytest.raises(UnicodeEncodeError):
+        Response(
+            content=b"x",
+            headers={"Content-Disposition": 'inline; filename="微信图片.jpg"'},
+        )

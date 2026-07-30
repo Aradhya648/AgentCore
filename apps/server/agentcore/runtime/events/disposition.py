@@ -175,6 +175,10 @@ EVENT_DISPOSITION: dict[EventType, tuple[Disposition, str]] = {
         Disposition.DERIVED,
         "回合后「下一步」chips——回写 Message.followups 列（与同胞 title 一致，reload 重现）",
     ),
+    EventType.FOLLOWUPS_UNAVAILABLE: (
+        Disposition.EPHEMERAL,
+        "下一步 mint 失败软空态——仅 live 轻提示；reload 不重放",
+    ),
     EventType.RUN_OUTPUT_DELTA: (Disposition.DERIVED, "worker 正文流——由 message_final 事实合成重放"),
     EventType.RUN_REASONING_DELTA: (Disposition.DERIVED, "worker 思考流——由 message_final 事实合成重放"),
     EventType.RUN_ESCALATION: (

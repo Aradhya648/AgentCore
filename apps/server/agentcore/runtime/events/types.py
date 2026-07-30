@@ -37,6 +37,9 @@ class EventType(StrEnum):
     # events/disposition.py）：与孪生 title 一致回写 Message.followups 列，reload 重现 chips
     # （非 journal allow-list、故不进 turn_journal）。
     FOLLOWUPS_GENERATED = "followups_generated"
+    # Soft empty state when followups mint failed (quota/auth/upstream/timeout) and there
+    # are no chips — transport-only chrome; folds no-op; EPHEMERAL (reload loses soft hint).
+    FOLLOWUPS_UNAVAILABLE = "followups_unavailable"
     TURN_SAVED = "turn_saved"
     CITATIONS = "citations"
     # 引用即出处：独立 turn 级台账通道（对称辩论 O1；不占 citations_event）。

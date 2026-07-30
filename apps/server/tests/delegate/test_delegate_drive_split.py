@@ -137,7 +137,7 @@ async def test_team_preview_light_organize_folder_does_not_skip(monkeypatch):
 
     class _Tool:
         _depth = 0
-        _permission_axes = AutonomyPolicy.WRITE_CODE
+        _permission_axes = AutonomyPolicy.LESS_INTERRUPT
         _active_playbook = "organize_folder"
         _pending_pause = False
         _base_tool_context = type("C", (), {"backend": None})()

@@ -5,7 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from agentcore.core.types import AutonomyPolicy, ToolEffect, recipe_to_axes
+from agentcore.core.types import (
+    AutonomyPolicy,
+    CommandAxis,
+    FileWriteAxis,
+    HostAxis,
+    PermissionAxes,
+    TeamKickoffAxis,
+    ToolEffect,
+    recipe_to_axes,
+)
 from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
 from agentcore.runtime.deep_research_auto import (
     AUTO_DEBATE_SESSION_LIMIT,
@@ -31,6 +40,13 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
 from tests.delegate.conftest import Provider, tool
 
+_KICKOFF_RULES = PermissionAxes(
+    FileWriteAxis.SESSION,
+    CommandAxis.KICKOFF,
+    TeamKickoffAxis.RULES,
+    HostAxis.ASK,
+)
+
 
 def _valid_card() -> dict:
     return {
@@ -50,13 +66,16 @@ def _valid_card() -> dict:
 
 def test_helper_flag_or_full_trust():
     managed = recipe_to_axes(AutonomyPolicy.MANAGED)
-    write_code = recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+    less_interrupt = recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)
     cautious = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
+    kickoff_rules = _KICKOFF_RULES
     assert deep_research_auto_active(deep_research_auto=True) is True
     assert deep_research_auto_active(permission_axes=managed) is True
+    # less_interrupt = session/auto/skip/ask → also implies deep research auto
+    assert deep_research_auto_active(permission_axes=less_interrupt) is True
     assert deep_research_auto_active(
         deep_research_auto=False,
-        permission_axes=write_code,
+        permission_axes=kickoff_rules,
     ) is False
     assert deep_research_auto_active(permission_axes=cautious) is False
 
@@ -186,7 +205,7 @@ def _debate_tool(
     debate_count: int = 0,
 ) -> tuple[DebateTool, list, EventSink]:
     if permission_axes is None:
-        permission_axes = recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+        permission_axes = _KICKOFF_RULES
     registry = InteractionRegistry()
     sink = EventSink()
     saved: list = []
@@ -303,13 +322,13 @@ async def test_debate_full_trust_still_skips_over_cap():
 def test_flag_does_not_waive_capability_auth_or_plan_kickoff():
     """只放行 debate 开赛卡；能力审批 / 计划半 kickoff 规则不变。"""
     assert needs_capability_auth(
-        local_gate=True, axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE)
+        local_gate=True, axes=_KICKOFF_RULES
     ) is True
     assert (
         should_kickoff(
             plan_preview=True,
             local_gate=True,
-            axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+            axes=_KICKOFF_RULES,
         )
         is True
     )

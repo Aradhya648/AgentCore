@@ -9,7 +9,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from agentcore.api.dependencies import AdminUser, get_notice_repo
+from agentcore.api.dependencies import AdminUser, get_messaging_service, get_notice_repo
 from agentcore.api.schemas import (
     CreateNoticeRequest,
     NoticeListResponse,
@@ -17,6 +17,7 @@ from agentcore.api.schemas import (
     UpdateNoticeRequest,
 )
 from agentcore.db.repositories.notices import ProductNoticeRepository
+from agentcore.messaging import MessagingService
 
 router = APIRouter()
 
@@ -113,16 +114,33 @@ async def publish_notice(
     notice_id: str,
     _admin: AdminUser,
     repo: ProductNoticeRepository = Depends(get_notice_repo),
+    messaging: MessagingService = Depends(get_messaging_service),
 ):
-    """Admin: publish a notice (sets published_at)."""
+    """Admin: publish a notice (sets published_at).
+
+    When ``surface ∈ {inbox, both}``, also inserts one shared ``system_card`` into
+    the official IM broadcast chat (first publish only — re-publish does not
+    duplicate). Banner-only surfaces skip IM.
+    """
     existing = await repo.get(notice_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Notice not found")
     if existing.status == "archived":
         raise HTTPException(status_code=409, detail="Archived notices cannot be published")
+    first_publish = existing.status != "published"
     row = await repo.publish(notice_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Notice not found")
+    if first_publish and row.surface in ("inbox", "both"):
+        await messaging.publish_product_notice(
+            notice_id=row.id,
+            title=row.title,
+            body=row.body,
+            severity=row.severity,
+            surface=row.surface,
+            cta_label=row.cta_label,
+            cta_url=row.cta_url,
+        )
     return _summary(row)
 
 

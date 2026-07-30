@@ -94,23 +94,6 @@ class QuotaStatus(BaseModel):
     daily_requests: int
 
 
-class RoleCostLine(BaseModel):
-    """One persona/role's spend over a window — the team payroll grouped by label.
-
-    The account dashboard's product differentiator (§7.3D): multi-agent spend
-    splits by ``COALESCE(persona, role)`` (调研员 / CEO / …, falling back to the
-    structural captain/member bucket for legacy rows), which a single-agent
-    competitor can't show. Money is integer nano-USD; the client formats ¥ from
-    the summary's single ``cny_per_usd`` (no per-row re-pricing here).
-    """
-
-    role: str
-    cost_total: int
-    cost_estimated_total: int = 0
-    # Distinct assistant turns this role took part in over the window.
-    turns: int
-
-
 class ModelCostLine(BaseModel):
     """One model's call-level spend over a window — admin per-model payroll.
 
@@ -146,8 +129,6 @@ class UsageSummary(BaseModel):
 
     today: UsageWindow
     month: UsageWindow
-    # This month's spend split by role (团队工资单 by role), spend-desc, >0 only.
-    month_by_role: list[RoleCostLine]
     # Last 7 UTC days incl today, oldest-first, zero-filled — the trend sparkline.
     recent_daily_cost: list[DailyCost]
     quota: QuotaStatus

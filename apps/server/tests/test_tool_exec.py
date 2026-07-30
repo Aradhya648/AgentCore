@@ -370,6 +370,36 @@ async def test_illegal_json_args_return_explicit_error_not_empty_dict():
     assert any(entry.get("event") == "tool.args_parse_failed" for entry in logs)
 
 
+async def test_write_tool_parse_failure_splits_user_and_model_copy():
+    """Write-tool JSON parse: UI 人话；模型回执强制分段（勿教用户修转义）。"""
+    tracked = _OkTool("file_write", output="written")
+    reg = ToolRegistry()
+    reg.register(tracked)
+    bad = '{"path":"r.md","content":"查 "foo" 资料"}'
+    sink = EventSink()
+    messages, terminal, attempts = await execute_tools(
+        [_call("c1", "file_write", bad)],
+        reg,
+        _ctx(),
+        sink,
+        run_id="r1",
+    )
+    assert terminal is None
+    assert tracked.executed is False
+    assert attempts[0].parse_failure is True
+    model = messages[0].content or ""
+    assert "不是合法 JSON" in model
+    assert "分段" in model or "短骨架" in model
+    assert "原样重发全部参数" not in model
+    ends = [e for e in sink._history if e.type == EventType.TOOL_USE_END]  # noqa: SLF001
+    assert len(ends) == 1
+    ui = ends[0].payload.get("result") or ""
+    assert "长文保存失败" in ui
+    assert "分段" in ui
+    assert "原样重发" not in ui
+    assert "失败位置" not in ui
+
+
 async def test_code_execute_maps_sandbox_error_to_failed_result():
     backend = _FakeBackend(raise_sandbox=True)
     result = await CodeExecuteTool().execute(

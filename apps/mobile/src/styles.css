@@ -3439,16 +3439,6 @@ dialog.dialog::backdrop {
   border-radius: 12px;
 }
 
-.pause-orphaned {
-  opacity: 0.7;
-  border-color: var(--border);
-  border-left-color: var(--muted);
-}
-
-.pause-orphaned .pause-title {
-  color: var(--muted);
-}
-
 .pause-hint {
   font-size: 12px;
   color: var(--muted);

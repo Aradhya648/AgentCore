@@ -14,7 +14,6 @@ from .usage import (
     DailyCost,
     ModelCostLine,
     QuotaStatus,
-    RoleCostLine,
     UsageWindow,
 )
 
@@ -123,8 +122,8 @@ class AdminSetPasswordRequest(BaseModel):
 class AdminUserCostLine(BaseModel):
     """One account's spend over a window — the platform 工资单 by user (全站看板).
 
-    The cross-user counterpart of ``RoleCostLine``. Money is integer nano-USD; the
-    client formats ¥ from the summary's single ``cny_per_usd`` (no re-pricing).
+    Money is integer nano-USD; the client formats ¥ from the summary's single
+    ``cny_per_usd`` (no re-pricing).
     """
 
     user_id: str
@@ -149,10 +148,6 @@ class AdminUsageSummary(BaseModel):
     month: UsageWindow
     # This month's spend split by user (工资单 by user), spend-desc, >0 only, capped.
     month_by_user: list[AdminUserCostLine]
-    # This month's spend split by role across *every* account (团队工资单 by role,
-    # 含 vision 读图子调用), spend-desc, >0 only — the platform-wide counterpart of
-    # ``UsageSummary.month_by_role``.
-    month_by_role: list[RoleCostLine]
     # This month's spend split by model across *every* account (from ``cost_calls``,
     # never ``cost_events.model``), spend-desc.
     month_by_model: list[ModelCostLine]
@@ -419,7 +414,7 @@ class AdminUserDetail(BaseModel):
     full record (``user``), the account BYOK default chat/background model names +
     provider count (from the ``users`` pointers / ``user_llm_providers`` — never the
     API key), this account's usage (today/month/
-    trend/by-role/by-model — the per-user counterpart of ``AdminUsageSummary``),
+    trend/by-model — the per-user counterpart of ``AdminUsageSummary``),
     its recent conversations, and its recent turn activity (``turn_metrics``, each
     drillable into 会话复盘). Money is integer nano-USD; the client folds the single
     ``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).
@@ -433,8 +428,6 @@ class AdminUserDetail(BaseModel):
     provider_count: int = 0
     today: UsageWindow
     month: UsageWindow
-    # This month's spend split by role (团队工资单 by role), spend-desc, >0 only.
-    month_by_role: list[RoleCostLine]
     # Last 30 days' call-level spend split by model (from ``cost_calls``), spend-desc.
     recent_by_model: list[ModelCostLine]
     # Last 7 UTC days incl today, oldest-first, zero-filled — the trend sparkline.

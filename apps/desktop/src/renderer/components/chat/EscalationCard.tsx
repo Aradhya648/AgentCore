@@ -9,7 +9,6 @@ import {
 } from "@/services/escalation";
 import { submitInteractionFeedback } from "@/services/interactionSubmit";
 import { type RunEscalation, useMessageExecution } from "@/stores/execution";
-import { useInteractionStore } from "@/stores/interactions";
 import { useSidePanelStore } from "@/stores/sidePanel";
 import {
   ArrowRight,
@@ -24,7 +23,6 @@ import {
   Radio,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { OrphanedInteractionCard } from "./OrphanedInteractionCard";
 import {
   AskNoteField,
   AskQuestionFields,
@@ -627,7 +625,6 @@ export function EscalationCards({
   interactive: boolean;
 }) {
   const execution = useMessageExecution(messageId);
-  const orphanedEscalations = useInteractionStore((s) => s.byId);
   const [raisedOpen, setRaisedOpen] = useState(false);
   if (!execution) return null;
 
@@ -639,16 +636,7 @@ export function EscalationCards({
       key: e.id ?? `${run.id}-${i}`,
     })),
   );
-  const orphaned = conversationId
-    ? [...orphanedEscalations.values()].filter(
-        (e) =>
-          e.conversationId === conversationId &&
-          e.kind === "escalation" &&
-          e.status === "orphaned" &&
-          (e.messageId === messageId || !e.messageId),
-      )
-    : [];
-  if (items.length === 0 && orphaned.length === 0) return null;
+  if (items.length === 0) return null;
 
   const ordered = [...items].sort(
     (a, b) =>
@@ -667,13 +655,6 @@ export function EscalationCards({
 
   return (
     <div className="mt-2 space-y-2">
-      {orphaned.map((o) => (
-        <OrphanedInteractionCard
-          key={o.id}
-          title="升级确认已失效"
-          detail="该升级请求已不可答复（服务已重启或回合已结束）。"
-        />
-      ))}
       {pending.length > 0 && (
         <p className="text-xs font-medium text-primary">
           团队有 {pending.length} 项待你拍板

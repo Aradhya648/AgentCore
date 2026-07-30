@@ -311,6 +311,10 @@ export interface paths {
         /**
          * Publish Notice
          * @description Admin: publish a notice (sets published_at).
+         *
+         *     When ``surface ∈ {inbox, both}``, also inserts one shared ``system_card`` into
+         *     the official IM broadcast chat (first publish only — re-publish does not
+         *     duplicate). Banner-only surfaces skip IM.
          */
         post: operations["publish_notice_v1_admin_notices__notice_id__publish_post"];
         delete?: never;
@@ -548,7 +552,7 @@ export interface paths {
         /**
          * User Detail
          * @description 用户详情下钻 (用户管理 P0): one account's record + configured model names +
-         *     its own usage (today / month / 7-day trend / by-role / by-model) + recent
+         *     its own usage (today / month / 7-day trend / by-model) + recent
          *     conversations + recent turn activity.
          *
          *     The per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped
@@ -3197,7 +3201,8 @@ export interface paths {
         put?: never;
         /**
          * Leave Chat
-         * @description Leave a group/official chat. 404 if not a member; 422 for a dm (can't leave).
+         * @description Leave a group chat. 404 if not a member; 422 for a dm or the official
+         *     broadcast chat (can't leave).
          */
         post: operations["leave_chat_v1_messages_chats__chat_id__leave_post"];
         delete?: never;
@@ -3464,8 +3469,10 @@ export interface paths {
          * @description Open this user's realtime firehose (server→client SSE).
          *
          *     Subscribes the connection to the in-process hub; a new message in any chat the
-         *     user belongs to arrives as a ``chat_message`` event. Heartbeat comments keep
-         *     the stream warm, and the subscription is released when the client disconnects.
+         *     user belongs to arrives as a ``chat_message`` event. The first subscription
+         *     (and last disconnect) also fans a ``presence`` event to co-chat users.
+         *     Heartbeat comments keep the stream warm; the subscription is released when
+         *     the client disconnects.
          */
         get: operations["realtime_firehose_v1_realtime_get"];
         put?: never;
@@ -4022,15 +4029,15 @@ export interface paths {
         };
         /**
          * Get Usage Summary
-         * @description Account dashboard: today's tokens/cost, the month's cost + per-role payroll,
-         *     the recent daily-cost trend, and the quota.
+         * @description Account dashboard: today's tokens/cost, the month's cost, the recent
+         *     daily-cost trend, and the quota.
          *
          *     Windows are bounded at the current UTC day / month start (MVP — a per-user
-         *     timezone is a later refinement). ``month_by_role`` splits this month's spend by
-         *     role (团队工资单, spend-desc) — the multi-agent differentiator;
-         *     ``recent_daily_cost`` is the last ``_TREND_DAYS`` UTC days (zero-filled,
-         *     oldest-first) for the sparkline. Also carries ``cny_per_usd`` so the client
-         *     formats money from the single server-owned rate.
+         *     timezone is a later refinement). ``recent_daily_cost`` is the last
+         *     ``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline. Also
+         *     carries ``cny_per_usd`` so the client formats money from the single
+         *     server-owned rate. Per-role split lives on the turn payroll
+         *     (``GET /messages/{id}/cost``), not this monthly account view.
          *
          *     ``quota`` mirrors what ``enforce_quota`` will actually apply to this user
          *     (D7): per-user override columns first, else free-tier defaults on a byok
@@ -5280,8 +5287,6 @@ export interface components {
             month: components["schemas"]["UsageWindow"];
             /** Month By Model */
             month_by_model: components["schemas"]["ModelCostLine"][];
-            /** Month By Role */
-            month_by_role: components["schemas"]["RoleCostLine"][];
             /** Month By User */
             month_by_user: components["schemas"]["AdminUserCostLine"][];
             /** Recent Daily Cost */
@@ -5292,8 +5297,8 @@ export interface components {
          * AdminUserCostLine
          * @description One account's spend over a window — the platform 工资单 by user (全站看板).
          *
-         *     The cross-user counterpart of ``RoleCostLine``. Money is integer nano-USD; the
-         *     client formats ¥ from the summary's single ``cny_per_usd`` (no re-pricing).
+         *     Money is integer nano-USD; the client formats ¥ from the summary's single
+         *     ``cny_per_usd`` (no re-pricing).
          */
         AdminUserCostLine: {
             /** Cost Total */
@@ -5315,7 +5320,7 @@ export interface components {
          *     full record (``user``), the account BYOK default chat/background model names +
          *     provider count (from the ``users`` pointers / ``user_llm_providers`` — never the
          *     API key), this account's usage (today/month/
-         *     trend/by-role/by-model — the per-user counterpart of ``AdminUsageSummary``),
+         *     trend/by-model — the per-user counterpart of ``AdminUsageSummary``),
          *     its recent conversations, and its recent turn activity (``turn_metrics``, each
          *     drillable into 会话复盘). Money is integer nano-USD; the client folds the single
          *     ``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).
@@ -5332,8 +5337,6 @@ export interface components {
             /** Default Model */
             default_model?: string | null;
             month: components["schemas"]["UsageWindow"];
-            /** Month By Role */
-            month_by_role: components["schemas"]["RoleCostLine"][];
             /**
              * Provider Count
              * @default 0
@@ -5584,15 +5587,15 @@ export interface components {
          *     Stored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).
          * @enum {string}
          */
-        AutonomyPolicy: "cautious" | "write_code" | "less_interrupt" | "managed";
+        AutonomyPolicy: "cautious" | "less_interrupt" | "managed";
         /** AutonomyUpdate */
         AutonomyUpdate: {
-            /** @description New-session default recipe: cautious | write_code | less_interrupt | managed */
+            /** @description New-session default recipe: cautious | less_interrupt | managed */
             policy: components["schemas"]["AutonomyPolicy"];
         };
         /** AutonomyView */
         AutonomyView: {
-            /** @default write_code */
+            /** @default less_interrupt */
             policy: components["schemas"]["AutonomyPolicy"];
         };
         /** BatchCreateInviteRequest */
@@ -6097,10 +6100,13 @@ export interface components {
             created_at: string;
             /** Id */
             id: string;
+            /** Mentions */
+            mentions?: (components["schemas"]["MessageMentionUser"] | components["schemas"]["MessageMentionEveryone"])[];
             /** Payload */
             payload?: {
                 [key: string]: unknown;
             } | null;
+            reply_to?: components["schemas"]["ReplyToSnapshot"] | null;
             /** Reply To Message Id */
             reply_to_message_id?: string | null;
             /**
@@ -6141,6 +6147,11 @@ export interface components {
              * @default false
              */
             muted_by_admin: boolean;
+            /**
+             * Online
+             * @default false
+             */
+            online: boolean;
             /** Username */
             username: string;
         };
@@ -7139,6 +7150,11 @@ export interface components {
              * @default false
              */
             deep_read: boolean;
+            /**
+             * Doc Kind
+             * @default
+             */
+            doc_kind: string;
             /** Id */
             id: string;
             /**
@@ -7151,6 +7167,11 @@ export interface components {
              * @default
              */
             registrant: string;
+            /**
+             * Selected
+             * @default false
+             */
+            selected: boolean;
             /**
              * Site
              * @default
@@ -7691,7 +7712,7 @@ export interface components {
             free_tier_active: boolean;
             /**
              * Platform Available
-             * @description Whether platform models are available on this deployment
+             * @description Whether platform-billed models are usable on this deployment (billing selectable ∧ platform credentials). False while BYOK-dormant even if PLATFORM_API_KEY is still configured.
              * @default false
              */
             platform_available: boolean;
@@ -8154,6 +8175,30 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * MessageMentionEveryone
+         * @description @所有人 — group chats only; platform admin gate enforced in service.
+         */
+        MessageMentionEveryone: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "everyone";
+        };
+        /**
+         * MessageMentionUser
+         * @description @ a specific accepted chat member (structured mention; not body-regex).
+         */
+        MessageMentionUser: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "user";
+            /** User Id */
+            user_id: string;
+        };
         /** MfaConfirmRequest */
         MfaConfirmRequest: {
             /** Code */
@@ -8583,13 +8628,13 @@ export interface components {
          * @description Session permission axes (运行时单一真相源 · file_write/command/team_kickoff/host).
          */
         PermissionAxesModel: {
-            /** @default kickoff */
+            /** @default auto */
             command: components["schemas"]["CommandAxis"];
             /** @default session */
             file_write: components["schemas"]["FileWriteAxis"];
             /** @default ask */
             host: components["schemas"]["HostAxis"];
-            /** @default rules */
+            /** @default skip */
             team_kickoff: components["schemas"]["TeamKickoffAxis"];
         };
         /**
@@ -8824,6 +8869,21 @@ export interface components {
             success?: boolean | null;
         };
         /**
+         * ReplyToSnapshot
+         * @description Frozen quote of the message being replied to (written at send time).
+         *
+         *     Survives later recall/delete of the target — clients render this snapshot,
+         *     not a live join. ``sender_user_id`` is null for official/system senders.
+         */
+        ReplyToSnapshot: {
+            /** Body Preview */
+            body_preview: string;
+            /** Sender Display Name */
+            sender_display_name: string;
+            /** Sender User Id */
+            sender_user_id: string | null;
+        };
+        /**
          * ResolveApprovalInteraction
          * @description Settle a paused GRANTABLE tool call (``approval`` interaction).
          *
@@ -9008,29 +9068,6 @@ export interface components {
         RewriteResponse: {
             /** Rewritten */
             rewritten: string;
-        };
-        /**
-         * RoleCostLine
-         * @description One persona/role's spend over a window — the team payroll grouped by label.
-         *
-         *     The account dashboard's product differentiator (§7.3D): multi-agent spend
-         *     splits by ``COALESCE(persona, role)`` (调研员 / CEO / …, falling back to the
-         *     structural captain/member bucket for legacy rows), which a single-agent
-         *     competitor can't show. Money is integer nano-USD; the client formats ¥ from
-         *     the summary's single ``cny_per_usd`` (no per-row re-pricing here).
-         */
-        RoleCostLine: {
-            /**
-             * Cost Estimated Total
-             * @default 0
-             */
-            cost_estimated_total: number;
-            /** Cost Total */
-            cost_total: number;
-            /** Role */
-            role: string;
-            /** Turns */
-            turns: number;
         };
         /** RotateWebhookSecretResponse */
         RotateWebhookSecretResponse: {
@@ -9227,6 +9264,8 @@ export interface components {
              * @enum {string}
              */
             content_type: "text" | "image" | "file";
+            /** Mentions */
+            mentions?: (components["schemas"]["MessageMentionUser"] | components["schemas"]["MessageMentionEveryone"])[];
             /** Reply To Message Id */
             reply_to_message_id?: string | null;
         };
@@ -10504,8 +10543,6 @@ export interface components {
             /** Cny Per Usd */
             cny_per_usd: number;
             month: components["schemas"]["UsageWindow"];
-            /** Month By Role */
-            month_by_role: components["schemas"]["RoleCostLine"][];
             quota: components["schemas"]["QuotaStatus"];
             /** Recent Daily Cost */
             recent_daily_cost: components["schemas"]["DailyCost"][];

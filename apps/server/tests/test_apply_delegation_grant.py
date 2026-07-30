@@ -39,7 +39,7 @@ def test_apply_grant_already_present_does_not_own_revoke():
     gate.grant_delegation("e1")
     tool = SimpleNamespace(
         _auto_grant_pending=False,
-        _permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+        _permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
     )
     assert not apply_delegation_grant(
         tool, execution_id="e1", worker_gate=gate, seed_completed=None
@@ -51,7 +51,7 @@ def test_apply_grant_seed_completed_is_noop():
     gate = _gate()
     tool = SimpleNamespace(
         _auto_grant_pending=True,
-        _permission_axes=recipe_to_axes(AutonomyPolicy.WRITE_CODE),
+        _permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
     )
     assert not apply_delegation_grant(
         tool,

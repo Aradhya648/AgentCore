@@ -15,8 +15,6 @@ import {
   Building2,
   ChevronRight,
   FileText,
-  FormInput,
-  GitBranch,
   type LucideIcon,
   Network,
   Palette,
@@ -92,20 +90,6 @@ const CREATION_TOOLS: ToolboxEntry[] = [
     description: "HTML / React 即时预览",
     icon: AppWindow,
     color: "app",
-  },
-  {
-    id: "diagram",
-    title: "流程图",
-    description: "流程 / 架构 / 时序图",
-    icon: GitBranch,
-    color: "diagram",
-  },
-  {
-    id: "form",
-    title: "表单",
-    description: "收集数据并汇入表格",
-    icon: FormInput,
-    color: "form",
   },
 ];
 
