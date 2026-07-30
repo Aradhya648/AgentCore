@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.billing.preference import (
     is_free_tier_active,
-    is_platform_available,
+    platform_catalog_visible,
 )
 from agentcore.config import settings
 from agentcore.core.errors import (
@@ -128,7 +128,7 @@ class LlmProviderService:
         user = await self._users.get_by_id(user_id)
         rows = await self._repo.list_for_user(user_id)
         providers = [self._view(row, enc=enc) for row in rows]
-        platform_available = is_platform_available()
+        platform_available = platform_catalog_visible()
         free_tier = is_free_tier_active(has_user_key=len(rows) > 0)
         return LlmProvidersView(
             providers=providers,

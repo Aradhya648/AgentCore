@@ -186,8 +186,7 @@ export function ModelSettings() {
     refetchCatalog();
   }
 
-  const platformMode =
-    data?.platform_available === true || data?.billing_mode === "platform";
+  const platformMode = data?.platform_available === true;
 
   async function confirmDeleteProvider() {
     if (!deleteTarget) return;

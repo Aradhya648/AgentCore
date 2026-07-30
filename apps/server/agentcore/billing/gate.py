@@ -9,29 +9,43 @@ Background product chrome (title / memory / compaction / followups) resolves
 platform-first via ``resolve_and_gate_background``: platform spend always passes
 ``enforce_quota`` (no BYOK freeload); quota exhaustion returns ``None`` so
 best-effort callers degrade instead of 429-ing the user turn.
+
+Auth-rejected platform keys fall back **once** to user BYOK through
+``run_background_llm`` — the sole chrome entry that may retry after
+``LLMAuthError``. Call sites must not invent their own try/except BYOK glue or
+process-local auth circuit breakers.
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentcore.billing.preference import is_free_tier_enabled, is_platform_available
+from agentcore.billing.preference import (
+    is_free_tier_enabled,
+    platform_catalog_visible,
+)
 from agentcore.config import settings
 from agentcore.conversation.quota import QuotaLimits, enforce_quota
 from agentcore.core.errors import (
     BYOKKeyMissingError,
     FreeTierExhaustedError,
+    LLMAuthError,
     PlatformBillingUnavailableError,
     QuotaExceededError,
 )
 from agentcore.core.logging import get_logger
+from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import CostEventRepository, UserRepository
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.resolve import (
+    ModelConfig,
     ModelOrigin,
     ModelPurpose,
+    resolve_background_user_fallback,
     resolve_model_config,
     resolve_user_llm_credentials,
     user_has_provider,
@@ -42,6 +56,13 @@ logger = get_logger(__name__)
 _PLATFORM_UNAVAILABLE_MESSAGE = (
     "平台免费额度暂不可用（运营方未配置平台 Key）。请在设置中切换为自带 API Key，或联系管理员。"
 )
+
+@dataclass(frozen=True)
+class BackgroundLlmResult[T]:
+    """Successful background chrome LLM call: payload + credentials that worked."""
+
+    value: T
+    credentials: LLMCredentials
 
 
 class _BillingGateUser(Protocol):
@@ -80,7 +101,7 @@ async def preflight_llm_credentials(
             raise BYOKKeyMissingError(byok_missing_message)
         return credentials
 
-    if not is_platform_available():
+    if not platform_catalog_visible():
         raise PlatformBillingUnavailableError(_PLATFORM_UNAVAILABLE_MESSAGE)
 
     has_key = await user_has_provider(session, user.user_id)
@@ -93,6 +114,16 @@ async def preflight_llm_credentials(
         free_tier=free_tier_path,
     )
     return None
+
+
+def _creds_from_cfg(cfg: ModelConfig) -> LLMCredentials:
+    return LLMCredentials(
+        api_key=cfg.api_key,
+        base_url=cfg.base_url,
+        default_model=cfg.model,
+        source="platform" if cfg.source == "platform" else "user",
+        provider_id=cfg.provider_id,
+    )
 
 
 async def resolve_and_gate_background(
@@ -109,23 +140,23 @@ async def resolve_and_gate_background(
 
     When ``source=platform``, ``enforce_quota`` always runs (even if the account
     has a BYOK key) so background cannot freeload past the platform cap.
+
+    Prefer ``run_background_llm`` at call sites that actually invoke the model: it
+    adds the single platform-``LLMAuthError`` → user BYOK retry.
     """
     cfg = await resolve_model_config(session, user_id, purpose)
     if cfg is None:
         return None
 
-    creds = LLMCredentials(
-        api_key=cfg.api_key,
-        base_url=cfg.base_url,
-        default_model=cfg.model,
-        source="platform" if cfg.source == "platform" else "user",
-        provider_id=cfg.provider_id,
-    )
+    # Dormant / credentials gated off: same as main chat — BYOK or skip.
+    if cfg.source == "platform" and not platform_catalog_visible():
+        return await resolve_and_gate_background_user_fallback(
+            session, user_id, purpose=purpose
+        )
+
+    creds = _creds_from_cfg(cfg)
     if cfg.source != "platform":
         return creds
-
-    if not is_platform_available():
-        return None
 
     user = await UserRepository(session).get_by_id(user_id)
     if user is None:
@@ -150,3 +181,71 @@ async def resolve_and_gate_background(
         )
         return None
     return creds
+
+
+async def resolve_and_gate_background_user_fallback(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    purpose: ModelPurpose = "title",
+) -> LLMCredentials | None:
+    """Resolve user BYOK for background chrome after platform is unavailable / auth-rejected.
+
+    ``source=user`` — no platform quota. Returns ``None`` when the account has no
+    usable BYOK key (including combo slots that only point at platform).
+    """
+    cfg = await resolve_background_user_fallback(session, user_id, purpose)
+    if cfg is None:
+        return None
+    return _creds_from_cfg(cfg)
+
+
+async def run_background_llm[T](
+    user_id: str,
+    *,
+    purpose: ModelPurpose = "title",
+    runner: Callable[[LLMCredentials], Awaitable[T]],
+) -> BackgroundLlmResult[T] | None:
+    """Platform-first background LLM with one BYOK retry on platform ``LLMAuthError``.
+
+    Flow:
+    1. ``resolve_and_gate_background`` (platform-first + quota when platform).
+    2. Run ``runner(credentials)``.
+    3. On ``LLMAuthError`` **and** ``credentials.source == "platform"``: resolve
+       user BYOK once via ``resolve_and_gate_background_user_fallback`` and re-run.
+    4. Missing credentials on either side, or BYOK also auth-fails → ``None``.
+    5. Any other runner exception propagates unchanged.
+
+    No process-local auth circuit breaker — each call re-resolves. Call sites must
+    re-raise ``LLMAuthError`` from their generators so this entry can see it.
+    """
+    async with async_session_factory() as session:
+        primary = await resolve_and_gate_background(session, user_id, purpose=purpose)
+    if primary is None:
+        return None
+
+    try:
+        value = await runner(primary)
+        return BackgroundLlmResult(value=value, credentials=primary)
+    except LLMAuthError:
+        if primary.source != "platform":
+            # Already on user BYOK — do not bounce back to platform.
+            return None
+
+    logger.info(
+        "billing.background_platform_auth_fallback",
+        user_id=user_id,
+        purpose=purpose,
+    )
+    async with async_session_factory() as session:
+        fallback = await resolve_and_gate_background_user_fallback(
+            session, user_id, purpose=purpose
+        )
+    if fallback is None:
+        return None
+
+    try:
+        value = await runner(fallback)
+        return BackgroundLlmResult(value=value, credentials=fallback)
+    except LLMAuthError:
+        return None

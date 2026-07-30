@@ -140,6 +140,20 @@ async def test_list_providers_reports_profile_id_and_free_tier(service, monkeypa
     assert view.free_tier_active is True
 
 
+async def test_list_providers_platform_signal_false_when_dormant(service, monkeypatch):
+    """byok + free_tier off + key still present → platform_available false."""
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "platform_model", "plat-model")
+    service._repo.list_for_user = AsyncMock(return_value=[])
+    service._users.get_by_id = AsyncMock(return_value=_user())
+    view = await service.list_providers("u1")
+    assert view.platform_available is False
+    assert view.platform_model is None
+    assert view.free_tier_active is False
+
+
 class _FakeProbeProvider:
     def __init__(self, *, fail: bool, supports_tools: bool | None) -> None:
         self._fail = fail

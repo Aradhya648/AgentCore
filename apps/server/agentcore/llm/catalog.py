@@ -31,8 +31,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.billing.preference import (
-    is_platform_available,
-    platform_billing_selectable,
+    platform_catalog_visible,
     platform_model_allowlist,
 )
 from agentcore.config import settings
@@ -216,10 +215,10 @@ async def resolve_model_catalog(session: AsyncSession, user_id: str) -> ModelCat
     """The user's unified model catalog: current default, BYOK flag, and all rows.
 
     Every active provider is discovered independently and its models mixed in, tagged
-    with that provider's id/label. Platform rows appear only when the operator actually
-    subsidizes them (:func:`platform_billing_selectable` ∧ credentials configured).
+    with that provider's id/label. Platform rows appear only when
+    :func:`platform_catalog_visible` (billing selectable ∧ credentials configured).
     """
-    platform_rows_on = is_platform_available() and platform_billing_selectable()
+    platform_rows_on = platform_catalog_visible()
     providers = await list_user_providers(session, user_id)
     byok_configured = len(providers) > 0
 

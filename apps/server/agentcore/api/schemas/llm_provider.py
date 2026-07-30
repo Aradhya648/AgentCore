@@ -86,7 +86,12 @@ class LlmProvidersResponse(BaseModel):
         ),
     )
     platform_available: bool = Field(
-        default=False, description="Whether platform models are available on this deployment"
+        default=False,
+        description=(
+            "Whether platform-billed models are usable on this deployment "
+            "(billing selectable ∧ platform credentials). False while BYOK-dormant "
+            "even if PLATFORM_API_KEY is still configured."
+        ),
     )
     platform_model: str | None = Field(
         default=None, description="Operator platform model id when platform is available"

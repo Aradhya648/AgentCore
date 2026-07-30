@@ -15,7 +15,7 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentcore.billing.preference import platform_billing_selectable
+from agentcore.billing.preference import platform_catalog_visible
 from agentcore.config import settings
 from agentcore.core.errors import NotFoundError, ValidationError
 from agentcore.db.models import LlmModelProfile
@@ -84,17 +84,14 @@ def _system_preset_display_name(model_id: str) -> str:
 def _system_preset_available(profile_id: str) -> bool:
     """True when this system preset may appear in list / be selected.
 
-    Align with catalog ``platform_rows_on``: platform billing selectable ∧
-    credentials configured ∧ model in ``PLATFORM_MODELS`` allowlist. Late-import
-    the gates so tests can monkeypatch ``billing.preference``.
+    Align with catalog: :func:`platform_catalog_visible` ∧ model in
+    ``PLATFORM_MODELS`` allowlist. Late-import the gate so tests can monkeypatch
+    ``billing.preference``.
     """
-    from agentcore.billing.preference import (
-        is_platform_available,
-        platform_billing_selectable as _platform_selectable,
-    )
+    from agentcore.billing.preference import platform_catalog_visible as _visible
     from agentcore.llm.catalog import _platform_model_ids
 
-    if not _platform_selectable() or not is_platform_available():
+    if not _visible():
         return False
     model_id = SYSTEM_PRESETS[profile_id]
     return model_id in _platform_model_ids()
@@ -131,7 +128,7 @@ async def _provider_first_fallback(
         model = (row.default_model or "").strip() or PLATFORM_MODEL_FLASH
         return ModelSelection(model=model, origin="byok", provider_id=row.id)
     platform_model = (settings.platform_model or "").strip() or PLATFORM_MODEL_FLASH
-    origin: ModelOrigin = "platform" if platform_billing_selectable() else "byok"
+    origin: ModelOrigin = "platform" if platform_catalog_visible() else "byok"
     return ModelSelection(model=platform_model, origin=origin, provider_id=None)
 
 
@@ -144,7 +141,7 @@ async def _live_selection(
     from agentcore.llm.resolve import _default_chat_provider_row, _load_provider
 
     if slot.origin == "platform":
-        if not platform_billing_selectable():
+        if not platform_catalog_visible():
             return await _provider_first_fallback(session, user_id)
         return ModelSelection(model=slot.model, origin="platform", provider_id=None)
 
@@ -216,13 +213,16 @@ class LlmModelProfileService:
         self, views: list[ModelProfileView], default_id: str | None
     ) -> list[ModelProfileView]:
         known = {v.id for v in views}
+        # Invisible pin (e.g. system preset while platform dormant) → logical
+        # default only; never rewrite DB.
         effective = default_id if default_id in known else None
         if effective is None:
-            # No account default (or dangling pin) → 5.2 preset when listed.
             if SYSTEM_PROFILE_DEFAULT in known:
                 effective = SYSTEM_PROFILE_DEFAULT
             else:
                 effective = next((v.id for v in views if v.kind == "system"), None)
+            if effective is None:
+                effective = next((v.id for v in views), None)
         return [
             ModelProfileView(
                 id=v.id,
@@ -268,7 +268,7 @@ class LlmModelProfileService:
         if slot.origin == "platform":
             if slot.provider_id:
                 raise ValidationError(f"{label} 平台模型不能指定服务商")
-            if not platform_billing_selectable():
+            if not platform_catalog_visible():
                 raise ValidationError("当前部署不可用平台模型")
             from agentcore.llm.catalog import _platform_model_ids
 
@@ -434,6 +434,21 @@ class LlmModelProfileService:
         if row is None:
             raise ValidationError("所选模型组合不存在或不属于你")
 
+    async def _expand_logical_fallback(self, user_id: str) -> ExpandedProfile:
+        """Visible BYOK combo or provider-first; name/origin match runtime (no DB write)."""
+        rows = await self._repo.list_for_user(user_id, include_implicit=False)
+        if rows:
+            return await self.expand(user_id, rows[0].id)
+        main = await _provider_first_fallback(self._session, user_id)
+        return ExpandedProfile(
+            profile_id=main.provider_id or "",
+            name=model_metadata_for(main.model).display_name,
+            kind="implicit",
+            main=main,
+            worker=None,
+            background=None,
+        )
+
     async def expand(
         self,
         user_id: str,
@@ -443,16 +458,17 @@ class LlmModelProfileService:
         effective = profile_id or await self._default_id(user_id) or SYSTEM_PROFILE_DEFAULT
 
         if is_system_profile_id(effective):
-            if (
-                not _system_preset_available(effective)
-                and effective != SYSTEM_PROFILE_DEFAULT
-            ):
-                return await self.expand(user_id, SYSTEM_PROFILE_DEFAULT)
+            if not _system_preset_available(effective):
+                if (
+                    effective != SYSTEM_PROFILE_DEFAULT
+                    and _system_preset_available(SYSTEM_PROFILE_DEFAULT)
+                ):
+                    return await self.expand(user_id, SYSTEM_PROFILE_DEFAULT)
+                # Dormant / missing from allowlist — logical fallback, keep DB pin.
+                return await self._expand_logical_fallback(user_id)
             model_id = SYSTEM_PRESETS[effective]
             name = _system_preset_display_name(model_id)
             main = resolve_system_preset_main(effective)
-            if main.origin == "platform" and not platform_billing_selectable():
-                main = await _provider_first_fallback(self._session, user_id)
             return ExpandedProfile(
                 profile_id=effective,
                 name=name,

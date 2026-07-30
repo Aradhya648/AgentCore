@@ -295,9 +295,21 @@ async def test_test_missing_provider_returns_404(client, make_invite, byok):
 # --- deployment capability fields (moved onto the list response) ---
 
 
-async def test_list_reports_platform_capability(client, make_invite, byok, monkeypatch):
+async def test_list_reports_platform_capability_dormant(client, make_invite, byok, monkeypatch):
+    """byok + free_tier off + key still present → platform_available false."""
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
     await register_and_login(client, await make_invite("INV-P-CAP"), "provcap")
+    body = (await client.get(_BASE)).json()
+    assert body["platform_available"] is False
+    assert body["platform_model"] is None
+    assert body["billing_mode"] == "byok"
+
+
+async def test_list_reports_platform_capability_free_tier(client, make_invite, byok, monkeypatch):
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
+    await register_and_login(client, await make_invite("INV-P-CAPFT"), "provcapft")
     body = (await client.get(_BASE)).json()
     assert body["platform_available"] is True
     assert body["billing_mode"] == "byok"

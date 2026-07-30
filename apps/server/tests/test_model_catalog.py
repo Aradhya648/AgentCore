@@ -216,6 +216,26 @@ async def test_catalog_keyless_platform_off_returns_empty(monkeypatch):
     assert cat.models == []
 
 
+async def test_catalog_dormant_hides_platform_despite_key(monkeypatch):
+    """byok + free_tier off + PLATFORM_API_KEY still set → no platform catalog rows."""
+    reset_discovery_cache_for_tests()
+    row = _prov("provA", label="DeepSeek")
+    monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(catalog.settings, "billing_mode", "byok")
+    monkeypatch.setattr(catalog.settings, "platform_free_tier_enabled", False)
+    monkeypatch.setattr(catalog.settings, "platform_model", "deepseek-v4-flash")
+    monkeypatch.setattr(catalog.settings, "platform_models", "5.2,grok-4.5")
+    _mock_catalog(
+        monkeypatch,
+        providers=[row],
+        selection=ModelSelection(model="deepseek-v4-flash", origin="byok", provider_id="provA"),
+        discovered={"provA": ["deepseek-v4-flash"]},
+    )
+    cat = await resolve_model_catalog(None, "u1")
+    assert all(m.origin == "byok" for m in cat.models)
+    assert not any(m.origin == "platform" for m in cat.models)
+
+
 async def test_catalog_platform_allowlist_drives_rows(monkeypatch):
     monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(catalog.settings, "billing_mode", "platform")

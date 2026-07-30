@@ -96,7 +96,7 @@ export function ProviderSettings() {
     }
   };
 
-  const platformMode = response?.billing_mode === "platform";
+  const platformMode = response?.platform_available === true;
   const providers = response?.providers ?? [];
 
   return (

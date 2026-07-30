@@ -30,18 +30,30 @@ import {
 } from "@/services/llmModelProfiles";
 import type { LlmProviderView } from "@/services/llmProviders";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Loader2,
-  Plus,
-  Star,
-  Trash2,
-} from "lucide-react";
-import { useMemo, useState } from "react";
+import { Copy, Loader2, Plus, Star, Trash2 } from "lucide-react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SettingsHeader } from "./SettingsHeader";
+
+/** groups 内所有 group.models 合计为空（有 provider 但 models 空也算）。 */
+function hasSelectableModels(groups: DefaultProviderGroup[]): boolean {
+  return groups.some((g) => g.models.length > 0);
+}
+
+/** 无可选模型时的引导：与 EmptyProfilesCta / PlatformStatusLine 同页「接入服务商」风格。 */
+function NoAvailableModelsGuide({ className }: { className?: string }) {
+  return (
+    <p className={cn("text-xs text-muted-foreground", className)}>
+      暂无可用模型，请先{" "}
+      <Link
+        to="/more/providers"
+        className="text-primary underline-offset-2 hover:underline"
+      >
+        接入服务商
+      </Link>
+    </p>
+  );
+}
 
 /**
  * 模型 (/more/model) — 账号默认组合 + 组合 CRUD。
@@ -62,7 +74,6 @@ export function ModelSettings() {
 
   const providers = response?.providers ?? [];
   const platformAvailable = response?.platform_available ?? false;
-  const platformMode = response?.billing_mode === "platform";
   const canEditProfiles = providers.length > 0 || platformAvailable;
 
   return (
@@ -70,7 +81,7 @@ export function ModelSettings() {
       <SettingsHeader
         title="模型"
         description={
-          platformMode || platformAvailable
+          platformAvailable
             ? "选择账号默认组合（主模型 + 可选 Worker / 后台）。可用平台额度直接对话，也可接入服务商。"
             : "选择账号默认组合（主模型 + 可选 Worker / 后台）。需先接入服务商。"
         }
@@ -171,7 +182,7 @@ function PlatformStatusLine({
 }
 
 /**
- * 模型组合列表 + 编辑：主必填；Worker / 后台默认跟随、可展开选模型。
+ * 模型组合列表 + 编辑：主必填；Worker / 后台常显，空 = 跟随主模型。
  * 系统预置不可删，可设默认 / 复制为用户组合；用户组合可新建 / 改名 / 删。
  */
 function ModelProfilesSection({
@@ -192,7 +203,7 @@ function ModelProfilesSection({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ReactNode>(null);
 
   const catalogModels = catalog?.models ?? [];
   const manageable = useMemo(
@@ -278,9 +289,10 @@ function ModelProfilesSection({
   const onCreate = () => {
     const main = seedMain();
     if (!main) {
-      setActionError("暂无可用模型，请先接入服务商或等待平台目录加载");
+      setActionError(<NoAvailableModelsGuide />);
       return;
     }
+    setActionError(null);
     setCreating(true);
     setEditingId(null);
   };
@@ -403,9 +415,12 @@ function ModelProfilesSection({
         </div>
       )}
 
-      {actionError && (
-        <p className="mt-3 text-xs text-destructive">{actionError}</p>
-      )}
+      {actionError &&
+        (typeof actionError === "string" ? (
+          <p className="mt-3 text-xs text-destructive">{actionError}</p>
+        ) : (
+          <div className="mt-3">{actionError}</div>
+        ))}
     </section>
   );
 }
@@ -531,8 +546,7 @@ function ProfileEditor({
   const [main, setMain] = useState(initial.main);
   const [worker, setWorker] = useState(initial.worker);
   const [background, setBackground] = useState(initial.background);
-  const [workerOpen, setWorkerOpen] = useState(!!initial.worker);
-  const [bgOpen, setBgOpen] = useState(!!initial.background);
+  const noSelectableModels = !hasSelectableModels(groups);
 
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/20 px-3 py-3">
@@ -556,41 +570,36 @@ function ProfileEditor({
           disabled={pending}
           onChange={(value) => setMain(decodePointer(value))}
         />
+        {noSelectableModels && <NoAvailableModelsGuide className="mt-1" />}
       </label>
-
-      <OptionalSlot
-        label="Worker 模型"
-        hint="组队队员用；辩论用主模型。留空则跟随主模型。"
-        open={workerOpen}
-        onToggle={() => {
-          setWorkerOpen((v) => {
-            if (v) setWorker(null);
-            return !v;
-          });
-        }}
-        value={pointerValue(worker)}
-        groups={groups}
-        pending={pending}
-        followLabel="跟随主模型"
-        onChange={(value) => setWorker(decodePointer(value))}
-      />
-
-      <OptionalSlot
-        label="后台任务模型"
-        hint="标题、记忆等后台任务；留空则跟随主模型。"
-        open={bgOpen}
-        onToggle={() => {
-          setBgOpen((v) => {
-            if (v) setBackground(null);
-            return !v;
-          });
-        }}
-        value={pointerValue(background)}
-        groups={groups}
-        pending={pending}
-        followLabel="跟随主模型"
-        onChange={(value) => setBackground(decodePointer(value))}
-      />
+      <label className="block" htmlFor="profile-worker">
+        <span className="text-xs text-muted-foreground">Worker 模型</span>
+        <ProviderModelSelect
+          id="profile-worker"
+          groups={groups}
+          value={pointerValue(worker)}
+          disabled={pending || noSelectableModels}
+          followLabel="跟随主模型"
+          onChange={(value) => setWorker(decodePointer(value))}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          组队队员用；辩论用主模型。留空则跟随主模型。
+        </p>
+      </label>
+      <label className="block" htmlFor="profile-background">
+        <span className="text-xs text-muted-foreground">后台任务模型</span>
+        <ProviderModelSelect
+          id="profile-background"
+          groups={groups}
+          value={pointerValue(background)}
+          disabled={pending || noSelectableModels}
+          followLabel="跟随主模型"
+          onChange={(value) => setBackground(decodePointer(value))}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          标题、记忆等后台任务；留空则跟随主模型。
+        </p>
+      </label>
 
       <div className="flex justify-end gap-2 pt-1">
         <Button
@@ -611,62 +620,14 @@ function ProfileEditor({
             onSave({
               name,
               main,
-              worker: workerOpen ? worker : null,
-              background: bgOpen ? background : null,
+              worker,
+              background,
             })
           }
         >
           保存
         </Button>
       </div>
-    </div>
-  );
-}
-
-function OptionalSlot({
-  label,
-  hint,
-  open,
-  onToggle,
-  value,
-  groups,
-  pending,
-  followLabel,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  open: boolean;
-  onToggle: () => void;
-  value: string;
-  groups: DefaultProviderGroup[];
-  pending: boolean;
-  followLabel: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-1 text-left text-xs text-muted-foreground hover:text-foreground"
-      >
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span>{label}</span>
-        {!open && <span className="ml-1 opacity-70">（{followLabel}）</span>}
-      </button>
-      {open ? (
-        <>
-          <ProviderModelSelect
-            groups={groups}
-            value={value}
-            disabled={pending}
-            followLabel={followLabel}
-            onChange={onChange}
-          />
-          <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-        </>
-      ) : null}
     </div>
   );
 }

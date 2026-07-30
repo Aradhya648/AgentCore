@@ -15,7 +15,7 @@ export function MoreIndexRedirect() {
 
   const hasProviders = data.providers.length > 0;
   const hasPlatform = data.platform_available;
-  if (data.billing_mode === "platform" || hasPlatform || hasProviders) {
+  if (hasPlatform || hasProviders) {
     return <Navigate to="/more/model" replace />;
   }
   return <Navigate to="/more/providers" replace />;

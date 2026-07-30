@@ -58,6 +58,18 @@ def platform_billing_selectable() -> bool:
     subsidize any calls — platform rows are then withheld from the catalog, a
     stored platform override silently falls back to the account default, and the
     billing gate refuses keyless platform-origin turns with 402 (guide to BYOK).
-    Credential availability is a separate check (503).
+    Credential availability is a separate check (see :func:`platform_catalog_visible`).
     """
     return settings.billing_mode == "platform" or is_free_tier_enabled()
+
+
+def platform_catalog_visible() -> bool:
+    """Single gate for platform catalog / presets / providers signal / paid paths.
+
+    ``platform_billing_selectable() ∧ is_platform_available()``. When false
+    (BYOK dormancy with free tier off, or missing credentials), system presets
+    hide, catalog has no platform rows, providers report platform unavailable,
+    and background chrome must not spend on the platform key — even if
+    ``PLATFORM_API_KEY`` is still configured.
+    """
+    return platform_billing_selectable() and is_platform_available()

@@ -39,6 +39,7 @@ __all__ = [
     "platform_llm_credentials",
     "resolve_account_default_model",
     "resolve_account_worker_selection",
+    "resolve_background_user_fallback",
     "resolve_conversation_model_selection",
     "resolve_credentials",
     "resolve_model_config",
@@ -309,9 +310,13 @@ async def resolve_account_worker_selection(
 
 
 async def _resolve_background(
-    session: AsyncSession, user_id: str
+    session: AsyncSession, user_id: str, *, allow_platform_origin: bool = True
 ) -> tuple[LLMCredentials, str] | None:
-    """Account default profile's background slot → ``(creds, model)``, or None (follow)."""
+    """Account default profile's background slot → ``(creds, model)``, or None (follow).
+
+    When ``allow_platform_origin`` is False, a combo background slot that points at
+    platform is treated as absent (user-BYOK auth-fallback path).
+    """
     from agentcore.llm.model_profiles import LlmModelProfileService
 
     expanded = await LlmModelProfileService(session).expand(user_id, None)
@@ -319,6 +324,8 @@ async def _resolve_background(
     if bg is None:
         return None
     if bg.origin == "platform":
+        if not allow_platform_origin:
+            return None
         creds = platform_llm_credentials(model=bg.model)
         if creds is None:
             return None
@@ -347,6 +354,32 @@ def _model_config_from_creds(
     )
 
 
+async def resolve_background_user_fallback(
+    session: AsyncSession,
+    user_id: str,
+    purpose: ModelPurpose = "title",
+) -> ModelConfig | None:
+    """BYOK-only background resolve after platform is unavailable or auth-rejected.
+
+    Skips the platform key and any combination-profile background slot with
+    ``origin=platform``. Never an authorization path — pair with
+    ``resolve_and_gate_background_user_fallback`` (source=user, no platform quota).
+    """
+    bg = await _resolve_background(session, user_id, allow_platform_origin=False)
+    if bg is not None:
+        creds, model = bg
+        return _model_config_from_creds(creds, model, purpose)
+    row, chat_model, _origin = await _account_default(session, user_id)
+    if row is not None:
+        creds = _decrypt_provider(row, user_id)
+        if creds is not None:
+            model = _model_for_purpose(
+                purpose, chat_model=chat_model, user_background_model=None
+            )
+            return _model_config_from_creds(creds, model, purpose)
+    return None
+
+
 async def resolve_model_config(
     session: AsyncSession,
     user_id: str,
@@ -357,42 +390,37 @@ async def resolve_model_config(
     SELECTION / ADVISORY ONLY — never an authorization path (01 F10). For a keyless
     user this deliberately FALLS BACK to the platform model so token advisory / turn-
     profile selection still resolves a NAME; the billing gate
-    (``preflight_llm_credentials`` / ``resolve_and_gate_background``) is the
-    authorization choke point.
+    (``preflight_llm_credentials`` / ``resolve_and_gate_background`` /
+    ``run_background_llm``) is the authorization choke point.
 
     Background purposes (title/memory/compaction/followups) are **platform-first**
-    product chrome (industry-aligned: Cursor-style). BYOK is only a fallback when
-    platform credentials are unavailable. Chat purpose stays user-key-first unless the
+    product chrome (industry-aligned: Cursor-style) when
+    :func:`platform_catalog_visible`. BYOK is the fallback when the platform gate
+    is off (dormant billing / missing credentials) **or** upstream auth rejection
+    via ``run_background_llm``. Chat purpose stays user-key-first unless the
     account default is an explicit platform pointer.
     """
+    from agentcore.billing.preference import platform_catalog_visible
+
     is_background = purpose in _BACKGROUND_PURPOSES
 
     if is_background:
-        # Platform-first: product shell (titles, memory, …) does not follow the
-        # user's chat BYOK key. Model 降档 via platform_background_model.
-        platform_model = _model_for_purpose(purpose, chat_model=settings.platform_model)
-        platform = platform_llm_credentials(model=platform_model)
-        if platform is not None:
-            return ModelConfig(
-                model=platform_model,
-                base_url=platform.base_url,
-                api_key=platform.api_key,
-                source="platform",
-                purpose=purpose,
+        # Platform-first only while the catalog gate is open; Model 降档 via
+        # platform_background_model. Dormant BILLING_MODE → BYOK or None.
+        if platform_catalog_visible():
+            platform_model = _model_for_purpose(
+                purpose, chat_model=settings.platform_model
             )
-        bg = await _resolve_background(session, user_id)
-        if bg is not None:
-            creds, model = bg
-            return _model_config_from_creds(creds, model, purpose)
-        row, chat_model, _origin = await _account_default(session, user_id)
-        if row is not None:
-            creds = _decrypt_provider(row, user_id)
-            if creds is not None:
-                model = _model_for_purpose(
-                    purpose, chat_model=chat_model, user_background_model=None
+            platform = platform_llm_credentials(model=platform_model)
+            if platform is not None:
+                return ModelConfig(
+                    model=platform_model,
+                    base_url=platform.base_url,
+                    api_key=platform.api_key,
+                    source="platform",
+                    purpose=purpose,
                 )
-                return _model_config_from_creds(creds, model, purpose)
-        return None
+        return await resolve_background_user_fallback(session, user_id, purpose)
 
     row, chat_model, origin = await _account_default(session, user_id)
     if origin == "byok" and row is not None:
@@ -405,15 +433,16 @@ async def resolve_model_config(
         if origin == "platform"
         else _model_for_purpose(purpose, chat_model=settings.platform_model)
     )
-    platform = platform_llm_credentials(model=platform_model)
-    if platform is not None:
-        return ModelConfig(
-            model=platform_model,
-            base_url=platform.base_url,
-            api_key=platform.api_key,
-            source="platform",
-            purpose=purpose,
-        )
+    if platform_catalog_visible():
+        platform = platform_llm_credentials(model=platform_model)
+        if platform is not None:
+            return ModelConfig(
+                model=platform_model,
+                base_url=platform.base_url,
+                api_key=platform.api_key,
+                source="platform",
+                purpose=purpose,
+            )
     return None
 
 

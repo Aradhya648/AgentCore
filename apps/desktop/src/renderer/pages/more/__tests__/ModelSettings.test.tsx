@@ -290,17 +290,17 @@ describe("ModelSettings (profiles)", () => {
     expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(1);
   });
 
-  it("opens the create editor from 新建 with worker slot folded", () => {
+  it("opens the create editor from 新建 with optional slots visible", () => {
     mockProviders(providersResponse());
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "新建" }));
     expect(screen.getByText("新建组合", { selector: "p" })).toBeTruthy();
     expect(screen.getByText("主模型（必填）")).toBeTruthy();
     expect(screen.getByText("Worker 模型")).toBeTruthy();
-    expect(screen.getAllByText(/（跟随主模型）/).length).toBeGreaterThanOrEqual(
-      2,
-    );
-    expect(screen.queryByText(/辩论用主模型/)).toBeNull();
+    expect(screen.getByText("后台任务模型")).toBeTruthy();
+    expect(screen.getAllByText("跟随主模型").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/辩论用主模型/)).toBeTruthy();
+    expect(screen.getByText(/标题、记忆等后台任务/)).toBeTruthy();
   });
 
   it("saves an edited user profile, toasts success, and closes the editor", async () => {
@@ -398,6 +398,92 @@ describe("ModelSettings (profiles)", () => {
     renderPage();
     expect(screen.getByRole("button", { name: "接入服务商" })).toBeTruthy();
     expect(screen.queryByText("模型组合")).toBeNull();
+  });
+
+  it("on 新建 when seedMain fails shows providers guide link and does not open editor", () => {
+    useModelsMock.mockReturnValue({
+      data: {
+        byok_configured: true,
+        current: undefined,
+        models: [],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useModels>);
+    mockProviders(
+      providersResponse({
+        providers: [
+          {
+            id: "p1",
+            label: "DeepSeek",
+            base_url: "https://api.deepseek.com/v1",
+            default_model: "",
+            status: "active",
+            masked_key: "••••abcd",
+            supports_tools: true,
+          },
+        ],
+        platform_available: false,
+      }),
+    );
+    mockProfiles(profilesResponse({ data: [] }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.queryByText("新建组合", { selector: "p" })).toBeNull();
+    const link = screen.getByRole("link", { name: "接入服务商" });
+    expect(link.getAttribute("href")).toBe("/more/providers");
+    expect(screen.getByText(/暂无可用模型/)).toBeTruthy();
+  });
+
+  it("when groups have no models, create editor shows providers guide and disables Worker/background", () => {
+    // current 可 seedMain，但 provider 不在列表且无 catalog/default → groups.models 合计为空
+    useModelsMock.mockReturnValue({
+      data: {
+        byok_configured: true,
+        current: {
+          id: "orphan-model",
+          origin: "byok",
+          provider_id: "gone-provider",
+        },
+        models: [],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useModels>);
+    mockProviders(
+      providersResponse({
+        providers: [
+          {
+            id: "p1",
+            label: "DeepSeek",
+            base_url: "https://api.deepseek.com/v1",
+            default_model: "",
+            status: "active",
+            masked_key: "••••abcd",
+            supports_tools: true,
+          },
+        ],
+        platform_available: false,
+      }),
+    );
+    mockProfiles(profilesResponse({ data: [] }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.getByText("新建组合", { selector: "p" })).toBeTruthy();
+    const guide = screen.getByRole("link", { name: "接入服务商" });
+    expect(guide.getAttribute("href")).toBe("/more/providers");
+    expect(screen.getByText(/暂无可用模型/)).toBeTruthy();
+
+    expect(document.getElementById("profile-worker")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(document.getElementById("profile-background")).toHaveProperty(
+      "disabled",
+      true,
+    );
   });
 
   it("surfaces ADMIN_PRODUCT_FORBIDDEN instead of a generic load failure", () => {

@@ -202,3 +202,107 @@ async def test_ensure_rejects_unavailable_system_preset(monkeypatch):
     svc = LlmModelProfileService(MagicMock())
     with pytest.raises(ValidationError, match="不可用"):
         await svc.ensure_profile_usable("u1", SYSTEM_PROFILE_GROK)
+
+
+@pytest.mark.asyncio
+async def test_list_marks_user_default_when_system_pin_dormant(monkeypatch):
+    """DB pin on invisible system preset → list marks first visible user combo (no DB write)."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "agentcore.llm.catalog._platform_model_ids",
+        lambda: ["5.2", "grok-4.5"],
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.platform_billing_selectable",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
+    user_row = SimpleNamespace(
+        id="user-combo-1",
+        name="我的组合",
+        kind="user",
+        main_origin="byok",
+        main_model="gpt-4o",
+        main_provider_id="p1",
+        worker_origin=None,
+        worker_model=None,
+        worker_provider_id=None,
+        background_origin=None,
+        background_model=None,
+        background_provider_id=None,
+    )
+    svc = LlmModelProfileService(MagicMock())
+    svc._default_id = AsyncMock(return_value=SYSTEM_PROFILE_52)  # type: ignore[method-assign]
+    svc._repo.list_for_user = AsyncMock(return_value=[user_row])  # type: ignore[method-assign]
+    svc._users.set_default_model_profile = AsyncMock()  # type: ignore[method-assign]
+
+    views = await svc.list_profiles("u1")
+    assert len(views) == 1
+    assert views[0].id == "user-combo-1"
+    assert views[0].is_default is True
+    svc._users.set_default_model_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_expand_dormant_system_falls_to_byok_coherent(monkeypatch):
+    """Unavailable system preset → BYOK selection; name/origin match (not 5.2 + byok)."""
+    from agentcore.llm.resolve import ModelSelection
+
+    monkeypatch.setattr(
+        "agentcore.llm.catalog._platform_model_ids",
+        lambda: ["5.2", "grok-4.5"],
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.platform_billing_selectable",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.model_profiles._provider_first_fallback",
+        AsyncMock(
+            return_value=ModelSelection(
+                model="user-flash", origin="byok", provider_id="p1"
+            )
+        ),
+    )
+    svc = LlmModelProfileService(MagicMock())
+    svc._default_id = AsyncMock(return_value=SYSTEM_PROFILE_52)  # type: ignore[method-assign]
+    svc._repo.list_for_user = AsyncMock(return_value=[])  # type: ignore[method-assign]
+    svc._repo.get = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    expanded = await svc.expand("u1", None)
+    assert expanded.main.origin == "byok"
+    assert expanded.main.model == "user-flash"
+    assert expanded.main.provider_id == "p1"
+    assert expanded.kind == "implicit"
+    assert "5.2" not in expanded.name
+    assert expanded.profile_id != SYSTEM_PROFILE_52
+
+
+@pytest.mark.asyncio
+async def test_validate_slot_platform_requires_catalog_visible(monkeypatch):
+    from agentcore.core.errors import ValidationError
+    from agentcore.llm.model_profiles import ProfileSlot
+
+    monkeypatch.setattr(
+        "agentcore.billing.preference.platform_billing_selectable",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.preference.is_platform_available",
+        lambda: True,
+    )
+    svc = LlmModelProfileService(MagicMock())
+    with pytest.raises(ValidationError, match="不可用平台模型"):
+        await svc._validate_slot(
+            "u1",
+            ProfileSlot(origin="platform", model="5.2", provider_id=None),
+            label="main",
+        )

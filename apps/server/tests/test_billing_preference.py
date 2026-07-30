@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agentcore.billing.gate import preflight_llm_credentials
-from agentcore.billing.preference import is_platform_available
+from agentcore.billing.preference import is_platform_available, platform_catalog_visible
 from agentcore.config import settings
-from agentcore.core.errors import BYOKKeyMissingError
+from agentcore.core.errors import BYOKKeyMissingError, PlatformBillingUnavailableError
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.resolve import resolve_account_default_model, resolve_model_config
 
@@ -34,6 +34,31 @@ def test_is_platform_available_requires_operator_key(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     assert is_platform_available() is True
 
+
+def test_platform_catalog_visible_dormant_despite_key(monkeypatch):
+    """byok + free_tier off + PLATFORM_API_KEY still set → catalog gate closed."""
+    monkeypatch.setattr(settings, "platform_model_credentials", "")
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+    assert is_platform_available() is True
+    assert platform_catalog_visible() is False
+
+
+def test_platform_catalog_visible_platform_mode_with_key(monkeypatch):
+    monkeypatch.setattr(settings, "platform_model_credentials", "")
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "billing_mode", "platform")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+    assert platform_catalog_visible() is True
+
+
+def test_platform_catalog_visible_free_tier_with_key(monkeypatch):
+    monkeypatch.setattr(settings, "platform_model_credentials", "")
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
+    assert platform_catalog_visible() is True
 
 def _mock_provider_default(monkeypatch, *, user, row):
     """Wire resolve's UserRepository + UserLlmProviderRepository for the default provider."""
@@ -221,7 +246,7 @@ async def test_resolve_and_gate_background_platform_enforces_quota(monkeypatch):
             "agentcore.billing.gate.resolve_model_config",
             AsyncMock(return_value=cfg),
         ),
-        patch("agentcore.billing.gate.is_platform_available", return_value=True),
+        patch("agentcore.billing.gate.platform_catalog_visible", return_value=True),
         patch(
             "agentcore.billing.gate.UserRepository",
             lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=_user())),
@@ -259,7 +284,7 @@ async def test_resolve_and_gate_background_quota_exceeded_returns_none(monkeypat
             "agentcore.billing.gate.resolve_model_config",
             AsyncMock(return_value=cfg),
         ),
-        patch("agentcore.billing.gate.is_platform_available", return_value=True),
+        patch("agentcore.billing.gate.platform_catalog_visible", return_value=True),
         patch(
             "agentcore.billing.gate.UserRepository",
             lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=_user())),
@@ -302,3 +327,234 @@ async def test_resolve_and_gate_background_byok_fallback_skips_quota(monkeypatch
     assert result.source == "user"
     assert result.api_key == "sk-user"
     enforce.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_background_llm_platform_auth_falls_back_to_byok(monkeypatch):
+    from agentcore.billing.gate import BackgroundLlmResult, run_background_llm
+    from agentcore.core.errors import LLMAuthError
+    from agentcore.llm.credentials import LLMCredentials
+
+    platform = LLMCredentials(
+        api_key="sk-platform",
+        base_url="https://p.example/v1",
+        default_model="flash",
+        source="platform",
+    )
+    byok = LLMCredentials(
+        api_key="sk-user",
+        base_url="https://user.example/v1",
+        default_model="user-flash",
+        source="user",
+        provider_id="p1",
+    )
+    calls: list[str] = []
+
+    async def _runner(creds: LLMCredentials) -> str:
+        calls.append(creds.source)
+        if creds.source == "platform":
+            raise LLMAuthError(provider_name="platform")
+        return "ok"
+
+    class _CM:
+        async def __aenter__(self):
+            return MagicMock()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr("agentcore.billing.gate.async_session_factory", lambda: _CM())
+    monkeypatch.setattr(
+        "agentcore.billing.gate.resolve_and_gate_background",
+        AsyncMock(return_value=platform),
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.gate.resolve_and_gate_background_user_fallback",
+        AsyncMock(return_value=byok),
+    )
+
+    result = await run_background_llm("u1", purpose="title", runner=_runner)
+    assert isinstance(result, BackgroundLlmResult)
+    assert result.value == "ok"
+    assert result.credentials is byok
+    assert calls == ["platform", "user"]
+
+
+@pytest.mark.asyncio
+async def test_run_background_llm_no_byok_after_platform_auth_returns_none(monkeypatch):
+    from agentcore.billing.gate import run_background_llm
+    from agentcore.core.errors import LLMAuthError
+    from agentcore.llm.credentials import LLMCredentials
+
+    platform = LLMCredentials(
+        api_key="sk-platform",
+        base_url="https://p.example/v1",
+        default_model="flash",
+        source="platform",
+    )
+
+    async def _runner(creds: LLMCredentials) -> str:
+        raise LLMAuthError(provider_name="platform")
+
+    class _CM:
+        async def __aenter__(self):
+            return MagicMock()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr("agentcore.billing.gate.async_session_factory", lambda: _CM())
+    monkeypatch.setattr(
+        "agentcore.billing.gate.resolve_and_gate_background",
+        AsyncMock(return_value=platform),
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.gate.resolve_and_gate_background_user_fallback",
+        AsyncMock(return_value=None),
+    )
+
+    result = await run_background_llm("u1", purpose="memory", runner=_runner)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_run_background_llm_byok_auth_does_not_retry_platform(monkeypatch):
+    from agentcore.billing.gate import run_background_llm
+    from agentcore.core.errors import LLMAuthError
+    from agentcore.llm.credentials import LLMCredentials
+
+    byok = LLMCredentials(
+        api_key="sk-user",
+        base_url="https://user.example/v1",
+        default_model="user-flash",
+        source="user",
+        provider_id="p1",
+    )
+    calls: list[str] = []
+    fallback = AsyncMock(return_value=None)
+
+    async def _runner(creds: LLMCredentials) -> str:
+        calls.append(creds.source)
+        raise LLMAuthError(provider_name="byok")
+
+    class _CM:
+        async def __aenter__(self):
+            return MagicMock()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr("agentcore.billing.gate.async_session_factory", lambda: _CM())
+    monkeypatch.setattr(
+        "agentcore.billing.gate.resolve_and_gate_background",
+        AsyncMock(return_value=byok),
+    )
+    monkeypatch.setattr(
+        "agentcore.billing.gate.resolve_and_gate_background_user_fallback",
+        fallback,
+    )
+
+    result = await run_background_llm("u1", purpose="title", runner=_runner)
+    assert result is None
+    assert calls == ["user"]
+    fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_gate_background_user_fallback_skips_quota(monkeypatch):
+    from agentcore.billing.gate import resolve_and_gate_background_user_fallback
+    from agentcore.llm.resolve import ModelConfig
+
+    cfg = ModelConfig(
+        model="user-flash",
+        base_url="https://user.example/v1",
+        api_key="sk-user",
+        source="byok",
+        purpose="title",
+        provider_id="p1",
+    )
+    with (
+        patch(
+            "agentcore.billing.gate.resolve_background_user_fallback",
+            AsyncMock(return_value=cfg),
+        ),
+        patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
+    ):
+        result = await resolve_and_gate_background_user_fallback(
+            MagicMock(), "u1", purpose="title"
+        )
+    assert result is not None
+    assert result.source == "user"
+    enforce.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gate_platform_origin_dormant_refuses(monkeypatch):
+    """byok + free_tier off + key still present → platform origin refused."""
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "platform_model_credentials", "")
+    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+    with pytest.raises(PlatformBillingUnavailableError):
+        await preflight_llm_credentials(
+            session=MagicMock(),
+            user=_user(),
+            cost_repo=MagicMock(),
+            byok_missing_message="missing",
+            model_origin="platform",
+        )
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_gate_background_dormant_falls_to_byok(monkeypatch):
+    """Dormant catalog gate: platform cfg from resolve → BYOK fallback path."""
+    from agentcore.billing.gate import resolve_and_gate_background
+    from agentcore.llm.resolve import ModelConfig
+
+    platform_cfg = ModelConfig(
+        model="flash",
+        base_url="https://p.example/v1",
+        api_key="sk-platform",
+        source="platform",
+        purpose="title",
+    )
+    byok = LLMCredentials(
+        api_key="sk-user",
+        base_url="https://user.example/v1",
+        default_model="user-flash",
+        source="user",
+        provider_id="p1",
+    )
+    with (
+        patch(
+            "agentcore.billing.gate.resolve_model_config",
+            AsyncMock(return_value=platform_cfg),
+        ),
+        patch("agentcore.billing.gate.platform_catalog_visible", return_value=False),
+        patch(
+            "agentcore.billing.gate.resolve_and_gate_background_user_fallback",
+            AsyncMock(return_value=byok),
+        ) as fallback,
+        patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
+    ):
+        result = await resolve_and_gate_background(MagicMock(), "u1", purpose="title")
+    assert result is byok
+    fallback.assert_awaited_once()
+    enforce.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_model_config_background_dormant_skips_platform(monkeypatch):
+    """Background resolve must not return platform when catalog gate is closed."""
+    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(settings, "platform_model_credentials", "")
+    monkeypatch.setattr(settings, "platform_model", "plat-model")
+    monkeypatch.setattr(settings, "platform_background_model", "")
+    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+    monkeypatch.setattr(
+        "agentcore.llm.resolve.resolve_background_user_fallback",
+        AsyncMock(return_value=None),
+    )
+    cfg = await resolve_model_config(MagicMock(), "u1", "title")
+    assert cfg is None
