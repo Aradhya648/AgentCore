@@ -6,9 +6,9 @@ vi.mock("@/services/interaction", () => ({
 }));
 vi.mock("@/lib/toast", () => ({ notifyInfo: vi.fn() }));
 
-import { resetClientToolFulfillmentForTests } from "../clientToolFulfill";
-import { performBoardOp, registerBoardApplier } from "../boardOps";
 import type { BoardOpRequiredPayload } from "@/types/events";
+import { performBoardOp, registerBoardApplier } from "../boardOps";
+import { resetClientToolFulfillmentForTests } from "../clientToolFulfill";
 
 function payload(
   over: Partial<BoardOpRequiredPayload> = {},

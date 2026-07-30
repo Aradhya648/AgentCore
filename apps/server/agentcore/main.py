@@ -30,6 +30,7 @@ from agentcore.api.routes import (
     memory,
     messages,
     model_catalog,
+    notices,
     realtime,
     search,
     shared_spaces,
@@ -48,6 +49,7 @@ from agentcore.core.errors import AgentCoreError
 from agentcore.core.logging import get_logger, setup_logging
 from agentcore.db.migration_check import check_migrations
 from agentcore.memory.consolidation import consolidation_loop, shutdown_scheduler
+from agentcore.memory.explore_refresh import shutdown_explore_refresh_scheduler
 from agentcore.middleware.csrf import CsrfMiddleware
 from agentcore.middleware.errors import JSONErrorMiddleware
 from agentcore.middleware.rate_limit import AuthRateLimitMiddleware
@@ -375,6 +377,7 @@ async def lifespan(app: FastAPI):
             await shutdown_browser_sessions()
         # Flush in-flight debounced passes and cancel pending timers.
         await shutdown_scheduler()
+        await shutdown_explore_refresh_scheduler()
         # Flush in-flight long-conversation compaction folds.
         await shutdown_compaction()
         # Release the shared SearXNG keep-alive pool.
@@ -448,6 +451,7 @@ app.include_router(favicon.router, prefix="/v1")
 app.include_router(feedback.router, prefix="/v1")
 app.include_router(files.router, prefix="/v1")
 app.include_router(folders.router, prefix="/v1")
+app.include_router(notices.router, prefix="/v1")
 app.include_router(inference.router, prefix="/v1")
 app.include_router(llm_providers.router, prefix="/v1")
 app.include_router(llm_model_profiles.router, prefix="/v1")

@@ -40,6 +40,7 @@ from agentcore.db.repositories import (
     InviteRepository,
     MemoryUpdateRepository,
     MessageRepository,
+    ProductNoticeRepository,
     PushDeviceRepository,
     RefreshTokenRepository,
     SimulationRepository,
@@ -248,6 +249,10 @@ def get_push_device_repo(
 
 def get_feedback_repo(session: AsyncSession = Depends(get_db)) -> FeedbackRepository:
     return FeedbackRepository(session)
+
+
+def get_notice_repo(session: AsyncSession = Depends(get_db)) -> ProductNoticeRepository:
+    return ProductNoticeRepository(session)
 
 
 def get_messaging_service(

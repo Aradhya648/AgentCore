@@ -235,6 +235,90 @@ export interface paths {
         patch: operations["update_feedback_status_v1_admin_feedback__feedback_id__status_patch"];
         trace?: never;
     };
+    "/v1/admin/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Notices
+         * @description Admin: list product notices, optionally filtered by status.
+         */
+        get: operations["list_notices_v1_admin_notices_get"];
+        put?: never;
+        /**
+         * Create Notice
+         * @description Admin: create a draft notice.
+         */
+        post: operations["create_notice_v1_admin_notices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/notices/{notice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Notice
+         * @description Admin: update notice fields. Archived notices are immutable (409).
+         */
+        patch: operations["update_notice_v1_admin_notices__notice_id__patch"];
+        trace?: never;
+    };
+    "/v1/admin/notices/{notice_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Notice
+         * @description Admin: archive a notice (removes from active surfaces).
+         */
+        post: operations["archive_notice_v1_admin_notices__notice_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/notices/{notice_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish Notice
+         * @description Admin: publish a notice (sets published_at).
+         */
+        post: operations["publish_notice_v1_admin_notices__notice_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/observability/conversations/{conversation_id}": {
         parameters: {
             query?: never;
@@ -3328,6 +3412,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/notices/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Active Notices
+         * @description Return the current banner (≤1) and inbox list for the signed-in user.
+         */
+        get: operations["get_active_notices_v1_notices_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notices/{notice_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Notice
+         * @description Dismiss a notice (``once``). ``never`` → 409; already dismissed → 204.
+         */
+        post: operations["dismiss_notice_v1_notices__notice_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/realtime": {
         parameters: {
             query?: never;
@@ -4730,6 +4854,35 @@ export interface components {
              * @description True if newly recorded; False if already accepted (idempotent no-op).
              */
             recorded: boolean;
+        };
+        /** ActiveNotice */
+        ActiveNotice: {
+            /** Body */
+            body: string;
+            /** Cta Label */
+            cta_label: string | null;
+            /** Cta Url */
+            cta_url: string | null;
+            /** Dismiss Policy */
+            dismiss_policy: string;
+            /** Dismissed */
+            dismissed: boolean;
+            /** Id */
+            id: string;
+            /** Published At */
+            published_at: string | null;
+            /** Severity */
+            severity: string;
+            /** Surface */
+            surface: string;
+            /** Title */
+            title: string;
+        };
+        /** ActiveNoticesResponse */
+        ActiveNoticesResponse: {
+            banner: components["schemas"]["ActiveNotice"] | null;
+            /** Inbox */
+            inbox: components["schemas"]["ActiveNotice"][];
         };
         /**
          * AdminAgentAuditSummary
@@ -6438,6 +6591,39 @@ export interface components {
              * @default
              */
             label: string;
+        };
+        /** CreateNoticeRequest */
+        CreateNoticeRequest: {
+            /** Body */
+            body: string;
+            /** Cta Label */
+            cta_label?: string | null;
+            /** Cta Url */
+            cta_url?: string | null;
+            /**
+             * Dismiss Policy
+             * @default once
+             * @enum {string}
+             */
+            dismiss_policy: "once" | "never";
+            /** End At */
+            end_at?: string | null;
+            /**
+             * Severity
+             * @default normal
+             * @enum {string}
+             */
+            severity: "critical" | "high" | "normal";
+            /** Start At */
+            start_at?: string | null;
+            /**
+             * Surface
+             * @default both
+             * @enum {string}
+             */
+            surface: "banner" | "inbox" | "both";
+            /** Title */
+            title: string;
         };
         /**
          * CreateShareRequest
@@ -8179,6 +8365,52 @@ export interface components {
             dst: string;
             /** Src */
             src: string;
+        };
+        /** NoticeListResponse */
+        NoticeListResponse: {
+            /** Data */
+            data: components["schemas"]["NoticeSummary"][];
+            /** Total */
+            total: number;
+        };
+        /** NoticeSummary */
+        NoticeSummary: {
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Cta Label */
+            cta_label: string | null;
+            /** Cta Url */
+            cta_url: string | null;
+            /** Dismiss Policy */
+            dismiss_policy: string;
+            /** End At */
+            end_at: string | null;
+            /** Id */
+            id: string;
+            /** Published At */
+            published_at: string | null;
+            /** Severity */
+            severity: string;
+            /** Start At */
+            start_at: string | null;
+            /** Status */
+            status: string;
+            /** Surface */
+            surface: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** PatchShowEpisodePublishRequest */
         PatchShowEpisodePublishRequest: {
@@ -10154,6 +10386,27 @@ export interface components {
             /** Pinned */
             pinned?: boolean | null;
         };
+        /** UpdateNoticeRequest */
+        UpdateNoticeRequest: {
+            /** Body */
+            body?: string | null;
+            /** Cta Label */
+            cta_label?: string | null;
+            /** Cta Url */
+            cta_url?: string | null;
+            /** Dismiss Policy */
+            dismiss_policy?: ("once" | "never") | null;
+            /** End At */
+            end_at?: string | null;
+            /** Severity */
+            severity?: ("critical" | "high" | "normal") | null;
+            /** Start At */
+            start_at?: string | null;
+            /** Surface */
+            surface?: ("banner" | "inbox" | "both") | null;
+            /** Title */
+            title?: string | null;
+        };
         /**
          * UpdateProfileRequest
          * @description Patch the signed-in user's profile (个人资料编辑). Both fields optional — only
@@ -10908,6 +11161,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedbackSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notices_v1_admin_notices_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_notice_v1_admin_notices_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNoticeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_notice_v1_admin_notices__notice_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                notice_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNoticeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_notice_v1_admin_notices__notice_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                notice_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_notice_v1_admin_notices__notice_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                notice_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
                 };
             };
             /** @description Validation Error */
@@ -17098,6 +17534,72 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TurnCost"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_active_notices_v1_notices_active_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveNoticesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_notice_v1_notices__notice_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                notice_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

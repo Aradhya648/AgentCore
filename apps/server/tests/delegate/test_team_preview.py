@@ -106,6 +106,35 @@ def test_worker_rows_shape():
     assert rows[0]["debate"] is False
     assert rows[1]["depends_on"] == ["r1"]
     assert rows[1]["debate"] is True
+    # D4: omitted form → can write files (legacy)
+    assert rows[0]["write_capability"] == "can_write_files"
+    assert rows[0]["write_capability_label"] == "可改文件"
+
+
+def test_worker_rows_write_capability_from_form():
+    from agentcore.runtime.runs.types import Deliverable
+
+    plan = _plan(
+        RunSpec(
+            run_id="r1",
+            task="构建报告",
+            role="构建工程师",
+            deliverable=Deliverable(form="prose"),
+        ),
+        RunSpec(
+            run_id="r2",
+            task="修源码",
+            role="修补员",
+            deliverable=Deliverable(form="files"),
+        ),
+    )
+    rows = worker_rows(plan)
+    assert rows[0]["form"] == "prose"
+    assert rows[0]["write_capability"] == "text_only"
+    assert rows[0]["write_capability_label"] == "仅文字报告"
+    assert rows[1]["form"] == "files"
+    assert rows[1]["write_capability"] == "can_write_files"
+    assert rows[1]["write_capability_label"] == "可改文件"
 
 
 def test_apply_steer_empty_roots_targets_all():

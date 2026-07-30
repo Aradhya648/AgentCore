@@ -703,6 +703,11 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     reason: "反馈设置页，手机暂不做",
   },
+  "more/ProductNoticesSettings": {
+    verdict: "simplified",
+    reason:
+      "产品全局公告列表（设置·公告 inbox）；手机本波无对等公告 Banner/列表面",
+  },
   "more/LoginSessionsSection": {
     verdict: "ported",
     surface: "more/AccountSettings · 登录会话（sessionDisplay 同源裁决）",

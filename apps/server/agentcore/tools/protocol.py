@@ -331,6 +331,9 @@ class ToolContext:
     # Delegate 读此旗标：抑制 form/artifacts→files_written 推断，并硬拒 form=files/artifacts。
     # 与 deep_research_auto_debate_count 同模式——CEO base ToolContext 上就地翻转。
     cold_start_explore_pending: bool = False
+    # form=prose 卸装写工具时打标（``"prose"``）；供 tool_exec 回执分流，禁止仅靠
+    # worker_only 名猜「请用 delegate」。None = 未因形态卸装（CEO / files / legacy）。
+    withheld_write_tools: str | None = None
 
 
 @dataclass

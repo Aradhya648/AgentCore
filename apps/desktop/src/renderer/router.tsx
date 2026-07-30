@@ -23,6 +23,7 @@ import { FeedbackSettings } from "@/pages/more/FeedbackSettings";
 import { ImPrivacySettings } from "@/pages/more/ImPrivacySettings";
 import { ModelSettings } from "@/pages/more/ModelSettings";
 import { MoreIndexRedirect } from "@/pages/more/MoreIndexRedirect";
+import { ProductNoticesSettings } from "@/pages/more/ProductNoticesSettings";
 import { ProviderSettings } from "@/pages/more/ProviderSettings";
 import { ShortcutsSettings } from "@/pages/more/ShortcutsSettings";
 import { UsageSettings } from "@/pages/more/UsageSettings";
@@ -134,6 +135,7 @@ export const router = createHashRouter([
           { path: "appearance", element: <AppearanceSettings /> },
           { path: "shortcuts", element: <ShortcutsSettings /> },
           { path: "feedback", element: <FeedbackSettings /> },
+          { path: "notices", element: <ProductNoticesSettings /> },
           { path: "about", element: <AboutSettings /> },
           { path: "legal/:docId", element: <LegalSettingsPage /> },
         ],

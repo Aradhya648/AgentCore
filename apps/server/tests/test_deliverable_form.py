@@ -57,8 +57,9 @@ def test_form_alone_is_enough_content():
     assert plan.nodes[0].deliverable is not None
 
 
-def test_form_prose_clears_requires_files_and_artifacts():
-    plan, _ = build_run_plan(
+def test_form_prose_rejects_requires_files_and_artifacts():
+    """D1: raw form=prose ∩ requires_files/artifacts must hard-reject (gate before clear)."""
+    plan, errs = build_run_plan(
         [
             {
                 "role": "A",
@@ -72,6 +73,23 @@ def test_form_prose_clears_requires_files_and_artifacts():
         ],
         id_prefix="t",
     )
+    assert errs
+    assert any("form=prose" in e and "requires_files" in e for e in errs)
+    assert plan.nodes == [] or not plan.nodes
+
+
+def test_form_prose_alone_still_builds():
+    plan, errs = build_run_plan(
+        [
+            {
+                "role": "A",
+                "task": "a",
+                "deliverable": {"form": "prose"},
+            }
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
     d = plan.nodes[0].deliverable
     assert d is not None
     assert d.form == "prose"
@@ -240,7 +258,73 @@ def test_prose_times_files_written_rejected():
     err = validate_completion_against_forms("files_written", plan)
     assert err is not None
     assert "契约矛盾" in err
-    assert "form=prose" in err
+    assert "form=files" in err or "可改文件" in err
+
+
+def test_prose_times_code_verified_rejected():
+    plan, _ = build_run_plan(
+        [
+            {"role": "A", "task": "修 tsc", "deliverable": {"form": "prose"}},
+            {"role": "B", "task": "验证", "deliverable": {"form": "prose"}},
+        ],
+        id_prefix="t",
+    )
+    err = validate_completion_against_forms("code_verified", plan)
+    assert err is not None
+    assert "code_verified" in err
+    assert "form=files" in err or "可改文件" in err
+
+
+def test_prose_times_graph_consistent_rejected():
+    plan, _ = build_run_plan(
+        [{"role": "A", "task": "建站", "deliverable": {"form": "prose"}}],
+        id_prefix="t",
+    )
+    err = validate_completion_against_forms("graph_consistent", plan)
+    assert err is not None
+    assert "graph_consistent" in err
+
+
+def test_runtime_ready_allows_all_prose():
+    plan, _ = build_run_plan(
+        [
+            {"role": "A", "task": "启服检查", "deliverable": {"form": "prose"}},
+            {"role": "B", "task": "就绪报告", "deliverable": {"form": "prose"}},
+        ],
+        id_prefix="t",
+    )
+    assert validate_completion_against_forms("runtime_ready", plan) is None
+
+
+def test_repair_code_shape_allows_code_verified():
+    """D1: patch form=files + diagnose/verify prose + code_verified must pass."""
+    plan, errs = build_run_plan(
+        [
+            {
+                "id": "diagnose",
+                "role": "诊断员",
+                "task": "短诊断",
+                "deliverable": {"form": "prose"},
+            },
+            {
+                "id": "patch",
+                "role": "修补员",
+                "task": "修补",
+                "deliverable": {"form": "files", "requires_files": True},
+                "depends_on": ["diagnose"],
+            },
+            {
+                "id": "verify",
+                "role": "验证员",
+                "task": "验证",
+                "deliverable": {"form": "prose"},
+                "depends_on": ["patch"],
+            },
+        ],
+        id_prefix="t",
+    )
+    assert errs == []
+    assert validate_completion_against_forms("code_verified", plan) is None
 
 
 def test_mixed_batch_allows_files_written():

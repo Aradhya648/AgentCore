@@ -49,8 +49,13 @@ CORE_MEMORY_FILE = "画像.md"
 # Soft, occasionally-tuned, universal → GLOBAL-only (never copied into each project, §二).
 PREFERENCES_MEMORY_FILE = "偏好.md"
 
-# The two always-injected core files, in stable injection order (preferences then profile):
+# Project-only always-injected short entry (记忆 · 双层项目知识): one-line定位 + 任务路由.
+# Not in ALWAYS_MEMORY_FILES — global layer has no 导航; project inject appends after 画像.
+NAVIGATION_MEMORY_FILE = "导航.md"
+
+# The two always-injected GLOBAL core files, in stable injection order (preferences then profile):
 # both ride every prompt's <rules>; ordering is load-bearing for DeepSeek prefix caching.
+# Project layer (画像 then 导航) is appended by injection after these.
 ALWAYS_MEMORY_FILES = (PREFERENCES_MEMORY_FILE, CORE_MEMORY_FILE)
 
 # On-demand topic notes (§三 / §六): ``<scope>/主题/<slug>.md`` — procedural /

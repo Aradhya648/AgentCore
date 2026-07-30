@@ -14,7 +14,6 @@ from agentcore.runtime.spans import (
     NoopSpanExporter,
     Span,
     export_turn_spans,
-    infer_gen_ai_system,
     spans_from_entries,
 )
 

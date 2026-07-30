@@ -1,6 +1,6 @@
 [project]
 name = "agentcore"
-version = "0.3.18"
+version = "0.3.19"
 description = "AgentCore - Multi-Agent AI Workspace Backend"
 requires-python = ">=3.12"
 dependencies = [
@@ -23,7 +23,7 @@ dependencies = [
     "boto3>=1.43.29",
     "cryptography>=49.0.0",
     "pyotp>=2.9",
-    "pillow>=12.2.0",
+    "pillow>=12.3.0",
     "markdown-it-py>=3.0",
     "tree-sitter>=0.23",
     "tree-sitter-python>=0.23",

@@ -179,14 +179,51 @@ async def assemble_ceo_turn(
     # detail no longer rides every turn; the CEO pulls it via consult_skill.
     ceo_tool_names = {schema.name for schema in chat_tools.list_all()}
     explore_reason: str | None = None
+    project_nav_stale = False
     if memory_enabled and folder_id:
-        from agentcore.memory.explore_profile import project_profile_explore_reason
+        from agentcore.memory.explore_profile import (
+            compute_workspace_explore_fingerprint,
+            evaluate_explore_fingerprint_drift,
+            project_profile_explore_reason,
+            resolve_folder_workspace_key,
+            user_named_explore_refresh,
+        )
 
+        mem_store = run_mod.default_memory_store()
+        current_key = await resolve_folder_workspace_key(folder_id)
         explore_reason = await project_profile_explore_reason(
-            run_mod.default_memory_store(),
+            mem_store,
             prepared.base_tool_context.user_id,
             folder_id,
+            current_workspace_key=current_key,
         )
+        # Named refresh hard gate (点名硬闸): allow-list phrases only; same pending as empty/rebind.
+        if not explore_reason and user_named_explore_refresh(user_message):
+            explore_reason = "refresh"
+        # R2 soft hint + R1 background refresh: fingerprint drift never blocks.
+        if not explore_reason:
+            live_fp = await compute_workspace_explore_fingerprint(backend)
+            project_nav_stale = await evaluate_explore_fingerprint_drift(
+                mem_store,
+                prepared.base_tool_context.user_id,
+                folder_id,
+                live_fingerprint=live_fp,
+                current_workspace_key=current_key,
+            )
+            if project_nav_stale:
+                from agentcore.memory.explore_refresh import (
+                    build_workspace_explore_snapshot,
+                    schedule_explore_refresh,
+                )
+
+                snapshot = await build_workspace_explore_snapshot(backend)
+                schedule_explore_refresh(
+                    user_id=prepared.base_tool_context.user_id,
+                    folder_id=folder_id,
+                    workspace_key=current_key,
+                    snapshot=snapshot,
+                    live_fingerprint=live_fp,
+                )
     # Sink explore-pending into ToolContext so delegate can suppress structured
     # files_written inference / hard-reject form=files（prompt 块 delegate 读不到）。
     # Cleared in-place by update_project_profile on successful write.
@@ -198,6 +235,7 @@ async def assemble_ceo_turn(
         ceo_tool_names=ceo_tool_names,
         memory_topics=prepared.memory_topics,
         cold_start_explore=explore_reason or False,
+        project_nav_stale=project_nav_stale,
     )
     # Real-time workspace overview (工作区上下文): a compact, newest-first listing of
     # the files already on disk in this conversation's workspace, so the CEO can

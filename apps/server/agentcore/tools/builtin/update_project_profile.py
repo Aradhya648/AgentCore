@@ -1,7 +1,8 @@
-"""update_project_profile — CEO explore-act close-out writes project ``画像.md``.
+"""update_project_profile — CEO explore-act close-out writes project memory.
 
-Product exception to §1.5: mid-turn write of ``ai_maintained=true`` project profile
-(and optional project ``主题/<slug>.md``). ``remember`` stays user-rules-only.
+Product exception to §1.5: mid-turn write of ``ai_maintained=true`` project profile,
+optional ``导航.md``, and optional project ``主题/<slug>.md``. ``remember`` stays
+user-rules-only.
 """
 
 from __future__ import annotations
@@ -9,13 +10,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from agentcore.config import settings
 from agentcore.core.logging import get_logger
 from agentcore.core.types import ToolApproval, ToolCategory
 from agentcore.memory.explore_profile import (
     MAX_EXPLORE_TOPICS,
+    compute_workspace_explore_fingerprint,
+    filter_topics_by_scope_cap,
     parse_explore_topics,
-    record_explore_workspace_key,
+    record_explore_closeout,
     resolve_folder_workspace_key,
+    write_project_navigation,
     write_project_profile_cas,
     write_project_topics_replace,
 )
@@ -38,7 +43,7 @@ _PROFILE_UPDATED_CLOSE = "</project_profile_updated>"
 
 @dataclass
 class UpdateProjectProfileTool:
-    """CEO-only: merge-write project ``画像.md`` (+ optional topic notes)."""
+    """CEO-only: merge-write project ``画像.md`` (+ optional 导航 / topic notes)."""
 
     registration = ToolRegistration(
         surface=ToolSurface.CEO_ORCHESTRATION,
@@ -60,15 +65,19 @@ class UpdateProjectProfileTool:
             name="update_project_profile",
             description=(
                 "把探索幕（或用户点名「先了解」）汇总的项目简报写入当前项目约定记忆 "
-                "「AgentCore/记忆/画像.md」（AI 维护）。仅在有项目的对话中可用；"
-                "按固定小节合并更新——有证据的小节替换/增补，无新证据的小节保留，禁止整篇无故清空。"
-                "默认只写一页画像；仅当可独立复用的子系统/域≥2 且全塞进画像会臃肿时，"
-                f"才用可选 topics（≤{MAX_EXPLORE_TOPICS}）拆到「记忆/主题/<slug>.md」"
-                "（整文件覆盖该主题；主题 on_demand，不进 always）。"
+                "「AgentCore/记忆/画像.md」（AI 维护），并可同写短入口「记忆/导航.md」。"
+                "仅在有项目的对话中可用；画像按固定小节合并更新——有证据的小节替换/增补，"
+                "无新证据的小节保留，禁止整篇无故清空。"
+                "导航为短入口（一句话定位 +「我要…→先读/先查」路由表）；厚内容放主题/"
+                "文档，勿把长文塞进导航。"
+                "默认只写画像（+建议写导航）；仅当可独立复用的子系统/域≥2 且全塞进画像会臃肿时，"
+                f"才用可选 topics（单次软顶 {MAX_EXPLORE_TOPICS}，超额截断）拆到"
+                "「记忆/主题/<slug>.md」（整文件覆盖该主题；主题 on_demand，不进 always）。"
                 "用 Markdown「## 小节」+「- 要点」格式。建议覆盖：项目是什么、技术栈/包管理、"
                 "关键入口与怎么跑（仅来自清单/README）、风险与边界（有证据才写）、"
                 "工作区已有约定摘录（如 AGENTS.md 要点，不改源文件）。"
-                "禁止臆造；禁止把单次任务过程写入画像/主题；禁止用 remember 写项目简报。"
+                "禁止臆造；禁止把单次任务过程写入画像/主题；禁止用 remember 写项目简报；"
+                "禁止写用户仓根 AGENTS.md/docs。"
                 "写入成功后：若用户原请求含实质活 → **必须立刻继续**（直答或再 delegate），"
                 "禁止以「已建档/已了解，需要我继续吗」收尾；仅当用户本条只要求了解时可停。"
             ),
@@ -82,13 +91,19 @@ class UpdateProjectProfileTool:
                             "空仓禁止编造假画像。"
                         ),
                     },
+                    "navigation": {
+                        "type": "string",
+                        "description": (
+                            "可选。项目短入口「记忆/导航.md」全文（一句话定位 + 任务路由表）。"
+                            "省略则不改已有导航；有实质探索收尾时建议写入。"
+                        ),
+                    },
                     "topics": {
                         "type": "array",
-                        "maxItems": MAX_EXPLORE_TOPICS,
                         "description": (
                             "可选。按需拆出的项目主题笔记；默认省略。"
                             f"每项 slug 为短英文/拼音 id（如 desktop）；"
-                            f"最多 {MAX_EXPLORE_TOPICS} 个。"
+                            f"单次软顶 {MAX_EXPLORE_TOPICS}（超额截断+warning，不硬拒）。"
                         ),
                         "items": {
                             "type": "object",
@@ -133,6 +148,15 @@ class UpdateProjectProfileTool:
 
         topics, topic_warnings = parse_explore_topics(arguments.get("topics"))
         store = self.store if self.store is not None else default_memory_store()
+        if topics:
+            topics, cap_warnings = await filter_topics_by_scope_cap(
+                store,
+                context.user_id,
+                self.folder_id,
+                topics,
+                max_topic_files=settings.memory_max_topic_files,
+            )
+            topic_warnings.extend(cap_warnings)
         try:
             ok, resulting, conflict = await write_project_profile_cas(
                 store=store,
@@ -174,6 +198,38 @@ class UpdateProjectProfileTool:
         # regain structured form=files → files_written inference.
         context.cold_start_explore_pending = False
 
+        nav_path: str | None = None
+        navigation = str(arguments.get("navigation") or "").strip()
+        if navigation:
+            try:
+                nav_path = await write_project_navigation(
+                    store=store,
+                    user_id=context.user_id,
+                    folder_id=self.folder_id,
+                    markdown=navigation,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "memory.explore_navigation_failed",
+                    user_id=context.user_id,
+                    error=str(e),
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output=(
+                        "项目画像已写入，但导航写入失败："
+                        f"{e}。可稍后重试 navigation，或先继续用户原请求。"
+                    ),
+                    error=str(e),
+                    display={
+                        "written": True,
+                        "navigation_written": False,
+                        "kind": "project_profile",
+                        "chars": len(resulting),
+                    },
+                )
+
         topic_paths: list[str] = []
         if topics:
             try:
@@ -205,12 +261,17 @@ class UpdateProjectProfileTool:
                     },
                 )
 
-        self._hot_refresh_prompts(resulting, topic_paths)
-        # Persist workspace identity for 过期再探 (sidecar; does not touch 画像 CAS).
+        self._hot_refresh_prompts(resulting, topic_paths, nav_path)
+        # Persist workspace identity + fingerprint; clear R2 dirty.
         try:
             key = self.workspace_key or await resolve_folder_workspace_key(self.folder_id)
-            await record_explore_workspace_key(
-                store, context.user_id, self.folder_id, key
+            fingerprint = await compute_workspace_explore_fingerprint(context.backend)
+            await record_explore_closeout(
+                store,
+                context.user_id,
+                self.folder_id,
+                workspace_key=key,
+                fingerprint=fingerprint,
             )
         except Exception as e:  # noqa: BLE001 - meta write must not fail the tool
             logger.warning(
@@ -223,10 +284,13 @@ class UpdateProjectProfileTool:
             if len(resulting) <= _OUTPUT_LIMIT
             else resulting[:_OUTPUT_LIMIT] + "\n…"
         )
-        topic_line = ""
+        extra_lines: list[str] = []
+        if nav_path:
+            extra_lines.append(f"已写入导航（always）：{nav_path}。")
         if topic_paths:
             names = "、".join(topic_paths)
-            topic_line = f"\n已写入主题（on_demand，按需 consult_memory）：{names}。"
+            extra_lines.append(f"已写入主题（on_demand，按需 consult_memory）：{names}。")
+        topic_line = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
         warn_line = ""
         if topic_warnings:
             warn_line = "\n注意：" + "；".join(topic_warnings)
@@ -247,20 +311,27 @@ class UpdateProjectProfileTool:
                 "kind": "project_profile",
                 "chars": len(resulting),
                 "topics": [p for p in topic_paths],
+                "navigation": nav_path,
             },
         )
 
     def _hot_refresh_prompts(
-        self, profile_markdown: str, topic_paths: list[str] | None = None
+        self,
+        profile_markdown: str,
+        topic_paths: list[str] | None = None,
+        nav_path: str | None = None,
     ) -> None:
         """Append / replace a same-turn visibility block on live worker system prompts."""
-        topic_note = ""
+        notes: list[str] = []
+        if nav_path:
+            notes.append(f"另已写入项目导航 {nav_path}（下回合 always 注入）")
         if topic_paths:
-            topic_note = (
-                "\n（另已写入项目主题 "
+            notes.append(
+                "另已写入项目主题 "
                 + "、".join(topic_paths)
-                + "，worker 一般不必读；CEO 可 consult_memory）\n"
+                + "，worker 一般不必读；CEO 可 consult_memory"
             )
+        topic_note = ("\n（" + "；".join(notes) + "）\n") if notes else ""
         block = (
             f"\n\n{_PROFILE_UPDATED_OPEN}\n"
             "（当前项目画像刚由探索幕写入，本回合内以此为准）\n"

@@ -319,6 +319,12 @@ export interface TeamPreviewWorker {
   task: string;
   depends_on: string[];
   debate: boolean;
+  /** 交付形态 prose/files 等；缺省=旧帧。 */
+  form?: string;
+  /** 写盘能力判别；由 form 推导。 */
+  write_capability?: "text_only" | "can_write_files";
+  /** 写盘能力展示文案（可改文件 / 仅文字报告）。 */
+  write_capability_label?: string;
 }
 
 /** One debate participant on the debate kickoff card. */

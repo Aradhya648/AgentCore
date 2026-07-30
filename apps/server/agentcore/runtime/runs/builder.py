@@ -445,6 +445,10 @@ def build_added_nodes(
         if not (isinstance(task, str) and task.strip()):
             errors.append(f"add[{i}]: 缺少 task")
             continue
+        prose_err = prose_form_conflict_error(item)
+        if prose_err:
+            errors.append(f"add[{i}]: {prose_err}")
+            continue
         resolved_deps: list[str] = []
         dep_ok = True
         for dep in item.get("depends_on") or []:
@@ -534,6 +538,10 @@ def _flat_plan(
             isinstance(task, str) and task.strip()
         ):
             errors.append(f"tasks[{i}]: 'role' 和 'task' 字段必填")
+            continue
+        prose_err = prose_form_conflict_error(item)
+        if prose_err:
+            errors.append(f"tasks[{i}]: {prose_err}")
     if errors:
         return RunPlan(), errors
     plan = RunPlan()
@@ -644,6 +652,10 @@ def _dag_plan(
             continue
         if not task:
             errors.append(f"Run '{raw_id}': missing task")
+            continue
+        prose_err = prose_form_conflict_error(item)
+        if prose_err:
+            errors.append(f"tasks[{i}]（{role or raw_id}）: {prose_err}")
             continue
         resolved_deps: list[str] = []
         dep_ok = True
@@ -971,6 +983,30 @@ def _parse_deliverable(item: dict[str, Any]) -> Deliverable | None:
 _VALID_DELIVERABLE_FORMS = frozenset({"prose", "files"})
 
 
+def prose_form_conflict_error(item: dict[str, Any]) -> str | None:
+    """Reject raw ``form=prose`` ∩ (``requires_files`` | non-empty ``artifacts``).
+
+    Must run on the CEO's raw task dict **before** :func:`_deliverable_from_dict`
+    clears those fields — otherwise the gate never fires.
+    """
+    raw = item.get("deliverable")
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("form") != "prose":
+        return None
+    has_requires = bool(raw.get("requires_files"))
+    arts = raw.get("artifacts")
+    has_artifacts = isinstance(arts, list) and any(
+        isinstance(a, str) and a.strip() for a in arts
+    )
+    if not has_requires and not has_artifacts:
+        return None
+    return (
+        "契约矛盾：deliverable.form=prose 不能同时声明 requires_files 或 artifacts。"
+        "纯文字交付请去掉这两项；若需落盘/钉路径请改 form=files。"
+    )
+
+
 def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverable:
     required_sections = _str_list(raw.get("required_sections"))
     must_contain = _str_list(raw.get("must_contain"))
@@ -985,7 +1021,8 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
     form = form_raw if form_raw in _VALID_DELIVERABLE_FORMS else None
     # Declaring concrete artifact paths or form=files implies a file deliverable —
     # path reconciliation is stricter than a bare requires_files count check.
-    # form=prose wins: never imply requires_files (even if CEO also set the flag).
+    # form=prose ∩ (requires_files | artifacts) is rejected upstream
+    # (:func:`prose_form_conflict_error`); do not silently coerce that combo away.
     if form == "prose":
         requires_files = False
         artifacts = []  # path reconciliation meaningless for prose delivery

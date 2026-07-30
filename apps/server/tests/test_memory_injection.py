@@ -25,6 +25,30 @@ async def test_injected_memory_appends_project_layer_after_global(tmp_path):
     assert body.index("用 Python") < body.index("本项目用 Rust")
 
 
+async def test_injected_memory_appends_project_navigation_after_profile(tmp_path):
+    from agentcore.memory.store import NAVIGATION_MEMORY_FILE
+
+    store = FileMemoryStore(tmp_path)
+    await store.save("u1", CORE_MEMORY_FILE, "## 关于用户的事实\n- 本项目用 Rust\n", scope="F1")
+    await store.save(
+        "u1",
+        NAVIGATION_MEMORY_FILE,
+        "# 导航\n一句话：Rust 服务\n\n- 改 API → apps/server\n",
+        scope="F1",
+    )
+    body = await load_injected_memory(store, "u1", folder_id="F1", enabled=True)
+    assert "本项目用 Rust" in body
+    assert "改 API" in body
+    assert "导航短入口" in body
+    assert body.index("本项目用 Rust") < body.index("改 API")
+    # Missing navigation is skipped (no crash / no empty label).
+    bare = FileMemoryStore(tmp_path / "bare")
+    await bare.save("u1", CORE_MEMORY_FILE, "## 关于用户的事实\n- only profile\n", scope="F1")
+    only = await load_injected_memory(bare, "u1", folder_id="F1", enabled=True)
+    assert "only profile" in only
+    assert "导航短入口" not in only
+
+
 async def test_injected_memory_skips_project_layer_for_bare_chat(tmp_path):
     store = FileMemoryStore(tmp_path)
     await store.save("u1", CORE_MEMORY_FILE, "## 关于用户的事实\n- 本项目用 Rust\n", scope="F1")

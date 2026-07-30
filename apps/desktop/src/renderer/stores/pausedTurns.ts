@@ -60,6 +60,9 @@ export interface PendingResume {
     task: string;
     depends_on: string[];
     debate: boolean;
+    form?: string;
+    write_capability?: "text_only" | "can_write_files";
+    write_capability_label?: string;
   }>;
   /** team_preview (开工卡): grantable tools listed for capability auth. */
   tools: string[];
@@ -143,6 +146,19 @@ const toWorkers = (
         ? row.depends_on.map(String)
         : [],
       debate: Boolean(row.debate),
+      ...(typeof row.form === "string" && row.form ? { form: row.form } : {}),
+      ...(row.write_capability === "text_only" ||
+      row.write_capability === "can_write_files"
+        ? {
+            write_capability: row.write_capability as
+              | "text_only"
+              | "can_write_files",
+          }
+        : {}),
+      ...(typeof row.write_capability_label === "string" &&
+      row.write_capability_label
+        ? { write_capability_label: row.write_capability_label }
+        : {}),
     };
   });
 

@@ -35,6 +35,9 @@ class PersistenceSettings(BaseModel):
     # Max on-demand topic notes (主题/<slug>.md) per user; new ones beyond this are
     # dropped by the consolidation pass (anti-bloat backstop, 记忆文件夹化 §七).
     memory_max_topic_files: int = 24
+    # R1 fingerprint-dirty explore refresh (旁路): per-folder debounce; never blocks the turn.
+    memory_explore_refresh_enabled: bool = True
+    memory_explore_refresh_idle_seconds: float = 45.0
     # Read-side backstop to the write-side ``memory_section_bullet_cap`` (项目审计-成本性能
     # 专项 COST-001): each always-injected memory file (偏好.md / 画像.md / 项目画像) is
     # DETERMINISTICALLY capped to this many chars before it rides the turn's <rules>. Memory

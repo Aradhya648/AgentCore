@@ -45,9 +45,7 @@ export function shouldHydrateLocalRecovery(r: ConversationRecovery): boolean {
 function localTurnActive(conversationId: string): boolean {
   const rt = getRuntime(conversationId);
   if (rt.isGenerating) return true;
-  const last = [...rt.messages]
-    .reverse()
-    .find((m) => m.role === "assistant");
+  const last = [...rt.messages].reverse().find((m) => m.role === "assistant");
   if (!last) return false;
   return (
     last.isStreaming === true ||

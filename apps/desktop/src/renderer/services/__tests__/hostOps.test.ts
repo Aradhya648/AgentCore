@@ -6,9 +6,9 @@ vi.mock("@/services/interaction", () => ({
   resolveInteraction: (...args: unknown[]) => resolveInteraction(...args),
 }));
 
+import type { HostOpRequiredPayload } from "@/types/events";
 import { resetClientToolFulfillmentForTests } from "../clientToolFulfill";
 import { performHostOp } from "../hostOps";
-import type { HostOpRequiredPayload } from "@/types/events";
 
 function payload(
   over: Partial<HostOpRequiredPayload> = {},

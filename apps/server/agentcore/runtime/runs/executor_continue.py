@@ -287,6 +287,7 @@ async def _continue_run_scoped(
             if allowed_tools is not None:
                 withheld = set(PROSE_WITHHELD_WRITE_TOOLS)
                 allowed_tools = [t for t in allowed_tools if t not in withheld]
+            tool_ctx = replace(tool_ctx, withheld_write_tools="prose")
         if spec.retrieval_budget == 0:
             from agentcore.runtime.runs.executor_shared import _registry_without
 
@@ -370,6 +371,9 @@ async def _continue_run_scoped(
                 tool_failure_sink=tool_failures,
                 turn_evidence_ledger=_turn_ledger_var.get(),
                 ledger_registrant=f"worker:{agent_id}",
+                form_prose=(
+                    spec.deliverable is not None and spec.deliverable.form == "prose"
+                ),
             )
         duration_ms = int((time.monotonic() - start) * 1000)
         usage = round_usage.as_dict()

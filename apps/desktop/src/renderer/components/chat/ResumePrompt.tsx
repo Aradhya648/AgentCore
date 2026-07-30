@@ -478,6 +478,17 @@ function TeamPreviewWorkers({ turn }: { turn: PendingResume }) {
             <p className="min-w-0 text-xs font-medium text-foreground">
               {w.role}
             </p>
+            {w.write_capability_label && (
+              <span
+                className={
+                  w.write_capability === "text_only"
+                    ? "text-xs font-medium text-muted-foreground"
+                    : "text-xs text-muted-foreground"
+                }
+              >
+                {w.write_capability_label}
+              </span>
+            )}
             {w.debate && (
               <span className="text-xs text-muted-foreground">辩论</span>
             )}

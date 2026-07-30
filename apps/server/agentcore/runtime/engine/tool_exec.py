@@ -47,13 +47,27 @@ _ARGS_PARSE_FAILED_MARKER: dict[str, Any] = {"__args_parse_failed__": True}
 # serialize，格式靠 round-trip 单测锁死。禁止用拒绝文案子串匹配。
 TOOL_FAILED_MARKER = "<!--agentcore:tool_failed-->"
 
-# 写盘类工具名（与 serialize._FILE_PRODUCT_ARG 对齐）：allowlist 拒绝时加 handoff 引导。
+# 写盘类工具名（与 serialize._FILE_PRODUCT_ARG 对齐）：miss / allowlist 分流用。
 _FILE_PRODUCT_TOOL_NAMES = frozenset(
     {"file_write", "file_append", "str_replace", "file_move"}
 )
 
+_PROSE_WITHHELD_WRITE_MSG = (
+    "本回合交付形态为 form=prose（仅文字报告），未授改文件工具。"
+    "请完成正文后 handoff；若任务实际需要改代码/落盘，请 escalate 请主管将"
+    "deliverable.form 改为 files 后重派，或在 handoff 中诚实说明形态阻塞。"
+    "禁止改用 delegate 派人，也禁止用 handoff 正文冒充写盘交差。"
+)
+
 # Aggregable tip length for ``tool.execute_end`` reason (status=error).
 _TOOL_ERROR_REASON_MAX = 200
+
+
+def _is_prose_write_withheld(context: ToolContext | None) -> bool:
+    return (
+        context is not None
+        and getattr(context, "withheld_write_tools", None) == "prose"
+    )
 
 
 def _file_read_round_coalesce_key(args: dict[str, Any]) -> str | None:
@@ -108,6 +122,7 @@ def _missing_tool_feedback(
     *,
     raw_name: str | None,
     registry: ToolRegistry,
+    context: ToolContext | None = None,
 ) -> tuple[str, str, bool]:
     """Build user-facing text + log status + policy flag for a registry miss.
 
@@ -115,6 +130,10 @@ def _missing_tool_feedback(
     or assembly gates (CEO vs worker, cloud execution withheld) — not typos. Those
     get an actionable message and ``policy_failure`` so the run circuit breaker
     does not burn on repeated role mistakes.
+
+    ``form=prose`` withhold is stamped on ``context.withheld_write_tools`` at
+    assembly — never infer prose miss solely from ``worker_only`` names (that
+    collides with CEO audience_deny 「请用 delegate」).
     """
     from agentcore.tools.registration import (
         declared_tool_names,
@@ -125,6 +144,9 @@ def _missing_tool_feedback(
     worker_only = worker_only_tool_names()
     execution = execution_class_tool_names()
     declared = declared_tool_names()
+
+    if missing in _FILE_PRODUCT_TOOL_NAMES and _is_prose_write_withheld(context):
+        return (_PROSE_WITHHELD_WRITE_MSG, "prose_withheld", True)
 
     if missing in worker_only and missing in execution:
         return (
@@ -340,12 +362,23 @@ async def execute_tools(
         sink.emit(tool_use_start(tc.id, name, args, run_id=event_run_id))
 
         if allowed_set is not None and name not in allowed_set:
-            error_msg = (
-                f"工具 '{name}' 不在本 run 的允许列表中，未执行。"
-                "请仅使用当前已提供的工具，不要调用未授权的写盘或其他副作用工具。"
-            )
-            if name in _FILE_PRODUCT_TOOL_NAMES:
-                error_msg += "产物请改经 handoff 正文回报，勿再尝试写盘。"
+            if name in _FILE_PRODUCT_TOOL_NAMES and _is_prose_write_withheld(context):
+                error_msg = _PROSE_WITHHELD_WRITE_MSG
+                deny_status = "prose_withheld"
+            elif name in _FILE_PRODUCT_TOOL_NAMES:
+                # 白名单限制：说明限制即可；禁止劝「handoff 正文交差」冒充写盘。
+                error_msg = (
+                    f"工具 '{name}' 不在本 run 的允许列表中，未执行。"
+                    "本回合未授权该写盘工具；请改用已提供的工具，或 escalate / "
+                    "handoff 说明缺写盘权限（勿用正文冒充落盘）。"
+                )
+                deny_status = "allowlist_deny"
+            else:
+                error_msg = (
+                    f"工具 '{name}' 不在本 run 的允许列表中，未执行。"
+                    "请仅使用当前已提供的工具，不要调用未授权的写盘或其他副作用工具。"
+                )
+                deny_status = "allowlist_deny"
             sink.emit(
                 tool_use_end(
                     tc.id, name or raw_name, success=False, output=error_msg, run_id=event_run_id
@@ -354,7 +387,7 @@ async def execute_tools(
             logger.info(
                 "tool.execute_end",
                 tool=name or raw_name,
-                status="allowlist_deny",
+                status=deny_status,
                 duration_ms=0,
                 reason=error_msg,
             )
@@ -375,7 +408,7 @@ async def execute_tools(
         if tool is None:
             missing = name or raw_name
             error_msg, status, policy_failure = _missing_tool_feedback(
-                missing, raw_name=raw_name, registry=registry
+                missing, raw_name=raw_name, registry=registry, context=context
             )
             sink.emit(
                 tool_use_end(

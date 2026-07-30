@@ -198,6 +198,14 @@ class TeamPreviewWorker(WirePayload):
     task: str
     depends_on: list[str]
     debate: bool
+    # D4：与 kickoff/summary.worker_rows 对齐；旧 journal 缺字段 → 前端不展示。
+    form: str | None = absent("交付形态 prose/files 等；缺省=旧帧。")
+    write_capability: Literal["text_only", "can_write_files"] | None = absent(
+        "写盘能力判别；由 form 推导。"
+    )
+    write_capability_label: str | None = absent(
+        "写盘能力展示文案（可改文件 / 仅文字报告）。"
+    )
 
 
 class TeamPreviewSide(WirePayload):

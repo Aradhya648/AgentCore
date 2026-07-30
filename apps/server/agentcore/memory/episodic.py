@@ -48,11 +48,15 @@ class ScopeMemoryMeta:
 
     ``explore_workspace_key`` records the workspace identity last written by the
     cold-start explore act (过期再探); absent on legacy scopes.
+    ``explore_fingerprint`` is the top-tree + key-manifest fingerprint at last explore
+    close-out; ``explore_fingerprint_dirty`` is the R2 soft-stale mark (does not block).
     """
 
     digested_ids: set[str]
     last_semantic_at: datetime | None
     explore_workspace_key: str | None = None
+    explore_fingerprint: str | None = None
+    explore_fingerprint_dirty: bool = False
 
     def to_json(self) -> str:
         payload: dict = {
@@ -65,6 +69,10 @@ class ScopeMemoryMeta:
         }
         if self.explore_workspace_key:
             payload["explore_workspace_key"] = self.explore_workspace_key
+        if self.explore_fingerprint:
+            payload["explore_fingerprint"] = self.explore_fingerprint
+        if self.explore_fingerprint_dirty:
+            payload["explore_fingerprint_dirty"] = True
         return json.dumps(payload, ensure_ascii=False)
 
 
@@ -87,10 +95,17 @@ def _parse_meta(raw: str) -> ScopeMemoryMeta:
             last = None
     key_raw = data.get("explore_workspace_key")
     key = str(key_raw).strip() if isinstance(key_raw, str) and key_raw.strip() else None
+    fp_raw = data.get("explore_fingerprint")
+    fingerprint = (
+        str(fp_raw).strip() if isinstance(fp_raw, str) and fp_raw.strip() else None
+    )
+    dirty = bool(data.get("explore_fingerprint_dirty"))
     return ScopeMemoryMeta(
         digested_ids=digested,
         last_semantic_at=last,
         explore_workspace_key=key,
+        explore_fingerprint=fingerprint,
+        explore_fingerprint_dirty=dirty,
     )
 
 

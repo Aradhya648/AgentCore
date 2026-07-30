@@ -16,6 +16,10 @@ from agentcore.tools.builtin.long_running import (
     long_running_command_match,
     long_running_redirect_message,
 )
+from agentcore.tools.builtin.project_verify import (
+    project_verify_command_match,
+    project_verify_redirect_message,
+)
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
     AUDIENCE_WORKER_ONLY,
@@ -34,6 +38,8 @@ __all__ = [
     "code_execute_description",
     "long_running_command_match",
     "long_running_redirect_message",
+    "project_verify_command_match",
+    "project_verify_redirect_message",
     "render_written_files_marker",
     "WRITTEN_FILES_MARKER_PREFIX",
     "WRITTEN_FILES_MARKER_SUFFIX",
@@ -274,6 +280,19 @@ class CodeExecuteTool:
                 error=msg,
                 duration_ms=int((time.monotonic() - start) * 1000),
                 metadata={"code": "long_running_redirect", "matched": matched},
+                contract_failure=True,
+            )
+
+        verify_matched = project_verify_command_match(code)
+        if verify_matched is not None:
+            msg = project_verify_redirect_message(verify_matched)
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=msg,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                metadata={"code": "project_verify_redirect", "matched": verify_matched},
                 contract_failure=True,
             )
 

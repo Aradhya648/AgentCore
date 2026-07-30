@@ -26,6 +26,7 @@ export const APP_PATHS = {
     appearance: "/more/appearance",
     shortcuts: "/more/shortcuts",
     feedback: "/more/feedback",
+    notices: "/more/notices",
     about: "/more/about",
     legal: {
       terms: "/more/legal/terms",

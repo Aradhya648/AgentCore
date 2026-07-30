@@ -8,6 +8,7 @@ import {
   startNativeNotificationRouting,
   startTeamActivityNotifications,
 } from "@/services/teamActivityNotifications";
+import { useProductNoticesStore } from "@/stores/productNotices";
 import { useStandingInboxStore } from "@/stores/standingInbox";
 import { startUpdates } from "@/stores/updates";
 import { useUsageStore } from "@/stores/usage";
@@ -18,6 +19,7 @@ import { CreateFolderMenuHost } from "../folders/CreateFolderMenu";
 import { Sidebar } from "../sidebar/Sidebar";
 import { CommandPalette } from "./CommandPalette";
 import { OutdatedClientBanner } from "./OutdatedClientBanner";
+import { ProductNoticeBanner } from "./ProductNoticeBanner";
 import { TitleBar } from "./TitleBar";
 
 export function AppShell() {
@@ -49,10 +51,16 @@ export function AppShell() {
   }, []);
 
   // Standing-task inbox badge (awaiting_user + unacked failed) — soft-poll so
-  // More → 收件箱 stays live even when the user is elsewhere.
+  // Automations → 收件箱 stays live even when the user is elsewhere.
   useEffect(() => {
     if (typeof window !== "undefined" && window.__WEB_PREVIEW__) return;
     return useStandingInboxStore.getState().startPolling();
+  }, []);
+
+  // Product notices (全局公告 banner + inbox) — soft-poll; skip offline preview.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.__WEB_PREVIEW__) return;
+    return useProductNoticesStore.getState().startPolling();
   }, []);
 
   // Ambient backend-connectivity heartbeat (probes /readyz) so the composer can
@@ -122,6 +130,7 @@ export function AppShell() {
     <div className="flex h-screen w-screen flex-col overflow-hidden">
       {!webClient && <TitleBar />}
       <OutdatedClientBanner />
+      <ProductNoticeBanner />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {!hideSidebar && <Sidebar />}

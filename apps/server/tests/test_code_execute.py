@@ -180,6 +180,57 @@ def test_long_running_command_match_catches_dev_servers():
     assert long_running_command_match("import { defineConfig } from 'vite'") is None
 
 
+def test_project_verify_command_match_routes_to_test_run():
+    from agentcore.tools.builtin.code_execute import project_verify_command_match
+
+    assert project_verify_command_match("npm install") is not None
+    assert project_verify_command_match("pnpm install") is not None
+    assert project_verify_command_match("npx tsc --noEmit") is not None
+    assert project_verify_command_match("tsc --noEmit") is not None
+    assert project_verify_command_match("npm run build") is not None
+    assert project_verify_command_match("npm test") is not None
+    assert project_verify_command_match("pytest tests/") is not None
+    # Short / lookalike — must not trip.
+    assert project_verify_command_match("print(1+1)") is None
+    assert project_verify_command_match("import { defineConfig } from 'vite'") is None
+    assert project_verify_command_match("from 'vitest'") is None
+    assert project_verify_command_match("npm run dev") is None  # long_running owns this
+
+
+async def test_code_execute_blocks_project_verify_without_sandbox():
+    backend = _FakeBackend(
+        ExecutionResult(success=True, stdout="should-not-run\n", stderr="", exit_code=0, duration_ms=1)
+    )
+    result = await CodeExecuteTool(location="local").execute(
+        {"code": "npx tsc --noEmit", "language": "bash"},
+        _ctx(backend),
+    )
+
+    assert result.success is False
+    assert result.contract_failure is True
+    assert result.metadata.get("code") == "project_verify_redirect"
+    err = result.error or ""
+    assert "test_run" in err
+    assert "code_execute" in err
+    assert backend.requests == []
+
+
+async def test_code_execute_blocks_npm_install_to_test_run():
+    backend = _FakeBackend(
+        ExecutionResult(success=True, stdout="should-not-run\n", stderr="", exit_code=0, duration_ms=1)
+    )
+    result = await CodeExecuteTool(location="server").execute(
+        {"code": "npm install", "language": "bash"},
+        _ctx(backend),
+    )
+
+    assert result.success is False
+    assert result.contract_failure is True
+    assert result.metadata.get("code") == "project_verify_redirect"
+    assert "test_run" in (result.error or "")
+    assert backend.requests == []
+
+
 async def test_code_execute_blocks_long_running_without_sandbox():
     backend = _FakeBackend(
         ExecutionResult(success=True, stdout="should-not-run\n", stderr="", exit_code=0, duration_ms=1)
@@ -230,7 +281,7 @@ async def test_code_execute_launcher_unavailable_is_contract_failure():
         )
     )
     result = await CodeExecuteTool(location="local").execute(
-        {"code": "npx tsc --noEmit", "language": "bash"},
+        {"code": "print(42)", "language": "bash"},
         _ctx(backend),
     )
 

@@ -420,6 +420,7 @@ async def execute_agent_node(
             if allowed_tools is not None:
                 withheld = set(PROSE_WITHHELD_WRITE_TOOLS)
                 allowed_tools = [t for t in allowed_tools if t not in withheld]
+            tool_ctx = replace(tool_ctx, withheld_write_tools="prose")
         # Repair / light short-round posture: no全仓 list / web crawl.
         if spec.max_rounds is not None and spec.max_rounds > 0:
             worker_tools, allowed_tools = _narrow_for_repair_posture(
@@ -707,6 +708,7 @@ async def execute_agent_node(
                     files_expected=files_expected,
                     short_write_posture=short_write_posture,
                     tighten_verify_exec_thrash=tighten_verify_exec_thrash,
+                    form_prose=deliverable_form == "prose",
                 )
             run_usage = run_usage + round_usage
             run_rounds += round_rounds

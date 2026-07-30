@@ -296,27 +296,52 @@ def plan_all_workers_prose(plan: RunPlan) -> bool:
     return True
 
 
+def plan_has_writable_worker(plan: RunPlan) -> bool:
+    """True when at least one worker can land files (not ``form=prose``).
+
+    ``form`` omitted (legacy) keeps write tools; only explicit ``prose`` withholds them.
+    """
+    if not plan.nodes:
+        return False
+    for node in plan.nodes:
+        d = node.deliverable
+        if d is None or d.form != "prose":
+            return True
+    return False
+
+
+# Acceptance kinds that need at least one writable (form=files or equivalent) worker.
+_FILE_LANDING_CRITERIA_KINDS = frozenset(
+    {"files_written", "code_verified", "graph_consistent"}
+)
+
+
 def validate_completion_against_forms(
     raw: Any,
     plan: RunPlan,
 ) -> str | None:
-    """Reject ``files_written`` when every worker is ``form=prose`` (契约矛盾).
+    """Reject file-landing acceptance when no writable worker exists (契约矛盾).
+
+    ``files_written`` / ``code_verified`` / ``graph_consistent`` need at least one
+    ``form=files`` (or non-prose) worker. Mixed ``repair_code`` (patch files + verify
+    prose) passes. ``runtime_ready`` + all-prose is allowed (ready-check need not write).
 
     Returns an error message for the CEO, or ``None`` when the combination is fine.
     """
     if raw is None:
         return None
     criteria = parse_completion_criteria(raw)
-    if criteria is None or criteria.kind != "files_written":
+    if criteria is None or criteria.kind not in _FILE_LANDING_CRITERIA_KINDS:
         return None
-    if not plan_all_workers_prose(plan):
+    if plan_has_writable_worker(plan):
         return None
+    kind = criteria.kind
     return (
-        "契约矛盾：completion_criteria=files_written 要求至少一名 worker 落盘，"
-        "但本批全部 worker 均为 deliverable.form=prose（纯文字、不授写文件工具）。"
-        "改法：① 纯文字交付请省略 completion_criteria，或改用 code_verified / "
-        "runtime_ready（若需跑通验证或进程就绪）；"
-        "② 若确需落盘，把对应 worker 的 deliverable.form 改为 files。"
+        f"契约矛盾：completion_criteria={kind} 要求至少一名可改文件/落盘的队员"
+        f"（deliverable.form=files），但本批没有任何可写盘 worker"
+        f"（均为 form=prose 或不存在队员）。"
+        "改法：① 把修补/落盘员改为 form=files（验证员/诊断员可继续 prose）；"
+        "② 纯文字交付请省略该类验收，或改用 runtime_ready（仅启服/就绪检查）。"
     )
 
 

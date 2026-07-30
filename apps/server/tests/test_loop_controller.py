@@ -534,6 +534,18 @@ def test_progress_review_prompt_role_split():
     assert captain != worker
 
 
+def test_progress_review_prompt_form_prose_no_str_replace():
+    """D3: prose workers must not be urged to str_replace / file_write."""
+    msg = progress_review_prompt(4, form_prose=True)
+    assert "form=prose" in msg or "仅文字" in msg
+    assert "handoff" in msg
+    assert "escalate" in msg
+    assert "请用 str_replace" not in msg
+    assert "下一步用写文件 / str_replace" not in msg
+    # Mentions withheld write tools as forbidden empty spin, not as required action.
+    assert "禁止空转调用 str_replace" in msg or "未授" in msg
+
+
 def test_reflection_skips_when_recent_progress():
     c = LoopController(reflection_start_round=3, reflection_interval=3)
     # Cadence round with a successful file_write → skip.

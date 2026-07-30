@@ -221,6 +221,14 @@ from .model_catalog import (
     ModelCatalogResponse,
     ModelPriceCard,
 )
+from .notices import (
+    ActiveNotice,
+    ActiveNoticesResponse,
+    CreateNoticeRequest,
+    NoticeListResponse,
+    NoticeSummary,
+    UpdateNoticeRequest,
+)
 from .search import SearchItem, SearchResponse, SearchSection
 from .shared_spaces import (
     CreateSharedSpaceRequest,
@@ -514,6 +522,13 @@ __all__ = [
     "FeedbackListResponse",
     "UpdateFeedbackStatusRequest",
     "AdminFeedbackSummary",
+    # notices
+    "CreateNoticeRequest",
+    "UpdateNoticeRequest",
+    "NoticeSummary",
+    "NoticeListResponse",
+    "ActiveNotice",
+    "ActiveNoticesResponse",
     # handoff
     "DispatchHandoffRequest",
     "HandoffJobSummary",

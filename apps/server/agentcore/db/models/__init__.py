@@ -35,6 +35,7 @@ from .devices import PushDeviceRow
 from .documents import Document
 from .feedback import FeedbackRow
 from .llm_profiles import LlmModelProfile
+from .notices import ProductNoticeDismissalRow, ProductNoticeRow
 from .runs import (
     HandoffJob,
     PausedTurnRow,
@@ -74,6 +75,8 @@ __all__ = [
     "Message",
     "MessageBookmark",
     "PausedTurnRow",
+    "ProductNoticeDismissalRow",
+    "ProductNoticeRow",
     "PushDeviceRow",
     "RefreshToken",
     "RunSessionRow",

@@ -73,7 +73,7 @@ class KickoffSummary:
 
 
 def worker_rows(plan: RunPlan) -> list[dict[str, Any]]:
-    """Delegate card rows: role / task excerpt / depends_on / debate flag."""
+    """Delegate card rows: role / task excerpt / depends_on / debate / write capability."""
     from agentcore.runtime.runs.constants import PLAN_REVIEW_SUMMARY_CHARS
 
     limit = PLAN_REVIEW_SUMMARY_CHARS
@@ -82,6 +82,14 @@ def worker_rows(plan: RunPlan) -> list[dict[str, Any]]:
         task = (n.task or n.objective or "").strip()
         if len(task) > limit:
             task = task[:limit] + "…"
+        form = getattr(n.deliverable, "form", None) if n.deliverable else None
+        # form=prose → 仅文字；form=files / omitted → 可改文件（写工具仍装配）。
+        if form == "prose":
+            write_capability = "text_only"
+            write_capability_label = "仅文字报告"
+        else:
+            write_capability = "can_write_files"
+            write_capability_label = "可改文件"
         rows.append(
             {
                 "run_id": n.run_id,
@@ -89,6 +97,9 @@ def worker_rows(plan: RunPlan) -> list[dict[str, Any]]:
                 "task": task,
                 "depends_on": list(n.depends_on),
                 "debate": bool(n.stance) or int(n.round or 0) > 0,
+                "form": form,
+                "write_capability": write_capability,
+                "write_capability_label": write_capability_label,
             }
         )
     return rows

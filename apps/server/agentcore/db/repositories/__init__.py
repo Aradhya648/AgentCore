@@ -49,6 +49,7 @@ from .folders import FolderRepository
 from .llm_profiles import LlmModelProfileRepository
 from .memory_updates import MemoryUpdateRepository
 from .messages import MessageRepository
+from .notices import ProductNoticeRepository
 from .runs import (
     HandoffJobRepository,
     PausedTurnRepository,
@@ -90,6 +91,7 @@ __all__ = [
     "MemoryUpdateRepository",
     "MessageRepository",
     "PausedTurnRepository",
+    "ProductNoticeRepository",
     "PushDeviceRepository",
     "RefreshTokenRepository",
     "RunSessionRepository",

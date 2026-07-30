@@ -32,7 +32,8 @@ const okResponse = () => ({
   ok: true,
   status: 200,
   headers: noHeaders,
-  json: async () => ({}),
+  // api.request reads body via text() then JSON.parse (not response.json()).
+  text: async () => "{}",
 });
 const errResponse = (status: number, body: string) => ({
   ok: false,

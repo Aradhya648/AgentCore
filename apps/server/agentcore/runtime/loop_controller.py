@@ -103,11 +103,14 @@ def zero_write_finalize_prompt(*, rounds: int, prose_idle: bool = False) -> str:
     )
 
 
-def progress_review_prompt(round_number: int, *, role: str = "") -> str:
+def progress_review_prompt(
+    round_number: int, *, role: str = "", form_prose: bool = False
+) -> str:
     """The periodic progress-review steer (B2 反思注入), anchored to the round count.
 
     Role-split copy: captain/CEO aligns to the user goal and chooses 派/问/收尾;
     workers confirm deliverable landing and either fix files or same-round handoff.
+    ``form_prose`` workers must not be told to ``str_replace`` / ``file_write``.
     Never open-ended self-doubt; never push workers toward「最终答案」or self-readback.
     """
     if role == "captain":
@@ -116,6 +119,16 @@ def progress_review_prompt(round_number: int, *, role: str = "") -> str:
             "(1) 目前已确认了哪些关键事实？(2) 距离用户的目标还差什么？"
             "(3) 下一步是再委派、向用户提问，还是基于已有产出收尾？"
             "避免重复已经做过的尝试；不要为复盘去 file_read 产物正文。"
+        )
+    if form_prose:
+        return (
+            f"[系统提示] 进度复盘（已进行 {round_number} 轮）：请停下来确认——"
+            "(1) 本回合是 form=prose（仅文字报告），交付是否已写完正文？"
+            "(2) 若未写完：继续写正文后 handoff；若任务实际需要改文件，请 escalate "
+            "请主管改 form=files 后重派，或 handoff 诚实说明形态阻塞——"
+            "禁止空转调用 str_replace / file_write（本回合未授）。"
+            "(3) 若已满足：请在本轮调用 handoff 交接，不要再展开新调研。"
+            "禁止直接给最终答案代替交接；禁止为复盘去 file_read 自己刚写的产物。"
         )
     return (
         f"[系统提示] 进度复盘（已进行 {round_number} 轮）：请停下来确认——"
@@ -330,6 +343,7 @@ class LoopController:
         convergence_spin_rounds: int = DEFAULT_THRESHOLD,
         zero_write_finalize_rounds: int = 0,
         prose_idle: bool = False,
+        form_prose: bool = False,
         investigation_tools: frozenset[str] = frozenset(),
     ) -> None:
         self._window = window
@@ -361,6 +375,7 @@ class LoopController:
         # ``<= 0`` disables. Landing/handoff *attempt* resets; success latches done.
         self._zero_write_finalize_rounds = max(0, zero_write_finalize_rounds)
         self._prose_idle = bool(prose_idle)
+        self._form_prose = bool(form_prose)
         self._zero_write_investigation_rounds = 0
         self._zero_write_warned = False
         self._landing_succeeded = False
@@ -861,6 +876,11 @@ class LoopController:
     def prose_idle(self) -> bool:
         """True when idle ladder is prose short-budget mode (handoff = delivery)."""
         return self._prose_idle
+
+    @property
+    def form_prose(self) -> bool:
+        """True when deliverable.form=prose (reflection must not urge write tools)."""
+        return self._form_prose
 
     @property
     def zero_write_investigation_rounds(self) -> int:

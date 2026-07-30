@@ -4,7 +4,10 @@ import { resolveInteraction } from "@/services/interaction";
 /** Result envelope posted as `ResolveClientToolInteraction` (sans `kind`). */
 export type ClientToolResultEnvelope =
   | { ok: true; value: unknown }
-  | { ok: false; error: { kind: string; detail: string; [key: string]: unknown } };
+  | {
+      ok: false;
+      error: { kind: string; detail: string; [key: string]: unknown };
+    };
 
 type FulfilledEntry = {
   result: ClientToolResultEnvelope;

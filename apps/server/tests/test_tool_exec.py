@@ -403,8 +403,9 @@ async def test_execute_tools_denies_tool_outside_allowlist():
     assert attempts[0].success is False
     assert attempts[0].policy_failure is True
     assert "允许列表" in (messages[0].content or "")
-    assert "handoff" in (messages[0].content or "")
-    assert "勿再尝试写盘" in (messages[0].content or "")
+    assert "handoff" in (messages[0].content or "") or "escalate" in (messages[0].content or "")
+    assert "勿用正文冒充落盘" in (messages[0].content or "")
+    assert "产物请改经 handoff 正文回报" not in (messages[0].content or "")
     from agentcore.runtime.engine.tool_exec import TOOL_FAILED_MARKER
 
     assert TOOL_FAILED_MARKER in (messages[0].content or "")
@@ -727,3 +728,65 @@ async def test_parallel_distinct_path_file_reads_not_coalesced(tmp_path: Path):
     by_id = {m.tool_call_id: m.content or "" for m in messages}
     assert "AAA" in by_id["r1"]
     assert "BBB" in by_id["r2"]
+
+async def test_prose_withheld_str_replace_miss_not_audience_deny():
+    """D2: form=prose miss must not say「请用 delegate」."""
+    from dataclasses import replace
+
+    reg = ToolRegistry()
+    # Write tools absent from registry (simulates prose withhold strip).
+    reg.register(_OkTool("file_read"))
+    ctx = replace(_ctx(), withheld_write_tools="prose")
+    messages, _terminal, attempts = await execute_tools(
+        [_call("c1", "str_replace", '{"path": "a.py", "old_string": "x", "new_string": "y"}')],
+        reg,
+        ctx,
+        EventSink(),
+        run_id="r1",
+    )
+    assert attempts[0].success is False
+    assert attempts[0].policy_failure is True
+    content = messages[0].content or ""
+    assert "仅文字" in content or "form=prose" in content
+    assert "escalate" in content
+    assert "请用 delegate" not in content
+    assert "delegate 派工" not in content
+
+
+async def test_ceo_str_replace_miss_still_audience_deny():
+    """D2 regression: CEO face without withhold stamp keeps delegate tip."""
+    reg = ToolRegistry()
+    reg.register(_OkTool("delegate"))
+    ctx = _ctx()  # withheld_write_tools=None
+    messages, _terminal, attempts = await execute_tools(
+        [_call("c1", "str_replace", "{}")],
+        reg,
+        ctx,
+        EventSink(),
+        run_id="",
+        role="captain",
+    )
+    content = messages[0].content or ""
+    assert "delegate" in content.lower() or "派工" in content
+    assert "form=prose" not in content
+
+
+async def test_prose_allowlist_deny_no_handoff_as_write():
+    """D2: allowlist deny on write tools under prose withhold uses escalate copy."""
+    from dataclasses import replace
+
+    reg = ToolRegistry()
+    reg.register(_OkTool("str_replace"))
+    ctx = replace(_ctx(), withheld_write_tools="prose")
+    messages, _terminal, attempts = await execute_tools(
+        [_call("c1", "str_replace", "{}")],
+        reg,
+        ctx,
+        EventSink(),
+        run_id="r1",
+        allowed_tool_names=["file_read", "handoff"],  # write tool not allowed
+    )
+    content = messages[0].content or ""
+    assert "form=prose" in content or "仅文字" in content
+    assert "产物请改经 handoff 正文回报" not in content
+    assert "请用 delegate" not in content

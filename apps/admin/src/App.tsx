@@ -10,6 +10,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { MfaSetupPage } from "@/pages/MfaSetupPage";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { ReplayPage } from "@/pages/ReplayPage";
+import { NoticesPage } from "@/pages/NoticesPage";
 import { SystemPage } from "@/pages/SystemPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { NetworkError, setUnauthorizedHandler } from "@/services/api";
@@ -121,6 +122,7 @@ export function App() {
           <Route path="conversations/:segment" element={<ConversationsPage />} />
           <Route path="replay/:conversationId" element={<ReplayPage />} />
           <Route path="audit" element={<AuditPage />} />
+          <Route path="notices" element={<NoticesPage />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="account" element={<AccountPage />} />
         </Route>

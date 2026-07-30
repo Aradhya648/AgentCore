@@ -126,6 +126,7 @@ async def react_loop(
     files_expected: bool = False,
     short_write_posture: bool = False,
     tighten_verify_exec_thrash: bool = False,
+    form_prose: bool = False,
 ) -> tuple[str, str, TokenUsage, int]:
     """Run the ReAct loop.
 
@@ -302,6 +303,7 @@ async def react_loop(
         short_write_posture=short_write_posture,
         tighten_verify_exec_thrash=tighten_verify_exec_thrash,
         max_rounds=profile.max_rounds,
+        form_prose=form_prose,
     )
     # 跑/修·打开验证·贴码写回：引擎不再扫用户文硬分叉；选型/验收靠提示词 + 结构字段。
     if role == "captain":

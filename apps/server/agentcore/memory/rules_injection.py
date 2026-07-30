@@ -27,8 +27,13 @@ from dataclasses import dataclass
 
 from agentcore.core.logging import get_logger
 from agentcore.db.repositories import DocumentRepository
-from agentcore.memory.injection import _PROJECT_MEMORY_LABEL
-from agentcore.memory.store import ALWAYS_MEMORY_FILES, CORE_MEMORY_FILE, MemoryStore
+from agentcore.memory.injection import _PROJECT_MEMORY_LABEL, _PROJECT_NAV_LABEL
+from agentcore.memory.store import (
+    ALWAYS_MEMORY_FILES,
+    CORE_MEMORY_FILE,
+    NAVIGATION_MEMORY_FILE,
+    MemoryStore,
+)
 from agentcore.memory.user_memory import strip_memory_chrome
 
 logger = get_logger(__name__)
@@ -137,7 +142,8 @@ async def _memory_fragments(
     """The AI-memory core as fragments, rendered exactly as the legacy memory concatenation.
 
     GLOBAL 偏好.md + 画像.md (in ``ALWAYS_MEMORY_FILES`` order, chrome-stripped) then — for a
-    project conversation — that project's 画像.md, project-labeled (§二 stable global prefix).
+    project conversation — that project's 画像.md then 导航.md (skip missing), project-labeled
+    (§二 stable global prefix).
     """
     frags: list[RuleFragment] = []
     for file in ALWAYS_MEMORY_FILES:
@@ -154,6 +160,17 @@ async def _memory_fragments(
                     scope="project",
                     authority="ai",
                     body=f"{_PROJECT_MEMORY_LABEL}\n{project_body}",
+                )
+            )
+        nav_body = strip_memory_chrome(
+            await store.load(user_id, NAVIGATION_MEMORY_FILE, scope=folder_id)
+        )
+        if nav_body:
+            frags.append(
+                RuleFragment(
+                    scope="project",
+                    authority="ai",
+                    body=f"{_PROJECT_NAV_LABEL}\n{nav_body}",
                 )
             )
     return frags

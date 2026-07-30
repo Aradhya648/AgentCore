@@ -1,10 +1,10 @@
 """Assemble a user's long-term memory for prompt injection (Agent记忆与知识系统 §二).
 
 The always-injected core spans two GLOBAL files (偏好.md + 画像.md) plus — for a conversation
-bound to a project — that project's 画像.md. They are concatenated into ONE ``<rules>`` memory
-body, GLOBAL first (the stable prefix that rides DeepSeek's cache), the project layer
-appended after a short label so the model reads those bullets as project-scoped. On-demand
-TOPIC names are merged across both scopes for the CEO's 记忆主题目录.
+bound to a project — that project's 画像.md then 导航.md. They are concatenated into ONE
+``<rules>`` memory body, GLOBAL first (the stable prefix that rides DeepSeek's cache), the
+project layer appended after a short label so the model reads those bullets as project-scoped.
+On-demand TOPIC names are merged across both scopes for the CEO's 记忆主题目录.
 
 Both are gated by the caller-supplied ``enabled`` flag (product resolve is always
 on / 定案 A): False ⇒ "" / [] so unit tests can still exercise the off path.
@@ -18,6 +18,7 @@ from agentcore.core.logging import get_logger
 from agentcore.memory.store import (
     ALWAYS_MEMORY_FILES,
     CORE_MEMORY_FILE,
+    NAVIGATION_MEMORY_FILE,
     MemoryScope,
     MemoryStore,
     is_topic_path,
@@ -31,6 +32,7 @@ logger = get_logger(__name__)
 # as "current project only" (a global vs project conflict resolves by wording + proximity,
 # §3.2 — no hard-override structure; the user's explicit instruction still wins).
 _PROJECT_MEMORY_LABEL = "（以下为「当前项目」专属记忆，仅在本项目内适用）"
+_PROJECT_NAV_LABEL = "（以下为「当前项目」导航短入口，只指路、不塞长文）"
 
 # Appended when an always-injected memory file is capped (COST-001). Fixed text so the
 # truncated body stays deterministic — same input → same output → DeepSeek prefix cache holds.
@@ -76,8 +78,9 @@ async def load_injected_memory(
     (stable prefix), then the project profile when ``folder_id`` is set.
 
     ``folder_id`` is the conversation's manual sidebar group (D4 方案 1,
-    folder-refactor-design §8): truthy ⇒ load that group's project-layer 画像.md; NULL
-    (bare chat) ⇒ global only. Auto-promote folders no longer exist post-migration.
+    folder-refactor-design §8): truthy ⇒ load that group's project-layer 画像.md then
+    导航.md (skip missing); NULL (bare chat) ⇒ global only. Auto-promote folders no
+    longer exist post-migration.
 
     ``file_char_cap`` deterministically caps EACH file's body (COST-001 读侧 backstop) — see
     :func:`_cap_memory_body`; ``None`` (default) = unbounded, preserving callers/tests that
@@ -101,6 +104,18 @@ async def load_injected_memory(
                 project_body, file_char_cap, user_id=user_id, file=CORE_MEMORY_FILE, scope=folder_id
             )
             parts.append(f"{_PROJECT_MEMORY_LABEL}\n{project_body}")
+        nav_body = strip_memory_chrome(
+            await store.load(user_id, NAVIGATION_MEMORY_FILE, scope=folder_id)
+        )
+        if nav_body:
+            nav_body = _cap_memory_body(
+                nav_body,
+                file_char_cap,
+                user_id=user_id,
+                file=NAVIGATION_MEMORY_FILE,
+                scope=folder_id,
+            )
+            parts.append(f"{_PROJECT_NAV_LABEL}\n{nav_body}")
     return "\n\n".join(parts)
 
 

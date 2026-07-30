@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 
 import pytest
@@ -186,10 +187,8 @@ async def test_attach_skips_discarded_client_tool(monkeypatch):
         chunk = await asyncio.wait_for(gen.__anext__(), timeout=1.0)
         frames.append(chunk)
         # Next frame would be live tail / ping — give one more pull briefly.
-        try:
+        with contextlib.suppress(TimeoutError):
             frames.append(await asyncio.wait_for(gen.__anext__(), timeout=0.05))
-        except TimeoutError:
-            pass
     finally:
         await gen.aclose()
 

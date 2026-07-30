@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   LogOut,
   type LucideIcon,
+  Megaphone,
   MessageSquare,
   ScrollText,
   Server,
@@ -18,7 +19,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
 /**
- * The console's sections: 概览 / 用户 / 分析 / 系统 / 审计.
+ * The console's sections: 概览 / 用户 / 分析 / 审计 / 公告 / 系统.
  * URL-routed via react-router for bookmarkable deep links.
  * Invites UI is deprecated (open registration); API remains for legacy codes.
  */
@@ -27,8 +28,9 @@ export type AdminTab =
   | "users"
   | "conversations"
   | "analytics"
-  | "system"
-  | "audit";
+  | "audit"
+  | "notices"
+  | "system";
 
 const NAV: { id: AdminTab; label: string; icon: LucideIcon; path: string }[] =
   [
@@ -37,6 +39,7 @@ const NAV: { id: AdminTab; label: string; icon: LucideIcon; path: string }[] =
     { id: "conversations", label: "对话", icon: MessageSquare, path: "/conversations/conversations" },
     { id: "analytics", label: "分析", icon: BarChart3, path: "/analytics/cost" },
     { id: "audit", label: "审计", icon: ScrollText, path: "/audit" },
+    { id: "notices", label: "公告", icon: Megaphone, path: "/notices" },
     { id: "system", label: "系统", icon: Server, path: "/system" },
   ];
 

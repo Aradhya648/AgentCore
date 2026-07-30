@@ -15,6 +15,7 @@ from . import (
     audit_logs,
     conversations,
     feedback,
+    notices,
     observability,
     overview,
     simulation_show,
@@ -36,6 +37,7 @@ router.include_router(agent_audit.router)
 router.include_router(conversations.router)
 router.include_router(observability.router)
 router.include_router(feedback.router)
+router.include_router(notices.router)
 router.include_router(simulation_show.router)
 
 __all__ = ["router"]

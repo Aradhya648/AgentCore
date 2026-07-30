@@ -1,4 +1,5 @@
 import { SectionLabel, SurfaceNavLink } from "@/components/ui";
+import { useProductNoticesUndismissedCount } from "@/stores/productNotices";
 import {
   Cpu,
   Gauge,
@@ -6,6 +7,7 @@ import {
   KeyRound,
   Keyboard,
   type LucideIcon,
+  Megaphone,
   MessageSquarePlus,
   Palette,
   Shield,
@@ -17,6 +19,8 @@ interface NavItem {
   icon: LucideIcon;
   label: string;
   path: string;
+  /** Show undismissed product-notice count (公告 only). */
+  noticesBadge?: boolean;
 }
 
 interface NavGroup {
@@ -61,7 +65,15 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "关于",
-    items: [{ icon: Info, label: "关于", path: "/more/about" }],
+    items: [
+      {
+        icon: Megaphone,
+        label: "公告",
+        path: "/more/notices",
+        noticesBadge: true,
+      },
+      { icon: Info, label: "关于", path: "/more/about" },
+    ],
   },
 ];
 
@@ -97,11 +109,37 @@ export function MorePage() {
 
 /** One grouped nav row. */
 function NavRow({ item }: { item: NavItem }) {
+  if (item.noticesBadge) {
+    return <NoticesNavRow item={item} />;
+  }
+  return <PlainNavRow item={item} />;
+}
+
+function PlainNavRow({ item }: { item: NavItem }) {
   const Icon = item.icon;
   return (
     <SurfaceNavLink to={item.path} className="relative">
       <Icon size={16} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
+    </SurfaceNavLink>
+  );
+}
+
+function NoticesNavRow({ item }: { item: NavItem }) {
+  const Icon = item.icon;
+  const count = useProductNoticesUndismissedCount();
+  return (
+    <SurfaceNavLink to={item.path} className="relative">
+      <Icon size={16} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {count > 0 ? (
+        <span
+          aria-label={`${count} 条未读公告`}
+          className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground"
+        >
+          {count > 99 ? "99+" : count}
+        </span>
+      ) : null}
     </SurfaceNavLink>
   );
 }

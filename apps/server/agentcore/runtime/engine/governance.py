@@ -481,6 +481,7 @@ def create_loop_controller(
     short_write_posture: bool = False,
     tighten_verify_exec_thrash: bool = False,
     max_rounds: int | None = None,
+    form_prose: bool = False,
 ) -> LoopController:
     """Build per-run convergence controller from engine settings.
 
@@ -545,6 +546,7 @@ def create_loop_controller(
         convergence_spin_rounds=settings.engine_convergence_spin_rounds,
         zero_write_finalize_rounds=zero_write,
         prose_idle=prose_idle,
+        form_prose=form_prose,
         investigation_tools=investigation_tools,
     )
     if seed:
@@ -837,7 +839,9 @@ def govern_after_tools(
         return Finalize(reason="convergence")
 
     if breaker_message is None and controller.reflection_due(round_idx):
-        review = progress_review_prompt(round_idx + 1, role=role)
+        review = progress_review_prompt(
+            round_idx + 1, role=role, form_prose=controller.form_prose
+        )
         logger.info("engine.reflection_inject", round=round_idx, role=role or "")
         messages.append(LLMMessage(role="user", content=review))
         record_turn_fact(

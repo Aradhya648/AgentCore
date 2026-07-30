@@ -169,7 +169,8 @@ async def test_repeated_call_nudges_then_finalizes(monkeypatch):
     monkeypatch.setattr(settings, "engine_convergence_spin_rounds", 0)
     same = _tool_chunk("search", '{"q": "x"}')
     # 3 identical calls → NUDGE; window clears; 3 more → FINALIZE.
-    # Empty inventory (no body / disk / brief) → skip LLM salvage, content stays ''.
+    # Successful stub tool output counts as salvage inventory → soft+hard LLM salvage
+    # (script exhausted → empty answers; content stays '').
     provider = _ScriptedProvider([[same], [same], [same], [same], [same], [same]])
     tool = _StubTool()
     (content, _r, _usage, rounds), messages = await _run(provider, tool, max_rounds=20)
@@ -177,17 +178,17 @@ async def test_repeated_call_nudges_then_finalizes(monkeypatch):
     assert content == ""
     assert rounds == 6  # finalized at the 6th round, before the cap
     assert tool.calls == 6
-    assert provider.calls == 6  # no salvage LLM round
+    assert provider.calls == 8  # 6 scripted + soft + hard salvage
     # exactly one fact-anchored nudge was injected (repeated-call flavor)
     nudges = [m for m in messages if m.role == "user" and m.content and "停止重复" in m.content]
     assert len(nudges) == 1
-    # empty-inventory skip does not inject the salvage finalize prompt into messages
+    # salvage inventory → finalize prompt is injected once
     finalize = [
         m
         for m in messages
         if m.role == "user" and m.content and "停止使用调查与执行类工具" in m.content
     ]
-    assert finalize == []
+    assert len(finalize) == 1
 
 
 async def test_repeated_failure_nudge_is_failure_flavored():
@@ -227,8 +228,8 @@ async def test_failed_tool_surfaces_diagnostic_output_not_just_error():
 
 async def test_max_rounds_exhaustion_forces_nonempty_answer():
     # Distinct args each round → governance never trips; the loop exhausts its
-    # budget mid-tool-call. Empty inventory → force_finalize skips LLM salvage
-    # (no fabricated answer when there is nothing to salvage).
+    # budget mid-tool-call. Successful stub tool output → salvage inventory →
+    # soft+hard LLM salvage (script exhausted → content stays '').
     provider = _ScriptedProvider(
         [
             [_tool_chunk("search", '{"q": "a"}')],
@@ -242,7 +243,7 @@ async def test_max_rounds_exhaustion_forces_nonempty_answer():
     assert content == ""
     assert rounds == 3  # reported as the cap → pipeline surfaces MAX_ROUNDS
     assert tool.calls == 3
-    assert provider.calls == 3  # no salvage LLM round on empty inventory
+    assert provider.calls == 5  # 3 scripted + soft + hard salvage
 
 
 async def test_clean_answer_has_no_governance_injection():
@@ -1159,7 +1160,8 @@ def _read_then_answer(reads: int) -> _ScriptedProvider:
     # `reads` rounds of a read with DISTINCT args (so the repeated-call detector never
     # trips — isolating the safety net), then a tool-free answer for below-bar runs.
     # One read per round, so `reads` == investigation rounds. When the net finalizes
-    # mid-run on empty inventory, force_finalize skips LLM salvage (trailing unused).
+    # mid-run, successful stub reads count as salvage inventory; soft salvage consumes
+    # the trailing answer round if present.
     rounds: list[list[LLMChunk]] = [
         [_tool_chunk("file_read", '{"p": "%d"}' % i)] for i in range(reads)
     ]
@@ -1218,16 +1220,17 @@ async def test_safety_net_dormant_below_the_bar_no_soft_nudge(monkeypatch):
 
 async def test_safety_net_finalizes_a_true_runaway(monkeypatch):
     # A run that keeps investigating to the (lowered) bar is force-finalized rather
-    # than spinning to the round cap. Empty inventory → skip LLM salvage, content ''.
+    # than spinning to the round cap. Successful stub reads → salvage inventory →
+    # soft salvage consumes the trailing scripted "done".
     monkeypatch.setattr(settings, "engine_convergence_finalize_rounds", 6)
     reg = ToolRegistry()
     reg.register(_StubTool(name="file_read"))
     provider = _read_then_answer(6)
     content, messages = await _run_with_registry(provider, reg)
 
-    assert content == ""
-    assert provider.calls == 6  # stopped before consuming the trailing answer round
-    assert _finalizes(messages) == []  # empty skip does not inject salvage prompt
+    assert content == "done"
+    assert provider.calls == 7  # 6 investigation + soft salvage (eats trailing done)
+    assert len(_finalizes(messages)) == 1  # salvage prompt injected
 
 
 async def test_safety_net_is_flavor_agnostic_finalizes_a_delegation_capable_run(monkeypatch):
@@ -1241,6 +1244,6 @@ async def test_safety_net_is_flavor_agnostic_finalizes_a_delegation_capable_run(
     provider = _read_then_answer(6)
     content, messages = await _run_with_registry(provider, reg)
 
-    assert content == ""
-    assert provider.calls == 6
-    assert _finalizes(messages) == []  # same empty-skip backstop, regardless of delegate
+    assert content == "done"
+    assert provider.calls == 7  # same salvage path, regardless of delegate
+    assert len(_finalizes(messages)) == 1

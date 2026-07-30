@@ -1,23 +1,27 @@
-"""Cold-start explore act — project ``画像.md`` sufficiency + section-merge write.
+"""Cold-start explore act — project ``画像.md`` / ``导航.md`` + fingerprint meta.
 
 Product exception to §1.5 (normally no mid-turn AI write of ``ai_maintained`` profile):
 explore-act close-out may write the **project** layer only. Orthogonal to consolidation
 ``_is_cold_start`` (global preferences+profile empty). See 编排器 · 冷启动探索幕 /
-记忆 §1.5. P1: optional project ``主题/<slug>.md`` whole-file replace (≤3 / call).
+记忆 §1.5. Optional project ``主题/<slug>.md`` whole-file replace (soft top 5 / call).
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agentcore.core.logging import get_logger
 from agentcore.memory.locks import user_memory_lock
 from agentcore.memory.store import (
     CORE_MEMORY_FILE,
+    NAVIGATION_MEMORY_FILE,
     MemoryStore,
+    is_topic_path,
     memory_version,
     topic_path,
+    topic_slug,
 )
 from agentcore.memory.user_memory import (
     _DEFAULT_PREAMBLE,
@@ -29,11 +33,51 @@ from agentcore.memory.user_memory import (
     strip_memory_chrome,
 )
 
+if TYPE_CHECKING:
+    from agentcore.workspace.protocol import WorkspaceBackend
+
 logger = get_logger(__name__)
 
 _MAX_CAS_RETRIES = 3
-MAX_EXPLORE_TOPICS = 3
+# Soft top per update_project_profile call (T2): extras → warning, not hard reject.
+MAX_EXPLORE_TOPICS = 5
 _SLUG_ALLOWED_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,38}$")
+
+# Top-tree + key-manifest fingerprint inputs (记忆 · 探索触发). Not commit-/day-gated.
+_KEY_MANIFEST_CANDIDATES = (
+    "README.md",
+    "README",
+    "readme.md",
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    "nx.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "Cargo.toml",
+    "go.mod",
+    "AGENTS.md",
+    "CLAUDE.md",
+)
+
+# Named-refresh hard gate — allow-list substrings only (非意图分类器).
+# Synonyms already listed in CEO prompt / 记忆 docs; bare「探索」omitted (too broad).
+_NAMED_EXPLORE_REFRESH_PHRASES = (
+    "先了解",
+    "重新了解",
+    "刷新项目记忆",
+)
+
+
+def user_named_explore_refresh(user_message: str | None) -> bool:
+    """True when user text hits an allow-listed refresh phrase (点名硬闸)."""
+    text = (user_message or "").strip()
+    if not text:
+        return False
+    return any(phrase in text for phrase in _NAMED_EXPLORE_REFRESH_PHRASES)
 
 
 def profile_has_substance(markdown: str | None) -> bool:
@@ -115,24 +159,137 @@ async def record_explore_workspace_key(
     folder_id: str,
     workspace_key: str,
 ) -> None:
-    """Persist explore-act workspace identity alongside episodic meta (same sidecar)."""
+    """Persist explore-act workspace identity (legacy helper; prefer close-out)."""
+    await record_explore_closeout(
+        store, user_id, folder_id, workspace_key=workspace_key, fingerprint=None
+    )
+
+
+async def record_explore_closeout(
+    store: MemoryStore,
+    user_id: str,
+    folder_id: str,
+    *,
+    workspace_key: str,
+    fingerprint: str | None = None,
+) -> None:
+    """Persist workspace key + optional fingerprint; clear R2 dirty on successful explore."""
     from agentcore.memory.episodic import load_scope_meta, save_scope_meta
 
     key = (workspace_key or "").strip()
-    if not key:
+    fp = (fingerprint or "").strip() or None
+    if not key and not fp:
         return
     async with user_memory_lock(user_id):
         meta = await load_scope_meta(store, user_id, scope=folder_id)
-        if meta.explore_workspace_key == key:
+        changed = False
+        if key and meta.explore_workspace_key != key:
+            meta.explore_workspace_key = key
+            changed = True
+        if fp and meta.explore_fingerprint != fp:
+            meta.explore_fingerprint = fp
+            changed = True
+        if meta.explore_fingerprint_dirty:
+            meta.explore_fingerprint_dirty = False
+            changed = True
+        if not changed:
             return
-        meta.explore_workspace_key = key
         await save_scope_meta(store, user_id, meta, scope=folder_id)
         logger.info(
-            "memory.explore_workspace_key_written",
+            "memory.explore_closeout_meta_written",
             user_id=user_id,
             folder_id=folder_id,
-            workspace_key=key,
+            workspace_key=meta.explore_workspace_key,
+            fingerprint=meta.explore_fingerprint,
         )
+
+
+async def compute_workspace_explore_fingerprint(
+    backend: WorkspaceBackend | None,
+) -> str | None:
+    """Hash of top-level tree names + key-manifest content digests. Best-effort."""
+    if backend is None:
+        return None
+    top_names: list[str] = []
+    try:
+        entries = await backend.list(".", "*")
+    except Exception:  # noqa: BLE001 - fingerprint must never break a turn
+        entries = []
+    for entry in entries:
+        name = (entry.path or "").strip().strip("/").split("/")[0]
+        if not name or name.startswith("."):
+            continue
+        top_names.append(f"{'d' if entry.is_dir else 'f'}:{name}")
+    top_names = sorted(set(top_names))
+
+    manifest_lines: list[str] = []
+    for path in _KEY_MANIFEST_CANDIDATES:
+        try:
+            content = await backend.read(path)
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(content, str):
+            continue
+        dig = hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()[:16]
+        manifest_lines.append(f"{path}:{dig}")
+    manifest_lines.sort()
+
+    if not top_names and not manifest_lines:
+        return None
+    payload = "top\n" + "\n".join(top_names) + "\nmanifests\n" + "\n".join(manifest_lines)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def evaluate_explore_fingerprint_drift(
+    store: MemoryStore,
+    user_id: str,
+    folder_id: str,
+    *,
+    live_fingerprint: str | None,
+    current_workspace_key: str | None = None,
+) -> bool:
+    """R2: mark dirty + return True when soft-hint should inject (never blocks).
+
+    Same-binding fingerprint change → dirty. Rebind is owned by explore_reason; skipped here.
+    Matching fingerprint clears dirty. No stored fingerprint → no soft hint (legacy).
+    """
+    from agentcore.memory.episodic import load_scope_meta, save_scope_meta
+
+    meta = await load_scope_meta(store, user_id, scope=folder_id)
+    stored_key = meta.explore_workspace_key
+    if stored_key and current_workspace_key and stored_key != current_workspace_key:
+        return False
+    stored_fp = meta.explore_fingerprint
+    if not stored_fp:
+        return False
+    if not live_fingerprint:
+        return bool(meta.explore_fingerprint_dirty)
+
+    drifted = live_fingerprint != stored_fp
+    if drifted == meta.explore_fingerprint_dirty:
+        return drifted
+
+    async with user_memory_lock(user_id):
+        meta = await load_scope_meta(store, user_id, scope=folder_id)
+        if meta.explore_fingerprint_dirty != drifted:
+            meta.explore_fingerprint_dirty = drifted
+            await save_scope_meta(store, user_id, meta, scope=folder_id)
+            logger.info(
+                "memory.explore_fingerprint_dirty",
+                user_id=user_id,
+                folder_id=folder_id,
+                dirty=drifted,
+            )
+    return drifted
+
+
+async def load_explore_fingerprint(
+    store: MemoryStore, user_id: str, folder_id: str
+) -> str | None:
+    from agentcore.memory.episodic import load_scope_meta
+
+    meta = await load_scope_meta(store, user_id, scope=folder_id)
+    return meta.explore_fingerprint
 
 
 async def project_profile_explore_reason(
@@ -146,6 +303,8 @@ async def project_profile_explore_reason(
 
     Does **not** judge chitchat vs substance (prompt/routing). Bare chat never
     explores. Missing stored key on a non-empty profile → no hard rebind (legacy).
+    Named refresh (``\"refresh\"``) is layered in assemble via
+    :func:`user_named_explore_refresh` — not returned here.
     """
     if not folder_id:
         return None
@@ -362,3 +521,62 @@ async def write_project_topics_replace(
                 chars=len(content),
             )
     return written
+
+
+async def write_project_navigation(
+    *,
+    store: MemoryStore,
+    user_id: str,
+    folder_id: str,
+    markdown: str,
+) -> str | None:
+    """Whole-file replace project ``导航.md`` (short always entry). Empty → no-op."""
+    if not folder_id:
+        raise ValueError("folder_id required for project navigation write")
+    body = (markdown or "").strip()
+    if not body:
+        return None
+    text = body + "\n"
+    async with user_memory_lock(user_id):
+        await store.save(user_id, NAVIGATION_MEMORY_FILE, text, scope=folder_id)
+        logger.info(
+            "memory.explore_navigation_written",
+            user_id=user_id,
+            folder_id=folder_id,
+            chars=len(text),
+        )
+    return NAVIGATION_MEMORY_FILE
+
+
+async def filter_topics_by_scope_cap(
+    store: MemoryStore,
+    user_id: str,
+    folder_id: str,
+    topics: list[tuple[str, str]],
+    *,
+    max_topic_files: int,
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Keep replacements; admit new slugs only while under ``max_topic_files``."""
+    if not topics or max_topic_files <= 0:
+        return topics, []
+    existing_slugs: set[str] = set()
+    for meta in await store.list(user_id, scope=folder_id):
+        if is_topic_path(meta.path):
+            existing_slugs.add(topic_slug(meta.path))
+    kept: list[tuple[str, str]] = []
+    warnings: list[str] = []
+    new_count = 0
+    room = max(0, max_topic_files - len(existing_slugs))
+    for slug, content in topics:
+        if slug in existing_slugs:
+            kept.append((slug, content))
+            continue
+        if new_count >= room:
+            warnings.append(
+                f"主题总数已达上限 {max_topic_files}，跳过新主题 {slug}"
+            )
+            continue
+        kept.append((slug, content))
+        new_count += 1
+        existing_slugs.add(slug)
+    return kept, warnings

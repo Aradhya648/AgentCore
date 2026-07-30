@@ -278,7 +278,16 @@ async function request<T>(
   captureCsrf(response);
 
   if (response.ok) {
-    return response.json();
+    // 204 / empty bodies (e.g. notice dismiss) must not call json().
+    if (
+      response.status === 204 ||
+      response.headers.get("content-length") === "0"
+    ) {
+      return undefined as T;
+    }
+    const text = await response.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
 
   // Access token likely expired: refresh once and replay. Auth endpoints opt
@@ -350,7 +359,15 @@ async function requestWithStatus<T>(
   captureCsrf(response);
 
   if (response.ok) {
-    return { data: (await response.json()) as T, status: response.status };
+    if (
+      response.status === 204 ||
+      response.headers.get("content-length") === "0"
+    ) {
+      return { data: undefined as T, status: response.status };
+    }
+    const text = await response.text();
+    if (!text) return { data: undefined as T, status: response.status };
+    return { data: JSON.parse(text) as T, status: response.status };
   }
 
   if (response.status === 401 && !isAuthPath(path)) {

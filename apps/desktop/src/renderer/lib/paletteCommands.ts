@@ -35,6 +35,7 @@ import {
   Keyboard,
   type LucideIcon,
   Mail,
+  Megaphone,
   MessagesSquare,
   Monitor,
   Moon,
@@ -533,6 +534,21 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
       icon: Info,
       keywords: ["settings", "about", "version", "guanyu"],
       run: go("/more/about"),
+    },
+    {
+      id: "nav-settings-notices",
+      title: "设置 · 公告",
+      category: "前往",
+      icon: Megaphone,
+      keywords: [
+        "settings",
+        "notices",
+        "announcement",
+        "gonggao",
+        "公告",
+        "banner",
+      ],
+      run: go("/more/notices"),
     },
 
     // ---- 主题 (theme) ----

@@ -106,12 +106,24 @@ export function entryToTeamPreview(e: InteractionEntry): TeamPreviewDisplay {
       task?: string;
       depends_on?: string[];
       debate?: boolean;
+      form?: string;
+      write_capability?: "text_only" | "can_write_files";
+      write_capability_label?: string;
     }>(p.workers).map((w) => ({
       run_id: w.run_id,
       role: w.role,
       task: w.task ?? "",
       depends_on: w.depends_on ?? [],
       debate: Boolean(w.debate),
+      ...(typeof w.form === "string" && w.form ? { form: w.form } : {}),
+      ...(w.write_capability === "text_only" ||
+      w.write_capability === "can_write_files"
+        ? { write_capability: w.write_capability }
+        : {}),
+      ...(typeof w.write_capability_label === "string" &&
+      w.write_capability_label
+        ? { write_capability_label: w.write_capability_label }
+        : {}),
     })),
     tools: arr<string>(p.tools),
     motion: str(p.motion),

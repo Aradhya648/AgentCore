@@ -315,11 +315,13 @@ ask_user_*）；立即发卡，勿纯文本劝授权、勿要手填路径、勿�
 （例：设计文档 vs 代码现状），禁止 1 人包办整仓审查。
 
 【冷启动探索幕】有项目且提示出现 `<cold_start_explore>` 时：实质请求须先组队摸清项目，\
-收尾用 `update_project_profile` 写项目画像（大仓可按需带 topics）后再**立刻继续**原请求；\
+收尾用 `update_project_profile` 写项目画像与短入口导航（大仓可按需带 topics）后再**立刻继续**原请求；\
 禁止以「已建档/已了解，需要我继续吗」收尾；纯闲聊/致谢不自动开幕；\
 用户点名「先了解 / 探索 / 重新了解 / 刷新项目记忆」即使画像已有内容也开幕（合并更新；\
-仅了解无其它任务时可停）。绑定已变（闸文案写明）→ 须合并更新画像。\
+仅了解无其它任务时可停）。绑定已变（闸文案写明）→ 须合并更新画像/导航。\
 禁止用 `remember` 写项目简报；空工作区不扫仓、不写假画像。与巩固侧「冷启动」无关。
+若仅出现 `<project_nav_stale>`（无 cold_start 块）→ **不挡**当前请求，继续用已有入口；\
+可向用户说明结构已变，点名刷新即可。
 
 你的正文只写规划、澄清、综述与指引——绝不为省委派把成篇交付物贴进回复充数。
 worker 看不到对话历史：关键约束写进 task（只写目标·约束·验收，详见编排 skill）。
@@ -382,12 +384,13 @@ _COLD_START_EXPLORE_HINT_EMPTY = """
 若用户本条是实质请求（读仓/改仓/调研/交付物/怎么跑等与项目相关）→ 本回合必须先开探索幕：\
 轻量探路（≤5 **轮**）写清任务书 → `delegate` 组调研队（**≥2 角并行**，例：目录/入口 vs \
 设计·约定文档；走 team_preview / full_auto 同其它委派；**禁止** 1 人包办整仓）→ \
-收齐后调用 `update_project_profile` 写入项目画像（大仓且子系统≥2 可臃肿时才带 topics）→ \
+收齐后调用 `update_project_profile` 写入项目画像与短入口导航（大仓且子系统≥2 可臃肿时才带 topics）→ \
 **立刻继续处理用户原请求**（直答或再 delegate；禁止「已建档，需要我继续吗」类收尾）。\
 纯问候/致谢/与项目无关的闲聊 → 不要自动开幕。\
 用户点名「先了解 / 探索 / 重新了解 / 刷新项目记忆」且无其它任务 → 强制开幕，可停在简短建档说明。\
 `<workspace_file_index>` 显示工作区为空 → 说明空仓并引导绑仓/列目录；禁止空转扫仓小队、禁止写假画像。\
-调研 worker 只调查回报；仅你收尾写画像/主题；禁止用 `remember` 把项目简报写成用户规则。
+调研 worker 只调查回报；仅你收尾写画像/导航/主题；禁止用 `remember` 把项目简报写成用户规则；\
+禁止写用户仓根 AGENTS.md/docs；探索 pending 期间勿让 worker 以 form=files 落盘。
 </cold_start_explore>"""
 
 
@@ -395,7 +398,7 @@ _COLD_START_EXPLORE_HINT_REBIND = """
 <cold_start_explore>
 【冷启动探索幕 · 绑定已变】当前项目工作区绑定相对上次写入画像时已变化，旧简报可能不准。
 若用户本条是实质请求 → 本回合必须先开探索幕（合并更新，勿整篇清空）：轻量探路（≤5 **轮**）→ \
-`delegate` 组调研队（**≥2 角并行**；禁止 1 人包办）→ `update_project_profile` 合并写画像\
+`delegate` 组调研队（**≥2 角并行**；禁止 1 人包办）→ `update_project_profile` 合并写画像与导航\
 （可带 topics）→ **立刻继续原请求**。\
 禁止「已建档，需要我继续吗」收尾。纯闲聊不自动开幕。\
 用户点名「重新了解 / 刷新项目记忆 / 先了解」→ 强制开幕（合并）。\
@@ -403,9 +406,30 @@ _COLD_START_EXPLORE_HINT_REBIND = """
 </cold_start_explore>"""
 
 
+_COLD_START_EXPLORE_HINT_REFRESH = """
+<cold_start_explore>
+【冷启动探索幕 · 用户点名刷新】用户点名要求重新了解 / 刷新项目记忆（画像已有内容，合并更新）。
+本回合必须先开探索幕：轻量探路（≤5 **轮**）→ `delegate` 组调研队（**≥2 角并行**；禁止 1 人包办）→ \
+`update_project_profile` 合并写画像与导航（可带 topics）→ \
+有其它实质原请求则**立刻继续**；仅了解/刷新无其它任务时可停在简短说明。\
+禁止「已建档，需要我继续吗」收尾；禁止用 `remember` 写项目简报；\
+空工作区不扫仓、不写假画像；探索 pending 期间勿让 worker 以 form=files 落盘；\
+勿写用户仓根 AGENTS.md/docs；厚案卷 ``文档/项目/`` 不在本幕写。
+</cold_start_explore>"""
+
+
+# R2 soft hint only — never enter <cold_start_explore> / never set explore-pending.
+_PROJECT_NAV_STALE_HINT = """
+<project_nav_stale>
+【项目结构提示】工作区相对上次探索写入时已变化。当前回合继续用已有画像/导航，**不挡**原请求；\
+若需刷新可点名「重新了解」或「刷新项目记忆」。
+</project_nav_stale>"""
+
+
 _PROJECT_PROFILE_TOOL_HINT = """
 【项目画像写入】探索幕收尾或用户点名了解/重新了解项目后，用 `update_project_profile` 合并更新项目 \
-`画像.md`；默认不拆主题；仅当≥2 可复用子系统且画像会臃肿时才传 topics（≤3，短 slug）。\
+`画像.md`，并建议同写短入口 `导航.md`；默认不拆主题；仅当≥2 可复用子系统且画像会臃肿时才传 \
+topics（单次软顶 5，短 slug；超额截断）。\
 写完后：有实质原请求 → 立刻继续；仅了解 → 可停。禁止用 `remember` 写项目简报。
 """
 
@@ -415,6 +439,8 @@ def _explore_act_block(reason: str | None) -> str:
         return _COLD_START_EXPLORE_HINT_EMPTY.strip()
     if reason == "rebind":
         return _COLD_START_EXPLORE_HINT_REBIND.strip()
+    if reason == "refresh":
+        return _COLD_START_EXPLORE_HINT_REFRESH.strip()
     return ""
 
 
@@ -616,6 +642,7 @@ def compose_ceo_chat_prompt(
     ceo_tool_names: set[str],
     memory_topics: Sequence[MemoryTopic] = (),
     cold_start_explore: bool | str | None = False,
+    project_nav_stale: bool = False,
 ) -> str:
     """Compose the CEO chat agent's system prompt from the clean base.
 
@@ -632,7 +659,10 @@ def compose_ceo_chat_prompt(
     caller AFTER this so the stable hint stack stays prefix-cache friendly (缓存友好).
 
     ``cold_start_explore``: ``False``/``None``/``\"\"`` off; ``True`` or ``\"empty\"`` empty-profile
-    gate; ``\"rebind\"`` workspace-identity mismatch gate (过期再探).
+    gate; ``\"rebind\"`` workspace-identity mismatch gate (过期再探);
+    ``\"refresh\"`` named-refresh hard gate (点名硬闸).
+    ``project_nav_stale``: R2 soft hint when fingerprint drifted (never blocking; separate
+    from ``<cold_start_explore>``).
 
     Single source shared by the live turn (``runtime.pipeline``) and the static
     capability catalog (``api`` 能力图鉴), so what the user sees as「AI 工作准则」never
@@ -645,16 +675,22 @@ def compose_ceo_chat_prompt(
     reason: str | None
     if cold_start_explore is True:
         reason = "empty"
-    elif cold_start_explore in ("empty", "rebind"):
+    elif cold_start_explore in ("empty", "rebind", "refresh"):
         reason = str(cold_start_explore)
     else:
         reason = None
     explore_block = _explore_act_block(reason)
+    stale_block = (
+        _PROJECT_NAV_STALE_HINT.strip()
+        if project_nav_stale and not explore_block
+        else ""
+    )
     return (
         ContextAssembler()
         .add("ceo_base", base_prompt, SectionOrder.BASE)
         .add("ceo_core", ceo_core, SectionOrder.CEO_CORE)
         .add("cold_start_explore", explore_block, SectionOrder.CEO_CORE)
+        .add("project_nav_stale", stale_block, SectionOrder.CEO_CORE)
         .add(
             "skill_directory",
             render_skill_directory(skill_registry, ceo_tool_names),

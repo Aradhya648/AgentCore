@@ -10,6 +10,10 @@ import pytest
 
 from agentcore.memory.explore_profile import (
     build_workspace_key,
+    compute_workspace_explore_fingerprint,
+    evaluate_explore_fingerprint_drift,
+    filter_topics_by_scope_cap,
+    load_explore_fingerprint,
     load_explore_workspace_key,
     merge_profile_by_sections,
     normalize_explore_topic_slug,
@@ -18,11 +22,14 @@ from agentcore.memory.explore_profile import (
     project_profile_explore_reason,
     project_profile_is_empty,
     project_profile_needs_explore,
+    record_explore_closeout,
     record_explore_workspace_key,
+    user_named_explore_refresh,
+    write_project_navigation,
     write_project_profile_cas,
     write_project_topics_replace,
 )
-from agentcore.memory.store import CORE_MEMORY_FILE, FileMemoryStore
+from agentcore.memory.store import CORE_MEMORY_FILE, NAVIGATION_MEMORY_FILE, FileMemoryStore
 from agentcore.runtime.resolve.prompt import compose_ceo_chat_prompt
 from agentcore.runtime.skills import build_system_skill_registry
 from agentcore.tools.builtin.remember import RememberTool
@@ -310,6 +317,33 @@ def test_compose_prompt_rebind_gate():
     assert "<cold_start_explore>" in text
     assert "画像.md」为空" not in text
 
+
+def test_compose_prompt_refresh_gate():
+    skills = build_system_skill_registry()
+    text = compose_ceo_chat_prompt(
+        "BASE",
+        skill_registry=skills,
+        ceo_tool_names={"update_project_profile", "delegate"},
+        cold_start_explore="refresh",
+    )
+    assert "用户点名刷新" in text
+    assert "<cold_start_explore>" in text
+    assert "合并" in text
+    assert "画像.md」为空" not in text
+    assert "【冷启动探索幕 · 绑定已变】" not in text
+    assert "form=files" in text
+    assert "文档/项目" in text
+
+
+def test_user_named_explore_refresh_allow_list():
+    assert user_named_explore_refresh("请重新了解项目") is True
+    assert user_named_explore_refresh("先了解一下这个仓库") is True
+    assert user_named_explore_refresh("刷新项目记忆") is True
+    assert user_named_explore_refresh("帮我改一下 README") is False
+    assert user_named_explore_refresh("探索一下这个 API") is False
+    assert user_named_explore_refresh("") is False
+
+
 def test_compose_prompt_without_profile_tool_skips_write_hint():
     skills = build_system_skill_registry()
     text = compose_ceo_chat_prompt(
@@ -346,10 +380,12 @@ def test_normalize_and_parse_explore_topics():
             {"slug": "runtime", "content": "## 入口\n- FastAPI\n"},
             {"slug": "desktop", "content": "## 入口\n- Electron\n"},
             {"slug": "admin", "content": "x"},
+            {"slug": "mobile", "content": "y"},
+            {"slug": "docs", "content": "z"},
             {"slug": "extra", "content": "should warn"},
         ]
     )
-    assert [s for s, _ in topics] == ["runtime", "desktop", "admin"]
+    assert [s for s, _ in topics] == ["runtime", "desktop", "admin", "mobile", "docs"]
     assert any("超过" in w for w in warnings)
 
 
@@ -378,6 +414,118 @@ async def test_update_project_profile_writes_topics(tmp_path):
     assert "Monorepo" in await store.load(uid, CORE_MEMORY_FILE, scope=folder)
     assert "apps/server" in await store.load(uid, "主题/runtime.md", scope=folder)
     assert "apps/desktop" in await store.load(uid, "主题/desktop.md", scope=folder)
+
+
+@pytest.mark.asyncio
+async def test_update_project_profile_soft_top_five_topics(tmp_path):
+    """T2: >5 topics truncate with warning; do not hard-reject the call."""
+    store = FileMemoryStore(tmp_path)
+    uid = str(uuid4())
+    folder = str(uuid4())
+    tool = UpdateProjectProfileTool(
+        folder_id=folder, store=store, workspace_key=f"folder:{folder}"
+    )
+    topics = [{"slug": f"t{i}", "content": f"body {i}"} for i in range(7)]
+    res = await tool.execute(
+        {"content": "## 技术栈与工具\n- Soft top\n", "topics": topics},
+        _ctx(user_id=uid),
+    )
+    assert res.success
+    assert len(res.display["topics"]) == 5
+    assert "超过" in res.output
+    assert await store.load(uid, "主题/t5.md", scope=folder) == ""
+    assert "body 4" in await store.load(uid, "主题/t4.md", scope=folder)
+
+
+@pytest.mark.asyncio
+async def test_update_project_profile_writes_navigation_and_fingerprint(tmp_path):
+    store = FileMemoryStore(tmp_path)
+    uid = str(uuid4())
+    folder = str(uuid4())
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "README.md").write_text("# Hello\n", encoding="utf-8")
+    (ws / "apps").mkdir()
+    backend = ServerWorkspace(root=ws, sandbox=SubprocessSandbox())
+    tool = UpdateProjectProfileTool(
+        folder_id=folder, store=store, workspace_key=f"folder:{folder}"
+    )
+    ctx = _ctx(user_id=uid)
+    ctx.backend = backend
+    res = await tool.execute(
+        {
+            "content": "## 技术栈与工具\n- Python\n",
+            "navigation": "# 导航\n一句话：示例仓\n\n## 任务路由\n- 改后端 → apps/server\n",
+        },
+        ctx,
+    )
+    assert res.success
+    assert res.display["navigation"] == NAVIGATION_MEMORY_FILE
+    nav = await store.load(uid, NAVIGATION_MEMORY_FILE, scope=folder)
+    assert "示例仓" in nav
+    assert await load_explore_workspace_key(store, uid, folder) == f"folder:{folder}"
+    fp = await load_explore_fingerprint(store, uid, folder)
+    assert fp
+    live = await compute_workspace_explore_fingerprint(backend)
+    assert fp == live
+
+
+@pytest.mark.asyncio
+async def test_fingerprint_drift_marks_dirty_without_explore_reason(tmp_path):
+    store = FileMemoryStore(tmp_path)
+    uid = str(uuid4())
+    folder = str(uuid4())
+    await store.save(uid, CORE_MEMORY_FILE, "## 技术栈与工具\n- Go\n", scope=folder)
+    await record_explore_closeout(
+        store,
+        uid,
+        folder,
+        workspace_key="local:root-a:",
+        fingerprint="fp-old",
+    )
+    assert await project_profile_explore_reason(
+        store, uid, folder, current_workspace_key="local:root-a:"
+    ) is None
+    stale = await evaluate_explore_fingerprint_drift(
+        store,
+        uid,
+        folder,
+        live_fingerprint="fp-new",
+        current_workspace_key="local:root-a:",
+    )
+    assert stale is True
+    from agentcore.memory.episodic import load_scope_meta
+
+    meta = await load_scope_meta(store, uid, scope=folder)
+    assert meta.explore_fingerprint_dirty is True
+    # Still not a blocking explore reason.
+    assert await project_profile_explore_reason(
+        store, uid, folder, current_workspace_key="local:root-a:"
+    ) is None
+
+
+def test_compose_prompt_project_nav_stale_soft_hint():
+    skills = build_system_skill_registry()
+    text = compose_ceo_chat_prompt(
+        "BASE",
+        skill_registry=skills,
+        ceo_tool_names={"update_project_profile", "delegate"},
+        cold_start_explore=False,
+        project_nav_stale=True,
+    )
+    assert "【项目结构提示】" in text
+    assert "当前项目约定记忆「画像.md」为空" not in text
+    assert "【冷启动探索幕 · 绑定已变】" not in text
+    # Blocking explore wins over soft hint.
+    blocked = compose_ceo_chat_prompt(
+        "BASE",
+        skill_registry=skills,
+        ceo_tool_names={"update_project_profile", "delegate"},
+        cold_start_explore="empty",
+        project_nav_stale=True,
+    )
+    assert "当前项目约定记忆「画像.md」为空" in blocked
+    assert "【项目结构提示】" not in blocked
 
 
 @pytest.mark.asyncio
@@ -417,3 +565,40 @@ async def test_write_project_topics_replace_overwrites(tmp_path):
         topics=[("runtime", "new body")],
     )
     assert (await store.load(uid, "主题/runtime.md", scope=folder)).strip() == "new body"
+
+
+@pytest.mark.asyncio
+async def test_write_project_navigation(tmp_path):
+    store = FileMemoryStore(tmp_path)
+    uid = str(uuid4())
+    folder = str(uuid4())
+    path = await write_project_navigation(
+        store=store,
+        user_id=uid,
+        folder_id=folder,
+        markdown="# 导航\n- 改 X → 先读 Y\n",
+    )
+    assert path == NAVIGATION_MEMORY_FILE
+    assert "改 X" in await store.load(uid, NAVIGATION_MEMORY_FILE, scope=folder)
+
+
+@pytest.mark.asyncio
+async def test_filter_topics_by_scope_cap(tmp_path):
+    store = FileMemoryStore(tmp_path)
+    uid = str(uuid4())
+    folder = str(uuid4())
+    await write_project_topics_replace(
+        store=store,
+        user_id=uid,
+        folder_id=folder,
+        topics=[("a", "1"), ("b", "2")],
+    )
+    kept, warnings = await filter_topics_by_scope_cap(
+        store,
+        uid,
+        folder,
+        [("a", "replace"), ("c", "new"), ("d", "new2")],
+        max_topic_files=3,
+    )
+    assert kept == [("a", "replace"), ("c", "new")]
+    assert any("上限" in w for w in warnings)
