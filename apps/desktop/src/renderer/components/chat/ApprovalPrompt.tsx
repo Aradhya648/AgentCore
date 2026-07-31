@@ -1,6 +1,5 @@
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { CodeBlock } from "@/components/chat/CodeBlock";
-import { WaitingForDecisionHint } from "@/components/chat/WaitingForDecisionHint";
 import {
   codeExecuteLanguage,
   deriveCodeExecuteRiskTags,
@@ -269,7 +268,7 @@ export function ApprovalCard({
     if (trustBusy || !approval.conversationId) return;
     if (
       !window.confirm(
-        "切换到「托管」后，AI 将与你同权执行命令（含本地运行代码）。确定继续？",
+        "切换到「托管」后，执行类（代码/终端/浏览器等）与桌面提醒将免审；本机 Host 本会话信任。确定继续？",
       )
     ) {
       return;
@@ -345,7 +344,6 @@ export function ApprovalCard({
             </p>
             <ManualHelpLink to={MANUAL_HELP.autonomy} />
           </div>
-          <WaitingForDecisionHint />
           {headline && (
             <SimpleTooltip label={headline}>
               <p

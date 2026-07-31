@@ -61,15 +61,23 @@ const notifyMock = vi.mocked(notifyError);
 
 function mockBrowserApi(overrides: Partial<BrowserApi> = {}): BrowserApi {
   return {
-    show: vi.fn().mockResolvedValue({ ok: true }),
+    show: vi.fn().mockResolvedValue({
+      ok: true,
+      url: "about:blank",
+      title: "",
+      canGoBack: false,
+      canGoForward: false,
+    }),
     setBounds: vi.fn(),
     hide: vi.fn().mockResolvedValue(undefined),
     navigate: vi.fn().mockResolvedValue({ ok: true }),
     openWorkspaceHtml: vi.fn().mockResolvedValue({ ok: true }),
     reload: vi.fn(),
     back: vi.fn(),
+    forward: vi.fn(),
     close: vi.fn(),
     closeConversation: vi.fn().mockResolvedValue({ ok: true }),
+    openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onNavState: vi.fn().mockReturnValue(() => {}),
     ...overrides,
   };
@@ -98,7 +106,11 @@ async function waitForPages(conversationId: string, min = 1) {
 }
 
 beforeEach(() => {
-  useBrowserSessionsStore.setState({ pages: [], activePageId: null });
+  useBrowserSessionsStore.setState({
+    pages: [],
+    activePageId: null,
+    activePageIdByConversation: {},
+  });
   listMock.mockReset();
   closeMock.mockReset();
   createMock.mockReset();
@@ -544,7 +556,9 @@ describe("BrowserPanel", () => {
     nav.cb?.({
       pageId: page.id,
       url: "https://example.com/b",
+      title: "Example",
       canGoBack: true,
+      canGoForward: false,
     });
     await waitFor(() => {
       expect(
@@ -553,6 +567,39 @@ describe("BrowserPanel", () => {
     });
     fireEvent.click(screen.getByLabelText("后退"));
     expect(api.back).toHaveBeenCalledWith(page.id);
+  });
+
+  it("enables forward when navState reports canGoForward", async () => {
+    const nav = {
+      cb: null as ((s: BrowserNavState) => void) | null,
+    };
+    const api = mockBrowserApi({
+      onNavState: (cb) => {
+        nav.cb = cb;
+        return () => {};
+      },
+    });
+    window.browserApi = api;
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitForPages("conv-1");
+    const page = firstPage("conv-1");
+    expect((screen.getByLabelText("前进") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    nav.cb?.({
+      pageId: page.id,
+      url: "https://example.com/a",
+      title: "Example",
+      canGoBack: true,
+      canGoForward: true,
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("前进") as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    fireEvent.click(screen.getByLabelText("前进"));
+    expect(api.forward).toHaveBeenCalledWith(page.id);
   });
 
   it("back/reload for serverSession page use bare session id", async () => {
@@ -584,7 +631,9 @@ describe("BrowserPanel", () => {
     nav.cb?.({
       pageId: "sess-nav",
       url: "https://example.com/b",
+      title: "Ex",
       canGoBack: true,
+      canGoForward: false,
     });
     await waitFor(() => {
       expect(
@@ -595,6 +644,99 @@ describe("BrowserPanel", () => {
     expect(api.back).toHaveBeenCalledWith("sess-nav");
     fireEvent.click(screen.getByLabelText("刷新"));
     expect(api.reload).toHaveBeenCalledWith("sess-nav");
+  });
+
+  it("on remount does not navigate when show returns a live host URL", async () => {
+    const api = mockBrowserApi({
+      show: vi.fn().mockResolvedValue({
+        ok: true,
+        url: "https://example.com/real",
+        title: "Real",
+        canGoBack: true,
+        canGoForward: false,
+      }),
+    });
+    window.browserApi = api;
+    useBrowserSessionsStore.setState({
+      pages: [
+        {
+          id: "page-keep",
+          url: "https://example.com/stale",
+          title: "Stale",
+          conversationId: "conv-1",
+          serverSessionId: null,
+        },
+      ],
+      activePageId: "page-keep",
+      activePageIdByConversation: { "conv-1": "page-keep" },
+    });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        bottom: 100,
+        right: 100,
+        width: 100,
+        height: 100,
+        toJSON: () => ({}),
+      });
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitFor(() => {
+      expect(api.show).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect((screen.getByLabelText("地址栏") as HTMLInputElement).value).toBe(
+        "https://example.com/real",
+      );
+    });
+    expect(api.navigate).not.toHaveBeenCalled();
+    expect(useBrowserSessionsStore.getState().pages[0]?.url).toBe(
+      "https://example.com/real",
+    );
+    rectSpy.mockRestore();
+  });
+
+  it("cold-restores navigate when show returns blank and store has URL", async () => {
+    const api = mockBrowserApi();
+    window.browserApi = api;
+    useBrowserSessionsStore.setState({
+      pages: [
+        {
+          id: "page-cold",
+          url: "https://example.com/cold",
+          title: "Cold",
+          conversationId: "conv-1",
+          serverSessionId: null,
+        },
+      ],
+      activePageId: "page-cold",
+      activePageIdByConversation: { "conv-1": "page-cold" },
+    });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        bottom: 100,
+        right: 100,
+        width: 100,
+        height: 100,
+        toJSON: () => ({}),
+      });
+    render(<BrowserPanel conversationId="conv-1" liveAvailable={false} />);
+    await waitFor(() => {
+      expect(api.navigate).toHaveBeenCalledWith({
+        pageId: "page-cold",
+        url: "https://example.com/cold",
+        conversationId: "conv-1",
+      });
+    });
+    rectSpy.mockRestore();
   });
 
   it("disables back and refresh without browserApi", () => {

@@ -6,15 +6,20 @@ Thin CLI over ``agentcore.observability.query``. Run from apps/server:
     uv run python scripts/log_timeline.py --recent
     uv run python scripts/log_timeline.py --trace <trace_id>
     uv run python scripts/log_timeline.py --json --trace <trace_id>
+    uv run python scripts/log_timeline.py --raw --trace <trace_id>
     uv run python scripts/log_timeline.py --since 24h --trace <trace_id>
     uv run python scripts/log_timeline.py --export-dir ../../logs/prod-export --recent
+    uv run python scripts/log_timeline.py --pack <dir> --trace <trace_id>
+    uv run python scripts/log_timeline.py --pack <dir> --full --trace <trace_id>
 
-Exact-ID queries (conversation_id / --trace) always include synthetic
-``traffic=eval|test`` lines — one trace belongs to a single traffic class, so
-filtering could only make the whole result vanish. Synthetic results are
-annotated (``Traffic:`` header line / ``meta.traffic`` in --json). Message
-bodies live in Postgres; turn traces live in logs/dev.jsonl (+ rotation backups).
-See .cursor/rules/conversation-logs.mdc.
+Default output is ``decision_spine`` (human + ``--json`` isomorphic). Pass
+``--raw`` for the full ``log_events`` firehose. ``--pack`` writes an investigation
+pack (decision_spine.json + timeline.jsonl + meta.json; optional previews /
+turn_metrics; ``--full`` adds messages.json without LLM bodies). Exact-ID queries
+always include synthetic ``traffic=eval|test`` lines. Message bodies live in
+Postgres; turn traces live in logs/dev.jsonl (+ rotation backups) or
+``--export-dir`` (``events.jsonl`` + joinable ``turn_metrics.jsonl`` /
+``cost_events.jsonl``). See .cursor/rules/conversation-logs.mdc.
 """
 
 from __future__ import annotations
@@ -39,7 +44,11 @@ LOG_FILE = _REPO_ROOT / "logs" / "dev.jsonl"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentcore.core.logging import ROLLOVER_FAILED_EVENT  # noqa: E402
+from agentcore.observability.query.decision_spine import (  # noqa: E402
+    format_decision_spine,
+)
 from agentcore.observability.query.jsonl import discover_log_files  # noqa: E402
+from agentcore.observability.query.pack import write_investigation_pack  # noqa: E402
 from agentcore.observability.query.store import open_conversation_store  # noqa: E402
 from agentcore.observability.query.timeline import (  # noqa: E402
     extract_conversation_id,
@@ -144,11 +153,23 @@ def format_empty_hit_hint(*, using_export_dir: bool) -> str:
 
 def _parse_cli_args(
     argv: list[str],
-) -> tuple[Path, Path | None, datetime | None, bool, list[str]]:
+) -> tuple[
+    Path,
+    Path | None,
+    datetime | None,
+    bool,
+    bool,
+    Path | None,
+    bool,
+    list[str],
+]:
     log_file = LOG_FILE
     export_dir: Path | None = None
     since: datetime | None = None
     as_json = False
+    raw = False
+    pack_dir: Path | None = None
+    full = False
     positional: list[str] = []
     i = 0
     while i < len(argv):
@@ -159,6 +180,9 @@ def _parse_cli_args(
         elif arg == "--export-dir" and i + 1 < len(argv):
             export_dir = Path(argv[i + 1])
             i += 2
+        elif arg == "--pack" and i + 1 < len(argv):
+            pack_dir = Path(argv[i + 1])
+            i += 2
         elif arg == "--since" and i + 1 < len(argv):
             try:
                 since = parse_since(argv[i + 1])
@@ -168,10 +192,16 @@ def _parse_cli_args(
         elif arg == "--json":
             as_json = True
             i += 1
+        elif arg == "--raw":
+            raw = True
+            i += 1
+        elif arg == "--full":
+            full = True
+            i += 1
         else:
             positional.append(arg)
             i += 1
-    return log_file, export_dir, since, as_json, positional
+    return log_file, export_dir, since, as_json, raw, pack_dir, full, positional
 
 
 def _fmt_log_line(item: dict, indent: str = "  ", hide: tuple[str, ...] = ()) -> str:
@@ -451,8 +481,51 @@ def format_timeline(
     return "\n".join(lines)
 
 
+def format_decision_spines_for_conversation(
+    conv: dict,
+    messages: list[dict],
+    spines: list[dict],
+    traffic: str | None = None,
+) -> str:
+    """Human default for conversation mode: message previews + decision spines."""
+    lines = [
+        "=" * 70,
+        f"  Conversation: {conv.get('title', '(untitled)')}",
+        f"  ID: {conv['id']}",
+        f"  Agent: {conv.get('agent_id', '?')}  |  Created: {conv.get('created_at', '?')}",
+        f"  Messages: {len(messages)}  |  Decision spines: {len(spines)}",
+    ]
+    if traffic:
+        lines.append(f"  Traffic: {traffic} (合成流量)")
+    lines.append("=" * 70)
+    for item in sorted(messages, key=lambda x: x.get("timestamp", "")):
+        role = item.get("role")
+        icon = {"user": "[user]", "assistant": "[asst]", "system": "[sys ]"}.get(
+            role, "[?]"
+        )
+        preview = (item.get("content_preview") or "").replace("\n", " ")
+        line = f"  {str(item.get('timestamp', ''))[:19]}  {icon} {preview}"
+        if (item.get("content_len") or 0) > 200:
+            line += f"... ({item['content_len']} chars)"
+        extras = []
+        if item.get("finish_reason"):
+            extras.append(f"finish:{item['finish_reason']}")
+        if item.get("trace_id"):
+            extras.append(f"trace:{item['trace_id']}")
+        if extras:
+            line += f"  [{', '.join(extras)}]"
+        lines.append(line)
+    lines.append("")
+    for spine in spines:
+        lines.append(format_decision_spine(spine).rstrip())
+        lines.append("")
+    return "\n".join(lines)
+
+
 async def main() -> None:
-    log_file, export_dir, since, as_json, args = _parse_cli_args(sys.argv[1:])
+    log_file, export_dir, since, as_json, raw, pack_dir, full, args = _parse_cli_args(
+        sys.argv[1:]
+    )
     if export_dir:
         log_file = export_dir / "events.jsonl"
 
@@ -460,14 +533,19 @@ async def main() -> None:
         print(__doc__)
         return
 
+    if full and pack_dir is None:
+        raise SystemExit("--full 仅用于排查包：请同时传 --pack <dir>")
+
     store = open_conversation_store(export_dir=export_dir)
 
     try:
         if args[0] == "--recent":
+            if pack_dir is not None:
+                raise SystemExit("--pack 需要 --trace <trace_id>（或裸 32-hex）")
             n = int(args[1]) if len(args) > 1 else 5
             result = await query_recent(n, store=store)
             if as_json:
-                print(json.dumps(result.to_json_dict(), ensure_ascii=False, default=str))
+                print(json.dumps(result.to_json_dict(raw=raw), ensure_ascii=False, default=str))
                 return
             print(f"\n  Recent {len(result.recent)} conversations:\n")
             for r in result.recent:
@@ -486,28 +564,78 @@ async def main() -> None:
                 raw_trace = args[1]
             else:
                 raw_trace = args[0]
-                if not as_json:
+                if not as_json and pack_dir is None:
                     print(f"已按 trace_id 解释（无连字符 32-hex）: {raw_trace}")
             trace_id = normalize_trace_id_arg(raw_trace)
+            # Pre-load events for gap detection before query builds the spine.
+            pre_events, _ = _query_load_log_events(
+                trace_id, field="trace_id", log_file=log_file, since=since
+            )
+            gap = detect_jsonl_timeline_gap(pre_events)
             result = await query_trace(
                 trace_id,
                 log_file=log_file,
                 since=since,
+                store=store,
+                jsonl_gap=gap,
             )
-            if as_json:
-                print(json.dumps(result.to_json_dict(), ensure_ascii=False, default=str))
-                return
-            print(
-                format_trace(
-                    trace_id,
-                    result.log_events,
+            if pack_dir is not None:
+                meta = await write_investigation_pack(
+                    result,
+                    out_dir=pack_dir,
+                    store=store,
+                    full=full,
                     log_file=log_file,
-                    since=since,
-                    traffic=result.meta.get("traffic"),
-                    using_export_dir=export_dir is not None,
+                    export_dir=export_dir,
                 )
-            )
+                print(f"Investigation pack → {pack_dir.resolve()}")
+                print(f"  schema_version: {meta.get('schema_version')}")
+                print(f"  files: {', '.join(meta.get('files') or [])}")
+                return
+            if as_json:
+                print(json.dumps(result.to_json_dict(raw=raw), ensure_ascii=False, default=str))
+                return
+            if raw:
+                print(
+                    format_trace(
+                        trace_id,
+                        result.log_events,
+                        log_file=log_file,
+                        since=since,
+                        traffic=result.meta.get("traffic"),
+                        using_export_dir=export_dir is not None,
+                    )
+                )
+                return
+            assert result.decision_spine is not None
+            if not result.log_events:
+                hint = format_empty_hit_hint(using_export_dir=export_dir is not None)
+                # Still useful when export/DB has turn_metrics but jsonl missed the trace.
+                joined = (result.decision_spine.get("health") or {}).get(
+                    "turn_metrics_joined"
+                )
+                if joined:
+                    print(format_decision_spine(result.decision_spine))
+                    if hint:
+                        print(hint)
+                    return
+                print(f"Trace: {trace_id}\n  Log events: 0")
+                if hint:
+                    print(hint)
+                return
+            print(format_decision_spine(result.decision_spine))
+            if result.meta.get("conversation_id"):
+                print(
+                    format_conversation_context(
+                        result.meta["conversation_id"],
+                        result.spine_events,
+                        trace_id,
+                    )
+                )
             return
+
+        if pack_dir is not None:
+            raise SystemExit("--pack 需要 --trace <trace_id>（或裸 32-hex），不支持会话模式")
 
         conv_id = args[0]
         result = await query_conversation_timeline(
@@ -517,7 +645,7 @@ async def main() -> None:
             since=since,
         )
         if as_json:
-            print(json.dumps(result.to_json_dict(), ensure_ascii=False, default=str))
+            print(json.dumps(result.to_json_dict(raw=raw), ensure_ascii=False, default=str))
             return
         if result.meta.get("error") == "conversation_not_found":
             where = "export" if export_dir else "database"
@@ -527,11 +655,21 @@ async def main() -> None:
                 print(hint)
             return
         assert result.conversation is not None
+        if raw:
+            print(
+                format_timeline(
+                    result.conversation,
+                    result.messages,
+                    result.log_events,
+                    traffic=result.meta.get("traffic"),
+                )
+            )
+            return
         print(
-            format_timeline(
+            format_decision_spines_for_conversation(
                 result.conversation,
                 result.messages,
-                result.log_events,
+                result.decision_spines,
                 traffic=result.meta.get("traffic"),
             )
         )

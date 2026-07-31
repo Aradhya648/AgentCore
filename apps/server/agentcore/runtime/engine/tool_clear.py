@@ -331,3 +331,36 @@ def apply_file_read_clear_state(
             remaining[path] = grant
 
     return replace(context, file_read_verbatim_paths=verbatim)
+
+
+def refresh_file_read_reread_grant(
+    context: ToolContext,
+    paths: list[str] | tuple[str, ...] | set[str] | None,
+    *,
+    grant: int | None = None,
+) -> list[str]:
+    """Issue or refresh sticky reread grant for named paths (citation/contract rework).
+
+    When contract.retry / cite_upgrade points workers back at landed drafts whose
+    verbatim bodies were tool_cleared, the same-path ceiling would otherwise deny
+    ``file_read``. Refreshing the existing sticky grant (not a third grant system)
+    lets the worker re-read each named path at least once.
+    """
+    from agentcore.config import settings
+
+    amount = (
+        settings.engine_file_read_reread_grant if grant is None else max(0, int(grant))
+    )
+    if amount <= 0 or not paths:
+        return []
+    refreshed: list[str] = []
+    issued = context.file_read_reread_issued
+    remaining = context.file_read_reread_remaining
+    for raw in paths:
+        path = (raw or "").strip().replace("\\", "/")
+        if not path:
+            continue
+        issued[path] = True
+        remaining[path] = amount
+        refreshed.append(path)
+    return refreshed

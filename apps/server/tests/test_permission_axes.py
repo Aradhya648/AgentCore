@@ -44,7 +44,7 @@ def test_default_axes_are_less_interrupt():
     assert PermissionAxes(
         FileWriteAxis.SESSION,
         CommandAxis.AUTO,
-        TeamKickoffAxis.SKIP,
+        TeamKickoffAxis.RULES,
         HostAxis.ASK,
     ) == DEFAULT_PERMISSION_AXES
     assert recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT) == DEFAULT_PERMISSION_AXES
@@ -61,7 +61,7 @@ def test_builtin_recipes():
     assert recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT) == PermissionAxes(
         FileWriteAxis.SESSION,
         CommandAxis.AUTO,
-        TeamKickoffAxis.SKIP,
+        TeamKickoffAxis.RULES,
         HostAxis.ASK,
     )
     assert recipe_to_axes(AutonomyPolicy.MANAGED) == PermissionAxes(
@@ -164,30 +164,102 @@ def test_command_auto_skips_kickoff_and_local_exec_auto_pass():
     )
     assert (
         execution_tool_auto_passes(
+            _LocalBackend(), "terminal", permission_axes=axes
+        )
+        is True
+    )
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(), "browser_navigate", permission_axes=axes
+        )
+        is True
+    )
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(), "desktop_notify", permission_axes=axes
+        )
+        is True
+    )
+    # Host / MCP never ride command=auto silent pass.
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(), "host_shell", permission_axes=axes
+        )
+        is False
+    )
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(), "mcp_filesystem_read", permission_axes=axes
+        )
+        is False
+    )
+    assert (
+        execution_tool_auto_passes(
             _LocalBackend(),
             "code_execute",
             permission_axes=_KICKOFF_RULES,
         )
         is False
     )
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(),
+            "terminal",
+            permission_axes=_KICKOFF_RULES,
+        )
+        is False
+    )
+    assert (
+        execution_tool_auto_passes(
+            _LocalBackend(),
+            "desktop_notify",
+            permission_axes=_KICKOFF_RULES,
+        )
+        is False
+    )
 
 
-def test_less_interrupt_auto_skip_semantics():
-    """少打断: session/auto/skip/ask — 跳卡、静默执行、深度研究自治、host=ask."""
+def test_less_interrupt_rules_semantics():
+    """少打断: session/auto/rules/ask — 组队按规则弹卡、静默执行、不蕴含深度研究自治、host=ask."""
     axes = recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT)
     assert axes == DEFAULT_PERMISSION_AXES
-    assert should_kickoff(plan_preview=True, local_gate=True, axes=axes) is False
+    assert should_kickoff(plan_preview=True, local_gate=True, axes=axes) is True
+    assert should_kickoff(plan_preview=False, local_gate=True, axes=axes) is False
     assert needs_capability_auth(local_gate=True, axes=axes) is False
     assert axes.honors_kickoff_grant is False
     assert axes.auto_executes is True
-    assert axes.implies_deep_research_auto is True
+    assert axes.implies_deep_research_auto is False
     assert axes.host is HostAxis.ASK
-    assert (
-        execution_tool_auto_passes(
-            _LocalBackend(), "code_execute", permission_axes=axes
+    for tool in (
+        "code_execute",
+        "test_run",
+        "terminal",
+        "browser_navigate",
+        "desktop_notify",
+    ):
+        assert (
+            execution_tool_auto_passes(
+                _LocalBackend(), tool, permission_axes=axes
+            )
+            is True
         )
-        is True
-    )
+
+
+def test_command_ask_no_execution_auto_pass():
+    """谨慎档 command=ask：execution_class / desktop_notify 仍需审批卡。"""
+    axes = recipe_to_axes(AutonomyPolicy.CAUTIOUS)
+    for tool in (
+        "code_execute",
+        "terminal",
+        "browser_navigate",
+        "desktop_notify",
+    ):
+        assert (
+            execution_tool_auto_passes(
+                _LocalBackend(), tool, permission_axes=axes
+            )
+            is False
+        )
 
 
 def test_command_ask_no_capability_auth():

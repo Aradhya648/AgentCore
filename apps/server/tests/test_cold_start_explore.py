@@ -25,6 +25,7 @@ from agentcore.memory.explore_profile import (
     record_explore_closeout,
     record_explore_workspace_key,
     user_named_explore_refresh,
+    user_named_project_work,
     write_project_navigation,
     write_project_profile_cas,
     write_project_topics_replace,
@@ -331,8 +332,9 @@ def test_compose_prompt_refresh_gate():
     assert "合并" in text
     assert "画像.md」为空" not in text
     assert "【冷启动探索幕 · 绑定已变】" not in text
-    assert "form=files" in text
+    assert "写盘不得出 AgentCore/" in text
     assert "文档/项目" in text
+    assert "勿让 worker 以 form=files" not in text
 
 
 def test_user_named_explore_refresh_allow_list():
@@ -342,6 +344,18 @@ def test_user_named_explore_refresh_allow_list():
     assert user_named_explore_refresh("帮我改一下 README") is False
     assert user_named_explore_refresh("探索一下这个 API") is False
     assert user_named_explore_refresh("") is False
+
+
+def test_user_named_project_work_allow_list():
+    assert user_named_project_work("请继续开发这个功能") is True
+    assert user_named_project_work("改这个项目的 README") is True
+    assert user_named_project_work("在这个项目里加测试") is True
+    assert user_named_project_work("全面摸底一下架构") is True
+    assert user_named_project_work("摸清这个项目结构") is True
+    assert user_named_project_work("先摸仓再动手") is True
+    assert user_named_project_work("今天天气怎么样") is False
+    assert user_named_project_work("帮我改一下 README") is False
+    assert user_named_project_work("") is False
 
 
 def test_compose_prompt_without_profile_tool_skips_write_hint():
@@ -526,6 +540,35 @@ def test_compose_prompt_project_nav_stale_soft_hint():
     )
     assert "当前项目约定记忆「画像.md」为空" in blocked
     assert "【项目结构提示】" not in blocked
+    assert "写盘不得出 AgentCore/" in blocked
+    assert "勿让 worker 以 form=files" not in blocked
+
+
+def test_compose_prompt_project_profile_empty_soft_hint():
+    skills = build_system_skill_registry()
+    soft = compose_ceo_chat_prompt(
+        "BASE",
+        skill_registry=skills,
+        ceo_tool_names={"update_project_profile", "delegate"},
+        cold_start_explore=False,
+        project_profile_empty_soft=True,
+    )
+    assert "<project_profile_empty>" in soft
+    assert "【项目画像提示】" in soft
+    assert "不挡" in soft
+    assert "</cold_start_explore>" not in soft
+    assert "写盘不得出 AgentCore/" not in soft
+    # Hard empty wins over soft empty.
+    hard = compose_ceo_chat_prompt(
+        "BASE",
+        skill_registry=skills,
+        ceo_tool_names={"update_project_profile", "delegate"},
+        cold_start_explore="empty",
+        project_profile_empty_soft=True,
+    )
+    assert "</cold_start_explore>" in hard
+    assert "</project_profile_empty>" not in hard
+    assert "写盘不得出 AgentCore/" in hard
 
 
 @pytest.mark.asyncio
@@ -539,12 +582,14 @@ async def test_update_project_profile_clears_explore_pending(tmp_path):
     )
     context = _ctx(user_id=uid)
     context.cold_start_explore_pending = True
+    context.write_scope = "explore_memory"
     res = await tool.execute(
         {"content": "## 技术栈与工具\n- Python\n"},
         context,
     )
     assert res.success
     assert context.cold_start_explore_pending is False
+    assert context.write_scope == "project"
 
 
 @pytest.mark.asyncio

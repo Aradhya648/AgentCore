@@ -475,6 +475,7 @@ class DelegateTool:
         host_message_id: str | None = None
         append_seed: dict | None = None
         host_plan_for_append = None
+        latest_miss_degraded_note: str | None = None
         if append_to and self._depth > 0:
             msg = (
                 "append_to_execution_id 仅根协调者可用：嵌套 lead 不能跨回合追加协作图。"
@@ -501,26 +502,30 @@ class DelegateTool:
 
                 active = active_coordination(self._base_tool_context.execution_id)
                 if active is not None and active.active:
+                    # 同回合已有活跃协调：误传 latest → 仍硬失败引导「勿传 latest」。
                     msg = (
                         "追加解析失败：本回合已有活跃协作图。同回合追加无需 "
                         'append_to_execution_id="latest"——直接再调 delegate（不传该参数）'
                         "即会自动并入当前协作图（同一 execution_id / 同一协调会话）。"
                         "向用户汇报时说「已往当前团队追加」，不要说成新组建团队。"
                     )
-                else:
-                    msg = (
-                        '追加解析失败：本对话没有可追加的既有协作图（append_to_execution_id="latest" '
-                        "未命中）。请改为不传 append_to_execution_id 新建团队执行，"
-                        "并如实告知用户本次是新组建团队、未在旧图上追加。"
+                    return ToolResult(
+                        tool_call_id="",
+                        success=False,
+                        output="",
+                        error=msg,
+                        contract_failure=True,
                     )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=msg,
-                    contract_failure=True,
+                # 无图可追加：自动降级为不带 append 新建（勿 success=False 空转）。
+                latest_miss_degraded_note = (
+                    '【latest 未命中·已自动新建】append_to_execution_id="latest" '
+                    "未解析到可追加协作图（旧图已收口或本对话尚无图）；"
+                    "已自动不带 append 新开团队。"
+                    "向用户如实告知：本次是新组建团队、未在旧图上追加。"
                 )
-            append_to = resolved
+                append_to = None
+            else:
+                append_to = resolved
         if append_to:
             from agentcore.runtime.delegate.graph_append import (
                 load_host_plan_and_completed,
@@ -547,6 +552,20 @@ class DelegateTool:
             host_plan_for_append, append_seed = await load_host_plan_and_completed(
                 host_message_id
             )
+            if host_plan_for_append is not None and getattr(
+                host_plan_for_append, "topology_lock", False
+            ):
+                msg = (
+                    "当前协作图处于工作流拓扑锁：禁止追加步骤。"
+                    "可用 replan(steers=…) 改未跑步骤说明，或 stop 收口。"
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=msg,
+                    contract_failure=True,
+                )
             if host_plan_for_append is None:
                 msg = (
                     f"既有协作图 `{append_to}` 缺少可合并的计划快照（plan_snapshot），"
@@ -566,6 +585,18 @@ class DelegateTool:
         # 立刻定格，透传给 drive → format_for_ceo 用于完成侧日志。
         call_idx = self._calls
         prefix = f"del_{new_id()}"
+        from agentcore.runtime.runs.artifact_dir import (
+            completion_criteria_is_code_verified,
+        )
+
+        # 案卷目录默认：code_verified 批次 / repair_code 不套 RESEARCH_DIR
+        # （完整 hoist 与 repair_code 强制在 build 之后；此处对齐顶层与 playbook）。
+        playbook_early = arguments.get("playbook")
+        code_verified_batch = completion_criteria_is_code_verified(
+            arguments.get("completion_criteria")
+        ) or (
+            isinstance(playbook_early, str) and playbook_early.strip() == "repair_code"
+        )
         plan, errors = build_run_plan(
             tasks_raw,
             valid_tools=valid_tools,
@@ -574,6 +605,7 @@ class DelegateTool:
             depth=self._depth + 1,
             complexity_hint=complexity_hint,
             existing_plan=host_plan_for_append,
+            code_verified=code_verified_batch,
         )
         if errors:
             msg = "委派任务无效：" + "；".join(errors)
@@ -586,6 +618,14 @@ class DelegateTool:
                 # 参数/依赖校验打回是零成本可自纠——勿进熔断。
                 contract_failure=True,
             )
+        if getattr(self, "_topology_lock", False):
+            plan.topology_lock = True
+            wid = getattr(self, "_workflow_id", None)
+            if isinstance(wid, str) and wid.strip():
+                plan.workflow_id = wid.strip()
+            wv = getattr(self, "_workflow_version", None)
+            if isinstance(wv, int):
+                plan.workflow_version = wv
         # 部分并行：检查点波后线性链可按 parallelism 放宽（默认 conservative 不改图）。
         from agentcore.runtime.delegate.parallelism import (
             resolve_parallelism,
@@ -692,8 +732,8 @@ class DelegateTool:
                 contract_failure=True,
             )
 
-        # 冷启动探索未完成：默认探路须 prose；禁止 form=files / artifacts（画像由 CEO
-        # update_project_profile 写）。显式 files_written 为进阶覆盖。旗标在 assemble
+        # 冷启动探索未完成：探路队须 ≥2 worker（form/artifacts 与写盘闸正交；
+        # worker write_scope=explore_memory 在写工具层限制路径）。旗标在 assemble
         # 置位、画像写入成功后清除。
         explore_pending = bool(self._base_tool_context.cold_start_explore_pending)
         if explore_pending:
@@ -704,7 +744,7 @@ class DelegateTool:
             if explore_form_err:
                 logger.info(
                     "delegate.cold_start_explore_rejected",
-                    reason="files_or_artifacts",
+                    reason="thin_team",
                 )
                 return ToolResult(
                     tool_call_id="",
@@ -1051,53 +1091,10 @@ class DelegateTool:
                 audit_hard=batch_audit_hard,
                 includes_review=batch_includes_review,
             )
-        # retry-failed: if a retry seed is set (from retry_failed_chat), use it
-        # so workers that already succeeded are skipped by the WaveScheduler.
-        from agentcore.runtime.retry import retry_failed_targets as _retry_failed_targets_var
-        from agentcore.runtime.retry import retry_seed as _retry_seed_var
-
-        _retry = _retry_seed_var.get(None)
-        _failed_targets = _retry_failed_targets_var.get(None)
-        # Only use the seed once (for the first delegate call); clear it so a
-        # second delegate in the same turn doesn't inherit stale seeds.
-        if _retry is not None:
-            _retry_seed_var.set(None)
-        if _failed_targets is not None:
-            _retry_failed_targets_var.set(None)
-            from agentcore.runtime.audit.hooks import on_run_retry
-
-            for target in _failed_targets:
-                run_id = str(target.get("run_id") or "")
-                if not run_id:
-                    continue
-                on_run_retry(
-                    run_id=run_id,
-                    attempt=1,
-                    source="retry_failed",
-                    error=target.get("error"),
-                )
-
-        # retry-failed seed 是上一回合铸的 run_id（del_<旧uuid>_<raw>），本回合新计划用新前缀，
-        # 不重映射则 WaveScheduler 精确匹配永不命中、已成功 worker 全量重跑。这里按 raw 尾缀把
-        # seed 重映射到新计划的同 raw 节点（数字位置号不映射），并如实补发命中节点的完成态——
-        # 命中节点被调度器跳过不发 run_*，而旧回合 journal 已删，否则前端图会永远卡 pending。
-        # 仅在真会用到 retry seed 时执行（append 走宿主 seed，二者互斥）。
-        retry_seed_remapped: dict[str, RunState] | None = None
-        if _retry and not append_to:
-            from agentcore.runtime.delegate.retry_remap import (
-                remap_retry_seed,
-                replay_seeded_completed,
-            )
-
-            remap = remap_retry_seed(_retry, plan, prefix=prefix)
-            retry_seed_remapped = remap.seed or None
-            if retry_seed_remapped:
-                replay_seeded_completed(self._sink, plan, retry_seed_remapped)
-
         from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
 
-        # Cross-turn append seeds from host journal; retry-failed only applies to fresh graphs.
-        seed_completed = append_seed if append_to else retry_seed_remapped
+        # Cross-turn append seeds from host journal; fresh graphs start without seed.
+        seed_completed = append_seed if append_to else None
 
         try:
             result = await drive(
@@ -1140,6 +1137,8 @@ class DelegateTool:
                 tails.append(automation_delivery_warning)
             if playbook_notes:
                 tails.extend(playbook_notes)
+            if latest_miss_degraded_note:
+                tails.append(latest_miss_degraded_note)
             if append_to:
                 # 口径与产品呈现一致：UI 在追加回合只显示「已往上方协作图追加 N 名成员」
                 # 锚点，生长发生在上方旧图。回显 execution_id 供后续追加显式指定。
@@ -1157,7 +1156,7 @@ class DelegateTool:
                 tails.append(
                     f"【协作图】本次团队执行 execution_id=`{execution_id}`"
                     '（跨回合往这张图追加队员：delegate 传 append_to_execution_id="latest" '
-                    "或此精确 id）。"
+                    "或此精确 id；未命中可追加图时引擎自动新建并写明）。"
                 )
             result.output = f"{result.output}\n\n" + "\n\n".join(tails)
         return annotate_batch_meta(
@@ -1305,6 +1304,15 @@ class DelegateTool:
             or not isinstance(adds, list)
         ):
             msg = "replan 的 binds / steers / add 必须是数组。"
+            return ToolResult(tool_call_id="", success=False, output="", error=msg)
+        locked = bool(getattr(sup.plan, "topology_lock", False)) or bool(
+            getattr(self, "_topology_lock", False)
+        )
+        if locked and adds:
+            msg = (
+                "当前为工作流拓扑锁：禁止 replan(add=…) 新增步骤；"
+                "可用 steers 改未跑步骤说明，或 stop=true 收口。"
+            )
             return ToolResult(tool_call_id="", success=False, output="", error=msg)
         if sup.reason is BoundaryReason.BIND and not stop and not binds:
             msg = (

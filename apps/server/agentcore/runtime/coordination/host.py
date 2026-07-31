@@ -271,8 +271,9 @@ def _coordination_start_echo(
         "你将收到团队事件（worker_completed / note / escalation / "
         "user_interjection / all_completed）。完成进度与各队员完成摘要由系统自动展示给用户；"
         "仅当形成新的中间结论、发现各路产出冲突或需要方向修正时用 update_synthesis 更新合成草稿，"
-        "勿为播报进度而更新；无需处置时调 wait（或空响应，系统已豁免），"
-        "不要写「静默等待中」之类的正文——那会原样显示给用户，"
+        "勿为播报进度而更新；无需处置时调 wait（或空响应，系统已豁免）；"
+        "若对用户开口须短说谁在后台、完成后会再汇报，不要写「静默等待中」——"
+        "那会原样显示给用户且无收尾承诺；"
         "也勿用 delegate 占位等待（同构再派会被拒绝）；"
         "老板中途插话：相关则图内处置，无关则 queue_user_message 转对话级排队；"
         "全部完成后做最终合成并收口。"
@@ -388,6 +389,11 @@ def _merge_into_active_coordination(
     from agentcore.runtime.delegate.plan_events import plan_event
     from agentcore.runtime.runs.plan import RunPlan, RunPlanError
     from agentcore.workspace.write_claims import file_ownership_v2_enabled
+
+    if coordination == "wall":
+        session.coordination = "wall"
+    elif coordination == "none" and session.coordination != "wall":
+        session.coordination = "none"
 
     live = session.live_plan
     drive_running = session.drive_task is not None and not session.drive_task.done()
@@ -737,6 +743,7 @@ def try_start_coordination(
             progress_budget_remaining=init_progress,
             decision_budget_remaining=init_decision,
             conversation_id=str(getattr(tool, "_conversation_id", None) or ""),
+            coordination=coordination if coordination in ("wall", "none") else "none",
         )
         session.live_plan = plan
         session.event_sink = getattr(tool, "_sink", None)
@@ -754,6 +761,8 @@ def try_start_coordination(
             )
         # Resume / re-arm: re-attach live sink (not snapshotted).
         session.event_sink = getattr(tool, "_sink", None) or session.event_sink
+        if coordination in ("wall", "none"):
+            session.coordination = coordination
         _seed_session_completed(session, seed_completed)
         if session.host_journal_writer is None:
             _bind_session_host_journal(session)

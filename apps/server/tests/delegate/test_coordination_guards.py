@@ -552,11 +552,16 @@ def test_healthy_idle_inject_has_progress_and_no_action_guidance():
     assert "无需追加" in brief
     assert "正常推进" in brief
     assert "不要 delegate" in brief or "勿" in brief
+    assert "完成后会再汇报" in brief
+    assert "保持静默即可" not in brief
+    assert "保持等待" in brief or "保持静默" in brief  # forbid phrasing appears as prohibition
 
     msgs = idle_yield_messages(session)
     assert len(msgs) == 1
     assert "流水线进度" in (msgs[0].content or "")
     assert "无需追加" in (msgs[0].content or "")
+    assert "完成后会再汇报" in (msgs[0].content or "")
+    assert "保持静默即可" not in (msgs[0].content or "")
 
 
 def test_idle_yield_brief_pending_approval_forbids_wait(monkeypatch):
@@ -597,6 +602,8 @@ def test_idle_yield_brief_pending_approval_forbids_wait(monkeypatch):
     assert "正常推进" not in brief
     assert "这是预期中的等待" not in brief
     assert "禁止" in brief or "勿" in brief
+    assert "再汇报" in brief
+    assert "保持静默，引导" not in brief
 
 
 async def test_idle_yield_injects_healthy_brief_instead_of_empty(monkeypatch):
@@ -632,6 +639,68 @@ async def test_idle_yield_injects_healthy_brief_instead_of_empty(monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await session.drive_task
         clear_active_coordination("e-idle-yield")
+
+
+async def test_wall_zero_completed_does_not_idle_yield(monkeypatch):
+    """coordination=wall 且 completed==0：有 inflight 也不 idle_yield（主回合继续等）。"""
+    import contextlib
+
+    monkeypatch.setattr(coord_wait, "_COORD_WAIT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(coord_wait, "_COORD_WAIT_TIMEOUT_MAX_S", 1.0)
+    clear_active_coordination()
+    live = _plan(
+        RunSpec(run_id="a", role="研究员", task="调研", depends_on=[]),
+        RunSpec(run_id="b", role="写手", task="撰写", depends_on=[]),
+    )
+    session = CoordinationSession(
+        execution_id="e-wall-hold",
+        total_workers=2,
+        coordination="wall",
+    )
+    session.live_plan = live
+    session._running_workers["a"] = "研究员"
+    session._worker_started_at["a"] = __import__("time").monotonic()
+    session.mark_worker_busy("a", "llm")
+    session.drive_task = asyncio.create_task(asyncio.sleep(30))
+    set_active_coordination(session)
+
+    async def _complete_later() -> None:
+        await asyncio.sleep(0.25)
+        from agentcore.runtime.coordination.session import (
+            CoordinationEvent,
+            CoordinationEventKind,
+        )
+
+        session.mark_worker_completed("a")
+        session.clear_worker_busy("a")
+        session.post(
+            CoordinationEvent(
+                kind=CoordinationEventKind.WORKER_COMPLETED,
+                payload={
+                    "run_id": "a",
+                    "role": "研究员",
+                    "status": "completed",
+                    "summary": "ok",
+                },
+            )
+        )
+
+    poster = asyncio.create_task(_complete_later())
+    try:
+        msgs = await asyncio.wait_for(await_coordination_injection([]), timeout=3.0)
+        assert len(msgs) >= 1
+        text = "\n".join(m.content or "" for m in msgs)
+        # Must have woken on real completion — not the idle_yield「无需追加」brief alone.
+        assert "worker_completed" in text or "研究员" in text
+        assert "无需追加" not in text
+    finally:
+        poster.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await poster
+        session.drive_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await session.drive_task
+        clear_active_coordination("e-wall-hold")
 
 
 async def test_merge_all_skipped_returns_structured_failure():

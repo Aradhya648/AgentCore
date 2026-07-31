@@ -120,7 +120,12 @@ def _audit_gate_msgs(messages: list[LLMMessage]) -> list[LLMMessage]:
     return [
         m
         for m in messages
-        if m.role == "user" and m.content and "收尾前审计复核" in m.content
+        if m.role == "user"
+        and m.content
+        and (
+            "收尾前审计复核" in m.content
+            or "成篇审计硬门" in m.content
+        )
     ]
 
 
@@ -150,12 +155,12 @@ def test_nudge_copy_cites_audit_keywords():
     text = audit_gate_nudge_prompt()
     assert "独立审计" in text
     assert "审计者≠作者" in text
-    assert "≤2 轮" in text
-    assert "理由" in text
+    assert "向用户收口" in text
+    assert "不是默认路径" in text
+    assert "≤2 轮" in text  # banned default-rework framing (negated in copy)
+    assert "禁止把「审完默认修订≤2 轮」" in text
     assert "绝不代派" in text
-    assert "成篇落盘" in text
-    assert "免审归类" in text
-    assert "轻交付" in text
+    assert "成文专线" in text or "结构长文" in text
 
 
 def test_coordination_injection_has_all_completed():
@@ -175,9 +180,46 @@ def test_apply_captain_max_rounds_raises_chat_ceiling():
     assert apply_captain_max_rounds(high).max_rounds == 32
 
 
+def test_should_audit_gate_requires_hard_flag():
+    """Soft gate aligns with hard gate: substantial alone is not enough."""
+    from agentcore.runtime.engine.governance import should_audit_gate
+    from agentcore.runtime.loop_controller import LoopController
+
+    c = LoopController()
+    c.mark_post_delegate(node_count=5, has_deps=True)  # substantial, no audit_hard
+    assert should_audit_gate(c, role="captain") is False
+
+    c2 = LoopController()
+    c2.mark_post_delegate(node_count=5, has_deps=True, audit_hard=True)
+    assert should_audit_gate(c2, role="captain") is True
+
+
+class _AuditHardStubTool(_StubTool):
+    """Delegate stub that stamps audit_hard so soft gate can fire in integration tests.
+
+    Also stamps includes_review so the hard block does not discard the post-nudge
+    wrap-up (mirrors research_report playbook with built-in review).
+    """
+
+    async def execute(self, arguments, context) -> ToolResult:  # noqa: ANN001
+        self.calls += 1
+        return ToolResult(
+            tool_call_id="",
+            success=True,
+            output="result",
+            effect=ToolEffect.CONTINUE,
+            metadata={
+                "audit_hard": True,
+                "batch_includes_review": True,
+                "batch_nodes": 3,
+                "batch_has_deps": True,
+            },
+        )
+
+
 @pytest.mark.asyncio
 async def test_substantial_batch_fires_once_on_wrap_up():
-    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    delegate = _AuditHardStubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
     provider = _ScriptedProvider(
         [
             [_tool_chunk("delegate", _substantial_tasks_args(), call_id="d1")],
@@ -192,11 +234,80 @@ async def test_substantial_batch_fires_once_on_wrap_up():
     assert len(gates) == 1
     assert "独立审计" in (gates[0].content or "")
     assert "审计者≠作者" in (gates[0].content or "")
+    assert "向用户收口" in (gates[0].content or "")
+
+
+@pytest.mark.asyncio
+async def test_hard_required_without_review_blocks_then_second_delegate_delivers():
+    """audit_hard without includes_review: soft→hard block; second batch unblocks."""
+
+    class _HardNoReview(_StubTool):
+        def __init__(self) -> None:
+            super().__init__(name="delegate", category=ToolCategory.ORCHESTRATION)
+            self._n = 0
+
+        async def execute(self, arguments, context) -> ToolResult:  # noqa: ANN001
+            self.calls += 1
+            self._n += 1
+            if self._n == 1:
+                return ToolResult(
+                    tool_call_id="",
+                    success=True,
+                    output="result",
+                    effect=ToolEffect.CONTINUE,
+                    metadata={
+                        "audit_hard": True,
+                        "batch_nodes": 3,
+                        "batch_has_deps": True,
+                    },
+                )
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output="result",
+                effect=ToolEffect.CONTINUE,
+                metadata={
+                    "audit_hard": True,
+                    "batch_includes_review": True,
+                    "batch_nodes": 1,
+                    "batch_has_deps": False,
+                },
+            )
+
+    delegate = _HardNoReview()
+    provider = _ScriptedProvider(
+        [
+            [_tool_chunk("delegate", _substantial_tasks_args(), call_id="d1")],
+            [_content_chunk("半残稿")],  # soft nudge
+            [_content_chunk("仍想收尾")],  # hard block discards
+            [_tool_chunk("delegate", _light_tasks_args(), call_id="d2")],
+            [_content_chunk("审后收口")],
+        ]
+    )
+    content, messages = await _run_captain(provider, _registry(delegate))
+    assert content == "审后收口"
+    assert any("成篇审计硬门" in (m.content or "") for m in messages if m.role == "user")
+
+
+@pytest.mark.asyncio
+async def test_substantial_without_audit_hard_skips_soft_gate():
+    """parallel_brief / ordinary multi-angle: substantial but no hard → no soft nudge."""
+    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    provider = _ScriptedProvider(
+        [
+            [_tool_chunk("delegate", _substantial_tasks_args(), call_id="d1")],
+            [_content_chunk("摸底综述")],
+        ]
+    )
+    content, messages = await _run_captain(provider, _registry(delegate))
+
+    assert content == "摸底综述"
+    assert _audit_gate_msgs(messages) == []
 
 
 @pytest.mark.asyncio
 async def test_fires_at_most_once():
-    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    delegate = _AuditHardStubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
     provider = _ScriptedProvider(
         [
             [_tool_chunk("delegate", _substantial_tasks_args(), call_id="d1")],
@@ -212,7 +323,7 @@ async def test_fires_at_most_once():
 
 @pytest.mark.asyncio
 async def test_second_delegate_suppresses_gate():
-    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    delegate = _AuditHardStubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
     provider = _ScriptedProvider(
         [
             [_tool_chunk("delegate", _substantial_tasks_args(), call_id="d1")],
@@ -228,8 +339,19 @@ async def test_second_delegate_suppresses_gate():
 
 @pytest.mark.asyncio
 async def test_light_batch_no_gate():
-    # 2 nodes, no depends_on → not substantial.
-    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    # 2 nodes, no depends_on → not substantial (even with audit_hard).
+    class _HardLight(_StubTool):
+        async def execute(self, arguments, context) -> ToolResult:  # noqa: ANN001
+            self.calls += 1
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output="result",
+                effect=ToolEffect.CONTINUE,
+                metadata={"audit_hard": True, "batch_nodes": 2, "batch_has_deps": False},
+            )
+
+    delegate = _HardLight(name="delegate", category=ToolCategory.ORCHESTRATION)
     provider = _ScriptedProvider(
         [
             [_tool_chunk("delegate", _light_tasks_args(), call_id="d1")],
@@ -249,7 +371,7 @@ async def test_light_batch_with_deps_is_substantial():
         {"role": "乙", "task": "审", "depends_on": ["a"]},
     ]
     args = json.dumps({"tasks": tasks}, ensure_ascii=False)
-    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    delegate = _AuditHardStubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
     provider = _ScriptedProvider(
         [
             [_tool_chunk("delegate", args, call_id="d1")],
@@ -265,7 +387,7 @@ async def test_light_batch_with_deps_is_substantial():
 
 @pytest.mark.asyncio
 async def test_worker_role_never_fires():
-    delegate = _StubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
+    delegate = _AuditHardStubTool(name="delegate", category=ToolCategory.ORCHESTRATION)
     provider = _ScriptedProvider(
         [
             [_tool_chunk("delegate", _substantial_tasks_args(), call_id="d1")],

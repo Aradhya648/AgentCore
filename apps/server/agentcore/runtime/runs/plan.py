@@ -86,6 +86,10 @@ class RunPlan:
     # mentions upstream output but declares no ``depends_on``. Surfaced once through
     # the coordination injection channel (搭车, no extra wake) — never blocks the plan.
     advisories: list[str] = field(default_factory=list)
+    # User-workflow mode: lock topology (no add / dependency rewrites); text steers OK.
+    topology_lock: bool = False
+    workflow_id: str | None = None
+    workflow_version: int | None = None
 
     def add(self, spec: RunSpec) -> RunSpec:
         """Append one node. A duplicate ``run_id`` is a caller bug (ids are

@@ -8,8 +8,6 @@ Backlog (not this iteration):
 - Write-tool idempotency keys — crash redrive may re-run in-flight workers
   (``file_write`` overwrite semantics are accepted for now).
 - Cross-process Redis lease backend (Postgres this iteration).
-- retry-failed external semantics (new turn vs same turn) — internal projection
-  already uses ``TurnState.from_journal``; behaviour change is a separate decision.
 """
 
 from __future__ import annotations
@@ -155,9 +153,7 @@ async def _settle_resume(
             style_id=(style_id or "").strip(),
             format_id=(format_id or "").strip(),
         )
-        allowed = {
-            option_label(o) for q in suspension.questions for o in q.get("options", [])
-        }
+        allowed = {option_label(o) for q in suspension.questions for o in q.get("options", [])}
         response.selected = [s for s in response.selected if s in allowed]
         if (
             suspension.intent == "organize_plan"
@@ -182,10 +178,7 @@ async def _settle_resume(
                 operations=kept,
             )
         daily_review_apply = None
-        if (
-            suspension.intent == "daily_review"
-            and response.decision is CheckpointDecision.CONTINUE
-        ):
+        if suspension.intent == "daily_review" and response.decision is CheckpointDecision.CONTINUE:
             from agentcore.standing_tasks.review_apply import (
                 apply_daily_review_selections,
             )
@@ -308,9 +301,7 @@ async def _settle_resume(
             # CONTINUE 时读帧上 ceo_review → llm 压缩注入 gate_notes（deterministic 不下发）。
             ceo_review=suspension.ceo_review,
         )
-        return SettledSuspension(
-            delegate_result.output, None, delegate_result.effect
-        )
+        return SettledSuspension(delegate_result.output, None, delegate_result.effect)
 
     if isinstance(suspension, TeamPreviewSuspension):
         sink.emit(
@@ -359,9 +350,7 @@ async def _settle_resume(
             team_brief=suspension.team_brief,
             seed_notes=list(suspension.seed_notes),
         )
-        return SettledSuspension(
-            delegate_result.output, None, delegate_result.effect
-        )
+        return SettledSuspension(delegate_result.output, None, delegate_result.effect)
 
     raise ValueError(f"unknown suspension kind: {suspension.kind!r}")
 

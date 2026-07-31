@@ -37,7 +37,7 @@ describe("stopConversation", () => {
     await expect(stopConversation("conv-1")).rejects.toThrow("boom");
   });
 
-  it("sidecar turn: routes to sidecarApi.cancel (never cloud POST)", async () => {
+  it("sidecar turn: routes to sidecarApi.cancel with user_stop (never cloud POST)", async () => {
     sidecarTarget.mockReturnValue({
       rootId: "root-9",
       subpath: "scratch/c1",
@@ -52,6 +52,7 @@ describe("stopConversation", () => {
       subpath: "scratch/c1",
       turnId: "turn-42",
       conversationId: "conv-1",
+      reason: "user_stop",
     });
   });
 

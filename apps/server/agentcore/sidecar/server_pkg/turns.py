@@ -40,13 +40,41 @@ def _emit_user_stop_message_end(sink: EventSink) -> None:
 
 
 def _emit_cancel_end_if_cancelling(sink: EventSink) -> None:
-    """Emit ``message_end(cancelled)`` when this task is unwinding from cancel."""
+    """Emit terminal ``message_end`` when this task is unwinding from cancel."""
     task = asyncio.current_task()
-    if task is not None and task.cancelling():
-        _emit_user_stop_message_end(sink)
+    if task is None or not task.cancelling():
+        return
+    _emit_user_stop_message_end(sink)
 
 
 class TurnExecutionMixin:
+    def _log_turn_cancelled(
+        self,
+        *,
+        turn_id: str,
+        conversation_id: str,
+        message_id: str | None,
+        trace_id: str,
+        content_chars: int,
+        journal_entries: int,
+        salvaged: bool,
+    ) -> None:
+        """Fingerprint CancelledError salvage (RPC stamp vs process/internal cancel)."""
+        from agentcore.sidecar.server_pkg.cancel_mark import cancel_reason_from_task
+
+        task = asyncio.current_task()
+        logger.info(
+            "sidecar.turn_cancelled",
+            turn_id=turn_id,
+            conversation_id=conversation_id or None,
+            message_id=message_id,
+            trace_id=trace_id or None,
+            reason=cancel_reason_from_task(task),
+            salvaged=salvaged,
+            content_chars=content_chars,
+            journal_entries=journal_entries,
+        )
+
     async def _run_turn(self, request_id: Any, turn_id: str, params: dict[str, Any]) -> None:
         """Run one turn on the local engine; stream events; reply when done."""
         assert self._root is not None  # guarded by _on_start_turn
@@ -161,14 +189,25 @@ class TurnExecutionMixin:
                 )
             )
         except asyncio.CancelledError:
+            journal = list(sink.execution_journal() or [])
+            content = sink.streamed_content() or ""
             if outbox is not None:
                 await outbox.salvage(
-                    journal=list(sink.execution_journal() or []),
-                    content=sink.streamed_content() or "",
+                    journal=journal,
+                    content=content,
                     conversation_id=conversation_id,
                     trace_id=trace_id,
                     message_id=message_id,
                 )
+            self._log_turn_cancelled(
+                turn_id=turn_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                trace_id=trace_id,
+                content_chars=len(content),
+                journal_entries=len(journal),
+                salvaged=outbox is not None,
+            )
             with contextlib.suppress(Exception):
                 await pump
             # Reply on an independent task: this one is unwinding from cancellation.
@@ -389,27 +428,38 @@ class TurnExecutionMixin:
             # Settlement already durable ⇒ do not restore the decision card.
             if not settlement_durable and self._paused_store is not None:
                 await self._paused_store.rollback_claim(turn_id)
-            if outbox is not None:
-                # G8: streamed_content is live-only; join hang-frame pre_pause.
-                # Journal: merge hang-frame process_* with live (symmetric to content).
-                from agentcore.conversation.turn_persistence import (
-                    compose_salvage_content,
-                    compose_salvage_journal,
-                )
+            # G8: streamed_content is live-only; join hang-frame pre_pause.
+            # Journal: merge hang-frame process_* with live (symmetric to content).
+            from agentcore.conversation.turn_persistence import (
+                compose_salvage_content,
+                compose_salvage_journal,
+            )
 
+            journal = compose_salvage_journal(
+                sink.execution_journal() or [],
+                suspension.journal_entries,
+            )
+            content = compose_salvage_content(
+                sink.streamed_content() or "",
+                suspension.journal_entries,
+            )
+            if outbox is not None:
                 await outbox.salvage(
-                    journal=compose_salvage_journal(
-                        sink.execution_journal() or [],
-                        suspension.journal_entries,
-                    ),
-                    content=compose_salvage_content(
-                        sink.streamed_content() or "",
-                        suspension.journal_entries,
-                    ),
+                    journal=journal,
+                    content=content,
                     conversation_id=conversation_id,
                     trace_id=trace_id,
                     message_id=turn_id,
                 )
+            self._log_turn_cancelled(
+                turn_id=turn_id,
+                conversation_id=conversation_id,
+                message_id=turn_id,
+                trace_id=trace_id,
+                content_chars=len(content or ""),
+                journal_entries=len(journal or []),
+                salvaged=outbox is not None,
+            )
             with contextlib.suppress(Exception):
                 await pump
             self._send_soon(
@@ -442,9 +492,7 @@ class TurnExecutionMixin:
                 await pump
             logger.error("sidecar.resume_failed", turn_id=turn_id, error=str(e), exc_info=True)
             # After settlement, failure does not restore the frame for retry.
-            err_code = (
-                protocol.INTERNAL_ERROR if settlement_durable else protocol.RESUME_RETRYABLE
-            )
+            err_code = protocol.INTERNAL_ERROR if settlement_durable else protocol.RESUME_RETRYABLE
             await self._send(
                 protocol.make_error(
                     request_id,

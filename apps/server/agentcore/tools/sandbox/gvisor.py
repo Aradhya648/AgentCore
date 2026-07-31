@@ -455,8 +455,12 @@ class GVisorSandbox:
     ) -> list[str]:
         """Assemble ``runsc`` argv: global flags before ``run``, bundle after."""
         cmd = [self._runsc, "--rootless"]
-        # P2: full_trust → restricted egress; observe/workspace stay offline.
-        if network_mode != "restricted":
+        # Rootless runsc rejects the default sandbox netstack: must pass an
+        # explicit flag (``none`` or ``host``). restricted = egress via host
+        # net; none = offline. Never omit the flag under ``--rootless``.
+        if network_mode == "restricted":
+            cmd.append("--network=host")
+        else:
             cmd.append("--network=none")
         cmd.extend(
             [
@@ -582,9 +586,9 @@ class GVisorSandbox:
             {"type": "uts"},
             {"type": "mount"},
         ]
-        # P2: restricted mode adds a network namespace so the process can reach
-        # the public internet (runsc without ``--network=none``). observe /
-        # workspace keep the offline posture (no network ns + ``--network=none``).
+        # P2: restricted pairs with ``--network=host`` (rootless) and a network
+        # ns so the process can reach the public internet. observe / workspace
+        # stay offline (no network ns + ``--network=none``).
         # Application-level SSRF for product HTTP tools remains ``core/net.py``;
         # in-sandbox raw sockets are OS-egress only (no private-IP filter inside
         # runsc — multi-tenant hardening is still gVisor's isolation boundary).

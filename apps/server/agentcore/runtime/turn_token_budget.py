@@ -40,13 +40,9 @@ if TYPE_CHECKING:
 REASON_TURN_TOKEN_BUDGET = "turn_token_budget"
 REASON_QA_DEFERRED = "qa_deferred_budget"
 
-TURN_TOKEN_CEILING_WARNING = (
-    "本回合累计 token 已触顶，未派发节点已跳过；请基于已完成产出收口"
-)
+TURN_TOKEN_CEILING_WARNING = "本回合累计 token 已触顶，未派发节点已跳过；请基于已完成产出收口"
 
-TURN_TOKEN_RESERVE_SKIP_WARNING = (
-    "本回合进入交付预留窗口，次要节点已跳过以为验收节点留量"
-)
+TURN_TOKEN_RESERVE_SKIP_WARNING = "本回合进入交付预留窗口，次要节点已跳过以为验收节点留量"
 
 TURN_TOKEN_NESTED_ENVELOPE_WARNING = (
     "子团队额度信封已触顶，未派发节点已跳过；下一回合可续跑未跑节点"
@@ -297,6 +293,7 @@ def resolve_wave_budget_hooks() -> tuple[
     """
     if _nested_envelope.get() is not None:
         return is_nested_envelope_hit, None
+
     return is_turn_token_ceiling_hit, is_turn_token_delivery_reserve_hit
 
 

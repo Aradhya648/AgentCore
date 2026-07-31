@@ -136,6 +136,29 @@ def test_annotate_batch_meta_audit_flags():
     assert stamped.metadata["batch_includes_review"] is True
 
 
+def test_parallel_brief_does_not_signal_long_form_audit():
+    """A 档摸底批：无 min_length 成篇信号；硬门只认 research_report / 结构字段。"""
+    from agentcore.runtime.runs.playbooks import expand_playbook
+    from agentcore.runtime.runs.research_quality import plan_signals_long_form_audit
+
+    tasks, errors = expand_playbook(
+        "parallel_brief",
+        {"topic": "开源选型", "angles": ["兼容", "闭源风险", "生态"]},
+    )
+    assert errors == []
+    assert plan_signals_long_form_audit(tasks) is False
+    # 对照：显式成篇 min_length 才进结构硬门信号
+    tasks_long = [
+        {
+            "id": "w",
+            "role": "撰稿人",
+            "task": "写报告",
+            "deliverable": {"form": "files", "min_length": 4000},
+        }
+    ]
+    assert plan_signals_long_form_audit(tasks_long) is True
+
+
 def test_audit_hard_block_after_soft_nudge():
     c = LoopController()
     c.mark_post_delegate(node_count=5, has_deps=True, audit_hard=True)

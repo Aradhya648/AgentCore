@@ -9,7 +9,7 @@ export type AdminTurnListItem = components["schemas"]["AdminTurnListItem"];
 export type AdminTurnListResponse =
   components["schemas"]["AdminTurnListResponse"];
 
-export type ConversationSort = "updated_at" | "created_at" | "cost";
+export type ConversationSort = "updated_at" | "created_at" | "cost" | "delegated";
 export type SortOrder = "asc" | "desc";
 export type TurnStatus = "ok" | "error";
 
@@ -19,6 +19,7 @@ export interface ListConversationsParams {
   q?: string;
   userId?: string;
   hasErrors?: boolean;
+  hasDelegated?: boolean;
   includeDeleted?: boolean;
   since?: string;
   until?: string;
@@ -40,6 +41,8 @@ export async function listConversations(
   if (params.userId) search.set("user_id", params.userId);
   if (params.hasErrors === true) search.set("has_errors", "true");
   if (params.hasErrors === false) search.set("has_errors", "false");
+  if (params.hasDelegated === true) search.set("has_delegated", "true");
+  if (params.hasDelegated === false) search.set("has_delegated", "false");
   if (params.includeDeleted === false) search.set("include_deleted", "false");
   if (params.since) search.set("since", params.since);
   if (params.until) search.set("until", params.until);
@@ -54,6 +57,8 @@ export interface ListTurnsParams {
   userId?: string;
   conversationId?: string;
   status?: TurnStatus;
+  delegated?: boolean;
+  traceId?: string;
   since?: string;
   until?: string;
   includeDeletedConversations?: boolean;
@@ -69,6 +74,9 @@ export async function listTurns(
   if (params.userId) search.set("user_id", params.userId);
   if (params.conversationId) search.set("conversation_id", params.conversationId);
   if (params.status) search.set("status", params.status);
+  if (params.delegated === true) search.set("delegated", "true");
+  if (params.delegated === false) search.set("delegated", "false");
+  if (params.traceId) search.set("trace_id", params.traceId);
   if (params.since) search.set("since", params.since);
   if (params.until) search.set("until", params.until);
   if (params.includeDeletedConversations === false) {

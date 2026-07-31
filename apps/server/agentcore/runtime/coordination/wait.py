@@ -264,6 +264,20 @@ async def await_coordination_injection(
                         session.reset_idle_backoff()
                         wait_reason = "waited"
                     else:
+                        # wall + 0 完成：禁止 idle_yield（主回合先收摊 / turn_detached）。
+                        # 可继续等真实团队事件；非 wall 或已有完成保持原 detach 语义。
+                        if (
+                            session.coordination == "wall"
+                            and len(session.completed_run_ids) == 0
+                        ):
+                            logger.info(
+                                "coordination.idle_yield_held_wall_zero",
+                                execution_id=session.execution_id,
+                                completed=0,
+                                total=session.total_workers,
+                                busy=len(session._busy_workers),
+                            )
+                            continue
                         logger.info(
                             "coordination.idle_yield_to_captain",
                             execution_id=session.execution_id,

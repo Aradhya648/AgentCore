@@ -7,7 +7,7 @@ conversations (IDOR-safe). Sending runs the turn as a detached task tracked in t
 
 import asyncio
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.responses import StreamingResponse
@@ -102,9 +102,7 @@ async def _persist_delivered_interjection_attachments(
         local_binding=local_binding,
     )
     async with workspace_lock(
-        workspace_storage_key(
-            user_id=user_id, folder_id=folder_id, conversation_id=conversation_id
-        )
+        workspace_storage_key(user_id=user_id, folder_id=folder_id, conversation_id=conversation_id)
     ):
         return await persist_attachments(backend, attachments)
 
@@ -500,33 +498,28 @@ async def send_message(
 async def stop_message(
     conversation_id: str,
     user: AuthUser,
+    mode: Annotated[Literal["cancel", "discard"], Query()] = "cancel",
     conv_repo: ConversationRepository = Depends(get_conversation_repo),
 ):
-    """Explicitly stop the conversation's in-flight turn (执行与请求解耦 C1 · slice 1a).
+    """Explicitly cancel the conversation's in-flight turn (hard ``user_stop``).
 
-    Now that a client disconnect no longer cancels a turn (it runs to completion +
-    persists in the background), the user's 「停止」 routes here instead. Cancels the
-    detached run task tracked in the ``TurnRunRegistry``, which unwinds through the
-    turn's ``CancelledError`` salvage — finished team work is kept as an incomplete
-    message. Also cascade-cancels any live coordination drive + in-flight workers
-    (unlike SSE disconnect, which detaches and lets the team finish). Idempotent:
-    ``stopped=false`` when nothing is running (already finished / never started), so
-    a late click settles cleanly. Owner-gated.
+    Cascade-cancels the detached run + live coordination workers and closes with
+    ``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing
+    is running. ``mode=discard`` is an alias of hard cancel for older clients.
     """
     await _require_owned_conversation(conversation_id, user.user_id, conv_repo)
-    # 触发点④：stop 前 orphan 热路 pending（有活 turn 时必须带 turn_id 落 journal）
     from agentcore.runtime.interaction_orphan import orphan_live_turn_hot_pending
 
     await orphan_live_turn_hot_pending(conversation_id)
+
     stopped = turn_runs.stop(conversation_id)
     if not stopped:
-        # Detached background execution with no live turn slot — cancel via registry.
         from agentcore.runtime.coordination.session import (
             cancel_coordination_on_user_stop,
         )
 
         stopped = cancel_coordination_on_user_stop(conversation_id)
-    return StopTurnResponse(stopped=stopped)
+    return StopTurnResponse(stopped=stopped, mode=mode)
 
 
 @router.get("/{conversation_id}/stream")

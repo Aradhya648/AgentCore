@@ -2,8 +2,8 @@
 
 Available only when the conversation runs against a local workspace binding (the
 desktop Electron app is the client). The tool suspends on the unified client_tool
-bridge; the renderer shows the notification via the main-process ``Notification`` API
-after the user has approved the GRANTABLE call.
+bridge; the renderer shows the notification via the main-process ``Notification`` API.
+GRANTABLE by default; ``command=auto`` silently auto-passes (see sandbox_approval).
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class DesktopNotifyTool:
             description=(
                 "在用户的桌面系统通知栏弹出一条原生通知（仅本地绑定工作区 / 桌面客户端可用）。"
                 "用于任务完成提醒、需要用户回到电脑前查看、或里程碑提示。"
-                "每次调用需用户审批；不要滥发。"
+                "谨慎档需用户审批；少打断/托管（command=auto）下静默放行。不要滥发。"
             ),
             parameters={
                 "type": "object",

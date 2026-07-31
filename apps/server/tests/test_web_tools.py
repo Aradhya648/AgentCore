@@ -51,10 +51,12 @@ from agentcore.tools.builtin.web.read_url import (
     _make_snippet,
 )
 from agentcore.tools.builtin.web.search import (
+    _QUERY_ABSOLUTE_CHAR_LIMIT,
     _QUERY_CJK_CHAR_LIMIT,
     _QUERY_LATIN_WORD_LIMIT,
     _QUERY_LATIN_WORD_WEIGHT,
     WebSearchTool,
+    prepare_search_query,
     validate_search_query,
 )
 from agentcore.tools.builtin.web.search_backend import (
@@ -1736,24 +1738,24 @@ def test_validate_search_query_mixed_weighted_allows_technical_query():
 
 
 def test_validate_search_query_mixed_weighted_rejects_when_over():
-    # 混合查询即便按加权口径仍超 32（3×4 + 24 中文字 = 36）→ 依旧拒绝（只拒不改写）。
-    q = "multi-agent orchestration framework " + "研" * 24
+    # 混合查询即便按加权口径仍超 48（3×4 + 40 中文字 = 52）→ validate 层依旧拒绝（不改写）。
+    q = "multi-agent orchestration framework " + "研" * 40
     err = validate_search_query(q)
     assert err is not None
     assert "查询过长" in err
-    assert "折合 36 字" in err  # 展示与新口径一致的加权字数
+    assert "折合 52 字" in err  # 展示与新口径一致的加权字数
     assert "超出 4" in err
     assert str(_QUERY_LATIN_WORD_WEIGHT) in err  # 文案说明英文词折算权重
 
 
 def test_validate_search_query_mixed_at_weighted_limit():
     # 恰好压线（加权分支由 CJK 预算 + 拉丁词权重决定，与拉丁词数上限无关）：
-    # 拉丁词×权重 + 中文字凑满 32 放行，再多 1 个中文字 = 33 拒绝。
+    # 拉丁词×权重 + 中文字凑满 48 放行，再多 1 个中文字 = 49 拒绝。
     latin_words = ["multi", "agent", "orchestration", "framework"]  # 4 拉丁词 → 16 字
     latin = " ".join(latin_words)
-    cjk_at = _QUERY_CJK_CHAR_LIMIT - len(latin_words) * _QUERY_LATIN_WORD_WEIGHT  # 32 - 16 = 16
-    at_limit = f"{latin} " + "研" * cjk_at  # 16 + 16 == 32
-    over_limit = f"{latin} " + "研" * (cjk_at + 1)  # 16 + 17 == 33
+    cjk_at = _QUERY_CJK_CHAR_LIMIT - len(latin_words) * _QUERY_LATIN_WORD_WEIGHT  # 48 - 16 = 32
+    at_limit = f"{latin} " + "研" * cjk_at  # 16 + 32 == 48
+    over_limit = f"{latin} " + "研" * (cjk_at + 1)  # 16 + 33 == 49
     assert validate_search_query(at_limit) is None
     assert validate_search_query(over_limit) is not None
 
@@ -1783,8 +1785,11 @@ def test_validate_search_query_cjk_curly_and_corner_quote_exemption():
     )
 
 
-def test_validate_search_query_quote_exemption_never_rewrites():
-    """铁律：只拒不改写——超限返回错误文案，不返回改写后的 query。"""
+def test_validate_search_query_does_not_rewrite():
+    """validate 层纯检查不改写——超限返回错误文案，不返回改写后的 query。
+
+    规范化/截断在 ``prepare_search_query``；validate 只诊断。
+    """
     overflow = "研" * (_QUERY_CJK_CHAR_LIMIT + 5)
     err = validate_search_query(overflow)
     assert err is not None
@@ -1793,45 +1798,51 @@ def test_validate_search_query_quote_exemption_never_rewrites():
 
 
 async def test_web_search_rejects_oversized_latin_query_without_backend(monkeypatch):
-    calls = {"n": 0}
+    """词数超限：prepare 截断后仍搜，打 backend，不再 contract_failure。"""
+    calls: list[str] = []
 
     class _Backend:
         async def search(self, query, max_results=5, on_phase=None, *, language=None):
-            calls["n"] += 1
+            calls.append(query)
             return []
 
     monkeypatch.setattr(search_mod, "get_search_backend", lambda: _Backend())
     long_q = " ".join(f"term{i}" for i in range(_QUERY_LATIN_WORD_LIMIT + 1))
     result = await WebSearchTool().execute({"query": long_q}, _ctx())
-    assert result.success is False
-    # 参数契约拒绝: 打上 contract_failure 让断路器跳过累计（同轮扇出不烧穿禁用阈值）。
-    assert result.contract_failure is True
-    assert "查询词过多" in (result.error or "")
-    assert "超出 1" in (result.error or "")
-    assert "请改为「" in (result.error or "")
-    assert "2–3 个核心词" in (result.error or "")
-    assert calls["n"] == 0  # no silent rewrite, no network
+    assert result.success is True
+    assert result.contract_failure is not True
+    assert len(calls) == 1
+    expected = " ".join(f"term{i}" for i in range(_QUERY_LATIN_WORD_LIMIT))
+    assert calls[0] == expected
+    payload = json.loads(result.output)
+    assert payload["query"] == expected
+    assert payload.get("original_query") == long_q
+    assert "已截断至上限" in (payload.get("note") or "")
 
 
 def test_web_search_schema_documents_query_contract():
-    """契约进 schema：写明 ≤8 拉丁词 / 加权≤32 / 英文词折算权重 / 书名号·引号豁免 / 建议 2–3 词。"""
+    """契约进 schema：≤12 拉丁词 / 加权≤48 / 超限规范化·截断并明示 / 书名号·引号豁免 / 建议 2–3 词。"""
     schema = WebSearchTool().schema
     blob = schema.description + schema.parameters["properties"]["query"]["description"]
-    assert str(_QUERY_LATIN_WORD_LIMIT) in blob  # 拉丁词上限 8
-    assert str(_QUERY_CJK_CHAR_LIMIT) in blob  # 加权字数上限 32
+    assert str(_QUERY_LATIN_WORD_LIMIT) in blob  # 拉丁词上限 12
+    assert str(_QUERY_CJK_CHAR_LIMIT) in blob  # 加权字数上限 48
     assert str(_QUERY_LATIN_WORD_WEIGHT) in blob  # 英文单词每词折 4 字
     assert "引号" in blob  # 引号短语豁免
     assert "书名号" in blob  # 中文专名豁免
     assert "摘要优先" in blob  # 默认摘要优先基调
     assert "2–3" in blob  # 建议一次 2–3 个核心词
-    assert "拒绝" in blob  # 超限拒绝（不静默改写）
+    assert "规范化" in blob or "截断" in blob
+    assert "明示" in blob
+    assert "不会自动改写" not in blob
+    assert "无法规范化才拒绝" not in blob
+    assert "极端过长" in blob  # 仅极端过长拒绝
 
 
 def test_reject_copy_states_real_ceiling_not_just_suggestion():
     """拒绝文案口径对齐：明示实际上限 + 超限量 + 可照抄缩短示例 / 拆分 / 引号豁免。"""
     latin = validate_search_query(" ".join(f"w{i}" for i in range(_QUERY_LATIN_WORD_LIMIT + 1)))
     assert latin is not None
-    assert f"上限 {_QUERY_LATIN_WORD_LIMIT}" in latin  # 真实上限 8，而非只给 2–3 建议
+    assert f"上限 {_QUERY_LATIN_WORD_LIMIT}" in latin  # 真实上限，而非只给 2–3 建议
     assert "超出 1" in latin
     assert "请改为「" in latin
     assert "2–3 个核心词" in latin  # 拆分建议
@@ -1839,7 +1850,7 @@ def test_reject_copy_states_real_ceiling_not_just_suggestion():
 
     cjk = validate_search_query("研" * (_QUERY_CJK_CHAR_LIMIT + 1))
     assert cjk is not None
-    assert str(_QUERY_CJK_CHAR_LIMIT) in cjk  # 真实上限 32
+    assert str(_QUERY_CJK_CHAR_LIMIT) in cjk  # 真实上限
     assert "超出 1" in cjk
     assert "2–3 个核心词" in cjk
     assert "引号" in cjk
@@ -1854,6 +1865,120 @@ def test_latin_reject_includes_shortened_example_from_query():
     assert f"请改为「{expected}」" in err
     assert "超出 3" in err
 
+
+def test_prepare_search_query_academic_proper_names():
+    """学术长 query（>12 词）：专名加引号（必要时丢 venue）→ 无 error、明示 adjustment。
+
+    注：需超过新拉丁上限 12 才触发规范化；此处用 13 词覆盖。
+    """
+    q = (
+        "Limaye Srinivasan Tavenas permanent formula lower bound proof "
+        "complexity theory algebraic circuit STOC"
+    )
+    prep = prepare_search_query(q)
+    assert prep.error is None
+    assert '"' in prep.query
+    assert "Limaye Srinivasan Tavenas" in prep.query
+    assert prep.adjustment_note is not None
+    assert "query_adjusted" in prep.adjustment_note
+    assert q in prep.adjustment_note
+    # 加引号后 unquoted ≤12；venue 可保留或丢掉（优选丢）。
+    assert validate_search_query(prep.query) is None
+
+
+def test_prepare_search_query_no_proper_names_still_errors():
+    """无专名超限 → prepare 截断至上限，无 error，带 adjustment_note。"""
+    words = " ".join(f"w{i}" for i in range(_QUERY_LATIN_WORD_LIMIT + 1))
+    prep = prepare_search_query(words)
+    assert prep.error is None
+    assert prep.adjustment_note is not None
+    assert "已截断至上限" in prep.adjustment_note
+    expected = " ".join(f"w{i}" for i in range(_QUERY_LATIN_WORD_LIMIT))
+    assert prep.query == expected
+    assert validate_search_query(prep.query) is None
+
+
+def test_prepare_search_query_drops_venue_when_still_over():
+    """加引号后仍超限时丢掉尾部 venue/年份。"""
+    # 2 专名 + 11 普通词 + STOC + 2024 = 加引号后 unquoted 仍 13 → 需丢尾。
+    q = "Alice Bob a b c d e f g h i j k STOC 2024"
+    prep = prepare_search_query(q)
+    assert prep.error is None
+    assert '"Alice Bob"' in prep.query
+    assert "STOC" not in prep.query
+    assert "2024" not in prep.query
+    assert prep.adjustment_note is not None
+    assert "会议名" in prep.adjustment_note or "年份" in prep.adjustment_note
+
+
+async def test_web_search_query_adjusted_academic_hits_backend(monkeypatch):
+    """学术超限例：execute 规范化后直搜，output 含实搜词 / original / note。"""
+    calls: list[str] = []
+
+    class _Backend:
+        async def search(self, query, max_results=5, on_phase=None, *, language=None):
+            calls.append(query)
+            return [
+                SearchResult(
+                    title="paper",
+                    url="https://example.com/p",
+                    snippet="lower bound permanent",
+                )
+            ]
+
+    monkeypatch.setattr(search_mod, "get_search_backend", lambda: _Backend())
+    original = (
+        "Limaye Srinivasan Tavenas permanent formula lower bound proof "
+        "complexity theory algebraic circuit STOC"
+    )
+    result = await WebSearchTool().execute({"query": original}, _ctx())
+    assert result.success is True
+    assert len(calls) == 1
+    assert '"' in calls[0]
+    assert "Limaye Srinivasan Tavenas" in calls[0]
+    payload = json.loads(result.output)
+    assert payload["query"] == calls[0]
+    assert payload.get("original_query") == original
+    assert "query_adjusted" in (payload.get("note") or "")
+    assert original in (payload.get("note") or "")
+
+
+async def test_web_search_rejects_unnormalizable_latin_without_backend(monkeypatch):
+    """极端过长（绝对字符上限）：execute 仍 reject、不打 backend、contract_failure。"""
+    calls = {"n": 0}
+
+    class _Backend:
+        async def search(self, query, max_results=5, on_phase=None, *, language=None):
+            calls["n"] += 1
+            return []
+
+    monkeypatch.setattr(search_mod, "get_search_backend", lambda: _Backend())
+    long_q = "x" * (_QUERY_ABSOLUTE_CHAR_LIMIT + 1)
+    result = await WebSearchTool().execute({"query": long_q}, _ctx())
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "极端过长" in (result.error or "")
+    assert calls["n"] == 0
+
+
+def test_prepare_search_query_truncates_cjk_over_limit():
+    """中文超限：prepare 截断至加权上限，无 error。"""
+    overflow = "研" * (_QUERY_CJK_CHAR_LIMIT + 5)
+    prep = prepare_search_query(overflow)
+    assert prep.error is None
+    assert prep.query == "研" * _QUERY_CJK_CHAR_LIMIT
+    assert prep.adjustment_note is not None
+    assert "已截断至上限" in prep.adjustment_note
+    assert validate_search_query(prep.query) is None
+
+
+def test_validate_search_query_rejects_absolute_over_length():
+    """validate 对绝对长度硬拒同样返回文案（纯检查不改写）。"""
+    long_q = "x" * (_QUERY_ABSOLUTE_CHAR_LIMIT + 1)
+    err = validate_search_query(long_q)
+    assert err is not None
+    assert "极端过长" in err
+    assert str(_QUERY_ABSOLUTE_CHAR_LIMIT) in err
 
 # --- A4: cache key casefold + Latin word-order; debate exact keys ---
 

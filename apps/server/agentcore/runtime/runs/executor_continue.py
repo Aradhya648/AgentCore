@@ -26,6 +26,7 @@ from agentcore.runtime.events import (
     run_started,
 )
 from agentcore.runtime.facts import MessageFinalFact, RunHeadFact, record_turn_fact
+from agentcore.runtime.runs.constants import HANDOFF_TOOL_NAME
 from agentcore.runtime.runs.contract import check_contract, needs_file_contents
 from agentcore.runtime.runs.executor_context import (
     _context_block_payloads,
@@ -41,6 +42,7 @@ from agentcore.runtime.runs.executor_shared import (
     _priced_failure,
     _react_and_capture,
 )
+from agentcore.runtime.runs.landing_product import filter_product_landing_paths
 from agentcore.runtime.runs.serialize import debrief_from_transcript, files_touched_from_transcript
 from agentcore.runtime.runs.session import RunSession
 from agentcore.runtime.runs.types import ContextBlock, RunPhase, RunState
@@ -294,6 +296,9 @@ async def _continue_run_scoped(
             worker_tools = _registry_without(worker_tools, *RETRIEVAL_TOOL_NAMES)
             if allowed_tools is not None:
                 allowed_tools = [t for t in allowed_tools if t not in RETRIEVAL_TOOL_NAMES]
+        # Same as executor_node: restricted allow-list must still keep handoff.
+        if allowed_tools is not None and HANDOFF_TOOL_NAME not in allowed_tools:
+            allowed_tools = [*allowed_tools, HANDOFF_TOOL_NAME]
         finish_override: list[FinishReason] = []
         cutoff_reasons: list[str] = []
         tool_failures: list[dict] = []
@@ -421,10 +426,18 @@ async def _continue_run_scoped(
                 web_quality_scan=True,
             )
         turn_ledger = _turn_ledger_var.get()
+        artifacts = (
+            list(deliverable.artifacts)
+            if deliverable is not None and deliverable.artifacts
+            else None
+        )
+        product_written = len(
+            filter_product_landing_paths(touched_for_gate, artifacts)
+        )
         verdict = check_contract(
             content,
             deliverable,
-            files_written=len(touched_for_gate),
+            files_written=product_written,
             debrief=debrief_from_transcript(messages),
             workspace_paths=workspace_paths,
             artifact_contents=artifact_contents,

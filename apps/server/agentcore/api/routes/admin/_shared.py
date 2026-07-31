@@ -12,6 +12,7 @@ from __future__ import annotations
 from agentcore.api.schemas import (
     AdminUserListItem,
     AdminUserResponse,
+    ReplayRun,
     ReplaySpan,
     TurnHealthWindow,
 )
@@ -70,6 +71,75 @@ def _project_spans(entries: list[dict]) -> list[ReplaySpan]:
                 )
             )
     return spans
+
+
+def _project_runs(entries: list[dict]) -> list[ReplayRun]:
+    """Project a turn's journal to the lightweight multi-agent run list (会话复盘).
+
+    Reuses the existing display fold — ``runs_from_entries`` rebuilds wire events,
+    ``project_turn`` folds the team tree — then lifts ``message_final`` content for
+    full worker text. Returns ``[]`` for plain chat (no team surface). Does NOT
+    ship ``RunsPayload.events``; tool/LLM detail stays on ``ReplaySpan``.
+    """
+    from agentcore.conformance.projection import project_turn
+    from agentcore.runtime.facts import FactKind
+    from agentcore.runtime.journal.fold import runs_from_entries
+
+    payload = runs_from_entries(entries)
+    if not payload:
+        return []
+    events = payload.get("events") or []
+    if not events:
+        return []
+    projected = project_turn(events)
+    projected_runs = projected.get("runs") or []
+    if not projected_runs:
+        return []
+
+    # Prefer the source message_final fact for full deliverable text (deltas are
+    # synthesized for client fold; admin wants the verbatim body).
+    finals: dict[str, str] = {}
+    for entry in entries:
+        if entry.get("kind") != FactKind.MESSAGE_FINAL.value:
+            continue
+        p = entry.get("payload") or {}
+        rid = p.get("run_id")
+        if rid:
+            finals[str(rid)] = p.get("content") or ""
+
+    agents = {a["id"]: a for a in (projected.get("agents") or [])}
+    out: list[ReplayRun] = []
+    for r in projected_runs:
+        rid = str(r.get("id") or "")
+        agent_id = str(r.get("agentId") or "")
+        agent = agents.get(agent_id) or {}
+        content = finals.get(rid)
+        if content is None:
+            folded = agent.get("output") or ""
+            content = folded or None
+        elif content == "":
+            content = None
+        role = r.get("role") or agent.get("role") or None
+        debrief = r.get("debrief")
+        if debrief is not None and not isinstance(debrief, dict):
+            debrief = None
+        out.append(
+            ReplayRun(
+                run_id=rid,
+                agent_id=agent_id,
+                role=role if isinstance(role, str) else None,
+                kind=str(r.get("kind") or "agent"),
+                task=str(r.get("task") or ""),
+                status=str(r.get("status") or "pending"),
+                parent_run_id=r.get("parentRunId"),
+                depends_on=[str(d) for d in (r.get("dependsOn") or [])],
+                content=content,
+                debrief=debrief,
+                output_summary=r.get("outputSummary"),
+                error=r.get("error"),
+            )
+        )
+    return out
 
 
 def _health_window(agg: dict) -> TurnHealthWindow:

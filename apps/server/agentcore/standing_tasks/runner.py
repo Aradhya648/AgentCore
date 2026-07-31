@@ -132,6 +132,7 @@ async def run_standing_task_job(
             trigger_kind = getattr(task, "trigger_kind", None) or "schedule"
             template_key = getattr(task, "template_key", None)
             template_config = dict(getattr(task, "template_config", None) or {})
+            workflow_id = getattr(task, "workflow_id", None)
             # Cloud folder guard (defense in depth; create already rejects local).
             folder = await FolderRepository(session).get_by_id(folder_id, user_id=user_id)
             if folder is None or folder.local_root_id:
@@ -149,6 +150,24 @@ async def run_standing_task_job(
                     if frow is not None:
                         folder_names[fid] = frow.name
             pinned_conversation_id = task.conversation_id
+
+            workflow_definition: dict | None = None
+            workflow_version = 1
+            workflow_name = name
+            if workflow_id:
+                from agentcore.db.repositories.user_workflows import UserWorkflowRepository
+
+                wf = await UserWorkflowRepository(session).get_by_id(
+                    workflow_id, user_id=user_id
+                )
+                if wf is None:
+                    await StandingTaskRunRepository(session).mark_failed(
+                        run_id, error="绑定的工作流不存在或已删除"
+                    )
+                    return
+                workflow_definition = dict(wf.definition or {})
+                workflow_version = int(wf.version or 1)
+                workflow_name = wf.name
 
         # Hard gate: daily review with nothing in scope → succeed without LLM.
         if template_key == DAILY_CONVERSATION_REVIEW:
@@ -193,6 +212,21 @@ async def run_standing_task_job(
                 template_config=template_config,
                 folder_names=folder_names,
                 event_text=event_text,
+            )
+        elif workflow_id and workflow_definition is not None:
+            from agentcore.workflows.runner import build_workflow_user_message
+
+            # Bound workflow: goal + event_text are optional per-run supplements.
+            supplement_parts = []
+            goal_s = (goal or "").strip()
+            if goal_s:
+                supplement_parts.append(goal_s)
+            event_s = (event_text or "").strip()
+            if event_s:
+                supplement_parts.append(event_s)
+            note = "\n\n".join(supplement_parts) if supplement_parts else None
+            user_message = build_workflow_user_message(
+                workflow_name=workflow_name, note=note
             )
         else:
             user_message = build_fire_message(goal=goal, event_text=event_text)
@@ -271,20 +305,40 @@ async def run_standing_task_job(
                 )
 
             # Monkeypatch seam for unit tests (see test_standing_tasks.py).
-            result = await _run_pipeline(
-                conversation_id=conversation_id,
-                user_message=user_message,
-                user_id=user_id,
-                folder_id=folder_id,
-                sink=sink,
-                history=history[:-1],
-                backend=backend,
-                llm_credentials=credentials,
-                profile_set=profile_set,
-                memory_enabled=memory_enabled,
-                conversation_history_access=conversation_history_access,
-                permission_axes=axes,
-            )
+            if workflow_id and workflow_definition is not None:
+                result = await _run_workflow_pipeline(
+                    conversation_id=conversation_id,
+                    user_message=user_message,
+                    user_id=user_id,
+                    folder_id=folder_id,
+                    sink=sink,
+                    history=history[:-1],
+                    backend=backend,
+                    llm_credentials=credentials,
+                    profile_set=profile_set,
+                    memory_enabled=memory_enabled,
+                    conversation_history_access=conversation_history_access,
+                    permission_axes=axes,
+                    workflow_id=workflow_id,
+                    workflow_version=workflow_version,
+                    workflow_name=workflow_name,
+                    definition=workflow_definition,
+                )
+            else:
+                result = await _run_pipeline(
+                    conversation_id=conversation_id,
+                    user_message=user_message,
+                    user_id=user_id,
+                    folder_id=folder_id,
+                    sink=sink,
+                    history=history[:-1],
+                    backend=backend,
+                    llm_credentials=credentials,
+                    profile_set=profile_set,
+                    memory_enabled=memory_enabled,
+                    conversation_history_access=conversation_history_access,
+                    permission_axes=axes,
+                )
 
         finish = (result or {}).get("finish_reason") if isinstance(result, dict) else None
         summary = _truncate_summary(
@@ -379,6 +433,49 @@ async def _run_pipeline(**kwargs):
         permission_axes=kwargs.get("permission_axes"),
     )
     return None
+
+
+async def _run_workflow_pipeline(**kwargs):
+    """Standing fire with a bound workflow: direct-start (no CEO 编队).
+
+    Test seam: monkeypatch this like ``_run_pipeline``.
+    """
+    from agentcore.conversation.turn_runner import session_callbacks, suspension_callbacks
+    from agentcore.runtime.pipeline.workflow_run import run_workflow_pipeline
+    from agentcore.workflows.definition import (
+        WorkflowDefinitionError,
+        expand_workflow_to_tasks,
+    )
+
+    try:
+        tasks = expand_workflow_to_tasks(kwargs["definition"])
+    except WorkflowDefinitionError as e:
+        return {"error": str(e), "finish_reason": "error"}
+
+    conversation_id = kwargs["conversation_id"]
+    session_saver, session_loader = session_callbacks(conversation_id)
+    suspension_saver, suspension_deleter = suspension_callbacks()
+    return await run_workflow_pipeline(
+        conversation_id=conversation_id,
+        user_id=kwargs["user_id"],
+        user_message=kwargs["user_message"],
+        tasks=tasks,
+        workflow_id=kwargs["workflow_id"],
+        workflow_version=kwargs["workflow_version"],
+        sink=kwargs["sink"],
+        backend=kwargs["backend"],
+        history=kwargs["history"],
+        folder_id=kwargs["folder_id"],
+        memory_enabled=kwargs.get("memory_enabled", True),
+        conversation_history_access=kwargs.get("conversation_history_access", True),
+        permission_axes=kwargs.get("permission_axes"),
+        profile_set=kwargs.get("profile_set"),
+        llm_credentials=kwargs["llm_credentials"],
+        session_saver=session_saver,
+        session_loader=session_loader,
+        suspension_saver=suspension_saver,
+        suspension_deleter=suspension_deleter,
+    )
 
 
 def spawn_standing_task_run(

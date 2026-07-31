@@ -56,7 +56,7 @@ describe("AutonomySettings", () => {
     expect(screen.queryByText(/写代码/)).toBeNull();
     expect(
       screen.getByText(
-        /新会话默认：本会话信任改文件；自动执行；跳过组团卡；本机每次确认/,
+        /新会话默认：本会话信任改文件；自动执行；组团卡按规则；本机每次确认/,
       ),
     ).toBeTruthy();
 

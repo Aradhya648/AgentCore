@@ -171,6 +171,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         HostStorageTool,
     )
     from agentcore.tools.builtin.md_to_docx import MdToDocxTool
+    from agentcore.tools.builtin.md_to_pdf import MdToPdfTool
     from agentcore.tools.builtin.post_note import PostNoteTool
     from agentcore.tools.builtin.read_conversation import ReadConversationTool
     from agentcore.tools.builtin.read_notes import ReadNotesTool
@@ -199,6 +200,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         MkdirTool,
         FileBatchTool,
         MdToDocxTool,
+        MdToPdfTool,
         GrepTool,
         CodeSearchTool,
         GitTool,
@@ -266,7 +268,7 @@ def declared_tools(*, surface: ToolSurface | None = None) -> tuple[type, ...]:
 
 
 def execution_class_tool_names() -> frozenset[str]:
-    """Tools flagged ``execution_class`` (code_execute / test_run / terminal)."""
+    """Tools flagged ``execution_class`` (code_execute / test_run / terminal / browser_*)."""
     return frozenset(
         declared_tool_name(cls)
         for cls in declared_tools()

@@ -197,7 +197,11 @@ def files_touched_from_transcript(transcript: list[LLMMessage]) -> list[str]:
                 if isinstance(parsed, dict):
                     path = parsed.get(arg)
                     if isinstance(path, str) and path.strip():
-                        file_product_by_call_id[tc.id] = path.strip()
+                        from agentcore.workspace._paths import sanitize_write_relpath
+
+                        file_product_by_call_id[tc.id] = sanitize_write_relpath(
+                            path.strip()
+                        )
         elif msg.role == "tool" and msg.tool_call_id:
             if msg.tool_call_id in code_execute_call_ids:
                 for path in _written_files_from_marker(msg.content or ""):
@@ -289,10 +293,16 @@ def _debrief_from_handoff_args(args: dict[str, Any]) -> dict[str, Any] | None:
 
     Only the fields the author actually filled are kept (each omitted when empty), matching the
     shape the run-detail card / dep injection / CEO synthesis already consume. ``key_points`` is a
-    list (a lone string is tolerated by wrapping it); the other three are single strings.
+    list (a lone string is tolerated by wrapping it; a markdown bullet list string is split);
+    the other three are single strings.
     Optional ``motion_card`` is normalized via the handoff contract parser (invalid card is
     dropped so other brief fields still harvest — the tool itself rejects bad cards at execute)."""
     from agentcore.runtime.engine.tool_protocol_sanitize import sanitize_protocol_text
+    from agentcore.tools.builtin.ask_user.schema import (
+        ListArgError,
+        coerce_list_arg,
+        split_markdown_list_items,
+    )
 
     out: dict[str, Any] = {}
     summary = sanitize_protocol_text(str(args.get("summary") or "")).strip()
@@ -300,12 +310,27 @@ def _debrief_from_handoff_args(args: dict[str, Any]) -> dict[str, Any] | None:
         out["summary"] = summary
     raw_points = args.get("key_points")
     if isinstance(raw_points, str):
-        raw_points = [raw_points]
+        md_items = split_markdown_list_items(raw_points)
+        if md_items is not None:
+            raw_points = md_items
+        else:
+            # JSON-array-as-string or plain prose → coerce_list_arg / wrap.
+            try:
+                raw_points = coerce_list_arg(
+                    raw_points, field="key_points", allow_markdown_bullets=True
+                )
+            except ListArgError:
+                raw_points = [raw_points]
     key_points: list[str] = []
     for p in raw_points or []:
         cleaned = sanitize_protocol_text(str(p)).strip()
         if cleaned:
-            key_points.append(cleaned)
+            # Nested markdown blob inside a one-element list (model fumble).
+            nested = split_markdown_list_items(cleaned)
+            if nested is not None and len(nested) > 1:
+                key_points.extend(nested)
+            else:
+                key_points.append(cleaned)
     if key_points:
         out["key_points"] = key_points
     assumptions = sanitize_protocol_text(str(args.get("assumptions") or "")).strip()
@@ -408,7 +433,7 @@ def state_to_json(state: RunState) -> dict[str, Any]:
         "content": state.content,
         "reasoning": state.reasoning,
         "error": state.error,
-        # 确定性失败区分 (BL-6): persist the retryable verdict so a resume / retry-failed
+        # 确定性失败区分 (BL-6): persist the retryable verdict so a resume
         # rebuild + the audit trail keep the「这次失败是确定性的」signal (default True keeps
         # older frames unchanged). Omitted from the shape for COMPLETED nodes is fine — the
         # deserializer defaults it True.
@@ -473,10 +498,17 @@ def plan_to_json(plan: RunPlan) -> dict[str, Any]:
     — with its already-minted run_ids — on resume. Re-deriving from the delegate
     args would mint fresh ids (``del_<uuid>_N``) that no longer match the
     seed_completed map keyed by the original ids."""
-    return {
+    payload: dict[str, Any] = {
         "nodes": [spec_to_json(n) for n in plan.nodes],
         "origin": plan.origin.value,
     }
+    if plan.topology_lock:
+        payload["topology_lock"] = True
+    if plan.workflow_id:
+        payload["workflow_id"] = plan.workflow_id
+    if plan.workflow_version is not None:
+        payload["workflow_version"] = int(plan.workflow_version)
+    return payload
 
 
 def plan_from_json(data: dict[str, Any]) -> RunPlan:
@@ -486,6 +518,14 @@ def plan_from_json(data: dict[str, Any]) -> RunPlan:
     plan = RunPlan(nodes=[spec_from_json(n) for n in (data.get("nodes") or [])])
     if isinstance(origin, str):
         plan.origin = RunOrigin(origin)
+    plan.topology_lock = bool(data.get("topology_lock"))
+    wid = data.get("workflow_id")
+    plan.workflow_id = str(wid).strip() if isinstance(wid, str) and wid.strip() else None
+    wv = data.get("workflow_version")
+    if isinstance(wv, int):
+        plan.workflow_version = wv
+    elif isinstance(wv, str) and wv.strip().isdigit():
+        plan.workflow_version = int(wv.strip())
     return plan
 
 

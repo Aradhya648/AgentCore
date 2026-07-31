@@ -369,6 +369,29 @@ async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
     assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
 
 
+async def test_file_read_reread_refresh_after_citation_rework(tmp_path: Path):
+    """Contract citation rework refreshes grant → same path readable once more after clear."""
+    from agentcore.runtime.engine.tool_clear import refresh_file_read_reread_grant
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+
+    (tmp_path / "draft.md").write_text("# Draft\nbody with #r1", encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    tool = FileReadTool()
+    for _ in range(FILE_READ_SAME_PATH_MAX):
+        assert (await tool.execute({"path": "draft.md"}, ctx)).success is True
+    ctx.file_read_verbatim_paths = frozenset()
+    ctx.file_read_reread_issued["draft.md"] = True
+    ctx.file_read_reread_remaining["draft.md"] = 0
+    blocked = await tool.execute({"path": "draft.md"}, ctx)
+    assert blocked.success is False
+    assert "再读次数已用尽" in (blocked.error or "")
+
+    refresh_file_read_reread_grant(ctx, ["draft.md"])
+    ok = await tool.execute({"path": "draft.md"}, ctx)
+    assert ok.success is True
+    assert ctx.file_read_reread_remaining["draft.md"] == 0
+
+
 async def test_file_read_reread_not_granted_while_verbatim_present(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
     from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
@@ -661,66 +684,59 @@ def test_has_omission_marker_covers_en_and_cn():
     assert "绝不代派" in text
 
 
-# --- file_write oversized hard length gate ---
+# --- file_write / append / str_replace: no hard length gate ---
 
 
-async def test_write_rejects_oversized_prose(tmp_path: Path):
-    from agentcore.tools.builtin.file_ops import (
-        _WRITE_LENGTH_WARN_CHARS,
-        _WRITE_LENGTH_WARN_TOKENS,
-    )
-
-    body = "x" * _WRITE_LENGTH_WARN_CHARS
+async def test_write_allows_oversized_prose(tmp_path: Path):
+    """超阈值正文一次 file_write 须成功落盘（不再硬拒）。"""
+    # Former hard-gate threshold was ≈2000 tokens × 4 chars ≈ 8000 chars.
+    body = "x" * 8000
     result = await FileWriteTool().execute(
         {"path": "big.html", "content": body}, _ctx(tmp_path)
     )
-    assert result.success is False
-    assert result.contract_failure is True
-    assert not (tmp_path / "big.html").exists()
-    assert "拒绝整篇一次写入" in (result.error or "")
-    assert "短骨架" in (result.error or "")
-    assert "已拦截" in (result.error or "")
-    assert str(_WRITE_LENGTH_WARN_TOKENS) in (result.error or "")
-    assert str(_WRITE_LENGTH_WARN_CHARS) in (result.error or "")
+    assert result.success is True
+    assert result.contract_failure is not True
+    assert (tmp_path / "big.html").read_text(encoding="utf-8") == body
+    assert "拒绝整篇一次写入" not in (result.error or "")
+    assert "拒绝整篇一次写入" not in (result.output or "")
+    assert "已拦截" not in (result.error or "")
 
 
-async def test_append_rejects_oversized_chunk(tmp_path: Path):
-    from agentcore.tools.builtin.file_ops import _WRITE_LENGTH_WARN_CHARS, FileAppendTool
+async def test_append_allows_oversized_chunk(tmp_path: Path):
+    from agentcore.tools.builtin.file_ops import FileAppendTool
 
     (tmp_path / "a.md").write_text("# skeleton\n", encoding="utf-8")
-    body = "y" * _WRITE_LENGTH_WARN_CHARS
+    body = "y" * 8000
     result = await FileAppendTool().execute(
         {"path": "a.md", "content": body}, _ctx(tmp_path)
     )
-    assert result.success is False
-    assert result.contract_failure is True
-    assert "拒绝单次过大写入" in (result.error or "")
-    assert "file_append" in (result.error or "")
+    assert result.success is True
+    assert result.contract_failure is not True
+    assert "拒绝单次过大写入" not in (result.error or "")
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "# skeleton\n" + body
 
 
-async def test_str_replace_rejects_oversized_new_string(tmp_path: Path):
-    from agentcore.tools.builtin.file_ops import _WRITE_LENGTH_WARN_CHARS, StrReplaceTool
+async def test_str_replace_allows_oversized_new_string(tmp_path: Path):
+    from agentcore.tools.builtin.file_ops import StrReplaceTool
 
     (tmp_path / "a.md").write_text("## 参考文献\n", encoding="utf-8")
+    new = "z" * 8000
     result = await StrReplaceTool().execute(
         {
             "path": "a.md",
             "old_string": "## 参考文献",
-            "new_string": "z" * _WRITE_LENGTH_WARN_CHARS,
+            "new_string": new,
         },
         _ctx(tmp_path),
     )
-    assert result.success is False
-    assert result.contract_failure is True
-    assert "拒绝单次过大写入" in (result.error or "")
-    assert "str_replace" in (result.error or "")
-    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "## 参考文献\n"
+    assert result.success is True
+    assert result.contract_failure is not True
+    assert "拒绝单次过大写入" not in (result.error or "")
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == new + "\n"
 
 
-async def test_write_allows_short_file_below_threshold(tmp_path: Path):
-    from agentcore.tools.builtin.file_ops import _WRITE_LENGTH_WARN_CHARS
-
-    body = "x" * (_WRITE_LENGTH_WARN_CHARS - 1)
+async def test_write_allows_medium_prose_body(tmp_path: Path):
+    body = "x" * 4000
     result = await FileWriteTool().execute(
         {"path": "ok.md", "content": body}, _ctx(tmp_path)
     )
@@ -775,7 +791,9 @@ def test_write_schema_teaches_artifact_first():
     write_desc = FileWriteTool().schema.description
     assert "Artifact-first" in write_desc
     assert "短骨架" in write_desc or "骨架" in write_desc
-    assert "禁止" in write_desc and ("整篇" in write_desc or "一次写" in write_desc)
+    assert "建议" in write_desc and ("分段" in write_desc or "按节" in write_desc)
+    assert "不硬拒" in write_desc
+    assert "硬拒绝（非仅提示）" not in write_desc
     assert "中间省略" in write_desc
     assert "manifest" in write_desc
     assert "优先" in write_desc and "str_replace" in write_desc
@@ -783,42 +801,20 @@ def test_write_schema_teaches_artifact_first():
     assert "硬拒绝】整文件" not in write_desc
     assert "系统会【硬拒绝】" not in write_desc
     content_desc = FileWriteTool().schema.parameters["properties"]["content"]["description"]
-    assert "骨架" in content_desc or "一次写完" in content_desc
+    assert "不硬拒" in content_desc or "一次写完" in content_desc
 
     append_desc = FileAppendTool().schema.description
     assert "骨架" in append_desc
     assert "file_write" in append_desc
     assert "成篇" in append_desc or "禁止" in append_desc
+    assert "不硬拒" in append_desc
 
     replace_desc = StrReplaceTool().schema.description
     assert "优先" in replace_desc
     assert "整文件覆盖亦允许" in replace_desc or "整盖" in replace_desc
     assert "禁止改用骨架 file_write" not in replace_desc
-
-
-def test_length_gate_helpers_pin_threshold():
-    from agentcore.tools.builtin.file_ops import (
-        _CHARS_PER_TOKEN_EST,
-        _WRITE_LENGTH_WARN_CHARS,
-        _WRITE_LENGTH_WARN_TOKENS,
-        is_oversized_write,
-        oversized_write_rejection,
-        requires_segmented_write,
-        segmented_write_rejection,
-        write_length_nudge,
-    )
-
-    assert _WRITE_LENGTH_WARN_CHARS == _WRITE_LENGTH_WARN_TOKENS * _CHARS_PER_TOKEN_EST
-    assert not is_oversized_write("x" * (_WRITE_LENGTH_WARN_CHARS - 1))
-    assert is_oversized_write("x" * _WRITE_LENGTH_WARN_CHARS)
-    assert write_length_nudge("a.md", "short") is None
-    assert not requires_segmented_write("short")
-    assert requires_segmented_write("x" * _WRITE_LENGTH_WARN_CHARS)
-    text = oversized_write_rejection(path="a.md", chars=_WRITE_LENGTH_WARN_CHARS)
-    assert "拒绝整篇一次写入" in text
-    assert "已拦截" in text
-    assert segmented_write_rejection("a.md", "x" * _WRITE_LENGTH_WARN_CHARS) is not None
-    assert segmented_write_rejection("a.md", "short") is None
+    new_desc = StrReplaceTool().schema.parameters["properties"]["new_string"]["description"]
+    assert "不硬拒" in new_desc
 
 
 def test_classify_write_kind_helpers():
@@ -1128,3 +1124,73 @@ async def test_file_list_recursive_pattern_miss_hint(tmp_path: Path):
     assert "空目录" not in result.output
     assert "无匹配 pattern='*.rs'" in result.output
     assert "a.py" in result.output or "目录非空" in result.output
+
+
+# --- write_scope (冷启动 explore_memory) ---
+
+
+def _explore_ctx(workspace: Path) -> ToolContext:
+    ctx = _ctx(workspace)
+    ctx.write_scope = "explore_memory"
+    return ctx
+
+
+async def test_write_scope_explore_memory_allows_research_note(tmp_path: Path):
+    ctx = _explore_ctx(tmp_path)
+    result = await FileWriteTool().execute(
+        {
+            "path": "AgentCore/文档/research/摸底笔记.md",
+            "content": "# 笔记\n",
+        },
+        ctx,
+    )
+    assert result.success is True
+    assert (tmp_path / "AgentCore" / "文档" / "research" / "摸底笔记.md").is_file()
+
+
+async def test_write_scope_explore_memory_rejects_user_project_path(tmp_path: Path):
+    ctx = _explore_ctx(tmp_path)
+    result = await FileWriteTool().execute(
+        {"path": "src/main.py", "content": "print(1)\n"},
+        ctx,
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "AgentCore/" in (result.error or "")
+    assert "src/main.py" in (result.error or "")
+
+
+async def test_write_scope_explore_memory_rejects_project_docs(tmp_path: Path):
+    ctx = _explore_ctx(tmp_path)
+    result = await FileWriteTool().execute(
+        {
+            "path": "AgentCore/文档/项目/架构详解.md",
+            "content": "# 厚案卷\n",
+        },
+        ctx,
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "文档/项目" in (result.error or "")
+
+
+async def test_write_scope_none_rejects_all(tmp_path: Path):
+    ctx = _ctx(tmp_path)
+    ctx.write_scope = "none"
+    result = await FileAppendTool().execute(
+        {"path": "AgentCore/文档/research/x.md", "content": "x"},
+        ctx,
+    )
+    assert result.success is False
+    assert "write_scope=none" in (result.error or "")
+
+
+async def test_write_scope_explore_memory_str_replace_rejects_outside(tmp_path: Path):
+    (tmp_path / "app.py").write_text("a = 1\n", encoding="utf-8")
+    ctx = _explore_ctx(tmp_path)
+    result = await StrReplaceTool().execute(
+        {"path": "app.py", "old_string": "a = 1", "new_string": "a = 2"},
+        ctx,
+    )
+    assert result.success is False
+    assert "AgentCore/" in (result.error or "")

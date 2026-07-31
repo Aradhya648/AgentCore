@@ -26,6 +26,10 @@ class WorkspaceSettings(BaseModel):
     avatar_upload_max_bytes: int = 5 * 1024 * 1024
     workspace_clone_timeout_seconds: int = 120
     workspace_op_timeout_seconds: float = 60.0
+    # Channel default when no outer tool deadline is bound (tests / handoff archive).
+    # Inside ``tool_exec``, ``WorkspaceChannel`` **derives** its deadline from the
+    # outer tool liveness budget (``tool_default_timeout_seconds`` − settle slack) —
+    # never a second independent 60s clock. See ``runtime/tool_deadline.py``.
     workspace_execute_timeout_slack_seconds: float = 30.0
     workspace_handoff_timeout_seconds: float = 300.0
     # AI 协作白板 (AI协作白板.md §六 M2): how long the BoardChannel waits for the bound

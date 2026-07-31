@@ -929,10 +929,10 @@ export function ChatPage() {
         const host = axes?.host ?? "ask";
         const key = axes
           ? `${axes.file_write}/${axes.command}/${axes.team_kickoff}/${host}`
-          : "session/auto/skip/ask";
+          : "session/auto/rules/ask";
         const labels: Record<string, string> = {
           "ask/ask/rules/off": "谨慎",
-          "session/auto/skip/ask": "少打断",
+          "session/auto/rules/ask": "少打断",
           "session/auto/skip/session": "托管",
         };
         setPermissionLabel(labels[key] ?? "自定义");

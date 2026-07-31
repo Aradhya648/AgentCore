@@ -24,7 +24,7 @@ describe("permissionAxes mapping", () => {
     expect(RECIPE_AXES.less_interrupt).toEqual({
       file_write: "session",
       command: "auto",
-      team_kickoff: "skip",
+      team_kickoff: "rules",
       host: "ask",
     });
     expect(RECIPE_AXES.managed.host).toBe("session");
@@ -116,9 +116,15 @@ describe("permissionAxes mapping", () => {
     ).toBe("托管");
     expect(
       permissionAxesShortLabel(
-        '{"file_write":"session","command":"auto","team_kickoff":"skip","host":"ask"}',
+        '{"file_write":"session","command":"auto","team_kickoff":"rules","host":"ask"}',
       ),
     ).toBe("少打断");
+    // Legacy stored axes (auto+skip+ask) no longer match 少打断 → custom chip.
+    expect(
+      permissionAxesShortLabel(
+        '{"file_write":"session","command":"auto","team_kickoff":"skip","host":"ask"}',
+      ),
+    ).toBe("信任 · 免审 · 跳卡 · 本机问");
     expect(permissionAxesShortLabel("{not-json")).toBeNull();
     expect(permissionAxesShortLabel("bogus")).toBeNull();
     expect(permissionAxesShortLabel(null)).toBeNull();
@@ -141,7 +147,7 @@ describe("permissionAxes mapping", () => {
       normalizeAxes({
         file_write: "session",
         command: "auto",
-        team_kickoff: "skip",
+        team_kickoff: "rules",
       }),
     ).toEqual(RECIPE_AXES.less_interrupt);
     expect(

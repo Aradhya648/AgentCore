@@ -412,10 +412,6 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     reason:
       "桌面 ResumePrompt 复用 CheckpointCard 全 intent UI；手机精简 ResumeCard 降级承接（与 CheckpointCard 同缺口）",
   },
-  WaitingForDecisionHint: {
-    verdict: "ported",
-    surface: "WaitingForDecisionHint",
-  },
   FileArtifactsCard: { verdict: "ported", surface: "FileArtifactsCard" },
   TurnFileChangesReview: {
     verdict: "simplified",
@@ -742,6 +738,34 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
   "toolbox/automations/StandingTasksPanel": {
     verdict: "simplified",
     reason: "同上 · 站立任务列表仅桌面",
+  },
+  "toolbox/workflows/WorkflowsPage": {
+    verdict: "simplified",
+    reason: "用户工作流画布/CRUD/直跑仅桌面；手机本波有意不接",
+  },
+  "toolbox/workflows/WorkflowEditorPage": {
+    verdict: "simplified",
+    reason: "同上 · 工作流编辑仅桌面",
+  },
+  "toolbox/workflows/WorkflowCanvas": {
+    verdict: "simplified",
+    reason: "同上 · 工作流画布仅桌面",
+  },
+  "toolbox/workflows/WorkflowNodeInspector": {
+    verdict: "simplified",
+    reason: "同上 · 节点检查器仅桌面",
+  },
+  "toolbox/workflows/workflowNodes": {
+    verdict: "simplified",
+    reason: "同上 · 画布节点叶仅桌面",
+  },
+  "toolbox/workflows/UseTemplateDialog": {
+    verdict: "simplified",
+    reason: "同上 · 从官方模板复制仅桌面",
+  },
+  "toolbox/workflows/RunWorkflowDialog": {
+    verdict: "simplified",
+    reason: "同上 · 工作流直跑对话框仅桌面",
   },
   "toolbox/ConnectorsPage": {
     verdict: "impossible",

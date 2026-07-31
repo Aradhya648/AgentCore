@@ -405,25 +405,6 @@ export async function regenerateConversation({
   );
 }
 
-export interface RetryFailedOptions {
-  conversationId: string;
-  messageId: string;
-  signal?: AbortSignal;
-}
-
-export async function retryFailedConversation({
-  conversationId,
-  messageId,
-  signal,
-}: RetryFailedOptions): Promise<void> {
-  await runMessageStream(
-    `/v1/conversations/${conversationId}/messages/${messageId}/retry-failed`,
-    "{}",
-    conversationId,
-    signal,
-  );
-}
-
 export interface ResumeConversationOptions {
   conversationId: string;
   messageId: string;

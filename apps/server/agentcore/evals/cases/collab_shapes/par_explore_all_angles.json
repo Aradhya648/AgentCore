@@ -1,0 +1,25 @@
+{
+  "id": "collab_par_explore_all_angles",
+  "category": "team",
+  "mast": "3.1",
+  "user_message": "前面你列了四个切入方向：理解难度、后果推演、具体问题下界、构造证明思路。都有，通过多 Agent 协作来完成这些内容。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "探索菜单「都有+多Agent」→ A parallel_brief 形态；禁止默认 research_report（无提纲撰稿审校汇入）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.55 } },
+    { "name": "NonEmpty", "args": { "min_len": 60 } }
+  ],
+  "expected_shape": {
+    "min_workers": 3,
+    "max_workers": 8,
+    "parallel_fanout_min": 3,
+    "has_join": false
+  },
+  "milestones": [
+    { "id": "fanout", "desc": "按多个切入方向并行摸底", "weight": 2 },
+    { "id": "no_publish_pipeline", "desc": "未默认跑提纲→撰稿→学术审校成文产线", "weight": 1 }
+  ]
+}

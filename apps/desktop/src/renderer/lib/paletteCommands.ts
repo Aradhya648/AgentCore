@@ -3,6 +3,7 @@ import { pickAndGrantReadonlyFolder } from "@/lib/grantReadonlyFolder";
 import { startNewConversation } from "@/lib/newConversation";
 import { chord } from "@/lib/shortcuts";
 import { notifyError, notifySuccess } from "@/lib/toast";
+import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import { exportConversation } from "@/services/conversations";
 import {
   type DemoTapeSummary,
@@ -445,6 +446,22 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
         "定时",
       ],
       run: go("/toolbox/automations"),
+    },
+    {
+      id: "nav-workflows",
+      title: "工具箱 · 工作流",
+      category: "前往",
+      icon: Workflow,
+      keywords: [
+        "toolbox",
+        "workflows",
+        "canvas",
+        "gongzuoliu",
+        "工作流",
+        "画布",
+        "拆法",
+      ],
+      run: go(APP_PATHS.toolbox.workflows.root),
     },
     {
       id: "nav-automations-inbox",

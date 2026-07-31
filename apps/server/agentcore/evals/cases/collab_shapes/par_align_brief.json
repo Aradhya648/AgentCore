@@ -1,0 +1,26 @@
+{
+  "id": "collab_par_align_brief",
+  "category": "team",
+  "mast": "3.1",
+  "user_message": "我想和团队一起把「远程办公对职业发展的长期影响」这件事理清。请从个人成长、组织管理、行业结构三个方向并行摸底，用多 Agent 协作；先对齐结论就行，先不要写成正式报告。",
+  "path": "team",
+  "mode": "economy",
+  "_note": "A 档对齐推进：多路并行摸底+回对话；期望高扇出、无汇入撰稿/审校链（has_join=false）；对照 p2_depth_writing（B 成文）。",
+  "checks": [
+    { "name": "FinishReason" },
+    { "name": "Delegated" },
+    { "name": "ShapeMatches", "args": { "threshold": 0.6 } },
+    { "name": "NonEmpty", "args": { "min_len": 80 } }
+  ],
+  "expected_shape": {
+    "min_workers": 3,
+    "max_workers": 6,
+    "parallel_fanout_min": 3,
+    "has_join": false,
+    "min_roles": 1
+  },
+  "milestones": [
+    { "id": "coverage", "desc": "覆盖用户点名的多个方向（非单人包办）", "weight": 2 },
+    { "id": "align", "desc": "交付是对齐/综述结论，而非出版级成篇报告流水线口吻", "weight": 1 }
+  ]
+}

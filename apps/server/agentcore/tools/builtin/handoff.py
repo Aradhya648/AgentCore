@@ -34,6 +34,7 @@ mirroring how ``escalate`` / ``post_note`` are wired in only where they belong.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any
 
@@ -251,6 +252,24 @@ class HandoffTool:
         cleaned = sanitize_tool_args(arguments) if isinstance(arguments, dict) else arguments
         if isinstance(cleaned, dict):
             arguments = cleaned
+            # key_points: tolerate markdown bullet string / JSON-array-as-string via the
+            # shared coerce path (ask_user.schema); truly bad JSON still fails at parse.
+            if "key_points" in arguments:
+                from agentcore.tools.builtin.ask_user.schema import (
+                    ListArgError,
+                    coerce_list_arg,
+                )
+
+                with contextlib.suppress(ListArgError):
+                    arguments["key_points"] = [
+                        str(p).strip()
+                        for p in coerce_list_arg(
+                            arguments.get("key_points"),
+                            field="key_points",
+                            allow_markdown_bullets=True,
+                        )
+                        if str(p).strip()
+                    ]
         summary = sanitize_protocol_text(str(arguments.get("summary") or "")).strip()
         card, card_err = parse_motion_card(arguments.get("motion_card"))
         if card_err:

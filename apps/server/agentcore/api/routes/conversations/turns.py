@@ -16,12 +16,11 @@ from agentcore.api.schemas import (
     PendingInteractionSummary,
     RegenerateMessageRequest,
     ResumeTurnRequest,
-    RetryFailedRequest,
     TurnRecoveryResponse,
 )
 from agentcore.api.sse import sse_response
 from agentcore.conversation.rate_limit import enforce_user_message_rate_limit
-from agentcore.conversation.service import regenerate_chat, resume_chat, retry_failed_chat
+from agentcore.conversation.service import regenerate_chat, resume_chat
 from agentcore.core.errors import NotFoundError
 from agentcore.core.logging import get_logger
 from agentcore.db.base import async_session_factory
@@ -163,49 +162,6 @@ async def regenerate_message(
             user_id=user.user_id,
             sink=sink,
             edited_content=body.content,
-            llm_credentials=preflight.credentials,
-            llm_supports_tools=preflight.supports_tools,
-        )
-    )
-    turn_runs.register(conversation_id=conversation_id, task=task, sink=sink)
-
-    return sse_response(sink, detach_on_disconnect=True)
-
-
-@router.post("/{conversation_id}/messages/{message_id}/retry-failed")
-async def retry_failed_message(
-    conversation_id: str,
-    message_id: str,
-    _body: RetryFailedRequest,
-    user: AuthUser,
-    session: AsyncSession = Depends(get_db),
-):
-    """Retry only the failed worker nodes from a previous turn's execution.
-
-    Unlike regenerate (which re-runs everything), this extracts the completed
-    worker states from the previous turn's journal and seeds them into a new
-    pipeline run, so only failed nodes are re-executed.
-    """
-    await enforce_user_message_rate_limit(user.user_id)
-
-    preflight = await _preflight_owned_chat_turn(
-        conversation_id, user, session, needs_tools=True
-    )
-    await release_request_db_before_sse(session)
-
-    # 触发点④：retry 前 orphan 热路 pending（活 turn 的 message_id，非目标用户消息）
-    await orphan_live_turn_hot_pending(conversation_id)
-    await turn_runs.stop_and_drain(conversation_id)
-
-    sink = EventSink()
-    emit_preflight_warnings(sink, preflight)
-
-    task = asyncio.create_task(
-        retry_failed_chat(
-            conversation_id=conversation_id,
-            message_id=message_id,
-            user_id=user.user_id,
-            sink=sink,
             llm_credentials=preflight.credentials,
             llm_supports_tools=preflight.supports_tools,
         )

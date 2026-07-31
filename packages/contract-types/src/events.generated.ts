@@ -1653,13 +1653,17 @@ export interface CitationsPayload {
 }
 
 /** Transport-only client-tool request: apply a workspace file op on the bound
- * desktop and POST the result back. NOT journaled. */
+ * desktop and POST the result back. NOT journaled.
+ * 
+ * ``timeout_ms`` (optional): liveness budget echoed from the server channel so the
+ * desktop can AbortSignal the IPC op; derived from the outer tool deadline. */
 export interface WorkspaceOpRequiredPayload {
   request_id: string;
   conversation_id: string;
   root_id: string;
   op: string;
   args: Record<string, unknown>;
+  timeout_ms?: number;
 }
 
 /** One structured whiteboard op (AI协作白板 M2). The closed verb set is shared with

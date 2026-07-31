@@ -17,6 +17,7 @@ import {
   takeoverStartErrorMessage,
   toFrameSpace,
 } from "@/services/browserTakeover";
+import { useBrowserSessionsStore } from "@/stores/browserSessions";
 import { useBrowserTakeoverStore } from "@/stores/browserTakeover";
 import { useConversationStore } from "@/stores/conversation";
 import { runtimeOf } from "@/stores/conversation/runtime";
@@ -499,28 +500,33 @@ export function BrowserLivePanel({
 }
 
 /**
- * 右坞「浏览器」tab 的显隐 + 目标会话（同 `useTerminalRegion` 先例）：本会话**曾有** `browser_*`
- * 活动即显示，且常驻整个会话——不可关闭、随会话切换消失，用户无需在 turn 运行中抢着点开就能在
- * turn 停下后接管（判定与动因见 `lib/browserActivity.ts`）。
+ * 右坞「浏览器」tab 的显隐 + 目标会话（同 `useTerminalRegion` 先例）：
+ * - 本会话**曾有** `browser_*` 活动 → 显示（常驻，便于 turn 后接管）；
+ * - 或本会话仍有带 URL / serverSession 的页签（用户页 / 冷恢复）→ 自动带上内容 tab。
  *
- * **不做 auto-surface**：AI 用浏览器是高频常态，自动弹面板是打扰；唯一需要抢注意力的是 pending
+ * **不做 auto-surface 面板**：AI 用浏览器是高频常态，自动弹面板是打扰；唯一需要抢注意力的是 pending
  * `browser_login`，那条由 `EscalationCard` 单独负责（它调 `showBrowser()` 揭示本 tab）。
  *
- * 收窄订阅（同 SidePanel 纪律）：只订阅 execution store 并在选择器内算出**布尔**，流式 token
- * 期间返回值不变 → 不触发右坞重渲染。messages 用 `getState()` 即时读而不订阅——`browser_*` 是
- * worker-only，其工具调用只能从 execution 折叠出来，`false→true` 的跃变必然伴随 execution 变更
- * （新会话 hydrate 亦然），故不存在漏更新；反之订阅 messages 数组会让右坞逐 token 重渲染。
+ * 收窄订阅（同 SidePanel 纪律）：execution 选择器内算布尔；pages 只看本对话是否有实质页签。
  */
 export function useBrowserRegion(): {
   show: boolean;
   conversationId: string | null;
 } {
   const conversationId = useConversationStore((s) => s.currentConversationId);
-  const show = useExecutionStore((s) =>
+  const showFromActivity = useExecutionStore((s) =>
     conversationHasBrowserActivity(
       runtimeOf(useConversationStore.getState(), conversationId).messages,
       s.byId,
     ),
   );
-  return { show, conversationId };
+  const showFromPages = useBrowserSessionsStore((s) => {
+    if (!conversationId) return false;
+    return s.pages.some(
+      (p) =>
+        p.conversationId === conversationId &&
+        (!!p.url || (p.serverSessionId != null && p.serverSessionId !== "")),
+    );
+  });
+  return { show: showFromActivity || showFromPages, conversationId };
 }

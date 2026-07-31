@@ -352,36 +352,20 @@ def validate_cold_start_explore_deliverables(
     *,
     explicit_criteria: Any = None,
 ) -> str | None:
-    """Hard-reject thin explore batches and ``form=files`` / ``artifacts`` while pending.
+    """Hard-reject thin explore teams while cold-start explore is pending.
 
-    Default explore path must use prose; project profile is written by the CEO via
-    ``update_project_profile``, not by worker file landings. Explicit top-level
-    ``completion_criteria`` of kind ``files_written`` is an intentional override
-    (进阶：探索批也要落盘) — then file-landing deliverables are allowed.
+    ``form`` / ``artifacts`` are orthogonal to explore-pending: workers may land
+    notes under ``write_scope=explore_memory`` (enforced at write-tool layer).
     Explore teams must fan out ≥2 angles (1 worker 包办整仓 is rejected).
+    ``explicit_criteria`` is retained for call-site compat (unused).
     Returns CEO-facing error text, or ``None`` when the batch is fine.
     """
+    del explicit_criteria  # API compat; form/artifacts no longer gated here.
     if len(plan.nodes) < 2:
         return (
             "冷启动探索未完成：探路委派须 ≥2 角并行（例：目录/入口 vs 设计·约定文档），"
             "禁止 1 人包办整仓摸底。请拆成至少两名调研 worker 后重调 delegate。"
         )
-    if explicit_criteria is not None:
-        parsed = parse_completion_criteria(explicit_criteria)
-        if parsed is not None and parsed.kind == "files_written":
-            return None
-    for node in plan.nodes:
-        d = node.deliverable
-        if d is None:
-            continue
-        if d.form == "files" or bool(d.artifacts):
-            return (
-                "冷启动探索未完成：探路委派须用 deliverable.form=prose"
-                "（禁止 form=files / artifacts）。"
-                "项目画像由 CEO 调用 update_project_profile 写入；"
-                "探索收尾（画像写入成功）后再用 form=files 做交付批。"
-                "若本批确需落盘验收，请显式声明顶层 completion_criteria=files_written。"
-            )
     return None
 
 

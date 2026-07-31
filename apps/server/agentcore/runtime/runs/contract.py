@@ -142,7 +142,6 @@ def needs_file_contents(
         return False
     return bool(
         deliverable.min_length
-        or deliverable.max_length
         or deliverable.must_contain
         or deliverable.required_sections
     )
@@ -253,12 +252,10 @@ def check_contract(
     file_texts: list[str] = []
     if is_file_deliverable(deliverable) and artifact_contents:
         file_texts = [t for t in artifact_contents.values() if t and t.strip()]
-    # 有效长度 = max(正文, 各交付文件)，不拼接（避免正文+文件虚高绕过 min/max）。
+    # 有效长度 = max(正文, 各交付文件)，不拼接（避免正文+文件虚高绕过 min）。
     length = max([len(text), *(len(t) for t in file_texts)])
     if deliverable.min_length and length < deliverable.min_length:
         failures.append(f"产出 {length} 字，少于要求的 {deliverable.min_length} 字")
-    if deliverable.max_length and length > deliverable.max_length:
-        failures.append(f"产出 {length} 字，超过上限 {deliverable.max_length} 字")
     if deliverable.must_contain:
         # Case-insensitive, mirroring required_sections' casefold match — the keyword
         # is a content requirement, not a literal-byte check, so casing must not flip
@@ -297,24 +294,26 @@ def check_contract(
             )
         elif not _is_json(content):
             failures.append("产出不是可解析的 JSON")
-    if deliverable.requires_files and files_written <= 0:
+    if (deliverable.requires_files or deliverable.form == "files") and files_written <= 0:
         failures.append(
             "未把产物写入工作区：交付物须用 file_write / str_replace / file_append "
             "或 code_execute 落盘，而非粘在回复正文里"
         )
+    # artifacts / artifact_dir 路径对账：有落盘即过；对不上降为 warnings（不阻断）。
+    path_mismatch_warnings: list[str] = []
     if deliverable.artifacts:
         missing = missing_artifacts(deliverable.artifacts, workspace_paths or [])
         if missing:
             listed = "、".join(f"`{p}`" for p in missing)
-            failures.append(f"声明的交付物路径未落盘：{listed}")
-    # 案卷目录验收（与归属分键）：artifact_dir 不进 ownership，须在此对账前缀。
+            path_mismatch_warnings.append(f"声明的交付物路径未落盘：{listed}")
+    # 案卷目录对账（与归属分键）：artifact_dir 不进 ownership；不对齐仅提醒。
     if deliverable.artifact_dir and deliverable.requires_files:
         from agentcore.runtime.runs.artifact_dir import normalize_artifact_dir
 
         dir_pat = f"{normalize_artifact_dir(deliverable.artifact_dir)}/"
         if dir_pat != "/" and not artifact_present(dir_pat, workspace_paths or []):
-            failures.append(
-                f"产物未写入案卷目录 `{dir_pat}`（须落在此目录下，勿写到工作区根）"
+            path_mismatch_warnings.append(
+                f"产物未写入案卷目录 `{dir_pat}`（建议落在此目录下，勿写到工作区根）"
             )
     # 网页接缝：同批 HTML+CSS/JS，或 ``web_seam_scope`` 终态整站复查。
     if deliverable.web_seam_scope:
@@ -351,7 +350,7 @@ def check_contract(
         )
         failures.extend(wq.failures)
         soft_failures.extend(wq.soft_failures)
-    warnings = [*ph.warnings, *soft_keyword_warnings]
+    warnings = [*ph.warnings, *soft_keyword_warnings, *path_mismatch_warnings]
     # Soft web-quality hits flip ok so the executor can spend one rework shot;
     # after that shot the executor demotes them to warnings.
     ok = not failures and not soft_failures
@@ -421,15 +420,105 @@ def partition_citation_failures(
     return cite, other
 
 
+def paths_from_citation_failures(failures: list[str] | None) -> list[str]:
+    """Extract workspace paths from path-scoped citation failure lines (stable, deduped)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in failures or []:
+        match = _CITATION_FAILURE_PATH_RE.match(str(raw).strip())
+        if not match:
+            continue
+        path = match.group(1).strip().replace("\\", "/")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        out.append(path)
+    return out
+
+
+def citation_rework_reread_paths(
+    *,
+    cite_failures: list[str] | None = None,
+    checked_files: list[str] | None = None,
+    artifacts: list[str] | None = None,
+) -> list[str]:
+    """Union of paths a citation rework pass should be allowed to re-read."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for group in (
+        paths_from_citation_failures(cite_failures),
+        checked_files or [],
+        artifacts or [],
+    ):
+        for raw in group:
+            path = (raw or "").strip().replace("\\", "/")
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            out.append(path)
+    return out
+
+
+def strip_invalid_ledger_refs_from_surfaces(
+    *,
+    artifact_contents: dict[str, str] | None,
+    body: str = "",
+    citable_ids: frozenset[str] | set[str] | None,
+) -> tuple[dict[str, str] | None, str, list[str]]:
+    """Strip illegal ``#rN`` from content-surface artifacts and optional body.
+
+    Reuses :func:`~agentcore.runtime.citations.invalid_ledger_ref_ids` /
+    :func:`~agentcore.runtime.citations.strip_invalid_ledger_refs`. Returns
+    ``(new_artifacts, new_body, stripped_ids)`` — ``stripped_ids`` is the sorted
+    union of invalid ids found; empty means nothing changed (callers skip rewrite).
+    """
+    from agentcore.runtime.citations import (
+        invalid_ledger_ref_ids,
+        strip_invalid_ledger_refs,
+    )
+
+    if citable_ids is None:
+        return artifact_contents, body, []
+
+    bad: set[str] = set()
+    if body:
+        bad.update(invalid_ledger_ref_ids(body, citable_ids))
+    if artifact_contents:
+        for path, text in artifact_contents.items():
+            if not path or not text or not text.strip():
+                continue
+            if not is_content_deliverable_path(path):
+                continue
+            bad.update(invalid_ledger_ref_ids(text, citable_ids))
+    if not bad:
+        return artifact_contents, body, []
+
+    new_body = strip_invalid_ledger_refs(body, bad) if body else body
+    new_arts: dict[str, str] | None = artifact_contents
+    if artifact_contents:
+        new_arts = {}
+        for path, text in artifact_contents.items():
+            if (
+                path
+                and text
+                and text.strip()
+                and is_content_deliverable_path(path)
+            ):
+                new_arts[path] = strip_invalid_ledger_refs(text, bad)
+            else:
+                new_arts[path] = text
+    return new_arts, new_body, sorted(bad)
+
+
 def format_cite_upgrade_feedback(
     cite_failures: list[str],
     *,
     checked_files: list[str] | None = None,
 ) -> str:
-    """Phase-B upgrade prompt: deep_read key sources or rewrite as unnumbered overview.
+    """Phase-B light-repair prompt after auto-strip still leaves cite/bib issues.
 
-    Does **not** instruct stripping ``#rN`` via light-repair automation — the worker
-    chooses deep_read / selected upgrade or an explicit unnumbered summary.
+    Instructs removing unverified ``#rN`` / bibliography claims or softening them
+    to「待核实」— does **not** encourage ``read_url`` / broad search / deep_read.
     """
     if not cite_failures:
         return ""
@@ -439,14 +528,12 @@ def format_cite_upgrade_feedback(
         listed = "、".join(f"`{p}`" for p in checked_files)
         coverage = f"\n（检查通道：落盘文件 {listed}）"
     return (
-        "【引用升级·阶段 B】上版是检索草案：成稿引用闸尚未验收。"
-        f"当前引用/书目问题：\n{items}{coverage}\n\n"
-        "请二选一就地升级后 handoff（禁止整篇重开广搜）：\n"
-        "1) 对关键论断的 search-only 来源用 read_url 深读，使对应 #rN 进入成稿可引用集"
-        "（deep_read / selected），必要时 str_replace 校正正文引用；或\n"
-        "2) 改为无编号综述：去掉未核实的 #rN / 书目著录式断言，改用标题+URL 线索或"
-        "显式「待核实」语，勿把 search-only 编号写成已证事实。\n"
-        "不要道歉、不要另起无关长文。"
+        "【引用短修·阶段 B】自动剥离非法 #rN 后仍有引用/书目问题："
+        f"\n{items}{coverage}\n\n"
+        "请就地短修后 handoff（禁止广搜、深读链接、整篇重开）：\n"
+        "去掉未核实的 #rN 与书目著录式断言，或改成标题+URL 线索 / 显式「待核实」弱表述；"
+        "勿把未入成稿可引用集的编号写成已证事实。\n"
+        "可用 str_replace 改落盘文件。不要道歉、不要另起无关长文。"
     )
 
 
@@ -612,21 +699,16 @@ def format_light_repair_feedback(
 
 
 # Zero-disk gap eligible for one short write pass (not a full investigation retry).
-_MISSING_FILES_MARKERS = (
-    "未把产物写入工作区",
-    "声明的交付物路径未落盘",
-    "产物未写入案卷目录",
-)
+# Path-reconciliation copy (artifacts / artifact_dir) is warning-only — do not
+# treat those as zero-disk gaps.
+_ZERO_FILES_GAP_MARKER = "未把产物写入工作区"
 
 
 def is_zero_files_gap(verdict: ContractVerdict) -> bool:
-    """True when contract failures include a zero-disk / missing-landing gap."""
+    """True when failures include a true zero-disk gap (nothing landed in workspace)."""
     if verdict.ok or not verdict.failures:
         return False
-    return any(
-        any(marker in str(f) for marker in _MISSING_FILES_MARKERS)
-        for f in verdict.failures
-    )
+    return any(_ZERO_FILES_GAP_MARKER in str(f) for f in verdict.failures)
 
 
 def format_write_pass_feedback(verdict: ContractVerdict) -> str:
@@ -810,14 +892,12 @@ def describe_deliverable(deliverable: Deliverable | None) -> str:
         lines.append("- 必须涉及：" + "、".join(deliverable.must_contain))
     if deliverable.min_length:
         lines.append(f"- 篇幅不少于 {deliverable.min_length} 字")
-    if deliverable.max_length:
-        lines.append(f"- 篇幅不超过 {deliverable.max_length} 字")
     # prose form never surfaces file-landing requirements (even if a stale flag slipped in).
     if deliverable.form != "prose":
         if deliverable.artifact_dir:
             lines.append(
-                f"- 案卷落盘目录：`{deliverable.artifact_dir}/`（系统约定；你只定文件名，"
-                "必须写入此目录，勿写到工作区根或其他路径）"
+                f"- 建议案卷落盘目录：`{deliverable.artifact_dir}/`（系统约定；你只定文件名，"
+                "建议写入此目录，勿写到工作区根或其他路径）"
             )
         if deliverable.artifacts:
             # Directory-only gate already covered by artifact_dir line — skip redundant
@@ -839,10 +919,10 @@ def describe_deliverable(deliverable: Deliverable | None) -> str:
             ]
             if listed_paths:
                 listed = "、".join(f"`{p}`" for p in listed_paths)
-                lines.append(f"- 必须把以下交付物路径写入工作区（可用目录或通配）：{listed}")
+                lines.append(f"- 建议把以下交付物路径写入工作区（可用目录或通配）：{listed}")
             elif not deliverable.artifact_dir:
                 listed = "、".join(f"`{p}`" for p in deliverable.artifacts)
-                lines.append(f"- 必须把以下交付物路径写入工作区（可用目录或通配）：{listed}")
+                lines.append(f"- 建议把以下交付物路径写入工作区（可用目录或通配）：{listed}")
         elif deliverable.requires_files:
             lines.append(
                 "- 必须调用 file_write / str_replace / file_append 把产物写进工作区"

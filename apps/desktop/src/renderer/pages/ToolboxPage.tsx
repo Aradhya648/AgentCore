@@ -23,6 +23,7 @@ import {
   ScrollText,
   Table2,
   Timer,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -120,6 +121,14 @@ const CAPABILITIES: ToolboxEntry[] = [
     icon: Timer,
     color: "workflow",
     to: APP_PATHS.toolbox.automations.root,
+  },
+  {
+    id: "workflows",
+    title: "工作流",
+    description: "可保存的团队拆法：画布定义步骤与等人关卡",
+    icon: Workflow,
+    color: "workflow",
+    to: APP_PATHS.toolbox.workflows.root,
   },
   {
     id: "connectors",

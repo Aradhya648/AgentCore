@@ -15,7 +15,10 @@ vi.mock("electron", () => ({
       loadURL: vi.fn().mockResolvedValue(undefined),
       getURL: () => "about:blank",
       getTitle: () => "",
-      navigationHistory: { canGoBack: () => false },
+      navigationHistory: {
+        canGoBack: () => false,
+        canGoForward: () => false,
+      },
       close: vi.fn(),
       isLoadingMainFrame: () => false,
       reload: vi.fn(),
@@ -75,6 +78,10 @@ describe("Local browser Attachment", () => {
     const win = mockWin();
     expect(showLocalBrowserPage(win, "page-1", BOUNDS, "conv-1")).toEqual({
       ok: true,
+      url: "about:blank",
+      title: "",
+      canGoBack: false,
+      canGoForward: false,
     });
     expect(localBrowserActivePageIdForTests()).toBe("page-1");
     expect(localBrowserPageVisibleForTests("page-1")).toBe(true);
@@ -97,6 +104,10 @@ describe("Local browser Attachment", () => {
 
     expect(showLocalBrowserPage(win, "page-1", BOUNDS, "conv-1")).toEqual({
       ok: true,
+      url: "about:blank",
+      title: "",
+      canGoBack: false,
+      canGoForward: false,
     });
     expect(localBrowserActivePageIdForTests()).toBe("page-1");
     expect(localBrowserPageVisibleForTests("page-1")).toBe(true);

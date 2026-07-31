@@ -173,7 +173,7 @@ async def resolve_latest_appendable_execution(
             resolved=resolved,
         )
         return resolved
-    except Exception as exc:  # noqa: BLE001 — a resolve miss surfaces as an explicit tool error
+    except Exception as exc:  # noqa: BLE001 — resolve miss → None；tool 层自动降级新建
         logger.warning(
             "delegate.graph_append_latest",
             conversation_id=cid,

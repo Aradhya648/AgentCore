@@ -216,7 +216,8 @@ def test_runsc_run_cmd_global_flags_before_run(tmp_path: Path):
     assert cmd[run_idx + 2] == "agentcore-test"
 
 
-def test_runsc_run_cmd_restricted_omits_network_none(tmp_path: Path):
+def test_runsc_run_cmd_restricted_uses_network_host(tmp_path: Path):
+    """Rootless runsc requires an explicit network flag; restricted → host."""
     sandbox = GVisorSandbox(runtime_root=str(tmp_path / "rt"))
     cmd = sandbox._build_run_cmd(  # noqa: SLF001
         bundle_dir="/tmp/bundle",
@@ -224,7 +225,9 @@ def test_runsc_run_cmd_restricted_omits_network_none(tmp_path: Path):
         network_mode="restricted",
     )
     run_idx = cmd.index("run")
+    assert "--network=host" in cmd[:run_idx]
     assert "--network=none" not in cmd[:run_idx]
+    assert "--rootless" in cmd[:run_idx]
 
 
 async def test_health_check_smoke_run(tmp_path: Path):

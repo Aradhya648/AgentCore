@@ -180,6 +180,9 @@ def test_coordination_period_hint_allows_append_forbids_isomorphic():
     assert "同构" in COORDINATION_PERIOD_HINT
     assert "移除" not in COORDINATION_PERIOD_HINT
     assert "不可用" not in COORDINATION_PERIOD_HINT
+    assert "ceiling" in COORDINATION_PERIOD_HINT or "max_rounds" in COORDINATION_PERIOD_HINT
+    assert "缩 scope" in COORDINATION_PERIOD_HINT or "收窄" in COORDINATION_PERIOD_HINT
+    assert "同质 wait" in COORDINATION_PERIOD_HINT
 
 
 def test_wait_in_gated_set():

@@ -39,8 +39,7 @@ def entry_from_sse(event: SSEEvent) -> dict[str, Any]:
     return {
         "kind": event.type.value,
         "payload": dict(event.payload),
-        "ts": event.timestamp
-        or time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+        "ts": event.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
     }
 
 
@@ -98,9 +97,7 @@ async def prewrite_settlement_direct(
     )
 
 
-async def _journal_has_settlement(
-    turn_id: str, key: tuple[str, str, str]
-) -> bool:
+async def _journal_has_settlement(turn_id: str, key: tuple[str, str, str]) -> bool:
     """True if journal already holds a settlement with the same dedupe key."""
     from agentcore.db.base import async_session_factory
     from agentcore.db.repositories import TurnJournalRepository
@@ -111,9 +108,7 @@ async def _journal_has_settlement(
     except Exception:  # noqa: BLE001 — treat probe failure as "not present"
         return False
     for e in entries or []:
-        ek = settlement_dedupe_key(
-            turn_id, str(e.get("kind") or ""), dict(e.get("payload") or {})
-        )
+        ek = settlement_dedupe_key(turn_id, str(e.get("kind") or ""), dict(e.get("payload") or {}))
         if ek == key:
             return True
     return False
@@ -165,9 +160,7 @@ def cold_resume_settlement_event(
     from agentcore.tools.builtin.ask_user.schema import option_label
 
     if isinstance(suspension, AskUserSuspension):
-        allowed = {
-            option_label(o) for q in suspension.questions for o in q.get("options", [])
-        }
+        allowed = {option_label(o) for q in suspension.questions for o in q.get("options", [])}
         picks = [s for s in (selected or []) if s in allowed]
         return checkpoint_resolved(
             checkpoint_id=suspension.checkpoint_id,

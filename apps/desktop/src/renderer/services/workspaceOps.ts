@@ -26,6 +26,10 @@ const PROCESS_OPS = new Set<string>([
  * thrown IPC error becomes a typed error envelope, so the tool reports a clean
  * failure instead of the turn hanging.
  *
+ * ``timeout_ms`` (optional, from server channel): AbortSignal budget matching the
+ * outer tool liveness deadline. On abort we skip settle when possible; a late
+ * POST after the server discarded the Future is already a stale 404 no-op.
+ *
  * Same ``request_id`` is de-duplicated in-process so attach rehang does not
  * re-run write / execute side effects.
  */
@@ -76,10 +80,44 @@ async function runLocalOp(
       }
     }
   }
+  const timeoutMs =
+    typeof payload.timeout_ms === "number" && payload.timeout_ms > 0
+      ? payload.timeout_ms
+      : undefined;
+  const ac = timeoutMs != null ? new AbortController() : null;
+  const timer =
+    ac && timeoutMs != null ? setTimeout(() => ac.abort(), timeoutMs) : null;
   try {
-    return await fsApi.workspaceOp(rootId, payload.op as WorkspaceOpName, args);
+    const opPromise = fsApi.workspaceOp(
+      rootId,
+      payload.op as WorkspaceOpName,
+      args,
+    );
+    if (!ac) return await opPromise;
+    return await Promise.race([
+      opPromise,
+      new Promise<WorkspaceOpResult>((_, reject) => {
+        if (ac.signal.aborted) {
+          reject(new DOMException("workspace op aborted", "AbortError"));
+          return;
+        }
+        ac.signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("workspace op aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+    ]);
   } catch (e) {
+    if (
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError")
+    ) {
+      return ioError("本地工作区 op 活性挂起（已按服务端 deadline abort）");
+    }
     return ioError(e instanceof Error ? e.message : String(e));
+  } finally {
+    if (timer != null) clearTimeout(timer);
   }
 }
 

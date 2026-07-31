@@ -469,6 +469,186 @@ def test_circuit_breaker_mixed_failures_keep_generic_warn():
     assert "换不同的输入" in (cb.message() or "")
 
 
+def _prose_append_reject(fp: str, path: str) -> ToolAttempt:
+    return ToolAttempt(
+        fp,
+        "file_append",
+        success=False,
+        contract_failure=True,
+        error_summary=f"拒绝追加：`{path}` 本 run 已落成篇正文（非骨架）。",
+        meta={"path": path, "segmented_write_reject": "prose_append"},
+    )
+
+
+def _code_integrity_reject(fp: str, path: str) -> ToolAttempt:
+    return ToolAttempt(
+        fp,
+        "file_write",
+        success=False,
+        contract_failure=True,
+        error_summary=(
+            f"拒绝写入代码文件 `{path}`：括号/方括号/圆括号结构不完整（缺 `}}`）。"
+        ),
+        meta={"path": path, "segmented_write_reject": "code_integrity"},
+    )
+
+
+def test_path_write_reject_streak_trips_force_segmented_at_two():
+    """Same path + same class ×2 → force_segmented (early strategy, not disable)."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_prose_append_reject("a", "report.md")])
+    assert not c.tool_circuit_breaker()
+    assert c.tool_failure_count("file_append") == 0  # still contract_failure-skipped
+    c.record([_prose_append_reject("b", "report.md")])
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ()
+    assert "file_append" in cb.force_segmented
+    assert "file_write" in cb.force_segmented
+    msg = cb.message() or ""
+    assert "短骨架" in msg or "分段" in msg
+    assert "停用" not in msg
+    # Idempotent: further same-path rejects do not re-fire.
+    c.record([_prose_append_reject("c", "report.md")])
+    assert not c.tool_circuit_breaker()
+
+
+def test_path_write_reject_below_threshold_does_not_trip():
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_code_integrity_reject("a", "app.ts")])
+    assert not c.tool_circuit_breaker()
+
+
+def test_path_write_reject_different_paths_do_not_combine():
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_prose_append_reject("a", "a.md")])
+    c.record([_prose_append_reject("b", "b.md")])
+    assert not c.tool_circuit_breaker()
+
+
+def test_path_write_reject_different_class_resets_streak():
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_prose_append_reject("a", "x.md")])
+    # Same path but different class → streak restarts at 1.
+    c.record(
+        [
+            ToolAttempt(
+                "b",
+                "file_write",
+                success=False,
+                contract_failure=True,
+                error_summary="拒绝写入代码文件 `x.md`：正文含省略标记。",
+                meta={"path": "x.md", "segmented_write_reject": "code_integrity"},
+            )
+        ]
+    )
+    assert not c.tool_circuit_breaker()
+    c.record(
+        [
+            ToolAttempt(
+                "c",
+                "file_write",
+                success=False,
+                contract_failure=True,
+                error_summary="拒绝写入代码文件 `x.md`：正文含省略标记。",
+                meta={"path": "x.md", "segmented_write_reject": "code_integrity"},
+            )
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert "file_write" in cb.force_segmented
+
+
+def test_path_write_reject_success_resets_streak():
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_prose_append_reject("a", "report.md")])
+    c.record(
+        [
+            ToolAttempt(
+                "ok",
+                "file_append",
+                success=True,
+                meta={"path": "report.md"},
+            )
+        ]
+    )
+    c.record([_prose_append_reject("b", "report.md")])
+    assert not c.tool_circuit_breaker()
+
+
+def test_path_write_reject_two_in_one_round_trips():
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record(
+        [
+            _code_integrity_reject("a", "main.py"),
+            _code_integrity_reject("b", "main.py"),
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert "file_write" in cb.force_segmented
+    assert "file_append" in cb.force_segmented
+
+
+def test_classify_segmented_write_reject_covers_prose_and_integrity_not_length():
+    from agentcore.runtime.loop_controller import classify_segmented_write_reject
+
+    assert (
+        classify_segmented_write_reject(
+            "file_append",
+            error="拒绝追加：`a.md` 本 run 已落成篇正文（非骨架）。",
+            contract_failure=True,
+        )
+        == "prose_append"
+    )
+    assert (
+        classify_segmented_write_reject(
+            "file_write",
+            error="拒绝写入代码文件 `a.ts`：括号结构不完整（缺 `}`）。",
+            contract_failure=True,
+        )
+        == "code_integrity"
+    )
+    assert (
+        classify_segmented_write_reject(
+            "file_write",
+            error="内容过长 length_rejected 请缩短",
+            contract_failure=True,
+        )
+        is None
+    )
+    assert (
+        classify_segmented_write_reject(
+            "file_append",
+            error="拒绝追加：`a.md` 本 run 已落成篇正文（非骨架）。",
+            contract_failure=False,
+        )
+        is None
+    )
+
+
+def test_apply_circuit_breaker_narrows_file_append_on_force_segmented():
+    """force_segmented keeps file_write; narrows file_append out of the toolset."""
+    from agentcore.llm.provider.protocol import LLMMessage
+    from agentcore.runtime.engine.governance import apply_circuit_breaker
+
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record(
+        [
+            _prose_append_reject("a", "report.md"),
+            _prose_append_reject("b", "report.md"),
+        ]
+    )
+    disabled: set[str] = set()
+    messages: list[LLMMessage] = []
+    out = apply_circuit_breaker(
+        c, messages=messages, run_id="r1", round_idx=0, disabled_tools=disabled
+    )
+    assert out.message is not None
+    assert "file_append" in disabled
+    assert "file_write" not in disabled
+    assert "str_replace" not in disabled
+    assert out.refresh_tool_defs is True
+
+
 # --- B2: no-output early stop (unproductive rounds) ---
 
 
@@ -885,6 +1065,70 @@ def test_landing_attempt_exempts_round_from_zero_write():
     )
     assert c.zero_write_investigation_rounds == 0
     assert c.convergence_action() is Intervention.CONTINUE
+
+
+def test_reviews_md_landing_latches_zero_write():
+    """Writing dossier notes counts as product landing and clears zero-write idle."""
+    from agentcore.workspace.stage_dirs import REVIEWS_DIR
+
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=4,
+        investigation_tools=frozenset({"file_read", "file_list", "grep"}),
+    )
+    for i in range(3):
+        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+    assert c.zero_write_investigation_rounds == 3
+    c.record(
+        [
+            ToolAttempt(
+                fingerprint="w",
+                tool_name="file_write",
+                success=True,
+                meta={"path": f"{REVIEWS_DIR}/某修复方案.md"},
+            )
+        ]
+    )
+    assert c.landing_succeeded
+    assert c.zero_write_investigation_rounds == 0
+    # No-path success still latches (compat with older ToolAttempt).
+    c2 = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=4,
+        investigation_tools=frozenset({"file_read"}),
+    )
+    c2.record(
+        [ToolAttempt(fingerprint="legacy", tool_name="str_replace", success=True)]
+    )
+    assert c2.landing_succeeded
+    assert c2.zero_write_investigation_rounds == 0
+
+
+def test_declared_research_artifact_latches_landing():
+    from agentcore.workspace.stage_dirs import RESEARCH_DIR
+
+    art = f"{RESEARCH_DIR}/调研报告.md"
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=4,
+        investigation_tools=frozenset({"file_read"}),
+        product_landing_artifacts=(art,),
+    )
+    c.record([ToolAttempt(fingerprint="f0", tool_name="file_read", success=True)])
+    c.record(
+        [
+            ToolAttempt(
+                fingerprint="w",
+                tool_name="file_write",
+                success=True,
+                meta={"path": art},
+            )
+        ]
+    )
+    assert c.landing_succeeded
 
 
 def test_different_targets_still_trip_zero_write():

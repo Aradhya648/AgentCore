@@ -252,9 +252,11 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "教学示例形状" in body and "对照学形状" in body
     assert "免手搓" not in body  # 旧广告口径已撤
     assert "research_report" in body  # listing still present as teaching examples
-    assert "成篇调研" in body
+    assert "parallel_brief" in body
+    assert "结局分层" in body or "对齐推进" in body
+    assert "成文交付" in body or "成文专线" in body or "成篇" in body
     assert "材料已齐" in body
-    # 落盘文档 + ≥2 角 → 各角与主笔均 files + 末环独立审校；禁仅调研→撰稿、禁角 prose
+    # B 成文：落盘文档 + ≥2 角 → 各角与主笔均 files + 末环独立审校
     assert "角 prose" in body and "仅主笔落盘" in body
     assert "form=files" in body and "artifacts" in body
     assert "独立审校" in body
@@ -303,6 +305,9 @@ def test_team_orchestration_skill_teaches_delegate_knobs():
     assert "默认新回合新建图" in body
     assert "已往上方协作图追加" in body
     assert "在同一回合的同一张图里" in body  # 禁令口径
+    # latest 未命中 → 自动降级新建（勿教硬失败再改口）
+    assert "自动降级" in body or "已自动" in body
+    assert "硬失败再改口" in body or "勿先硬失败" in body
 
 
 def test_team_orchestration_skill_teaches_constraint_vs_solution_and_outline_step():
@@ -320,6 +325,9 @@ def test_team_orchestration_skill_teaches_constraint_vs_solution_and_outline_ste
     # 定案 A：调研驱动大型交付 — 各角 MD 笔记 files，禁三人 prose 只靠主笔落盘
     assert "三人 prose" in body or "角 prose" in body
     assert "仅主笔落盘" in body or "只靠主笔落盘" in body
+    # 成文 PDF：md → md_to_pdf → handoff；禁 HTML/reportlab 主路径
+    assert "md_to_pdf" in body
+    assert "HTML" in body and "reportlab" in body
     # 演讲/PPT：禁代写全章节大纲 / Marp 语法细则（钉在约束 vs 方案）
     assert "代写全章节大纲" in body
     assert "Marp" in body
@@ -559,6 +567,9 @@ def test_ask_user_midtask_skill_teaches_fork_annotate_and_nonblocking():
     assert "open_local_project" in body
     assert "≠默认开项目卡" in body or "收窄本轮" in body
     assert "开工前置" in body
+    # 已绑定本地工程：「打开项目」=跑当前项目，换目录才开卡。
+    assert "已绑定本地工程" in body
+    assert "跑" in body and "当前" in body
 
 
 def test_delegate_checkpoint_skill_teaches_wave_boundary_pause():
@@ -612,8 +623,9 @@ def test_long_form_writing_skill_teaches_skeleton_fill():
     assert "明文要求" in body
     assert "checkpoint_after" in body
     assert "research_report" in body
-    # 与 research_report 划界：多角取证勿塌成单写手；各角与主笔均 files
+    # 与多角协作划界：A parallel_brief / B research_report；材料已齐才单写手
     assert "划界" in body
+    assert "parallel_brief" in body
     assert "材料已齐" in body
     assert "角 prose" in body and "仅主笔落盘" in body
     assert "纯聊天" in body
@@ -623,6 +635,10 @@ def test_long_form_writing_skill_teaches_skeleton_fill():
     assert "合并责任" in body or "merge" in body.lower()
     assert "各写各的" in body
     assert "建站" in body
+    # MD→PDF：主交付 .md；要分享时 md_to_pdf；禁 HTML/reportlab 主路径
+    assert "md_to_pdf" in body
+    assert "HTML" in body
+    assert "reportlab" in body
     assert "单主文件" in skill.summary or "合并" in skill.summary
     assert "骨架" in skill.summary or "禁止整篇" in skill.summary
 
@@ -658,10 +674,11 @@ def test_deep_multi_lens_research_teaches_parallel_lenses_and_motion_card():
     assert "继续调研" in body or "对抗检验" in body
     assert "见分歧" in body  # 严禁见分歧就建议开辩
     assert "真对立轴" in body  # 存在真对立轴则必须产卡
-    # CEO 禁止自搜替代四路；先调研后辩；探路 query 须遵守 A3 ≤8 词
+    # CEO 禁止自搜替代四路；先调研后辩；探路 query 建议短查（工具会截断过长）
     assert "5 轮" in body
     assert "禁止自搜" in body or ("禁止" in body and "替代四路" in body)
-    assert "≤8 词" in body
+    assert "截断" in body or "规范化" in body
+    assert "≤8 词" not in body
     assert "本回合" in body and "debate" in body
     assert "用户同意" in body or "批准" in body
     # 批 B：推进卡即授权；勿口头征求、勿本回合自调 debate

@@ -7,6 +7,7 @@ import pytest
 from agentcore.runtime.events import EventSink
 from agentcore.tools.builtin.ask_user.schema import (
     ListArgError,
+    OptionLabelError,
     normalize_options,
     normalize_questions,
 )
@@ -110,6 +111,82 @@ async def test_ask_user_rejects_unparseable_questions_string():
     assert res.success is False
     assert res.error and "questions" in res.error
     assert "数组" in (res.error or "")
+
+
+def test_normalize_options_rejects_recommendation_in_label():
+    """棘轮：label 内嵌「（推荐）」必须拒，禁止静默洗掉。"""
+    with pytest.raises(OptionLabelError, match="推荐标记"):
+        normalize_options(
+            [
+                {"label": "方案一：同风格精修（推荐）", "recommended": True},
+                {"label": "方案二：风格重塑"},
+            ]
+        )
+
+
+def test_normalize_options_allows_tuijian_substring_in_product_name():
+    """「推荐」作为产品名子串（非「（推荐）」标记）应保留。"""
+    out = normalize_options([{"label": "推荐算法选型", "recommended": True}])
+    assert out[0]["label"] == "推荐算法选型"
+    assert out[0]["recommended"] is True
+
+
+def test_normalize_options_rejects_english_recommended_mark():
+    with pytest.raises(OptionLabelError, match="推荐标记"):
+        normalize_options([{"label": "Option A (recommended)"}])
+
+
+async def test_ask_user_rejects_recommendation_in_label():
+    tool = AskUserTool(
+        sink=EventSink(),
+        conversation_id="c1",
+        timeout_seconds=1.0,
+    )
+    from pathlib import Path
+
+    from agentcore.tools.protocol import ToolContext
+    from agentcore.tools.sandbox.subprocess import SubprocessSandbox
+    from agentcore.workspace.server import ServerWorkspace
+
+    ctx = ToolContext(
+        execution_id="e",
+        run_id="s",
+        agent_id="a",
+        backend=ServerWorkspace(root=Path("."), sandbox=SubprocessSandbox()),
+        user_id="u",
+        conversation_id="c1",
+    )
+    res = await tool.execute(
+        {
+            "message": "选一下方向",
+            "questions": [
+                {
+                    "prompt": "采用哪个方案？",
+                    "kind": "choice",
+                    "options": [
+                        {"label": "同风格精修（推荐）", "recommended": True},
+                        {"label": "风格重塑"},
+                    ],
+                }
+            ],
+        },
+        ctx,
+    )
+    assert res.success is False
+    assert res.error and "推荐标记" in res.error
+
+
+def test_ask_user_schema_forbids_recommendation_in_label_desc():
+    tool = AskUserTool(
+        sink=EventSink(),
+        conversation_id="c1",
+        timeout_seconds=30.0,
+    )
+    props = tool.schema.parameters["properties"]["questions"]["items"]["properties"]["options"][
+        "items"
+    ]["properties"]
+    assert "禁止" in props["label"]["description"]
+    assert "label" in props["recommended"]["description"]
 
 
 def test_ask_user_schema_advertises_action_only_when_flagged():

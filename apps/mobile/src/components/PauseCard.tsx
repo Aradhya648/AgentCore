@@ -12,7 +12,6 @@ import {
 // durable ResumeCard (the single cold resume path).
 //
 // This is mobile's own UI (cross-platform-frontend.mdc: zero shared business components).
-import { WaitingForDecisionHint } from "@/components/WaitingForDecisionHint";
 import type { ApprovalDecision } from "@agentcore/contract-types";
 import type { ProjectedInteraction } from "@agentcore/protocol-conformance";
 import { type ReactNode, useState } from "react";
@@ -86,7 +85,6 @@ export function PauseCard({
         busy={busy}
         onDecide={(decision) => void submit({ kind: "approval", decision })}
       />
-      <WaitingForDecisionHint />
       {busy && <div className="pause-busy">处理中…</div>}
       {err && <div className="error pause-err">{err}</div>}
     </div>

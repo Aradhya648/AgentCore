@@ -233,6 +233,51 @@ describe("attachSidecarTurn (D4)", () => {
     expect(onEventCalls).toBe(0);
   });
 
+  it("viewer abort detaches without cancelling the engine (C1)", async () => {
+    useConversationStore.getState().switchConversation(CID);
+
+    let resolveAttach!: (v: ReturnType<typeof attachLiveResponse>) => void;
+    const attachGate = new Promise<ReturnType<typeof attachLiveResponse>>(
+      (resolve) => {
+        resolveAttach = resolve;
+      },
+    );
+    const cancelMock = vi.fn();
+    const attachMock = vi.fn(() => attachGate);
+    stubSidecarApi({
+      attach: attachMock,
+      cancel: cancelMock,
+    });
+
+    const ac = new AbortController();
+    const p = attachSidecarTurn(CID, { signal: ac.signal });
+    await vi.waitFor(() => expect(attachMock).toHaveBeenCalled());
+
+    // Snapshot without terminal — attach waits on live tail.
+    resolveAttach(
+      attachLiveResponse({
+        events: [
+          {
+            type: "message_start",
+            timestamp: "t0",
+            payload: { message_id: "a-live" },
+          },
+        ],
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(getActiveSidecarTarget(CID)?.turnId).toBe("turn-live"),
+    );
+
+    // Hydrate cleanup / 切会话：abort 观察泵，引擎必须继续。
+    ac.abort();
+    await expect(p).resolves.toBe(true);
+    expect(cancelMock).not.toHaveBeenCalled();
+    expect(getActiveSidecarTarget(CID)).toBeNull();
+    // generating cleared so reopen hydrate can attach again.
+    expect(useConversationStore.getState().byId[CID]?.isGenerating).toBe(false);
+  });
+
   it("attached:false does not leave generating hung (fact-driven re-query)", async () => {
     useConversationStore.getState().switchConversation(CID);
 

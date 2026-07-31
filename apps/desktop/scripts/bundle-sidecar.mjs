@@ -9,7 +9,7 @@
  *      子集**（pyproject 的 `[project.optional-dependencies].sidecar`）+ `--no-deps` 的
  *      agentcore 包本体，而非整个 server。剔掉 FastAPI/uvicorn/alembic/redis/boto3/jose/
  *      cryptography 等不在 sidecar 回合路径上的重依赖；**保留**与云对齐的 Office 栈
- *      （markitdown[docx,pdf,pptx] + python-docx + markdown-it-py）。
+ *      （markitdown[docx,pdf,pptx] + python-docx + fpdf2 + markdown-it-py）。
  * 运行期主进程 `resolveSpawnConfig`（`src/main/sidecar-service.ts`）在 `app.isPackaged` 时指向
  * `<resources>/sidecar/python` 的解释器，并以 `PYTHONPATH=<resources>/sidecar/site-packages`
  * 注入引擎包——用 `--target` 旁路目录而非 venv，绕开「venv 记录的 base python 绝对路径在用户机
@@ -246,7 +246,7 @@ function main() {
     ["-c", "import agentcore.sidecar.server; print('sidecar import OK')"],
     { env: { ...process.env, PYTHONPATH: sitePackages, PYTHONUTF8: "1" } },
   );
-  console.log("冒烟自检: Office literacy (docx + markitdown extract)");
+  console.log("冒烟自检: Office literacy (docx + pdf + markitdown extract)");
   run(
     bundledExe,
     [
@@ -256,11 +256,14 @@ function main() {
         "from docx import Document",
         "from markitdown import MarkItDown",
         "from agentcore.docs_export.md_to_docx import convert_markdown_to_docx",
+        "from agentcore.docs_export.md_to_pdf import convert_markdown_to_pdf",
         "d=Document(); d.add_paragraph('AgentCore sidecar office smoke'); buf=BytesIO(); d.save(buf)",
         "text=MarkItDown(enable_plugins=False).convert_stream(BytesIO(buf.getvalue()), file_extension='.docx').text_content or ''",
         "assert 'sidecar office smoke' in text, text[:200]",
         "out=convert_markdown_to_docx('# Hello\\n\\nworld')",
         "assert out.docx_bytes.startswith(b'PK'), len(out.docx_bytes)",
+        "pdf=convert_markdown_to_pdf('# Hello\\n\\nworld')",
+        "assert pdf.pdf_bytes.startswith(b'%PDF'), len(pdf.pdf_bytes)",
         "print('sidecar office OK')",
       ].join("; "),
     ],

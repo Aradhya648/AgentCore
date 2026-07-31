@@ -4,12 +4,15 @@
  * - Local + 有 browserApi → 本机 WebContents 真画面（screencast 只服务远程观众）；
  * - Local 有 serverSessionId 时挂 {@link BrowserLocalTakeoverBar}（无 sid 隐藏接管）。
  *
- * 有 conversationId 时 mount / 聚焦 hydrate（list sessions）；空白页不 POST create。
+ * 有 conversationId 时 mount / 聚焦 hydrate（list sessions + P1 冷恢复）；空白页不 POST create。
  * 关闭带 serverSessionId 的页 → DELETE + browserApi.close(裸 sid) 再本地移除；
  * 本机空白页 → browserApi.close(React page id)。
  *
  * Local+serverSession 时 browserApi 一律用裸 serverSessionId（与 Bridge/Registry 同轨）；
  * React 页签 id 仍可为 `browser-server:${sid}`。
+ *
+ * P0：挂回只 show，地址栏跟真实 WebContents；仅宿主空白且 store 有 URL 才冷 navigate。
+ * 页内跳转经 onNavState → syncPageFromHost 写回 store。
  *
  * 地址栏回车：
  * - 有 browserApi → store + browserApi.navigate（Local 真画面）；
@@ -27,6 +30,7 @@ import {
 } from "@/services/browserSessions";
 import {
   hostBrowserPageId,
+  isBlankBrowserUrl,
   normalizeBrowserUrl,
   useBrowserSessionsStore,
 } from "@/stores/browserSessions";
@@ -38,7 +42,17 @@ import {
 import { projectRuntime, useExecutionStore } from "@/stores/execution";
 import { useOverlayStore } from "@/stores/overlay";
 import type { BrowserBounds, BrowserNavState } from "@shared/browser-contract";
-import { ArrowLeft, Globe, Plus, RotateCw, X } from "lucide-react";
+import { isSafeExternalUrl } from "@shared/safe-url";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink,
+  Globe,
+  Plus,
+  RotateCw,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -81,6 +95,7 @@ export function BrowserPanel({
   const closeServerPage = useBrowserSessionsStore((s) => s.closeServerPage);
   const setActivePage = useBrowserSessionsStore((s) => s.setActivePage);
   const navigatePage = useBrowserSessionsStore((s) => s.navigatePage);
+  const syncPageFromHost = useBrowserSessionsStore((s) => s.syncPageFromHost);
   const attachServerSession = useBrowserSessionsStore(
     (s) => s.attachServerSession,
   );
@@ -172,10 +187,15 @@ export function BrowserPanel({
   const [draftUrl, setDraftUrl] = useState("");
   const [nav, setNav] = useState<BrowserNavState | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: activePage?.id is an intentional re-run key when switching tabs with same url
+  // 切页签时重置地址栏草稿与导航态；页内跳转写回 url 时勿清 nav（否则后退/前进瞬间失效）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — only reset nav on tab id change
+  useEffect(() => {
+    setNav(null);
+  }, [activePage?.id]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activePage?.id keeps draft in sync when switching tabs with same url
   useEffect(() => {
     setDraftUrl(activePage?.url ?? "");
-    setNav(null);
   }, [activePage?.id, activePage?.url]);
 
   const browserApi =
@@ -208,9 +228,11 @@ export function BrowserPanel({
   const hostPageId = activePage ? hostBrowserPageId(activePage) : null;
   const pageUrlRef = useRef(activePage?.url ?? "");
   pageUrlRef.current = activePage?.url ?? "";
+  const activeReactPageIdRef = useRef(activePage?.id ?? null);
+  activeReactPageIdRef.current = activePage?.id ?? null;
 
-  // 本机视图显隐 + bounds；激活页变 → 重新 show（url 变更由 onSubmit 导航，不重挂）。
-  // Attachment：仅本 panel 可 show；cleanup / 不可见路径必须 detach（awaitable hide）。
+  // 本机视图显隐 + bounds；激活页变 → 重新 show（url 变更由 onSubmit / 冷恢复导航）。
+  // P0：挂回禁止用旧 store URL 把已有 WebContents 打回——仅宿主空白才冷 navigate。
   useEffect(() => {
     if (!browserApi || !useLocalHost) {
       void browserApi?.hide();
@@ -222,6 +244,7 @@ export function BrowserPanel({
       return;
     }
     const pageId = hostPageId;
+    const reactPageId = activePage?.id;
     let raf = 0;
     let shown = false;
     const sync = () => {
@@ -236,11 +259,29 @@ export function BrowserPanel({
           void browserApi
             .show({ pageId, bounds: b, conversationId: cid })
             .then((r) => {
-              const pageUrl = pageUrlRef.current;
-              if (r.ok && pageUrl) {
+              if (!r.ok) return;
+              const hostUrl = r.url ?? "";
+              if (!isBlankBrowserUrl(hostUrl)) {
+                // 保活页：地址栏 / store 跟真实页，禁止 navigate 回旧 URL。
+                setDraftUrl(hostUrl);
+                setNav({
+                  pageId,
+                  url: hostUrl,
+                  title: r.title ?? "",
+                  canGoBack: r.canGoBack ?? false,
+                  canGoForward: r.canGoForward ?? false,
+                });
+                if (reactPageId) {
+                  syncPageFromHost(reactPageId, hostUrl, r.title);
+                }
+                return;
+              }
+              const storeUrl = pageUrlRef.current;
+              if (storeUrl) {
+                // 冷恢复 / 首开：宿主仍空白、store 有 URL → 导航一次。
                 void browserApi.navigate({
                   pageId,
-                  url: pageUrl,
+                  url: storeUrl,
                   conversationId: cid,
                 });
               }
@@ -267,7 +308,9 @@ export function BrowserPanel({
     hostPageId,
     measure,
     activePage?.conversationId,
+    activePage?.id,
     conversationId,
+    syncPageFromHost,
   ]);
 
   // 卸载 → hide 保活（关页才 close）。
@@ -281,17 +324,16 @@ export function BrowserPanel({
     if (!browserApi) return;
     const hostId = activePage ? hostBrowserPageId(activePage) : activePageId;
     return browserApi.onNavState((state) => {
+      if (!hostId || state.pageId !== hostId) return;
       setNav(state);
-      if (
-        hostId &&
-        state.pageId === hostId &&
-        state.url &&
-        state.url !== "about:blank"
-      ) {
-        setDraftUrl(state.url);
+      if (isBlankBrowserUrl(state.url)) return;
+      setDraftUrl(state.url);
+      const reactId = activeReactPageIdRef.current;
+      if (reactId) {
+        syncPageFromHost(reactId, state.url, state.title);
       }
     });
-  }, [browserApi, activePageId, activePage]);
+  }, [browserApi, activePageId, activePage, syncPageFromHost]);
 
   const onSubmitUrl = (e: FormEvent) => {
     e.preventDefault();
@@ -409,9 +451,28 @@ export function BrowserPanel({
     closePage(pageId);
   };
 
+  const onOpenExternal = () => {
+    const url = draftUrl.trim() || activePage?.url || "";
+    if (!url || !isSafeExternalUrl(url)) {
+      notifyError(new Error("仅支持打开 http(s) 链接"), "无法在系统浏览器打开");
+      return;
+    }
+    if (!browserApi?.openExternal) {
+      // Web / 无 IPC：走 window.open，由主窗 setWindowOpenHandler 转系统浏览器。
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    void browserApi.openExternal({ url }).then((r) => {
+      if (!r.ok) notifyError(new Error(r.reason), "无法在系统浏览器打开");
+    });
+  };
+
   const hostId = activePage ? hostBrowserPageId(activePage) : null;
   const canGoBack = Boolean(
     nav && hostId && nav.pageId === hostId && nav.canGoBack,
+  );
+  const canGoForward = Boolean(
+    nav && hostId && nav.pageId === hostId && nav.canGoForward,
   );
   const canReload = Boolean(
     useLocalHost &&
@@ -421,10 +482,15 @@ export function BrowserPanel({
           hostId &&
           nav.pageId === hostId &&
           nav.url &&
-          nav.url !== "about:blank")),
+          !isBlankBrowserUrl(nav.url))),
+  );
+  const canOpenExternal = isSafeExternalUrl(
+    draftUrl.trim() || activePage?.url || "",
   );
 
   const showPlaceholder = !showLive && !useLocalHost;
+  const isEmptyPage =
+    !activePage?.url && (!nav || isBlankBrowserUrl(nav.url)) && !showLive;
 
   return (
     <div className="flex h-full flex-col bg-card">
@@ -433,6 +499,7 @@ export function BrowserPanel({
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {pages.map((page) => {
             const active = page.id === activePage?.id;
+            const isAiPage = Boolean(page.serverSessionId);
             return (
               <div
                 key={page.id}
@@ -446,7 +513,18 @@ export function BrowserPanel({
                   variant="ghost"
                   onClick={() => setActivePage(page.id)}
                   className="h-7 max-w-[110px] truncate rounded-none px-2 py-0 text-xs font-normal"
-                  icon={<Globe size={12} className="shrink-0 opacity-60" />}
+                  icon={
+                    isAiPage ? (
+                      <Sparkles
+                        size={12}
+                        className="shrink-0 opacity-60"
+                        aria-hidden
+                      />
+                    ) : (
+                      <Globe size={12} className="shrink-0 opacity-60" />
+                    )
+                  }
+                  title={isAiPage ? "AI 打开的页" : "你打开的页"}
                 >
                   {page.title || "新标签页"}
                 </Button>
@@ -472,7 +550,7 @@ export function BrowserPanel({
         </IconButton>
       </div>
 
-      {/* 导航条：后退 / 刷新 / 地址栏 */}
+      {/* 导航条：后退 / 前进 / 刷新 / 地址栏 / 系统浏览器 */}
       <form
         onSubmit={onSubmitUrl}
         className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2 py-1"
@@ -484,9 +562,20 @@ export function BrowserPanel({
             activePage && browserApi?.back(hostBrowserPageId(activePage))
           }
           aria-label="后退"
-          title={canGoBack ? "后退" : "后退"}
+          title="后退"
         >
           <ArrowLeft size={14} />
+        </IconButton>
+        <IconButton
+          size="sm"
+          disabled={!canGoForward || !activePage}
+          onClick={() =>
+            activePage && browserApi?.forward(hostBrowserPageId(activePage))
+          }
+          aria-label="前进"
+          title="前进"
+        >
+          <ArrowRight size={14} />
         </IconButton>
         <IconButton
           size="sm"
@@ -495,7 +584,7 @@ export function BrowserPanel({
             activePage && browserApi?.reload(hostBrowserPageId(activePage))
           }
           aria-label="刷新"
-          title={canReload ? "刷新" : "刷新"}
+          title="刷新"
         >
           <RotateCw size={14} />
         </IconButton>
@@ -509,6 +598,15 @@ export function BrowserPanel({
           spellCheck={false}
           autoComplete="off"
         />
+        <IconButton
+          size="sm"
+          disabled={!canOpenExternal}
+          onClick={onOpenExternal}
+          aria-label="在系统浏览器打开"
+          title="在系统浏览器打开"
+        >
+          <ExternalLink size={14} />
+        </IconButton>
       </form>
 
       {/* 内容区 */}
@@ -532,8 +630,17 @@ export function BrowserPanel({
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground/50">
                 <Globe size={22} />
                 <span className="text-xs">
-                  {activePage?.url ? "页面加载中…" : "输入地址开始浏览"}
+                  {isEmptyPage
+                    ? "输入地址开始浏览"
+                    : activePage?.url
+                      ? "页面加载中…"
+                      : "输入地址开始浏览"}
                 </span>
+                {isEmptyPage ? (
+                  <span className="max-w-[240px] text-center text-xs text-muted-foreground/40">
+                    新标签页不会丢失——关掉右坞或切换对话后回来，页面仍在。
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>

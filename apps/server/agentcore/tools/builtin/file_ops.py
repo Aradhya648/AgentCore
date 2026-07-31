@@ -38,6 +38,13 @@ from agentcore.workspace.attachment_parse import (
     extract_office_bytes,
     parsed_copy_path,
 )
+from agentcore.workspace.limits import (
+    FILE_TOO_LARGE_DETAIL,
+    OFFICE_EXTRACT_MAX_BYTES,
+    WORKSPACE_READ_MAX_BYTES,
+    is_file_too_large_detail,
+    is_liveness_timeout_detail,
+)
 from agentcore.workspace.protocol import (
     AlreadyExists,
     AmbiguousMatch,
@@ -71,15 +78,9 @@ _OMISSION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Hard length gate on oversized ``file_write`` bodies (Artifact-first · 长文分段).
-# ≈2000 tokens at the project-wide 4 chars/token estimate — catches whole-site HTML /
-# long-doc dumps. Short / medium files stay one-shot; oversized prose must skeleton + segment.
-_CHARS_PER_TOKEN_EST = 4
-_WRITE_LENGTH_WARN_TOKENS = 2000
-_WRITE_LENGTH_WARN_CHARS = _WRITE_LENGTH_WARN_TOKENS * _CHARS_PER_TOKEN_EST
-
 # "成篇" threshold: delete gate + classify_write_kind / prose-append still depend on it.
 # file_write whole-file overwrite is allowed (prefer str_replace; soft integrity nudge only).
+# Length is advisory only (skill / schema 建议分段) — no hard reject on oversized bodies.
 _SUBSTANTIAL_FILE_CHARS = 400
 
 
@@ -150,43 +151,6 @@ def overwrite_integrity_nudge(
     return integrity_nudge_text(
         path=path, reasons=reasons, old_chars=old_chars, new_chars=new_chars
     )
-
-
-def is_oversized_write(content: str) -> bool:
-    """True when ``content`` meets/exceeds the hard length-gate threshold."""
-    return len(content) >= _WRITE_LENGTH_WARN_CHARS
-
-
-def requires_segmented_write(content: str) -> bool:
-    """True when a single ``file_write`` of ``content`` must be hard-rejected.
-
-    Oversized finished prose is always rejected. Explicit SECTION/OUTLINE markers
-    do not exempt a body that is already huge (filled outline dumped in one call).
-    Short / medium files and true short skeletons stay one-shot.
-    """
-    text = content or ""
-    if not is_oversized_write(text):
-        return False
-    if classify_write_kind(text) == "prose":
-        return True
-    return _prose_body_chars(text) >= _WRITE_LENGTH_WARN_CHARS
-
-
-def oversized_write_rejection(*, path: str, chars: int) -> str:
-    """Model-facing hard reject when ``file_write`` tries to dump a long body once."""
-    approx_tokens = max(1, chars // _CHARS_PER_TOKEN_EST)
-    return (
-        f"拒绝整篇一次写入：`{path}` 正文过长（约 {approx_tokens} token / {chars} 字，"
-        f"阈值 ≈{_WRITE_LENGTH_WARN_TOKENS} token / {_WRITE_LENGTH_WARN_CHARS} 字）。"
-        "长交付物必须先短骨架 file_write（标题/锚点/`<!-- SECTION: -->`），"
-        "再按节 file_append 或 str_replace 填空；短文件仍可一次写完。"
-        "系统已拦截本次写入。"
-    )
-
-
-def length_nudge_text(*, path: str, chars: int) -> str:
-    """Deprecated alias kept for tests — same copy as the hard-reject body (no soft path)."""
-    return oversized_write_rejection(path=path, chars=chars)
 
 
 # Skeleton vs prose (Artifact-first Writing) ---------------------------------
@@ -318,6 +282,82 @@ def _norm_rel_path(path: str) -> str:
     return (path or "").strip().replace("\\", "/")
 
 
+def _prepare_write_relpath(path: str) -> tuple[str, str]:
+    """Sanitize a write path; return ``(actual, rename_note)``.
+
+    ``rename_note`` is a one-line tip when the cleaned path differs from the
+    request (empty string when unchanged). Callers append it to success receipts.
+    ``/workspace/…`` strip alone does not count as a rename (same as backend
+    normalize); only dangerous-char / dossier-flatten changes do.
+    """
+    from agentcore.workspace._paths import (
+        normalize_workspace_path,
+        sanitize_write_relpath,
+    )
+
+    requested = (path or "").strip()
+    if not requested:
+        return "", ""
+    actual = sanitize_write_relpath(requested)
+    baseline = normalize_workspace_path(requested, root_label="workspace")
+    if _norm_rel_path(actual) == _norm_rel_path(baseline):
+        return actual, ""
+    return actual, f"注意：请求路径已清理，实际写入 `{actual}`。"
+
+
+def write_scope_rejection(context: ToolContext, path: str) -> str | None:
+    """Chinese error when ``path`` violates ``context.write_scope``; else ``None``.
+
+    ``project`` — no gate. ``none`` — reject all writes. ``explore_memory`` — path
+    must be under ``AgentCore/`` and must not be under ``AgentCore/文档/项目/``.
+    """
+    scope = getattr(context, "write_scope", "project") or "project"
+    if scope == "project":
+        return None
+    if scope == "none":
+        return (
+            "当前写范围 write_scope=none：禁止一切写盘。"
+            "请改用只读工具，或待主管解除写范围限制后再写。"
+        )
+    if scope != "explore_memory":
+        return None
+
+    from agentcore.workspace.stage_dirs import AGENTCORE_ROOT, PROJECT_DOCS_PREFIX
+
+    norm = _norm_rel_path(path).lstrip("./")
+    root_prefix = f"{AGENTCORE_ROOT}/"
+    if not (norm == AGENTCORE_ROOT or norm.startswith(root_prefix)):
+        return (
+            f"冷启动探索写范围仅允许落在 `{AGENTCORE_ROOT}/` 下"
+            f"（约定记忆与探索笔记）；拒绝路径 `{path}`。"
+            f"请改写到 `{AGENTCORE_ROOT}/文档/research/` 等探索笔记路径，"
+            "或待画像写入完成后再写用户工程文件。"
+        )
+    project_docs = PROJECT_DOCS_PREFIX.rstrip("/")
+    if norm == project_docs or norm.startswith(PROJECT_DOCS_PREFIX):
+        return (
+            f"冷启动探索写范围禁止写入 `{PROJECT_DOCS_PREFIX}`（厚案卷）；"
+            f"拒绝路径 `{path}`。请写到 `{AGENTCORE_ROOT}/文档/research/` 等探索笔记，"
+            "厚案卷留到探索收尾后。"
+        )
+    return None
+
+
+def _reject_write_scope(
+    context: ToolContext,
+    path: str,
+    start: float,
+    *,
+    event: str = "file_write.scope_rejected",
+) -> ToolResult | None:
+    """Log + return failed ToolResult when write_scope blocks ``path``."""
+    msg = write_scope_rejection(context, path)
+    if msg is None:
+        return None
+    logger.info(event, path=path, write_scope=getattr(context, "write_scope", None))
+    return _error(msg, start, contract_failure=True)
+
+
 def _mark_landed_files(
     context: ToolContext,
     path: str = "",
@@ -350,39 +390,6 @@ def _mark_landed_files(
         context.landed_artifact_kinds[path_key] = "skeleton"
     else:
         context.landed_artifact_kinds.setdefault(path_key, "skeleton")
-
-
-def write_length_nudge(path: str, content: str) -> str | None:
-    """Return None — oversized prose is hard-rejected before write (compat shim)."""
-    del path, content
-    return None
-
-
-def segmented_write_rejection(path: str, content: str) -> str | None:
-    """Return hard-reject text when ``content`` must not land in one ``file_write``."""
-    if not requires_segmented_write(content):
-        return None
-    return oversized_write_rejection(path=path, chars=len(content or ""))
-
-
-def oversized_chunk_rejection(*, path: str, tool: str, chars: int) -> str:
-    """Hard reject when ``file_append`` / ``str_replace`` dumps an oversized chunk once."""
-    approx_tokens = max(1, chars // _CHARS_PER_TOKEN_EST)
-    return (
-        f"拒绝单次过大写入：`{tool}` → `{path}` 本段过长（约 {approx_tokens} token / "
-        f"{chars} 字，阈值 ≈{_WRITE_LENGTH_WARN_TOKENS} token / "
-        f"{_WRITE_LENGTH_WARN_CHARS} 字）。"
-        "请把这一节拆成多次更小的 file_append / str_replace（每节远小于阈值）；"
-        "短骨架仍用 file_write。系统已拦截本次写入。"
-    )
-
-
-def chunk_length_rejection(path: str, content: str, *, tool: str) -> str | None:
-    """Hard reject oversized single-chunk append / replace bodies (length-truncation 防)."""
-    text = content or ""
-    if len(text) < _WRITE_LENGTH_WARN_CHARS:
-        return None
-    return oversized_chunk_rejection(path=path, tool=tool, chars=len(text))
 
 
 def _truncate_content_lines(content: str, max_lines: int) -> str:
@@ -785,6 +792,60 @@ def _error(
     )
 
 
+def _file_too_large_error(path: str, start: float) -> ToolResult:
+    """Capacity contract: oversized whole-file read (cloud + local share detail)."""
+    max_mib = WORKSPACE_READ_MAX_BYTES // (1024 * 1024)
+    return _error(
+        (
+            f"`{path}` {FILE_TOO_LARGE_DETAIL}（上限 {max_mib} MiB）。"
+            "请改用 offset/limit 精读、grep 定位后局部读，或请用户提供更小片段 / 先转文本；"
+            "禁止原样重试整文件读取。"
+        ),
+        start,
+        contract_failure=True,
+        metadata={"capacity_contract": "bytes"},
+    )
+
+
+def _office_extract_budget_error(path: str, size: int, start: float) -> ToolResult:
+    """Capacity contract: Office/PDF extract cost pre-check (avoid burning liveness)."""
+    max_mib = OFFICE_EXTRACT_MAX_BYTES // (1024 * 1024)
+    size_mib = max(1, (size + 1024 * 1024 - 1) // (1024 * 1024))
+    return _error(
+        (
+            f"`{path}` 体积约 {size_mib} MiB，超过透明抽取预算（{max_mib} MiB）。"
+            "请请用户提供更小文件、先转 `.md`/文本后再 file_read，或改用已有 "
+            "attachments 旁路摘要；禁止原样重试抽取。"
+        ),
+        start,
+        contract_failure=True,
+        metadata={"capacity_contract": "extract_bytes"},
+    )
+
+
+def _liveness_workspace_error(detail: str, start: float) -> ToolResult:
+    """Liveness hang on the local workspace channel (counts toward breaker)."""
+    return _error(
+        (
+            f"本地工作区通道活性挂起（无响应）：{detail}。"
+            "这不是文件过大或参数合同失败——请缩小范围、换路径策略或改用云端可读副本；"
+            "禁止原样重试同一 workspace op。"
+        ),
+        start,
+        metadata={"liveness_timeout": True, "timeout_layer": "channel"},
+    )
+
+
+def _map_workspace_read_error(exc: WorkspaceError, *, path: str, start: float) -> ToolResult:
+    """Map backend read failures to capacity vs liveness vs generic I/O."""
+    detail = str(exc)
+    if is_file_too_large_detail(detail):
+        return _file_too_large_error(path, start)
+    if is_liveness_timeout_detail(detail):
+        return _liveness_workspace_error(detail, start)
+    return _error(f"读取文件失败：{exc}", start)
+
+
 def _file_read_path_ceiling_error(error: str, start: float) -> ToolResult:
     """Reject a same-path over-cap read and retire ``file_read`` for this run."""
     return _error(
@@ -1149,7 +1210,7 @@ class FileReadTool:
         except NotAFile:
             return _error(f"不是文件：{rel_path}", start)
         except WorkspaceError as e:
-            return _error(f"读取文件失败：{e}", start)
+            return _map_workspace_read_error(e, path=path_key or rel_path, start=start)
 
         body = _format_numbered_lines(result.lines, result.start_line)
         footer = (
@@ -1213,7 +1274,12 @@ class FileReadTool:
             except NotAFile:
                 return _error(f"不是文件：{rel_path}", start)
             except WorkspaceError as e:
-                return _error(f"读取文件失败：{e}", start)
+                return _map_workspace_read_error(e, path=path_key or rel_path, start=start)
+
+            if len(data) > OFFICE_EXTRACT_MAX_BYTES:
+                return _office_extract_budget_error(
+                    path_key or rel_path, len(data), start
+                )
 
             extracted = await extract_office_bytes(data, ext=extension_of(path_key or rel_path))
             if extracted.status == ParseStatus.FAILED:
@@ -1270,9 +1336,9 @@ class FileWriteTool:
                 "已有文件。用它来【新建】文件；修订时【优先】str_replace 局部改，"
                 "整文件覆盖亦允许（结构性换稿 / 确需整盖时可用）。"
                 "【Artifact-first】短文件可一次写完；长交付物（综述/报告/长文/"
-                "整页 HTML）【禁止】整篇一次写入——先短骨架（标题/锚点/"
-                "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空。"
-                "超长成篇正文硬拒绝（非仅提示）。"
+                "整页 HTML）【建议】分段——先短骨架（标题/锚点/"
+                "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空；"
+                "超长正文一次写亦不硬拒，仍建议分段以降低截断风险。"
                 "成功回执为 artifact manifest（优先以此验真；反复 file_read "
                 "受同 path 次数上限约束）。"
                 "【修订已有成品】优先 str_replace；整盖允许但勿惰性省略中段"
@@ -1295,8 +1361,8 @@ class FileWriteTool:
                     "content": {
                         "type": "string",
                         "description": (
-                            "要写入的内容。短文件一次写完；长交付物只放短骨架，"
-                            "其余按节 file_append / str_replace 填空。"
+                            "要写入的内容。短文件一次写完；长交付物建议短骨架 + "
+                            "按节填空（不硬拒整篇一次写）。"
                         ),
                     },
                 },
@@ -1308,15 +1374,23 @@ class FileWriteTool:
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
-        rel_path = arguments.get("path", "")
+        requested_path = arguments.get("path", "")
         content = arguments.get("content", "")
 
         # A missing/empty path resolves to the workspace root (a directory); writing
         # onto it raises a cryptic OS error (Permission denied / IsADirectory) that
         # leaks the absolute server path and gives the model nothing to act on. Fail
         # fast with the required-arg message instead (parity with str_replace/move).
-        if not rel_path:
+        if not requested_path:
             return _error("path 不能为空：请提供工作区内的相对文件路径（如 report.md）", start)
+
+        rel_path, rename_note = _prepare_write_relpath(requested_path)
+
+        scope_denied = _reject_write_scope(
+            context, rel_path, start, event="file_write.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
 
         # 并行写隔离·硬约束 (C3): refuse overwrite when another run owns the path.
         # Claimed BEFORE the awaited write; ancestor handoff still allowed.
@@ -1333,7 +1407,7 @@ class FileWriteTool:
             rel_path, content, context
         )
 
-        # Pre-read for overwrite integrity / length soft nudge (whole-file overwrite allowed).
+        # Pre-read for overwrite integrity soft nudge (whole-file overwrite allowed).
         old_content: str | None = None
         try:
             old_content = await context.backend.read(rel_path)
@@ -1369,19 +1443,6 @@ class FileWriteTool:
                         coordinator.release(rel_path, context.run_id)
                     return _error(struct_err, start, contract_failure=True)
 
-        # Artifact-first 硬闸：超长成篇正文禁止整篇一次 file_write（短骨架/短文件放行）。
-        segment_err = segmented_write_rejection(rel_path, write_content)
-        if segment_err is not None:
-            logger.info(
-                "file_write.length_rejected",
-                path=rel_path,
-                chars=len(write_content),
-                warn_chars=_WRITE_LENGTH_WARN_CHARS,
-            )
-            if coordinator is not None and release_on_fail:
-                coordinator.release(rel_path, context.run_id)
-            return _error(segment_err, start, contract_failure=True)
-
         try:
             written = await context.backend.write(rel_path, write_content)
         except OutsideWorkspace:
@@ -1410,6 +1471,8 @@ class FileWriteTool:
             kind=kind,
             action="write",
         )
+        if rename_note:
+            output = f"{output}\n{rename_note}"
         if anchor_note:
             output += anchor_note
         if old_content is not None:
@@ -1447,8 +1510,9 @@ class FileAppendTool:
                 "在文件【末尾追加】内容：文件不存在则创建（含上级目录）；已存在则在"
                 "末尾拼接，不重写全文。"
                 "仅用于骨架填空 / 建站 SECTION 壳：短骨架或 `<!-- SECTION: -->` 落盘后"
-                "按节追加。禁止对「本 run 已 file_write 成篇正文」再 append——"
-                "短文件应一次写完，长交付物先骨架再分段填空；修订用 str_replace。"
+                "按节追加（单次建议一节为宜，不硬拒字数）。禁止对「本 run 已 "
+                "file_write 成篇正文」再 append——"
+                "短文件应一次写完，长交付物宜先骨架再分段填空；修订用 str_replace。"
                 "成功回执为 artifact manifest（优先以此验真；反复 file_read "
                 "受同 path 次数上限约束）。"
                 "若要【整体覆盖】短文件，用 file_write；改中间某段用 "
@@ -1464,7 +1528,7 @@ class FileAppendTool:
                     "content": {
                         "type": "string",
                         "description": (
-                            "要追加到文件末尾的内容（一节/一段为宜；"
+                            "要追加到文件末尾的内容（一节/一段为宜，不硬拒字数；"
                             "自行带好段落分隔，如 leading \\n\\n）。"
                         ),
                     },
@@ -1477,11 +1541,19 @@ class FileAppendTool:
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
-        rel_path = arguments.get("path", "")
+        requested_path = arguments.get("path", "")
         content = arguments.get("content", "")
 
-        if not rel_path:
+        if not requested_path:
             return _error("path 不能为空：请提供工作区内的相对文件路径（如 report.md）", start)
+
+        rel_path, rename_note = _prepare_write_relpath(requested_path)
+
+        scope_denied = _reject_write_scope(
+            context, rel_path, start, event="file_append.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
 
         path_key = _norm_rel_path(rel_path)
         if context.landed_artifact_kinds.get(path_key) == "prose":
@@ -1537,20 +1609,6 @@ class FileAppendTool:
                         coordinator.release(rel_path, context.run_id)
                     return _error(struct_err, start, contract_failure=True)
 
-        # Same length gate as file_write: one huge append still hits model length trunc.
-        chunk_err = chunk_length_rejection(rel_path, content or "", tool="file_append")
-        if chunk_err is not None:
-            logger.info(
-                "file_write.length_rejected",
-                path=rel_path,
-                chars=len(content or ""),
-                warn_chars=_WRITE_LENGTH_WARN_CHARS,
-                tool="file_append",
-            )
-            if coordinator is not None and release_on_fail:
-                coordinator.release(rel_path, context.run_id)
-            return _error(chunk_err, start, contract_failure=True)
-
         try:
             appended = await context.backend.append(rel_path, content)
         except OutsideWorkspace:
@@ -1592,6 +1650,8 @@ class FileAppendTool:
             kind=kind,
             action="append",
         )
+        if rename_note:
+            output = f"{output}\n{rename_note}"
         _mark_landed_files(context, path_key, kind=kind)
         return ToolResult(
             tool_call_id="",
@@ -1792,7 +1852,10 @@ class StrReplaceTool:
                     },
                     "new_string": {
                         "type": "string",
-                        "description": "替换后的文本（必须与 old_string 不同）。",
+                        "description": (
+                            "替换后的文本（必须与 old_string 不同；"
+                            "单次替换建议一节为宜，不硬拒字数）。"
+                        ),
                     },
                     "replace_all": {
                         "type": "boolean",
@@ -1829,18 +1892,16 @@ class StrReplaceTool:
                 contract_failure=True,
             )
 
-        # Oversized new_string in one call → same length-truncation failure mode as
-        # whole-file write; force smaller chunks (log samples: chapter-sized replace).
-        chunk_err = chunk_length_rejection(rel_path, new_string or "", tool="str_replace")
-        if chunk_err is not None:
-            logger.info(
-                "file_write.length_rejected",
-                path=rel_path,
-                chars=len(new_string or ""),
-                warn_chars=_WRITE_LENGTH_WARN_CHARS,
-                tool="str_replace",
-            )
-            return _error(chunk_err, start, contract_failure=True)
+        if not rel_path:
+            return _error("path 不能为空：请提供工作区内的相对文件路径", start)
+
+        rel_path, rename_note = _prepare_write_relpath(rel_path)
+
+        scope_denied = _reject_write_scope(
+            context, rel_path, start, event="str_replace.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
 
         denied, release_on_fail = _claim_write_path(
             context, rel_path, event="str_replace.collision", start=start
@@ -1913,10 +1974,11 @@ class StrReplaceTool:
                 region.lines, region.start_line
             )
         _mark_landed_files(context, rel_path)
+        rename_suffix = f"。{rename_note}" if rename_note else ""
         return ToolResult(
             tool_call_id="",
             success=True,
-            output=f"已在 {rel_path} 替换 {outcome.count} 处{loc}{echo}",
+            output=f"已在 {rel_path} 替换 {outcome.count} 处{loc}{echo}{rename_suffix}",
             duration_ms=int((time.monotonic() - start) * 1000),
             metadata={"replacements": outcome.count},
         )
@@ -1984,17 +2046,25 @@ class WriteSectionTool:
         )
 
         start = time.monotonic()
-        rel_path = (arguments.get("path") or "").strip()
+        requested_path = (arguments.get("path") or "").strip()
         section_raw = arguments.get("section", "")
         content_arg = arguments.get("content")
         from_file = (arguments.get("from_file") or "").strip()
 
-        if not rel_path:
+        if not requested_path:
             return _error("path 不能为空：请提供含 SECTION 标记的相对路径", start)
         if content_arg is not None and from_file:
             return _error("content 与 from_file 只能提供其一", start)
         if content_arg is None and not from_file:
             return _error("须提供 content 或 from_file（分区 HTML 正文来源）", start)
+
+        rel_path, rename_note = _prepare_write_relpath(requested_path)
+
+        scope_denied = _reject_write_scope(
+            context, rel_path, start, event="file_write.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
 
         denied, release_on_fail = _claim_write_path(
             context, rel_path, event="write_section.collision", start=start
@@ -2074,10 +2144,13 @@ class WriteSectionTool:
             return _error(str(e), start, contract_failure=True)
 
         if new_html == old:
+            unchanged = f"SECTION:{slug} 在 {rel_path} 已是目标正文，无需改动"
+            if rename_note:
+                unchanged = f"{unchanged}。{rename_note}"
             return ToolResult(
                 tool_call_id="",
                 success=True,
-                output=f"SECTION:{slug} 在 {rel_path} 已是目标正文，无需改动",
+                output=unchanged,
                 duration_ms=int((time.monotonic() - start) * 1000),
                 metadata={"section": slug, "unchanged": True},
             )
@@ -2098,10 +2171,11 @@ class WriteSectionTool:
 
         _mark_landed_files(context, rel_path)
         src = f"（来自 `{from_file}`）" if from_file else ""
+        rename_suffix = f"。{rename_note}" if rename_note else ""
         return ToolResult(
             tool_call_id="",
             success=True,
-            output=f"已将 SECTION:{slug} 写入 {rel_path}{src}",
+            output=f"已将 SECTION:{slug} 写入 {rel_path}{src}{rename_suffix}",
             duration_ms=int((time.monotonic() - start) * 1000),
             metadata={"section": slug, "path": rel_path},
         )
@@ -2156,6 +2230,12 @@ class FileDeleteTool:
         if not rel_path:
             return _error("path 不能为空：请提供工作区内的相对文件路径", start)
 
+        scope_denied = _reject_write_scope(
+            context, rel_path, start, event="file_write.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
+
         denied, release_on_fail = _claim_write_path(
             context, rel_path, event="file_delete.collision", start=start
         )
@@ -2164,7 +2244,7 @@ class FileDeleteTool:
         coordinator = context.write_coordinator
 
         # 成篇质量：禁止「删长文 → 整篇重写」烧预算（delete 闸）；
-        # file_write 整盖已允许，仅软 integrity / length nudge。
+        # file_write 整盖已允许，仅软 integrity nudge。
         old_content: str | None = None
         try:
             old_content = await context.backend.read(rel_path)
@@ -2261,12 +2341,22 @@ class FileMoveTool:
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
         source = arguments.get("source", "")
-        destination = arguments.get("destination", "")
+        requested_dest = arguments.get("destination", "")
 
-        if not source or not destination:
+        if not source or not requested_dest:
             return _error("'source' 与 'destination' 均为必填", start)
+
+        destination, rename_note = _prepare_write_relpath(requested_dest)
+
         if source == destination:
             return _error("source 与 destination 相同，无需移动", start)
+
+        for p in (source, destination):
+            scope_denied = _reject_write_scope(
+                context, p, start, event="file_write.scope_rejected"
+            )
+            if scope_denied is not None:
+                return scope_denied
 
         # Ownership: source must be ours (or free); destination must not be held by another.
         denied_src, release_src = _claim_write_path(
@@ -2322,10 +2412,13 @@ class FileMoveTool:
         if coordinator is not None:
             coordinator.release(source, context.run_id)
 
+        output = f"已把 {source} 移动到 {destination}"
+        if rename_note:
+            output = f"{output}。{rename_note}"
         return ToolResult(
             tool_call_id="",
             success=True,
-            output=f"已把 {source} 移动到 {destination}",
+            output=output,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
@@ -2368,12 +2461,21 @@ class FileCopyTool:
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
         source = arguments.get("source", "")
-        destination = arguments.get("destination", "")
+        requested_dest = arguments.get("destination", "")
 
-        if not source or not destination:
+        if not source or not requested_dest:
             return _error("'source' 与 'destination' 均为必填", start)
+
+        destination, rename_note = _prepare_write_relpath(requested_dest)
+
         if source == destination:
             return _error("source 与 destination 相同，无需复制", start)
+
+        scope_denied = _reject_write_scope(
+            context, destination, start, event="file_write.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
 
         try:
             await context.backend.copy(source, destination)
@@ -2389,10 +2491,13 @@ class FileCopyTool:
         except WorkspaceError as e:
             return _error(f"复制失败：{e}", start)
 
+        output = f"已把 {source} 复制到 {destination}"
+        if rename_note:
+            output = f"{output}。{rename_note}"
         return ToolResult(
             tool_call_id="",
             success=True,
-            output=f"已把 {source} 复制到 {destination}",
+            output=output,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
@@ -2433,6 +2538,12 @@ class MkdirTool:
 
         if not rel_path:
             return _error("path 不能为空：请提供工作区内的相对目录路径", start)
+
+        scope_denied = _reject_write_scope(
+            context, rel_path, start, event="file_write.scope_rejected"
+        )
+        if scope_denied is not None:
+            return scope_denied
 
         try:
             await context.backend.mkdir(rel_path)
@@ -2688,6 +2799,15 @@ class FileBatchTool:
             path = str(item.get("path", "")).strip()
             if not path:
                 return "fail", "mkdir · path 不能为空"
+            scope_err = write_scope_rejection(context, path)
+            if scope_err is not None:
+                logger.info(
+                    "file_write.scope_rejected",
+                    path=path,
+                    write_scope=getattr(context, "write_scope", None),
+                    op=op,
+                )
+                return "fail", scope_err
             try:
                 await context.backend.mkdir(path)
             except AlreadyExists:
@@ -2704,6 +2824,15 @@ class FileBatchTool:
             path = str(item.get("path", "")).strip()
             if not path:
                 return "fail", "delete · path 不能为空"
+            scope_err = write_scope_rejection(context, path)
+            if scope_err is not None:
+                logger.info(
+                    "file_write.scope_rejected",
+                    path=path,
+                    write_scope=getattr(context, "write_scope", None),
+                    op=op,
+                )
+                return "fail", scope_err
             permanent = bool(item.get("permanent", False))
             try:
                 await context.backend.delete(path, permanent=permanent)
@@ -2724,6 +2853,16 @@ class FileBatchTool:
             return "fail", f"{op} · source 与 destination 均为必填"
         if source == destination:
             return "skip", f"{op} {source}（源与目标相同）"
+        for p in (source, destination) if op == "move" else (destination,):
+            scope_err = write_scope_rejection(context, p)
+            if scope_err is not None:
+                logger.info(
+                    "file_write.scope_rejected",
+                    path=p,
+                    write_scope=getattr(context, "write_scope", None),
+                    op=op,
+                )
+                return "fail", scope_err
         try:
             if op == "move":
                 await context.backend.move(source, destination)

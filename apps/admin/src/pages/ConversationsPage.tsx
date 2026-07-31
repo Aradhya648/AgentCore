@@ -30,8 +30,9 @@ import {
   ChevronRight,
   RefreshCw,
   Search,
+  Users,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   Navigate,
   useLocation,
@@ -101,9 +102,46 @@ export function ConversationsPage() {
 
   const segment: Segment = segmentParam;
   const userIdFilter = searchParams.get("user_id") ?? undefined;
+  const [jumpInput, setJumpInput] = useState("");
+  const [jumpBusy, setJumpBusy] = useState(false);
 
-  const openReplay = (conversationId: string) => {
-    navigate(`/replay/${conversationId}`, { state: { from: location.pathname } });
+  const openReplay = (conversationId: string, opts?: { trace?: string }) => {
+    const qs = opts?.trace
+      ? `?trace=${encodeURIComponent(opts.trace)}`
+      : "";
+    navigate(`/replay/${conversationId}${qs}`, {
+      state: { from: location.pathname },
+    });
+  };
+
+  const submitJump = async (e: FormEvent) => {
+    e.preventDefault();
+    const raw = jumpInput.trim();
+    if (!raw) return;
+    setJumpBusy(true);
+    try {
+      // Prefer trace_id resolution (32-hex) → conversation + highlight; else treat as
+      // conversation_id (same shape as many ids — operator paste either works).
+      if (/^[0-9a-f]{32}$/i.test(raw)) {
+        const byTrace = await listTurns({
+          page: 1,
+          pageSize: 1,
+          traceId: raw,
+        });
+        const hit = byTrace.data[0];
+        if (hit) {
+          openReplay(hit.conversation_id, { trace: raw });
+          return;
+        }
+      }
+      openReplay(raw);
+    } catch (err) {
+      // Fall through to conversation_id open; replay page surfaces 404.
+      void err;
+      openReplay(raw);
+    } finally {
+      setJumpBusy(false);
+    }
   };
 
   const setSegment = (s: Segment) => {
@@ -119,8 +157,8 @@ export function ConversationsPage() {
 
   const subtitle =
     segment === "conversations"
-      ? "全站 AI 会话索引 · 按用户 / 标题筛选 · 点击行进入复盘"
-      : "全站回合流水 · 按状态筛选 · 方便排障与优化";
+      ? "全站 AI 会话索引 · 按用户 / 标题 / 多 Agent 筛选 · 点击行进入复盘"
+      : "全站回合流水 · 按状态 / 多 Agent 筛选 · 方便排障与优化";
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-8">
@@ -144,7 +182,25 @@ export function ConversationsPage() {
             </p>
           )}
         </div>
-        <SegmentToggle value={segment} onChange={setSegment} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentToggle value={segment} onChange={setSegment} />
+          <form onSubmit={(e) => void submitJump(e)} className="flex items-center gap-2">
+            <Input
+              value={jumpInput}
+              onChange={(e) => setJumpInput(e.target.value)}
+              placeholder="conversation_id / trace_id…"
+              className="w-56 font-mono text-xs"
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              disabled={!jumpInput.trim() || jumpBusy}
+            >
+              复盘
+            </Button>
+          </form>
+        </div>
       </div>
 
       {segment === "conversations" ? (
@@ -197,7 +253,7 @@ function ConversationsPanel({
   onOpenReplay,
 }: {
   userId?: string;
-  onOpenReplay: (id: string) => void;
+  onOpenReplay: (id: string, opts?: { trace?: string }) => void;
 }) {
   const [rows, setRows] = useState<AdminConversationListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -206,6 +262,7 @@ function ConversationsPanel({
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [hasErrors, setHasErrors] = useState<"all" | "yes" | "no">("all");
+  const [hasDelegated, setHasDelegated] = useState<"all" | "yes" | "no">("all");
   const [includeDeleted, setIncludeDeleted] = useState(true);
   const [sinceDate, setSinceDate] = useState("");
   const [untilDate, setUntilDate] = useState("");
@@ -237,6 +294,12 @@ function ConversationsPanel({
         userId,
         hasErrors:
           hasErrors === "yes" ? true : hasErrors === "no" ? false : undefined,
+        hasDelegated:
+          hasDelegated === "yes"
+            ? true
+            : hasDelegated === "no"
+              ? false
+              : undefined,
         includeDeleted,
         since: sinceDate ? dateToSince(sinceDate) : undefined,
         until: untilDate ? dateToUntil(untilDate) : undefined,
@@ -251,7 +314,18 @@ function ConversationsPanel({
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedQ, userId, hasErrors, includeDeleted, sinceDate, untilDate, sort, order]);
+  }, [
+    page,
+    debouncedQ,
+    userId,
+    hasErrors,
+    hasDelegated,
+    includeDeleted,
+    sinceDate,
+    untilDate,
+    sort,
+    order,
+  ]);
 
   const toggleSort = useCallback(
     (key: ConversationSort) => {
@@ -298,6 +372,18 @@ function ConversationsPanel({
           <option value="all">全部会话</option>
           <option value="yes">仅有错误</option>
           <option value="no">无错误</option>
+        </select>
+        <select
+          value={hasDelegated}
+          onChange={(e) => {
+            setHasDelegated(e.target.value as "all" | "yes" | "no");
+            setPage(1);
+          }}
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="all">全部协作</option>
+          <option value="yes">仅多 Agent</option>
+          <option value="no">无委派</option>
         </select>
         <Input
           type="date"
@@ -372,6 +458,15 @@ function ConversationsPanel({
                 <th className="px-5 py-2.5 text-right font-medium">错误</th>
                 <th className="px-5 py-2.5 text-right font-medium">
                   <SortHeader
+                    label="委派"
+                    active={sort === "delegated"}
+                    order={order}
+                    align="right"
+                    onClick={() => toggleSort("delegated")}
+                  />
+                </th>
+                <th className="px-5 py-2.5 text-right font-medium">
+                  <SortHeader
                     label="成本"
                     active={sort === "cost"}
                     order={order}
@@ -412,16 +507,21 @@ function ConversationsPanel({
                         </span>
                       )}
                     </div>
-                    {(c.deleted_at || c.user_deleted_at) && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {c.deleted_at && (
-                          <Badge tone="neutral">会话已删</Badge>
-                        )}
-                        {c.user_deleted_at && (
-                          <Badge tone="warning">用户已注销</Badge>
-                        )}
-                      </div>
-                    )}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(c.delegated_turns ?? 0) > 0 && (
+                        <Badge tone="primary">
+                          <Users size={10} className="mr-0.5" />
+                          多 Agent
+                          {(c.workers ?? 0) > 0 ? ` · ${c.workers}` : ""}
+                        </Badge>
+                      )}
+                      {c.deleted_at && (
+                        <Badge tone="neutral">会话已删</Badge>
+                      )}
+                      {c.user_deleted_at && (
+                        <Badge tone="warning">用户已注销</Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-3">
                     <div className="font-medium text-foreground">
@@ -445,6 +545,11 @@ function ConversationsPanel({
                     ) : (
                       <span className="text-muted-foreground">0</span>
                     )}
+                  </td>
+                  <td className="px-5 py-3 text-right text-muted-foreground tabular-nums">
+                    {(c.delegated_turns ?? 0) > 0
+                      ? fmtInt(c.delegated_turns)
+                      : "—"}
                   </td>
                   <td className="px-5 py-3 text-right text-muted-foreground tabular-nums">
                     {c.cost_total > 0
@@ -486,12 +591,13 @@ function TurnsPanel({
   onOpenReplay,
 }: {
   userId?: string;
-  onOpenReplay: (id: string) => void;
+  onOpenReplay: (id: string, opts?: { trace?: string }) => void;
 }) {
   const [rows, setRows] = useState<AdminTurnListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<TurnStatus | "all">("all");
+  const [delegatedOnly, setDelegatedOnly] = useState(false);
   const [includeDeleted, setIncludeDeleted] = useState(true);
   const [sinceDate, setSinceDate] = useState("");
   const [untilDate, setUntilDate] = useState("");
@@ -511,6 +617,7 @@ function TurnsPanel({
         pageSize: PAGE_SIZE,
         userId,
         status: status === "all" ? undefined : status,
+        delegated: delegatedOnly ? true : undefined,
         since: sinceDate ? dateToSince(sinceDate) : undefined,
         until: untilDate ? dateToUntil(untilDate) : undefined,
         includeDeletedConversations: includeDeleted,
@@ -522,7 +629,7 @@ function TurnsPanel({
     } finally {
       setLoading(false);
     }
-  }, [page, userId, status, includeDeleted, sinceDate, untilDate]);
+  }, [page, userId, status, delegatedOnly, includeDeleted, sinceDate, untilDate]);
 
   useEffect(() => {
     void load();
@@ -545,6 +652,18 @@ function TurnsPanel({
           <option value="ok">成功</option>
           <option value="error">失败</option>
         </select>
+        <label className="flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={delegatedOnly}
+            onChange={(e) => {
+              setDelegatedOnly(e.target.checked);
+              setPage(1);
+            }}
+            className="rounded border-input"
+          />
+          仅多 Agent
+        </label>
         <Input
           type="date"
           value={sinceDate}
@@ -628,7 +747,11 @@ function TurnsPanel({
                 return (
                   <tr
                     key={t.turn_id}
-                    onClick={() => onOpenReplay(t.conversation_id)}
+                    onClick={() =>
+                      onOpenReplay(t.conversation_id, {
+                        trace: t.trace_id ?? undefined,
+                      })
+                    }
                     className="cursor-pointer border-border border-b align-top last:border-0 hover:bg-accent/40"
                   >
                     <td className="whitespace-nowrap px-5 py-3 text-muted-foreground tabular-nums">
@@ -640,7 +763,7 @@ function TurnsPanel({
                           value={t.trace_id}
                           label="trace_id"
                           className="max-w-[7rem]"
-                          titleHint={`${t.trace_id}（点击复制，用于 grep logs/dev.jsonl）`}
+                          titleHint={`${t.trace_id}（点击复制 → log_timeline --trace / --pack）`}
                         />
                       ) : (
                         <span className="text-muted-foreground">—</span>
@@ -671,9 +794,17 @@ function TurnsPanel({
                       )}
                     </td>
                     <td className="px-5 py-3">
-                      <Badge tone={isError ? "destructive" : "success"}>
-                        {isError ? "失败" : "成功"}
-                      </Badge>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge tone={isError ? "destructive" : "success"}>
+                          {isError ? "失败" : "成功"}
+                        </Badge>
+                        {t.delegated && (
+                          <Badge tone="primary">
+                            <Users size={10} className="mr-0.5" />
+                            多 Agent · {t.workers}
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="max-w-xs px-5 py-3 text-muted-foreground">
                       <span className="line-clamp-2 break-words">
@@ -684,9 +815,6 @@ function TurnsPanel({
                     </td>
                     <td className="px-5 py-3 text-right text-muted-foreground tabular-nums">
                       {fmtInt(t.rounds)}
-                      {t.delegated && (
-                        <div className="text-xs">委派 {t.workers}</div>
-                      )}
                     </td>
                     <td
                       className="px-5 py-3 text-right text-muted-foreground text-xs tabular-nums"

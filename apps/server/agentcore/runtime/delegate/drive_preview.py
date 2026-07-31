@@ -33,10 +33,7 @@ async def team_preview_before_workers(
     delegation grant for later application.
     """
     playbook_name = str(getattr(tool, "_active_playbook", None) or "").strip()
-    # light 通常跳过开工卡；organize_folder 例外——落盘工具依赖 kickoff grant，
-    # 跳过会导致 GRANTABLE（mkdir 等）静默挂在 ApprovalGate。
-    skip_for_light = complexity_hint == "light" and playbook_name != "organize_folder"
-    if seed_completed is not None or skip_for_light or tool._depth != 0:
+    if seed_completed is not None or tool._depth != 0:
         return None
     from agentcore.core.types import DEFAULT_PERMISSION_AXES
     from agentcore.runtime.delegate.preview import (
@@ -50,12 +47,18 @@ async def team_preview_before_workers(
 
     axes = getattr(tool, "_permission_axes", None) or DEFAULT_PERMISSION_AXES
     local_gate = worker_gate_applies(tool._base_tool_context.backend)
+    # light 通常跳过开工卡；若需 capability auth（kickoff grant），不早退——
+    # 否则 GRANTABLE（mkdir 等）会静默挂在 ApprovalGate。
+    if complexity_hint == "light" and not needs_capability_auth(
+        local_gate=local_gate, axes=axes
+    ):
+        return None
     plan_preview = should_preview_plan(plan, finalize=finalize)
     if not should_kickoff(
         plan, finalize=finalize, local_gate=local_gate, axes=axes
     ):
         # Card skipped: still silent-grant when command=auto, OR when team_kickoff=skip
-        # with command=kickoff (少打断 — 跳组团卡但仍开工授执行类).
+        # with command=kickoff (跳组团卡但仍开工授执行类；托管或自定义轴).
         if (
             local_gate
             and tool._approval_gate is not None

@@ -19,13 +19,8 @@ import {
   cacheOpenedConversation,
   loadCachedConversation,
 } from "@/services/offlineCache";
-import { loadRecovery, shouldHydrateLocalRecovery } from "@/services/resume";
-import {
-  attachOnOpen,
-  attachSidecarTurn,
-  projectUnsyncedTurns,
-  settleCloudRunningAssistant,
-} from "@/services/turns";
+import { loadRecovery } from "@/services/resume";
+import { runHydrateAttachSettle } from "@/services/turns";
 import { useBookmarkStore } from "@/stores/bookmarks";
 import {
   type MemoryUpdate,
@@ -131,6 +126,8 @@ export function ConversationPage() {
       try {
         const win = await fetchMessageWindow(id);
         if (cancelled) return;
+        // Adopt only overwrites an empty cold slice; warm reopen (messages
+        // already in memory) skips overwrite but still runs attach/settle.
         const adopted = adoptMessageWindow(
           id,
           win.messages,
@@ -145,49 +142,23 @@ export function ConversationPage() {
             hasMoreBefore: win.hasMoreBefore,
             hasMoreAfter: win.hasMoreAfter,
           });
-          // P4 unified hydrate: messages (overlay partial) + recovery + attach.
-          // Branch on main-process facts (D6 二次修订) — never resolveSidecarRoot
-          // (routing intent / React Query cache; empty on refresh cold start).
-          const recovery = await recoveryLoaded;
-          if (cancelled) return;
-          const useLocal = shouldHydrateLocalRecovery(recovery);
-          logEvent("info", "conversation.hydrate", {
-            conversation_id: id,
-            sidecar_live: recovery.sidecarLive,
-            cloud_live: recovery.cloudLive,
-            unsynced_count: recovery.unsynced.length,
-            paused_count: recovery.pausedCount,
-            branch: useLocal ? "local" : "cloud",
-          });
-          if (useLocal) {
-            // Order: project unsynced → attach live.
-            projectUnsyncedTurns(id, recovery.unsynced);
-            if (recovery.sidecarLive && recovery.pausedCount === 0) {
-              // Await + abort on leave: serialize hydrate attach; 切会话停旧泵
-              // （claim 释放），避免 fire-and-forget 叠第二个 onEvent。
-              attachAbort = new AbortController();
-              await attachSidecarTurn(id, { signal: attachAbort.signal });
-              if (cancelled) return;
-            }
-          } else {
-            // Cloud session: P4 hydrate — refresh before ghost when empty
-            // (stale recovery vs cold-pause race · settleCloudRunningAssistant).
-            const last = win.messages.at(-1);
-            if (last) {
-              const canAttach =
-                recovery.cloudLive && recovery.pausedCount === 0;
-              if (last.role === "user" && canAttach) {
-                void attachOnOpen(id);
-              } else if (
-                last.role === "assistant" &&
-                last.status === "running"
-              ) {
-                await settleCloudRunningAssistant(id, recovery);
-                if (cancelled) return;
-              }
-            }
-          }
         }
+        if (cancelled) return;
+        if (useConversationStore.getState().currentConversationId !== id) {
+          return;
+        }
+        // P4 unified hydrate: recovery + attach/settle independent of adopt.
+        // Branch on main-process facts (D6 二次修订) — never resolveSidecarRoot
+        // (routing intent / React Query cache; empty on refresh cold start).
+        const recovery = await recoveryLoaded;
+        if (cancelled) return;
+        // Await + abort on leave: serialize hydrate attach; 切会话停旧泵
+        // （claim 释放），避免 fire-and-forget 叠第二个 onEvent。
+        attachAbort = new AbortController();
+        await runHydrateAttachSettle(id, recovery, {
+          signal: attachAbort.signal,
+        });
+        if (cancelled) return;
         if (!cancelled) setHydratePhase("ready");
       } catch {
         // N4-A: network / outage → fall back to local-store snapshot for this id.

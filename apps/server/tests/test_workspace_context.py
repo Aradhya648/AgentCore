@@ -128,6 +128,10 @@ def test_local_remote_channel_facts():
     assert "local_open=已装配" in out
     assert "bind_local_folder" not in out  # already local — no bind nudge
     assert "产物出口" in out  # 产物出口事实对本地会话同样注入
+    # 已绑定本地工程：「打开项目」=跑当前，换目录才 open_local_project
+    assert "已绑定本地工程" in out
+    assert "跑当前项目" in out
+    assert "open_local_project" in out
 
 
 def test_browser_capability_override():
@@ -146,6 +150,10 @@ def test_browser_capability_override():
     assert "browser_navigate" in out
     assert "禁止只用 read_url" in out or "假装已打开" in out
     assert "browser_open" in out  # 明示禁编造
+    # 意图梯度：navigate 成功即可；验收/截图才 snapshot；跑起来≠必须 navigate
+    assert "navigate 成功" in out or "即可收工" in out
+    assert "验收" in out and "截图" in out
+    assert "≠必须 navigate" in out or "跑起来" in out
     # 乙：沙箱已装配时仍标明相对路径不可测 / 完整预览
     assert "相对" in out or "完整预览" in out
     assert "http(s)" in out or "公网" in out

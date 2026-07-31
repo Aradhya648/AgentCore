@@ -609,22 +609,6 @@ class MessageRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_assistant_after(
-        self, conversation_id: str, *, after_created_at: datetime
-    ) -> Message | None:
-        """The first assistant message strictly after a timestamp (retry-failed seed lookup)."""
-        result = await self._session.execute(
-            select(Message)
-            .where(
-                Message.conversation_id == conversation_id,
-                Message.created_at > after_created_at,
-                Message.role == "assistant",
-            )
-            .order_by(Message.created_at.asc())
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
-
     async def update_content(
         self, message_id: str, content: str, *, commit: bool = True
     ) -> None:

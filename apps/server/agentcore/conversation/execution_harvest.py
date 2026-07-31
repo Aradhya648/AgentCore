@@ -11,6 +11,7 @@ Mirrors :mod:`agentcore.conversation.stage_card_resolve` ``run_and_persist`` usa
 from __future__ import annotations
 
 import contextlib
+from typing import TYPE_CHECKING, Literal
 
 from agentcore.conversation.common import (
     resolve_conversation_history_access,
@@ -31,19 +32,75 @@ from agentcore.runtime.turn_runs import turn_runs
 from agentcore.workspace.locate import workspace_storage_key
 from agentcore.workspace.locks import workspace_lock
 
+if TYPE_CHECKING:
+    from agentcore.runtime.coordination.session import CoordinationSession
+
 logger = get_logger(__name__)
 
-_HARVEST_USER_TEXT = (
-    "【系统收口】后台团队任务已全部完成。请综合队员产出，按终稿纪律交付给老板："
-    "交付物在前，过程简述至多一段；勿粘贴协调事件原文。"
-)
+HarvestKind = Literal["success", "failure", "cancelled"]
+
+_HARVEST_USER_TEXT: dict[HarvestKind, str] = {
+    "success": (
+        "【系统收口】后台团队任务已全部完成。请综合队员产出，按终稿纪律交付给老板："
+        "交付物在前，过程简述至多一段；勿粘贴协调事件原文。"
+    ),
+    "failure": (
+        "【系统收口】后台团队任务已结束，但有队员失败。请综合已有产出与失败情况向老板交代："
+        "交付物/缺口在前，失败原因简述至多一段；勿粘贴协调事件原文；勿假装全员成功。"
+    ),
+    "cancelled": (
+        "【系统收口】后台团队任务已取消或中断。请基于已完成部分向老板简要收尾："
+        "已交付与未完成清单在前，说明已取消；勿粘贴协调事件原文；勿宣称已全部完成。"
+    ),
+}
+
+_HARVEST_PUSH: dict[HarvestKind, tuple[str, str]] = {
+    "success": ("团队任务已完成", "后台团队已交付终稿，打开对话查看。"),
+    "failure": ("团队任务有失败", "后台团队已结束但有失败，打开对话查看收尾。"),
+    "cancelled": ("团队任务已取消", "后台团队已取消或中断，打开对话查看收尾。"),
+}
+
+
+class HarvestDeferredError(Exception):
+    """Conversation slot occupied — keep registry; caller must retry, not unregister."""
+
+    def __init__(self, conversation_id: str, execution_id: str) -> None:
+        self.conversation_id = conversation_id
+        self.execution_id = execution_id
+        super().__init__(f"harvest deferred: live turn on {conversation_id}")
+
+
+def harvest_closing_kind(session: CoordinationSession) -> HarvestKind:
+    """Classify harvest outcome for synthetic user text (success / failure / cancelled)."""
+    from agentcore.runtime.coordination.session import CoordinationEventKind
+
+    if session.soft_stop:
+        return "cancelled"
+    if any(ev.kind is CoordinationEventKind.DRIVE_CANCELLED for ev in session._pending):
+        return "cancelled"
+    if session.failed_run_ids:
+        return "failure"
+    cancelled = (session.cancel_ids & session.completed_run_ids) - session.failed_run_ids
+    if cancelled:
+        return "cancelled"
+    return "success"
+
+
+def format_harvest_user_text(session: CoordinationSession) -> str:
+    return _HARVEST_USER_TEXT[harvest_closing_kind(session)]
+
 
 async def run_harvest_closing_turn(
     *,
     conversation_id: str,
     execution_id: str,
 ) -> None:
-    """Adopt the live execution and run a system closing CEO turn."""
+    """Adopt the live execution and run a system closing CEO turn.
+
+    Raises:
+        HarvestDeferredError: another turn owns the conversation slot — do **not**
+            treat as success or clear the coordination registry.
+    """
     from agentcore.runtime.coordination.session import (
         active_coordination,
         adopt_active_execution,
@@ -65,7 +122,7 @@ async def run_harvest_closing_turn(
         )
         return
 
-    # Another turn already owns the conversation slot — let it adopt instead.
+    # Another turn already owns the conversation slot — keep registry; retry later.
     existing = turn_runs.get(conversation_id)
     if existing is not None and not existing.task.done():
         logger.info(
@@ -73,7 +130,10 @@ async def run_harvest_closing_turn(
             conversation_id=conversation_id,
             execution_id=execution_id,
         )
-        return
+        raise HarvestDeferredError(conversation_id, execution_id)
+
+    kind = harvest_closing_kind(session)
+    user_text = _HARVEST_USER_TEXT[kind]
 
     async with async_session_factory() as db:
         conv = await ConversationRepository(db).get_by_id_unscoped(conversation_id)
@@ -101,8 +161,12 @@ async def run_harvest_closing_turn(
         await MessageRepository(db).create(
             conversation_id=conversation_id,
             role="user",
-            content=_HARVEST_USER_TEXT,
-            metadata={"origin": "execution_harvest", "execution_id": execution_id},
+            content=user_text,
+            metadata={
+                "origin": "execution_harvest",
+                "execution_id": execution_id,
+                "harvest_kind": kind,
+            },
         )
         history = await load_chat_context(db, conversation_id, max_messages=40)
 
@@ -125,7 +189,7 @@ async def run_harvest_closing_turn(
         ):
             await run_and_persist(
                 conversation_id=conversation_id,
-                user_message=_HARVEST_USER_TEXT,
+                user_message=user_text,
                 user_id=user_id,
                 folder_id=folder_id,
                 sink=sink,
@@ -145,6 +209,7 @@ async def run_harvest_closing_turn(
             user_id=user_id,
             conversation_id=conversation_id,
             execution_id=execution_id,
+            kind=kind,
         )
 
     import asyncio
@@ -162,24 +227,29 @@ async def run_harvest_closing_turn(
         "coordination.harvest_closing_turn_done",
         conversation_id=conversation_id,
         execution_id=execution_id,
+        harvest_kind=kind,
     )
+
 
 async def _notify_harvest_complete(
     *,
     user_id: str,
     conversation_id: str,
     execution_id: str,
+    kind: HarvestKind = "success",
 ) -> None:
+    title, body = _HARVEST_PUSH[kind]
     with contextlib.suppress(Exception):
         await notify_user(
             user_id,
             PushNotification(
-                title="团队任务已完成",
-                body="后台团队已交付终稿，打开对话查看。",
+                title=title,
+                body=body,
                 data={
                     "conversation_id": conversation_id,
                     "execution_id": execution_id,
                     "origin": "execution_harvest",
+                    "harvest_kind": kind,
                 },
             ),
         )

@@ -160,6 +160,14 @@ async def extract_office_bytes(data: bytes, *, ext: str) -> ExtractResult:
     if normalized not in MARKITDOWN_EXTENSIONS:
         return ExtractResult(status=ParseStatus.SKIPPED, detail=f"unknown_ext:{normalized or '?'}")
 
+    from agentcore.workspace.limits import OFFICE_EXTRACT_MAX_BYTES
+
+    if len(data) > OFFICE_EXTRACT_MAX_BYTES:
+        return ExtractResult(
+            status=ParseStatus.FAILED,
+            detail=f"extract_budget:{len(data)}>{OFFICE_EXTRACT_MAX_BYTES}",
+        )
+
     try:
         text = await asyncio.to_thread(_convert_with_markitdown, data, normalized)
     except Exception as e:

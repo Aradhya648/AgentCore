@@ -199,28 +199,28 @@ def maybe_inject_team_gate(
 
 
 def audit_gate_nudge_prompt() -> str:
-    """One-shot soft audit gate: remind about independent review; never auto-dispatch."""
+    """One-shot soft audit gate: independent review then default close to user."""
     return (
-        "[系统提示] 收尾前审计复核：请先自我归类——"
-        "成篇/构建/审查类质量敏感成品须经独立审计（审计者≠作者）。"
-        "默认派 1 名审计员；重要材料可用 2-3 透镜分工。"
-        "成品以落盘文件交给审计员阅读；若发现问题，用 continue_from_run_id "
-        "唤回原作者修订，再由审计员复核，≤2 轮。"
-        "成篇落盘（研究报告/论文/多章指南等）不适用「免审归类」——"
-        "首批未含审校则必须再派。"
-        "仅非成篇的轻交付（短文、机械单步、用户明示免审）可给归类理由后交付。"
-        "系统只提示、绝不代派——派几个由你自主决定；此后不再打扰。"
+        "[系统提示] 收尾前审计复核：本回合为成文专线/结构长文，须经独立审计"
+        "（审计者≠作者）。默认派 1 名审计员读落盘成稿；重要材料可用 2-3 透镜分工。"
+        "独立审计完成后，默认向用户收口汇报结论与成稿状态——"
+        "同轮用 continue_from_run_id 唤回原作者修订不是默认路径"
+        "（仅当用户明示要改，或审计暴露硬缺口且收口会交残稿时才再派修订）。"
+        "禁止把「审完默认修订≤2 轮」当流程。"
+        "系统只提示、绝不代派；此后不再打扰。"
     )
 
 
 def audit_gate_hard_prompt() -> str:
     """Hard audit gate for research_report / structured long-form deliverables."""
     return (
-        "[系统提示] 成篇审计硬门：本回合含 playbook=research_report "
+        "[系统提示] 成篇审计硬门：本回合含成文专线 playbook=research_report "
         "或 deliverable 结构成篇信号（如 min_length≥3000），"
         "收尾前【必须】派独立审计员（审计者≠作者）审校落盘成稿，"
         "或用 playbook=research_report（内含审校）完成路径。"
+        "对齐推进 playbook=parallel_brief / 普通多角摸底不进本门（软闸亦同）。"
         "禁止在仅收到软提示后直接 end_turn 把半残稿当完结。"
+        "审后默认向用户收口；continue_from_run_id 修订非默认路径。"
         "若本批已含审校节点或你已另派审计，请继续交付；"
         "否则请先 delegate 审计员。"
         "系统不代派，但本门未满足前不会放行收尾。"
@@ -228,8 +228,15 @@ def audit_gate_hard_prompt() -> str:
 
 
 def should_audit_gate(controller: LoopController, *, role: str) -> bool:
-    """Whether the soft audit gate should fire (wrap-up or all_completed path)."""
+    """Whether the soft audit gate should fire (wrap-up or all_completed path).
+
+    Soft nudge aligns with the hard gate: only research_report / structured
+    long-form (``audit_hard_required``). ``parallel_brief`` / ordinary multi-angle
+    scouting never enter the soft gate.
+    """
     if role != "captain" or controller.audit_gate_fired:
+        return False
+    if not controller.audit_hard_required:
         return False
     # Turn ceiling hit → new audit dispatch is rejected; don't push CEO to re-delegate.
     from agentcore.runtime.turn_token_budget import is_turn_token_ceiling_hit
@@ -482,6 +489,7 @@ def create_loop_controller(
     tighten_verify_exec_thrash: bool = False,
     max_rounds: int | None = None,
     form_prose: bool = False,
+    product_landing_artifacts: list[str] | tuple[str, ...] | None = None,
 ) -> LoopController:
     """Build per-run convergence controller from engine settings.
 
@@ -548,6 +556,7 @@ def create_loop_controller(
         prose_idle=prose_idle,
         form_prose=form_prose,
         investigation_tools=investigation_tools,
+        product_landing_artifacts=product_landing_artifacts,
     )
     if seed:
         controller.apply_seed(seed)
@@ -644,6 +653,8 @@ def apply_circuit_breaker(
     disabled_tools: set[str],
 ) -> CircuitBreakerOutcome:
     """Retire wedged tools and inject a steer when the breaker trips."""
+    from agentcore.runtime.loop_controller import FORCE_SEGMENTED_NARROW_TOOLS
+
     breaker = controller.tool_circuit_breaker()
     refresh = bool(breaker.disabled)
     if breaker.disabled:
@@ -665,12 +676,20 @@ def apply_circuit_breaker(
                 )
 
                 mark_read_url_retired(run_id, message=READ_URL_RETIRE_STEER)
+    # force_segmented keeps the pen but narrows dangerous append thrashing
+    # (file_append out; file_write / str_replace stay — not a full write lockout).
+    if breaker.force_segmented:
+        before = len(disabled_tools)
+        disabled_tools.update(FORCE_SEGMENTED_NARROW_TOOLS)
+        if len(disabled_tools) > before:
+            refresh = True
     breaker_message = breaker.message()
     if breaker_message is not None:
         logger.info(
             "engine.tool_circuit_breaker",
             warned=list(breaker.warned),
             disabled=list(breaker.disabled),
+            force_segmented=sorted(breaker.force_segmented),
             round=round_idx,
         )
         messages.append(LLMMessage(role="user", content=breaker_message))

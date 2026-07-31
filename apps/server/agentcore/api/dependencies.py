@@ -52,6 +52,7 @@ from agentcore.db.repositories import (
     UserDirectoryRepository,
     UserLlmProviderRepository,
     UserRepository,
+    UserWorkflowRepository,
 )
 from agentcore.db.repositories.shared_spaces import SharedSpaceRepository
 from agentcore.messaging import MessagingService
@@ -239,6 +240,12 @@ def get_standing_task_run_repo(
     session: AsyncSession = Depends(get_db),
 ) -> StandingTaskRunRepository:
     return StandingTaskRunRepository(session)
+
+
+def get_user_workflow_repo(
+    session: AsyncSession = Depends(get_db),
+) -> UserWorkflowRepository:
+    return UserWorkflowRepository(session)
 
 
 def get_push_device_repo(

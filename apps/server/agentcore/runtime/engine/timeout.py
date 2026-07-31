@@ -21,6 +21,11 @@ def resolve_tool_timeout(
     exempt (``None``), EXECUTION gets the higher execution ceiling (it runs code),
     everything else the default. This is a coarse safety net layered above each
     tool's own finer timeout, never a replacement (B1).
+
+    For FILESYSTEM / Local workspace ops this value is the **liveness budget
+    owner**: ``tool_exec`` binds it on a ContextVar and ``WorkspaceChannel``
+    derives its transport deadline from it (minus settle slack). Capacity
+    ceilings (bytes / extract) fail via ``contract_failure`` before this matters.
     """
     if schema.name == "terminal":
         from agentcore.tools.builtin.terminal import terminal_op_timeout_seconds

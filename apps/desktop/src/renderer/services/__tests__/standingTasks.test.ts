@@ -91,6 +91,8 @@ describe("standingTasks mapping", () => {
     expect(t.webhookSecret).toBeNull();
     expect(t.templateKey).toBeNull();
     expect(t.templateConfig).toEqual({});
+    expect(t.workflowId).toBeNull();
+    expect(t.workflowName).toBeNull();
     expect(scheduleLabel(t)).toBe("每周一");
   });
 
@@ -252,6 +254,25 @@ describe("standingTasks API", () => {
     expect(t.folderId).toBe("fold-other");
     expect(apiPatch).toHaveBeenCalledWith("/v1/standing-tasks/st-1", {
       folder_id: "fold-other",
+    });
+  });
+
+  it("clears workflow binding via clear_workflow (not null workflow_id)", async () => {
+    apiPatch.mockResolvedValueOnce({ ...sampleTaskWire, workflow_id: null });
+    await patchStandingTask("st-1", { workflowId: null });
+    expect(apiPatch).toHaveBeenCalledWith("/v1/standing-tasks/st-1", {
+      clear_workflow: true,
+    });
+  });
+
+  it("binds workflow_id when set", async () => {
+    apiPatch.mockResolvedValueOnce({
+      ...sampleTaskWire,
+      workflow_id: "wf-1",
+    });
+    await patchStandingTask("st-1", { workflowId: "wf-1" });
+    expect(apiPatch).toHaveBeenCalledWith("/v1/standing-tasks/st-1", {
+      workflow_id: "wf-1",
     });
   });
 

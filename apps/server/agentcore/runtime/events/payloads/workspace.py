@@ -12,13 +12,18 @@ from agentcore.runtime.events.payloads._base import WirePayload, absent
 
 class WorkspaceOpRequiredPayload(WirePayload):
     """Transport-only client-tool request: apply a workspace file op on the bound
-    desktop and POST the result back. NOT journaled."""
+    desktop and POST the result back. NOT journaled.
+
+    ``timeout_ms`` (optional): liveness budget echoed from the server channel so the
+    desktop can AbortSignal the IPC op; derived from the outer tool deadline.
+    """
 
     request_id: str
     conversation_id: str
     root_id: str
     op: str
     args: dict[str, Any]
+    timeout_ms: int | None = absent()
 
 
 class BoardOp(WirePayload):

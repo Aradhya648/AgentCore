@@ -43,7 +43,7 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 |---|---|
 | **直答** | 单点确认、读已知少量文件、纯问答 / 闲聊、聊天里短文或短改写（未要求存文件）、开工前轻量探路；**本地纯启服 / 重启 / 看长驻是否活着**（`terminal`，勿为此派 `runtime_ready` 批） |
 | **委派** | ① 实质交付物（代码 / 应用 / 要求落盘的成篇文字，哪怕一行）；② 成规模广度调查（横扫多来源、可拆多角度、需对比 / 辩论）——哪怕只读、最终只回一段话。单 worker 能胜任 → `finalize=true`；形状拿不准 → `consult_skill(team_orchestration_advanced)` |
-| **团队形态** | 按活的自然缝拆、能少则少；可独立并行才多派；跨域合成流水线常见 1～2 人，勿默认每人一种专长。广度调查扇出并行调研，task 点明「回报精炼结论」。`result_handling` 只管上游→下游，**不**影响回到 CEO 的内容 |
+| **团队形态** | 按活的自然缝拆、能少则少；可独立并行才多派；跨域合成流水线常见 1～2 人，勿默认每人一种专长。广度调查扇出并行调研，task 点明「回报精炼结论」。**结局分层**：先定桌上结果再组队——一起弄懂/多路摸清（未明示成文）→ `parallel_brief`（方向笔记→CEO 对话综述）；明示报告/论文/落盘成文 → `research_report`（提纲→撰稿→审校）；公共事件多维研判 → `multi_lens_research`；点名开辩 → `debate`。「多角度 / 多 Agent」≠成文产线。`result_handling` 只管上游→下游，**不**影响回到 CEO 的内容。**立刻派 ≠ 立刻全量**：方向/方案选定后仍立刻派，默认 MVP 或设计/API 契约切片；强耦合 UI 默认 1 人两段或 wave1=`files_written`（→ 见代码: `runtime/resolve/prompt.py`） |
 | **认知分工** | 约束归 CEO、专业方案归专家；task 只写【目标·约束·验收】；`contract` 是验收契约非结构蓝图；审查类「重点关注」进 `seed_notes`(kind=heads_up)，勿写进 task 替 worker 作答 |
 
 短文分界：未要求存文件 → 回复直写；明确落盘 → 派 1 人。CEO 绝不为省委派把整份代码贴进正文。
@@ -76,9 +76,9 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 
 `binds+steers+add` 先全量校验，任一非法 → 整批拒绝、暂停计划零改动。否决把 `delegate` 重载成「续跑旧计划」入口；带现场续派另见 [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md)。
 
-协调模式（≥2 worker、根 CEO、非 finalize）：默认后台跑、CEO 继续 ReAct；`coordinate=false` / 单 worker / finalize / 含 `checkpoint_after` 仍阻塞。结构跟着证据走：调研成篇用 `depends_on` + `checkpoint_after` 把「定结构」摆到调研之后。委派后用团队产出写综述（提示强化，非硬禁只读）；根 CEO 探路成功的 list/read/grep 可摘要注入 worker 开局。worker 协作通道 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md)。协调 `wait` 在用户侧热审批/授权未决时禁止空等（勿假装推进）；用户显式停止 / regenerate / retry-failed 会 orphan 热交互并写入 journal（取活 turn 的 `message_id` 作 `turn_id`，非路径上的用户消息 id）。
+协调模式（≥2 worker、根 CEO、非 finalize）：默认后台跑、CEO 继续 ReAct；`coordinate=false` / 单 worker / finalize / 含 `checkpoint_after` 仍阻塞。结构跟着证据走：调研成篇用 `depends_on` + `checkpoint_after` 把「定结构」摆到调研之后。委派后用团队产出写综述（提示强化，非硬禁只读）；根 CEO 探路成功的 list/read/grep 可摘要注入 worker 开局。worker 协作通道 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md)。协调 `wait` 在用户侧热审批/授权未决时禁止空等（勿假装推进）；用户显式停止 / regenerate 会 orphan 热交互并写入 journal（取活 turn 的 `message_id` 作 `turn_id`，非路径上的用户消息 id）。
 
-收尾：先对账拼图边（4b：冲突 / 缺口 / 重复）→ 核验原始目标（4a：完工判定）→ 写概览；未达成就续派 / `replan`，别假装收工。`playbook`：建站/工具台/绿场软件(`build_app`)推荐具名形状（不再硬拒 `none`/手写）；其余自由组队（可选快捷形状）。**Agent/自动化**不靠场面账三档硬闸；缺形态信息时 `ask_user` 短问，由模型自洽选择交付路径 → [检查点与开工卡 · §一](/docs/03-AI核心/检查点与开工卡.md)。对抗性多视角另走 `debate` → [辩论编排设计](/docs/03-AI核心/辩论编排设计.md)。
+收尾：先对账拼图边（4b：冲突 / 缺口 / 重复）→ 核验原始目标（4a：完工判定）→ 写概览；未达成就续派 / `replan`，别假装收工。`playbook`：建站/工具台/绿场软件(`build_app`)推荐具名形状（不再硬拒 `none`/手写）；多角摸清默认 `parallel_brief`，成文专线 `research_report`，其余自由组队（可选快捷形状）。**Agent/自动化**不靠场面账三档硬闸；缺形态信息时 `ask_user` 短问，由模型自洽选择交付路径 → [检查点与开工卡 · §一](/docs/03-AI核心/检查点与开工卡.md)。对抗性多视角另走 `debate` → [辩论编排设计](/docs/03-AI核心/辩论编排设计.md)。
 
 提示词分层：常驻 = 路由脊柱 + 能力目录 + 短钩子；进阶 HOW 在系统 Skill，用时 `consult_skill`。同一条知识只在唯一所有者出现。全局工作纪律分层：共享基座 `<work_authority>`（权威序 / 冲突通道 escalate·ask_user / 决策权限，CEO+worker）；CEO core 仅权威线索与「未定案·窄」钩；进阶 HOW → `consult_skill(work_discipline)`（设计三问、补丁绊线等）。禁止为读规则再派 worker。
 
@@ -90,7 +90,8 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 | `result_handling` | 上游→下游注入保真：`pass_through`（默认偏全文）/ `summarize`；**不**作用于 CEO 综述 |
 | `complexity_hint` | `light`/`standard`：编排姿态（如 light 隐含 `coordination=none`），**不**映射 worker token/超时 |
 | `coordination` | 便签墙档；缺省 `none`；权威 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md) |
-| `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema`。`form=prose` = 纯文字、引擎不授写文件工具；`form=files` / 省略 = 可写盘。`form=prose` 不得同时声明 `requires_files` / 非空 `artifacts`（硬拒）。批次 `files_written` / `code_verified` / `graph_consistent` 须**至少一名**可写盘 worker（全员 prose 硬拒）；`repair_code` 形（修补 `files` + 诊断/验证 `prose`）合法。仅 `runtime_ready` 允许全员 prose |
+| `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema`。`form=prose` = 纯文字、引擎不授写文件工具；`form=files` / 省略 = 可写盘。`form=prose` 不得同时声明 `requires_files` / 非空 `artifacts`（硬拒）。批次 `files_written` / `code_verified` / `graph_consistent` 须**至少一名**可写盘 worker（全员 prose 硬拒）；`repair_code` 形（修补 `files` + 诊断/验证 `prose`）合法。仅 `runtime_ready` 允许全员 prose。**`form` 只表交付形态，不再代理探索期「别乱写工程」**。案卷中间笔记（`AgentCore/文档/{research,reviews,debate}/`）默认**不**计入 `form=files` 修码产品落盘（零写 / `files_written`），除非 `artifacts` 声明该路径 |
+| `write_scope` ✅ | worker 本批可写范围：`none` / `explore_memory`（仅 `AgentCore/` 约定记忆与探索笔记）/ `project`（用户工程树，默认满权限批次）。探索硬挡 pending 时上限 `explore_memory`；越权在**写工具层**拒，不在 `delegate` 入口因 `form=files` 拒整批。否决：explore 专用 playbook 分叉、pending 时静默把 files 改成 prose |
 | `completion_criteria` | 批次验收；省略不强制（含不自动 overlay 挡；落 TS 的 D2/图扫仅为 soft note）；文案推断已废除。`files_written` / `code_verified`（编译·测试·build，**默认走有界验证 `test_run`**）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；显式声明才 binding，落盘此类文件时自动扫仅为 soft note）互不混用；启动开发服务器用 `runtime_ready`；慢 build/tsc/`npm install` **硬拒**塞进 `code_execute`（改 `test_run`） |
 | `continue_from_run_id` | 带现场续派；权威 → [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md) |
 | worker 模型 | CEO **不**选 per-task 模型档；力度用协作结构表达；用户侧「模型组合」可选 Worker 槽 |
@@ -99,18 +100,21 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 
 ## 冷启动探索幕
 
-**触发（有项目 + 实质请求）**：
+**触发（有项目）** ✅ 软硬分层（取代「空画像即挡请求」）：
 
 | 类 | 条件 | 挡当前请求？ |
 |---|---|---|
-| 挡请求 | 项目 `画像.md` 空 **或** `_memory_meta.explore_workspace_key` 与当前绑定不一致 **或** 用户点名「先了解 / 重新了解 / 刷新项目记忆」 | 是 → 先探索再继续原请求 |
+| 软幕 | 项目 `画像.md` 空，且非下表硬挡 | **不挡**。注入软提示（可组队摸仓）；**不**置 explore-pending；域外主题 / 纯调研可直接 `parallel_brief` 等 |
+| 硬挡 | `_memory_meta.explore_workspace_key` 与当前绑定不一致（换绑）**或** 用户点名「先了解 / 重新了解 / 刷新项目记忆」**或** 请求带结构化工程信号（点名本仓改/建/继续开发等允许表短语，**不扫长文猜意图**）且画像仍空 | 是 → 先探索再继续原请求；pending 期间 `write_scope≤explore_memory` |
 | 指纹漂移 | 相对上次探索，**顶层树 + 关键清单指纹**已变 | **不挡**。一期✅：脏标记 + `<project_nav_stale>` 软提示可点名刷新；二期✅：`schedule_explore_refresh` 旁路静默更新（→ [记忆 · 探索触发](/docs/03-AI核心/Agent记忆与知识系统.md)） |
 
-**挡请求流程**：注入 `<cold_start_explore>`（空仓建档 / 绑定已变 / 点名刷新三套；指纹**不**进此块）→ 先轻量探路（≤5 **轮**；同轮并行多工具只计 1 轮）→ `delegate`（`team_preview`）组调研队（**≥2 角并行**，禁止 1 人包办整仓）→ 收尾经 `update_project_profile` 合并写项目 **画像 + 导航.md**，记录 `workspace_key` 与指纹；主题软顶 5 / 总数受 `memory_max_topic_files` → **立刻继续原请求**。探索 pending 期间仍禁 worker `form=files`；`文档/项目/` 不在本幕写。点名硬闸（与 pending 同级）✅。
+**硬挡流程**：注入 `<cold_start_explore>`（换绑 / 点名刷新 / 空画像+工程信号；指纹与「仅空画像」**不**进此块）→ 先轻量探路（≤5 **轮**；同轮并行多工具只计 1 轮）→ `delegate`（`team_preview`）组调研队（**≥2 角并行**，禁止 1 人包办整仓）→ 收尾经 `update_project_profile` 合并写项目 **画像 + 导航.md**，记录 `workspace_key` 与指纹；主题软顶 5 / 总数受 `memory_max_topic_files` → **立刻继续原请求**。pending 期间允许 `form=files`，但写盘不得出 `explore_memory` 根；`文档/项目/` 不在本幕写。点名硬闸（与 pending 同级）✅。
 
-**强制 / 豁免**：点名强制开幕（合并更新；硬闸 ✅）。旧画像无 key → 不因缺 key 硬开。裸聊 / 纯闲聊 / 空工作区不自动开幕、不写假画像/导航。对已有工程「继续开发 / 全面摸底」亦须 ≥2 角并行（提示词纪律；冷启动闸另硬拒单 worker）。探路硬闸**不扫用户原文猜意图**分叉：统一「到限后 delegate，或短答并自报归类（闲聊/单点事实/追问）」；闸后长文一律丢稿再催一次。成篇形状 / 修码选型 / 跑·修·打开验证终向 / 点名对比扇出靠提示词与结构验收，不靠意图分类器（`exec_verify` 用户意图硬闸、`named_entity_fanout` 用户扫硬拒已移除）。成篇审计硬门只认 `playbook=research_report` 与 deliverable 结构字段（如 `min_length≥3000`），不扫 task/角色自由文。
+**强制 / 豁免**：点名强制开幕（合并更新；硬闸 ✅）。旧画像无 key → 不因缺 key 硬开。裸聊 / 纯闲聊 / 空工作区不自动开幕、不写假画像/导航。对已有工程「继续开发 / 全面摸底」亦须 ≥2 角并行（提示词纪律；冷启动闸另硬拒单 worker）。探路硬闸**不扫用户原文猜意图**分叉：统一「到限后 delegate，或短答并自报归类（闲聊/单点事实/追问）」；闸后长文一律丢稿再催一次。成篇形状 / 修码选型 / 跑·修·打开验证终向 / 点名对比扇出靠提示词与结构验收，不靠意图分类器（`exec_verify` 用户意图硬闸、`named_entity_fanout` 用户扫硬拒已移除）。成篇审计硬门只认成文专线 `playbook=research_report` 与 deliverable 结构字段（如 `min_length≥3000`）；`parallel_brief` / 普通多角摸底不进硬门（软闸亦同）；不扫 task/角色自由文。审后默认向用户收口，同轮 `continue_from_run_id` 修订非默认路径。
 
 **边界**：不新建 Explore 原语；指纹 = 顶层树 + 关键清单（不以纯天数 / commit 为唯一闸）。产物只落 `AgentCore/`（记忆；厚案卷另见 `文档/项目/` 且不在探索 pending 批）。权威分层 → [记忆 · 探索触发](/docs/03-AI核心/Agent记忆与知识系统.md)。
+
+**否决（本定案）**：pending 时按 `form=files` 拒整批；为冷启动单开 prose 版调研 playbook；delegate 入口静默改写 playbook/tasks XOR。
 
 ## 失败与否决（一行）
 

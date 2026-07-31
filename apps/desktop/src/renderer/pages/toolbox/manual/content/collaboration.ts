@@ -234,7 +234,7 @@ export const collaborationChapter: ManualChapterContent = {
             },
             {
               title: "少打断（推荐）",
-              desc: "本会话信任改文件；自动执行；跳过组团卡；本机每次确认。",
+              desc: "本会话信任改文件；自动执行；组团卡按规则；本机每次确认。",
             },
             {
               title: "托管",
@@ -381,8 +381,8 @@ export const collaborationChapter: ManualChapterContent = {
               desc: "产物大致对、只改局部：唤回原队员带完整现场接着改（口语也叫「同人接续」），协作图上挂「续 ×N」，可打开版本对比。不是从零重来。",
             },
             {
-              title: "只补跑失败项",
-              desc: "部分队员失败时，可只重试失败项，已成功的继续保留。",
+              title: "续聊或再发",
+              desc: "部分队员失败时，失败会留在图上可见；对 CEO 续聊或再发一条，让团队接着补。",
             },
             {
               title: "重新生成",

@@ -734,6 +734,7 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
     params = t.schema.parameters
     props = params["properties"]
     assert set(props["playbook"]["enum"]) == {
+        "parallel_brief",
         "research_report",
         "build_feature",
         "repair_code",
@@ -742,7 +743,6 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
         "build_toolshed",
         "build_website_verify",
         "compare_options",
-        "organize_folder",
         "multi_lens_research",
     }
     assert "playbook_args" in props

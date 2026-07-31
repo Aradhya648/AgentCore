@@ -30,15 +30,16 @@ dependencies = [
     "tree-sitter-typescript>=0.23",
     "markitdown[docx,pdf,pptx]>=0.1.6",
     "python-docx>=1.2.0",
+    "fpdf2>=2.8.0",
 ]
 
 [project.optional-dependencies]
 # 内置 Python 打包（方案 B）sidecar 运行时子集。来源 = ``agentcore.sidecar.server`` 静态
-# import 闭包 + **与云对齐的 Office 文档能力**（附件 markitdown 预解析 + 确定性 md→docx）。
+# import 闭包 + **与云对齐的 Office 文档能力**（附件 markitdown 预解析 + 确定性 md→docx/pdf）。
 # 仍剔除：FastAPI/uvicorn、迁移、Redis、S3、JWT/密码学（jose/cryptography/pwdlib/passlib）
 # 等不在 sidecar 回合路径上的栈。``scripts/bundle-sidecar.mjs`` 以 ``--no-deps`` 装
-# agentcore 包本体 + 本组依赖。**改闭包时需同步本组并跑 bundle:sidecar 冒烟（含 docx）。**
-# 否决：为瘦身砍掉 Office 却仍跑同一 ``run_chat_pipeline``（缺 ``docx`` → PIPELINE_ERROR）。
+# agentcore 包本体 + 本组依赖。**改闭包时需同步本组并跑 bundle:sidecar 冒烟（含 docx/pdf）。**
+# 否决：为瘦身砍掉 Office 却仍跑同一 ``run_chat_pipeline``（缺 ``docx``/``fpdf2`` → PIPELINE_ERROR）。
 sidecar = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
@@ -50,6 +51,7 @@ sidecar = [
     "markdown-it-py>=3.0",
     "markitdown[docx,pdf,pptx]>=0.1.6",
     "python-docx>=1.2.0",
+    "fpdf2>=2.8.0",
 ]
 dev = [
     "pytest>=8.3",

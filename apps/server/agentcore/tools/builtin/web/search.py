@@ -3,6 +3,7 @@
 import json
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -51,13 +52,18 @@ _OUTPUT_LIMIT = 8000
 _VERBOSE_QUERY_WORD_THRESHOLD = 4
 
 # A3 query contract (检索与交付约束前置提案): mechanical limits at the tool boundary.
-# Tunable constants — calibrated near log P95; not silent-rewritten on overflow.
-# 拉丁词数上限 07-20 按 dev 日志重标定 6→8：7–8 词空结果率与 6 词持平且返回更多，清掉近半误拒。
-_QUERY_LATIN_WORD_LIMIT = 8
-_QUERY_CJK_CHAR_LIMIT = 32
-# 含 CJK 的混合查询用加权字数：拉丁单词每词折算成这么多「字」参与 32 字预算，避免逐
+# Tunable constants — calibrated near log P95. Overflow: mechanical normalize (quote
+# proper-name runs / drop trailing venue+year) then truncate to budget and search with
+# explicit note. Word/char overflow never hard-rejects; only absolute length does
+# (bomb guard). Never silently rewrite semantics / word order.
+# 拉丁词数上限 07-20 按 dev 日志重标定 6→8；08-01 再放宽 8→12 / CJK 32→48，超限改截断。
+_QUERY_LATIN_WORD_LIMIT = 12
+_QUERY_CJK_CHAR_LIMIT = 48
+# 含 CJK 的混合查询用加权字数：拉丁单词每词折算成这么多「字」参与 CJK 字预算，避免逐
 # 字符计数把 multi-agent 这类技术词过度惩罚（合理的中英混合技术查询不再被误拒）。
 _QUERY_LATIN_WORD_WEIGHT = 4
+# 整串绝对长度硬拒（防炸弹）；词数/字数超限走规范化+截断，不走此门。
+_QUERY_ABSOLUTE_CHAR_LIMIT = 500
 # Quoted phrases (error strings / citations / 书名号专名) are exempt from the
 # word/char budget. Regex lives in relevance.py so language-consistency uses the
 # same strip set (ASCII quotes + 《》/「」/『』/“”/‘’).
@@ -65,6 +71,61 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 # 加权计数用的「拉丁单词」：字母/数字的连续串（含内部连字符/撇号），如 multi-agent、
 # GPT-4、OpenAI；整体折 _QUERY_LATIN_WORD_WEIGHT 字。其余非空白字符（CJK 等）按字计。
 _LATIN_WORD_RE = re.compile(r"[0-9A-Za-z]+(?:[-'][0-9A-Za-z]+)*")
+# Title-case 专名启发式：首字母大写且含小写（Limaye / O'Brien）；全大写短词交给 venue 丢弃。
+_TITLE_CASE_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z]*(?:[-'][A-Za-z]+)*$")
+_YEAR_TOKEN_RE = re.compile(r"^(?:19|20)\d{2}$")
+# 常见 CS venue 缩写（casefold 匹配）；适度覆盖、不膨胀。
+_VENUE_TOKENS: frozenset[str] = frozenset(
+    {
+        "stoc",
+        "focs",
+        "soda",
+        "icalp",
+        "icml",
+        "neurips",
+        "nips",
+        "iclr",
+        "cvpr",
+        "eccv",
+        "iccv",
+        "acl",
+        "emnlp",
+        "naacl",
+        "aaai",
+        "ijcai",
+        "kdd",
+        "sigmod",
+        "vldb",
+        "osdi",
+        "sosp",
+        "nsdi",
+        "ccs",
+        "chi",
+        "www",
+        "sigcomm",
+        "siggraph",
+        "pldi",
+        "popl",
+        "asplos",
+        "eurosys",
+        "fast",
+        "usenix",
+        "ndss",
+        "sp",
+        "ieee",
+        "acm",
+    }
+)
+
+
+@dataclass(frozen=True)
+class PreparedSearchQuery:
+    """Outcome of A3 prepare: actual search query, optional adjustment note, or hard error."""
+
+    query: str
+    original_query: str
+    adjustment_note: str | None = None
+    error: str | None = None
 
 
 def _query_word_count(query: str) -> int:
@@ -90,47 +151,296 @@ def _weighted_char_cost(text: str) -> int:
     return len(latin_words) * _QUERY_LATIN_WORD_WEIGHT + non_latin_chars
 
 
-def _latin_shorten_example(unquoted: str) -> str:
-    """First ``_QUERY_LATIN_WORD_LIMIT`` whitespace tokens — concrete rewrite for the model."""
+def _is_title_case_proper(token: str) -> bool:
+    """Title-case 专名：首字母大写且含小写（Limaye / O'Brien）。全大写短词不当专名。"""
+    if not token or token.startswith('"'):
+        return False
+    if token.isupper() and len(token) <= 5:
+        return False
+    if not any(c.islower() for c in token):
+        return False
+    return bool(_TITLE_CASE_TOKEN_RE.match(token))
+
+
+def _is_low_info_token(token: str) -> bool:
+    """尾部可丢的低信息 token：venue 缩写或纯年份（已加引号的不算）。"""
+    if not token or token.startswith('"'):
+        return False
+    if _YEAR_TOKEN_RE.match(token):
+        return True
+    return token.casefold() in _VENUE_TOKENS
+
+
+def _tokenize_preserving_quotes(query: str) -> list[tuple[str, bool]]:
+    """Whitespace tokenize; ASCII ``"..."`` spans stay one quoted token."""
+    parts: list[tuple[str, bool]] = []
+    i = 0
+    s = query.strip()
+    n = len(s)
+    while i < n:
+        if s[i].isspace():
+            i += 1
+            continue
+        if s[i] == '"':
+            j = s.find('"', i + 1)
+            if j < 0:
+                parts.append((s[i:], False))
+                break
+            parts.append((s[i : j + 1], True))
+            i = j + 1
+            continue
+        j = i + 1
+        while j < n and not s[j].isspace() and s[j] != '"':
+            j += 1
+        parts.append((s[i:j], False))
+        i = j
+    return parts
+
+
+def _quote_proper_name_runs(query: str) -> tuple[str, bool]:
+    """Wrap consecutive unquoted Title-case runs (≥2) in ASCII double quotes.
+
+    Already-quoted spans are left untouched. Returns ``(new_query, changed)``.
+    """
+    tokens = _tokenize_preserving_quotes(query)
+    if not tokens:
+        return query, False
+    out: list[str] = []
+    i = 0
+    changed = False
+    while i < len(tokens):
+        text, quoted = tokens[i]
+        if quoted or not _is_title_case_proper(text):
+            out.append(text)
+            i += 1
+            continue
+        run = [text]
+        j = i + 1
+        while j < len(tokens):
+            nxt, nxt_q = tokens[j]
+            if nxt_q or not _is_title_case_proper(nxt):
+                break
+            run.append(nxt)
+            j += 1
+        if len(run) >= 2:
+            out.append('"' + " ".join(run) + '"')
+            changed = True
+        else:
+            out.append(run[0])
+        i = j
+    return " ".join(out), changed
+
+
+def _drop_trailing_low_info(query: str) -> tuple[str, bool]:
+    """Drop trailing venue abbreviations / years from the end of the query."""
+    tokens = _tokenize_preserving_quotes(query)
+    if not tokens:
+        return query, False
+    end = len(tokens)
+    while end > 0:
+        text, quoted = tokens[end - 1]
+        if quoted or not _is_low_info_token(text):
+            break
+        end -= 1
+    if end == len(tokens):
+        return query, False
+    if end == 0:
+        # Would empty the query — keep original (let hard-reject handle).
+        return query, False
+    return " ".join(t for t, _ in tokens[:end]), True
+
+
+def _passes_query_contract(query: str) -> bool:
+    """True when ``query`` is within A3 word/char budgets (no message, no rewrite)."""
+    unquoted = _unquoted_span(query).strip()
+    if not unquoted:
+        return True
+    if _CJK_RE.search(unquoted):
+        return _weighted_char_cost(unquoted) <= _QUERY_CJK_CHAR_LIMIT
+    return _query_word_count(unquoted) <= _QUERY_LATIN_WORD_LIMIT
+
+
+def _absolute_length_error(query: str) -> str | None:
+    """Hard-reject message when the raw query exceeds the bomb-guard length."""
+    if len(query) <= _QUERY_ABSOLUTE_CHAR_LIMIT:
+        return None
+    return (
+        f"查询极端过长：{len(query)} 字符，上限 {_QUERY_ABSOLUTE_CHAR_LIMIT}。"
+        "请大幅缩短后重试。"
+    )
+
+
+def _contract_error_for(query: str) -> str | None:
+    """Build the A3 contract error for ``query`` (no rewrite). None if ok.
+
+    Used by ``validate_search_query`` for diagnosis. Execute path uses
+    ``prepare_search_query`` (normalize + truncate); word/char overflow there is
+    not a hard reject.
+    """
+    abs_err = _absolute_length_error(query)
+    if abs_err is not None:
+        return abs_err
+    if _passes_query_contract(query):
+        return None
+    unquoted = _unquoted_span(query).strip()
+    tip = "每次只搜 2–3 个核心词；专名用引号/书名号可豁免上限。"
+    if _CJK_RE.search(unquoted):
+        weighted = _weighted_char_cost(unquoted)
+        over = weighted - _QUERY_CJK_CHAR_LIMIT
+        return (
+            f"查询过长：未加引号折合 {weighted} 字，上限 "
+            f"{_QUERY_CJK_CHAR_LIMIT}（超出 {over}；英文词每词折 "
+            f"{_QUERY_LATIN_WORD_WEIGHT} 字）。请删约 {over} 字或给长专名加引号后重试。"
+            f"{tip}"
+        )
+    word_count = _query_word_count(unquoted)
+    over = word_count - _QUERY_LATIN_WORD_LIMIT
+    example = _latin_reject_example(query)
+    return (
+        f"查询词过多：未加引号 {word_count} 词，上限 "
+        f"{_QUERY_LATIN_WORD_LIMIT}（超出 {over}）。"
+        f"请改为「{example}」后重试。{tip}"
+    )
+
+
+def _latin_reject_example(query: str) -> str:
+    """Smart reject tip: prefer quoting a Title-case run when present, else first N words."""
+    quoted, changed = _quote_proper_name_runs(query)
+    if changed and _passes_query_contract(quoted):
+        return quoted
+    if changed:
+        # Quoting alone not enough — still show quoted form as the tip base (trim unquoted).
+        unquoted = _unquoted_span(quoted).strip()
+        kept = " ".join(unquoted.split()[:_QUERY_LATIN_WORD_LIMIT])
+        # Rebuild: keep quoted spans from ``quoted``, append trimmed free words.
+        q_tokens = _tokenize_preserving_quotes(quoted)
+        quoted_parts = [t for t, q in q_tokens if q]
+        free = kept.split()
+        if quoted_parts and free:
+            return " ".join(quoted_parts + free)
+        if quoted_parts:
+            return " ".join(quoted_parts)
+        return kept
+    unquoted = _unquoted_span(query).strip()
     return " ".join(unquoted.split()[:_QUERY_LATIN_WORD_LIMIT])
 
 
 def validate_search_query(query: str) -> str | None:
-    """A3: deterministic query-contract check. Returns an error message, or None if ok.
+    """A3: pure contract check — returns error or None. Does **not** rewrite.
 
-    纯拉丁 (no CJK in the unquoted span): core-word count ≤ ``_QUERY_LATIN_WORD_LIMIT``.
-    CJK / 混合: 加权字数 ≤ ``_QUERY_CJK_CHAR_LIMIT`` — CJK 等非拉丁字符按字计，拉丁单词每词
-    折 ``_QUERY_LATIN_WORD_WEIGHT`` 字（见 ``_weighted_char_cost``），使合理的中英混合技术查询
-    不再被逐字符计数过度惩罚。Quoted phrases are exempt. Never rewrites the query — reject +
-    tip only (A3 铁律：只拒不改写，绝不静默改查询).
+    Used by unit tests and callers that only need pass/fail. Execute path uses
+    ``prepare_search_query`` (normalize → truncate → search with note).
     """
+    return _contract_error_for(query)
+
+
+def _adjustment_note(
+    original: str,
+    adjusted: str,
+    *,
+    quoted: bool,
+    dropped: bool,
+    truncated: bool = False,
+) -> str:
+    reasons: list[str] = []
+    if quoted:
+        reasons.append("专名已加引号")
+    if dropped:
+        reasons.append("已去掉尾部会议名/年份")
+    if truncated:
+        reasons.append("已截断至上限")
+    reason = "；".join(reasons) if reasons else "已规范化"
+    return (
+        f"【query_adjusted】原文「{original}」→ 实搜「{adjusted}」（{reason}）。"
+    )
+
+
+def _truncate_to_contract(query: str) -> str:
+    """Drop trailing tokens (Latin) or chars (CJK/mixed) until the contract passes.
+
+    Preserves leading content; never returns empty when the input had content.
+    """
+    if _passes_query_contract(query):
+        return query
     unquoted = _unquoted_span(query).strip()
-    if not unquoted:
-        # Entire query was quoted phrases — always allowed.
-        return None
-    # 短拒绝文案：明示超限量 + 可照抄示例/删字量 + 一句操作提示（拆分 / 引号豁免）。
-    tip = "每次只搜 2–3 个核心词；专名用引号/书名号可豁免上限。"
     if _CJK_RE.search(unquoted):
-        weighted = _weighted_char_cost(unquoted)
-        if weighted > _QUERY_CJK_CHAR_LIMIT:
-            over = weighted - _QUERY_CJK_CHAR_LIMIT
-            return (
-                f"查询过长：未加引号折合 {weighted} 字，上限 "
-                f"{_QUERY_CJK_CHAR_LIMIT}（超出 {over}；英文词每词折 "
-                f"{_QUERY_LATIN_WORD_WEIGHT} 字）。请删约 {over} 字或给长专名加引号后重试。"
-                f"{tip}"
-            )
-        return None
-    word_count = _query_word_count(unquoted)
-    if word_count > _QUERY_LATIN_WORD_LIMIT:
-        over = word_count - _QUERY_LATIN_WORD_LIMIT
-        example = _latin_shorten_example(unquoted)
-        return (
-            f"查询词过多：未加引号 {word_count} 词，上限 "
-            f"{_QUERY_LATIN_WORD_LIMIT}（超出 {over}）。"
-            f"请改为「{example}」后重试。{tip}"
+        # CJK / mixed: delete characters from the end.
+        working = query.rstrip()
+        while working and not _passes_query_contract(working):
+            working = working[:-1].rstrip()
+        return working if working else query[:1]
+    # Latin: delete whitespace-separated tokens from the end (quote-aware).
+    tokens = _tokenize_preserving_quotes(query)
+    while tokens and not _passes_query_contract(
+        " ".join(t for t, _ in tokens)
+    ):
+        tokens = tokens[:-1]
+    if not tokens:
+        # Degenerate: keep the first original token so we still search something.
+        first = _tokenize_preserving_quotes(query)
+        return first[0][0] if first else query
+    return " ".join(t for t, _ in tokens)
+
+
+def prepare_search_query(query: str) -> PreparedSearchQuery:
+    """Check → mechanical normalize → truncate → ok / absolute-length hard reject.
+
+    Normalization (deterministic, no LLM):
+    1. Quote consecutive Title-case proper-name runs (≥2).
+    2. Drop trailing venue abbreviations / years (preferred even when quoting alone suffices).
+    3. If still over (Latin or CJK): truncate from the end to the budget and search
+       with an explicit ``adjustment_note`` (含「已截断至上限」).
+    Only ``len(query) > _QUERY_ABSOLUTE_CHAR_LIMIT`` hard-rejects.
+    """
+    original = query
+    abs_err = _absolute_length_error(query)
+    if abs_err is not None:
+        return PreparedSearchQuery(query=original, original_query=original, error=abs_err)
+
+    if _passes_query_contract(query):
+        return PreparedSearchQuery(query=query, original_query=original)
+
+    quoted_q, did_quote = _quote_proper_name_runs(query)
+    working = quoted_q
+    did_drop = False
+    # Prefer also dropping trailing venue/year after quoting (cleaner SERP), even when
+    # quoting alone already brought the query under budget.
+    dropped_q, dropped_ok = _drop_trailing_low_info(working)
+    if dropped_ok:
+        working = dropped_q
+        did_drop = True
+
+    if (did_quote or did_drop) and _passes_query_contract(working):
+        note = _adjustment_note(original, working, quoted=did_quote, dropped=did_drop)
+        return PreparedSearchQuery(
+            query=working,
+            original_query=original,
+            adjustment_note=note,
         )
-    return None
+
+    # Still over (or normalize produced no usable change) → truncate to budget.
+    truncated = _truncate_to_contract(working)
+    if truncated and _passes_query_contract(truncated):
+        note = _adjustment_note(
+            original,
+            truncated,
+            quoted=did_quote,
+            dropped=did_drop,
+            truncated=True,
+        )
+        return PreparedSearchQuery(
+            query=truncated,
+            original_query=original,
+            adjustment_note=note,
+        )
+
+    # Truncate failed to produce a passing query (should be rare) — diagnose via validate copy.
+    err = _contract_error_for(original)
+    return PreparedSearchQuery(
+        query=original,
+        original_query=original,
+        error=err or "查询无法规范化",
+    )
 
 
 def _backend_label(backend: SearchBackend | None, *, cached: bool) -> str:
@@ -206,7 +516,7 @@ class WebSearchTool:
                 "返回多条按相关性排序的结果，每条含标题、链接与内容摘要——"
                 "默认摘要优先，多数问题用这些摘要即可作答并据此引用来源；"
                 "任务要求核对原文时再用 read_url 深读。"
-                f"查询契约（超限会拒绝并返回修正指引，不会自动改写）：纯拉丁语系≤"
+                f"查询契约（超限会自动规范化/截断并明示实搜词；仅极端过长拒绝）：纯拉丁语系≤"
                 f"{_QUERY_LATIN_WORD_LIMIT} 个词；含中文时按加权字数≤{_QUERY_CJK_CHAR_LIMIT}"
                 f"（中文按字计、英文单词每词折 {_QUERY_LATIN_WORD_WEIGHT} 字），"
                 "用书名号或引号包裹的短语豁免此上限。建议一次只搜 2–3 个核心词，"
@@ -218,7 +528,8 @@ class WebSearchTool:
                     "query": {
                         "type": "string",
                         "description": (
-                            "搜索查询词。请精简到核心词（超限会被拒绝）："
+                            "搜索查询词。请精简到核心词"
+                            "（超限会自动规范化/截断并明示实搜词；仅极端过长拒绝）："
                             f"纯拉丁语系≤{_QUERY_LATIN_WORD_LIMIT} 个词；"
                             f"含中文时按加权字数≤{_QUERY_CJK_CHAR_LIMIT}"
                             f"（中文按字计、英文单词每词折 {_QUERY_LATIN_WORD_WEIGHT} 字）；"
@@ -250,10 +561,16 @@ class WebSearchTool:
                 duration_ms=0,
             )
 
-        # A3: reject oversized queries at the tool boundary (no silent rewrite).
-        contract_err = validate_search_query(query)
-        if contract_err is not None:
-            logger.info("tool.web_search_query_rejected", query=query, reason="query_contract")
+        # A3: mechanical normalize on overflow (quote proper names / drop venue+year /
+        # truncate to budget), then search with explicit note; hard reject only when
+        # the raw query exceeds the absolute length bomb guard.
+        prep = prepare_search_query(query)
+        if prep.error is not None:
+            logger.info(
+                "tool.web_search_query_rejected",
+                query=query,
+                reason="query_contract",
+            )
             # 参数契约拒绝: zero-cost, self-correctable打回 (the error already carries the
             # 「拆分到 2–3 个核心词重试」tip). Flag it so a same-round fan-out of over-long
             # queries never trips the run-scoped tool-failure circuit breaker before the model
@@ -262,9 +579,20 @@ class WebSearchTool:
                 tool_call_id="",
                 success=False,
                 output="",
-                error=contract_err,
+                error=prep.error,
                 duration_ms=int((time.monotonic() - start) * 1000),
                 contract_failure=True,
+            )
+
+        query = prep.query
+        adjustment_note = prep.adjustment_note
+        original_query = prep.original_query if adjustment_note else None
+        if adjustment_note:
+            logger.info(
+                "tool.web_search_query_adjusted",
+                query=query,
+                original_query=prep.original_query,
+                adjusted_query=query,
             )
 
         try:
@@ -304,6 +632,8 @@ class WebSearchTool:
                     search_policy=context.search_policy or "",
                     backend=None,
                     context=context,
+                    original_query=original_query,
+                    adjustment_note=adjustment_note,
                 )
             # 负缓存（案例1 防重搜风暴）：同一查询刚返回空（常见于引擎 CAPTCHA 后 HTTP 200 +
             # 空结果），短时内直接回空、不再打网，避免降级 worker 对同一空查询反复重搜把共享
@@ -318,6 +648,8 @@ class WebSearchTool:
                     search_policy=context.search_policy or "",
                     backend=None,
                     context=context,
+                    original_query=original_query,
+                    adjustment_note=adjustment_note,
                 )
 
         # A6: wrap the existing on_phase channel to emit structured phase durations.
@@ -400,6 +732,8 @@ class WebSearchTool:
             search_policy=context.search_policy or "",
             backend=backend,
             context=context,
+            original_query=original_query,
+            adjustment_note=adjustment_note,
         )
 
     async def _maybe_retry_weak_serp(
@@ -500,6 +834,8 @@ class WebSearchTool:
         search_policy: str = "",
         backend: SearchBackend | None = None,
         context: ToolContext | None = None,
+        original_query: str | None = None,
+        adjustment_note: str | None = None,
     ) -> ToolResult:
         """Build the (identical-shape) success ToolResult for a live or cached hit.
 
@@ -521,7 +857,11 @@ class WebSearchTool:
         items = [{"title": r.title, "url": r.url, "snippet": r.snippet} for r in kept]
         hosts = [site_of(r.url) for r in kept if site_of(r.url)]
         payload: dict[str, Any] = {"query": query, "results": items}
+        if original_query:
+            payload["original_query"] = original_query
         notes: list[str] = []
+        if adjustment_note:
+            notes.append(adjustment_note)
         empty_streak = 0
         budget = getattr(context, "retrieval_budget", None) if context is not None else None
         is_empty_injection = bool(filtered.uniformly_weak) or not items

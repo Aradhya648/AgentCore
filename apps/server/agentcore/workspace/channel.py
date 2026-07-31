@@ -40,6 +40,7 @@ from agentcore.runtime.events.client_tool_reattach import (
 from agentcore.runtime.events.types import EventType
 from agentcore.runtime.interaction import InteractionKind
 from agentcore.runtime.ports import ClientRequestBridge
+from agentcore.runtime.tool_deadline import derive_channel_timeout
 from agentcore.workspace.protocol import (
     AlreadyExists,
     AmbiguousMatch,
@@ -168,13 +169,23 @@ class WorkspaceChannel:
         desktop's execution limit stays authoritative and a legal long run is not
         cut off by the flat file-op deadline (双模式工作区 P2d 执行门).
 
+        When called inside ``tool_exec``, the effective deadline is **derived from
+        the outer tool liveness budget** (minus settle slack) — never a second
+        independent 60s clock. ``timeout_ms`` is echoed on the SSE payload so the
+        desktop can AbortSignal the in-flight IPC op; late settle after discard
+        remains a stale 404 no-op.
+
         ``root_id`` overrides the channel's bound root for this one op (W3 session
         read-only mounts under ``external/<alias>/``); omit to use the workspace
         binding root. Does not change the conversation workspace binding contract.
         """
         op_name = str(op)
         request_id = new_id()
-        deadline = self.timeout_seconds if timeout is None else timeout
+        deadline = derive_channel_timeout(
+            explicit=timeout,
+            channel_default=self.timeout_seconds,
+        )
+        timeout_ms = max(1, int(deadline * 1000))
         rid = self.root_id if root_id is None else root_id
         try:
             result = await self.registry.suspend(
@@ -184,7 +195,12 @@ class WorkspaceChannel:
                 payload=client_tool_payload(
                     CHANNEL_WORKSPACE,
                     EventType.WORKSPACE_OP_REQUIRED.value,
-                    params={"root_id": rid, "op": op_name, "args": args},
+                    params={
+                        "root_id": rid,
+                        "op": op_name,
+                        "args": args,
+                        "timeout_ms": timeout_ms,
+                    },
                 ),
                 timeout=deadline,
                 on_suspended=lambda: self.sink.emit(
@@ -194,12 +210,15 @@ class WorkspaceChannel:
                         root_id=rid,
                         op=op_name,
                         args=args,
+                        timeout_ms=timeout_ms,
                     )
                 ),
             )
         except TimeoutError as e:
             logger.info("workspace.op_timeout", op=op_name, request_id=request_id)
-            raise WorkspaceIOError(f"local workspace op '{op_name}' timed out") from e
+            raise WorkspaceIOError(
+                f"local workspace op '{op_name}' timed out（活性挂起）"
+            ) from e
 
         if not isinstance(result, dict) or not result.get("ok"):
             error = result.get("error") if isinstance(result, dict) else None

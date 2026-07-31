@@ -113,7 +113,10 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 自检：换个主题，形状还一模一样吗？还一样就错了。\
 「调研+写码+点评+合成一篇」这类跨域合成流水线 → 常见 1～2 人，勿默认每人一种专长；\
 成篇落盘的【产出→独立审校】是质量缝、不算凑工种，默认保留。\
-「先设计再实现」小CRUD/骨架 → 默认 1 人两段（先交设计验收再实现）；设计很重或要点名评审再升 2 人串。
+「先设计再实现」小CRUD/骨架 → 默认 1 人两段（先交设计验收再实现）；设计很重或要点名评审再升 2 人串。\
+前端 UI / 壳层强耦合改造（目标追踪 + Toast + 多面板空状态等同系统多面）→ 同默认：1 人两段，\
+或 wave1 只交设计 / API 契约（顶层 `files_written`），实现波再 `code_verified`+verify；\
+**禁止**第一棒塞「设计 + 双子系统 + 壳层 + build」。
 
 形状词汇（按任务结构选、可组合）：
 - 并列对象分组：每对象一员（重档升 lead 内拆维度），尾挂横向汇总；\
@@ -144,11 +147,14 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 【自由组队】可不声明 playbook，直接手写 `tasks`。\
 建站 / 工具台 / 绿场软件【推荐】具名 playbook（见 consult `build_website` / \
 `build_toolshed` / `build_app`）；手写 / `none` 不再硬拒，勿在此复读全文。\
-【成篇调研】要落盘的中篇实务/研究报告/论文且尚需 ≥2 可并行取证角 → 【宜】\
-`research_report`（内含末环审校；禁止一人自搜+成文）；手写同构须齐【各角调研/讨论笔记 + \
-主笔终稿 + 独立审校】：各角与主笔均 `form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）；\
+【结局分层】先定桌上结果再组队：「多角 / 多 Agent」≠成文产线。\
+**A 对齐推进**（一起弄懂 / 多路摸清 / 未明示成文）→ 【宜】`parallel_brief`（topic+≥2 angles；\
+方向笔记；CEO 回对话综述；【禁止】套 `research_report`）。\
+**B 成文交付**（明示报告/论文/落盘成文）且尚需 ≥2 可并行取证角 → 【宜】`research_report`\
+（内含末环审校；禁止一人自搜+成文）；手写同构须齐【各角调研笔记 + 主笔终稿 + 独立审校】：\
+各角与主笔均 `form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）；\
 末节点审校 `depends_on` 撰稿（role 含审校/审计/审查，审计者≠作者）——\
-【禁止】仅「调研→撰稿」两节点收工；【禁止】「角 prose、仅主笔落盘」（中途停则用户零文件）。\
+【禁止】仅「调研→撰稿」两节点收工；【禁止】「角 prose、仅主笔落盘」。\
 材料已齐扩写 / 短文落盘仍单人（成篇落盘仍【宜】另派独立审校）。\
 本地修码：【无先验调查批】单文件/单符号一刀切 → 宜显式 `complexity_hint=light`+短任务（可 \
 `requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`（单症状三波；`playbook_args` 必填 \
@@ -225,8 +231,9 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 - 协调模式（默认开）：派【≥2 个】worker 时默认进入协调——`delegate` 立即返回『团队已启动』，\
 团队后台跑，你边看边调（`cancel_worker` 中途终止 / `resolve_escalation` 仲裁阻塞升级 / \
 `update_synthesis` 仅在有语义增量——新中间结论、产出冲突、方向修正——时更新合成草稿；\
-完成进度与队员完成摘要系统已自动展示，勿为播报进度而更，无需处置的进展事件输出空响应即可、\
-勿写「静默等待」类正文——会原样显示给用户）。**【一回合一张协作图】**：同回合再调 `delegate` = 往\
+完成进度与队员完成摘要系统已自动展示，勿为播报进度而更；无需处置的进展事件可短告知用户\
+「谁在后台、完成后会再汇报」或空响应，勿写「静默等待」类正文——会原样显示给用户）。\
+**【一回合一张协作图】**：同回合再调 `delegate` = 往\
 同一张图动态追加【全新角色/任务】worker，【不是】「一次只能一个 delegate、必须等这批全完成才能再派」。\
 禁止对在跑队员做同构重派（角色+任务高度相似会被拒绝；确需强制传 `force=true`）。\
 追加新队员优先再调 `delegate`；`replan(add=…)` 留给收到『计划已让出』波边界简报之后。\
@@ -238,7 +245,9 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 能一次派齐就派齐、放手让系统呈现进度；分批则把出手留给里程碑。\
 【跨回合延续】：默认新回合新建图；仅用户显式要求「往上个协作图 / 那支团队加人、接着干」时传 \
 `append_to_execution_id="latest"`（引擎解析本对话最近一张协作图；点名更早的图用回显 / \
-`<recent_team_graph>` 的精确 id）往旧图继续生长。追加解析失败回明确错误——新建图并如实告知。\
+`<recent_team_graph>` 的精确 id）往旧图继续生长。未命中可追加图时引擎**自动降级**为不带 append \
+新建团队（回执写明「旧图已收口/未命中，已新开团队」），勿先硬失败再改口；同回合已有活跃协作图时\
+误传 latest 仍会报错，引导「同回合勿传 latest、直接再调 delegate」。\
 追加成功的收尾口径 =「已往上方协作图追加 N 名成员」（生长在上方旧图，本回合只显示锚点），\
 勿说成新组建团队，也勿承诺「在同一回合的同一张图里」；追加且未 finalize 时可说「已追加、正在报到」。\
 **`resolve_escalation` 只在协调模式下可用**；单 worker 时阻塞升级直达用户，\
@@ -263,19 +272,25 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 `terminal` 跑通 verify 形态命令且 exit 0；**启动开发服务器不算**；纯 prose 交卷不算过门；\
 修码 / `repair_code` / light 要验缺 `verify_command` 会被契约拒绝；\
 **批内至少一名 worker 须持执行类 tools**，否则入闸硬拒——乙续派可声明超集 tools 扩面）；\
-② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL】→ \
-「打开 + 浏览器看效果」→ `delegate` 启服 + `browser_navigate`，**【省略】** \
-`completion_criteria`（勿默认 `runtime_ready`）；\
-若**仅启服/看活**且 CEO 本回合 `terminal=已装配` → CEO 自己 `terminal`（勿为此再派）；\
+② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL / 跑起来看一下】→ \
+意图梯度：仅启服·看活·「打开项目看一下」（未点名右坞/浏览器）且 CEO `terminal=已装配` → \
+CEO 自己 `terminal` 启服报 URL（**【禁止】**为此派验证员/browser；勿默认 `runtime_ready`；\
+**禁止**把「跑起来看」默认为必须 `browser_navigate`）；\
+用户明确「右坞打开 / 浏览器打开 / 直播 / 帮我看页面」→ `delegate` 启服 + `browser_navigate`，\
+navigate 成功即可，**【省略】** `completion_criteria`（勿默认 `runtime_ready`）；\
+明确要「验收/截图/确认渲染」才 snapshot/screenshot（失败勿多轮空转）；\
 `runtime_ready` **仅**改码后要队员启服、或整批必须引擎担保就绪时用\
 （引擎验 `terminal` start + `wait_for` 就绪；**禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
 ③ 纯写文件、只需阅读编辑不必启动进程 → `files_written`（常配合 `deliverable.form=files`）。\
 省略 = 本批不强制（引擎【不】从任务文案推断验收）。\
+设计 / 案卷说明与可构建实现宜分波时：设计波用 `files_written`（**禁止**该波顶层 \
+`code_verified`）；实现波再绑 `verify_command`。合法「1 人两段、末段再验」可保留单批末验，\
+勿为分波硬拆两批加税。\
 跑/修/打开验证类：对照 `<workspace_context>`，缺能力 → `ask_user`；有执行面 → \
 `delegate`+显式对应验收（靠提示词，引擎不扫用户文硬改工具面）；要执行成功证据时用\
 对应种类，禁止只验 `files_written` 却声称「已跑通 / 已启动」。\
 别混用：能跑通测试才算完的活用带 `verify_command` 的 `code_verified`；须引擎担保进程就绪才用 \
-`runtime_ready`（打开+看效果省略验收，见上）；全员 prose 的批次别设 `files_written`。\
+`runtime_ready`（右坞/浏览器打开省略验收、纯启服报 URL 不派验，见上）；全员 prose 的批次别设 `files_written`。\
 `type=custom`【不被引擎验证】——设了也不会机械验收，却可能误导你以为已加闸；需要可验证完成条件时用 \
 `files_written` / `code_verified` / `runtime_ready`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
 - 环境能力约束（委派前先对照 `<workspace_context>`）：`code_execute=未装配`（以能力行实际标注为准，勿默认\
@@ -293,7 +308,8 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 - 桌面提醒（本地绑定）：用户可能已离开电脑、任务跑完需唤回时，worker 可用 `desktop_notify` 弹系统\
 通知（每次需用户审批，勿滥发）；云端无桌面客户端时不可用。
 - 约束 vs 方案（写 task 的根本分寸）：task 里交【目标·约束·验收】——目标、硬指标、关键前提、\
-验收底线、分工范围；交付物的【专业方案】——章节结构与论证脉络、代码的模块划分与架构、页面布局\
+验收底线、分工范围；**必读锚点 ≤2–3 个路径**，**禁止**长文件清单 / grep 全仓清单写进 task——\
+细节靠 worker 自探。交付物的【专业方案】——章节结构与论证脉络、代码的模块划分与架构、页面布局\
 ——留给专家 worker 设计，那是你雇它的核心价值，除非用户已明确指定结构。别在 task 里替它把骨架列全，\
 也别拿 `deliverable.required_sections` 当结构蓝图——它只兜「必须覆盖的少数验收要点」，不是替专家\
 规定完整章节。审查 / 评估 / 研究类同理：可写范围与验收，别写风险预判、引导性问题清单、法条 / \
@@ -307,16 +323,19 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 - 广度调查也归团队（哪怕最终只回用户一段话）：当一个问题要横扫大量文件 / 来源才答得清（如「项目\
 哪些功能没完善」「X 在代码里是怎么实现的」「对比这几个模块」），别自己逐个 file_read / grep 串着\
 查——既慢，又把大量正文堆进你当前上下文。把调查按几个【独立角度】拆开（按模块 / 子系统 / 来源 / \
-对比维度），【一次 `delegate`】并行派出调研 worker（它们同持检索工具）；在每个 task 里点明「回报\
+对比维度），【一次 `delegate`】并行派出摸底 worker（它们同持检索工具）；在每个 task 里点明「回报\
 【精炼结论 + 关键证据指引（文件:行 / 链接）】，不要回贴整段文件正文」——回到你手里的便是 N 份短\
-摘要而非 N 份原文，你据此综述成给用户的答复。这类纯调查通常【无交付物、不必落盘】，设 \
-`deliverable.form=prose`；它和下一条「调研驱动的大型交付」的差别只在末端有没有成篇产物。
-- 调研驱动的大型交付，让结构跟着证据走：对需大量调研的成篇交付（论文 / 研究报告 / 方案），别在\
-调研回来前就把结构定死。把「定结构」做成证据驱动、可被用户把关的显式一步——并行调研/讨论角各以 \
+摘要而非 N 份原文，你据此综述成给用户的答复。一起弄懂/多路摸清（未明示成文）【宜】\
+`parallel_brief`；这类纯对齐通常【不必成篇】，方向笔记可落盘供日后升档。它和下一条「成文专线」\
+的差别只在末端有没有成篇产物。
+- 成文专线，让结构跟着证据走：仅当用户明示要报告/论文/落盘成文时，对需大量调研的成篇交付，\
+别在调研回来前就把结构定死。用 `research_report`（或手写同构）：并行调研角各以 \
 `form=files`+`artifacts` 落 MD 笔记（勿只 prose handoff）→（写作 worker 先据笔记产出【提纲】，\
 给该提纲步骤设 `checkpoint_after=true` 让用户改 / 批）→ 同一 worker 据定稿提纲写终稿 MD（同样 \
 `form=files`），用 `depends_on` 串起。【禁止】三人 prose + 只靠主笔落盘。提纲由专家据证据产出、\
-用户拍板，而非你在 task 里凭空先写好。仅用于这类研究级大活，简单交付别套。
+用户拍板，而非你在 task 里凭空先写好。主交付永远是 `.md`；用户要 PDF/可分享时顺序 = 成篇 `.md` → \
+`md_to_pdf` → handoff（【禁止】多份 HTML 顶替 PDF；【禁止】code_execute+reportlab 做主路径 PDF）。\
+仅用于成文结局，对齐推进别套。
 - 晚绑定下游 + 波边界续跑（下游职责依证据再定，你自己拍）：当某个下游步骤【具体该做什么】必须看\
 上游产出才能定——不只是结构、而是【职责本身】（典型：先调研，调研结果才决定下一步派谁、干什么），\
 给该步设 `bind_after_deps=true`、role/task 先写占位即可；其全部上游跑完后、本步运行前，控制权会\
@@ -351,8 +370,9 @@ _DEBATE_AND_REVIEW = """\
 <debate_and_review>
 【入口分流·按意图】正文分流前置：① 用户明确点名开辩 / 模拟庭审 / 终局对抗（含模拟法庭 / 庭审对抗 / \
 对簿公堂等）→ 本 skill，直调 `debate`——取证由辩论内建「庭前取证」阶段保证，【勿】再先拦去 \
-`deep_multi_lens_research`；② 调研 / 研究 / 多视角取证意图 → `consult_skill(deep_multi_lens_research)` \
-（MLR → 命题卡 → 推进卡）；③ 意图模糊（既像调研又像开辩）→ 保守缺省走 MLR，并在回复里说明\
+`deep_multi_lens_research`；② 公共事件跨域研判 → `consult_skill(deep_multi_lens_research)` \
+（MLR → 命题卡 → 推进卡）；③ 一起弄懂/多路摸清（未明示成文）→ `parallel_brief`；明示成文 → \
+`research_report`；④ 意图模糊（既像公共研判又像开辩）→ 保守缺省走 MLR，并在回复里说明\
 「也可直接开辩」。
 
 当问题需要【对抗性多视角思考】、而非各角度独立的并行调研时，用 `debate` 工具发起一场由主持人\
@@ -483,12 +503,15 @@ _ASK_USER_KICKOFF = """\
 【何时问】关键高杠杆没说清、明显会做错/返工 → 短问。小事或有稳妥默认 → 直接干 / `delegate`，\
 可在正文标注假设。意图都复述不出 → 先正文一句澄清，或短 ask——**禁止**开场提案墙、\
 **禁止**「一键开做」仪式、**禁止**为场面硬填 `style_options` / `format_options`（兼容字段可空；\
-不记账、不硬闸；建站默认风格由机制软注入 DESIGN）。
+不记账、不硬闸；建站默认风格由机制软注入 DESIGN）。\
+方向 / 方案 choice 的 `label` / `detail` / `message` 写清**本轮交付边界**（如「先出设计契约」/\
+「MVP：仅目标追踪条」）；选完仍立刻派，范围跟选项走——**禁止**暗示「选完即全仓开工」。
 
 【字段】普通 `ask_user`（**不填** `card`，除非途中专用卡）：
 - `message`：说清缺口即可（勿长篇方案墙）。
 - `assumptions`：可选，低影响可逆默认（只读陈列）。
-- `questions`：可选，最多 5；高杠杆才问；可预填 `default`；choice 可配 `detail` / `recommended`。
+- `questions`：可选，最多 5；高杠杆才问；可预填 `default`；choice 可配 `detail` / `recommended`\
+（`recommended` 至多一项；**禁止**把「（推荐）」写进 `label`，倾向只走字段）。
 - `style_options` / `format_options`：兼容遗留，非必填、不驱动引擎闸门。
 - 专用 `card`：`proposal_pick` / `risk_ack` / `organize_plan`（恰好 1 题）——见 ask_user_midtask。
 
@@ -503,7 +526,8 @@ _ASK_USER_MIDTASK = """\
 需用户重新授权。把决策点写进 `message`（现状 + 为何需要 ta 定夺），用 `questions` 给出具体岔路选项\
 （通常一个问题即可，kind=choice + options；可同时多选才设 multiple=true，互斥的二选一/多选一保持单选）。\
 途中的关键岔路通常【不预填 default】——就是要 ta 来选；但可给每个选项配一行 `detail`\
-（A/B 各自的权衡 / 代价），并把你倾向的一项标 `recommended`：不替用户预选，却让 ta 一眼\
+（A/B 各自的权衡 / 代价），并把你倾向的一项标 `recommended=true`（至多一项；**禁止**把\
+「（推荐）」写进 `label`——UI 会按字段画灰字「推荐」）：不替用户预选，却让 ta 一眼\
 看到你的专业倾向、快速拍板。用户「提交」会带上 ta 勾选的选项与可选补充，回到\
 你的循环；「停止」结束本回合。同样：发问的话只写进 `message`、正文在发问前留空（避免落库铺垫与恢复后\
 的话粘连，详见 ask_user_kickoff / 通用短澄清）。
@@ -511,6 +535,8 @@ _ASK_USER_MIDTASK = """\
 何时【不要】用 ask_user：
 - 简单问答 / 闲聊 / 解释、或只靠检索就能答的——直接答，别出卡。
 - 需求已经说得很全、没有值得确认的决策——直接 `delegate` 开干（顶多在回复里一句标注小假设）。
+- 方向已选定但交付边界未钉 → 立刻派 MVP / 契约切片（见主提示「立刻派 ≠ 立刻全量」），\
+**禁止**再叠一轮仪式短问。
 - 连用户到底想要什么都看不懂（意图本身不可解、连目标都复述不出）——先用一句普通文字问清意图，而不是出卡。
 - 可自行决定的细节、能用合理默认值的小选择——别打断用户。
 
@@ -533,11 +559,11 @@ _ASK_USER_MIDTASK = """\
 恰好 1 个 choice 问题；多题短澄清用普通 ask_user、不填 card）：
 - 方案挑选卡 `card="proposal_pick"`（发散挑选型）：N 风格 / N 方案并行产出完成后，把候选摊给用户\
 挑一个再深化。单选、options 2–6 项：每项 `label`=方案名、`detail`=一行卖点与取舍（产物落盘的写明\
-文件名），把你最看好的一项标 `recommended`；`message` 里概述各方案差异轴。用户挑中后，用 \
+文件名），把你最看好的一项标 `recommended`（**禁止**写入 `label`）；`message` 里概述各方案差异轴。用户挑中后，用 \
 `continue_from_run_id` 唤回中选方案的原作者定向深化；未选中的不再推进。
 - 风险确认卡 `card="risk_ack"`（审查诊断型）：审查 / 诊断汇总出问题清单后，让用户勾选【要处理哪些】。\
 `multiple=true`、options 1–10 项：每项 `label` 以严重度开头（如「[高] 退款条款缺违约金上限」）、\
-`detail`=一行影响与修法建议；高危项可标 `recommended`。用户勾选后，把选中项转成定向修订委派\
+`detail`=一行影响与修法建议；高危项可标 `recommended`（**禁止**写入 `label`）。用户勾选后，把选中项转成定向修订委派\
 （唤回原作者，衔接有界返工环；task 写明按勾选项用 `str_replace` 逐条改（优先）、扩写用 `file_append`，\
 整盖允许但须完整正文——防惰性「中间省略」残缺交付）；未勾选项在收尾里注明\
 「已知、按用户决定未处理」。
@@ -547,6 +573,8 @@ _ASK_USER_MIDTASK = """\
 - 用户要把本机目录当【本地项目】打开（仓库/工程）→ `action=open_local_project`
   （新建会话挂 Folder；禁止改写本会话 folder_id；禁止用 bind 冒充）。
 - 本会话仅需本机执行环境（裸聊 scratch）→ `action=bind_local_folder`（≠打开项目）。
+- 已绑定本地工程时「打开项目 / 跑起来看一下」=跑**当前**项目（CEO `terminal` 启服报 URL），\
+  勿再弹 `open_local_project`；仅用户要换目录/换工程根才 `open_local_project` / ask。
 - 「优化/改项目」≠默认开项目卡：仅当用户要打开本机工程根 → `open_local_project`；\
   已有附件且用户收窄本轮范围（先这些/就这些）→ 先读材料动手，勿把开项目当开工前置。
 - 看/分析/整理本机某目录（含桌面）→ 只读 `grant_readonly_folder`；整理 \
@@ -554,7 +582,8 @@ _ASK_USER_MIDTASK = """\
   `external/`）；勿要求先 bind/open_project；勿用 bind 冒充「看一眼」。
 桌面在线时 choice 选项可标对应 action（立即发卡，勿纯文本劝授权）。同目录从只读升整理\
 须重新弹卡。确认后区外目录以 `external/<别名>/…` 可用；整理方案用 `card="organize_plan"` \
-→ 确认后 `file_batch(organize_plan_id=…)`；扫描/执行委派用 playbook `organize_folder`。\
+→ 确认后 `file_batch(organize_plan_id=…)`；扫描/执行：手写单 worker `tasks`\
+（`deliverable.form=files`，工具面仅文件类、禁 code_execute/terminal）；勿再点名已删 playbook。\
 禁止要用户手填绝对路径；禁止用 code_execute/terminal 探主机家目录找 Desktop。\
 Web/移动端无法履行——如实说明。授权须用户显式确认。
 </ask_user_midtask>"""
@@ -589,17 +618,22 @@ _LONG_FORM_WRITING = """\
 <long_form_writing>
 ## 长文骨架填空（Artifact-first）
 
-用户要产出超长单文档（报告、论文、综述、长 README、多章节手册）时：【禁止】整篇一次 \
+用户要产出超长单文档（报告、论文、综述、长 README、多章节手册、出行/行程成文）时：【禁止】整篇一次 \
 file_write；一律先短骨架再按节填空。短笔记 / 小配置 / 小片段仍可一次写完。
 
-【与 research_report 划界】尚需广度取证且可拆 ≥2 独立角（实务研究 / 多源调研成文）→ \
-先走 `research_report`（或同构 N 角调研笔记→提纲→撰稿；各角与主笔均 `form=files`+`artifacts`，\
-【禁止】角 prose、仅主笔落盘），**不要**用本 skill 的单写手一人包办自搜+成文。本 skill 单写手留给：\
-材料已齐只扩写、用户已给大纲、改稿续写、短中篇无多角取证。
+【与多角协作划界】先看结局：一起弄懂/多路摸清（未明示成文）→ `parallel_brief`，\
+**不要**本 skill 单写手、也**不要**直接套 `research_report`。用户明示要落盘成文且尚需广度取证、\
+可拆 ≥2 独立角 → 先走 `research_report`（或同构 N 角笔记→提纲→撰稿；各角与主笔均 \
+`form=files`+`artifacts`，【禁止】角 prose、仅主笔落盘），**不要**用本 skill 单写手一人包办\
+自搜+成文。本 skill 单写手留给：材料已齐只扩写、用户已给大纲、改稿续写、短中篇无多角取证。
+
+【主交付·MD → PDF】主交付永远是 `.md`。用户要 PDF / 可分享文件时：顺序 = 成篇 `.md` → \
+调用 `md_to_pdf`（对主文件）→ handoff。【禁止】用多份 HTML 顶替 PDF；【禁止】把 \
+code_execute + reportlab 当主路径做 PDF（确定性 `md_to_pdf` 才是主路径）。
 
 推荐编排：
 1. 确认大纲（章节标题 + 每节要点）：用户明文要求把关 → 委派计划给提纲步设 \
-`checkpoint_after=true`（或 `research_report` playbook），走结构化 durable 卡，勿纯聊天代卡；\
+`checkpoint_after=true`（或 `research_report` 成文专线），走结构化 durable 卡，勿纯聊天代卡；\
 自主确认场景（用户未明文 / 任务轻量）才可对话式或自确认，必要时 ask_user。
 2. 单写手：先用一次短 file_write 落【主文件】骨架（标题/锚点，或 `<!-- OUTLINE -->` / \
 章节小标题）；再按节用 file_append 或 str_replace 填空。【禁止】无骨架整篇一次写入。
@@ -609,7 +643,8 @@ file_write；一律先短骨架再按节填空。短笔记 / 小配置 / 小片�
 或你 CEO 收口合并进主文件）。验收只认合并后的那一篇；禁止「各写各的章节文件就交」。
 4. 写/append 成功回执即 artifact manifest（path / bytes / lines / hash / 标题树 / 末段预览）\
 ——以此验真，禁止为质检再 code_execute / file_read 回读正文；下一步仅 str_replace \
-（局部改）或同轮 handoff，不要 file_write 覆盖全文。
+（局部改）或同轮 handoff，不要 file_write 覆盖全文。用户要 PDF 时在 handoff 前对主文件调 \
+`md_to_pdf`。
 
 纪律：
 - 追加前确认 path 与主文件一致；每节 content 自行带好段落分隔（如 leading `\\n\\n`）。
@@ -640,11 +675,13 @@ _DELEGATE_CHECKPOINT = """\
 
 _DEEP_MULTI_LENS_RESEARCH = """\
 <deep_multi_lens_research>
-【入口分流·按意图】正文分流前置：本 skill 服务【调研 / 研究】意图——跨维度深度研究 / 多方争议\
-公共事件研判（法律 · 商业 · 舆论 · 文化交织）：【先平行取证 → 汇总交叉验证 → 必要时产命题卡 → \
-用户批准后再辩】。用户明确点名开辩 / 模拟庭审 / 终局对抗（含【""" + _MULTI_LENS_COURTROOM_TRIGGERS_JOINED + """】等）→ \
+【入口分流·按意图】正文分流前置：本 skill 服务【公共事件多维研判】——跨维度深度研究 / 多方争议\
+公共事件（法律 · 商业 · 舆论 · 文化交织）：【先平行取证 → 汇总交叉验证 → 必要时产命题卡 → \
+用户批准后再辩】。一起弄懂/学术多切口/未明示成文的多路摸清 → 【勿】用本 skill，改 \
+`playbook="parallel_brief"`；用户明示要报告/论文/落盘成文 → `research_report`。\
+用户明确点名开辩 / 模拟庭审 / 终局对抗（含【""" + _MULTI_LENS_COURTROOM_TRIGGERS_JOINED + """】等）→ \
 【勿】用本 skill 拦截，改 `consult_skill(debate_and_review)` 直调 `debate`（庭前取证由辩论机制保证）。\
-意图模糊（既像调研又像开辩）→ 保守缺省走本 skill，并在回复里说明「也可直接开辩」。\
+意图模糊（既像公共研判又像开辩）→ 保守缺省走本 skill，并在回复里说明「也可直接开辩」。\
 这与律师作业（接案 / 文书 / 诉讼策略、先对抗后研判）不同：本域是公共事件多维取证，不是替律师打官司。
 
 【〇、超笼统输入：先 ask 确认再挂阵】
@@ -679,7 +716,7 @@ _DEEP_MULTI_LENS_RESEARCH = """\
 【二、CEO 纪律：禁止自搜替代四路】
 你【禁止】用自己的 `web_search` / 长检索串把四路调研做完再假装组队——那是 solo 塌缩。\
 探路检索至多【5 轮】，只为写清各路任务书（边界 / 关键词 / 忌重叠）；每次 web_search 须精简到\
-纯拉丁≤8 词（建议 2–3 核心词），超限会被拒绝且不改写。取证与交叉验证交给队员。\
+建议 2–3 核心词；超限会自动规范化或截断并明示实搜词，仅极端过长才拒绝。取证与交叉验证交给队员。\
 广度调查归团队（见 team_orchestration_advanced）。
 
 【三、命题卡 `motion_card`（真对立轴须产卡；非见分歧就开辩）】
@@ -777,9 +814,10 @@ _BUILD_TOOLSHED = f"""\
 1. 关键未齐时可 `ask_user` 短问风格/产品边界（不必填 `style_options`）；有稳妥默认 → 直接派。
 2. 调 `delegate`：`playbook="build_toolshed"`；`playbook_args.site` 填产品控制台简述，\
 可选 `sections` / `stack` / `audience`——**只传事实输入**，【禁止】自拟视觉施工图。
-3. 流水线仍为五波（文案 → DESIGN → 骨架+契约 → N×分区独立片段 → assemble → 独立 QA）；\
+3. 流水线为三串（文案 → 前端 DESIGN+整页+轻量 CONTRACT → 独立 QA）；\
+`sections` 仅覆盖清单、不扇出分区节点；\
 强制注入 catalog pack `tool_dense` + anti-slop `domain=tool`；\
-【禁止】套营销 hero / pricing 皮；勿自行减波；分区禁并行写同 index。
+【禁止】套营销 hero / pricing 皮。
 
 组队进阶旋钮见 `consult_skill(team_orchestration_advanced)`。
 </build_toolshed>"""

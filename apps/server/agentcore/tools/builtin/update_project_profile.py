@@ -195,8 +195,9 @@ class UpdateProjectProfileTool:
             )
 
         # Profile landed → clear explore-pending so same-turn delivery delegates
-        # regain structured form=files → files_written inference.
+        # regain structured form=files → files_written inference + full write_scope.
         context.cold_start_explore_pending = False
+        context.write_scope = "project"
 
         nav_path: str | None = None
         navigation = str(arguments.get("navigation") or "").strip()

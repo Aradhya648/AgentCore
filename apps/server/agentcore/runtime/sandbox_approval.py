@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class ExecutionApprovalPosture(StrEnum):
-    """Whether execution-class tools (``code_execute`` / ``test_run``) need approval."""
+    """Whether execution-class tools need approval (sandbox → posture table)."""
 
     REQUIRES_AUTH = "requires_auth"  # local subprocess — user must authorize
     AUTO_PASS = "auto_pass"  # cloud gVisor true isolation — auto-approve
@@ -80,13 +80,27 @@ def execution_tool_auto_passes(
     *,
     permission_axes: PermissionAxes | None = None,
 ) -> bool:
-    """True when an execution-class tool should skip the approval prompt.
+    """True when the tool should skip the approval prompt via sandbox / command=auto.
 
-    Cloud gVisor → auto-pass (sandbox isolation). ``command=auto`` → auto-pass even
-    on local/sidecar — AI runs with user-equivalent power for exec tools.
+    Covers the whole ``execution_class`` roster (``code_execute`` / ``test_run`` /
+    ``terminal`` / ``browser_*``) plus low-risk ``desktop_notify`` under
+    ``command=auto``. Host / MCP never enter here.
+
+    Cloud gVisor → auto-pass execution_class (sandbox isolation).
+    ``command=auto`` → auto-pass execution_class + ``desktop_notify`` even on local.
+    FORCE / circuit-breaker still bypass this in ``tool_exec`` (``force_breaker``).
     """
-    if tool_name not in ("code_execute", "test_run"):
+    from agentcore.tools.builtin.desktop_notify import DESKTOP_NOTIFY_TOOL_NAME
+    from agentcore.tools.registration import execution_class_tool_names
+
+    name = (tool_name or "").strip()
+    is_execution = name in execution_class_tool_names()
+    is_desktop_notify = name == DESKTOP_NOTIFY_TOOL_NAME
+    if not is_execution and not is_desktop_notify:
         return False
     if permission_axes is not None and permission_axes.auto_executes:
         return True
-    return execution_approval_posture(backend) is ExecutionApprovalPosture.AUTO_PASS
+    # gVisor AUTO_PASS is execution_class only (desktop_notify is a local client tool).
+    if is_execution:
+        return execution_approval_posture(backend) is ExecutionApprovalPosture.AUTO_PASS
+    return False

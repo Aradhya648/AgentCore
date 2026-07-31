@@ -180,6 +180,7 @@ async def assemble_ceo_turn(
     ceo_tool_names = {schema.name for schema in chat_tools.list_all()}
     explore_reason: str | None = None
     project_nav_stale = False
+    project_profile_empty_soft = False
     if memory_enabled and folder_id:
         from agentcore.memory.explore_profile import (
             compute_workspace_explore_fingerprint,
@@ -187,6 +188,7 @@ async def assemble_ceo_turn(
             project_profile_explore_reason,
             resolve_folder_workspace_key,
             user_named_explore_refresh,
+            user_named_project_work,
         )
 
         mem_store = run_mod.default_memory_store()
@@ -200,6 +202,10 @@ async def assemble_ceo_turn(
         # Named refresh hard gate (点名硬闸): allow-list phrases only; same pending as empty/rebind.
         if not explore_reason and user_named_explore_refresh(user_message):
             explore_reason = "refresh"
+        # Empty profile: soft hint only unless user named project work (硬挡允许表).
+        if explore_reason == "empty" and not user_named_project_work(user_message):
+            explore_reason = None
+            project_profile_empty_soft = True
         # R2 soft hint + R1 background refresh: fingerprint drift never blocks.
         if not explore_reason:
             live_fp = await compute_workspace_explore_fingerprint(backend)
@@ -225,10 +231,12 @@ async def assemble_ceo_turn(
                     live_fingerprint=live_fp,
                 )
     # Sink explore-pending into ToolContext so delegate can suppress structured
-    # files_written inference / hard-reject form=files（prompt 块 delegate 读不到）。
+    # files_written inference / require ≥2 explore workers（prompt 块 delegate 读不到）。
+    # Worker write_scope=explore_memory：写工具层拦出 AgentCore/ 与 文档/项目/。
     # Cleared in-place by update_project_profile on successful write.
     if explore_reason:
         prepared.base_tool_context.cold_start_explore_pending = True
+        prepared.base_tool_context.write_scope = "explore_memory"
     chat_system_prompt = compose_ceo_chat_prompt(
         prepared.system_prompt,
         skill_registry=prepared.skill_registry,
@@ -236,6 +244,7 @@ async def assemble_ceo_turn(
         memory_topics=prepared.memory_topics,
         cold_start_explore=explore_reason or False,
         project_nav_stale=project_nav_stale,
+        project_profile_empty_soft=project_profile_empty_soft,
     )
     # Real-time workspace overview (工作区上下文): a compact, newest-first listing of
     # the files already on disk in this conversation's workspace, so the CEO can

@@ -160,6 +160,17 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
     "auth.mfa_recovery_used": {"user_id": "str"},
     "llm_provider.key_updated": {"user_id": "str", "provider_id": "str"},
     "llm_provider.deleted": {"user_id": "str", "provider_id": "str"},
+    "sidecar.turn_cancel_requested": {
+        "turn_id": "str",
+        "reason": "str",
+        "coordination_cascaded": "bool",
+        "task_cancelled": "bool",
+    },
+    "sidecar.turn_cancelled": {
+        "turn_id": "str",
+        "reason": "str",
+        "salvaged": "bool",
+    },
 }
 
 KEY_DESC: dict[str, str] = {
@@ -188,6 +199,12 @@ KEY_DESC: dict[str, str] = {
     "auth.mfa_recovery_used": "敏感操作审计：Admin MFA 恢复码成功消费",
     "llm_provider.key_updated": "敏感操作审计：BYOK API Key 轮换保存（无明文）",
     "llm_provider.deleted": "敏感操作审计：BYOK 服务商（含密钥）删除",
+    "sidecar.turn_cancel_requested": (
+        "桌面 cancel RPC 到达 sidecar（solo blocking 无 coordination.user_stop_* 时的指纹）"
+    ),
+    "sidecar.turn_cancelled": (
+        "本地回合 CancelledError salvage；reason=cancelled_without_rpc 表示非 RPC cancel"
+    ),
     "billing.background_platform_auth_fallback": (
         "后台 chrome 平台 key 被上游 auth 拒绝后一次回落用户 BYOK"
     ),

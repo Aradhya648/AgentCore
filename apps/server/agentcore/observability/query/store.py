@@ -21,7 +21,7 @@ def resolve_database_url() -> str:
 
 @runtime_checkable
 class ConversationStore(Protocol):
-    """Join target for message bodies (Postgres or export dir)."""
+    """Join target for message bodies + turn_metrics / cost_events (Postgres or export)."""
 
     async def get_conversation(self, conversation_id: str) -> dict[str, Any] | None: ...
 
@@ -29,7 +29,79 @@ class ConversationStore(Protocol):
 
     async def list_recent(self, n: int = 5) -> list[dict[str, Any]]: ...
 
+    async def get_turn_metrics_by_trace(self, trace_id: str) -> dict[str, Any] | None: ...
+
+    async def get_turn_metrics_for_conversation(
+        self, conversation_id: str
+    ) -> list[dict[str, Any]]: ...
+
+    async def get_cost_by_trace(self, trace_id: str) -> dict[str, Any] | None: ...
+
     async def aclose(self) -> None: ...
+
+
+_TURN_METRICS_KEYS = (
+    "id",
+    "turn_id",
+    "conversation_id",
+    "user_id",
+    "agent_id",
+    "trace_id",
+    "kind",
+    "status",
+    "finish_reason",
+    "error",
+    "rounds",
+    "duration_ms",
+    "delegated",
+    "workers",
+    "input_tokens",
+    "output_tokens",
+    "boundary_yields",
+    "scope_signals",
+    "revises",
+    "escalations",
+    "created_at",
+)
+
+
+def _project_turn_metrics_row(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k in _TURN_METRICS_KEYS:
+        if k not in row:
+            continue
+        val = row[k]
+        if k == "created_at" and val is not None:
+            out[k] = str(val)
+        else:
+            out[k] = val
+    return out
+
+
+def _aggregate_cost_rows(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    total_nano = 0
+    models: dict[str, int] = {}
+    currency: str | None = None
+    for r in rows:
+        nano = r.get("cost_total_nano")
+        if nano is None and r.get("cost") is not None:
+            # Some legacy rows only carry float ``cost``; leave nano unset then.
+            pass
+        else:
+            total_nano += int(nano or 0)
+        model = r.get("model")
+        if model:
+            models[str(model)] = models.get(str(model), 0) + 1
+        if currency is None and r.get("currency"):
+            currency = str(r["currency"])
+    return {
+        "total_nano": total_nano,
+        "currency": currency,
+        "runs": len(rows),
+        "models": [{"model": m, "runs": n} for m, n in sorted(models.items())],
+    }
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -113,6 +185,31 @@ class ExportConversationStore:
             }
             for r in rows
         ]
+
+    async def get_turn_metrics_by_trace(self, trace_id: str) -> dict[str, Any] | None:
+        for row in _read_jsonl(self.export_dir / "turn_metrics.jsonl"):
+            if str(row.get("trace_id") or "") == trace_id:
+                return _project_turn_metrics_row(row)
+        return None
+
+    async def get_turn_metrics_for_conversation(
+        self, conversation_id: str
+    ) -> list[dict[str, Any]]:
+        rows = [
+            _project_turn_metrics_row(row)
+            for row in _read_jsonl(self.export_dir / "turn_metrics.jsonl")
+            if str(row.get("conversation_id") or "") == conversation_id
+        ]
+        rows.sort(key=lambda r: str(r.get("created_at") or ""))
+        return rows
+
+    async def get_cost_by_trace(self, trace_id: str) -> dict[str, Any] | None:
+        rows = [
+            row
+            for row in _read_jsonl(self.export_dir / "cost_events.jsonl")
+            if str(row.get("trace_id") or "") == trace_id
+        ]
+        return _aggregate_cost_rows(rows)
 
     async def aclose(self) -> None:
         return None
@@ -213,6 +310,57 @@ class PostgresConversationStore:
         return [
             {"id": r[0], "title": r[1], "created_at": str(r[2])} for r in rows
         ]
+
+    async def get_turn_metrics_by_trace(self, trace_id: str) -> dict[str, Any] | None:
+        from sqlalchemy import text
+
+        cols = ", ".join(_TURN_METRICS_KEYS)
+        async with self._engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    text(
+                        f"SELECT {cols} FROM turn_metrics "
+                        "WHERE trace_id = :tid ORDER BY created_at DESC LIMIT 1"
+                    ),
+                    {"tid": trace_id},
+                )
+            ).mappings().first()
+        if not row:
+            return None
+        return _project_turn_metrics_row(dict(row))
+
+    async def get_turn_metrics_for_conversation(
+        self, conversation_id: str
+    ) -> list[dict[str, Any]]:
+        from sqlalchemy import text
+
+        cols = ", ".join(_TURN_METRICS_KEYS)
+        async with self._engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        f"SELECT {cols} FROM turn_metrics "
+                        "WHERE conversation_id = :cid ORDER BY created_at ASC"
+                    ),
+                    {"cid": conversation_id},
+                )
+            ).mappings().all()
+        return [_project_turn_metrics_row(dict(r)) for r in rows]
+
+    async def get_cost_by_trace(self, trace_id: str) -> dict[str, Any] | None:
+        from sqlalchemy import text
+
+        async with self._engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT model, cost_total_nano, currency "
+                        "FROM cost_events WHERE trace_id = :tid"
+                    ),
+                    {"tid": trace_id},
+                )
+            ).mappings().all()
+        return _aggregate_cost_rows([dict(r) for r in rows])
 
     async def aclose(self) -> None:
         await self._engine.dispose()

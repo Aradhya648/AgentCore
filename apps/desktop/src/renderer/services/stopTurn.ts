@@ -2,21 +2,18 @@ import { api } from "@/services/api";
 import { getActiveSidecarTarget } from "@/services/sidecarRouting";
 
 /**
- * Ask the engine to stop a conversation's in-flight turn (执行与请求解耦 C1 · slice 1a).
+ * Ask the engine to cancel a conversation's in-flight turn.
  *
  * A client disconnect no longer cancels a server turn — it finishes and persists
- * in the background (so a long turn is never lost to a dropped connection, 案例 1).
- * The 停止 button therefore must explicitly ask the engine to cancel; aborting the
- * local fetch alone would leave it running and billing.
+ * in the background. The 停止 button therefore must explicitly ask the engine;
+ * aborting the local fetch alone would leave it running and billing.
  *
  * Routing mirrors ``resolveInteraction`` / ``submitRunRedirect``:
  * - **Local (sidecar) turn** → ``sidecarApi.cancel`` (cloud ``POST /stop`` cannot
  *   reach the in-process turn / coordination session).
  * - **Cloud turn** → ``POST …/stop``.
  *
- * Returns whether a live run was actually signalled (false when nothing was
- * running / already finished). Failures propagate so the UI can surface a
- * visible toast / retry (不再静默吞掉).
+ * Failures propagate so the UI can surface a visible toast / retry.
  */
 export async function stopConversation(
   conversationId: string,
@@ -32,9 +29,8 @@ export async function stopConversation(
       subpath: sidecarTarget.subpath,
       turnId,
       conversationId,
+      reason: "user_stop",
     });
-    // Sidecar cancel is fire-and-confirm via message_end(cancelled); RPC ack means
-    // the signal was delivered (idempotent when the turn already settled).
     return true;
   }
   const res = await api.post<{ stopped: boolean }>(

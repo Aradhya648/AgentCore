@@ -23,9 +23,9 @@ skip_if:
 | `delegate` | `run_plan` 到达自动内嵌 |
 | 跨回合同图追加 | 新回合只渲染锚点条；生长归旧图 |
 | 开工挂起零 run | **不出图**（注意力归续跑卡） |
-| 完成 / 停止 | 战绩收缩 / 「已停止」+ 救火 |
+| 完成 / 停止 | 战绩收缩 / 「已停止」（只陈述，无救火按钮） |
 
-**救火**：部分失败 → 重试失败项；整轮失败/停止 → 重试。**否决**叠「全部重生成」、显式忽略（新 turn 隐式收口）、无帧「继续」。`cancelled`/`interrupted` 不出 finishReason chip。
+**失败收口**：协作图状态条 / 画布指挥台只报战绩；救火统一「对 CEO 再说」或再发一条（同人续派 / `continue_from_run_id`）。**否决**状态条「重试」「重试失败项」、`retry-failed` API、叠「全部重生成」、显式忽略（新 turn 隐式收口）、无帧「继续」。有正文气泡的 regenerate、传输层 RetryBanner 仍保留。`cancelled`/`interrupted` 不出 finishReason chip。
 
 默认展开，按对话持久化。多幕 LOD：≥2 幕恰好一幕展开 DAG；**否决**默认全展开。face 徽标 ≤2；行动条仅 ≥2 待决。**否决**「规划中」态（`run_plan` 同步到达）。插话：composer 不禁发；热路挂起不可绕过。
 

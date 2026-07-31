@@ -226,13 +226,21 @@ SCENARIOS: list[Scenario] = [
         "分别评估 React、Vue、Svelte，再汇总一份选型备忘录。",
         "DELEGATE_MULTI",
     ),
-    # 成篇调研报告软偏好（A 方案对照）：规格已齐 → 应多角/research_report，勿一人包办
+    # 成篇调研报告软偏好：明示落盘成文 → 应多角/research_report，勿一人包办
     Scenario(
         "research_mid_lawsuit",
         "DELEGATE_MULTI",
         "写一篇关于起诉第三者如何才能立案的实务研究，婚姻家事领域，实务指南，"
         "中等篇幅 4000–6000 字，Markdown 落盘。"
         "请覆盖立案要件、证据与证明、管辖与诉讼地位等可独立取证的角度。",
+        "DELEGATE_MULTI",
+    ),
+    # A 档对齐推进：多路摸清未提成文 → 应并行摸底，勿一人、勿误判为直答
+    Scenario(
+        "align_brief_multi_angle",
+        "DELEGATE_MULTI",
+        "帮我把「开源协议选型」这件事理清：从许可证兼容、商业闭源风险、社区生态三个方向"
+        "多 Agent 并行摸底，先对齐结论，先不要写成正式报告。",
         "DELEGATE_MULTI",
     ),
     # 材料已齐的中篇扩写：应单写手，勿被调研流水线吸走

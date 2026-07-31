@@ -356,7 +356,8 @@ async def test_execute_rejects_conflicting_task_completion_criteria():
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_form_files_while_explore_pending():
+async def test_execute_allows_form_files_while_explore_pending():
+    """form=files 在 explore-pending 下可过校验；仍抑制 files_written 推断。"""
     base = local_ctx()
     base.cold_start_explore_pending = True
     t = DelegateTool(
@@ -387,9 +388,8 @@ async def test_execute_rejects_form_files_while_explore_pending():
         },
         base,
     )
-    assert result.success is False
-    assert "update_project_profile" in (result.error or "")
-    assert "prose" in (result.error or "")
+    assert result.success is True
+    assert "本批验收：未启用" in result.output
 
 
 @pytest.mark.asyncio

@@ -199,6 +199,36 @@ class ConvertMdToDocxResponse(BaseModel):
     suggested_filename: str
 
 
+class ExportPdfRequest(BaseModel):
+    """Export a workspace Markdown file to a sibling ``.pdf`` (确定性转换器)."""
+
+    path: str = Field(..., min_length=1, max_length=1000)
+
+
+class ExportPdfResponse(BaseModel):
+    """Result of Markdown → PDF export into the workspace."""
+
+    path: str
+    source_path: str
+    size_bytes: int
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ConvertMdToPdfRequest(BaseModel):
+    """Stateless Markdown → PDF conversion (local desktop UI)."""
+
+    markdown: str
+    source_name: str = Field("document.md", max_length=500)
+
+
+class ConvertMdToPdfResponse(BaseModel):
+    """Base64-encoded .pdf plus non-fatal warnings."""
+
+    pdf_base64: str
+    warnings: list[str] = Field(default_factory=list)
+    suggested_filename: str
+
+
 class WorkspaceEditDoc(BaseModel):
     """Full text of a cloud workspace file for in-panel editing, plus CAS baseline.
 

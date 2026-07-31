@@ -467,7 +467,8 @@ def test_cold_start_rejects_single_worker():
     assert "1 人" in err or "包办" in err
 
 
-def test_cold_start_rejects_form_files():
+def test_cold_start_allows_form_files():
+    """Pending explore no longer hard-rejects form=files (≥2 workers sufficient)."""
     plan, errs = build_run_plan(
         [
             {"role": "A", "task": "摸目录", "deliverable": {"form": "files"}},
@@ -476,14 +477,11 @@ def test_cold_start_rejects_form_files():
         id_prefix="t",
     )
     assert errs == []
-    err = validate_cold_start_explore_deliverables(plan)
-    assert err is not None
-    assert "prose" in err
-    assert "update_project_profile" in err
-    assert "form=files" in err
+    assert validate_cold_start_explore_deliverables(plan) is None
 
 
-def test_cold_start_rejects_artifacts():
+def test_cold_start_allows_artifacts():
+    """Pending explore no longer hard-rejects artifacts (≥2 workers sufficient)."""
     plan, errs = build_run_plan(
         [
             {
@@ -497,11 +495,9 @@ def test_cold_start_rejects_artifacts():
     )
     assert errs == []
     assert plan.nodes[0].deliverable is not None
-    # 调研语义 → 裸文件名迁入案卷目录；冷启动仍因 artifacts 非空而拒。
+    # 调研语义 → 裸文件名迁入案卷目录；冷启动不再因 artifacts 非空而拒。
     assert plan.nodes[0].deliverable.artifacts == ["AgentCore/文档/research/brief.md"]
-    err = validate_cold_start_explore_deliverables(plan)
-    assert err is not None
-    assert "update_project_profile" in err
+    assert validate_cold_start_explore_deliverables(plan) is None
 
 
 def test_cold_start_allows_all_prose():

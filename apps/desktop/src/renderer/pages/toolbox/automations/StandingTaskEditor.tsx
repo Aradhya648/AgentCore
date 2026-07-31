@@ -10,6 +10,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { copyText } from "@/lib/clipboard";
 import { notifyError, notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import { ApiError } from "@/services/api";
 import type { FolderMeta } from "@/services/folders";
 import {
@@ -36,8 +37,10 @@ import {
   rotateWebhookSecret,
   utcCronFromLocalHm,
 } from "@/services/standingTasks";
+import { listWorkflowOptions } from "@/services/workflows";
 import { Check, Copy, KeyRound, Loader2, Play, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 const SELECT_CLASS =
   "h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring";
@@ -71,6 +74,8 @@ export interface StandingTaskFormState {
   includeGlobal: boolean;
   scopeFolderIds: string[];
   lookbackHours: number;
+  /** Bound user workflow; empty string = unbound. */
+  workflowId: string;
 }
 
 export function emptyStandingTaskForm(
@@ -94,6 +99,7 @@ export function emptyStandingTaskForm(
     includeGlobal: true,
     scopeFolderIds: [],
     lookbackHours: 24,
+    workflowId: "",
   };
 }
 
@@ -121,6 +127,7 @@ export function formFromStandingTask(
     includeGlobal: cfg.includeGlobal ?? true,
     scopeFolderIds: cfg.folderIds ?? [],
     lookbackHours: cfg.lookbackHours ?? 24,
+    workflowId: task.workflowId ?? "",
   };
 }
 
@@ -178,8 +185,12 @@ export function StandingTaskEditorDrawer({
   const [error, setError] = useState<string | null>(null);
   /** After create with webhook secret: stay open until user dismisses. */
   const [pendingDismiss, setPendingDismiss] = useState(false);
+  const [workflowOptions, setWorkflowOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
 
   const isTemplate = !!form.templateKey;
+  const workflowBound = !isTemplate && !!form.workflowId;
 
   useEffect(() => {
     if (!open) return;
@@ -187,6 +198,13 @@ export function StandingTaskEditorDrawer({
     setPendingDismiss(false);
     setError(null);
   }, [initial, open]);
+
+  useEffect(() => {
+    if (!open || isTemplate) return;
+    void listWorkflowOptions()
+      .then(setWorkflowOptions)
+      .catch(() => setWorkflowOptions([]));
+  }, [open, isTemplate]);
 
   const noCloud = cloudFolders.length === 0;
   const canSubmit = useMemo(() => {
@@ -197,7 +215,9 @@ export function StandingTaskEditorDrawer({
       if (!Number.isFinite(lb) || lb < 1 || lb > 168) return false;
       return true;
     }
-    if (!form.name.trim() || !form.goal.trim()) return false;
+    if (!form.name.trim()) return false;
+    // Bound workflow: goal becomes optional per-run supplement.
+    if (!workflowBound && !form.goal.trim()) return false;
     if (
       form.triggerKind === "schedule" &&
       form.schedulePreset === "custom" &&
@@ -206,7 +226,7 @@ export function StandingTaskEditorDrawer({
       return false;
     }
     return true;
-  }, [form, isTemplate]);
+  }, [form, isTemplate, workflowBound]);
 
   const buildCreatePayload = (): CreateStandingTaskInput => {
     const base: CreateStandingTaskInput = {
@@ -216,6 +236,7 @@ export function StandingTaskEditorDrawer({
       goal: form.goal.trim(),
       permissionAxes: recipeToAxes(form.recipe),
       enabled: form.enabled,
+      workflowId: form.workflowId || null,
     };
     if (form.triggerKind === "schedule") {
       base.schedulePreset = form.schedulePreset;
@@ -627,27 +648,62 @@ export function StandingTaskEditorDrawer({
               </label>
             </>
           ) : (
-            <label className="block" htmlFor="st-goal">
-              <span className="mb-1 block text-xs text-muted-foreground">
-                目标
-              </span>
-              <Textarea
-                id="st-goal"
-                className="w-full text-sm"
-                rows={4}
-                value={form.goal}
-                maxLength={4000}
-                disabled={pendingDismiss}
-                placeholder={
-                  form.triggerKind === "webhook"
-                    ? "常驻交代：收到外部事件后要完成什么？事件正文会追加到本轮上下文。"
-                    : "到点要完成什么？例如：汇总本周竞品动态与风险，给出三条行动建议。"
-                }
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, goal: e.target.value }))
-                }
-              />
-            </label>
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted-foreground">
+                  绑定工作流（可选）
+                </span>
+                <select
+                  className={SELECT_CLASS}
+                  value={form.workflowId}
+                  disabled={pendingDismiss}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, workflowId: e.target.value }))
+                  }
+                >
+                  <option value="">不绑定 — 到点按目标文案开跑</option>
+                  {workflowOptions.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  绑定后结构以工作流为准；可在{" "}
+                  <Link
+                    to={APP_PATHS.toolbox.workflows.root}
+                    className="text-primary underline-offset-2 hover:underline"
+                  >
+                    工具箱 · 工作流
+                  </Link>{" "}
+                  编辑画布。
+                </p>
+              </label>
+
+              <label className="block" htmlFor="st-goal">
+                <span className="mb-1 block text-xs text-muted-foreground">
+                  {workflowBound ? "本轮补充（可选）" : "目标"}
+                </span>
+                <Textarea
+                  id="st-goal"
+                  className="w-full text-sm"
+                  rows={4}
+                  value={form.goal}
+                  maxLength={4000}
+                  disabled={pendingDismiss}
+                  placeholder={
+                    workflowBound
+                      ? "空则只按工作流图跑；有则作为本轮附加上下文，不改图。"
+                      : form.triggerKind === "webhook"
+                        ? "常驻交代：收到外部事件后要完成什么？事件正文会追加到本轮上下文。"
+                        : "到点要完成什么？例如：汇总本周竞品动态与风险，给出三条行动建议。"
+                  }
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, goal: e.target.value }))
+                  }
+                />
+              </label>
+            </>
           )}
 
           <label className="block">

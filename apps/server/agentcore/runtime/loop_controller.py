@@ -42,6 +42,10 @@ DEFAULT_EMPTY_THRESHOLD = 2
 # never resets — it catches "this tool just isn't working out, no matter the args".
 DEFAULT_TOOL_FAILURE_WARN = 2
 DEFAULT_TOOL_FAILURE_DISABLE = 3
+# Same-path consecutive classified write rejects → force_segmented early (策略机),
+# before the cumulative per-tool disable threshold. Covers prose-append / code
+# integrity hard rejects (contract_failure) that skip the normal failure tally.
+DEFAULT_PATH_WRITE_REJECT_STREAK = 2
 # Consecutive *unproductive* rounds that trip an early stop (B2 无产出早停). An
 # unproductive round = the model called ≥1 tool, every call FAILED, and it produced
 # no content — it is "working" but getting nowhere. Distinct from an empty round
@@ -73,9 +77,43 @@ PROGRESS_TOOLS = frozenset(
 LANDING_TOOLS = frozenset(
     {"file_write", "file_append", "str_replace", "write_section", "file_move"}
 )
+# Write tools that enter force_segmented when same-path reject streak trips
+# (keep str_replace / write_section as the preferred segmented pens).
+PATH_SEGMENT_FORCE_TOOLS = frozenset({"file_write", "file_append"})
+# Dangerous landing action narrowed (disabled) once force_segmented latches —
+# keep file_write / str_replace; stop append thrashing on prose / broken bodies.
+FORCE_SEGMENTED_NARROW_TOOLS = frozenset({"file_append"})
 # CEO orchestration primitives: parse-only thrashing must not retire them
 # (same posture as LANDING_TOOLS keeping the pen — keep the dispatcher).
 ORCHESTRATION_TOOLS = frozenset({"delegate", "ask_user"})
+
+
+def classify_segmented_write_reject(
+    tool_name: str,
+    *,
+    error: str = "",
+    contract_failure: bool = False,
+) -> str | None:
+    """Classify a hard write reject that feeds the same-path force_segmented streak.
+
+    Returns a stable class id (``prose_append`` / ``code_integrity``) or ``None``.
+    Does **not** cover length/oversized rejects (those hard gates were removed).
+    Soft ``integrity_nudge`` is success-path only and never reaches here.
+    """
+    if not contract_failure or tool_name not in {"file_write", "file_append"}:
+        return None
+    text = error or ""
+    if tool_name == "file_append" and "已落成篇正文" in text:
+        return "prose_append"
+    if "结构不完整" in text or "省略标记" in text:
+        return "code_integrity"
+    return None
+
+
+def _norm_write_reject_path(path: object) -> str:
+    if not isinstance(path, str):
+        return ""
+    return path.strip().replace("\\", "/")
 
 
 def zero_write_warn_prompt(*, rounds: int, prose_idle: bool = False) -> str:
@@ -235,11 +273,17 @@ class CircuitBreak:
     failures — their steer text must guide format/strategy, never「换不同的输入」.
 
     ``force_segmented`` names write/landing tools that hit the disable threshold
-    but stay enabled — steer forces skeleton + section writes instead of retiring
-    the pen (长文落盘定案：失败换分段，不关写文件).
+    *or* the same-path classified write-reject streak, but stay enabled — steer
+    forces skeleton + section writes instead of retiring the pen（长文落盘定案：
+    失败换分段，不关写文件）. ``apply_circuit_breaker`` may still narrow
+    ``file_append`` out of the live toolset while keeping ``file_write`` /
+    ``str_replace``.
 
     ``retire_message`` is an optional hard-stop steer (e.g. browser egress
     unavailable) that replaces the generic「已多次失败」disable copy when set.
+
+    ``liveness_warned`` names tools whose latest counted failure was a hang /
+    no-response timeout (活性挂起) — warn steer forbids identical retry.
     """
 
     warned: tuple[str, ...] = ()
@@ -247,6 +291,7 @@ class CircuitBreak:
     parse_only: frozenset[str] = frozenset()
     force_segmented: frozenset[str] = frozenset()
     retire_message: str | None = None
+    liveness_warned: frozenset[str] = frozenset()
 
     def __bool__(self) -> bool:
         return bool(self.warned or self.disabled or self.force_segmented)
@@ -289,9 +334,9 @@ class CircuitBreak:
         if self.force_segmented:
             names = "、".join(f"`{n}`" for n in self.force_segmented)
             parts.append(
-                f"工具 {names} 连续写盘失败：写文件能力保持可用。"
-                "【强制】改用短骨架 file_write + 按节 file_append / str_replace，"
-                "禁止再整篇一次写入；勿向用户讲解 JSON 转义。"
+                f"工具 {names} 连续写盘失败：写文件能力保持可用（`file_write` / `str_replace`）。"
+                "【强制】改用短骨架 file_write + 按节 str_replace 落盘；"
+                "`file_append` 已收窄，禁止再整篇一次写入；勿向用户讲解 JSON 转义。"
             )
         if self.warned:
             parse_w = tuple(n for n in self.warned if n in self.parse_only)
@@ -304,11 +349,20 @@ class CircuitBreak:
                     "改用已有 web_search 摘要与已读材料推进写作，或换一个非外网读页工具。"
                 )
             if other_w:
-                names = "、".join(f"`{n}`" for n in other_w)
-                parts.append(
-                    f"工具 {names} 已多次失败，请不要再以相同方式调用它："
-                    "换不同的输入、换一个工具，或基于已有信息直接推进。"
-                )
+                live_w = tuple(n for n in other_w if n in self.liveness_warned)
+                plain_w = tuple(n for n in other_w if n not in self.liveness_warned)
+                if live_w:
+                    names = "、".join(f"`{n}`" for n in live_w)
+                    parts.append(
+                        f"工具 {names} 已多次活性挂起（无响应超时），请不要原样重试："
+                        "缩小范围、换路径策略或换工具，基于已有信息推进。"
+                    )
+                if plain_w:
+                    names = "、".join(f"`{n}`" for n in plain_w)
+                    parts.append(
+                        f"工具 {names} 已多次失败，请不要再以相同方式调用它："
+                        "换不同的输入、换一个工具，或基于已有信息直接推进。"
+                    )
             if parse_w:
                 write_pw = tuple(n for n in parse_w if n in LANDING_TOOLS)
                 orch_pw = tuple(n for n in parse_w if n in ORCHESTRATION_TOOLS)
@@ -372,6 +426,7 @@ class LoopController:
         empty_threshold: int = DEFAULT_EMPTY_THRESHOLD,
         tool_failure_warn: int = DEFAULT_TOOL_FAILURE_WARN,
         tool_failure_disable: int = DEFAULT_TOOL_FAILURE_DISABLE,
+        path_write_reject_streak: int = DEFAULT_PATH_WRITE_REJECT_STREAK,
         unproductive_threshold: int = DEFAULT_UNPRODUCTIVE_THRESHOLD,
         reflection_start_round: int = DEFAULT_REFLECTION_START_ROUND,
         reflection_interval: int = DEFAULT_REFLECTION_INTERVAL,
@@ -381,12 +436,14 @@ class LoopController:
         prose_idle: bool = False,
         form_prose: bool = False,
         investigation_tools: frozenset[str] = frozenset(),
+        product_landing_artifacts: tuple[str, ...] | list[str] | None = None,
     ) -> None:
         self._window = window
         self._threshold = threshold
         self._empty_threshold = max(1, empty_threshold)
         self._tool_failure_warn = max(1, tool_failure_warn)
         self._tool_failure_disable = max(self._tool_failure_warn, tool_failure_disable)
+        self._path_write_reject_streak = max(1, path_write_reject_streak)
         self._unproductive_threshold = max(1, unproductive_threshold)
         self._reflection_start_round = max(0, reflection_start_round)
         self._reflection_interval = max(1, reflection_interval)
@@ -412,6 +469,11 @@ class LoopController:
         self._zero_write_finalize_rounds = max(0, zero_write_finalize_rounds)
         self._prose_idle = bool(prose_idle)
         self._form_prose = bool(form_prose)
+        # Declared deliverable.artifacts — dossier intermediates count as product
+        # only when they match (files zero-write latch). Empty = no whitelist.
+        self._product_landing_artifacts: tuple[str, ...] = tuple(
+            a for a in (product_landing_artifacts or ()) if a
+        )
         self._zero_write_investigation_rounds = 0
         self._zero_write_warned = False
         self._landing_succeeded = False
@@ -429,10 +491,17 @@ class LoopController:
         self._tool_parse_failures: Counter[str] = Counter()
         self._tool_last_error: dict[str, str] = {}
         self._tool_succeeded_after_fail: dict[str, bool] = {}
+        # Last counted failure was a liveness hang (outer/channel timeout meta).
+        self._tool_liveness_last: dict[str, bool] = {}
         self._tool_warned: set[str] = set()
         self._tool_disabled: set[str] = set()
         # Write/landing tools that hit disable threshold but stay enabled (强制分段).
         self._tool_segmented_forced: set[str] = set()
+        # Same-path consecutive classified write rejects: path → (class, streak).
+        # Trips the same ``force_segmented`` latch (not a parallel breaker).
+        self._path_write_rejects: dict[str, tuple[str, int]] = {}
+        # One-shot: record() saw streak ≥ threshold; consumed by tool_circuit_breaker.
+        self._pending_path_force_segmented: bool = False
         # Orchestration tools kept alive despite parse-only disable-threshold hits.
         self._tool_parse_kept: set[str] = set()
         # One-shot hard-stop steer from a tool that retires a family (e.g. browser
@@ -636,6 +705,17 @@ class LoopController:
             )
         return None  # 第三次由 convergence_action 处理
 
+    def _is_product_landing_success(self, attempt: ToolAttempt) -> bool:
+        """Successful landing that counts as product under the files zero-write gate."""
+        if not attempt.success or attempt.tool_name not in LANDING_TOOLS:
+            return False
+        path = (attempt.meta or {}).get("path")
+        if path is None or (isinstance(path, str) and not path.strip()):
+            return True
+        from agentcore.runtime.runs.landing_product import is_product_landing_path
+
+        return is_product_landing_path(str(path), self._product_landing_artifacts)
+
     def record(self, attempts: list[ToolAttempt]) -> None:
         """Append one round's tool attempts (in call order) to the window.
 
@@ -647,10 +727,34 @@ class LoopController:
         round_progress = any(
             attempt.success and attempt.tool_name in PROGRESS_TOOLS for attempt in attempts
         )
-        landing_success = any(
-            attempt.success and attempt.tool_name in LANDING_TOOLS for attempt in attempts
+        # Files zero-write: any successful landing-tool write latches success /
+        # clears the idle clock (dossier notes under research/reviews/debate
+        # count as product). Missing meta.path stays compatible (counts as product).
+        # Failed landing intent still resets the idle clock.
+        files_product_gate = (
+            self._zero_write_finalize_rounds > 0 and not self._prose_idle
         )
-        landing_attempt = any(attempt.tool_name in LANDING_TOOLS for attempt in attempts)
+        if files_product_gate:
+            landing_success = any(
+                self._is_product_landing_success(a) for a in attempts
+            )
+            landing_attempt = any(
+                a.tool_name in LANDING_TOOLS
+                and (
+                    not a.success
+                    or self._is_product_landing_success(a)
+                    or not (a.meta or {}).get("path")
+                )
+                for a in attempts
+            )
+        else:
+            landing_success = any(
+                attempt.success and attempt.tool_name in LANDING_TOOLS
+                for attempt in attempts
+            )
+            landing_attempt = any(
+                attempt.tool_name in LANDING_TOOLS for attempt in attempts
+            )
         handoff_success = any(
             attempt.success and attempt.tool_name == "handoff" for attempt in attempts
         )
@@ -690,6 +794,9 @@ class LoopController:
                     self._tool_last_error[name] = cap_error_summary(summary)
                 # A later failure re-opens the gap until a subsequent success.
                 self._tool_succeeded_after_fail[name] = False
+                self._tool_liveness_last[name] = bool(
+                    (attempt.meta or {}).get("liveness_timeout")
+                )
             # Explicit hard-stop retire (browser egress / file_read same-path ceiling)
             # must apply even when ``contract_failure`` — otherwise tip thrashing
             # never disables the tool (P2: attachment file_read tip×N).
@@ -713,6 +820,10 @@ class LoopController:
                         self._pending_retire_message = retire_msg.strip()
             if attempt.success and self._tool_failures.get(attempt.tool_name, 0) > 0:
                 self._tool_succeeded_after_fail[attempt.tool_name] = True
+            # Same-path classified write rejects → early force_segmented (合流熔断出口).
+            # contract_failure skips the cumulative tally above; this streak is the
+            # dedicated early path for prose-append / code-integrity hard rejects.
+            self._note_path_write_reject(attempt)
             # Over-investigation bookkeeping (收敛治理): tally read-only investigation
             # breadth. Counts every call (incl. failures) — a wide scan is breadth
             # regardless of per-call success.
@@ -741,13 +852,28 @@ class LoopController:
         # Delivery-idle thrashing (files zero-write / prose short idle): investigation-only
         # round with no delivery attempt bumps the streak; delivery intent/success resets.
         # Non-investigation rounds (ask / progress / exec) clear the idle clock.
+        # (Historical: dossier notes once counted as non-product idle; they now latch
+        # as product via landing_product — dossier_note_only stays unreachable.)
         if self._zero_write_finalize_rounds > 0 and not self._landing_succeeded:
             tool_names = {a.tool_name for a in attempts if a.tool_name}
             investigation_only = bool(tool_names) and tool_names <= self._investigation_tools
+            dossier_note_only = False
+            if files_product_gate and tool_names and not investigation_only:
+                dossier_note_only = all(
+                    a.tool_name in self._investigation_tools
+                    or (
+                        a.tool_name in LANDING_TOOLS
+                        and a.success
+                        and (a.meta or {}).get("path")
+                        and not self._is_product_landing_success(a)
+                    )
+                    for a in attempts
+                    if a.tool_name
+                )
             if delivery_attempt or delivery_success:
                 self._zero_write_investigation_rounds = 0
                 self._zero_write_warned = False
-            elif investigation_only:
+            elif investigation_only or dossier_note_only:
                 self._zero_write_investigation_rounds += 1
             elif tool_names:
                 # Mixed / non-investigation activity — not pure read-idle.
@@ -762,6 +888,39 @@ class LoopController:
         *consecutive* empties escalate toward a degraded finish.
         """
         self._consecutive_empty = self._consecutive_empty + 1 if is_empty else 0
+
+    def _note_path_write_reject(self, attempt: ToolAttempt) -> None:
+        """Bump / reset same-path classified write-reject streak for force_segmented."""
+        path = _norm_write_reject_path((attempt.meta or {}).get("path"))
+        if not path or attempt.tool_name not in PATH_SEGMENT_FORCE_TOOLS:
+            return
+        if attempt.success:
+            self._path_write_rejects.pop(path, None)
+            return
+        if attempt.policy_failure:
+            return
+        reject_class = (attempt.meta or {}).get("segmented_write_reject")
+        if not isinstance(reject_class, str) or not reject_class.strip():
+            reject_class = classify_segmented_write_reject(
+                attempt.tool_name,
+                error=attempt.error_summary or "",
+                contract_failure=bool(attempt.contract_failure),
+            )
+        else:
+            reject_class = reject_class.strip()
+        if not reject_class:
+            # Other write failure on this path breaks the classified streak.
+            self._path_write_rejects.pop(path, None)
+            return
+        prev = self._path_write_rejects.get(path)
+        streak = (
+            prev[1] + 1 if prev is not None and prev[0] == reject_class else 1
+        )
+        self._path_write_rejects[path] = (reject_class, streak)
+        if streak >= self._path_write_reject_streak and not (
+            self._tool_segmented_forced >= PATH_SEGMENT_FORCE_TOOLS
+        ):
+            self._pending_path_force_segmented = True
 
     def empty_response_action(self) -> Intervention:
         """Decide what to do after an empty round (B2 degraded ladder).
@@ -789,6 +948,10 @@ class LoopController:
         never disabled on **parse-only** failures either (keep the dispatcher; typed
         JSON-format steer). Non-landing tools (e.g. ``read_url`` via ``retire_tools``)
         still disable normally.
+
+        Same-path consecutive classified write rejects (prose-append / code integrity)
+        also enter ``force_segmented`` via the same latch — early strategy upgrade,
+        not a second breaker.
         """
         newly_warned: list[str] = []
         newly_disabled: list[str] = []
@@ -823,11 +986,19 @@ class LoopController:
             elif count >= self._tool_failure_warn and name not in self._tool_warned:
                 self._tool_warned.add(name)
                 newly_warned.append(name)
+        if self._pending_path_force_segmented:
+            self._pending_path_force_segmented = False
+            for name in sorted(PATH_SEGMENT_FORCE_TOOLS):
+                if name in self._tool_disabled or name in self._tool_segmented_forced:
+                    continue
+                self._tool_segmented_forced.add(name)
+                self._tool_warned.discard(name)
+                newly_force_segmented.append(name)
         tripped = (*newly_warned, *newly_disabled, *newly_force_segmented)
         parse_only = frozenset(
             name
             for name in tripped
-            if self._tool_failures[name] > 0
+            if self._tool_failures.get(name, 0) > 0
             and self._tool_parse_failures.get(name, 0) == self._tool_failures[name]
         )
         retire_message = None
@@ -840,6 +1011,9 @@ class LoopController:
             parse_only=parse_only,
             force_segmented=frozenset(newly_force_segmented),
             retire_message=retire_message,
+            liveness_warned=frozenset(
+                n for n in newly_warned if self._tool_liveness_last.get(n)
+            ),
         )
 
     def tool_failure_count(self, tool_name: str) -> int:

@@ -2,6 +2,7 @@
 
 「深度研究自治」旗标与托管配方 (command=auto ∧ team_kickoff=skip) 蕴含关系收敛
 于此：运行时判断只走这些 helpers，禁止在 kickoff / ceo_format / 工具层散落双判断。
+少打断为 auto∧rules，不蕴含本自治（仍弹组队/开辩卡）。
 """
 
 from __future__ import annotations

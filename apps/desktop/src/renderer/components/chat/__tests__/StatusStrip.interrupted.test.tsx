@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * User stop seals cancelled — StatusStrip paints stopped chrome + 重试,
- * never frameless「继续」/ live spinner.
+ * User stop seals cancelled — StatusStrip paints stopped chrome (战绩陈述),
+ * never frameless「继续」/ live spinner / graph-mounted 重试.
  */
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { conversationKeys } from "@/lib/queryKeys";
@@ -42,7 +42,6 @@ vi.mock("@/stores/conversation", async () => {
 
 vi.mock("@/services/turns", () => ({
   lastUserMessageId: () => null,
-  runRetryFailed: vi.fn(),
   runRegenerate: vi.fn(),
 }));
 
@@ -106,14 +105,15 @@ afterEach(() => {
 });
 
 describe("StatusStrip · user stop cancelled", () => {
-  it("status=cancelled → 已停止 + 重试, no 继续 / spinner / stop", () => {
+  it("status=cancelled → 已停止, no 重试 / 继续 / spinner / stop", () => {
     const exec = projectExecution(plan, frames, "cancelled");
     expect(exec.status).toBe("cancelled");
 
     const { container } = renderStrip(exec);
 
     expect(screen.getByText("已停止")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "重试" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "重试失败项" })).toBeNull();
     expect(screen.queryByRole("button", { name: "继续" })).toBeNull();
     expect(container.querySelector(".animate-spin")).toBeNull();
     expect(screen.queryByLabelText("停止任务")).toBeNull();

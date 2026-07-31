@@ -22,6 +22,57 @@ def _by_id(tasks: list[dict]) -> dict[str, dict]:
     return {t["id"]: t for t in tasks}
 
 
+# ── parallel_brief ────────────────────────────────────────────────────────────
+
+
+def test_parallel_brief_fans_out_notes_without_write_pipeline():
+    tasks, errors = expand_playbook(
+        "parallel_brief",
+        {"topic": "P vs NP", "angles": ["为何难", "若解决", "下界", "攻击失败"]},
+    )
+    assert errors == []
+    by_id = _by_id(tasks)
+    assert len(tasks) == 4
+    assert all(t["role"] == "方向专员" for t in tasks)
+    assert all(not t.get("depends_on") for t in tasks)
+    assert "outline" not in by_id and "write" not in by_id and "review" not in by_id
+    expected = {
+        "AgentCore/文档/research/为何难方向笔记.md",
+        "AgentCore/文档/research/若解决方向笔记.md",
+        "AgentCore/文档/research/下界方向笔记.md",
+        "AgentCore/文档/research/攻击失败方向笔记.md",
+    }
+    for t in tasks:
+        d = t["deliverable"]
+        assert d["form"] == "files"
+        assert d["artifacts"][0] in expected
+        assert "方向笔记" in t["task"]
+        assert "终稿" in t["task"]
+        assert "≤12 词" in t["task"]
+    plan, plan_errs = build_run_plan(tasks)
+    assert plan_errs == []
+    assert len(plan.nodes) == 4
+
+
+def test_parallel_brief_requires_topic_and_two_angles():
+    tasks, errors = expand_playbook("parallel_brief", {"angles": ["甲", "乙"]})
+    assert tasks == []
+    assert any("topic" in e for e in errors)
+    tasks2, errors2 = expand_playbook(
+        "parallel_brief", {"topic": "X", "angles": ["仅一角"]}
+    )
+    assert tasks2 == []
+    assert any("≥2" in e or "angles" in e for e in errors2)
+
+
+def test_available_playbooks_lists_parallel_brief_before_research_report_semantics():
+    listing = available_playbooks()
+    assert "parallel_brief" in listing
+    assert "对齐推进" in listing or "方向笔记" in listing
+    assert "research_report" in listing
+    assert "成文专线" in listing
+
+
 # ── research_report ───────────────────────────────────────────────────────────
 
 
@@ -49,6 +100,12 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     assert "单主文件" in by_id["write"]["task"]
     assert "AgentCore/文档/research/报告.md" in by_id["write"]["task"]
     assert "AgentCore/文档/research/报告.md" in by_id["review"]["task"]
+    # MD 为主；要 PDF → md_to_pdf；禁 HTML 顶替 / reportlab 主路径
+    write_task = by_id["write"]["task"]
+    assert "md_to_pdf" in write_task
+    assert "HTML" in write_task
+    assert "reportlab" in write_task
+    assert "MD 为主" in write_task or "`.md`" in write_task or ".md" in write_task
     # 中间环与终稿同走案卷：各路调研 + 提纲 form=files，路径钉 RESEARCH_DIR，角度名入文件名。
     expected_research_artifacts = {
         "AgentCore/文档/research/原理调研报告.md",
@@ -61,15 +118,16 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
         assert d["artifacts"] and d["artifacts"][0] in expected_research_artifacts
         assert d["artifacts"][0] in by_id[rid]["task"]
         assert "file_write" in by_id[rid]["task"]
-        # A3 查询契约进调研员任务书（与工具硬拒对齐）
-        assert "≤8 词" in by_id[rid]["task"]
-        assert "不改写" in by_id[rid]["task"]
+        # A3 查询契约进调研员任务书（超限自动规范化/截断并明示；仅极端过长拒）
+        assert "≤12 词" in by_id[rid]["task"]
+        assert "截断" in by_id[rid]["task"] or "规范化" in by_id[rid]["task"]
+        assert "明示" in by_id[rid]["task"]
     outline_d = by_id["outline"]["deliverable"]
     assert outline_d["form"] == "files"
     assert outline_d["artifacts"] == ["AgentCore/文档/research/提纲.md"]
     assert "AgentCore/文档/research/提纲.md" in by_id["outline"]["task"]
     # Artifact-first writer brief: skeleton first; ban half-chapter prose then append.
-    write_task = by_id["write"]["task"]
+    # （write_task 已在上方绑定；含 MD→PDF 纪律）
     assert "短骨架" in write_task or "首写必须是短骨架" in write_task
     assert "禁止首写半章散文" in write_task
     assert "artifact manifest" in write_task or "禁止再对本文件" in write_task
@@ -433,8 +491,8 @@ def test_build_website_requires_site():
     assert errors and "site" in errors[0]
 
 
-def test_build_toolshed_five_waves_injects_tool_dense():
-    """build_toolshed mirrors website waves; forces tool_dense + domain=tool."""
+def test_build_toolshed_three_chain_injects_tool_dense():
+    """build_toolshed mirrors website three-chain; forces tool_dense + domain=tool."""
     from agentcore.runtime.runs.website_catalog import (
         PACK_TOOL_DENSE,
         TOOL_DENSE_POINTER_PREFIX,
@@ -446,33 +504,32 @@ def test_build_toolshed_five_waves_injects_tool_dense():
     )
     assert errors == []
     by_id = {t["id"]: t for t in tasks}
-    assert set(by_id) >= {
-        "copy",
-        "design",
-        "skeleton",
-        "section_0",
-        "section_1",
-        "section_2",
-        "assemble",
-        "qa",
-    }
-    assert len(tasks) >= 7
-    assert by_id["qa"]["depends_on"] == ["assemble"]
-    assert by_id["assemble"]["depends_on"] == ["section_0", "section_1", "section_2"]
-    sk = by_id["skeleton"]["task"]
-    assert f"pack={PACK_TOOL_DENSE}" in sk
-    assert "catalog:app_shell" in sk
-    assert f"{TOOL_DENSE_POINTER_PREFIX}/app_shell.html" in sk
-    assert "catalog:sidebar" in sk
-    assert "catalog:data_table" in sk
+    assert set(by_id) == {"copy", "frontend", "qa"}
+    assert len(tasks) == 3
+    assert by_id["frontend"]["depends_on"] == ["copy"]
+    assert by_id["qa"]["depends_on"] == ["frontend"]
+    fe = by_id["frontend"]["task"]
+    assert f"pack={PACK_TOOL_DENSE}" in fe
+    assert "catalog:app_shell" in fe
+    assert f"{TOOL_DENSE_POINTER_PREFIX}/app_shell.html" in fe
+    assert "catalog:sidebar" in fe
+    assert "catalog:data_table" in fe
     assert "审美域·工具页" in by_id["copy"]["task"]
-    assert "hero" not in sk.lower() or "禁营销" in sk or "禁止" in sk
-    assert "website_catalog/marketing/" not in sk
-    s0 = by_id["section_0"]["task"]
-    assert "catalog:app_shell" in s0
-    assert TOOL_DENSE_POINTER_PREFIX in s0
-    assert "site/sections/s0.html" in s0
-    assert "site/index.html" not in by_id["section_0"]["deliverable"]["artifacts"]
+    assert "信息架构" in by_id["copy"]["task"]
+    assert "产品一句话" in by_id["copy"]["deliverable"]["required_sections"]
+    assert "website_catalog/marketing/" not in fe
+    assert by_id["frontend"]["deliverable"]["artifacts"] == [
+        "site/DESIGN.md",
+        "site/index.html",
+        "site/styles.css",
+        "site/main.js",
+        "site/CONTRACT.md",
+    ]
+    # 无旧五波节点
+    assert "design" not in by_id
+    assert "skeleton" not in by_id
+    assert "assemble" not in by_id
+    assert not any(t["id"].startswith("section_") for t in tasks)
 
 
 def test_build_toolshed_requires_site():
@@ -818,6 +875,7 @@ def test_expand_rejects_non_object_args():
 def test_available_playbooks_lists_all_registered():
     listing = available_playbooks()
     assert set(PLAYBOOKS) == {
+        "parallel_brief",
         "research_report",
         "build_feature",
         "repair_code",
@@ -826,26 +884,10 @@ def test_available_playbooks_lists_all_registered():
         "build_toolshed",
         "build_website_verify",
         "compare_options",
-        "organize_folder",
         "multi_lens_research",
     }
     for name in PLAYBOOKS:
         assert name in listing
-
-
-# ── organize_folder ───────────────────────────────────────────────────────────
-
-
-def test_organize_folder_deliverable_form_is_files():
-    """整理要落盘：form=files 保留文件工具语义（非 prose 撤写）。"""
-    tasks, errors = expand_playbook(
-        "organize_folder",
-        {"task": "扫描下载文件夹并给出整理方案"},
-    )
-    assert errors == []
-    assert len(tasks) == 1
-    assert tasks[0]["deliverable"]["form"] == "files"
-    assert tasks[0]["deliverable"]["name"] == "整理结果报告"
 
 
 # ── every expansion is a runnable plan (the real builder, not a mock) ──────────
@@ -853,6 +895,7 @@ def test_organize_folder_deliverable_form_is_files():
 
 def test_every_playbook_expansion_builds_a_valid_run_plan():
     samples = {
+        "parallel_brief": {"topic": "T", "angles": ["a", "b", "c"]},
         "research_report": {"topic": "T", "angles": ["a", "b"], "checkpoint": True},
         "build_feature": {"feature": "F", "stack": "S"},
         "repair_code": {
@@ -865,19 +908,18 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         "build_toolshed": {"site": "Ops console", "sections": ["应用外壳", "数据表格"]},
         "build_website_verify": {"site": "Landing"},
         "compare_options": {"question": "Q", "options": ["A", "B", "C"]},
-        "organize_folder": {"task": "扫描下载文件夹并给出整理方案"},
         "multi_lens_research": {"topic": "T"},
     }
     expected_nodes = {
+        "parallel_brief": 3,
         "research_report": 5,
         "build_feature": 3,
         "repair_code": 3,
         "build_app": 6,  # scaffold + shared + 2 modules + integrate + smoke
         "build_website": 3,  # copy + frontend + qa
-        "build_toolshed": 7,  # same shape, 2 sections
+        "build_toolshed": 3,  # copy + frontend + qa
         "build_website_verify": 1,  # qa only
         "compare_options": 4,
-        "organize_folder": 1,
         "multi_lens_research": 5,  # 4 lenses + synthesizer
     }
     assert set(samples) == set(PLAYBOOKS)  # 名副其实的 every：新增 playbook 必须补样本

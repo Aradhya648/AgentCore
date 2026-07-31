@@ -20,6 +20,7 @@ export const APP_STATIC_ROUTES: readonly string[] = [
   APP_PATHS.toolbox.connectors,
   APP_PATHS.toolbox.automations.root,
   APP_PATHS.toolbox.automations.inbox,
+  APP_PATHS.toolbox.workflows.root,
   APP_PATHS.toolbox.manual.root,
   APP_PATHS.toolbox.manual.intro,
   APP_PATHS.toolbox.manual.collaboration,
@@ -55,6 +56,7 @@ export function isKnownAppRoute(pathname: string): boolean {
   if (/^\/whiteboard\/[^/]+$/.test(pathname)) return true;
   if (/^\/messages\/[^/]+$/.test(pathname)) return true;
   if (/^\/more\/legal\/[^/]+$/.test(pathname)) return true;
+  if (/^\/toolbox\/workflows\/[^/]+$/.test(pathname)) return true;
   return false;
 }
 

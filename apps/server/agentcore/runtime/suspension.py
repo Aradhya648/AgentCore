@@ -100,17 +100,13 @@ turn_history: ContextVar[list[dict[str, Any]] | None] = ContextVar("turn_history
 # cards, and finish_guard's citation_count reflects the sources actually consulted (引用池
 # 单一权威 — without this a resumed wrap-up was serially reworked as「编造引用」).
 # ``None`` outside a turn → the face captures no citations.
-turn_citations: ContextVar[list[dict[str, Any]] | None] = ContextVar(
-    "turn_citations", default=None
-)
+turn_citations: ContextVar[list[dict[str, Any]] | None] = ContextVar("turn_citations", default=None)
 
 # 回合共享调研台账（引用即出处 P1 · ``EvidenceLedgerCore`` id_prefix=``#r``）。
 # 与 :data:`turn_citations` 同级：pipeline 回合入口创建并 bind；captain / 调研 worker
 # 经显式参数注入同一对象（并行登记不撞号）。辩论场级台账仍走 ``debate.EvidenceLedger``
 # （``#e``），不读本 ContextVar。挂起快照 / 再水化见提案 §十第 4 步。
-turn_evidence_ledger: ContextVar[Any | None] = ContextVar(
-    "turn_evidence_ledger", default=None
-)
+turn_evidence_ledger: ContextVar[Any | None] = ContextVar("turn_evidence_ledger", default=None)
 
 
 # InteractionKind members that persist to ``paused_turns`` (设计 §4.7). Single source
@@ -129,9 +125,8 @@ DURABLE_INTERACTION_KINDS: frozenset[InteractionKind] = frozenset(
 class SuspensionKind(StrEnum):
     """Which suspend point a durable frame captured (the JSON discriminator).
 
-    Values are derived from the matching :class:`~agentcore.runtime.interaction.InteractionKind`
-    members in :data:`DURABLE_INTERACTION_KINDS` so the persisted ``kind`` reads the
-    same across the live bridge and the frame — no string hand-copy.
+    Interaction kinds (plan_review / ask_user / team_preview) mirror
+    :data:`DURABLE_INTERACTION_KINDS`.
     """
 
     PLAN_REVIEW = InteractionKind.PLAN_REVIEW.value
@@ -422,9 +417,8 @@ class AskUserSuspension(TurnSuspension):
 
 # ---------------------------------------------------------------------------
 # Per-kind codec registry (S2) — single site for frame extras + wire summary.
-# Adding a durable kind: extend DURABLE_INTERACTION_KINDS + SuspensionKind, add
-# a subclass, register one SuspensionKindCodec here. Cloud + sidecar summaries
-# and suspension_from_json all read this table (no getattr duck typing).
+# Adding an Interaction durable kind: extend DURABLE_INTERACTION_KINDS + SuspensionKind,
+# subclass, register codec.
 # ---------------------------------------------------------------------------
 
 # Shared empty slots for the resume-card wire shape (unused keys stay empty for
@@ -569,6 +563,7 @@ def _team_preview_summary_extras(s: TurnSuspension) -> dict[str, Any]:
     if s.research_first_recommended:
         out["research_first_recommended"] = True
     return out
+
 
 def _ask_user_frame_extras(s: TurnSuspension) -> dict[str, Any]:
     assert isinstance(s, AskUserSuspension)

@@ -20,9 +20,32 @@ Parity gate (edit both sides or CI fails)::
   ``list`` keeps them visible (AI-generated images are deliverables).
 """
 
+import re
 from pathlib import Path
 
-from agentcore.workspace.stage_dirs import AGENTCORE_ROOT, INTERNAL_ZONE_NAMES
+from agentcore.workspace.stage_dirs import (
+    AGENTCORE_ROOT,
+    DEBATE_PREFIX,
+    INTERNAL_ZONE_NAMES,
+    PROJECT_DOCS_PREFIX,
+    RESEARCH_PREFIX,
+    REVIEWS_PREFIX,
+)
+
+# Write-path unsafe chars (null/controls + Windows reserved). Separators handled
+# separately: kept as directory structure outside dossier prefixes; flattened to
+# ``_`` under research/reviews/debate/项目 so nested model paths become one file.
+_UNSAFE_IN_SEGMENT = re.compile(r'[\0-\x1f:*?"<>|]')
+_UNSAFE_IN_FILENAME = re.compile(r'[\0-\x1f\\/:*?"<>|]+')
+_MULTI_UNDERSCORE = re.compile(r"_+")
+
+# Longest-first so prefixes nest correctly if layouts ever share a stem.
+_DOSSIER_WRITE_PREFIXES: tuple[str, ...] = (
+    RESEARCH_PREFIX,
+    REVIEWS_PREFIX,
+    DEBATE_PREFIX,
+    PROJECT_DOCS_PREFIX,
+)
 
 # --- System noise (AI + user UI) ---
 # Directory set ↔ desktop ``LIST_FILES_SKIP_DIRS`` (parity gate).
@@ -218,6 +241,76 @@ def strip_root_label_prefix(relative_path: str, root_label: str) -> str:
     if first != root_label:
         return relative_path  # a different absolute root — leave it to be rejected
     return rest if rest else "."
+
+
+def _clean_path_segment(segment: str) -> str:
+    """Strip reserved chars from one path segment (directory or file name)."""
+    cleaned = _UNSAFE_IN_SEGMENT.sub("_", segment)
+    cleaned = _MULTI_UNDERSCORE.sub("_", cleaned).strip(" ._")
+    return cleaned or "_"
+
+
+def _clean_dossier_filename(rest: str) -> str:
+    """Flatten everything after a dossier prefix into one safe file name."""
+    cleaned = _UNSAFE_IN_FILENAME.sub("_", rest.replace("\\", "/"))
+    cleaned = _MULTI_UNDERSCORE.sub("_", cleaned).strip(" ._")
+    return cleaned or "untitled"
+
+
+def sanitize_write_relpath(
+    relative_path: str, *, root_label: str | None = "workspace"
+) -> str:
+    """Sanitize a model-supplied write path before landing on disk.
+
+    * Dangerous characters (controls, ``:*?"<>|``) → ``_``.
+    * Under dossier prefixes (``research`` / ``reviews`` / ``debate`` / ``项目``),
+      everything after the prefix is treated as a **single file name**: nested
+      ``/`` ``\\`` become ``_`` so ``…/research/a/b.md`` → ``…/research/a_b.md``.
+    * Elsewhere, directory structure is preserved; each segment is cleaned.
+    * ``..`` segments are left intact so the containment guard still rejects them.
+    * Empty / ``.`` inputs are returned unchanged (callers validate required paths).
+    * ``/<root_label>/…`` is rewritten to workspace-relative first so sandbox
+      absolutes still land correctly (and dossier flatten sees the relative form).
+    * Other absolute paths keep a leading ``/`` so containment can still refuse them.
+    """
+    if not relative_path or relative_path == ".":
+        return relative_path
+    unified = relative_path.replace("\\", "/").strip()
+    if not unified or unified == ".":
+        return relative_path if not (relative_path or "").strip() else "."
+    if unified == "/":
+        return "."
+    # Same rewrite resolve_safe_path applies: ``/workspace/foo`` → ``foo``.
+    if root_label:
+        unified = strip_root_label_prefix(unified, root_label)
+        if unified in (".", ""):
+            return "."
+    raw = unified.replace("\\", "/").strip()
+    if not raw or raw == ".":
+        return "."
+
+    for prefix in _DOSSIER_WRITE_PREFIXES:
+        bare = prefix.rstrip("/")
+        if raw in (bare, prefix):
+            return bare
+        if raw.startswith(prefix):
+            rest = raw[len(prefix) :]
+            if not rest or rest in (".", "/"):
+                return bare
+            return f"{prefix}{_clean_dossier_filename(rest)}"
+
+    absolute = raw.startswith("/")
+    parts = [p for p in raw.split("/") if p and p != "."]
+    if not parts:
+        return "/" if absolute else "."
+    cleaned: list[str] = []
+    for part in parts:
+        if part == "..":
+            cleaned.append("..")
+            continue
+        cleaned.append(_clean_path_segment(part))
+    joined = "/".join(cleaned)
+    return f"/{joined}" if absolute else joined
 
 
 def normalize_workspace_path(

@@ -9,7 +9,6 @@ from agentcore.conversation.local_turn import record_local_turn
 from agentcore.conversation.turns import (
     regenerate_chat,
     resume_chat,
-    retry_failed_chat,
     stream_chat,
 )
 
@@ -18,7 +17,6 @@ __all__ = [
     "record_local_turn",
     "regenerate_chat",
     "resume_chat",
-    "retry_failed_chat",
     "run_handoff_job",
     "stream_chat",
 ]

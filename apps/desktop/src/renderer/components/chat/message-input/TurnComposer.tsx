@@ -466,6 +466,7 @@ export function TurnComposer({
         tone="destructive"
         onClick={stopGeneration}
         aria-label="停止生成"
+        title="停止生成"
       >
         <Square size={14} />
       </IconButton>

@@ -1,3 +1,4 @@
+import { useConversationStore } from "@/stores/conversation";
 import { useInteractionStore } from "@/stores/interactions";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -23,6 +24,7 @@ function row(
 beforeEach(() => {
   usePausedTurnStore.getState().clear();
   useInteractionStore.getState().clear();
+  useConversationStore.setState({ currentConversationId: null, byId: {} });
 });
 
 describe("toMessage (reload hydrate)", () => {
@@ -142,6 +144,71 @@ describe("toMessage (reload hydrate)", () => {
       risks: ["回滚预案缺失"],
       suggestions: ["先灰度"],
     });
+  });
+
+  it("surface 画卡后清会话 isGenerating（冷挂起不变量）", () => {
+    useConversationStore.getState().switchConversation("c1");
+    useConversationStore.getState().addMessage(
+      {
+        id: "u1",
+        role: "user",
+        content: "q",
+        createdAt: "2026-01-01T00:00:00Z",
+        executionId: null,
+        isStreaming: false,
+      },
+      "c1",
+    );
+    useConversationStore.getState().addMessage(
+      {
+        id: "m-paused",
+        role: "assistant",
+        content: "partial",
+        createdAt: "2026-01-01T00:00:01Z",
+        executionId: null,
+        isStreaming: true,
+        status: "running",
+        serverMessageId: "m-paused",
+      },
+      "c1",
+    );
+    useConversationStore.getState().setGenerating(true, "c1");
+
+    toMessage(
+      row({
+        id: "m-paused",
+        role: "assistant",
+        content: "checkpoint body",
+        status: "running",
+        paused: true,
+        runs: {
+          events: [
+            {
+              type: "checkpoint_required",
+              payload: {
+                checkpoint_id: "ask-h",
+                conversation_id: "c1",
+                question: "选哪个？",
+                context: "",
+                assumptions: [],
+                questions: [],
+                style_options: [],
+              },
+            },
+          ],
+          finish_reason: "paused",
+        } as NonNullable<BackendMessage["runs"]>,
+      }),
+    );
+
+    expect(usePausedTurnStore.getState().pending).toHaveLength(1);
+    expect(usePausedTurnStore.getState().pending[0]?.kind).toBe("ask_user");
+    expect(useConversationStore.getState().byId.c1?.isGenerating).toBe(false);
+    expect(
+      useConversationStore
+        .getState()
+        .byId.c1?.messages.find((m) => m.id === "m-paused")?.isStreaming,
+    ).toBe(false);
   });
 
   it("journal cold interaction without ceo_review hydrates with no summary", () => {

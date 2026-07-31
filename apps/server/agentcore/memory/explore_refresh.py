@@ -5,8 +5,9 @@ schedules a **silent** per-folder refresh: workspace snapshot → memory-tier LL
 merge-write 导航/画像 (optional topics) → update fingerprint + clear dirty.
 
 Never blocks the user turn. Never runs CEO+delegate+team_preview.
-``文档/项目/`` is out of scope here (D1: pending explore still bans form=files;
-this bypass does not go through worker form=files either).
+``文档/项目/`` is out of scope here (D1: explore-pending workers use
+``write_scope=explore_memory``, which still bans thick project dossiers;
+this bypass does not go through worker write tools either).
 """
 
 from __future__ import annotations

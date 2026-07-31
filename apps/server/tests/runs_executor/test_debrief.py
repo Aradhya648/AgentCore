@@ -96,6 +96,26 @@ def test_lone_string_key_points_is_tolerated():
     assert debrief == {"summary": "S", "key_points": ["单条要点"]}
 
 
+def test_markdown_list_key_points_are_split():
+    """Models often emit key_points as a markdown bullet string — harvest splits it."""
+    raw = (
+        '{"summary": "S", "key_points": "- 响应降到 120ms\\n- 改动 auth/login.py\\n'
+        '- 未覆盖边缘路径"}'
+    )
+    debrief = debrief_from_transcript([_handoff(raw)])
+    assert debrief == {
+        "summary": "S",
+        "key_points": ["响应降到 120ms", "改动 auth/login.py", "未覆盖边缘路径"],
+    }
+
+
+def test_json_array_string_key_points_still_parsed():
+    debrief = debrief_from_transcript(
+        [_handoff('{"summary": "S", "key_points": "[\\"a\\", \\"b\\"]"}')]
+    )
+    assert debrief == {"summary": "S", "key_points": ["a", "b"]}
+
+
 def test_blank_key_points_entries_dropped():
     debrief = debrief_from_transcript(
         [_handoff('{"summary": "S", "key_points": ["有内容", "   ", ""]}')]

@@ -61,6 +61,7 @@ from .shared_spaces import SharedSpaceRepository
 from .simulation import SimulationRepository
 from .standing_tasks import StandingTaskRepository, StandingTaskRunRepository
 from .stream_state import TurnStreamStateRepository
+from .user_workflows import UserWorkflowRepository
 from .users import (
     UserBlockRepository,
     UserDirectoryRepository,
@@ -106,4 +107,5 @@ __all__ = [
     "UserDirectoryRepository",
     "UserLlmProviderRepository",
     "UserRepository",
+    "UserWorkflowRepository",
 ]

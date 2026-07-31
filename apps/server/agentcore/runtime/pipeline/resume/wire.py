@@ -305,8 +305,9 @@ async def _wire_continuation_toolset(
     if board_channel is not None:
         register_board_ceo_tools(chat_tools)
 
-    # Same explore-pending sink as fresh assemble (resume mid-explore still hard-rejects
-    # form=files until update_project_profile clears the flag).
+    # Same explore-pending sink as fresh assemble (resume mid-explore: suppress
+    # structured files_written inference + worker write_scope=explore_memory until
+    # update_project_profile clears the flag).
     if memory_enabled and folder_id:
         from agentcore.memory.explore_profile import project_profile_explore_reason
         from agentcore.memory.store import default_memory_store
@@ -318,6 +319,7 @@ async def _wire_continuation_toolset(
         )
         if explore_reason:
             base_tool_context.cold_start_explore_pending = True
+            base_tool_context.write_scope = "explore_memory"
 
     return ResumedWiring(
         base_tool_context=base_tool_context,

@@ -266,6 +266,33 @@ async def _drive_body(
             and tool._depth == 0
             and not finalize
         )
+        if (
+            merging_into_active
+            and existing_coord is not None
+            and (
+                getattr(existing_coord.live_plan, "topology_lock", False)
+                or getattr(tool, "_topology_lock", False)
+            )
+        ):
+            from agentcore.core.types import ToolEffect
+            from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
+            from agentcore.tools.protocol import ToolResult
+
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=(
+                        "当前为工作流拓扑锁：禁止再委派追加队员；"
+                        "可用 replan(steers=…) 改未跑步骤说明。"
+                    ),
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=0,
+                has_deps=False,
+            )
 
     if session is None:
         preview_early = await team_preview_before_workers(

@@ -155,7 +155,7 @@ class TurnRunRegistry:
         return self._runs.get(conversation_id)
 
     def stop(self, conversation_id: str) -> bool:
-        """Cancel the conversation's active run (explicit user 停止).
+        """Hard-cancel the conversation's active run (explicit ``POST .../stop``).
 
         Returns ``True`` if a live run was found and signalled, ``False`` when
         nothing is running (already finished / never started) — so the endpoint is
@@ -183,7 +183,7 @@ class TurnRunRegistry:
         return True
 
     def is_user_stop(self, conversation_id: str) -> bool:
-        """True when the current (or still-unwinding superseded) run is a user 停止.
+        """True when the current (or still-unwinding superseded) run is a hard 停止.
 
         Checks the calling task first so an overlap-cancelled older task still
         salvages as user-stop after the newer run has taken the registry slot.
@@ -197,8 +197,8 @@ class TurnRunRegistry:
     def is_clean_cancel(self, conversation_id: str) -> bool:
         """True when CancelledError should terminal-close + release (not orphan).
 
-        Covers explicit user ``/stop`` (and overlap supersede) plus lifespan
-        shutdown salvage. True hard kill without lifespan still orphans.
+        Covers explicit ``/stop`` (and overlap supersede) plus lifespan shutdown
+        salvage. True hard kill without lifespan still orphans.
         """
         return self.is_user_stop(conversation_id) or self.is_shutdown_salvage()
 
@@ -294,11 +294,7 @@ async def salvage_turns_on_shutdown(*, timeout: float | None = None) -> None:
     """
     from agentcore.config import settings
 
-    grace = (
-        float(timeout)
-        if timeout is not None
-        else float(settings.turn_shutdown_grace_seconds)
-    )
+    grace = float(timeout) if timeout is not None else float(settings.turn_shutdown_grace_seconds)
     turn_runs.begin_shutdown_salvage()
     leftovers = await turn_runs.stop_all_and_drain(timeout=grace)
     if not leftovers:

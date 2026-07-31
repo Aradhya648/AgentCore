@@ -103,6 +103,9 @@ async def test_file_deliverable_sections_and_length_read_from_written_file(tmp_p
     root = tmp_path / "ws"
     root.mkdir()
     ctx = _ctx_over(root)
+    # Role「研究员」→ artifact_dir defaults to RESEARCH_DIR; dossier paths count
+    # as product landing without needing declared artifacts.
+    paper_path = f"{RESEARCH_DIR}/paper.md"
     plan, _ = build_run_plan(
         [
             {
@@ -110,6 +113,7 @@ async def test_file_deliverable_sections_and_length_read_from_written_file(tmp_p
                 "task": "写论文并落盘",
                 "deliverable": {
                     "form": "files",
+                    "artifacts": [paper_path],
                     "required_sections": ["方法", "结论"],
                     "min_length": 80,
                 },
@@ -120,8 +124,6 @@ async def test_file_deliverable_sections_and_length_read_from_written_file(tmp_p
     reg = ToolRegistry()
     reg.register(_RealFileWriteTool())
     paper = "# 方法\n" + "详实的方法论描述。" * 12 + "\n\n# 结论\n" + "扎实可信的结论。" * 12
-    # Role「研究员」→ artifact_dir defaults to RESEARCH_DIR; write under that prefix.
-    paper_path = f"{RESEARCH_DIR}/paper.md"
     # The chat note deliberately lacks the sections and is short.
     provider = _WriteThenTerseProse(paper_path, paper, f"论文已写入 {paper_path}")
     executor = build_agent_executor(

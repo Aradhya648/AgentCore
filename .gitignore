@@ -169,6 +169,9 @@ _*_timeline.txt
 # Server local data (MVP long-term memory files, see apps/server/agentcore/memory/store.py)
 apps/server/data/
 data/
+# Packaged town story-packs (gen:story-packs) — not runtime data/; CI --check needs them tracked
+!apps/server/agentcore/simulation/data/
+!apps/server/agentcore/simulation/data/demo-story-packs.json
 
 # Eval fixture workspaces may grow AgentCore/ trash when a probe mutates them
 apps/server/agentcore/evals/fixtures/**/.agentcore/

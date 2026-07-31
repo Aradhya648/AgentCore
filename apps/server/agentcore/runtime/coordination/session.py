@@ -61,9 +61,7 @@ def split_coordination_budget(total: int) -> tuple[int, int]:
 DEFAULT_PROGRESS_BUDGET, DEFAULT_DECISION_BUDGET = split_coordination_budget(
     DEFAULT_COORDINATION_BUDGET
 )
-MAX_PROGRESS_BUDGET, MAX_DECISION_BUDGET = split_coordination_budget(
-    MAX_COORDINATION_BUDGET
-)
+MAX_PROGRESS_BUDGET, MAX_DECISION_BUDGET = split_coordination_budget(MAX_COORDINATION_BUDGET)
 
 
 def _budget_pools_from_dict(data: dict[str, Any]) -> tuple[int, int]:
@@ -79,6 +77,7 @@ def _budget_pools_from_dict(data: dict[str, Any]) -> tuple[int, int]:
         return max(0, progress), max(0, decision)
     legacy = int(data.get("budget_remaining", DEFAULT_COORDINATION_BUDGET))
     return split_coordination_budget(legacy)
+
 
 # Fallback per-worker wall-clock before a timeout *notification* (CEO decides; no auto-cancel).
 # Prefer ``RunPolicy.timeout_s`` from worker_budget backstop (or CEO-explicit ``timeout_ms``).
@@ -98,9 +97,7 @@ _sessions: dict[str, CoordinationSession] = {}
 # Reverse index: conversation_id → execution_id for mid-flight message routing
 # (POST …/messages while a coordination turn is live).
 _by_conversation: dict[str, str] = {}
-current_execution_id: ContextVar[str | None] = ContextVar(
-    "current_execution_id", default=None
-)
+current_execution_id: ContextVar[str | None] = ContextVar("current_execution_id", default=None)
 
 
 class CoordinationEventKind(StrEnum):
@@ -342,9 +339,7 @@ class CoordinationSession:
     # Live RunPlan owned by the active drive — mid-coordination secondary
     # ``delegate`` appends workers here (same graph / same session).
     live_plan: Any | None = field(default=None, repr=False)
-    _queue: asyncio.Queue[CoordinationEvent] = field(
-        default_factory=asyncio.Queue, repr=False
-    )
+    _queue: asyncio.Queue[CoordinationEvent] = field(default_factory=asyncio.Queue, repr=False)
     # Events already drained but not yet consumed by an LLM round (merge buffer).
     _pending: list[CoordinationEvent] = field(default_factory=list, repr=False)
     # Wakes ``wait_events`` when snapshot/drain moves queue items into ``_pending``
@@ -367,6 +362,9 @@ class CoordinationSession:
     # Explicit user /stop cascaded cancel — release_turn_coordination must clear
     # (not detach) so the background drive does not outlive the stopped turn.
     user_stopped: bool = False
+    # Note-wall coordination mode for this batch (``wall`` | ``none``). Used by idle
+    # wait to keep the main turn open when wall + 0 completions (要等齐).
+    coordination: str = "none"
     _timeout_notified: set[str] = field(default_factory=set, repr=False)
     # B·超时预警：先于 CEO TIMEOUT 通知，供 worker react_loop 消费进入收尾窗口。
     _timeout_warned: set[str] = field(default_factory=set, repr=False)
@@ -386,9 +384,7 @@ class CoordinationSession:
     resolved_arbitrations: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Mid-flight user interjections awaiting CEO disposition. Credentials are
     # process-local only — journal snapshots strip ``llm_credentials``.
-    pending_interjections: dict[str, dict[str, Any]] = field(
-        default_factory=dict, repr=False
-    )
+    pending_interjections: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
     # Live SSE sink for coordination UX (``coordination_wait``). Set by host when
     # arming; not snapshotted — resume re-attaches from the live tool sink.
     event_sink: Any | None = field(default=None, repr=False)
@@ -543,9 +539,7 @@ class CoordinationSession:
             turn_attached=self.turn_attached,
             harvest_scheduled=self.harvest_scheduled,
             all_completed_injected=self.all_completed_injected,
-            detail=(
-                "终态对账失败：execution 已投递终态，但未收敛到附着回合注入或收口 harvest。"
-            ),
+            detail=("终态对账失败：execution 已投递终态，但未收敛到附着回合注入或收口 harvest。"),
         )
 
     def mark_worker_completed(self, run_id: str) -> None:
@@ -583,9 +577,7 @@ class CoordinationSession:
                 "file_ownership.completion_handoff",
                 run_id=rid,
                 execution_id=self.execution_id,
-                transfers=[
-                    {"path": path, "new_owner": new_owner} for path, new_owner in moved
-                ],
+                transfers=[{"path": path, "new_owner": new_owner} for path, new_owner in moved],
             )
         except Exception:  # noqa: BLE001
             pass
@@ -631,9 +623,7 @@ class CoordinationSession:
             started = self._worker_started_at.get(run_id)
             elapsed = int(now - started) if started is not None else 0
             status = busy_label.get(self._busy_workers.get(run_id, ""), "轮间/无进行中调用")
-            lines.append(
-                f"  - 【{role}】run_id={run_id} 已运行 {elapsed}s · {status}"
-            )
+            lines.append(f"  - 【{role}】run_id={run_id} 已运行 {elapsed}s · {status}")
         done = len(self.completed_run_ids)
         total = self.total_workers
         head = f"队员进展（已完成 {done}/{total}）："
@@ -663,9 +653,7 @@ class CoordinationSession:
         suffix_hits = sorted(rid for rid in self._running_workers if rid.endswith(suffix))
         if len(suffix_hits) == 1:
             return CancelResolution(run_id=suffix_hits[0], reason="suffix")
-        role_hits = sorted(
-            rid for rid, role in self._running_workers.items() if role == target
-        )
+        role_hits = sorted(rid for rid, role in self._running_workers.items() if role == target)
         if len(role_hits) == 1:
             return CancelResolution(run_id=role_hits[0], reason="role")
         candidates = tuple(sorted(set(suffix_hits) | set(role_hits)))
@@ -737,11 +725,7 @@ class CoordinationSession:
             self._timeout_notified.add(run_id)
             self._timeout_wind_down_pending.add(run_id)
             started = self._worker_started_at.get(run_id)
-            elapsed = (
-                (time.monotonic() - started)
-                if started is not None
-                else guard.threshold_s
-            )
+            elapsed = (time.monotonic() - started) if started is not None else guard.threshold_s
             status = "cancel_requested" if run_id in self.cancel_ids else "running"
             self.post(
                 CoordinationEvent(
@@ -908,10 +892,7 @@ class CoordinationSession:
                 return True
             if ev.kind is CoordinationEventKind.BOUNDARY_YIELD:
                 return True
-            if (
-                ev.kind is CoordinationEventKind.WORKER_COMPLETED
-                and not self._saw_first_completion
-            ):
+            if ev.kind is CoordinationEventKind.WORKER_COMPLETED and not self._saw_first_completion:
                 return True
         return False
 
@@ -1083,12 +1064,8 @@ class CoordinationSession:
             active=self.active,
             cancel_run_ids=sorted(self.cancel_ids),
             pending_events=pending,
-            pending_arbitrations=[
-                dict(v) for v in self.pending_arbitrations.values()
-            ],
-            resolved_arbitrations=[
-                dict(v) for v in self.resolved_arbitrations.values()
-            ],
+            pending_arbitrations=[dict(v) for v in self.pending_arbitrations.values()],
+            resolved_arbitrations=[dict(v) for v in self.resolved_arbitrations.values()],
             live_plan=live_plan_json,
             pending_interjections=interjections,
             all_completed_injected=self.all_completed_injected,
@@ -1168,9 +1145,7 @@ class CoordinationSession:
             iid = str(raw.get("interjection_id") or "").strip()
             if not iid:
                 continue
-            payload = {
-                k: v for k, v in raw.items() if k in _INTERJECTION_SNAPSHOT_KEYS
-            }
+            payload = {k: v for k, v in raw.items() if k in _INTERJECTION_SNAPSHOT_KEYS}
             session.pending_interjections[iid] = payload
         if snap.saw_first_completion or snap.completed_run_ids:
             session._saw_first_completion = True
@@ -1401,7 +1376,8 @@ async def _run_harvest(session: CoordinationSession) -> None:
             "coordination.harvest_failed",
             execution_id=session.execution_id,
         )
-        _close_detached_session(session)
+        # Keep registry on unexpected failure so harvest remains observable /
+        # re-adoptable — do not silently unregister without a closing turn.
 
 
 def active_coordination_for_conversation(

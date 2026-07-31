@@ -850,6 +850,7 @@ export class SidecarManager {
     await entry.client.request("cancel", {
       turnId: req.turnId,
       ...(req.conversationId ? { conversationId: req.conversationId } : {}),
+      ...(req.reason ? { reason: req.reason } : {}),
     });
   }
 
@@ -1077,7 +1078,7 @@ export function registerSidecarIpc(): void {
       SIDECAR_CHANNELS.cancel,
       req,
       ["rootId", "turnId"],
-      ["subpath"],
+      ["subpath", "conversationId", "reason"],
     );
     return manager.cancel(req);
   });

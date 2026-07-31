@@ -208,4 +208,27 @@ describe("performWorkspaceOp (本地工作区 op 回填)", () => {
     expect(workspaceOp).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("aborts on timeout_ms and posts liveness IO error", async () => {
+    const workspaceOp = vi.fn(
+      () =>
+        new Promise<{ ok: true; value: string }>((resolve) => {
+          setTimeout(() => resolve({ ok: true, value: "late" }), 500);
+        }),
+    );
+    stubFsApi(workspaceOp);
+
+    await performWorkspaceOp(
+      payload({ request_id: "r-abort", timeout_ms: 20 }),
+      "c1",
+    );
+
+    const body = postedBody(fetchMock) as {
+      ok: boolean;
+      error: { kind: string; detail: string };
+    };
+    expect(body.ok).toBe(false);
+    expect(body.error.kind).toBe("WorkspaceIOError");
+    expect(body.error.detail).toContain("活性挂起");
+  });
 });

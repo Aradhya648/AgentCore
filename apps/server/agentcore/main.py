@@ -40,6 +40,7 @@ from agentcore.api.routes import (
     system,
     usage,
     users,
+    workflows,
     workspaces,
 )
 from agentcore.auth.retention import refresh_token_retention_loop
@@ -468,6 +469,7 @@ app.include_router(sharing.router, prefix="/v1")
 app.include_router(sharing.public_router)
 app.include_router(standing_tasks.router, prefix="/v1")
 app.include_router(standing_tasks.hooks_router, prefix="/v1")
+app.include_router(workflows.router, prefix="/v1")
 app.include_router(usage.router, prefix="/v1")
 app.include_router(users.router, prefix="/v1")
 app.include_router(workspaces.router, prefix="/v1")

@@ -15,7 +15,6 @@ import { resolveSidecarRoot } from "@/services/sidecarRouting";
 import {
   regenerateConversation,
   resumeConversation,
-  retryFailedConversation,
 } from "@/services/streamConversation";
 import { resumeConversationViaSidecar } from "@/services/streamConversationViaSidecar";
 import { getRuntime, useConversationStore } from "@/stores/conversation";
@@ -24,6 +23,7 @@ import { clearInteractionPrompts } from "@/stores/interactionPrompts";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
 import type { PendingResume } from "@/stores/pausedTurns";
 import {
+  finalizeGeneratingForPausedConversation,
   finalizeGeneratingIfNeeded,
   isAbort,
   isTransportDrop,
@@ -111,52 +111,6 @@ export async function runRegenerate(
 }
 
 /**
- * Retry only the failed worker nodes from the previous turn's execution.
- *
- * Unlike runRegenerate (which re-runs everything from scratch), this tells
- * the backend to reuse completed worker results and only re-run the failed
- * ones — saving time and cost when most workers succeeded.
- */
-export async function runRetryFailed(userMessageId: string): Promise<void> {
-  const store = useConversationStore.getState();
-  const conversationId = store.currentConversationId;
-  if (!conversationId || getRuntime(conversationId).isGenerating) return;
-
-  store.clearError(conversationId);
-  bumpConversationCache(conversationId);
-  store.truncateAfter(userMessageId, conversationId);
-  store.createAssistantMessage(conversationId);
-
-  const ac = new AbortController();
-  store.setAbort(ac, conversationId);
-  beginTurnPreflight(conversationId);
-  try {
-    await retryFailedConversation({
-      conversationId,
-      messageId: userMessageId,
-      signal: ac.signal,
-    });
-  } catch (err) {
-    if (isAbort(err)) return;
-    if (isTransportDrop(err) && (await rejoinLiveTurn(conversationId))) return;
-    const s = useConversationStore.getState();
-    if (getRuntime(conversationId).isGenerating) {
-      s.finalizeLastMessage(conversationId);
-    }
-    clearInteractionPrompts(conversationId);
-    const msg = describeStreamError(err);
-    if (msg) {
-      const retry = isRetriableStreamError(err)
-        ? () => void runRetryFailed(userMessageId)
-        : null;
-      s.setError(msg, retry, conversationId, streamErrorAction(err));
-    }
-  } finally {
-    useConversationStore.getState().setAbort(null, conversationId);
-  }
-}
-
-/**
  * Continue a durably-paused turn (结构化挂起 2b resume) and stream the continuation.
  *
  * The turn paused at a plan_review / ask_user checkpoint and was persisted, then
@@ -189,15 +143,22 @@ export async function runResume(
     throw new Error("resume blocked: no active conversation");
   }
   if (getRuntime(conversationId).isGenerating) {
-    // 正在生成时静默 return 会让 ResumePrompt 的 submitting 永远转圈（无请求、无 catch）。
-    // 抛错让调用方复位 submitting，并给用户可感知反馈。
-    store.setError(
-      "当前回合仍在生成中，请稍后再点继续",
-      null,
-      conversationId,
-      null,
-    );
-    throw new Error("resume blocked: turn is still generating");
+    // Defense: cold pending card + stuck generating is illegal — clear then continue.
+    // True mid-stream (no cold card) still blocks so ResumePrompt submitting resets.
+    const hasColdPending = usePausedTurnStore
+      .getState()
+      .pending.some((p) => p.conversationId === conversationId);
+    if (hasColdPending) {
+      finalizeGeneratingForPausedConversation(conversationId);
+    } else {
+      store.setError(
+        "当前回合仍在生成中，请稍后再点继续",
+        null,
+        conversationId,
+        null,
+      );
+      throw new Error("resume blocked: turn is still generating");
+    }
   }
 
   store.clearError(conversationId);

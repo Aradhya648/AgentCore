@@ -38,10 +38,14 @@ from agentcore.api.schemas import (
     CloneRepoResponse,
     ConvertMdToDocxRequest,
     ConvertMdToDocxResponse,
+    ConvertMdToPdfRequest,
+    ConvertMdToPdfResponse,
     CreateDirRequest,
     CreateSnapshotRequest,
     ExportDocxRequest,
     ExportDocxResponse,
+    ExportPdfRequest,
+    ExportPdfResponse,
     MoveFileRequest,
     SnapshotListResponse,
     SnapshotSummary,
@@ -64,7 +68,15 @@ from agentcore.docs_export.md_to_docx import (
     convert_markdown_to_docx,
     docx_path_for_markdown,
 )
-from agentcore.docs_export.workspace_export import ExportMarkdownError, export_markdown_path
+from agentcore.docs_export.md_to_pdf import (
+    convert_markdown_to_pdf,
+    pdf_path_for_markdown,
+)
+from agentcore.docs_export.workspace_export import (
+    ExportMarkdownError,
+    export_markdown_path,
+    export_markdown_to_pdf_path,
+)
 from agentcore.shared_spaces.service import SharedSpaceService
 from agentcore.shared_spaces.types import can_write
 from agentcore.storage import SnapshotNotFound
@@ -548,6 +560,74 @@ async def export_workspace_docx(
         raise ValidationError(e.message) from e
 
     return ExportDocxResponse(
+        path=result.output_path,
+        source_path=result.source_path,
+        size_bytes=result.size_bytes,
+        warnings=list(result.warnings),
+    )
+
+
+@router.post("/convert/md-to-pdf", response_model=ConvertMdToPdfResponse)
+async def convert_md_to_pdf(
+    body: ConvertMdToPdfRequest,
+    user: AuthUser,
+):
+    """Stateless Markdown → PDF (shared converter; used by local desktop「导出 PDF」).
+
+    Does not touch a workspace. Auth required so the surface is not a public converter.
+    """
+    del user  # auth gate only
+    import base64
+
+    result = convert_markdown_to_pdf(body.markdown)
+    suggested = pdf_path_for_markdown(body.source_name or "document.md")
+    suggested = suggested.rsplit("/", 1)[-1] or "document.pdf"
+    return ConvertMdToPdfResponse(
+        pdf_base64=base64.b64encode(result.pdf_bytes).decode("ascii"),
+        warnings=list(result.warnings),
+        suggested_filename=suggested,
+    )
+
+
+@router.post("/{ws_id}/export-pdf", response_model=ExportPdfResponse)
+async def export_workspace_pdf(
+    ws_id: str,
+    body: ExportPdfRequest,
+    user: AuthUser,
+    conv_repo: ConversationRepository = Depends(get_conversation_repo),
+    folder_repo: FolderRepository = Depends(get_folder_repo),
+    shared_svc: SharedSpaceService = Depends(get_shared_space_service),
+):
+    """Export workspace Markdown to a sibling ``.pdf`` (shared ``md_to_pdf`` converter)."""
+    target = await _resolve_owned_workspace(
+        ws_id, user.user_id, conv_repo, folder_repo, shared_svc
+    )
+    _require_cloud(target)
+    _require_shared_write(target)
+
+    try:
+        async with workspace_lock(_storage_key(user.user_id, target)):
+            if target.space_id:
+                backend = build_shared_workspace(target.space_id)
+            else:
+                backend = build_server_workspace(
+                    user_id=user.user_id,
+                    folder_id=target.folder_id,
+                    conversation_id=target.conversation_id,
+                )
+            result = await export_markdown_to_pdf_path(backend, body.path)
+            if target.space_id:
+                await shared_svc.record_file_change(
+                    space_id=target.space_id,
+                    actor_user_id=user.user_id,
+                    actor_via="user",
+                    action="file_written",
+                    path=result.output_path,
+                )
+    except ExportMarkdownError as e:
+        raise ValidationError(e.message) from e
+
+    return ExportPdfResponse(
         path=result.output_path,
         source_path=result.source_path,
         size_bytes=result.size_bytes,

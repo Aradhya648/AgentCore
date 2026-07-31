@@ -338,9 +338,12 @@ const browserApi: BrowserApi = {
     ipcRenderer.invoke(BROWSER_CHANNELS.openWorkspaceHtml, input),
   reload: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.reload, { pageId }),
   back: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.back, { pageId }),
+  forward: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.forward, { pageId }),
   close: (pageId) => ipcRenderer.send(BROWSER_CHANNELS.close, { pageId }),
   closeConversation: (input) =>
     ipcRenderer.invoke(BROWSER_CHANNELS.closeConversation, input),
+  openExternal: (input) =>
+    ipcRenderer.invoke(BROWSER_CHANNELS.openExternal, input),
   onNavState: (cb) => {
     const listener = (_e: unknown, payload: BrowserNavState) => cb(payload);
     ipcRenderer.on(BROWSER_CHANNELS.navState, listener);

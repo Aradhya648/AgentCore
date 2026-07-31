@@ -1177,6 +1177,131 @@ async def test_admin_conversation_replay_merges_timeline(client, make_admin, ses
     assert spans[1]["success"] is True
     assert "a.py" in spans[1]["args_preview"]
     assert spans[1]["result_preview"] == "file body"
+    # Plain tool journal (no team surface) → empty runs list.
+    assert assistant_msg["runs"] == []
+
+
+async def test_admin_conversation_replay_projects_multi_agent_runs(
+    client, make_admin, session_factory
+):
+    """Multi-agent turn_journal projects lightweight ReplayRun (tree + full content)."""
+    username, password = await make_admin()
+    await login_admin(client, username, password)
+    alice = await _seed_user(session_factory, "alice")
+    trace_id = uuid4().hex
+    async with session_factory() as session:
+        conv = await ConversationRepository(session).create(
+            user_id=alice, title="多Agent复盘"
+        )
+        conv_id = conv.id
+        await MessageRepository(session).create(
+            conversation_id=conv_id, role="user", content="组队"
+        )
+        assistant = await MessageRepository(session).create(
+            conversation_id=conv_id,
+            role="assistant",
+            content="已安排",
+            trace_id=trace_id,
+        )
+        await TurnMetricsRepository(session).record(
+            turn_id=new_id(),
+            conversation_id=conv_id,
+            user_id=alice,
+            trace_id=trace_id,
+            agent_id="CEO",
+            kind="turn",
+            status="ok",
+            finish_reason="end_turn",
+            error=None,
+            rounds=2,
+            duration_ms=900,
+            delegated=True,
+            workers=1,
+            input_tokens=50,
+            output_tokens=40,
+        )
+        await TurnJournalRepository(session).record(
+            turn_id=assistant.id,
+            conversation_id=conv_id,
+            trace_id=trace_id,
+            entries=[
+                {
+                    "kind": "run_plan",
+                    "payload": {
+                        "execution_id": "e1",
+                        "plan_type": "multi_agent",
+                        "agents": [{"id": "w1", "role": "研究员", "thinking": True}],
+                        "runs": [
+                            {
+                                "id": "r1",
+                                "agent_id": "w1",
+                                "task": "调研",
+                                "depends_on": [],
+                            }
+                        ],
+                    },
+                    "ts": "t0",
+                },
+                {
+                    "kind": "run_started",
+                    "payload": {
+                        "run_id": "r1",
+                        "agent_id": "w1",
+                        "kind": "agent",
+                        "parent_run_id": "cap",
+                    },
+                    "ts": "t1",
+                },
+                {
+                    "kind": "message_final",
+                    "payload": {
+                        "run_id": "r1",
+                        "phase": "completed",
+                        "content": "队员交付全文",
+                        "reasoning": "",
+                    },
+                    "ts": None,
+                },
+                {
+                    "kind": "run_completed",
+                    "payload": {
+                        "run_id": "r1",
+                        "agent_id": "w1",
+                        "output_summary": "调研完成",
+                        "role": "member",
+                        "debrief": {"summary": "调研完成", "key_points": ["A"]},
+                    },
+                    "ts": "t2",
+                },
+                {
+                    "kind": "tool_call",
+                    "payload": {
+                        "run_id": "r1",
+                        "tool_call_id": "tc1",
+                        "name": "web_search",
+                        "arguments": "{}",
+                        "result": "hit",
+                        "success": True,
+                    },
+                    "ts": None,
+                },
+                {"kind": "turn_end", "payload": {"finish_reason": "end_turn"}, "ts": None},
+            ],
+        )
+
+    r = await client.get(f"/v1/admin/observability/conversations/{conv_id}")
+    assert r.status_code == 200, r.text
+    assistant_msg = next(m for m in r.json()["messages"] if m["role"] == "assistant")
+    runs = assistant_msg["runs"]
+    assert len(runs) == 1
+    assert runs[0]["run_id"] == "r1"
+    assert runs[0]["agent_id"] == "w1"
+    assert runs[0]["task"] == "调研"
+    assert runs[0]["content"] == "队员交付全文"
+    assert runs[0]["output_summary"] == "调研完成"
+    assert runs[0]["parent_run_id"] == "cap"
+    assert runs[0]["status"] == "completed"
+    assert any(s["run_id"] == "r1" and s["kind"] == "tool" for s in assistant_msg["spans"])
 
 
 async def test_admin_conversation_replay_surfaces_textless_error_turn(
@@ -1488,9 +1613,70 @@ async def test_admin_list_conversations_roster(client, make_admin, session_facto
     assert by_id[ok_id]["errors"] == 0
     assert by_id[ok_id]["messages"] == 2
     assert by_id[ok_id]["cost_total"] == 3000
+    assert by_id[ok_id]["delegated_turns"] == 1
+    assert by_id[ok_id]["workers"] == 1
     assert by_id[err_id]["errors"] == 1
     assert by_id[err_id]["cost_total"] == 1000
+    assert by_id[err_id]["delegated_turns"] == 1
     assert b["cny_per_usd"] == settings.cny_per_usd
+
+
+async def test_admin_list_conversations_filters_has_delegated(
+    client, make_admin, session_factory
+):
+    username, password = await make_admin()
+    await login_admin(client, username, password)
+    alice = await _seed_user(session_factory, "alice")
+    # Seed helper always records delegated=True; add a plain single-agent turn too.
+    multi_id, _ = await _seed_conversation_with_turn(
+        session_factory, user_id=alice, status="ok"
+    )
+    trace_id = uuid4().hex
+    async with session_factory() as session:
+        conv = await ConversationRepository(session).create(
+            user_id=alice, title="单Agent"
+        )
+        solo_id = conv.id
+        await MessageRepository(session).create(
+            conversation_id=solo_id, role="user", content="hi"
+        )
+        await MessageRepository(session).create(
+            conversation_id=solo_id,
+            role="assistant",
+            content="yo",
+            trace_id=trace_id,
+        )
+        await TurnMetricsRepository(session).record(
+            turn_id=new_id(),
+            conversation_id=solo_id,
+            user_id=alice,
+            trace_id=trace_id,
+            agent_id="CEO",
+            kind="turn",
+            status="ok",
+            finish_reason="end_turn",
+            error=None,
+            rounds=1,
+            duration_ms=100,
+            delegated=False,
+            workers=0,
+            input_tokens=10,
+            output_tokens=5,
+        )
+
+    r = await client.get("/v1/admin/conversations", params={"has_delegated": "true"})
+    assert r.status_code == 200, r.text
+    ids = {row["id"] for row in r.json()["data"]}
+    assert multi_id in ids
+    assert solo_id not in ids
+
+    r2 = await client.get(
+        "/v1/admin/conversations/turns", params={"delegated": "true"}
+    )
+    assert r2.status_code == 200, r2.text
+    turn_ids = {row["conversation_id"] for row in r2.json()["data"]}
+    assert multi_id in turn_ids
+    assert solo_id not in turn_ids
 
 
 async def test_admin_list_conversations_filters_has_errors(client, make_admin, session_factory):
@@ -1527,6 +1713,59 @@ async def test_admin_list_conversations_sort_by_cost(client, make_admin, session
     assert r.status_code == 200, r.text
     ids = [row["id"] for row in r.json()["data"]]
     assert ids.index(expensive_id) < ids.index(cheap_id)
+
+
+async def test_admin_list_conversations_sort_by_delegated(
+    client, make_admin, session_factory
+):
+    """``sort=delegated`` orders by multi-agent turn count (roster 委派列)."""
+    username, password = await make_admin()
+    await login_admin(client, username, password)
+    alice = await _seed_user(session_factory, "alice")
+    multi_id, _ = await _seed_conversation_with_turn(
+        session_factory, user_id=alice, status="ok"
+    )
+    # Plain single-agent conversation (delegated_turns = 0).
+    trace_id = uuid4().hex
+    async with session_factory() as session:
+        conv = await ConversationRepository(session).create(
+            user_id=alice, title="单Agent排序"
+        )
+        solo_id = conv.id
+        await MessageRepository(session).create(
+            conversation_id=solo_id, role="user", content="hi"
+        )
+        await MessageRepository(session).create(
+            conversation_id=solo_id,
+            role="assistant",
+            content="yo",
+            trace_id=trace_id,
+        )
+        await TurnMetricsRepository(session).record(
+            turn_id=new_id(),
+            conversation_id=solo_id,
+            user_id=alice,
+            trace_id=trace_id,
+            agent_id="CEO",
+            kind="turn",
+            status="ok",
+            finish_reason="end_turn",
+            error=None,
+            rounds=1,
+            duration_ms=100,
+            delegated=False,
+            workers=0,
+            input_tokens=10,
+            output_tokens=5,
+        )
+
+    r = await client.get(
+        "/v1/admin/conversations",
+        params={"sort": "delegated", "order": "desc", "user_id": alice},
+    )
+    assert r.status_code == 200, r.text
+    ids = [row["id"] for row in r.json()["data"]]
+    assert ids.index(multi_id) < ids.index(solo_id)
 
 
 async def test_admin_list_conversation_turns_feed(client, make_admin, session_factory):

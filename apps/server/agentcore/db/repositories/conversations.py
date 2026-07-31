@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.core.types import new_id
@@ -245,6 +245,7 @@ class ConversationRepository:
         query: str | None = None,
         user_id: str | None = None,
         has_errors: bool | None = None,
+        has_delegated: bool | None = None,
         include_deleted: bool = True,
         since: datetime | None = None,
         until: datetime | None = None,
@@ -258,7 +259,10 @@ class ConversationRepository:
         is always joined (tombstone accounts carry ``User.deleted_at``). Filters
         AND-combine: ``query`` ILIKEs title, ``user_id`` scopes to one account,
         ``has_errors`` keeps only conversations with ≥1 errored turn,
+        ``has_delegated`` keeps only conversations with ≥1 multi-agent turn,
         ``since``/``until`` bound ``updated_at`` (inclusive).
+        ``sort`` accepts ``updated_at`` / ``created_at`` / ``cost`` / ``delegated``
+        (multi-agent turn count).
         """
         cost_subq = (
             select(
@@ -268,10 +272,24 @@ class ConversationRepository:
             .group_by(CostEvent.conversation_id)
             .subquery()
         )
+        # Multi-agent rollup for ``sort=delegated`` (count of delegated turns).
+        delegated_subq = (
+            select(
+                TurnMetricsRow.conversation_id.label("conversation_id"),
+                func.sum(case((TurnMetricsRow.delegated.is_(True), 1), else_=0)).label(
+                    "delegated_turns"
+                ),
+            )
+            .group_by(TurnMetricsRow.conversation_id)
+            .subquery()
+        )
         base = (
             select(Conversation, User)
             .outerjoin(User, User.user_id == Conversation.user_id)
             .outerjoin(cost_subq, cost_subq.c.conversation_id == Conversation.id)
+            .outerjoin(
+                delegated_subq, delegated_subq.c.conversation_id == Conversation.id
+            )
             .where(Conversation.mode.notin_(("handoff", "standing")))
         )
         if not include_deleted:
@@ -300,6 +318,22 @@ class ConversationRepository:
                 .scalar_subquery()
             )
             base = base.where(Conversation.id.not_in(error_ids))
+        if has_delegated is True:
+            delegated_ids = (
+                select(TurnMetricsRow.conversation_id)
+                .where(TurnMetricsRow.delegated.is_(True))
+                .distinct()
+                .scalar_subquery()
+            )
+            base = base.where(Conversation.id.in_(delegated_ids))
+        elif has_delegated is False:
+            delegated_ids = (
+                select(TurnMetricsRow.conversation_id)
+                .where(TurnMetricsRow.delegated.is_(True))
+                .distinct()
+                .scalar_subquery()
+            )
+            base = base.where(Conversation.id.not_in(delegated_ids))
 
         count_result = await self._session.execute(
             select(func.count()).select_from(base.subquery())
@@ -308,6 +342,8 @@ class ConversationRepository:
 
         if sort == "cost":
             sort_col = func.coalesce(cost_subq.c.cost_total, 0)
+        elif sort == "delegated":
+            sort_col = func.coalesce(delegated_subq.c.delegated_turns, 0)
         elif sort == "created_at":
             sort_col = Conversation.created_at
         else:

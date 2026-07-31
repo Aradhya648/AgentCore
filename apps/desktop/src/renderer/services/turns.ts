@@ -12,9 +12,10 @@ export {
   markGhostInterrupted,
   settleCloudRunningAssistant,
 } from "./turns/recovery";
+export { runHydrateAttachSettle } from "./turns/hydrateAttachSettle";
 export { attachSidecarTurn } from "./turns/sidecarAttach";
 export { projectUnsyncedTurns } from "./turns/projectUnsynced";
-export { runRegenerate, runRetryFailed, runResume } from "./turns/regenerate";
+export { runRegenerate, runResume } from "./turns/regenerate";
 export {
   sendTurn,
   continueTurn,

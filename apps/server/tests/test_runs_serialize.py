@@ -184,7 +184,7 @@ def test_state_json_debrief_defaults_none():
 
 def test_state_json_round_trips_error_retryable():
     # 确定性失败区分 (BL-6): a deterministic failure's non-retryable verdict must survive the
-    # seed / journal round-trip so a resume / retry-failed rebuild + the audit trail keep it.
+    # seed / journal round-trip so a resume rebuild + the audit trail keep it.
     state = RunState(phase=RunPhase.FAILED, error="prompt too long", error_retryable=False)
     restored = state_from_json(state_to_json(state))
     assert restored.error_retryable is False

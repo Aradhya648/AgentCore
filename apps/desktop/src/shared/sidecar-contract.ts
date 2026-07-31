@@ -379,14 +379,20 @@ export interface SidecarRespondRequest {
   result: unknown;
 }
 
-/** 取消一个在跑的回合。 */
+/** 取消一个在跑的回合（对齐云 ``POST …/stop``）。 */
 export interface SidecarCancelRequest {
   rootId: string;
   /** 工作区子路径（同 `SidecarStartTurnRequest.subpath`）：寻址按 root+subpath 起的进程。 */
   subpath?: string;
   turnId: string;
-  /** 会话 id：sidecar cancel 级联 ``cancel_coordination_on_user_stop`` 用（与云 `/stop` 同语义）。 */
+  /** 会话 id：sidecar cancel 级联协调会话用。 */
   conversationId?: string;
+  /**
+   * 来源指纹（写入 `sidecar.turn_cancel_requested` / `sidecar.turn_cancelled`）。
+   * - `user_stop`：停止按钮硬取消
+   * - `abort_signal` / `attach_abort`：遗留枚举（桌面已不再对 Abort/attach 调 cancel）
+   */
+  reason?: "user_stop" | "abort_signal" | "attach_abort";
 }
 
 /** 用户中途改某个 worker 的方向（中间可见性 Phase 2a）。 */

@@ -18,9 +18,10 @@ DAILY_CONVERSATION_REVIEW: TemplateKey = "daily_conversation_review"
 _KNOWN: frozenset[str] = frozenset({DAILY_CONVERSATION_REVIEW})
 
 # Prefer ask on file writes so doc drafts go through the standing approvals gate.
+# Must stay legal: command=auto ∧ file_write=ask is rejected by PermissionAxes.
 DEFAULT_TEMPLATE_AXES: dict[str, str] = {
     "file_write": "ask",
-    "command": "auto",
+    "command": "ask",
     "team_kickoff": "skip",
     "host": "ask",
 }

@@ -6,6 +6,7 @@ import {
   CommandPanelBody,
   useCommandRegion,
 } from "@/components/graph/CanvasDecisionPanel";
+import { KillPtyConfirmDialog } from "@/components/terminal/KillPtyConfirmDialog";
 import {
   TerminalPanelBody,
   useTerminalRegion,
@@ -45,7 +46,10 @@ import {
   terminalDismissKey,
   useSidePanelStore,
 } from "@/stores/sidePanel";
-import { useUserTerminalStore } from "@/stores/userTerminals";
+import {
+  countBusyPtySessions,
+  useUserTerminalStore,
+} from "@/stores/userTerminals";
 import {
   Diff,
   FileText,
@@ -314,6 +318,46 @@ export function SidePanel() {
     bindTerminalSession,
   ]);
 
+  const [terminalCloseBusyCount, setTerminalCloseBusyCount] = useState<
+    number | null
+  >(null);
+  const [terminalCloseBusy, setTerminalCloseBusy] = useState(false);
+
+  const finishCloseTerminalTab = useCallback(async () => {
+    setTerminalCloseBusy(true);
+    try {
+      if (currentConversationId) {
+        const ok = await useUserTerminalStore
+          .getState()
+          .killConversation(currentConversationId);
+        if (!ok) return;
+      }
+      setTerminalCloseBusyCount(null);
+      closeTab(TEAM_TERMINAL_TAB_ID);
+    } finally {
+      setTerminalCloseBusy(false);
+    }
+  }, [currentConversationId, closeTab]);
+
+  const onCloseContentTab = useCallback(
+    (tabId: string) => {
+      if (tabId !== TEAM_TERMINAL_TAB_ID) {
+        closeTab(tabId);
+        return;
+      }
+      const sessions = currentConversationId
+        ? useUserTerminalStore.getState().sessionsFor(currentConversationId)
+        : [];
+      const busyCount = countBusyPtySessions(sessions);
+      if (busyCount > 0) {
+        setTerminalCloseBusyCount(busyCount);
+        return;
+      }
+      void finishCloseTerminalTab();
+    },
+    [closeTab, currentConversationId, finishCloseTerminalTab],
+  );
+
   if (!open) return null;
 
   return (
@@ -359,7 +403,7 @@ export function SidePanel() {
               tab={tab}
               active={tab.id === activeTab?.id}
               onSelect={() => setActiveTab(tab.id)}
-              onClose={() => closeTab(tab.id)}
+              onClose={() => onCloseContentTab(tab.id)}
             />
           ))}
         </div>
@@ -488,6 +532,19 @@ export function SidePanel() {
           </div>
         )}
       </div>
+      <KillPtyConfirmDialog
+        open={terminalCloseBusyCount != null}
+        onOpenChange={(next) => {
+          if (!next && !terminalCloseBusy) setTerminalCloseBusyCount(null);
+        }}
+        description={
+          terminalCloseBusyCount != null && terminalCloseBusyCount > 1
+            ? `关闭将终止 ${terminalCloseBusyCount} 个会话中的进程`
+            : "关闭将终止此终端中的进程"
+        }
+        busy={terminalCloseBusy}
+        onConfirm={() => void finishCloseTerminalTab()}
+      />
     </aside>
   );
 }

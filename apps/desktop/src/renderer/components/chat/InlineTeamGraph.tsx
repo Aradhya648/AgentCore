@@ -35,8 +35,6 @@ import { turnDetailPath } from "@/stores/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-/** Re-export for canvas 指挥台 and other consumers. */
-export { RecoveryActions } from "@/components/chat/StatusStrip";
 /** Re-export gate used by fixture tests and graph consumers. */
 export { teamHasStartedRuns } from "@/components/chat/debatePreviewPlacement";
 
@@ -45,7 +43,7 @@ const EMPTY_INTERJECTIONS: readonly UserInterjection[] = [];
 /**
  * The multi-agent turn's primary surface, embedded in the assistant message
  * at the `team` marker slot (below the CEO lead-in content step): a compact
- * status strip (lifecycle + cost + recovery) over the live collaboration graph.
+ * status strip (lifecycle + cost) over the live collaboration graph.
  *
  * Per-message (§9.3): keyed by the assistant message id, so live and reloaded
  * (historical) multi-agent turns render identically — the live turn streams into

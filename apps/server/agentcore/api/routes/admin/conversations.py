@@ -44,10 +44,11 @@ async def list_conversations(
     q: str | None = Query(None, max_length=100),
     user_id: str | None = Query(None),
     has_errors: bool | None = Query(None),
+    has_delegated: bool | None = Query(None),
     include_deleted: bool = Query(True),
     since: datetime | None = Query(None),
     until: datetime | None = Query(None),
-    sort: Literal["updated_at", "created_at", "cost"] = Query("updated_at"),
+    sort: Literal["updated_at", "created_at", "cost", "delegated"] = Query("updated_at"),
     order: Literal["asc", "desc"] = Query("desc"),
     conversations: ConversationRepository = Depends(get_conversation_repo),
     messages_repo: MessageRepository = Depends(get_message_repo),
@@ -56,9 +57,10 @@ async def list_conversations(
 ) -> AdminConversationListResponse:
     """平台对话名册 (对话页 · 会话段): cross-user paginated conversation index.
 
-    Each row carries owner identity, housekeeping flags, message/turn/error rollups,
-    and all-time spend. Filters AND-combine; soft-deleted conversations are included
-    by default (``include_deleted=false`` hides them). Drill into 会话复盘 by ``id``.
+    Each row carries owner identity, housekeeping flags, message/turn/error/
+    multi-agent rollups, and all-time spend. Filters AND-combine; soft-deleted
+    conversations are included by default (``include_deleted=false`` hides them).
+    Drill into 会话复盘 by ``id``.
     """
     rows, total = await conversations.list_admin(
         page=page,
@@ -66,6 +68,7 @@ async def list_conversations(
         query=q,
         user_id=user_id,
         has_errors=has_errors,
+        has_delegated=has_delegated,
         include_deleted=include_deleted,
         since=since,
         until=until,
@@ -79,7 +82,9 @@ async def list_conversations(
 
     data: list[AdminConversationListItem] = []
     for conv, owner in rows:
-        stats = turn_stats.get(conv.id, {"turns": 0, "errors": 0})
+        stats = turn_stats.get(
+            conv.id, {"turns": 0, "errors": 0, "delegated_turns": 0, "workers": 0}
+        )
         title = conv.title or None
         if title == "":
             title = None
@@ -99,6 +104,8 @@ async def list_conversations(
                 turns=stats["turns"],
                 errors=stats["errors"],
                 cost_total=costs.get(conv.id, 0),
+                delegated_turns=stats["delegated_turns"],
+                workers=stats["workers"],
             )
         )
 
@@ -119,6 +126,8 @@ async def list_conversation_turns(
     user_id: str | None = Query(None),
     conversation_id: str | None = Query(None),
     status: Literal["ok", "error"] | None = Query(None),
+    delegated: bool | None = Query(None),
+    trace_id: str | None = Query(None),
     since: datetime | None = Query(None),
     until: datetime | None = Query(None),
     include_deleted_conversations: bool = Query(True),
@@ -128,7 +137,8 @@ async def list_conversation_turns(
 
     Finer-grained than the session roster — each row is one ``turn_metrics`` record
     with conversation title + owner identity for triage. Newest-first; filters
-    AND-combine. Drill into 会话复盘 by ``conversation_id``.
+    AND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).
+    Drill into 会话复盘 by ``conversation_id``.
     """
     rows, total = await metrics_repo.list_platform(
         page=page,
@@ -136,6 +146,8 @@ async def list_conversation_turns(
         user_id=user_id,
         conversation_id=conversation_id,
         status=status,
+        delegated=delegated,
+        trace_id=trace_id,
         include_deleted_conversations=include_deleted_conversations,
         since=since,
         until=until,

@@ -8,6 +8,7 @@ import { useExecutionStore } from "@/stores/execution";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
 import {
   RECONNECT_BANNER,
+  finalizeGeneratingForPausedConversation,
   isAbort,
   isTransportDrop,
   lastUserMessageOf,
@@ -139,25 +140,33 @@ export function markGhostInterrupted(conversationId: string): void {
  * ``attached:false`` precedent), then decide on the fresh facts:
  *
  * - live ∧ paused=0 → rejoin
- * - paused≥1 → leave alone (``loadRecovery`` already hydrated pause store)
- * - still !live ∧ paused=0 → real dead-lease / TTL degrade → ghost
+ * - paused≥1 → hold + clear generating/streaming (card + isGenerating is illegal)
+ * - cloudKnown ∧ !live ∧ paused=0 → real dead-lease / TTL degrade → ghost
+ * - !cloudKnown → unknown (request failed); never ghost — hold
  */
 export async function settleCloudRunningAssistant(
   conversationId: string,
   recovery: ConversationRecovery,
 ): Promise<"rejoin" | "ghost" | "hold"> {
   let snap = recovery;
-  if (!snap.cloudLive && snap.pausedCount === 0) {
+  // Empty or unknown cloud facts: one refresh before deciding (same race as pause).
+  if ((!snap.cloudKnown || !snap.cloudLive) && snap.pausedCount === 0) {
     snap = await loadRecovery(conversationId);
   }
   if (snap.cloudLive && snap.pausedCount === 0) {
     void rejoinLiveTurn(conversationId);
     return "rejoin";
   }
+  if (!snap.cloudKnown) {
+    // Failure ≠ confirmed idle — leave the running assistant alone.
+    return "hold";
+  }
   if (!snap.cloudLive && snap.pausedCount === 0) {
     markGhostInterrupted(conversationId);
     return "ghost";
   }
+  // paused≥1: force clear even if pausedTurns lag the recovery snap.
+  finalizeGeneratingForPausedConversation(conversationId, { force: true });
   return "hold";
 }
 

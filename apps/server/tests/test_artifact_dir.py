@@ -61,12 +61,12 @@ def test_apply_empty_artifacts_keeps_shared_dir_without_fake_artifact():
 def test_describe_mentions_artifact_dir_filename_only():
     d = Deliverable(form="files", artifact_dir=RESEARCH_DIR, artifacts=[])
     desc = describe_deliverable(d)
-    assert f"案卷落盘目录：`{RESEARCH_DIR}/`" in desc
+    assert f"建议案卷落盘目录：`{RESEARCH_DIR}/`" in desc
     assert "只定文件名" in desc
     assert "勿写到工作区根" in desc
 
 
-def test_contract_root_write_fails_under_artifact_dir():
+def test_contract_root_write_warns_under_artifact_dir():
     d = Deliverable(form="files", artifact_dir=RESEARCH_DIR, requires_files=True, artifacts=[])
     root = check_contract(
         "已写",
@@ -74,8 +74,8 @@ def test_contract_root_write_fails_under_artifact_dir():
         files_written=1,
         workspace_paths=["miro-research.md"],
     )
-    assert not root.ok
-    assert any("案卷目录" in f or "未落盘" in f for f in root.failures)
+    assert root.ok
+    assert any("案卷目录" in w for w in root.warnings)
 
     ok = check_contract(
         "已写",
@@ -84,6 +84,7 @@ def test_contract_root_write_fails_under_artifact_dir():
         workspace_paths=[f"{RESEARCH_DIR}/miro-research.md"],
     )
     assert ok.ok
+    assert not any("案卷目录" in w for w in ok.warnings)
 
 
 def test_build_run_plan_injects_artifact_dir_for_dossier_batch():
@@ -169,3 +170,75 @@ def test_build_run_plan_leaves_website_artifacts_alone():
     assert d is not None
     assert d.artifact_dir == ""
     assert d.artifacts == ["site/index.html"]
+
+
+def test_resolve_ignores_research_path_citation_in_coding_brief():
+    """复现：UX/前端 brief 只引用案卷设计文档路径 → 不得绑 RESEARCH_DIR。"""
+    d = Deliverable(form="files", artifacts=["src/ui/goalTracker.ts"])
+    task = (
+        "按 `AgentCore/文档/research/法庭迷局/UX系统设计.md` 实现导航与 goalTracker；"
+        "落盘 src/ui/"
+    )
+    assert resolve_artifact_dir(d, role="UX 系统工程师", task=task) == ""
+
+    empty = Deliverable(form="files")
+    assert (
+        resolve_artifact_dir(empty, role="前端工程师", task=task) == ""
+    )
+
+
+def test_resolve_path_citation_plus_real_research_intent_still_binds():
+    """剥掉路径后仍有「调研」成文意图 → 仍绑案卷。"""
+    d = Deliverable(form="files")
+    task = f"阅读 `{RESEARCH_DIR}/旧笔记.md` 后继续调研竞品并落盘"
+    assert resolve_artifact_dir(d, role="竞品分析师", task=task) == RESEARCH_DIR
+
+
+def test_resolve_code_verified_skips_semantic_dossier():
+    d = Deliverable(form="files")
+    assert (
+        resolve_artifact_dir(
+            d,
+            role="修码工程师",
+            task="研究现有导航并修好类型错误",
+            code_verified=True,
+        )
+        == ""
+    )
+
+
+def test_resolve_code_verified_keeps_explicit_dossier_artifacts():
+    d = Deliverable(
+        form="files",
+        artifacts=[f"{RESEARCH_DIR}/调研笔记.md"],
+    )
+    assert (
+        resolve_artifact_dir(
+            d, role="研究员", task="写调研", code_verified=True
+        )
+        == RESEARCH_DIR
+    )
+
+
+def test_build_run_plan_coding_brief_with_research_path_no_artifact_dir():
+    plan, errors = build_run_plan(
+        [
+            {
+                "role": "UX 系统工程师",
+                "task": (
+                    "根据 AgentCore/文档/research/法庭迷局/UX系统设计.md "
+                    "实现 src/ui 交互系统"
+                ),
+                "deliverable": {
+                    "form": "files",
+                    "artifacts": ["src/ui/nav_system.ts"],
+                },
+            }
+        ],
+        code_verified=True,
+    )
+    assert errors == []
+    d = plan.nodes[0].deliverable
+    assert d is not None
+    assert d.artifact_dir == ""
+    assert d.artifacts == ["src/ui/nav_system.ts"]

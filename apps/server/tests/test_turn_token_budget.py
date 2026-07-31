@@ -576,7 +576,7 @@ def test_audit_and_debate_gates_suppressed_when_ceiling_hit(monkeypatch):
         lambda: 0,
     )
     controller = LoopController()
-    controller.mark_post_delegate(node_count=3, has_deps=True)
+    controller.mark_post_delegate(node_count=3, has_deps=True, audit_hard=True)
     assert should_audit_gate(controller, role="captain") is True
     assert should_debate_gate(controller, role="captain", messages=debate_msgs) is True
 
@@ -592,6 +592,20 @@ def test_audit_and_debate_gates_suppressed_when_ceiling_hit(monkeypatch):
         assert should_debate_gate(controller, role="captain", messages=debate_msgs) is False
     finally:
         reset_turn_token_meter(token)
+
+
+def test_should_audit_gate_skips_without_hard_when_ceiling_off(monkeypatch):
+    """Substantial parallel_brief-style batch must not soft-nudge without audit_hard."""
+    from agentcore.runtime.engine.governance import should_audit_gate
+    from agentcore.runtime.loop_controller import LoopController
+
+    monkeypatch.setattr(
+        "agentcore.runtime.turn_token_budget.resolve_turn_token_ceiling",
+        lambda: 0,
+    )
+    controller = LoopController()
+    controller.mark_post_delegate(node_count=3, has_deps=True)
+    assert should_audit_gate(controller, role="captain") is False
 
 
 def test_turn_token_budget_gate_seed_round_trip():

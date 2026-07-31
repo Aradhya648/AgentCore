@@ -4,7 +4,7 @@
 1. turn 结束 finally（防御性）
 2. lease sweeper / 启动恢复（先 orphan 再 recover）
 3. resolve 端点兜底（journal 有 required、无 Future → 410）
-4. regenerate / retry-failed / stop
+4. regenerate / stop
 
 规则：只 orphan 热路四 kind；``awaiting=ceo`` 不 orphan；断连 Future 存活不 orphan。
 """
@@ -103,7 +103,7 @@ async def emit_orphan_fact(
 
 
 async def orphan_live_turn_hot_pending(conversation_id: str) -> list[str]:
-    """Orphan hot pending before stop / regenerate / retry-failed (触发点④).
+    """Orphan hot pending before stop / regenerate (触发点④).
 
     Reads the **live** turn's ``sink.message_id`` as journal ``turn_id`` (not the
     regenerate target user-message id). HTTP handlers have no ContextVar journal

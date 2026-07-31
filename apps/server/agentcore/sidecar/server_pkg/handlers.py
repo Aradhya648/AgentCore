@@ -47,16 +47,12 @@ class HandlerMixin:
             return
 
         raw_user = params.get("userId")
-        self._user_id = resolve_sidecar_user_id(
-            None if raw_user is None else str(raw_user)
-        )
+        self._user_id = resolve_sidecar_user_id(None if raw_user is None else str(raw_user))
         self._root = root.resolve()
         self._creds = self._parse_inference(params.get("inference"))
         self._apply_browser_bridge(params)
         self._approvals_enabled = bool(params.get("approvalsEnabled", True))
-        self._permission_axes = (
-            self._parse_permission_axes(params) or DEFAULT_PERMISSION_AXES
-        )
+        self._permission_axes = self._parse_permission_axes(params) or DEFAULT_PERMISSION_AXES
         data_dir = str(params.get("dataDir") or "").strip()
         self._paused_store = self._build_paused_store(data_dir)
         self._outbox_store = self._build_outbox_store(data_dir)
@@ -279,9 +275,7 @@ class HandlerMixin:
         task = asyncio.create_task(self._run_turn(request_id, turn_id, params))
         self._register_turn(turn_id, task, conversation_id=conversation_id)
 
-    async def _reject_if_tape_bound_local(
-        self, request_id: Any, conversation_id: str
-    ) -> bool:
+    async def _reject_if_tape_bound_local(self, request_id: Any, conversation_id: str) -> bool:
         """Return True when the startTurn RPC was rejected (caller must return)."""
         from agentcore.demo_tape.binding import LOCAL_SESSION_BOUND_MSG, resolve_binding
 
@@ -430,17 +424,25 @@ class HandlerMixin:
         await self._reply(request_id, {"data": summaries})
 
     async def _on_cancel(self, request_id: Any, params: dict[str, Any]) -> None:
-        """Explicit user stop — same cascade semantics as cloud ``POST …/stop``.
+        """Explicit user stop — mirrors cloud ``POST …/stop`` (hard cancel).
 
-        Marks coordination ``user_stopped`` and cancels the drive / in-flight workers
-        *before* ``task.cancel()``, so ``release_turn_coordination`` clears instead of
-        detach-and-continue. SSE disconnect must NOT use this path.
+        Cascade-cancels live coordination then cancels the turn task. ``mode`` /
+        ``reason`` only fingerprint the salvage log (``user_stop`` / abort tags).
         """
-        turn_id = str(params.get("turnId") or "")
-        conversation_id = (
-            str(params.get("conversationId") or "").strip()
-            or self._turn_conversations.get(turn_id, "")
+        from agentcore.sidecar.server_pkg.cancel_mark import (
+            CANCEL_REASON_ATTR,
+            normalize_cancel_reason,
         )
+
+        turn_id = str(params.get("turnId") or "")
+        reason = normalize_cancel_reason(params.get("reason"))
+        # Hard cancel only; legacy pause / unspecified / unknown tags → user_stop.
+        # Preserve abort_signal / attach_abort fingerprints for salvage logs.
+        if reason not in ("abort_signal", "attach_abort"):
+            reason = "user_stop"
+
+        cid_from_params = str(params.get("conversationId") or "").strip()
+        conversation_id = cid_from_params or self._turn_conversations.get(turn_id, "")
         cascaded = False
         if conversation_id:
             from agentcore.runtime.coordination.session import (
@@ -449,11 +451,30 @@ class HandlerMixin:
 
             cascaded = cancel_coordination_on_user_stop(conversation_id)
         task = self._turns.get(turn_id)
+        task_found = task is not None
+        task_done = bool(task is not None and task.done())
+        task_cancelled = False
         if task is not None and not task.done():
+            setattr(task, CANCEL_REASON_ATTR, reason)
             task.cancel()
-            await self._reply(request_id, {"cancelled": True})
+            task_cancelled = True
+            await self._reply(request_id, {"cancelled": True, "mode": "cancel"})
         else:
-            await self._reply(request_id, {"cancelled": cascaded})
+            await self._reply(
+                request_id,
+                {"cancelled": cascaded, "mode": "cancel"},
+            )
+        logger.info(
+            "sidecar.turn_cancel_requested",
+            turn_id=turn_id or None,
+            conversation_id=conversation_id or None,
+            reason=reason,
+            mode="cancel",
+            cascaded=cascaded,
+            task_found=task_found,
+            task_done=task_done,
+            task_cancelled=task_cancelled,
+        )
 
     async def _on_run_redirect(self, request_id: Any, params: dict[str, Any]) -> None:
         from agentcore.runtime.runs.redirect_queue import enqueue_redirect, peek_redirect_count
@@ -465,7 +486,9 @@ class HandlerMixin:
         if not execution_id or not run_id or not feedback or not conversation_id:
             await self._send(
                 protocol.make_error(
-                    request_id, protocol.INVALID_PARAMS, "runRedirect requires executionId, runId, feedback, conversationId"
+                    request_id,
+                    protocol.INVALID_PARAMS,
+                    "runRedirect requires executionId, runId, feedback, conversationId",
                 )
             )
             return
@@ -551,9 +574,7 @@ class HandlerMixin:
         """A1+ local: baseline zip vs live workspace (read-only; no cloud path)."""
         if self._root is None:
             await self._send(
-                protocol.make_error(
-                    request_id, protocol.INVALID_REQUEST, "sidecar not initialized"
-                )
+                protocol.make_error(request_id, protocol.INVALID_REQUEST, "sidecar not initialized")
             )
             return
         message_id = str(params.get("messageId") or "").strip()
@@ -566,7 +587,9 @@ class HandlerMixin:
             return
         baseline_raw = params.get("baselineSnapshotId")
         baseline_id = (
-            str(baseline_raw).strip() if baseline_raw is not None and str(baseline_raw).strip() else None
+            str(baseline_raw).strip()
+            if baseline_raw is not None and str(baseline_raw).strip()
+            else None
         )
         from agentcore.workspace.turn_diff import compute_local_turn_files_diff
 
@@ -627,9 +650,7 @@ class HandlerMixin:
         """A2′ local: unzip baseline over workspace (never cloud restoreSnapshot)."""
         if self._root is None:
             await self._send(
-                protocol.make_error(
-                    request_id, protocol.INVALID_REQUEST, "sidecar not initialized"
-                )
+                protocol.make_error(request_id, protocol.INVALID_REQUEST, "sidecar not initialized")
             )
             return
         snapshot_id = str(
@@ -647,9 +668,7 @@ class HandlerMixin:
         from agentcore.workspace.turn_diff import restore_local_turn_baseline
 
         try:
-            await restore_local_turn_baseline(
-                workspace_root=self._root, snapshot_id=snapshot_id
-            )
+            await restore_local_turn_baseline(workspace_root=self._root, snapshot_id=snapshot_id)
         except FileNotFoundError:
             await self._send(
                 protocol.make_error(
@@ -659,8 +678,6 @@ class HandlerMixin:
             return
         except Exception as e:
             logger.warning("sidecar.restore_turn_baseline_failed", error=str(e), exc_info=True)
-            await self._send(
-                protocol.make_error(request_id, protocol.INTERNAL_ERROR, str(e))
-            )
+            await self._send(protocol.make_error(request_id, protocol.INTERNAL_ERROR, str(e)))
             return
         await self._reply(request_id, {"ok": True, "snapshot_id": snapshot_id})

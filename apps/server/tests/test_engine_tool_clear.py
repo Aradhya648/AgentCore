@@ -392,6 +392,23 @@ def test_apply_file_read_clear_state_sticky_no_second_grant():
     assert second.file_read_reread_issued["a.md"] is True
 
 
+def test_refresh_file_read_reread_grant_allows_rework_reread():
+    """Citation/contract rework refreshes sticky grant so same path is readable once more."""
+    from agentcore.runtime.engine.tool_clear import refresh_file_read_reread_grant
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+
+    ctx = _context()
+    ctx.file_read_counts["draft.md"] = FILE_READ_SAME_PATH_MAX
+    ctx.file_read_reread_issued["draft.md"] = True
+    ctx.file_read_reread_remaining["draft.md"] = 0  # prior grant consumed
+
+    refreshed = refresh_file_read_reread_grant(ctx, ["draft.md", "AgentCore/文档/research/a.md"])
+    assert refreshed == ["draft.md", "AgentCore/文档/research/a.md"]
+    assert ctx.file_read_reread_remaining["draft.md"] == 1
+    assert ctx.file_read_reread_remaining["AgentCore/文档/research/a.md"] == 1
+    assert ctx.file_read_reread_issued["draft.md"] is True
+
+
 def test_canonical_messages_untouched_by_projection():
     """Journal / canonical keep full bodies — only the projected view clears."""
     msgs = _window(6, size=200)

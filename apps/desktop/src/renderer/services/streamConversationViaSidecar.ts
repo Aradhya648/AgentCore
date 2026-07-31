@@ -339,22 +339,13 @@ async function runSidecarTurn({
     });
   });
 
-  const onAbort = (): void => {
-    // Abort 不是停止权威（stopGeneration 走 stopConversation → cancel）；此处仅在
-    // 其它 abort 路径（如切会话）尽力通知引擎，失败不吞进 UI（fire-and-forget）。
-    void window.sidecarApi
-      .cancel({ rootId, subpath, turnId, conversationId })
-      .catch(() => {});
-  };
-
   const primaryToken = claimPrimaryStream(conversationId);
   try {
-    // 开流门禁：已 abort / stopping|terminal → 不 invoke（H1）。Abort 只负责断流；权威是 phase。
+    // 开流门禁：已 abort / stopping|terminal → 不 invoke（H1）。
+    // AbortSignal 只挡开流 / 表示 UI 观察结束——**禁止**据此 cancel 引擎（C1：断连 ≠
+    // 取消；停引擎只走 stopConversation → user_stop）。
     throwIfCannotOpenStream(conversationId, signal);
     enterTurnStreaming(conversationId);
-    if (signal) {
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
 
     const result = await invoke();
     // 记下本回合真正跑的模型（引擎侧 resolve_turn_model），供输入框徽章如实展示；纯云会话
@@ -397,7 +388,6 @@ async function runSidecarTurn({
     flushPendingFrames(conversationId);
     clearActiveSidecarTurn(conversationId, turnId);
     claim.release();
-    signal?.removeEventListener("abort", onAbort);
     releasePrimaryStream(conversationId, primaryToken);
   }
 }

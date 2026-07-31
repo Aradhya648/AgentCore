@@ -393,31 +393,37 @@ async def test_delegate_append_latest_resolves_recent_graph(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delegate_append_latest_without_graph_errors(monkeypatch):
-    """latest 解析不到候选 → 显式错误回 CEO；禁止静默新建图（不发任何图事件）。"""
+async def test_delegate_append_latest_without_graph_auto_creates(monkeypatch):
+    """latest 解析不到候选 → 自动不带 append 新建团队（成功回执写明未命中）。"""
 
     async def fake_latest(*, conversation_id: str, exclude_message_id=None) -> str | None:
         return None
+
+    async def fake_drive(tool, plan, **kwargs):  # noqa: ANN001
+        return ToolResult(tool_call_id="", success=True, output="ok")
 
     monkeypatch.setattr(
         "agentcore.runtime.delegate.graph_append.resolve_latest_appendable_execution",
         fake_latest,
     )
+    monkeypatch.setattr("agentcore.tools.builtin.delegate.tool.drive", fake_drive)
     t = tool(Provider(["X"]))
     t._conversation_id = "c"
     result = await t.execute(
         {
             "tasks": [{"role": "撰写员", "task": "写稿"}],
             "append_to_execution_id": "latest",
+            "coordinate": False,
         },
         ctx(),
     )
-    assert result.success is False
-    assert "没有可追加" in (result.error or "")
-    assert "新建" in (result.error or "")
+    assert result.success is True
+    out = result.output or ""
+    assert "latest 未命中" in out or "已自动新建" in out
+    assert "新开团队" in out or "新组建" in out
+    assert "已往上方协作图追加" not in out
     kinds = [e.type for e in t._sink._history]
     assert EventType.GRAPH_APPEND not in kinds
-    assert EventType.RUN_PLAN not in kinds
 
 
 @pytest.mark.asyncio

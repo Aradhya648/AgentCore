@@ -23,7 +23,6 @@ TASK_DELIVERABLE_SCHEMA: dict[str, object] = {
         "required_sections": {"type": "array", "items": {"type": "string"}},
         "must_contain": {"type": "array", "items": {"type": "string"}},
         "min_length": {"type": "integer"},
-        "max_length": {"type": "integer"},
         "output_format": {"type": "string", "enum": ["text", "json"]},
         "requires_files": {"type": "boolean"},
         "artifacts": {"type": "array", "items": {"type": "string"}},
@@ -121,7 +120,10 @@ DELEGATE_PARAMETERS = {
         "finalize": {"type": "boolean"},
         "append_to_execution_id": {
             "type": "string",
-            "description": "跨回合追加：\"latest\" 或 execution_id。",
+            "description": (
+                '跨回合追加："latest" 或 execution_id；'
+                "latest 未命中可追加图时自动新建。"
+            ),
         },
         "coordinate": {
             "type": "boolean",

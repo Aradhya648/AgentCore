@@ -373,6 +373,10 @@ class AdminConversationListItem(BaseModel):
     turns: int
     errors: int
     cost_total: int
+    # Multi-agent rollup: turns that delegated (≥1 worker) + max workers across those turns.
+    # ``delegated_turns > 0`` drives the roster「多 Agent」badge / ``has_delegated`` filter.
+    delegated_turns: int = 0
+    workers: int = 0
 
 
 class AdminConversationListResponse(BaseModel):
@@ -464,6 +468,32 @@ class ReplaySpan(BaseModel):
     output_tokens: int | None = None
 
 
+class ReplayRun(BaseModel):
+    """One agent run in a turn's multi-agent tree (会话复盘 · 协作树节点).
+
+    Lightweight triage projection — NOT the full ``RunsPayload.events``. Sourced
+    from ``turn_journal`` via the existing display fold
+    (``runs_from_entries`` → ``project_turn``) plus ``message_final`` for full
+    worker text. ``spans`` stay on the parent ``ReplayMessage`` and are grouped
+    client-side by ``run_id``.
+    """
+
+    run_id: str
+    agent_id: str
+    role: str | None = None
+    kind: str = "agent"  # agent | captain | …
+    task: str = ""
+    status: str = "pending"
+    parent_run_id: str | None = None
+    depends_on: list[str] = []
+    # Worker deliverable body (message_final full text); None when absent.
+    content: str | None = None
+    # Structured handoff brief {summary/key_points/assumptions/next_steps}, or None.
+    debrief: dict | None = None
+    output_summary: str | None = None
+    error: str | None = None
+
+
 class ReplayMessage(BaseModel):
     """One message in a 会话复盘 timeline (the thread + per-turn overlays).
 
@@ -471,7 +501,8 @@ class ReplayMessage(BaseModel):
     trace_id), spend (``cost_total``, summed from cost_events by message_id), and the
     turn's execution spans (``spans``, projected from turn_journal); user messages
     have none. ``content`` is the raw message text (the prompt / reply) — the
-    substance of the post-mortem.
+    substance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight
+    tree nodes for triage — not the desktop team canvas).
     """
 
     id: str
@@ -485,6 +516,8 @@ class ReplayMessage(BaseModel):
     # The turn's tool/LLM spans (turn_journal projection); empty for user prompts and
     # for turns that journaled nothing (a plain single-agent chat with no tools).
     spans: list[ReplaySpan] = []
+    # Multi-agent run tree (empty for plain chat / user prompts).
+    runs: list[ReplayRun] = []
 
 
 class ReplayConversation(BaseModel):

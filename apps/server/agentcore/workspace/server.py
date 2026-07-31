@@ -43,6 +43,7 @@ from agentcore.workspace.external_mounts import (
 )
 from agentcore.workspace.indexing.maintainer import IndexMaintainer
 from agentcore.workspace.indexing.manager import IndexManager
+from agentcore.workspace.limits import FILE_TOO_LARGE_DETAIL, WORKSPACE_READ_MAX_BYTES
 from agentcore.workspace.local import LocalWorkspace
 from agentcore.workspace.locks import workspace_lock
 from agentcore.workspace.protocol import (
@@ -374,6 +375,18 @@ class ServerWorkspace:
             self._index_manager = IndexManager.for_workspace_root(str(self._root.resolve()))
         return self._index_manager
 
+    def _reject_oversized_file(self, target: Path) -> None:
+        """Capacity contract: refuse whole-file loads above ``WORKSPACE_READ_MAX_BYTES``.
+
+        Same detail string as desktop Local so the tool layer can mark ``contract_failure``.
+        """
+        try:
+            size = target.stat().st_size
+        except OSError as e:
+            raise WorkspaceIOError(str(e)) from e
+        if size > WORKSPACE_READ_MAX_BYTES:
+            raise WorkspaceIOError(FILE_TOO_LARGE_DETAIL)
+
     async def read(self, path: str) -> str:
         if self._external_needs_channel(path):
             return await self._require_external_bridge().read(path)
@@ -383,6 +396,7 @@ class ServerWorkspace:
             raise PathNotFound(path)
         if not target.is_file():
             raise NotAFile(path)
+        self._reject_oversized_file(target)
         try:
             return target.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
@@ -439,6 +453,7 @@ class ServerWorkspace:
             raise PathNotFound(path)
         if not target.is_file():
             raise NotAFile(path)
+        self._reject_oversized_file(target)
         try:
             return target.read_bytes()
         except OSError as e:
@@ -477,6 +492,7 @@ class ServerWorkspace:
             raise PathNotFound(path)
         if not target.is_file():
             raise NotAFile(path)
+        self._reject_oversized_file(target)
         try:
             raw = target.read_bytes()
             mtime_ms = target.stat().st_mtime_ns // 1_000_000
@@ -581,6 +597,7 @@ class ServerWorkspace:
             raise PathNotFound(path)
         if not target.is_file():
             raise NotAFile(path)
+        self._reject_oversized_file(target)
         try:
             content = target.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:

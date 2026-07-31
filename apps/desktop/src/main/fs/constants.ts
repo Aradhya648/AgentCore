@@ -8,8 +8,8 @@ export const LIST_FILES_MAX_DEPTH = 12; // 递归最大深度，防极深目录
 export { LIST_FILES_SKIP_DIRS } from "./workspaceIgnore";
 
 // --- 本地工作区 op（双模式工作区 P2）执行边界 ---
-// 整文读取上限：服务端 ServerWorkspace.read 不设上限（随后由工具层截断模型可见输出），
-// 但桌面在用户机器上整文读入内存，故加一道防 OOM 上限，超出按 IO 错误处理（已记差异）。
+// 整文读取上限：云 ServerWorkspace 与桌面 Local 对齐 ``WORKSPACE_READ_MAX``（5 MiB）；
+// 超限早失败为容量合同（工具层 ``contract_failure``），与活性墙钟超时分离。
 export const WORKSPACE_READ_MAX = 5 * 1024 * 1024; // 5 MiB
 export const WORKSPACE_LIST_MAX = 100; // 与 ServerWorkspace.list 的 _MAX_LIST_ENTRIES 对齐
 export const GREP_MAX_LINE = 300; // 截断超长命中行（如压缩产物），与服务端对齐

@@ -48,6 +48,7 @@ from .runs import (
 from .shared_spaces import SharedSpace, SharedSpaceEvent, SharedSpaceMember
 from .simulation import SimAgent, SimEvent, SimTick, SimulationRun
 from .standing_tasks import StandingTask, StandingTaskRun
+from .user_workflows import UserWorkflow
 from .users import User, UserBlock, UserDirectorySettings
 
 __all__ = [
@@ -97,5 +98,6 @@ __all__ = [
     "UserBlock",
     "UserDirectorySettings",
     "UserLlmProvider",
+    "UserWorkflow",
     "_new_uuid",
 ]

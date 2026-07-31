@@ -1488,3 +1488,335 @@ async def test_delete_standing_task_cascades_runs():
     assert deleted_rows == [task]
     assert await repo.delete("missing", user_id="u1") is False
     assert len(executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_job_without_workflow_uses_ceo_pipeline(monkeypatch):
+    """Unbound standing fire still calls ``_run_pipeline`` (CEO path)."""
+    from agentcore.standing_tasks import runner as runner_mod
+
+    task = SimpleNamespace(
+        id="task-1",
+        user_id="user-1",
+        folder_id="folder-1",
+        goal="普通目标",
+        name="普通",
+        permission_axes={},
+        cron="0 9 * * *",
+        enabled=True,
+        conversation_id="conv-1",
+        trigger_kind="schedule",
+        template_key=None,
+        template_config={},
+        workflow_id=None,
+    )
+    folder = SimpleNamespace(id="folder-1", local_root_id=None)
+    called: dict[str, int] = {"ceo": 0, "wf": 0}
+
+    class _Tasks:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, task_id, user_id=None):
+            return task
+
+        async def clear_lease(self, *a, **k):
+            return None
+
+        async def advance_next_run(self, *a, **k):
+            return None
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def mark_failed(self, run_id, *, error):
+            called["failed"] = error
+
+        async def mark_succeeded(self, run_id, *, summary):
+            called["ok"] = summary
+
+        async def mark_awaiting_user(self, run_id, *, summary=None):
+            return None
+
+        async def set_conversation_and_message(self, *a, **k):
+            return None
+
+    class _Folders:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, folder_id, user_id=None):
+            return folder
+
+    class _Convs:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id_unscoped(self, cid):
+            return SimpleNamespace(id=cid, folder_id="folder-1", title="x")
+
+    class _Msgs:
+        def __init__(self, session):
+            pass
+
+        async def create(self, **kwargs):
+            return SimpleNamespace(id="msg")
+
+        async def list_recent(self, *a, **k):
+            return []
+
+    class _Users:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, uid):
+            return SimpleNamespace(user_id=uid)
+
+    class _Paused:
+        def __init__(self, session):
+            pass
+
+        async def exists_for_conversation(self, cid):
+            return False
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(runner_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(runner_mod, "StandingTaskRepository", _Tasks)
+    monkeypatch.setattr(runner_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(runner_mod, "FolderRepository", _Folders)
+    monkeypatch.setattr(runner_mod, "ConversationRepository", _Convs)
+    monkeypatch.setattr(runner_mod, "MessageRepository", _Msgs)
+    monkeypatch.setattr(runner_mod, "PausedTurnRepository", _Paused)
+    monkeypatch.setattr(runner_mod, "UserRepository", _Users)
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_conversation_model_selection",
+        AsyncMock(return_value=SimpleNamespace(origin="byok", provider_id=None, model="m")),
+    )
+    monkeypatch.setattr(runner_mod, "preflight_llm_credentials", AsyncMock(return_value=None))
+    monkeypatch.setattr(runner_mod, "resolve_profile_set", AsyncMock(return_value=None))
+    monkeypatch.setattr(runner_mod, "resolve_memory_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        runner_mod, "resolve_conversation_history_access", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(runner_mod, "resolve_permission_axes", AsyncMock(return_value=None))
+    monkeypatch.setattr(runner_mod, "build_turn_backend", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(runner_mod, "load_chat_context", AsyncMock(return_value=[]))
+
+    class _Lock:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(runner_mod, "workspace_lock", lambda *a, **k: _Lock())
+    monkeypatch.setattr(runner_mod, "workspace_storage_key", lambda **k: "k")
+
+    async def fake_ceo(**kwargs):
+        called["ceo"] += 1
+        return {"finish_reason": FinishReason.END_TURN, "content": "ceo"}
+
+    async def fake_wf(**kwargs):
+        called["wf"] += 1
+        return {"finish_reason": FinishReason.END_TURN, "content": "wf"}
+
+    monkeypatch.setattr(runner_mod, "_run_pipeline", fake_ceo)
+    monkeypatch.setattr(runner_mod, "_run_workflow_pipeline", fake_wf)
+
+    await runner_mod.run_standing_task_job(run_id="run-1", task_id="task-1", advance_schedule=False)
+    assert called["ceo"] == 1
+    assert called["wf"] == 0
+    assert called.get("ok") == "ceo"
+
+
+@pytest.mark.asyncio
+async def test_run_job_with_workflow_uses_direct_start(monkeypatch):
+    """Bound workflow fire calls ``_run_workflow_pipeline`` (direct-start)."""
+    from agentcore.standing_tasks import runner as runner_mod
+
+    task = SimpleNamespace(
+        id="task-1",
+        user_id="user-1",
+        folder_id="folder-1",
+        goal="本轮补充",
+        name="绑工作流",
+        permission_axes={},
+        cron="0 9 * * *",
+        enabled=True,
+        conversation_id="conv-1",
+        trigger_kind="schedule",
+        template_key=None,
+        template_config={},
+        workflow_id="wf-1",
+    )
+    folder = SimpleNamespace(id="folder-1", local_root_id=None)
+    called: dict[str, object] = {"ceo": 0, "wf": 0, "wf_kwargs": None}
+
+    class _Tasks:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, task_id, user_id=None):
+            return task
+
+        async def clear_lease(self, *a, **k):
+            return None
+
+        async def advance_next_run(self, *a, **k):
+            return None
+
+    class _Runs:
+        def __init__(self, session):
+            pass
+
+        async def mark_failed(self, run_id, *, error):
+            called["failed"] = error
+
+        async def mark_succeeded(self, run_id, *, summary):
+            called["ok"] = summary
+
+        async def mark_awaiting_user(self, run_id, *, summary=None):
+            return None
+
+        async def set_conversation_and_message(self, *a, **k):
+            return None
+
+    class _Folders:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, folder_id, user_id=None):
+            return folder
+
+    class _Convs:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id_unscoped(self, cid):
+            return SimpleNamespace(id=cid, folder_id="folder-1", title="x")
+
+    class _Msgs:
+        def __init__(self, session):
+            pass
+
+        async def create(self, **kwargs):
+            called["user_message"] = kwargs.get("content")
+            return SimpleNamespace(id="msg")
+
+        async def list_recent(self, *a, **k):
+            return []
+
+    class _Users:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, uid):
+            return SimpleNamespace(user_id=uid)
+
+    class _Paused:
+        def __init__(self, session):
+            pass
+
+        async def exists_for_conversation(self, cid):
+            return False
+
+    class _WfRepo:
+        def __init__(self, session):
+            pass
+
+        async def get_by_id(self, workflow_id, *, user_id=None):
+            return SimpleNamespace(
+                id="wf-1",
+                name="三步质检",
+                version=2,
+                definition={
+                    "nodes": [
+                        {
+                            "id": "s1",
+                            "kind": "agent_step",
+                            "role": "质检",
+                            "task": "查一查",
+                        }
+                    ],
+                    "edges": [],
+                },
+            )
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(runner_mod, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(runner_mod, "StandingTaskRepository", _Tasks)
+    monkeypatch.setattr(runner_mod, "StandingTaskRunRepository", _Runs)
+    monkeypatch.setattr(runner_mod, "FolderRepository", _Folders)
+    monkeypatch.setattr(runner_mod, "ConversationRepository", _Convs)
+    monkeypatch.setattr(runner_mod, "MessageRepository", _Msgs)
+    monkeypatch.setattr(runner_mod, "PausedTurnRepository", _Paused)
+    monkeypatch.setattr(runner_mod, "UserRepository", _Users)
+    monkeypatch.setattr(
+        "agentcore.db.repositories.user_workflows.UserWorkflowRepository",
+        _WfRepo,
+    )
+    # Also patch the late import site used inside the job.
+    import agentcore.db.repositories.user_workflows as uw_mod
+
+    monkeypatch.setattr(uw_mod, "UserWorkflowRepository", _WfRepo)
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_conversation_model_selection",
+        AsyncMock(return_value=SimpleNamespace(origin="byok", provider_id=None, model="m")),
+    )
+    monkeypatch.setattr(runner_mod, "preflight_llm_credentials", AsyncMock(return_value=None))
+    monkeypatch.setattr(runner_mod, "resolve_profile_set", AsyncMock(return_value=None))
+    monkeypatch.setattr(runner_mod, "resolve_memory_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        runner_mod, "resolve_conversation_history_access", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(runner_mod, "resolve_permission_axes", AsyncMock(return_value=None))
+    monkeypatch.setattr(runner_mod, "build_turn_backend", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(runner_mod, "load_chat_context", AsyncMock(return_value=[]))
+
+    class _Lock:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(runner_mod, "workspace_lock", lambda *a, **k: _Lock())
+    monkeypatch.setattr(runner_mod, "workspace_storage_key", lambda **k: "k")
+
+    async def fake_ceo(**kwargs):
+        called["ceo"] = int(called["ceo"]) + 1
+        return {"finish_reason": FinishReason.END_TURN, "content": "ceo"}
+
+    async def fake_wf(**kwargs):
+        called["wf"] = int(called["wf"]) + 1
+        called["wf_kwargs"] = kwargs
+        return {"finish_reason": FinishReason.END_TURN, "content": "按图跑完"}
+
+    monkeypatch.setattr(runner_mod, "_run_pipeline", fake_ceo)
+    monkeypatch.setattr(runner_mod, "_run_workflow_pipeline", fake_wf)
+
+    await runner_mod.run_standing_task_job(run_id="run-1", task_id="task-1", advance_schedule=False)
+    assert called["ceo"] == 0
+    assert called["wf"] == 1
+    assert called.get("ok") == "按图跑完"
+    assert "三步质检" in str(called.get("user_message") or "")
+    assert "本轮补充" in str(called.get("user_message") or "")
+    wf_kwargs = called["wf_kwargs"]
+    assert isinstance(wf_kwargs, dict)
+    assert wf_kwargs["workflow_id"] == "wf-1"
+    assert wf_kwargs["workflow_version"] == 2

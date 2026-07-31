@@ -1,4 +1,3 @@
-import { WaitingForDecisionHint } from "@/components/chat/WaitingForDecisionHint";
 import { Badge, Button, DecisionCard, DecisionCardIcon } from "@/components/ui";
 import { notifyError } from "@/lib/toast";
 import { decideDelegationAuthorization } from "@/services/delegationAuth";
@@ -81,7 +80,6 @@ function DelegationAuthorizationCard({
         </DecisionCardIcon>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">团队授权</p>
-          <WaitingForDecisionHint />
           <p className="mt-0.5 text-xs text-muted-foreground">
             委派团队将可能使用中风险工具，请选择授权方式
           </p>

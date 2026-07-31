@@ -89,6 +89,7 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
     expect(recoveryIpc).toHaveBeenCalledWith({ conversationId: CID });
     expect(r.sidecarLive).toBe(true);
     expect(r.cloudLive).toBe(false);
+    expect(r.cloudKnown).toBe(true);
     expect(r.turnId).toBe("turn-1");
     expect(shouldHydrateLocalRecovery(r)).toBe(true);
   });
@@ -141,6 +142,7 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
     const r = await loadRecovery(CID);
     expect(r.pausedCount).toBe(1);
     expect(r.cloudLive).toBe(false);
+    expect(r.cloudKnown).toBe(false);
     expect(usePausedTurnStore.getState().pending).toHaveLength(1);
     expect(usePausedTurnStore.getState().pending[0]?.origin).toBe("sidecar");
   });
@@ -250,6 +252,7 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
     const r = await loadRecovery(CID);
     expect(r.sidecarLive).toBe(false);
     expect(r.cloudLive).toBe(true);
+    expect(r.cloudKnown).toBe(true);
     expect(shouldHydrateLocalRecovery(r)).toBe(false);
   });
 
@@ -383,6 +386,109 @@ describe("loadRecovery cold start (no React Query / no resolveSidecarRoot)", () 
     );
   });
 
+  it("cloud live + sidecar idle keeps host_shell approval (D6)", async () => {
+    const recoveryIpc = vi.fn(async () => ({
+      liveRunning: false,
+      turnId: undefined,
+      unsynced: [],
+      paused: [],
+    }));
+    apiGet.mockResolvedValue({
+      live_running: true,
+      paused: [],
+      pending_interactions: [
+        {
+          kind: "approval",
+          id: "a-cloud-host",
+          message_id: "m-cloud",
+          payload: {
+            approval_id: "a-cloud-host",
+            tool_name: "host_shell",
+            arguments: { command: "Get-CimInstance Win32_VideoController" },
+          },
+        },
+      ],
+    });
+
+    vi.stubGlobal("window", {
+      __WEB__: false,
+      sidecarApi: { recovery: recoveryIpc },
+    });
+
+    const r = await loadRecovery(CID);
+    expect(r.cloudLive).toBe(true);
+    expect(r.cloudKnown).toBe(true);
+    expect(r.sidecarLive).toBe(false);
+    expect(useInteractionStore.getState().get("a-cloud-host")?.status).toBe(
+      "pending",
+    );
+  });
+
+  it("cloud failure + sidecar idle keeps hot approval cards (unknown ≠ idle)", async () => {
+    useInteractionStore.getState().upsertRequired({
+      kind: "approval",
+      conversationId: CID,
+      messageId: "m1",
+      payload: {
+        approval_id: "a-unknown",
+        tool_name: "host_shell",
+        arguments: {},
+      },
+    });
+
+    const recoveryIpc = vi.fn(async () => ({
+      liveRunning: false,
+      unsynced: [],
+      paused: [],
+    }));
+    apiGet.mockRejectedValue(new Error("network down"));
+
+    vi.stubGlobal("window", {
+      __WEB__: false,
+      sidecarApi: { recovery: recoveryIpc },
+    });
+
+    const r = await loadRecovery(CID);
+    expect(r.cloudKnown).toBe(false);
+    expect(r.cloudLive).toBe(false);
+    expect(r.sidecarLive).toBe(false);
+    expect(useInteractionStore.getState().get("a-unknown")?.status).toBe(
+      "pending",
+    );
+  });
+
+  it("neither engine live drops hot approval cards", async () => {
+    useInteractionStore.getState().upsertRequired({
+      kind: "approval",
+      conversationId: CID,
+      messageId: "m1",
+      payload: {
+        approval_id: "a-stale",
+        tool_name: "host_shell",
+        arguments: {},
+      },
+    });
+
+    const recoveryIpc = vi.fn(async () => ({
+      liveRunning: false,
+      unsynced: [],
+      paused: [],
+    }));
+    apiGet.mockResolvedValue({
+      live_running: false,
+      paused: [],
+      pending_interactions: [],
+    });
+
+    vi.stubGlobal("window", {
+      __WEB__: false,
+      sidecarApi: { recovery: recoveryIpc },
+    });
+
+    await loadRecovery(CID);
+    expect(useInteractionStore.getState().get("a-stale")).toBeUndefined();
+  });
+
   it("empty recovery snapshot does not wipe non-empty live frames", async () => {
     // Live pause surfaced a card; stale/empty /recovery must not clear it.
     usePausedTurnStore.getState().addLiveResume({
@@ -444,6 +550,7 @@ describe("shouldHydrateLocalRecovery", () => {
       shouldHydrateLocalRecovery({
         sidecarLive: false,
         cloudLive: true,
+        cloudKnown: true,
         pausedCount: 0,
         unsynced: [],
       }),
@@ -452,6 +559,7 @@ describe("shouldHydrateLocalRecovery", () => {
       shouldHydrateLocalRecovery({
         sidecarLive: true,
         cloudLive: false,
+        cloudKnown: true,
         pausedCount: 0,
         unsynced: [],
       }),
@@ -460,6 +568,7 @@ describe("shouldHydrateLocalRecovery", () => {
       shouldHydrateLocalRecovery({
         sidecarLive: false,
         cloudLive: false,
+        cloudKnown: true,
         pausedCount: 1,
         unsynced: [],
       }),

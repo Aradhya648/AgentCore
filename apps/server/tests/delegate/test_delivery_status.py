@@ -783,11 +783,29 @@ def test_two_phase_predicate_and_playbook_stamp():
         Deliverable(form="files"),
         landed_paths=[research_path],
     )
+    # reviews/ 与 research/ 同口径进 two_phase
+    from agentcore.workspace.stage_dirs import REVIEWS_PREFIX
+
+    reviews_path = f"{REVIEWS_PREFIX}legal_review.md"
+    assert is_two_phase_citation_deliverable(
+        Deliverable(form="files", artifacts=[reviews_path])
+    )
+    assert is_two_phase_citation_deliverable(
+        Deliverable(form="files"),
+        landed_paths=[reviews_path],
+    )
     assert not is_two_phase_citation_deliverable(
         Deliverable(
             citation_mode="immediate",
             form="files",
             artifacts=[research_path],
+        )
+    )
+    assert not is_two_phase_citation_deliverable(
+        Deliverable(
+            citation_mode="immediate",
+            form="files",
+            artifacts=[reviews_path],
         )
     )
 

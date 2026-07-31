@@ -75,7 +75,7 @@ class AutonomyPolicy(StrEnum):
     """
 
     CAUTIOUS = "cautious"  # ask / ask / rules / off
-    LESS_INTERRUPT = "less_interrupt"  # session / auto / skip / ask (default)
+    LESS_INTERRUPT = "less_interrupt"  # session / auto / rules / ask (default)
     MANAGED = "managed"  # session / auto / skip / session
 
 
@@ -95,7 +95,7 @@ class PermissionAxes:
 
     file_write: FileWriteAxis = FileWriteAxis.SESSION
     command: CommandAxis = CommandAxis.AUTO
-    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.SKIP
+    team_kickoff: TeamKickoffAxis = TeamKickoffAxis.RULES
     host: HostAxis = HostAxis.ASK
 
     def __post_init__(self) -> None:
@@ -127,7 +127,7 @@ class PermissionAxes:
                 ),
                 command=CommandAxis(str(raw.get("command") or CommandAxis.AUTO.value)),
                 team_kickoff=TeamKickoffAxis(
-                    str(raw.get("team_kickoff") or TeamKickoffAxis.SKIP.value)
+                    str(raw.get("team_kickoff") or TeamKickoffAxis.RULES.value)
                 ),
                 host=HostAxis(str(raw.get("host") or HostAxis.ASK.value)),
             )
@@ -170,7 +170,10 @@ class PermissionAxes:
 
     @property
     def implies_deep_research_auto(self) -> bool:
-        """command=auto ∧ team_kickoff=skip（少打断 / 托管）蕴含深度研究自治."""
+        """command=auto ∧ team_kickoff=skip（托管）蕴含深度研究自治.
+
+        少打断为 auto∧rules：仍弹组队/开辩卡，不蕴含自治跳卡。
+        """
         return (
             self.command is CommandAxis.AUTO
             and self.team_kickoff is TeamKickoffAxis.SKIP
@@ -180,7 +183,7 @@ class PermissionAxes:
 DEFAULT_PERMISSION_AXES = PermissionAxes(
     file_write=FileWriteAxis.SESSION,
     command=CommandAxis.AUTO,
-    team_kickoff=TeamKickoffAxis.SKIP,
+    team_kickoff=TeamKickoffAxis.RULES,
     host=HostAxis.ASK,
 )
 

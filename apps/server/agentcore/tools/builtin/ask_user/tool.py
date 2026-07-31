@@ -23,6 +23,7 @@ from agentcore.tools.builtin.ask_user.card import (
 from agentcore.tools.builtin.ask_user.intent import resolve_ask_checkpoint_intent
 from agentcore.tools.builtin.ask_user.schema import (
     ListArgError,
+    OptionLabelError,
     normalize_assumptions,
     normalize_format_options,
     normalize_questions,
@@ -98,7 +99,10 @@ class AskUserTool:
         option_properties: dict[str, Any] = {
             "label": {
                 "type": "string",
-                "description": "选项文字（即用户选它时回传的答案）。",
+                "description": (
+                    "选项名（即用户选它时回传的答案）。禁止写入「（推荐）」等推荐标记；"
+                    "倾向只设 recommended。"
+                ),
             },
             "detail": {
                 "type": "string",
@@ -109,8 +113,8 @@ class AskUserTool:
             "recommended": {
                 "type": "boolean",
                 "description": (
-                    "可选：标记你建议的那一项（至多一个）。仅「推荐」高亮、不会替用户预选；"
-                    "要预选请用 default。"
+                    "可选：标记你建议的那一项（至多一个）。仅右侧灰字「推荐」、不替用户预选；"
+                    "禁止把推荐写进 label；要预选请用 default。"
                 ),
             },
         }
@@ -339,6 +343,18 @@ class AskUserTool:
                     f"{exc} 请直接传 JSON 数组，不要把数组再序列化成字符串。"
                     f"{CARD_RETRY_HINT}"
                 ),
+            )
+        except OptionLabelError as exc:
+            logger.info(
+                "ask_user.option_label_rejected",
+                conversation_id=self.conversation_id,
+                error=str(exc),
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=f"{exc}{CARD_RETRY_HINT}",
             )
         if not self.advertise_bind_local_folder:
             for q in questions:

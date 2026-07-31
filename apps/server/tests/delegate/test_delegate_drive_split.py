@@ -97,9 +97,12 @@ async def test_team_preview_skips_when_seeded():
 @pytest.mark.asyncio
 async def test_team_preview_skips_light_handwritten():
     """普通 light 手写任务仍跳过开工卡（早返回，不进 kickoff）。"""
+
     class _Tool:
         _depth = 0
         _active_playbook = None
+        _permission_axes = None
+        _base_tool_context = type("C", (), {"backend": None})()
 
     plan = RunPlan(nodes=[RunSpec(run_id="a", agent_id="a", role="r", task="t")])
     result = await team_preview_before_workers(
@@ -114,8 +117,8 @@ async def test_team_preview_skips_light_handwritten():
 
 
 @pytest.mark.asyncio
-async def test_team_preview_light_organize_folder_does_not_skip(monkeypatch):
-    """organize_folder 即使 light 也要进 team_preview（kickoff grant → GRANTABLE）。"""
+async def test_team_preview_light_with_capability_auth_does_not_skip(monkeypatch):
+    """light + needs_capability_auth → 不早退，仍进开工卡（避免 GRANTABLE 挂门）。"""
     from agentcore.core.types import AutonomyPolicy
     from agentcore.runtime.checkpoints import CheckpointDecision
     from agentcore.runtime.delegate import preview as preview_mod
@@ -130,15 +133,15 @@ async def test_team_preview_light_organize_folder_does_not_skip(monkeypatch):
     monkeypatch.setattr(preview_mod, "should_kickoff", lambda *a, **k: True)
     monkeypatch.setattr(preview_mod, "should_preview_plan", lambda *a, **k: True)
     monkeypatch.setattr(preview_mod, "skip_after_confirmed_ask", lambda *_a, **_k: False)
-    monkeypatch.setattr(preview_mod, "needs_capability_auth", lambda *a, **k: False)
+    monkeypatch.setattr(preview_mod, "needs_capability_auth", lambda *a, **k: True)
     monkeypatch.setattr(
-        "agentcore.runtime.sandbox_approval.worker_gate_applies", lambda *_a, **_k: False
+        "agentcore.runtime.sandbox_approval.worker_gate_applies", lambda *_a, **_k: True
     )
 
     class _Tool:
         _depth = 0
         _permission_axes = AutonomyPolicy.LESS_INTERRUPT
-        _active_playbook = "organize_folder"
+        _active_playbook = None
         _pending_pause = False
         _base_tool_context = type("C", (), {"backend": None})()
         _approval_gate = None

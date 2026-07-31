@@ -36,8 +36,11 @@ FINALIZE_INSTRUCTION = (
 # with wind_down). Without this the model is told to "give a final answer" while
 # file_write is stripped — and may paste a DSML pseudo tool_call into prose.
 FINALIZE_INSTRUCTION_FILES = (
-    "[系统提示] 请停止调查与新战线。你的交付须落盘：立即调用 file_write 把已有产出"
-    "写进工作区，并调用 handoff 提交交接简报（若适用）。"
+    "[系统提示] 请停止调查与新战线。你的交付须落盘到真实产品路径：立即调用 file_write "
+    "把代码/约定产物写进工作区，并调用 handoff 提交交接简报（若适用）。"
+    "禁止把 AgentCore/文档/research|reviews|debate 下的方案/笔记 md "
+    "冒充修码或 form=files 产品交付；"
+    "若当前无法改源码，请 handoff 诚实说明阻塞（缺权限、缺路径、契约矛盾等），勿用案卷交差。"
     "勿把整份文件内容粘在正文里；若仍需向用户确认，可调用 ask_user。"
     "除上述落盘/交接工具外，其余工具本轮已停用；正文请直接书写，"
     "切勿在正文里模拟任何工具调用格式（如 <tool_call>…</> 之类标签），那不会被执行。"

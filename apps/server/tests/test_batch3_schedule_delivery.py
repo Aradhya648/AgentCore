@@ -106,7 +106,11 @@ async def test_hard_timeout_grace_wall_force_cancels():
         on_force_cancel=lambda g, r: forced.append(r),
     )
     assert guard is not None
-    await asyncio.sleep(0.12)
+    # Active-time budget ≈ 0.09s; under xdist load wall clock stretches — wait until
+    # force-cancel or deadline (do not assume 0.12s wall is enough after a slow TIMEOUT).
+    deadline = asyncio.get_running_loop().time() + 2.0
+    while not guard.force_cancel_requested and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.02)
     assert guard.force_cancel_requested
     assert forced
     disarm_hard_timeout("w2")

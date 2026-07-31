@@ -26,7 +26,12 @@ from agentcore.runtime.events import (
 from agentcore.runtime.evidence_ledger import EvidenceLedgerCore
 from agentcore.runtime.facts import ToolCallFact, record_turn_fact
 from agentcore.runtime.ledger_channel import emit_ledger_delta
-from agentcore.runtime.loop_controller import ToolAttempt, fingerprint_tool_call
+from agentcore.runtime.loop_controller import (
+    ToolAttempt,
+    classify_segmented_write_reject,
+    fingerprint_tool_call,
+)
+from agentcore.runtime.tool_deadline import reset_tool_deadline, set_tool_deadline
 from agentcore.tools.protocol import ToolContext, ToolResult
 from agentcore.tools.registry import ToolRegistry
 
@@ -64,6 +69,29 @@ TOOL_FAILED_MARKER = "<!--agentcore:tool_failed-->"
 _FILE_PRODUCT_TOOL_NAMES = frozenset(
     {"file_write", "file_append", "str_replace", "file_move"}
 )
+
+
+def _attempt_meta_with_landing_path(
+    name: str,
+    args: Any,
+    base: dict[str, Any] | None = None,
+    *,
+    error: str = "",
+    contract_failure: bool = False,
+) -> dict[str, Any]:
+    """Forward landing-tool path (+ write-reject class) into ``ToolAttempt.meta``."""
+    from agentcore.runtime.runs.landing_product import landing_tool_path_from_args
+
+    meta: dict[str, Any] = dict(base or {})
+    path = landing_tool_path_from_args(name, args if isinstance(args, dict) else None)
+    if path:
+        meta["path"] = path
+    reject_class = classify_segmented_write_reject(
+        name, error=error, contract_failure=contract_failure
+    )
+    if reject_class:
+        meta["segmented_write_reject"] = reject_class
+    return meta
 
 _PROSE_WITHHELD_WRITE_MSG = (
     "本回合交付形态为 form=prose（仅文字报告），未授改文件工具。"
@@ -459,6 +487,7 @@ async def execute_tools(
                     success=False,
                     policy_failure=True,
                     error_summary=error_msg,
+                    meta=_attempt_meta_with_landing_path(name or raw_name, args),
                 ),
                 [],
             )
@@ -493,6 +522,7 @@ async def execute_tools(
                     success=False,
                     policy_failure=policy_failure,
                     error_summary=error_msg,
+                    meta=_attempt_meta_with_landing_path(name or raw_name, args),
                 ),
                 [],
             )
@@ -530,7 +560,13 @@ async def execute_tools(
             return (
                 _failed_tool_message(tc.id, denial),
                 None,
-                ToolAttempt(fingerprint, name, success=False, policy_failure=True),
+                ToolAttempt(
+                    fingerprint,
+                    name,
+                    success=False,
+                    policy_failure=True,
+                    meta=_attempt_meta_with_landing_path(name, args),
+                ),
                 [],
             )
 
@@ -605,7 +641,13 @@ async def execute_tools(
                 return (
                     _failed_tool_message(tc.id, denial),
                     None,
-                    ToolAttempt(fingerprint, name, success=False, policy_failure=True),
+                    ToolAttempt(
+                        fingerprint,
+                        name,
+                        success=False,
+                        policy_failure=True,
+                        meta=_attempt_meta_with_landing_path(name, args),
+                    ),
                     [],
                 )
 
@@ -654,7 +696,13 @@ async def execute_tools(
                     return (
                         _failed_tool_message(tc.id, denial),
                         None,
-                        ToolAttempt(fingerprint, name, success=False, policy_failure=True),
+                        ToolAttempt(
+                            fingerprint,
+                            name,
+                            success=False,
+                            policy_failure=True,
+                            meta=_attempt_meta_with_landing_path(name, args),
+                        ),
                         [],
                     )
         else:
@@ -697,7 +745,11 @@ async def execute_tools(
                     _failed_tool_message(tc.id, exhausted),
                     None,
                     ToolAttempt(
-                        fingerprint, name, success=False, error_summary=exhausted
+                        fingerprint,
+                        name,
+                        success=False,
+                        error_summary=exhausted,
+                        meta=_attempt_meta_with_landing_path(name, args),
                     ),
                     [],
                 )
@@ -717,6 +769,7 @@ async def execute_tools(
 
         started = time.monotonic()
         timeout = resolve_tool_timeout(tool.schema, args)
+        deadline_token = set_tool_deadline(timeout)
         coalesce_key = (
             _file_read_round_coalesce_key(args) if name == "file_read" else None
         )
@@ -756,12 +809,15 @@ async def execute_tools(
             # turn — e.g. the sandbox kills its subprocess); surface a model-facing
             # error so the loop adapts instead of hanging, and count it as a failed
             # attempt so a tool that keeps timing out trips convergence governance.
+            # Liveness (hang) ≠ capacity contract — steer forbids identical retry.
             if budget_reserved and budget_state is not None:
                 await budget_state.refund()
             duration_ms = int((time.monotonic() - started) * 1000)
+            ceiling = timeout if timeout is not None else 0.0
             timeout_msg = (
-                f"工具 '{name}' 执行超过 {timeout:.0f}s 仍未完成，已中止。"
-                "请改用更快的方式、缩小处理范围，或换一种方案，不要原样重试。"
+                f"工具 '{name}' 活性挂起：超过 {ceiling:.0f}s 仍无响应，已中止。"
+                "这不是字节/行数触顶——请缩小处理范围、换路径策略或换工具；"
+                "禁止原样重试同一次调用。"
             )
             sink.emit(
                 tool_use_end(
@@ -773,6 +829,7 @@ async def execute_tools(
                 "status": "timeout",
                 "duration_ms": duration_ms,
                 "timeout_layer": "outer",
+                "liveness_timeout": True,
             }
             if name == "git" and isinstance(args.get("subcommand"), str):
                 timeout_fields["subcommand"] = args["subcommand"]
@@ -781,7 +838,13 @@ async def execute_tools(
                 _failed_tool_message(tc.id, timeout_msg),
                 None,
                 ToolAttempt(
-                    fingerprint, name, success=False, error_summary=timeout_msg
+                    fingerprint,
+                    name,
+                    success=False,
+                    error_summary=timeout_msg,
+                    meta=_attempt_meta_with_landing_path(
+                        name, args, {"liveness_timeout": True, "timeout_layer": "outer"}
+                    ),
                 ),
                 [],
             )
@@ -814,10 +877,16 @@ async def execute_tools(
                 _failed_tool_message(tc.id, error_msg),
                 None,
                 ToolAttempt(
-                    fingerprint, name, success=False, error_summary=error_msg
+                    fingerprint,
+                    name,
+                    success=False,
+                    error_summary=error_msg,
+                    meta=_attempt_meta_with_landing_path(name, args),
                 ),
                 [],
             )
+        finally:
+            reset_tool_deadline(deadline_token)
         result.tool_call_id = tc.id
 
         # 缓存命中 / A3 拒绝等不计预算：reserved slot refunded when not charged.
@@ -900,7 +969,13 @@ async def execute_tools(
                 policy_failure=policy_failure,
                 contract_failure=contract_failure,
                 error_summary=error_summary,
-                meta=dict(result.metadata) if result.metadata else {},
+                meta=_attempt_meta_with_landing_path(
+                    name,
+                    args,
+                    dict(result.metadata) if result.metadata else None,
+                    error=error_summary,
+                    contract_failure=contract_failure,
+                ),
             ),
             citations,
         )

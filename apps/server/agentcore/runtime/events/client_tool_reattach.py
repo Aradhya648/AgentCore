@@ -61,12 +61,19 @@ def build_client_tool_required(req: InteractionRequest) -> SSEEvent | None:
     cid = req.conversation_id
 
     if channel == CHANNEL_WORKSPACE:
+        raw_timeout = params.get("timeout_ms")
+        timeout_ms: int | None = None
+        if isinstance(raw_timeout, int) and raw_timeout > 0:
+            timeout_ms = raw_timeout
+        elif isinstance(raw_timeout, float) and raw_timeout > 0:
+            timeout_ms = int(raw_timeout)
         return workspace_op_required(
             request_id=rid,
             conversation_id=cid,
             root_id=str(params.get("root_id") or ""),
             op=str(params.get("op") or ""),
             args=dict(params.get("args") or {}),
+            timeout_ms=timeout_ms,
         )
     if channel == CHANNEL_BOARD:
         ops = params.get("ops")

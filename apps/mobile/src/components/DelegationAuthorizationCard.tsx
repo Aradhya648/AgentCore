@@ -3,7 +3,6 @@ import {
   type ResolveInteractionBody,
   resolveInteraction,
 } from "@/api/interaction";
-import { WaitingForDecisionHint } from "@/components/WaitingForDecisionHint";
 import type { ProjectedInteraction } from "@agentcore/protocol-conformance";
 import { useState } from "react";
 
@@ -86,7 +85,6 @@ function DelegationBody({
       <div className="pause-title">团队开工前 · 工具授权</div>
       {workers && <div className="pause-context">{workers}</div>}
       {tools && <div className="pause-arg">涉及：{tools}</div>}
-      <WaitingForDecisionHint />
       <div className="pause-actions">
         <button
           type="button"

@@ -566,11 +566,11 @@ export function ResumeCard({
         }
         onChange={(e) => setNote(e.target.value)}
       />
-      <div className="pause-hint">
-        {isDailyReview
-          ? "确认后服务端直接写入记忆/规则/文档，无需再跑工具"
-          : "等你拍板 · 不限时"}
-      </div>
+      {isDailyReview && (
+        <div className="pause-hint">
+          确认后服务端直接写入记忆/规则/文档，无需再跑工具
+        </div>
+      )}
       <div className="pause-actions">
         <button
           type="button"

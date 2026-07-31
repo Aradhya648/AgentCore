@@ -34,6 +34,7 @@ from agentcore.workspace.protocol import WorkspaceBackend
 
 logger = get_logger(__name__)
 
+
 def session_callbacks(conversation_id: str):
     """The 留人 跨进程落盘 write-through saver + roster-miss loader, or ``(None, None)``.
 
@@ -49,11 +50,13 @@ def session_callbacks(conversation_id: str):
 
     return _persist_session, load_run_session
 
+
 def suspension_callbacks():
     """The 结构化挂起 2b persist-before-wait / drop-after-resolve closures."""
     if not settings.structured_suspension_persist_enabled:
         return None, None
     return save_paused_turn, delete_paused_turn
+
 
 async def run_and_persist(
     *,
@@ -238,10 +241,8 @@ async def run_and_persist(
                         x_client_platform=x_client_platform,
                     )
                 except asyncio.CancelledError:
-                    # User /stop + lifespan shutdown = terminal incomplete + release.
+                    # Hard cancel / lifespan → terminal incomplete + release.
                     # True hard kill (no lifespan salvage) = orphan for sweeper.
-                    # Close success → release; close failure/skip → orphan (never
-                    # leave a lease-less RUNNING row).
                     if turn_runs.is_clean_cancel(conversation_id):
                         closed = await close_user_stop_turn(
                             sink=sink,

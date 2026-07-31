@@ -127,6 +127,7 @@ async def react_loop(
     short_write_posture: bool = False,
     tighten_verify_exec_thrash: bool = False,
     form_prose: bool = False,
+    product_landing_artifacts: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[str, str, TokenUsage, int]:
     """Run the ReAct loop.
 
@@ -257,10 +258,12 @@ async def react_loop(
             disabled_tools.add("read_url")
     # B·收尾窗口：预算软顶 / 超时预警后收窄到落盘+handoff（不改硬顶语义）。
     wind_down_active = False
+    wind_down_reason = ""
     wind_down_effective_allowed: list[str] | None = None
     wind_down_whitelist: frozenset[str] | None = None
     wind_down_breach_count = 0
     wind_down_breach_pending_nudge = False
+    wind_down_breach_nudge_text = ""
     # 检索预算临界（剩 ≤2）一次性 reflection，缓解同轮 fan-out 超订。
     retrieval_critical_warned = False
 
@@ -304,6 +307,7 @@ async def react_loop(
         tighten_verify_exec_thrash=tighten_verify_exec_thrash,
         max_rounds=profile.max_rounds,
         form_prose=form_prose,
+        product_landing_artifacts=product_landing_artifacts,
     )
     # 跑/修·打开验证·贴码写回：引擎不再扫用户文硬分叉；选型/验收靠提示词 + 结构字段。
     if role == "captain":
@@ -345,7 +349,8 @@ async def react_loop(
         captain_token = current_captain_loop.set(CaptainLoopMirror(controller=controller))
 
     def _enter_wind_down(reason: str, instruction: str) -> None:
-        nonlocal wind_down_active, wind_down_effective_allowed, wind_down_whitelist, tool_defs
+        nonlocal wind_down_active, wind_down_reason, wind_down_effective_allowed
+        nonlocal wind_down_whitelist, tool_defs
         if wind_down_active or role != "worker":
             return
         from agentcore.runtime.runs.cutoff import (
@@ -355,6 +360,7 @@ async def react_loop(
         )
 
         wind_down_active = True
+        wind_down_reason = reason
         available = set(tools.names)
         keep_file_read = worker_keeps_file_read_in_wind_down(
             available=available, allowed=allowed_tool_names
@@ -740,14 +746,17 @@ async def react_loop(
                     # local synth close (2nd breach / already at hard ceiling).
                     skip_tool_exec = False
                     wind_down_breach_pending_nudge = False
+                    wind_down_breach_nudge_text = ""
                     if wind_down_active and role == "worker":
                         from agentcore.runtime.engine.directive import Continue, Return
                         from agentcore.runtime.runs.cutoff import (
                             WIND_DOWN_ALLOWED_TOOLS,
                             WIND_DOWN_BREACH_NUDGE,
-                            narrow_tools_for_handoff_only,
+                            WIND_DOWN_BREACH_NUDGE_KEEP_LANDING,
+                            narrow_tools_for_wind_down_breach,
                             should_force_local_after_wind_down_breach,
                             wind_down_breach_tool_names,
+                            worker_keeps_file_read_in_wind_down,
                         )
 
                         effective_whitelist = wind_down_whitelist or WIND_DOWN_ALLOWED_TOOLS
@@ -763,6 +772,17 @@ async def react_loop(
                                 prior_breaches=wind_down_breach_count,
                                 tokens=total_usage.total_tokens,
                                 token_budget=token_budget,
+                                wind_down_reason=wind_down_reason,
+                            )
+                            # Pending landing obligation → keep write tools; only strip retrieval.
+                            keep_landing = (
+                                files_expected
+                                and controller is not None
+                                and not controller.landing_succeeded
+                            )
+                            keep_file_read = keep_landing and worker_keeps_file_read_in_wind_down(
+                                available=set(tools.names),
+                                allowed=list(effective_whitelist),
                             )
                             logger.warning(
                                 "engine.wind_down_breach",
@@ -770,12 +790,18 @@ async def react_loop(
                                 breached_tools=breached,
                                 prior_breaches=wind_down_breach_count,
                                 force_local=force_local,
+                                keep_landing=keep_landing,
                                 tokens=total_usage.total_tokens,
                                 token_budget=token_budget,
                             )
                             wind_down_breach_count += 1
 
-                            def _journal_wind_down_deny(tc: Any, name: str) -> None:
+                            def _journal_wind_down_deny(
+                                tc: Any,
+                                name: str,
+                                *,
+                                _keep_landing: bool = keep_landing,
+                            ) -> None:
                                 """Emit durable tool_use_start/end so wind_down 拒执行
                                 is journal-queryable."""
                                 import json as _json
@@ -793,7 +819,11 @@ async def react_loop(
                                     args = {}
                                 deny = (
                                     f"工具 '{name}' 不在收尾窗口白名单，未执行。"
-                                    "请立即调用 handoff 交卷。"
+                                    + (
+                                        "请落盘后调用 handoff 交卷。"
+                                        if _keep_landing
+                                        else "请立即调用 handoff 交卷。"
+                                    )
                                 )
                                 sink.emit(
                                     tool_use_start(
@@ -837,7 +867,17 @@ async def react_loop(
                                 for tc in denied:
                                     _journal_wind_down_deny(tc, tc.function.name or "")
                                 wind_down_effective_allowed = (
-                                    narrow_tools_for_handoff_only(set(tools.names))
+                                    narrow_tools_for_wind_down_breach(
+                                        set(tools.names),
+                                        keep_landing=keep_landing,
+                                        keep_file_read=keep_file_read,
+                                        allowed=list(effective_whitelist),
+                                    )
+                                )
+                                breach_nudge = (
+                                    WIND_DOWN_BREACH_NUDGE_KEEP_LANDING
+                                    if keep_landing
+                                    else WIND_DOWN_BREACH_NUDGE
                                 )
                                 tool_defs = _resolve_tool_defs()
                                 if not kept:
@@ -854,7 +894,11 @@ async def react_loop(
                                         name = tc.function.name or ""
                                         deny = (
                                             f"工具 '{name}' 不在收尾窗口白名单，未执行。"
-                                            "请立即调用 handoff 交卷。"
+                                            + (
+                                                "请落盘后调用 handoff 交卷。"
+                                                if keep_landing
+                                                else "请立即调用 handoff 交卷。"
+                                            )
                                         )
                                         messages.append(
                                             LLMMessage(
@@ -865,7 +909,7 @@ async def react_loop(
                                         )
                                     messages.append(
                                         LLMMessage(
-                                            role="user", content=WIND_DOWN_BREACH_NUDGE
+                                            role="user", content=breach_nudge
                                         )
                                     )
                                     outcome = RoundOutcome(
@@ -886,6 +930,8 @@ async def react_loop(
                                     skip_tool_exec = False
                                     # Mark so post-tool path can inject nudge once.
                                     wind_down_breach_pending_nudge = True
+                                    # Stash nudge text for the post-tool inject path.
+                                    wind_down_breach_nudge_text = breach_nudge
 
                     if not skip_tool_exec:
                         if role != "captain" and run_id:
@@ -943,10 +989,15 @@ async def react_loop(
                             if isinstance(directive, Continue):
                                 messages.append(
                                     LLMMessage(
-                                        role="user", content=WIND_DOWN_BREACH_NUDGE
+                                        role="user",
+                                        content=(
+                                            wind_down_breach_nudge_text
+                                            or WIND_DOWN_BREACH_NUDGE
+                                        ),
                                     )
                                 )
                             wind_down_breach_pending_nudge = False
+                            wind_down_breach_nudge_text = ""
 
             applied = await apply_loop_directive(
                 directive=directive,

@@ -33,6 +33,7 @@ const ASSISTANT_ID = "a-running";
 const emptyRecovery = {
   sidecarLive: false,
   cloudLive: false,
+  cloudKnown: true,
   pausedCount: 0,
   unsynced: [],
 };
@@ -110,7 +111,8 @@ describe("settleCloudRunningAssistant (stale recovery race)", () => {
     expect(apiGet).toHaveBeenCalledWith(`/v1/conversations/${CID}/recovery`);
     expect(assistant()?.status).toBe("running");
     expect(assistant()?.finishReason).not.toBe("interrupted");
-    expect(useConversationStore.getState().byId[CID].isGenerating).toBe(true);
+    expect(assistant()?.isStreaming).toBe(false);
+    expect(useConversationStore.getState().byId[CID].isGenerating).toBe(false);
     const pending = usePausedTurnStore.getState().pending;
     expect(pending).toHaveLength(1);
     expect(pending[0]?.messageId).toBe(ASSISTANT_ID);
@@ -155,5 +157,24 @@ describe("settleCloudRunningAssistant (stale recovery race)", () => {
     expect(apiGet).not.toHaveBeenCalled();
     expect(assistant()?.status).toBe("running");
     expect(assistant()?.finishReason).not.toBe("interrupted");
+    expect(assistant()?.isStreaming).toBe(false);
+    expect(useConversationStore.getState().byId[CID].isGenerating).toBe(false);
+  });
+
+  it("cloudKnown=false (refresh still unknown) → hold, never ghost", async () => {
+    seedRunningAssistant();
+    apiGet.mockRejectedValue(new Error("network down"));
+
+    const outcome = await settleCloudRunningAssistant(CID, {
+      ...emptyRecovery,
+      cloudKnown: false,
+    });
+
+    expect(outcome).toBe("hold");
+    expect(apiGet).toHaveBeenCalledTimes(1);
+    expect(assistant()?.status).toBe("running");
+    expect(assistant()?.finishReason).not.toBe("interrupted");
+    expect(assistant()?.isStreaming).toBe(true);
+    expect(useConversationStore.getState().byId[CID].isGenerating).toBe(true);
   });
 });

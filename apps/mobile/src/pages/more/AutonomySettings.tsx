@@ -23,7 +23,7 @@ const OPTIONS: AutonomyOption[] = [
     value: "less_interrupt",
     label: "少打断（推荐）",
     description:
-      "新会话默认：本会话信任改文件；自动执行；跳过组团卡；本机每次确认。",
+      "新会话默认：本会话信任改文件；自动执行；组团卡按规则；本机每次确认。",
   },
   {
     value: "managed",
@@ -65,7 +65,9 @@ export function AutonomySettings() {
       (next === "less_interrupt" || next === "managed") &&
       policy !== "less_interrupt" &&
       policy !== "managed" &&
-      !window.confirm("切换到「免审执行」后，AI 将与你同权执行命令。确定？")
+      !window.confirm(
+        "切换到「免审执行」后，执行类（代码/终端/浏览器等）与桌面提醒将免审；Host/MCP 仍按本机轴。确定？",
+      )
     ) {
       return;
     }

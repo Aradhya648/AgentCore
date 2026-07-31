@@ -1,3 +1,4 @@
+import { KillPtyConfirmDialog } from "@/components/terminal/KillPtyConfirmDialog";
 import { XtermView } from "@/components/terminal/XtermView";
 /**
  * 右坞「终端」tab —— M1 后台进程 + M2 执行记录 + M3 用户交互 shell。
@@ -27,6 +28,7 @@ import { useSidePanelStore } from "@/stores/sidePanel";
 import { useToolOutputLiveStore } from "@/stores/toolOutputLive";
 import {
   type UserTerminalView,
+  isPtySessionBusy,
   useUserTerminalStore,
 } from "@/stores/userTerminals";
 import { ArrowUpRight, Plus, Square, Terminal, X } from "lucide-react";
@@ -85,6 +87,8 @@ export function TerminalPanelBody({
   } | null>(null);
   const [spawnBusy, setSpawnBusy] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
+  const [killConfirmId, setKillConfirmId] = useState<string | null>(null);
+  const [killBusy, setKillBusy] = useState(false);
 
   useEffect(() => {
     ensureSubscribed();
@@ -243,6 +247,29 @@ export function TerminalPanelBody({
     selectRecord,
   ]);
 
+  const finishKillSession = useCallback(
+    async (sessionId: string) => {
+      setKillBusy(true);
+      const ok = await killSession(sessionId);
+      setKillBusy(false);
+      if (!ok) return;
+      useSidePanelStore.getState().clearTerminalPreferredSession(sessionId);
+      setKillConfirmId(null);
+    },
+    [killSession],
+  );
+
+  const onClosePty = useCallback(
+    (session: UserTerminalView) => {
+      if (isPtySessionBusy(session)) {
+        setKillConfirmId(session.session_id);
+        return;
+      }
+      void finishKillSession(session.session_id);
+    },
+    [finishKillSession],
+  );
+
   const live = selectedRecord ? liveById[selectedRecord.id] : undefined;
   const recordOutput = selectedRecord
     ? resolveRecordOutput(
@@ -305,12 +332,7 @@ export function TerminalPanelBody({
                       selection?.kind === "pty" && selection.id === s.session_id
                     }
                     onSelect={() => onSelectPty(s.session_id)}
-                    onClose={() => {
-                      useSidePanelStore
-                        .getState()
-                        .clearTerminalPreferredSession(s.session_id);
-                      void killSession(s.session_id);
-                    }}
+                    onClose={() => onClosePty(s)}
                   />
                 ))}
               </ul>
@@ -377,6 +399,17 @@ export function TerminalPanelBody({
           {canOpenPty ? "新开或选择一项查看" : "选择一项查看输出"}
         </div>
       )}
+      <KillPtyConfirmDialog
+        open={killConfirmId != null}
+        onOpenChange={(next) => {
+          if (!next && !killBusy) setKillConfirmId(null);
+        }}
+        description="关闭将终止此终端中的进程"
+        busy={killBusy}
+        onConfirm={() => {
+          if (killConfirmId) void finishKillSession(killConfirmId);
+        }}
+      />
     </div>
   );
 }

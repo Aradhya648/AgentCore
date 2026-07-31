@@ -41,7 +41,9 @@ COORDINATION_PERIOD_HINT = (
     "（不传 append_to 即自动并入当前协作图）；确需强制追加传 force=true。"
     "其它工具：cancel_worker / update_synthesis / resolve_escalation / "
     "queue_user_message / ask_user；『计划已让出』波边界才用 replan(add=…)。"
-    "全部完成后做最终合成（正文），然后退出协调。"
+    "异常：队员触顶（ceiling/max_rounds）、同缺口 contract.retry 连发、或长时间 "
+    "0 completed 且非健康依赖等待 → cancel_worker 或波边界 replan 收窄下游/缩 scope，"
+    "勿同质 wait。全部完成后做最终合成（正文），然后退出协调。"
 )
 
 _CHARS_PER_TOKEN = 4

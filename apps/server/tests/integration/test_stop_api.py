@@ -48,15 +48,15 @@ async def test_stop_idempotent_and_cancels_tracked_run(client, make_invite):
     # Nothing running yet → idempotent false (a late click settles cleanly).
     r = await client.post(f"/v1/conversations/{conv}/stop")
     assert r.status_code == 200, r.text
-    assert r.json() == {"stopped": False}
+    assert r.json() == {"stopped": False, "mode": "cancel"}
 
-    # Register a stand-in detached run for this conversation, then stop it.
+    # Register a stand-in detached run, then hard-cancel (pins cancel path).
     task = asyncio.create_task(_never())
     turn_runs.register(conversation_id=conv, task=task, sink=EventSink())
     try:
-        r = await client.post(f"/v1/conversations/{conv}/stop")
+        r = await client.post(f"/v1/conversations/{conv}/stop?mode=cancel")
         assert r.status_code == 200, r.text
-        assert r.json() == {"stopped": True}
+        assert r.json() == {"stopped": True, "mode": "cancel"}
         with pytest.raises(asyncio.CancelledError):
             await task
     finally:
@@ -66,7 +66,7 @@ async def test_stop_idempotent_and_cancels_tracked_run(client, make_invite):
     # After it settled, the slot is cleared so a second stop is false again.
     await asyncio.sleep(0)
     r = await client.post(f"/v1/conversations/{conv}/stop")
-    assert r.json() == {"stopped": False}
+    assert r.json() == {"stopped": False, "mode": "cancel"}
 
 
 async def test_stop_rejects_non_owner(client, make_invite, new_client):
@@ -81,9 +81,7 @@ async def test_stop_rejects_non_owner(client, make_invite, new_client):
         assert (await other.post(f"/v1/conversations/{conv}/stop")).status_code == 404
 
 
-async def test_stop_route_cancels_inflight_workers_reason_stop_no_followup(
-    client, make_invite
-):
+async def test_stop_route_cancels_inflight_workers_reason_stop_no_followup(client, make_invite):
     """POST /stop → turn_runs cancel → in-flight workers emit run_cancelled(reason=stop);
     no hot ``_rev*`` / cold ``_redir`` follow-up (整轮 abort, not 立即改此人)."""
 
@@ -136,9 +134,9 @@ async def test_stop_route_cancels_inflight_workers_reason_stop_no_followup(
             pytest.fail("workers never started before stop")
         await asyncio.sleep(0.05)
 
-        r = await client.post(f"/v1/conversations/{conv}/stop")
+        r = await client.post(f"/v1/conversations/{conv}/stop?mode=cancel")
         assert r.status_code == 200, r.text
-        assert r.json() == {"stopped": True}
+        assert r.json() == {"stopped": True, "mode": "cancel"}
 
         with contextlib.suppress(asyncio.CancelledError):
             await wave_task
@@ -165,7 +163,11 @@ async def test_stop_route_cancels_inflight_workers_reason_stop_no_followup(
             )
         ]
         assert follow_up_ids == []
-        assert not any(e.payload.get("replaces_run_id") for e in sink._history if e.type is EventType.RUN_STARTED)
+        assert not any(
+            e.payload.get("replaces_run_id")
+            for e in sink._history
+            if e.type is EventType.RUN_STARTED
+        )
         assert turn_runs.get(conv) is None
     finally:
         if not wave_task.done():

@@ -9,6 +9,7 @@ from agentcore.runtime.runs.contract import (
     check_contract,
     debrief_meets_minimum,
     describe_deliverable,
+    format_cite_upgrade_feedback,
     format_feedback,
     format_light_repair_feedback,
     format_write_pass_feedback,
@@ -18,6 +19,7 @@ from agentcore.runtime.runs.contract import (
     is_zero_files_gap,
     needs_file_contents,
     node_has_dependents,
+    strip_invalid_ledger_refs_from_surfaces,
     synthesize_debrief,
 )
 from agentcore.runtime.runs.types import Deliverable, RunContract
@@ -59,12 +61,6 @@ def test_non_empty_passes_without_contract():
 def test_min_length_failure_and_pass():
     assert not check_contract("短", RunContract(min_length=10)).ok
     assert check_contract("这是一段足够长的产出内容", RunContract(min_length=5)).ok
-
-
-def test_max_length_failure():
-    v = check_contract("一二三四五六", RunContract(max_length=3))
-    assert not v.ok
-    assert any("超过" in f for f in v.failures)
 
 
 def test_must_contain_failure_and_pass():
@@ -329,8 +325,8 @@ def test_json_file_channel_fails_when_file_not_json():
     assert any("JSON" in f for f in v.failures)
 
 
-def test_json_file_channel_without_contents_still_checks_existence():
-    # Callers that only have a path index still get existence failures.
+def test_json_file_channel_without_contents_still_warns_existence():
+    # Callers that only have a path index still get existence warnings (not hard fail).
     contract = RunContract(output_format="json", artifacts=["review.json"], requires_files=True)
     v = check_contract(
         "贴了",
@@ -339,8 +335,8 @@ def test_json_file_channel_without_contents_still_checks_existence():
         workspace_paths=[],
         artifact_contents=None,
     )
-    assert not v.ok
-    assert any("review.json" in f for f in v.failures)
+    assert v.ok
+    assert any("review.json" in w for w in v.warnings)
 
 
 # --- requires_files: the deliverable-landed gate over files_written -------------
@@ -416,6 +412,33 @@ def test_file_deliverable_still_fails_when_nothing_landed():
     assert any("产出为空" in f or "工作区" in f for f in v.failures)
 
 
+def test_form_files_reviews_landing_counts_as_product():
+    """Dossier notes under reviews count toward files_written (product landing)."""
+    from agentcore.workspace.stage_dirs import REVIEWS_DIR
+
+    v = check_contract(
+        "已写修复方案",
+        Deliverable(form="files", requires_files=True),
+        files_written=1,
+        workspace_paths=[f"{REVIEWS_DIR}/修复方案.md"],
+    )
+    assert v.ok
+    assert not is_zero_files_gap(v)
+
+
+def test_artifact_path_mismatch_is_warning_not_zero_gap():
+    """Declared artifacts missing → warning only; not a zero-disk write_pass gap."""
+    v = check_contract(
+        "已写别处",
+        Deliverable(form="files", requires_files=True, artifacts=["expected.md"]),
+        files_written=1,
+        workspace_paths=["other.md"],
+    )
+    assert v.ok
+    assert any("expected.md" in w for w in v.warnings)
+    assert not is_zero_files_gap(v)
+
+
 def test_requires_files_off_by_default_ignores_file_count():
     # A prose contract (requires_files unset) never fails for lack of a file write.
     assert check_contract("纯文字分析", RunContract(min_length=2), files_written=0).ok
@@ -441,16 +464,16 @@ def test_artifacts_pass_when_exact_path_present():
     assert v.ok
 
 
-def test_artifacts_fail_when_path_missing():
+def test_artifacts_warn_when_path_missing():
     v = check_contract(
         "done",
         RunContract(artifacts=["README.md", "examples/demo.py"]),
         files_written=1,
         workspace_paths=["src/main.py"],
     )
-    assert not v.ok
-    assert any("README.md" in f for f in v.failures)
-    assert any("examples/demo.py" in f for f in v.failures)
+    assert v.ok
+    assert any("README.md" in w for w in v.warnings)
+    assert any("examples/demo.py" in w for w in v.warnings)
 
 
 def test_artifacts_glob_and_directory_match():
@@ -467,8 +490,8 @@ def test_artifacts_glob_and_directory_match():
         files_written=1,
         workspace_paths=["src/a/b.py"],
     )
-    assert not v.ok
-    assert any("examples/" in f for f in v.failures)
+    assert v.ok
+    assert any("examples/" in w for w in v.warnings)
 
 
 def test_artifacts_empty_workspace_all_missing():
@@ -478,10 +501,10 @@ def test_artifacts_empty_workspace_all_missing():
         files_written=0,
         workspace_paths=[],
     )
-    assert not v.ok
-    # requires_files is implied by artifacts in builder; here we set artifacts alone
-    # so both the files_written and path checks can fire depending on flags.
-    assert any("a.py" in f for f in v.failures)
+    # artifacts alone does not imply requires_files — only path mismatch warning.
+    assert v.ok
+    assert any("a.py" in w for w in v.warnings)
+    assert not is_zero_files_gap(v)
 
 
 def test_artifacts_workspace_prefix_vs_relative_index_no_false_missing():
@@ -525,17 +548,17 @@ def test_artifacts_workspace_prefix_vs_relative_index_no_false_missing():
     ).ok
 
 
-def test_artifacts_workspace_prefix_still_fails_when_truly_missing():
-    """Prefix rewrite must not invent a hit — absent relative files still fail."""
+def test_artifacts_workspace_prefix_still_warns_when_truly_missing():
+    """Prefix rewrite must not invent a hit — absent relative files still warn."""
     v = check_contract(
         "done",
         RunContract(artifacts=["/workspace/index.html", "/workspace/missing.css"]),
         files_written=1,
         workspace_paths=["index.html"],
     )
-    assert not v.ok
-    assert any("missing.css" in f for f in v.failures)
-    assert not any("index.html" in f for f in v.failures)
+    assert v.ok
+    assert any("missing.css" in w for w in v.warnings)
+    assert not any("index.html" in w for w in v.warnings)
 
 
 def test_describe_deliverable_renders_artifacts():
@@ -679,19 +702,6 @@ def test_file_form_length_uses_max_of_body_and_files_not_sum():
     )
     assert not v2.ok
     assert any("少于" in f for f in v2.failures)
-
-
-def test_file_form_max_length_trips_on_long_file():
-    contract = Deliverable(form="files", requires_files=True, max_length=50)
-    v = check_contract(
-        "短说明",
-        contract,
-        files_written=1,
-        workspace_paths=["paper.md"],
-        artifact_contents={"paper.md": "正" * 200},
-    )
-    assert not v.ok
-    assert any("超过" in f for f in v.failures)
 
 
 def test_prose_deliverable_ignores_file_contents():
@@ -878,3 +888,69 @@ def test_needs_file_contents_loads_md_for_citation_surfaces():
         Deliverable(requires_files=True),
         landed_paths=["AgentCore/文档/research/综述.md"],
     )
+
+
+def test_format_cite_upgrade_feedback_is_light_strip_only():
+    """短修文案：禁 read_url/广搜/deep_read；只要求去掉未核实编号或改待核实。"""
+    fb = format_cite_upgrade_feedback(
+        ["`note.md`：正文用了 #r99 …"],
+        checked_files=["note.md"],
+    )
+    assert "引用短修" in fb
+    assert "待核实" in fb
+    assert "handoff" in fb
+    assert "read_url" not in fb
+    assert "deep_read" not in fb
+    assert "广搜" in fb  # 禁止广搜
+    assert "`note.md`" in fb
+
+
+def test_format_cite_upgrade_feedback_empty():
+    assert format_cite_upgrade_feedback([]) == ""
+
+
+def test_strip_invalid_ledger_refs_from_surfaces_artifacts_and_body():
+    arts, body, stripped = strip_invalid_ledger_refs_from_surfaces(
+        artifact_contents={"note.md": "结论见 #r1 与 #r99。"},
+        body="摘要 #r99。",
+        citable_ids=frozenset({"#r1"}),
+    )
+    assert stripped == ["#r99"]
+    assert arts is not None
+    assert "#r99" not in arts["note.md"]
+    assert "#r1" in arts["note.md"]
+    assert "#r99" not in body
+    # 剥完后引用闸应过
+    v = check_contract(
+        "已写入",
+        Deliverable(form="files", requires_files=True, min_length=5),
+        files_written=1,
+        workspace_paths=["note.md"],
+        artifact_contents=arts,
+        ledger_entries=[],
+        citable_ids=frozenset({"#r1"}),
+        enforce_citations=True,
+    )
+    assert v.ok
+
+
+def test_strip_invalid_ledger_refs_from_surfaces_noop_when_clean():
+    arts, body, stripped = strip_invalid_ledger_refs_from_surfaces(
+        artifact_contents={"note.md": "结论见 #r1。"},
+        body="ok",
+        citable_ids=frozenset({"#r1"}),
+    )
+    assert stripped == []
+    assert arts == {"note.md": "结论见 #r1。"}
+    assert body == "ok"
+
+
+def test_strip_invalid_ledger_refs_from_surfaces_skips_without_citable():
+    arts, body, stripped = strip_invalid_ledger_refs_from_surfaces(
+        artifact_contents={"note.md": "见 #r99。"},
+        body="见 #r99。",
+        citable_ids=None,
+    )
+    assert stripped == []
+    assert arts == {"note.md": "见 #r99。"}
+    assert body == "见 #r99。"

@@ -73,7 +73,15 @@ async def test_sidecar_cancel_cascades_user_stop_not_detach():
     server._register_turn(turn_id, turn_task, conversation_id=conversation_id)
 
     await server.handle_line(
-        _req(99, "cancel", {"turnId": turn_id, "conversationId": conversation_id})
+        _req(
+            99,
+            "cancel",
+            {
+                "turnId": turn_id,
+                "conversationId": conversation_id,
+                "reason": "user_stop",
+            },
+        )
     )
 
     assert session.user_stopped is True
@@ -81,6 +89,13 @@ async def test_sidecar_cancel_cascades_user_stop_not_detach():
     await asyncio.sleep(0)
     assert turn_task.cancelled() or turn_task.done()
     assert session.drive_task.cancelled() or session.drive_task.done()
+    from agentcore.sidecar.server_pkg.cancel_mark import (
+        CANCEL_REASON_ATTR,
+        cancel_reason_from_task,
+    )
+
+    assert getattr(turn_task, CANCEL_REASON_ATTR, None) == "user_stop"
+    assert cancel_reason_from_task(turn_task) == "user_stop"
 
     # Same as cloud /stop: release clears instead of detach-and-continue.
     release_turn_coordination("e-sidecar-stop")
@@ -93,6 +108,63 @@ async def test_sidecar_cancel_cascades_user_stop_not_detach():
         turn_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await turn_task
+
+
+async def test_sidecar_cancel_logs_fingerprint_without_coordination():
+    """Solo / no-session cancel still emits turn_cancel_requested (investigation fingerprint)."""
+    from structlog.testing import capture_logs
+
+    _lines, write_line = _recorder()
+    server = SidecarServer(write_line)
+    server._initialized = True
+
+    turn_id = "turn-solo"
+    conversation_id = "conv-solo"
+
+    async def _hang() -> None:
+        await asyncio.Event().wait()
+
+    turn_task = asyncio.create_task(_hang())
+    server._register_turn(turn_id, turn_task, conversation_id=conversation_id)
+
+    with capture_logs() as caps:
+        await server.handle_line(
+            _req(
+                3,
+                "cancel",
+                {
+                    "turnId": turn_id,
+                    "conversationId": conversation_id,
+                    "reason": "abort_signal",
+                },
+            )
+        )
+
+    events = [c for c in caps if c.get("event") == "sidecar.turn_cancel_requested"]
+    assert len(events) == 1
+    assert events[0]["reason"] == "abort_signal"
+    assert events[0]["cascaded"] is False
+    assert events[0]["mode"] == "cancel"
+    assert events[0]["task_cancelled"] is True
+    assert events[0]["conversation_id"] == conversation_id
+
+    if not turn_task.done():
+        turn_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await turn_task
+
+
+async def test_cancel_reason_from_task_defaults_without_rpc_stamp():
+    from agentcore.sidecar.server_pkg.cancel_mark import cancel_reason_from_task
+
+    assert cancel_reason_from_task(None) == "cancelled_without_rpc"
+
+    async def _noop() -> None:
+        return None
+
+    task = asyncio.create_task(_noop())
+    await task
+    assert cancel_reason_from_task(task) == "cancelled_without_rpc"
 
 
 async def test_sidecar_cancel_resolves_conversation_from_turn_map():
@@ -116,7 +188,9 @@ async def test_sidecar_cancel_resolves_conversation_from_turn_map():
     turn_task = asyncio.create_task(_hang())
     server._register_turn(turn_id, turn_task, conversation_id=conversation_id)
 
-    await server.handle_line(_req(7, "cancel", {"turnId": turn_id}))
+    await server.handle_line(
+        _req(7, "cancel", {"turnId": turn_id, "reason": "user_stop"})
+    )
 
     assert session.user_stopped is True
 

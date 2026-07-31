@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 # Caps so a runaway prompt can't bloat the card / event. The free-form note on the
@@ -14,16 +15,59 @@ _MAX_ASSUMPTIONS = 10
 _MAX_STYLES = 6
 _MAX_FORMATS = 6
 
+# Presentation metadata belongs in ``recommended``, not the answer-valued label.
+# Reject bracketed markers only — bare「推荐」in a product name (e.g. 推荐算法) stays valid.
+_LABEL_RECOMMENDATION_MARK = re.compile(
+    r"[（(【\[]\s*推荐\s*[）)】\]]|[（(【\[]\s*recommended\s*[）)】\]]",
+    re.IGNORECASE,
+)
+
 
 class ListArgError(ValueError):
     """Non-list tool arg that cannot be coerced to a JSON array (e.g. double-encoded junk)."""
 
 
-def coerce_list_arg(raw: Any, *, field: str) -> list[Any]:
+class OptionLabelError(ValueError):
+    """Choice label embeds recommendation markup that belongs in ``recommended`` only."""
+
+
+# Markdown bullet / numbered list line → capture the item body.
+_MD_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)$")
+
+
+def split_markdown_list_items(text: str) -> list[str] | None:
+    """If ``text`` looks like a markdown bullet/numbered list, return item bodies.
+
+    Used by handoff ``key_points`` loose parse (models often emit ``"- a\\n- b"`` instead
+    of a JSON array). Returns ``None`` when the string is not a list shape so callers can
+    fall back to wrapping the whole string as a single item.
+    """
+    if not text or not text.strip():
+        return None
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    items: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        m = _MD_LIST_ITEM_RE.match(stripped)
+        if not m:
+            return None
+        body = m.group(1).strip()
+        if body:
+            items.append(body)
+    return items or None
+
+
+def coerce_list_arg(
+    raw: Any, *, field: str, allow_markdown_bullets: bool = False
+) -> list[Any]:
     """Accept a real list, or a single JSON-encoded array string (common model fumble).
 
     Empty / missing → ``[]``. A non-empty string that is not a JSON array raises
     :class:`ListArgError` so the tool can reject instead of silently dropping options.
+    When ``allow_markdown_bullets`` is True, a markdown bullet/numbered list string is
+    accepted as a list (handoff ``key_points``); truly bad JSON still fails.
     """
     if raw is None:
         return []
@@ -36,9 +80,18 @@ def coerce_list_arg(raw: Any, *, field: str) -> list[Any]:
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError as exc:
+            if allow_markdown_bullets:
+                md_items = split_markdown_list_items(text)
+                if md_items is not None:
+                    return md_items
             raise ListArgError(f"{field} 须为数组；收到无法解析的 JSON 字符串。") from exc
         if isinstance(parsed, list):
             return parsed
+        if allow_markdown_bullets and isinstance(parsed, str):
+            md_items = split_markdown_list_items(parsed)
+            if md_items is not None:
+                return md_items
+            return [parsed] if parsed.strip() else []
         raise ListArgError(
             f"{field} 须为数组；JSON 字符串解析结果为 {type(parsed).__name__}，不是数组。"
         )
@@ -58,6 +111,19 @@ def option_label(opt: Any) -> str:
     return str(opt).strip()
 
 
+def assert_clean_option_label(label: str) -> None:
+    """Fail closed when label duplicates the UI「推荐」channel.
+
+    Does not rewrite the string — the tool rejects so the model retries with a clean
+    label + ``recommended=true``.
+    """
+    if _LABEL_RECOMMENDATION_MARK.search(label):
+        raise OptionLabelError(
+            f"options.label 禁止写入推荐标记（收到 {label!r}）；"
+            "倾向只设 recommended=true，label 保持干净选项名。"
+        )
+
+
 def normalize_options(
     raw: Any,
     *,
@@ -73,7 +139,8 @@ def normalize_options(
     drop so a hallucinated action never reaches the wire). Empty-label entries drop, and
     only the FIRST
     ``recommended`` survives (至多一个推荐项), so the card shows one clear「推荐」without
-    a wall of badges.
+    a wall of badges. Labels that embed recommendation markup (e.g. ``（推荐）``) raise
+    :class:`OptionLabelError` — no silent strip.
     """
     cap = max(1, int(max_options))
     items = coerce_list_arg(raw, field="options")
@@ -83,6 +150,7 @@ def normalize_options(
         label = option_label(it)
         if not label:
             continue
+        assert_clean_option_label(label)
         opt: dict[str, Any] = {"label": label}
         if isinstance(it, dict):
             detail = str(it.get("detail") or "").strip()

@@ -39,6 +39,7 @@ _WORKER_ONLY_BUILTINS = {
     "mkdir",
     "file_batch",
     "md_to_docx",
+    "md_to_pdf",
     "code_execute",
     "test_run",
     "escalate",

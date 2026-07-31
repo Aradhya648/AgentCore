@@ -1,6 +1,6 @@
 # Dogfood 决策闭环 · 金标资产
 
-> **状态**：金标槽位与结构校验已落地（N=20）；维护者从 logs 回填标注仍 ⏳。  
+> **状态**：金标槽位 + 结构 lint ✅；从排查包 / spine **半自动入槽** ✅（三维分仍靠人工，默认可留 null）。  
 > **用途**：内部决策 / 回归观察——**不进 PR 硬门、不挂强制 nightly**。  
 > **正交**：与 `apps/server/agentcore/evals/cases/gold/labels.json`（裁判 kappa 校准）**分列**；勿混名、勿改校准 loader。
 
@@ -36,13 +36,33 @@
 | `citation` | 成篇引用是否站得住（弱引、无台账、该引未引等） | 同上 |
 
 - `synthetic_fill`：必须带齐三维（分或 `N/A`）；`evidence_tier` = `L1_synthetic`；id 一般为 `null`。
-- `pending_label`：待补时三维均为 `null`，用 `intended_coverage` 写拟覆盖场景；从 logs 回填后写入真实 id、`evidence_tier=dogfood`，并填齐三维（`kind` 仍为 `pending_label`）。
+- `pending_label`：待补时三维均为 `null`，用 `intended_coverage` 写拟覆盖场景；入槽后写入真实 id、`evidence_tier=dogfood`（`kind` 仍为 `pending_label`）；三维分可稍后人工补齐（全 null 合法），**禁止**自动瞎打分冒充金标。
 
-## 短流程：取样 → 标注 → 对照
+## 从日志到标注（最短路径）
 
-1. **取样**：按 [对话日志分析指南](/docs/05-平台与运维/对话日志分析指南.md) / `conversation-logs.mdc`，用 `log_timeline` 从维护者 dogfood 日志挑候选（误派、弱交付、弱引用等）。
-2. **入槽**：选一条 `pending_label` → 写入真实 `conversation_id` / `trace_id` → `evidence_tier=dogfood` → 按三维打分。
-3. **对照**：改编排 / 引用闸 / 交付验收前，抽相关槽位做前后观察；**不**接入 CI。
+1. **出包**（`apps/server`，见 `conversation-logs.mdc`）：
+
+```bash
+uv run python scripts/log_timeline.py --pack /tmp/ac-pack --trace <trace_id>
+```
+
+2. **入槽**（仓库根；选空 `pending_label`，只写真实 id，分默认可留 null）：
+
+```bash
+python evals/dogfood/fill_from_pack.py --pack /tmp/ac-pack
+# 或按覆盖意图 / 指定槽：
+python evals/dogfood/fill_from_pack.py --pack /tmp/ac-pack --coverage "验收缺口"
+python evals/dogfood/fill_from_pack.py --pack /tmp/ac-pack --slot df_pend_08_acceptance_unmet
+# 可选：人工三维分（须三参齐传）
+python evals/dogfood/fill_from_pack.py --pack /tmp/ac-pack --slot df_pend_08_acceptance_unmet \
+  --routing 0 --deliverable 1 --citation N/A
+```
+
+亦支持 `--spine <decision_spine.json|log_timeline --json 落盘>`，或显式 `--trace-id` / `--conversation-id`（须来自真实日志，勿编造）。`--dry-run` 只打印不写盘。
+
+3. **lint**：`python evals/dogfood/lint_manifest.py`
+
+4. **对照**：改编排 / 引用闸 / 交付验收前，抽相关槽位做前后观察；**不**接入 CI。
 
 ## 门禁纪律
 
@@ -57,16 +77,16 @@
 |------|------|
 | [`manifest.json`](manifest.json) | 元数据 + 恰好 20 条槽位 |
 | [`lint_manifest.py`](lint_manifest.py) | 零 LLM 结构校验（缺字段 / 重复 id / ≠20 → exit ≠0） |
-| [`test_manifest_lint.py`](test_manifest_lint.py) | pytest 包装同一校验 |
+| [`fill_from_pack.py`](fill_from_pack.py) | 排查包 / spine → 空 `pending_label` 半自动入槽 |
+| [`test_manifest_lint.py`](test_manifest_lint.py) | pytest 包装 lint |
+| [`test_fill_from_pack.py`](test_fill_from_pack.py) | 入槽 CLI 单测 |
 
 ```bash
 # 仓库根
 python evals/dogfood/lint_manifest.py
-
-# 或
-python -m pytest evals/dogfood/test_manifest_lint.py -q
+python -m pytest evals/dogfood/test_manifest_lint.py evals/dogfood/test_fill_from_pack.py -q
 ```
 
 ## 非目标
 
-再建 R 真仓、S3 Resume UI 主线、裁判 kappa 校准、对外基准宣传、自动打分 LLM。
+再建 R 真仓、S3 Resume UI 主线、裁判 kappa 校准、对外基准宣传、online LLM-as-judge、Admin 内嵌回填、PR 门禁。

@@ -292,7 +292,10 @@ async def test_leaf_without_dependents_does_not_force_handoff():
 
 
 async def test_artifacts_missing_write_pass_then_hard_fails():
-    """交付真相：artifacts 隐含 requires_files；零落盘写盘 pass 后再失败 → FAILED。"""
+    """交付真相：artifacts 隐含 requires_files；零落盘写盘 pass 后再失败 → FAILED。
+
+    路径对账（声明文件名）已降为 warning；error 只保留真零盘文案。
+    """
     plan, _ = build_run_plan(
         [
             {
@@ -318,7 +321,7 @@ async def test_artifacts_missing_write_pass_then_hard_fails():
     state = res["t_1"]
     assert state.phase is RunPhase.FAILED
     assert provider.calls == 2  # initial + write pass（无满轮调查 retry）
-    assert "README.md" in (state.error or "")
+    assert "未把产物写入工作区" in (state.error or "")
     assert state.files_touched == []
 
 

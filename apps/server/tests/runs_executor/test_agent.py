@@ -878,6 +878,34 @@ async def test_collaboration_on_grants_note_tools_to_restricted_worker():
     assert "post_note" in provider.offered[0]
 
 
+async def test_restricted_worker_always_granted_handoff():
+    """CEO omit handoff from tools allow-list → executor still offers it (like escalate)."""
+    plan, _ = build_run_plan(
+        [{"role": "A", "task": "做A", "tools": ["web_search"]}],
+        id_prefix="t",
+        valid_tools={"web_search"},
+    )
+    reg = ToolRegistry()
+    reg.register(_GrantableTool("web_search"))
+    reg.register(_GrantableTool("handoff"))
+    reg.register(_GrantableTool("escalate"))
+    provider = _OfferRecorder()
+    executor = build_agent_executor(
+        plan=plan,
+        llm=provider,
+        tools=reg,
+        sink=EventSink(),
+        base_tool_context=_ctx(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        execution_id="e",
+    )
+    await WaveScheduler().run(plan, executor)
+    assert "handoff" in provider.offered[0]
+    assert "escalate" in provider.offered[0]
+    assert "web_search" in provider.offered[0]
+
+
 async def test_worker_collects_web_citations_onto_runstate():
     cites = [{"url": "https://a.com", "title": "A", "snippet": "", "site": "a.com"}]
     plan, _ = build_run_plan([{"role": "研究员", "task": "调研"}], id_prefix="t")

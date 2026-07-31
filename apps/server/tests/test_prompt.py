@@ -154,11 +154,13 @@ def test_tool_use_block_teaches_parallel_calls():
 
 
 def test_tool_use_block_documents_web_search_query_contract():
-    # A3 查询契约须进共享 system prompt（schema  alone 不够）：模型在研究压力下常倾倒长关键词串。
+    # A3 查询契约须进共享 system prompt（schema alone 不够）：模型在研究压力下常倾倒长关键词串。
     out = assemble_system_prompt()
-    assert "web_search 查询须精简" in out
-    assert "≤8 词" in out
-    assert "不自动改写" in out
+    assert "web_search" in out and ("精简" in out or "核心词" in out)
+    assert "截断" in out or "规范化" in out
+    assert "明示" in out
+    assert "无法规范化才拒绝" not in out
+    assert "≤8 词" not in out
 
 
 def test_runtime_context_uses_date_granularity_for_cache_stability():
@@ -226,13 +228,16 @@ def test_visualization_block_rides_only_the_composed_ceo_prompt():
 
 def test_core_states_coordinator_tool_boundary():
     # 协调者 CEO: mainly read/retrieval; production/mutation → delegate. Narrow
-    # exceptions (host_shell · local terminal for pure start/stop/list) stay pinned.
+    # exceptions (host_shell · local terminal for pure start/stop/list / 跑起来) stay pinned.
     hint = _CEO_CORE_HINT
     assert "只读" in hint
     assert "delegate" in hint
     # The hint must steer production/mutation to a worker, not the CEO's own hands.
     assert "交给 worker" in hint
     assert "本机运行态" in hint
+    assert "跑起来" in hint or "打开项目看一下" in hint
+    assert "报 URL" in hint
+    assert "验证员" in hint  # 禁止为此 delegate 验证员/browser
     assert "禁止" in hint and "host_shell" in hint
     assert "terminal" in hint
     # 高代价本机探测前先澄清：短句多解时禁止立刻 host_shell 扫路径。
@@ -250,10 +255,13 @@ def test_core_teaches_split_criterion_over_count():
     assert "拿不准先少派" in hint
     assert "可分解" in hint and "质量面" in hint
     assert "finalize=true" in hint and "机械单步" in hint
-    # 成篇调研：多角取证宜 research_report（含末环审校）；手写须齐撰稿→独立审校；
-    # 禁一人自搜+成文、禁仅「调研→撰稿」两节点、禁「角 prose、仅主笔落盘」
-    assert "成篇调研报告" in hint
-    assert 'playbook="research_report"' in hint or "research_report" in hint
+    # 结局分层：A parallel_brief / B research_report；多角≠成文；禁一人自搜+成文
+    assert "结局分层" in hint
+    assert "parallel_brief" in hint
+    assert "对齐推进" in hint
+    assert "research_report" in hint
+    assert "成文交付" in hint or "成文专线" in hint or "成篇" in hint
+    assert "禁止" in hint and "research_report" in hint  # A 禁套 B
     assert "一人包办" in hint or "自搜+成文" in hint
     assert "角 prose" in hint and "仅主笔落盘" in hint
     assert "form=files" in hint
@@ -281,6 +289,8 @@ def test_core_teaches_split_criterion_over_count():
     assert "只留方向句" in hint
     assert "1 人两段" in hint or "一人两段" in hint
     assert "规格已齐" in hint
+    assert "立刻派 ≠ 立刻全量" in hint or "立刻全量" in hint
+    assert "MVP" in hint or "契约" in hint
     assert "问还是派·中性" in hint or "不偏" in hint
     # P3 路由探针硬错对治：贴码写回强制派、点名实体扇出。
     assert "写回" in hint and "必须" in hint and "delegate" in hint
@@ -300,6 +310,9 @@ def test_core_teaches_split_criterion_over_count():
     assert "并列对象分组" in skill and "独立多透镜诊断" in skill
     assert "实现+独立验证" in skill  # 构建轻档双人底线
     assert "跨域合成" in skill or "按工种" in skill
+    assert "必读锚点" in skill or "≤2–3" in skill or "≤2-3" in skill
+    assert "第一棒" in skill or "壳层" in skill
+    assert "设计波" in skill or "案卷说明" in skill
 
 def test_catalog_preamble_matches_core_consult_intensity():
     """核与能力目录 preamble 共用同一句按场面强度。"""
@@ -367,6 +380,8 @@ def test_core_teaches_cross_turn_append_routing_and_wording():
     assert "recent_team_graph" in skill
     assert "已追加、正在报到" in skill
     assert "在同一回合的同一张图里" in skill
+    assert "自动降级" in skill or "已自动" in skill
+    assert "硬失败再改口" in skill or "勿先硬失败" in skill
 
 def test_skill_teaches_same_layer_pipeline():
     # A multi-stage pipeline is a DAG within ONE delegate call (depends_on, same
@@ -440,18 +455,25 @@ def test_core_teaches_delegate_point_dont_answer():
 
 def test_core_teaches_execution_and_recall_routing():
     # 短指针：跑/修/打开验证终向靠提示词（对照 workspace）；引擎不扫用户文硬分叉。
+    # 意图梯度：跑起来→CEO terminal 报 URL；右坞/浏览器才 navigate；验收才截图。
     hint = _CEO_CORE_HINT
     assert "【执行 / 运行 / 打开】" in hint
     assert "workspace_context" in hint
     assert "ask_user" in hint
     assert 'completion_criteria={"type":"code_verified"' in hint
-    assert "打开 + 浏览器看效果" in hint or "打开+浏览器看效果" in hint
+    assert "意图梯度" in hint
+    assert "跑起来" in hint and "报 URL" in hint
+    assert "验证员" in hint
+    assert "browser_navigate" in hint
+    assert "右坞打开" in hint or "帮我看页面" in hint
     assert "省略" in hint
     assert "勿默认" in hint and "runtime_ready" in hint
+    assert "验收" in hint and ("截图" in hint or "screenshot" in hint)
     assert "delegate" in hint
     assert "读文件" in hint or "列目录" in hint
     assert "冒充已跑或已验" in hint
     assert "不扫用户文" in hint or "硬分叉" in hint
+    assert "已绑定本地工程" in hint or "跑当前项目" in hint
     # 不再叠长禁令散文
     assert "不要先读完口述" not in hint
     assert "禁止 DIRECT" not in hint
@@ -488,10 +510,13 @@ def test_core_teaches_delivery_honesty_when_no_execution():
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "不要设" in skill or "显式声明会被硬拒" in skill
     assert "未运行验证" in skill or "交付缺口" in skill
-    # C：打开+浏览器看效果 → 省略 completion_criteria，勿默认 runtime_ready
-    assert "打开 + 浏览器看效果" in skill or "打开+浏览器看效果" in skill
-    assert "省略" in skill and "勿默认" in skill
+    # C：右坞/浏览器打开 → 省略 completion_criteria，勿默认 runtime_ready；
+    # 纯启服/跑起来看 → CEO terminal，禁止默认验证员/navigate 流水线。
+    assert "意图梯度" in skill
     assert "browser_navigate" in skill
+    assert "省略" in skill and "勿默认" in skill
+    assert "验证员" in skill or "跑起来" in skill
+    assert "≠必须" in skill or "默认为必须" in skill
 
 
 def test_core_teaches_delivery_path_by_workspace_type():
@@ -508,6 +533,8 @@ def test_core_teaches_delivery_path_by_workspace_type():
     assert "escalate" in hint
     assert "已登录，继续" in hint
     assert "用浏览器打开" in hint
+    assert "navigate 成功即可" in hint or "帮我看页面" in hint
+    assert "跑起来" in hint or "打开看一下" in hint  # 切断跑起来→必须 navigate
     assert "delegate" in hint
     assert "read_url" in hint
     assert "双击打开" in hint

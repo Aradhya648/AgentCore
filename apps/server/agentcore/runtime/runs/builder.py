@@ -260,6 +260,7 @@ def build_run_plan(
     depth: int = 1,
     complexity_hint: str = "standard",
     existing_plan: RunPlan | None = None,
+    code_verified: bool = False,
 ) -> tuple[RunPlan, list[str]]:
     """Build a RunPlan from raw delegate-tool task args.
 
@@ -283,6 +284,9 @@ def build_run_plan(
     known-set to host nodes ∪ this batch — same rule as :func:`build_added_nodes`.
     Returned plan still contains **only** the new batch nodes; pure new builds leave
     this ``None`` (behavior unchanged).
+
+    ``code_verified``：批次为代码验收时，案卷 ``artifact_dir`` 默认不自动填
+    （显式 ``artifact_dir`` / 案卷路径 ``artifacts`` 仍尊重）。
     """
     if not tasks_raw:
         return RunPlan(), ["'tasks' array is required and cannot be empty"]
@@ -331,7 +335,7 @@ def build_run_plan(
         apply_light_round_budgets(plan, complexity_hint=complexity_hint)
         from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_plan
 
-        apply_artifact_dir_to_plan(plan)
+        apply_artifact_dir_to_plan(plan, code_verified=code_verified)
     return plan, errors
 
 
@@ -502,9 +506,6 @@ def build_added_nodes(
     from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_specs
 
     apply_artifact_dir_to_specs(specs)
-    _sanitize_deliverable_length_bounds(
-        RunPlan(nodes=[*plan.nodes, *specs], origin=plan.origin)
-    )
     return specs, []
 
 
@@ -718,23 +719,7 @@ def _dag_plan(
                 f"（run_id={node.run_id}）。若确需先拿上游结果，补 depends_on 或分批 delegate；"
                 "本就独立可忽略。"
             )
-    _sanitize_deliverable_length_bounds(plan)
     return plan, []
-
-
-def _sanitize_deliverable_length_bounds(plan: RunPlan) -> None:
-    """同一契约内保证 ``min_length ≤ max_length``；绝不发明地板。
-
-    旧逻辑在 prose∧有下游时把 ``min_length`` 抬到 80，却不动 ``max_length``，
-    可写出 ``min=80 ∧ max=50`` 的非法合同（打招呼链翻车根因）。交接地板现只
-    认 deliverable；需要实质篇幅的 playbook 须自己声明 ``min_length``。
-    """
-    for node in plan.nodes:
-        d = node.deliverable
-        if d is None:
-            continue
-        if d.max_length > 0 and d.min_length > d.max_length:
-            d.min_length = d.max_length
 
 
 def _inline_spec(
@@ -1012,9 +997,7 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
     must_contain = _str_list(raw.get("must_contain"))
     artifacts = _str_list(raw.get("artifacts"))
     min_length = raw.get("min_length")
-    max_length = raw.get("max_length")
     min_length = min_length if isinstance(min_length, int) and min_length > 0 else 0
-    max_length = max_length if isinstance(max_length, int) and max_length > 0 else 0
     fmt = raw.get("output_format")
     output_format = fmt if fmt in _VALID_OUTPUT_FORMATS else "text"
     form_raw = raw.get("form")
@@ -1063,7 +1046,6 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
         required_sections=required_sections,
         must_contain=must_contain,
         min_length=min_length,
-        max_length=max_length,
         form=form,  # type: ignore[arg-type]
         requires_files=requires_files,
         artifacts=artifacts,
@@ -1088,7 +1070,6 @@ def _deliverable_has_content(deliverable: Deliverable) -> bool:
         or deliverable.required_sections
         or deliverable.must_contain
         or deliverable.min_length
-        or deliverable.max_length
         or deliverable.output_format == "json"
         or deliverable.requires_files
         or deliverable.artifacts

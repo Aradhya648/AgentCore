@@ -363,13 +363,13 @@ describe("resumeConversationViaSidecar", () => {
     expect(cancelMock).not.toHaveBeenCalled();
   });
 
-  it("surfaces a user stop as AbortError and cancels the engine", async () => {
+  it("AbortSignal does not cancel the engine (viewer disconnect ≠ stop)", async () => {
     const ac = new AbortController();
-    let rejectResume: (e: unknown) => void = () => {};
+    let resolveResume: (v: unknown) => void = () => {};
     resumeMock.mockImplementation(
       () =>
-        new Promise((_resolve, reject) => {
-          rejectResume = reject;
+        new Promise((resolve) => {
+          resolveResume = resolve;
         }),
     );
 
@@ -379,20 +379,14 @@ describe("resumeConversationViaSidecar", () => {
     });
     p.catch(() => {});
 
-    // `resume` is invoked only after the abort listener is registered, so waiting
-    // for it guarantees the stop button is wired before we press it.
     await vi.waitFor(() => expect(resumeMock).toHaveBeenCalled());
     ac.abort();
-    expect(cancelMock).toHaveBeenCalledWith(
-      expect.objectContaining({ rootId: "r1", turnId: "m-asst" }),
-    );
+    // C1: abort 只影响 UI 观察门禁，不得 fire-and-forget cancel 引擎。
+    expect(cancelMock).not.toHaveBeenCalled();
 
-    // The cancelled RPC then rejects; the abort wins → AbortError, no error banner.
-    rejectResume(new Error("turn cancelled"));
-    const err = await p.catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(DOMException);
-    expect((err as DOMException).name).toBe("AbortError");
-    expect(flushTurnMock).not.toHaveBeenCalled();
+    resolveResume(turnResult());
+    await expect(p).resolves.toEqual(turnResult());
+    expect(cancelMock).not.toHaveBeenCalled();
   });
 
   it("maps honest stop (phase stopping, signal intact) to AbortError", async () => {

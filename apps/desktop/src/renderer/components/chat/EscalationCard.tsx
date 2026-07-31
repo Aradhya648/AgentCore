@@ -383,9 +383,6 @@ function PendingEscalation({
             </p>
             <ManualHelpLink to={MANUAL_HELP.control} />
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            等你拍板 · 不限时
-          </p>
           <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
             {escalation.question}
           </p>

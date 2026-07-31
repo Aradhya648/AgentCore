@@ -574,7 +574,7 @@ function ErrorsTable({
                     value={row.trace_id}
                     label="trace_id"
                     display={row.trace_id.slice(0, 8)}
-                    titleHint={`${row.trace_id}（点击复制，用于 grep logs/dev.jsonl）`}
+                    titleHint={`${row.trace_id}（点击复制 → log_timeline --trace / --pack）`}
                   />
                 ) : (
                   <span className="text-muted-foreground">—</span>

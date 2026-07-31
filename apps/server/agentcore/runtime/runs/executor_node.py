@@ -37,6 +37,7 @@ from agentcore.runtime.runs.constants import (
 from agentcore.runtime.runs.contract import (
     ContractVerdict,
     check_contract,
+    citation_rework_reread_paths,
     debrief_meets_minimum,
     format_cite_upgrade_feedback,
     format_feedback,
@@ -50,6 +51,7 @@ from agentcore.runtime.runs.contract import (
     needs_file_contents,
     node_has_dependents,
     partition_citation_failures,
+    strip_invalid_ledger_refs_from_surfaces,
     synthesize_debrief,
 )
 from agentcore.runtime.runs.executor_context import (
@@ -84,6 +86,7 @@ from agentcore.runtime.runs.file_acceptance import (
     build_file_acceptance,
     path_rejections_from_contract_messages,
 )
+from agentcore.runtime.runs.landing_product import filter_product_landing_paths
 from agentcore.runtime.runs.notewall import NOTE_NUDGE_TEXT, format_notes_for_injection
 from agentcore.runtime.runs.retrieval_budget import (
     RETRIEVAL_TOOL_NAMES,
@@ -138,6 +141,36 @@ def _files_expected(deliverable: Any) -> bool:
     if getattr(deliverable, "form", None) == "files":
         return True
     return bool(getattr(deliverable, "artifacts", None))
+
+
+def _grant_citation_rework_reread(
+    tool_ctx: Any,
+    *,
+    cite_failures: list[str] | None,
+    checked_files: list[str] | None,
+    deliverable: Any,
+) -> None:
+    """Refresh sticky file_read reread grant for paths named by citation rework."""
+    artifacts: list[str] = []
+    if deliverable is not None:
+        raw = getattr(deliverable, "artifacts", None) or []
+        if isinstance(raw, list):
+            artifacts = [str(a) for a in raw if a]
+    paths = citation_rework_reread_paths(
+        cite_failures=cite_failures,
+        checked_files=checked_files,
+        artifacts=artifacts,
+    )
+    if not paths:
+        return
+    from agentcore.runtime.engine.tool_clear import refresh_file_read_reread_grant
+
+    refreshed = refresh_file_read_reread_grant(tool_ctx, paths)
+    if refreshed:
+        logger.info(
+            "contract.citation_reread_grant",
+            paths=refreshed,
+        )
 
 
 def _narrow_for_repair_posture(
@@ -443,6 +476,11 @@ async def execute_agent_node(
                 worker_tools, allowed_tools
             )
         files_expected = _files_expected(deliverable)
+        product_landing_artifacts: list[str] | None = (
+            list(deliverable.artifacts)
+            if deliverable is not None and deliverable.artifacts
+            else None
+        )
         from agentcore.runtime.delegate.completion import node_holds_execution_tools
         from agentcore.runtime.runs.worker_budget import (
             is_short_write_posture,
@@ -479,6 +517,11 @@ async def execute_agent_node(
         # keep it explicitly, so it can still flag a blocker instead of guessing.
         if allowed_tools is not None and ESCALATE_TOOL_NAME not in allowed_tools:
             allowed_tools = [*allowed_tools, ESCALATE_TOOL_NAME]
+        # handoff is the worker's always-available finish/brief channel — same posture as
+        # escalate. CEO omit must not allowlist_deny a depth≥1 worker that still has tools.
+        # Leaf nodes need not *call* it, but the tool must stay on the surface.
+        if allowed_tools is not None and HANDOFF_TOOL_NAME not in allowed_tools:
+            allowed_tools = [*allowed_tools, HANDOFF_TOOL_NAME]
         # 团队便签三件套 (post/read/amend_note) 仅协作批次授予 (便签墙 broadcast, §2.2 通): a
         # collaborating team keeps them always-available even for a least-privilege worker so
         # siblings align mid-flight; a non-collaborative batch (env.collaboration=False, e.g.
@@ -730,6 +773,7 @@ async def execute_agent_node(
                     short_write_posture=short_write_posture,
                     tighten_verify_exec_thrash=tighten_verify_exec_thrash,
                     form_prose=deliverable_form == "prose",
+                    product_landing_artifacts=product_landing_artifacts,
                 )
             run_usage = run_usage + round_usage
             run_rounds += round_rounds
@@ -747,7 +791,13 @@ async def execute_agent_node(
             # reconciles declarative artifacts against the live workspace (+ this
             # run's own writes). Handoff gate: nodes with downstream dependents must
             # submit a minimum-quality brief (one correction shot, then degraded synth).
+            # Product gate: any successful write counts (dossier notes under
+            # research/reviews/debate included — see landing_product).
             touched_now = files_touched_from_transcript(messages)
+            product_touched_now = filter_product_landing_paths(
+                touched_now, product_landing_artifacts
+            )
+            product_files_written = len(product_touched_now)
             # 自由 delegate 落盘 research/ 时与 playbook 盖戳同口径进入 A→B。
             two_phase = _two_phase_citation(
                 deliverable, landed_paths=touched_now
@@ -814,7 +864,7 @@ async def execute_agent_node(
             verdict = check_contract(
                 content,
                 deliverable,
-                files_written=len(touched_now),
+                files_written=product_files_written,
                 debrief=debrief_now,
                 workspace_paths=workspace_paths,
                 artifact_contents=artifact_contents,
@@ -875,12 +925,12 @@ async def execute_agent_node(
             checked_files = (
                 list(artifact_contents.keys()) if artifact_contents else None
             )
-            # 调研 A→B：阶段 A 已过非引用合同 → 探测引用闸；不干净则同 worker 升 B 一次。
+            # 调研 A→B：阶段 A 已过非引用合同 → 探测引用闸；仅引用问题则先自动剥离再决定。
             if in_phase_a and verdict.ok:
                 probe = check_contract(
                     content,
                     deliverable,
-                    files_written=len(touched_now),
+                    files_written=product_files_written,
                     debrief=debrief_now,
                     workspace_paths=workspace_paths,
                     artifact_contents=artifact_contents,
@@ -892,30 +942,98 @@ async def execute_agent_node(
                 if other_fail:
                     verdict = probe
                 elif cite_fail:
-                    cite_upgrade_used = True
-                    parts = [
-                        format_cite_upgrade_feedback(
-                            cite_fail,
-                            checked_files=checked_files,
+                    # 1) 自动剥离落盘（及正文）非法 #rN，写回后再验；过则免 LLM。
+                    new_arts, new_body, stripped_ids = (
+                        strip_invalid_ledger_refs_from_surfaces(
+                            artifact_contents=artifact_contents,
+                            body=content,
+                            citable_ids=turn_citable_ids,
                         )
-                    ]
-                    if needs_handoff and handoff_offered and not debrief_meets_minimum(
-                        debrief_now
-                    ):
-                        parts.append(
-                            format_handoff_feedback(
-                                present_but_thin=debrief_now is not None
-                            )
-                        )
-                    messages.append(_retry_message("\n\n".join(p for p in parts if p)))
-                    logger.info(
-                        "contract.cite_upgrade",
-                        run_id=spec.run_id,
-                        failures=cite_fail,
-                        tokens_spent=run_usage.total_tokens,
-                        rounds_spent=run_rounds,
                     )
-                    continue
+                    if stripped_ids:
+                        if new_arts and artifact_contents:
+                            for path, text in new_arts.items():
+                                if artifact_contents.get(path) == text:
+                                    continue
+                                try:
+                                    await tool_ctx.backend.write(path, text)
+                                except Exception:  # noqa: BLE001
+                                    logger.warning(
+                                        "contract.cite_upgrade",
+                                        action="strip_write_failed",
+                                        path=path,
+                                        exc_info=True,
+                                    )
+                        artifact_contents = new_arts
+                        content = new_body
+                        checked_files = (
+                            list(artifact_contents.keys()) if artifact_contents else None
+                        )
+                        probe = check_contract(
+                            content,
+                            deliverable,
+                            files_written=product_files_written,
+                            debrief=debrief_now,
+                            workspace_paths=workspace_paths,
+                            artifact_contents=artifact_contents,
+                            ledger_entries=turn_ledger_entries,
+                            citable_ids=turn_citable_ids,
+                            enforce_citations=True,
+                        )
+                        cite_fail, other_fail = partition_citation_failures(
+                            probe.failures
+                        )
+                        if other_fail:
+                            verdict = probe
+                        elif not cite_fail:
+                            cite_upgrade_used = True  # 已按 B 处理，跳过阶段 A 安全网重验
+                            logger.info(
+                                "contract.cite_upgrade",
+                                run_id=spec.run_id,
+                                action="auto_strip",
+                                stripped=stripped_ids,
+                                tokens_spent=run_usage.total_tokens,
+                                rounds_spent=run_rounds,
+                            )
+                            # 剥完即过 → 直接验收，不开 LLM。
+                            cite_fail = []
+                    # 2) 剥完仍有引用/书目问题 → 一次 light_mode 短修（禁检索/深读）。
+                    if cite_fail and not other_fail:
+                        cite_upgrade_used = True
+                        light_mode = True
+                        _grant_citation_rework_reread(
+                            tool_ctx,
+                            cite_failures=cite_fail,
+                            checked_files=checked_files,
+                            deliverable=deliverable,
+                        )
+                        parts = [
+                            format_cite_upgrade_feedback(
+                                cite_fail,
+                                checked_files=checked_files,
+                            )
+                        ]
+                        if needs_handoff and handoff_offered and not debrief_meets_minimum(
+                            debrief_now
+                        ):
+                            parts.append(
+                                format_handoff_feedback(
+                                    present_but_thin=debrief_now is not None
+                                )
+                            )
+                        messages.append(
+                            _retry_message("\n\n".join(p for p in parts if p))
+                        )
+                        logger.info(
+                            "contract.cite_upgrade",
+                            run_id=spec.run_id,
+                            action="light_repair",
+                            failures=cite_fail,
+                            stripped=stripped_ids or None,
+                            tokens_spent=run_usage.total_tokens,
+                            rounds_spent=run_rounds,
+                        )
+                        continue
                 # else: already cite-clean → accept as B-ready (handoff 仍可走下方返工)
             if (verdict.ok and handoff_ok) or attempt == attempts - 1:
                 break
@@ -979,7 +1097,7 @@ async def execute_agent_node(
             if _can_write_pass(
                 verdict=verdict,
                 files_expected=files_expected,
-                files_written=len(touched_now),
+                files_written=product_files_written,
                 write_pass_used=write_pass_used,
             ):
                 write_pass_used = True
@@ -1024,6 +1142,15 @@ async def execute_agent_node(
                     format_handoff_feedback(present_but_thin=debrief_now is not None)
                 )
             messages.append(_retry_message("\n\n".join(p for p in parts if p)))
+            # Citation-related full retry: refresh sticky reread so cleared drafts stay readable.
+            cite_fail_retry, _other_retry = partition_citation_failures(verdict.failures)
+            if cite_fail_retry:
+                _grant_citation_rework_reread(
+                    tool_ctx,
+                    cite_failures=cite_fail_retry,
+                    checked_files=checked_files,
+                    deliverable=deliverable,
+                )
             # Full contract.retry: refill only within original retrieval cap, and
             # never after wind_down（不得恢复全量检索）.
             rb = tool_ctx.retrieval_budget
@@ -1070,7 +1197,12 @@ async def execute_agent_node(
             probe = check_contract(
                 content,
                 deliverable,
-                files_written=len(files_touched_from_transcript(messages)),
+                files_written=len(
+                    filter_product_landing_paths(
+                        files_touched_from_transcript(messages),
+                        product_landing_artifacts,
+                    )
+                ),
                 debrief=debrief_from_transcript(messages),
                 workspace_paths=workspace_paths,
                 artifact_contents=artifact_contents,
@@ -1139,6 +1271,9 @@ async def execute_agent_node(
         # empty inventory must not mint an empty ``degraded_synth``.
         debrief = debrief_from_transcript(messages)
         touched = files_touched_from_transcript(messages)
+        product_touched = filter_product_landing_paths(
+            touched, product_landing_artifacts
+        )
         author_brief = debrief
         if (
             node_has_dependents(env.plan, spec.run_id)
@@ -1183,7 +1318,7 @@ async def execute_agent_node(
             [*verdict.failures, *verdict.soft_failures]
         )
         if not verdict.ok and _is_hard_failure(
-            content, deliverable, files_touched=len(touched)
+            content, deliverable, files_touched=len(product_touched)
         ):
             reason = "；".join(verdict.failures)
             logger.info("contract.failed", run_id=spec.run_id, failures=verdict.failures)
@@ -1191,7 +1326,7 @@ async def execute_agent_node(
             if (
                 deliverable is not None
                 and deliverable.requires_files
-                and not touched
+                and not product_touched
             ):
                 esc_q = (
                     "落盘契约未满足：requires_files 且零落盘"

@@ -13,8 +13,9 @@ plan_review machinery:
   (so resume finishes without another CEO round).
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from agentcore.core.types import ToolEffect
 from agentcore.llm.provider.protocol import LLMMessage

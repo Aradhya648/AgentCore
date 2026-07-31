@@ -84,6 +84,13 @@ WIND_DOWN_BREACH_NUDGE = (
     "禁止再调查、读文件或开新战线。再次违约将本地合成交付并强制收口。"
 )
 
+WIND_DOWN_BREACH_NUDGE_KEEP_LANDING = (
+    "[系统提示] 收尾窗口违约：你调用了检索/外网类工具。"
+    "工具面已禁止继续调查，但仍保留落盘与 handoff（本 run 仍负有落盘义务）。"
+    "请立刻把已有产出落盘并调用 handoff；禁止再检索或开新战线。"
+    "再次违约将本地合成交付并强制收口。"
+)
+
 
 def reason_for_warning(text: str) -> str | None:
     """Map a canonical cutoff warning string to its reason code, or None."""
@@ -161,6 +168,28 @@ def narrow_tools_for_handoff_only(available: set[str]) -> list[str]:
     return ["handoff"] if "handoff" in available else []
 
 
+def narrow_tools_for_wind_down_breach(
+    available: set[str],
+    *,
+    keep_landing: bool = False,
+    keep_file_read: bool = False,
+    allowed: list[str] | None = None,
+) -> list[str]:
+    """Post-breach surface after a wind-down whitelist violation.
+
+    Default = handoff-only (strip retrieval thrash). When the run still owes
+    workspace landing (``keep_landing``), keep the wind_down write whitelist so
+    ``file_write`` / append / replace are not allowlist-denied mid-obligation.
+    """
+    if keep_landing:
+        return narrow_tools_for_wind_down(
+            available,
+            allowed=allowed,
+            keep_file_read=keep_file_read,
+        )
+    return narrow_tools_for_handoff_only(available)
+
+
 def wind_down_breach_tool_names(
     tool_names: list[str] | tuple[str, ...] | set[str],
     *,
@@ -190,12 +219,16 @@ def should_force_local_after_wind_down_breach(
     prior_breaches: int,
     tokens: int,
     token_budget: int,
+    wind_down_reason: str = "",
 ) -> bool:
     """True when a wind-down breach must local-synth instead of another LLM nudge round.
 
-    Second+ breach always forces local close. First breach still forces local when the
-    run is already at/over the hard token ceiling (违约轮不得再烧过硬顶).
+    Retrieval-budget wind-down: first breach already forces local close (avoid grep /
+    search thrash after slots are gone). Other reasons: second+ breach always forces;
+    first breach still forces when already at/over the hard token ceiling.
     """
+    if wind_down_reason == "retrieval_budget":
+        return True
     if prior_breaches >= 1:
         return True
     return token_budget > 0 and tokens >= token_budget

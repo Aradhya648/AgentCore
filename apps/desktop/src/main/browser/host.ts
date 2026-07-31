@@ -114,14 +114,36 @@ const IS_PASSWORD_JS = `(el) => {
 
 const hostsWithCleanup = new WeakSet<BrowserWindow>();
 
+function readNavSnapshot(pageId: string): {
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+} | null {
+  const entry = pages.get(pageId);
+  if (!entry || entry.view.webContents.isDestroyed()) return null;
+  const wc = entry.view.webContents;
+  const nav = wc.navigationHistory;
+  return {
+    url: wc.getURL(),
+    title: wc.getTitle() || "",
+    canGoBack: nav.canGoBack(),
+    canGoForward: nav.canGoForward(),
+  };
+}
+
 function pushNavState(pageId: string): void {
   const entry = pages.get(pageId);
   if (!entry || !hostWin || hostWin.isDestroyed()) return;
   if (entry.view.webContents.isDestroyed()) return;
+  const snap = readNavSnapshot(pageId);
+  if (!snap) return;
   const payload: BrowserNavState = {
     pageId,
-    url: entry.view.webContents.getURL(),
-    canGoBack: entry.view.webContents.navigationHistory.canGoBack(),
+    url: snap.url,
+    title: snap.title,
+    canGoBack: snap.canGoBack,
+    canGoForward: snap.canGoForward,
   };
   hostWin.webContents.send(BROWSER_CHANNELS.navState, payload);
 }
@@ -346,7 +368,14 @@ export function showLocalBrowserPage(
     entry.view.setBounds(bounds);
     setPageVisible(pageId, entry.view, true);
     pushNavState(pageId);
-    return { ok: true };
+    const snap = readNavSnapshot(pageId);
+    return {
+      ok: true,
+      url: snap?.url ?? LOCAL_BROWSER_BLANK,
+      title: snap?.title ?? "",
+      canGoBack: snap?.canGoBack ?? false,
+      canGoForward: snap?.canGoForward ?? false,
+    };
   } catch (e) {
     return {
       ok: false,
@@ -480,6 +509,13 @@ export function goBackLocalBrowserPage(pageId: string): void {
   if (!entry || entry.view.webContents.isDestroyed()) return;
   const nav = entry.view.webContents.navigationHistory;
   if (nav.canGoBack()) nav.goBack();
+}
+
+export function goForwardLocalBrowserPage(pageId: string): void {
+  const entry = pages.get(pageId);
+  if (!entry || entry.view.webContents.isDestroyed()) return;
+  const nav = entry.view.webContents.navigationHistory;
+  if (nav.canGoForward()) nav.goForward();
 }
 
 /** 关页：销毁对应 view。 */

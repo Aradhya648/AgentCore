@@ -285,6 +285,107 @@ async def test_pillar_c_harvest_skips_when_reattached():
 
 
 @pytest.mark.asyncio
+async def test_pillar_c_harvest_deferred_keeps_registry_and_retries():
+    """槽位占用时不得当成成功收口清注册表；须保留并可再收获。"""
+    import agentcore.conversation.execution_harvest as eh
+    from agentcore.conversation.execution_harvest import HarvestDeferredError
+    from agentcore.runtime.coordination import harvest as harvest_mod
+
+    session = CoordinationSession(
+        execution_id="exec-deferred",
+        total_workers=1,
+        conversation_id="conv-deferred",
+    )
+    session.turn_attached = False
+    set_active_coordination(session)
+
+    calls = {"n": 0}
+
+    async def _closing(**_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise HarvestDeferredError("conv-deferred", "exec-deferred")
+        # Second attempt succeeds (no-op closing).
+
+    with (
+        patch.object(harvest_mod, "_HARVEST_RETRY_DELAY_S", 0.01),
+        patch.object(eh, "run_harvest_closing_turn", new=_closing),
+    ):
+        await harvest_mod.harvest_detached_execution(session)
+
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_pillar_c_harvest_deferred_does_not_close_on_slot_busy():
+    """Deferred 耗尽仍保留注册，禁止「只清注册表、用户无下文」。"""
+    import agentcore.conversation.execution_harvest as eh
+    from agentcore.conversation.execution_harvest import HarvestDeferredError
+    from agentcore.runtime.coordination import harvest as harvest_mod
+
+    session = CoordinationSession(
+        execution_id="exec-busy",
+        total_workers=1,
+        conversation_id="conv-busy",
+    )
+    session.turn_attached = False
+    set_active_coordination(session)
+
+    async def _always_deferred(**_kwargs):
+        raise HarvestDeferredError("conv-busy", "exec-busy")
+
+    with (
+        patch.object(harvest_mod, "_HARVEST_MAX_ATTEMPTS", 3),
+        patch.object(harvest_mod, "_HARVEST_RETRY_DELAY_S", 0.01),
+        patch.object(eh, "run_harvest_closing_turn", new=_always_deferred),
+    ):
+        await harvest_mod.harvest_detached_execution(session)
+
+    assert active_coordination("exec-busy") is session
+
+
+def test_harvest_user_text_distinguishes_outcomes():
+    from agentcore.conversation.execution_harvest import (
+        format_harvest_user_text,
+        harvest_closing_kind,
+    )
+    from agentcore.runtime.coordination.session import (
+        CoordinationEvent,
+        CoordinationEventKind,
+    )
+
+    ok = CoordinationSession(execution_id="h-ok", total_workers=2)
+    ok.completed_run_ids = {"a", "b"}
+    assert harvest_closing_kind(ok) == "success"
+    assert "已全部完成" in format_harvest_user_text(ok)
+
+    fail = CoordinationSession(execution_id="h-fail", total_workers=2)
+    fail.completed_run_ids = {"a", "b"}
+    fail.failed_run_ids = {"b"}
+    assert harvest_closing_kind(fail) == "failure"
+    text_fail = format_harvest_user_text(fail)
+    assert "失败" in text_fail
+    assert "任务已全部完成" not in text_fail
+
+    cancelled = CoordinationSession(execution_id="h-cancel", total_workers=1)
+    cancelled.soft_stop = True
+    assert harvest_closing_kind(cancelled) == "cancelled"
+    text_c = format_harvest_user_text(cancelled)
+    assert "取消" in text_c
+    assert "任务已全部完成" not in text_c
+    assert text_c.startswith("【系统收口】后台团队任务已取消")
+
+    drive_c = CoordinationSession(execution_id="h-drive-c", total_workers=1)
+    drive_c._pending.append(
+        CoordinationEvent(kind=CoordinationEventKind.DRIVE_CANCELLED, payload={})
+    )
+    assert harvest_closing_kind(drive_c) == "cancelled"
+    assert format_harvest_user_text(drive_c).startswith(
+        "【系统收口】后台团队任务已取消"
+    )
+
+
+@pytest.mark.asyncio
 async def test_pillar_d_await_live_detached_drive_delays_until_done():
     """支柱 D1：pipeline 返回后有 live detached drive 时，sink.close 须等 drive 结束。"""
     from agentcore.runtime.coordination.session import await_live_detached_drive

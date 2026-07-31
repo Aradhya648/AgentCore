@@ -9,6 +9,9 @@
  * Event ownership: claim via `sidecarEventPump` (App-lifetime single
  * `sidecar:event` subscription). Concurrent attach coalesces; a later claim
  * revokes the prior owner. Do not call `sidecarApi.onEvent` here.
+ *
+ * Viewer vs engine (C1)：AbortSignal / 切会话 / hydrate cleanup 只卸观察（release
+ * claim），**禁止** ``sidecarApi.cancel``——停引擎只走 ``stopConversation``。
  */
 import { logEvent } from "@/lib/log";
 import {
@@ -86,9 +89,12 @@ function ensureUserRow(
 }
 
 export interface AttachSidecarTurnOptions {
-  /** 切会话 / hydrate 取消时 abort（停 live 等待，释放 claim）。 */
+  /** 切会话 / hydrate 取消时 abort（只停 live 等待并释放 claim，不 cancel 引擎）。 */
   signal?: AbortSignal;
 }
+
+/** Yield to the event loop every N folded snapshot events (大缓冲回放防假死). */
+const ATTACH_REPLAY_YIELD_EVERY = 64;
 
 /**
  * Attach a live sidecar turn after refresh / reopen.
@@ -129,8 +135,6 @@ async function attachSidecarTurnExclusive(
   let draining = false;
   let finished = false;
   let activeTurnId: string | undefined;
-  let activeRootId: string | undefined;
-  let activeSubpath: string | undefined;
   let anchorUserMessageId: string | undefined;
   let claim: SidecarTurnClaim | null = null;
 
@@ -168,19 +172,13 @@ async function attachSidecarTurnExclusive(
   store.setAbort(ac, conversationId);
   beginTurnPreflight(conversationId);
 
+  // Viewer detach only — never cancel the in-flight sidecar turn (断连 ≠ 取消).
   const onAbort = (): void => {
-    if (!activeRootId || !activeTurnId) {
-      resolveDone();
-      return;
-    }
-    void window.sidecarApi
-      .cancel({
-        rootId: activeRootId,
-        subpath: activeSubpath,
-        turnId: activeTurnId,
-        conversationId,
-      })
-      .catch(() => {});
+    logEvent("info", "sidecar.attach_detach", {
+      conversation_id: conversationId,
+      turn_id: activeTurnId ?? null,
+      reason: "viewer_abort",
+    });
     resolveDone();
   };
   ac.signal.addEventListener("abort", onAbort, { once: true });
@@ -260,8 +258,6 @@ async function attachSidecarTurnExclusive(
     });
 
     activeTurnId = res.turnId;
-    activeRootId = res.rootId;
-    activeSubpath = res.subpath ?? "";
     claim.setTurnId(res.turnId);
     // D4 step 3: setActive BEFORE any event fold (interaction respond routing).
     setActiveSidecarTurn(
@@ -313,10 +309,15 @@ async function attachSidecarTurnExclusive(
     }
 
     draining = true;
-    for (const event of res.events ?? []) {
-      foldEvent(event as SSEEvent);
+    const snapshot = res.events ?? [];
+    for (let i = 0; i < snapshot.length; i++) {
+      if (ac.signal.aborted) break;
+      foldEvent(snapshot[i] as SSEEvent);
+      if (i > 0 && i % ATTACH_REPLAY_YIELD_EVERY === 0) {
+        await new Promise<void>((r) => setTimeout(r, 0));
+      }
     }
-    while (liveQueue.length > 0) {
+    while (!ac.signal.aborted && liveQueue.length > 0) {
       const next = liveQueue.shift();
       if (next) foldEvent(next);
     }
@@ -367,10 +368,16 @@ function teardownAttachedTurn(
   externalSignal?.removeEventListener("abort", onExternalAbort);
   const store = useConversationStore.getState();
   store.setAbort(null, conversationId);
+  // Viewer abort: clear generating so reopen hydrate can attach again (engine may
+  // still be live — recovery.sidecarLive drives the next attach). Natural end
+  // already folded message_end; only mark outbox when we were not yanked away.
+  if (ac.signal.aborted) {
+    if (getRuntime(conversationId).isGenerating) {
+      store.setGenerating(false, conversationId);
+    }
+    return;
+  }
   if (userMessageId) {
     store.setTurnSyncStatus(userMessageId, "synced_pending", conversationId);
-  }
-  if (getRuntime(conversationId).isGenerating && ac.signal.aborted) {
-    store.setGenerating(false, conversationId);
   }
 }

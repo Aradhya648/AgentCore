@@ -1,7 +1,7 @@
 """Immutable turn projection from the §8.3 journal (唯一事实源).
 
-``TurnState.from_journal`` is the single projection entry for resume / crash recover /
-retry-failed seed extraction. It folds plan / completed / execution_id / coordination
+``TurnState.from_journal`` is the single projection entry for resume / crash recover.
+It folds plan / completed / execution_id / coordination
 (and optionally the CEO window) from ordered facts — no second source of truth.
 ``upto_seq`` supports time-travel / fork (project a prefix); UI for that is out of scope.
 """

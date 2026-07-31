@@ -198,6 +198,27 @@ describe("surfaceResumeFromLiveTurn", () => {
     });
   });
 
+  it("画卡后清 isGenerating / isStreaming（冷挂起不变量）", () => {
+    seedTurn("m-server-gen");
+    conv().setGenerating(true, CID);
+    expect(conv().byId[CID]?.isGenerating).toBe(true);
+    expect(
+      conv().byId[CID]?.messages.find((m) => m.id === "client-uuid")
+        ?.isStreaming,
+    ).toBe(true);
+    upsertAsk();
+
+    surfaceResumeFromLiveTurn(CID, "server");
+
+    expect(paused().pending).toHaveLength(1);
+    expect(conv().byId[CID]?.isGenerating).toBe(false);
+    const assistant = conv().byId[CID]?.messages.find(
+      (m) => m.id === "client-uuid",
+    );
+    expect(assistant?.isStreaming).toBe(false);
+    expect(assistant?.finishReason).toBe("paused");
+  });
+
   it("does not paint a resume card when no server id was stamped", () => {
     // Without a stamp the durable frame key is unknown — never show a clickable
     // card keyed by the client bubble id (would trip the client-only resume guard).

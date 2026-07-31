@@ -14,16 +14,20 @@ def workspace_op_required(
     root_id: str,
     op: str,
     args: dict[str, Any],
+    timeout_ms: int | None = None,
 ) -> SSEEvent:
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "conversation_id": conversation_id,
+        "root_id": root_id,
+        "op": op,
+        "args": args,
+    }
+    if timeout_ms is not None:
+        payload["timeout_ms"] = int(timeout_ms)
     return SSEEvent(
         type=EventType.WORKSPACE_OP_REQUIRED,
-        payload={
-            "request_id": request_id,
-            "conversation_id": conversation_id,
-            "root_id": root_id,
-            "op": op,
-            "args": args,
-        },
+        payload=payload,
     )
 
 

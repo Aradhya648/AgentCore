@@ -102,14 +102,14 @@ vi.mock("@/services/permissionAxes", () => ({
     less_interrupt: {
       file_write: "session",
       command: "auto",
-      team_kickoff: "skip",
+      team_kickoff: "rules",
       host: "ask",
     },
   },
   DEFAULT_PERMISSION_AXES: {
     file_write: "session",
     command: "auto",
-    team_kickoff: "skip",
+    team_kickoff: "rules",
     host: "ask",
   },
   FILE_WRITE_OPTIONS: [],
@@ -120,14 +120,14 @@ vi.mock("@/services/permissionAxes", () => ({
   recipeToAxes: () => ({
     file_write: "session",
     command: "auto",
-    team_kickoff: "skip",
+    team_kickoff: "rules",
     host: "ask",
   }),
   resolveDefaultPermissionAxes: () =>
     Promise.resolve({
       file_write: "session",
       command: "auto",
-      team_kickoff: "skip",
+      team_kickoff: "rules",
       host: "ask",
     }),
   setConversationPermissionAxes: vi.fn(),

@@ -21,6 +21,7 @@ from agentcore.api.dependencies import (
 from agentcore.api.routes.admin._shared import (
     _TREND_DAYS,
     _health_window,
+    _project_runs,
     _project_spans,
 )
 from agentcore.api.schemas import (
@@ -116,13 +117,13 @@ async def observability_conversation(
 ) -> AdminConversationReplay:
     """会话复盘 (观测 P2): one conversation's merged timeline — the message thread
     (bodies) overlaid with each turn's outcome/quality (turn_metrics), spend
-    (cost_events), and execution spans (turn_journal), joined by trace_id /
-    message_id.
+    (cost_events), execution spans, and multi-agent runs (turn_journal), joined by
+    trace_id / message_id.
 
     Admin-only and cross-user (any account's conversation), unlike the owner-scoped
     ``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a
     failed turn in full context (prompt + reply/error + rounds/latency + ¥ + the
-    turn's tool/LLM spans).
+    turn's tool/LLM spans + member tree).
     """
     conv = await conversations.get_by_id_unscoped(conversation_id)  # admin cross-user
     if conv is None:
@@ -150,6 +151,7 @@ async def observability_conversation(
         overlay = metrics_by_trace.get(m.trace_id) if m.trace_id else None
         if overlay is not None:
             consumed.add(m.trace_id)
+        journal = journals.get(m.id, [])
         timeline.append(
             ReplayMessage(
                 id=m.id,
@@ -159,7 +161,8 @@ async def observability_conversation(
                 trace_id=m.trace_id,
                 metrics=TurnMetricLine.model_validate(overlay) if overlay else None,
                 cost_total=cost_by_message.get(m.id, 0),
-                spans=_project_spans(journals.get(m.id, [])),
+                spans=_project_spans(journal),
+                runs=_project_runs(journal) if m.role == "assistant" else [],
             )
         )
     for tm in metrics:

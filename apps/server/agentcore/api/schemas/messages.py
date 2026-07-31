@@ -83,15 +83,6 @@ class SendMessageRequest(BaseModel):
     requires_tools: bool = False
 
 
-class RetryFailedRequest(BaseModel):
-    """Body for ``POST .../messages/{message_id}/retry-failed``.
-
-    Retries only the failed worker nodes from the previous execution,
-    reusing completed results. Empty body — the server extracts
-    completed states from the previous turn's journal.
-    """
-
-
 class RegenerateMessageRequest(BaseModel):
     """Re-run a turn from an existing user message.
 
@@ -802,9 +793,10 @@ class RecordTurnResponse(BaseModel):
 class StopTurnResponse(BaseModel):
     """Outcome of an explicit 停止 (执行与请求解耦 C1 · slice 1a).
 
-    ``stopped`` is True when a live detached run was found for the conversation and
-    signalled to cancel; False when nothing was running (already finished / never
-    started), so the call is idempotent and the client can settle the bubble either
-    way."""
+    ``stopped`` is True when a live detached run was found and signalled; False when
+    nothing was running (already finished / never started), so the call is idempotent.
+    ``mode`` echoes the applied mode: ``cancel`` (default hard stop) or ``discard``.
+    """
 
     stopped: bool
+    mode: Literal["cancel", "discard"] = "cancel"

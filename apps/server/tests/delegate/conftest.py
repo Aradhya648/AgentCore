@@ -314,8 +314,8 @@ def tool_durable(
     folder_id: str | None = None,
     memory_enabled: bool = True,
 ):
-    # Pin CAUTIOUS: DEFAULT axes are 少打断 (team_kickoff=skip) and would skip the
-    # durable kickoff card these helpers exist to exercise.
+    # Pin CAUTIOUS: keeps command=ask / file_write=ask for approval-path tests.
+    # (DEFAULT 少打断 now uses team_kickoff=rules and would also show the card.)
     from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 
     return DelegateTool(

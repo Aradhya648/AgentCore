@@ -4,6 +4,7 @@
  * 主进程持有权威 buffer；本 store 经 IPC list/read hydrate，订阅 pty:event 增量；
  * 选中会话时由 XtermView 挂载并回放 buffer / 接收 data。
  */
+import { notifyActionError, notifyError } from "@/lib/toast";
 import type {
   PtyEventPush,
   PtyReadValue,
@@ -25,6 +26,19 @@ export interface UserTerminalView {
   output: string;
 }
 
+/** confirmOnKill busy：会话仍存活（无独立子进程字段，对齐 PtyStatus）。 */
+export function isPtySessionBusy(session: {
+  status: PtyStatus;
+}): boolean {
+  return session.status === "running";
+}
+
+export function countBusyPtySessions(
+  sessions: ReadonlyArray<{ status: PtyStatus }>,
+): number {
+  return sessions.filter(isPtySessionBusy).length;
+}
+
 interface UserTerminalState {
   byConversation: Record<string, UserTerminalView[]>;
   selectedId: string | null;
@@ -41,9 +55,19 @@ interface UserTerminalState {
   }) => Promise<
     { ok: true; session_id: string } | { ok: false; detail: string }
   >;
-  killSession: (sessionId: string) => Promise<void>;
+  /**
+   * 关单会话。先等 IPC 成功再删 UI；失败保留会话并 toast。
+   * @returns 是否已从 UI 移除
+   */
+  killSession: (sessionId: string) => Promise<boolean>;
+  /**
+   * 关对话下全部用户终端。先等 IPC 成功再清 UI；失败保留并 toast。
+   * @returns 是否已清 UI
+   */
+  killConversation: (conversationId: string) => Promise<boolean>;
   writeInput: (sessionId: string, data: string) => void;
   resize: (sessionId: string, cols: number, rows: number) => void;
+  /** 删对话等清理：异步杀干净（失败不乐观假清）。 */
   clearConversation: (conversationId: string) => void;
   applyEvent: (event: PtyEventPush) => void;
   sessionsFor: (conversationId: string | null) => UserTerminalView[];
@@ -200,7 +224,20 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
   },
 
   killSession: async (sessionId) => {
-    // 乐观移除：先出列表，避免 IPC 慢/失败时点 × 无反馈；再异步杀主进程 pty。
+    const api = typeof window !== "undefined" ? window.ptyApi : undefined;
+    if (api?.kill) {
+      try {
+        const result = await api.kill({ session_id: sessionId });
+        if (!result.ok) {
+          notifyError(result.error.detail || "关闭终端失败");
+          return false;
+        }
+      } catch (e) {
+        notifyActionError("关闭终端失败", e);
+        return false;
+      }
+    }
+
     set((s) => {
       const updated: Record<string, UserTerminalView[]> = {
         ...s.byConversation,
@@ -214,14 +251,7 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
         selectedId: s.selectedId === sessionId ? null : s.selectedId,
       };
     });
-
-    const api = typeof window !== "undefined" ? window.ptyApi : undefined;
-    if (!api?.kill) return;
-    const result = await api.kill({ session_id: sessionId });
-    if (!result.ok) {
-      // 主进程仍认为存在时，下次 hydrate 会补回；此处不回滚以免闪烁。
-      console.warn("[userTerminals] kill 失败", result.error);
-    }
+    return true;
   },
 
   writeInput: (sessionId, data) => {
@@ -234,9 +264,17 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
     void api?.resize?.({ session_id: sessionId, cols, rows });
   },
 
-  clearConversation: (conversationId) => {
+  killConversation: async (conversationId) => {
     const api = typeof window !== "undefined" ? window.ptyApi : undefined;
-    void api?.killConversation?.({ conversation_id: conversationId });
+    if (api?.killConversation) {
+      try {
+        await api.killConversation({ conversation_id: conversationId });
+      } catch (e) {
+        notifyActionError("关闭终端失败", e);
+        return false;
+      }
+    }
+
     set((s) => {
       const { [conversationId]: _, ...rest } = s.byConversation;
       const selectedStill =
@@ -249,6 +287,11 @@ export const useUserTerminalStore = create<UserTerminalState>((set, get) => ({
         selectedId: selectedStill ? s.selectedId : null,
       };
     });
+    return true;
+  },
+
+  clearConversation: (conversationId) => {
+    void get().killConversation(conversationId);
   },
 
   applyEvent: (event) => {

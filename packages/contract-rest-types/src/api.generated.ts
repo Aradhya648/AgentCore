@@ -158,9 +158,10 @@ export interface paths {
          * List Conversations
          * @description 平台对话名册 (对话页 · 会话段): cross-user paginated conversation index.
          *
-         *     Each row carries owner identity, housekeeping flags, message/turn/error rollups,
-         *     and all-time spend. Filters AND-combine; soft-deleted conversations are included
-         *     by default (``include_deleted=false`` hides them). Drill into 会话复盘 by ``id``.
+         *     Each row carries owner identity, housekeeping flags, message/turn/error/
+         *     multi-agent rollups, and all-time spend. Filters AND-combine; soft-deleted
+         *     conversations are included by default (``include_deleted=false`` hides them).
+         *     Drill into 会话复盘 by ``id``.
          */
         get: operations["list_conversations_v1_admin_conversations_get"];
         put?: never;
@@ -184,7 +185,8 @@ export interface paths {
          *
          *     Finer-grained than the session roster — each row is one ``turn_metrics`` record
          *     with conversation title + owner identity for triage. Newest-first; filters
-         *     AND-combine. Drill into 会话复盘 by ``conversation_id``.
+         *     AND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).
+         *     Drill into 会话复盘 by ``conversation_id``.
          */
         get: operations["list_conversation_turns_v1_admin_conversations_turns_get"];
         put?: never;
@@ -334,13 +336,13 @@ export interface paths {
          * Observability Conversation
          * @description 会话复盘 (观测 P2): one conversation's merged timeline — the message thread
          *     (bodies) overlaid with each turn's outcome/quality (turn_metrics), spend
-         *     (cost_events), and execution spans (turn_journal), joined by trace_id /
-         *     message_id.
+         *     (cost_events), execution spans, and multi-agent runs (turn_journal), joined by
+         *     trace_id / message_id.
          *
          *     Admin-only and cross-user (any account's conversation), unlike the owner-scoped
          *     ``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a
          *     failed turn in full context (prompt + reply/error + rounds/latency + ¥ + the
-         *     turn's tool/LLM spans).
+         *     turn's tool/LLM spans + member tree).
          */
         get: operations["observability_conversation_v1_admin_observability_conversations__conversation_id__get"];
         put?: never;
@@ -1952,30 +1954,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/conversations/{conversation_id}/messages/{message_id}/retry-failed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Retry Failed Message
-         * @description Retry only the failed worker nodes from a previous turn's execution.
-         *
-         *     Unlike regenerate (which re-runs everything), this extracts the completed
-         *     worker states from the previous turn's journal and seeds them into a new
-         *     pipeline run, so only failed nodes are re-executed.
-         */
-        post: operations["retry_failed_message_v1_conversations__conversation_id__messages__message_id__retry_failed_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/conversations/{conversation_id}/messages/{message_id}/runs/{run_id}/llm-window": {
         parameters: {
             query?: never;
@@ -2197,16 +2175,11 @@ export interface paths {
         put?: never;
         /**
          * Stop Message
-         * @description Explicitly stop the conversation's in-flight turn (执行与请求解耦 C1 · slice 1a).
+         * @description Explicitly cancel the conversation's in-flight turn (hard ``user_stop``).
          *
-         *     Now that a client disconnect no longer cancels a turn (it runs to completion +
-         *     persists in the background), the user's 「停止」 routes here instead. Cancels the
-         *     detached run task tracked in the ``TurnRunRegistry``, which unwinds through the
-         *     turn's ``CancelledError`` salvage — finished team work is kept as an incomplete
-         *     message. Also cascade-cancels any live coordination drive + in-flight workers
-         *     (unlike SSE disconnect, which detaches and lets the team finish). Idempotent:
-         *     ``stopped=false`` when nothing is running (already finished / never started), so
-         *     a late click settles cleanly. Owner-gated.
+         *     Cascade-cancels the detached run + live coordination workers and closes with
+         *     ``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing
+         *     is running. ``mode=discard`` is an alias of hard cancel for older clients.
          */
         post: operations["stop_message_v1_conversations__conversation_id__stop_post"];
         delete?: never;
@@ -4534,6 +4507,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workflow-playbook-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workflow Playbook Templates
+         * @description Official playbooks as read-only workflow templates (使用 = 复制为我的).
+         */
+        get: operations["list_workflow_playbook_templates_v1_workflow_playbook_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Workflows */
+        get: operations["list_workflows_v1_workflows_get"];
+        put?: never;
+        /** Create Workflow */
+        post: operations["create_workflow_v1_workflows_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/from-playbook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Workflow From Playbook
+         * @description Expand an official playbook once and save as a user workflow (not into PLAYBOOKS).
+         */
+        post: operations["create_workflow_from_playbook_v1_workflows_from_playbook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workflow */
+        get: operations["get_workflow_v1_workflows__workflow_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Workflow */
+        delete: operations["delete_workflow_v1_workflows__workflow_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Workflow */
+        patch: operations["update_workflow_v1_workflows__workflow_id__patch"];
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Workflow */
+        post: operations["run_workflow_v1_workflows__workflow_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces": {
         parameters: {
             query?: never;
@@ -4571,6 +4638,28 @@ export interface paths {
          *     raw Markdown ``src``. Auth required so the surface is not a public converter.
          */
         post: operations["convert_md_to_docx_v1_workspaces_convert_md_to_docx_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/convert/md-to-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Convert Md To Pdf
+         * @description Stateless Markdown → PDF (shared converter; used by local desktop「导出 PDF」).
+         *
+         *     Does not touch a workspace. Auth required so the surface is not a public converter.
+         */
+        post: operations["convert_md_to_pdf_v1_workspaces_convert_md_to_pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4661,6 +4750,26 @@ export interface paths {
          * @description Export workspace Markdown to a sibling ``.docx`` (shared ``md_to_docx`` converter).
          */
         post: operations["export_workspace_docx_v1_workspaces__ws_id__export_docx_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{ws_id}/export-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Workspace Pdf
+         * @description Export workspace Markdown to a sibling ``.pdf`` (shared ``md_to_pdf`` converter).
+         */
+        post: operations["export_workspace_pdf_v1_workspaces__ws_id__export_pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5029,6 +5138,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Delegated Turns
+             * @default 0
+             */
+            delegated_turns: number;
             /** Deleted At */
             deleted_at?: string | null;
             /** Display Name */
@@ -5054,6 +5168,11 @@ export interface components {
             user_id: string;
             /** Username */
             username: string | null;
+            /**
+             * Workers
+             * @default 0
+             */
+            workers: number;
         };
         /**
          * AdminConversationListResponse
@@ -6505,6 +6624,31 @@ export interface components {
             warnings?: string[];
         };
         /**
+         * ConvertMdToPdfRequest
+         * @description Stateless Markdown → PDF conversion (local desktop UI).
+         */
+        ConvertMdToPdfRequest: {
+            /** Markdown */
+            markdown: string;
+            /**
+             * Source Name
+             * @default document.md
+             */
+            source_name: string;
+        };
+        /**
+         * ConvertMdToPdfResponse
+         * @description Base64-encoded .pdf plus non-fatal warnings.
+         */
+        ConvertMdToPdfResponse: {
+            /** Pdf Base64 */
+            pdf_base64: string;
+            /** Suggested Filename */
+            suggested_filename: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
          * CostBreakdown
          * @description A run's / turn's / window's cost in integer nano-USD (canonical).
          */
@@ -6734,7 +6878,10 @@ export interface components {
             enabled: boolean;
             /** Folder Id */
             folder_id: string;
-            /** Goal */
+            /**
+             * Goal
+             * @default
+             */
             goal: string;
             /** Name */
             name: string;
@@ -6749,6 +6896,16 @@ export interface components {
              * @enum {string}
              */
             trigger_kind: "schedule" | "webhook";
+            /** Workflow Id */
+            workflow_id?: string | null;
+        };
+        /** CreateWorkflowRequest */
+        CreateWorkflowRequest: {
+            definition: components["schemas"]["WorkflowDefinitionModel"];
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name: string;
         };
         /**
          * DailyCost
@@ -7276,6 +7433,28 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
+        /**
+         * ExportPdfRequest
+         * @description Export a workspace Markdown file to a sibling ``.pdf`` (确定性转换器).
+         */
+        ExportPdfRequest: {
+            /** Path */
+            path: string;
+        };
+        /**
+         * ExportPdfResponse
+         * @description Result of Markdown → PDF export into the workspace.
+         */
+        ExportPdfResponse: {
+            /** Path */
+            path: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Source Path */
+            source_path: string;
+            /** Warnings */
+            warnings?: string[];
+        };
         /** ExternalGrantItem */
         ExternalGrantItem: {
             /** Alias */
@@ -7388,6 +7567,20 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * FromPlaybookRequest
+         * @description Copy an official playbook into a user workflow (use = 复制为我的).
+         */
+        FromPlaybookRequest: {
+            /** Name */
+            name?: string | null;
+            /** Playbook */
+            playbook: string;
+            /** Slots */
+            slots?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * GrantExternalReadonlyRequest
@@ -8690,7 +8883,7 @@ export interface components {
             file_write: components["schemas"]["FileWriteAxis"];
             /** @default ask */
             host: components["schemas"]["HostAxis"];
-            /** @default skip */
+            /** @default rules */
             team_kickoff: components["schemas"]["TeamKickoffAxis"];
         };
         /**
@@ -8699,6 +8892,20 @@ export interface components {
          */
         PermissionAxesUpdate: {
             permission_axes: components["schemas"]["PermissionAxesModel"];
+        };
+        /**
+         * PlaybookTemplateSummary
+         * @description Official playbook listed as a read-only workflow template.
+         */
+        PlaybookTemplateSummary: {
+            /** Id */
+            id: string;
+            /** Primary Slots */
+            primary_slots: string;
+            /** Summary */
+            summary: string;
+            /** Title */
+            title: string;
         };
         /**
          * QuotaStatus
@@ -8864,7 +9071,8 @@ export interface components {
          *     trace_id), spend (``cost_total``, summed from cost_events by message_id), and the
          *     turn's execution spans (``spans``, projected from turn_journal); user messages
          *     have none. ``content`` is the raw message text (the prompt / reply) — the
-         *     substance of the post-mortem.
+         *     substance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight
+         *     tree nodes for triage — not the desktop team canvas).
          */
         ReplayMessage: {
             /** Content */
@@ -8885,12 +9093,67 @@ export interface components {
             /** Role */
             role: string;
             /**
+             * Runs
+             * @default []
+             */
+            runs: components["schemas"]["ReplayRun"][];
+            /**
              * Spans
              * @default []
              */
             spans: components["schemas"]["ReplaySpan"][];
             /** Trace Id */
             trace_id: string | null;
+        };
+        /**
+         * ReplayRun
+         * @description One agent run in a turn's multi-agent tree (会话复盘 · 协作树节点).
+         *
+         *     Lightweight triage projection — NOT the full ``RunsPayload.events``. Sourced
+         *     from ``turn_journal`` via the existing display fold
+         *     (``runs_from_entries`` → ``project_turn``) plus ``message_final`` for full
+         *     worker text. ``spans`` stay on the parent ``ReplayMessage`` and are grouped
+         *     client-side by ``run_id``.
+         */
+        ReplayRun: {
+            /** Agent Id */
+            agent_id: string;
+            /** Content */
+            content?: string | null;
+            /** Debrief */
+            debrief?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Depends On
+             * @default []
+             */
+            depends_on: string[];
+            /** Error */
+            error?: string | null;
+            /**
+             * Kind
+             * @default agent
+             */
+            kind: string;
+            /** Output Summary */
+            output_summary?: string | null;
+            /** Parent Run Id */
+            parent_run_id?: string | null;
+            /** Role */
+            role?: string | null;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Status
+             * @default pending
+             */
+            status: string;
+            /**
+             * Task
+             * @default
+             */
+            task: string;
         };
         /**
          * ReplaySpan
@@ -9089,15 +9352,6 @@ export interface components {
             style_id?: string | null;
         };
         /**
-         * RetryFailedRequest
-         * @description Body for ``POST .../messages/{message_id}/retry-failed``.
-         *
-         *     Retries only the failed worker nodes from the previous execution,
-         *     reusing completed results. Empty body — the server extracts
-         *     completed states from the previous turn's journal.
-         */
-        RetryFailedRequest: Record<string, never>;
-        /**
          * RewriteRequest
          * @description 选区改写入参（无状态、无路径）：把选中文本按指令改写，前后文仅作语境只读。
          */
@@ -9204,6 +9458,24 @@ export interface components {
              * @default 0.8
              */
             temperature: number;
+        };
+        /** RunWorkflowRequest */
+        RunWorkflowRequest: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Folder Id */
+            folder_id: string;
+            /** Note */
+            note?: string | null;
+        };
+        /** RunWorkflowResponse */
+        RunWorkflowResponse: {
+            /** Conversation Id */
+            conversation_id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: number;
         };
         /**
          * RunsPayload
@@ -9874,6 +10146,10 @@ export interface components {
             webhook_secret?: string | null;
             /** Webhook Url */
             webhook_url?: string | null;
+            /** Workflow Id */
+            workflow_id?: string | null;
+            /** Workflow Name */
+            workflow_name?: string | null;
         };
         /**
          * StandingTaskTemplateConfig
@@ -9933,12 +10209,17 @@ export interface components {
          * StopTurnResponse
          * @description Outcome of an explicit 停止 (执行与请求解耦 C1 · slice 1a).
          *
-         *     ``stopped`` is True when a live detached run was found for the conversation and
-         *     signalled to cancel; False when nothing was running (already finished / never
-         *     started), so the call is idempotent and the client can settle the bubble either
-         *     way.
+         *     ``stopped`` is True when a live detached run was found and signalled; False when
+         *     nothing was running (already finished / never started), so the call is idempotent.
+         *     ``mode`` echoes the applied mode: ``cancel`` (default hard stop) or ``discard``.
          */
         StopTurnResponse: {
+            /**
+             * Mode
+             * @default cancel
+             * @enum {string}
+             */
+            mode: "cancel" | "discard";
             /** Stopped */
             stopped: boolean;
         };
@@ -10065,9 +10346,8 @@ export interface components {
          * SuspensionKind
          * @description Which suspend point a durable frame captured (the JSON discriminator).
          *
-         *     Values are derived from the matching :class:`~agentcore.runtime.interaction.InteractionKind`
-         *     members in :data:`DURABLE_INTERACTION_KINDS` so the persisted ``kind`` reads the
-         *     same across the live bridge and the frame — no string hand-copy.
+         *     Interaction kinds (plan_review / ask_user / team_preview) mirror
+         *     :data:`DURABLE_INTERACTION_KINDS`.
          * @enum {string}
          */
         SuspensionKind: "plan_review" | "ask_user" | "team_preview";
@@ -10573,6 +10853,11 @@ export interface components {
         };
         /** UpdateStandingTaskRequest */
         UpdateStandingTaskRequest: {
+            /**
+             * Clear Workflow
+             * @default false
+             */
+            clear_workflow: boolean;
             /** Cron */
             cron?: string | null;
             /** Enabled */
@@ -10591,6 +10876,21 @@ export interface components {
             template_config?: components["schemas"]["StandingTaskTemplateConfig"] | null;
             /** Trigger Kind */
             trigger_kind?: ("schedule" | "webhook") | null;
+            /** Workflow Id */
+            workflow_id?: string | null;
+        };
+        /** UpdateWorkflowRequest */
+        UpdateWorkflowRequest: {
+            /**
+             * Clear Description
+             * @default false
+             */
+            clear_description: boolean;
+            definition?: components["schemas"]["WorkflowDefinitionModel"] | null;
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name?: string | null;
         };
         /**
          * UpdatesPolicyResponse
@@ -10741,6 +11041,45 @@ export interface components {
              * @default 0
              */
             z: number;
+        };
+        /**
+         * WorkflowDefinitionModel
+         * @description Canvas JSON: nodes + edges (agent_step | human_gate).
+         */
+        WorkflowDefinitionModel: {
+            /** Edges */
+            edges?: {
+                [key: string]: unknown;
+            }[];
+            /** Nodes */
+            nodes?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** WorkflowSummary */
+        WorkflowSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Definition */
+            definition: {
+                [key: string]: unknown;
+            };
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
         };
         /**
          * WorkspaceBindingResponse
@@ -11157,10 +11496,11 @@ export interface operations {
                 q?: string | null;
                 user_id?: string | null;
                 has_errors?: boolean | null;
+                has_delegated?: boolean | null;
                 include_deleted?: boolean;
                 since?: string | null;
                 until?: string | null;
-                sort?: "updated_at" | "created_at" | "cost";
+                sort?: "updated_at" | "created_at" | "cost" | "delegated";
                 order?: "asc" | "desc";
             };
             header?: {
@@ -11201,6 +11541,8 @@ export interface operations {
                 user_id?: string | null;
                 conversation_id?: string | null;
                 status?: ("ok" | "error") | null;
+                delegated?: boolean | null;
+                trace_id?: string | null;
                 since?: string | null;
                 until?: string | null;
                 include_deleted_conversations?: boolean;
@@ -14514,46 +14856,6 @@ export interface operations {
             };
         };
     };
-    retry_failed_message_v1_conversations__conversation_id__messages__message_id__retry_failed_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                conversation_id: string;
-                message_id: string;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RetryFailedRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_run_llm_window_v1_conversations__conversation_id__messages__message_id__runs__run_id__llm_window_get: {
         parameters: {
             query?: never;
@@ -14962,7 +15264,9 @@ export interface operations {
     };
     stop_message_v1_conversations__conversation_id__stop_post: {
         parameters: {
-            query?: never;
+            query?: {
+                mode?: "cancel" | "discard";
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -20302,6 +20606,294 @@ export interface operations {
             };
         };
     };
+    list_workflow_playbook_templates_v1_workflow_playbook_templates_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybookTemplateSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflows_v1_workflows_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_workflow_v1_workflows_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_workflow_from_playbook_v1_workflows_from_playbook_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FromPlaybookRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_v1_workflows__workflow_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_workflow_v1_workflows__workflow_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_workflow_v1_workflows__workflow_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_workflow_v1_workflows__workflow_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunWorkflowResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_workspaces_v1_workspaces_get: {
         parameters: {
             query?: never;
@@ -20359,6 +20951,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConvertMdToDocxResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    convert_md_to_pdf_v1_workspaces_convert_md_to_pdf_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConvertMdToPdfRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConvertMdToPdfResponse"];
                 };
             };
             /** @description Validation Error */
@@ -20552,6 +21181,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportDocxResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_workspace_pdf_v1_workspaces__ws_id__export_pdf_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                ws_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportPdfRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportPdfResponse"];
                 };
             };
             /** @description Validation Error */

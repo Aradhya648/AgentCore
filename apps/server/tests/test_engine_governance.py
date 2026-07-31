@@ -718,7 +718,9 @@ async def test_tool_timeout_aborts_and_loop_recovers():
     assert content == "recovered"
     assert tool.completed is False  # the sleep was cancelled, not awaited to the end
     tool_msg = next(m for m in messages if m.role == "tool")
+    assert "活性挂起" in (tool_msg.content or "")
     assert "中止" in (tool_msg.content or "")  # the model saw an honest timeout error
+    assert "禁止原样重试" in (tool_msg.content or "")
 
 
 # --- B2: empty-response degraded (same-model retry) -----------------------------

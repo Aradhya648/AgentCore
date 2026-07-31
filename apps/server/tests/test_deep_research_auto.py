@@ -71,8 +71,8 @@ def test_helper_flag_or_full_trust():
     kickoff_rules = _KICKOFF_RULES
     assert deep_research_auto_active(deep_research_auto=True) is True
     assert deep_research_auto_active(permission_axes=managed) is True
-    # less_interrupt = session/auto/skip/ask → also implies deep research auto
-    assert deep_research_auto_active(permission_axes=less_interrupt) is True
+    # less_interrupt = session/auto/rules/ask → 弹组队卡，不蕴含深度研究自治
+    assert deep_research_auto_active(permission_axes=less_interrupt) is False
     assert deep_research_auto_active(
         deep_research_auto=False,
         permission_axes=kickoff_rules,

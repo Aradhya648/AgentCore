@@ -9,10 +9,14 @@ harvester:
 
 If a concurrent user turn has already re-attached (``turn_attached=True``), the
 harvester no-ops — that turn's CEO will consume ``ALL_COMPLETED``.
+
+If the conversation slot is busy, the harvester **defers** (keeps the registry)
+and retries — never treats deferral as success then ``_close_detached_session``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 
 from agentcore.core.logging import get_logger
@@ -20,8 +24,13 @@ from agentcore.runtime.coordination.session import (
     CoordinationSession,
     _close_detached_session,
 )
+from agentcore.runtime.turn_runs import turn_runs
 
 logger = get_logger(__name__)
+
+# Slot-busy / transient failure: keep registration and retry (pillar A).
+_HARVEST_RETRY_DELAY_S = 1.0
+_HARVEST_MAX_ATTEMPTS = 60
 
 
 async def harvest_detached_execution(session: CoordinationSession) -> None:
@@ -53,28 +62,73 @@ async def harvest_detached_execution(session: CoordinationSession) -> None:
         _close_detached_session(session)
         return
 
-    from agentcore.conversation.execution_harvest import run_harvest_closing_turn
-
-    try:
-        await run_harvest_closing_turn(
-            conversation_id=conversation_id,
-            execution_id=session.execution_id,
-        )
-    except Exception:  # noqa: BLE001 — always clear the registry on failure
-        logger.exception(
-            "coordination.harvest_closing_turn_failed",
-            execution_id=session.execution_id,
-            conversation_id=conversation_id,
-        )
-        _close_detached_session(session)
-        return
-
-    # Closing turn's finally releases coordination; if still registered (CEO never
-    # adopted), clear here so the registry does not leak.
+    from agentcore.conversation.execution_harvest import (
+        HarvestDeferredError,
+        run_harvest_closing_turn,
+    )
     from agentcore.runtime.coordination.session import _sessions
 
-    if _sessions.get(session.execution_id) is session and not session.turn_attached:
-        _close_detached_session(session)
+    for attempt in range(_HARVEST_MAX_ATTEMPTS):
+        if session.turn_attached or session.user_stopped:
+            return
+        if _sessions.get(session.execution_id) is not session:
+            return
+
+        try:
+            await run_harvest_closing_turn(
+                conversation_id=conversation_id,
+                execution_id=session.execution_id,
+            )
+        except HarvestDeferredError:
+            logger.info(
+                "coordination.harvest_deferred_retry",
+                execution_id=session.execution_id,
+                conversation_id=conversation_id,
+                attempt=attempt,
+            )
+            await _wait_slot_or_backoff(conversation_id)
+            continue
+        except Exception:  # noqa: BLE001 — retry; do not silently unregister
+            logger.exception(
+                "coordination.harvest_closing_turn_failed",
+                execution_id=session.execution_id,
+                conversation_id=conversation_id,
+                attempt=attempt,
+            )
+            if attempt + 1 >= _HARVEST_MAX_ATTEMPTS:
+                logger.error(
+                    "coordination.harvest_giving_up",
+                    execution_id=session.execution_id,
+                    conversation_id=conversation_id,
+                    attempts=attempt + 1,
+                )
+                # Keep registry so the session remains observable / re-adoptable.
+                return
+            await asyncio.sleep(_HARVEST_RETRY_DELAY_S)
+            continue
+
+        # Closing turn finished (or no-op skip). Clear only if still unattached.
+        if _sessions.get(session.execution_id) is session and not session.turn_attached:
+            _close_detached_session(session)
+        return
+
+    logger.error(
+        "coordination.harvest_deferred_exhausted",
+        execution_id=session.execution_id,
+        conversation_id=conversation_id,
+        attempts=_HARVEST_MAX_ATTEMPTS,
+    )
+    # Keep registration — never treat deferred exhaustion as a clean close.
+
+
+async def _wait_slot_or_backoff(conversation_id: str) -> None:
+    """Await the occupying turn when present; otherwise brief backoff."""
+    existing = turn_runs.get(conversation_id)
+    if existing is not None and not existing.task.done():
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await asyncio.wait_for(asyncio.shield(existing.task), timeout=30.0)
+        return
+    await asyncio.sleep(_HARVEST_RETRY_DELAY_S)
 
 
 def emit_execution_completed(session: CoordinationSession) -> None:

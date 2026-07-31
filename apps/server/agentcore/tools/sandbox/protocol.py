@@ -24,8 +24,9 @@ class ExecutionRequest:
     env: dict[str, str] | None = None
     # Reserved historically; GVisorSandbox now honors this (P2):
     # - ``none`` → ``--network=none`` (observe / workspace)
-    # - ``restricted`` → host networking with network namespace; outbound still
-    #   subject to OS / SSRF policy for app-level fetches (``core/net.py``).
+    # - ``restricted`` → ``--network=host`` under rootless (sandbox netstack
+    #   is unsupported with ``--rootless``); outbound still subject to OS /
+    #   SSRF policy for app-level fetches (``core/net.py``).
     #   Intended for ``full_trust`` cloud gVisor only — not SubprocessSandbox.
     network_mode: Literal["none", "restricted"] = "none"
     cpu_limit: float = 1.0

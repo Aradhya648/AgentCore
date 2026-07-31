@@ -61,6 +61,14 @@ def apply_replan(
     from agentcore.runtime.runs import RunOrigin, build_added_nodes
     from agentcore.runtime.runs.builder import _apply_sibling_summaries
 
+    locked = bool(getattr(plan, "topology_lock", False)) or bool(
+        getattr(tool, "_topology_lock", False)
+    )
+    if locked and adds:
+        return [
+            "当前为工作流拓扑锁：禁止新增步骤；可用 steers 改未跑步骤说明，或 stop=true 收口"
+        ]
+
     valid_tools = {s.name for s in tool._tools.list_all()}
     errors: list[str] = []
     new_specs, add_errors = build_added_nodes(

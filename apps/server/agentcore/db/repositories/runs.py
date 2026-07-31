@@ -978,26 +978,34 @@ class TurnMetricsRepository:
     async def aggregate_stats_by_conversations(
         self, conversation_ids: Sequence[str]
     ) -> dict[str, dict[str, int]]:
-        """Turn + error counts per conversation (admin roster enrichment).
+        """Turn / error / multi-agent rollups per conversation (admin roster enrichment).
 
         One GROUP BY over the given ids. Ids with no telemetry are absent
-        (callers default turns/errors to 0).
+        (callers default turns/errors/delegated_turns/workers to 0).
         """
         if not conversation_ids:
             return {}
         err = func.sum(case((TurnMetricsRow.status == "error", 1), else_=0))
+        dele = func.sum(case((TurnMetricsRow.delegated.is_(True), 1), else_=0))
         stmt = (
             select(
                 TurnMetricsRow.conversation_id.label("conversation_id"),
                 func.count().label("turns"),
                 err.label("errors"),
+                dele.label("delegated_turns"),
+                func.coalesce(func.max(TurnMetricsRow.workers), 0).label("workers"),
             )
             .where(TurnMetricsRow.conversation_id.in_(conversation_ids))
             .group_by(TurnMetricsRow.conversation_id)
         )
         rows = (await self._session.execute(stmt)).all()
         return {
-            row.conversation_id: {"turns": int(row.turns), "errors": int(row.errors)}
+            row.conversation_id: {
+                "turns": int(row.turns),
+                "errors": int(row.errors),
+                "delegated_turns": int(row.delegated_turns or 0),
+                "workers": int(row.workers or 0),
+            }
             for row in rows
         }
 
@@ -1009,6 +1017,8 @@ class TurnMetricsRepository:
         user_id: str | None = None,
         conversation_id: str | None = None,
         status: str | None = None,
+        delegated: bool | None = None,
+        trace_id: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         include_deleted_conversations: bool = True,
@@ -1017,7 +1027,8 @@ class TurnMetricsRepository:
 
         Joins conversation + owner for list context. Hidden handoff-host
         conversations are always excluded; ``include_deleted_conversations``
-        controls soft-deleted chats.
+        controls soft-deleted chats. ``delegated`` filters multi-agent turns;
+        ``trace_id`` resolves a turn for 复盘 deep-link.
         """
         base = (
             select(TurnMetricsRow, Conversation, User)
@@ -1033,6 +1044,12 @@ class TurnMetricsRepository:
             base = base.where(TurnMetricsRow.conversation_id == conversation_id)
         if status is not None:
             base = base.where(TurnMetricsRow.status == status)
+        if delegated is True:
+            base = base.where(TurnMetricsRow.delegated.is_(True))
+        elif delegated is False:
+            base = base.where(TurnMetricsRow.delegated.is_(False))
+        if trace_id is not None:
+            base = base.where(TurnMetricsRow.trace_id == trace_id)
         if since is not None:
             base = base.where(TurnMetricsRow.created_at >= since)
         if until is not None:

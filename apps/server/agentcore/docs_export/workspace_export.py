@@ -1,4 +1,4 @@
-"""Export a workspace Markdown file to a sibling .docx via the shared converter."""
+"""Export a workspace Markdown file to a sibling .docx / .pdf via shared converters."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from agentcore.docs_export.md_to_docx import (
     is_embeddable_relative_src,
     resolve_workspace_image_path,
 )
+from agentcore.docs_export.md_to_pdf import convert_markdown_to_pdf, pdf_path_for_markdown
 from agentcore.workspace.protocol import (
     NotAFile,
     OutsideWorkspace,
@@ -38,20 +39,19 @@ class ExportMarkdownError(Exception):
         self.message = message
 
 
-async def export_markdown_path(
-    backend: WorkspaceBackend,
-    md_path: str,
-) -> ExportMarkdownResult:
-    """Read ``md_path``, convert, write sibling ``.docx``. Raises ``ExportMarkdownError``."""
+def _normalize_md_path(md_path: str) -> str:
     rel = (md_path or "").replace("\\", "/").strip().lstrip("/")
     if not rel:
         raise ExportMarkdownError("path 不能为空：请提供工作区内的 .md 相对路径")
     lower = rel.lower()
     if not (lower.endswith(".md") or lower.endswith(".markdown")):
         raise ExportMarkdownError(f"仅支持 Markdown 文件（.md / .markdown）：{rel}")
+    return rel
 
+
+async def _read_markdown(backend: WorkspaceBackend, rel: str) -> str:
     try:
-        markdown = await backend.read(rel)
+        return await backend.read(rel)
     except PathNotFound as e:
         raise ExportMarkdownError(f"源文件不存在：{rel}") from e
     except NotAFile as e:
@@ -60,6 +60,15 @@ async def export_markdown_path(
         raise ExportMarkdownError("路径非法：超出工作区范围") from e
     except WorkspaceError as e:
         raise ExportMarkdownError(f"读取源文件失败：{e}") from e
+
+
+async def export_markdown_path(
+    backend: WorkspaceBackend,
+    md_path: str,
+) -> ExportMarkdownResult:
+    """Read ``md_path``, convert, write sibling ``.docx``. Raises ``ExportMarkdownError``."""
+    rel = _normalize_md_path(md_path)
+    markdown = await _read_markdown(backend, rel)
 
     image_bytes: dict[str, bytes | None] = {}
     for src in collect_image_srcs(markdown):
@@ -85,6 +94,31 @@ async def export_markdown_path(
         raise ExportMarkdownError("输出路径非法：超出工作区范围") from e
     except WorkspaceError as e:
         raise ExportMarkdownError(f"写入 Word 失败：{e}") from e
+
+    return ExportMarkdownResult(
+        source_path=rel,
+        output_path=out_path,
+        size_bytes=written,
+        warnings=list(result.warnings),
+    )
+
+
+async def export_markdown_to_pdf_path(
+    backend: WorkspaceBackend,
+    md_path: str,
+) -> ExportMarkdownResult:
+    """Read ``md_path``, convert, write sibling ``.pdf``. Raises ``ExportMarkdownError``."""
+    rel = _normalize_md_path(md_path)
+    markdown = await _read_markdown(backend, rel)
+
+    result = convert_markdown_to_pdf(markdown)
+    out_path = pdf_path_for_markdown(rel)
+    try:
+        written = await backend.write_bytes(out_path, result.pdf_bytes)
+    except OutsideWorkspace as e:
+        raise ExportMarkdownError("输出路径非法：超出工作区范围") from e
+    except WorkspaceError as e:
+        raise ExportMarkdownError(f"写入 PDF 失败：{e}") from e
 
     return ExportMarkdownResult(
         source_path=rel,

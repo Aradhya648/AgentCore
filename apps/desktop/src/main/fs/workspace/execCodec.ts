@@ -5,7 +5,12 @@
  */
 
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import path from "node:path";
+
+/** Match ``process.platform`` so win32 probes work when tests fake platform on Linux CI. */
+function pathApi() {
+  return process.platform === "win32" ? path.win32 : path;
+}
 
 /** NUL density at/above this → treat the chunk as UTF-16LE (ASCII-range text). */
 const NUL_DENSITY_UTF16 = 0.3;
@@ -53,13 +58,14 @@ function gitBashCandidates(): string[] {
   ];
   const local = process.env.LOCALAPPDATA;
   if (local) {
-    out.push(join(local, "Programs", "Git", "bin", "bash.exe"));
+    out.push(pathApi().join(local, "Programs", "Git", "bin", "bash.exe"));
   }
   return out;
 }
 
 /** Every ``bash`` / ``bash.exe`` hit on PATH (order preserved). */
 function whichAllBash(): string[] {
+  const { join, delimiter } = pathApi();
   const pathEnv = process.env.PATH ?? process.env.Path ?? "";
   const names = process.platform === "win32" ? ["bash.exe", "bash"] : ["bash"];
   const found: string[] = [];
@@ -120,6 +126,7 @@ export function launcherMissingStderr(
 
 /** First PATH hit for ``name`` (``node`` / ``python``), or ``null``. */
 export function whichCommand(name: string): string | null {
+  const { join, delimiter } = pathApi();
   const pathEnv = process.env.PATH ?? process.env.Path ?? "";
   const names =
     process.platform === "win32"

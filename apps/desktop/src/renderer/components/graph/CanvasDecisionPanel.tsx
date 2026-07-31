@@ -5,7 +5,6 @@ import { EscalationCards } from "@/components/chat/EscalationCard";
 import { PlanReviewCard } from "@/components/chat/PlanReviewCard";
 import { RetryBanner } from "@/components/chat/RetryBanner";
 import { StageCardDock } from "@/components/chat/StageCardDock";
-import { RecoveryActions } from "@/components/chat/StatusStrip";
 import { isTurnRecoverable } from "@/lib/turnRecoverable";
 import {
   useBackgroundTasks,
@@ -19,11 +18,7 @@ import {
   useActiveMessages,
   useConversationStore,
 } from "@/stores/conversation";
-import {
-  type Execution,
-  ExecutionScopeContext,
-  useMessageExecution,
-} from "@/stores/execution";
+import { type Execution, useMessageExecution } from "@/stores/execution";
 import {
   messageCheckpoints,
   messagePlanReviews,
@@ -49,16 +44,18 @@ export { isTurnRecoverable };
  * panel (after 「工作区」, §十). It renders the SAME cards the chat surfaces do
  * ({@link CheckpointCard} / {@link PlanReviewCard} / {@link EscalationCards} /
  * {@link ApprovalPrompt} / {@link ResumePrompt} / {@link StageCardDock} /
- * {@link RetryBanner} / {@link RecoveryActions} / {@link BackgroundTaskCard}),
- * reused verbatim, so a decision read / made / 救火 / 应用 here is identical to
+ * {@link RetryBanner} / {@link BackgroundTaskCard}),
+ * reused verbatim, so a decision read / made / 应用 here is identical to
  * one in chat and folds through the very same service + SSE (no second data path
- * — 设计 §二 单一数据源).
+ * — 设计 §二 单一数据源). Failure / stop on a focused turn is stated as a notice
+ * only — no graph-mounted firefighting retry; continue via CEO chat / resend /
+ * bubble regenerate.
  *
  * Why every scope lives here: in canvas mode `ChatView` + `InlineTeamGraph` +
  * `MessageList` are unmounted, so their conversation-level approval / resume /
- * stage_card Dock / transport-retry prompts, the team strip's 救火行, and the
- * timeline's 后台云端任务 cards would be invisible (unactionable) without this.
- * The turn-level cards + recovery scope to the focused turn (`message` + projected
+ * stage_card Dock / transport-retry prompts, and the timeline's 后台云端任务
+ * cards would be invisible (unactionable) without this.
+ * The turn-level cards scope to the focused turn (`message` + projected
  * `execution`); approval / resume / stage_card / RetryBanner / 后台任务 are
  * self-contained (own store + active conversation) so they ride along regardless
  * of `message`. `interactive` is the focused turn's live, non-terminal state; a
@@ -121,9 +118,9 @@ export interface CommandRegionData {
    * nothing actionable yet; empty body is fine until a decision arrives).
    */
   show: boolean;
-  /** Focused turn (turn-level cards + 救火 scope); absent for a no-team-turn focus. */
+  /** Focused turn (turn-level cards + failure notice); absent for a no-team-turn focus. */
   message?: Message;
-  /** Focused turn's projected execution — gates / describes the 救火行. */
+  /** Focused turn's projected execution — gates / describes the failure notice. */
   execution: Execution | null;
   conversationId: string | null;
   /** Focused turn is live & non-terminal — its cards are actionable vs passive records. */
@@ -131,8 +128,8 @@ export interface CommandRegionData {
   /** Pending DECISION count for the tab badge (turn-level + conversation-level approval/resume/stage_card). */
   pending: number;
   /**
-   * Tab-strip badge: decisions + 救火 + 后台任务 — anything that auto-surfaced the dock
-   * but did not steal focus onto this tab.
+   * Tab-strip badge: decisions + failure notice + 后台任务 — anything that auto-surfaced
+   * the dock but did not steal focus onto this tab.
    */
   badge: number;
 }
@@ -141,7 +138,7 @@ export interface CommandRegionData {
  * Drive the 指挥台 tab from stores. Turn focus is a canvas concept, so the host
  * {@link import("./ConversationCanvas")} publishes `active` + the focused message id
  * via {@link useCommandPanelStore}; everything else (the focused turn's message +
- * projected execution, the conversation-level approval / resume / 救火 / 后台云端任务
+ * projected execution, the conversation-level approval / resume / 后台云端任务
  * signals) is derived LIVE here — no snapshot copy, single data source. Owns the
  * auto-surface: a brand-new actionable item opens the dock (without switching the
  * active tab, so a run/workspace the user is reading stays put) and updates the
@@ -252,10 +249,10 @@ export function useCommandRegion(): CommandRegionData {
 }
 
 /**
- * 指挥台 tab body (前端UX设计.md §6.2 · §十): the boss's pending-decision / 救火 /
- * 后台云端任务 cards. Lives in its own tab so deep-reading a run and 拍板 stay on
- * different screens — the user switches tabs deliberately. Props come from
- * {@link useCommandRegion}.
+ * 指挥台 tab body (前端UX设计.md §6.2 · §十): the boss's pending-decision /
+ * failure-notice / 后台云端任务 cards. Lives in its own tab so deep-reading a run
+ * and 拍板 stay on different screens — the user switches tabs deliberately. Props
+ * come from {@link useCommandRegion}.
  */
 export function CommandPanelBody({
   message,
@@ -274,10 +271,10 @@ export function CommandPanelBody({
   );
 
   const recoverable = isTurnRecoverable(execution);
-  const showRecovery = recoverable && !!message;
+  const showFailureNotice = recoverable && !!message;
   const failedCount =
     execution?.runs.filter((r) => r.status === "failed").length ?? 0;
-  const recoveryNotice =
+  const failureNotice =
     execution?.status === "cancelled"
       ? "本回合已停止。"
       : failedCount > 0
@@ -286,26 +283,16 @@ export function CommandPanelBody({
 
   return (
     <div className="h-full overflow-y-auto py-3">
-      {/* 救火 (firefighting): conversation-level transport error + focused turn's
-          inline recovery link (retry-failed XOR regenerate). 「忽略」is
-          implicit on the next user turn. RecoveryActions under this turn's
-          ExecutionScope. */}
+      {/* Transport / channel RetryBanner + focused turn failure notice (statement
+          only — no graph-mounted retry-failed / regenerate firefighting). */}
       <RetryBanner />
-      {showRecovery && message && (
-        <ExecutionScopeContext.Provider value={assistantProjectionId(message)}>
-          <div className="mx-4 mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-            <div className="flex items-start gap-2 text-xs text-destructive">
-              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              <span>{recoveryNotice}</span>
-            </div>
-            <RecoveryActions
-              hasFailedRuns={
-                execution?.status === "completed" &&
-                execution.runs.some((r) => r.status === "failed")
-              }
-            />
+      {showFailureNotice && (
+        <div className="mx-4 mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-destructive">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span>{failureNotice}</span>
           </div>
-        </ExecutionScopeContext.Provider>
+        </div>
       )}
       {/* Conversation-level decisions (self-contained: own store + active
           conversation). They bring their own mx-4 mb-2 gutter, so the turn-level

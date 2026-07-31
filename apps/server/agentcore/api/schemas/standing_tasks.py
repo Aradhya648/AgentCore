@@ -24,7 +24,8 @@ class StandingTaskTemplateConfig(BaseModel):
 
 class CreateStandingTaskRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    goal: str = Field(..., min_length=1)
+    # When workflow_id is set, goal is optional per-run supplement (may be empty).
+    goal: str = Field(default="", min_length=0)
     folder_id: str
     trigger_kind: TriggerKind = "schedule"
     # Desktop wire: schedule_preset (+ cron when custom). ``preset`` accepted as alias.
@@ -33,11 +34,14 @@ class CreateStandingTaskRequest(BaseModel):
     preset: str | None = Field(None, exclude=True)
     permission_axes: PermissionAxesModel | None = None
     enabled: bool = True
+    workflow_id: str | None = None
 
     @model_validator(mode="after")
     def _require_schedule_or_webhook(self) -> "CreateStandingTaskRequest":
         preset = self.schedule_preset or self.preset
         object.__setattr__(self, "schedule_preset", preset)
+        if not (self.goal or "").strip() and not self.workflow_id:
+            raise ValueError("未绑定工作流时须提供 goal")
         if self.trigger_kind == "webhook":
             if self.cron or preset:
                 raise ValueError("trigger_kind=webhook 时不要传 schedule_preset / cron")
@@ -64,7 +68,7 @@ class EnsureStandingTaskTemplateRequest(BaseModel):
 
 class UpdateStandingTaskRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
-    goal: str | None = Field(None, min_length=1)
+    goal: str | None = Field(None, min_length=0)
     folder_id: str | None = None
     trigger_kind: TriggerKind | None = None
     cron: str | None = None
@@ -73,6 +77,8 @@ class UpdateStandingTaskRequest(BaseModel):
     permission_axes: PermissionAxesModel | None = None
     enabled: bool | None = None
     template_config: StandingTaskTemplateConfig | None = None
+    workflow_id: str | None = None
+    clear_workflow: bool = False
 
     @model_validator(mode="after")
     def _normalize_schedule(self) -> "UpdateStandingTaskRequest":
@@ -111,6 +117,8 @@ class StandingTaskSummary(BaseModel):
     webhook_secret: str | None = None
     template_key: str | None = None
     template_config: dict[str, Any] = Field(default_factory=dict)
+    workflow_id: str | None = None
+    workflow_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -122,6 +130,7 @@ class StandingTaskSummary(BaseModel):
         row,
         *,
         webhook_secret: str | None = None,
+        workflow_name: str | None = None,
     ) -> "StandingTaskSummary":
         kind: TriggerKind = getattr(row, "trigger_kind", None) or "schedule"
         wid = getattr(row, "webhook_id", None)
@@ -145,6 +154,8 @@ class StandingTaskSummary(BaseModel):
             webhook_secret=webhook_secret,
             template_key=getattr(row, "template_key", None),
             template_config=dict(cfg) if isinstance(cfg, dict) else {},
+            workflow_id=getattr(row, "workflow_id", None),
+            workflow_name=workflow_name,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

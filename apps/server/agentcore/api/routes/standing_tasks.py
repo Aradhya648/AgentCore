@@ -10,6 +10,7 @@ from agentcore.api.dependencies import (
     get_folder_repo,
     get_standing_task_repo,
     get_standing_task_run_repo,
+    get_user_workflow_repo,
 )
 from agentcore.api.schemas import StatusResponse
 from agentcore.api.schemas.standing_tasks import (
@@ -30,6 +31,7 @@ from agentcore.db.repositories.standing_tasks import (
     StandingTaskRepository,
     StandingTaskRunRepository,
 )
+from agentcore.db.repositories.user_workflows import UserWorkflowRepository
 from agentcore.standing_tasks.paths import webhook_path
 from agentcore.standing_tasks.runner import dispatch_standing_task
 from agentcore.standing_tasks.schedule import CronError, next_run_after, resolve_cron
@@ -59,6 +61,44 @@ def _require_cloud_folder(folder) -> None:
         raise NotFoundError("工作区不存在")
     if folder.local_root_id:
         raise ValidationError("站立任务仅支持云工作区（拒绝本地 folder）")
+
+
+async def _resolve_workflow_name(
+    workflows: UserWorkflowRepository,
+    *,
+    user_id: str,
+    workflow_id: str | None,
+) -> str | None:
+    if not workflow_id:
+        return None
+    row = await workflows.get_by_id(workflow_id, user_id=user_id)
+    return row.name if row is not None else None
+
+
+async def _require_owned_workflow(
+    workflows: UserWorkflowRepository,
+    *,
+    user_id: str,
+    workflow_id: str,
+) -> None:
+    row = await workflows.get_by_id(workflow_id, user_id=user_id)
+    if row is None:
+        raise NotFoundError("工作流不存在")
+
+
+async def _summary(
+    row,
+    *,
+    user_id: str,
+    workflows: UserWorkflowRepository,
+    webhook_secret: str | None = None,
+) -> StandingTaskSummary:
+    name = await _resolve_workflow_name(
+        workflows, user_id=user_id, workflow_id=getattr(row, "workflow_id", None)
+    )
+    return StandingTaskSummary.from_row(
+        row, webhook_secret=webhook_secret, workflow_name=name
+    )
 
 
 async def _validate_template_folder_ids(
@@ -107,13 +147,14 @@ async def ensure_standing_task_template(
     user: AuthUser,
     folders: FolderRepository = Depends(get_folder_repo),
     repo: StandingTaskRepository = Depends(get_standing_task_repo),
+    workflows: UserWorkflowRepository = Depends(get_user_workflow_repo),
 ):
     """Idempotent install of a system template. Default enabled=false (引导开)."""
     if not is_known_template(template_key):
         raise NotFoundError("未知系统模板")
     existing = await repo.get_by_template_key(user.user_id, template_key)
     if existing is not None:
-        return StandingTaskSummary.from_row(existing)
+        return await _summary(existing, user_id=user.user_id, workflows=workflows)
 
     folder = await folders.get_by_id(body.folder_id, user_id=user.user_id)
     _require_cloud_folder(folder)
@@ -157,7 +198,7 @@ async def ensure_standing_task_template(
         template_key=template_key,
         template_config=cfg,
     )
-    return StandingTaskSummary.from_row(row)
+    return await _summary(row, user_id=user.user_id, workflows=workflows)
 
 
 @router.post("/standing-tasks", response_model=StandingTaskSummary, status_code=201)
@@ -166,9 +207,14 @@ async def create_standing_task(
     user: AuthUser,
     folders: FolderRepository = Depends(get_folder_repo),
     repo: StandingTaskRepository = Depends(get_standing_task_repo),
+    workflows: UserWorkflowRepository = Depends(get_user_workflow_repo),
 ):
     folder = await folders.get_by_id(body.folder_id, user_id=user.user_id)
     _require_cloud_folder(folder)
+    if body.workflow_id:
+        await _require_owned_workflow(
+            workflows, user_id=user.user_id, workflow_id=body.workflow_id
+        )
     axes = (
         body.permission_axes.to_axes().to_dict()
         if body.permission_axes is not None
@@ -181,7 +227,7 @@ async def create_standing_task(
             user_id=user.user_id,
             folder_id=body.folder_id,
             name=body.name,
-            goal=body.goal,
+            goal=body.goal or "",
             cron=None,
             permission_axes=axes,
             next_run_at=None,
@@ -189,8 +235,14 @@ async def create_standing_task(
             trigger_kind="webhook",
             webhook_id=new_id(),
             webhook_secret_hash=secret_hash,
+            workflow_id=body.workflow_id,
         )
-        return StandingTaskSummary.from_row(row, webhook_secret=plaintext_secret)
+        return await _summary(
+            row,
+            user_id=user.user_id,
+            workflows=workflows,
+            webhook_secret=plaintext_secret,
+        )
 
     try:
         cron = resolve_cron(cron=body.cron, preset=body.schedule_preset)
@@ -201,23 +253,27 @@ async def create_standing_task(
         user_id=user.user_id,
         folder_id=body.folder_id,
         name=body.name,
-        goal=body.goal,
+        goal=body.goal or "",
         cron=cron,
         permission_axes=axes,
         next_run_at=next_at,
         enabled=body.enabled,
         trigger_kind="schedule",
+        workflow_id=body.workflow_id,
     )
-    return StandingTaskSummary.from_row(row)
+    return await _summary(row, user_id=user.user_id, workflows=workflows)
 
 
 @router.get("/standing-tasks", response_model=list[StandingTaskSummary])
 async def list_standing_tasks(
     user: AuthUser,
     repo: StandingTaskRepository = Depends(get_standing_task_repo),
+    workflows: UserWorkflowRepository = Depends(get_user_workflow_repo),
 ):
     rows = await repo.list_by_user(user.user_id)
-    return [StandingTaskSummary.from_row(r) for r in rows]
+    return [
+        await _summary(r, user_id=user.user_id, workflows=workflows) for r in rows
+    ]
 
 
 @router.get("/standing-tasks/{task_id}", response_model=StandingTaskSummary)
@@ -225,11 +281,12 @@ async def get_standing_task(
     task_id: str,
     user: AuthUser,
     repo: StandingTaskRepository = Depends(get_standing_task_repo),
+    workflows: UserWorkflowRepository = Depends(get_user_workflow_repo),
 ):
     row = await repo.get_by_id(task_id, user_id=user.user_id)
     if row is None:
         raise NotFoundError("站立任务不存在")
-    return StandingTaskSummary.from_row(row)
+    return await _summary(row, user_id=user.user_id, workflows=workflows)
 
 
 @router.patch("/standing-tasks/{task_id}", response_model=StandingTaskSummary)
@@ -239,6 +296,7 @@ async def update_standing_task(
     user: AuthUser,
     repo: StandingTaskRepository = Depends(get_standing_task_repo),
     folders: FolderRepository = Depends(get_folder_repo),
+    workflows: UserWorkflowRepository = Depends(get_user_workflow_repo),
 ):
     existing = await repo.get_by_id(task_id, user_id=user.user_id)
     if existing is None:
@@ -251,7 +309,7 @@ async def update_standing_task(
     if "name" in fields and not is_template:
         kwargs["name"] = body.name
     if "goal" in fields and not is_template:
-        kwargs["goal"] = body.goal
+        kwargs["goal"] = body.goal if body.goal is not None else ""
     if "folder_id" in fields and body.folder_id is not None:
         folder = await folders.get_by_id(body.folder_id, user_id=user.user_id)
         _require_cloud_folder(folder)
@@ -260,6 +318,13 @@ async def update_standing_task(
         kwargs["enabled"] = body.enabled
     if "permission_axes" in fields and body.permission_axes is not None:
         kwargs["permission_axes"] = body.permission_axes.to_axes().to_dict()
+    if "clear_workflow" in fields and body.clear_workflow:
+        kwargs["workflow_id"] = None
+    elif "workflow_id" in fields and body.workflow_id is not None:
+        await _require_owned_workflow(
+            workflows, user_id=user.user_id, workflow_id=body.workflow_id
+        )
+        kwargs["workflow_id"] = body.workflow_id
     if "template_config" in fields:
         if not is_template:
             raise ValidationError("仅系统模板任务可设置 template_config")
@@ -327,7 +392,12 @@ async def update_standing_task(
     row = await repo.update(task_id, user_id=user.user_id, **kwargs)
     if row is None:
         raise NotFoundError("站立任务不存在")
-    return StandingTaskSummary.from_row(row, webhook_secret=plaintext_secret)
+    return await _summary(
+        row,
+        user_id=user.user_id,
+        workflows=workflows,
+        webhook_secret=plaintext_secret,
+    )
 
 
 @router.delete("/standing-tasks/{task_id}", response_model=StatusResponse)

@@ -29,11 +29,18 @@ export const BROWSER_CHANNELS = {
   reload: "browser:reload",
   /** 某页后退一步（renderer→main，send）。 */
   back: "browser:back",
+  /** 某页前进一步（renderer→main，send）。 */
+  forward: "browser:forward",
   /** 销毁某页视图（关页签；renderer→main，send）。 */
   close: "browser:close",
   /** 销毁某对话全部本机页（删对话 purge；renderer→main，invoke）。 */
   closeConversation: "browser:close-conversation",
-  /** 导航态推送（main→renderer：pageId + url + canGoBack）。 */
+  /**
+   * 在系统浏览器打开 URL（renderer→main，invoke；仅 http(s)/mailto，
+   * 经 isSafeExternalUrl 闸）。
+   */
+  openExternal: "browser:open-external",
+  /** 导航态推送（main→renderer：pageId + url + canGoBack/Forward + title）。 */
   navState: "browser:nav-state",
 } as const;
 
@@ -67,12 +74,30 @@ export interface BrowserCloseConversationInput {
   conversationId: string;
 }
 
-export type BrowserResult = { ok: true } | { ok: false; reason: string };
+/**
+ * IPC 结果。`show` 成功时附带当前 WebContents 快照，供挂回时写地址栏、
+ * 判断是否还需冷 navigate（空白 + store 有 URL）。
+ */
+export type BrowserResult =
+  | {
+      ok: true;
+      url?: string;
+      title?: string;
+      canGoBack?: boolean;
+      canGoForward?: boolean;
+    }
+  | { ok: false; reason: string };
 
 export interface BrowserNavState {
   pageId: string;
   url: string;
+  title: string;
   canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+export interface BrowserOpenExternalInput {
+  url: string;
 }
 
 export interface BrowserApi {
@@ -86,10 +111,13 @@ export interface BrowserApi {
   ) => Promise<BrowserResult>;
   reload: (pageId: string) => void;
   back: (pageId: string) => void;
+  forward: (pageId: string) => void;
   close: (pageId: string) => void;
   /** 关某对话全部 Local 页（幂等；与 server registry.close 双关）。 */
   closeConversation: (
     input: BrowserCloseConversationInput,
   ) => Promise<BrowserResult>;
+  /** 在系统默认浏览器打开（仅安全 scheme）。 */
+  openExternal: (input: BrowserOpenExternalInput) => Promise<BrowserResult>;
   onNavState: (cb: (state: BrowserNavState) => void) => () => void;
 }

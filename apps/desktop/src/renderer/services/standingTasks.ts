@@ -24,13 +24,21 @@ type UpdateStandingTaskWire = Schemas["UpdateStandingTaskRequest"];
 type TriggerStandingTaskWire = Schemas["TriggerStandingTaskResponse"];
 type RotateWebhookSecretWire = Schemas["RotateWebhookSecretResponse"];
 
-/** Until gen:types picks up template fields. */
+/** Until gen:types picks up template / workflow fields. */
 type StandingTaskWireExt = StandingTaskWire & {
   template_key?: string | null;
   template_config?: StandingTaskTemplateConfigWire | null;
+  workflow_id?: string | null;
+  workflow_name?: string | null;
 };
 
-type UpdateStandingTaskWireExt = UpdateStandingTaskWire;
+/** openapi-typescript marks defaulted bools required; PATCH omits them unless clearing. */
+type UpdateStandingTaskWireExt = Omit<
+  UpdateStandingTaskWire,
+  "clear_workflow"
+> & {
+  clear_workflow?: boolean;
+};
 
 /** System template key (Phase 1). */
 export type StandingTaskTemplateKey = "daily_conversation_review";
@@ -154,6 +162,10 @@ export interface StandingTask {
   templateKey: string | null;
   /** Template knobs (scope / lookback); empty object when not a template. */
   templateConfig: StandingTaskTemplateConfig;
+  /** Bound user workflow id; null = open-mode standing task. */
+  workflowId: string | null;
+  /** Denormalized workflow name when API includes it. */
+  workflowName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -186,6 +198,8 @@ export interface CreateStandingTaskInput {
   goal: string;
   permissionAxes: PermissionAxes;
   enabled?: boolean;
+  /** Optional bound workflow (定案 §10.3). */
+  workflowId?: string | null;
 }
 
 export interface PatchStandingTaskInput {
@@ -198,6 +212,7 @@ export interface PatchStandingTaskInput {
   permissionAxes?: PermissionAxes;
   enabled?: boolean;
   templateConfig?: StandingTaskTemplateConfig;
+  workflowId?: string | null;
 }
 
 export interface ListStandingTaskRunsQuery {
@@ -325,6 +340,8 @@ export function toStandingTask(w: StandingTaskWire): StandingTask {
     webhookSecret: w.webhook_secret ?? null,
     templateKey: ext.template_key ?? null,
     templateConfig: toTemplateConfig(ext.template_config),
+    workflowId: ext.workflow_id ?? null,
+    workflowName: ext.workflow_name ?? null,
     createdAt: w.created_at,
     updatedAt: w.updated_at,
   };
@@ -383,9 +400,11 @@ export function toStandingTaskRun(w: StandingTaskRunWire): StandingTaskRun {
   };
 }
 
-function createBody(input: CreateStandingTaskInput): CreateStandingTaskWire {
+function createBody(
+  input: CreateStandingTaskInput,
+): CreateStandingTaskWire & { workflow_id?: string | null } {
   const kind = input.triggerKind;
-  const body: CreateStandingTaskWire = {
+  const body: CreateStandingTaskWire & { workflow_id?: string | null } = {
     name: input.name,
     trigger_kind: kind,
     folder_id: input.folderId,
@@ -400,6 +419,9 @@ function createBody(input: CreateStandingTaskInput): CreateStandingTaskWire {
     if (preset === "custom") {
       body.cron = input.cron ?? null;
     }
+  }
+  if (input.workflowId !== undefined) {
+    body.workflow_id = input.workflowId;
   }
   return body;
 }
@@ -432,6 +454,14 @@ function patchBody(input: PatchStandingTaskInput): UpdateStandingTaskWireExt {
   if (input.enabled !== undefined) body.enabled = input.enabled;
   if (input.templateConfig !== undefined) {
     body.template_config = templateConfigWire(input.templateConfig);
+  }
+  // Backend clears binding only via clear_workflow=true (null workflow_id is ignored).
+  if (input.workflowId !== undefined) {
+    if (input.workflowId === null) {
+      body.clear_workflow = true;
+    } else {
+      body.workflow_id = input.workflowId;
+    }
   }
   return body;
 }

@@ -376,6 +376,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "delegated_turns": {
+            "default": 0,
+            "title": "Delegated Turns",
+            "type": "integer"
+          },
           "deleted_at": {
             "anyOf": [
               {
@@ -457,6 +462,11 @@
               }
             ],
             "title": "Username"
+          },
+          "workers": {
+            "default": 0,
+            "title": "Workers",
+            "type": "integer"
           }
         },
         "required": [
@@ -3890,6 +3900,52 @@
         "title": "ConvertMdToDocxResponse",
         "type": "object"
       },
+      "ConvertMdToPdfRequest": {
+        "description": "Stateless Markdown → PDF conversion (local desktop UI).",
+        "properties": {
+          "markdown": {
+            "title": "Markdown",
+            "type": "string"
+          },
+          "source_name": {
+            "default": "document.md",
+            "maxLength": 500,
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "markdown"
+        ],
+        "title": "ConvertMdToPdfRequest",
+        "type": "object"
+      },
+      "ConvertMdToPdfResponse": {
+        "description": "Base64-encoded .pdf plus non-fatal warnings.",
+        "properties": {
+          "pdf_base64": {
+            "title": "Pdf Base64",
+            "type": "string"
+          },
+          "suggested_filename": {
+            "title": "Suggested Filename",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pdf_base64",
+          "suggested_filename"
+        ],
+        "title": "ConvertMdToPdfResponse",
+        "type": "object"
+      },
       "CostBreakdown": {
         "description": "A run's / turn's / window's cost in integer nano-USD (canonical).",
         "properties": {
@@ -4466,7 +4522,8 @@
             "type": "string"
           },
           "goal": {
-            "minLength": 1,
+            "default": "",
+            "minLength": 0,
             "title": "Goal",
             "type": "string"
           },
@@ -4516,14 +4573,55 @@
             ],
             "title": "Trigger Kind",
             "type": "string"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
           }
         },
         "required": [
           "name",
-          "goal",
           "folder_id"
         ],
         "title": "CreateStandingTaskRequest",
+        "type": "object"
+      },
+      "CreateWorkflowRequest": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/WorkflowDefinitionModel"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "definition"
+        ],
+        "title": "CreateWorkflowRequest",
         "type": "object"
       },
       "DailyCost": {
@@ -5654,6 +5752,53 @@
         "title": "ExportDocxResponse",
         "type": "object"
       },
+      "ExportPdfRequest": {
+        "description": "Export a workspace Markdown file to a sibling ``.pdf`` (确定性转换器).",
+        "properties": {
+          "path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ExportPdfRequest",
+        "type": "object"
+      },
+      "ExportPdfResponse": {
+        "description": "Result of Markdown → PDF export into the workspace.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_path": {
+            "title": "Source Path",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "path",
+          "source_path",
+          "size_bytes"
+        ],
+        "title": "ExportPdfResponse",
+        "type": "object"
+      },
       "ExternalGrantItem": {
         "properties": {
           "alias": {
@@ -5935,6 +6080,40 @@
           "updated_at"
         ],
         "title": "FolderSummary",
+        "type": "object"
+      },
+      "FromPlaybookRequest": {
+        "description": "Copy an official playbook into a user workflow (use = 复制为我的).",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "playbook": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Playbook",
+            "type": "string"
+          },
+          "slots": {
+            "additionalProperties": true,
+            "title": "Slots",
+            "type": "object"
+          }
+        },
+        "required": [
+          "playbook"
+        ],
+        "title": "FromPlaybookRequest",
         "type": "object"
       },
       "GrantExternalReadonlyRequest": {
@@ -8819,7 +8998,7 @@
           },
           "team_kickoff": {
             "$ref": "#/components/schemas/TeamKickoffAxis",
-            "default": "skip"
+            "default": "rules"
           }
         },
         "title": "PermissionAxesModel",
@@ -8836,6 +9015,35 @@
           "permission_axes"
         ],
         "title": "PermissionAxesUpdate",
+        "type": "object"
+      },
+      "PlaybookTemplateSummary": {
+        "description": "Official playbook listed as a read-only workflow template.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "primary_slots": {
+            "title": "Primary Slots",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "summary",
+          "primary_slots"
+        ],
+        "title": "PlaybookTemplateSummary",
         "type": "object"
       },
       "QuotaStatus": {
@@ -9199,7 +9407,7 @@
         "type": "object"
       },
       "ReplayMessage": {
-        "description": "One message in a 会话复盘 timeline (the thread + per-turn overlays).\n\nAn assistant message carries its turn's telemetry (``metrics``, joined by\ntrace_id), spend (``cost_total``, summed from cost_events by message_id), and the\nturn's execution spans (``spans``, projected from turn_journal); user messages\nhave none. ``content`` is the raw message text (the prompt / reply) — the\nsubstance of the post-mortem.",
+        "description": "One message in a 会话复盘 timeline (the thread + per-turn overlays).\n\nAn assistant message carries its turn's telemetry (``metrics``, joined by\ntrace_id), spend (``cost_total``, summed from cost_events by message_id), and the\nturn's execution spans (``spans``, projected from turn_journal); user messages\nhave none. ``content`` is the raw message text (the prompt / reply) — the\nsubstance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight\ntree nodes for triage — not the desktop team canvas).",
         "properties": {
           "content": {
             "anyOf": [
@@ -9240,6 +9448,14 @@
             "title": "Role",
             "type": "string"
           },
+          "runs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReplayRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
           "spans": {
             "default": [],
             "items": {
@@ -9268,6 +9484,115 @@
           "trace_id"
         ],
         "title": "ReplayMessage",
+        "type": "object"
+      },
+      "ReplayRun": {
+        "description": "One agent run in a turn's multi-agent tree (会话复盘 · 协作树节点).\n\nLightweight triage projection — NOT the full ``RunsPayload.events``. Sourced\nfrom ``turn_journal`` via the existing display fold\n(``runs_from_entries`` → ``project_turn``) plus ``message_final`` for full\nworker text. ``spans`` stay on the parent ``ReplayMessage`` and are grouped\nclient-side by ``run_id``.",
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "debrief": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debrief"
+          },
+          "depends_on": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "kind": {
+            "default": "agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "output_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Summary"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "pending",
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "default": "",
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "agent_id"
+        ],
+        "title": "ReplayRun",
         "type": "object"
       },
       "ReplaySpan": {
@@ -9615,12 +9940,6 @@
         "title": "ResumeTurnRequest",
         "type": "object"
       },
-      "RetryFailedRequest": {
-        "description": "Body for ``POST .../messages/{message_id}/retry-failed``.\n\nRetries only the failed worker nodes from the previous execution,\nreusing completed results. Empty body — the server extracts\ncompleted states from the previous turn's journal.",
-        "properties": {},
-        "title": "RetryFailedRequest",
-        "type": "object"
-      },
       "RewriteRequest": {
         "description": "选区改写入参（无状态、无路径）：把选中文本按指令改写，前后文仅作语境只读。",
         "properties": {
@@ -9816,6 +10135,65 @@
           }
         },
         "title": "RunManifest",
+        "type": "object"
+      },
+      "RunWorkflowRequest": {
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "folder_id": {
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 16000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "RunWorkflowRequest",
+        "type": "object"
+      },
+      "RunWorkflowResponse": {
+        "properties": {
+          "conversation_id": {
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "workflow_id",
+          "workflow_version"
+        ],
+        "title": "RunWorkflowResponse",
         "type": "object"
       },
       "RunsPayload": {
@@ -11554,6 +11932,28 @@
               }
             ],
             "title": "Webhook Url"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Name"
           }
         },
         "required": [
@@ -11679,8 +12079,17 @@
         "type": "object"
       },
       "StopTurnResponse": {
-        "description": "Outcome of an explicit 停止 (执行与请求解耦 C1 · slice 1a).\n\n``stopped`` is True when a live detached run was found for the conversation and\nsignalled to cancel; False when nothing was running (already finished / never\nstarted), so the call is idempotent and the client can settle the bubble either\nway.",
+        "description": "Outcome of an explicit 停止 (执行与请求解耦 C1 · slice 1a).\n\n``stopped`` is True when a live detached run was found and signalled; False when\nnothing was running (already finished / never started), so the call is idempotent.\n``mode`` echoes the applied mode: ``cancel`` (default hard stop) or ``discard``.",
         "properties": {
+          "mode": {
+            "default": "cancel",
+            "enum": [
+              "cancel",
+              "discard"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
           "stopped": {
             "title": "Stopped",
             "type": "boolean"
@@ -11901,7 +12310,7 @@
         "type": "object"
       },
       "SuspensionKind": {
-        "description": "Which suspend point a durable frame captured (the JSON discriminator).\n\nValues are derived from the matching :class:`~agentcore.runtime.interaction.InteractionKind`\nmembers in :data:`DURABLE_INTERACTION_KINDS` so the persisted ``kind`` reads the\nsame across the live bridge and the frame — no string hand-copy.",
+        "description": "Which suspend point a durable frame captured (the JSON discriminator).\n\nInteraction kinds (plan_review / ask_user / team_preview) mirror\n:data:`DURABLE_INTERACTION_KINDS`.",
         "enum": [
           "plan_review",
           "ask_user",
@@ -13093,6 +13502,11 @@
       },
       "UpdateStandingTaskRequest": {
         "properties": {
+          "clear_workflow": {
+            "default": false,
+            "title": "Clear Workflow",
+            "type": "boolean"
+          },
           "cron": {
             "anyOf": [
               {
@@ -13129,7 +13543,7 @@
           "goal": {
             "anyOf": [
               {
-                "minLength": 1,
+                "minLength": 0,
                 "type": "string"
               },
               {
@@ -13207,9 +13621,66 @@
               }
             ],
             "title": "Trigger Kind"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
           }
         },
         "title": "UpdateStandingTaskRequest",
+        "type": "object"
+      },
+      "UpdateWorkflowRequest": {
+        "properties": {
+          "clear_description": {
+            "default": false,
+            "title": "Clear Description",
+            "type": "boolean"
+          },
+          "definition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowDefinitionModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "UpdateWorkflowRequest",
         "type": "object"
       },
       "UpdatesPolicyResponse": {
@@ -13529,6 +14000,81 @@
           }
         },
         "title": "Vec3",
+        "type": "object"
+      },
+      "WorkflowDefinitionModel": {
+        "description": "Canvas JSON: nodes + edges (agent_step | human_gate).",
+        "properties": {
+          "edges": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "title": "WorkflowDefinitionModel",
+        "type": "object"
+      },
+      "WorkflowSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "definition": {
+            "additionalProperties": true,
+            "title": "Definition",
+            "type": "object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "definition",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WorkflowSummary",
         "type": "object"
       },
       "WorkspaceBindingResponse": {
@@ -14237,7 +14783,7 @@
     },
     "/v1/admin/conversations": {
       "get": {
-        "description": "平台对话名册 (对话页 · 会话段): cross-user paginated conversation index.\n\nEach row carries owner identity, housekeeping flags, message/turn/error rollups,\nand all-time spend. Filters AND-combine; soft-deleted conversations are included\nby default (``include_deleted=false`` hides them). Drill into 会话复盘 by ``id``.",
+        "description": "平台对话名册 (对话页 · 会话段): cross-user paginated conversation index.\n\nEach row carries owner identity, housekeeping flags, message/turn/error/\nmulti-agent rollups, and all-time spend. Filters AND-combine; soft-deleted\nconversations are included by default (``include_deleted=false`` hides them).\nDrill into 会话复盘 by ``id``.",
         "operationId": "list_conversations_v1_admin_conversations_get",
         "parameters": [
           {
@@ -14314,6 +14860,22 @@
           },
           {
             "in": "query",
+            "name": "has_delegated",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Delegated"
+            }
+          },
+          {
+            "in": "query",
             "name": "include_deleted",
             "required": false,
             "schema": {
@@ -14365,7 +14927,8 @@
               "enum": [
                 "updated_at",
                 "created_at",
-                "cost"
+                "cost",
+                "delegated"
               ],
               "title": "Sort",
               "type": "string"
@@ -14449,7 +15012,7 @@
     },
     "/v1/admin/conversations/turns": {
       "get": {
-        "description": "平台回合流水 (对话页 · 回合段): cross-user paginated turn feed.\n\nFiner-grained than the session roster — each row is one ``turn_metrics`` record\nwith conversation title + owner identity for triage. Newest-first; filters\nAND-combine. Drill into 会话复盘 by ``conversation_id``.",
+        "description": "平台回合流水 (对话页 · 回合段): cross-user paginated turn feed.\n\nFiner-grained than the session roster — each row is one ``turn_metrics`` record\nwith conversation title + owner identity for triage. Newest-first; filters\nAND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).\nDrill into 会话复盘 by ``conversation_id``.",
         "operationId": "list_conversation_turns_v1_admin_conversations_turns_get",
         "parameters": [
           {
@@ -14525,6 +15088,38 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "delegated",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Delegated"
+            }
+          },
+          {
+            "in": "query",
+            "name": "trace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trace Id"
             }
           },
           {
@@ -15249,7 +15844,7 @@
     },
     "/v1/admin/observability/conversations/{conversation_id}": {
       "get": {
-        "description": "会话复盘 (观测 P2): one conversation's merged timeline — the message thread\n(bodies) overlaid with each turn's outcome/quality (turn_metrics), spend\n(cost_events), and execution spans (turn_journal), joined by trace_id /\nmessage_id.\n\nAdmin-only and cross-user (any account's conversation), unlike the owner-scoped\n``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a\nfailed turn in full context (prompt + reply/error + rounds/latency + ¥ + the\nturn's tool/LLM spans).",
+        "description": "会话复盘 (观测 P2): one conversation's merged timeline — the message thread\n(bodies) overlaid with each turn's outcome/quality (turn_metrics), spend\n(cost_events), execution spans, and multi-agent runs (turn_journal), joined by\ntrace_id / message_id.\n\nAdmin-only and cross-user (any account's conversation), unlike the owner-scoped\n``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a\nfailed turn in full context (prompt + reply/error + rounds/latency + ¥ + the\nturn's tool/LLM spans + member tree).",
         "operationId": "observability_conversation_v1_admin_observability_conversations__conversation_id__get",
         "parameters": [
           {
@@ -21874,98 +22469,6 @@
         ]
       }
     },
-    "/v1/conversations/{conversation_id}/messages/{message_id}/retry-failed": {
-      "post": {
-        "description": "Retry only the failed worker nodes from a previous turn's execution.\n\nUnlike regenerate (which re-runs everything), this extracts the completed\nworker states from the previous turn's journal and seeds them into a new\npipeline run, so only failed nodes are re-executed.",
-        "operationId": "retry_failed_message_v1_conversations__conversation_id__messages__message_id__retry_failed_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "title": "Conversation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "message_id",
-            "required": true,
-            "schema": {
-              "title": "Message Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RetryFailedRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Retry Failed Message",
-        "tags": [
-          "conversations"
-        ]
-      }
-    },
     "/v1/conversations/{conversation_id}/messages/{message_id}/runs/{run_id}/llm-window": {
       "get": {
         "description": "Fold one run's LLM input window from turn_journal (owner-scoped, diagnostic).",
@@ -22879,7 +23382,7 @@
     },
     "/v1/conversations/{conversation_id}/stop": {
       "post": {
-        "description": "Explicitly stop the conversation's in-flight turn (执行与请求解耦 C1 · slice 1a).\n\nNow that a client disconnect no longer cancels a turn (it runs to completion +\npersists in the background), the user's 「停止」 routes here instead. Cancels the\ndetached run task tracked in the ``TurnRunRegistry``, which unwinds through the\nturn's ``CancelledError`` salvage — finished team work is kept as an incomplete\nmessage. Also cascade-cancels any live coordination drive + in-flight workers\n(unlike SSE disconnect, which detaches and lets the team finish). Idempotent:\n``stopped=false`` when nothing is running (already finished / never started), so\na late click settles cleanly. Owner-gated.",
+        "description": "Explicitly cancel the conversation's in-flight turn (hard ``user_stop``).\n\nCascade-cancels the detached run + live coordination workers and closes with\n``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing\nis running. ``mode=discard`` is an alias of hard cancel for older clients.",
         "operationId": "stop_message_v1_conversations__conversation_id__stop_post",
         "parameters": [
           {
@@ -22888,6 +23391,20 @@
             "required": true,
             "schema": {
               "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "cancel",
+              "enum": [
+                "cancel",
+                "discard"
+              ],
+              "title": "Mode",
               "type": "string"
             }
           },
@@ -34413,6 +34930,606 @@
         ]
       }
     },
+    "/v1/workflow-playbook-templates": {
+      "get": {
+        "description": "Official playbooks as read-only workflow templates (使用 = 复制为我的).",
+        "operationId": "list_workflow_playbook_templates_v1_workflow_playbook_templates_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlaybookTemplateSummary"
+                  },
+                  "title": "Response List Workflow Playbook Templates V1 Workflow Playbook Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Workflow Playbook Templates",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/v1/workflows": {
+      "get": {
+        "operationId": "list_workflows_v1_workflows_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowSummary"
+                  },
+                  "title": "Response List Workflows V1 Workflows Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Workflows",
+        "tags": [
+          "workflows"
+        ]
+      },
+      "post": {
+        "operationId": "create_workflow_v1_workflows_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Workflow",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/v1/workflows/from-playbook": {
+      "post": {
+        "description": "Expand an official playbook once and save as a user workflow (not into PLAYBOOKS).",
+        "operationId": "create_workflow_from_playbook_v1_workflows_from_playbook_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FromPlaybookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Workflow From Playbook",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/v1/workflows/{workflow_id}": {
+      "delete": {
+        "operationId": "delete_workflow_v1_workflows__workflow_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Workflow",
+        "tags": [
+          "workflows"
+        ]
+      },
+      "get": {
+        "operationId": "get_workflow_v1_workflows__workflow_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workflow",
+        "tags": [
+          "workflows"
+        ]
+      },
+      "patch": {
+        "operationId": "update_workflow_v1_workflows__workflow_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Workflow",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/v1/workflows/{workflow_id}/run": {
+      "post": {
+        "operationId": "run_workflow_v1_workflows__workflow_id__run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunWorkflowResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Workflow",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
     "/v1/workspaces": {
       "get": {
         "description": "Enumerate project workspaces + bare-chat scratches + shared spaces.",
@@ -34550,6 +35667,82 @@
           }
         },
         "summary": "Convert Md To Docx",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/v1/workspaces/convert/md-to-pdf": {
+      "post": {
+        "description": "Stateless Markdown → PDF (shared converter; used by local desktop「导出 PDF」).\n\nDoes not touch a workspace. Auth required so the surface is not a public converter.",
+        "operationId": "convert_md_to_pdf_v1_workspaces_convert_md_to_pdf_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertMdToPdfRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertMdToPdfResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Convert Md To Pdf",
         "tags": [
           "workspaces"
         ]
@@ -34981,6 +36174,91 @@
           }
         },
         "summary": "Export Workspace Docx",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/v1/workspaces/{ws_id}/export-pdf": {
+      "post": {
+        "description": "Export workspace Markdown to a sibling ``.pdf`` (shared ``md_to_pdf`` converter).",
+        "operationId": "export_workspace_pdf_v1_workspaces__ws_id__export_pdf_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ws_id",
+            "required": true,
+            "schema": {
+              "title": "Ws Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportPdfRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportPdfResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Workspace Pdf",
         "tags": [
           "workspaces"
         ]

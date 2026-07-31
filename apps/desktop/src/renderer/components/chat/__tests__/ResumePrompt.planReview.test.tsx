@@ -4,8 +4,9 @@
  * `plan_review_required.ceo_review` 渲染进 ResumePrompt；absent（旧帧 / 无摘要）
  * 不渲染摘要区（不留空壳）。
  *
- * 渐进披露（审批卡惯例）：结论卡头短截断；风险/建议默认摘要芯片，点开再列；
- * 产出/下游一行 meta；备注默认折叠；llm 下发提示收进继续按钮 tooltip。
+ * 三区布局：决策头（眉题+标题+结论）→ 上下文默认收（风险/建议与产出→下游同行
+ * 次要 meta）→ 操作区贴底（常驻备注 + 调整/停止/继续）；llm 下发提示收进继续
+ * 按钮 tooltip。
  */
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -94,7 +95,7 @@ afterEach(() => {
 });
 
 describe("ResumePrompt · plan_review CEO 把关意见", () => {
-  it("有摘要时：结论上提；风险建议默认摘要芯片；详情折叠", () => {
+  it("有摘要时：结论上提；风险建议与产出同行 meta；详情折叠；备注常驻", () => {
     pendingRef.current = [
       makePlanReview({
         ceoReview: {
@@ -124,9 +125,10 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     expect(screen.queryByText("方案就绪")).toBeNull();
     expect(screen.getByText("下游")).toBeTruthy();
     expect(screen.getByText("执行")).toBeTruthy();
-    // 备注默认折叠
-    expect(screen.getByTestId("plan-review-note-toggle")).toBeTruthy();
-    expect(screen.queryByTestId("plan-review-note")).toBeNull();
+    // 备注常驻，无「添加备注」折叠入口
+    expect(screen.getByTestId("plan-review-note")).toBeTruthy();
+    expect(screen.queryByTestId("plan-review-note-toggle")).toBeNull();
+    expect(screen.getByPlaceholderText("可选备注；调整时必填")).toBeTruthy();
   });
 
   it("展开把关详情后可见全部风险与建议", () => {
@@ -260,15 +262,15 @@ describe("ResumePrompt · plan_review CEO 把关意见", () => {
     expect(screen.getByText("收起")).toBeTruthy();
   });
 
-  it("点「添加备注」或「调整」可展开备注框", () => {
+  it("备注输入框默认常驻", () => {
     pendingRef.current = [makePlanReview()];
     renderPrompt();
 
-    fireEvent.click(screen.getByTestId("plan-review-note-toggle"));
     expect(screen.getByTestId("plan-review-note")).toBeTruthy();
+    expect(screen.queryByTestId("plan-review-note-toggle")).toBeNull();
   });
 
-  it("无备注时点「调整」展开备注而非提交", async () => {
+  it("无备注时点「调整」只 focus 备注框而不提交", async () => {
     const { submitInteraction } = await import("@/services/interactionSubmit");
     pendingRef.current = [makePlanReview()];
     renderPrompt();

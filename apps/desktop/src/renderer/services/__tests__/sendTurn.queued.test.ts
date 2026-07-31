@@ -21,7 +21,6 @@ vi.mock("@/services/streamConversation", () => ({
   streamConversation: vi.fn(),
   regenerateConversation: vi.fn(),
   resumeConversation: vi.fn(),
-  retryFailedConversation: vi.fn(),
 }));
 vi.mock("@/services/streamConversationViaSidecar", () => ({
   streamConversationViaSidecar: vi.fn(),

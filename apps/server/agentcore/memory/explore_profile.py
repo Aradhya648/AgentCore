@@ -71,6 +71,17 @@ _NAMED_EXPLORE_REFRESH_PHRASES = (
     "刷新项目记忆",
 )
 
+# Empty-profile + 工程点名 → hard explore-pending（非意图分类器；短允许表）.
+# Bare empty profile alone is soft-hint only (不挡 delegate / 不置 pending).
+_NAMED_PROJECT_WORK_PHRASES = (
+    "继续开发",
+    "改这个项目",
+    "在这个项目",
+    "全面摸底",
+    "摸清这个项目",
+    "先摸仓",
+)
+
 
 def user_named_explore_refresh(user_message: str | None) -> bool:
     """True when user text hits an allow-listed refresh phrase (点名硬闸)."""
@@ -78,6 +89,14 @@ def user_named_explore_refresh(user_message: str | None) -> bool:
     if not text:
         return False
     return any(phrase in text for phrase in _NAMED_EXPLORE_REFRESH_PHRASES)
+
+
+def user_named_project_work(user_message: str | None) -> bool:
+    """True when empty-profile should hard-gate (工程点名短语允许表)."""
+    text = (user_message or "").strip()
+    if not text:
+        return False
+    return any(phrase in text for phrase in _NAMED_PROJECT_WORK_PHRASES)
 
 
 def profile_has_substance(markdown: str | None) -> bool:

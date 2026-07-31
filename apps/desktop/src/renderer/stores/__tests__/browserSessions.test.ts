@@ -6,11 +6,20 @@ vi.mock("@/services/browserSessions", () => ({
 }));
 
 import {
+  __clearMemoryUiStorageForTests,
+  __setUiStorageBackendForTests,
+  conversationUiGet,
+} from "@/lib/uiStorage";
+import {
   closeBrowserSession,
   listBrowserSessions,
 } from "@/services/browserSessions";
 import {
+  BROWSER_TABS_STORAGE_LEAF,
+  __resetBrowserTabsColdRestoreForTests,
   hostBrowserPageId,
+  isBlankBrowserUrl,
+  loadPersistedBrowserTabs,
   mergeHydratedPages,
   normalizeBrowserUrl,
   serverPageId,
@@ -21,8 +30,31 @@ const store = () => useBrowserSessionsStore.getState();
 const listMock = vi.mocked(listBrowserSessions);
 const closeMock = vi.mocked(closeBrowserSession);
 
+const memoryBackend = (() => {
+  const map = new Map<string, string>();
+  return {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      map.set(k, v);
+    },
+    removeItem: (k: string) => {
+      map.delete(k);
+    },
+    keys: () => [...map.keys()],
+    clear: () => map.clear(),
+  };
+})();
+
 beforeEach(() => {
-  useBrowserSessionsStore.setState({ pages: [], activePageId: null });
+  memoryBackend.clear();
+  __setUiStorageBackendForTests(memoryBackend);
+  __clearMemoryUiStorageForTests();
+  __resetBrowserTabsColdRestoreForTests();
+  useBrowserSessionsStore.setState({
+    pages: [],
+    activePageId: null,
+    activePageIdByConversation: {},
+  });
   listMock.mockReset();
   closeMock.mockReset();
 });
@@ -57,6 +89,9 @@ describe("normalizeBrowserUrl", () => {
 
   it("returns empty for blank input", () => {
     expect(normalizeBrowserUrl("  ")).toBe("");
+    expect(isBlankBrowserUrl("")).toBe(true);
+    expect(isBlankBrowserUrl("about:blank")).toBe(true);
+    expect(isBlankBrowserUrl("https://x.com")).toBe(false);
   });
 });
 
@@ -753,5 +788,81 @@ describe("upsertServerSession", () => {
     });
     expect(store().activePageId).toBe(keepId);
     expect(store().pagesFor("c1")).toHaveLength(2);
+  });
+});
+
+describe("P1 browser tabs persistence", () => {
+  it("persists pages (incl. no-sid blank) and restores on cold hydrate", async () => {
+    const id = store().createPage({
+      conversationId: "c-persist",
+      url: "https://example.com/a",
+      title: "A",
+    });
+    store().createPage({
+      conversationId: "c-persist",
+      url: "",
+      title: "新标签页",
+    });
+    const disk = conversationUiGet<{
+      pages: { id: string; url: string }[];
+      activePageId: string | null;
+    }>("c-persist", BROWSER_TABS_STORAGE_LEAF);
+    expect(disk?.pages).toHaveLength(2);
+    expect(disk?.pages.some((p) => p.url === "")).toBe(true);
+    expect(disk?.activePageId).toBeTruthy();
+
+    // Simulate process restart: wipe memory, keep disk.
+    __resetBrowserTabsColdRestoreForTests();
+    useBrowserSessionsStore.setState({
+      pages: [],
+      activePageId: null,
+      activePageIdByConversation: {},
+    });
+    listMock.mockResolvedValue({ sessions: [], activeSessionId: null });
+    await store().hydrateConversation("c-persist");
+    const restored = store().pagesFor("c-persist");
+    expect(restored).toHaveLength(2);
+    expect(restored.some((p) => p.id === id)).toBe(true);
+    expect(restored.some((p) => p.url === "https://example.com/a")).toBe(true);
+    expect(restored.some((p) => !p.serverSessionId && p.url === "")).toBe(true);
+  });
+
+  it("clearConversation removes persisted tabs", () => {
+    store().createPage({
+      conversationId: "c-clear",
+      url: "https://example.com",
+    });
+    expect(loadPersistedBrowserTabs("c-clear")).not.toBeNull();
+    store().clearConversation("c-clear");
+    expect(loadPersistedBrowserTabs("c-clear")).toBeNull();
+    expect(store().pagesFor("c-clear")).toHaveLength(0);
+  });
+
+  it("closePage updates persistence", () => {
+    const a = store().createPage({
+      conversationId: "c-close",
+      url: "https://a.example/",
+      title: "A",
+    });
+    const b = store().createPage({
+      conversationId: "c-close",
+      url: "https://b.example/",
+      title: "B",
+    });
+    store().closePage(b);
+    const disk = loadPersistedBrowserTabs("c-close");
+    expect(disk?.pages).toHaveLength(1);
+    expect(disk?.pages[0]?.id).toBe(a);
+    expect(disk?.activePageId).toBe(a);
+  });
+
+  it("remembers active page per conversation across hydrate", async () => {
+    const a = store().createPage({ conversationId: "c-a", title: "A" });
+    store().createPage({ conversationId: "c-b", title: "B" });
+    store().setActivePage(a);
+    listMock.mockResolvedValue({ sessions: [], activeSessionId: null });
+    await store().hydrateConversation("c-a");
+    expect(store().activePageId).toBe(a);
+    expect(store().activePageIdByConversation["c-a"]).toBe(a);
   });
 });

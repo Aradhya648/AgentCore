@@ -15,7 +15,7 @@ export type PermissionAxes = SidecarPermissionAxes;
 export const DEFAULT_PERMISSION_AXES: PermissionAxes = {
   file_write: "session",
   command: "auto",
-  team_kickoff: "skip",
+  team_kickoff: "rules",
   host: "ask",
 };
 
@@ -52,7 +52,7 @@ export const RECIPE_LABELS: Record<
   },
   less_interrupt: {
     short: "少打断",
-    description: "改文件本会话信任 · 自动执行 · 不弹组队卡 · 本机每次确认",
+    description: "改文件本会话信任 · 自动执行 · 组队按规则 · 本机每次确认",
   },
   managed: {
     short: "托管",
@@ -95,7 +95,8 @@ export const COMMAND_OPTIONS: {
   {
     value: "auto",
     short: "自动执行",
-    description: "AI 将与你同权执行命令（含本地跑代码）。",
+    description:
+      "执行类（代码/终端/浏览器等）与桌面提醒免审；Host/MCP 仍按本机轴。",
   },
 ];
 
@@ -277,7 +278,7 @@ export function needsAutoCommandConfirm(
 }
 
 const AUTO_CONFIRM =
-  "切换到「免审执行」后，AI 将与你同权执行命令（含本地运行代码）。确定继续？";
+  "切换到「免审执行」后，执行类（代码/终端/浏览器等）与桌面提醒将免审；Host/MCP 仍按本机轴。确定继续？";
 
 export function confirmAutoCommandIfNeeded(
   current: PermissionAxes,

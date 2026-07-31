@@ -109,7 +109,12 @@ def build_workspace_context(
             "禁止要用户手填绝对路径；禁止用 code_execute/terminal 探主机家目录找路径。"
         )
         if is_local:
-            desktop_line = "客户端通道：桌面端在线（本机执行通道可用）。"
+            desktop_line = (
+                "客户端通道：桌面端在线（本机执行通道可用）。"
+                "已绑定本地工程：「打开项目 / 跑起来看一下」=跑当前项目"
+                "（terminal 启服报 URL），勿再弹 open_local_project；"
+                "仅换目录/换工程根才 `action=open_local_project`。"
+            )
         else:
             desktop_line = (
                 "客户端通道：桌面端在线——本机相关出路按意图分流（立即发 ask_user 卡，"
@@ -234,9 +239,12 @@ def build_workspace_context(
         browser_guide_line = (
             "浏览器指引：本回合已装配 browser_*（仅 worker 持有，CEO 不直持）。"
             + path_capability
-            + "用户要「用浏览器打开 / 右坞打开 / 直播 / 接管登录」某 URL 时："
+            + "仅当用户明确要「用浏览器打开 / 右坞打开 / 直播 / 帮我看页面 / 接管登录」某 URL 时："
             "必须 `delegate` 队员用 `browser_navigate` 打开该 URL（右坞会直播），"
-            "再按需 snapshot/screenshot 取标题或结构；"
+            "navigate 成功即可收工；"
+            "仅用户明确要「验收 / 截图 / 确认渲染」才 snapshot/screenshot"
+            "（screenshot 失败勿多轮空转补验）；"
+            "「跑起来 / 打开看一下」≠必须 navigate。"
             "禁止编造 browser_open 等未列出的工具名；"
             "禁止只用 read_url / web_search 交差并假装已打开浏览器。"
             "仅当用户只要摘要/标题且未点名浏览器时，才可用 read_url。"

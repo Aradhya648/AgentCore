@@ -160,15 +160,18 @@ def test_build_toolshed_injects_tool_dense_pointers():
     )
     assert errors == []
     by_id = {t["id"]: t for t in tasks}
-    sk = by_id["skeleton"]["task"]
-    assert f"pack={PACK_TOOL_DENSE}" in sk
-    assert "catalog:app_shell" in sk
-    assert f"{TOOL_DENSE_POINTER_PREFIX}/filter_bar.html" in sk
-    assert "catalog:empty_state" in sk
-    assert "tool-app-shell" in sk
-    assert "catalog:_shared.css" in sk
-    assert f"pack={PACK_MARKETING}" not in sk
-    assert "website_catalog/marketing/" not in sk
+    assert set(by_id) == {"copy", "frontend", "qa"}
+    fe = by_id["frontend"]["task"]
+    assert f"pack={PACK_TOOL_DENSE}" in fe
+    assert "catalog:app_shell" in fe
+    assert f"{TOOL_DENSE_POINTER_PREFIX}/filter_bar.html" in fe
+    assert "catalog:empty_state" in fe
+    assert "tool-app-shell" in fe
+    assert "catalog:_shared.css" in fe
+    assert f"pack={PACK_MARKETING}" not in fe
+    assert "website_catalog/marketing/" not in fe
+    assert "skeleton" not in by_id
+    assert "section_0" not in by_id
 
 
 def test_list_marketing_sections_stable_order():

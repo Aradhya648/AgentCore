@@ -97,10 +97,14 @@ def test_cloud_gvisor_on_chain_flips_end_to_end(tmp_path: Path, monkeypatch: pyt
     assert validate_execution_capability("code_verified", plan, backend) is None
     assert execution_capability_warning(None, plan, backend) is None
 
-    # ④ 审批姿态：云端 gVisor 真隔离 → 执行类自动放行。
+    # ④ 审批姿态：云端 gVisor 真隔离 → 整类 execution_class 自动放行。
     assert execution_approval_posture(backend) is ExecutionApprovalPosture.AUTO_PASS
     assert execution_tool_auto_passes(backend, "code_execute") is True
     assert execution_tool_auto_passes(backend, "test_run") is True
+    assert execution_tool_auto_passes(backend, "browser_navigate") is True
+    # desktop_notify 不吃 gVisor AUTO_PASS（仅 command=auto）。
+    assert execution_tool_auto_passes(backend, "desktop_notify") is False
+    assert execution_tool_auto_passes(backend, "host_shell") is False
 
 
 def test_cloud_probe_failed_withholds_execution_chain(

@@ -295,7 +295,7 @@ class ToolContext:
     # 由 worker executor 按 DAG 写入。False/默认 = 叶节点或不强制。
     handoff_requires_body: bool = False
     # 与 deliverable.min_length 同值（契约唯一真理源）。0 = 无字数地板，仅要求非空。
-    # 旧拓扑常量 80 已撤；禁止与 max_length 互殴。
+    # 旧拓扑常量 80 已撤；禁止发明地板。
     handoff_min_body_chars: int = 0
     # True when this run already landed at least one file (file_write / append /
     # str_replace) on the *current* ToolContext object. Best-effort same-ctx
@@ -326,11 +326,17 @@ class ToolContext:
     )
     # path → 首次落盘该 path 的 ``agent_id``（共享可变 dict，与 kinds 同生命周期）。
     landed_artifact_authors: dict[str, str] = field(default_factory=dict)
-    # 冷启动探索幕未完成（本回合有 explore 原因且尚未成功 ``update_project_profile``）。
-    # assemble 在注入 ``<cold_start_explore>`` 时置 True；画像写入成功后清 False。
-    # Delegate 读此旗标：抑制 form/artifacts→files_written 推断，并硬拒 form=files/artifacts。
+    # 冷启动探索幕未完成（硬挡：rebind / 点名 refresh / empty+工程点名；尚未成功
+    # ``update_project_profile``）。assemble 注入 ``<cold_start_explore>`` 时置 True；
+    # 画像写入成功后清 False。Delegate 读此旗标：抑制 form/artifacts→files_written
+    # 推断，并要求探路队 ≥2 worker（form 与写盘闸正交，见 ``write_scope``）。
     # 与 deep_research_auto_debate_count 同模式——CEO base ToolContext 上就地翻转。
     cold_start_explore_pending: bool = False
+    # Worker 写盘范围契约（与 deliverable.form 正交）。默认 ``project``=可写工作区；
+    # 硬挡 explore-pending 时 assemble/resume 将 base 设为 ``explore_memory``（worker
+    # 经 ``dataclasses.replace`` 继承）——仅允许 ``AgentCore/`` 下约定记忆与探索笔记，
+    # 禁止 ``AgentCore/文档/项目/``；``none``=拒一切写。闸在写工具入口。
+    write_scope: Literal["none", "explore_memory", "project"] = "project"
     # form=prose 卸装写工具时打标（``"prose"``）；供 tool_exec 回执分流，禁止仅靠
     # worker_only 名猜「请用 delegate」。None = 未因形态卸装（CEO / files / legacy）。
     withheld_write_tools: str | None = None

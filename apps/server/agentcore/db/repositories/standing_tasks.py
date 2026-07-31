@@ -74,6 +74,7 @@ class StandingTaskRepository:
         webhook_secret_hash: str | None = None,
         template_key: str | None = None,
         template_config: dict | None = None,
+        workflow_id: str | None = None,
     ) -> StandingTask:
         row = StandingTask(
             id=new_id(),
@@ -90,6 +91,7 @@ class StandingTaskRepository:
             webhook_secret_hash=webhook_secret_hash,
             template_key=template_key,
             template_config=dict(template_config or {}),
+            workflow_id=workflow_id,
         )
         self._session.add(row)
         await self._session.commit()

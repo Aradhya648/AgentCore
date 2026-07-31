@@ -85,7 +85,6 @@ class Deliverable:
     required_sections: list[str] = field(default_factory=list)
     must_contain: list[str] = field(default_factory=list)
     min_length: int = 0
-    max_length: int = 0
     # Structured deliverable form: ``prose`` = text body only (no write tools);
     # ``files`` = must land via file_write (implies ``requires_files``). Omit =
     # worker follows the legacy two-way identity guidance and decides itself.

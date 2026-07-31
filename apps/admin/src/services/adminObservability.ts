@@ -11,6 +11,7 @@ export type AdminConversationReplay =
 export type ReplayMessage = components["schemas"]["ReplayMessage"];
 export type ReplayConversation = components["schemas"]["ReplayConversation"];
 export type ReplaySpan = components["schemas"]["ReplaySpan"];
+export type ReplayRun = components["schemas"]["ReplayRun"];
 
 /**
  * 运营观测看板: platform-wide turn health (today + trailing 7 days), the 7-day

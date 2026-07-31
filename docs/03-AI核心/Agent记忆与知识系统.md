@@ -81,25 +81,26 @@ AgentCore/
 | 闸看 | **全局** `偏好.md`+`画像.md` 皆空 | 见下表「探索触发」 |
 | 行为 | 巩固抽取降门槛 | CEO 组队探索 → 合并写项目画像 + **导航** + 主题；禁经 `remember` 落规则 |
 
-#### 探索触发与挡请求（已确认）
+#### 探索触发与挡请求（✅ 软硬分层）
 
 | 触发 | 信号 | 与当前用户请求 |
 |---|---|---|
-| 首次 / 空仓 | 项目 `画像.md` 空（或导航约定落地后二者皆空） | **挡**：先探索再继续原请求（与现一致） |
+| 仅空画像 | 项目 `画像.md` 空（无换绑、无点名、无工程点名短语） | **不挡（软幕）**：软提示可摸仓；域外调研可直接开跑 |
+| 空画像 + 工程信号 | 空画像且命中「继续开发 / 改本仓」等**允许表短语**（不扫长文猜意图） | **挡** |
 | 换绑 | `explore_workspace_key` ≠ 当前绑定 | **挡** |
 | 指纹漂移 | 顶层树 + 关键清单指纹相对上次探索写入已变（README / package·锁文件 / pyproject / 顶层目录名等；**不做**纯天数、**不以** commit 为唯一闸） | **不挡**。一期（R2）✅：脏标记 + 软提示「项目结构已变，可点名刷新」。二期（R1）✅：`schedule_explore_refresh` 旁路静默合并更新（无 team_preview、不占当前对话） |
-| 用户点名 | 「先了解 / 重新了解 / 刷新项目记忆」 | **挡**（强制开幕、合并更新；点名硬闸与 pending 与空仓同级 ✅） |
+| 用户点名 | 「先了解 / 重新了解 / 刷新项目记忆」 | **挡**（强制开幕、合并更新；点名硬闸与 pending 同级 ✅） |
 
-**产物谁写（D1）**：挡请求探索幕 **仍禁** worker `form=files` / `artifacts`；画像 / 导航 / 主题经 CEO `update_project_profile`（及同族工具）写。`文档/项目/` 厚案卷只在探索闸清除后、或普通回合按需落盘——**不**在 pending 探索批内写。R1 旁路亦不经 worker `form=files`。
+**产物谁写（D1）✅**：硬挡 pending 时 worker 可用 `form=files`，但 `write_scope≤explore_memory`（只写 `AgentCore/` 约定记忆/探索笔记；越权在写工具层拒）。画像 / 导航 / 主题收尾仍经 CEO `update_project_profile`（及同族工具）。`文档/项目/` 厚案卷只在探索闸清除后、或普通回合按需落盘——**不**在 pending 探索批内写。R1 旁路亦不经 worker 写用户工程树。**否决**再用禁 `form=files` 代理本约束。
 
 **主题上限（T2）✅**：取消单次硬顶 3；单次探索/更新 **软顶 5**（超额截断+warning）；仓库主题总数仍受 `memory_max_topic_files`（现状 24）约束；多轮探索可累加主题。
 
 **二期 ✅（已落地）**：
-- **点名硬闸**：用户原文命中「先了解 / 重新了解 / 刷新项目记忆」等允许短语 → `explore_reason=refresh`，与 empty/rebind 同级置 pending + `<cold_start_explore>`（合并更新文案）；非意图分类器。
+- **点名硬闸**：用户原文命中「先了解 / 重新了解 / 刷新项目记忆」等允许短语 → `explore_reason=refresh`，与 rebind /（空画像+工程信号）同级置 pending + `<cold_start_explore>`（合并更新文案）；非意图分类器。
 - **R1 旁路**：指纹脏时 `schedule_explore_refresh`（consolidation 同级：debounce、per-folder 互斥、不挡当前回合、无 team_preview）。执行面 = 工作区快照 → memory 档 LLM → 合并写导航/画像（可选主题）→ 更新指纹并清脏；**不是**后台再跑一整场 CEO+delegate 探索幕。
 - **`文档/项目/`**：约定目录入权威源（`stage_dirs.PROJECT_DOCS_DIR`）；探索 pending 仍不写；闸清后/普通回合可按需落盘。
 
-**否决仍成立**：不写用户仓根文档；不做向量 chunk 自动灌 prompt；不新建独立 `知识/` 注入层。指纹**不**注入 `<cold_start_explore>` 挡请求块（与空仓/换绑/点名刷新文案分套分离；漂移用 `<project_nav_stale>`）。旧「不做指纹自动重探」改为：一期脏标记、二期旁路（因短入口会过时）。
+**否决仍成立**：不写用户仓根文档；不做向量 chunk 自动灌 prompt；不新建独立 `知识/` 注入层。指纹与「仅空画像」**不**注入 `<cold_start_explore>` 硬挡块（漂移用 `<project_nav_stale>`；仅空画像用软提示）。旧「不做指纹自动重探」改为：一期脏标记、二期旁路（因短入口会过时）。
 
 → 见代码：`memory/episodic.py`、`memory/explore_profile.py`、`memory/explore_refresh.py`；编排 → [编排器 · 冷启动探索幕](/docs/03-AI核心/编排器与CEO主Agent.md)
 

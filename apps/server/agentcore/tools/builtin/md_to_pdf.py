@@ -1,0 +1,118 @@
+"""md_to_pdf — deterministic Markdown → PDF export into the workspace.
+
+Shares ``agentcore.docs_export`` with the desktop workspace「导出 PDF」HTTP path.
+Never shells out to pandoc / Playwright / code_execute / LLM scripting.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from agentcore.core.logging import get_logger
+from agentcore.core.types import ToolApproval, ToolCategory
+from agentcore.docs_export.workspace_export import ExportMarkdownError, export_markdown_to_pdf_path
+from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
+from agentcore.tools.registration import (
+    AUDIENCE_WORKER_ONLY,
+    ToolRegistration,
+    ToolSurface,
+)
+
+logger = get_logger(__name__)
+
+MD_TO_PDF_TOOL_NAME = "md_to_pdf"
+
+
+class MdToPdfTool:
+    """Export a workspace Markdown file to a sibling ``.pdf``."""
+
+    registration = ToolRegistration(
+        surface=ToolSurface.BUILTIN,
+        audience=AUDIENCE_WORKER_ONLY,
+    )
+
+    @property
+    def schema(self) -> ToolSchema:
+        return ToolSchema(
+            name=MD_TO_PDF_TOOL_NAME,
+            description=(
+                "把工作区内的 Markdown 文件确定性导出为同目录同名 PDF（.pdf）。"
+                "例：`报告.md` → `报告.pdf`。覆盖标题 #–####、段落、有序/无序列表、"
+                "表格与围栏代码；中文依赖系统/Noto CJK 字体，缺字体时回执明确警告。"
+                "不要用 code_execute / LLM 写脚本做主路径转换。"
+                "路径必须是相对于工作区的 .md / .markdown 相对路径。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "工作区内的 Markdown 相对路径（如 `docs/报告.md`）",
+                    },
+                },
+                "required": ["path"],
+            },
+            category=ToolCategory.FILESYSTEM,
+            approval=ToolApproval.GRANTABLE,
+        )
+
+    async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        start = time.monotonic()
+        rel_path = str(arguments.get("path") or "").strip()
+        if not rel_path:
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error="path 不能为空：请提供工作区内的 .md 相对路径",
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+
+        try:
+            result = await export_markdown_to_pdf_path(context.backend, rel_path)
+        except ExportMarkdownError as e:
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=e.message,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+
+        logger.info(
+            "md_to_pdf.exported",
+            source=result.source_path,
+            output=result.output_path,
+            bytes=result.size_bytes,
+            warnings=len(result.warnings),
+            run_id=context.run_id,
+        )
+
+        lines = [
+            f"已导出 PDF：{result.output_path}（{result.size_bytes} 字节）",
+            "【artifact manifest】",
+            f"path: {result.output_path}",
+            "kind: pdf",
+            f"bytes: {result.size_bytes}",
+            f"source: {result.source_path}",
+        ]
+        if result.warnings:
+            lines.append("warnings:")
+            lines.extend(f"  - {w}" for w in result.warnings)
+        else:
+            lines.append("warnings: （无）")
+        lines.append("【验真】请以本 manifest 确认落盘；可用工作区下载打开 .pdf。")
+
+        return ToolResult(
+            tool_call_id="",
+            success=True,
+            output="\n".join(lines),
+            duration_ms=int((time.monotonic() - start) * 1000),
+            metadata={
+                "path": result.output_path,
+                "source": result.source_path,
+                "bytes": result.size_bytes,
+                "warnings": list(result.warnings),
+            },
+        )

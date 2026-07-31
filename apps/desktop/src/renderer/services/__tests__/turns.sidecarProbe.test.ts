@@ -450,7 +450,25 @@ describe("runResume — 续跑探活（不降级、本机帧只在本地）", ()
     expect(usePausedTurnStore.getState().pending).toHaveLength(1); // 仍未续成功 → 帧保留
   });
 
-  it("isGenerating 时点继续 → 抛错 + 出横幅（不静默卡死 submitting）", async () => {
+  it("有冷卡 + isGenerating → 先收口再续跑（不挡死）", async () => {
+    useConversationStore.getState().setGenerating(true, "c1");
+    resolveSidecarRootMock.mockResolvedValue(TARGET);
+    probeSidecarMock.mockResolvedValue({
+      healthy: true,
+      probed: true,
+      detail: null,
+    });
+    resumeViaSidecarMock.mockResolvedValue(undefined as never);
+
+    await runResume("m1", "continue", "");
+
+    expect(resumeViaSidecarMock).toHaveBeenCalledTimes(1);
+    expect(usePausedTurnStore.getState().pending).toHaveLength(0);
+    expect(useConversationStore.getState().byId.c1?.error).toBeNull();
+  });
+
+  it("无冷卡 + isGenerating → 仍拦截（抛错 + 横幅）", async () => {
+    usePausedTurnStore.setState({ pending: [] });
     useConversationStore.getState().setGenerating(true, "c1");
     resolveSidecarRootMock.mockResolvedValue(TARGET);
 
@@ -460,7 +478,6 @@ describe("runResume — 续跑探活（不降级、本机帧只在本地）", ()
 
     expect(resumeViaSidecarMock).not.toHaveBeenCalled();
     expect(resumeConversationMock).not.toHaveBeenCalled();
-    expect(usePausedTurnStore.getState().pending).toHaveLength(1);
     expect(useConversationStore.getState().byId.c1?.error).toContain(
       "仍在生成中",
     );

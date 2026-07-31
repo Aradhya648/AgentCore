@@ -8,7 +8,6 @@ import {
 } from "@/components/chat/teamSynthesisPhase";
 import { useCoordinationWaitChrome } from "@/components/chat/useCoordinationWaitChrome";
 import { Badge, Button, IconButton as UiIconButton } from "@/components/ui";
-import { textLinkPrimary } from "@/components/ui/tone-presets";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { hasUnpricedUsage, resolveTurnDisplayMoney } from "@/lib/cost";
 import {
@@ -17,15 +16,8 @@ import {
   formatDuration,
 } from "@/lib/format";
 import {
-  lastUserMessageId,
-  runRegenerate,
-  runRetryFailed,
-} from "@/services/turns";
-import {
   type TeamPreviewDisplay,
-  getActiveRuntime,
   isTerminalPhase,
-  useActiveGenerating,
   useActiveTurnPhase,
   useConversationStore,
 } from "@/stores/conversation";
@@ -34,7 +26,6 @@ import {
   elapsedMs,
   isDebate,
   useActiveExecField,
-  useExecutionScope,
 } from "@/stores/execution";
 import { useUsageStore } from "@/stores/usage";
 import type { ExecutionDetachedPayload } from "@/types/events";
@@ -128,14 +119,21 @@ function StripIconButton({
   icon,
   title,
   onClick,
+  onContextMenu,
 }: {
   icon: React.ReactNode;
   title: string;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   return (
     <SimpleTooltip label={title}>
-      <UiIconButton type="button" onClick={onClick} aria-label={title}>
+      <UiIconButton
+        type="button"
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        aria-label={title}
+      >
         {icon}
       </UiIconButton>
     </SimpleTooltip>
@@ -457,7 +455,6 @@ function CompletedStrip({
   const failedRolesText =
     failedRoles.length > 0 ? `：${failedRoles.join("、")}` : "";
   const failureNotice = `${failedRuns.length} 个子任务失败${failedRolesText}。`;
-  const showRecovery = stopped || failedRuns.length > 0;
   const deliveryUnmet =
     deliveryStatus?.state === "partial" || deliveryStatus?.state === "blocked";
 
@@ -526,16 +523,11 @@ function CompletedStrip({
         />
       </div>
 
-      {showRecovery && (
-        <>
-          {failedRuns.length > 0 && (
-            <div className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              <span>{failureNotice}</span>
-            </div>
-          )}
-          <RecoveryActions hasFailedRuns={failedRuns.length > 0} />
-        </>
+      {failedRuns.length > 0 && (
+        <div className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          <span>{failureNotice}</span>
+        </div>
       )}
     </div>
   );
@@ -627,78 +619,6 @@ function FailureStrip({
           {failedRun?.error ?? "未获取到具体错误信息。"}
         </p>
       </div>
-
-      <RecoveryActions />
-    </div>
-  );
-}
-
-/** Resolve the user message that opened the focused assistant turn (救火绑聚焦回合). */
-function userMessageIdForAssistant(
-  assistantMessageId: string | null,
-): string | null {
-  if (!assistantMessageId) return lastUserMessageId();
-  const msgs = getActiveRuntime().messages;
-  const idx = msgs.findIndex(
-    (m) =>
-      m.id === assistantMessageId || m.serverMessageId === assistantMessageId,
-  );
-  if (idx <= 0) return lastUserMessageId();
-  for (let i = idx - 1; i >= 0; i--) {
-    if (msgs[i].role === "user") return msgs[i].id;
-  }
-  return lastUserMessageId();
-}
-
-/**
- * Shared failure-recovery row: inline text links.
- * Priority: retry-failed XOR regenerate. 「忽略」is implicit — starting a new
- * turn dismisses recoverable projections. Reused by failure / partial-failure /
- * stopped strips and the canvas 指挥台 ({@link CanvasDecisionPanel}).
- * Empty interrupted (no assistant body) does **not** mount this row — layer 1
- * recoverability is「再发一条」(+ composer light hint); see composerContinueHint.
- */
-export function RecoveryActions({
-  hasFailedRuns = false,
-}: {
-  /** When true, show only "重试失败项" (retry-failed); otherwise only "重试"
-   * (full regenerate). */
-  hasFailedRuns?: boolean;
-}) {
-  const isGenerating = useActiveGenerating();
-  const messageId = useExecutionScope();
-
-  const onRetryFailed = () => {
-    const id = userMessageIdForAssistant(messageId);
-    if (id) void runRetryFailed(id);
-  };
-
-  const onRegenerate = () => {
-    const id = userMessageIdForAssistant(messageId);
-    if (id) void runRegenerate(id);
-  };
-
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-      {hasFailedRuns ? (
-        <button
-          type="button"
-          className={textLinkPrimary}
-          disabled={isGenerating}
-          onClick={onRetryFailed}
-        >
-          重试失败项
-        </button>
-      ) : (
-        <button
-          type="button"
-          className={textLinkPrimary}
-          disabled={isGenerating}
-          onClick={onRegenerate}
-        >
-          重试
-        </button>
-      )}
     </div>
   );
 }

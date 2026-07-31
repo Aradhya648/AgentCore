@@ -1,23 +1,31 @@
 """调研/实务成篇质量策略（通用，非法务专用通道）。
 
-定案：大纲按章落盘 / 空检索换策略 / research_report 强推 / 空 handoff 挡写作 /
-成篇审计硬门 / 论文并行拆章须单主文件合并门禁。本模块只放纯谓词与文案常量，
+定案：大纲按章落盘 / 空检索换策略 / 空 handoff 挡写作 /
+成篇审计硬门 / 论文并行拆章须单主文件合并门禁。
+结局分层：``parallel_brief`` = 对齐推进（不进成篇硬门）；
+``research_report`` = 成文专线（进硬门）。本模块只放纯谓词与文案常量，
 供 playbook 声明、skill、检索预算、audit gate、delivery_status 复用——不新建子系统。
 
-成篇硬审计**只认结构化**：``playbook=="research_report"``（入口另判）与
-deliverable 结构字段（如 ``min_length≥3000``）。不扫 task/角色自由文猜意图。
+成篇硬审计**只认结构化成文契约**：``playbook=="research_report"``（入口另判）与
+deliverable 结构字段（如 ``min_length≥3000``）。不扫 task/角色自由文猜意图；
+``parallel_brief`` / 普通多角摸底**不**因多人而进硬门。
 
 调研两阶段引用（块 2）：``citation_mode=="two_phase"``（playbook 盖戳）或
-落盘/声明路径在 ``AgentCore/文档/research/`` → A 检索草案不跑成稿引用闸 →
-同 worker 自动升级 B 后再验；``immediate`` 显式退出；draft 不进
-``file_acceptance`` / artifacts 主清单。
+落盘/声明路径在 ``AgentCore/文档/research/`` / ``AgentCore/文档/reviews/``
+→ A 检索草案不跑成稿引用闸 → 同 worker 自动升级 B 后再验；``immediate`` 显式退出；
+draft 不进 ``file_acceptance`` / artifacts 主清单。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from agentcore.workspace.stage_dirs import RESEARCH_DIR, RESEARCH_PREFIX
+from agentcore.workspace.stage_dirs import (
+    RESEARCH_DIR,
+    RESEARCH_PREFIX,
+    REVIEWS_DIR,
+    REVIEWS_PREFIX,
+)
 
 # 论文/综述/长文成篇：允许并行拆章起草，但最终验收必须单一主文件（定案：
 # 禁的是「并行拆章无合并门禁」，不是双文件本身；调研/代码/建站多产物不受本条约束）。
@@ -26,6 +34,14 @@ PAPER_PARALLEL_MERGE_DISCIPLINE = (
     "【同一主文件】；并行各章 brief 须写死同一目标路径 + 合并责任"
     "（末尾 merge worker，或 CEO 收口合并）。禁止各章各交各的当终稿。"
     "调研透镜 / 代码 / 建站等多产物场景不受本条约束。"
+)
+
+# 出行/报告成文：主交付永远是 .md；用户要 PDF/可分享时才 md→md_to_pdf→handoff。
+MD_PDF_EXPORT_DISCIPLINE = (
+    "【成文交付·MD 为主】主交付永远是 `.md`。"
+    "用户要 PDF / 可分享文件时：顺序 = 成篇 `.md` → 调用 `md_to_pdf`（对主文件）→ handoff；"
+    "【禁止】用多份 HTML 顶替 PDF；【禁止】把 code_execute + reportlab 当主路径做 PDF"
+    "（确定性 `md_to_pdf` 才是主路径）。"
 )
 
 # research_report 默认成篇路径（可被 playbook_args.output_path 覆盖）。
@@ -74,7 +90,7 @@ def upstream_body_floor_satisfied(
     ``min_body_chars`` = ``deliverable.min_length``（0 = 无字数地板）。已落盘 prose
     一律满足。无地板时：非空正文即视为可消费产出（拓扑仍靠
     ``handoff_requires_body`` 挡真正空交）；有地板时须 ``body ≥ min``。
-    禁止再用全局 80 与 ``max_length`` 互殴。
+    禁止再用全局 80 发明地板。
     """
     if has_landed_prose_artifact(landed_artifact_kinds):
         return True
@@ -134,9 +150,13 @@ def research_report_main_artifact(output_path: str | None = None) -> str:
 
 
 def _research_casefile_path(path: str) -> bool:
-    """True when path is under the research casefile stage dir (``stage_dirs``)."""
+    """True when path is under research/ or reviews/ stage dirs (``stage_dirs``)."""
     p = (path or "").strip().lstrip("/")
-    return p == RESEARCH_DIR or p.startswith(RESEARCH_PREFIX)
+    return (
+        p in (RESEARCH_DIR, REVIEWS_DIR)
+        or p.startswith(RESEARCH_PREFIX)
+        or p.startswith(REVIEWS_PREFIX)
+    )
 
 
 def is_two_phase_citation_deliverable(
@@ -150,7 +170,8 @@ def is_two_phase_citation_deliverable(
     - ``citation_mode=="immediate"`` → 否（显式退出）
     - ``citation_mode=="two_phase"`` → 是（playbook / CEO 盖戳）
     - 否则：声明的 ``artifacts`` / ``artifact_dir`` 或已落盘路径落在
-      ``AgentCore/文档/research/`` → 是（自由 delegate 调研案卷与 playbook 同口径）
+      ``AgentCore/文档/research/`` 或 ``AgentCore/文档/reviews/`` → 是
+      （自由 delegate 案卷与 playbook 同口径）
     """
     mode: str | None
     artifacts: list[str] = []

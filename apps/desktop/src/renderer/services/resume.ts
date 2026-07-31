@@ -1,5 +1,6 @@
 import { hasLocalEngine } from "@/lib/capabilities";
 import { api } from "@/services/api";
+import { finalizeGeneratingForPausedConversation } from "@/services/turns/helpers";
 import { getRuntime } from "@/stores/conversation";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
 import {
@@ -29,6 +30,11 @@ type PendingInteractionSummary =
 export interface ConversationRecovery {
   sidecarLive: boolean;
   cloudLive: boolean;
+  /**
+   * True only after a successful cloud GET /recovery.
+   * Failure leaves this false — `cloudLive=false` then means unknown, not confirmed idle.
+   */
+  cloudKnown: boolean;
   pausedCount: number;
   /** Sidecar-only: outbox ready / dead-open summaries for D5 projection. */
   unsynced: SidecarUnsyncedTurnSummary[];
@@ -146,16 +152,22 @@ export async function loadRecovery(
         cloud.pending,
         cloud.cloudLive,
       );
+      if (cloud.paused.length > 0) {
+        finalizeGeneratingForPausedConversation(conversationId);
+      }
       return {
         sidecarLive: false,
         cloudLive: cloud.cloudLive,
+        cloudKnown: true,
         pausedCount: cloud.paused.length,
         unsynced: [],
       };
     } catch {
+      // Failure ≠ confirmed idle — leave stores untouched.
       return {
         sidecarLive: false,
         cloudLive: false,
+        cloudKnown: false,
         pausedCount: 0,
         unsynced: [],
       };
@@ -167,6 +179,7 @@ export async function loadRecovery(
   let unsynced: SidecarUnsyncedTurnSummary[] = [];
   let sidecarPaused: PausedTurnSummary[] = [];
   let cloudLive = false;
+  let cloudKnown = false;
   let cloudPaused: PausedTurnSummary[] = [];
   let cloudPending: PendingInteractionSummary[] | null = null;
 
@@ -185,11 +198,12 @@ export async function loadRecovery(
   const cloudP = loadCloudRecovery(conversationId)
     .then((cloud) => {
       cloudLive = cloud.cloudLive;
+      cloudKnown = true;
       cloudPaused = cloud.paused;
       cloudPending = cloud.pending;
     })
     .catch(() => {
-      /* cloud failure must not block local */
+      /* cloud failure must not block local; cloudKnown stays false */
     });
 
   await Promise.all([localP, cloudP]);
@@ -206,16 +220,20 @@ export async function loadRecovery(
 
   const merged = mergePausedWithOrigin(sidecarPaused, cloudPaused);
   usePausedTurnStore.getState().setForConversation(conversationId, merged);
+  if (merged.length > 0) {
+    finalizeGeneratingForPausedConversation(conversationId);
+  }
 
-  // Hot cards survive when a live turn will be attached (D6); only clear
-  // when there is nothing to reattach — stale prompts would otherwise linger.
-  if (!sidecarLive) {
+  // Hot cards survive when a live turn will be attached (D6); only clear when
+  // cloud is *known* idle and sidecar is idle — request failure must not orphan.
+  if (!sidecarLive && cloudKnown && !cloudLive) {
     clearInteractionPrompts(conversationId);
   }
 
   return {
     sidecarLive,
     cloudLive,
+    cloudKnown,
     pausedCount: merged.length,
     unsynced,
     turnId,
@@ -283,6 +301,7 @@ export function surfaceResumeFromAssistant(
         e.messageId === resumeKey,
     );
 
+  let painted = false;
   const ask = pending.find((e) => e.kind === "ask_user");
   if (ask) {
     const cp = entryToCheckpoint(ask);
@@ -310,73 +329,83 @@ export function surfaceResumeFromAssistant(
       formatOptions: cp.formatOptions,
       intent: cp.intent,
     });
+    painted = true;
+  } else {
+    const prEntry = pending.find((e) => e.kind === "plan_review");
+    if (prEntry) {
+      const pr = entryToPlanReview(prEntry);
+      usePausedTurnStore.getState().addLiveResume({
+        ...base,
+        checkpointId: pr.id,
+        kind: "plan_review",
+        steps: pr.steps,
+        pending: pr.pending,
+        ceoReview: pr.ceoReview,
+        workers: [],
+        tools: [],
+        primitive: "delegate",
+        motion: "",
+        form: "",
+        sides: [],
+        maxRounds: 0,
+        thorough: true,
+        offerResearchFirst: false,
+        researchFirstRecommended: false,
+        question: "",
+        context: "",
+        assumptions: [],
+        questions: [],
+        styleOptions: [],
+        formatOptions: [],
+        intent: "decision",
+      });
+      painted = true;
+    } else {
+      const tpEntry = pending.find((e) => e.kind === "team_preview");
+      if (tpEntry) {
+        const tp = entryToTeamPreview(tpEntry);
+        usePausedTurnStore.getState().addLiveResume({
+          ...base,
+          checkpointId: tp.id,
+          kind: "team_preview",
+          steps: [],
+          pending: [],
+          workers: tp.workers,
+          tools: tp.tools ?? [],
+          primitive: tp.primitive,
+          motion: tp.motion,
+          form: tp.form,
+          sides: tp.sides,
+          maxRounds: tp.maxRounds,
+          thorough: tp.thorough,
+          offerResearchFirst: tp.offerResearchFirst,
+          researchFirstRecommended: tp.researchFirstRecommended,
+          ...(tp.moderatorModel ? { moderatorModel: tp.moderatorModel } : {}),
+          ...(tp.moderatorOrigin
+            ? { moderatorOrigin: tp.moderatorOrigin }
+            : {}),
+          ...(tp.moderatorProviderId
+            ? { moderatorProviderId: tp.moderatorProviderId }
+            : {}),
+          ...(tp.sameModelDebate ? { sameModelDebate: true } : {}),
+          question: "",
+          context: "",
+          assumptions: [],
+          questions: [],
+          styleOptions: [],
+          formatOptions: [],
+          // team_preview is the kickoff card — not a mid-turn decision ask.
+          intent: "kickoff",
+        });
+        painted = true;
+      }
+    }
+  }
+  if (!painted) {
+    // Stop = hard cancel: no Interaction ``*_required`` → no Resume card.
     return;
   }
-  const prEntry = pending.find((e) => e.kind === "plan_review");
-  if (prEntry) {
-    const pr = entryToPlanReview(prEntry);
-    usePausedTurnStore.getState().addLiveResume({
-      ...base,
-      checkpointId: pr.id,
-      kind: "plan_review",
-      steps: pr.steps,
-      pending: pr.pending,
-      ceoReview: pr.ceoReview,
-      workers: [],
-      tools: [],
-      primitive: "delegate",
-      motion: "",
-      form: "",
-      sides: [],
-      maxRounds: 0,
-      thorough: true,
-      offerResearchFirst: false,
-      researchFirstRecommended: false,
-      question: "",
-      context: "",
-      assumptions: [],
-      questions: [],
-      styleOptions: [],
-      formatOptions: [],
-      intent: "decision",
-    });
-    return;
-  }
-  const tpEntry = pending.find((e) => e.kind === "team_preview");
-  if (tpEntry) {
-    const tp = entryToTeamPreview(tpEntry);
-    usePausedTurnStore.getState().addLiveResume({
-      ...base,
-      checkpointId: tp.id,
-      kind: "team_preview",
-      steps: [],
-      pending: [],
-      workers: tp.workers,
-      tools: tp.tools ?? [],
-      primitive: tp.primitive,
-      motion: tp.motion,
-      form: tp.form,
-      sides: tp.sides,
-      maxRounds: tp.maxRounds,
-      thorough: tp.thorough,
-      offerResearchFirst: tp.offerResearchFirst,
-      researchFirstRecommended: tp.researchFirstRecommended,
-      ...(tp.moderatorModel ? { moderatorModel: tp.moderatorModel } : {}),
-      ...(tp.moderatorOrigin ? { moderatorOrigin: tp.moderatorOrigin } : {}),
-      ...(tp.moderatorProviderId
-        ? { moderatorProviderId: tp.moderatorProviderId }
-        : {}),
-      ...(tp.sameModelDebate ? { sameModelDebate: true } : {}),
-      question: "",
-      context: "",
-      assumptions: [],
-      questions: [],
-      styleOptions: [],
-      formatOptions: [],
-      // team_preview is the kickoff card — not a mid-turn decision ask.
-      intent: "kickoff",
-    });
-  }
+  finalizeGeneratingForPausedConversation(conversationId);
 }
 
 export function surfaceResumeFromLiveTurn(

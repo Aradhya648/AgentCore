@@ -39,7 +39,6 @@ from agentcore.db.repositories import (
     BoardRepository,
     ConversationRepository,
     MessageRepository,
-    TurnJournalRepository,
 )
 from agentcore.llm.resolve import LLMCredentials
 from agentcore.runtime.checkpoints import CheckpointResponse
@@ -51,17 +50,15 @@ from agentcore.runtime.leases import (
     release_turn_lease,
 )
 from agentcore.runtime.pipeline import resume_chat_pipeline
-from agentcore.runtime.retry import retry_failed_targets, retry_seed
-from agentcore.runtime.runs.types import RunPhase
 from agentcore.runtime.suspension import TurnSuspension
 from agentcore.runtime.suspension_persistence import restore_paused_turn
 from agentcore.runtime.turn_runs import turn_runs
-from agentcore.runtime.turn_state import TurnState
 from agentcore.workspace.attachments import persist_attachments, to_stored_metadata
 from agentcore.workspace.locate import workspace_storage_key
 from agentcore.workspace.locks import workspace_lock
 
 logger = get_logger(__name__)
+
 
 async def stream_chat(
     *,
@@ -74,8 +71,7 @@ async def stream_chat(
     llm_supports_tools: bool | None = None,
     x_client_platform: str | None = None,
 ) -> None:
-    """Main entry: persist user message, run pipeline, persist assistant reply.
-    """
+    """Main entry: persist user message, run pipeline, persist assistant reply."""
     try:
         async with async_session_factory() as session:
             conv = await ConversationRepository(session).get_by_id_unscoped(conversation_id)
@@ -172,6 +168,7 @@ async def stream_chat(
     finally:
         if not sink._closed:
             sink.close()
+
 
 async def regenerate_chat(
     *,
@@ -275,156 +272,6 @@ async def regenerate_chat(
         if not sink._closed:
             sink.close()
 
-async def _extract_completed_seed(
-    session,
-    msg_repo: MessageRepository,
-    conversation_id: str,
-    user_msg,
-) -> tuple[dict | None, list[dict[str, str | None]]]:
-    """Extract completed worker RunStates from the assistant turn's journal.
-
-    Returns ``(seed, failed_targets)`` where seed is run_id -> RunState for workers
-    that completed successfully, and failed_targets lists non-completed workers for
-    retry-failed audit (run_id + error summary).
-    """
-    assistant_msg = await msg_repo.get_assistant_after(
-        conversation_id, after_created_at=user_msg.created_at
-    )
-    if not assistant_msg:
-        return None, []
-
-    entries = await TurnJournalRepository(session).load_owned(assistant_msg.id, conversation_id)
-    if not entries:
-        return None, []
-
-    # Internal dedup: same projection entry as resume / crash recover (behaviour unchanged).
-    all_states = TurnState.from_journal(entries).completed
-    seed = {
-        run_id: state
-        for run_id, state in all_states.items()
-        if state.phase == RunPhase.COMPLETED
-    }
-    failed_targets = [
-        {
-            "run_id": run_id,
-            "error": str(state.error)[:500] if state.error else None,
-        }
-        for run_id, state in all_states.items()
-        if state.phase != RunPhase.COMPLETED
-    ]
-    return (seed if seed else None), failed_targets
-
-async def retry_failed_chat(
-    *,
-    conversation_id: str,
-    message_id: str,
-    user_id: str,
-    sink: EventSink,
-    llm_credentials: LLMCredentials | None = None,
-    llm_supports_tools: bool | None = None,
-) -> None:
-    """Retry only failed workers from a previous turn (重试失败项).
-
-    Like regenerate, but extracts completed worker RunStates from the previous
-    turn's journal and sets them on the retry_seed contextvar. When the CEO
-    re-delegates, DelegateTool reads the seed and passes it as seed_completed
-    to WaveScheduler, skipping already-succeeded workers.
-    """
-    try:
-        async with async_session_factory() as session:
-            conv_repo = ConversationRepository(session)
-            msg_repo = MessageRepository(session)
-
-            conv = await conv_repo.get_by_id_unscoped(conversation_id)
-            if not conv:
-                sink.emit(error_event(ErrorCode.NOT_FOUND, "Conversation not found"))
-                sink.emit(message_end(FinishReason.ERROR))
-                return
-
-            target = await msg_repo.get_by_id(message_id, conversation_id=conversation_id)
-            if not target or target.role != "user":
-                sink.emit(error_event(ErrorCode.INVALID, "Can only retry from a user message"))
-                sink.emit(message_end(FinishReason.ERROR))
-                return
-
-            seed, failed_targets = await _extract_completed_seed(
-                session, msg_repo, conversation_id, target
-            )
-
-            await msg_repo.delete_after(conversation_id, after_created_at=target.created_at)
-
-            user_message = target.content or ""
-            history = await load_chat_context(session, conversation_id, max_messages=40)
-            folder_id = conv.folder_id
-            local_binding = await resolve_local_binding(session, conv)
-            profile_set = await resolve_profile_set(session, conv, user_id)
-            memory_enabled = await resolve_memory_enabled(session, user_id)
-            conversation_history_access = await resolve_conversation_history_access(
-                session, user_id
-            )
-            permission_axes = await resolve_permission_axes(session, conversation_id)
-
-            board = await BoardRepository(session).get_by_conversation_id(
-                conversation_id, user_id=user_id
-            )
-            board_id = board.id if board else None
-
-        backend = await build_turn_backend(
-            user_id=user_id,
-            conversation_id=conversation_id,
-            folder_id=folder_id,
-            sink=sink,
-            local_binding=local_binding,
-        )
-
-        async with workspace_lock(
-            workspace_storage_key(
-                user_id=user_id,
-                folder_id=folder_id,
-                conversation_id=conversation_id,
-            )
-        ):
-            token = retry_seed.set(seed)
-            targets_token = retry_failed_targets.set(failed_targets or None)
-            try:
-                await run_and_persist(
-                    conversation_id=conversation_id,
-                    user_message=user_message,
-                    user_id=user_id,
-                    folder_id=folder_id,
-                    sink=sink,
-                    history=history[:-1],
-                    attachments=None,
-                    backend=backend,
-                    llm_credentials=llm_credentials,
-                    profile_set=profile_set,
-                    memory_enabled=memory_enabled,
-                    conversation_history_access=conversation_history_access,
-                    permission_axes=permission_axes,
-                    board_id=board_id,
-                    llm_supports_tools=llm_supports_tools,
-                )
-            finally:
-                retry_seed.reset(token)
-                retry_failed_targets.reset(targets_token)
-
-            from agentcore.runtime.coordination import await_live_detached_drive
-
-            await await_live_detached_drive(conversation_id)
-
-    except Exception as e:
-        logger.error("chat.retry_failed_error", error=str(e), exc_info=True)
-        if not sink._closed:
-            code, message, err_ctx = error_fields_for(
-                e,
-                fallback_code=ErrorCode.STREAM_ERROR,
-                fallback_message="服务出错了，请稍后重试。",
-            )
-            sink.emit(error_event(code, message, context=err_ctx))
-            sink.emit(message_end(FinishReason.ERROR))
-    finally:
-        if not sink._closed:
-            sink.close()
 
 async def resume_chat(
     *,
@@ -543,9 +390,7 @@ async def resume_chat(
                         try:
                             from agentcore.demo_tape.hooks import run_tape_resume_if_marked
                         except ImportError as e:
-                            logger.warning(
-                                "demo_tape.import_failed", error=str(e), phase="resume"
-                            )
+                            logger.warning("demo_tape.import_failed", error=str(e), phase="resume")
                             tape_result = None
                         else:
                             tape_result = await run_tape_resume_if_marked(
@@ -580,9 +425,7 @@ async def resume_chat(
                                 x_client_platform=x_client_platform,
                             )
                     except asyncio.CancelledError:
-                        # User /stop + lifespan shutdown = terminal + release;
-                        # true hard kill = orphan for sweeper.
-                        # Close success → release; failure → orphan (no lease-less RUNNING).
+                        # Hard cancel / lifespan / hard kill.
                         if turn_runs.is_clean_cancel(conversation_id):
                             closed = await close_user_stop_turn(
                                 sink=sink,
@@ -654,12 +497,8 @@ async def resume_chat(
                             await settle_after_turn(
                                 conversation_id=conversation_id,
                                 finish_reason=finish,
-                                content=result.get("content")
-                                if isinstance(result, dict)
-                                else None,
-                                error=result.get("error")
-                                if isinstance(result, dict)
-                                else None,
+                                content=result.get("content") if isinstance(result, dict) else None,
+                                error=result.get("error") if isinstance(result, dict) else None,
                             )
                         except Exception as settle_err:  # noqa: BLE001 — resume must not fail
                             logger.error(
@@ -681,9 +520,7 @@ async def resume_chat(
                         else:
                             with contextlib.suppress(asyncio.TimeoutError, Exception):
                                 await asyncio.wait_for(
-                                    asyncio.shield(
-                                        orphan_turn_lease(suspension.message_id)
-                                    ),
+                                    asyncio.shield(orphan_turn_lease(suspension.message_id)),
                                     timeout=2.0,
                                 )
 

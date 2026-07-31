@@ -146,6 +146,47 @@ class NotDelegatedCheck:
 
 
 @dataclass
+class DelegateCriteriaForbiddenCheck:
+    """任一 ``delegate`` 的顶层 ``completion_criteria.type`` 不得落在 ``forbid``。
+
+    钉「方向选定 → MVP / 设计契约切片」：第一波禁止顶层 ``code_verified``（实现波再验）。
+    省略验收或 ``files_written`` 等非禁止 kind 通过；无 ``delegate`` 调用则失败。
+    """
+
+    forbid: list[str] = field(default_factory=list)
+    name: str = "DelegateCriteriaForbidden"
+
+    def run(self, case: EvalCase, outcome: TurnOutcome) -> CheckOutcome:
+        matched = [(n, a) for (n, a) in outcome.tool_calls if n == "delegate"]
+        if not matched:
+            return CheckOutcome(self.name, False, "no delegate call")
+        forbidden = {str(x) for x in self.forbid}
+        for _n, raw in matched:
+            try:
+                args = json.loads(raw) if raw else {}
+            except json.JSONDecodeError as e:
+                return CheckOutcome(self.name, False, f"delegate: bad JSON ({e})")
+            cc = args.get("completion_criteria")
+            kind: str | None
+            if isinstance(cc, str):
+                kind = cc.strip() or None
+            elif isinstance(cc, dict):
+                raw_kind = cc.get("type") if cc.get("type") is not None else cc.get("kind")
+                kind = str(raw_kind).strip() if raw_kind is not None else None
+            else:
+                kind = None
+            if kind and kind in forbidden:
+                return CheckOutcome(
+                    self.name,
+                    False,
+                    f"completion_criteria.type={kind!r} forbidden ({sorted(forbidden)})",
+                )
+        return CheckOutcome(
+            self.name, True, f"{len(matched)} delegate call(s); none in {sorted(forbidden)}"
+        )
+
+
+@dataclass
 class RosterMatchesCheck:
     """实际委派出的角色覆盖期望角色（``roster ⊇ expected``）。"""
 
@@ -493,6 +534,9 @@ _REGISTRY: dict[str, Callable[[dict[str, Any]], Any]] = {
     "HasCitations": lambda a: HasCitationsCheck(min_count=int(a.get("min", 1))),
     "Delegated": lambda a: DelegatedCheck(),
     "NotDelegated": lambda a: NotDelegatedCheck(),
+    "DelegateCriteriaForbidden": lambda a: DelegateCriteriaForbiddenCheck(
+        forbid=list(a.get("forbid", []))
+    ),
     "RosterMatches": lambda a: RosterMatchesCheck(expected=list(a.get("expected", []))),
     "ShapeMatches": lambda a: ShapeMatchesCheck(threshold=float(a.get("threshold", 0.6))),
     "MaxRounds": lambda a: MaxRoundsCheck(budget=int(a.get("budget", 16))),

@@ -95,6 +95,10 @@ class StandingTask(Base):
     template_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
+    # Optional bind to an account workflow; when set, fire uses direct-start (not CEO).
+    workflow_id: Mapped[str | None] = mapped_column(
+        PG_UUID(as_uuid=False), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

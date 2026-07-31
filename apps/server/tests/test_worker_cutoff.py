@@ -344,12 +344,41 @@ def test_wind_down_breach_detection_and_local_force():
     assert narrow_tools_for_handoff_only({"handoff", "file_write"}) == ["handoff"]
     assert narrow_tools_for_handoff_only({"file_write"}) == []
 
+    from agentcore.runtime.runs.cutoff import narrow_tools_for_wind_down_breach
+
+    # Pending landing: breach keeps write tools (not handoff-only).
+    landing_surface = narrow_tools_for_wind_down_breach(
+        {"handoff", "file_write", "file_append", "web_search"},
+        keep_landing=True,
+        keep_file_read=False,
+    )
+    assert "file_write" in landing_surface
+    assert "file_append" in landing_surface
+    assert "handoff" in landing_surface
+    assert "web_search" not in landing_surface
+
+    # No landing obligation: breach collapses to handoff-only.
+    assert narrow_tools_for_wind_down_breach(
+        {"handoff", "file_write", "web_search"},
+        keep_landing=False,
+    ) == ["handoff"]
+
     # First breach under ceiling → nudge path (not local).
     assert (
         should_force_local_after_wind_down_breach(
             prior_breaches=0, tokens=100_000, token_budget=120_000
         )
         is False
+    )
+    # Retrieval-budget wind-down: first breach already forces local (avoid thrash).
+    assert (
+        should_force_local_after_wind_down_breach(
+            prior_breaches=0,
+            tokens=100_000,
+            token_budget=120_000,
+            wind_down_reason="retrieval_budget",
+        )
+        is True
     )
     # First breach already at/over hard ceiling → local (违约轮不得再烧过硬顶).
     assert (

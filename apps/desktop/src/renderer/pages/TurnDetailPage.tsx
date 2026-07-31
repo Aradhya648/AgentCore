@@ -13,13 +13,8 @@ import {
   shouldSetGeneratingOnHydrate,
 } from "@/services/messages";
 import { loadCachedConversation } from "@/services/offlineCache";
-import { loadRecovery, shouldHydrateLocalRecovery } from "@/services/resume";
-import {
-  attachOnOpen,
-  attachSidecarTurn,
-  projectUnsyncedTurns,
-  settleCloudRunningAssistant,
-} from "@/services/turns";
+import { loadRecovery } from "@/services/resume";
+import { runHydrateAttachSettle } from "@/services/turns";
 import {
   type MemoryUpdate,
   type Message,
@@ -80,8 +75,7 @@ export function TurnDetailPage() {
   }, [compareA, compareB]);
 
   // Ensure conversation data is loaded (same contract as ConversationPage:
-  // local sidecar branch via shouldHydrateLocalRecovery, cloud via attachOnOpen /
-  // settleCloudRunningAssistant — no third attach semantics).
+  // adopt window when cold; always runHydrateAttachSettle from recovery).
   // biome-ignore lint/correctness/useExhaustiveDependencies: hydrateRetry is an intentional re-run key
   useEffect(() => {
     if (!conversationId) return;
@@ -100,6 +94,8 @@ export function TurnDetailPage() {
       try {
         const win = await fetchMessageWindow(conversationId);
         if (cancelled) return;
+        // Adopt only overwrites an empty cold slice; warm reopen keeps memory
+        // but still runs attach/settle (same contract as ConversationPage).
         const s = useConversationStore.getState();
         if (s.currentConversationId === conversationId) {
           const rt = getRuntime(conversationId);
@@ -116,36 +112,22 @@ export function TurnDetailPage() {
             if (shouldSetGeneratingOnHydrate(win.messages)) {
               s.setGenerating(true, conversationId);
             }
-            const recovery = await recoveryLoaded;
-            if (cancelled) return;
-            const useLocal = shouldHydrateLocalRecovery(recovery);
-            if (useLocal) {
-              projectUnsyncedTurns(conversationId, recovery.unsynced);
-              if (recovery.sidecarLive && recovery.pausedCount === 0) {
-                attachAbort = new AbortController();
-                await attachSidecarTurn(conversationId, {
-                  signal: attachAbort.signal,
-                });
-                if (cancelled) return;
-              }
-            } else {
-              const last = win.messages.at(-1);
-              if (last) {
-                const canAttach =
-                  recovery.cloudLive && recovery.pausedCount === 0;
-                if (last.role === "user" && canAttach) {
-                  void attachOnOpen(conversationId);
-                } else if (
-                  last.role === "assistant" &&
-                  last.status === "running"
-                ) {
-                  await settleCloudRunningAssistant(conversationId, recovery);
-                  if (cancelled) return;
-                }
-              }
-            }
           }
         }
+        if (cancelled) return;
+        if (
+          useConversationStore.getState().currentConversationId !==
+          conversationId
+        ) {
+          return;
+        }
+        const recovery = await recoveryLoaded;
+        if (cancelled) return;
+        attachAbort = new AbortController();
+        await runHydrateAttachSettle(conversationId, recovery, {
+          signal: attachAbort.signal,
+        });
+        if (cancelled) return;
         if (!cancelled) setHydratePhase("ready");
       } catch {
         // Align with ConversationPage: offline cache, else explicit error (no silent blank).

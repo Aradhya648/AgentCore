@@ -131,7 +131,10 @@ describe("resolveAgentTownExe", () => {
   it("finds repo Builds/Windows exe in unpackaged (dev) mode", async () => {
     const buildsDir = repoBuildsDir();
     mkdirSync(buildsDir, { recursive: true });
-    const exe = join(buildsDir, "AgentTown.exe");
+    // agentTownExeName() follows real process.platform (CI Linux → no .exe).
+    const exeName =
+      process.platform === "win32" ? "AgentTown.exe" : "AgentTown";
+    const exe = join(buildsDir, exeName);
     writeFileSync(exe, "");
     await expect(resolveAgentTownExe()).resolves.toBe(exe);
   });

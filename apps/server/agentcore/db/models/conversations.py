@@ -53,16 +53,16 @@ class Conversation(Base):
         default=lambda: {
             "file_write": "session",
             "command": "auto",
-            "team_kickoff": "skip",
+            "team_kickoff": "rules",
             "host": "ask",
         },
         server_default=text(
-            "'{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"skip\",\"host\":\"ask\"}'::jsonb"
+            "'{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"rules\",\"host\":\"ask\"}'::jsonb"
         ),
     )
     # 深度研究自治（会话级独立旗标）: when True, CEO may auto-adopt worker motion_cards
     # and call debate without a team_preview kickoff (prompt-layer fork + debate-only
-    # kickoff waiver). Axes with command=auto ∧ team_kickoff=skip (少打断 / 托管) imply
+    # kickoff waiver). Axes with command=auto ∧ team_kickoff=skip（托管） imply
     # the same via runtime helper — this column is the explicit single-flag path.
     deep_research_auto: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false")

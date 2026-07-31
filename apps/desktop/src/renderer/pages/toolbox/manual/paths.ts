@@ -12,6 +12,10 @@ export const APP_PATHS = {
       root: "/toolbox/automations",
       inbox: "/toolbox/automations/inbox",
     },
+    workflows: {
+      root: "/toolbox/workflows",
+      edit: (id: string) => `/toolbox/workflows/${id}`,
+    },
     manual: {
       root: "/toolbox/manual",
       intro: "/toolbox/manual/intro",

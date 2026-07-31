@@ -44,6 +44,7 @@ import {
   ManualShell,
 } from "@/pages/toolbox/manual";
 import { APP_PATHS } from "@/pages/toolbox/manual/paths";
+import { WorkflowEditorPage, WorkflowsPage } from "@/pages/toolbox/workflows";
 import { Navigate, createHashRouter } from "react-router-dom";
 
 export const router = createHashRouter([
@@ -80,6 +81,11 @@ export const router = createHashRouter([
           { index: true, element: <StandingTasksPanel /> },
           { path: "inbox", element: <InboxPanel /> },
         ],
+      },
+      { path: "toolbox/workflows", element: <WorkflowsPage /> },
+      {
+        path: "toolbox/workflows/:workflowId",
+        element: <WorkflowEditorPage />,
       },
       {
         path: "toolbox/manual",

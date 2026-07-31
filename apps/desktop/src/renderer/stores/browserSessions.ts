@@ -1,11 +1,19 @@
 /**
- * M0.5 右坞浏览器壳页签状态（BrowserPanel）——本地空白页 + 服务端 session 投影。
+ * 右坞浏览器壳页签状态（BrowserPanel）——本地空白页 + 服务端 session 投影。
  *
  * 本地空白页无 `serverSessionId`，`ensureBlankPage` / `createPage` **不** POST create
  *（避免每建空白页就开真 gVisor）。服务端页由 {@link hydrateConversation} 从
  * list（Local=sidecar Registry / 云=GET）合并，或由 `tool_use_end.display` 经
  * {@link upsertServerSession} 推送绑页。
+ *
+ * 生命周期跟对话走（hide≠destroy）。P1 冷恢复：每对话页签列表经
+ * {@link conversationUiSet} 落盘；进入对话时再 hydrate（禁启动批量建 WebContents）。
  */
+import {
+  conversationUiGet,
+  conversationUiRemove,
+  conversationUiSet,
+} from "@/lib/uiStorage";
 import {
   type BrowserControl,
   type BrowserHostKind,
@@ -37,9 +45,28 @@ export type BrowserServerSessionUpsert = Pick<
   title?: string | null;
 };
 
+/** uiStorage leaf：`agentcore:c:{cid}:browserTabs`。 */
+export const BROWSER_TABS_STORAGE_LEAF = "browserTabs";
+
+export interface PersistedBrowserTab {
+  id: string;
+  url: string;
+  title: string;
+  serverSessionId?: string | null;
+  hostKind?: BrowserHostKind;
+  control?: BrowserControl;
+}
+
+export interface PersistedBrowserTabs {
+  pages: PersistedBrowserTab[];
+  activePageId: string | null;
+}
+
 interface BrowserSessionsState {
   pages: BrowserPage[];
   activePageId: string | null;
+  /** 每对话记住激活页（切对话保活后切回恢复）。 */
+  activePageIdByConversation: Record<string, string>;
 
   pagesFor: (conversationId: string | null) => BrowserPage[];
   activePage: (conversationId: string | null) => BrowserPage | null;
@@ -65,8 +92,13 @@ interface BrowserSessionsState {
    */
   closeServerPage: (id: string) => Promise<void>;
   setActivePage: (id: string) => void;
-  /** 本地改 url/title（M0 stub；不驱动真浏览器）。 */
+  /** 本地改 url/title（不驱动真浏览器）。 */
   navigatePage: (id: string, url: string) => void;
+  /**
+   * 宿主导航写回：页内跳转 / 挂回时用真实 URL（及可选 title）更新 store，
+   * 不因 hostname 覆盖已有有意义标题。
+   */
+  syncPageFromHost: (id: string, url: string, title?: string | null) => void;
   /**
    * 把已创建的服务端 session 写回本地页（Web 地址栏 create 后），
    * 便于随后 hydrate 合并时保留同页 id/url。
@@ -84,12 +116,11 @@ interface BrowserSessionsState {
     info: BrowserServerSessionUpsert,
   ) => void;
   setPageTitle: (id: string, title: string) => void;
-  /** 清掉某会话的全部页（切会话可选调用）。 */
+  /** 清掉某会话的全部页 + 持久记录。 */
   clearConversation: (conversationId: string) => void;
   /**
-   * GET list → 投影服务端 session 为页签；保留本地空白；去掉已不在服务端的旧 server 页。
-   * active 优先 `active_session_id`。每调用 bump 代际；在飞 list 不复用旧结果，
-   * 仅 epoch 仍匹配时才 merge（upsert 也会 bump，使过期空 list 不落地）。
+   * 进入对话时：无内存页则从 uiStorage 冷恢复 → list 合并。
+   * 禁启动时给所有对话批量建页。
    */
   hydrateConversation: (conversationId: string) => Promise<void>;
 }
@@ -101,6 +132,9 @@ const hydrateInflight = new Map<string, Promise<void>>();
 
 /** per-conversation hydrate 代际：upsert / 新 hydrate 均 bump，过期 apply 丢弃。 */
 const hydrateEpoch = new Map<string, number>();
+
+/** 已对该 cid 做过磁盘冷恢复（本进程内只做一次，避免空 list 覆盖后反复读盘）。 */
+const coldRestored = new Set<string>();
 
 function bumpHydrateEpoch(conversationId: string): number {
   const next = (hydrateEpoch.get(conversationId) ?? 0) + 1;
@@ -127,6 +161,13 @@ export function normalizeBrowserUrl(raw: string): string {
   return `https://${t}`;
 }
 
+/** 宿主 / about:blank 占位 → 视为无真实页 URL。 */
+export function isBlankBrowserUrl(url: string | null | undefined): boolean {
+  if (url == null) return true;
+  const t = url.trim();
+  return !t || t === "about:blank" || t.startsWith("about:blank");
+}
+
 let pageSeq = 0;
 function nextPageId(): string {
   pageSeq += 1;
@@ -151,6 +192,91 @@ export function hostBrowserPageId(
 export function titleForServerSession(s: BrowserSessionInfo): string {
   const short = s.sessionId.length > 8 ? s.sessionId.slice(0, 8) : s.sessionId;
   return `浏览器 · ${s.hostKind} · ${short}`;
+}
+
+function rememberActive(
+  map: Record<string, string>,
+  conversationId: string | null,
+  pageId: string | null,
+): Record<string, string> {
+  if (!conversationId) return map;
+  if (!pageId) {
+    if (!(conversationId in map)) return map;
+    const next = { ...map };
+    delete next[conversationId];
+    return next;
+  }
+  if (map[conversationId] === pageId) return map;
+  return { ...map, [conversationId]: pageId };
+}
+
+function toPersisted(pages: BrowserPage[]): PersistedBrowserTab[] {
+  return pages.map((p) => ({
+    id: p.id,
+    url: p.url,
+    title: p.title,
+    serverSessionId: p.serverSessionId ?? null,
+    hostKind: p.hostKind,
+    control: p.control,
+  }));
+}
+
+/** 将当前对话页签写回 uiStorage；无页则删键。 */
+export function persistBrowserTabsForConversation(
+  conversationId: string | null,
+  allPages: BrowserPage[],
+  activePageId: string | null,
+): void {
+  if (!conversationId) return;
+  const pages = allPages.filter((p) => p.conversationId === conversationId);
+  if (pages.length === 0) {
+    conversationUiRemove(conversationId, BROWSER_TABS_STORAGE_LEAF);
+    return;
+  }
+  const activeInScope =
+    activePageId && pages.some((p) => p.id === activePageId)
+      ? activePageId
+      : (pages[pages.length - 1]?.id ?? null);
+  const payload: PersistedBrowserTabs = {
+    pages: toPersisted(pages),
+    activePageId: activeInScope,
+  };
+  conversationUiSet(conversationId, BROWSER_TABS_STORAGE_LEAF, payload);
+}
+
+/** 读盘；损坏 / 空 → null。 */
+export function loadPersistedBrowserTabs(
+  conversationId: string,
+): PersistedBrowserTabs | null {
+  const raw = conversationUiGet<PersistedBrowserTabs>(
+    conversationId,
+    BROWSER_TABS_STORAGE_LEAF,
+  );
+  if (!raw || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
+  const pages: PersistedBrowserTab[] = [];
+  for (const p of raw.pages) {
+    if (!p || typeof p.id !== "string" || typeof p.url !== "string") continue;
+    pages.push({
+      id: p.id,
+      url: p.url,
+      title: typeof p.title === "string" ? p.title : titleFromUrl(p.url),
+      serverSessionId:
+        typeof p.serverSessionId === "string" ? p.serverSessionId : null,
+      hostKind:
+        p.hostKind === "local" || p.hostKind === "sandbox"
+          ? p.hostKind
+          : undefined,
+      control:
+        p.control === "agent" || p.control === "user" ? p.control : undefined,
+    });
+  }
+  if (pages.length === 0) return null;
+  const activePageId =
+    typeof raw.activePageId === "string" &&
+    pages.some((p) => p.id === raw.activePageId)
+      ? raw.activePageId
+      : (pages[pages.length - 1]?.id ?? null);
+  return { pages, activePageId };
 }
 
 /**
@@ -241,6 +367,7 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
   (set, get) => ({
     pages: [],
     activePageId: null,
+    activePageIdByConversation: {},
 
     pagesFor: (conversationId) => {
       const list = get().pages.filter(
@@ -252,27 +379,42 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
     activePage: (conversationId) => {
       const list = get().pagesFor(conversationId);
       if (list.length === 0) return null;
+      const remembered =
+        conversationId != null
+          ? get().activePageIdByConversation[conversationId]
+          : undefined;
       const active = get().activePageId;
-      return list.find((p) => p.id === active) ?? list[list.length - 1] ?? null;
+      return (
+        list.find((p) => p.id === active) ??
+        (remembered ? list.find((p) => p.id === remembered) : undefined) ??
+        list[list.length - 1] ??
+        null
+      );
     },
 
     createPage: (opts) => {
       const id = nextPageId();
       const url = opts?.url ?? "";
+      const conversationId = opts?.conversationId ?? null;
       const page: BrowserPage = {
         id,
         url,
         title: opts?.title ?? titleFromUrl(url),
-        conversationId: opts?.conversationId ?? null,
+        conversationId,
         serverSessionId: opts?.serverSessionId ?? null,
         hostKind: opts?.hostKind,
         control: opts?.control,
       };
       const activate = opts?.activate !== false;
-      set((s) => ({
-        pages: [...s.pages, page],
-        activePageId: activate ? id : s.activePageId,
-      }));
+      set((s) => {
+        const activePageId = activate ? id : s.activePageId;
+        const activePageIdByConversation = activate
+          ? rememberActive(s.activePageIdByConversation, conversationId, id)
+          : s.activePageIdByConversation;
+        const pages = [...s.pages, page];
+        persistBrowserTabsForConversation(conversationId, pages, activePageId);
+        return { pages, activePageId, activePageIdByConversation };
+      });
       return id;
     },
 
@@ -281,7 +423,17 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
       if (existing.length > 0) {
         const active = get().activePageId;
         if (!existing.some((p) => p.id === active)) {
-          set({ activePageId: existing[existing.length - 1]?.id });
+          const fallback = existing[existing.length - 1]?.id;
+          if (fallback) {
+            set((s) => ({
+              activePageId: fallback,
+              activePageIdByConversation: rememberActive(
+                s.activePageIdByConversation,
+                conversationId,
+                fallback,
+              ),
+            }));
+          }
         }
         return get().activePageId ?? existing[0]?.id;
       }
@@ -312,7 +464,17 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
           });
           activePageId = blankId;
         }
-        return { pages, activePageId };
+        const activePageIdByConversation = rememberActive(
+          s.activePageIdByConversation,
+          target.conversationId,
+          activePageId,
+        );
+        persistBrowserTabsForConversation(
+          target.conversationId,
+          pages,
+          activePageId,
+        );
+        return { pages, activePageId, activePageIdByConversation };
       });
     },
 
@@ -327,12 +489,23 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
       get().closePage(id);
     },
 
-    setActivePage: (id) => set({ activePageId: id }),
+    setActivePage: (id) =>
+      set((s) => {
+        const page = s.pages.find((p) => p.id === id);
+        if (!page) return { activePageId: id };
+        const activePageIdByConversation = rememberActive(
+          s.activePageIdByConversation,
+          page.conversationId,
+          id,
+        );
+        persistBrowserTabsForConversation(page.conversationId, s.pages, id);
+        return { activePageId: id, activePageIdByConversation };
+      }),
 
     navigatePage: (id, url) => {
       const normalized = normalizeBrowserUrl(url);
-      set((s) => ({
-        pages: s.pages.map((p) =>
+      set((s) => {
+        const pages = s.pages.map((p) =>
           p.id === id
             ? {
                 ...p,
@@ -340,13 +513,44 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
                 title: titleFromUrl(normalized),
               }
             : p,
-        ),
-      }));
+        );
+        const page = pages.find((p) => p.id === id);
+        persistBrowserTabsForConversation(
+          page?.conversationId ?? null,
+          pages,
+          s.activePageId,
+        );
+        return { pages };
+      });
+    },
+
+    syncPageFromHost: (id, url, title) => {
+      if (isBlankBrowserUrl(url)) return;
+      set((s) => {
+        const prev = s.pages.find((p) => p.id === id);
+        if (!prev) return s;
+        const nextTitle =
+          typeof title === "string" && title.trim()
+            ? title.trim()
+            : prev.title && prev.title !== "新标签页"
+              ? prev.title
+              : titleFromUrl(url);
+        if (prev.url === url && prev.title === nextTitle) return s;
+        const pages = s.pages.map((p) =>
+          p.id === id ? { ...p, url, title: nextTitle } : p,
+        );
+        persistBrowserTabsForConversation(
+          prev.conversationId,
+          pages,
+          s.activePageId,
+        );
+        return { pages };
+      });
     },
 
     attachServerSession: (pageId, info) => {
-      set((s) => ({
-        pages: s.pages.map((p) =>
+      set((s) => {
+        const pages = s.pages.map((p) =>
           p.id === pageId
             ? {
                 ...p,
@@ -355,8 +559,15 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
                 control: info.control,
               }
             : p,
-        ),
-      }));
+        );
+        const page = pages.find((p) => p.id === pageId);
+        persistBrowserTabsForConversation(
+          page?.conversationId ?? null,
+          pages,
+          s.activePageId,
+        );
+        return { pages };
+      });
     },
 
     upsertServerSession: (conversationId, info) => {
@@ -421,28 +632,50 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
           !pages.some((p) => p.id === s.activePageId) ||
           activeIsLocalBlank;
 
+        const activePageId = shouldActivate ? pageId : s.activePageId;
+        const activePageIdByConversation = rememberActive(
+          s.activePageIdByConversation,
+          conversationId,
+          activePageId,
+        );
+        persistBrowserTabsForConversation(conversationId, pages, activePageId);
         return {
           pages,
-          activePageId: shouldActivate ? pageId : s.activePageId,
+          activePageId,
+          activePageIdByConversation,
         };
       });
     },
 
     setPageTitle: (id, title) => {
-      set((s) => ({
-        pages: s.pages.map((p) => (p.id === id ? { ...p, title } : p)),
-      }));
+      set((s) => {
+        const pages = s.pages.map((p) => (p.id === id ? { ...p, title } : p));
+        const page = pages.find((p) => p.id === id);
+        persistBrowserTabsForConversation(
+          page?.conversationId ?? null,
+          pages,
+          s.activePageId,
+        );
+        return { pages };
+      });
     },
 
     clearConversation: (conversationId) => {
+      coldRestored.delete(conversationId);
+      conversationUiRemove(conversationId, BROWSER_TABS_STORAGE_LEAF);
       set((s) => {
         const pages = s.pages.filter(
           (p) => p.conversationId !== conversationId,
         );
         const activeStill = pages.some((p) => p.id === s.activePageId);
+        const activePageIdByConversation = {
+          ...s.activePageIdByConversation,
+        };
+        delete activePageIdByConversation[conversationId];
         return {
           pages,
           activePageId: activeStill ? s.activePageId : null,
+          activePageIdByConversation,
         };
       });
     },
@@ -456,18 +689,81 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
       const p = (async () => {
         try {
           if (prior) await prior.catch(() => undefined);
+
+          // P1 冷恢复：本进程对该 cid 尚无内存页时读盘一次（禁启动批量）。
+          if (get().pagesFor(conversationId).length === 0) {
+            if (!coldRestored.has(conversationId)) {
+              coldRestored.add(conversationId);
+              const persisted = loadPersistedBrowserTabs(conversationId);
+              if (persisted) {
+                const restored: BrowserPage[] = persisted.pages.map((t) => ({
+                  id: t.id,
+                  url: t.url,
+                  title: t.title,
+                  conversationId,
+                  serverSessionId: t.serverSessionId ?? null,
+                  hostKind: t.hostKind,
+                  control: t.control,
+                }));
+                set((s) => {
+                  const others = s.pages.filter(
+                    (pg) => pg.conversationId !== conversationId,
+                  );
+                  const activePageId = persisted.activePageId;
+                  return {
+                    pages: [...others, ...restored],
+                    activePageId,
+                    activePageIdByConversation: rememberActive(
+                      s.activePageIdByConversation,
+                      conversationId,
+                      activePageId,
+                    ),
+                  };
+                });
+              }
+            }
+          } else {
+            // 同进程切回：恢复该对话记住的激活页。
+            const remembered = get().activePageIdByConversation[conversationId];
+            if (
+              remembered &&
+              get().pages.some(
+                (pg) =>
+                  pg.id === remembered && pg.conversationId === conversationId,
+              )
+            ) {
+              set({ activePageId: remembered });
+            }
+          }
+
           const { sessions, activeSessionId } =
             await listBrowserSessions(conversationId);
           if (hydrateEpoch.get(conversationId) !== epoch) return;
           const s = get();
+          const preferredActive =
+            s.activePageIdByConversation[conversationId] ?? s.activePageId;
           const merged = mergeHydratedPages(
             s.pages,
             conversationId,
             sessions,
             activeSessionId,
-            s.activePageId,
+            preferredActive,
           );
-          set(merged);
+          set((prev) => {
+            persistBrowserTabsForConversation(
+              conversationId,
+              merged.pages,
+              merged.activePageId,
+            );
+            return {
+              ...merged,
+              activePageIdByConversation: rememberActive(
+                prev.activePageIdByConversation,
+                conversationId,
+                merged.activePageId,
+              ),
+            };
+          });
         } finally {
           if (hydrateInflight.get(conversationId) === pRef.current) {
             hydrateInflight.delete(conversationId);
@@ -481,3 +777,8 @@ export const useBrowserSessionsStore = create<BrowserSessionsState>(
     },
   }),
 );
+
+/** @internal vitest — 重置冷恢复标记。 */
+export function __resetBrowserTabsColdRestoreForTests(): void {
+  coldRestored.clear();
+}
