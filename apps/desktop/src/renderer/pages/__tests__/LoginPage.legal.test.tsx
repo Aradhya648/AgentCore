@@ -64,10 +64,11 @@ describe("LoginPage legal gates", () => {
     expect(submit).toHaveProperty("disabled", false);
   });
 
-  it("opens user agreement pane from footer", () => {
+  it("opens user agreement pane from register consent link", () => {
     render(<LoginPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "用户协议" }));
+    fireEvent.click(screen.getByRole("button", { name: "注册" }));
+    fireEvent.click(screen.getByRole("button", { name: "《用户协议》" }));
     expect(screen.getByRole("heading", { name: "用户服务协议" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /返回/ }));
     expect(screen.getByPlaceholderText("用户名")).toBeTruthy();

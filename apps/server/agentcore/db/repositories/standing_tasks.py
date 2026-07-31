@@ -72,6 +72,8 @@ class StandingTaskRepository:
         trigger_kind: str = "schedule",
         webhook_id: str | None = None,
         webhook_secret_hash: str | None = None,
+        template_key: str | None = None,
+        template_config: dict | None = None,
     ) -> StandingTask:
         row = StandingTask(
             id=new_id(),
@@ -86,6 +88,8 @@ class StandingTaskRepository:
             trigger_kind=trigger_kind,
             webhook_id=webhook_id,
             webhook_secret_hash=webhook_secret_hash,
+            template_key=template_key,
+            template_config=dict(template_config or {}),
         )
         self._session.add(row)
         await self._session.commit()
@@ -104,6 +108,17 @@ class StandingTaskRepository:
             select(StandingTask).where(
                 StandingTask.webhook_id == webhook_id,
                 StandingTask.trigger_kind == "webhook",
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_template_key(
+        self, user_id: str, template_key: str
+    ) -> StandingTask | None:
+        result = await self._session.execute(
+            select(StandingTask).where(
+                StandingTask.user_id == user_id,
+                StandingTask.template_key == template_key,
             )
         )
         return result.scalar_one_or_none()

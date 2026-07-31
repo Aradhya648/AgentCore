@@ -230,7 +230,7 @@ export interface SidecarResumeRequest {
   permissionPreset?: SidecarPermissionPreset;
 }
 
-/** A1+ 本机回合文件真 diff（相对 `.agentcore/baselines/{messageId}.zip`）。 */
+/** A1+ 本机回合文件真 diff（相对 `AgentCore/baselines/{messageId}.zip`）。 */
 export interface SidecarTurnFilesDiffRequest {
   rootId: string;
   subpath?: string;

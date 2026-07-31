@@ -108,7 +108,8 @@
             "kind": "bind_local_folder",
             "description": "本回合为云端会话、未装配执行环境：绑定本机执行环境（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
           }
-        ]
+        ],
+        "artifacts": []
       },
       "timestamp": "2026-01-01T00:00:00.007Z"
     },
@@ -194,7 +195,8 @@
             "kind": "bind_local_folder",
             "description": "本回合为云端会话、未装配执行环境：绑定本机执行环境（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
           }
-        ]
+        ],
+        "artifacts": []
       },
       "timestamp": "2026-01-01T00:00:01.207Z"
     },
@@ -416,7 +418,8 @@
           "kind": "bind_local_folder",
           "description": "本回合为云端会话、未装配执行环境：绑定本机执行环境（本会话 scratch，≠打开本地项目）后可在本机运行生成。"
         }
-      ]
+      ],
+      "artifacts": []
     },
     "turnWarning": null,
     "teamNotes": [],

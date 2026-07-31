@@ -80,6 +80,9 @@ class EventType(StrEnum):
     # Host 第三能力面 P0: transport-only client-tool — desktop fulfils host_* ops
     # (ping / info / audio_devices / open_settings) via backfill. NOT journaled.
     HOST_OP_REQUIRED = "host_op_required"
+    # 本机 MCP Client: transport-only client-tool — desktop stdio MCP list/call
+    # via backfill (never cloud→127.0.0.1). NOT journaled.
+    MCP_OP_REQUIRED = "mcp_op_required"
     HANDOFF_SNAPSHOT_DONE = "handoff_snapshot_done"
     HANDOFF_JOB_STARTED = "handoff_job_started"
     HANDOFF_APPLY_DONE = "handoff_apply_done"

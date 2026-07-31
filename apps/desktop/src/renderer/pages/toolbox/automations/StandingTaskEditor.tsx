@@ -22,6 +22,7 @@ import {
 } from "@/services/permissionAxes";
 import {
   type CreateStandingTaskInput,
+  type PatchStandingTaskInput,
   SCHEDULE_PRESET_LABELS,
   SCHEDULE_PRESET_ORDER,
   type SchedulePreset,
@@ -30,8 +31,10 @@ import {
   TRIGGER_KIND_ORDER,
   type TriggerKind,
   createStandingTask,
+  localHmFromUtcCron,
   patchStandingTask,
   rotateWebhookSecret,
+  utcCronFromLocalHm,
 } from "@/services/standingTasks";
 import { Check, Copy, KeyRound, Loader2, Play, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -41,6 +44,10 @@ const SELECT_CLASS =
 
 function errMsg(e: unknown, fallback: string): string {
   return e instanceof ApiError ? (e.serverMessage ?? fallback) : fallback;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
 export interface StandingTaskFormState {
@@ -56,6 +63,14 @@ export interface StandingTaskFormState {
   webhookId: string | null;
   /** Ephemeral one-shot secret from create / rotate. */
   revealedSecret: string | null;
+  /** Present for system template tasks. */
+  templateKey: string | null;
+  /** Local wall-clock for template daily cron. */
+  localHour: number;
+  localMinute: number;
+  includeGlobal: boolean;
+  scopeFolderIds: string[];
+  lookbackHours: number;
 }
 
 export function emptyStandingTaskForm(
@@ -73,6 +88,12 @@ export function emptyStandingTaskForm(
     webhookUrl: null,
     webhookId: null,
     revealedSecret: null,
+    templateKey: null,
+    localHour: 9,
+    localMinute: 0,
+    includeGlobal: true,
+    scopeFolderIds: [],
+    lookbackHours: 24,
   };
 }
 
@@ -80,6 +101,8 @@ export function formFromStandingTask(
   task: StandingTask,
 ): StandingTaskFormState {
   const recipe = matchRecipe(task.permissionAxes);
+  const local = localHmFromUtcCron(task.cron);
+  const cfg = task.templateConfig;
   return {
     name: task.name,
     triggerKind: task.triggerKind,
@@ -92,6 +115,12 @@ export function formFromStandingTask(
     webhookUrl: task.webhookUrl,
     webhookId: task.webhookId,
     revealedSecret: task.webhookSecret,
+    templateKey: task.templateKey,
+    localHour: local.hour,
+    localMinute: local.minute,
+    includeGlobal: cfg.includeGlobal ?? true,
+    scopeFolderIds: cfg.folderIds ?? [],
+    lookbackHours: cfg.lookbackHours ?? 24,
   };
 }
 
@@ -150,6 +179,8 @@ export function StandingTaskEditorDrawer({
   /** After create with webhook secret: stay open until user dismisses. */
   const [pendingDismiss, setPendingDismiss] = useState(false);
 
+  const isTemplate = !!form.templateKey;
+
   useEffect(() => {
     if (!open) return;
     setForm(initial);
@@ -159,7 +190,14 @@ export function StandingTaskEditorDrawer({
 
   const noCloud = cloudFolders.length === 0;
   const canSubmit = useMemo(() => {
-    if (!form.name.trim() || !form.goal.trim() || !form.folderId) return false;
+    if (!form.folderId) return false;
+    if (isTemplate) {
+      if (!form.includeGlobal && form.scopeFolderIds.length === 0) return false;
+      const lb = form.lookbackHours;
+      if (!Number.isFinite(lb) || lb < 1 || lb > 168) return false;
+      return true;
+    }
+    if (!form.name.trim() || !form.goal.trim()) return false;
     if (
       form.triggerKind === "schedule" &&
       form.schedulePreset === "custom" &&
@@ -168,9 +206,9 @@ export function StandingTaskEditorDrawer({
       return false;
     }
     return true;
-  }, [form]);
+  }, [form, isTemplate]);
 
-  const buildPayload = (): CreateStandingTaskInput => {
+  const buildCreatePayload = (): CreateStandingTaskInput => {
     const base: CreateStandingTaskInput = {
       name: form.name.trim(),
       triggerKind: form.triggerKind,
@@ -186,6 +224,19 @@ export function StandingTaskEditorDrawer({
     }
     return base;
   };
+
+  const buildTemplatePatch = (): PatchStandingTaskInput => ({
+    folderId: form.folderId,
+    schedulePreset: "custom",
+    cron: utcCronFromLocalHm(form.localHour, form.localMinute),
+    permissionAxes: recipeToAxes(form.recipe),
+    enabled: form.enabled,
+    templateConfig: {
+      includeGlobal: form.includeGlobal,
+      folderIds: form.scopeFolderIds,
+      lookbackHours: form.lookbackHours,
+    },
+  });
 
   const dismissAfterReveal = async () => {
     setPendingDismiss(false);
@@ -208,9 +259,9 @@ export function StandingTaskEditorDrawer({
     }
     setSubmitting(true);
     setError(null);
-    const payload = buildPayload();
     try {
       if (mode === "create") {
+        const payload = buildCreatePayload();
         const created = await createStandingTask(payload);
         if (created.triggerKind === "webhook" && created.webhookSecret) {
           setForm((f) => ({
@@ -225,6 +276,9 @@ export function StandingTaskEditorDrawer({
         }
         notifySuccess("任务已创建");
       } else if (taskId) {
+        const payload = isTemplate
+          ? buildTemplatePatch()
+          : buildCreatePayload();
         const patched = await patchStandingTask(taskId, payload);
         if (patched.triggerKind === "webhook" && patched.webhookSecret) {
           setForm((f) => ({
@@ -270,6 +324,18 @@ export function StandingTaskEditorDrawer({
     }
   };
 
+  const toggleScopeFolder = (folderId: string) => {
+    setForm((f) => {
+      const has = f.scopeFolderIds.includes(folderId);
+      return {
+        ...f,
+        scopeFolderIds: has
+          ? f.scopeFolderIds.filter((id) => id !== folderId)
+          : [...f.scopeFolderIds, folderId],
+      };
+    });
+  };
+
   return (
     <Dialog
       open={open}
@@ -293,10 +359,16 @@ export function StandingTaskEditorDrawer({
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="min-w-0">
             <DialogTitle className="text-base font-semibold text-foreground">
-              {mode === "create" ? "新建任务" : "编辑任务"}
+              {isTemplate
+                ? "配置系统任务"
+                : mode === "create"
+                  ? "新建任务"
+                  : "编辑任务"}
             </DialogTitle>
             <DialogDescription className="mt-1 text-xs text-muted-foreground">
-              定时或 Webhook 触发后自动开一轮协作。仅支持云工作区。
+              {isTemplate
+                ? "系统模板任务：目标由系统托管，可配置时间、作用域与落点。"
+                : "定时或 Webhook 触发后自动开一轮协作。仅支持云工作区。"}
             </DialogDescription>
           </div>
           <IconButton
@@ -325,83 +397,113 @@ export function StandingTaskEditorDrawer({
               value={form.name}
               maxLength={120}
               placeholder="例如：周一竞品简报"
-              disabled={pendingDismiss}
+              disabled={pendingDismiss || isTemplate}
+              readOnly={isTemplate}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
           </label>
 
-          <fieldset disabled={pendingDismiss}>
-            <legend className="mb-1 block text-xs text-muted-foreground">
-              触发方式
-            </legend>
-            <div className="flex flex-wrap gap-2">
-              {TRIGGER_KIND_ORDER.map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  className={cn(
-                    "rounded-lg border px-3 py-1.5 text-sm transition-colors",
-                    form.triggerKind === kind
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border bg-background text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setForm((f) => applyTriggerKind(f, kind))}
-                >
-                  {TRIGGER_KIND_LABELS[kind]}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              每任务仅一种触发；切换会清空另一方配置。
-            </p>
-          </fieldset>
-
-          {form.triggerKind === "schedule" && (
-            <>
-              <label className="block">
-                <span className="mb-1 block text-xs text-muted-foreground">
-                  周期
-                </span>
-                <select
-                  className={SELECT_CLASS}
-                  value={form.schedulePreset}
-                  disabled={pendingDismiss}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      schedulePreset: e.target.value as SchedulePreset,
-                    }))
-                  }
-                >
-                  {SCHEDULE_PRESET_ORDER.map((id) => (
-                    <option key={id} value={id}>
-                      {SCHEDULE_PRESET_LABELS[id]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {form.schedulePreset === "custom" && (
-                <label className="block" htmlFor="st-cron">
-                  <span className="mb-1 block text-xs text-muted-foreground">
-                    Cron 表达式
-                  </span>
-                  <Input
-                    id="st-cron"
-                    className="w-full font-mono"
-                    value={form.cron}
-                    placeholder="0 9 * * 1"
-                    disabled={pendingDismiss}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, cron: e.target.value }))
-                    }
-                  />
-                </label>
-              )}
-            </>
+          {!isTemplate && (
+            <fieldset disabled={pendingDismiss}>
+              <legend className="mb-1 block text-xs text-muted-foreground">
+                触发方式
+              </legend>
+              <div className="flex flex-wrap gap-2">
+                {TRIGGER_KIND_ORDER.map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                      form.triggerKind === kind
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-background text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setForm((f) => applyTriggerKind(f, kind))}
+                  >
+                    {TRIGGER_KIND_LABELS[kind]}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                每任务仅一种触发；切换会清空另一方配置。
+              </p>
+            </fieldset>
           )}
 
-          {form.triggerKind === "webhook" && (
+          {isTemplate ? (
+            <label className="block" htmlFor="st-local-time">
+              <span className="mb-1 block text-xs text-muted-foreground">
+                每天触发时间（本地）
+              </span>
+              <Input
+                id="st-local-time"
+                type="time"
+                className="w-full"
+                value={`${pad2(form.localHour)}:${pad2(form.localMinute)}`}
+                disabled={pendingDismiss}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(":").map(Number);
+                  if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+                  setForm((f) => ({
+                    ...f,
+                    localHour: h,
+                    localMinute: m,
+                  }));
+                }}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                按你本机时区保存；服务端以 UTC cron 调度。
+              </p>
+            </label>
+          ) : (
+            form.triggerKind === "schedule" && (
+              <>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-muted-foreground">
+                    周期
+                  </span>
+                  <select
+                    className={SELECT_CLASS}
+                    value={form.schedulePreset}
+                    disabled={pendingDismiss}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        schedulePreset: e.target.value as SchedulePreset,
+                      }))
+                    }
+                  >
+                    {SCHEDULE_PRESET_ORDER.map((id) => (
+                      <option key={id} value={id}>
+                        {SCHEDULE_PRESET_LABELS[id]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {form.schedulePreset === "custom" && (
+                  <label className="block" htmlFor="st-cron">
+                    <span className="mb-1 block text-xs text-muted-foreground">
+                      Cron 表达式
+                    </span>
+                    <Input
+                      id="st-cron"
+                      className="w-full font-mono"
+                      value={form.cron}
+                      placeholder="0 9 * * 1"
+                      disabled={pendingDismiss}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, cron: e.target.value }))
+                      }
+                    />
+                  </label>
+                )}
+              </>
+            )
+          )}
+
+          {!isTemplate && form.triggerKind === "webhook" && (
             <WebhookCredentialsPanel
               webhookUrl={form.webhookUrl}
               revealedSecret={form.revealedSecret}
@@ -418,7 +520,7 @@ export function StandingTaskEditorDrawer({
 
           <label className="block">
             <span className="mb-1 block text-xs text-muted-foreground">
-              云工作区
+              {isTemplate ? "报告落点项目" : "云工作区"}
             </span>
             <select
               className={SELECT_CLASS}
@@ -434,27 +536,119 @@ export function StandingTaskEditorDrawer({
                 </option>
               ))}
             </select>
+            {isTemplate && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                复盘报告与文档草稿写入此云项目。
+              </p>
+            )}
           </label>
 
-          <label className="block" htmlFor="st-goal">
-            <span className="mb-1 block text-xs text-muted-foreground">
-              目标
-            </span>
-            <Textarea
-              id="st-goal"
-              className="w-full text-sm"
-              rows={4}
-              value={form.goal}
-              maxLength={4000}
-              disabled={pendingDismiss}
-              placeholder={
-                form.triggerKind === "webhook"
-                  ? "常驻交代：收到外部事件后要完成什么？事件正文会追加到本轮上下文。"
-                  : "到点要完成什么？例如：汇总本周竞品动态与风险，给出三条行动建议。"
-              }
-              onChange={(e) => setForm((f) => ({ ...f, goal: e.target.value }))}
-            />
-          </label>
+          {isTemplate ? (
+            <>
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                <p className="text-xs font-medium text-foreground">任务说明</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  每天自动检索近期对话，整理成管家式复盘报告；你确认后才更新记忆、写入文档草稿或采纳规则建议。目标文案由系统托管，不可改。
+                </p>
+              </div>
+
+              <fieldset disabled={pendingDismiss} className="space-y-2">
+                <legend className="mb-1 block text-xs text-muted-foreground">
+                  复盘作用域
+                </legend>
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded-lg border-border"
+                    checked={form.includeGlobal}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        includeGlobal: e.target.checked,
+                      }))
+                    }
+                  />
+                  包含全局裸聊
+                </label>
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    一并复盘的云项目
+                  </p>
+                  {cloudFolders.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">暂无云项目</p>
+                  ) : (
+                    <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                      {cloudFolders.map((f) => (
+                        <li key={f.id}>
+                          <label className="flex items-center gap-2 text-sm text-foreground">
+                            <input
+                              type="checkbox"
+                              className="size-4 rounded-lg border-border"
+                              checked={form.scopeFolderIds.includes(f.id)}
+                              onChange={() => toggleScopeFolder(f.id)}
+                            />
+                            <span className="truncate">{f.name}</span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {!form.includeGlobal && form.scopeFolderIds.length === 0 && (
+                  <p className="text-xs text-destructive">
+                    请至少勾选「全局裸聊」或一个云项目。
+                  </p>
+                )}
+              </fieldset>
+
+              <label className="block" htmlFor="st-lookback">
+                <span className="mb-1 block text-xs text-muted-foreground">
+                  回看时长（小时）
+                </span>
+                <Input
+                  id="st-lookback"
+                  type="number"
+                  min={1}
+                  max={168}
+                  className="w-full"
+                  value={form.lookbackHours}
+                  disabled={pendingDismiss}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setForm((f) => ({
+                      ...f,
+                      lookbackHours: Number.isFinite(n) ? n : f.lookbackHours,
+                    }));
+                  }}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  默认 24，最大 168（7 天）。
+                </p>
+              </label>
+            </>
+          ) : (
+            <label className="block" htmlFor="st-goal">
+              <span className="mb-1 block text-xs text-muted-foreground">
+                目标
+              </span>
+              <Textarea
+                id="st-goal"
+                className="w-full text-sm"
+                rows={4}
+                value={form.goal}
+                maxLength={4000}
+                disabled={pendingDismiss}
+                placeholder={
+                  form.triggerKind === "webhook"
+                    ? "常驻交代：收到外部事件后要完成什么？事件正文会追加到本轮上下文。"
+                    : "到点要完成什么？例如：汇总本周竞品动态与风险，给出三条行动建议。"
+                }
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, goal: e.target.value }))
+                }
+              />
+            </label>
+          )}
 
           <label className="block">
             <span className="mb-1 block text-xs text-muted-foreground">
@@ -489,9 +683,11 @@ export function StandingTaskEditorDrawer({
             <div>
               <p className="text-sm font-medium text-foreground">启用</p>
               <p className="text-xs text-muted-foreground">
-                {form.triggerKind === "webhook"
-                  ? "关闭后外部 POST 不再开跑（可随时打开）。"
-                  : "关闭后不再到点触发（可随时打开）。"}
+                {isTemplate
+                  ? "关闭后不再到点复盘（可随时打开）。"
+                  : form.triggerKind === "webhook"
+                    ? "关闭后外部 POST 不再开跑（可随时打开）。"
+                    : "关闭后不再到点触发（可随时打开）。"}
               </p>
             </div>
             <Switch

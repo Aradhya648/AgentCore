@@ -39,30 +39,44 @@ describe("workspace listing hide system files", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("index_files prunes .agentcore, *.db, and media (AI tier)", async () => {
+  it("index_files prunes AgentCore/index, *.db, and media (AI tier)", async () => {
     await writeFile(join(dir, "notes.md"), "hi");
     await writeFile(join(dir, "hero.png"), "png");
-    await mkdir(join(dir, ".agentcore", "index"), { recursive: true });
-    await writeFile(join(dir, ".agentcore", "index", "code_search.db"), "x");
+    await mkdir(join(dir, "AgentCore", "index"), { recursive: true });
+    await writeFile(join(dir, "AgentCore", "index", "code_search.db"), "x");
+    await mkdir(join(dir, "AgentCore", "规则"), { recursive: true });
+    await writeFile(join(dir, "AgentCore", "规则", "r.md"), "r");
+    await mkdir(join(dir, "index"), { recursive: true });
+    await writeFile(join(dir, "index", "user.py"), "u");
     await writeFile(join(dir, "local.db"), "x");
     const res = valOf(await executeWorkspaceOp(root, "index_files", {})) as {
       paths: string[];
     };
-    expect(res.paths).toEqual(["notes.md"]);
+    expect(res.paths).toEqual([
+      "AgentCore/规则/r.md",
+      "index/user.py",
+      "notes.md",
+    ]);
   });
 
-  it("listDir hides system noise but keeps media visible for the file UI", async () => {
+  it("listDir hides internal zones but keeps AgentCore visible dirs and media", async () => {
     await writeFile(join(dir, "notes.md"), "hi");
     await writeFile(join(dir, "hero.png"), "png");
-    await mkdir(join(dir, ".agentcore"), { recursive: true });
+    await mkdir(join(dir, "AgentCore", "index"), { recursive: true });
+    await mkdir(join(dir, "AgentCore", "规则"), { recursive: true });
     await writeFile(join(dir, "local.db"), "x");
     const listed = await listDir(root.id, "");
     expect(listed.ok).toBe(true);
     if (!listed.ok) return;
     expect(listed.data.map((e) => e.name).sort()).toEqual([
+      "AgentCore",
       "hero.png",
       "notes.md",
     ]);
+    const acListed = await listDir(root.id, "AgentCore");
+    expect(acListed.ok).toBe(true);
+    if (!acListed.ok) return;
+    expect(acListed.data.map((e) => e.name).sort()).toEqual(["规则"]);
   });
 });
 

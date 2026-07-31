@@ -8,9 +8,9 @@ import {
 } from "../meta";
 
 describe("decision meta", () => {
-  it("ask kickoff / proposal_pick / risk_ack / organize_plan keep settled labels", () => {
+  it("ask kickoff / proposal_pick / risk_ack / organize_plan / daily_review keep settled labels", () => {
     expect(askResolvedOutcome("kickoff", "continue").label).toBe(
-      "已按方案开做",
+      "已按你的决定继续",
     );
     expect(askResolvedOutcome("proposal_pick", "continue").label).toBe(
       "已选定方案",
@@ -21,8 +21,15 @@ describe("decision meta", () => {
     expect(askResolvedOutcome("organize_plan", "continue").label).toBe(
       "已确认整理方案",
     );
+    expect(askResolvedOutcome("daily_review", "continue").label).toBe(
+      "已确认复盘提案",
+    );
+    expect(ASK_INTENT_META.daily_review.cta).toBe("确认落盘");
+    expect(ASK_INTENT_META.daily_review.activeCaption).toBe(
+      "复盘提案 · 确认要落盘的项",
+    );
     expect(askResolvedOutcome("kickoff", "research_first").label).toBe(
-      "已停止",
+      "已停止本回合",
     );
     expect(askResolvedOutcome("kickoff", "research_first").tone).toBe(
       "destructive",
@@ -54,6 +61,10 @@ describe("decision meta", () => {
     expect(TEAM_PRIMITIVE_META.debate.activeCaption).toBe(
       "等你确认 · 确认后才会开赛",
     );
-    expect(ASK_INTENT_META.kickoff.activeCaption).toContain("开工提案");
+    expect(ASK_INTENT_META.kickoff.activeCaption).toBe("需要你拍板");
+    expect(ASK_INTENT_META.kickoff.cta).toBe("提交");
+    expect(ASK_INTENT_META.decision.activeCaption).toBe(
+      ASK_INTENT_META.kickoff.activeCaption,
+    );
   });
 });

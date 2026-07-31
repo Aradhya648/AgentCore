@@ -23,6 +23,7 @@ import {
   type LocalStorePutShellMeta,
 } from "@shared/local-store-contract";
 import { LOG_CHANNELS, type LogApi } from "@shared/log-contract";
+import { MCP_CHANNELS, type McpApi } from "@shared/mcp-contract";
 import {
   NOTIFICATION_CHANNELS,
   type NotificationApi,
@@ -300,6 +301,17 @@ const hostApi: HostApi = {
   runOp: (input) => ipcRenderer.invoke(HOST_CHANNELS.runOp, input),
 };
 
+const mcpApi: McpApi = {
+  runOp: (input) => ipcRenderer.invoke(MCP_CHANNELS.runOp, input),
+  listServers: () => ipcRenderer.invoke(MCP_CHANNELS.listServers),
+  upsertServer: (server) =>
+    ipcRenderer.invoke(MCP_CHANNELS.upsertServer, server),
+  removeServer: (id) => ipcRenderer.invoke(MCP_CHANNELS.removeServer, id),
+  setServerEnabled: (id, enabled) =>
+    ipcRenderer.invoke(MCP_CHANNELS.setServerEnabled, id, enabled),
+  testServer: (id) => ipcRenderer.invoke(MCP_CHANNELS.testServer, id),
+};
+
 const previewApi: PreviewApi = {
   open: (input) => ipcRenderer.invoke(PREVIEW_CHANNELS.open, input),
   embedShow: (input) => ipcRenderer.invoke(PREVIEW_CHANNELS.embedShow, input),
@@ -360,6 +372,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld("ptyApi", ptyApi);
     contextBridge.exposeInMainWorld("notificationApi", notificationApi);
     contextBridge.exposeInMainWorld("hostApi", hostApi);
+    contextBridge.exposeInMainWorld("mcpApi", mcpApi);
     contextBridge.exposeInMainWorld("previewApi", previewApi);
     contextBridge.exposeInMainWorld("browserApi", browserApi);
     contextBridge.exposeInMainWorld("windowApi", windowApi);
@@ -391,6 +404,8 @@ if (process.contextIsolated) {
   window.notificationApi = notificationApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.hostApi = hostApi;
+  // @ts-ignore - 非隔离环境下直接挂载
+  window.mcpApi = mcpApi;
   // @ts-ignore - 非隔离环境下直接挂载
   window.previewApi = previewApi;
   // @ts-ignore - 非隔离环境下直接挂载

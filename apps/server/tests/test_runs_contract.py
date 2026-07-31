@@ -820,6 +820,59 @@ def test_artifact_invalid_r_ref_fails():
     assert any("note.md" in f and "#r99" in f for f in v.failures)
 
 
+def test_phase_a_skips_citation_gate():
+    """调研阶段 A：enforce_citations=False → unbound #rN 不过成稿引用闸。"""
+    from agentcore.runtime.runs.contract import partition_citation_failures
+
+    contract = Deliverable(
+        form="files",
+        requires_files=True,
+        min_length=5,
+        citation_mode="two_phase",
+    )
+    body = "结论见 #r99，广搜摘要。"
+    skipped = check_contract(
+        "已落盘草案",
+        contract,
+        files_written=1,
+        workspace_paths=["AgentCore/文档/research/角度.md"],
+        artifact_contents={"AgentCore/文档/research/角度.md": body},
+        ledger_entries=[],
+        citable_ids=frozenset({"#r1"}),
+        enforce_citations=False,
+    )
+    assert skipped.ok
+    enforced = check_contract(
+        "已落盘草案",
+        contract,
+        files_written=1,
+        workspace_paths=["AgentCore/文档/research/角度.md"],
+        artifact_contents={"AgentCore/文档/research/角度.md": body},
+        ledger_entries=[],
+        citable_ids=frozenset({"#r1"}),
+        enforce_citations=True,
+    )
+    assert not enforced.ok
+    cite, other = partition_citation_failures(enforced.failures)
+    assert cite and not other
+
+
+def test_non_research_citation_gate_unchanged():
+    """非调研路径（citation_mode 默认）仍立刻跑引用闸。"""
+    contract = Deliverable(form="files", requires_files=True, min_length=5)
+    v = check_contract(
+        "已写入",
+        contract,
+        files_written=1,
+        workspace_paths=["site/copy.md"],
+        artifact_contents={"site/copy.md": "售价 99 元#r99。"},
+        ledger_entries=[],
+        citable_ids=frozenset({"#r1"}),
+    )
+    assert not v.ok
+    assert any("#r99" in f for f in v.failures)
+
+
 def test_needs_file_contents_loads_md_for_citation_surfaces():
     assert needs_file_contents(
         Deliverable(requires_files=True),

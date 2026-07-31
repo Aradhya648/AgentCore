@@ -61,17 +61,34 @@ def test_stage_rejects_oversized_workspace_with_explainable_error(tmp_path: Path
 
 def test_stage_excludes_internal_zone_and_symlinks(tmp_path: Path):
     src = tmp_path / "ws"
-    (src / ".agentcore" / "trash").mkdir(parents=True)
-    (src / ".agentcore" / "trash" / "junk.txt").write_text("x", encoding="utf-8")
+    (src / "AgentCore" / "trash").mkdir(parents=True)
+    (src / "AgentCore" / "trash" / "junk.txt").write_text("x", encoding="utf-8")
+    (src / "AgentCore" / "index").mkdir(parents=True)
+    (src / "AgentCore" / "index" / "code_search.db").write_bytes(b"db")
+    (src / "AgentCore" / "规则").mkdir(parents=True)
+    (src / "AgentCore" / "规则" / "x.md").write_text("rule", encoding="utf-8")
+    (src / "AgentCore" / "记忆").mkdir(parents=True)
+    (src / "AgentCore" / "记忆" / "y.md").write_text("mem", encoding="utf-8")
+    (src / "AgentCore" / "文档").mkdir(parents=True)
+    (src / "AgentCore" / "文档" / "z.md").write_text("doc", encoding="utf-8")
     (src / "real.txt").write_text("keep", encoding="utf-8")
     _make_symlink_or_skip(src / "real.txt", src / "link.txt")
 
     dst = tmp_path / "staged"
     baseline = stage_workspace(src, dst, max_bytes=1024 * 1024)
 
-    assert not (dst / ".agentcore").exists()
+    assert not (dst / "AgentCore" / "trash").exists()
+    assert not (dst / "AgentCore" / "index").exists()
+    assert (dst / "AgentCore" / "规则" / "x.md").read_text(encoding="utf-8") == "rule"
+    assert (dst / "AgentCore" / "记忆" / "y.md").read_text(encoding="utf-8") == "mem"
+    assert (dst / "AgentCore" / "文档" / "z.md").read_text(encoding="utf-8") == "doc"
     assert not (dst / "link.txt").exists()
-    assert set(baseline) == {"real.txt"}
+    assert set(baseline) == {
+        "real.txt",
+        "AgentCore/规则/x.md",
+        "AgentCore/记忆/y.md",
+        "AgentCore/文档/z.md",
+    }
 
 
 def test_collect_changes_reports_new_and_modified_only(tmp_path: Path):
@@ -140,16 +157,23 @@ def test_write_back_refuses_internal_zone_paths(tmp_path: Path):
     ws = tmp_path / "ws"
     ws.mkdir()
     staged = tmp_path / "staged"
-    (staged / ".agentcore").mkdir(parents=True)
-    (staged / ".agentcore" / "sneak.txt").write_text("x", encoding="utf-8")
+    (staged / "AgentCore" / "trash").mkdir(parents=True)
+    (staged / "AgentCore" / "trash" / "sneak.txt").write_text("x", encoding="utf-8")
+    (staged / "AgentCore" / "规则").mkdir(parents=True)
+    (staged / "AgentCore" / "规则" / "ok.md").write_text("ok", encoding="utf-8")
 
     report = write_back(
-        staged, ws, [".agentcore/sneak.txt"], max_bytes=1024, max_files=10
+        staged,
+        ws,
+        ["AgentCore/trash/sneak.txt", "AgentCore/规则/ok.md"],
+        max_bytes=1024,
+        max_files=10,
     )
 
-    assert report.written == []
-    assert report.skipped == [".agentcore/sneak.txt"]
-    assert not (ws / ".agentcore").exists()
+    assert report.written == ["AgentCore/规则/ok.md"]
+    assert report.skipped == ["AgentCore/trash/sneak.txt"]
+    assert not (ws / "AgentCore" / "trash").exists()
+    assert (ws / "AgentCore" / "规则" / "ok.md").read_text(encoding="utf-8") == "ok"
 
 
 def test_write_back_containment_blocks_symlinked_parent_escape(tmp_path: Path):

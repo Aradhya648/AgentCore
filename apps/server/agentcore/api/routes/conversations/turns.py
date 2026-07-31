@@ -28,7 +28,7 @@ from agentcore.db.base import async_session_factory
 from agentcore.db.repositories import ConversationRepository, TurnJournalRepository
 from agentcore.runtime.checkpoints import CheckpointResponse
 from agentcore.runtime.events import EventSink
-from agentcore.runtime.interaction_orphan import orphan_registry_pending
+from agentcore.runtime.interaction_orphan import orphan_live_turn_hot_pending
 from agentcore.runtime.journal.pending_interactions import fold_pending_interactions
 from agentcore.runtime.settlement import prewrite_cold_resume_settlement
 from agentcore.runtime.suspension import TurnSuspension, suspension_summary_fields
@@ -68,14 +68,23 @@ def _paused_summary(f: TurnSuspension) -> PausedTurnSummary:
 async def _pending_interaction_summaries(
     conversation_id: str,
 ) -> list[PendingInteractionSummary]:
-    """Journal-fold pending hot-path interactions for recovery (D5)."""
+    """Journal-fold pending hot-path interactions for recovery (D5).
+
+    Also merges still-open registry hot cards (approval / delegation /
+    user escalation) so a journal empty-window / race cannot drop an
+    answerable in-process Future from ``GET …/recovery``.
+    """
     run = turn_runs.get(conversation_id)
     turn_ids: list[str] = []
+    live_message_id = ""
     if run is not None:
         mid = getattr(run.sink, "_message_id", None) or getattr(run.sink, "message_id", None)
         if mid:
-            turn_ids.append(str(mid))
+            live_message_id = str(mid)
+            turn_ids.append(live_message_id)
 
+    out: list[PendingInteractionSummary] = []
+    seen: set[str] = set()
     async with async_session_factory() as db:
         if not turn_ids:
             # 会话时间序（max created_at），非 in-turn seq — 长回合不得挤掉旧卡。
@@ -83,8 +92,6 @@ async def _pending_interaction_summaries(
                 conversation_id, limit=40
             )
 
-        out: list[PendingInteractionSummary] = []
-        seen: set[str] = set()
         for turn_id in turn_ids:
             entries = await TurnJournalRepository(db).load(turn_id)
             for pending in fold_pending_interactions(entries, message_id=turn_id):
@@ -99,7 +106,22 @@ async def _pending_interaction_summaries(
                         payload=pending.payload,
                     )
                 )
-        return out
+
+    from agentcore.runtime.events.hot_interaction_reattach import registry_hot_pending
+
+    for pending in registry_hot_pending(conversation_id, message_id=live_message_id):
+        if pending.id in seen:
+            continue
+        seen.add(pending.id)
+        out.append(
+            PendingInteractionSummary(
+                kind=pending.kind,  # type: ignore[arg-type]
+                id=pending.id,
+                message_id=pending.message_id,
+                payload=pending.payload,
+            )
+        )
+    return out
 
 
 @router.post("/{conversation_id}/messages/{message_id}/regenerate")
@@ -127,8 +149,8 @@ async def regenerate_message(
     preflight = await _preflight_owned_chat_turn(conversation_id, user, session)
     await release_request_db_before_sse(session)
 
-    # 触发点④：regenerate 前 orphan 热路 pending
-    await orphan_registry_pending(conversation_id)
+    # 触发点④：regenerate 前 orphan 热路 pending（活 turn 的 message_id，非目标用户消息）
+    await orphan_live_turn_hot_pending(conversation_id)
     await turn_runs.stop_and_drain(conversation_id)
 
     sink = EventSink()
@@ -171,8 +193,8 @@ async def retry_failed_message(
     )
     await release_request_db_before_sse(session)
 
-    # 触发点④：retry 前 orphan 热路 pending
-    await orphan_registry_pending(conversation_id)
+    # 触发点④：retry 前 orphan 热路 pending（活 turn 的 message_id，非目标用户消息）
+    await orphan_live_turn_hot_pending(conversation_id)
     await turn_runs.stop_and_drain(conversation_id)
 
     sink = EventSink()

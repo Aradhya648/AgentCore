@@ -114,6 +114,22 @@ def normalize_options(
                     p = str(it.get("path") or "").strip()
                     if p:
                         opt["path"] = p
+            # daily_review structured fields (server apply on confirm).
+            review_kind = str(it.get("review_kind") or "").strip()
+            if review_kind in ("preference", "profile", "topic", "rule", "doc"):
+                opt["review_kind"] = review_kind
+                body = str(it.get("body") or "").strip()
+                if body:
+                    opt["body"] = body[:4000]
+                slug = str(it.get("slug") or "").strip()
+                if slug:
+                    opt["slug"] = slug[:64]
+                section = str(it.get("section") or "").strip()
+                if section:
+                    opt["section"] = section[:64]
+                rpath = str(it.get("path") or "").strip()
+                if rpath and review_kind == "doc":
+                    opt["path"] = rpath[:240]
         out.append(opt)
         if len(out) >= cap:
             break

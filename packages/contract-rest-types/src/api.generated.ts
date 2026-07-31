@@ -558,10 +558,10 @@ export interface paths {
          *     The per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped
          *     to one account — composed with the account's recent conversation roster (message
          *     counts batched, no N+1) and its recent turns (each carries ``conversation_id`` to
-         *     drill into 会话复盘). Configured model names come from the account's BYOK default
-         *     pointers (``users`` row; never the API key) + provider count from
-         *     ``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30 days). Admin
-         *     cross-user; 404 for an unknown id.
+         *     drill into 会话复盘). Configured model names come from the account default
+         *     模型组合 (``main_model`` / ``background_model``; never the API key) + provider
+         *     count from ``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30
+         *     days). Admin cross-user; 404 for an unknown id.
          */
         get: operations["user_detail_v1_admin_users__user_id__detail_get"];
         put?: never;
@@ -3946,6 +3946,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/standing-task-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Standing Task Templates */
+        get: operations["list_standing_task_templates_v1_standing_task_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/standing-task-templates/{template_key}/ensure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ensure Standing Task Template
+         * @description Idempotent install of a system template. Default enabled=false (引导开).
+         */
+        post: operations["ensure_standing_task_template_v1_standing_task_templates__template_key__ensure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/standing-tasks": {
         parameters: {
             query?: never;
@@ -7131,6 +7168,25 @@ export interface components {
             version: string;
         };
         /**
+         * EnsureStandingTaskTemplateRequest
+         * @description Install (or return) a system template row. Default ``enabled=false`` = 引导开.
+         */
+        EnsureStandingTaskTemplateRequest: {
+            /** Cron */
+            cron?: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Folder Id */
+            folder_id: string;
+            permission_axes?: components["schemas"]["PermissionAxesModel"] | null;
+            /** Schedule Preset */
+            schedule_preset?: string | null;
+            template_config?: components["schemas"]["StandingTaskTemplateConfig"] | null;
+        };
+        /**
          * EvidenceLedgerEntryRest
          * @description 回合调研台账条目（REST / 落库；与 SSE ``TurnEvidenceLedgerEntry`` 同形）。
          */
@@ -8524,7 +8580,7 @@ export interface components {
                 [key: string]: unknown;
             }[];
             /** Intent */
-            intent?: ("kickoff" | "decision" | "proposal_pick" | "risk_ack" | "organize_plan") | null;
+            intent?: ("kickoff" | "decision" | "proposal_pick" | "risk_ack" | "organize_plan" | "daily_review") | null;
             kind: components["schemas"]["SuspensionKind"];
             /**
              * Max Rounds
@@ -9795,6 +9851,12 @@ export interface components {
             permission_axes: components["schemas"]["PermissionAxesModel"];
             /** Schedule Preset */
             schedule_preset?: string | null;
+            /** Template Config */
+            template_config?: {
+                [key: string]: unknown;
+            };
+            /** Template Key */
+            template_key?: string | null;
             /**
              * Trigger Kind
              * @default schedule
@@ -9812,6 +9874,44 @@ export interface components {
             webhook_secret?: string | null;
             /** Webhook Url */
             webhook_url?: string | null;
+        };
+        /**
+         * StandingTaskTemplateConfig
+         * @description Knobs for system templates (daily review scope).
+         */
+        StandingTaskTemplateConfig: {
+            /** Folder Ids */
+            folder_ids?: string[];
+            /**
+             * Include Global
+             * @default true
+             */
+            include_global: boolean;
+            /**
+             * Lookback Hours
+             * @default 24
+             */
+            lookback_hours: number;
+        };
+        /** StandingTaskTemplateSummary */
+        StandingTaskTemplateSummary: {
+            /** Default Cron */
+            default_cron: string;
+            /** Default Name */
+            default_name: string;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Installed Task Id */
+            installed_task_id?: string | null;
+            /**
+             * Key
+             * @constant
+             */
+            key: "daily_conversation_review";
+            /** Title */
+            title: string;
         };
         /**
          * StartDmRequest
@@ -10488,6 +10588,7 @@ export interface components {
             preset?: string | null;
             /** Schedule Preset */
             schedule_preset?: string | null;
+            template_config?: components["schemas"]["StandingTaskTemplateConfig"] | null;
             /** Trigger Kind */
             trigger_kind?: ("schedule" | "webhook") | null;
         };
@@ -18766,6 +18867,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StandingTaskRunSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_standing_task_templates_v1_standing_task_templates_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskTemplateSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ensure_standing_task_template_v1_standing_task_templates__template_key__ensure_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                template_key: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnsureStandingTaskTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandingTaskSummary"];
                 };
             };
             /** @description Validation Error */

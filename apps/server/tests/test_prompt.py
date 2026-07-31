@@ -265,7 +265,6 @@ def test_core_teaches_split_criterion_over_count():
     assert "只写一句" in hint or "十字以内" in hint
     assert "禁止长篇路由推演" in hint
     assert "完整设计" in hint  # 禁思考里先写完整设计
-    assert "已认可协作方案" in hint or "禁止再开" in hint
     assert "内部术语" in hint
     assert "内部工具名" in hint
     assert "短文" in hint and "存文件" in hint
@@ -275,20 +274,17 @@ def test_core_teaches_split_criterion_over_count():
     assert "修引号" in hint or "转义" in hint
     assert "勿先" in hint and "ask_user_kickoff" in hint
     assert "糊建站" in hint or "做个网站" in hint
-    assert "开卡最小字段" in hint
-    assert "提案体" in hint or "至少其一" in hint
-    assert "style_options" in hint
-    assert "format_options" in hint
-    assert "pptx" in hint and "marp" in hint
+    assert "短问" in hint or "短澄清" in hint
+    assert "提案墙" in hint or "style_options" in hint
+    assert "pptx" in hint.lower() and "marp" in hint.lower()
     assert "先设计再实现" in hint
     assert "只留方向句" in hint
     assert "1 人两段" in hint or "一人两段" in hint
     assert "规格已齐" in hint
     assert "问还是派·中性" in hint or "不偏" in hint
-    # P3 路由探针硬错对治：贴码写回强制派、点名实体扇出、非糊多阶段勿开卡。
+    # P3 路由探针硬错对治：贴码写回强制派、点名实体扇出。
     assert "写回" in hint and "必须" in hint and "delegate" in hint
     assert "至少 N 人" in hint or "tasks 至少" in hint
-    assert "非糊" in hint
     assert "写完这句立刻" in hint or "禁止第二句" in hint
     # 按场面 consult：与能力目录 preamble 同强度（禁「可选 vs 必先查」对打）。
     from agentcore.runtime.skills import CONSULT_TEAM_ORCH_BY_SCENE
@@ -464,12 +460,12 @@ def test_core_teaches_execution_and_recall_routing():
 
 
 def test_core_teaches_outline_checkpoint_prefers_structured_path():
-    # 主拍板四选一细则在 ask_user_*；核心一句钩子。
+    # 主拍板细则在 ask_user_*；核心一句钩子。
     hint = _CEO_CORE_HINT
     assert "主拍板" in hint
     assert "ask_user" in hint
     assert "checkpoint_after" not in hint
-    assert "四选一" in hint or "开工提案" in hint
+    assert "方案挑选" in hint or "风险确认" in hint or "短澄清" in hint
 
 
 def test_core_worker_capability_follows_workspace_facts():
@@ -520,32 +516,28 @@ def test_core_teaches_delivery_path_by_workspace_type():
     assert "真实路径" in hint
 
 
-def test_core_teaches_presentation_format_options_and_honesty():
-    # 演讲/PPT 交付形态：常驻短钩子钉 format_options + 诚实性；细节在 kickoff / 编排 skill。
+def test_core_teaches_presentation_honesty():
+    # 演讲/PPT：诚实性钩子保留；场面 format_options 硬教法已拆除。
     hint = _CEO_CORE_HINT
-    assert "format_options" in hint
-    assert "pptx" in hint and "marp" in hint and "outline" in hint
-    assert "有执行" in hint or "code_execute" in hint
+    assert "pptx" in hint.lower() and "marp" in hint.lower()
     assert "PPT 已落盘可直接使用" in hint
     assert "静默" in hint or "只交" in hint
     kickoff = build_system_skill_registry().get("ask_user_kickoff").body
-    assert "format_options" in kickoff
+    assert "format_options" in kickoff  # 兼容字段说明
+    assert "不记账" in kickoff or "不硬闸" in kickoff
     orch = _TEAM_ORCHESTRATION_ADVANCED
     assert "python-pptx" in orch
     assert "代写全章节大纲" in orch or "Marp 语法" in orch
 
 
-def test_core_teaches_automation_delivery_format_options():
+def test_core_teaches_short_clarify_not_scene_ledger():
     hint = _CEO_CORE_HINT
-    assert "可运行自动化" in hint
-    assert "控制台原型" in hint
-    assert "仅方案" in hint
-    assert "工作流" in hint or "流水线" in hint
+    assert "短问" in hint or "短澄清" in hint
+    assert "提案墙" in hint or "style_options" in hint
     kickoff = build_system_skill_registry().get("ask_user_kickoff").body
-    assert "可运行自动化" in kickoff
-    assert "build_toolshed" in kickoff
-    assert "不扫正文" in kickoff or "猜意图" in kickoff
-    assert "场面" in hint or "不扫正文" in hint or "猜意图" in hint
+    assert "短问" in kickoff or "短澄清" in kickoff
+    assert "开工提案卡" not in kickoff
+    assert "禁止" in kickoff and "一键开做" in kickoff
 
 
 def test_skill_teaches_environment_capability_constraint():
@@ -590,6 +582,29 @@ def test_shared_base_teaches_claim_evidence_soft_constraint():
     assert "#r1" in _DEFAULT_SYSTEM_PROMPT or "#rN" in _DEFAULT_SYSTEM_PROMPT
     assert "不强迫" in _DEFAULT_SYSTEM_PROMPT
     assert "【已核实" in _DEFAULT_SYSTEM_PROMPT  # 明示勿强迫辩词二分
+
+
+def test_shared_base_teaches_work_authority():
+    # 全局工作纪律：权威序 + 冲突通道 + 决策权限（CEO+worker 共享，极短）。
+    from agentcore.runtime.resolve.prompt import _DEFAULT_SYSTEM_PROMPT
+
+    assert "<work_authority>" in _DEFAULT_SYSTEM_PROMPT
+    assert "用户规则硬胜" in _DEFAULT_SYSTEM_PROMPT
+    assert "不自动升权威" in _DEFAULT_SYSTEM_PROMPT
+    assert "escalate" in _DEFAULT_SYSTEM_PROMPT
+    assert "ask_user" in _DEFAULT_SYSTEM_PROMPT
+    assert "禁静默改权威稿" in _DEFAULT_SYSTEM_PROMPT
+    assert "扩范围" in _DEFAULT_SYSTEM_PROMPT
+
+
+def test_ceo_core_work_discipline_hooks():
+    # CEO 增量钩：权威线索 / 未定案窄义 / 禁为读规则再派；HOW 在 work_discipline。
+    hint = _CEO_CORE_HINT
+    assert "权威线索" in hint
+    assert "未定案·窄" in hint
+    assert "读全局规则" in hint
+    assert "work_discipline" in hint
+    assert "问还是派·中性" in hint
 
 
 def test_core_guides_out_of_workspace_absolute_paths():

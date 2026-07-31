@@ -61,7 +61,7 @@ const riskContent: AskUserContent = {
 };
 
 function renderCard(
-  intent: "proposal_pick" | "risk_ack",
+  intent: "proposal_pick" | "risk_ack" | "daily_review",
   content: AskUserContent,
   onSubmit = vi.fn(),
 ) {
@@ -73,6 +73,40 @@ function renderCard(
     </MemoryRouter>,
   );
 }
+
+const dailyReviewContent: AskUserContent = {
+  question: "确认要落盘的复盘提案？",
+  context: "来自今日对话摘要。",
+  assumptions: [],
+  questions: [
+    {
+      id: "q0",
+      prompt: "勾选要写入的项",
+      kind: "choice",
+      multiple: true,
+      default: "",
+      options: [
+        {
+          label: "偏好简洁回复",
+          review_kind: "preference",
+          body: "用户偏好短句答复",
+        },
+        {
+          label: "主题：周报节奏",
+          review_kind: "topic",
+          body: "每周五整理周报",
+        },
+        {
+          label: "规则：先问再改文件",
+          review_kind: "rule",
+          body: "改文件前先征得确认",
+        },
+      ],
+    },
+  ],
+  styleOptions: [],
+  formatOptions: [],
+};
 
 describe("AskUserCard intent variants", () => {
   it("proposal_pick 行式单选，推荐灰字；提交带 selected", async () => {
@@ -129,7 +163,36 @@ describe("AskUserCard intent variants", () => {
     );
   });
 
-  it("kickoff 交付形态 continue 直传 format_id 与 selected fN", async () => {
+  it("daily_review 默认全选，取消勾选后提交带 selected", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    renderCard("daily_review", dailyReviewContent, onSubmit);
+
+    expect(
+      document.querySelector('[data-ask-intent="daily_review"]'),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-ask-card="daily_review"]'),
+    ).toBeTruthy();
+    expect(screen.getByText("偏好简洁回复")).toBeTruthy();
+    expect(screen.getByText(/偏好 · 用户偏好短句答复/)).toBeTruthy();
+    expect(
+      screen.getByText(/确认后服务端直接写入记忆\/规则\/文档/),
+    ).toBeTruthy();
+
+    // Seed all three; uncheck one.
+    fireEvent.click(screen.getByText("主题：周报节奏"));
+    fireEvent.click(screen.getByRole("button", { name: /确认落盘/ }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "continue",
+      "",
+      ["偏好简洁回复", "规则：先问再改文件"],
+      null,
+      null,
+    );
+  });
+
+  it("kickoff wire 走通用澄清壳；交付形态 continue 直传 format_id 与 selected fN", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const content: AskUserContent = {
       question: "演讲怎么交付？",
@@ -149,9 +212,11 @@ describe("AskUserCard intent variants", () => {
         </TooltipProvider>
       </MemoryRouter>,
     );
+    expect(document.querySelector('[data-ask-intent="decision"]')).toBeTruthy();
+    expect(document.querySelector('[data-ask-card="decision"]')).toBeTruthy();
     expect(screen.getByText("交付形态")).toBeTruthy();
     fireEvent.click(screen.getByText("Marp Markdown"));
-    fireEvent.click(screen.getByRole("button", { name: /就这样开做/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^提交$/ }));
     expect(onSubmit).toHaveBeenCalledWith(
       "continue",
       expect.stringContaining("· 形态：Marp Markdown"),

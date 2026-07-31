@@ -106,7 +106,7 @@ async def test_nonblocking_without_any_default_is_rejected():
 
 async def test_blocking_defaults_true_and_fails_without_durable_frame():
     # D11：无 transcript/saver 时不再走窄兜底 suspend，显式失败。
-    # 带 questions 以越过 kickoff 提案体硬闸，专测持久化失败路径。
+    # 专测持久化失败路径（纯 message 亦可；此处带 questions 无妨）。
     tool = _tool()
     res = await tool.execute(
         {

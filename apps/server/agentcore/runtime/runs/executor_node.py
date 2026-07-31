@@ -38,6 +38,7 @@ from agentcore.runtime.runs.contract import (
     ContractVerdict,
     check_contract,
     debrief_meets_minimum,
+    format_cite_upgrade_feedback,
     format_feedback,
     format_handoff_feedback,
     format_interrupted_pass_note,
@@ -48,6 +49,7 @@ from agentcore.runtime.runs.contract import (
     is_zero_files_gap,
     needs_file_contents,
     node_has_dependents,
+    partition_citation_failures,
     synthesize_debrief,
 )
 from agentcore.runtime.runs.executor_context import (
@@ -77,6 +79,10 @@ from agentcore.runtime.runs.executor_shared import (
     _registry_with,
     _registry_without,
     _retry_message,
+)
+from agentcore.runtime.runs.file_acceptance import (
+    build_file_acceptance,
+    path_rejections_from_contract_messages,
 )
 from agentcore.runtime.runs.notewall import NOTE_NUDGE_TEXT, format_notes_for_injection
 from agentcore.runtime.runs.retrieval_budget import (
@@ -240,6 +246,16 @@ def _can_write_pass(
     if int(files_written or 0) > 0:
         return False
     return is_zero_files_gap(verdict)
+
+
+def _two_phase_citation(
+    deliverable: Any,
+    *,
+    landed_paths: list[str] | None = None,
+) -> bool:
+    from agentcore.runtime.runs.research_quality import is_two_phase_citation_deliverable
+
+    return is_two_phase_citation_deliverable(deliverable, landed_paths=landed_paths)
 
 
 async def execute_agent_node(
@@ -620,10 +636,15 @@ async def execute_agent_node(
         tool_failures: list[dict] = []
         # Format-only / handoff-thin: one in-place light repair before full contract.retry.
         # Zero-disk (requires_files): one short write pass — never a full investigation retry.
+        # 调研两阶段：A 跳过引用闸；cite 不干净时同 worker 自动升 B（一次），不过则 rejected。
         light_repair_used = False
         write_pass_used = False
+        cite_upgrade_used = False
         light_mode = False
         visual_rework_used = 0
+        two_phase = _two_phase_citation(deliverable)
+        artifact_contents: dict[str, str] | None = None
+        workspace_paths: list[str] | None = None
         attempt = 0
         while attempt < attempts:
             streamed_content.clear()
@@ -727,6 +748,10 @@ async def execute_agent_node(
             # run's own writes). Handoff gate: nodes with downstream dependents must
             # submit a minimum-quality brief (one correction shot, then degraded synth).
             touched_now = files_touched_from_transcript(messages)
+            # 自由 delegate 落盘 research/ 时与 playbook 盖戳同口径进入 A→B。
+            two_phase = _two_phase_citation(
+                deliverable, landed_paths=touched_now
+            )
             debrief_now = debrief_from_transcript(messages)
             # Re-index the live workspace only when reconciling declarative
             # artifacts — otherwise keep the once-per-turn opening snapshot
@@ -778,6 +803,14 @@ async def execute_agent_node(
                     artifact_contents,
                     web_quality_scan=True,
                 )
+            # 调研阶段 A：广搜草案不跑成稿引用闸；升 B（cite_upgrade_used）后再验。
+            in_phase_a = two_phase and not cite_upgrade_used
+            turn_ledger_entries = (
+                turn_ledger.all_entries() if turn_ledger is not None else None
+            )
+            turn_citable_ids = (
+                turn_ledger.draft_citable_ids() if turn_ledger is not None else None
+            )
             verdict = check_contract(
                 content,
                 deliverable,
@@ -785,12 +818,9 @@ async def execute_agent_node(
                 debrief=debrief_now,
                 workspace_paths=workspace_paths,
                 artifact_contents=artifact_contents,
-                ledger_entries=(
-                    turn_ledger.all_entries() if turn_ledger is not None else None
-                ),
-                citable_ids=(
-                    turn_ledger.draft_citable_ids() if turn_ledger is not None else None
-                ),
+                ledger_entries=turn_ledger_entries,
+                citable_ids=turn_citable_ids,
+                enforce_citations=not in_phase_a,
             )
             # P1c visual critic: only after web_quality / contract **hard** gates pass.
             if (
@@ -842,8 +872,63 @@ async def execute_agent_node(
                 or debrief_meets_minimum(debrief_now)
                 or not handoff_offered
             )
+            checked_files = (
+                list(artifact_contents.keys()) if artifact_contents else None
+            )
+            # 调研 A→B：阶段 A 已过非引用合同 → 探测引用闸；不干净则同 worker 升 B 一次。
+            if in_phase_a and verdict.ok:
+                probe = check_contract(
+                    content,
+                    deliverable,
+                    files_written=len(touched_now),
+                    debrief=debrief_now,
+                    workspace_paths=workspace_paths,
+                    artifact_contents=artifact_contents,
+                    ledger_entries=turn_ledger_entries,
+                    citable_ids=turn_citable_ids,
+                    enforce_citations=True,
+                )
+                cite_fail, other_fail = partition_citation_failures(probe.failures)
+                if other_fail:
+                    verdict = probe
+                elif cite_fail:
+                    cite_upgrade_used = True
+                    parts = [
+                        format_cite_upgrade_feedback(
+                            cite_fail,
+                            checked_files=checked_files,
+                        )
+                    ]
+                    if needs_handoff and handoff_offered and not debrief_meets_minimum(
+                        debrief_now
+                    ):
+                        parts.append(
+                            format_handoff_feedback(
+                                present_but_thin=debrief_now is not None
+                            )
+                        )
+                    messages.append(_retry_message("\n\n".join(p for p in parts if p)))
+                    logger.info(
+                        "contract.cite_upgrade",
+                        run_id=spec.run_id,
+                        failures=cite_fail,
+                        tokens_spent=run_usage.total_tokens,
+                        rounds_spent=run_rounds,
+                    )
+                    continue
+                # else: already cite-clean → accept as B-ready (handoff 仍可走下方返工)
             if (verdict.ok and handoff_ok) or attempt == attempts - 1:
                 break
+            # B 升级后仍仅引用不过闸 → 收口为 rejected（不再满合同重试 cite）。
+            if two_phase and cite_upgrade_used and not verdict.ok:
+                cite_fail, other_fail = partition_citation_failures(verdict.failures)
+                if cite_fail and not other_fail:
+                    logger.info(
+                        "contract.cite_upgrade_exhausted",
+                        run_id=spec.run_id,
+                        failures=cite_fail,
+                    )
+                    break
             # 二次触顶：已达硬顶则不再开 correction pass（立即收口）。
             if token_ceiling > 0 and run_usage.total_tokens >= token_ceiling:
                 logger.info(
@@ -853,9 +938,6 @@ async def execute_agent_node(
                     ceiling=token_ceiling,
                 )
                 break
-            checked_files = (
-                list(artifact_contents.keys()) if artifact_contents else None
-            )
             # 断流归因：这一遍是被 LLM 传输失败掐断的（ERROR = 没收到正文，
             # DEGRADED = 只收到片段），不是 worker 自己写砸了。不标注的话它会把
             # 「产出为空」当成自己的锅，重试轮里只补一次 handoff 而不重写正文。
@@ -982,6 +1064,45 @@ async def execute_agent_node(
             )
             attempt += 1
 
+        # 调研两阶段安全网：若未升到 B 就收口，仍把成稿引用闸失败并入 verdict，
+        # 避免草案被 silent accepted（draft 不得进 delivered_files）。
+        if two_phase and not cite_upgrade_used and verdict.ok:
+            probe = check_contract(
+                content,
+                deliverable,
+                files_written=len(files_touched_from_transcript(messages)),
+                debrief=debrief_from_transcript(messages),
+                workspace_paths=workspace_paths,
+                artifact_contents=artifact_contents,
+                ledger_entries=(
+                    env.turn_evidence_ledger.all_entries()
+                    if env.turn_evidence_ledger is not None
+                    else None
+                ),
+                citable_ids=(
+                    env.turn_evidence_ledger.draft_citable_ids()
+                    if env.turn_evidence_ledger is not None
+                    else None
+                ),
+                enforce_citations=True,
+            )
+            cite_fail, other_fail = partition_citation_failures(probe.failures)
+            if other_fail:
+                verdict = probe
+            elif cite_fail:
+                verdict = ContractVerdict(
+                    ok=False,
+                    failures=cite_fail,
+                    warnings=list(probe.warnings),
+                    soft_failures=list(probe.soft_failures),
+                    visual_failures=list(probe.visual_failures),
+                )
+                logger.info(
+                    "contract.cite_phase_a_terminal_reject",
+                    run_id=spec.run_id,
+                    failures=cite_fail,
+                )
+
         duration_ms = int((time.monotonic() - start) * 1000)
         # Price this run once (the only place a worker's cost is computed),
         # carried on the state so the per-run ledger and UI payroll read it
@@ -1058,6 +1179,9 @@ async def execute_agent_node(
                 soft_failures=[],
                 visual_failures=[],
             )
+        path_rej = path_rejections_from_contract_messages(
+            [*verdict.failures, *verdict.soft_failures]
+        )
         if not verdict.ok and _is_hard_failure(
             content, deliverable, files_touched=len(touched)
         ):
@@ -1122,6 +1246,12 @@ async def execute_agent_node(
                 duration_ms=duration_ms,
                 rounds=run_rounds,
                 files_touched=touched,
+                file_acceptance=build_file_acceptance(
+                    touched,
+                    phase=RunPhase.FAILED,
+                    error=reason,
+                    path_rejections=path_rej,
+                ),
                 tool_failures=list(tool_failures),
                 usage=usage,
                 cost=cost,
@@ -1242,6 +1372,12 @@ async def execute_agent_node(
                 duration_ms=duration_ms,
                 rounds=run_rounds,
                 files_touched=touched,
+                file_acceptance=build_file_acceptance(
+                    touched,
+                    phase=RunPhase.FAILED,
+                    error=hard_gap_reason,
+                    path_rejections=path_rej,
+                ),
                 tool_failures=list(tool_failures),
                 usage=usage,
                 cost=cost,
@@ -1285,6 +1421,11 @@ async def execute_agent_node(
             duration_ms=duration_ms,
             rounds=run_rounds,
             files_touched=touched,
+            file_acceptance=build_file_acceptance(
+                touched,
+                phase=RunPhase.COMPLETED,
+                path_rejections=path_rej,
+            ),
             tool_failures=list(tool_failures),
             usage=usage,
             cost=cost,

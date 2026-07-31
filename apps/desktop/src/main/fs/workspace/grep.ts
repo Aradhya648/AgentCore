@@ -19,8 +19,11 @@ import { realInside, resolveLexical, toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
 import {
   AI_NOISE_FILE_SUFFIXES,
+  BASELINES_REL,
+  INDEX_REL,
   LIST_FILES_SKIP_DIRS,
   SYSTEM_IGNORED_FILE_SUFFIXES,
+  TRASH_REL,
 } from "../workspaceIgnore";
 import { opErr, opOk, toPosix, trimLine } from "./result";
 import { resolveRgBinary } from "./rgBinary";
@@ -40,6 +43,9 @@ function productIgnoreGlobs(): string[] {
   const globs: string[] = [];
   for (const name of [...LIST_FILES_SKIP_DIRS].sort()) {
     globs.push(`!${name}`, `!**/${name}/**`);
+  }
+  for (const zone of [INDEX_REL, TRASH_REL, BASELINES_REL]) {
+    globs.push(`!${zone}`, `!${zone}/**`);
   }
   const suffixes = [
     ...SYSTEM_IGNORED_FILE_SUFFIXES,

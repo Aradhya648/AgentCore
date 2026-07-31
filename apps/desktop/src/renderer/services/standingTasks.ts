@@ -24,6 +24,54 @@ type UpdateStandingTaskWire = Schemas["UpdateStandingTaskRequest"];
 type TriggerStandingTaskWire = Schemas["TriggerStandingTaskResponse"];
 type RotateWebhookSecretWire = Schemas["RotateWebhookSecretResponse"];
 
+/** Until gen:types picks up template fields. */
+type StandingTaskWireExt = StandingTaskWire & {
+  template_key?: string | null;
+  template_config?: StandingTaskTemplateConfigWire | null;
+};
+
+type UpdateStandingTaskWireExt = UpdateStandingTaskWire;
+
+/** System template key (Phase 1). */
+export type StandingTaskTemplateKey = "daily_conversation_review";
+
+export const DAILY_CONVERSATION_REVIEW_KEY: StandingTaskTemplateKey =
+  "daily_conversation_review";
+
+/** Domain: knobs for system templates (daily review scope). */
+export interface StandingTaskTemplateConfig {
+  includeGlobal?: boolean;
+  folderIds?: string[];
+  lookbackHours?: number;
+}
+
+/** Wire: snake_case template_config. */
+export interface StandingTaskTemplateConfigWire {
+  include_global?: boolean;
+  folder_ids?: string[];
+  lookback_hours?: number;
+}
+
+export interface StandingTaskTemplate {
+  key: StandingTaskTemplateKey | string;
+  title: string;
+  description: string;
+  defaultName: string;
+  defaultCron: string;
+  installedTaskId: string | null;
+  enabled: boolean | null;
+}
+
+export interface StandingTaskTemplateWire {
+  key: string;
+  title: string;
+  description: string;
+  default_name: string;
+  default_cron: string;
+  installed_task_id?: string | null;
+  enabled?: boolean | null;
+}
+
 /** Built-in schedule presets (UI + create/patch). Custom uses `cron`. */
 export type SchedulePreset =
   | "daily"
@@ -32,6 +80,15 @@ export type SchedulePreset =
   | "weekly_fri"
   | "monthly_1"
   | "custom";
+
+export interface EnsureStandingTaskTemplateInput {
+  folderId: string;
+  cron?: string | null;
+  schedulePreset?: SchedulePreset | null;
+  enabled?: boolean;
+  templateConfig?: StandingTaskTemplateConfig;
+  permissionAxes?: PermissionAxes;
+}
 
 /** Per-task trigger; mutually exclusive (定案 L2a). */
 export type TriggerKind = StandingTaskWire["trigger_kind"];
@@ -93,6 +150,10 @@ export interface StandingTask {
    * List/GET never return this; treat as ephemeral UI state.
    */
   webhookSecret: string | null;
+  /** System template key when this row was installed from catalog; else null. */
+  templateKey: string | null;
+  /** Template knobs (scope / lookback); empty object when not a template. */
+  templateConfig: StandingTaskTemplateConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -136,6 +197,7 @@ export interface PatchStandingTaskInput {
   goal?: string;
   permissionAxes?: PermissionAxes;
   enabled?: boolean;
+  templateConfig?: StandingTaskTemplateConfig;
 }
 
 export interface ListStandingTaskRunsQuery {
@@ -195,7 +257,56 @@ function asRunStatus(raw: string): StandingTaskRunStatus {
   }
 }
 
+export function toTemplateConfig(
+  raw: StandingTaskTemplateConfigWire | null | undefined,
+): StandingTaskTemplateConfig {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const out: StandingTaskTemplateConfig = {};
+  if (raw.include_global !== undefined)
+    out.includeGlobal = !!raw.include_global;
+  if (Array.isArray(raw.folder_ids)) {
+    out.folderIds = raw.folder_ids.map(String).filter(Boolean);
+  }
+  if (raw.lookback_hours !== undefined && raw.lookback_hours !== null) {
+    const n = Number(raw.lookback_hours);
+    if (Number.isFinite(n)) out.lookbackHours = n;
+  }
+  return out;
+}
+
+/** Product defaults — match server StandingTaskTemplateConfig Field defaults. */
+const DEFAULT_TEMPLATE_INCLUDE_GLOBAL = true;
+const DEFAULT_TEMPLATE_LOOKBACK_HOURS = 24;
+
+function templateConfigWire(
+  cfg: StandingTaskTemplateConfig,
+): Schemas["StandingTaskTemplateConfig"] {
+  const wire: Schemas["StandingTaskTemplateConfig"] = {
+    include_global: cfg.includeGlobal ?? DEFAULT_TEMPLATE_INCLUDE_GLOBAL,
+    lookback_hours: cfg.lookbackHours ?? DEFAULT_TEMPLATE_LOOKBACK_HOURS,
+  };
+  if (cfg.folderIds !== undefined) wire.folder_ids = cfg.folderIds;
+  return wire;
+}
+
+export function toStandingTaskTemplate(
+  w: StandingTaskTemplateWire,
+): StandingTaskTemplate {
+  return {
+    key: w.key,
+    title: w.title,
+    description: w.description,
+    defaultName: w.default_name,
+    defaultCron: w.default_cron,
+    installedTaskId: w.installed_task_id ?? null,
+    enabled: w.enabled ?? null,
+  };
+}
+
 export function toStandingTask(w: StandingTaskWire): StandingTask {
+  const ext = w as StandingTaskWireExt;
   return {
     id: w.id,
     name: w.name,
@@ -212,9 +323,47 @@ export function toStandingTask(w: StandingTaskWire): StandingTask {
     webhookId: w.webhook_id ?? null,
     webhookUrl: absoluteWebhookUrl(w.webhook_url),
     webhookSecret: w.webhook_secret ?? null,
+    templateKey: ext.template_key ?? null,
+    templateConfig: toTemplateConfig(ext.template_config),
     createdAt: w.created_at,
     updatedAt: w.updated_at,
   };
+}
+
+/**
+ * Parse UTC daily cron ``M H * * *`` → local wall-clock hour/minute.
+ * Falls back to 09:00 local when the expression is missing or not daily.
+ */
+export function localHmFromUtcCron(cron: string | null | undefined): {
+  hour: number;
+  minute: number;
+} {
+  const m = cron?.trim().match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
+  if (!m) return { hour: 9, minute: 0 };
+  const utcMin = Number(m[1]);
+  const utcHour = Number(m[2]);
+  if (
+    !Number.isFinite(utcMin) ||
+    !Number.isFinite(utcHour) ||
+    utcMin < 0 ||
+    utcMin > 59 ||
+    utcHour < 0 ||
+    utcHour > 23
+  ) {
+    return { hour: 9, minute: 0 };
+  }
+  const d = new Date();
+  d.setUTCHours(utcHour, utcMin, 0, 0);
+  return { hour: d.getHours(), minute: d.getMinutes() };
+}
+
+/** Local hour/minute → UTC daily cron ``M H * * *``. */
+export function utcCronFromLocalHm(hour: number, minute: number): string {
+  const h = Math.max(0, Math.min(23, Math.floor(hour)));
+  const min = Math.max(0, Math.min(59, Math.floor(minute)));
+  const d = new Date();
+  d.setHours(h, min, 0, 0);
+  return `${d.getUTCMinutes()} ${d.getUTCHours()} * * *`;
 }
 
 export function toStandingTaskRun(w: StandingTaskRunWire): StandingTaskRun {
@@ -255,8 +404,8 @@ function createBody(input: CreateStandingTaskInput): CreateStandingTaskWire {
   return body;
 }
 
-function patchBody(input: PatchStandingTaskInput): UpdateStandingTaskWire {
-  const body: UpdateStandingTaskWire = {};
+function patchBody(input: PatchStandingTaskInput): UpdateStandingTaskWireExt {
+  const body: UpdateStandingTaskWireExt = {};
   if (input.name !== undefined) body.name = input.name;
   if (input.triggerKind !== undefined) body.trigger_kind = input.triggerKind;
 
@@ -281,6 +430,9 @@ function patchBody(input: PatchStandingTaskInput): UpdateStandingTaskWire {
   if (input.permissionAxes !== undefined)
     body.permission_axes = input.permissionAxes;
   if (input.enabled !== undefined) body.enabled = input.enabled;
+  if (input.templateConfig !== undefined) {
+    body.template_config = templateConfigWire(input.templateConfig);
+  }
   return body;
 }
 
@@ -288,6 +440,45 @@ function patchBody(input: PatchStandingTaskInput): UpdateStandingTaskWire {
 export async function listStandingTasks(): Promise<StandingTask[]> {
   const res = await api.get<StandingTaskWire[]>("/v1/standing-tasks");
   return (Array.isArray(res) ? res : []).map(toStandingTask);
+}
+
+/** Catalog of system templates + install state for the signed-in user. */
+export async function listStandingTaskTemplates(): Promise<
+  StandingTaskTemplate[]
+> {
+  const res = await api.get<StandingTaskTemplateWire[]>(
+    "/v1/standing-task-templates",
+  );
+  return (Array.isArray(res) ? res : []).map(toStandingTaskTemplate);
+}
+
+/**
+ * Idempotent install of a system template (default ``enabled=false``).
+ * Returns the existing row when already installed.
+ */
+export async function ensureStandingTaskTemplate(
+  key: string,
+  input: EnsureStandingTaskTemplateInput,
+): Promise<StandingTask> {
+  const body: Record<string, unknown> = {
+    folder_id: input.folderId,
+    enabled: input.enabled ?? false,
+  };
+  if (input.cron !== undefined) body.cron = input.cron;
+  if (input.schedulePreset !== undefined && input.schedulePreset !== null) {
+    body.schedule_preset = input.schedulePreset;
+  }
+  if (input.templateConfig !== undefined) {
+    body.template_config = templateConfigWire(input.templateConfig);
+  }
+  if (input.permissionAxes !== undefined) {
+    body.permission_axes = input.permissionAxes;
+  }
+  const res = await api.post<StandingTaskWire>(
+    `/v1/standing-task-templates/${encodeURIComponent(key)}/ensure`,
+    body,
+  );
+  return toStandingTask(res);
 }
 
 export async function getStandingTask(id: string): Promise<StandingTask> {

@@ -18,7 +18,7 @@ export const PROMPT_TAG_LABELS: Record<string, string> = {
   team_orchestration_advanced: "团队编排进阶",
   debate_and_review: "辩论与交叉审查",
   revising_a_product: "定向修订",
-  ask_user_kickoff: "开工提案卡",
+  ask_user_kickoff: "澄清卡",
   ask_user_midtask: "途中拍板",
   delegate_checkpoint: "委派波间挂起",
   legal_answer_brief: "法律答复要点",

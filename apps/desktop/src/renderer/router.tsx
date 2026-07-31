@@ -28,6 +28,7 @@ import { RedirectToOfficialChat } from "@/pages/more/RedirectToOfficialChat";
 import { ShortcutsSettings } from "@/pages/more/ShortcutsSettings";
 import { UsageSettings } from "@/pages/more/UsageSettings";
 import { TownLauncherPage } from "@/pages/simulation/TownLauncherPage";
+import { ConnectorsPage } from "@/pages/toolbox/ConnectorsPage";
 import { GuidelinesPage } from "@/pages/toolbox/GuidelinesPage";
 import { ToolsPage } from "@/pages/toolbox/ToolsPage";
 import {
@@ -71,6 +72,7 @@ export const router = createHashRouter([
       { path: "toolbox", element: <ToolboxPage /> },
       { path: "toolbox/tools", element: <ToolsPage /> },
       { path: "toolbox/guidelines", element: <GuidelinesPage /> },
+      { path: "toolbox/connectors", element: <ConnectorsPage /> },
       {
         path: "toolbox/automations",
         element: <AutomationsPage />,
@@ -110,7 +112,7 @@ export const router = createHashRouter([
       // Companion offline preview for the self-built whiteboard canvas (a scene surface, not an
       // SSE vector — see preview/whiteboardScenes.ts + scripts/shoot-whiteboard.mjs).
       { path: "preview/whiteboard", element: <WhiteboardPreviewPage /> },
-      // Preview 开工提案 layout A/B (V2 = production kickoff default).
+      // Preview：已退役 ask 开场布局对照（现生产 = 通用澄清卡）。
       { path: "preview/ask-commence", element: <AskCommencePreviewPage /> },
       // Preview 首启体验（草稿空态两态 + composer 生成中插话态）.
       { path: "preview/onboarding", element: <OnboardingPreviewPage /> },

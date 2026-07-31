@@ -289,6 +289,7 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                     "form": "files",
                     "name": f"【{label}】方向的调研要点 + 来源（已落盘 {artifact}）",
                     "artifacts": [artifact],
+                    "citation_mode": "two_phase",
                 },
             }
             if angle_fold_note and merged:
@@ -318,6 +319,7 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                     "form": "files",
                     "name": f"【{topic}】的调研要点 + 来源（已落盘 {artifact}）",
                     "artifacts": [artifact],
+                    "citation_mode": "two_phase",
                 },
             }
         )
@@ -340,6 +342,7 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                 "form": "files",
                 "name": f"一份结构化报告提纲（已落盘 {outline_path}）",
                 "artifacts": [outline_path],
+                "citation_mode": "two_phase",
             },
             "checkpoint_after": checkpoint,
         }
@@ -368,6 +371,7 @@ def _research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
                 "form": "files",
                 "requires_files": True,
                 "artifacts": [main_path],
+                "citation_mode": "two_phase",
             },
         }
     )
@@ -1509,6 +1513,7 @@ def _multi_lens_research(args: dict[str, Any]) -> tuple[list[dict[str, Any]], li
                 "form": "files",
                 "name": f"【{label}】透镜调研报告（已落盘 {artifact}）",
                 "artifacts": [artifact],
+                "citation_mode": "two_phase",
             },
         }
         if lens_fold_note and merged:
@@ -1540,6 +1545,7 @@ def _multi_lens_research(args: dict[str, Any]) -> tuple[list[dict[str, Any]], li
                     f"（已落盘 {_SYNTHESIZER_ARTIFACT}；必要时附建议开辩命题卡）"
                 ),
                 "artifacts": [_SYNTHESIZER_ARTIFACT],
+                "citation_mode": "two_phase",
             },
         }
     )

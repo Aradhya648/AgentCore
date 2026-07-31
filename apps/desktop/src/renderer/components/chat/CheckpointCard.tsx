@@ -9,8 +9,8 @@ import type { CheckpointDisplay } from "@/stores/conversation";
 import type { CheckpointIntent } from "@/types/events";
 import { useState } from "react";
 import { AskDecisionBody } from "./ask/AskDecisionBody";
-import { AskKickoffBody } from "./ask/AskKickoffBody";
 import { type AskUserContent, useAskAnswer } from "./ask/AskUserFields";
+import { DailyReviewBody } from "./ask/DailyReviewBody";
 import { OrganizePlanBody } from "./ask/OrganizePlanBody";
 import { ProposalPickBody } from "./ask/ProposalPickBody";
 import { RiskAckBody } from "./ask/RiskAckBody";
@@ -18,12 +18,9 @@ import { RISK_SEVERITY_META, parseRiskLabel } from "./ask/parseRiskLabel";
 
 /**
  * Inline ask_user card — the CEO paused the turn to ask the user. This is the ONE
- * asking surface (it absorbed the former kickoff 开工提案卡): the same suspend +
- * resolve card adapts to both an **opening 引导** (a producible-but-underspecified
- * request → 起步计划 assumptions + ≤5 pre-filled 重点问题 + style presets) and a
- * compact **mid-task fork** (one focal A/B / irreversible step). Rendered under the
- * assistant bubble that raised it (会话流内), so it both gates the live turn and
- * replays inline on reload.
+ * asking surface: a **generic clarification** card (questions / options / note). Wire may
+ * still send `intent=kickoff` or empty style/format arrays; the UI no longer mounts a
+ * separate 开工提案 ceremony shell — kickoff falls through to the same body as decision.
  *
  * The interactive body lives in {@link AskUserCard}, reused by the durable 待恢复 resume
  * card (ResumePrompt) — one card, one answer model.
@@ -70,11 +67,11 @@ export function collectAskSelected(
 /**
  * The live, actionable ask_user card body — the single asking surface, shared by the
  * inline live card ({@link CheckpointCard}) and the durable 待恢复 resume card
- * (ResumePrompt). Settled by 提交/就这样开做 (→ continue) or 停止. Picks compose into
- * ONE readable note (答复模型 α), handed to `onSubmit`.
+ * (ResumePrompt). Settled by 提交 (→ continue) or 停止. Picks compose into ONE readable
+ * note (答复模型 α), handed to `onSubmit`.
  *
- * 五种 intent 均走 {@link AskCardShell} + 行式选项（{@link AskRowGroup}）；差异只在体插槽。
- * icon + caption + CTA 文案由后端 intent 查表驱动（ASK_INTENT_META）。真·风险审批由
+ * `kickoff` 与 `decision` 共用 {@link AskDecisionBody}；`proposal_pick` / `risk_ack` /
+ * `organize_plan` / `daily_review` 仍各有体插槽。icon + caption + CTA 由 ASK_INTENT_META 查表。真·风险审批由
  * ApprovalPrompt 承载（蓝）。
  */
 export function AskUserCard({
@@ -100,7 +97,7 @@ export function AskUserCard({
   conversationId?: string | null;
 }) {
   const ans = useAskAnswer(content, {
-    seedAllMultiple: intent === "organize_plan",
+    seedAllMultiple: intent === "organize_plan" || intent === "daily_review",
   });
   const [submitting, setSubmitting] = useState<CheckpointUserDecision | null>(
     null,
@@ -109,7 +106,8 @@ export function AskUserCard({
   const carriesSelected =
     intent === "proposal_pick" ||
     intent === "risk_ack" ||
-    intent === "organize_plan";
+    intent === "organize_plan" ||
+    intent === "daily_review";
 
   const send = (decision: CheckpointUserDecision, noteOverride?: string) => {
     if (busy) return;
@@ -158,24 +156,6 @@ export function AskUserCard({
     onStop: () => send("stop"),
   };
 
-  if (intent === "kickoff") {
-    return (
-      <DecisionCard
-        tone="neutral"
-        animate
-        // 行式选项比旧的紧凑盒子高，卡高上限相应放宽（kickoff 是该回合的焦点元素）。
-        className="flex max-h-[min(70vh,44rem)] flex-col overflow-hidden p-0"
-        data-ask-intent="kickoff"
-      >
-        <AskKickoffBody
-          {...shared}
-          conversationId={conversationId}
-          onBindResolve={onBindResolve}
-        />
-      </DecisionCard>
-    );
-  }
-
   if (intent === "proposal_pick") {
     return (
       <DecisionCard
@@ -211,6 +191,19 @@ export function AskUserCard({
         data-ask-intent="organize_plan"
       >
         <OrganizePlanBody {...shared} caption={caption} />
+      </DecisionCard>
+    );
+  }
+
+  if (intent === "daily_review") {
+    return (
+      <DecisionCard
+        tone="neutral"
+        animate
+        className="flex max-h-[min(60vh,36rem)] flex-col overflow-hidden p-0"
+        data-ask-intent="daily_review"
+      >
+        <DailyReviewBody {...shared} caption={caption} />
       </DecisionCard>
     );
   }

@@ -28,7 +28,9 @@ export function extractBlockText(block: ManualBlock): string {
     case "cards":
       return block.items.map((i) => `${i.title} ${i.desc}`).join(" ");
     case "bullets":
-      return block.items.map((i) => `${i.title} ${i.desc}`).join(" ");
+      return block.items
+        .map((i) => `${i.title} ${richTextToPlain(i.desc)}`)
+        .join(" ");
     case "steps":
       return block.items
         .map((i) => `${i.title} ${richTextToPlain(i.desc)}`)

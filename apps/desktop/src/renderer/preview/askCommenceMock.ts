@@ -1,9 +1,9 @@
 import type { AskUserContent } from "@/components/chat/ask/AskUserFields";
 
 /**
- * Shared mock for preview 开工提案 layout variants.
- * Mirrors a rich kickoff ask_user payload (起步计划 + 编号题 + 推荐/默认 + 风格).
- * Production kickoff mounts the same body as scene v5 ({@link AskKickoffBody}).
+ * Shared mock for retired ask-commence layout preview variants.
+ * Rich ask_user payload (assumptions + questions + style) — production mounts
+ * {@link AskDecisionBody} (scene v5), not a kickoff ceremony shell.
  */
 export const ASK_COMMENCE_MOCK: AskUserContent = {
   question: "按这版起步计划开做可以吗？有两处想先跟你对齐。",

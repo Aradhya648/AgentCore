@@ -10,6 +10,7 @@ from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.attachment_parse import (
     ATTACHMENT_INLINE_MAX_CHARS,
     ParseStatus,
+    extract_office_bytes,
     looks_like_scanned,
     parsed_copy_path,
     preparse_resident,
@@ -52,6 +53,20 @@ def test_looks_like_scanned_and_truncate():
 
 def test_parsed_copy_path():
     assert parsed_copy_path("attachments/report.docx") == "attachments/report.docx.md"
+
+
+async def test_extract_office_bytes_ok_and_skip(tmp_path: Path):
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        return_value="# Title\n\nEnough alphanumeric content for the scan heuristic here.",
+    ):
+        ok = await extract_office_bytes(b"PK-fake", ext=".docx")
+    assert ok.status == ParseStatus.OK
+    assert "Enough alphanumeric" in ok.text
+
+    skipped = await extract_office_bytes(b"PK", ext=".xlsx")
+    assert skipped.status == ParseStatus.SKIPPED
+    assert skipped.detail.startswith("skip_ext")
 
 
 async def test_preparse_docx_writes_md_copy(tmp_path: Path):
@@ -175,11 +190,13 @@ async def test_preparse_failure_falls_back(tmp_path: Path):
     assert out[0]["workspace_path"] == "attachments/broken.docx"
     assert not (tmp_path / "attachments" / "broken.docx.md").exists()
 
-    # Prompt falls back to binary path hint.
+    # Prompt steers file_read for office/PDF — not code_execute.
     ctx = await _build_attachment_context(out)
     assert ctx is not None
-    assert "[binary]" in ctx
-    assert "code_execute" in ctx
+    assert "[binary / office-pdf]" in ctx
+    assert "file_read" in ctx
+    assert "do not default to code_execute" in ctx
+    assert "openpyxl" not in ctx
 
 
 async def test_context_preparsed_inline_and_large_truncation():

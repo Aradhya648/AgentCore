@@ -7,6 +7,7 @@ from agentcore.runtime.delegate.ceo_format import (
     format_for_ceo,
     worker_products,
 )
+from agentcore.runtime.runs.file_acceptance import build_file_acceptance
 from agentcore.runtime.runs.notewall import NOTE_KIND_CLAIM, NOTE_KIND_DECISION, NoteWall
 from agentcore.runtime.runs.plan import RunPlan
 from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
@@ -14,21 +15,67 @@ from agentcore.tools.builtin.delegate import DELEGATE_OUTPUT_LIMIT
 from tests.delegate.conftest import Provider, tool
 
 
+def _accepted(*paths: str) -> list[dict]:
+    return build_file_acceptance(list(paths), phase=RunPhase.COMPLETED)
+
+
 def test_format_for_ceo_surfaces_file_manifest():
     t = tool(Provider([]))
     plan = RunPlan(nodes=[RunSpec(run_id="w1", task="建仪表盘", role="前端工程师")])
+    touched = ["dashboard.html", "assets/styles.css"]
     results = {
         "w1": RunState(
             phase=RunPhase.COMPLETED,
             content="已完成仪表盘",
-            files_touched=["dashboard.html", "assets/styles.css"],
+            files_touched=touched,
+            file_acceptance=_accepted(*touched),
         )
     }
     out = format_for_ceo(t, plan, results)
-    assert "文件产出（已写入工作区）" in out
+    assert "文件产出（已验收）" in out
     assert "`dashboard.html`" in out
     assert "`assets/styles.css`" in out
     assert "地面真相" in out
+
+
+def test_format_for_ceo_no_acceptance_without_stamp():
+    """无 file_acceptance 戳时：不写「已验收」，也不用 files_touched 拼「未通过验收」。"""
+    t = tool(Provider([]))
+    plan = RunPlan(nodes=[RunSpec(run_id="w1", task="写摘要", role="调研员")])
+    results = {
+        "w1": RunState(
+            phase=RunPhase.FAILED,
+            content="半成品",
+            error="引用未核实",
+            files_touched=["AgentCore/文档/research/a.md"],
+        )
+    }
+    out = format_for_ceo(t, plan, results)
+    assert "> 未通过验收：" not in out
+    assert "> 文件产出（已验收）：" not in out
+    assert "`AgentCore/文档/research/a.md`" not in out
+
+
+def test_format_for_ceo_rejected_file_acceptance():
+    """FAILED + 显式 rejected 戳 → 「未通过验收」，不得冒充已验收。"""
+    t = tool(Provider([]))
+    plan = RunPlan(nodes=[RunSpec(run_id="w1", task="写摘要", role="调研员")])
+    touched = ["AgentCore/文档/research/a.md"]
+    results = {
+        "w1": RunState(
+            phase=RunPhase.FAILED,
+            content="半成品",
+            error="引用未核实",
+            files_touched=touched,
+            file_acceptance=build_file_acceptance(
+                touched, phase=RunPhase.FAILED, error="引用未核实"
+            ),
+        )
+    }
+    out = format_for_ceo(t, plan, results)
+    assert "未通过验收" in out
+    assert "`AgentCore/文档/research/a.md`" in out
+    assert "> 文件产出（已验收）：`AgentCore/文档/research/a.md`" not in out
 
 
 def test_format_for_ceo_appends_tool_failures_and_hard_constraint():
@@ -39,6 +86,7 @@ def test_format_for_ceo_appends_tool_failures_and_hard_constraint():
             phase=RunPhase.COMPLETED,
             content="脚本已写好",
             files_touched=["run.py"],
+            file_acceptance=_accepted("run.py"),
             tool_failures=[
                 {
                     "tool_name": "code_execute",
@@ -225,7 +273,12 @@ def test_format_for_ceo_digests_file_producer_not_full_content():
     long_body = "开头摘要。" + ("废" * 5_000) + "结尾独特标记XYZ"
     plan = RunPlan(nodes=[RunSpec(run_id="w1", task="写报告", role="撰稿")])
     results = {
-        "w1": RunState(phase=RunPhase.COMPLETED, content=long_body, files_touched=["report.md"])
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content=long_body,
+            files_touched=["report.md"],
+            file_acceptance=_accepted("report.md"),
+        )
     }
     out = format_for_ceo(t, plan, results)
     assert "`report.md`" in out
@@ -383,7 +436,12 @@ def test_format_for_ceo_roster_budget_skipped_continue_hint():
         ]
     )
     results = {
-        "a": RunState(phase=RunPhase.COMPLETED, content="ok", files_touched=["x.ts"]),
+        "a": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["x.ts"],
+            file_acceptance=_accepted("x.ts"),
+        ),
         "b": RunState(
             phase=RunPhase.SKIPPED,
             delivery_gaps=[
@@ -432,6 +490,7 @@ def test_format_for_ceo_caps_short_raw_expansion_ratio():
             phase=RunPhase.COMPLETED,
             content=f"ok{i}",
             files_touched=[f"out/{i}.md"],
+            file_acceptance=_accepted(f"out/{i}.md"),
             debrief={"summary": f"完成{i}", "key_points": [f"路径 out/{i}.md"]},
         )
         for i in range(12)

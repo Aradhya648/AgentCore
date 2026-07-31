@@ -48,11 +48,7 @@ import {
   emptyChatCopy,
   emptyFailureNotice,
 } from "@/lib/errors";
-import {
-  fileArtifactsFromEvents,
-  fileArtifactsFromProcess,
-  mergeArtifacts,
-} from "@/lib/fileArtifacts";
+import { resolveFileArtifactsForCard } from "@/lib/fileArtifacts";
 import {
   createHarvestRefreshScheduler,
   dropSettledLiveTurns,
@@ -357,10 +353,10 @@ function AssistantBubble({
   onFill: (text: string) => void;
 }) {
   const p = useMemo(() => fold(turn.events), [turn.events]);
-  // 本回合产出文件：实时回合从原始事件配对取（captain + worker 工具一网打尽）。
+  // 本回合产出文件：只认 delivery_status.artifacts（缺字段 → 空）。
   const artifacts = useMemo(
-    () => fileArtifactsFromEvents(turn.events),
-    [turn.events],
+    () => resolveFileArtifactsForCard(p.deliveryStatus),
+    [p.deliveryStatus],
   );
   // 非阻塞提问卡内容：随时间线 `ask` 标记原位呈现（旁路读原始事件，不入 ProjectedTurn）。
   const asks = useMemo(() => extractAsks(turn.events), [turn.events]);
@@ -537,6 +533,7 @@ function HistoryAssistant({
     foldEvidenceLedger,
     graphAppendActKinds,
     graphAppendAuthorizedBy,
+    deliveryStatus,
   } = useMemo(() => {
     const events = m.runs?.events;
     const warning =
@@ -552,6 +549,7 @@ function HistoryAssistant({
         foldEvidenceLedger: [],
         graphAppendActKinds: new Map<string, string>(),
         graphAppendAuthorizedBy: new Map<string, string>(),
+        deliveryStatus: null,
       };
     const p = fold(events);
     const team =
@@ -578,6 +576,7 @@ function HistoryAssistant({
       foldEvidenceLedger: p.evidenceLedger,
       graphAppendActKinds: extractGraphAppendActKinds(events),
       graphAppendAuthorizedBy: extractGraphAppendAuthorizedBy(events),
+      deliveryStatus: p.deliveryStatus,
     };
   }, [m.runs]);
   const process = m.runs?.process ?? undefined;
@@ -585,14 +584,10 @@ function HistoryAssistant({
   const historyEvidenceLedger = m.evidenceLedger?.length
     ? m.evidenceLedger
     : foldEvidenceLedger;
-  // 本回合产出文件：单聊读 runs.process，多 Agent 读 runs.events 日志；合并去重（另一支为空）。
+  // 本回合产出文件：只认 delivery_status.artifacts（缺字段 → 空）。
   const artifacts = useMemo(
-    () =>
-      mergeArtifacts(
-        fileArtifactsFromProcess(m.runs?.process ?? undefined),
-        fileArtifactsFromEvents(m.runs?.events ?? []),
-      ),
-    [m.runs],
+    () => resolveFileArtifactsForCard(deliveryStatus),
+    [deliveryStatus],
   );
   // 非阻塞提问卡内容：仅多 Agent 历史持久化 runs.events（单聊为空 → 无卡，与桌面一致）。
   const asks = useMemo(() => extractAsks(m.runs?.events ?? []), [m.runs]);

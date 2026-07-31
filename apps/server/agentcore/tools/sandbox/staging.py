@@ -18,8 +18,9 @@ Why copy-in/copy-out instead of the alternatives (安全权限与治理.md §五
   crashed / hostile run can trash canonical files mid-write) and gives no
   audit surface of what an execution wrote.
 
-Guards on the write-back leg: symlinks are never staged nor copied back, the
-``.agentcore/`` internal zone (trash / metadata) is excluded both ways, every
+Guards on the write-back leg: symlinks are never staged nor copied back,
+``AgentCore/{index,trash,baselines}`` (path-aware internal zones) are excluded
+both ways — while ``AgentCore/{规则,记忆,文档}`` **must** be staged — every
 destination must resolve inside the workspace root, and total bytes / file
 count are capped (fail-visible: skipped files are counted and reported).
 """
@@ -33,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentcore.core.errors import SandboxError
+from agentcore.workspace._paths import is_internal_zone_relpath
 
 # OCI process user for gVisor sandboxes (nobody). Staging dirs are chowned here
 # when the host can (root); otherwise chmod grants other+rwX on the ephemeral
@@ -41,10 +43,6 @@ SANDBOX_OCI_UID = 65534
 SANDBOX_OCI_GID = 65534
 _STAGING_DIR_MODE = 0o775
 _STAGING_FILE_MODE = 0o664
-
-# Internal workspace zone (trash, metadata) — never enters the sandbox and can
-# never be written back into (see workspace/trash.py).
-_INTERNAL_DIR = ".agentcore"
 
 #: (size, mtime_ns) fingerprint per workspace-relative path.
 TreeState = dict[str, tuple[int, int]]
@@ -59,23 +57,42 @@ class WriteBackReport:
     skipped: list[str] = field(default_factory=list)
 
 
+def _parent_rel(rel_dir: Path) -> str:
+    return "" if not rel_dir.parts else rel_dir.as_posix()
+
+
+def _prune_internal_and_symlinks(dirpath: str, dirnames: list[str], *, root: Path) -> None:
+    """Prune AgentCore internal zones + symlinked dirs in-place for ``os.walk``.
+
+    Does **not** apply ``IGNORED_DIRS`` (node_modules / ``out`` / …) — staging
+    still copies the full workspace except path-aware internal zones.
+    """
+    rel_dir = Path(dirpath).relative_to(root)
+    parent = _parent_rel(rel_dir)
+    if is_internal_zone_relpath(parent):
+        dirnames[:] = []
+        return
+    dirnames[:] = [
+        d
+        for d in dirnames
+        if not is_internal_zone_relpath(f"{parent}/{d}" if parent else d)
+        and not os.path.islink(os.path.join(dirpath, d))
+    ]
+
+
 def _iter_regular_files(root: Path):
     """Yield ``(rel_posix, abs_path)`` for regular files under ``root``.
 
-    Symlinks (files and dirs) are skipped entirely; ``.agentcore/`` is pruned.
+    Symlinks (files and dirs) are skipped entirely; AgentCore internal zones
+    are pruned (visible ``规则/记忆/文档`` still walk).
     """
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         rel_dir = Path(dirpath).relative_to(root)
-        if rel_dir.parts and rel_dir.parts[0] == _INTERNAL_DIR:
+        parent = _parent_rel(rel_dir)
+        if is_internal_zone_relpath(parent):
             dirnames[:] = []
             continue
-        # Prune internal dir at top level + any symlinked dir at every level.
-        dirnames[:] = [
-            d
-            for d in dirnames
-            if not (not rel_dir.parts and d == _INTERNAL_DIR)
-            and not os.path.islink(os.path.join(dirpath, d))
-        ]
+        _prune_internal_and_symlinks(dirpath, dirnames, root=root)
         for name in filenames:
             abs_path = Path(dirpath) / name
             if abs_path.is_symlink():
@@ -143,15 +160,11 @@ def stage_workspace(src: Path, dst: Path, *, max_bytes: int) -> TreeState:
     dst.mkdir(parents=True, exist_ok=True)
     for dirpath, dirnames, filenames in os.walk(src, followlinks=False):
         rel_dir = Path(dirpath).relative_to(src)
-        if rel_dir.parts and rel_dir.parts[0] == _INTERNAL_DIR:
+        parent = _parent_rel(rel_dir)
+        if is_internal_zone_relpath(parent):
             dirnames[:] = []
             continue
-        dirnames[:] = [
-            d
-            for d in dirnames
-            if not (not rel_dir.parts and d == _INTERNAL_DIR)
-            and not os.path.islink(os.path.join(dirpath, d))
-        ]
+        _prune_internal_and_symlinks(dirpath, dirnames, root=src)
         (dst / rel_dir).mkdir(parents=True, exist_ok=True)
         for name in filenames:
             src_file = Path(dirpath) / name
@@ -205,7 +218,7 @@ def write_back(
     ws_root = workspace.resolve()
     budget = max_bytes
     for rel in changes:
-        if rel == _INTERNAL_DIR or rel.startswith(f"{_INTERNAL_DIR}/"):
+        if is_internal_zone_relpath(rel):
             skipped.append(rel)
             continue
         src = staging / rel

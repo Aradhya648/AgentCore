@@ -30,7 +30,7 @@ def _seed(root: Path) -> None:
     git = root / ".git"
     git.mkdir()
     (git / "config").write_text("g", encoding="utf-8")
-    ac = root / ".agentcore" / "index"
+    ac = root / "AgentCore" / "index"
     ac.mkdir(parents=True)
     (ac / "code_search.db").write_bytes(b"db")
     (root / "local.db").write_bytes(b"db")
@@ -50,7 +50,7 @@ async def test_index_prunes_ignored_dirs(tmp_path: Path):
     joined = "\n".join(paths)
     assert "node_modules" not in joined
     assert ".git" not in joined
-    assert ".agentcore" not in joined
+    assert "AgentCore/index" not in joined
     assert ".db" not in joined
 
 

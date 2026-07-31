@@ -43,3 +43,22 @@ def host_op_required(
             "args": args or {},
         },
     )
+
+
+def mcp_op_required(
+    *,
+    request_id: str,
+    conversation_id: str,
+    op: str,
+    args: dict[str, Any] | None = None,
+) -> SSEEvent:
+    """Ask the bound desktop to run an MCP Client op (list/call) and report back."""
+    return SSEEvent(
+        type=EventType.MCP_OP_REQUIRED,
+        payload={
+            "request_id": request_id,
+            "conversation_id": conversation_id,
+            "op": op,
+            "args": args or {},
+        },
+    )

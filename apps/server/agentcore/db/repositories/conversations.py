@@ -380,6 +380,7 @@ class ConversationRepository:
         include_archived: bool = False,
         global_chats_only: bool = False,
         exclude_conversation_id: str | None = None,
+        updated_after: datetime | None = None,
     ) -> list[dict]:
         """Like :meth:`search` but projects ``folder_name`` + ``message_count``.
 
@@ -396,6 +397,7 @@ class ConversationRepository:
                 include_archived=include_archived,
                 global_chats_only=global_chats_only,
                 exclude_conversation_id=exclude_conversation_id,
+                updated_after=updated_after,
             )
         )
         if not convs:

@@ -53,6 +53,7 @@ from agentcore.db.repositories import (
     ConversationRepository,
     ConversationShareRepository,
     CostEventRepository,
+    LlmModelProfileRepository,
     MessageRepository,
     TurnMetricsRepository,
     UserLlmProviderRepository,
@@ -274,6 +275,7 @@ async def user_detail(
     messages_repo: MessageRepository = Depends(get_message_repo),
     metrics_repo: TurnMetricsRepository = Depends(get_turn_metrics_repo),
     llm_providers: UserLlmProviderRepository = Depends(get_user_llm_provider_repo),
+    session: AsyncSession = Depends(get_db),
 ) -> AdminUserDetail:
     """用户详情下钻 (用户管理 P0): one account's record + configured model names +
     its own usage (today / month / 7-day trend / by-model) + recent
@@ -282,10 +284,10 @@ async def user_detail(
     The per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped
     to one account — composed with the account's recent conversation roster (message
     counts batched, no N+1) and its recent turns (each carries ``conversation_id`` to
-    drill into 会话复盘). Configured model names come from the account's BYOK default
-    pointers (``users`` row; never the API key) + provider count from
-    ``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30 days). Admin
-    cross-user; 404 for an unknown id.
+    drill into 会话复盘). Configured model names come from the account default
+    模型组合 (``main_model`` / ``background_model``; never the API key) + provider
+    count from ``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30
+    days). Admin cross-user; 404 for an unknown id.
     """
     user = await users.get_by_id(user_id)
     if user is None:
@@ -296,9 +298,17 @@ async def user_detail(
     month_start = day_start.replace(day=1)
     since_30d = now - timedelta(days=30)
 
-    # Account BYOK model pointers (names only) + how many providers are configured.
-    default_model = getattr(user, "default_chat_model", None)
-    background_model = getattr(user, "default_background_model", None)
+    # Account default 模型组合 (names only) + how many providers are configured.
+    default_model: str | None = None
+    background_model: str | None = None
+    profile_id = getattr(user, "default_model_profile_id", None)
+    if profile_id:
+        profile = await LlmModelProfileRepository(session).get(
+            profile_id, user_id=user_id
+        )
+        if profile is not None:
+            default_model = profile.main_model
+            background_model = profile.background_model
     provider_count = await llm_providers.count_for_user(user_id)
 
     today = await cost_repo.aggregate_for_window(user_id=user_id, since=day_start)

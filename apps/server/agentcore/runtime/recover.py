@@ -174,6 +174,22 @@ async def _settle_resume(
                 conversation_id=suspension.conversation_id,
                 operations=kept,
             )
+        daily_review_apply = None
+        if (
+            suspension.intent == "daily_review"
+            and response.decision is CheckpointDecision.CONTINUE
+        ):
+            from agentcore.standing_tasks.review_apply import (
+                apply_daily_review_selections,
+            )
+
+            daily_review_apply = await apply_daily_review_selections(
+                user_id=suspension.user_id,
+                folder_id=suspension.folder_id or "",
+                conversation_id=suspension.conversation_id,
+                questions=list(suspension.questions or []),
+                selected_labels=list(response.selected),
+            )
         sink.emit(
             checkpoint_resolved(
                 checkpoint_id=suspension.checkpoint_id,
@@ -223,7 +239,10 @@ async def _settle_resume(
             else:
                 set_active_coordination(session)
         from agentcore.tools.builtin.ask_user import ask_user_tool_result
-        from agentcore.tools.builtin.ask_user.result import ask_user_organize_plan_result
+        from agentcore.tools.builtin.ask_user.result import (
+            ask_user_daily_review_result,
+            ask_user_organize_plan_result,
+        )
 
         if suspension.intent == "organize_plan":
             from agentcore.workspace.organize_plan_store import get_plan
@@ -235,118 +254,20 @@ async def _settle_resume(
                 plan_id=suspension.checkpoint_id,
                 kept_count=kept_n,
             )
+        elif suspension.intent == "daily_review":
+            applied = daily_review_apply.applied if daily_review_apply else 0
+            skipped = daily_review_apply.skipped if daily_review_apply else 0
+            errors = daily_review_apply.errors if daily_review_apply else ()
+            result = ask_user_daily_review_result(
+                response,
+                applied=applied,
+                skipped=skipped,
+                errors=errors,
+            )
         else:
             result = ask_user_tool_result(response)
-            # P1a：resume 结构化 style_id 记账（显式字段优先 → selected 中合法 sN；禁散文独过闸）。
-            if (
-                decision is CheckpointDecision.CONTINUE
-                and getattr(suspension, "style_options", None)
-            ):
-                from agentcore.runtime.runs.website_style import (
-                    record_style_confirmation,
-                    resolve_style_from_resume,
-                )
-
-                resolved = resolve_style_from_resume(
-                    list(suspension.style_options or []),
-                    style_id=style_id or response.style_id,
-                    selected=list(selected or []),
-                    note=note,
-                )
-                cid = (getattr(suspension, "conversation_id", None) or "").strip()
-                if resolved is not None and cid:
-                    record_style_confirmation(
-                        cid,
-                        style_id=resolved.style_id,
-                        label=resolved.label,
-                        source="ask_user",
-                    )
-                    logger.info(
-                        "website.style_confirmed",
-                        conversation_id=cid,
-                        style_id=resolved.style_id,
-                        source="ask_user",
-                    )
-                elif cid:
-                    logger.info(
-                        "website.style_not_confirmed",
-                        conversation_id=cid,
-                        reason="missing_or_invalid_style_id",
-                        style_id=(style_id or response.style_id or "") or None,
-                    )
-            # format_options resume：只认选项标签形状分流 ledger（自动化三档 vs 演讲 pptx/marp）。
-            # 不扫 question/context/user_message 猜意图。
-            if (
-                decision is CheckpointDecision.CONTINUE
-                and getattr(suspension, "format_options", None)
-            ):
-                fmt_opts = list(suspension.format_options or [])
-                cid = (getattr(suspension, "conversation_id", None) or "").strip()
-                from agentcore.runtime.runs.automation_delivery import (
-                    format_options_look_like_automation,
-                    record_delivery_confirmation,
-                    resolve_delivery_from_resume,
-                )
-                from agentcore.runtime.runs.presentation_format import (
-                    record_format_confirmation,
-                    resolve_format_from_resume,
-                )
-
-                route_automation = format_options_look_like_automation(fmt_opts)
-                if route_automation:
-                    resolved_del = resolve_delivery_from_resume(
-                        fmt_opts,
-                        format_id=format_id or response.format_id,
-                        selected=list(selected or []),
-                        note=note,
-                    )
-                    if resolved_del is not None and cid:
-                        record_delivery_confirmation(
-                            cid,
-                            format_id=resolved_del.format_id,
-                            label=resolved_del.label,
-                            source="ask_user",
-                        )
-                        logger.info(
-                            "automation.delivery_confirmed",
-                            conversation_id=cid,
-                            format_id=resolved_del.format_id,
-                            source="ask_user",
-                        )
-                    elif cid:
-                        logger.info(
-                            "automation.delivery_not_confirmed",
-                            conversation_id=cid,
-                            reason="missing_or_invalid_format_id",
-                            format_id=(format_id or response.format_id or "") or None,
-                        )
-                else:
-                    resolved_fmt = resolve_format_from_resume(
-                        fmt_opts,
-                        format_id=format_id or response.format_id,
-                        selected=list(selected or []),
-                        note=note,
-                    )
-                    if resolved_fmt is not None and cid:
-                        record_format_confirmation(
-                            cid,
-                            format_id=resolved_fmt.format_id,
-                            label=resolved_fmt.label,
-                            source="ask_user",
-                        )
-                        logger.info(
-                            "presentation.format_confirmed",
-                            conversation_id=cid,
-                            format_id=resolved_fmt.format_id,
-                            source="ask_user",
-                        )
-                    elif cid:
-                        logger.info(
-                            "presentation.format_not_confirmed",
-                            conversation_id=cid,
-                            reason="missing_or_invalid_format_id",
-                            format_id=(format_id or response.format_id or "") or None,
-                        )
+            # 场面账（style / presentation_format / automation_delivery）已拆除：
+            # resume 不再 record_*；DESIGN 默认风格由 design_prompt_block 软注入。
         terminal = result.final_text if result.effect is ToolEffect.INTERACT else None
         return SettledSuspension(result.output, terminal)
 

@@ -32,6 +32,7 @@ from agentcore.workspace.protocol import (
     GrepResult,
     WorkspaceIOError,
 )
+from agentcore.workspace.stage_dirs import BASELINES_REL, INDEX_REL, TRASH_REL
 
 # Unified grep file-size cap (was ~2MB server / 5MiB desktop walk) — both ends.
 GREP_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -84,6 +85,10 @@ def _ignore_globs() -> list[str]:
     for name in sorted(IGNORED_DIRS):
         globs.append(f"!{name}")
         globs.append(f"!**/{name}/**")
+    # Path-aware internal zones — never bare index/trash/baselines.
+    for zone in (INDEX_REL, TRASH_REL, BASELINES_REL):
+        globs.append(f"!{zone}")
+        globs.append(f"!{zone}/**")
     for suf in sorted(SYSTEM_IGNORED_FILE_SUFFIXES | AI_NOISE_FILE_SUFFIXES):
         globs.append(f"!**/*{suf}")
     return globs

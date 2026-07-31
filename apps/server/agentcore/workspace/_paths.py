@@ -12,8 +12,9 @@ Parity gate (edit both sides or CI fails)::
 
     uv run python scripts/check_workspace_ignore_parity.py
 
-* **System noise** — hidden from both AI and user file UI (``.agentcore`` /
-  ``.git`` / ``node_modules`` / caches / ``*.db`` / ``*.pyc`` …).
+* **System noise** — hidden from both AI and user file UI (``.git`` /
+  ``node_modules`` / caches / ``*.db`` / ``*.pyc`` …, plus path-aware
+  ``AgentCore/{index,trash,baselines}`` — never bare ``index``/``trash``/``baselines``).
 * **AI noise** — media / archives / fonts / native objects excluded only from
   AI views (``index_files`` / ``list_tree`` / ``grep`` / ``file_list``). User UI
   ``list`` keeps them visible (AI-generated images are deliverables).
@@ -21,11 +22,13 @@ Parity gate (edit both sides or CI fails)::
 
 from pathlib import Path
 
+from agentcore.workspace.stage_dirs import AGENTCORE_ROOT, INTERNAL_ZONE_NAMES
+
 # --- System noise (AI + user UI) ---
 # Directory set ↔ desktop ``LIST_FILES_SKIP_DIRS`` (parity gate).
+# Do NOT put bare ``index``/``trash``/``baselines`` here — see ``is_internal_zone_relpath``.
 IGNORED_DIRS: frozenset[str] = frozenset(
     {
-        ".agentcore",
         ".git",
         ".hg",
         ".svn",
@@ -113,8 +116,38 @@ MAX_FILE_BYTES = 2_000_000  # skip files larger than ~2 MB during content scans
 
 
 def is_ignored_dir_name(name: str) -> bool:
-    """Whether a single path segment is a system-noise directory."""
+    """Whether a single path segment is a system-noise directory (name-only)."""
     return name in IGNORED_DIRS
+
+
+def is_internal_zone_relpath(relpath: str) -> bool:
+    """True when ``relpath`` is ``AgentCore/{index|trash|baselines}`` or under it.
+
+    Path-aware only — bare ``index`` / ``trash`` / ``baselines`` elsewhere
+    (user projects) are never treated as internal.
+    """
+    p = relpath.replace("\\", "/").strip("/")
+    if not p or p == ".":
+        return False
+    for zone in INTERNAL_ZONE_NAMES:
+        prefix = f"{AGENTCORE_ROOT}/{zone}"
+        if p == prefix or p.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
+def is_ignored_dir_entry(*, parent_rel: str, name: str) -> bool:
+    """Whether a directory child should be pruned during a workspace walk.
+
+    Combines name-only :data:`IGNORED_DIRS` with path-aware internal zones.
+    ``parent_rel`` is the workspace-relative POSIX path of the parent
+    (``""`` / ``.`` = workspace root).
+    """
+    if name in IGNORED_DIRS:
+        return True
+    parent = parent_rel.replace("\\", "/").strip("/")
+    child = name if parent in ("", ".") else f"{parent}/{name}"
+    return is_internal_zone_relpath(child)
 
 
 def _suffix_match(name: str, suffixes: frozenset[str]) -> bool:
@@ -140,9 +173,12 @@ def is_ignored_file_name(name: str) -> bool:
 def is_ignored_relpath(relpath: str) -> bool:
     """Whether a workspace-relative POSIX path should be omitted from AI listings.
 
-    True when any directory segment is in :data:`IGNORED_DIRS` or the final
-    file name matches :data:`IGNORED_FILE_SUFFIXES` (system ∪ AI noise).
+    True when the path is under an AgentCore internal zone, any directory
+    segment is in :data:`IGNORED_DIRS`, or the final file name matches
+    :data:`IGNORED_FILE_SUFFIXES` (system ∪ AI noise).
     """
+    if is_internal_zone_relpath(relpath):
+        return True
     parts = [p for p in relpath.replace("\\", "/").split("/") if p and p != "."]
     if not parts:
         return False

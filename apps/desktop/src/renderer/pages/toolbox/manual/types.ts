@@ -29,7 +29,7 @@ export type ManualBlock =
         highlight?: boolean;
       }[];
     }
-  | { type: "bullets"; items: { title: string; desc: string }[] }
+  | { type: "bullets"; items: { title: string; desc: RichText }[] }
   | { type: "steps"; items: { title: string; desc: RichText }[] }
   | {
       type: "doDont";

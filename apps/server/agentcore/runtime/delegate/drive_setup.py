@@ -85,11 +85,26 @@ def setup_note_wall(
 
 
 def resolve_worker_gate(tool: DelegateTool) -> Any:
-    from agentcore.runtime.sandbox_approval import worker_gate_applies
+    from agentcore.runtime.sandbox_approval import is_desktop_touch_tool, worker_gate_applies
 
-    return (
-        tool._approval_gate if worker_gate_applies(tool._base_tool_context.backend) else None
-    )
+    gate = tool._approval_gate
+    if gate is None:
+        return None
+    if worker_gate_applies(tool._base_tool_context.backend):
+        return gate
+    # Cloud workspace: still share the turn gate when workers hold desktop-touch
+    # tools (MCP / Host). tool_exec narrows cloud prompts to those tools only so
+    # server-sandbox file ops stay historically ungated.
+    worker_tools = getattr(tool, "_tools", None)
+    if worker_tools is None:
+        return None
+    try:
+        names = list(worker_tools.names)
+    except Exception:  # noqa: BLE001 — registry shape varies in tests
+        return None
+    if any(is_desktop_touch_tool(n) for n in names):
+        return gate
+    return None
 
 
 def build_drive_executor(

@@ -514,10 +514,10 @@ async def stop_message(
     a late click settles cleanly. Owner-gated.
     """
     await _require_owned_conversation(conversation_id, user.user_id, conv_repo)
-    # 触发点④：stop 前 orphan 热路 pending
-    from agentcore.runtime.interaction_orphan import orphan_registry_pending
+    # 触发点④：stop 前 orphan 热路 pending（有活 turn 时必须带 turn_id 落 journal）
+    from agentcore.runtime.interaction_orphan import orphan_live_turn_hot_pending
 
-    await orphan_registry_pending(conversation_id)
+    await orphan_live_turn_hot_pending(conversation_id)
     stopped = turn_runs.stop(conversation_id)
     if not stopped:
         # Detached background execution with no live turn slot — cancel via registry.

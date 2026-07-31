@@ -550,12 +550,53 @@ def test_healthy_idle_inject_has_progress_and_no_action_guidance():
     assert "在跑" in brief or "内容文案" in brief
     assert "依赖阻塞" in brief
     assert "无需追加" in brief
+    assert "正常推进" in brief
     assert "不要 delegate" in brief or "勿" in brief
 
     msgs = idle_yield_messages(session)
     assert len(msgs) == 1
     assert "流水线进度" in (msgs[0].content or "")
     assert "无需追加" in (msgs[0].content or "")
+
+
+def test_idle_yield_brief_pending_approval_forbids_wait(monkeypatch):
+    """有热路 pending 时 idle_yield 文案禁止 wait/再派，不含「正常推进」。"""
+    from agentcore.runtime.coordination.pipeline_view import format_idle_yield_brief
+    from agentcore.runtime.runs.types import Deliverable
+
+    live = _plan(
+        RunSpec(
+            run_id="copy",
+            role="内容文案",
+            task="写 site/copy.md",
+            deliverable=Deliverable(artifacts=["site/copy.md"]),
+        ),
+        RunSpec(
+            run_id="skeleton",
+            role="骨架工程师",
+            task="写 site/index.html",
+            deliverable=Deliverable(artifacts=["site/index.html"]),
+            depends_on=["copy"],
+        ),
+    )
+    session = CoordinationSession(
+        execution_id="e-idle-pending", total_workers=2, conversation_id="c-idle"
+    )
+    session.live_plan = live
+    session._running_workers["copy"] = "内容文案"
+    session._worker_started_at["copy"] = __import__("time").monotonic()
+    session.mark_worker_busy("copy", "llm")
+
+    monkeypatch.setattr(
+        "agentcore.runtime.interaction_orphan.has_hot_user_pending",
+        lambda _cid: True,
+    )
+
+    brief = format_idle_yield_brief(session)
+    assert "等待用户审批" in brief or "审批/授权" in brief
+    assert "正常推进" not in brief
+    assert "这是预期中的等待" not in brief
+    assert "禁止" in brief or "勿" in brief
 
 
 async def test_idle_yield_injects_healthy_brief_instead_of_empty(monkeypatch):

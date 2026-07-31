@@ -15,7 +15,6 @@ from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs.presentation_format import (
     clear_format_confirmation,
     is_pptx_format_confirmation,
-    presentation_pptx_silent_md_error,
     record_format_confirmation,
     tasks_silently_downgrade_pptx_to_md,
 )
@@ -126,7 +125,8 @@ async def test_execute_allows_presentation_text_without_format_ledger():
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_pptx_confirmed_silent_md_when_exec_on():
+async def test_execute_allows_pptx_confirmed_silent_md_when_exec_on():
+    """场面账硬闸已拆：即便残留 pptx 账 + 仅 md，也不再硬拒。"""
     cid = "pres-gate-pptx-md-local"
     clear_format_confirmation(cid)
     record_format_confirmation(
@@ -156,8 +156,7 @@ async def test_execute_rejects_pptx_confirmed_silent_md_when_exec_on():
         },
         local_ctx(),
     )
-    assert result.success is False
-    assert presentation_pptx_silent_md_error() in (result.error or "")
+    assert result.success is True
     clear_format_confirmation(cid)
 
 
@@ -230,8 +229,8 @@ async def test_execute_allows_marp_when_no_exec_and_marp_confirmed():
 
 
 @pytest.mark.asyncio
-async def test_execute_pptx_confirmed_no_exec_allows_marp_with_soft_tip():
-    """已选 pptx 但无执行：不拦 Marp.md，注入软提示。"""
+async def test_execute_pptx_confirmed_no_exec_allows_marp_without_ledger_tip():
+    """已选 pptx 但无执行：场面账拆除后仍放行 Marp，不再注入 ledger 软提示。"""
     cid = "pres-gate-pptx-no-exec-marp"
     clear_format_confirmation(cid)
     record_format_confirmation(
@@ -260,8 +259,6 @@ async def test_execute_pptx_confirmed_no_exec_allows_marp_with_soft_tip():
         cloud,
     )
     assert result.success is True
-    assert "[能力提示]" in result.output
-    assert "pptx" in result.output.lower() or "PowerPoint" in result.output
     clear_format_confirmation(cid)
 
 

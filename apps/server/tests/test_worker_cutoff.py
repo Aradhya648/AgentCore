@@ -37,6 +37,8 @@ from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
 
 
 def test_collect_worker_gaps_emits_reason_codes():
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
+
     plan = RunPlan(
         nodes=[
             RunSpec(run_id="w1", task="调研", role="研究员"),
@@ -53,6 +55,9 @@ def test_collect_worker_gaps_emits_reason_codes():
             phase=RunPhase.COMPLETED,
             content="脚本",
             files_touched=["build.py"],
+            file_acceptance=build_file_acceptance(
+                ["build.py"], phase=RunPhase.COMPLETED
+            ),
             warnings=[WORKER_TIMEOUT_WARNING],
             debrief={"summary": "合成", "degraded": True},
         ),

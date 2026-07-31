@@ -23,10 +23,28 @@ import { useEffect, useMemo, useState } from "react";
 /**
  * A1 / A1+ 只读「查看改动」——挂在产物卡内。
  * 优先拉回合基线真 diff（A1+）；无基线 / 失败则降级工具参数预览（A1）。
+ * 标签按路径相对回合初是否存在（新建/更新/删除），不按 file_write/str_replace 工具名。
  * 不做 apply / 三方冲突（与交接「查看并应用」刻意区分）。
  */
 
 const WRITE_PREVIEW_LINES = 300;
+
+/** 真 diff：按回合基线路径是否存在 → 新建/更新/删除（非工具名）。 */
+function turnChangeLabel(changeType: TurnFileChange["changeType"]): string {
+  if (changeType === "added") return "新建";
+  if (changeType === "deleted") return "删除";
+  return "更新";
+}
+
+/**
+ * 无基线降级：工具参数预览无法判定「回合初是否存在」，
+ * write/edit 一律标「更新」，勿用写入/编辑冒充用户语义。
+ */
+function previewKindLabel(change: FileChangePreview): string {
+  if (change.kind === "delete") return "删除";
+  if (change.kind === "move") return "移动";
+  return "更新";
+}
 
 function diffSign(type: DiffLine["type"]): string {
   if (type === "add") return "+";
@@ -94,8 +112,9 @@ function WriteBlock({
   const allLines = content.split("\n");
   const shown = allLines.slice(0, WRITE_PREVIEW_LINES);
   const hidden = allLines.length - shown.length;
+  // added = 真 diff 回合初不存在；overwrite/append = 无基线或已存在路径上的内容预览。
   const modeLabel =
-    mode === "append" ? "追加" : mode === "added" ? "新增" : "写入";
+    mode === "append" ? "追加" : mode === "added" ? "新建" : "更新";
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="flex items-center gap-2 border-border/60 border-b bg-muted/40 px-2.5 py-1 text-xs">
@@ -181,6 +200,9 @@ function ArtifactChangeRow({ artifact }: { artifact: FileArtifact }) {
           <span className="truncate font-mono text-foreground">
             {artifact.path}
           </span>
+          <span className="ml-auto shrink-0 text-muted-foreground">
+            {previewKindLabel(change)}
+          </span>
         </span>
       </Button>
       {open && change.kind === "edit" && (
@@ -226,11 +248,7 @@ function TrueDiffRow({ change }: { change: TurnFileChange }) {
             {change.path}
           </span>
           <span className="ml-auto shrink-0 text-muted-foreground">
-            {change.changeType === "added"
-              ? "新增"
-              : change.changeType === "deleted"
-                ? "删除"
-                : "修改"}
+            {turnChangeLabel(change.changeType)}
           </span>
         </span>
       </Button>

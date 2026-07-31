@@ -5472,6 +5472,67 @@
         "title": "DocumentWriteResult",
         "type": "object"
       },
+      "EnsureStandingTaskTemplateRequest": {
+        "description": "Install (or return) a system template row. Default ``enabled=false`` = 引导开.",
+        "properties": {
+          "cron": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "folder_id": {
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "permission_axes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PermissionAxesModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule_preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Preset"
+          },
+          "template_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StandingTaskTemplateConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "EnsureStandingTaskTemplateRequest",
+        "type": "object"
+      },
       "EvidenceLedgerEntryRest": {
         "description": "回合调研台账条目（REST / 落库；与 SSE ``TurnEvidenceLedgerEntry`` 同形）。",
         "properties": {
@@ -8579,7 +8640,8 @@
                   "decision",
                   "proposal_pick",
                   "risk_ack",
-                  "organize_plan"
+                  "organize_plan",
+                  "daily_review"
                 ],
                 "type": "string"
               },
@@ -9529,7 +9591,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 6,
+            "maxItems": 50,
             "title": "Selected",
             "type": "array"
           },
@@ -11430,6 +11492,22 @@
             ],
             "title": "Schedule Preset"
           },
+          "template_config": {
+            "additionalProperties": true,
+            "title": "Template Config",
+            "type": "object"
+          },
+          "template_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Key"
+          },
           "trigger_kind": {
             "default": "schedule",
             "enum": [
@@ -11489,6 +11567,88 @@
           "updated_at"
         ],
         "title": "StandingTaskSummary",
+        "type": "object"
+      },
+      "StandingTaskTemplateConfig": {
+        "description": "Knobs for system templates (daily review scope).",
+        "properties": {
+          "folder_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Folder Ids",
+            "type": "array"
+          },
+          "include_global": {
+            "default": true,
+            "title": "Include Global",
+            "type": "boolean"
+          },
+          "lookback_hours": {
+            "default": 24,
+            "maximum": 168.0,
+            "minimum": 1.0,
+            "title": "Lookback Hours",
+            "type": "integer"
+          }
+        },
+        "title": "StandingTaskTemplateConfig",
+        "type": "object"
+      },
+      "StandingTaskTemplateSummary": {
+        "properties": {
+          "default_cron": {
+            "title": "Default Cron",
+            "type": "string"
+          },
+          "default_name": {
+            "title": "Default Name",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "installed_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed Task Id"
+          },
+          "key": {
+            "const": "daily_conversation_review",
+            "title": "Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "description",
+          "default_name",
+          "default_cron"
+        ],
+        "title": "StandingTaskTemplateSummary",
         "type": "object"
       },
       "StartDmRequest": {
@@ -13023,6 +13183,16 @@
             ],
             "title": "Schedule Preset"
           },
+          "template_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StandingTaskTemplateConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "trigger_kind": {
             "anyOf": [
               {
@@ -13756,7 +13926,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.20"
+    "version": "0.3.21"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -15853,7 +16023,7 @@
     },
     "/v1/admin/users/{user_id}/detail": {
       "get": {
-        "description": "用户详情下钻 (用户管理 P0): one account's record + configured model names +\nits own usage (today / month / 7-day trend / by-model) + recent\nconversations + recent turn activity.\n\nThe per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped\nto one account — composed with the account's recent conversation roster (message\ncounts batched, no N+1) and its recent turns (each carries ``conversation_id`` to\ndrill into 会话复盘). Configured model names come from the account's BYOK default\npointers (``users`` row; never the API key) + provider count from\n``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30 days). Admin\ncross-user; 404 for an unknown id.",
+        "description": "用户详情下钻 (用户管理 P0): one account's record + configured model names +\nits own usage (today / month / 7-day trend / by-model) + recent\nconversations + recent turn activity.\n\nThe per-user counterpart of the platform 用量看板 — same windows / 口径 but scoped\nto one account — composed with the account's recent conversation roster (message\ncounts batched, no N+1) and its recent turns (each carries ``conversation_id`` to\ndrill into 会话复盘). Configured model names come from the account default\n模型组合 (``main_model`` / ``background_model``; never the API key) + provider\ncount from ``user_llm_providers``. Per-model stats scan ``cost_calls`` (last 30\ndays). Admin cross-user; 404 for an unknown id.",
         "operationId": "user_detail_v1_admin_users__user_id__detail_get",
         "parameters": [
           {
@@ -31276,6 +31446,160 @@
           }
         },
         "summary": "Ack Standing Task Run",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-task-templates": {
+      "get": {
+        "operationId": "list_standing_task_templates_v1_standing_task_templates_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StandingTaskTemplateSummary"
+                  },
+                  "title": "Response List Standing Task Templates V1 Standing Task Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Standing Task Templates",
+        "tags": [
+          "standing-tasks"
+        ]
+      }
+    },
+    "/v1/standing-task-templates/{template_key}/ensure": {
+      "post": {
+        "description": "Idempotent install of a system template. Default enabled=false (引导开).",
+        "operationId": "ensure_standing_task_template_v1_standing_task_templates__template_key__ensure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_key",
+            "required": true,
+            "schema": {
+              "title": "Template Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnsureStandingTaskTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingTaskSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ensure Standing Task Template",
         "tags": [
           "standing-tasks"
         ]

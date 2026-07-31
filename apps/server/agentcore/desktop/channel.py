@@ -15,9 +15,15 @@ from typing import Any
 
 from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
-from agentcore.runtime.events import EventSink, desktop_notify_required, host_op_required
+from agentcore.runtime.events import (
+    EventSink,
+    desktop_notify_required,
+    host_op_required,
+    mcp_op_required,
+)
 from agentcore.runtime.events.client_tool_reattach import (
     CHANNEL_HOST,
+    CHANNEL_MCP,
     CHANNEL_NOTIFY,
     client_tool_payload,
 )
@@ -36,6 +42,10 @@ class HostOpError(Exception):
     """A Host op failed (desktop error, drop, timeout, or unsupported op)."""
 
 
+class McpOpError(Exception):
+    """An MCP Client op failed (desktop error, drop, timeout, or server crash)."""
+
+
 class HostOp(StrEnum):
     """Closed Host op set exchanged over the desktop backfill channel (P0–P3)."""
 
@@ -52,6 +62,13 @@ class HostOp(StrEnum):
     # L3 controlled whitelist (worker · GRANTABLE · host_class only)
     AUDIO_SET_DEFAULT = "host_audio_set_default"
     SERVICE_RESTART = "host_service_restart"
+
+
+class McpOp(StrEnum):
+    """Closed MCP Client op set over the desktop backfill channel (stdio only)."""
+
+    LIST_TOOLS = "list_tools"
+    CALL_TOOL = "call_tool"
 
 
 @dataclass
@@ -161,5 +178,58 @@ class DesktopClientChannel:
                 elif err:
                     detail = str(err)
             raise HostOpError(detail or f"本机 Host 操作失败（{op_name}）")
+        value = result.get("value")
+        return value if isinstance(value, dict) else {}
+
+    async def request_mcp(
+        self,
+        op: McpOp | str,
+        args: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Emit an MCP Client op, await the desktop, return its ``value`` dict."""
+        op_name = str(op)
+        request_id = new_id()
+        payload_args = dict(args or {})
+        deadline = self.timeout_seconds if timeout is None else timeout
+        try:
+            result = await self.registry.suspend(
+                request_id,
+                self.conversation_id,
+                kind=InteractionKind.CLIENT_TOOL,
+                payload=client_tool_payload(
+                    CHANNEL_MCP,
+                    EventType.MCP_OP_REQUIRED.value,
+                    params={"op": op_name, "args": payload_args},
+                ),
+                timeout=deadline,
+                on_suspended=lambda: self.sink.emit(
+                    mcp_op_required(
+                        request_id=request_id,
+                        conversation_id=self.conversation_id,
+                        op=op_name,
+                        args=payload_args,
+                    )
+                ),
+            )
+        except TimeoutError as e:
+            logger.info(
+                "desktop.mcp_op_timeout",
+                conversation_id=self.conversation_id,
+                request_id=request_id,
+                op=op_name,
+            )
+            raise McpOpError(f"本机 MCP 操作超时（{op_name}：客户端未响应）") from e
+
+        if not isinstance(result, dict) or not result.get("ok"):
+            detail = ""
+            if isinstance(result, dict):
+                err = result.get("error")
+                if isinstance(err, dict):
+                    detail = str(err.get("detail", "") or "")
+                elif err:
+                    detail = str(err)
+            raise McpOpError(detail or f"本机 MCP 操作失败（{op_name}）")
         value = result.get("value")
         return value if isinstance(value, dict) else {}

@@ -12,13 +12,18 @@ from __future__ import annotations
 from typing import Any
 
 from agentcore.runtime.events.board import board_op_required, board_read_required
-from agentcore.runtime.events.desktop import desktop_notify_required, host_op_required
+from agentcore.runtime.events.desktop import (
+    desktop_notify_required,
+    host_op_required,
+    mcp_op_required,
+)
 from agentcore.runtime.events.types import SSEEvent
 from agentcore.runtime.events.workspace import workspace_op_required
 from agentcore.runtime.interaction import InteractionKind, InteractionRequest
 
 # Stable channel tags written into ``InteractionRequest.payload`` at suspend.
 CHANNEL_HOST = "host"
+CHANNEL_MCP = "mcp"
 CHANNEL_WORKSPACE = "workspace"
 CHANNEL_BOARD = "board"
 CHANNEL_BOARD_READ = "board_read"
@@ -87,6 +92,13 @@ def build_client_tool_required(req: InteractionRequest) -> SSEEvent | None:
             op=str(params.get("op") or ""),
             args=dict(params.get("args") or {}),
         )
+    if channel == CHANNEL_MCP:
+        return mcp_op_required(
+            request_id=rid,
+            conversation_id=cid,
+            op=str(params.get("op") or ""),
+            args=dict(params.get("args") or {}),
+        )
     if channel == CHANNEL_NOTIFY:
         return desktop_notify_required(
             request_id=rid,
@@ -117,5 +129,6 @@ def _channel_from_event_type(event_type: Any) -> str | None:
         "board_op_required": CHANNEL_BOARD,
         "board_read_required": CHANNEL_BOARD_READ,
         "host_op_required": CHANNEL_HOST,
+        "mcp_op_required": CHANNEL_MCP,
         "desktop_notify_required": CHANNEL_NOTIFY,
     }.get(event_type)

@@ -70,13 +70,14 @@ async def test_index_manager_build_and_search(sample_py: Path):
     paths = {c.path for c in result.chunks}
     assert any("sample.py" in p for p in paths)
 
-    db_path = sample_py / ".agentcore" / "index" / "code_search.db"
+    db_path = sample_py / "AgentCore" / "index" / "code_search.db"
     assert db_path.is_file()
 
 
 @pytest.mark.asyncio
 async def test_code_search_tool_end_to_end(sample_py: Path):
     ws = ServerWorkspace(root=sample_py, sandbox=SubprocessSandbox())
+    await ws.ensure_code_index()
     tool = CodeSearchTool()
     ctx = ToolContext(
         execution_id="e1",
@@ -89,6 +90,73 @@ async def test_code_search_tool_end_to_end(sample_py: Path):
     assert result.success
     assert "sample.py" in result.output
     assert "score=" in result.output
+    assert result.metadata["index_status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_code_search_tool_is_query_only_when_ensure_is_slow(
+    sample_py: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Tool must return while background ensure is still running (no sync wait)."""
+    import asyncio
+    import contextlib
+    import time
+
+    from agentcore.workspace.indexing.manager import IndexManager
+
+    async def slow_ensure(self, backend, *, force=False):  # noqa: ANN001
+        await asyncio.sleep(5)
+        return False
+
+    monkeypatch.setattr(IndexManager, "ensure_index", slow_ensure)
+
+    ws = ServerWorkspace(root=sample_py, sandbox=SubprocessSandbox())
+    tool = CodeSearchTool()
+    ctx = ToolContext(
+        execution_id="e1",
+        run_id="r1",
+        agent_id="a1",
+        backend=ws,
+        user_id="u1",
+    )
+    t0 = time.monotonic()
+    try:
+        result = await tool.execute({"query": "ApprovalGate"}, ctx)
+    finally:
+        maintainer = getattr(ws, "_index_maintainer", None)
+        task = getattr(maintainer, "_task", None) if maintainer else None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+    elapsed = time.monotonic() - t0
+    assert result.success
+    assert elapsed < 2.0, f"tool blocked on ensure ({elapsed:.2f}s)"
+    assert result.metadata["index_status"] == "building"
+    assert "grep" in result.output.lower() or "索引" in result.output
+
+
+@pytest.mark.asyncio
+async def test_index_maintainer_builds_in_background(sample_py: Path):
+    import asyncio
+
+    from agentcore.workspace.indexing.maintainer import IndexMaintainer
+    from agentcore.workspace.indexing.manager import IndexManager
+    from agentcore.workspace.protocol import CodeIndexStatus
+
+    ws = ServerWorkspace(root=sample_py, sandbox=SubprocessSandbox())
+    manager = IndexManager.for_workspace_root(str(sample_py))
+    maintainer = IndexMaintainer(manager, ws)
+    maintainer.schedule()
+    assert manager.building or maintainer.building
+    for _ in range(50):
+        if not maintainer.building and manager.index_status() == CodeIndexStatus.READY:
+            break
+        await asyncio.sleep(0.05)
+    assert manager.index_status() == CodeIndexStatus.READY
+    result = await manager.search("ApprovalGate", max_results=5)
+    assert result.chunks
+    assert result.index_status == CodeIndexStatus.READY
 
 
 @pytest.mark.asyncio
@@ -139,6 +207,7 @@ async def test_local_workspace_code_search_via_channel(sample_py: Path, tmp_path
     assert result.chunks
     assert any("sample.py" in c.path for c in result.chunks)
     assert result.index_stale is False
+    assert result.index_status.value == "ready"
 
 
 @pytest.mark.asyncio
@@ -160,6 +229,7 @@ async def test_code_search_requires_query(sample_py: Path):
 @pytest.mark.asyncio
 async def test_code_search_empty_is_success_with_next_steps(sample_py: Path):
     ws = ServerWorkspace(root=sample_py, sandbox=SubprocessSandbox())
+    await ws.ensure_code_index()
     tool = CodeSearchTool()
     ctx = ToolContext(
         execution_id="e1",

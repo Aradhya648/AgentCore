@@ -30,6 +30,14 @@ from agentcore.tools.registration import (
     ToolSurface,
 )
 from agentcore.workspace._paths import is_ai_noise_file_name
+from agentcore.workspace.attachment_parse import (
+    MARKITDOWN_EXTENSIONS,
+    SKIP_EXTENSIONS,
+    ParseStatus,
+    extension_of,
+    extract_office_bytes,
+    parsed_copy_path,
+)
 from agentcore.workspace.protocol import (
     AlreadyExists,
     AmbiguousMatch,
@@ -969,6 +977,35 @@ def _note_file_read_success(
     return output
 
 
+def _format_extracted_read(
+    text: str,
+    *,
+    offset: int | None,
+    limit: int | None,
+) -> str:
+    """Apply file_read offset/limit to extracted (or sidecar) text lines."""
+    use_range = offset is not None or limit is not None
+    if not use_range:
+        return _truncate_content_lines(
+            text if text.endswith("\n") or not text else text + "\n",
+            _DEFAULT_READ_LINES,
+        )
+
+    lines = text.splitlines()
+    total = len(lines)
+    eff_offset = int(offset) if offset is not None else 1
+    eff_limit = int(limit) if limit is not None else _DEFAULT_READ_LINES
+    start_idx = max(0, eff_offset - 1)
+    if start_idx >= total:
+        return f"（第 {eff_offset}–{eff_offset - 1} 行，共 {total} 行）"
+    selected = lines[start_idx : start_idx + eff_limit]
+    start_line = start_idx + 1
+    end_line = start_idx + len(selected)
+    body = _format_numbered_lines(selected, start_line)
+    footer = f"\n\n（第 {start_line}–{end_line} 行，共 {total} 行）"
+    return body + footer if body else footer.lstrip()
+
+
 class FileReadTool:
     """Read the contents of a file within the workspace."""
 
@@ -983,6 +1020,8 @@ class FileReadTool:
             name="file_read",
             description=(
                 "读取工作区内某个文件的内容（相对路径）。"
+                "Office/PDF（docx/pdf/pptx/odt/rtf）自动抽取文本；表格（xlsx/csv 等）请用 "
+                "code_execute。"
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
                 "同一相对路径本 run 有成功读取次数上限（整读与 offset/limit 合计）；"
@@ -1059,6 +1098,27 @@ class FileReadTool:
                     )
                 using_reread = True
 
+        ext = extension_of(path_key or rel_path)
+        if ext in SKIP_EXTENSIONS:
+            return _error(
+                (
+                    f"`{path_key or rel_path}` 是表格/分隔数据文件，file_read 不自动抽文本；"
+                    "请用 code_execute（如 openpyxl / pandas）按工作区相对路径解析。"
+                ),
+                start,
+            )
+
+        if ext in MARKITDOWN_EXTENSIONS:
+            return await self._read_office_or_pdf(
+                rel_path,
+                path_key=path_key,
+                offset=offset,
+                limit=limit,
+                using_reread=using_reread,
+                start=start,
+                context=context,
+            )
+
         try:
             if use_range:
                 eff_offset = int(offset) if offset is not None else 1
@@ -1102,6 +1162,89 @@ class FileReadTool:
                 context, path_key, output, using_reread=using_reread
             )
 
+        return ToolResult(
+            tool_call_id="",
+            success=True,
+            output=output,
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    async def _read_office_or_pdf(
+        self,
+        rel_path: str,
+        *,
+        path_key: str,
+        offset: int | None,
+        limit: int | None,
+        using_reread: bool,
+        start: float,
+        context: ToolContext,
+    ) -> ToolResult:
+        """Transparent office/PDF extract via markitdown (no default ``*.md`` write)."""
+        sidecar = parsed_copy_path(rel_path.replace("\\", "/"))
+        text: str | None = None
+
+        try:
+            sidecar_text = await context.backend.read(sidecar)
+            if (sidecar_text or "").strip():
+                text = sidecar_text
+        except PathNotFound:
+            pass
+        except OutsideWorkspace:
+            return _error(
+                _outside_workspace_msg(rel_path, location=context.backend.location),
+                start,
+            )
+        except NotAFile:
+            pass
+        except WorkspaceError:
+            pass
+
+        if text is None:
+            try:
+                data = await context.backend.read_bytes(rel_path)
+            except OutsideWorkspace:
+                return _error(
+                    _outside_workspace_msg(rel_path, location=context.backend.location),
+                    start,
+                )
+            except PathNotFound:
+                return _error(f"文件不存在：{rel_path}", start)
+            except NotAFile:
+                return _error(f"不是文件：{rel_path}", start)
+            except WorkspaceError as e:
+                return _error(f"读取文件失败：{e}", start)
+
+            extracted = await extract_office_bytes(data, ext=extension_of(path_key or rel_path))
+            if extracted.status == ParseStatus.FAILED:
+                return _error(
+                    (
+                        f"无法从 `{path_key or rel_path}` 抽取文本"
+                        f"（{extracted.detail or 'convert failed'}）。"
+                        "若缺 markitdown 依赖或文件损坏，请告知用户；"
+                        "不要改用 code_execute 硬解 Office/PDF。"
+                    ),
+                    start,
+                )
+            if extracted.status == ParseStatus.SKIPPED:
+                return _error(
+                    f"`{path_key or rel_path}` 不支持透明文本抽取。",
+                    start,
+                )
+            # OK or SCANNED — both carry honest text (scan notice is not empty success).
+            text = extracted.text
+            if extracted.status == ParseStatus.SCANNED and not (text or "").strip():
+                return _error(
+                    f"`{path_key or rel_path}` 看起来是扫描件且无可抽文本层（无 OCR）。",
+                    start,
+                )
+
+        assert text is not None
+        output = _format_extracted_read(text, offset=offset, limit=limit)
+        if path_key:
+            output = _note_file_read_success(
+                context, path_key, output, using_reread=using_reread
+            )
         return ToolResult(
             tool_call_id="",
             success=True,
@@ -1979,7 +2122,7 @@ class FileDeleteTool:
             description=(
                 "删除一个文件，或一个目录【及其全部内容】（递归）。默认【可逆】："
                 "本地模式移入系统回收站；云端 / 无回收站环境移入工作区软删除区"
-                "（.agentcore/trash，保留还原所需信息）。仅当 permanent=true 时"
+                "（AgentCore/trash，保留还原所需信息）。仅当 permanent=true 时"
                 "才永久删除。工作区根目录本身不可删除。路径必须是相对于工作区的"
                 "相对路径。"
             ),
@@ -2068,7 +2211,7 @@ class FileDeleteTool:
         else:
             msg = (
                 f"已可逆删除 {rel_path}"
-                "（本地通道→系统回收站；云端/sidecar→工作区 .agentcore/trash）"
+                "（本地通道→系统回收站；云端/sidecar→工作区 AgentCore/trash）"
             )
 
         return ToolResult(

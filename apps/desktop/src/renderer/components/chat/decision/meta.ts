@@ -10,6 +10,7 @@ import type { KickoffPrimitive } from "@/stores/conversation";
 import type { CheckpointDecision, CheckpointIntent } from "@/types/events";
 import {
   Ban,
+  BookOpenCheck,
   Check,
   CircleHelp,
   Clock,
@@ -18,7 +19,6 @@ import {
   type LucideIcon,
   OctagonX,
   Pencil,
-  Rocket,
   Scale,
   ShieldAlert,
 } from "lucide-react";
@@ -48,45 +48,31 @@ export const ASK_RESOLVED_DECISION_ICON = {
   orphaned: Ban,
 } as const satisfies Record<CheckpointDecision, LucideIcon>;
 
+/** Shared ask clarification copy — wire `kickoff` reuses the same shell as `decision`. */
+const ASK_CLARIFY_META = {
+  icon: CircleHelp,
+  activeCaption: "需要你拍板",
+  cta: "提交",
+  ctaIcon: Check,
+  showFooterHint: false,
+  resolved: {
+    continue: { label: "已按你的决定继续", tone: "success" },
+    per_call: { label: "已按你的决定继续", tone: "success" },
+    adjust: { label: "已按你的调整继续", tone: "success" },
+    stop: { label: "已停止本回合", tone: "destructive" },
+    research_first: { label: "已停止本回合", tone: "destructive" },
+    timeout: { label: "未及时回应，已自行收尾", tone: "muted" },
+    orphaned: {
+      label: "已失效（回合已结束或服务已重启）",
+      tone: "muted",
+    },
+  },
+} as const satisfies AskIntentMeta;
+
 export const ASK_INTENT_META = {
-  kickoff: {
-    icon: Rocket,
-    activeCaption: "开工提案 · 确认即开做",
-    cta: "就这样开做",
-    ctaIcon: Rocket,
-    showFooterHint: true,
-    resolved: {
-      continue: { label: "已按方案开做", tone: "success" },
-      per_call: { label: "已按方案开做", tone: "success" },
-      adjust: { label: "已按你的调整开做", tone: "success" },
-      stop: { label: "已停止", tone: "destructive" },
-      research_first: { label: "已停止", tone: "destructive" },
-      timeout: { label: "未及时回应，已自行开做", tone: "muted" },
-      orphaned: {
-        label: "已失效（回合已结束或服务已重启）",
-        tone: "muted",
-      },
-    },
-  },
-  decision: {
-    icon: CircleHelp,
-    activeCaption: "需要你拍板",
-    cta: "提交",
-    ctaIcon: Check,
-    showFooterHint: false,
-    resolved: {
-      continue: { label: "已按你的决定继续", tone: "success" },
-      per_call: { label: "已按你的决定继续", tone: "success" },
-      adjust: { label: "已按你的调整继续", tone: "success" },
-      stop: { label: "已停止本回合", tone: "destructive" },
-      research_first: { label: "已停止本回合", tone: "destructive" },
-      timeout: { label: "未及时回应，已自行收尾", tone: "muted" },
-      orphaned: {
-        label: "已失效（回合已结束或服务已重启）",
-        tone: "muted",
-      },
-    },
-  },
+  /** Wire may still emit kickoff; UX = generic clarification (same as decision). */
+  kickoff: ASK_CLARIFY_META,
+  decision: ASK_CLARIFY_META,
   proposal_pick: {
     icon: Layers,
     activeCaption: "方案挑选 · 选一条推进",
@@ -134,6 +120,25 @@ export const ASK_INTENT_META = {
     resolved: {
       continue: { label: "已确认整理方案", tone: "success" },
       per_call: { label: "已确认整理方案", tone: "success" },
+      adjust: { label: "已按你的调整继续", tone: "success" },
+      stop: { label: "已停止本回合", tone: "destructive" },
+      research_first: { label: "已停止本回合", tone: "destructive" },
+      timeout: { label: "未及时回应，已自行收尾", tone: "muted" },
+      orphaned: {
+        label: "已失效（回合已结束或服务已重启）",
+        tone: "muted",
+      },
+    },
+  },
+  daily_review: {
+    icon: BookOpenCheck,
+    activeCaption: "复盘提案 · 确认要落盘的项",
+    cta: "确认落盘",
+    ctaIcon: BookOpenCheck,
+    showFooterHint: false,
+    resolved: {
+      continue: { label: "已确认复盘提案", tone: "success" },
+      per_call: { label: "已确认复盘提案", tone: "success" },
       adjust: { label: "已按你的调整继续", tone: "success" },
       stop: { label: "已停止本回合", tone: "destructive" },
       research_first: { label: "已停止本回合", tone: "destructive" },

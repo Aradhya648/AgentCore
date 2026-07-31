@@ -186,6 +186,7 @@ class SidecarServer(HandlerMixin, TurnExecutionMixin):
                 )
             if mounts:
                 backend.attach_external_mounts(mounts)
+        backend.start_code_index_maintenance()
         return backend
 
     def _suspension_hooks(

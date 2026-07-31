@@ -135,6 +135,12 @@ class Deliverable:
     # instead of hard contract failures — used for marketing copy coverage.
     must_contain_soft: bool = False
     strict: bool = False
+    # 调研类两阶段引用验收（块 2）：``two_phase`` = 广搜落盘为 draft（A，不跑成稿
+    # 引用闸 / 不因 cite 重试）→ 同 worker 自动升级 B（deep_read 或无编号综述）后再跑
+    # 现有引用闸；过 → accepted，不过 → rejected(citations_unverified)。
+    # ``immediate`` / None = 现状（每次合同检查都跑引用闸）。draft 仅内部态，不进
+    # ``delivery_status.artifacts`` / ``delivered_files``。
+    citation_mode: Literal["immediate", "two_phase"] | None = None
 
 
 RunContract = Deliverable
@@ -436,6 +442,11 @@ class RunState:
     # 阶段的冗余 file_list 轮). Best-effort: a file a worker wrote indirectly (e.g. via
     # a code_execute script) is not captured — only direct file-tool calls are.
     files_touched: list[str] = field(default_factory=list)
+    # Path-level acceptance for ``files_touched`` (块 1)：``[{path, status, reason?,
+    # detail?}]`` with status ∈ accepted|rejected. Cite/contract failures that name a
+    # path reject it even on soft-COMPLETED; ``delivery_status.delivered_files`` and
+    # CEO「已交付」only count accepted. Empty when the run landed nothing.
+    file_acceptance: list[dict[str, Any]] = field(default_factory=list)
     # Tool failure facts from this run's LoopController tally (tool_name / failure_count /
     # last_error / succeeded_after). Empty when no non-policy tool failure occurred.
     # CEO synthesis folds these into a structured ``tool_failures`` section — not a hard

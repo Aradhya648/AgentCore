@@ -6,9 +6,11 @@ from typing import Any, Literal
 
 from agentcore.runtime.checkpoints import AskCheckpointIntent
 
-AskUserCard = Literal["proposal_pick", "risk_ack", "organize_plan"]
+AskUserCard = Literal["proposal_pick", "risk_ack", "organize_plan", "daily_review"]
 
-CARD_KINDS: frozenset[str] = frozenset({"proposal_pick", "risk_ack", "organize_plan"})
+CARD_KINDS: frozenset[str] = frozenset(
+    {"proposal_pick", "risk_ack", "organize_plan", "daily_review"}
+)
 
 # Appended to every card rejection: the fix is a silent resend, not something to
 # narrate — without this the model tends to recount the failed call in its visible
@@ -22,6 +24,8 @@ _PROPOSAL_PICK_MAX_OPTIONS = 6
 _RISK_ACK_MIN_OPTIONS = 1
 _ORGANIZE_PLAN_MIN_OPTIONS = 1
 _ORGANIZE_PLAN_MAX_OPTIONS = 50
+_DAILY_REVIEW_MIN_OPTIONS = 1
+_DAILY_REVIEW_MAX_OPTIONS = 20
 
 
 def parse_card(raw: Any) -> AskUserCard | None | str:
@@ -34,7 +38,8 @@ def parse_card(raw: Any) -> AskUserCard | None | str:
     if text not in CARD_KINDS:
         return (
             f"未知 card={text!r}。仅支持 proposal_pick（方案挑选）、"
-            "risk_ack（风险确认勾选）或 organize_plan（整理方案清单）。"
+            "risk_ack（风险确认勾选）、organize_plan（整理方案清单）"
+            "或 daily_review（每日复盘提案）。"
         )
     return text  # type: ignore[return-value]
 
@@ -49,6 +54,8 @@ def card_max_options(card: AskUserCard | None) -> int:
         return _RISK_ACK_MAX_OPTIONS
     if card == "organize_plan":
         return _ORGANIZE_PLAN_MAX_OPTIONS
+    if card == "daily_review":
+        return _DAILY_REVIEW_MAX_OPTIONS
     return _PROPOSAL_PICK_MAX_OPTIONS
 
 
@@ -77,6 +84,11 @@ def validate_card_shape(
             return (
                 "card=organize_plan 要求恰好 1 个 question（kind=choice、multiple=true、"
                 "options 1–50 条整理项）。请改成单题多选后再发。"
+            )
+        if card == "daily_review":
+            return (
+                "card=daily_review 要求恰好 1 个 question（kind=choice、multiple=true、"
+                "options 1–20 条复盘提案）。请改成单题多选后再发。"
             )
         return (
             "card=risk_ack 要求恰好 1 个 question（kind=choice、multiple=true、"
@@ -121,6 +133,22 @@ def validate_card_shape(
                 f"card=organize_plan 要求 options 数量 {_ORGANIZE_PLAN_MIN_OPTIONS}–"
                 f"{_ORGANIZE_PLAN_MAX_OPTIONS}（当前 {n}）。"
                 "每项为「原路径→新路径」整理条目。"
+            )
+        return None
+
+    if card == "daily_review":
+        if kind != "choice":
+            return "card=daily_review 的 question 必须 kind=choice（勾选要落盘的提案）。"
+        if not multiple:
+            return (
+                "card=daily_review 必须 multiple=true（默认全选，取消勾选即跳过）。"
+                "每项须带 review_kind + body。"
+            )
+        n = len(options)
+        if n < _DAILY_REVIEW_MIN_OPTIONS or n > _DAILY_REVIEW_MAX_OPTIONS:
+            return (
+                f"card=daily_review 要求 options 数量 {_DAILY_REVIEW_MIN_OPTIONS}–"
+                f"{_DAILY_REVIEW_MAX_OPTIONS}（当前 {n}）。"
             )
         return None
 

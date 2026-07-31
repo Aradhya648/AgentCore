@@ -316,37 +316,11 @@ class DelegateTool:
                 contract_failure=True,
             )
 
-        # Agent/自动化：只认结构化 ledger 后果（已记账「可运行/仅方案」禁 toolshed 等）。
-        # 不扫用户原文猜意图、不因无账拒整个 delegate。须先于 playbook 声明闸传入记账。
+        # Playbook 声明闸：结构校验；建站/绿场 none 不硬拒。场面账（style/format/delivery）已拆除。
         automation_delivery_warning: str | None = None
-        automation_conf = None
-        from agentcore.runtime.runs.automation_delivery import (
-            automation_runnable_no_exec_soft_tip,
-            is_runnable_delivery,
-            resolve_delivery_confirmation,
-        )
-        from agentcore.tools.builtin import code_execution_enabled_for
-
-        cid_auto = (self._conversation_id or "").strip()
-        automation_conf = (
-            await resolve_delivery_confirmation(cid_auto) if cid_auto else None
-        )
-        if automation_conf is not None and is_runnable_delivery(automation_conf):
-            exec_on = code_execution_enabled_for(self._base_tool_context.backend)
-            if not exec_on:
-                automation_delivery_warning = automation_runnable_no_exec_soft_tip()
-                logger.info(
-                    "delegate.automation_delivery_soft_tip",
-                    conversation_id=cid_auto or None,
-                    reason="runnable_no_exec",
-                    format_id=automation_conf.format_id,
-                )
-
-        # Playbook 声明闸：结构校验 + 自动化开工卡记账；建站/绿场 none 不再硬拒。
         declared_playbook, none_reason, decl_error = resolve_playbook_declaration(
             arguments,
             user_message=self._user_message or "",
-            automation_delivery=automation_conf,
         )
         if decl_error:
             gate = declaration_reject_gate(decl_error)
@@ -391,39 +365,6 @@ class DelegateTool:
                     # 契约自纠拒绝——勿进熔断（CEO 连试换 none/去掉 tasks 会误禁用）。
                     contract_failure=True,
                 )
-            # P1a 风格双闸（keyed on build_website / build_toolshed）：须有 ask_user
-            # 记账的 style_id；full_auto 窄豁免 → 落默认风格进记账（DESIGN 由 design 节点写入）。
-            if playbook in ("build_website", "build_toolshed"):
-                from agentcore.runtime.runs.website_style import (
-                    build_website_missing_style_error,
-                    ensure_full_auto_default_style,
-                    resolve_style_confirmation,
-                )
-
-                cid = (self._conversation_id or "").strip()
-                conf = await resolve_style_confirmation(cid) if cid else None
-                if conf is None:
-                    if self._permission_axes.auto_executes and cid:
-                        ensure_full_auto_default_style(cid)
-                        logger.info(
-                            "delegate.website_style_full_auto_default",
-                            conversation_id=cid,
-                            playbook=playbook,
-                        )
-                    else:
-                        logger.info(
-                            "delegate.website_style_rejected",
-                            conversation_id=cid or None,
-                            permission_axes=self._permission_axes.to_dict(),
-                            playbook=playbook,
-                        )
-                        return ToolResult(
-                            tool_call_id="",
-                            success=False,
-                            output="",
-                            error=build_website_missing_style_error(),
-                            contract_failure=True,
-                        )
             # Mechanism: pass turn user line so playbooks (e.g. multi_lens synthesizer)
             # can inject proposition-fidelity anchors without relying on CEO-filled topic.
             tasks_raw, pb_errors = expand_playbook(
@@ -466,44 +407,8 @@ class DelegateTool:
                     contract_failure=True,
                 )
 
-        # 演讲/PPT：只认结构化 format ledger 后果（已确认 pptx + 有执行 → 禁静默只交 .md/Marp）。
-        # 不扫用户原文猜意图、不因无账拒整个 delegate。
+        # 演讲/PPT 场面账已拆除：不再因 format ledger 硬拒 pptx→md。
         presentation_format_warning: str | None = None
-        from agentcore.runtime.runs.presentation_format import (
-            is_pptx_format_confirmation,
-            presentation_pptx_no_exec_soft_tip,
-            presentation_pptx_silent_md_error,
-            resolve_format_confirmation,
-            tasks_silently_downgrade_pptx_to_md,
-        )
-        from agentcore.tools.builtin import code_execution_enabled_for
-
-        cid_pres = (self._conversation_id or "").strip()
-        conf = await resolve_format_confirmation(cid_pres) if cid_pres else None
-        if conf is not None and is_pptx_format_confirmation(conf):
-            exec_on = code_execution_enabled_for(self._base_tool_context.backend)
-            if exec_on and tasks_silently_downgrade_pptx_to_md(tasks_raw):
-                logger.info(
-                    "delegate.presentation_format_rejected",
-                    conversation_id=cid_pres or None,
-                    reason="pptx_silent_md",
-                    format_id=conf.format_id,
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=presentation_pptx_silent_md_error(),
-                    contract_failure=True,
-                )
-            if not exec_on:
-                presentation_format_warning = presentation_pptx_no_exec_soft_tip()
-                logger.info(
-                    "delegate.presentation_format_soft_tip",
-                    conversation_id=cid_pres or None,
-                    reason="pptx_no_exec",
-                    format_id=conf.format_id,
-                )
 
         valid_tools = {s.name for s in self._tools.list_all()}
         complexity_hint = arguments.get("complexity_hint", "standard")

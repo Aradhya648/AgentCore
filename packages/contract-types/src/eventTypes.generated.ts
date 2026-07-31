@@ -40,6 +40,7 @@ export type SSEEventType =
   | "handoff_snapshot_done"
   | "host_op_required"
   | "interaction_orphaned"
+  | "mcp_op_required"
   | "message_end"
   | "message_start"
   | "plan_review_required"

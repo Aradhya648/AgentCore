@@ -381,7 +381,7 @@ async def test_delete_removes_file(tmp_path: Path):
     await ws.delete("f.txt")
     assert not (tmp_path / "f.txt").exists()
     assert ws.dirty is True
-    trash = tmp_path / ".agentcore" / "trash"
+    trash = tmp_path / "AgentCore" / "trash"
     assert trash.is_dir()
     entries = list(trash.iterdir())
     assert len(entries) == 1
@@ -393,14 +393,14 @@ async def test_delete_removes_directory_recursively(tmp_path: Path):
     (tmp_path / "d" / "sub" / "f.txt").write_text("x", encoding="utf-8")
     await _ws(tmp_path).delete("d")
     assert not (tmp_path / "d").exists()
-    assert (tmp_path / ".agentcore" / "trash").is_dir()
+    assert (tmp_path / "AgentCore" / "trash").is_dir()
 
 
 async def test_delete_permanent_hard_removes(tmp_path: Path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     await _ws(tmp_path).delete("f.txt", permanent=True)
     assert not (tmp_path / "f.txt").exists()
-    trash = tmp_path / ".agentcore" / "trash"
+    trash = tmp_path / "AgentCore" / "trash"
     assert not trash.exists() or not any(trash.iterdir())
 
 

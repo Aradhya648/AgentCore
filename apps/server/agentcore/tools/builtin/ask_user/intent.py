@@ -1,4 +1,8 @@
-"""Resolve ask_user checkpoint intent at emission time (kickoff vs decision)."""
+"""Resolve ask_user checkpoint intent at emission time.
+
+Scene kickoff / 开工提案 product surface removed: ordinary asks are ``decision``.
+Explicit ``card`` still overrides via :func:`card_overrides_intent`.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +14,7 @@ from agentcore.runtime.checkpoints import AskCheckpointIntent
 if TYPE_CHECKING:
     from agentcore.llm.provider.protocol import LLMMessage
 
-# Tools that mean the CEO has moved past「开工提案」into execution — a subsequent
-# ask_user is a mid-task fork even if the model skipped consult_skill.
+# Tools that mean the CEO has moved into execution — subsequent ask_user is mid-task.
 _EXECUTION_TOOLS = frozenset(
     {
         "delegate",
@@ -25,8 +28,9 @@ _EXECUTION_TOOLS = frozenset(
     }
 )
 
+# Skills that teach ask_user shapes — all resolve to ordinary decision (no kickoff shell).
 _SKILL_INTENT: dict[str, AskCheckpointIntent] = {
-    "ask_user_kickoff": "kickoff",
+    "ask_user_kickoff": "decision",
     "ask_user_midtask": "decision",
 }
 
@@ -73,11 +77,11 @@ def resolve_ask_checkpoint_intent(
 ) -> AskCheckpointIntent:
     """Classify a blocking ``ask_user`` pause for the ``checkpoint_required`` payload.
 
-    ``kickoff`` = 开工提案（回合初对齐起步计划）；``decision`` = 途中拍板（执行中岔路）。
+    Ordinary clarifying asks are always ``decision`` (kickoff / 开工提案 shell removed).
     Derived from the live CEO transcript at suspend time — never inferred downstream.
     """
     if not transcript:
-        return "kickoff"
+        return "decision"
 
     prior = _prior_tool_names(transcript)
     if "ask_user" in prior or any(name in _EXECUTION_TOOLS for name in prior):
@@ -87,4 +91,4 @@ def resolve_ask_checkpoint_intent(
     if skill in _SKILL_INTENT:
         return _SKILL_INTENT[skill]
 
-    return "kickoff"
+    return "decision"

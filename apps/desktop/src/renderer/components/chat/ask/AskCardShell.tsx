@@ -1,8 +1,8 @@
 /**
- * 统一 ask 卡壳 —— 五种 ask intent（kickoff / decision / proposal_pick / risk_ack /
- * organize_plan）共用的三段结构，差异只剩「体」里的插槽。
+ * 统一 ask 卡壳 —— ask intent（decision/kickoff 同壳 · proposal_pick / risk_ack /
+ * organize_plan / daily_review）共用的三段结构，差异只剩「体」里的插槽。
  *
- * 相对旧 kickoff 卡刻意砍掉的三处硬分区：头部不再铺 `bg-muted/10`、不再压 `border-b`（标题与
+ * 相对旧 kickoff 开场仪式刻意砍掉的三处硬分区：头部不再铺 `bg-muted/10`、不再压 `border-b`（标题与
  * 首行之间靠留白分段），底栏不再 `backdrop-blur`。卡内不出现品牌色，唯一的彩色出口是底栏主 CTA。
  *
  * 排版契约：头/底 `px-4`，体 `px-2`——{@link AskRowGroup} 的行自带 `px-2`，两者相加后行内文字

@@ -89,12 +89,56 @@ export function collectOrganizePlanSelected(
   return out;
 }
 
+const REVIEW_KIND_LABEL: Record<string, string> = {
+  preference: "偏好",
+  profile: "画像",
+  topic: "主题",
+  rule: "规则",
+  doc: "文档",
+};
+
+function reviewOptionDetail(o: Record<string, unknown>): string | undefined {
+  const kindRaw = str(o, "review_kind");
+  const kind = kindRaw ? REVIEW_KIND_LABEL[kindRaw] : undefined;
+  const summary = (str(o, "body") ?? str(o, "detail") ?? "").trim();
+  if (kind && summary) return `${kind} · ${summary}`;
+  if (kind) return kind;
+  return summary || undefined;
+}
+
+/** Seed every choice label (mirrors desktop useAskAnswer seedAllMultiple). */
+function seedAllMultipleAnswers(
+  questions: Array<Record<string, unknown>>,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const q of questions) {
+    const id = str(q, "id") ?? str(q, "prompt") ?? "";
+    if (!id) continue;
+    const options = Array.isArray(q.options) ? q.options : [];
+    out[id] = options.map(optionLabel).filter(Boolean);
+  }
+  return out;
+}
+
+function pickedCount(answers: Record<string, string[]>): number {
+  let n = 0;
+  for (const labels of Object.values(answers)) n += labels.length;
+  return n;
+}
+
 /** Intents whose continue settle carries `selected` (mirrors desktop CheckpointCard). */
 const CARRIES_SELECTED = new Set([
   "proposal_pick",
   "risk_ack",
   "organize_plan",
+  "daily_review",
 ]);
+
+/** Intents with no per-item checkbox UI → confirm = keep all labels. */
+const KEEP_ALL_ON_CONFIRM = new Set(["organize_plan"]);
+
+/** Intents with row checkbox wall (default all on; uncheck = skip). */
+const CHECKBOX_WALL = new Set(["daily_review"]);
 
 export function ResumeCard({
   paused,
@@ -110,8 +154,6 @@ export function ResumeCard({
   ) => void;
 }) {
   const [note, setNote] = useState("");
-  // Per-question picks for proposal_pick / risk_ack (chips → selected).
-  const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const isPlanReview = paused.kind === "plan_review";
   const isTeamPreview = paused.kind === "team_preview";
   const isAskUser =
@@ -121,6 +163,14 @@ export function ResumeCard({
   const assumptions = asRecords(paused.assumptions);
   const styleOptions = asRecords(paused.style_options);
   const formatOptions = asRecords(paused.format_options);
+  const intent = paused.intent ?? null;
+  const isDailyReview = intent === "daily_review";
+  // Per-question picks: proposal_pick / risk_ack chips; daily_review checkbox wall (seed all).
+  const [answers, setAnswers] = useState<Record<string, string[]>>(() =>
+    CHECKBOX_WALL.has(paused.intent ?? "")
+      ? seedAllMultipleAnswers(asRecords(paused.questions))
+      : {},
+  );
   const [styleId, setStyleId] = useState<string | null>(() => {
     const first = styleOptions[0];
     return first ? (str(first, "id") ?? null) : null;
@@ -131,7 +181,7 @@ export function ResumeCard({
   });
   const isDebateKickoff =
     isTeamPreview && (paused as { primitive?: string }).primitive === "debate";
-  const intent = paused.intent ?? null;
+  const dailyPicked = isDailyReview ? pickedCount(answers) : 0;
 
   const pickChip = (
     questionId: string,
@@ -142,7 +192,11 @@ export function ResumeCard({
     const multi = questions.length > 1;
     const text = multi && prompt ? `${prompt}：${value}` : value;
     setNote((prev) => (prev.trim() ? `${prev}\n${text}` : text));
-    if (!CARRIES_SELECTED.has(intent ?? "") || intent === "organize_plan") {
+    if (
+      !CARRIES_SELECTED.has(intent ?? "") ||
+      KEEP_ALL_ON_CONFIRM.has(intent ?? "") ||
+      CHECKBOX_WALL.has(intent ?? "")
+    ) {
       return;
     }
     setAnswers((cur) => {
@@ -162,13 +216,29 @@ export function ResumeCard({
     });
   };
 
+  const toggleCheck = (questionId: string, value: string) => {
+    setAnswers((cur) => {
+      const picked = cur[questionId] ?? [];
+      return {
+        ...cur,
+        [questionId]: picked.includes(value)
+          ? picked.filter((o) => o !== value)
+          : [...picked, value],
+      };
+    });
+  };
+
   const collectSelected = (decision: CheckpointDecision): string[] => {
     if (decision !== "continue" || !isAskUser) return [];
     let out: string[] = [];
-    if (intent === "organize_plan") {
-      // No per-item checkbox UI on mobile → confirm = keep all (desktop seedAllMultiple).
+    if (KEEP_ALL_ON_CONFIRM.has(intent ?? "")) {
+      // organize_plan: no per-item checkbox UI → confirm = keep all.
       out = collectOrganizePlanSelected(questions);
-    } else if (intent === "proposal_pick" || intent === "risk_ack") {
+    } else if (
+      intent === "proposal_pick" ||
+      intent === "risk_ack" ||
+      CHECKBOX_WALL.has(intent ?? "")
+    ) {
       for (const labels of Object.values(answers)) {
         for (const v of labels) {
           const t = v.trim();
@@ -197,7 +267,10 @@ export function ResumeCard({
   };
 
   return (
-    <div className="pause">
+    <div
+      className="pause"
+      data-ask-intent={isDailyReview ? "daily_review" : undefined}
+    >
       <div className="pause-title">
         {isDebateKickoff
           ? "辩论开工 · 开赛前确认"
@@ -205,7 +278,9 @@ export function ResumeCard({
             ? "团队预审 · 开干前确认"
             : isPlanReview
               ? "执行已暂停 · 待你决定是否继续"
-              : "需要你拍板（已离线保留）"}
+              : isDailyReview
+                ? "复盘提案 · 确认要落盘的项"
+                : "需要你拍板（已离线保留）"}
       </div>
       {paused.user_message && (
         <div className="pause-context">{paused.user_message}</div>
@@ -238,6 +313,64 @@ export function ResumeCard({
           const def = str(q, "default");
           const multiple = Boolean(q.multiple);
           const options = asRecords(q.options);
+          if (isDailyReview) {
+            const picked = answers[id] ?? [];
+            return (
+              <div key={id} className="ask-question">
+                {prompt && (
+                  <div className="ask-prompt">
+                    {prompt}
+                    <span className="ask-prompt-hint">取消勾选即跳过</span>
+                  </div>
+                )}
+                <fieldset className="ask-check-list">
+                  {prompt ? (
+                    <legend className="sr-only">{prompt}</legend>
+                  ) : null}
+                  {options.map((o) => {
+                    const label = str(o, "label") ?? "";
+                    if (!label) return null;
+                    const detail = reviewOptionDetail(o);
+                    const selected = picked.includes(label);
+                    const inputId = `daily-review-${id}-${label}`;
+                    return (
+                      <label
+                        key={label}
+                        htmlFor={inputId}
+                        className={
+                          selected
+                            ? "ask-check-row ask-check-row-active"
+                            : "ask-check-row"
+                        }
+                      >
+                        <input
+                          id={inputId}
+                          type="checkbox"
+                          className="ask-check-input"
+                          checked={selected}
+                          onChange={() => toggleCheck(id, label)}
+                        />
+                        <span
+                          className={
+                            selected
+                              ? "ask-check-box ask-check-box-on"
+                              : "ask-check-box"
+                          }
+                          aria-hidden
+                        />
+                        <span className="ask-check-text">
+                          <span className="ask-check-label">{label}</span>
+                          {detail && (
+                            <span className="ask-check-detail">{detail}</span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              </div>
+            );
+          }
           const chips: AskOption[] =
             kind === "text"
               ? def
@@ -433,14 +566,27 @@ export function ResumeCard({
         }
         onChange={(e) => setNote(e.target.value)}
       />
-      <div className="pause-hint">等你拍板 · 不限时</div>
+      <div className="pause-hint">
+        {isDailyReview
+          ? "确认后服务端直接写入记忆/规则/文档，无需再跑工具"
+          : "等你拍板 · 不限时"}
+      </div>
       <div className="pause-actions">
         <button
           type="button"
           className="pause-btn pause-btn-primary"
+          disabled={isDailyReview && dailyPicked === 0}
           onClick={() => submit("continue")}
         >
-          {isDebateKickoff ? "开赛" : isTeamPreview ? "授权并开工" : "继续"}
+          {isDebateKickoff
+            ? "开赛"
+            : isTeamPreview
+              ? "授权并开工"
+              : isDailyReview
+                ? dailyPicked > 0
+                  ? `确认落盘（${dailyPicked}）`
+                  : "确认落盘"
+                : "继续"}
         </button>
         {isPlanReview && (
           <button

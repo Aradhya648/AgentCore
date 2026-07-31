@@ -337,6 +337,8 @@ async def test_write_marks_landed_files(tmp_path: Path):
 
 def test_delivery_status_no_continue_writing_action():
     """成篇未写完：标 partial + 成篇未写完摘要，不再挂 continue_writing 按钮。"""
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
+
     plan = RunPlan()
     plan.add(
         RunSpec(
@@ -351,6 +353,9 @@ def test_delivery_status_no_continue_writing_action():
             phase=RunPhase.COMPLETED,
             content="",
             files_touched=["report.md"],
+            file_acceptance=build_file_acceptance(
+                ["report.md"], phase=RunPhase.COMPLETED
+            ),
             delivery_gaps=[
                 {
                     "description": "队员因 token 预算触顶被迫收口，产出可能不完整",

@@ -133,7 +133,7 @@ export function useAskAnswer(
     (styleId ? 1 : 0) +
     (formatId ? 1 : 0);
 
-  const compose = (intent: CheckpointIntent) =>
+  const compose = (_intent: CheckpointIntent) =>
     composeAnswer(
       content,
       answers,
@@ -142,12 +142,11 @@ export function useAskAnswer(
       styleId,
       formatId,
       note,
-      intent === "kickoff",
     );
 
   /** Compose with one question forced to `value` (bind_local_folder resolve path). */
   const composeWithAnswer = (
-    intent: CheckpointIntent,
+    _intent: CheckpointIntent,
     questionId: string,
     value: string,
   ) =>
@@ -159,7 +158,6 @@ export function useAskAnswer(
       styleId,
       formatId,
       note,
-      intent === "kickoff",
     );
 
   return {
@@ -640,7 +638,6 @@ export function composeAnswer(
   styleId: string | null,
   formatId: string | null,
   note: string,
-  opening: boolean,
 ): string {
   const trimmed = note.trim();
   if (
@@ -665,5 +662,5 @@ export function composeAnswer(
   if (format) lines.push(`· 形态：${format.label}`);
   if (trimmed) lines.push(`· 补充：${trimmed}`);
   if (lines.length === 0) return trimmed;
-  return [opening ? "就按这个方案开做：" : "我的答复：", ...lines].join("\n");
+  return ["我的答复：", ...lines].join("\n");
 }

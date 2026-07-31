@@ -20,20 +20,12 @@ export function ConversationHydrateOverlay({
   if (phase === "loading") {
     return (
       <output
-        className="absolute inset-0 z-30 flex flex-col bg-background"
+        className="absolute inset-0 z-30 flex items-center justify-center gap-2 bg-background text-sm text-muted-foreground"
         aria-live="polite"
         aria-label="正在加载对话"
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 px-6 pt-14">
-          <div className="h-4 w-2/5 animate-pulse rounded bg-muted" />
-          <div className="h-16 w-full animate-pulse rounded-lg bg-muted" />
-          <div className="ml-auto h-12 w-3/5 animate-pulse rounded-lg bg-muted" />
-          <div className="h-20 w-4/5 animate-pulse rounded-lg bg-muted" />
-        </div>
-        <div className="flex items-center justify-center gap-2 pb-8 text-sm text-muted-foreground">
-          <Loader2 size={14} className="animate-spin" />
-          正在加载对话…
-        </div>
+        <Loader2 size={14} className="animate-spin" />
+        正在加载对话…
       </output>
     );
   }

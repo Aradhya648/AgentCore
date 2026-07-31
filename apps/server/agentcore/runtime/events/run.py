@@ -508,17 +508,20 @@ def delivery_status(
     delivered_files: list[str],
     gaps: list[dict[str, Any]],
     actions: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]] | None = None,
 ) -> SSEEvent:
     """交付状态（能力闸门与交付诚实性）：delegate 批次收尾的结构化交付对账。
 
     Deterministic (template-only, no LLM), built from the wrap-up signals the engine
-    already has — worker ``files_touched``, contract / handoff gaps (含 degraded 交接、
-    artifacts 对账缺口、completion_criteria 未满足), and derived user actions (如云端无
-    执行环境 → ``bind_local_folder``). ``state`` ∈ delivered / partial / blocked / notes
-    （仅 soft 待核实 → notes 轻提醒）. ``gaps`` items are ``{role, description}`` plus
-    optional ``reason`` / ``severity`` / ``paths``；``actions`` 已知 kind 含
-    ``bind_local_folder`` / ``website_verify`` / ``continue_skipped_runs``（已撤
-    ``continue_writing``）. DURABLE：落 journal；folds 同 ``execution_id`` 保最新。
+    already has — path-level ``file_acceptance`` / ``artifacts``, contract /
+    handoff gaps (含 degraded 交接、artifacts 对账缺口、completion_criteria 未满足),
+    and derived user actions (如云端无执行环境 → ``bind_local_folder``). ``state`` ∈
+    delivered / partial / blocked / notes（仅 soft 待核实 → notes 轻提醒）.
+    ``artifacts`` = path acceptance rows；``delivered_files`` = accepted only.
+    ``gaps`` items are ``{role, description}`` plus optional ``reason`` /
+    ``severity`` / ``paths``；``actions`` 已知 kind 含 ``bind_local_folder`` /
+    ``website_verify`` / ``continue_skipped_runs``（已撤 ``continue_writing``）.
+    DURABLE：落 journal；folds 同 ``execution_id`` 保最新。
     Must NOT ride ``content_delta``（终稿正文与交付对账分离）。
     """
     return SSEEvent(
@@ -530,6 +533,7 @@ def delivery_status(
             "delivered_files": delivered_files,
             "gaps": gaps,
             "actions": actions,
+            "artifacts": list(artifacts or []),
         },
     )
 

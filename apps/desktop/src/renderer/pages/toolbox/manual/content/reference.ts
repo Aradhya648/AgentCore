@@ -33,8 +33,15 @@ export const referenceChapter: ManualChapterContent = {
               desc: "文档 / 思维导图 / 表格 / 幻灯片 / 可运行产物——尚未开放。",
             },
             {
-              title: "MCP（规划中）",
-              desc: "接入第三方工具与数据源的行业标准协议——工具箱「集成 · 连接器」仍为占位。",
+              title: "MCP（本机连接器）",
+              desc: [
+                "在工具箱 ",
+                {
+                  text: "集成 · 连接器",
+                  link: { kind: "go", to: APP_PATHS.toolbox.connectors },
+                },
+                " 配置本机 stdio MCP Server；启用后 worker 可调用其工具（一律需审批）。仅桌面端；Web / 手机无本地 MCP。",
+              ],
             },
             {
               title: "A2A（规划中）",

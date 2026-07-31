@@ -206,9 +206,6 @@ export function LoginPage() {
                   </LegalLink>
                 </span>
               </label>
-              <p className="pl-6 text-xs text-muted-foreground">
-                对话通常保存在云端；AI 输出请自行核实。
-              </p>
             </div>
           )}
 
@@ -225,16 +222,6 @@ export function LoginPage() {
             </p>
           )}
         </form>
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          <LegalLink docId="terms" onOpen={setLegalDoc}>
-            用户协议
-          </LegalLink>
-          <span className="mx-1.5">·</span>
-          <LegalLink docId="privacy" onOpen={setLegalDoc}>
-            隐私政策
-          </LegalLink>
-        </p>
       </div>
     </div>
   );

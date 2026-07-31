@@ -254,7 +254,13 @@ def run_golden(ws: Path) -> dict[str, Any]:
     checks["files"] = sorted(
         str(p.relative_to(ws)).replace("\\", "/")
         for p in ws.rglob("*")
-        if p.is_file() and ".agentcore" not in p.parts and "__pycache__" not in p.parts
+        if p.is_file()
+        and "__pycache__" not in p.parts
+        and not (
+            len(p.parts) >= len(ws.parts) + 2
+            and p.parts[len(ws.parts)] == "AgentCore"
+            and p.parts[len(ws.parts) + 1] in ("index", "trash", "baselines")
+        )
     )
     help_ok = checks.get("help", {}).get("exit") == 0
     greet_out = checks.get("greet", {}).get("stdout") or ""

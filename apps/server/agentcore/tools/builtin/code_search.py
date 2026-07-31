@@ -3,6 +3,9 @@
 Complements ``grep``: ``grep`` finds exact regex matches line-by-line; ``code_search``
 indexes functions/classes/methods (tree-sitter) and ranks by BM25 so the model can
 locate code by concept or keyword across files.
+
+Index build/refresh is owned by ``IndexMaintainer`` (turn start / mutations).
+This tool is query-only against the current snapshot.
 """
 
 import time
@@ -16,7 +19,7 @@ from agentcore.tools.registration import (
     ToolSurface,
 )
 from agentcore.workspace.indexing.bm25 import tokenize_query
-from agentcore.workspace.protocol import CodeSearchResult, WorkspaceError
+from agentcore.workspace.protocol import CodeIndexStatus, CodeSearchResult, WorkspaceError
 
 _DEFAULT_MAX_RESULTS = 10
 _MAX_RESULTS_CAP = 50
@@ -73,6 +76,7 @@ class CodeSearchTool:
                 "「User 模型在哪」这类自然语言或关键词定位；返回匹配的函数/类/方法"
                 "及路径。命中后用 file_read（带 offset/limit）精读，禁止整目录通读。"
                 "精确符号名、字符串或正则请用 grep——两工具并存，勿互相替代。"
+                "索引由后台维护：若返回 building/stale，请改用 grep，勿空等。"
             ),
             parameters=CODE_SEARCH_PARAMETERS,
             category=ToolCategory.FILESYSTEM,
@@ -95,8 +99,12 @@ class CodeSearchTool:
         language = arguments.get("language") or None
         path_prefix = arguments.get("path_prefix") or "."
 
+        # Query-only: never call ensure_code_index on the tool path.
+        kick = getattr(context.backend, "start_code_index_maintenance", None)
+        if callable(kick):
+            kick()
+
         try:
-            await context.backend.ensure_code_index()
             result = await context.backend.code_search(
                 query,
                 language=language,
@@ -113,7 +121,10 @@ class CodeSearchTool:
             output=output,
             duration_ms=int((time.monotonic() - start) * 1000),
             output_limit=_OUTPUT_LIMIT,
-            metadata={"match_count": len(result.chunks)},
+            metadata={
+                "match_count": len(result.chunks),
+                "index_status": str(result.index_status),
+            },
         )
 
 
@@ -128,8 +139,13 @@ def _fail(error: str, start: float) -> ToolResult:
 
 
 def _render(result: CodeSearchResult, *, query: str, path_prefix: str) -> str:
+    status = result.index_status
     if not result.chunks:
-        return _empty_result_note(query, path_prefix=path_prefix, index_stale=result.index_stale)
+        return _empty_result_note(
+            query,
+            path_prefix=path_prefix,
+            status=status,
+        )
 
     lines: list[str] = []
     for chunk, score in zip(result.chunks, result.scores, strict=True):
@@ -149,12 +165,24 @@ def _render(result: CodeSearchResult, *, query: str, path_prefix: str) -> str:
         f"（共 {len(result.chunks)} 条结果；用 file_read path offset/limit 查看全文）"
     )
     body = "\n\n".join(lines) + f"\n\n{summary}"
-    if result.index_stale:
-        body += "\n⚠️ 索引可能过旧，建议配合 grep 验证。"
+    body += _status_footer(status)
     return body
 
 
-def _empty_result_note(query: str, *, path_prefix: str, index_stale: bool) -> str:
+def _status_footer(status: CodeIndexStatus) -> str:
+    if status == CodeIndexStatus.READY:
+        return ""
+    if status == CodeIndexStatus.BUILDING:
+        return "\n⚠️ 索引仍在后台构建/更新；结果可能不完整，关键结论请用 grep 核对。"
+    return "\n⚠️ 索引可能过旧或不完整，建议配合 grep 验证。"
+
+
+def _empty_result_note(
+    query: str,
+    *,
+    path_prefix: str,
+    status: CodeIndexStatus,
+) -> str:
     """Actionable empty-success note (align with web_search: success + 促重拟).
 
     Does not silently call another tool — feedback only.
@@ -166,6 +194,13 @@ def _empty_result_note(query: str, *, path_prefix: str, index_stale: bool) -> st
         quoted = "、".join(f"`{k}`" for k in keywords)
         kw_line = f"建议用 grep 精确搜这些关键词：{quoted}。"
 
+    if status == CodeIndexStatus.BUILDING:
+        return (
+            f"代码索引仍在后台构建中{scope}，本次无可用命中。"
+            f"请立刻改用 grep（精确符号/字符串），不要空等 code_search。"
+            f"{kw_line}"
+        )
+
     tips = (
         "可执行下一步：① 收窄或放宽 path_prefix / 去掉 language 过滤；"
         "② 换更短的概念词或同义改写后再 code_search；"
@@ -173,8 +208,8 @@ def _empty_result_note(query: str, *, path_prefix: str, index_stale: bool) -> st
         "④ 确认 path_prefix 相对工作区根且存在。"
     )
     body = f"本次 code_search 未命中任何代码块{scope}。不要据此断定代码不存在。{kw_line}{tips}"
-    if index_stale:
-        body += " ⚠️ 索引可能过旧，建议直接用 grep 验证。"
+    if status == CodeIndexStatus.STALE:
+        body += " ⚠️ 索引可能过旧或不完整，建议直接用 grep 验证。"
     return body
 
 

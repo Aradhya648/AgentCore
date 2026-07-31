@@ -85,6 +85,16 @@ class HostOpRequiredPayload(WirePayload):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class McpOpRequiredPayload(WirePayload):
+    """Transport-only client-tool request: run a local MCP Client op on the bound
+    desktop (stdio list_tools / call_tool). NOT journaled."""
+
+    request_id: str
+    conversation_id: str
+    op: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
 class HandoffSnapshotDonePayload(WirePayload):
     snapshot_id: str
     conversation_id: str

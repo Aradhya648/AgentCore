@@ -9,12 +9,10 @@ import { FlaskConical } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 /**
- * Hidden preview route (`#/preview/ask-commence`) for comparing 开工提案
- * layout variants. V5 mounts the current production kickoff body
- * (`AskKickoffBody`), V2 the retired one it replaced (`AskCommenceKickoffBody`)
- * — compare those two; V1/V3/V4 remain A/B references.
+ * Hidden preview route (`#/preview/ask-commence`) — **已退役**开场/开工提案布局 A/B。
+ * 生产 ask 已统一为通用澄清卡（V5 = {@link AskDecisionBody}）；V1–V4 仅历史对照，勿当产品手册。
  *
- * Deep-link: `#/preview/ask-commence?s=ask-commence-v1` (…v2 / v3 / v4 / v5).
+ * Deep-link: `#/preview/ask-commence?s=ask-commence-v5`（现生产）或 v1…v4（退役对照）。
  */
 export function AskCommencePreviewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,10 +33,10 @@ export function AskCommencePreviewPage() {
           <FlaskConical size={18} className="shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-semibold text-foreground">
-              开工提案 · 布局方案
+              已退役 · ask 开场布局对照
             </h1>
             <p className="text-xs text-muted-foreground">
-              {scenes.length} 套方案 · 仅预览，不改生产默认
+              生产 = 通用澄清卡；V1–V4 仅历史对照
             </p>
           </div>
         </div>

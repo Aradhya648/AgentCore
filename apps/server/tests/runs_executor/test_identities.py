@@ -206,6 +206,8 @@ async def test_handoff_prompt_splits_by_topology():
     assert "不必为交而交" in leaf
     assert "接力契约 + 增量交代" in leaf
     assert "必须调用 handoff" not in leaf
+    assert "权威文档冲突" in leaf
+    assert "静默改权威稿" in leaf
 
     # Executor wires topology into the live system prompt (not just the helper).
     plan, _ = build_run_plan(

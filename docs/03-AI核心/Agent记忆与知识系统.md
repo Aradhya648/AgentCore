@@ -41,7 +41,7 @@ AgentCore/
 - 叠加注入：绑定文件夹的对话 = 全局 + 该项目；预算紧张时**全局优先**；项目层无 `偏好.md`。
 - **双层项目知识**：短入口 = `导航.md`（always，只指路、不塞长文）；厚内容 = `主题/` + `文档/项目/`（按需查）。不写用户仓库根 `AGENTS.md` / `docs/`。
 - 冲突：靠措辞 + 就近相关性；用户硬规则恒胜。
-- `文档/` 与 `.agentcore/index/`（code_search）正交：索引管符号检索；导航/主题管叙事路由。勿与 `~/Documents/AgentCore/` 工作区容器混淆。
+- `文档/` 与同树旁路 `AgentCore/index/`（code_search；系统噪音）正交：索引管符号检索；导航/主题管叙事路由。勿与 `~/Documents/AgentCore/` 工作区容器混淆。
 - 主题继续 `name=主题/<slug>.md`（非真实嵌套 folder）——有意设计。
 - **约定常量**：`AgentCore/文档/项目/` → 代码 `workspace/stage_dirs.py`（`PROJECT_DOCS_DIR`）；案卷子目录 `research`/`debate`/`reviews` 同文件。
 
@@ -107,7 +107,9 @@ AgentCore/
 
 ## 四、跨会话对话日志
 
-Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历史原文（messages + turn_journal）；CEO **只 `delegate` 查阅员**。用户 `@` 对话附件走服务端 `log_export` 深读。能力**产品层恒开**（无独立隐私闸）；控制面为编辑/清空长期记忆与删除对话，而非总开关。
+Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历史原文（messages + turn_journal）；CEO **只 `delegate` 查阅员**。`search_conversations` 支持 `updated_within_hours`（日复盘等）。用户 `@` 对话附件走服务端 `log_export` 深读。能力**产品层恒开**（无独立隐私闸）；控制面为编辑/清空长期记忆与删除对话，而非总开关。
+
+**系统模板 · 每日对话复盘** ✅：站立任务 `template_key=daily_conversation_review`（引导开、默认日跑）。作用域可配（全局裸聊 / 多云项目 / 回看小时）。**无新料硬闸**：作用域内无近期对话则收件箱直接「今日无新料」、不跑 LLM。有料时代跑 brief 要求 `ask_user card=daily_review`；用户勾选确认后**服务端直接**写记忆 / 用户规则 / `AgentCore/文档/reviews/`（不再依赖 LLM 再调 remember）。与语义巩固并存。→ `standing_tasks/templates.py` · `review_apply.py` · `review_preflight.py`；桌面 Toolbox → 自动化。
 
 **对外口径**（CEO 对用户说话）：白话三层——当前会话 / 偏好与笔记 / 点名可派队员查旧场；不报工具名与内部角色；手头无原文时说明「需要派人去查」再行动，禁止装不知道或空口编造。→ 见代码：`runtime/resolve/prompt.py`（【记忆/历史·对外口径】【跨会话原文】）
 
@@ -119,7 +121,7 @@ Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历
 
 - **自动标题**：侧边栏 UX，非记忆层；不进 Agent 上下文。云回合在首条用户消息落库后并行铸题；本地 sidecar 仍回合结束回写。
 - **会话摘要记忆层已移除**：跨会话情景对 CEO 分工帮助有限；可复用信号由长期记忆承载。两层协议的「情景沉淀」不注入——与本否决不冲突。
-- **搜索**：取消向量 RAG 作 prompt 自动注入；agentic 检索（`file_read`/`grep`/`code_search`）为主路。`code_search` = 工具后端，非 RAG 层。
+- **搜索**：取消向量 RAG 作 prompt 自动注入；agentic 检索（`file_read`/`grep`/`code_search`）为主路。`code_search` = 工具后端（**只查**当前 BM25 快照），索引由回合启动 / 写后后台 `IndexMaintainer` 维护；`building`/`stale` 时模型改用 `grep`。非 RAG 层。
 - **远期**：TWM / recall / 委派预算等延后到窗口不足时（DeepSeek 1M 远大于 MVP 用量）。
 
 ---

@@ -2,7 +2,7 @@
 
 Cloud (``run_and_persist``): labeled OSS/FS snapshot, id → ``messages.baseline_snapshot_id``.
 Local (sidecar ``_run_turn``): zip beside the workspace at
-``.agentcore/baselines/{message_id}.zip`` (id = message_id; no DB required).
+``AgentCore/baselines/{message_id}.zip`` (id = message_id; no DB required).
 
 失败 / 超限 / 超时只打日志，绝不阻断回合；桌面降级 A1 工具参数预览。
 """
@@ -17,6 +17,7 @@ from agentcore.core.logging import get_logger
 from agentcore.storage._archive import ArchiveLimitError, zip_dir
 from agentcore.workspace.protocol import WorkspaceBackend
 from agentcore.workspace.snapshots import create_snapshot
+from agentcore.workspace.stage_dirs import BASELINES_REL
 
 logger = get_logger(__name__)
 
@@ -27,8 +28,8 @@ LOCAL_BASELINE_TIMEOUT_S = 60.0
 
 
 def local_baseline_path(workspace_root: Path, snapshot_id: str) -> Path:
-    """``.agentcore/baselines/{snapshot_id}.zip`` under the bound workspace root."""
-    return workspace_root / ".agentcore" / "baselines" / f"{snapshot_id}.zip"
+    """``AgentCore/baselines/{snapshot_id}.zip`` under the bound workspace root."""
+    return workspace_root / Path(*BASELINES_REL.split("/")) / f"{snapshot_id}.zip"
 
 
 async def maybe_capture_turn_baseline(

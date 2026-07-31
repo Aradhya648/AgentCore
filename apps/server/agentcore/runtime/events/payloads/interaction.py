@@ -77,7 +77,8 @@ class AskOption(WirePayload):
     cloud scratch + desktop online is enough; does not change binding);
     `grant_organize_folder` is the organize-mode counterpart (move/copy/mkdir/trash-delete).
     Structured ``op`` / ``source`` / ``destination`` / ``path`` fields carry organize_plan
-    items for plan-bound ``file_batch``."""
+    items for plan-bound ``file_batch``. ``review_kind`` / ``body`` / ``slug`` / ``section``
+    carry daily_review proposals for server-side apply on confirm."""
 
     label: str
     detail: str | None = absent()
@@ -95,6 +96,12 @@ class AskOption(WirePayload):
     source: str | None = absent()
     destination: str | None = absent()
     path: str | None = absent()
+    review_kind: (
+        Literal["preference", "profile", "topic", "rule", "doc"] | None
+    ) = absent()
+    body: str | None = absent()
+    slug: str | None = absent()
+    section: str | None = absent()
 
 
 class AskQuestion(WirePayload):

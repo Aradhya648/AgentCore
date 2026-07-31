@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "id": "dogfood-decision-loop",
+  "title": "Dogfood 决策闭环金标",
+  "slot_count": 20,
+  "dimensions": ["routing", "deliverable", "citation"],
+  "kinds": ["synthetic_fill", "pending_label"],
+  "evidence_tiers": ["L1_synthetic", "dogfood", "R_repo"],
+  "gate_policy": "observe_only",
+  "orthogonal_to": "apps/server/agentcore/evals/cases/gold/labels.json",
+  "entries": [
+    {
+      "id": "df_syn_01_direct_over_delegate",
+      "kind": "synthetic_fill",
+      "evidence_tier": "L1_synthetic",
+      "scenario": "用户问首都类事实题，系统却开多 Agent 委派。",
+      "intended_coverage": "该直答却委派",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": {"score": 0, "note": "应直答，误走 delegate"},
+        "deliverable": {"score": "N/A", "note": "无文件交付诉求"},
+        "citation": {"score": "N/A", "note": "无检索成篇诉求"}
+      },
+      "notes": "合成示范：routing 失败形态"
+    },
+    {
+      "id": "df_syn_02_weak_citation",
+      "kind": "synthetic_fill",
+      "evidence_tier": "L1_synthetic",
+      "scenario": "调研成篇大量断言，台账空或引用未绑定可溯 id。",
+      "intended_coverage": "成篇弱引用",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": {"score": 2, "note": "委派调研合理"},
+        "deliverable": {"score": 1, "note": "有成篇但可信度虚"},
+        "citation": {"score": 0, "note": "弱引/无台账绑定"}
+      },
+      "notes": "合成示范：citation 失败形态"
+    },
+    {
+      "id": "df_syn_03_missing_deliverable_file",
+      "kind": "synthetic_fill",
+      "evidence_tier": "L1_synthetic",
+      "scenario": "用户要求落盘脚本/报告，回合结束工作区无约定文件。",
+      "intended_coverage": "交付缺文件",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": {"score": 2, "note": "派写码/调研合理"},
+        "deliverable": {"score": 0, "note": "约定产物未落盘"},
+        "citation": {"score": "N/A", "note": "本场景不考引用"}
+      },
+      "notes": "合成示范：deliverable 过硬失败"
+    },
+    {
+      "id": "df_syn_04_cross_domain_over_dispatch",
+      "kind": "synthetic_fill",
+      "evidence_tier": "L1_synthetic",
+      "scenario": "单域小改需求被拆成跨角色过派，成本与噪声上升。",
+      "intended_coverage": "跨域过派",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": {"score": 0, "note": "过派/跨域乱派"},
+        "deliverable": {"score": 1, "note": "或有碎片产物，整体不硬"},
+        "citation": {"score": "N/A", "note": "非调研成篇"}
+      },
+      "notes": "合成示范：过派形态"
+    },
+    {
+      "id": "df_syn_05_direct_answer_ok",
+      "kind": "synthetic_fill",
+      "evidence_tier": "L1_synthetic",
+      "scenario": "简单事实/解释题，CEO 直答正确且无多余委派。",
+      "intended_coverage": "直答正确（正例）",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": {"score": 2, "note": "该直答且直答"},
+        "deliverable": {"score": "N/A", "note": "无文件交付"},
+        "citation": {"score": "N/A", "note": "无检索成篇"}
+      },
+      "notes": "合成示范：routing 正例"
+    },
+    {
+      "id": "df_syn_06_research_cite_ok",
+      "kind": "synthetic_fill",
+      "evidence_tier": "L1_synthetic",
+      "scenario": "调研成篇，引用均绑定台账可溯 id，交付报告落盘。",
+      "intended_coverage": "调研成篇+引用+交付正例",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": {"score": 2, "note": "该调研且委派得当"},
+        "deliverable": {"score": 2, "note": "约定报告已落盘"},
+        "citation": {"score": 2, "note": "成篇引用可溯"}
+      },
+      "notes": "合成示范：三维正例"
+    },
+    {
+      "id": "df_pend_07_should_delegate_but_solo",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "复杂多步工程任务被 CEO 单聊硬扛，未委派。",
+      "intended_coverage": "该委派却直扛",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待从维护者 dogfood logs 取样回填"
+    },
+    {
+      "id": "df_pend_08_acceptance_unmet",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "委派批次 completion_criteria unmet，交付缺口未收口。",
+      "intended_coverage": "验收缺口未收口",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补；关注 delegate.completion_criteria_unmet"
+    },
+    {
+      "id": "df_pend_09_citation_hallucinated_url",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "成篇给出无法打开或未入台账的 URL/书名。",
+      "intended_coverage": "虚构或未登记引用",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_10_empty_shell_report",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "落盘文件存在但内容空壳/模板未填。",
+      "intended_coverage": "交付空壳文件",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_11_wrong_worker_specialty",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "派给明显错专业 worker（如法律题派纯写码）。",
+      "intended_coverage": "错专业派工",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_12_scope_creep_dispatch",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "用户窄请求被扩成大计划并多路开工。",
+      "intended_coverage": "范围膨胀过派",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_13_cite_ok_deliverable_weak",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "引用尚可，但最终交付缺用户点名产物。",
+      "intended_coverage": "引用可·交付弱（混合）",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_14_routing_ok_cite_na",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "本地改码任务路由正确，无网页调研。",
+      "intended_coverage": "写码正例·citation N/A",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补；回填时 citation 预期 N/A"
+    },
+    {
+      "id": "df_pend_15_resume_not_mainline",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "中断后续跑后交付/路由是否仍稳（观察槽，非 S3 主线）。",
+      "intended_coverage": "Resume 后交付观察（非 S3 主线）",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "E1：不把 S3 当主线；本槽仅观察"
+    },
+    {
+      "id": "df_pend_16_multi_file_partial_drop",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "要求多文件交付，只落部分路径。",
+      "intended_coverage": "多文件部分落盘",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_17_search_then_uncited_claims",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "有检索动作，成篇关键断言未挂 cite。",
+      "intended_coverage": "有搜无引",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_18_ask_user_then_wrong_route",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "澄清后仍选错直答/委派路径。",
+      "intended_coverage": "澄清后仍误路由",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补"
+    },
+    {
+      "id": "df_pend_19_legal_optin_dispatch",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "法律垂直 opt-in 场景下路由与引用纪律。",
+      "intended_coverage": "法律垂直路由/引用观察",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补；无样本保持 null id"
+    },
+    {
+      "id": "df_pend_20_host_shell_side_effect",
+      "kind": "pending_label",
+      "evidence_tier": "dogfood",
+      "scenario": "本机 Host/shell 相关任务：是否该派、交付是否可核验。",
+      "intended_coverage": "Host/shell 路由与交付观察",
+      "conversation_id": null,
+      "trace_id": null,
+      "labels": {
+        "routing": null,
+        "deliverable": null,
+        "citation": null
+      },
+      "notes": "待 logs 补；citation 多半 N/A"
+    }
+  ]
+}

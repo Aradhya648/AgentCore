@@ -1,4 +1,4 @@
-"""Index manager — incremental build + BM25 search."""
+"""Index manager — incremental build + BM25 search (query path is ensure-free)."""
 
 from __future__ import annotations
 
@@ -6,22 +6,24 @@ import logging
 import os
 from pathlib import Path
 
-from agentcore.workspace._paths import IGNORED_DIRS
+from agentcore.workspace._paths import IGNORED_DIRS, is_internal_zone_relpath
 from agentcore.workspace.indexing.bm25 import BM25Index
 from agentcore.workspace.indexing.chunker import chunk_file, detect_language, snippet_preview
 from agentcore.workspace.protocol import (
     CodeChunk,
+    CodeIndexStatus,
     CodeSearchResult,
     PathNotFound,
     WorkspaceBackend,
     WorkspaceError,
 )
+from agentcore.workspace.stage_dirs import INDEX_REL
 
 logger = logging.getLogger(__name__)
 
 _INDEX_DB_NAME = "code_search.db"
 _MAX_INDEX_FILES = 5000
-_SKIP_DIRS = IGNORED_DIRS  # includes ``.agentcore`` (index lives under it)
+_SKIP_DIRS = IGNORED_DIRS  # name-only noise; internal zones via path check
 
 
 class IndexManager:
@@ -30,7 +32,10 @@ class IndexManager:
     File contents are read through ``WorkspaceBackend`` (not direct disk), so the
     same manager works for ``ServerWorkspace`` and channel-backed ``LocalWorkspace``.
     ``index_dir`` holds the SQLite DB; for local disk workspaces this is typically
-    ``<workspace>/.agentcore/index``.
+    ``<workspace>/AgentCore/index``.
+
+    Build/refresh belongs to ``IndexMaintainer`` (or synchronous ``ensure_index``
+    for tests). ``search`` never triggers a build.
     """
 
     def __init__(self, index_dir: str) -> None:
@@ -38,17 +43,42 @@ class IndexManager:
         self._bm25: BM25Index | None = None
         self._index_truncated = False
         self._last_ensure_complete = False
+        self._building = False
+        self._content_dirty = False
 
     @classmethod
     def for_workspace_root(cls, workspace_root: str) -> IndexManager:
-        """Index beside a real workspace root (``.agentcore/index``)."""
-        return cls(str(Path(workspace_root) / ".agentcore" / "index"))
+        """Index beside a real workspace root (``AgentCore/index``)."""
+        return cls(str(Path(workspace_root) / Path(*INDEX_REL.split("/"))))
 
     def _get_bm25(self) -> BM25Index:
         if self._bm25 is None:
             db_path = os.path.join(self._index_dir, _INDEX_DB_NAME)
             self._bm25 = BM25Index(db_path)
         return self._bm25
+
+    def set_building(self, building: bool) -> None:
+        self._building = building
+
+    @property
+    def building(self) -> bool:
+        return self._building
+
+    def mark_content_dirty(self) -> None:
+        """Workspace files changed since the last completed ensure."""
+        self._content_dirty = True
+
+    def index_status(self) -> CodeIndexStatus:
+        """Compute readiness without running ensure.
+
+        ``BUILDING`` only when no completed ensure exists yet. A refresh of an
+        already-built index stays ``READY`` / ``STALE`` so query keeps serving.
+        """
+        if self._building and not self._last_ensure_complete:
+            return CodeIndexStatus.BUILDING
+        if not self._last_ensure_complete or self._index_truncated or self._content_dirty:
+            return CodeIndexStatus.STALE
+        return CodeIndexStatus.READY
 
     async def ensure_index(self, backend: WorkspaceBackend, *, force: bool = False) -> bool:
         """Ensure the index is up to date. Returns whether any file was re-indexed."""
@@ -88,6 +118,7 @@ class IndexManager:
             updated = True
 
         self._last_ensure_complete = not truncated
+        self._content_dirty = False
         return updated
 
     async def _collect_indexable_paths(self, backend: WorkspaceBackend) -> tuple[list[str], bool]:
@@ -129,10 +160,17 @@ class IndexManager:
             )
             scores.append(score)
 
-        index_stale = self._index_truncated or not self._last_ensure_complete
-        return CodeSearchResult(chunks=chunks, scores=scores, index_stale=index_stale)
+        status = self.index_status()
+        return CodeSearchResult(
+            chunks=chunks,
+            scores=scores,
+            index_status=status,
+            index_stale=status != CodeIndexStatus.READY,
+        )
 
 
 def _should_skip_path(path: str) -> bool:
+    if is_internal_zone_relpath(path):
+        return True
     parts = path.replace("\\", "/").split("/")
     return any(part in _SKIP_DIRS for part in parts)

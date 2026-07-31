@@ -10,6 +10,7 @@ import {
 } from "../constants";
 import { toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
+import { BASELINES_REL, INDEX_REL, TRASH_REL } from "../workspaceIgnore";
 import { opErr, opOk } from "./result";
 
 // --- 本地→云交接打包 op（双模式工作区 P2e / e1）---
@@ -19,11 +20,12 @@ import { opErr, opOk } from "./result";
 // 之类塞进交接。设文件数/字节上限防超大仓 OOM 或撑爆通道，超限置 truncated（部分交接好过
 // 整体失败）。只在根内 walk 且不跟随符号链接，故越界天然不可能。
 
-/** 载入忽略规则：默认跳过集 + 根 `.gitignore`（缺失则仅默认集）。 */
+/** 载入忽略规则：默认跳过集 + 路径感知内部区 + 根 `.gitignore`（缺失则仅默认集）。 */
 async function loadIgnore(rootAbs: string): Promise<Ignore> {
   const ig = ignore();
   // 默认跳过集按目录规则加入（"name/" 匹配整棵子树）+ *.db。
   ig.add([...LIST_FILES_SKIP_DIRS].map((d) => `${d}/`));
+  ig.add([`${INDEX_REL}/`, `${TRASH_REL}/`, `${BASELINES_REL}/`]);
   ig.add(["*.db"]);
   try {
     ig.add(await fs.readFile(join(rootAbs, ".gitignore"), "utf-8"));

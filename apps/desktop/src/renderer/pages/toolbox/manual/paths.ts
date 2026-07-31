@@ -7,6 +7,7 @@ export const APP_PATHS = {
   files: "/files",
   toolbox: {
     tools: "/toolbox/tools",
+    connectors: "/toolbox/connectors",
     automations: {
       root: "/toolbox/automations",
       inbox: "/toolbox/automations/inbox",

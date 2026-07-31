@@ -1,6 +1,6 @@
 import { AssistantContent } from "@/components/AssistantView";
 import { FileArtifactsCard } from "@/components/FileArtifactsCard";
-import { fileArtifactsFromEvents } from "@/lib/fileArtifacts";
+import { resolveFileArtifactsForCard } from "@/lib/fileArtifacts";
 import { PREVIEW_FIXTURES } from "@/preview/fixtures";
 import {
   extractAsks,
@@ -86,7 +86,10 @@ export function PreviewPage() {
     () => extractGraphAppendAuthorizedBy(events),
     [events],
   );
-  const artifacts = useMemo(() => fileArtifactsFromEvents(events), [events]);
+  const artifacts = useMemo(
+    () => resolveFileArtifactsForCard(projected.deliveryStatus),
+    [projected.deliveryStatus],
+  );
 
   const isMulti = projected.runs.length > 0;
   const team = isMulti

@@ -251,6 +251,33 @@ class ApprovalGate:
     def has_delegation_grant(self, execution_id: str) -> bool:
         return bool(execution_id) and execution_id in self._delegation_grants
 
+    def will_prompt(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict[str, Any],
+        execution_id: str = "",
+        force: bool = False,
+    ) -> bool:
+        """True if :meth:`authorize` would suspend for a human decision.
+
+        Mirrors the opening short-circuits of ``authorize`` (delegation / session
+        file / session host / turn ``_granted`` / ``_denied``). ``force=True``
+        always prompts so safety-breaker telemetry stays honest under kickoff or
+        session trust that would otherwise auto-pass.
+        """
+        if force:
+            return True
+        if self._delegation_covers(execution_id, tool_name):
+            return False
+        if self._session_file_trust_covers(tool_name, arguments):
+            return False
+        if self._session_host_trust_covers(tool_name):
+            return False
+        if tool_name in self._granted:
+            return False
+        return tool_name not in self._denied
+
     async def authorize(
         self,
         *,

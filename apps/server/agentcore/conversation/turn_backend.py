@@ -132,4 +132,7 @@ async def build_turn_backend(
         attach_shared = getattr(backend, "attach_shared_mounts", None)
         if callable(attach_shared):
             attach_shared(shared, gate=shared_gate, on_mutation=on_shared_mutation)
+    kick = getattr(backend, "start_code_index_maintenance", None)
+    if callable(kick):
+        kick()
     return backend

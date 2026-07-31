@@ -22,7 +22,12 @@ from enum import StrEnum
 from typing import Literal
 
 AskCheckpointIntent = Literal[
-    "kickoff", "decision", "proposal_pick", "risk_ack", "organize_plan"
+    "kickoff",
+    "decision",
+    "proposal_pick",
+    "risk_ack",
+    "organize_plan",
+    "daily_review",
 ]
 
 

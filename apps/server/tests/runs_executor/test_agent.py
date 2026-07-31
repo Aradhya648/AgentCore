@@ -14,8 +14,12 @@ from agentcore.runtime.runs.builder import build_run_plan
 from agentcore.runtime.runs.executor import build_agent_executor
 from agentcore.runtime.runs.types import RunPhase
 from agentcore.runtime.runs.wave import WaveScheduler
+from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registry import ToolRegistry
+from agentcore.tools.sandbox.subprocess import SubprocessSandbox
+from agentcore.workspace.server import ServerWorkspace
 from tests.runs_executor.conftest import (
+    _WS_ROOT,
     _ContentProvider,
     _ctx,
     _executor,
@@ -643,6 +647,17 @@ async def test_worker_grantable_tool_gated_when_gate_denies():
     reg = ToolRegistry()
     reg.register(tool)
     provider = _ToolCallThenContent("code_execute", "{}", "done")
+    # Local backend: workers share the turn gate for all GRANTABLE tools.
+    # (Cloud workers only gate desktop-touch tools when the gate is MCP-shared.)
+    local_ctx = ToolContext(
+        execution_id="e",
+        run_id="s",
+        agent_id="a",
+        backend=ServerWorkspace(
+            root=_WS_ROOT, sandbox=SubprocessSandbox(), location="local"
+        ),
+        user_id="u",
+    )
     # A 0.01s gate that nobody answers auto-denies — the worker must NOT run the
     # tool on the user's machine, and adapts to a denial tool-message.
     executor = build_agent_executor(
@@ -650,7 +665,7 @@ async def test_worker_grantable_tool_gated_when_gate_denies():
         llm=provider,
         tools=reg,
         sink=EventSink(),
-        base_tool_context=_ctx(),
+        base_tool_context=local_ctx,
         system_prompt="SYS",
         user_message="原始请求",
         execution_id="e",

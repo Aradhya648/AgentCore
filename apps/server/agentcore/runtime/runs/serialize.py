@@ -423,6 +423,9 @@ def state_to_json(state: RunState) -> dict[str, Any]:
         "duration_ms": state.duration_ms,
         "rounds": state.rounds,
         "files_touched": list(state.files_touched),
+        "file_acceptance": [
+            dict(row) for row in (state.file_acceptance or []) if isinstance(row, dict)
+        ],
         "tool_failures": [dict(row) for row in state.tool_failures if isinstance(row, dict)],
         "debrief": dict(state.debrief) if state.debrief else None,
         "usage": dict(state.usage),
@@ -451,6 +454,11 @@ def state_from_json(data: dict[str, Any]) -> RunState:
         duration_ms=int(data.get("duration_ms", 0) or 0),
         rounds=int(data.get("rounds", 0) or 0),
         files_touched=list(data.get("files_touched") or []),
+        file_acceptance=[
+            dict(row)
+            for row in (data.get("file_acceptance") or [])
+            if isinstance(row, dict)
+        ],
         tool_failures=[
             dict(row) for row in (data.get("tool_failures") or []) if isinstance(row, dict)
         ],

@@ -8,6 +8,7 @@ mirrors ``_wire_worker_memory_tools``. Never reaches the CEO toolset
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from agentcore.conversation.log_export import search_snippet_from_messages
@@ -26,6 +27,7 @@ logger = get_logger(__name__)
 
 _SEARCH_HARD_CAP = 30
 _DEFAULT_LIMIT = 10
+_MAX_LOOKBACK_HOURS = 168
 _SOFT_MISS = (
     "未找到可查阅的历史对话（可能不存在、已删除，或不在可访问范围内）。"
 )
@@ -85,6 +87,13 @@ class SearchConversationsTool:
                             f"返回条数，默认 {_DEFAULT_LIMIT}，硬顶 {_SEARCH_HARD_CAP}。"
                         ),
                     },
+                    "updated_within_hours": {
+                        "type": "integer",
+                        "description": (
+                            "可选；只返回近 N 小时内有更新的对话"
+                            f"（1–{_MAX_LOOKBACK_HOURS}）。日复盘等周期任务应设置。"
+                        ),
+                    },
                 },
                 "required": [],
             },
@@ -108,6 +117,21 @@ class SearchConversationsTool:
         except (TypeError, ValueError):
             limit = _DEFAULT_LIMIT
         limit = max(1, min(limit, _SEARCH_HARD_CAP))
+
+        updated_after: datetime | None = None
+        raw_hours = arguments.get("updated_within_hours")
+        if raw_hours is not None and raw_hours != "":
+            try:
+                hours = int(raw_hours)
+            except (TypeError, ValueError):
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="updated_within_hours 须为正整数。",
+                    error="invalid updated_within_hours",
+                )
+            hours = max(1, min(hours, _MAX_LOOKBACK_HOURS))
+            updated_after = datetime.now(UTC) - timedelta(hours=hours)
 
         explicit_folder = str(arguments.get("folder_id") or "").strip() or None
         folder_id: str | None = None
@@ -155,6 +179,7 @@ class SearchConversationsTool:
                 include_archived=include_archived,
                 global_chats_only=global_chats_only,
                 exclude_conversation_id=host_id or None,
+                updated_after=updated_after,
             )
             # Optional snippets (best-effort; keep search cheap).
             msg_repo = MessageRepository(session)

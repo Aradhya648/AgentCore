@@ -4,7 +4,7 @@
 桌面 ``lineDiff``。不做 apply。无基线 → ``available=False``。
 
 Cloud: OSS/FS snapshot vs ``resolve_workspace_root``.
-Local (sidecar): ``.agentcore/baselines/{id}.zip`` vs live workspace root.
+Local (sidecar): ``AgentCore/baselines/{id}.zip`` vs live workspace root.
 """
 
 from __future__ import annotations

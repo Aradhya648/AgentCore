@@ -2,7 +2,11 @@
 
 Maps the workspace execution environment to whether GRANTABLE *execution-class*
 tools still need a human approval prompt. File-mutation tools keep their own
-gate posture (local: gated; cloud workers historically ungated via no gate).
+gate posture (local: gated; cloud workers historically ungated via no gate —
+or via tool_exec narrowing when the gate is shared only for MCP/Host).
+
+Desktop Client Tools (MCP stdio / Host face) touch the user's machine even when
+the workspace is cloud — they still share the turn ApprovalGate.
 """
 
 from __future__ import annotations
@@ -43,13 +47,31 @@ def execution_approval_posture(backend: WorkspaceBackend | None) -> ExecutionApp
 
 
 def worker_gate_applies(backend: WorkspaceBackend | None) -> bool:
-    """Whether delegated workers share the turn ApprovalGate.
+    """Whether delegated workers share the turn ApprovalGate for *all* GRANTABLE tools.
 
-    Local subprocess: yes (real machine). Cloud: no — either tools are withheld
-    (no sandbox) or gVisor isolates execution (AUTO_PASS); file ops run in the
-    per-user server workspace without a per-call gate.
+    Local subprocess: yes (real machine). Cloud: no for server-sandbox tools —
+    either tools are withheld (no sandbox) or gVisor isolates execution (AUTO_PASS);
+    file ops run in the per-user cloud workspace without a per-call gate.
+
+    Desktop-touch tools (MCP / Host) still need the gate on cloud+desktop — see
+    :func:`is_desktop_touch_tool`. CEO / captain always gate GRANTABLE regardless
+    of backend location (tool_exec only narrows when ``role=="worker"``).
     """
     return backend is not None and backend.location == "local"
+
+
+def is_desktop_touch_tool(tool_name: str) -> bool:
+    """True when the tool side-effects the user's machine via desktop Client Tools.
+
+    MCP dynamic tools are named ``mcp_<server>_<tool>``. Host face tools are the
+    closed ``host_class`` roster.
+    """
+    name = (tool_name or "").strip()
+    if name.startswith("mcp_"):
+        return True
+    from agentcore.tools.registration import host_class_tool_names
+
+    return name in host_class_tool_names()
 
 
 def execution_tool_auto_passes(

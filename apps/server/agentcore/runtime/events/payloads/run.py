@@ -309,6 +309,20 @@ class DeliveryAction(WirePayload):
     prompt: str | None = absent()
 
 
+class DeliveryArtifact(WirePayload):
+    """One path-level acceptance row on ``delivery_status`` (主清单数据源).
+
+    ``status=accepted`` → counts toward ``delivered_files`` / CEO「已交付」;
+    ``rejected`` carries ``reason`` (e.g. ``citations_unverified``) and optional
+    ``detail`` for the file checklist. Draft is out of scope for block 1.
+    """
+
+    path: str
+    status: Literal["accepted", "rejected"]
+    reason: str | None = absent()
+    detail: str | None = absent()
+
+
 class DeliveryStatusPayload(WirePayload):
     """交付状态（能力闸门与交付诚实性）: the structured delivery reconciliation a
     delegate batch emits at wrap-up — 已交付文件 / 缺口 / 待用户操作 — so the client
@@ -316,7 +330,9 @@ class DeliveryStatusPayload(WirePayload):
     LATEST per ``execution_id`` (reflects the most recent batch's reconciliation).
     ``state``: delivered = 无 blocking 缺口且有落盘产物; partial = 有产物也有
     blocking 缺口; blocked = 有 blocking 缺口且无落盘产物;
-    notes = 仅有 soft 待核实提醒（轻提醒，非「部分未满足」）。"""
+    notes = 仅有 soft 待核实提醒（轻提醒，非「部分未满足」）。
+    ``artifacts``: path-level acceptance (accepted+rejected); ``delivered_files``
+    remains accepted-only for older clients."""
 
     execution_id: str
     state: DeliveryState
@@ -324,6 +340,7 @@ class DeliveryStatusPayload(WirePayload):
     delivered_files: list[str]
     gaps: list[DeliveryGap]
     actions: list[DeliveryAction]
+    artifacts: list[DeliveryArtifact] = []
 
 
 class UserInterjectionAttachment(WirePayload):

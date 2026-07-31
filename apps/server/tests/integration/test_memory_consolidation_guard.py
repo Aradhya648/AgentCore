@@ -65,7 +65,24 @@ def episodic_calls(monkeypatch, session_factory) -> list[str]:
     async def fake_semantic(**_k):
         return False
 
+    async def fake_run_bg(user_id, *, purpose="memory", runner):
+        # consolidation.run_background_llm opens the global session factory; pin a
+        # fake credential path so this suite stays on the test schema.
+        from agentcore.billing.gate import BackgroundLlmResult
+        from agentcore.llm.credentials import LLMCredentials
+
+        creds = LLMCredentials(
+            api_key="sk-test",
+            base_url="https://example.test",
+            default_model="flash",
+            source="platform",
+        )
+        value = await runner(creds)
+        return BackgroundLlmResult(value=value, credentials=creds)
+
     monkeypatch.setattr(consolidation, "LLMEpisodicSummarizer", _FakeSummarizer)
+    monkeypatch.setattr(consolidation, "run_background_llm", fake_run_bg)
+    monkeypatch.setattr(consolidation, "resolve_user_model", lambda _c: "flash")
     monkeypatch.setattr(consolidation, "append_episode", fake_append)
     monkeypatch.setattr(consolidation, "_record_and_publish", fake_record)
     monkeypatch.setattr(consolidation, "run_semantic_for_scope", fake_semantic)

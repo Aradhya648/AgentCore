@@ -52,7 +52,14 @@ export function BlockRenderer({ block }: { block: ManualBlock }) {
         </CardGrid>
       );
     case "bullets":
-      return <Bullets items={block.items} />;
+      return (
+        <Bullets
+          items={block.items.map((b) => ({
+            title: b.title,
+            desc: renderRichText(b.desc),
+          }))}
+        />
+      );
     case "steps":
       return (
         <Steps

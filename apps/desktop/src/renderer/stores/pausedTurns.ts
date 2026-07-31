@@ -112,7 +112,7 @@ export interface PendingResume {
   styleOptions: AskStyleOption[];
   /** ask_user: 交付形态预设 (演讲/PPT 等才有). */
   formatOptions: AskFormatOption[];
-  /** ask_user: kickoff 开工提案 vs decision 途中拍板 — drives card copy. */
+  /** ask_user: wire may still send kickoff; UI treats as generic clarification. */
   intent: CheckpointIntent;
   /** Where the durable frame lives — drives {@link runResume} sidecar vs server routing. */
   origin: ResumeOrigin;

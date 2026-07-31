@@ -452,6 +452,19 @@ async def _continue_run_scoped(
             run_id=continuation_run_id,
         )
         warnings = _apply_cutoff_reasons(cutoff_reasons, warnings=warnings)
+        from agentcore.runtime.runs.file_acceptance import (
+            build_file_acceptance,
+            path_rejections_from_contract_messages,
+        )
+
+        path_rej = path_rejections_from_contract_messages(
+            [*verdict.failures, *verdict.soft_failures]
+        )
+        file_acceptance = build_file_acceptance(
+            touched,
+            phase=RunPhase.COMPLETED,
+            path_rejections=path_rej,
+        )
         sink.emit(
             run_completed(
                 continuation_run_id,
@@ -476,6 +489,7 @@ async def _continue_run_scoped(
             duration_ms=duration_ms,
             rounds=round_rounds,
             files_touched=touched,
+            file_acceptance=file_acceptance,
             tool_failures=list(tool_failures),
             debrief=debrief,
             usage=usage,

@@ -168,7 +168,7 @@ export function Steps({
 
 export function Bullets({
   items,
-}: { items: { title: string; desc: string }[] }) {
+}: { items: { title: string; desc: ReactNode }[] }) {
   return (
     <ul className="space-y-2.5">
       {items.map((b) => (

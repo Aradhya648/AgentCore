@@ -1,12 +1,14 @@
 """In-workspace soft-delete zone for backends without an OS recycle bin.
 
 Used by ``ServerWorkspace`` (cloud + sidecar): default ``delete`` moves the
-target under ``.agentcore/trash/<id>/`` and writes ``meta.json`` with the
+target under ``AgentCore/trash/<id>/`` and writes ``meta.json`` with the
 original relative path so a future restore can put it back. Local Electron
 channels prefer ``shell.trashItem`` instead; this module is the no-trash fallback.
 
-``.agentcore`` is already in ``IGNORED_DIRS``, so trash entries never appear in
-agent listings / indexes.
+Internal zones (``AgentCore/{index,trash,baselines}``) are path-aware system
+noise — trash entries never appear in agent listings / indexes. Hard-delete
+bypass applies only to those zones, **not** the whole ``AgentCore/`` tree
+(deleting rules/memory/docs must remain soft-deletable).
 """
 
 from __future__ import annotations
@@ -17,17 +19,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agentcore.core.types import new_id
+from agentcore.workspace._paths import is_internal_zone_relpath
 from agentcore.workspace.protocol import WorkspaceIOError
+from agentcore.workspace.stage_dirs import TRASH_REL
 
-TRASH_REL = ".agentcore/trash"
 _META_NAME = "meta.json"
 _CONTENT_NAME = "content"
 
 
-def is_trash_or_agentcore_path(rel_path: str) -> bool:
-    """True when ``rel_path`` is ``.agentcore`` or anything under it."""
-    p = rel_path.replace("\\", "/").strip("/")
-    return p == ".agentcore" or p.startswith(".agentcore/")
+def is_internal_zone_path(rel_path: str) -> bool:
+    """True when ``rel_path`` is an AgentCore internal zone or under one.
+
+    Alias kept for call-site clarity (hard-delete bypass). Does **not** match
+    bare ``AgentCore/`` or ``AgentCore/规则|记忆|文档``.
+    """
+    return is_internal_zone_relpath(rel_path)
+
+
+# Backward-compatible name used by older call sites / tests.
+is_trash_or_agentcore_path = is_internal_zone_path
 
 
 def soft_delete_to_trash(*, root: Path, target: Path, original_rel: str) -> str:
@@ -35,13 +45,13 @@ def soft_delete_to_trash(*, root: Path, target: Path, original_rel: str) -> str:
 
     Layout::
 
-        .agentcore/trash/<id>/
+        AgentCore/trash/<id>/
           meta.json   # original_path, deleted_at, is_dir, name
           content     # file, or directory tree
 
     Raises ``WorkspaceIOError`` on I/O failure.
     """
-    trash_root = root / ".agentcore" / "trash"
+    trash_root = root / Path(*TRASH_REL.split("/"))
     entry_id = new_id()
     entry_dir = trash_root / entry_id
     try:

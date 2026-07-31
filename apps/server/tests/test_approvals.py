@@ -1044,3 +1044,75 @@ def test_terminal_start_requires_approval_like_git_writes():
     assert not tool_call_requires_approval(
         "terminal", schema.approval, {"subcommand": "list"}
     )
+
+
+# --- will_prompt peek (awaiting_approval telemetry) ---------------------------
+
+
+def test_will_prompt_matrix_short_circuits_and_force():
+    """will_prompt mirrors authorize opening short-circuits; force always prompts."""
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+    from agentcore.runtime.approvals import DelegationGrant
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
+    )
+
+    # Baseline: GRANTABLE with no short-circuit → would prompt.
+    assert gate.will_prompt(tool_name="code_execute", arguments={}) is True
+
+    # Session file trust (LESS_INTERRUPT) covers reversible file ops.
+    assert gate.will_prompt(tool_name="mkdir", arguments={"path": "docs/x"}) is False
+    # Permanent delete still prompts under session file trust.
+    assert (
+        gate.will_prompt(
+            tool_name="file_delete",
+            arguments={"path": "tmp.txt", "permanent": True},
+        )
+        is True
+    )
+
+    # Kickoff / delegation grant covers medium-risk for that execution_id.
+    gate._delegation_grants["exec-1"] = DelegationGrant(execution_id="exec-1")  # noqa: SLF001
+    assert (
+        gate.will_prompt(
+            tool_name="code_execute",
+            arguments={},
+            execution_id="exec-1",
+        )
+        is False
+    )
+    # force bypasses kickoff / session short-circuits.
+    assert (
+        gate.will_prompt(
+            tool_name="code_execute",
+            arguments={},
+            execution_id="exec-1",
+            force=True,
+        )
+        is True
+    )
+    assert (
+        gate.will_prompt(
+            tool_name="mkdir",
+            arguments={"path": "docs/x"},
+            force=True,
+        )
+        is True
+    )
+
+    # Turn-wide grant / deny skip the card.
+    gate._granted.add("code_execute")  # noqa: SLF001
+    assert gate.will_prompt(tool_name="code_execute", arguments={}) is False
+    gate._granted.clear()  # noqa: SLF001
+    gate._denied.add("file_write")  # noqa: SLF001
+    assert gate.will_prompt(tool_name="file_write", arguments={"path": "a"}) is False

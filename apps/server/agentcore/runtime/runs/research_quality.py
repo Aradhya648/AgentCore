@@ -6,13 +6,18 @@
 
 成篇硬审计**只认结构化**：``playbook=="research_report"``（入口另判）与
 deliverable 结构字段（如 ``min_length≥3000``）。不扫 task/角色自由文猜意图。
+
+调研两阶段引用（块 2）：``citation_mode=="two_phase"``（playbook 盖戳）或
+落盘/声明路径在 ``AgentCore/文档/research/`` → A 检索草案不跑成稿引用闸 →
+同 worker 自动升级 B 后再验；``immediate`` 显式退出；draft 不进
+``file_acceptance`` / artifacts 主清单。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from agentcore.workspace.stage_dirs import RESEARCH_DIR
+from agentcore.workspace.stage_dirs import RESEARCH_DIR, RESEARCH_PREFIX
 
 # 论文/综述/长文成篇：允许并行拆章起草，但最终验收必须单一主文件（定案：
 # 禁的是「并行拆章无合并门禁」，不是双文件本身；调研/代码/建站多产物不受本条约束）。
@@ -126,3 +131,53 @@ def research_report_main_artifact(output_path: str | None = None) -> str:
     if cleaned:
         return cleaned.lstrip("/")
     return DEFAULT_RESEARCH_REPORT_ARTIFACT
+
+
+def _research_casefile_path(path: str) -> bool:
+    """True when path is under the research casefile stage dir (``stage_dirs``)."""
+    p = (path or "").strip().lstrip("/")
+    return p == RESEARCH_DIR or p.startswith(RESEARCH_PREFIX)
+
+
+def is_two_phase_citation_deliverable(
+    deliverable: Any,
+    *,
+    landed_paths: list[str] | None = None,
+) -> bool:
+    """True when deliverable opts into A(draft)→B(cite-tier) citation acceptance.
+
+    判定「调研类」（不扫 task/角色自由文）：
+    - ``citation_mode=="immediate"`` → 否（显式退出）
+    - ``citation_mode=="two_phase"`` → 是（playbook / CEO 盖戳）
+    - 否则：声明的 ``artifacts`` / ``artifact_dir`` 或已落盘路径落在
+      ``AgentCore/文档/research/`` → 是（自由 delegate 调研案卷与 playbook 同口径）
+    """
+    mode: str | None
+    artifacts: list[str] = []
+    artifact_dir = ""
+    if deliverable is None:
+        mode = None
+    elif isinstance(deliverable, dict):
+        mode = deliverable.get("citation_mode")
+        raw_arts = deliverable.get("artifacts") or []
+        if isinstance(raw_arts, list):
+            artifacts = [str(a) for a in raw_arts if a]
+        ad = deliverable.get("artifact_dir") or ""
+        artifact_dir = ad if isinstance(ad, str) else ""
+    else:
+        mode = getattr(deliverable, "citation_mode", None)
+        artifacts = [str(a) for a in (getattr(deliverable, "artifacts", None) or []) if a]
+        artifact_dir = str(getattr(deliverable, "artifact_dir", "") or "")
+
+    if mode == "immediate":
+        return False
+    if mode == "two_phase":
+        return True
+
+    candidates = list(artifacts)
+    if artifact_dir.strip():
+        candidates.append(artifact_dir.strip())
+    for path in landed_paths or []:
+        if path:
+            candidates.append(str(path))
+    return any(_research_casefile_path(p) for p in candidates)

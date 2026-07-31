@@ -25,9 +25,23 @@ Design constraints (pinned now so the contract never breaks under us):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Literal, Protocol
 
 from agentcore.tools.sandbox.protocol import ExecutionRequest, ExecutionResult
+
+
+class CodeIndexStatus(StrEnum):
+    """Readiness of the BM25 code index relative to the workspace.
+
+    ``code_search`` is query-only; the maintainer owns build/refresh. Callers
+    must not treat ``BUILDING`` / ``STALE`` as tool failure — prefer ``grep``
+    when the index is not ``READY`` and exactness matters.
+    """
+
+    READY = "ready"
+    BUILDING = "building"
+    STALE = "stale"
 
 
 class WorkspaceError(Exception):
@@ -168,6 +182,8 @@ class CodeSearchResult:
 
     chunks: list[CodeChunk] = field(default_factory=list)
     scores: list[float] = field(default_factory=list)
+    index_status: CodeIndexStatus = CodeIndexStatus.STALE
+    # True when status is not READY (kept for older call sites / renderers).
     index_stale: bool = False
 
 
@@ -292,7 +308,7 @@ class WorkspaceBackend(Protocol):
         """Delete ``path`` (a file, or a directory and its contents).
 
         Default is reversible: local Electron channels move to the OS recycle
-        bin; cloud / sidecar backends move into ``.agentcore/trash/`` with
+        bin; cloud / sidecar backends move into ``AgentCore/trash/`` with
         restore metadata. ``permanent=True`` hard-deletes. Refuses to delete
         the workspace root itself. Raises ``OutsideWorkspace`` /
         ``PathNotFound`` / ``WorkspaceIOError``.
@@ -345,20 +361,26 @@ class WorkspaceBackend(Protocol):
         path_prefix: str = ".",
         max_results: int = 10,
     ) -> CodeSearchResult:
-        """BM25 search over symbol-level code chunks (tree-sitter indexed).
+        """BM25 search over the current index snapshot (query-only).
 
-        Read-only (never sets ``dirty``). Returns an empty result with
-        ``index_stale=True`` when the index is missing or incomplete — callers
-        should fall back to ``grep`` for exact matches.
+        Read-only (never sets snapshot ``dirty``). Does **not** build or refresh
+        the index — that is ``IndexMaintainer`` / ``ensure_code_index``. Returns
+        ``index_status`` (``ready`` / ``building`` / ``stale``); when not
+        ``ready``, prefer ``grep`` for exact matches.
         """
         ...
 
     async def ensure_code_index(self, *, force: bool = False) -> bool:
-        """Build or refresh the code-search index (incremental, best-effort).
+        """Synchronously build or refresh the code-search index (incremental).
 
-        Returns whether any file was re-indexed. May be slow on first call for
-        large workspaces (capped file count). Read-only (never sets ``dirty``).
+        Prefer ``start_code_index_maintenance`` for turn paths — this method is
+        for tests and explicit admin refresh. May be slow on first call for large
+        workspaces (capped file count). Read-only (never sets snapshot ``dirty``).
         """
+        ...
+
+    def start_code_index_maintenance(self) -> None:
+        """Kick background index build/refresh (coalesced, non-blocking)."""
         ...
 
     async def execute(self, req: ExecutionRequest) -> ExecutionResult:

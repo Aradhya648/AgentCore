@@ -1,18 +1,22 @@
 // 回合产物盘点 —— 聊天内联「本回合产出文件」卡的纯数据源（手机端全新实现，对标桌面
-// lib/fileArtifacts.ts；cross-platform-frontend.mdc：各端自建实现，仅共享契约类型）。
+// lib/fileArtifacts.ts 语义；cross-platform-frontend.mdc：各端自建实现，仅共享契约类型）。
 //
-// Agent 写/改/删/移文件都经 builtin file_ops 工具（file_write / str_replace /
-// file_delete / file_move）。这里把「成功的文件变更」抽成一张回合级清单，两个来源覆盖全部
-// 渲染路径：
+// 主清单（块 1）：只认 ``delivery_status.artifacts``（accepted+rejected 验收态）。
+// 无该字段 / 空数组 → 空清单（不 silent 降级扫工具列表）。
+//
+// 工具列表（process / events）仍供旁路盘点：写/改/删/移经 builtin file_ops。
 //   - 单聊（含历史 runs.process）从已折好的 process 时间线读 tool 步；
 //   - 实时回合 / 多 Agent（含历史 runs.events 日志）从原始 tool_use_start↔tool_use_end 事件
-//     按 tool_call_id 配对读 —— captain 与 worker 的工具都走这两类事件（worker 多带 run_id，
-//     这里无需区分），一次扫描即覆盖 CEO 直接调用与各 worker 调用。
+//     按 tool_call_id 配对读 —— captain 与 worker 的工具都走这两类事件。
+// 主清单不把工具名当交付成功。
+//
+// 手机 parity=simplified：无「查看改动」完整面；清单 + 深链文件页即可。
 //
 // 纯函数、只读运行时态/事件，不碰协议 fold（故不触发 conformance、零持久化）。卡片只把
 // 「文件去哪了」可视化，真相仍以工作区文件树为准。
 
 import type {
+  DeliveryStatusPayload,
   ProcessStep,
   SSEEvent,
   ToolUseEndPayload,
@@ -22,14 +26,22 @@ import type {
 /** 文件变更类型 —— 决定图标 / 文案 / 是否可预览（删除态无文件可看）。 */
 export type FileOp = "write" | "edit" | "delete" | "move";
 
+/** 路径级验收态（delivery_status.artifacts）。 */
+export type ArtifactAcceptance = "accepted" | "rejected";
+
 export interface FileArtifact {
   /** 变更后的路径（move 取目的地，其余取 path）；同时作为回合内去重键。 */
   path: string;
   /** 展示用文件名（path 的 basename）。 */
   name: string;
-  op: FileOp;
+  /** 工具源才有；验收源可缺（主清单不再用写入/编辑标签）。 */
+  op?: FileOp;
   /** 仅 move：源路径，用于「源 → 目的」展示。 */
   fromPath?: string;
+  /** 路径验收态（有则主清单显示已验收/未通过，不显示写入/编辑）。 */
+  acceptance?: ArtifactAcceptance;
+  acceptanceReason?: string;
+  acceptanceDetail?: string;
 }
 
 /**
@@ -87,6 +99,31 @@ function dedupe(ordered: FileArtifact[]): FileArtifact[] {
   return order.map((p) => byPath.get(p) as FileArtifact);
 }
 
+/**
+ * 主清单：有 ``deliveryStatus.artifacts`` 字段时用之（含空数组）；
+ * 缺字段 → null（调用方应视为空，勿再扫工具列表）。draft 不进卡。
+ */
+export function fileArtifactsFromDeliveryStatus(
+  deliveryStatus: DeliveryStatusPayload | null | undefined,
+): FileArtifact[] | null {
+  if (!deliveryStatus || !Array.isArray(deliveryStatus.artifacts)) return null;
+  const out: FileArtifact[] = [];
+  for (const row of deliveryStatus.artifacts) {
+    const path = asStr(row.path).trim();
+    if (!path) continue;
+    const status = row.status;
+    if (status !== "accepted" && status !== "rejected") continue;
+    out.push({
+      path,
+      name: basename(path),
+      acceptance: status,
+      acceptanceReason: row.reason,
+      acceptanceDetail: row.detail,
+    });
+  }
+  return dedupe(out);
+}
+
 /** 单聊：从内联过程时间线（fold 的 process / 历史 runs.process）抽成功的文件变更。 */
 export function fileArtifactsFromProcess(
   process: ProcessStep[] | undefined,
@@ -141,4 +178,11 @@ export function fileArtifactsFromEvents(events: SSEEvent[]): FileArtifact[] {
 /** 合并多个来源（如历史回合的 process + events）后统一去重。 */
 export function mergeArtifacts(...lists: FileArtifact[][]): FileArtifact[] {
   return dedupe(lists.flat());
+}
+
+/** 主清单解析：只认验收 artifacts；缺字段 / 空 → []（不降级工具列表）。 */
+export function resolveFileArtifactsForCard(
+  deliveryStatus: DeliveryStatusPayload | null | undefined,
+): FileArtifact[] {
+  return fileArtifactsFromDeliveryStatus(deliveryStatus) ?? [];
 }

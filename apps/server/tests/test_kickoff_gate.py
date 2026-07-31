@@ -56,8 +56,8 @@ def _plan(*nodes: RunSpec) -> RunPlan:
     return plan
 
 
-async def test_ask_user_kickoff_allows_after_verbal_affirm():
-    """User「认可」after a collaboration plan → still may open kickoff (no verbal skip)."""
+async def test_ask_user_allows_after_verbal_affirm():
+    """User「认可」after a collaboration plan → still may short-ask (no verbal skip)."""
     history = [
         {"role": "user", "content": "讨论下协作结构"},
         {
@@ -73,10 +73,8 @@ async def test_ask_user_kickoff_allows_after_verbal_affirm():
         history=history,
     )
     assert user_confirmed_kickoff_decisions(tool) is False
-    # Without assumptions/questions the kickoff proposal body gate rejects —
-    # point is: verbal affirm alone does not trip the "勿再开开工提案卡" settle path.
     result = await tool.execute(
-        {"message": "开工前再确认几个决策", "assumptions": ["按四路并行开干"]},
+        {"message": "交付形态再确认一下？", "assumptions": ["按四路并行开干"]},
         ToolContext(
             execution_id="e",
             run_id="s",
@@ -88,8 +86,8 @@ async def test_ask_user_kickoff_allows_after_verbal_affirm():
     assert "勿再开开工提案卡" not in (result.error or "")
 
 
-async def test_ask_user_kickoff_refuses_after_team_preview_resolved():
-    """B3: team_preview_resolved → ask_user refuses kickoff card (ask_user-side only)."""
+async def test_ask_user_allows_after_team_preview_resolved():
+    """team_preview_resolved 不再拒 ask_user 短问（开工提案拒调已拆）。"""
     sink = EventSink()
     sink.seed_journal(
         [
@@ -116,7 +114,7 @@ async def test_ask_user_kickoff_refuses_after_team_preview_resolved():
     assert skip_after_confirmed_ask(tool) is False
 
     result = await tool.execute(
-        {"message": "开工前再确认几个决策"},
+        {"message": "交付形态再确认一下？"},
         ToolContext(
             execution_id="e",
             run_id="s",
@@ -125,9 +123,8 @@ async def test_ask_user_kickoff_refuses_after_team_preview_resolved():
             user_id="u",
         ),
     )
-    assert result.success is False
-    assert "勿再开开工提案卡" in (result.error or "")
-    assert result.effect is not ToolEffect.SUSPEND
+    # Without durable frame → explicit fail path may apply; must NOT be kickoff-refuse.
+    assert "勿再开开工提案卡" not in (result.error or "")
 
 
 def test_skip_after_confirmed_ask_ignores_team_preview_resolved():

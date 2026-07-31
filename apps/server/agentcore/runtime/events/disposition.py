@@ -208,6 +208,10 @@ EVENT_DISPOSITION: dict[EventType, tuple[Disposition, str]] = {
         Disposition.EPHEMERAL,
         "桌面系统通知客户端工具请求（非回合内容）",
     ),
+    EventType.MCP_OP_REQUIRED: (
+        Disposition.EPHEMERAL,
+        "本机 MCP Client 工具请求（stdio 回填，请求/响应交换，非回合内容）",
+    ),
     EventType.HOST_OP_REQUIRED: (
         Disposition.EPHEMERAL,
         "本机 Host 客户端工具请求（非回合内容）",

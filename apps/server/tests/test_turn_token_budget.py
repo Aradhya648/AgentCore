@@ -419,6 +419,7 @@ async def test_priority_reserve_admits_assemble_and_qa_cuts_secondary(monkeypatc
 async def test_skip_qa_delivery_status_partial_with_honesty_gaps():
     from agentcore.runtime.delegate.delivery_status import build_delivery_status
     from agentcore.runtime.delegate.drive import _materialise_turn_token_budget_skips
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
     from agentcore.runtime.runs.plan import RunPlan
     from agentcore.runtime.runs.types import Deliverable
 
@@ -452,6 +453,9 @@ async def test_skip_qa_delivery_status_partial_with_honesty_gaps():
         "s0": RunState(
             phase=RunPhase.COMPLETED,
             files_touched=["site/index.html"],
+            file_acceptance=build_file_acceptance(
+                ["site/index.html"], phase=RunPhase.COMPLETED
+            ),
         )
     }
     tool = MagicMock()
@@ -861,6 +865,7 @@ async def test_nested_disables_parent_priority_reserve_cut(monkeypatch):
 
 def test_delivery_status_continue_skipped_runs_not_continue_writing():
     from agentcore.runtime.delegate.delivery_status import build_delivery_status
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
     from agentcore.runtime.runs.plan import RunPlan
 
     plan = RunPlan()
@@ -870,6 +875,9 @@ def test_delivery_status_continue_skipped_runs_not_continue_writing():
         "done": RunState(
             phase=RunPhase.COMPLETED,
             files_touched=["app/App.tsx"],
+            file_acceptance=build_file_acceptance(
+                ["app/App.tsx"], phase=RunPhase.COMPLETED
+            ),
         ),
         "tail": RunState(
             phase=RunPhase.SKIPPED,

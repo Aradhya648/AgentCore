@@ -19,6 +19,7 @@ import { usePersistentDisclosure } from "@/stores/disclosure";
 import { useSidePanelStore } from "@/stores/sidePanel";
 import {
   ArrowRight,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -29,10 +30,11 @@ import {
   type LucideIcon,
   Pencil,
   Trash2,
+  X,
 } from "lucide-react";
 
 /**
- * 「本回合产出文件」卡 —— 把一回合内成功的文件写/改/删/移聚合成一张回合级清单，挂在
+ * 「本回合产出文件」卡 —— 主清单只认路径验收态（delivery_status.artifacts），挂在
  * 答复正文下方（前端UX设计.md §九「回合内文件呈现」）。点任一可预览行 → 经 {@link useSidePanelStore}
  * 的 `showFile` 开右坞顶栏 File 内容 tab。例外：HTML 产物在会话具备应用内「完整预览」能力时
  * **直达**内置浏览器 tab（`preview://`）。「查看改动」聚焦右坞「改动」tab（无则先挂；与
@@ -74,6 +76,50 @@ const OP_META: Record<
   },
 };
 
+function rowVisual(artifact: FileArtifact): {
+  Icon: LucideIcon;
+  tone: StatusTone;
+  badge: string | null;
+  preview: boolean;
+  badgeTitle?: string;
+} {
+  if (artifact.acceptance === "accepted") {
+    return {
+      Icon: Check,
+      tone: "success",
+      badge: "已验收",
+      preview: true,
+    };
+  }
+  if (artifact.acceptance === "rejected") {
+    const detail =
+      artifact.acceptanceDetail || artifact.acceptanceReason || undefined;
+    return {
+      Icon: X,
+      tone: "destructive",
+      badge: "未通过",
+      preview: true,
+      badgeTitle: detail,
+    };
+  }
+  // 无验收态时：删除/移动仍标操作；写入/编辑不显示（勿用工具名冒充交付成功）。
+  if (artifact.op === "delete" || artifact.op === "move") {
+    const meta = OP_META[artifact.op];
+    return {
+      Icon: meta.Icon,
+      tone: meta.tone,
+      badge: meta.label,
+      preview: meta.preview,
+    };
+  }
+  return {
+    Icon: FilePlus,
+    tone: "muted",
+    badge: null,
+    preview: true,
+  };
+}
+
 function FileRow({
   artifact,
   conversationId,
@@ -92,12 +138,13 @@ function FileRow({
     turnKey ? `${turnKey}:file-audit:${artifact.path}` : null,
     false,
   );
+  const visual = rowVisual(artifact);
+  const isDelete = artifact.op === "delete";
   const auditState = useFileAudit(
     conversationId,
     artifact.path,
-    auditOpen && artifact.op !== "delete",
+    auditOpen && !isDelete,
   );
-  const meta = OP_META[artifact.op];
   const dir = artifact.path.slice(
     0,
     artifact.path.length - artifact.name.length,
@@ -105,9 +152,9 @@ function FileRow({
   const stageLabel = stageFileLabel(artifact.path);
   const body = (
     <>
-      <meta.Icon
+      <visual.Icon
         size={14}
-        className={`shrink-0 ${statusAccentText[meta.tone]}`}
+        className={`shrink-0 ${statusAccentText[visual.tone]}`}
       />
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {artifact.op === "move" && artifact.fromPath ? (
@@ -126,16 +173,19 @@ function FileRow({
           {stageLabel}
         </span>
       )}
-      <span
-        className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs leading-none ${statusPillSoft[meta.tone]}`}
-      >
-        {meta.label}
-      </span>
+      {visual.badge && (
+        <span
+          title={visual.badgeTitle}
+          className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs leading-none ${statusPillSoft[visual.tone]}`}
+        >
+          {visual.badge}
+        </span>
+      )}
     </>
   );
 
   // 删除态无可预览的文件 → 仅留痕、不可点。
-  if (!meta.preview) {
+  if (!visual.preview || isDelete) {
     return (
       <li className="flex items-center gap-2 px-3 py-2 opacity-70">{body}</li>
     );
@@ -268,7 +318,7 @@ export function FileArtifactsCard({
         <ul className="border-t border-border">
           {artifacts.map((a) => (
             <FileRow
-              key={`${a.op}:${a.path}`}
+              key={`${a.acceptance ?? a.op ?? "file"}:${a.path}`}
               artifact={a}
               conversationId={conversationId}
               turnKey={turnKey}

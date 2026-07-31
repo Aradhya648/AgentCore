@@ -23,7 +23,7 @@ describe("ASK_COMMENCE_SCENES", () => {
     }
   });
 
-  it("shared mock carries kickoff semantics", () => {
+  it("shared mock carries ask clarification fields", () => {
     expect(ASK_COMMENCE_MOCK.question.length).toBeGreaterThan(0);
     expect(ASK_COMMENCE_MOCK.assumptions.length).toBeGreaterThan(0);
     expect(ASK_COMMENCE_MOCK.questions.length).toBeGreaterThan(0);
@@ -38,9 +38,9 @@ describe("ASK_COMMENCE_SCENES", () => {
     expect(v2?.title.toLowerCase()).toMatch(/brief|choose|v2/i);
   });
 
-  it("v5 scene mounts the production kickoff body", () => {
+  it("v5 scene mounts the production generic clarify body", () => {
     const v5 = ASK_COMMENCE_SCENES.find((s) => s.id === "ask-commence-v5");
     expect(v5).toBeDefined();
-    expect(v5?.intent).toMatch(/生产默认/);
+    expect(v5?.intent).toMatch(/现生产|AskDecisionBody/);
   });
 });

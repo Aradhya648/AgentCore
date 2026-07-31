@@ -380,6 +380,19 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
     blockingGaps.some(
       (g) => g.reason === "token_budget" || g.reason === "worker_timeout",
     );
+  // 弱摘要：已交付 = delivered_files（accepted-only）；未通过 = artifacts 中 rejected。
+  // 不重复主清单大卡，仅一行计数提示。
+  const deliveredCount = (status.delivered_files ?? []).length;
+  const rejectedCount = Array.isArray(status.artifacts)
+    ? status.artifacts.filter((a) => a.status === "rejected").length
+    : 0;
+  const fileSummaryParts: string[] = [];
+  if (deliveredCount > 0) fileSummaryParts.push(`已交付 ${deliveredCount} 个`);
+  if (rejectedCount > 0) fileSummaryParts.push(`未通过 ${rejectedCount} 个`);
+  const fileSummary =
+    fileSummaryParts.length > 0
+      ? `${fileSummaryParts.join("；")}（详见下方产物清单）`
+      : "";
   // 诚实披露卡：默认展开（不套产物卡「>4 收起」阈值）；收起仅折叠 gap 明细与 actions，头部
   // （交付验收 + 状态徽标 + summary + 条件性「团队可能重派」）恒可见。手机无折叠持久化（对齐本端
   // FileArtifactsCard 的整行开合 + chevron），本地 state 即可。
@@ -416,6 +429,11 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
           <ChevronDown size={15} className="delivery-go" aria-hidden />
         )}
       </button>
+      {expanded && fileSummary ? (
+        <div className="delivery-row delivery-file-summary">
+          <span className="delivery-desc">{fileSummary}</span>
+        </div>
+      ) : null}
       {expanded &&
         blockingGaps.map((gap, i) => {
           const reasonLabel =

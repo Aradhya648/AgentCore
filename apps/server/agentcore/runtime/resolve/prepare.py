@@ -39,6 +39,9 @@ from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registry import ToolRegistry
 from agentcore.workspace.attachment_parse import (
     ATTACHMENT_INLINE_MAX_CHARS,
+    MARKITDOWN_EXTENSIONS,
+    SKIP_EXTENSIONS,
+    extension_of,
     truncate_for_prompt,
 )
 
@@ -360,8 +363,9 @@ async def _build_attachment_context(
 
     Text files carry pre-extracted text; pre-parsed binaries (docx/pdf/…) carry
     inline text (context-capped) plus a pointer to the ``*.md`` workspace copy;
-    unscanned spreadsheet binaries carry only a workspace path (引用即驻留 —
-    model must parse via ``code_execute``). Directories carry a recursive file
+    office/PDF that missed pre-parse steer ``file_read`` (transparent extract);
+    spreadsheet / unknown binaries carry only a workspace path (model must parse
+    via ``code_execute``). Directories carry a recursive file
     listing (paths only); ``kind=conversation`` is **server deep-read** via
     ``log_export`` (client shallow ``text`` is ignored). A file with a
     ``workspace_path`` was persisted into the workspace, so the header points
@@ -374,6 +378,7 @@ async def _build_attachment_context(
     blocks: list[str] = []
     resident = False
     has_binary = False
+    has_office_unparsed = False
     has_preparsed = False
     has_conversation = False
     for att in attachments:
@@ -441,13 +446,29 @@ async def _build_attachment_context(
             path = ws_path or att.get("path") or name
             if ws_path:
                 resident = True
-            has_binary = True
-            blocks.append(
-                f"--- File: {name} ({path}) [binary] ---\n"
-                "This is a binary file saved in the workspace (no text inline). "
-                "Open and parse it with code_execute using the workspace-relative "
-                "path above (e.g. openpyxl for .xlsx). Do NOT use an OS absolute path."
-            )
+            ext = extension_of(name, ws_path if isinstance(ws_path, str) else None)
+            if ext in MARKITDOWN_EXTENSIONS:
+                has_office_unparsed = True
+                blocks.append(
+                    f"--- File: {name} ({path}) [binary / office-pdf] ---\n"
+                    "No inline text for this office/PDF attachment (pre-parse missed or "
+                    "failed). Use file_read on the workspace-relative path above — "
+                    "text is extracted automatically. Do NOT default to code_execute "
+                    "for office/PDF. Do NOT use an OS absolute path."
+                )
+            else:
+                has_binary = True
+                sheet_hint = (
+                    " (e.g. openpyxl / pandas for .xlsx/.csv)"
+                    if ext in SKIP_EXTENSIONS
+                    else ""
+                )
+                blocks.append(
+                    f"--- File: {name} ({path}) [binary] ---\n"
+                    "This is a binary file saved in the workspace (no text inline). "
+                    "Open and parse it with code_execute using the workspace-relative "
+                    f"path above{sheet_hint}. Do NOT use an OS absolute path."
+                )
         elif text:
             path = ws_path or att.get("path") or name
             if ws_path:
@@ -467,10 +488,16 @@ async def _build_attachment_context(
         else ""
     )
     binary_note = (
-        " Binary attachments have no inline body: use code_execute on the "
-        "workspace-relative path. Never hard-read an OS absolute path outside "
-        "the workspace (it will fail or hang)."
+        " Spreadsheet / unknown binary attachments have no inline body: use "
+        "code_execute on the workspace-relative path. Never hard-read an OS "
+        "absolute path outside the workspace (it will fail or hang)."
         if has_binary
+        else ""
+    )
+    office_note = (
+        " Office/PDF attachments without inline text: use file_read on the "
+        "workspace path (automatic text extract); do not default to code_execute."
+        if has_office_unparsed
         else ""
     )
     preparsed_note = (
@@ -498,7 +525,7 @@ async def _build_attachment_context(
         "them by name when relevant. Directory entries list file paths only "
         "(file contents are not included)."
         f"{conversation_note}"
-        f"{resident_note}{binary_note}{preparsed_note}\n\n"
+        f"{resident_note}{binary_note}{office_note}{preparsed_note}\n\n"
         f"{body}\n"
         "</attached_files>"
     )

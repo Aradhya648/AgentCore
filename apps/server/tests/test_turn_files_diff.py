@@ -73,10 +73,12 @@ async def test_local_baseline_capture_writes_zip(tmp_path: Path):
     assert sid == "msg-abc"
     zip_path = local_baseline_path(root, "msg-abc")
     assert zip_path.is_file()
-    # .agentcore itself is pruned from the archive.
+    # AgentCore internal zones are pruned from the archive; visible dirs stay.
     entries = read_archive_entries(zip_path.read_bytes())
     assert "src/a.py" in entries
-    assert not any(p.startswith(".agentcore/") for p in entries)
+    assert not any(p.startswith("AgentCore/baselines/") for p in entries)
+    assert not any(p.startswith("AgentCore/index/") for p in entries)
+    assert not any(p.startswith("AgentCore/trash/") for p in entries)
 
 
 @pytest.mark.asyncio

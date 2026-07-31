@@ -27,7 +27,7 @@ from agentcore.tools.sandbox.protocol import (
     SandboxProvider,
 )
 from agentcore.workspace._paths import (
-    is_ignored_dir_name,
+    is_ignored_dir_entry,
     is_ignored_file_name,
     is_system_ignored_file_name,
     resolve_safe_path,
@@ -41,6 +41,7 @@ from agentcore.workspace.external_mounts import (
     parse_external_path,
     route_external,
 )
+from agentcore.workspace.indexing.maintainer import IndexMaintainer
 from agentcore.workspace.indexing.manager import IndexManager
 from agentcore.workspace.local import LocalWorkspace
 from agentcore.workspace.locks import workspace_lock
@@ -82,7 +83,7 @@ from agentcore.workspace.text_replace import (
     TextReplaceNoMatch,
     apply_text_replace,
 )
-from agentcore.workspace.trash import is_trash_or_agentcore_path, soft_delete_to_trash
+from agentcore.workspace.trash import is_internal_zone_path, soft_delete_to_trash
 
 _MAX_LIST_ENTRIES = 100
 _MAX_INDEX_FILES = 5000  # @ mention flat index cap (mirrors desktop LIST_FILES_CAP)
@@ -140,6 +141,7 @@ class ServerWorkspace:
         # workspaces a turn actually changed (see WorkspaceBackend.dirty).
         self._dirty = False
         self._index_manager: IndexManager | None = None
+        self._index_maintainer: IndexMaintainer | None = None
         # W3 session mounts (``external/<alias>/…``). Sidecar sets ``abs_path``;
         # cloud grants carry ``root_id`` only and need ``_external_bridge``.
         self._mounts: dict[str, ExternalMount] = {}
@@ -157,6 +159,21 @@ class ServerWorkspace:
     @property
     def dirty(self) -> bool:
         return self._dirty
+
+    def _mark_mutated(self) -> None:
+        """Snapshot dirty + invalidate code index (schedule background refresh)."""
+        self._dirty = True
+        if self._index_manager is not None:
+            self._index_manager.mark_content_dirty()
+        if self._index_maintainer is not None:
+            self._index_maintainer.schedule()
+
+    def start_code_index_maintenance(self) -> None:
+        """Kick coalesced background ensure (turn / sidecar entry)."""
+        manager = self._get_index_manager()
+        if self._index_maintainer is None:
+            self._index_maintainer = IndexMaintainer(manager, self)
+        self._index_maintainer.schedule()
 
     def attach_external_mounts(self, mounts: dict[str, ExternalMount]) -> None:
         """Attach session-scoped external mounts for this turn (W3 / organize)."""
@@ -374,7 +391,7 @@ class ServerWorkspace:
     async def write(self, path: str, content: str) -> int:
         if self._external_needs_channel(path):
             n = await self._require_external_bridge().write(path, content)
-            self._dirty = True
+            self._mark_mutated()
             return n
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
@@ -384,14 +401,14 @@ class ServerWorkspace:
                 target.write_text(content, encoding="utf-8")
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
-            self._dirty = True
+            self._mark_mutated()
             await self._emit_shared_mutation(path, "file_written")
             return len(content)
 
     async def append(self, path: str, content: str) -> int:
         if self._external_needs_channel(path):
             n = await self._require_external_bridge().append(path, content)
-            self._dirty = True
+            self._mark_mutated()
             return n
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
@@ -409,7 +426,7 @@ class ServerWorkspace:
                 raise
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
-            self._dirty = True
+            self._mark_mutated()
             await self._emit_shared_mutation(path, "file_written")
             return len(content)
 
@@ -430,7 +447,7 @@ class ServerWorkspace:
     async def write_bytes(self, path: str, data: bytes) -> int:
         if self._external_needs_channel(path):
             n = await self._require_external_bridge().write_bytes(path, data)
-            self._dirty = True
+            self._mark_mutated()
             return n
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
@@ -440,7 +457,7 @@ class ServerWorkspace:
                 _atomic_write_bytes(target, data)
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
-            self._dirty = True
+            self._mark_mutated()
             await self._emit_shared_mutation(path, "file_written")
             return len(data)
 
@@ -515,7 +532,7 @@ class ServerWorkspace:
                 new_ms = target.stat().st_mtime_ns // 1_000_000
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
-            self._dirty = True
+            self._mark_mutated()
             await self._emit_shared_mutation(path, "file_written")
             return True, new_ms
 
@@ -528,6 +545,9 @@ class ServerWorkspace:
             raise NotADirectory(directory)
         try:
             entries = sorted(base.glob(pattern))[:_MAX_LIST_ENTRIES]
+            parent_rel = directory.replace("\\", "/").strip("/")
+            if parent_rel in ("", "."):
+                parent_rel = ""
             return [
                 DirEntry(
                     path=self._model_path(entry, logical=directory),
@@ -535,7 +555,12 @@ class ServerWorkspace:
                 )
                 for entry in entries
                 if not (
-                    (entry.is_dir() and is_ignored_dir_name(entry.name))
+                    (
+                        entry.is_dir()
+                        and is_ignored_dir_entry(
+                            parent_rel=parent_rel, name=entry.name
+                        )
+                    )
                     # UI REST shares ``list`` — only system noise; AI ``file_list``
                     # applies AI-noise filtering in the tool layer.
                     or (entry.is_file() and is_system_ignored_file_name(entry.name))
@@ -614,8 +639,17 @@ class ServerWorkspace:
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
 
+            try:
+                parent_rel = dir_path.resolve().relative_to(self._root.resolve()).as_posix()
+            except ValueError:
+                parent_rel = ""
+            if parent_rel == ".":
+                parent_rel = ""
+
             for child in children:
-                if is_ignored_dir_name(child.name):
+                if child.is_dir() and is_ignored_dir_entry(
+                    parent_rel=parent_rel, name=child.name
+                ):
                     continue
                 if child.is_file() and is_ignored_file_name(child.name):
                     continue
@@ -649,7 +683,8 @@ class ServerWorkspace:
         and the worker manifest behave the same whether a workspace is cloud or local.
         ``order="path"`` (default) = alphabetical (the @ view); ``order="recent"`` =
         newest-first by mtime (one extra stat/file) for the manifest's relevance budget.
-        Noise dirs (``.agentcore`` / ``.git`` / ``node_modules`` / …) and AI-tier
+        Noise dirs (``.git`` / ``node_modules`` / …) plus path-aware
+        ``AgentCore/{index,trash,baselines}``, and AI-tier
         suffixes (``*.db`` / media / binaries) are pruned — same rule set as
         desktop ``collectWorkspaceFiles`` / ``opIndexFiles``.
         """
@@ -660,7 +695,11 @@ class ServerWorkspace:
         truncated = False
         for dirpath, dirnames, filenames in os.walk(root):
             # Prune noise dirs in place so os.walk never descends into them.
-            dirnames[:] = sorted(d for d in dirnames if not is_ignored_dir_name(d))
+            rel_dir = os.path.relpath(dirpath, root)
+            parent_rel = "" if rel_dir == "." else rel_dir.replace("\\", "/")
+            dirnames[:] = sorted(
+                d for d in dirnames if not is_ignored_dir_entry(parent_rel=parent_rel, name=d)
+            )
             for fname in sorted(filenames):
                 if is_ignored_file_name(fname):
                     continue
@@ -683,7 +722,7 @@ class ServerWorkspace:
     async def mkdir(self, path: str) -> None:
         if self._external_needs_channel(path):
             await self._require_external_bridge().mkdir(path)
-            self._dirty = True
+            self._mark_mutated()
             return
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
@@ -708,13 +747,13 @@ class ServerWorkspace:
                 target.mkdir(parents=True, exist_ok=False)
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
-            self._dirty = True
+            self._mark_mutated()
             await self._emit_shared_mutation(path, "dir_created")
 
     async def delete(self, path: str, *, permanent: bool = False) -> None:
         if self._external_needs_channel(path):
             await self._require_external_bridge().delete(path, permanent=permanent)
-            self._dirty = True
+            self._mark_mutated()
             return
         async with self._maybe_shared_lock(path):
             await self._gate_shared(path, write=True)
@@ -740,9 +779,10 @@ class ServerWorkspace:
                     mount_root = self._root.resolve()
             if not target.exists():
                 raise PathNotFound(path)
-            # Soft-delete into `.agentcore/trash` cannot nest under itself; treat
-            # anything under `.agentcore` as permanent cleanup.
-            hard = permanent or is_trash_or_agentcore_path(path)
+            # Soft-delete into AgentCore/trash cannot nest under itself; treat
+            # internal zones (index/trash/baselines) as permanent cleanup — not
+            # the whole AgentCore/ tree (rules/memory/docs stay soft-deletable).
+            hard = permanent or is_internal_zone_path(path)
             try:
                 if hard:
                     if target.is_dir():
@@ -771,13 +811,13 @@ class ServerWorkspace:
                     )
             except OSError as e:
                 raise WorkspaceIOError(str(e)) from e
-            self._dirty = True
+            self._mark_mutated()
             await self._emit_shared_mutation(path, "file_deleted")
 
     async def copy(self, src: str, dst: str) -> None:
         if self._external_needs_channel(src, dst):
             await self._require_external_bridge().copy(src, dst)
-            self._dirty = True
+            self._mark_mutated()
             return
         source = self._safe(src, write=False)
         dest = self._safe(dst, write=True, op="copy")
@@ -810,12 +850,12 @@ class ServerWorkspace:
                 shutil.copy2(source, dest)
         except OSError as e:
             raise WorkspaceIOError(str(e)) from e
-        self._dirty = True
+        self._mark_mutated()
 
     async def move(self, src: str, dst: str) -> None:
         if self._external_needs_channel(src, dst):
             await self._require_external_bridge().move(src, dst)
-            self._dirty = True
+            self._mark_mutated()
             return
         source = self._safe(src, write=True, op="move")
         dest = self._safe(dst, write=True, op="move")
@@ -838,14 +878,14 @@ class ServerWorkspace:
             os.replace(source, dest)
         except OSError as e:
             raise WorkspaceIOError(str(e)) from e
-        self._dirty = True
+        self._mark_mutated()
 
     async def replace(self, path: str, old: str, new: str, *, all_: bool) -> ReplaceOutcome:
         if self._external_needs_channel(path):
             outcome = await self._require_external_bridge().replace(
                 path, old, new, all_=all_
             )
-            self._dirty = True
+            self._mark_mutated()
             return outcome
         target = self._safe(path, write=True, op="replace")
         if not target.exists():
@@ -874,7 +914,7 @@ class ServerWorkspace:
         except OSError as e:
             raise WorkspaceIOError(str(e)) from e
 
-        self._dirty = True
+        self._mark_mutated()
         return ReplaceOutcome(count=result.count, first_line=result.first_line)
 
     async def grep(self, query: GrepQuery) -> GrepResult:
@@ -925,7 +965,7 @@ class ServerWorkspace:
         # occasional snapshot of a pure-compute run (cheap, async, post-answer);
         # the alternative — silently missing code-generated files — is worse for
         # a backup feature. Read-only file ops still never set this.
-        self._dirty = True
+        self._mark_mutated()
         env = dict(req.env or {})
         env.update(build_external_env(self._mounts))
         cwd = str(self._root.resolve())

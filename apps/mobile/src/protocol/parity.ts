@@ -210,7 +210,7 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "协议折入 ResumeCard 可恢复；桌面 CheckpointCard 按 intent（kickoff/proposal_pick/risk_ack/organize_plan）专用 UI，手机无 intent 分支、精简 ResumeCard 降级承接（见 DESKTOP_CHAT_PARITY · CheckpointCard / ask/*）",
+      "协议折入 ResumeCard 可恢复；桌面 CheckpointCard：kickoff/decision 共用 AskDecisionBody，proposal_pick/risk_ack/organize_plan 专用体；daily_review 勾选墙已对等进 ResumeCard；其余 intent 精简承接（见 DESKTOP_CHAT_PARITY · CheckpointCard / ask/*）",
   },
   checkpoint_resolved: {
     verdict: "simplified",
@@ -292,6 +292,11 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
   host_op_required: {
     verdict: "impossible",
     reason: "本机 Host 回填为 Electron Client Tool，手机无此通道 (fold no-op)",
+  },
+  mcp_op_required: {
+    verdict: "impossible",
+    reason:
+      "本机 MCP stdio 回填为 Electron Client Tool，手机无此通道 (fold no-op)",
   },
 
   // —— 草稿工作区（本地文件夹）/ 本地↔云交接（物理做不到）——
@@ -387,7 +392,7 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "桌面按 intent 分专用卡（kickoff/decision/proposal_pick/risk_ack/organize_plan，均 AskCardShell+行式）；手机 PauseCard 仅审批、无 intent 分支，冷路径靠精简 ResumeCard 降级承接（本期不新建手机专用卡 UI）",
+      "桌面 kickoff/decision 共用 AskDecisionBody；proposal_pick/risk_ack/organize_plan 专用体；daily_review 勾选墙已对等进 ResumeCard；手机其余 intent 仍精简 ResumeCard 承接（organize_plan 仍确认=全保留）",
   },
   PlanReviewCard: { verdict: "ported", surface: "ResumeCard" },
   TeamPreviewCard: { verdict: "ported", surface: "ResumeCard" },
@@ -484,22 +489,16 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   },
 
   // —— 提问 intent 专用卡（ask/；桌面 CheckpointCard 分支出；手机本期降级 ResumeCard）——
-  "ask/AskKickoffBody": {
-    verdict: "simplified",
-    surface: "ResumeCard",
-    reason:
-      "kickoff 生产卡：AskCardShell + 行式选项；手机无专用卡，ResumeCard 精简承接",
-  },
   "ask/AskDecisionBody": {
     verdict: "simplified",
     surface: "ResumeCard",
     reason:
-      "decision 生产卡：AskCardShell + 行式选项；手机无专用卡，ResumeCard 精简承接",
+      "通用澄清卡（decision + wire kickoff）：AskCardShell + 行式选项；手机无专用卡，ResumeCard 精简承接",
   },
   "ask/AskCommenceKickoff": {
     verdict: "internal",
     reason:
-      "已退役 kickoff V2 Brief+Choose；仅离线预览对照，生产走 AskKickoffBody",
+      "已退役 kickoff V2 Brief+Choose；仅离线预览对照，生产走 AskDecisionBody",
   },
   "ask/ProposalPickBody": {
     verdict: "simplified",
@@ -519,6 +518,11 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     reason:
       "organize_plan 生产卡：AskCardShell + 行式多选；手机无勾选墙，ResumeCard 确认=全保留降级",
   },
+  "ask/DailyReviewBody": {
+    verdict: "ported",
+    surface:
+      "ResumeCard · daily_review 勾选墙（默认全选 / 取消=跳过 / selected 语义对齐）",
+  },
   "ask/AskUserFields": {
     verdict: "simplified",
     surface: "ResumeCard",
@@ -527,7 +531,8 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   },
   "ask/AskCardShell": {
     verdict: "internal",
-    reason: "五种 ask intent 共用卡壳（头/体/底），非独立对等面",
+    reason:
+      "ask intent 共用卡壳（头/体/底）；kickoff/decision 同壳，非独立对等面",
   },
   "ask/AskOptionRow": {
     verdict: "internal",
@@ -561,7 +566,7 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   "ask/preview/AskCommenceV5": {
     verdict: "internal",
     reason:
-      "ask commence 离线预览：挂载生产 AskKickoffBody（行式），非独立产品面",
+      "ask commence 离线预览：挂载生产 AskDecisionBody（通用澄清），非独立产品面",
   },
 
   // —— 有意精简 ——
@@ -738,6 +743,10 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
     verdict: "simplified",
     reason: "同上 · 站立任务列表仅桌面",
   },
+  "toolbox/ConnectorsPage": {
+    verdict: "impossible",
+    reason: "本机 MCP stdio 连接器仅 Electron；手机无本机 MCP Client",
+  },
   "toolbox/ToolsPage": {
     verdict: "simplified",
     reason: "工具创作保持不做（⑥）",
@@ -845,7 +854,8 @@ export const DESKTOP_PAGE_PARITY: Record<string, ParityEntry> = {
   },
   AskCommencePreviewPage: {
     verdict: "internal",
-    reason: "桌面 ask commence 离线预览（开发自检），非用户产品面",
+    reason:
+      "桌面已退役 ask 开场布局对照（#/preview/ask-commence）；现生产 = AskDecisionBody，非用户产品面",
   },
   ConversationsPreviewPage: {
     verdict: "internal",

@@ -44,6 +44,7 @@ from agentcore.workspace.external_mounts import (
     parse_external_path,
     route_external,
 )
+from agentcore.workspace.indexing.maintainer import IndexMaintainer
 from agentcore.workspace.indexing.manager import IndexManager
 from agentcore.workspace.protocol import (
     CodeSearchResult,
@@ -103,11 +104,27 @@ class LocalWorkspace:
         # BM25 index lives on the API host (channel cannot open SQLite on the
         # desktop). Keyed by desktop root + subpath so fallback cloud→desktop
         # turns share one cache. Sidecar local turns use ServerWorkspace instead.
+        # Query is ensure-free; IndexMaintainer builds in the background (still
+        # channel-reads for ensure — channel CODE_SEARCH is a later slice).
         self._index_manager: IndexManager | None = None
+        self._index_maintainer: IndexMaintainer | None = None
 
     @property
     def dirty(self) -> bool:
         return self._dirty
+
+    def _mark_mutated(self) -> None:
+        self._dirty = True
+        if self._index_manager is not None:
+            self._index_manager.mark_content_dirty()
+        if self._index_maintainer is not None:
+            self._index_maintainer.schedule()
+
+    def start_code_index_maintenance(self) -> None:
+        manager = self._get_index_manager()
+        if self._index_maintainer is None:
+            self._index_maintainer = IndexMaintainer(manager, self)
+        self._index_maintainer.schedule()
 
     def _get_index_manager(self) -> IndexManager:
         if self._index_manager is None:
@@ -203,7 +220,7 @@ class LocalWorkspace:
         value = await self._channel.request(
             WorkspaceOp.WRITE, {"path": rel, "content": content}, root_id=root_id
         )
-        self._dirty = True
+        self._mark_mutated()
         return int(value)
 
     async def append(self, path: str, content: str) -> int:
@@ -211,7 +228,7 @@ class LocalWorkspace:
         value = await self._channel.request(
             WorkspaceOp.APPEND, {"path": rel, "content": content}, root_id=root_id
         )
-        self._dirty = True
+        self._mark_mutated()
         return int(value)
 
     async def read_bytes(self, path: str) -> bytes:
@@ -229,7 +246,7 @@ class LocalWorkspace:
             {"path": rel, "data": base64.b64encode(data).decode("ascii")},
             root_id=root_id,
         )
-        self._dirty = True
+        self._mark_mutated()
         return int(value)
 
     async def list(self, directory: str, pattern: str) -> list[DirEntry]:
@@ -315,7 +332,7 @@ class LocalWorkspace:
     async def mkdir(self, path: str) -> None:
         root_id, rel, _ = self._route(path, write=True, op="mkdir")
         await self._channel.request(WorkspaceOp.MKDIR, {"path": rel}, root_id=root_id)
-        self._dirty = True
+        self._mark_mutated()
 
     async def delete(self, path: str, *, permanent: bool = False) -> None:
         root_id, rel, _ = self._route(
@@ -326,7 +343,7 @@ class LocalWorkspace:
             {"path": rel, "permanent": permanent},
             root_id=root_id,
         )
-        self._dirty = True
+        self._mark_mutated()
 
     async def copy(self, src: str, dst: str) -> None:
         src_root, src_rel, src_alias = self._route(src, write=False)
@@ -336,7 +353,7 @@ class LocalWorkspace:
         await self._channel.request(
             WorkspaceOp.COPY, {"src": src_rel, "dst": dst_rel}, root_id=src_root
         )
-        self._dirty = True
+        self._mark_mutated()
 
     async def move(self, src: str, dst: str) -> None:
         src_root, src_rel, src_alias = self._route(src, write=True, op="move")
@@ -346,7 +363,7 @@ class LocalWorkspace:
         await self._channel.request(
             WorkspaceOp.MOVE, {"src": src_rel, "dst": dst_rel}, root_id=src_root
         )
-        self._dirty = True
+        self._mark_mutated()
 
     async def replace(self, path: str, old: str, new: str, *, all_: bool) -> ReplaceOutcome:
         root_id, rel, _ = self._route(path, write=True, op="replace")
@@ -355,7 +372,7 @@ class LocalWorkspace:
             {"path": rel, "old": old, "new": new, "all": all_},
             root_id=root_id,
         )
-        self._dirty = True
+        self._mark_mutated()
         first_line = value.get("first_line")
         return ReplaceOutcome(
             count=int(value["count"]),
@@ -424,7 +441,7 @@ class LocalWorkspace:
         # W3: pass conversation_id + external root_ids so the desktop injects
         # ``AGENTCORE_EXTERNAL_<ALIAS>`` abs paths into the subprocess env — absolute
         # paths never enter the model prompt.
-        self._dirty = True
+        self._mark_mutated()
         external_roots = {
             alias: m.root_id
             for alias, m in self._mounts.items()

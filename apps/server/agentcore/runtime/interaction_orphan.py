@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from agentcore.core.logging import get_logger
@@ -33,13 +34,30 @@ HOT_ORPHAN_KINDS: frozenset[str] = frozenset(
 )
 
 
-def _should_orphan_pending(pending: PendingInteraction) -> bool:
-    if pending.kind not in HOT_ORPHAN_KINDS:
+def _is_hot_user_pending_kind(kind: str, payload: dict[str, Any] | None) -> bool:
+    """True for hot-path kinds awaiting the user (excludes ``awaiting=ceo``)."""
+    if kind not in HOT_ORPHAN_KINDS:
         return False
     return not (
-        pending.kind == InteractionKind.ESCALATION.value
-        and pending.payload.get("awaiting") == "ceo"
+        kind == InteractionKind.ESCALATION.value
+        and (payload or {}).get("awaiting") == "ceo"
     )
+
+
+def _should_orphan_pending(pending: PendingInteraction) -> bool:
+    return _is_hot_user_pending_kind(pending.kind, pending.payload)
+
+
+def has_hot_user_pending(conversation_id: str | None) -> bool:
+    """True when registry has user-side hot pending (approval / auth / user escalation)."""
+    cid = (conversation_id or "").strip()
+    if not cid:
+        return False
+    registry = default_interaction_registry()
+    for req in registry.list_pending(cid):
+        if _is_hot_user_pending_kind(req.kind.value, req.payload):
+            return True
+    return False
 
 
 async def emit_orphan_fact(
@@ -78,8 +96,38 @@ async def emit_orphan_fact(
             "interaction.orphan_write_failed",
             interaction_id=interaction_id,
             kind=kind,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
             error=str(e),
         )
+
+
+async def orphan_live_turn_hot_pending(conversation_id: str) -> list[str]:
+    """Orphan hot pending before stop / regenerate / retry-failed (触发点④).
+
+    Reads the **live** turn's ``sink.message_id`` as journal ``turn_id`` (not the
+    regenerate target user-message id). HTTP handlers have no ContextVar journal
+    writer, so ``prefer_direct`` is set when a live ``turn_id`` is available.
+    """
+    from agentcore.core.log_context import get_log_value
+    from agentcore.runtime.turn_runs import turn_runs
+
+    live = turn_runs.get(conversation_id)
+    turn_id: str | None = None
+    sink = None
+    if live is not None:
+        mid = getattr(live.sink, "message_id", None) or ""
+        turn_id = mid.strip() or None
+        sink = live.sink
+    trace_raw = get_log_value("trace_id")
+    trace_id = trace_raw.strip() or None if isinstance(trace_raw, str) else None
+    return await orphan_registry_pending(
+        conversation_id,
+        turn_id=turn_id,
+        trace_id=trace_id,
+        prefer_direct=bool(turn_id),
+        sink=sink,
+    )
 
 
 async def orphan_registry_pending(
@@ -87,22 +135,24 @@ async def orphan_registry_pending(
     *,
     turn_id: str | None = None,
     trace_id: str | None = None,
+    prefer_direct: bool = False,
+    sink: Any | None = None,
 ) -> list[str]:
     """Orphan in-process hot pending for a conversation (turn-end / stop).
 
     Discards registry entries after writing orphan facts. Returns orphaned ids.
     Does NOT cancel Futures with a result — callers that stop the turn cancel the
     task; this only marks journal + clears registry so recovery won't show fake cards.
+
+    ``prefer_direct=True`` for HTTP stop (no ContextVar journal writer). When
+    ``sink`` is provided, also emit ``interaction_orphaned`` SSE (best-effort;
+    emit failures never raise).
     """
     registry = default_interaction_registry()
     orphaned: list[str] = []
     for req in list(registry.list_pending(conversation_id)):
         kind = req.kind.value
-        if kind not in HOT_ORPHAN_KINDS:
-            continue
-        if kind == InteractionKind.ESCALATION.value and (req.payload or {}).get(
-            "awaiting"
-        ) == "ceo":
+        if not _is_hot_user_pending_kind(kind, req.payload):
             continue
         await emit_orphan_fact(
             interaction_id=req.id,
@@ -110,7 +160,13 @@ async def orphan_registry_pending(
             turn_id=turn_id,
             conversation_id=conversation_id,
             trace_id=trace_id,
+            prefer_direct=prefer_direct,
         )
+        if sink is not None:
+            with contextlib.suppress(Exception):
+                sink.emit(
+                    interaction_orphaned(interaction_id=req.id, kind=kind, reason=None)
+                )
         # Cancel unsettled future so awaiters don't hang if turn teardown is slow.
         if not req.future.done():
             req.future.cancel()

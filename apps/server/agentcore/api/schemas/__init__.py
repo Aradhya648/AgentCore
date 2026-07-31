@@ -253,10 +253,13 @@ from .shared_spaces import (
 from .sharing import CreateShareRequest, ShareListResponse, ShareSummary
 from .standing_tasks import (
     CreateStandingTaskRequest,
+    EnsureStandingTaskTemplateRequest,
     RotateWebhookSecretResponse,
     StandingTaskRunListResponse,
     StandingTaskRunSummary,
     StandingTaskSummary,
+    StandingTaskTemplateConfig,
+    StandingTaskTemplateSummary,
     TriggerStandingTaskResponse,
     UpdateStandingTaskRequest,
 )
@@ -510,7 +513,10 @@ __all__ = [
     # standing tasks
     "CreateStandingTaskRequest",
     "UpdateStandingTaskRequest",
+    "EnsureStandingTaskTemplateRequest",
     "StandingTaskSummary",
+    "StandingTaskTemplateConfig",
+    "StandingTaskTemplateSummary",
     "StandingTaskRunSummary",
     "StandingTaskRunListResponse",
     "TriggerStandingTaskResponse",

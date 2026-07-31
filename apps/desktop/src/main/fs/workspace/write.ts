@@ -6,6 +6,7 @@ import { shell } from "electron";
 import { WORKSPACE_READ_MAX } from "../constants";
 import { realInside, resolveLexical, toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
+import { TRASH_REL, isInternalZoneRelPath } from "../workspaceIgnore";
 import { opErr, opOk } from "./result";
 import { applyTextReplace } from "./textReplace";
 
@@ -172,19 +173,14 @@ export async function opMkdir(
   return opOk(null);
 }
 
-function isAgentcoreRel(relPath: string): boolean {
-  const p = relPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  return p === ".agentcore" || p.startsWith(".agentcore/");
-}
-
-/** 无系统回收站时：移入工作区 `.agentcore/trash/<id>/` 并写 meta（对齐服务端 soft_delete）。 */
+/** 无系统回收站时：移入工作区 `AgentCore/trash/<id>/` 并写 meta（对齐服务端 soft_delete）。 */
 async function softDeleteToWorkspaceTrash(
   root: StoredRoot,
   realPath: string,
   relPath: string,
 ): Promise<WorkspaceOpResult> {
   const entryId = randomUUID().replace(/-/g, "");
-  const entryDir = join(root.absPath, ".agentcore", "trash", entryId);
+  const entryDir = join(root.absPath, ...TRASH_REL.split("/"), entryId);
   const dest = join(entryDir, "content");
   try {
     const st = await fs.lstat(realPath);
@@ -230,7 +226,8 @@ export async function opDelete(
       ? opErr("OutsideWorkspace", relPath)
       : opErr("PathNotFound", relPath);
   }
-  const hard = permanent || isAgentcoreRel(relPath);
+  // Hard-delete only for internal zones (index/trash/baselines) — not whole AgentCore/.
+  const hard = permanent || isInternalZoneRelPath(relPath);
   try {
     if (hard) {
       await fs.rm(real.path, { recursive: true, force: false });

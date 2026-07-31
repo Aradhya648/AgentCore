@@ -10,6 +10,7 @@ from agentcore.runtime.delegate.delivery_status import (
     maybe_emit_delivery_status,
 )
 from agentcore.runtime.events import EventSink, EventType
+from agentcore.runtime.runs.file_acceptance import build_file_acceptance
 from agentcore.runtime.runs.plan import RunPlan
 from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
 from agentcore.tools.builtin.delegate import DelegateTool
@@ -21,19 +22,39 @@ def _plan(*specs: RunSpec) -> RunPlan:
     return RunPlan(nodes=list(specs))
 
 
+def _accepted(*paths: str) -> list[dict]:
+    """Stamp COMPLETED acceptance rows (new contract; no files_touched synthesis)."""
+    return build_file_acceptance(list(paths), phase=RunPhase.COMPLETED)
+
+
 def test_pure_prose_success_stays_silent():
     plan = _plan(RunSpec(run_id="w1", task="调研", role="研究员"))
     results = {"w1": RunState(phase=RunPhase.COMPLETED, content="综述正文")}
     assert build_delivery_status(plan, results, execution_id="e") is None
 
 
-def test_all_files_delivered_no_gaps():
+def test_files_touched_without_file_acceptance_not_synthesized():
+    """No legacy acceptance: files_touched alone must not invent delivered_files."""
     plan = _plan(RunSpec(run_id="w1", task="写讲稿", role="撰写"))
     results = {
         "w1": RunState(
             phase=RunPhase.COMPLETED,
             content="已落盘",
             files_touched=["讲稿.md", "notes/大纲.md"],
+        )
+    }
+    assert build_delivery_status(plan, results, execution_id="e-no-acc") is None
+
+
+def test_all_files_delivered_no_gaps():
+    plan = _plan(RunSpec(run_id="w1", task="写讲稿", role="撰写"))
+    touched = ["讲稿.md", "notes/大纲.md"]
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已落盘",
+            files_touched=touched,
+            file_acceptance=_accepted(*touched),
         )
     }
     payload = build_delivery_status(plan, results, execution_id="e1")
@@ -56,10 +77,16 @@ def test_partial_with_worker_gaps_and_degraded_debrief():
             phase=RunPhase.COMPLETED,
             content="脚本已写",
             files_touched=["build_pptx.py"],
+            file_acceptance=_accepted("build_pptx.py"),
             warnings=["声明产物 course.pptx 未在工作区找到"],
             debrief={"summary": "引擎合成", "degraded": True},
         ),
-        "w2": RunState(phase=RunPhase.COMPLETED, content="讲稿", files_touched=["讲稿.md"]),
+        "w2": RunState(
+            phase=RunPhase.COMPLETED,
+            content="讲稿",
+            files_touched=["讲稿.md"],
+            file_acceptance=_accepted("讲稿.md"),
+        ),
     }
     payload = build_delivery_status(plan, results, execution_id="e2")
     assert payload is not None
@@ -146,7 +173,14 @@ def test_maybe_emit_sets_current_delivery_verdict():
     maybe_emit_delivery_status(
         sink,
         plan,
-        {"w1": RunState(phase=RunPhase.COMPLETED, content="ok", files_touched=["a.md"])},
+        {
+            "w1": RunState(
+                phase=RunPhase.COMPLETED,
+                content="ok",
+                files_touched=["a.md"],
+                file_acceptance=_accepted("a.md"),
+            )
+        },
         execution_id="e-verdict",
     )
     verdict = current_delivery_verdict.get()
@@ -162,6 +196,7 @@ def test_soft_notes_only_are_notes_state_not_partial():
             phase=RunPhase.COMPLETED,
             content="ok",
             files_touched=["findings.md"],
+            file_acceptance=_accepted("findings.md"),
             warnings=[
                 "含待核实/示例自注（2 处）：`findings.md` · 待核实 · 「示例」；"
                 "`findings.md` · 示例数据 · 「估算」。"
@@ -186,6 +221,7 @@ def test_overlay_soft_criteria_gaps_are_notes_not_partial():
             phase=RunPhase.COMPLETED,
             content="ok",
             files_touched=["src/App.tsx"],
+            file_acceptance=_accepted("src/App.tsx"),
         )
     }
     payload = build_delivery_status(
@@ -212,6 +248,7 @@ def test_partial_writing_cutoff_summary_without_continue_writing():
         "w1": RunState(
             phase=RunPhase.COMPLETED,
             files_touched=["报告.md"],
+            file_acceptance=_accepted("报告.md"),
             delivery_gaps=[
                 {
                     "description": "队员因 token 预算触顶被迫收口，产出可能不完整",
@@ -270,7 +307,10 @@ def test_cancelled_node_with_completed_revision_is_not_a_gap():
     results = {
         "w1": RunState(phase=RunPhase.CANCELLED),
         "w1_rev1": RunState(
-            phase=RunPhase.COMPLETED, content="重写完成", files_touched=["index.html"]
+            phase=RunPhase.COMPLETED,
+            content="重写完成",
+            files_touched=["index.html"],
+            file_acceptance=_accepted("index.html"),
         ),
     }
     payload = build_delivery_status(plan, results, execution_id="e6")
@@ -297,7 +337,10 @@ def test_maybe_emit_gates_and_emits():
         files_plan,
         {
             "w1": RunState(
-                phase=RunPhase.COMPLETED, content="ok", files_touched=["a.md"]
+                phase=RunPhase.COMPLETED,
+                content="ok",
+                files_touched=["a.md"],
+                file_acceptance=_accepted("a.md"),
             )
         },
         execution_id="e7",
@@ -342,7 +385,9 @@ def test_qa_deferred_budget_emits_website_verify_action():
         RunSpec(run_id="s0", role="区0", task="分区"),
     )
     results["s0"] = RunState(
-        phase=RunPhase.COMPLETED, files_touched=["site/index.html"]
+        phase=RunPhase.COMPLETED,
+        files_touched=["site/index.html"],
+        file_acceptance=_accepted("site/index.html"),
     )
     payload = build_delivery_status(plan, results, execution_id="e-qa")
     assert payload is not None
@@ -469,6 +514,7 @@ def test_verify_failed_browser_navigate_depresses_delivered():
             phase=RunPhase.COMPLETED,
             content="已尝试打开",
             files_touched=["site/index.html"],
+            file_acceptance=_accepted("site/index.html"),
             transcript=_failed_browser_transcript(),
         )
     }
@@ -486,6 +532,7 @@ def test_verify_failed_test_run_depresses_delivered():
             phase=RunPhase.COMPLETED,
             content="测完",
             files_touched=["src/a.ts"],
+            file_acceptance=_accepted("src/a.ts"),
             transcript=_failed_test_run_transcript(),
         )
     }
@@ -502,6 +549,7 @@ def test_verify_failed_tsc_depresses_delivered():
             phase=RunPhase.COMPLETED,
             content="tsc 过了？",
             files_touched=["src/a.ts"],
+            file_acceptance=_accepted("src/a.ts"),
             transcript=_failed_verify_tsc_transcript(),
         )
     }
@@ -519,6 +567,7 @@ def test_landed_files_without_verify_failure_still_delivered():
             phase=RunPhase.COMPLETED,
             content="已落盘",
             files_touched=["讲稿.md"],
+            file_acceptance=_accepted("讲稿.md"),
         )
     }
     payload = build_delivery_status(plan, results, execution_id="e-ok")
@@ -535,6 +584,7 @@ def test_cloud_delivered_adds_export_to_local():
             phase=RunPhase.COMPLETED,
             content="已落盘",
             files_touched=["app/package.json", "app/src/main.ts"],
+            file_acceptance=_accepted("app/package.json", "app/src/main.ts"),
         )
     }
     payload = build_delivery_status(
@@ -556,6 +606,7 @@ def test_local_delivered_omits_export_to_local():
             phase=RunPhase.COMPLETED,
             content="已落盘",
             files_touched=["app/package.json"],
+            file_acceptance=_accepted("app/package.json"),
         )
     }
     payload = build_delivery_status(
@@ -577,3 +628,180 @@ def test_is_availability_status_question_narrow():
     assert not is_availability_status_question(
         "刚才做好的那个页面，你能在本地直接打开浏览器帮我验证一下能不能用吗？"
     )
+
+
+def test_cite_failure_path_rejected_not_in_delivered_files():
+    """Soft-COMPLETED + cite-tier path reject → artifacts rejected, not delivered_files."""
+    from agentcore.runtime.runs.file_acceptance import (
+        REASON_CITATIONS_UNVERIFIED,
+        build_file_acceptance,
+        path_rejections_from_contract_messages,
+    )
+
+    cite_msg = (
+        "`paper.md`：正文出现学位论文/期刊式著录标记（[D]）但未就地绑定本回合台账 #rN——"
+        "属于未核验或编造引用。"
+    )
+    path_rej = path_rejections_from_contract_messages([cite_msg])
+    acceptance = build_file_acceptance(
+        ["paper.md", "outline.md"],
+        phase=RunPhase.COMPLETED,
+        path_rejections=path_rej,
+    )
+    plan = _plan(RunSpec(run_id="w1", task="写综述", role="撰写"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已落盘",
+            files_touched=["paper.md", "outline.md"],
+            file_acceptance=acceptance,
+            warnings=[cite_msg],
+            delivery_gaps=[{"description": cite_msg, "reason": REASON_CITATIONS_UNVERIFIED}],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-cite")
+    assert payload is not None
+    assert payload["delivered_files"] == ["outline.md"]
+    by_path = {a["path"]: a for a in payload["artifacts"]}
+    assert by_path["paper.md"]["status"] == "rejected"
+    assert by_path["paper.md"]["reason"] == REASON_CITATIONS_UNVERIFIED
+    assert by_path["outline.md"]["status"] == "accepted"
+    assert payload["state"] == "partial"
+
+
+def test_failed_with_landed_files_rejected_in_artifacts():
+    """FAILED but files on disk → paths rejected in artifacts, not delivered_files."""
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
+
+    err = "`site/index.html`：交付正文含未替换占位符/硬信号"
+    acceptance = build_file_acceptance(
+        ["site/index.html", "site/style.css"],
+        phase=RunPhase.FAILED,
+        error=err,
+    )
+    plan = _plan(RunSpec(run_id="w1", task="建站", role="前端"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.FAILED,
+            content="半成品",
+            error=err,
+            files_touched=["site/index.html", "site/style.css"],
+            file_acceptance=acceptance,
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-fail-land")
+    assert payload is not None
+    assert payload["delivered_files"] == []
+    assert payload["state"] == "blocked"
+    assert {a["path"] for a in payload["artifacts"]} == {
+        "site/index.html",
+        "site/style.css",
+    }
+    assert all(a["status"] == "rejected" for a in payload["artifacts"])
+
+
+def test_clean_completed_artifacts_all_accepted():
+    plan = _plan(RunSpec(run_id="w1", task="写讲稿", role="撰写"))
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
+
+    touched = ["讲稿.md"]
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=touched,
+            file_acceptance=build_file_acceptance(touched, phase=RunPhase.COMPLETED),
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ok-acc")
+    assert payload is not None
+    assert payload["delivered_files"] == ["讲稿.md"]
+    assert payload["artifacts"] == [{"path": "讲稿.md", "status": "accepted"}]
+
+
+def test_phase_b_cite_fail_rejected_not_in_delivered_files():
+    """阶段 B 引用不过闸 → rejected(citations_unverified)，不进 delivered_files；无 draft 行。"""
+    from agentcore.runtime.runs.file_acceptance import (
+        REASON_CITATIONS_UNVERIFIED,
+        build_file_acceptance,
+        path_rejections_from_contract_messages,
+    )
+
+    cite_msg = (
+        "`AgentCore/文档/research/渠道.md`：正文用了 #r3 这些台账引用来源，但它们不在"
+        "本回合成稿可引用集中（须 deep_read 或 selected；search-only / 伪造 / 越界均不可）。"
+    )
+    path_rej = path_rejections_from_contract_messages([cite_msg])
+    acceptance = build_file_acceptance(
+        ["AgentCore/文档/research/渠道.md"],
+        phase=RunPhase.COMPLETED,
+        path_rejections=path_rej,
+    )
+    # draft 不进 file_acceptance / artifacts（仅 accepted|rejected）
+    assert all(a["status"] in ("accepted", "rejected") for a in acceptance)
+    assert acceptance[0]["status"] == "rejected"
+    assert acceptance[0]["reason"] == REASON_CITATIONS_UNVERIFIED
+
+    plan = _plan(RunSpec(run_id="w1", task="调研渠道", role="调研员"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="草案已升 B 仍不过闸",
+            files_touched=["AgentCore/文档/research/渠道.md"],
+            file_acceptance=acceptance,
+            warnings=[cite_msg],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-phase-b")
+    assert payload is not None
+    assert payload["delivered_files"] == []
+    assert len(payload["artifacts"]) == 1
+    assert payload["artifacts"][0]["status"] == "rejected"
+    assert payload["artifacts"][0]["reason"] == REASON_CITATIONS_UNVERIFIED
+    assert all(a.get("status") != "draft" for a in payload["artifacts"])
+
+
+def test_two_phase_predicate_and_playbook_stamp():
+    from agentcore.runtime.runs.playbooks import PLAYBOOKS
+    from agentcore.runtime.runs.research_quality import is_two_phase_citation_deliverable
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    assert is_two_phase_citation_deliverable(
+        Deliverable(citation_mode="two_phase", form="files", artifacts=["a.md"])
+    )
+    assert not is_two_phase_citation_deliverable(
+        Deliverable(form="files", artifacts=["a.md"])
+    )
+    assert not is_two_phase_citation_deliverable(None)
+    # 自由 delegate：声明/落盘在 research/ → 与 playbook 同口径（不扫 task 文）
+    research_path = f"{RESEARCH_PREFIX}pricing_summary.md"
+    assert is_two_phase_citation_deliverable(
+        Deliverable(form="files", artifacts=[research_path])
+    )
+    assert is_two_phase_citation_deliverable(
+        Deliverable(form="files"),
+        landed_paths=[research_path],
+    )
+    assert not is_two_phase_citation_deliverable(
+        Deliverable(
+            citation_mode="immediate",
+            form="files",
+            artifacts=[research_path],
+        )
+    )
+
+    tasks, errs = PLAYBOOKS["research_report"].build({"topic": "测试主题", "angles": ["甲", "乙"]})
+    assert not errs
+    research_tasks = [t for t in tasks if str(t.get("id", "")).startswith("research_")]
+    assert research_tasks
+    for t in research_tasks:
+        assert t["deliverable"].get("citation_mode") == "two_phase"
+    write = next(t for t in tasks if t.get("id") == "write")
+    assert write["deliverable"].get("citation_mode") == "two_phase"
+
+    ml_tasks, ml_errs = PLAYBOOKS["multi_lens_research"].build({"topic": "测试事件"})
+    assert not ml_errs
+    for t in ml_tasks:
+        assert t["deliverable"].get("citation_mode") == "two_phase"
+

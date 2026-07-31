@@ -77,6 +77,7 @@ class WaitTool:
                 "无副作用、立即返回；比空响应更稳（模型被迫发工具时优先用本工具）。"
                 "【禁止】用 delegate / update_synthesis 占位等待；"
                 "同构再派会被拒绝。有真实动作时改调对应工具，勿调 wait。"
+                "有待用户审批/授权时勿调 wait（队员在等用户，空 wait 假装推进会被拒绝）。"
             ),
             parameters={
                 "type": "object",
@@ -100,6 +101,21 @@ class WaitTool:
                 success=False,
                 output="",
                 error="当前不在协调模式——仅在协调模式启动团队后可用。",
+            )
+        from agentcore.runtime.interaction_orphan import has_hot_user_pending
+
+        conversation_id = (
+            getattr(session, "conversation_id", None) or context.conversation_id or ""
+        )
+        if has_hot_user_pending(conversation_id):
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=(
+                    "队员在等用户审批/授权，禁止空 wait 假装推进。"
+                    "请保持静默，或引导用户查看审批卡；勿再调用 wait。"
+                ),
             )
         reason = str(arguments.get("reason") or "").strip()
         logger.info(

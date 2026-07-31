@@ -352,10 +352,29 @@ def worker_products(tool: DelegateTool, plan: RunPlan, results: dict) -> list[di
                 f"\n\n> 已升级 {len(state.escalations)} 项待决问题（见顶部「队员升级了"
                 "待决问题」，请先处理再据此判断本产物是否需返工）"
             )
-        files = list(state.files_touched) if state and state.files_touched else []
+        files = []
+        rejected_files: list[tuple[str, str]] = []
+        # 只认 file_acceptance 戳；无戳 → 不写「已验收 / 未通过验收」（勿用 files_touched 冒充）。
+        if state and state.file_acceptance:
+            from agentcore.runtime.runs.file_acceptance import accepted_paths
+
+            files = accepted_paths(state.file_acceptance)
+            for row in state.file_acceptance:
+                if not isinstance(row, dict) or row.get("status") != "rejected":
+                    continue
+                p = str(row.get("path") or "").strip()
+                if not p:
+                    continue
+                detail = str(row.get("detail") or row.get("reason") or "").strip()
+                rejected_files.append((p, detail))
         if files:
             produced = "、".join(f"`{p}`" for p in files)
-            body += f"\n\n> 文件产出（已写入工作区）：{produced}"
+            body += f"\n\n> 文件产出（已验收）：{produced}"
+        if rejected_files:
+            bits = []
+            for p, detail in rejected_files[:8]:
+                bits.append(f"`{p}`" + (f"（{detail}）" if detail else ""))
+            body += f"\n\n> 未通过验收：{'、'.join(bits)}"
         tool_failures = (
             [dict(row) for row in state.tool_failures if isinstance(row, dict)]
             if state and state.tool_failures
@@ -617,9 +636,10 @@ def format_for_ceo(
             f"\n### {wp['role']}（{wp['status']}） · run_id: `{wp['run_id']}`\n{wp['body']}"
         )
     lines.append(
-        "\n---\n以上为团队产出。各成员的「文件产出（已写入工作区）」行是落盘的地面真相。\n"
-        "⚠️ 防幻觉铁律：worker 是否真写了文件，只看「文件产出」行——正文声称写了却无此行 = 未真正"
-        "落盘，判为【未达成】，用 delegate 设 continue_from_run_id 带现场续派落盘或重新冷委派。纯文本产出的 worker（调研 / 分析等）"
+        "\n---\n以上为团队产出。各成员的「文件产出（已验收）」行是落盘且通过路径验收的地面真相。\n"
+        "⚠️ 防幻觉铁律：worker 是否真交付文件，只看「文件产出（已验收）」行——正文声称写了却无此行 = 未真正"
+        "落盘，判为【未达成】，用 delegate 设 continue_from_run_id 带现场续派落盘或重新冷委派。"
+        "「未通过验收」行虽已落盘但不得当作已交付。纯文本产出的 worker（调研 / 分析等）"
         "无文件产出属正常。\n"
         "多路并行且相互依赖时，做一步【语义边界对账】：查冲突（双方对同一接口假设不一致）、"
         "缺口（掉在缝里没人做）、重复（两人做了同一件事）；上方若有【团队便签】一并对照。"

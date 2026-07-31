@@ -1,9 +1,15 @@
 """交付状态结构化（能力闸门与交付诚实性）：delegate 批次收尾的确定性交付对账。
 
-把收尾侧引擎已有的信号——worker ``files_touched``、契约 / 交接缺口
-(:func:`~agentcore.runtime.delegate.completion.collect_worker_gaps`，含 degraded 交接与
-artifacts 对账残差)、``completion_criteria`` 未满足、失败 / 未执行节点——汇成一条面向
-用户的 ``delivery_status`` 事件（已交付文件 / 缺口 / 待用户操作），模板拼接、不调 LLM。
+把收尾侧引擎已有的信号——路径级验收（``file_acceptance``）、契约 / 交接缺口
+(:func:`~agentcore.runtime.delegate.completion.collect_worker_gaps`，含 degraded
+交接与 artifacts 对账残差)、``completion_criteria`` 未满足、失败 / 未执行
+节点——汇成一条面向用户的 ``delivery_status`` 事件（已交付文件 / 缺口 / 待用户操作 /
+``artifacts`` 验收行），模板拼接、不调 LLM。
+
+``delivered_files`` / CEO「已交付」= 仅 ``accepted``；cite-tier 等合同点名路径为
+``rejected``，不得因 soft-COMPLETED 进入 delivered_files。主清单（桌面
+FileArtifactsCard）认 ``artifacts``（accepted+rejected），只走 ``file_acceptance``，
+不从 ``files_touched`` 合成验收行。
 
 用户面零落盘缺口合并为一种 ``files_not_landed``（契约层与批次 ``files_written`` 同源谓词，
 不再并列为两条）；CEO / 工具结果仍可保留分层原文。发射时写入回合
@@ -126,17 +132,33 @@ def _website_verify_action(site: str) -> dict[str, str]:
 
 
 def _delivered_files(results: dict[str, RunState]) -> list[str]:
-    """Ordered, deduped workspace paths COMPLETED workers wrote (含热修修订 run)."""
-    seen: set[str] = set()
-    out: list[str] = []
+    """Ordered, deduped accepted paths from ``file_acceptance`` only."""
+    return [a["path"] for a in _collect_artifacts(results) if a["status"] == "accepted"][
+        :_MAX_FILES
+    ]
+
+
+def _collect_artifacts(results: dict[str, RunState]) -> list[dict[str, Any]]:
+    """Aggregate ``file_acceptance`` rows across workers (dedupe by path, last wins).
+
+    Empty ``file_acceptance`` → no artifact rows (no ``files_touched`` synthesis).
+    """
+    from agentcore.runtime.runs.file_acceptance import normalize_acceptance_row
+
+    by_path: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
     for state in results.values():
-        if state is None or state.phase is not RunPhase.COMPLETED:
+        if state is None:
             continue
-        for path in state.files_touched or []:
-            if path and path not in seen:
-                seen.add(path)
-                out.append(path)
-    return out[:_MAX_FILES]
+        for raw in state.file_acceptance or []:
+            row = normalize_acceptance_row(raw)
+            if row is None:
+                continue
+            path = row["path"]
+            if path not in by_path:
+                order.append(path)
+            by_path[path] = row
+    return [by_path[p] for p in order][:_MAX_FILES]
 
 
 def _has_completed_revision(run_id: str, results: dict[str, RunState]) -> bool:
@@ -368,9 +390,11 @@ def build_delivery_status(
 ) -> dict[str, Any] | None:
     """Build a ``delivery_status`` payload, or ``None`` when there is nothing to report.
 
-    Emission gate: at least one delivered file OR one gap — a pure-prose successful
-    batch stays silent (研究 / 分析类委派不该弹交付卡). All inputs are the wrap-up
-    signals the engine already computed; nothing here re-verifies the workspace.
+    Emission gate: at least one accepted file, one gap, or one rejected artifact —
+    a pure-prose successful batch stays silent (研究 / 分析类委派不该弹交付卡).
+    All inputs are the wrap-up signals the engine already computed; nothing here
+    re-verifies the workspace. ``delivered_files`` = accepted only;
+    ``artifacts`` carries path-level acceptance (accepted + rejected).
     """
     from agentcore.runtime.delegate.completion import (
         collect_verify_failure_gaps,
@@ -380,6 +404,7 @@ def build_delivery_status(
     )
 
     delivered = _delivered_files(results)
+    artifacts = _collect_artifacts(results)
 
     raw_gaps: list[dict[str, Any]] = []
     # ① 契约 / 交接残差（软接受后仍未对齐的声明交付物、degraded 交接、预算/超时掐断…）。
@@ -475,7 +500,8 @@ def build_delivery_status(
             }
         )
 
-    if not delivered and not gaps:
+    rejected = [a for a in artifacts if a.get("status") == "rejected"]
+    if not delivered and not gaps and not rejected:
         return None
 
     if not blocking and not warnings:
@@ -496,6 +522,7 @@ def build_delivery_status(
         "delivered_files": delivered,
         "gaps": gaps,
         "actions": actions,
+        "artifacts": artifacts,
     }
 
 
@@ -629,8 +656,12 @@ async def maybe_reinject_recent_delivery_for_availability_ask(
         # Normalize wire fields for the event factory.
         raw_gaps = payload.get("gaps")
         raw_actions = payload.get("actions")
+        raw_artifacts = payload.get("artifacts")
         gaps: list[Any] = raw_gaps if isinstance(raw_gaps, list) else []
         actions: list[Any] = raw_actions if isinstance(raw_actions, list) else []
+        artifacts: list[Any] = (
+            raw_artifacts if isinstance(raw_artifacts, list) else []
+        )
         files = list(verdict.delivered_files)
         summary = str(payload.get("summary") or "").strip() or (
             f"已交付 {len(files)} 个文件" if files else "无交付缺口"
@@ -646,6 +677,7 @@ async def maybe_reinject_recent_delivery_for_availability_ask(
                 delivered_files=files,
                 gaps=[g for g in gaps if isinstance(g, dict)],
                 actions=[a for a in actions if isinstance(a, dict)],
+                artifacts=[a for a in artifacts if isinstance(a, dict)],
             )
         )
         return True

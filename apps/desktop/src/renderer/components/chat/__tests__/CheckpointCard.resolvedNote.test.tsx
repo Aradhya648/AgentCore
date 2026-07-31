@@ -31,7 +31,7 @@ describe("ResolvedCheckpoint 单行折叠", () => {
     render(<CheckpointCard checkpoint={resolvedKickoff} />);
 
     // 收起单行：结论标签 + 问题摘要。
-    expect(screen.getByText("已按方案开做")).toBeTruthy();
+    expect(screen.getByText("已按你的决定继续")).toBeTruthy();
     expect(screen.getByText(resolvedKickoff.question)).toBeTruthy();
 
     // note 明细收起时不渲染。
@@ -39,7 +39,7 @@ describe("ResolvedCheckpoint 单行折叠", () => {
     expect(document.body.textContent).not.toContain("· 定位？：综述型");
 
     // 展开：点击存根头部 → 答复明细出现。
-    fireEvent.click(screen.getByText("已按方案开做"));
+    fireEvent.click(screen.getByText("已按你的决定继续"));
     expect(document.body.textContent).toContain("就按这个方案开做：");
     expect(document.body.textContent).toContain("· 定位？：综述型");
     expect(document.body.textContent).toContain("· 篇幅？：精简干货");

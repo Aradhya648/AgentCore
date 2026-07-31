@@ -60,6 +60,57 @@ const sourceWithPreview = {
   openInAppPreview,
 } as unknown as FileSource;
 
+describe("FileArtifactsCard acceptance labels", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useConversationFileSource).mockReturnValue(null);
+  });
+
+  it("shows 已验收/未通过 and never 写入/编辑 on acceptance rows", () => {
+    renderCard(
+      <FileArtifactsCard
+        conversationId="c1"
+        artifacts={[
+          {
+            path: "ok.md",
+            name: "ok.md",
+            acceptance: "accepted",
+          },
+          {
+            path: "bad.md",
+            name: "bad.md",
+            acceptance: "rejected",
+            acceptanceReason: "citations_unverified",
+            acceptanceDetail: "缺引用",
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("已验收")).toBeTruthy();
+    expect(screen.getByText("未通过")).toBeTruthy();
+    expect(screen.queryByText("写入")).toBeNull();
+    expect(screen.queryByText("编辑")).toBeNull();
+  });
+
+  it("write/edit tool rows omit op badges", () => {
+    renderCard(
+      <FileArtifactsCard
+        artifacts={[
+          { path: "src/main.ts", name: "main.ts", op: "write" },
+          {
+            path: "src/a.ts",
+            name: "a.ts",
+            op: "edit",
+            change: { kind: "edit", oldText: "a", newText: "b" },
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByText("写入")).toBeNull();
+    expect(screen.queryByText("编辑")).toBeNull();
+  });
+});
+
 describe("FileArtifactsCard stage labels", () => {
   beforeEach(() => {
     vi.clearAllMocks();

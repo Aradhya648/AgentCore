@@ -1,7 +1,7 @@
-"""Standing task / inbox API schemas (L1 schedule + L2a webhook)."""
+"""Standing task / inbox API schemas (L1 schedule + L2a webhook + templates)."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -11,6 +11,15 @@ from agentcore.standing_tasks.schedule import infer_schedule_preset
 
 TriggerKind = Literal["schedule", "webhook"]
 TriggerSource = Literal["schedule", "webhook", "manual"]
+TemplateKey = Literal["daily_conversation_review"]
+
+
+class StandingTaskTemplateConfig(BaseModel):
+    """Knobs for system templates (daily review scope)."""
+
+    include_global: bool = True
+    folder_ids: list[str] = Field(default_factory=list)
+    lookback_hours: int = Field(default=24, ge=1, le=168)
 
 
 class CreateStandingTaskRequest(BaseModel):
@@ -42,6 +51,17 @@ class CreateStandingTaskRequest(BaseModel):
         return self
 
 
+class EnsureStandingTaskTemplateRequest(BaseModel):
+    """Install (or return) a system template row. Default ``enabled=false`` = 引导开."""
+
+    folder_id: str
+    cron: str | None = None
+    schedule_preset: str | None = None
+    enabled: bool = False
+    template_config: StandingTaskTemplateConfig | None = None
+    permission_axes: PermissionAxesModel | None = None
+
+
 class UpdateStandingTaskRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     goal: str | None = Field(None, min_length=1)
@@ -52,6 +72,7 @@ class UpdateStandingTaskRequest(BaseModel):
     preset: str | None = Field(None, exclude=True)
     permission_axes: PermissionAxesModel | None = None
     enabled: bool | None = None
+    template_config: StandingTaskTemplateConfig | None = None
 
     @model_validator(mode="after")
     def _normalize_schedule(self) -> "UpdateStandingTaskRequest":
@@ -88,6 +109,8 @@ class StandingTaskSummary(BaseModel):
     webhook_url: str | None = None
     # One-shot plaintext; only set on create / rotate responses.
     webhook_secret: str | None = None
+    template_key: str | None = None
+    template_config: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -103,6 +126,7 @@ class StandingTaskSummary(BaseModel):
         kind: TriggerKind = getattr(row, "trigger_kind", None) or "schedule"
         wid = getattr(row, "webhook_id", None)
         cron = row.cron
+        cfg = getattr(row, "template_config", None) or {}
         return cls(
             id=row.id,
             name=row.name,
@@ -119,9 +143,21 @@ class StandingTaskSummary(BaseModel):
             webhook_id=wid,
             webhook_url=webhook_path(wid) if wid and kind == "webhook" else None,
             webhook_secret=webhook_secret,
+            template_key=getattr(row, "template_key", None),
+            template_config=dict(cfg) if isinstance(cfg, dict) else {},
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+
+class StandingTaskTemplateSummary(BaseModel):
+    key: TemplateKey
+    title: str
+    description: str
+    default_name: str
+    default_cron: str
+    installed_task_id: str | None = None
+    enabled: bool | None = None
 
 
 class RotateWebhookSecretResponse(BaseModel):

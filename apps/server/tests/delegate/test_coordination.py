@@ -420,6 +420,32 @@ async def test_wait_tool_is_clean_noop_during_coordination():
     clear_active_coordination()
 
 
+async def test_wait_tool_rejects_when_hot_user_pending(monkeypatch):
+    """有 pending 热审批时禁止 CEO 空 wait。"""
+    clear_active_coordination()
+    session = CoordinationSession(
+        execution_id="e", total_workers=2, conversation_id="c-wait"
+    )
+    from agentcore.runtime.coordination.session import set_active_coordination
+    from agentcore.runtime.coordination.tools import WaitTool
+    from agentcore.runtime.interaction import InteractionKind, InteractionRegistry
+
+    reg = InteractionRegistry()
+    reg.create("a1", "c-wait", kind=InteractionKind.APPROVAL, payload={"tool_name": "x"})
+    monkeypatch.setattr(
+        "agentcore.runtime.interaction_orphan.default_interaction_registry",
+        lambda: reg,
+    )
+    set_active_coordination(session)
+    try:
+        result = await WaitTool().execute({}, ctx())
+        assert result.success is False
+        assert "审批" in (result.error or "")
+        assert "wait" in (result.error or "").lower() or "禁止" in (result.error or "")
+    finally:
+        clear_active_coordination()
+
+
 async def test_wait_tool_errors_outside_coordination():
     clear_active_coordination()
     from agentcore.runtime.coordination.tools import WaitTool

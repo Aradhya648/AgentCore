@@ -84,12 +84,23 @@ describe("TeamView · 交付验收", () => {
               prompt: "请续跑",
             },
           ],
+          artifacts: [
+            { path: "a.md", status: "accepted" },
+            {
+              path: "b.md",
+              status: "rejected",
+              reason: "citations_unverified",
+            },
+          ],
         }}
       />,
     );
     expect(screen.getByText("交付验收")).toBeTruthy();
     expect(screen.getByText("团队可能重派")).toBeTruthy();
     expect(screen.queryByText("完成条件")).toBeNull();
+    expect(
+      screen.getByText("已交付 1 个；未通过 1 个（详见下方产物清单）"),
+    ).toBeTruthy();
   });
 
   it("无续派 CTA 时隐藏「团队可能重派」", () => {

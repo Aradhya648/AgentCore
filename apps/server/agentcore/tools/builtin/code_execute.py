@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from agentcore.core.errors import SandboxError
 from agentcore.core.types import ToolApproval, ToolCategory
+from agentcore.tools.builtin.code_execute_lock import code_execute_lock
 from agentcore.tools.builtin.long_running import (
     long_running_command_match,
     long_running_redirect_message,
@@ -314,7 +315,10 @@ class CodeExecuteTool:
         if context.on_phase:
             context.on_phase("executing")
         try:
-            result = await context.backend.execute(request)
+            # Per-conversation serial: same-session workers queue on code_execute only
+            # (empty conversation_id → no lock; test_run / terminal bypass this).
+            async with code_execute_lock(context.conversation_id):
+                result = await context.backend.execute(request)
         except SandboxError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
             msg = e.message or str(e)

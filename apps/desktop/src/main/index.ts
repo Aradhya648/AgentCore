@@ -15,6 +15,7 @@ import { registerFsIpc } from "./fs-service";
 import { registerHostIpc } from "./host-service";
 import { registerLocalStoreIpc } from "./local-store";
 import { registerLogIpc } from "./log-service";
+import { registerMcpIpc, shutdownAllMcpSessions } from "./mcp-service";
 import { registerNotificationIpc } from "./notification-service";
 import { registerOutboxIpc } from "./outbox-writeback";
 import { registerPreviewIpc } from "./preview/ipc";
@@ -287,6 +288,7 @@ app.whenReady().then(async () => {
   registerAgentTownIpc();
   registerNotificationIpc();
   registerHostIpc();
+  registerMcpIpc();
   registerPreviewIpc();
   registerBrowserIpc();
   // B-Arch-1: Bridge Ready is part of the control plane — await listen before
@@ -307,7 +309,12 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on("before-quit", () => {
+  void shutdownAllMcpSessions();
+});
+
 app.on("window-all-closed", () => {
+  void shutdownAllMcpSessions();
   if (process.platform !== "darwin") {
     app.quit();
   }

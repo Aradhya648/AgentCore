@@ -117,9 +117,13 @@ async def _seed_llm_key(
     default_model: str = "deepseek-v4-pro",
     background_model: str | None = "deepseek-v4-flash",
 ) -> None:
-    """Seed a BYOK provider + account default pointers (ciphertext stub — admin detail
-    only reads the account's default chat/background model names)."""
-    from agentcore.db.repositories import UserLlmProviderRepository, UserRepository
+    """Seed a BYOK provider + default 模型组合 (ciphertext stub — admin detail
+    only reads main/background model names from the account default profile)."""
+    from agentcore.db.repositories import (
+        LlmModelProfileRepository,
+        UserLlmProviderRepository,
+        UserRepository,
+    )
 
     async with session_factory() as session:
         provider = await UserLlmProviderRepository(session).create(
@@ -128,13 +132,17 @@ async def _seed_llm_key(
             api_key_enc=b"test-cipher-not-a-real-key",
             default_model=default_model,
         )
-        await UserRepository(session).set_llm_defaults(
-            user_id,
-            chat_provider_id=provider.id,
-            chat_model=default_model,
+        profile = await LlmModelProfileRepository(session).create(
+            user_id=user_id,
+            name="default",
+            main_origin="byok",
+            main_provider_id=provider.id,
+            main_model=default_model,
+            background_origin="byok" if background_model else None,
             background_provider_id=provider.id if background_model else None,
             background_model=background_model,
         )
+        await UserRepository(session).set_default_model_profile(user_id, profile.id)
 
 
 async def _seed_user(

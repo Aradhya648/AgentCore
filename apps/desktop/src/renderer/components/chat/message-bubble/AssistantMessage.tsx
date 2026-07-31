@@ -23,12 +23,7 @@ import {
   isConnectivityErrorCode,
   syntheticErrorForEmptyFailure,
 } from "@/lib/errors";
-import {
-  type FileArtifact,
-  fileArtifactsFromExecution,
-  fileArtifactsFromProcess,
-  mergeArtifacts,
-} from "@/lib/fileArtifacts";
+import { resolveFileArtifactsForCard } from "@/lib/fileArtifacts";
 import {
   COST_UNPRICED_LABEL,
   formatCostCaption,
@@ -44,10 +39,9 @@ import {
   useActiveGenerating,
   useConversationStore,
 } from "@/stores/conversation";
-import { useExecutionStore, useMessageExecution } from "@/stores/execution";
+import { useExecutionStore } from "@/stores/execution";
 import { useMessageInteractionCards } from "@/stores/interactions";
 import { useUsageStore } from "@/stores/usage";
-import type { ProcessStep } from "@/types/events";
 import { AlertTriangle, Check, Copy, KeyRound, RefreshCw } from "lucide-react";
 import { useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -60,16 +54,18 @@ import { useCopyAction } from "./useCopyAction";
 
 function SingleAgentDeliveryAndFiles({
   messageId,
-  artifacts,
   conversationId,
 }: {
   messageId: string;
-  artifacts: FileArtifact[];
   conversationId: string | null;
 }) {
   // 可用性短问可在无 plan 的 CEO 回合复用 delivery_status——单 Agent 路径也要渲染卡。
   const deliveryStatus = useExecutionStore(
     (s) => s.byId[messageId]?.deliveryStatus ?? null,
+  );
+  const artifacts = useMemo(
+    () => resolveFileArtifactsForCard(deliveryStatus),
+    [deliveryStatus],
   );
   return (
     <>
@@ -91,14 +87,7 @@ function SingleAgentDeliveryAndFiles({
   );
 }
 
-function MultiAgentFileArtifacts({
-  messageId,
-  process,
-}: {
-  messageId: string;
-  process: ProcessStep[] | undefined;
-}) {
-  const execution = useMessageExecution(messageId);
+function MultiAgentFileArtifacts({ messageId }: { messageId: string }) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
   // 交付状态（能力闸门与交付诚实性）：delegate 收尾的结构化交付对账（同 execution_id
   // 保最新）。缺口/待操作卡渲染在产出文件卡上方——诚实缺口先于清单。
@@ -106,12 +95,8 @@ function MultiAgentFileArtifacts({
     (s) => s.byId[messageId]?.deliveryStatus ?? null,
   );
   const artifacts = useMemo(
-    () =>
-      mergeArtifacts(
-        fileArtifactsFromProcess(process),
-        fileArtifactsFromExecution(execution),
-      ),
-    [process, execution],
+    () => resolveFileArtifactsForCard(deliveryStatus),
+    [deliveryStatus],
   );
   return (
     <>
@@ -212,13 +197,6 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
     useMessageInteractionCards(conversationId, projectionId);
   const hideContentForCheckpoint = checkpoints.some(
     (c) => c.status === "resolved",
-  );
-  const singleAgentArtifacts = useMemo(
-    () =>
-      message.executionId === null
-        ? fileArtifactsFromProcess(message.process)
-        : [],
-    [message.executionId, message.process],
   );
   const money =
     pickCostMoney(message.cost) ??
@@ -409,14 +387,10 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
       {message.executionId === null ? (
         <SingleAgentDeliveryAndFiles
           messageId={projectionId}
-          artifacts={singleAgentArtifacts}
           conversationId={conversationId}
         />
       ) : (
-        <MultiAgentFileArtifacts
-          messageId={projectionId}
-          process={message.process}
-        />
+        <MultiAgentFileArtifacts messageId={projectionId} />
       )}
       {citations.length > 0 && (
         <SourceCards

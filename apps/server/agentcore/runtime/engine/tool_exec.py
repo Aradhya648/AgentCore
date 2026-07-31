@@ -561,6 +561,26 @@ async def execute_tools(
             approval_gate is not None
             and tool_call_requires_approval(name, tool.schema.approval, args)
         )
+        # Cloud *workers* historically ungated for server-sandbox tools. When
+        # resolve_worker_gate shares the turn gate only for MCP/Host, narrow
+        # prompts to desktop-touch tools (file_write etc. stay ungated on cloud
+        # root). CEO / captain always keep full GRANTABLE gating — do not key
+        # off backend.location alone.
+        if (
+            needs_approval
+            and not force_breaker
+            and approval_gate is not None
+            and role == "worker"
+        ):
+            from agentcore.runtime.sandbox_approval import (
+                is_desktop_touch_tool,
+                worker_gate_applies,
+            )
+
+            if not worker_gate_applies(context.backend) and not is_desktop_touch_tool(
+                name
+            ):
+                needs_approval = False
         if needs_approval:
             from agentcore.runtime.sandbox_approval import execution_tool_auto_passes
 
@@ -593,12 +613,20 @@ async def execute_tools(
                 context.backend, name, permission_axes=approval_gate.permission_axes
             )
             # INFO（非 debug）：round_end 后若长时间无 execute_end，靠此定位卡在审批还是执行。
+            # will_prompt peeks kickoff/session/_granted/_denied short-circuits so
+            # awaiting_approval is not true when authorize would silently pass.
+            awaiting_approval = (not auto_pass) and approval_gate.will_prompt(
+                tool_name=name,
+                arguments=args_for_gate,
+                execution_id=context.execution_id,
+                force=force_breaker,
+            )
             logger.info(
                 "tool.execute_start",
                 tool=name,
                 tool_call_id=tc.id,
                 run_id=run_id or "",
-                awaiting_approval=not auto_pass,
+                awaiting_approval=awaiting_approval,
             )
             if auto_pass:
                 logger.info("approval.sandbox_auto_pass", tool=name)

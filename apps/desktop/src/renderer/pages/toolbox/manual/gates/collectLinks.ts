@@ -76,6 +76,17 @@ function walkBlock(
     case "callout":
       walkRichText(block.text, chapter, sectionId, where, out);
       break;
+    case "bullets":
+      block.items.forEach((item, i) =>
+        walkRichText(
+          item.desc,
+          chapter,
+          sectionId,
+          `${where}/bullet[${i}]`,
+          out,
+        ),
+      );
+      break;
     case "steps":
       block.items.forEach((item, i) =>
         walkRichText(item.desc, chapter, sectionId, `${where}/step[${i}]`, out),

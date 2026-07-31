@@ -335,32 +335,6 @@ body {
   text-underline-offset: 2px;
 }
 
-.auth-tip {
-  margin: 0;
-  padding-left: 24px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--muted);
-}
-
-.auth-links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 20px;
-  font-size: 12px;
-}
-
-.auth-links a {
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.auth-links a:active {
-  color: var(--fg);
-}
-
 .legal-scroll {
   flex: 1;
   overflow-y: auto;
@@ -1225,7 +1199,7 @@ button.link {
   flex-shrink: 0;
 }
 
-/* op 色调（复用状态色映射）：写=success / 改=品牌 / 删=error / 移=中性。 */
+/* op / 验收色调（复用状态色映射）：写=success / 改=品牌 / 删=error / 移=中性 / 已验收=success / 未通过=error。 */
 .art-write {
   color: var(--success);
 }
@@ -1239,6 +1213,18 @@ button.link {
 }
 
 .art-move {
+  color: var(--muted);
+}
+
+.art-accepted {
+  color: var(--success);
+}
+
+.art-rejected {
+  color: var(--error);
+}
+
+.art-neutral {
   color: var(--muted);
 }
 
@@ -1293,6 +1279,14 @@ button.link {
 .artifact-op.art-move {
   color: var(--muted);
   background: var(--border);
+}
+
+.artifact-op.art-accepted {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.artifact-op.art-rejected {
+  background: color-mix(in srgb, var(--error) 16%, transparent);
 }
 
 .artifact-go {
@@ -1712,6 +1706,11 @@ button.link {
 .delivery-action {
   padding-top: 6px;
   border-top: 1px dashed var(--border);
+}
+
+.delivery-file-summary .delivery-desc {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* 首条虚线 = gaps→actions 结构边界（保留）；连续 action 行之间不再重复画线。 */
@@ -2661,6 +2660,103 @@ dialog.run-detail::backdrop {
   font-size: 13px;
   color: var(--fg);
   white-space: pre-wrap;
+}
+
+.ask-prompt-hint {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.ask-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.ask-check-list > legend.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ask-check-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.ask-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.ask-check-row:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+
+.ask-check-row-active {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.ask-check-box {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.ask-check-box-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--panel);
+}
+
+.ask-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ask-check-label {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ask-check-detail {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .ask-chips {

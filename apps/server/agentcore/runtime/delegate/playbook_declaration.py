@@ -1,24 +1,17 @@
-"""Delegate playbook declaration gate（结构校验 + 自动化开工卡记账约束）.
+"""Delegate playbook declaration gate（结构校验）.
 
 自由组队：可不传 playbook，直接手写 ``tasks``（``playbook_none_reason`` 可选）。
 建站 / 工具台 / 绿场软件：推荐具名 ``build_website`` / ``build_toolshed`` /
 ``build_app``（软引导见 skill / schema）；``none`` / 手写不再因意图硬拒。
 
-Agent/自动化开工形态（定案甲）：记账为可运行自动化 / 仅方案时禁止 ``build_toolshed``；
-仅方案另禁 ``build_website``。
+场面账（automation delivery / website style / presentation format）已拆除：
+具名 playbook 不再因交付形态记账硬拒。
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from agentcore.runtime.runs.automation_delivery import (
-    DeliveryConfirmation,
-    automation_toolshed_rejected_message,
-    automation_website_rejected_message,
-    is_plan_only_delivery,
-    is_runnable_delivery,
-)
 from agentcore.runtime.runs.playbooks import PLAYBOOKS, available_playbooks
 
 _PLAYBOOK_NONE = "none"
@@ -26,7 +19,6 @@ _PLAYBOOK_NONE = "none"
 DeclarationRejectGate = Literal[
     "empty",
     "unknown",
-    "automation",
     "xor",
 ]
 
@@ -57,22 +49,10 @@ _EMPTY_DELEGATE_MSG = (
 )
 
 
-def is_automation_playbook_rejected(error: str | None) -> bool:
-    """True when ``error`` is the automation delivery playbook ban."""
-    if not error:
-        return False
-    return error in (
-        automation_toolshed_rejected_message(),
-        automation_website_rejected_message(),
-    ) or error.startswith("当前记账交付形态")
-
-
 def declaration_reject_gate(error: str | None) -> DeclarationRejectGate:
     """Classify a declaration reject for logging / probes."""
     if not error:
         return "unknown"
-    if is_automation_playbook_rejected(error):
-        return "automation"
     if error in (
         PLAYBOOK_TASKS_XOR_MSG,
         PLAYBOOK_ID_CONFLICT_MSG,
@@ -88,7 +68,7 @@ def resolve_playbook_declaration(
     arguments: dict[str, Any],
     *,
     user_message: str = "",
-    automation_delivery: DeliveryConfirmation | None = None,
+    automation_delivery: Any = None,
 ) -> tuple[str | None, str | None, str | None]:
     """Resolve declaration → ``(playbook_name|None, none_reason|None, error|None)``.
 
@@ -96,10 +76,12 @@ def resolve_playbook_declaration(
     hand-written path (optional). ``error`` set ⇒ reject the call.
 
     Free teaming may omit playbook entirely and pass ``tasks`` only. Named playbooks
-    still expand when declared. Automation delivery bans toolshed/website as before.
+    still expand when declared. ``automation_delivery`` retained for call-site
+    compatibility (ignored — scene ledger removed).
     ``user_message`` retained for call-site compatibility (no intent hard-lock).
     """
     _ = user_message  # call-site compat; soft guidance only (no intent hard-lock)
+    _ = automation_delivery  # scene ledger removed; kw kept for call-site compat
     legacy = arguments.get("playbook")
     playbook_id = arguments.get("playbook_id")
     none_reason_raw = arguments.get("playbook_none_reason")
@@ -144,14 +126,6 @@ def resolve_playbook_declaration(
                 "建站推荐具名 `build_website` / `build_toolshed`；"
                 "绿场软件推荐具名 `build_app`。"
             )
-        # Agent/自动化记账闸：可运行/仅方案禁 toolshed；仅方案另禁 website。
-        if named == "build_toolshed" and automation_delivery is not None and (
-            is_runnable_delivery(automation_delivery)
-            or is_plan_only_delivery(automation_delivery)
-        ):
-            return None, None, automation_toolshed_rejected_message()
-        if named == "build_website" and is_plan_only_delivery(automation_delivery):
-            return None, None, automation_website_rejected_message()
         # 具名 build_app / build_website / build_toolshed 等直接放行。
         return named, None, None
 

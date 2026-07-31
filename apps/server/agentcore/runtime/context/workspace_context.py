@@ -36,6 +36,8 @@ def build_workspace_context(
     browser_enabled: bool | None = None,
     exec_languages: list[str] | tuple[str, ...] | None = None,
     host_axis: HostAxis | str | None = None,
+    mcp_enabled: bool = False,
+    mcp_label: str | None = None,
 ) -> str:
     """Render the ``<workspace_context>`` block for this turn's backend + client.
 
@@ -166,13 +168,34 @@ def build_workspace_context(
         host_val = getattr(host_axis, "value", None) or str(host_axis)
         host_off = host_val == "off"
     host_on = desktop_online and not host_off
+    mcp_on = bool(mcp_enabled) if mcp_label is None else mcp_label == "已装配"
+    mcp_cap = mcp_label if mcp_label is not None else ("已装配" if mcp_enabled else "未装配")
     caps: list[str] = []
     caps.append(f"code_execute={'已装配' if exec_on else '未装配'}")
     caps.append(f"terminal={'已装配' if term_on else '未装配'}")
     caps.append(f"browser={'已装配' if browser_on else '未装配'}")
     caps.append(f"local_open={'已装配' if local_open_on else '未装配'}")
     caps.append(f"host={'已装配' if host_on else '未装配'}")
+    caps.append(f"mcp={mcp_cap}")
     capability_line = "本回合执行能力：" + "；".join(caps) + "。"
+    if not desktop_online:
+        mcp_guide_line = (
+            "本机 MCP 指引：mcp=未装配（无桌面回填通道）——"
+            "勿调用 mcp_*、勿假装已接本地 MCP Server；"
+            "Web / 手机无法履行本机 stdio MCP。"
+        )
+    elif mcp_on:
+        mcp_guide_line = (
+            "本机 MCP 指引：mcp=已装配（经桌面 stdio 回填，非云进程直连本机）。"
+            "仅 worker 持 MCP 工具（一律需审批）；CEO 不直持。"
+            "工具名形如 mcp_<server>_<tool>；失败时如实说明，勿编造结果。"
+        )
+    else:
+        mcp_guide_line = (
+            f"本机 MCP 指引：mcp={mcp_cap}——"
+            "本回合无可用 MCP 工具（未配置 / 握手失败已降级）；"
+            "勿调用 mcp_*、勿假装已接本地 MCP；纯聊不受影响。"
+        )
     if host_off:
         host_guide_line = (
             "本机 Host 指引：host=未装配（用户已关本机协助 / host=off）——"
@@ -294,6 +317,7 @@ def build_workspace_context(
         mounts_line,
         capability_line,
         host_guide_line,
+        mcp_guide_line,
         browser_guide_line,
     ]
     if interpreters_line is not None:

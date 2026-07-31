@@ -1,7 +1,7 @@
 /**
  * 已退役的 kickoff 卡 — V2 Brief + Choose（Notion AI / product-brief 风）。
- * 生产 kickoff 已换成 {@link AskKickoffBody}（单页全览 + 行式选项）；本文件只剩预览路由的
- * `ask-commence-v2` 对照场景在挂，留作两版视觉的 A/B 参照，勿再接生产。
+ * 生产 ask 已统一为 {@link AskDecisionBody}；本文件只剩预览路由的
+ * `ask-commence-v2` 对照场景在挂，留作历史视觉参照，勿再接生产。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { Button } from "@/components/ui";

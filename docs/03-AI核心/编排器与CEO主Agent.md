@@ -37,7 +37,7 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 
 ## 路由 / 团队 / 认知分工
 
-发问优先：先判信息够不够，再判规模。产出类关键高杠杆决策用户没说全 → 立刻 `ask_user` 开工提案卡（勿先 consult）；信息齐了再判自己做 vs 交团队。
+发问优先：先判信息够不够，再判规模。信息不够 → `ask_user` 短澄清（可穿插探路；无开场提案/场面硬账，见 [检查点与开工卡 · §一](/docs/03-AI核心/检查点与开工卡.md)）；信息齐了再判自己做 vs 交团队。
 
 | 判据 | 结论 |
 |---|---|
@@ -76,11 +76,11 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 
 `binds+steers+add` 先全量校验，任一非法 → 整批拒绝、暂停计划零改动。否决把 `delegate` 重载成「续跑旧计划」入口；带现场续派另见 [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md)。
 
-协调模式（≥2 worker、根 CEO、非 finalize）：默认后台跑、CEO 继续 ReAct；`coordinate=false` / 单 worker / finalize / 含 `checkpoint_after` 仍阻塞。结构跟着证据走：调研成篇用 `depends_on` + `checkpoint_after` 把「定结构」摆到调研之后。委派后用团队产出写综述（提示强化，非硬禁只读）；根 CEO 探路成功的 list/read/grep 可摘要注入 worker 开局。worker 协作通道 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md)。
+协调模式（≥2 worker、根 CEO、非 finalize）：默认后台跑、CEO 继续 ReAct；`coordinate=false` / 单 worker / finalize / 含 `checkpoint_after` 仍阻塞。结构跟着证据走：调研成篇用 `depends_on` + `checkpoint_after` 把「定结构」摆到调研之后。委派后用团队产出写综述（提示强化，非硬禁只读）；根 CEO 探路成功的 list/read/grep 可摘要注入 worker 开局。worker 协作通道 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md)。协调 `wait` 在用户侧热审批/授权未决时禁止空等（勿假装推进）；用户显式停止 / regenerate / retry-failed 会 orphan 热交互并写入 journal（取活 turn 的 `message_id` 作 `turn_id`，非路径上的用户消息 id）。
 
-收尾：先对账拼图边（4b：冲突 / 缺口 / 重复）→ 核验原始目标（4a：完工判定）→ 写概览；未达成就续派 / `replan`，别假装收工。`playbook`：建站/工具台/绿场软件(`build_app`)推荐具名形状（不再硬拒 `none`/手写）；其余自由组队（可选快捷形状）。**Agent/自动化意图**须先经开工卡交付形态三档（可运行自动化 / 控制台原型 / 仅方案）；仅「控制台原型」才允许 `build_toolshed` → [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)。对抗性多视角另走 `debate` → [辩论编排设计](/docs/03-AI核心/辩论编排设计.md)。
+收尾：先对账拼图边（4b：冲突 / 缺口 / 重复）→ 核验原始目标（4a：完工判定）→ 写概览；未达成就续派 / `replan`，别假装收工。`playbook`：建站/工具台/绿场软件(`build_app`)推荐具名形状（不再硬拒 `none`/手写）；其余自由组队（可选快捷形状）。**Agent/自动化**不靠场面账三档硬闸；缺形态信息时 `ask_user` 短问，由模型自洽选择交付路径 → [检查点与开工卡 · §一](/docs/03-AI核心/检查点与开工卡.md)。对抗性多视角另走 `debate` → [辩论编排设计](/docs/03-AI核心/辩论编排设计.md)。
 
-提示词分层：常驻 = 路由脊柱 + 能力目录 + 短钩子；进阶 HOW 在系统 Skill，用时 `consult_skill`。同一条知识只在唯一所有者出现。
+提示词分层：常驻 = 路由脊柱 + 能力目录 + 短钩子；进阶 HOW 在系统 Skill，用时 `consult_skill`。同一条知识只在唯一所有者出现。全局工作纪律分层：共享基座 `<work_authority>`（权威序 / 冲突通道 escalate·ask_user / 决策权限，CEO+worker）；CEO core 仅权威线索与「未定案·窄」钩；进阶 HOW → `consult_skill(work_discipline)`（设计三问、补丁绊线等）。禁止为读规则再派 worker。
 
 ## 关键字段语义（摘要）
 
@@ -124,4 +124,4 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 
 ## 开场卡 / 检查点
 
-`ask_user` 开工提案卡、`team_preview` 团队预审、`checkpoint_after` 波边界把关 → 全文见 [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)，本文不复述。
+`ask_user` 通用澄清、`team_preview` 团队预审、`checkpoint_after` 波边界把关 → 全文见 [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)，本文不复述。

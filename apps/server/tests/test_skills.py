@@ -53,6 +53,7 @@ def test_registry_registers_the_system_skills():
     names = {s.name for s in reg.list_all()}
     assert names == {
         "team_orchestration_advanced",
+        "work_discipline",
         "build_website",
         "build_toolshed",
         "build_app",
@@ -96,6 +97,7 @@ def test_available_hides_gated_skills_without_required_tools():
     assert "debate_and_review" in available
     assert "revising_a_product" in available
     assert "verify_and_fix" in available
+    assert "work_discipline" in available
     assert "ask_user_kickoff" not in available
     assert "ask_user_midtask" not in available
     assert "delegate_checkpoint" not in available
@@ -258,6 +260,18 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "独立审校" in body
     assert "调研→撰稿" in body
     assert "质量缝" in body
+
+
+def test_work_discipline_skill_teaches_design_and_patch_tripwires():
+    body = _body("work_discipline")
+    assert "设计三问" in body
+    assert "补丁绊线" in body
+    assert "探索信任" in body
+    assert "讨论与查证分相" in body
+    assert "work_authority" in body
+    assert "escalate" in body
+    # worker 自主度不进本 skill（已在 identity）
+    assert "小问题（路径拼写" not in body
 
 
 def test_team_orchestration_skill_teaches_delegate_knobs():
@@ -498,67 +512,33 @@ def test_team_orchestration_skill_teaches_revision_local_edit():
     assert "中间省略" in body or "已保留首尾" in body
 
 
-def test_ask_user_kickoff_skill_teaches_impact_tiered_proposal_card():
-    # 开场提案卡 split out of the formerly-merged asking_the_user skill: impact-tiered
-    # card content, gated on the ask_user tool (live-user only). The checkpoint detail
-    # must NOT ride here — it moved to its own delegate_checkpoint skill.
+def test_ask_user_kickoff_skill_teaches_short_clarify():
     skill = build_system_skill_registry().get("ask_user_kickoff")
     assert skill.requires_tools == ("ask_user",)
     body = skill.body
     assert "assumptions" in body
     assert "questions" in body
-    assert "style_options" in body
-    assert "影响" in body  # 影响力分档
-    assert "开工提案卡" in body
-    assert "提案体" in body or "至少其一" in body
-    assert "已确认勿再开" in body or "禁止再开开工提案卡" in body
+    assert "style_options" in body  # 兼容字段说明
+    assert "短问" in body or "短澄清" in body
+    assert "开工提案卡" not in body
+    assert "提案体硬闸" not in body
+    assert "一键开做" not in body or "禁止" in body
     assert "checkpoint_after" not in body
 
 
-def test_ask_user_kickoff_skill_teaches_presentation_format_options():
-    """演讲/PPT 意图：开工卡必须 format_options（pptx/marp/outline），能力感知默认。"""
+def test_ask_user_kickoff_skill_mentions_compat_options_not_ledger():
     body = _body("ask_user_kickoff")
     assert "format_options" in body
-    assert "pptx" in body and "marp" in body and "outline" in body
-    assert "演讲" in body or "PPT" in body or "课件" in body
-    assert "code_execute" in body
-    assert "style_options" in body  # 与视觉风格正交，勿混为一谈
-    assert "无法生成" in body or "无执行" in body
+    assert "不记账" in body or "不硬闸" in body
+    assert "style_options" in body
 
 
-def test_ask_user_kickoff_skill_teaches_automation_delivery_format_options():
-    """Agent/自动化场面：填 format_options 三档；控制台原型才允许 toolshed；引擎不扫正文。"""
+def test_ask_user_kickoff_skill_teaches_software_delivery_not_default_html():
     body = _body("ask_user_kickoff")
-    assert "可运行自动化" in body
-    assert "控制台原型" in body
-    assert "仅方案" in body
-    assert "build_toolshed" in body
-    assert "工作流" in body or "流水线" in body
-    assert "不扫正文" in body or "猜意图" in body
-
-
-def test_ask_user_kickoff_skill_teaches_brief_option_dedup():
-    # 去重纪律（开工卡「简报剧透选项」的根因修复）：message 只定调、不复述将成为
-    # 选项的方案，背景归 context，避免左侧简报与右侧选项读到两遍同样的话。钉住防回退。
-    body = _body("ask_user_kickoff")
-    assert "定调" in body
-    assert "简报" in body and "选项" in body
-    assert "复述一遍" in body or "读到两遍" in body
-    assert "context" in body
-
-
-def test_ask_user_kickoff_skill_teaches_software_delivery_form_questions():
-    """软件/应用意图：交付形态必须进高杠杆 questions，禁止 assumptions 默成单 HTML。"""
-    body = _body("ask_user_kickoff")
-    assert "做软件" in body or "应用" in body
+    assert "软件" in body or "应用" in body
     assert "交付形态" in body
-    assert "questions" in body
-    assert "assumptions" in body
-    assert "可运行单页原型" in body or "单页原型" in body
-    assert "前后端应用" in body or "多文件" in body
     assert "单 HTML" in body
-    assert "不等于" in body or "默许" in body
-    assert "build_feature" in body
+    assert "build_feature" in body or "build_app" in body
 
 
 def test_ask_user_midtask_skill_teaches_fork_annotate_and_nonblocking():

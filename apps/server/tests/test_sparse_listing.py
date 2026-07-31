@@ -12,6 +12,7 @@ from agentcore.workspace._paths import (
     is_ignored_dir_name,
     is_ignored_file_name,
     is_ignored_relpath,
+    is_internal_zone_relpath,
     is_system_ignored_file_name,
 )
 from agentcore.workspace.server import ServerWorkspace
@@ -23,16 +24,34 @@ from agentcore.workspace.sparse_listing import (
 )
 
 
-def test_ignored_dirs_include_agentcore_git_and_ide_caches():
-    assert ".agentcore" in IGNORED_DIRS
+def test_ignored_dirs_include_git_and_ide_caches_not_bare_internal():
+    assert ".agentcore" not in IGNORED_DIRS
+    assert "index" not in IGNORED_DIRS
+    assert "trash" not in IGNORED_DIRS
+    assert "baselines" not in IGNORED_DIRS
     assert ".git" in IGNORED_DIRS
     assert "node_modules" in IGNORED_DIRS
     assert ".turbo" in IGNORED_DIRS
     assert "coverage" in IGNORED_DIRS
     assert ".idea" in IGNORED_DIRS
     assert ".vscode" in IGNORED_DIRS
-    assert is_ignored_dir_name(".agentcore")
+    assert is_ignored_dir_name(".git")
     assert not is_ignored_dir_name("src")
+    assert not is_ignored_dir_name("index")
+
+
+def test_internal_zone_relpath_is_path_aware():
+    assert is_internal_zone_relpath("AgentCore/index")
+    assert is_internal_zone_relpath("AgentCore/index/code_search.db")
+    assert is_internal_zone_relpath("AgentCore/trash/x")
+    assert is_internal_zone_relpath("AgentCore/baselines/m.zip")
+    assert not is_internal_zone_relpath("AgentCore")
+    assert not is_internal_zone_relpath("AgentCore/规则/x.md")
+    assert not is_internal_zone_relpath("AgentCore/记忆/y.md")
+    assert not is_internal_zone_relpath("AgentCore/文档/z.md")
+    assert not is_internal_zone_relpath("index")
+    assert not is_internal_zone_relpath("trash/foo")
+    assert not is_internal_zone_relpath("foo/AgentCore/index")
 
 
 def test_system_suffixes_hide_from_ui_and_ai():
@@ -65,11 +84,13 @@ def test_ignored_file_suffixes_combine_both_tiers():
 
 
 def test_ignored_relpath_prunes_nested_noise():
-    assert is_ignored_relpath(".agentcore/index/code_search.db")
+    assert is_ignored_relpath("AgentCore/index/code_search.db")
     assert is_ignored_relpath("node_modules/pkg/index.js")
     assert is_ignored_relpath("src/cache.db")
     assert is_ignored_relpath("out/hero.png")
     assert not is_ignored_relpath("src/app.ts")
+    assert not is_ignored_relpath("index/app.ts")  # bare user index/
+    assert not is_ignored_relpath("AgentCore/规则/x.md")
 
 
 def test_partition_bare_lists_all_with_labels():
@@ -104,12 +125,16 @@ def test_is_attachment_path():
     assert not is_attachment_path("src/attachments/x.txt")
 
 
-async def test_index_files_skips_agentcore_db_and_media(tmp_path: Path):
+async def test_index_files_skips_internal_zone_db_and_media(tmp_path: Path):
     (tmp_path / "ok.txt").write_text("x", encoding="utf-8")
     (tmp_path / "hero.png").write_bytes(b"png")
-    ac = tmp_path / ".agentcore" / "index"
+    ac = tmp_path / "AgentCore" / "index"
     ac.mkdir(parents=True)
     (ac / "code_search.db").write_bytes(b"db")
+    (tmp_path / "AgentCore" / "规则").mkdir(parents=True)
+    (tmp_path / "AgentCore" / "规则" / "x.md").write_text("r", encoding="utf-8")
+    (tmp_path / "index").mkdir()
+    (tmp_path / "index" / "user.py").write_text("u", encoding="utf-8")
     (tmp_path / "noise.db").write_bytes(b"db")
     git = tmp_path / ".git"
     git.mkdir()
@@ -121,7 +146,7 @@ async def test_index_files_skips_agentcore_db_and_media(tmp_path: Path):
     paths, _ = await ServerWorkspace(
         root=tmp_path, sandbox=SubprocessSandbox()
     ).index_files()
-    assert paths == ["ok.txt"]
+    assert paths == ["AgentCore/规则/x.md", "index/user.py", "ok.txt"]
 
 
 async def test_list_shows_media_hides_system_noise(tmp_path: Path):
@@ -129,7 +154,8 @@ async def test_list_shows_media_hides_system_noise(tmp_path: Path):
     (tmp_path / "ok.txt").write_text("x", encoding="utf-8")
     (tmp_path / "hero.png").write_bytes(b"png")
     (tmp_path / "noise.db").write_bytes(b"db")
-    (tmp_path / ".agentcore").mkdir()
+    (tmp_path / "AgentCore" / "index").mkdir(parents=True)
+    (tmp_path / "AgentCore" / "规则").mkdir(parents=True)
     names = {
         e.path
         for e in await ServerWorkspace(
@@ -139,4 +165,12 @@ async def test_list_shows_media_hides_system_noise(tmp_path: Path):
     assert "ok.txt" in names
     assert "hero.png" in names
     assert "noise.db" not in names
-    assert ".agentcore" not in names
+    assert "AgentCore" in names
+    ac_names = {
+        e.path.rsplit("/", 1)[-1]
+        for e in await ServerWorkspace(
+            root=tmp_path, sandbox=SubprocessSandbox()
+        ).list("AgentCore", "*")
+    }
+    assert "规则" in ac_names
+    assert "index" not in ac_names

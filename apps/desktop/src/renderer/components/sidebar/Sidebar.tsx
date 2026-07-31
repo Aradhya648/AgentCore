@@ -1,13 +1,15 @@
 import { BrandMark } from "@/components/brand/BrandMark";
-import { Button, IconButton, SearchTrigger, SurfaceRowButton } from "@/components/ui";
+import {
+  Button,
+  IconButton,
+  SearchTrigger,
+  SurfaceRowButton,
+} from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { isWebClient } from "@/lib/capabilities";
 import { startNewConversation } from "@/lib/newConversation";
 import { useUnreadTotal } from "@/stores/messaging";
-import {
-  SIDEBAR_COLLAPSED_WIDTH,
-  useSidebarStore,
-} from "@/stores/sidebar";
+import { SIDEBAR_COLLAPSED_WIDTH, useSidebarStore } from "@/stores/sidebar";
 import { useUIStore } from "@/stores/ui";
 import {
   Files,

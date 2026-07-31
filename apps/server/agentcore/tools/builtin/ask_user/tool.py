@@ -43,15 +43,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def kickoff_requires_proposal_body_error() -> str:
-    """拒调文案：kickoff 仅 message（或 assumptions/questions 皆空）时回灌模型。"""
-    return (
-        "开工提案卡（kickoff）必须带提案体：assumptions 与 questions 至少其一非空。"
-        "解不出意图请写正文澄清，勿调 ask_user；"
-        "能复述目标后再带 assumptions（默认可逆）和/或 questions（高杠杆）开卡。"
-    )
-
-
 @dataclass
 class AskUserTool:
     """The CEO's asking primitive: surface a card, suspend, resume on the answer.
@@ -123,16 +114,16 @@ class AskUserTool:
                 ),
             },
         }
-        # Schema layer (工具面瘦身): short trigger. HOW → ask_user_kickoff / ask_user_midtask.
+        # Schema: short trigger. HOW → ask_user_kickoff / ask_user_midtask skills.
         questions_desc = (
-            "可选：要用户拍板的问题（最多 5）。开场预填 default；途中关键岔路通常不填。"
-            "开工提案卡须与 assumptions 至少其一非空。choice 可配 detail / recommended。"
-            "用法见 consult_skill。"
+            "可选：要用户拍板的问题（最多 5）。关键岔路通常预填或省略 default。"
+            "choice 可配 detail / recommended。用法见 consult_skill。"
         )
         tool_desc = (
             "向用户发问（唯一问用户原语）。默认 blocking 暂停回合；"
             "blocking=false 非阻塞按默认继续。"
-            "开场用开工提案卡；途中克制打断。详见 consult_skill"
+            "通用短澄清：信息不够时短问，可与检索/读文件等穿插、可连续多次；"
+            "Agent 自主决定何时问。详见 consult_skill"
             "（ask_user_kickoff / ask_user_midtask）。"
         )
         if self.advertise_bind_local_folder:
@@ -173,7 +164,7 @@ class AskUserTool:
                 "properties": {
                     "message": {
                         "type": "string",
-                        "description": "必填。卡片顶部开场白 / 框架（问什么、为何需拍板）。",
+                        "description": "必填。卡片顶部说明（问什么、为何需拍板）。",
                     },
                     "context": {
                         "type": "string",
@@ -182,8 +173,7 @@ class AskUserTool:
                     "assumptions": {
                         "type": "array",
                         "description": (
-                            "可选：低影响默认可逆决策（只读陈列）。"
-                            "开工提案卡须与 questions 至少其一非空；高杠杆放 questions。"
+                            "可选：低影响默认可逆决策（只读陈列）。高杠杆放 questions。"
                         ),
                         "items": {
                             "type": "object",
@@ -230,7 +220,7 @@ class AskUserTool:
                                 },
                                 "default": {
                                     "type": "string",
-                                    "description": "可选默认答案（开场建议填；choice=某 label）。",
+                                    "description": "可选默认答案（choice=某 label）。",
                                 },
                             },
                             "required": ["prompt"],
@@ -238,7 +228,9 @@ class AskUserTool:
                     },
                     "style_options": {
                         "type": "array",
-                        "description": "可选：视觉类产物的风格预设。",
+                        "description": (
+                            "可选兼容字段：视觉风格候选（不记账、不硬闸；优先短问）。"
+                        ),
                         "items": {
                             "type": "object",
                             "properties": {
@@ -253,18 +245,14 @@ class AskUserTool:
                     "format_options": {
                         "type": "array",
                         "description": (
-                            "可选：交付形态候选。演讲/PPT → pptx/marp/outline；"
-                            "Agent/自动化/工作流 → 可运行自动化/控制台原型/仅方案。"
+                            "可选兼容字段：交付形态候选（不记账、不硬闸；优先短问）。"
                         ),
                         "items": {
                             "type": "object",
                             "properties": {
                                 "label": {
                                     "type": "string",
-                                    "description": (
-                                        "交付形态名（演讲如 PowerPoint/Marp；"
-                                        "自动化如可运行自动化/控制台原型/仅方案）。"
-                                    ),
+                                    "description": "交付形态名。",
                                 },
                             },
                             "required": ["label"],
@@ -278,15 +266,16 @@ class AskUserTool:
                     },
                     "card": {
                         "type": "string",
-                        "enum": ["proposal_pick", "risk_ack", "organize_plan"],
+                        "enum": ["proposal_pick", "risk_ack", "organize_plan", "daily_review"],
                         "description": (
                             "可选卡型（都须 blocking、且恰好 1 个 question）："
                             "proposal_pick=从 2–6 个候选方案里单选一个"
                             "（kind=choice、multiple=false）；"
                             "risk_ack=从 1–10 条风险项里多选要处理哪些（multiple=true）；"
-                            "organize_plan=从 1–50 条整理项里多选（multiple=true）。"
-                            "要问多个【不同】问题就别用 card（用普通 ask_user，questions 最多 5）"
-                            "——开工提案卡（kickoff 开场）即此类，【不填 card】。"
+                            "organize_plan=从 1–50 条整理项里多选（multiple=true）；"
+                            "daily_review=每日复盘提案多选（multiple=true，options 须带 "
+                            "review_kind+body；确认后由服务端落盘）。"
+                            "要问多个【不同】问题就别用 card（用普通 ask_user，questions 最多 5）。"
                             "详见 ask_user_* skill。"
                         ),
                     },
@@ -395,45 +384,7 @@ class AskUserTool:
             if card is not None
             else resolve_ask_checkpoint_intent(captain_transcript.get())
         )
-        # 建站 / 演讲 / 自动化：引擎不扫正文猜意图。CEO 显式带 style_options /
-        # format_options 才挂选项并在 resume 记账；缺省放行（后果闸在 ledger+playbook）。
-        # Kickoff gate: user already settled high-leverage / collaboration decisions
-        # (same-turn journal checkpoint_resolved only; verbal「好的」不再跳卡)
-        # → refuse re-opening 开工提案卡; mid-task cards (decision / proposal_pick / …) pass.
-        # Also refuse after team_preview_resolved (开工卡已拍板) — ask_user-side only;
-        # gate skip_after_confirmed_ask deliberately does NOT recognize team_preview
-        # so incremental delegate still surfaces a kickoff card.
-        if intent == "kickoff" and card is None:
-            from agentcore.runtime.kickoff import user_confirmed_kickoff_decisions
-
-            journal = list(self.sink.execution_journal() or [])
-            already_settled = user_confirmed_kickoff_decisions(self) or any(
-                e.get("type") == "team_preview_resolved" for e in journal
-            )
-            if already_settled:
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=(
-                        "用户已确认协作方案/高杠杆决策，勿再开开工提案卡。"
-                        "请直接 delegate 开干，或推进既定计划；途中岔路再用 ask_user。"
-                    ),
-                )
-        # Kickoff 提案体硬闸：须 assumptions 或 questions 非空。
-        # message-only / 两者皆空 → 拒调；途中 decision 与显式 card 不受本闸约束。
-        if intent == "kickoff" and card is None and not assumptions and not questions:
-            logger.info(
-                "ask_user.kickoff_proposal_rejected",
-                conversation_id=self.conversation_id,
-                reason="empty_proposal_body",
-            )
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error=kickoff_requires_proposal_body_error(),
-            )
+        # style_options / format_options：wire 兼容可传，不记账、不硬闸。
         required = checkpoint_required(
             checkpoint_id=checkpoint_id,
             conversation_id=self.conversation_id,

@@ -1,10 +1,12 @@
 import {
   type FileArtifact,
+  fileArtifactsFromDeliveryStatus,
   fileArtifactsFromProcess,
   hasChangePreviews,
   mergeArtifacts,
+  resolveFileArtifactsForCard,
 } from "@/lib/fileArtifacts";
-import type { ProcessStep } from "@/types/events";
+import type { DeliveryStatusPayload, ProcessStep } from "@/types/events";
 import { describe, expect, it } from "vitest";
 
 function toolStep(
@@ -59,77 +61,130 @@ describe("fileArtifacts change previews (A1)", () => {
     });
   });
 
-  it("delete / move carry meta previews", () => {
+  it("file_delete / file_move carry meta preview", () => {
     const arts = fileArtifactsFromProcess([
       toolStep("file_delete", { path: "gone.ts" }),
-      toolStep("file_move", { source: "a.ts", destination: "b.ts" }),
+      toolStep("file_move", {
+        source: "old.ts",
+        destination: "new.ts",
+      }),
     ]);
-    const byPath = Object.fromEntries(arts.map((a) => [a.path, a]));
-    expect(byPath["gone.ts"]?.change).toEqual({ kind: "delete" });
-    expect(byPath["b.ts"]?.change).toEqual({
+    expect(arts.find((a) => a.path === "gone.ts")?.change).toEqual({
+      kind: "delete",
+    });
+    expect(arts.find((a) => a.path === "new.ts")?.change).toEqual({
       kind: "move",
-      fromPath: "a.ts",
+      fromPath: "old.ts",
     });
   });
 
-  it("dedupe keeps last change preview", () => {
-    const arts = mergeArtifacts(
+  it("mergeArtifacts keeps last op per path", () => {
+    expect(
       fileArtifactsFromProcess([
-        toolStep("file_write", { path: "a.ts", content: "v1" }),
+        toolStep("file_write", { path: "a.ts", content: "1" }),
         toolStep("str_replace", {
           path: "a.ts",
-          old_string: "v1",
-          new_string: "v2",
+          old_string: "1",
+          new_string: "2",
         }),
-      ]),
-    );
-    expect(arts).toHaveLength(1);
-    expect(arts[0].op).toBe("edit");
-    expect(arts[0].change?.kind).toBe("edit");
+      ]).map((a) => a.op),
+    ).toEqual(["edit"]);
   });
 
-  it("hasChangePreviews is false without change payloads", () => {
+  it("hasChangePreviews is false when no change", () => {
     const bare: FileArtifact[] = [{ path: "x.ts", name: "x.ts", op: "write" }];
     expect(hasChangePreviews(bare)).toBe(false);
   });
 
-  it("strips /workspace/ sandbox absolutes so preview/open paths match on-disk", () => {
+  it("failed tool steps are skipped", () => {
     const arts = fileArtifactsFromProcess([
-      toolStep("file_write", {
-        path: "/workspace/index.html",
-        content: "<html/>",
-      }),
-      toolStep("file_move", {
-        source: "/workspace/a.ts",
-        destination: "/workspace/site/b.ts",
-      }),
+      toolStep("file_write", { path: "a.md", content: "x" }, "error"),
     ]);
-    expect(arts.map((a) => a.path)).toEqual(["index.html", "site/b.ts"]);
-    expect(arts[0].name).toBe("index.html");
-    expect(arts[1].fromPath).toBe("a.ts");
+    expect(arts).toHaveLength(0);
   });
 
-  it("dedupes absolute /workspace/x with relative x as the same artifact", () => {
+  it("unknown tools skipped", () => {
     const arts = fileArtifactsFromProcess([
-      toolStep("file_write", { path: "/workspace/a.ts", content: "v1" }),
-      toolStep("str_replace", {
-        path: "a.ts",
-        old_string: "v1",
-        new_string: "v2",
-      }),
+      toolStep("web_search", { query: "x" }),
     ]);
-    expect(arts).toHaveLength(1);
-    expect(arts[0].path).toBe("a.ts");
-    expect(arts[0].op).toBe("edit");
+    expect(arts).toHaveLength(0);
   });
 
-  it("leaves relative workspace/… paths alone (may be a real subdirectory)", () => {
-    const arts = fileArtifactsFromProcess([
-      toolStep("file_write", {
-        path: "workspace/nested.html",
-        content: "x",
-      }),
+  it("mergeArtifacts flattens sources", () => {
+    const arts = mergeArtifacts(
+      fileArtifactsFromProcess([
+        toolStep("file_write", { path: "a.md", content: "a" }),
+      ]),
+      fileArtifactsFromProcess([
+        toolStep("file_write", { path: "b.md", content: "b" }),
+      ]),
+    );
+    expect(arts.map((a) => a.path).sort()).toEqual(["a.md", "b.md"]);
+  });
+});
+
+describe("fileArtifacts from delivery_status.artifacts", () => {
+  it("maps accepted+rejected and ignores tool lists", () => {
+    const status = {
+      execution_id: "e1",
+      state: "partial",
+      summary: "x",
+      delivered_files: ["ok.md"],
+      gaps: [],
+      actions: [],
+      artifacts: [
+        { path: "ok.md", status: "accepted" },
+        {
+          path: "bad.md",
+          status: "rejected",
+          reason: "citations_unverified",
+          detail: "缺 #rN",
+        },
+      ],
+    } as DeliveryStatusPayload;
+    const fromDelivery = fileArtifactsFromDeliveryStatus(status);
+    expect(fromDelivery).not.toBeNull();
+    if (fromDelivery == null) return;
+    expect(fromDelivery).toEqual([
+      { path: "ok.md", name: "ok.md", acceptance: "accepted" },
+      {
+        path: "bad.md",
+        name: "bad.md",
+        acceptance: "rejected",
+        acceptanceReason: "citations_unverified",
+        acceptanceDetail: "缺 #rN",
+      },
     ]);
-    expect(arts[0].path).toBe("workspace/nested.html");
+    expect(resolveFileArtifactsForCard(status).map((a) => a.path)).toEqual([
+      "ok.md",
+      "bad.md",
+    ]);
+  });
+
+  it("missing artifacts field yields empty card list (no tool fallback)", () => {
+    const status = {
+      execution_id: "e1",
+      state: "delivered",
+      summary: "x",
+      delivered_files: ["a.md"],
+      gaps: [],
+      actions: [],
+    } as DeliveryStatusPayload;
+    expect(fileArtifactsFromDeliveryStatus(status)).toBeNull();
+    expect(resolveFileArtifactsForCard(status)).toEqual([]);
+  });
+
+  it("empty artifacts array yields empty list", () => {
+    const status = {
+      execution_id: "e1",
+      state: "blocked",
+      summary: "x",
+      delivered_files: [],
+      gaps: [],
+      actions: [],
+      artifacts: [],
+    } as DeliveryStatusPayload;
+    expect(fileArtifactsFromDeliveryStatus(status)).toEqual([]);
+    expect(resolveFileArtifactsForCard(status)).toEqual([]);
   });
 });

@@ -217,7 +217,16 @@ def format_idle_yield_brief(session: CoordinationSession) -> str:
     progress = format_pipeline_progress(session)
     healthy = is_pipeline_healthy(session)
     lines = ["【团队协调·空转让出】", progress, ""]
-    if healthy:
+    from agentcore.runtime.interaction_orphan import has_hot_user_pending
+
+    conversation_id = getattr(session, "conversation_id", None) or ""
+    if has_hot_user_pending(conversation_id):
+        lines.append(
+            "流水线状态：队员等待用户审批/授权。"
+            "【禁止】调用 wait 或再派；保持静默，引导用户查看审批卡后再继续。"
+            "勿用空 wait 假装推进，勿 delegate 与现有计划重叠的队员。"
+        )
+    elif healthy:
         lines.append(
             "流水线状态：正常推进（有队员在跑，其余节点仅因依赖未就绪而阻塞，无失败）。"
             "这是预期中的等待，不是空闲——【无需追加动作】："

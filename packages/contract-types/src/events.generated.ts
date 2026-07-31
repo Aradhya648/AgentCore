@@ -205,7 +205,8 @@ export interface AskAssumption {
  * cloud scratch + desktop online is enough; does not change binding);
  * `grant_organize_folder` is the organize-mode counterpart (move/copy/mkdir/trash-delete).
  * Structured ``op`` / ``source`` / ``destination`` / ``path`` fields carry organize_plan
- * items for plan-bound ``file_batch``. */
+ * items for plan-bound ``file_batch``. ``review_kind`` / ``body`` / ``slug`` / ``section``
+ * carry daily_review proposals for server-side apply on confirm. */
 export interface AskOption {
   label: string;
   detail?: string;
@@ -215,6 +216,10 @@ export interface AskOption {
   source?: string;
   destination?: string;
   path?: string;
+  review_kind?: "preference" | "profile" | "topic" | "rule" | "doc";
+  body?: string;
+  slug?: string;
+  section?: string;
 }
 
 export interface AskQuestion {
@@ -241,7 +246,8 @@ export type CheckpointIntent =
   | "decision"
   | "proposal_pick"
   | "risk_ack"
-  | "organize_plan";
+  | "organize_plan"
+  | "daily_review";
 
 /** The CEO paused the turn on an ask_user checkpoint (blocking). */
 export interface CheckpointRequiredPayload {
@@ -733,13 +739,27 @@ export interface DeliveryAction {
   prompt?: string;
 }
 
+/** One path-level acceptance row on ``delivery_status`` (主清单数据源).
+ * 
+ * ``status=accepted`` → counts toward ``delivered_files`` / CEO「已交付」;
+ * ``rejected`` carries ``reason`` (e.g. ``citations_unverified``) and optional
+ * ``detail`` for the file checklist. Draft is out of scope for block 1. */
+export interface DeliveryArtifact {
+  path: string;
+  status: "accepted" | "rejected";
+  reason?: string;
+  detail?: string;
+}
+
 /** 交付状态（能力闸门与交付诚实性）: the structured delivery reconciliation a
  * delegate batch emits at wrap-up — 已交付文件 / 缺口 / 待用户操作 — so the client
  * renders an honest delivery card instead of mining the CEO's prose. Folds keep the
  * LATEST per ``execution_id`` (reflects the most recent batch's reconciliation).
  * ``state``: delivered = 无 blocking 缺口且有落盘产物; partial = 有产物也有
  * blocking 缺口; blocked = 有 blocking 缺口且无落盘产物;
- * notes = 仅有 soft 待核实提醒（轻提醒，非「部分未满足」）。 */
+ * notes = 仅有 soft 待核实提醒（轻提醒，非「部分未满足」）。
+ * ``artifacts``: path-level acceptance (accepted+rejected); ``delivered_files``
+ * remains accepted-only for older clients. */
 export interface DeliveryStatusPayload {
   execution_id: string;
   state: DeliveryState;
@@ -747,6 +767,7 @@ export interface DeliveryStatusPayload {
   delivered_files: string[];
   gaps: DeliveryGap[];
   actions: DeliveryAction[];
+  artifacts?: DeliveryArtifact[];
 }
 
 /** Attachment metadata on a mid-flight interjection (no inline text body). */
@@ -1698,6 +1719,15 @@ export interface HostOpRequiredPayload {
   args?: Record<string, unknown>;
 }
 
+/** Transport-only client-tool request: run a local MCP Client op on the bound
+ * desktop (stdio list_tools / call_tool). NOT journaled. */
+export interface McpOpRequiredPayload {
+  request_id: string;
+  conversation_id: string;
+  op: string;
+  args?: Record<string, unknown>;
+}
+
 export interface HandoffSnapshotDonePayload {
   snapshot_id: string;
   conversation_id: string;
@@ -1814,6 +1844,7 @@ export type SSEPayloadMap = {
   board_read_required: BoardReadRequiredPayload;
   desktop_notify_required: DesktopNotifyRequiredPayload;
   host_op_required: HostOpRequiredPayload;
+  mcp_op_required: McpOpRequiredPayload;
   handoff_snapshot_done: HandoffSnapshotDonePayload;
   handoff_job_started: HandoffJobStartedPayload;
   handoff_apply_done: HandoffApplyDonePayload;

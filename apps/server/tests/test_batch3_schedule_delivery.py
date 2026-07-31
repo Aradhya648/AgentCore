@@ -302,6 +302,7 @@ async def test_timeout_force_cancel_stamps_warning():
 def test_delivery_gaps_on_soft_accept_and_partial_meta():
     from agentcore.runtime.delegate.delivery_status import build_delivery_status
     from agentcore.runtime.runs.executor_shared import _delivery_gaps_from_warnings
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
 
     gaps = _delivery_gaps_from_warnings(
         ["缺章节：结论"],
@@ -318,6 +319,9 @@ def test_delivery_gaps_on_soft_accept_and_partial_meta():
             warnings=["缺章节：结论"],
             delivery_gaps=gaps,
             files_touched=["out.md"],
+            file_acceptance=build_file_acceptance(
+                ["out.md"], phase=RunPhase.COMPLETED
+            ),
         )
     }
     payload = build_delivery_status(plan, results, execution_id="e1")

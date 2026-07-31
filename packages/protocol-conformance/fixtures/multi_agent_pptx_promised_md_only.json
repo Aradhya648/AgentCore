@@ -172,7 +172,8 @@
             "kind": "bind_local_folder",
             "description": "绑定本机执行环境后可在本机运行 build_pptx.py 生成 .pptx。"
           }
-        ]
+        ],
+        "artifacts": []
       },
       "timestamp": "2026-01-01T00:00:01.107Z"
     },
@@ -411,7 +412,8 @@
           "kind": "bind_local_folder",
           "description": "绑定本机执行环境后可在本机运行 build_pptx.py 生成 .pptx。"
         }
-      ]
+      ],
+      "artifacts": []
     },
     "turnWarning": null,
     "teamNotes": [],

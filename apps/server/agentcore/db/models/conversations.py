@@ -227,7 +227,7 @@ class Message(Base):
     # 32-hex, minted by core/log_context.new_trace_id (not a DB-format uuid).
     trace_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     # A1+ 回合文件 diff 基线：云端 labeled 快照 id；本地 sidecar 约定 id=message_id
-    #（``.agentcore/baselines/{id}.zip``，可不经本列）。NULL = 未打基线 / 失败 / 旧行
+    #（``AgentCore/baselines/{id}.zip``，可不经本列）。NULL = 未打基线 / 失败 / 旧行
     # → 前端降级工具参数预览。
     baseline_snapshot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

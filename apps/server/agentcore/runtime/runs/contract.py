@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -173,6 +174,7 @@ def check_contract(
     artifact_contents: dict[str, str] | None = None,
     ledger_entries: list[dict[str, Any]] | None = None,
     citable_ids: frozenset[str] | set[str] | None = None,
+    enforce_citations: bool = True,
 ) -> ContractVerdict:
     """Check ``content`` against ``deliverable``; return a verdict + human reasons.
 
@@ -202,7 +204,8 @@ def check_contract(
     ``ledger_entries`` is not ``None`` (turn evidence ledger connected; empty list
     still counts), content surfaces are also checked with
     :func:`~agentcore.runtime.verify.citation_quality_reworks` (same rules as chat
-    ``finish_guard``). Callers that cannot supply contents still get existence checks
+    ``finish_guard``) — unless ``enforce_citations=False`` (调研阶段 A：检索草案跳过
+    成稿引用闸). Callers that cannot supply contents still get existence checks
     via ``artifacts``; parseability / seam / placeholder / citation checks are
     enforced when contents are given.
 
@@ -226,10 +229,14 @@ def check_contract(
     if deliverable is None:
         web_failures = check_web_seam_failures(artifact_contents)
         ph = scan_placeholder_signals(artifact_contents)
-        cite_failures = _artifact_citation_failures(
-            artifact_contents,
-            ledger_entries=ledger_entries,
-            citable_ids=citable_ids,
+        cite_failures = (
+            _artifact_citation_failures(
+                artifact_contents,
+                ledger_entries=ledger_entries,
+                citable_ids=citable_ids,
+            )
+            if enforce_citations
+            else []
         )
         failures = [*web_failures, *ph.failures, *cite_failures]
         if failures:
@@ -325,13 +332,15 @@ def check_contract(
     ph = scan_placeholder_signals(artifact_contents, hard_exempt_paths=exempt_paths)
     failures.extend(ph.failures)
     # 引用 / 书目：与 chat finish_guard 同源；仅台账接通时扫内容类落盘。
-    failures.extend(
-        _artifact_citation_failures(
-            artifact_contents,
-            ledger_entries=ledger_entries,
-            citable_ids=citable_ids,
+    # 调研阶段 A（enforce_citations=False）跳过成稿引用闸。
+    if enforce_citations:
+        failures.extend(
+            _artifact_citation_failures(
+                artifact_contents,
+                ledger_entries=ledger_entries,
+                citable_ids=citable_ids,
+            )
         )
-    )
     soft_failures: list[str] = []
     # 前端质量门禁（独立于 placeholder / web_seam）：硬=语法损坏+编造联系方式；软=anti-slop。
     if deliverable.web_quality_scan:
@@ -386,6 +395,59 @@ def _artifact_citation_failures(
         ):
             failures.append(f"`{path}`：{msg}")
     return failures
+
+
+# Citation failure lines from ``_artifact_citation_failures`` — `` `path`：… ``.
+_CITATION_FAILURE_PATH_RE = re.compile(r"^`([^`]+)`\s*[：:]\s*(.*)$", re.DOTALL)
+
+
+def is_citation_failure_message(text: str) -> bool:
+    """True when ``text`` is a path-scoped citation / bibliography contract failure."""
+    return bool(_CITATION_FAILURE_PATH_RE.match(str(text or "").strip()))
+
+
+def partition_citation_failures(
+    failures: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Split contract failures into (citation, other). Stable order preserved."""
+    cite: list[str] = []
+    other: list[str] = []
+    for raw in failures or []:
+        text = str(raw)
+        if is_citation_failure_message(text):
+            cite.append(text)
+        else:
+            other.append(text)
+    return cite, other
+
+
+def format_cite_upgrade_feedback(
+    cite_failures: list[str],
+    *,
+    checked_files: list[str] | None = None,
+) -> str:
+    """Phase-B upgrade prompt: deep_read key sources or rewrite as unnumbered overview.
+
+    Does **not** instruct stripping ``#rN`` via light-repair automation — the worker
+    chooses deep_read / selected upgrade or an explicit unnumbered summary.
+    """
+    if not cite_failures:
+        return ""
+    items = "\n".join(f"- {f}" for f in cite_failures)
+    coverage = ""
+    if checked_files:
+        listed = "、".join(f"`{p}`" for p in checked_files)
+        coverage = f"\n（检查通道：落盘文件 {listed}）"
+    return (
+        "【引用升级·阶段 B】上版是检索草案：成稿引用闸尚未验收。"
+        f"当前引用/书目问题：\n{items}{coverage}\n\n"
+        "请二选一就地升级后 handoff（禁止整篇重开广搜）：\n"
+        "1) 对关键论断的 search-only 来源用 read_url 深读，使对应 #rN 进入成稿可引用集"
+        "（deep_read / selected），必要时 str_replace 校正正文引用；或\n"
+        "2) 改为无编号综述：去掉未核实的 #rN / 书目著录式断言，改用标题+URL 线索或"
+        "显式「待核实」语，勿把 search-only 编号写成已证事实。\n"
+        "不要道歉、不要另起无关长文。"
+    )
 
 
 def artifact_present(pattern: str, workspace_paths: list[str]) -> bool:

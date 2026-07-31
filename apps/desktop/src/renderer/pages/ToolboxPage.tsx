@@ -93,10 +93,8 @@ const CREATION_TOOLS: ToolboxEntry[] = [
   },
 ];
 
-// 「能力」组：AI 自身的能力（工具 + AI 提示词，均已可用）+ 自动化（定时/Webhook）+
-// 平台集成（连接器，即将开放）。能力图鉴只分两类——工具（确定性代码）与
-// AI 提示词（含准则与按需注入的工具进阶用法 / 薄技能）；这批薄技能本质是 Prompt 注入、不是
-// 独立能力，并入「AI 提示词」页。
+// 「能力」组：AI 自身的能力（工具 + AI 提示词）+ 自动化 + 平台集成（连接器 / MCP）。
+// 能力图鉴只分两类——工具（确定性代码）与 AI 提示词（含准则与按需注入的工具进阶用法 / 薄技能）。
 const CAPABILITIES: ToolboxEntry[] = [
   {
     id: "tools",
@@ -129,6 +127,7 @@ const CAPABILITIES: ToolboxEntry[] = [
     description: "MCP 与第三方服务接入",
     icon: Plug,
     color: "connectors",
+    to: "/toolbox/connectors",
   },
 ];
 

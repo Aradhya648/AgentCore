@@ -51,7 +51,7 @@ export async function collectWorkspaceFiles(
       if (d.isSymbolicLink()) continue;
       const childRel = cur.rel ? `${cur.rel}/${d.name}` : d.name;
       if (d.isDirectory()) {
-        if (shouldSkipWorkspaceEntry(d.name, true)) continue;
+        if (shouldSkipWorkspaceEntry(d.name, true, cur.rel)) continue;
         if (cur.depth + 1 <= LIST_FILES_MAX_DEPTH) {
           stack.push({
             abs: join(cur.abs, d.name),
@@ -60,7 +60,7 @@ export async function collectWorkspaceFiles(
           });
         }
       } else if (d.isFile()) {
-        if (shouldSkipWorkspaceEntry(d.name, false)) continue;
+        if (shouldSkipWorkspaceEntry(d.name, false, cur.rel)) continue;
         let mtimeMs = 0;
         if (recent) {
           try {
@@ -100,7 +100,7 @@ export async function listDir(
     for (const d of dirents) {
       const isDir = d.isDirectory();
       // 文件 UI：仅系统噪音；媒体/压缩包等 AI 噪音仍可见（交付物）。
-      if (shouldSkipSystemWorkspaceEntry(d.name, isDir)) continue;
+      if (shouldSkipSystemWorkspaceEntry(d.name, isDir, relPath)) continue;
       const childRel = relPath ? `${relPath}/${d.name}` : d.name;
       let size: number | null = null;
       let modifiedMs: number | null = null;

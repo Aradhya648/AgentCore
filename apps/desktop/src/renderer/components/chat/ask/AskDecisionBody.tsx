@@ -1,7 +1,8 @@
 /**
- * 生产 decision 拍板卡 —— 与 kickoff 同壳同行式选项（{@link AskCardShell} + {@link AskRowGroup}）。
+ * 生产通用澄清卡 —— AskCardShell + 行式选项（{@link AskRowGroup}）。
+ * Wire `intent=kickoff` 与 `decision` 均挂此体；无开场仪式主 CTA。
  * 彩色「推荐 / 默认」徽章已删：`default` 由 {@link useAskAnswer} 预选，选中态即其表达。
- * 由 {@link AskUserCard} 在 intent === "decision" 时挂载。
+ * 空 `styleOptions` / `formatOptions` 不渲染场面区。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { ASK_INTENT_META } from "@/components/chat/decision";

@@ -93,7 +93,7 @@ export async function getTurnFilesDiff(
   return fromWire(raw);
 }
 
-/** Local path: sidecar RPC over `.agentcore/baselines/{messageId}.zip` (no cloud). */
+/** Local path: sidecar RPC over `AgentCore/baselines/{messageId}.zip` (no cloud). */
 export async function getLocalTurnFilesDiff(
   target: LocalTurnFilesTarget,
   messageId: string,

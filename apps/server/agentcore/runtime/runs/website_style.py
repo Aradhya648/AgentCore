@@ -1,17 +1,11 @@
-"""Website style confirmation ledger + DESIGN.md helpers (P1a dual-gate).
+"""Website DESIGN.md helpers + optional style confirmation cache.
 
-Unique source for the user-selected ``style_id`` after ask_user resume (or the
-full_auto default). Resume wire priority: explicit ``style_id`` → legitimate
-``sN`` in ``selected``; prose note alone never confirms. Playbook ``design``
-injects it; ``web_quality_scan`` hard-fails when DESIGN.md lacks the marker.
-Keyed on conversation — gate on ``build_website`` / ``build_toolshed`` so non-site
-delegates stay untouched.
+场面账硬闸已拆除：``build_website`` / ``build_toolshed`` 不再因缺 style 拒调。
+无确认时 :func:`design_prompt_block` 软注入 ``s_default``；``web_quality_scan``
+仍要求 DESIGN.md 含「用户选定风格 id」标记。
 
-Persistence (方案 A · 与挂起恢复同构):
-- Durable fact ``website_style_confirmed`` via :func:`record_turn_fact`.
-- ``turn_paused.website_style`` snapshot at durable pause; resume rehydrates memory.
-- Process-local ``_LEDGER`` is a hot cache only — clear + rehydrate from journal /
-  paused must still pass the ``build_website`` gate.
+Ledger helpers (``record_*`` / resume resolve) retained for tests / legacy pause
+rehydrate only — production resume no longer records style picks.
 """
 
 from __future__ import annotations
@@ -436,13 +430,17 @@ def find_scattered_colors(text: str, allowed: set[str]) -> list[str]:
 
 
 def design_prompt_block(*, style: StyleConfirmation | None) -> str:
-    """Inject into the design-node task book."""
+    """Inject into the design-node task book.
+
+    No style ledger: soft-inject ``s_default``. With a confirmation (legacy / tests),
+    write that id. ``web_quality_scan`` still requires the DESIGN.md marker.
+    """
     if style is None:
-        style_line = (
-            f"若上游已确认风格，将 id 原样写入「{STYLE_ID_HEADING}」；"
-            f"full_auto 默认用 `{DEFAULT_STYLE_ID}`（{DEFAULT_STYLE_LABEL}）。"
-        )
         sid = DEFAULT_STYLE_ID
+        label = DEFAULT_STYLE_LABEL
+        style_line = (
+            f"未指定风格时使用默认 id=`{sid}`（{label}）——必须原样写入。"
+        )
     else:
         sid = style.style_id
         label = style.label

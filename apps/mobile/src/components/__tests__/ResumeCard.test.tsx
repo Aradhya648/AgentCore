@@ -129,6 +129,90 @@ describe("ResumeCard · ask_user", () => {
     );
   });
 
+  it("daily_review 默认全选，取消勾选后提交带 selected", () => {
+    const onResume = vi.fn();
+    render(
+      <ResumeCard
+        paused={summary({
+          intent: "daily_review",
+          questions: [
+            {
+              id: "q0",
+              prompt: "落盘哪些提案",
+              kind: "choice",
+              multiple: true,
+              options: [
+                {
+                  label: "偏好简洁",
+                  review_kind: "preference",
+                  body: "短句",
+                },
+                { label: "规则先问", review_kind: "rule", body: "先确认" },
+                {
+                  label: "主题：周报节奏",
+                  review_kind: "topic",
+                  body: "周五",
+                },
+              ],
+            },
+          ],
+        })}
+        onResume={onResume}
+      />,
+    );
+    expect(screen.getByText("复盘提案 · 确认要落盘的项")).toBeTruthy();
+    expect(
+      document.querySelector('[data-ask-intent="daily_review"]'),
+    ).toBeTruthy();
+    expect(screen.getByText("偏好 · 短句")).toBeTruthy();
+    expect(screen.getByText("规则 · 先确认")).toBeTruthy();
+    expect(
+      screen.getByText(/确认后服务端直接写入记忆\/规则\/文档/),
+    ).toBeTruthy();
+    expect(screen.getByText("取消勾选即跳过")).toBeTruthy();
+
+    // Seed all three; uncheck one.
+    fireEvent.click(screen.getByText("主题：周报节奏"));
+    fireEvent.click(screen.getByRole("button", { name: /确认落盘/ }));
+    expect(onResume).toHaveBeenCalledWith(
+      "continue",
+      "",
+      ["偏好简洁", "规则先问"],
+      null,
+      null,
+    );
+  });
+
+  it("daily_review 全取消后确认落盘禁用", () => {
+    const onResume = vi.fn();
+    render(
+      <ResumeCard
+        paused={summary({
+          intent: "daily_review",
+          questions: [
+            {
+              id: "q0",
+              prompt: "落盘哪些提案",
+              kind: "choice",
+              multiple: true,
+              options: [
+                { label: "偏好简洁", review_kind: "preference", body: "短句" },
+                { label: "规则先问", review_kind: "rule", body: "先确认" },
+              ],
+            },
+          ],
+        })}
+        onResume={onResume}
+      />,
+    );
+    fireEvent.click(screen.getByText("偏好简洁"));
+    fireEvent.click(screen.getByText("规则先问"));
+    const cta = screen.getByRole("button", { name: /^确认落盘$/ });
+    expect((cta as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(cta);
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
   it("style_options continue 直传 style_id 与 selected sN", () => {
     const onResume = vi.fn();
     render(

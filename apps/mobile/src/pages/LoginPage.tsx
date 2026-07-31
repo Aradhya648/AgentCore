@@ -135,9 +135,6 @@ export function LoginPage() {
                   <Link to={legalPath("privacy")}>《隐私政策》</Link>
                 </span>
               </label>
-              <p className="auth-tip">
-                对话通常保存在云端；AI 输出请自行核实。
-              </p>
             </div>
           )}
 
@@ -151,12 +148,6 @@ export function LoginPage() {
             <p className="auth-foot muted">忘记密码？请联系管理员重置。</p>
           )}
         </form>
-
-        <p className="auth-links muted">
-          <Link to={legalPath("terms")}>用户协议</Link>
-          <span>·</span>
-          <Link to={legalPath("privacy")}>隐私政策</Link>
-        </p>
       </div>
     </div>
   );

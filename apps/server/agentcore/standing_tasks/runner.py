@@ -41,6 +41,11 @@ from agentcore.llm.resolve import (
 )
 from agentcore.runtime.events import EventSink, FinishReason
 from agentcore.standing_tasks.schedule import next_run_after
+from agentcore.standing_tasks.templates import (
+    DAILY_CONVERSATION_REVIEW,
+    compose_template_fire_message,
+    is_known_template,
+)
 from agentcore.standing_tasks.webhook import build_fire_message
 from agentcore.workspace.locate import workspace_storage_key
 from agentcore.workspace.locks import workspace_lock
@@ -125,6 +130,8 @@ async def run_standing_task_job(
             permission_axes = dict(task.permission_axes or {})
             cron = task.cron
             trigger_kind = getattr(task, "trigger_kind", None) or "schedule"
+            template_key = getattr(task, "template_key", None)
+            template_config = dict(getattr(task, "template_config", None) or {})
             # Cloud folder guard (defense in depth; create already rejects local).
             folder = await FolderRepository(session).get_by_id(folder_id, user_id=user_id)
             if folder is None or folder.local_root_id:
@@ -132,8 +139,63 @@ async def run_standing_task_job(
                     run_id, error="站立任务仅支持云工作区"
                 )
                 return
+            folder_names: dict[str, str] = {}
+            if is_known_template(template_key):
+                scope_ids = list(template_config.get("folder_ids") or [])
+                if folder_id and folder_id not in scope_ids:
+                    folder_names[folder_id] = folder.name
+                for fid in scope_ids:
+                    frow = await FolderRepository(session).get_by_id(fid, user_id=user_id)
+                    if frow is not None:
+                        folder_names[fid] = frow.name
+            pinned_conversation_id = task.conversation_id
 
-        user_message = build_fire_message(goal=goal, event_text=event_text)
+        # Hard gate: daily review with nothing in scope → succeed without LLM.
+        if template_key == DAILY_CONVERSATION_REVIEW:
+            from agentcore.standing_tasks.review_preflight import (
+                EMPTY_REVIEW_SUMMARY,
+                count_recent_conversations_in_scope,
+            )
+
+            recent_n = await count_recent_conversations_in_scope(
+                user_id=user_id,
+                template_config=template_config,
+                exclude_conversation_id=pinned_conversation_id,
+            )
+            if recent_n == 0:
+                async with async_session_factory() as session:
+                    await StandingTaskRunRepository(session).mark_succeeded(
+                        run_id, summary=EMPTY_REVIEW_SUMMARY
+                    )
+                    if advance_schedule and trigger_kind == "schedule" and cron:
+                        try:
+                            nxt = next_run_after(cron, datetime.now(UTC))
+                            await StandingTaskRepository(session).advance_next_run(
+                                task_id, next_run_at=nxt
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning(
+                                "standing_task.next_run_failed",
+                                task_id=task_id,
+                                error=str(e),
+                            )
+                logger.info(
+                    "standing_task.empty_review_skip",
+                    run_id=run_id,
+                    task_id=task_id,
+                )
+                return
+
+        if is_known_template(template_key):
+            user_message = compose_template_fire_message(
+                template_key=template_key or "",
+                goal=goal,
+                template_config=template_config,
+                folder_names=folder_names,
+                event_text=event_text,
+            )
+        else:
+            user_message = build_fire_message(goal=goal, event_text=event_text)
 
         conversation_id = await _ensure_pinned_conversation(
             task_id=task_id,

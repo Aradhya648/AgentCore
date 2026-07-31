@@ -187,6 +187,115 @@ async def test_outside_workspace_error_is_actionable(tmp_path: Path):
 # --- file_read (Wave3 B same-path ceiling) ---
 
 
+async def test_file_read_docx_transparent_extract(tmp_path: Path):
+    from unittest.mock import patch
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "brief.docx").write_bytes(b"PK-fake-docx")
+    ctx = _ctx(tmp_path)
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        return_value="# Brief\n\nHello from docx with enough alphanumeric body for scan.",
+    ):
+        result = await FileReadTool().execute({"path": "docs/brief.docx"}, ctx)
+    assert result.success is True
+    assert "Hello from docx" in (result.output or "")
+    # Read-time extract must not write a *.md sidecar.
+    assert not (tmp_path / "docs" / "brief.docx.md").exists()
+    assert ctx.file_read_counts.get("docs/brief.docx") == 1
+
+
+async def test_file_read_pdf_transparent_extract(tmp_path: Path):
+    from unittest.mock import patch
+
+    (tmp_path / "paper.pdf").write_bytes(b"%PDF-fake")
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        return_value="Abstract\n\nThis paper studies agents." + ("x" * 20),
+    ):
+        result = await FileReadTool().execute({"path": "paper.pdf"}, _ctx(tmp_path))
+    assert result.success is True
+    assert "This paper studies agents" in (result.output or "")
+    assert not (tmp_path / "paper.pdf.md").exists()
+
+
+async def test_file_read_xlsx_does_not_extract(tmp_path: Path):
+    (tmp_path / "report.xlsx").write_bytes(b"PK\x03\x04")
+    result = await FileReadTool().execute({"path": "report.xlsx"}, _ctx(tmp_path))
+    assert result.success is False
+    assert result.error is not None
+    assert "code_execute" in result.error
+    assert not (tmp_path / "report.xlsx.md").exists()
+
+
+async def test_file_read_scanned_pdf_notice(tmp_path: Path):
+    from unittest.mock import patch
+
+    (tmp_path / "scan.pdf").write_bytes(b"%PDF" + b"\x00" * 100)
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        return_value="   \n",
+    ):
+        result = await FileReadTool().execute({"path": "scan.pdf"}, _ctx(tmp_path))
+    assert result.success is True
+    out = result.output or ""
+    assert "scanned" in out.lower() or "OCR" in out
+    assert not (tmp_path / "scan.pdf.md").exists()
+
+
+async def test_file_read_office_offset_limit_on_extracted_lines(tmp_path: Path):
+    from unittest.mock import patch
+
+    body = "\n".join(f"line-{i}" for i in range(1, 11))
+    # enough alnum so not scanned
+    body = body + "\n" + ("word " * 20)
+    (tmp_path / "notes.docx").write_bytes(b"PK")
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        return_value=body,
+    ):
+        result = await FileReadTool().execute(
+            {"path": "notes.docx", "offset": 2, "limit": 3},
+            _ctx(tmp_path),
+        )
+    assert result.success is True
+    out = result.output or ""
+    assert "line-2" in out
+    assert "line-4" in out
+    assert "line-1" not in out
+    assert "共 " in out
+
+
+async def test_file_read_prefers_existing_md_sidecar(tmp_path: Path):
+    from unittest.mock import patch
+
+    (tmp_path / "memo.docx").write_bytes(b"PK-original")
+    (tmp_path / "memo.docx.md").write_text(
+        "Sidecar text already prepared with enough body.\n", encoding="utf-8"
+    )
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        side_effect=AssertionError("markitdown must not run when sidecar exists"),
+    ):
+        result = await FileReadTool().execute({"path": "memo.docx"}, _ctx(tmp_path))
+    assert result.success is True
+    assert "Sidecar text already prepared" in (result.output or "")
+
+
+async def test_file_read_office_extract_failure_soft(tmp_path: Path):
+    from unittest.mock import patch
+
+    (tmp_path / "broken.docx").write_bytes(b"not-a-docx")
+    with patch(
+        "agentcore.workspace.attachment_parse._convert_with_markitdown",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = await FileReadTool().execute({"path": "broken.docx"}, _ctx(tmp_path))
+    assert result.success is False
+    assert result.error is not None
+    assert "抽取" in result.error or "convert" in result.error
+
+
 async def test_file_read_allows_up_to_same_path_max(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
@@ -738,7 +847,7 @@ async def test_delete_file(tmp_path: Path):
     assert "可逆删除" in result.output
     assert not (tmp_path / "f.txt").exists()
     # Soft-deleted into workspace trash with restore metadata.
-    trash = tmp_path / ".agentcore" / "trash"
+    trash = tmp_path / "AgentCore" / "trash"
     assert trash.is_dir()
     entries = list(trash.iterdir())
     assert len(entries) == 1
@@ -754,7 +863,7 @@ async def test_delete_directory_recursive(tmp_path: Path):
     result = await FileDeleteTool().execute({"path": "pkg"}, _ctx(tmp_path))
     assert result.success is True
     assert not (tmp_path / "pkg").exists()
-    assert (tmp_path / ".agentcore" / "trash").is_dir()
+    assert (tmp_path / "AgentCore" / "trash").is_dir()
 
 
 async def test_delete_permanent_hard_removes(tmp_path: Path):
@@ -765,7 +874,7 @@ async def test_delete_permanent_hard_removes(tmp_path: Path):
     assert result.success is True
     assert "永久删除" in result.output
     assert not (tmp_path / "f.txt").exists()
-    trash = tmp_path / ".agentcore" / "trash"
+    trash = tmp_path / "AgentCore" / "trash"
     assert not trash.exists() or not any(trash.iterdir())
 
 

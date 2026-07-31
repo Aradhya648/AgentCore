@@ -5,6 +5,10 @@
 xlsx/csv 跳过，保留运行时 ``code_execute``。扫描版 PDF 首版不做 OCR，写入明确
 降级提示。解析失败不阻塞驻留，回落「路径提示 + 委派解析」。
 
+工作区 ``file_read`` 对同一 markitdown 桶做**透明抽取**（读时默认不写 ``*.md``），
+复用本模块公开核 ``extract_office_bytes`` / ``convert_with_markitdown`` /
+``looks_like_scanned``；``preparse_resident`` 仍只服务附件驻留。
+
 → 见决策：docs/02-架构/双模式工作区.md §七（Office 云=本地）与附件驻留实现。
 """
 
@@ -22,11 +26,16 @@ from agentcore.workspace.protocol import WorkspaceBackend, WorkspaceError
 logger = get_logger(__name__)
 
 # Office / PDF：必须经 markitdown（或等价）才能得到可读正文。
-_MARKITDOWN_EXTENSIONS = frozenset({".docx", ".pdf", ".pptx", ".odt", ".rtf"})
+MARKITDOWN_EXTENSIONS = frozenset({".docx", ".pdf", ".pptx", ".odt", ".rtf"})
 # 已是文本层：直接 UTF-8 解码；原件本身即工作区可读副本。
-_PLAIN_TEXT_EXTENSIONS = frozenset({".txt", ".md", ".markdown", ".html", ".htm"})
-# 大表 / 计算场景：不预解析全表。
-_SKIP_EXTENSIONS = frozenset({".xlsx", ".xlsm", ".xls", ".csv", ".tsv"})
+PLAIN_TEXT_EXTENSIONS = frozenset({".txt", ".md", ".markdown", ".html", ".htm"})
+# 大表 / 计算场景：不预解析全表；``file_read`` 亦不透明抽。
+SKIP_EXTENSIONS = frozenset({".xlsx", ".xlsm", ".xls", ".csv", ".tsv"})
+
+# Back-compat aliases (private names used by older call sites / tests).
+_MARKITDOWN_EXTENSIONS = MARKITDOWN_EXTENSIONS
+_PLAIN_TEXT_EXTENSIONS = PLAIN_TEXT_EXTENSIONS
+_SKIP_EXTENSIONS = SKIP_EXTENSIONS
 
 # 扫描件启发式：可打印字母数字过少 → 视为无文本层（不做 OCR）。
 _SCAN_MIN_ALNUM = 40
@@ -38,12 +47,13 @@ _SCAN_LARGE_MIN_ALNUM = 200
 # 全文落在 ``*.md`` 副本，Agent 可用 file_read 续读。多附件时各自独立截断。
 ATTACHMENT_INLINE_MAX_CHARS = 24_000
 
-_SCAN_NOTICE = (
+SCAN_NOTICE = (
     "This file appears to be a scanned / image-only document with little or no "
     "extractable text layer. OCR is not available in this build. Tell the user "
     "the file looks like a scan and ask them to provide a text-layer PDF or paste "
     "the relevant passages."
 )
+_SCAN_NOTICE = SCAN_NOTICE
 
 
 class ParseStatus(StrEnum):
@@ -51,6 +61,17 @@ class ParseStatus(StrEnum):
     SCANNED = "scanned"
     SKIPPED = "skipped"
     FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractResult:
+    """In-memory office/PDF extract (no workspace write)."""
+
+    status: ParseStatus
+    text: str = ""
+    """Full extracted text, or scan/failure note. Empty when skipped."""
+    detail: str = ""
+    """Short machine-oriented reason for logs / tests."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,9 +100,9 @@ def extension_of(name: str | None, workspace_path: str | None = None) -> str:
 def should_preparse(name: str | None, workspace_path: str | None = None) -> bool:
     """True when this binary resident is in the text-document bucket (not xlsx/csv)."""
     ext = extension_of(name, workspace_path)
-    if not ext or ext in _SKIP_EXTENSIONS:
+    if not ext or ext in SKIP_EXTENSIONS:
         return False
-    return ext in _MARKITDOWN_EXTENSIONS or ext in _PLAIN_TEXT_EXTENSIONS
+    return ext in MARKITDOWN_EXTENSIONS or ext in PLAIN_TEXT_EXTENSIONS
 
 
 def looks_like_scanned(text: str, raw_size: int) -> bool:
@@ -104,8 +125,12 @@ def truncate_for_prompt(text: str, limit: int = ATTACHMENT_INLINE_MAX_CHARS) -> 
     return text[:limit], True
 
 
+def convert_with_markitdown(data: bytes, ext: str) -> str:
+    """Sync markitdown convert (call via ``asyncio.to_thread`` from async paths)."""
+    return _convert_with_markitdown(data, ext)
+
+
 def _convert_with_markitdown(data: bytes, ext: str) -> str:
-    """Sync markitdown convert (run via ``asyncio.to_thread``)."""
     from markitdown import MarkItDown
 
     md = MarkItDown(enable_plugins=False)
@@ -122,6 +147,40 @@ def _decode_plain_text(data: bytes) -> str | None:
     return None
 
 
+async def extract_office_bytes(data: bytes, *, ext: str) -> ExtractResult:
+    """Extract text from office/PDF bytes without writing a workspace ``*.md`` copy.
+
+    Applies to ``MARKITDOWN_EXTENSIONS`` only. Spreadsheets return ``SKIPPED``;
+    convert errors return ``FAILED`` (never raises). Scanned / empty text layer
+    returns ``SCANNED`` with ``SCAN_NOTICE`` (honest receipt, not empty success).
+    """
+    normalized = ext.lower() if ext.startswith(".") else (f".{ext.lower()}" if ext else "")
+    if normalized in SKIP_EXTENSIONS:
+        return ExtractResult(status=ParseStatus.SKIPPED, detail=f"skip_ext:{normalized}")
+    if normalized not in MARKITDOWN_EXTENSIONS:
+        return ExtractResult(status=ParseStatus.SKIPPED, detail=f"unknown_ext:{normalized or '?'}")
+
+    try:
+        text = await asyncio.to_thread(_convert_with_markitdown, data, normalized)
+    except Exception as e:
+        logger.warning(
+            "attachment.extract_failed",
+            ext=normalized,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return ExtractResult(status=ParseStatus.FAILED, detail=f"convert:{type(e).__name__}")
+
+    if looks_like_scanned(text, len(data)):
+        return ExtractResult(
+            status=ParseStatus.SCANNED,
+            text=SCAN_NOTICE,
+            detail="scanned_or_empty_text_layer",
+        )
+
+    return ExtractResult(status=ParseStatus.OK, text=text, detail="ok")
+
+
 async def preparse_resident(
     backend: WorkspaceBackend,
     *,
@@ -134,9 +193,9 @@ async def preparse_resident(
     caller can keep the existing path-hint behaviour.
     """
     ext = extension_of(name, workspace_path)
-    if ext in _SKIP_EXTENSIONS:
+    if ext in SKIP_EXTENSIONS:
         return PreparseResult(status=ParseStatus.SKIPPED, detail=f"skip_ext:{ext}")
-    if ext not in _MARKITDOWN_EXTENSIONS and ext not in _PLAIN_TEXT_EXTENSIONS:
+    if ext not in MARKITDOWN_EXTENSIONS and ext not in PLAIN_TEXT_EXTENSIONS:
         return PreparseResult(status=ParseStatus.SKIPPED, detail=f"unknown_ext:{ext or '?'}")
 
     try:
@@ -149,37 +208,37 @@ async def preparse_resident(
         )
         return PreparseResult(status=ParseStatus.FAILED, detail=f"read:{e}")
 
-    try:
-        if ext in _PLAIN_TEXT_EXTENSIONS:
+    if ext in PLAIN_TEXT_EXTENSIONS:
+        try:
             text = _decode_plain_text(data)
             if text is None:
                 # Odd encoding — last resort via markitdown.
                 text = await asyncio.to_thread(_convert_with_markitdown, data, ext)
-            if not text:
-                return PreparseResult(
-                    status=ParseStatus.FAILED,
-                    detail="empty_plain_text",
-                )
-            return PreparseResult(
-                status=ParseStatus.OK,
-                text=text,
-                parsed_workspace_path=workspace_path,
-                detail="plain_text",
+        except Exception as e:
+            logger.warning(
+                "attachment.preparse_failed",
+                path=workspace_path,
+                name=name,
+                error=str(e),
+                error_type=type(e).__name__,
             )
-
-        text = await asyncio.to_thread(_convert_with_markitdown, data, ext)
-    except Exception as e:
-        logger.warning(
-            "attachment.preparse_failed",
-            path=workspace_path,
-            name=name,
-            error=str(e),
-            error_type=type(e).__name__,
+            return PreparseResult(status=ParseStatus.FAILED, detail=f"convert:{type(e).__name__}")
+        if not text:
+            return PreparseResult(status=ParseStatus.FAILED, detail="empty_plain_text")
+        return PreparseResult(
+            status=ParseStatus.OK,
+            text=text,
+            parsed_workspace_path=workspace_path,
+            detail="plain_text",
         )
-        return PreparseResult(status=ParseStatus.FAILED, detail=f"convert:{type(e).__name__}")
 
-    if looks_like_scanned(text, len(data)):
-        notice = _SCAN_NOTICE
+    extracted = await extract_office_bytes(data, ext=ext)
+
+    if extracted.status == ParseStatus.FAILED:
+        return PreparseResult(status=ParseStatus.FAILED, detail=extracted.detail)
+
+    if extracted.status == ParseStatus.SCANNED:
+        notice = extracted.text or SCAN_NOTICE
         copy_path = parsed_copy_path(workspace_path)
         try:
             await backend.write(copy_path, notice + "\n")
@@ -197,15 +256,16 @@ async def preparse_resident(
             path=workspace_path,
             name=name,
             raw_bytes=len(data),
-            extracted_chars=len(text),
+            extracted_chars=len(extracted.text),
         )
         return PreparseResult(
             status=ParseStatus.SCANNED,
             text=notice,
             parsed_workspace_path=copy_path_out,
-            detail="scanned_or_empty_text_layer",
+            detail=extracted.detail or "scanned_or_empty_text_layer",
         )
 
+    text = extracted.text
     copy_path = parsed_copy_path(workspace_path)
     try:
         await backend.write(copy_path, text if text.endswith("\n") else text + "\n")

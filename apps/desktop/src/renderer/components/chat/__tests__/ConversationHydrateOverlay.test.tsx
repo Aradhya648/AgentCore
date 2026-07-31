@@ -11,7 +11,7 @@ describe("ConversationHydrateOverlay", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows loading skeleton while hydrating", () => {
+  it("shows loading status while hydrating", () => {
     render(<ConversationHydrateOverlay phase="loading" />);
     expect(screen.getByRole("status", { name: "正在加载对话" })).toBeTruthy();
     expect(screen.getByText("正在加载对话…")).toBeTruthy();

@@ -6,6 +6,7 @@ import type { HostApi } from "@shared/host-contract";
 import type { FsApi } from "@shared/ipc-contract";
 import type { LocalStoreApi } from "@shared/local-store-contract";
 import type { LogApi } from "@shared/log-contract";
+import type { McpApi } from "@shared/mcp-contract";
 import type { NotificationApi } from "@shared/notification-contract";
 import type { OutboxApi } from "@shared/outbox-contract";
 import type { PreviewApi } from "@shared/preview-contract";
@@ -46,6 +47,8 @@ declare global {
     notificationApi?: NotificationApi;
     /** 本机 Host 能力（host_* ClientTool 回填）；纯浏览器 / 单测环境可能缺失。 */
     hostApi?: HostApi;
+    /** 本机 MCP Client（stdio Server 配置 + ClientTool 回填）；纯浏览器 / 单测可能缺失。 */
+    mcpApi?: McpApi;
     /** @deprecated M3b：旧子窗 / embed（preview://）协议实现保留；产品完整预览走 browserApi。
      *  web / 单测可缺失。 */
     previewApi?: PreviewApi;

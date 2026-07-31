@@ -1051,6 +1051,12 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
     )
     visual_critic = bool(raw.get("visual_critic", False))
     must_contain_soft = bool(raw.get("must_contain_soft", False))
+    citation_mode_raw = raw.get("citation_mode")
+    citation_mode = (
+        citation_mode_raw
+        if citation_mode_raw in ("immediate", "two_phase")
+        else None
+    )
     return Deliverable(
         name=name,
         output_format=output_format,
@@ -1071,6 +1077,7 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
         visual_critic=visual_critic,
         must_contain_soft=must_contain_soft,
         strict=bool(raw.get("strict", False)),
+        citation_mode=citation_mode,  # type: ignore[arg-type]
     )
 
 

@@ -18,7 +18,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agentcore.storage.protocol import SnapshotRef
-from agentcore.workspace._paths import IGNORED_DIRS
+from agentcore.workspace._paths import is_ignored_dir_entry
 
 MANIFEST_NAME = "manifest.json"
 
@@ -47,9 +47,9 @@ def zip_dir(
 ) -> bytes:
     """Archive a directory tree to in-memory zip bytes.
 
-    Prunes VCS/dependency/cache noise (``IGNORED_DIRS``) and skips symlinks so a
-    snapshot can't follow a link out of the tree. Paths are stored POSIX-relative
-    to ``root``.
+    Prunes VCS/dependency/cache noise (``IGNORED_DIRS``) and path-aware
+    ``AgentCore/{index,trash,baselines}``; skips symlinks so a snapshot can't
+    follow a link out of the tree. Paths are stored POSIX-relative to ``root``.
 
     Optional ``max_files`` / ``max_bytes`` (raw file bytes before zip) align with
     the desktop handoff gate; exceeding either raises :exc:`ArchiveLimitError`.
@@ -59,7 +59,11 @@ def zip_dir(
     total_bytes = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted(d for d in dirnames if d not in IGNORED_DIRS)
+            rel_dir = os.path.relpath(dirpath, root)
+            parent_rel = "" if rel_dir == "." else rel_dir.replace("\\", "/")
+            dirnames[:] = sorted(
+                d for d in dirnames if not is_ignored_dir_entry(parent_rel=parent_rel, name=d)
+            )
             for fname in sorted(filenames):
                 full = Path(dirpath) / fname
                 if full.is_symlink() or not full.is_file():

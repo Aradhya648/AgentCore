@@ -1,4 +1,4 @@
-"""Standing tasks + inbox + L2a webhook hook routes."""
+"""Standing tasks + inbox + L2a webhook hook routes + system templates."""
 
 from datetime import UTC, datetime
 from typing import Literal
@@ -14,10 +14,12 @@ from agentcore.api.dependencies import (
 from agentcore.api.schemas import StatusResponse
 from agentcore.api.schemas.standing_tasks import (
     CreateStandingTaskRequest,
+    EnsureStandingTaskTemplateRequest,
     RotateWebhookSecretResponse,
     StandingTaskRunListResponse,
     StandingTaskRunSummary,
     StandingTaskSummary,
+    StandingTaskTemplateSummary,
     TriggerStandingTaskResponse,
     UpdateStandingTaskRequest,
 )
@@ -31,6 +33,14 @@ from agentcore.db.repositories.standing_tasks import (
 from agentcore.standing_tasks.paths import webhook_path
 from agentcore.standing_tasks.runner import dispatch_standing_task
 from agentcore.standing_tasks.schedule import CronError, next_run_after, resolve_cron
+from agentcore.standing_tasks.templates import (
+    DAILY_CONVERSATION_REVIEW,
+    DEFAULT_TEMPLATE_AXES,
+    daily_review_goal,
+    is_known_template,
+    list_catalog,
+    normalize_template_config,
+)
 from agentcore.standing_tasks.webhook import (
     enforce_webhook_rate_limit,
     extract_event_text,
@@ -49,6 +59,105 @@ def _require_cloud_folder(folder) -> None:
         raise NotFoundError("工作区不存在")
     if folder.local_root_id:
         raise ValidationError("站立任务仅支持云工作区（拒绝本地 folder）")
+
+
+async def _validate_template_folder_ids(
+    folders: FolderRepository,
+    *,
+    user_id: str,
+    folder_ids: list[str],
+) -> None:
+    for fid in folder_ids:
+        folder = await folders.get_by_id(fid, user_id=user_id)
+        _require_cloud_folder(folder)
+
+
+@router.get(
+    "/standing-task-templates",
+    response_model=list[StandingTaskTemplateSummary],
+)
+async def list_standing_task_templates(
+    user: AuthUser,
+    repo: StandingTaskRepository = Depends(get_standing_task_repo),
+):
+    out: list[StandingTaskTemplateSummary] = []
+    for item in list_catalog():
+        row = await repo.get_by_template_key(user.user_id, item.key)
+        out.append(
+            StandingTaskTemplateSummary(
+                key=item.key,
+                title=item.title,
+                description=item.description,
+                default_name=item.default_name,
+                default_cron=item.default_cron,
+                installed_task_id=row.id if row else None,
+                enabled=row.enabled if row else None,
+            )
+        )
+    return out
+
+
+@router.post(
+    "/standing-task-templates/{template_key}/ensure",
+    response_model=StandingTaskSummary,
+)
+async def ensure_standing_task_template(
+    template_key: str,
+    body: EnsureStandingTaskTemplateRequest,
+    user: AuthUser,
+    folders: FolderRepository = Depends(get_folder_repo),
+    repo: StandingTaskRepository = Depends(get_standing_task_repo),
+):
+    """Idempotent install of a system template. Default enabled=false (引导开)."""
+    if not is_known_template(template_key):
+        raise NotFoundError("未知系统模板")
+    existing = await repo.get_by_template_key(user.user_id, template_key)
+    if existing is not None:
+        return StandingTaskSummary.from_row(existing)
+
+    folder = await folders.get_by_id(body.folder_id, user_id=user.user_id)
+    _require_cloud_folder(folder)
+    cfg = normalize_template_config(
+        body.template_config.model_dump() if body.template_config else None
+    )
+    await _validate_template_folder_ids(
+        folders, user_id=user.user_id, folder_ids=list(cfg["folder_ids"])
+    )
+
+    catalog = next(i for i in list_catalog() if i.key == template_key)
+    try:
+        if body.cron is None and body.schedule_preset is None:
+            cron = resolve_cron(cron=catalog.default_cron)
+        else:
+            cron = resolve_cron(cron=body.cron, preset=body.schedule_preset)
+        next_at = next_run_after(cron, datetime.now(UTC))
+    except CronError as e:
+        raise ValidationError(str(e)) from e
+
+    axes = (
+        body.permission_axes.to_axes().to_dict()
+        if body.permission_axes is not None
+        else dict(DEFAULT_TEMPLATE_AXES)
+    )
+    goal = (
+        daily_review_goal()
+        if template_key == DAILY_CONVERSATION_REVIEW
+        else catalog.title
+    )
+    row = await repo.create(
+        user_id=user.user_id,
+        folder_id=body.folder_id,
+        name=catalog.default_name,
+        goal=goal,
+        cron=cron,
+        permission_axes=axes,
+        next_run_at=next_at,
+        enabled=body.enabled,
+        trigger_kind="schedule",
+        template_key=template_key,
+        template_config=cfg,
+    )
+    return StandingTaskSummary.from_row(row)
 
 
 @router.post("/standing-tasks", response_model=StandingTaskSummary, status_code=201)
@@ -137,9 +246,11 @@ async def update_standing_task(
 
     fields = body.model_fields_set
     kwargs: dict = {}
-    if "name" in fields:
+    is_template = bool(getattr(existing, "template_key", None))
+
+    if "name" in fields and not is_template:
         kwargs["name"] = body.name
-    if "goal" in fields:
+    if "goal" in fields and not is_template:
         kwargs["goal"] = body.goal
     if "folder_id" in fields and body.folder_id is not None:
         folder = await folders.get_by_id(body.folder_id, user_id=user.user_id)
@@ -149,9 +260,24 @@ async def update_standing_task(
         kwargs["enabled"] = body.enabled
     if "permission_axes" in fields and body.permission_axes is not None:
         kwargs["permission_axes"] = body.permission_axes.to_axes().to_dict()
+    if "template_config" in fields:
+        if not is_template:
+            raise ValidationError("仅系统模板任务可设置 template_config")
+        cfg = normalize_template_config(
+            body.template_config.model_dump() if body.template_config else None
+        )
+        await _validate_template_folder_ids(
+            folders, user_id=user.user_id, folder_ids=list(cfg["folder_ids"])
+        )
+        kwargs["template_config"] = cfg
+        if existing.template_key == DAILY_CONVERSATION_REVIEW:
+            kwargs["goal"] = daily_review_goal()
 
     plaintext_secret: str | None = None
     target_kind = body.trigger_kind if "trigger_kind" in fields else existing.trigger_kind
+
+    if is_template and "trigger_kind" in fields and body.trigger_kind == "webhook":
+        raise ValidationError("系统模板任务不可改为 webhook")
 
     if "trigger_kind" in fields and body.trigger_kind != existing.trigger_kind:
         if body.trigger_kind == "webhook":

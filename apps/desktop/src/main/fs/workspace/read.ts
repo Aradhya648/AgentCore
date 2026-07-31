@@ -73,6 +73,10 @@ export async function opList(
   const recursive = pattern.includes("**");
   const re = globToRegExp(pattern);
   const results: { path: string; is_dir: boolean }[] = [];
+  const listBaseRel = (() => {
+    const d = directory.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    return d === "." ? "" : d;
+  })();
 
   const walk = async (
     absDir: string,
@@ -90,7 +94,12 @@ export async function opList(
     for (const d of dirents) {
       if (results.length >= WORKSPACE_LIST_MAX) break;
       const isDir = d.isDirectory();
-      if (shouldSkipWorkspaceEntry(d.name, isDir)) continue;
+      const parentRel = relFromBase
+        ? listBaseRel
+          ? `${listBaseRel}/${relFromBase}`
+          : relFromBase
+        : listBaseRel;
+      if (shouldSkipWorkspaceEntry(d.name, isDir, parentRel)) continue;
       const childRel = relFromBase ? `${relFromBase}/${d.name}` : d.name;
       if (re.test(childRel)) {
         results.push({
@@ -206,7 +215,11 @@ export async function opListTree(
   const matchName = (name: string, isDir: boolean) =>
     isDir || globToRegExp(nameFilter).test(name);
 
-  const walk = async (absDir: string, depth: number): Promise<void> => {
+  const walk = async (
+    absDir: string,
+    parentRel: string,
+    depth: number,
+  ): Promise<void> => {
     if (depth > maxDepth) return;
     const dirents = await fs.readdir(absDir, { withFileTypes: true });
     dirents.sort((a, b) =>
@@ -214,8 +227,9 @@ export async function opListTree(
     );
     for (const d of dirents) {
       const isDir = d.isDirectory() && !d.isSymbolicLink();
-      if (shouldSkipWorkspaceEntry(d.name, isDir)) continue;
+      if (shouldSkipWorkspaceEntry(d.name, isDir, parentRel)) continue;
       const childAbs = join(absDir, d.name);
+      const childRel = parentRel ? `${parentRel}/${d.name}` : d.name;
       if (!matchName(d.name, isDir)) continue;
       if (entries.length >= maxEntries) {
         truncated = true;
@@ -228,13 +242,14 @@ export async function opListTree(
         depth,
       });
       if (isDir && depth < maxDepth) {
-        await walk(childAbs, depth + 1);
+        await walk(childAbs, childRel, depth + 1);
       }
     }
   };
 
   try {
-    await walk(baseReal.path, 1);
+    const baseRel = toPosix(relative(root.absPath, baseReal.path));
+    await walk(baseReal.path, baseRel === "." ? "" : baseRel, 1);
   } catch (e) {
     return opErr("WorkspaceIOError", toReason(e));
   }

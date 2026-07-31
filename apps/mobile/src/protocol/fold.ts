@@ -1119,6 +1119,7 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
       case "board_read_required":
       case "desktop_notify_required":
       case "host_op_required":
+      case "mcp_op_required":
       case "tool_progress":
       case "tool_use_progress":
       case "coordination_wait":

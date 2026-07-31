@@ -476,72 +476,24 @@ replaces_run_id，否则下游 depends_on 不会接到补跑。
 
 _ASK_USER_KICKOFF = """\
 <ask_user_kickoff>
-开场引导：用 `ask_user` 开一张「开工提案卡」。触发线索（命中即【立刻开卡】、别凭猜直接 delegate；\
-**勿先** `consult_skill(ask_user_kickoff)` 再开——本段供字段拿不准时查阅）：\
-用户给的是【一句话级 / 笼统】的需求，且产物是网站 / 应用 / 海报 / 幻灯 / 报告 / 分析 / 文档 / 设计这类\
-「有多种合理做法、做错要返工」的实质交付物——这类「能做、但关键决策还没说全」（用合理默认就能开工）的\
-请求，不要追问一堵问题墙，而是用 ask_user 开卡来开场：在 `message` 里用你自己的口吻复述你理解的目标、\
-点明你已备好一套起步计划可一键开做（不在此展开具体方案），再把决策一次摊给用户——想省事的人一键开做\
-（全用默认），想管的人就地调整。\
-【提案体硬闸】开工提案卡须 `assumptions` 与 `questions` 至少其一非空——仅 message 的澄清问句拒调：\
-解不出意图写正文，能复述目标再带提案体开卡（途中 decision 不受此闸）。\
-【场面填 options·引擎不扫正文猜意图】建站 / 落地页 / 控制台场面 → 提案卡填非空 `style_options`\
-（2–3 个风格方向，气质对照如「极简编辑感 / 暖色人文 / 深色科技」）；演讲 / PPT / 课件 / 演示文稿场面 →\
-填非空 `format_options`（pptx=真 PowerPoint / marp=Markdown 幻灯片 / outline=仅讲稿）；\
-Agent / 自动化 / 工作流 / 流水线场面 → 填非空 `format_options` 三档（可运行自动化 / 控制台原型 / 仅方案，\
-与演讲共用字段）。CEO 显式带了对应 options 才挂选项并在 resume 结构化记账；引擎【不】因正文像某某意图而拒调。\
-选定风格 id 写入 `site/DESIGN.md`；演讲有 `code_execute` 默认倾向 pptx，无执行默认 marp 并在选项文案\
-明示「当前环境无法生成 .pptx」；自动化选控制台原型才允许 `build_toolshed`，可运行自动化禁止默认 toolshed\
-（自由组队 / `build_feature`，无执行如实降级），仅方案禁具名 `build_toolshed` / \
-`build_website`。纯「做控制台/官网」走建站 style 账。\
-【做软件 / 应用 / 工具软件】提案卡【必须】把「技术栈 / 交付形态」放进 `questions`（高杠杆），\
-【禁止】塞进 `assumptions` 用「拿不准宁可默认」吞掉——选项至少覆盖：可运行单页原型 / 本地多文件小工具 / \
-前后端应用 / 仅方案文档。用户选「基础版 / 风格方向」【不等于】默许「单 HTML」；未问清交付形态前\
-勿按单文件开工。\
-【绿场完整交付】从 0 到 1 / 搭建完整项目 / 完整 Vue·React·Vite·SPA / 数据看板【推荐】\
-`playbook="build_app"`；局部单功能可手写多角色或选用可选形状 \
-`playbook="build_feature"`。\
-【已确认勿再开】：用户已口头认可协作方案 / 高杠杆决策（如「认可」「就这样」「开干」），或本回合\
-已拍过开工提案卡——禁止再开开工提案卡，直接 `delegate` 或推进。
+通用短澄清（原「开场引导」skill 名保留）：信息不够、选错会返工时，用 `ask_user` **短问**——\
+可只带 `message`，或配少量 `questions` / `assumptions`；可与检索、读文件、探路穿插，可连续多次。\
+**勿先** `consult_skill(ask_user_kickoff)` 再问——本段供字段拿不准时查阅。
 
-开场白写在 `ask_user` 的 `message` 里（推荐）或正文里均可——引擎会自动把正文吸收进卡片，不会重复展示。
+【何时问】关键高杠杆没说清、明显会做错/返工 → 短问。小事或有稳妥默认 → 直接干 / `delegate`，\
+可在正文标注假设。意图都复述不出 → 先正文一句澄清，或短 ask——**禁止**开场提案墙、\
+**禁止**「一键开做」仪式、**禁止**为场面硬填 `style_options` / `format_options`（兼容字段可空；\
+不记账、不硬闸；建站默认风格由机制软注入 DESIGN）。
 
-开工提案卡就是【普通 ask_user、不填 `card` 参数】——多个问题直接放 `questions`（最多 5、每题预填 \
-default）。`card="proposal_pick"` 是执行途中「N 个候选方案挑一个」的专用卡（恰好 1 题单选），\
-与开工提案卡无关；开场误填 card 会被拒。
+【字段】普通 `ask_user`（**不填** `card`，除非途中专用卡）：
+- `message`：说清缺口即可（勿长篇方案墙）。
+- `assumptions`：可选，低影响可逆默认（只读陈列）。
+- `questions`：可选，最多 5；高杠杆才问；可预填 `default`；choice 可配 `detail` / `recommended`。
+- `style_options` / `format_options`：兼容遗留，非必填、不驱动引擎闸门。
+- 专用 `card`：`proposal_pick` / `risk_ack` / `organize_plan`（恰好 1 题）——见 ask_user_midtask。
 
-把决策按【影响力】分两档放进卡里，而不是按「是不是技术」来分：
-- 进 `assumptions`（起步计划，安静的默认）：影响小、可逆、用户多半不关心的决策——目录结构 / \
-部署机制 / 命名约定等。你替用户定好，以「项 + 值」陈列让 ta 知情即可（只读）。\
-【例外】做软件 / 应用时，技术栈与交付形态【不】进 assumptions（见上强制 questions）。
-- 进 `questions`（重点问题，主动征询，最多 5 个）：真正值得用户拍板的少数高杠杆决策。【不限于意图 / \
-品味，也包括影响大的技术选择】——例如要不要手机端响应式、要不要中英双语、以后要不要能自己改内容\
-（带后台）、交互动效还是纯静态；软件类另加交付形态（单页原型 vs 多文件小工具 vs 前后端应用 vs \
-仅文档）。开场的每个问题都【应预填 default 默认答案】，这样即便问 5 个，想省事\
-的用户一键就全默认通过，不会变回那堵要手打的墙。
-- 给 choice 的每个选项配一行 `detail`（这一项的权衡 / 代价），展示在选项下方，让用户不必\
-读散文就看懂取舍；把你最建议的一项标 `recommended`（至多一个，仅「推荐」高亮、不替用户预选，\
-预选仍由 default 定）。开场里 recommended 常与 default 同项，detail 让用户秒懂取舍。
-- `style_options`：视觉类场面（网站 / 海报 / 幻灯…）给出风格预设（如「深色科技 / 简约商务 / \
-活泼明亮」）让用户选基调；非视觉类省略。软件应用的「风格」若进 questions，也【不得】当成交付形态\
-已定为单 HTML。
-- `format_options`：演讲/PPT/课件场面给交付形态（pptx / marp / outline）；\
-Agent/自动化/工作流场面给三档（可运行自动化 / 控制台原型 / 仅方案）；与视觉 `style_options` 正交\
-——风格是气质，format 是交付形态。引擎只认你显式传入的 options，不扫正文猜意图。
-
-【别把方案在 message 里先讲一遍（避免简报与选项重复）】：卡片左侧「简报」渲染 `message` + `context`，\
-右侧「选项」渲染 `questions`——两栏各司其职。`message` 只做定调（复述目标 + 点明有关键决策要你拍板），\
-具体的推进方式 / 方案作为对应 `question` 的选项摊出（label + 一行 detail，最建议的标 recommended），\
-【不要】在 `message` 里把将成为选项的方案又复述一遍，否则用户在左侧简报和右侧选项里会读到两遍同样的话。\
-要交代的背景 / 要点放进 `context`（简报会把它渲染成要点列表），不要挤进 `message`。
-
-若是文件类产物，在 `message` 里讲明最终交付是工作区里可打开 / 运行的实打实文件（开工后由 worker 落盘），\
-不是聊天里的一段文本。
-
-判断「高影响还是低影响」的准绳：这个决策一旦选错，用户会不会明显不满意、甚至要推倒重来？会→提为重点\
-问题；不会、且你有稳妥默认→放进起步计划默认掉。拿不准时【中性】：若选错代价高 → 放进 questions\
-（预填 default，一键可过）；若代价低 → 放进 assumptions 并写明。不偏「尽量少问」，也不偏「凡事先问」。\
-软件 / 应用的交付形态例外：拿不准也必须进 questions，禁止默认成单 HTML。
+【软件 / 应用】交付形态不清时短问或写明默认；**禁止**静默默认单 HTML。
+【绿场完整交付】可 `playbook="build_app"`；局部单功能手写或 `build_feature`。
 </ask_user_kickoff>"""
 
 _ASK_USER_MIDTASK = """\
@@ -554,7 +506,7 @@ _ASK_USER_MIDTASK = """\
 （A/B 各自的权衡 / 代价），并把你倾向的一项标 `recommended`：不替用户预选，却让 ta 一眼\
 看到你的专业倾向、快速拍板。用户「提交」会带上 ta 勾选的选项与可选补充，回到\
 你的循环；「停止」结束本回合。同样：发问的话只写进 `message`、正文在发问前留空（避免落库铺垫与恢复后\
-的话粘连，详见 ask_user_kickoff）。
+的话粘连，详见 ask_user_kickoff / 通用短澄清）。
 
 何时【不要】用 ask_user：
 - 简单问答 / 闲聊 / 解释、或只靠检索就能答的——直接答，别出卡。
@@ -578,7 +530,7 @@ _ASK_USER_MIDTASK = """\
 「采纳正方 / 采纳反方 / 都要 / 补充论证」这类具体选项让 ta 拍板。
 
 【两种专用拍板卡（`card` 参数）】两类高频主拍板有专用卡片形态，用 `card` 声明（都要求 blocking，\
-恰好 1 个 choice 问题；开工提案卡不在此列——开场多题用普通 ask_user、不填 card）：
+恰好 1 个 choice 问题；多题短澄清用普通 ask_user、不填 card）：
 - 方案挑选卡 `card="proposal_pick"`（发散挑选型）：N 风格 / N 方案并行产出完成后，把候选摊给用户\
 挑一个再深化。单选、options 2–6 项：每项 `label`=方案名、`detail`=一行卖点与取舍（产物落盘的写明\
 文件名），把你最看好的一项标 `recommended`；`message` 里概述各方案差异轴。用户挑中后，用 \
@@ -589,7 +541,7 @@ _ASK_USER_MIDTASK = """\
 （唤回原作者，衔接有界返工环；task 写明按勾选项用 `str_replace` 逐条改（优先）、扩写用 `file_append`，\
 整盖允许但须完整正文——防惰性「中间省略」残缺交付）；未勾选项在收尾里注明\
 「已知、按用户决定未处理」。
-两种卡都是主拍板（每任务恰好一张，见主拍板纪律）——用了就不再叠开工提案或提纲把关。
+两种卡都是主拍板（每任务恰好一张，见主拍板纪律）——用了就不再叠另一张专用卡或提纲把关。
 
 【区外目录授权 / 打开项目 / 本机执行】按意图分流，勿混用：
 - 用户要把本机目录当【本地项目】打开（仓库/工程）→ `action=open_local_project`
@@ -682,8 +634,8 @@ _DELEGATE_CHECKPOINT = """\
 由调度器在波间强制执行的结构挂起——正用于「单个 delegate 跨多步、你拿不到中途控制权」的场景。
 
 含把关节点的批会走【阻塞等待】而非协调模式（把关卡要把回合完整暂停交给用户）——这是预期行为，\
-别为了进协调模式去掉把关点。提纲把关本身就是一张主拍板卡（每任务恰好一张，四选一），设了它就\
-不再叠开工提案 / 方案挑选 / 风险确认卡。
+别为了进协调模式去掉把关点。提纲把关本身就是一张主拍板卡（每任务恰好一张），设了它就\
+不再叠方案挑选 / 风险确认卡。
 </delegate_checkpoint>"""
 
 _DEEP_MULTI_LENS_RESEARCH = """\
@@ -796,16 +748,16 @@ _BUILD_WEBSITE = f"""\
 槽位：{_BUILD_WEBSITE_PLAYBOOK.slots}
 
 开工顺序：
-1. 关键未齐（类型/受众/风格等）或用户只说「做个网站」→ **立刻** `ask_user` 开工提案卡，\
-并按场面填非空 `style_options`（id=`s0/s1…`；引擎不扫正文猜意图，显式带了才记账）。\
-**勿先** consult 本 skill 再开卡。
+1. 关键未齐（类型/受众/风格等）或用户只说「做个网站」→ 可 `ask_user` **短问**一句（不必填 \
+`style_options`；默认风格由机制写入 DESIGN），或直接派并在 assumptions/正文写明默认。\
+**勿先** consult 本 skill 再问。
 2. **规格已齐**（用户已点名风格/站点类型/交付范围等）→ **直接** `delegate(playbook="build_website", …)`，\
 **勿先** consult；`playbook_args.site` 等只填用户已给事实，\
 【禁止】自拟视觉施工图（配色 / 动效 / 板块清单交给 playbook）。槽位拿不准再查本 skill。
-3. 糊需求经用户确认后：若尚未读过本指引再 `consult_skill(build_website)`，然后调 `delegate`：\
+3. 短问澄清后：若尚未读过本指引再 `consult_skill(build_website)`，然后调 `delegate`：\
 `playbook="build_website"`；`playbook_args` 规则同上。
 4. playbook 三串：文案 → 前端（一人包 DESIGN.md + 整页 HTML/CSS/JS + 轻量 CONTRACT）→ 独立 QA；\
-含 `web_quality_scan` / 风格记账 / marketing catalog / visual critic；\
+含 `web_quality_scan` / DESIGN 风格 id 质量契约 / marketing catalog / visual critic；\
 `sections` 仅覆盖清单，不扇出分区节点。
 
 组队进阶旋钮（协调墙 / deliverable 等）见 `consult_skill(team_orchestration_advanced)`。
@@ -822,9 +774,8 @@ _BUILD_TOOLSHED = f"""\
 槽位：{_BUILD_TOOLSHED_PLAYBOOK.slots}
 
 开工顺序：
-1. 若尚未确认风格：先 `ask_user` 开工提案卡，并按场面填非空 `style_options`（id=`s0/s1…`；\
-可复用营销气质对照，或偏「高对比工作台 / 紧凑数据台」；引擎不扫正文猜意图）。
-2. 用户确认后调 `delegate`：`playbook="build_toolshed"`；`playbook_args.site` 填产品控制台简述，\
+1. 关键未齐时可 `ask_user` 短问风格/产品边界（不必填 `style_options`）；有稳妥默认 → 直接派。
+2. 调 `delegate`：`playbook="build_toolshed"`；`playbook_args.site` 填产品控制台简述，\
 可选 `sections` / `stack` / `audience`——**只传事实输入**，【禁止】自拟视觉施工图。
 3. 流水线仍为五波（文案 → DESIGN → 骨架+契约 → N×分区独立片段 → assemble → 独立 QA）；\
 强制注入 catalog pack `tool_dense` + anti-slop `domain=tool`；\
@@ -845,8 +796,8 @@ _BUILD_APP = f"""\
 槽位：{_BUILD_APP_PLAYBOOK.slots}
 
 开工顺序：
-1. 关键未齐（栈 / 模块范围 / 交付形态）→ **立刻** `ask_user` 开工提案卡（技术栈与交付形态进 \
-`questions`）。**勿先** consult 本 skill 再开卡。
+1. 关键未齐（栈 / 模块范围 / 交付形态）→ 可 `ask_user` 短问（技术栈与交付形态），或写明默认后直接派。\
+**勿先** consult 本 skill 再问。
 2. **规格已齐** → **直接** `delegate(playbook="build_app", …)`，`playbook_args.app` 填应用简述；\
 可选 `modules` / `stack`（默认 Vue3+Vite+TS）/ `root`。
 3. 流水线五波不可减（scaffold → shared → N×module → integrate → smoke）；\
@@ -856,6 +807,33 @@ _BUILD_APP = f"""\
 
 组队进阶旋钮见 `consult_skill(team_orchestration_advanced)`。
 </build_app>"""
+
+
+_WORK_DISCIPLINE = """\
+<work_discipline>
+进阶工作纪律（HOW）。常驻红线见共享基座 `<work_authority>`；本 skill 只补何时深想、何时停手。
+
+何时拉：新产品 / 大改前过设计三问；修多次仍堆兜底；要沉淀可复用约定；同场既要对齐方案又要查证；\
+大文件是否按职责拆拿不准。
+
+【设计三问】动手前自答：谁用 / 解决什么真实问题 / 产品上如何呈现。禁止用「技术方便」反推需求；\
+出现「为复用旧实现裁剪需求」→ 停，短问用户或写清 assumptions 后再派。
+
+【补丁绊线】满足任一先停、向用户提案根因方案再动手：① 需新增兜底 / 对账 / 自愈 / 特例才能过；\
+② 同一根因要改多层；③ 同一接缝反复打补丁。
+
+【探索信任】只读探路回报后直接基于结论决策；禁止重探已覆盖面，仅补存疑或未覆盖处。定案后探索与\
+实现可同人续派。
+
+【讨论与查证分相·软】用户同时要「对齐方案」和「查日志 / 找 bug / 审计」→ 先短对齐方案；事实核查\
+派只读角。勿把「帮我想清楚」整锅甩给执行 worker。本条不强制拆碎本可 1～2 人完成的跨域合成。
+
+【沉淀】跨会话仍值钱的约定 / 坑 → 写入 `AgentCore/规则/` 或主题笔记（宁缺毋滥）；读代码即得的不沉淀。
+
+【大文件拆分·软】按职责 / 变更原因拆，不按行数；多员并行时优先降低同文件冲突面。单一内聚可不动。
+
+【写 task】只写目标·约束·验收；执行层细节留给工人。方案层岔路预留 escalate，勿在 task 里替工人选定架构。
+</work_discipline>"""
 
 
 # --- The system skills (single source of truth) -----------------------------
@@ -868,9 +846,17 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
         body=_TEAM_ORCHESTRATION_ADVANCED,
     ),
     SystemSkill(
+        name="work_discipline",
+        summary=(
+            "设计三问 / 补丁绊线 / 探索信任 / 讨论与查证分相 / 沉淀与按职责拆文件"
+            "（常驻权威红线见共享基座，本 skill 为进阶 HOW）"
+        ),
+        body=_WORK_DISCIPLINE,
+    ),
+    SystemSkill(
         name="build_website",
         summary=(
-            "建站/落地页/营销官网：糊→先 ask_user；规格已齐→推荐 "
+            "建站/落地页/营销官网：糊可短问再派；规格已齐→推荐 "
             "playbook=build_website；"
             "三串文案→前端→QA；控制台勿用本 skill"
         ),
@@ -881,7 +867,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
         name="build_toolshed",
         summary=(
             "控制台/后台/工具台 dense：推荐 playbook=build_toolshed；"
-            "pack=tool_dense；先 ask_user 选风格；营销落地页改用 build_website"
+            "pack=tool_dense；缺信息可短问；营销落地页改用 build_website"
         ),
         body=_BUILD_TOOLSHED,
         requires_tools=("delegate",),
@@ -915,9 +901,8 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
     SystemSkill(
         name="ask_user_kickoff",
         summary=(
-            "开场引导：对「能做但没说全」的产出类请求，用普通 ask_user（不填 card）开"
-            "「开工提案卡」按影响力分档预填默认（assumptions / questions / style_options；"
-            "演讲/自动化另须 format_options），一键可开做"
+            "通用短澄清：信息不够时用 ask_user 短问（可只 message）；"
+            "可穿插工具、可连续多次；Agent 自主决定何时问"
         ),
         body=_ASK_USER_KICKOFF,
         requires_tools=("ask_user",),

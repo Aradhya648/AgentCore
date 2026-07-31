@@ -131,12 +131,27 @@ async def _wire_continuation_toolset(
     desktop_online = (
         desktop_client_can_bind(x_client_platform) or backend.location == "local"
     )
+    desktop_channel = (
+        DesktopClientChannel(
+            sink=sink,
+            conversation_id=conversation_id,
+            registry=default_interaction_registry(),
+            timeout_seconds=settings.board_op_timeout_seconds,
+        )
+        if desktop_online
+        else None
+    )
+    from agentcore.tools.mcp import discover_mcp_tools, mcp_capability_label, register_mcp_tools
+
+    mcp_discover = await discover_mcp_tools(desktop_channel)
+    mcp_label = mcp_capability_label(mcp_discover, desktop_online=desktop_online)
     worker_tools = build_worker_registry(
         backend=backend,
         permission_axes=permission_axes,
         languages=exec_languages if backend.location == "local" else None,
         desktop_online=desktop_online,
     )
+    register_mcp_tools(worker_tools, mcp_discover)
     _wire_worker_memory_tools(
         worker_tools,
         memory_enabled=memory_enabled,
@@ -170,16 +185,7 @@ async def _wire_continuation_toolset(
         if board_id
         else None
     )
-    desktop_channel = (
-        DesktopClientChannel(
-            sink=sink,
-            conversation_id=conversation_id,
-            registry=default_interaction_registry(),
-            timeout_seconds=settings.board_op_timeout_seconds,
-        )
-        if desktop_online
-        else None
-    )
+    # desktop_channel created earlier (MCP discovery); reuse.
     workspace_channel = workspace_channel_for_tools(
         backend,
         sink=sink,
@@ -256,6 +262,8 @@ async def _wire_continuation_toolset(
             desktop_online=desktop_online,
             exec_languages=exec_languages,
             host_axis=permission_axes.host if permission_axes is not None else None,
+            mcp_enabled=mcp_discover.tool_count > 0,
+            mcp_label=mcp_label,
         ),
     )
     # Look up via ``resume.pipeline`` so any module-level monkeypatch on that

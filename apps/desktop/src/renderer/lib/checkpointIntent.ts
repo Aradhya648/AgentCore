@@ -7,7 +7,8 @@ export function parseCheckpointIntent(raw: unknown): CheckpointIntent {
     raw === "decision" ||
     raw === "proposal_pick" ||
     raw === "risk_ack" ||
-    raw === "organize_plan"
+    raw === "organize_plan" ||
+    raw === "daily_review"
   ) {
     return raw;
   }

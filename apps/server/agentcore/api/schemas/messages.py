@@ -348,7 +348,7 @@ class ResumeTurnRequest(BaseModel):
 
     decision: CheckpointDecision
     note: str = Field("", max_length=4000)
-    selected: list[str] = Field(default_factory=list, max_length=6)
+    selected: list[str] = Field(default_factory=list, max_length=50)
     style_id: str | None = Field(
         default=None,
         max_length=32,

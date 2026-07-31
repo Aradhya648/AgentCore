@@ -210,7 +210,8 @@ def test_toolshed_intent_named_build_toolshed_ok():
     assert reason is None
 
 
-def test_automation_runnable_rejects_build_toolshed():
+def test_automation_delivery_ignored_named_playbooks_still_ok():
+    """场面账拆除：automation_delivery 传入也不再拒具名 playbook。"""
     from agentcore.runtime.runs.automation_delivery import DeliveryConfirmation
 
     conf = DeliveryConfirmation(
@@ -224,10 +225,8 @@ def test_automation_runnable_rejects_build_toolshed():
         user_message="做短视频自动化 Agent",
         automation_delivery=conf,
     )
-    assert name is None
-    assert err is not None
-    assert declaration_reject_gate(err) == "automation"
-    assert "build_toolshed" in err
+    assert err is None
+    assert name == "build_toolshed"
 
 
 def test_automation_console_allows_build_toolshed():
@@ -247,24 +246,22 @@ def test_automation_console_allows_build_toolshed():
     assert name == "build_toolshed"
 
 
-def test_automation_plan_rejects_website_and_toolshed():
-    from agentcore.runtime.runs.automation_delivery import (
-        DeliveryConfirmation,
-        automation_toolshed_rejected_message,
-        automation_website_rejected_message,
-    )
+def test_automation_plan_allows_website_and_toolshed():
+    from agentcore.runtime.runs.automation_delivery import DeliveryConfirmation
 
     conf = DeliveryConfirmation(format_id="f2", label="仅方案", source="ask_user")
-    _, _, err_t = resolve_playbook_declaration(
+    name_t, _, err_t = resolve_playbook_declaration(
         {"playbook": "build_toolshed", "playbook_args": {"site": "X"}},
         automation_delivery=conf,
     )
-    assert err_t == automation_toolshed_rejected_message()
-    _, _, err_w = resolve_playbook_declaration(
+    assert err_t is None
+    assert name_t == "build_toolshed"
+    name_w, _, err_w = resolve_playbook_declaration(
         {"playbook": "build_website", "playbook_args": {"site": "X"}},
         automation_delivery=conf,
     )
-    assert err_w == automation_website_rejected_message()
+    assert err_w is None
+    assert name_w == "build_website"
 
 
 def test_automation_runnable_allows_toolshed_shaped_none():

@@ -38,6 +38,14 @@ class StandingTask(Base):
         Index("ix_standing_tasks_due", "trigger_kind", "enabled", "next_run_at"),
         Index("ix_standing_tasks_user_created", "user_id", "created_at"),
         Index("ix_standing_tasks_webhook_id", "webhook_id", unique=True),
+        # One installed row per system template per user (partial unique).
+        Index(
+            "uq_standing_tasks_user_template",
+            "user_id",
+            "template_key",
+            unique=True,
+            postgresql_where=text("template_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
@@ -81,6 +89,12 @@ class StandingTask(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # System template id (e.g. daily_conversation_review); NULL = user-authored task.
+    template_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Template-specific knobs (scope / lookback); {} for plain tasks.
+    template_config: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

@@ -58,7 +58,7 @@ describe("ManualReference", () => {
 
   it("marks upcoming tools and BYOK model FAQ", () => {
     renderReference();
-    expect(screen.getByText(/MCP（规划中）/)).toBeTruthy();
+    expect(screen.getByText(/MCP（本机连接器）/)).toBeTruthy();
     expect(screen.getByText(/A2A（规划中）/)).toBeTruthy();
     expect(screen.getByText(/其他创作工具（即将上线）/)).toBeTruthy();
     expect(screen.getByText(/白板（已可用）/)).toBeTruthy();

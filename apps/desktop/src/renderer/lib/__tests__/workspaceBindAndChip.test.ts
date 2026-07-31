@@ -90,7 +90,6 @@ describe("composeAnswer with bind_local_folder pick", () => {
       null,
       null,
       "",
-      false,
     );
     expect(text).toContain("绑定本机执行环境（AgentCore-desktop）");
     expect(text).toMatch(/^我的答复：/);
@@ -107,7 +106,6 @@ describe("composeAnswer with bind_local_folder pick", () => {
       null,
       null,
       "",
-      false,
     );
     expect(text).toContain(
       "打开本地项目（AgentCore · 已打开为本地项目，新会话）",

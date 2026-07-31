@@ -6,8 +6,11 @@ import {
   ackStandingTaskRun,
   countInboxBadge,
   createStandingTask,
+  ensureStandingTaskTemplate,
   listStandingTaskRuns,
+  listStandingTaskTemplates,
   listStandingTasks,
+  localHmFromUtcCron,
   patchStandingTask,
   rotateWebhookSecret,
   runStandingTaskNow,
@@ -15,6 +18,7 @@ import {
   toStandingTask,
   toStandingTaskRun,
   triggerSourceLabel,
+  utcCronFromLocalHm,
 } from "../standingTasks";
 
 vi.mock("@/services/api", async (importOriginal) => {
@@ -85,7 +89,36 @@ describe("standingTasks mapping", () => {
     expect(t.schedulePreset).toBe("weekly_mon");
     expect(t.nextRunAt).toBe("2026-08-04T01:00:00Z");
     expect(t.webhookSecret).toBeNull();
+    expect(t.templateKey).toBeNull();
+    expect(t.templateConfig).toEqual({});
     expect(scheduleLabel(t)).toBe("每周一");
+  });
+
+  it("maps template_key / template_config", () => {
+    const t = toStandingTask({
+      ...sampleTaskWire,
+      template_key: "daily_conversation_review",
+      template_config: {
+        include_global: true,
+        folder_ids: ["fold-a"],
+        lookback_hours: 48,
+      },
+    } as never);
+    expect(t.templateKey).toBe("daily_conversation_review");
+    expect(t.templateConfig).toEqual({
+      includeGlobal: true,
+      folderIds: ["fold-a"],
+      lookbackHours: 48,
+    });
+  });
+
+  it("converts local wall-clock ↔ UTC daily cron", () => {
+    const cron = utcCronFromLocalHm(9, 30);
+    expect(cron).toMatch(/^\d{1,2} \d{1,2} \* \* \*$/);
+    const back = localHmFromUtcCron(cron);
+    expect(back).toEqual({ hour: 9, minute: 30 });
+    expect(localHmFromUtcCron("0 1 * * *").hour).toBeGreaterThanOrEqual(0);
+    expect(localHmFromUtcCron(null)).toEqual({ hour: 9, minute: 0 });
   });
 
   it("defaults missing trigger_kind to schedule", () => {
@@ -220,6 +253,81 @@ describe("standingTasks API", () => {
     expect(apiPatch).toHaveBeenCalledWith("/v1/standing-tasks/st-1", {
       folder_id: "fold-other",
     });
+  });
+
+  it("patches template_config + custom cron", async () => {
+    apiPatch.mockResolvedValueOnce({
+      ...sampleTaskWire,
+      template_key: "daily_conversation_review",
+      template_config: {
+        include_global: false,
+        folder_ids: ["fold-a"],
+        lookback_hours: 12,
+      },
+      schedule_preset: "custom",
+      cron: "30 1 * * *",
+    });
+    const t = await patchStandingTask("st-1", {
+      schedulePreset: "custom",
+      cron: "30 1 * * *",
+      templateConfig: {
+        includeGlobal: false,
+        folderIds: ["fold-a"],
+        lookbackHours: 12,
+      },
+    });
+    expect(t.templateKey).toBe("daily_conversation_review");
+    expect(apiPatch).toHaveBeenCalledWith("/v1/standing-tasks/st-1", {
+      schedule_preset: "custom",
+      cron: "30 1 * * *",
+      template_config: {
+        include_global: false,
+        folder_ids: ["fold-a"],
+        lookback_hours: 12,
+      },
+    });
+  });
+
+  it("lists standing task templates", async () => {
+    apiGet.mockResolvedValueOnce([
+      {
+        key: "daily_conversation_review",
+        title: "每日对话复盘",
+        description: "desc",
+        default_name: "每日对话复盘",
+        default_cron: "0 1 * * *",
+        installed_task_id: null,
+        enabled: null,
+      },
+    ]);
+    const list = await listStandingTaskTemplates();
+    expect(apiGet).toHaveBeenCalledWith("/v1/standing-task-templates");
+    expect(list[0]?.key).toBe("daily_conversation_review");
+    expect(list[0]?.installedTaskId).toBeNull();
+  });
+
+  it("ensures standing task template", async () => {
+    apiPost.mockResolvedValueOnce({
+      ...sampleTaskWire,
+      name: "每日对话复盘",
+      template_key: "daily_conversation_review",
+      template_config: {
+        include_global: true,
+        folder_ids: [],
+        lookback_hours: 24,
+      },
+      enabled: false,
+    });
+    const t = await ensureStandingTaskTemplate("daily_conversation_review", {
+      folderId: "fold-cloud",
+      enabled: false,
+    });
+    expect(apiPost).toHaveBeenCalledWith(
+      "/v1/standing-task-templates/daily_conversation_review/ensure",
+      { folder_id: "fold-cloud", enabled: false },
+    );
+    expect(t.templateKey).toBe("daily_conversation_review");
+    expect(t.enabled).toBe(false);
   });
 
   it("patches switch to webhook without schedule fields", async () => {

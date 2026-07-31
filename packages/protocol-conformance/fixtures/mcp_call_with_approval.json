@@ -1,0 +1,181 @@
+{
+  "name": "mcp_call_with_approval",
+  "description": "MCP：GRANTABLE 通用审批通过后 mcp_op_required + 成功收尾",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "需要调用本机 MCP 工具。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "mcp_echo_ping",
+        "arguments": {
+          "message": "hi"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "approval_required",
+      "payload": {
+        "approval_id": "tc1",
+        "conversation_id": "conv_demo",
+        "tool_call_id": "tc1",
+        "tool_name": "mcp_echo_ping",
+        "arguments": {
+          "message": "hi"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "approval_resolved",
+      "payload": {
+        "approval_id": "tc1",
+        "tool_call_id": "tc1",
+        "decision": "approve"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "mcp_op_required",
+      "payload": {
+        "request_id": "mcp-req-1",
+        "conversation_id": "conv_demo",
+        "op": "call_tool",
+        "args": {
+          "server_id": "echo",
+          "tool_name": "ping",
+          "arguments": {
+            "message": "hi"
+          }
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "mcp_echo_ping",
+        "status": "success",
+        "result": "{\"content\":[{\"type\":\"text\",\"text\":\"pong\"}]}"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "已获授权并完成 MCP 调用。"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1000,
+          "output_tokens": 90,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "USD",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "需要调用本机 MCP 工具。已获授权并完成 MCP 调用。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "需要调用本机 MCP 工具。"
+      },
+      {
+        "kind": "tool",
+        "id": "tc1",
+        "tool_name": "mcp_echo_ping",
+        "arguments": {
+          "message": "hi"
+        },
+        "result": "{\"content\":[{\"type\":\"text\",\"text\":\"pong\"}]}",
+        "status": "success"
+      },
+      {
+        "kind": "approval",
+        "approval_id": "tc1"
+      },
+      {
+        "kind": "content",
+        "text": "已获授权并完成 MCP 调用。"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [],
+    "runs": [],
+    "acts": [],
+    "progress": {
+      "completed": 0,
+      "total": 0
+    },
+    "interactions": [
+      {
+        "kind": "approval",
+        "id": "tc1",
+        "status": "resolved",
+        "toolCallId": "tc1",
+        "toolName": "mcp_echo_ping",
+        "arguments": {
+          "message": "hi"
+        }
+      }
+    ],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "USD",
+      "pricing_source": "curated"
+    },
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

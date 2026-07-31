@@ -1,9 +1,11 @@
 // 回合产物盘点 —— 聊天流内联「本回合改动的文件」卡的纯数据源。
 //
-// Agent 写/改/删/移文件都经 builtin file_ops 工具（file_write / str_replace /
-// file_delete / file_move）。这里把已折好的工具步里「成功的文件变更」抽成一张回合级
-// 清单：单聊读 message.process 的 tool 步；多 Agent 读 Execution 各 agent（含 CEO captain
-// run）的 toolCalls，再与 CEO 直接调用（也落在 process）合并去重。
+// 主清单（块 1）：只认 ``delivery_status.artifacts``（accepted+rejected 验收态）。
+// 无该字段 / 空数组 → 空清单（不 silent 降级扫工具列表）。
+//
+// 工具列表（process / execution）仍供「查看改动」等旁路（TurnFileChangesReview /
+// ConversationChangesPanel）：写/改/删/移经 builtin file_ops，抽成功变更 + 参数预览。
+// 主清单不把工具名当交付成功。
 //
 // A1「查看改动」：从工具参数附带只读预览（str_replace → old/new；file_write → 写入正文；
 // delete/move → 元信息）。无 before 快照、不改写盘契约。
@@ -12,11 +14,14 @@
 // 只是把「文件去哪了」可视化，真相仍以工作区文件树为准。
 
 import type { Execution } from "@/stores/execution";
-import type { ProcessStep } from "@/types/events";
+import type { DeliveryStatusPayload, ProcessStep } from "@/types/events";
 import { toWorkspaceRelPath } from "@shared/workspace-path";
 
 /** 文件变更类型 —— 决定图标 / 文案 / 是否可预览（删除态无文件可看）。 */
 export type FileOp = "write" | "edit" | "delete" | "move";
+
+/** 路径级验收态（delivery_status.artifacts）。 */
+export type ArtifactAcceptance = "accepted" | "rejected";
 
 /** 工具参数派生的只读改动预览（A1）；缺参时为 undefined。 */
 export type FileChangePreview =
@@ -30,11 +35,16 @@ export interface FileArtifact {
   path: string;
   /** 展示用文件名（path 的 basename）。 */
   name: string;
-  op: FileOp;
+  /** 工具源才有；验收源可缺（主清单不再用写入/编辑标签）。 */
+  op?: FileOp;
   /** 仅 move：源路径，用于「源 → 目的」展示。 */
   fromPath?: string;
   /** A1：只读「查看改动」用的参数侧预览。 */
   change?: FileChangePreview;
+  /** 路径验收态（有则主清单显示已验收/未通过，不显示写入/编辑）。 */
+  acceptance?: ArtifactAcceptance;
+  acceptanceReason?: string;
+  acceptanceDetail?: string;
 }
 
 /**
@@ -138,7 +148,32 @@ export function hasChangePreviews(artifacts: FileArtifact[]): boolean {
   return artifacts.some((a) => a.change != null);
 }
 
-/** 单聊：从内联过程时间线（message.process）抽成功的文件变更。 */
+/**
+ * 主清单：有 ``deliveryStatus.artifacts`` 字段时用之（含空数组）；
+ * 缺字段 → null（调用方应视为空，勿再扫工具列表）。
+ */
+export function fileArtifactsFromDeliveryStatus(
+  deliveryStatus: DeliveryStatusPayload | null | undefined,
+): FileArtifact[] | null {
+  if (!deliveryStatus || !Array.isArray(deliveryStatus.artifacts)) return null;
+  const out: FileArtifact[] = [];
+  for (const row of deliveryStatus.artifacts) {
+    const path = toWorkspaceRelPath(asStr(row.path));
+    if (!path) continue;
+    const status = row.status;
+    if (status !== "accepted" && status !== "rejected") continue;
+    out.push({
+      path,
+      name: basename(path),
+      acceptance: status,
+      acceptanceReason: row.reason,
+      acceptanceDetail: row.detail,
+    });
+  }
+  return dedupe(out);
+}
+
+/** 单聊：从内联过程时间线（message.process）抽成功的文件变更（「查看改动」旁路）。 */
 export function fileArtifactsFromProcess(
   process: ProcessStep[] | undefined,
 ): FileArtifact[] {
@@ -178,4 +213,11 @@ export function fileArtifactsFromExecution(
 /** 合并多个来源（如多 Agent 回合的 CEO process + 团队 execution）后统一去重。 */
 export function mergeArtifacts(...lists: FileArtifact[][]): FileArtifact[] {
   return dedupe(lists.flat());
+}
+
+/** 主清单解析：只认验收 artifacts；缺字段 / 空 → []（不降级工具列表）。 */
+export function resolveFileArtifactsForCard(
+  deliveryStatus: DeliveryStatusPayload | null | undefined,
+): FileArtifact[] {
+  return fileArtifactsFromDeliveryStatus(deliveryStatus) ?? [];
 }

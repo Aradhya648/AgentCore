@@ -3,10 +3,7 @@ import { WindowControls } from "@/components/layout/WindowControls";
 import { WindowFrameMenu } from "@/components/layout/WindowFrameMenu";
 import { IconButton, TitleBarSearchTrigger } from "@/components/ui";
 import { isMac, macTitleBarInsetClass } from "@/lib/platform";
-import {
-  SIDEBAR_COLLAPSED_WIDTH,
-  useSidebarStore,
-} from "@/stores/sidebar";
+import { SIDEBAR_COLLAPSED_WIDTH, useSidebarStore } from "@/stores/sidebar";
 import { useUIStore } from "@/stores/ui";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
 
