@@ -14,12 +14,14 @@ plan_review machinery:
 """
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from agentcore.core.types import ToolEffect
 from agentcore.llm.provider.protocol import LLMMessage
 from agentcore.runtime.checkpoints import CheckpointDecision, CheckpointResponse
 from agentcore.runtime.events import EventSink, EventType
 from agentcore.runtime.pipeline.resume import (
+    finish_paused_resume,
     finish_terminal_resume,
     pre_pause_content,
     settle_resumed_suspension,
@@ -128,6 +130,7 @@ async def test_settle_ask_user_stop_yields_terminal_text():
     )
     # stop → finish WITHOUT another CEO round (the closing note is the whole reply).
     assert settled.terminal_text == "收工"
+    assert settled.effect is ToolEffect.INTERACT
     assert "停止" in settled.output
     # the resolution is journaled so a reload replays the settled card.
     journal = sink.execution_journal() or []
@@ -147,6 +150,7 @@ async def test_settle_ask_user_continue_feeds_loop_without_terminal():
     )
     # continue → no terminal text (run the CEO loop), and the pick rides the result.
     assert settled.terminal_text is None
+    assert settled.effect is ToolEffect.CONTINUE
     assert "A" in settled.output
 
 
@@ -292,3 +296,181 @@ def test_finish_terminal_resume_keeps_closing_only_without_pre_pause():
         message_id="m1", pre_pause_content="", closing="先到这。", sink=EventSink()
     )
     assert result["content"] == "先到这。"
+
+
+def test_finish_paused_resume_emits_paused_without_closing():
+    """Re-entrant settle SUSPEND → PAUSED; keep pre_pause, no CEO closing text."""
+    from agentcore.runtime.events import FinishReason
+
+    result = finish_paused_resume(
+        message_id="m1",
+        pre_pause_content="挂起前正文",
+        sink=EventSink(),
+        pre_pause_reasoning="想",
+    )
+    assert result["finish_reason"] is FinishReason.PAUSED
+    assert result["content"] == "挂起前正文"
+    assert result["reasoning_content"] == "想"
+    assert result["rounds"] == 0
+    assert result["input_tokens"] == 0
+
+
+async def test_recover_window_skips_tool_result_on_suspend(monkeypatch):
+    """SUSPEND during settle must leave the original tool_call PENDING (no result)."""
+    from agentcore.core.types import ToolEffect
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+    from agentcore.runtime.pipeline.resume import recover_path as rp
+    from agentcore.runtime.recover import SettledSuspension
+    from agentcore.runtime.runs import RunPlan, RunSpec
+    from agentcore.runtime.suspension import TeamPreviewSuspension
+
+    plan = RunPlan(nodes=[RunSpec(run_id="w1", task="t", role="研究员")])
+    suspension = TeamPreviewSuspension(
+        message_id="m1",
+        conversation_id="c1",
+        user_id="u1",
+        captain_run_id="cap1",
+        checkpoint_id="cp1",
+        tool_call_id="call_del",
+        user_message="task",
+        base_system_prompt="sys",
+        journal_entries=[],
+        plan=plan,
+        workers=[{"run_id": "w1", "role": "研究员", "task": "t"}],
+        transcript=[
+            LLMMessage(role="user", content="task"),
+            LLMMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call_del",
+                        function=ToolCallFunction(name="delegate", arguments="{}"),
+                    )
+                ],
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        rp,
+        "resumed_captain_window",
+        lambda _s, _h: list(suspension.transcript),
+    )
+    monkeypatch.setattr(
+        rp,
+        "recover_turn",
+        AsyncMock(
+            return_value=SettledSuspension("", None, ToolEffect.SUSPEND),
+        ),
+    )
+    persist = MagicMock()
+    append = MagicMock()
+    monkeypatch.setattr(rp, "persist_resumed_tool_results", persist)
+    monkeypatch.setattr(rp, "append_resumed_tool_results", append)
+
+    recovered = await rp.recover_and_rebuild_window(
+        suspension=suspension,
+        decision=CheckpointDecision.CONTINUE,
+        note="",
+        selected=[],
+        history=None,
+        sink=EventSink(),
+        delegate_tool=MagicMock(),
+        debate_tool=MagicMock(),
+        execution_id="e1",
+        captain_run_id="cap1",
+    )
+    assert recovered.settled.effect is ToolEffect.SUSPEND
+    append.assert_not_called()
+    persist.assert_not_called()
+    # Window still ends on the pending assistant tool_call (no tool result appended).
+    assert recovered.messages[-1].role == "assistant"
+    assert recovered.messages[-1].tool_calls
+
+
+async def test_resume_pipeline_suspend_skips_ceo(monkeypatch):
+    """team_preview settle → SUSPEND must PAUSED-finish without arming the CEO loop."""
+    from types import SimpleNamespace
+
+    from agentcore.runtime.events import FinishReason
+    from agentcore.runtime.pipeline.resume import pipeline as resume_mod
+    from agentcore.runtime.pipeline.resume.recover_path import RecoveredResume
+    from agentcore.runtime.pipeline.resume.rehydrate import RehydratedTurnState
+    from agentcore.runtime.recover import SettledSuspension
+    from agentcore.runtime.runs import RunPlan, RunSpec
+    from agentcore.runtime.suspension import TeamPreviewSuspension
+    from agentcore.workspace.protocol import WorkspaceBackend
+
+    plan = RunPlan(nodes=[RunSpec(run_id="w1", task="t", role="研究员")])
+    suspension = TeamPreviewSuspension(
+        message_id="m1",
+        conversation_id="c1",
+        user_id="u1",
+        captain_run_id="cap1",
+        checkpoint_id="cp-preview",
+        tool_call_id="call_del",
+        user_message="task",
+        base_system_prompt="sys",
+        journal_entries=[],
+        plan=plan,
+        workers=[{"run_id": "w1", "role": "研究员", "task": "t"}],
+    )
+    sink = EventSink()
+    llm = MagicMock()
+    llm.supports_tools = True
+    llm.close = AsyncMock()
+
+    wired = SimpleNamespace(
+        delegate_tool=MagicMock(),
+        debate_tool=MagicMock(),
+        chat_tools=[],
+        base_tool_context=SimpleNamespace(execution_id="e1"),
+        approval_gate=MagicMock(),
+        bound_execution_id=None,
+        execution_id_token=None,
+        vision_cost_sink=[],
+    )
+    monkeypatch.setattr(resume_mod, "wire_resume_turn", AsyncMock(return_value=wired))
+    monkeypatch.setattr(
+        resume_mod,
+        "bootstrap_resume_display",
+        lambda **_k: RehydratedTurnState(
+            pre_pause_content="挂起前",
+            pre_pause_reasoning="",
+            citations=[],
+            from_turn_paused=False,
+            controller_seed=None,
+        ),
+    )
+    monkeypatch.setattr(
+        resume_mod,
+        "recover_and_rebuild_window",
+        AsyncMock(
+            return_value=RecoveredResume(
+                messages=[LLMMessage(role="user", content="task")],
+                pre_pause="挂起前",
+                settled=SettledSuspension("", None, ToolEffect.SUSPEND),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        resume_mod.pipeline_pkg, "build_turn_router", AsyncMock(return_value=llm)
+    )
+    monkeypatch.setattr(
+        "agentcore.db.base.async_session_factory",
+        MagicMock(side_effect=RuntimeError("no db")),
+    )
+    captain = MagicMock(side_effect=AssertionError("CEO must not run on re-suspend"))
+    monkeypatch.setattr(resume_mod, "build_captain_resumer", captain)
+
+    result = await resume_mod.resume_chat_pipeline(
+        suspension=suspension,
+        decision=CheckpointDecision.CONTINUE,
+        note="",
+        sink=sink,
+        backend=MagicMock(spec=WorkspaceBackend),
+    )
+    assert result["finish_reason"] is FinishReason.PAUSED
+    assert result["content"] == "挂起前"
+    captain.assert_not_called()
+    llm.close.assert_awaited()

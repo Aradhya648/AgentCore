@@ -44,10 +44,17 @@ logger = get_logger(__name__)
 
 
 class SettledSuspension(NamedTuple):
-    """Outcome of recover/settle — tool result text (+ optional terminal reply)."""
+    """Outcome of recover/settle — tool result text (+ optional terminal reply).
+
+    ``effect`` mirrors the settled tool's :class:`ToolEffect` so the cold resume
+    path can honor re-entrant SUSPEND (downstream checkpoint while ``resume_plan``
+    runs) the same way the live engine does — PAUSED, no CEO continuation.
+    ``terminal_text`` remains the ask_user-stop in-band closing path (INTERACT).
+    """
 
     output: str
     terminal_text: str | None
+    effect: ToolEffect = ToolEffect.CONTINUE
 
 
 async def recover_turn(
@@ -111,7 +118,7 @@ async def recover_turn(
         checkpoint_run_ids=set(),
         execution_id=eid,
     )
-    return SettledSuspension(delegate_result.output, None)
+    return SettledSuspension(delegate_result.output, None, delegate_result.effect)
 
 
 async def _settle_resume(
@@ -269,7 +276,7 @@ async def _settle_resume(
             # 场面账（style / presentation_format / automation_delivery）已拆除：
             # resume 不再 record_*；DESIGN 默认风格由 design_prompt_block 软注入。
         terminal = result.final_text if result.effect is ToolEffect.INTERACT else None
-        return SettledSuspension(result.output, terminal)
+        return SettledSuspension(result.output, terminal, result.effect)
 
     if isinstance(suspension, PlanReviewSuspension):
         sink.emit(
@@ -301,7 +308,9 @@ async def _settle_resume(
             # CONTINUE 时读帧上 ceo_review → llm 压缩注入 gate_notes（deterministic 不下发）。
             ceo_review=suspension.ceo_review,
         )
-        return SettledSuspension(delegate_result.output, None)
+        return SettledSuspension(
+            delegate_result.output, None, delegate_result.effect
+        )
 
     if isinstance(suspension, TeamPreviewSuspension):
         sink.emit(
@@ -326,7 +335,7 @@ async def _settle_resume(
                 arguments=dict(suspension.debate_arguments),
             )
             # STOP / RESEARCH_FIRST：tool result 回灌 CEO 续跑（terminal_text=None）。
-            return SettledSuspension(debate_result.output, None)
+            return SettledSuspension(debate_result.output, None, debate_result.effect)
 
         seed_completed = dict(state.completed) or suspension.completed
         plan = state.plan or suspension.plan
@@ -350,7 +359,9 @@ async def _settle_resume(
             team_brief=suspension.team_brief,
             seed_notes=list(suspension.seed_notes),
         )
-        return SettledSuspension(delegate_result.output, None)
+        return SettledSuspension(
+            delegate_result.output, None, delegate_result.effect
+        )
 
     raise ValueError(f"unknown suspension kind: {suspension.kind!r}")
 

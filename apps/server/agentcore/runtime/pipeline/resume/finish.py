@@ -193,3 +193,38 @@ def finish_terminal_resume(
         "cost_runs": [],
         "journal_entries": journal_entries,
     }
+
+
+def finish_paused_resume(
+    *,
+    message_id: str,
+    pre_pause_content: str,
+    sink: EventSink,
+    pre_pause_reasoning: str = "",
+) -> dict:
+    """Close a resumed turn that re-suspended during settle (downstream checkpoint).
+
+    Mirrors the live engine's ``ToolEffect.SUSPEND`` → ``FinishReason.PAUSED`` path:
+    no CEO round, the suspended tool_call stays PENDING, and the fresh durable frame
+    (persisted inside ``resume_plan``) is the record. Worker spend from the interrupted
+    drive rides that frame's ``completed`` and bills on the next cold resume — same as
+    a live soft-pause yield.
+    """
+    finish = FinishReason.PAUSED
+    sink.emit(message_end(finish, rounds=0))
+    journal_entries = _journal_entries_for_turn(current_fact_log.get(), sink=sink, finish=finish)
+    return {
+        "message_id": message_id,
+        "content": pre_pause_content,
+        "reasoning_content": pre_pause_reasoning or None,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 0,
+        "rounds": 0,
+        "finish_reason": finish,
+        "citations": [],
+        "cost_runs": [],
+        "journal_entries": journal_entries,
+    }

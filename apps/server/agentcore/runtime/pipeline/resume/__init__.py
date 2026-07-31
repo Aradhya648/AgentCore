@@ -1,6 +1,10 @@
 """Durable resume pipeline for plan_review / ask_user checkpoints."""
 
-from agentcore.runtime.pipeline.resume.finish import finish_resume_turn, finish_terminal_resume
+from agentcore.runtime.pipeline.resume.finish import (
+    finish_paused_resume,
+    finish_resume_turn,
+    finish_terminal_resume,
+)
 from agentcore.runtime.pipeline.resume.pipeline import resume_chat_pipeline
 from agentcore.runtime.pipeline.resume.rehydrate import (
     RehydratedTurnState,
@@ -25,6 +29,7 @@ __all__ = [
     "arm_content_reset_reinjection",
     "batch_shape_for_settled_suspension",
     "bootstrap_resume_display",
+    "finish_paused_resume",
     "finish_resume_turn",
     "finish_terminal_resume",
     "mark_controller_after_settle",

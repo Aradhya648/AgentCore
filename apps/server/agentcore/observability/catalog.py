@@ -809,6 +809,7 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='pipeline.resume_error'),
     EventSpec(name='pipeline.resume_initial_seq_fallback'),
     EventSpec(name='pipeline.resume_rehydrated'),
+    EventSpec(name='pipeline.resume_re_suspended'),
     EventSpec(name='pipeline.resume_settle_post_delegate'),
     EventSpec(name='pipeline.resume_settled'),
     EventSpec(name='pipeline.resume_start'),

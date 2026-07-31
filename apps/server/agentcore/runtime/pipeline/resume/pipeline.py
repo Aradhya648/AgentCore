@@ -10,7 +10,7 @@ import agentcore.runtime.pipeline as pipeline_pkg
 from agentcore.core.error_codes import ErrorCode
 from agentcore.core.errors import error_fields_for
 from agentcore.core.logging import get_logger
-from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, new_id
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, ToolEffect, new_id
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.profiles import TurnProfiles as ProfileSet
 from agentcore.llm.profiles import turn_profiles_for_turn
@@ -28,7 +28,11 @@ from agentcore.runtime.events import (
 from agentcore.runtime.evidence_ledger import EvidenceLedgerCore
 from agentcore.runtime.facts import TurnFactLog, current_fact_log
 from agentcore.runtime.journal.writer import TurnJournalWriter, current_journal_writer
-from agentcore.runtime.pipeline.resume.finish import finish_resume_turn, finish_terminal_resume
+from agentcore.runtime.pipeline.resume.finish import (
+    finish_paused_resume,
+    finish_resume_turn,
+    finish_terminal_resume,
+)
 from agentcore.runtime.pipeline.resume.recover_path import recover_and_rebuild_window
 from agentcore.runtime.pipeline.resume.rehydrate import (
     arm_content_reset_reinjection,
@@ -87,8 +91,10 @@ async def resume_chat_pipeline(
     transcript is a projection of the journal, no longer read from ``frame.transcript``,
     执行级事件溯源 Phase 2 ④), apply the user's decision to the paused frame by kind
     (:func:`recover_turn`), feed the settled result back as the suspended
-    tool result, and — unless the answer ended the turn in-band (ask_user ``stop``) — run
-    the CEO loop on the rebuilt window to its reply. ``history`` is the reloaded prior
+    tool result, and — unless the answer ended the turn in-band (ask_user ``stop``)
+    or settle itself re-suspended (``ToolEffect.SUSPEND`` at a downstream
+    checkpoint) — run the CEO loop on the rebuilt window to its reply. ``history``
+    is the reloaded prior
     context (the caller passes ``load_chat_context(...)[:-1]`` exactly as a fresh send),
     spliced into the window head since the journal stores only its length. The whole turn
     is billed ONCE here, under the ORIGINAL ``message_id`` so the assistant row + ledger
@@ -330,6 +336,29 @@ async def resume_chat_pipeline(
                 message_id=message_id,
                 pre_pause_content=pre_pause,
                 closing=settled.terminal_text,
+                sink=sink,
+                pre_pause_reasoning=pre_pause_reasoning,
+            )
+            await audit_recorder.flush()
+            if roster_writer is not None:
+                await roster_writer.flush()
+            result["audit_drops"] = audit_recorder.drops
+            return result
+
+        # Re-entrant pause: settle hit another durable checkpoint (plan_review /
+        # team_preview SUSPEND while resume_plan ran). Mirror the live engine —
+        # FinishReason.PAUSED, no CEO continuation (else a second team_preview
+        # can overwrite the fresh plan_review frame).
+        if settled.effect is ToolEffect.SUSPEND:
+            logger.info(
+                "pipeline.resume_re_suspended",
+                message_id=message_id,
+                checkpoint_id=suspension.checkpoint_id,
+                kind=suspension.kind.value,
+            )
+            result = finish_paused_resume(
+                message_id=message_id,
+                pre_pause_content=pre_pause,
                 sink=sink,
                 pre_pause_reasoning=pre_pause_reasoning,
             )

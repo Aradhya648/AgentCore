@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentcore.core.logging import get_logger
+from agentcore.core.types import ToolEffect
 from agentcore.llm.provider.protocol import LLMMessage
 from agentcore.runtime.checkpoints import CheckpointDecision
 from agentcore.runtime.events import EventSink
@@ -23,7 +24,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class RecoveredResume:
-    """Post-recover window ready for terminal finish or captain continuation."""
+    """Post-recover window ready for terminal finish, re-pause, or captain continuation."""
 
     messages: list[LLMMessage]
     pre_pause: str
@@ -86,6 +87,7 @@ async def recover_and_rebuild_window(
             checkpoint_id=suspension.checkpoint_id,
             decision=decision.value,
             kind=suspension.kind.value,
+            effect=getattr(settled.effect, "value", settled.effect),
         )
     finally:
         captain_transcript.reset(token)
@@ -100,6 +102,13 @@ async def recover_and_rebuild_window(
     pre_pause = (
         pre_pause_override if pre_pause_override is not None else pre_pause_content(transcript)
     )
+    # Re-entrant SUSPEND: a downstream checkpoint persisted a fresh frame while
+    # resume_plan ran. Mirror the live engine — leave the original tool_call
+    # PENDING (no result / no tool_use_end), skip continuity steer, outer pipeline
+    # finishes PAUSED without another CEO round.
+    if settled.effect is ToolEffect.SUSPEND:
+        return RecoveredResume(messages=messages, pre_pause=pre_pause, settled=settled)
+
     append_resumed_tool_results(messages, suspension.tool_call_id, settled.output)
     # Pause skipped ToolCallFact (no phantom). Settlement produced a real result —
     # persist it (+ display tool_use_end) so a same-turn re-pause folds a closed pair.

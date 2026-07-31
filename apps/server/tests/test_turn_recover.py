@@ -246,6 +246,97 @@ async def test_recover_turn_team_preview_forwards_batch_coordination():
     assert seen["coordinate"] is True
 
 
+async def test_recover_turn_team_preview_suspend_preserves_effect():
+    """resume_plan mid-settle SUSPEND must surface on SettledSuspension (cold PAUSED)."""
+    from agentcore.core.types import ToolEffect
+    from agentcore.runtime.suspension import TeamPreviewSuspension
+
+    state = TurnState.from_journal(_partial_journal())
+    sink = EventSink()
+
+    async def _resume_plan(plan, seed_completed, **kwargs):
+        return ToolResult(
+            tool_call_id="",
+            success=True,
+            output="",
+            effect=ToolEffect.SUSPEND,
+        )
+
+    delegate = MagicMock()
+    delegate.resume_plan = _resume_plan
+
+    suspension = TeamPreviewSuspension(
+        message_id="m1",
+        conversation_id="c1",
+        user_id="u1",
+        captain_run_id="cap1",
+        checkpoint_id="cp1",
+        tool_call_id="tc1",
+        user_message="task",
+        base_system_prompt="sys",
+        journal_entries=_partial_journal(),
+        plan=state.plan or _plan_two_nodes(),
+        workers=[{"run_id": "w1", "role": "研究员", "task": "调研"}],
+    )
+    settled = await recover_turn(
+        state=state,
+        sink=sink,
+        delegate_tool=delegate,
+        execution_id="x",
+        suspension=suspension,
+        decision=CheckpointDecision.CONTINUE,
+        note="",
+    )
+    assert settled.effect is ToolEffect.SUSPEND
+    assert settled.terminal_text is None
+
+
+async def test_recover_turn_plan_review_suspend_preserves_effect():
+    """plan_review settle SUSPEND is the same outer contract as team_preview."""
+    from agentcore.core.types import ToolEffect
+    from agentcore.runtime.suspension import PlanReviewSuspension
+
+    state = TurnState.from_journal(_partial_journal())
+    sink = EventSink()
+
+    async def _resume_plan(plan, seed_completed, **kwargs):
+        return ToolResult(
+            tool_call_id="",
+            success=True,
+            output="",
+            effect=ToolEffect.SUSPEND,
+        )
+
+    delegate = MagicMock()
+    delegate.resume_plan = _resume_plan
+
+    suspension = PlanReviewSuspension(
+        message_id="m1",
+        conversation_id="c1",
+        user_id="u1",
+        captain_run_id="cap1",
+        checkpoint_id="cp1",
+        tool_call_id="tc1",
+        user_message="task",
+        base_system_prompt="sys",
+        journal_entries=_partial_journal(),
+        plan=state.plan or _plan_two_nodes(),
+        completed=dict(state.completed),
+        steps=[{"run_id": "w1", "role": "研究员", "summary": "…"}],
+    )
+    settled = await recover_turn(
+        state=state,
+        sink=sink,
+        delegate_tool=delegate,
+        execution_id="x",
+        suspension=suspension,
+        decision=CheckpointDecision.CONTINUE,
+        note="",
+    )
+    assert settled.effect is ToolEffect.SUSPEND
+    assert settled.terminal_text is None
+
+
 async def test_sweeper_claims_expired_lease_and_invokes_recover(monkeypatch):
     """Lease + partial journal + no live process → sweeper starts recover with unfinished DAG."""
     from datetime import UTC, datetime, timedelta
