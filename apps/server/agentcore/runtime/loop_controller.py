@@ -89,8 +89,16 @@ PROGRESS_TOOLS = frozenset(
 )
 # Workspace landing tools: success clears zero-write thrashing; any attempt is
 # "落盘意图" and exempts that round from the zero-write clock.
+# Keep in sync with serialize._FILE_PRODUCT_ARG (product-landing path tools).
 LANDING_TOOLS = frozenset(
-    {"file_write", "file_append", "str_replace", "write_section", "file_move"}
+    {
+        "file_write",
+        "file_append",
+        "str_replace",
+        "write_section",
+        "file_move",
+        "file_copy",
+    }
 )
 # Write tools that enter force_segmented when same-path reject streak trips
 # (keep str_replace / write_section as the preferred segmented pens).

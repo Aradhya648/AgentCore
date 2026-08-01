@@ -67,7 +67,8 @@ def test_all_files_delivered_no_gaps():
 
 
 def test_partial_with_worker_gaps_and_degraded_debrief():
-    # collect_worker_gaps 信号（warnings + degraded 交接）折成 gap 行。
+    # collect_worker_gaps 信号：缺产物 warning 仍 blocking；degraded 交接在已落盘时
+    # 降为 notes（刀1 / 方案 A），不抬 partial。
     plan = _plan(
         RunSpec(run_id="w1", task="生成课件", role="课件工程师"),
         RunSpec(run_id="w2", task="写讲稿", role="撰写", depends_on=["w1"]),
@@ -90,13 +91,111 @@ def test_partial_with_worker_gaps_and_degraded_debrief():
     }
     payload = build_delivery_status(plan, results, execution_id="e2")
     assert payload is not None
+    # 仍有「course.pptx 未找到」blocking → partial；degraded 为 warning 备注。
     assert payload["state"] == "partial"
     assert set(payload["delivered_files"]) == {"build_pptx.py", "讲稿.md"}
     descriptions = [g["description"] for g in payload["gaps"]]
     assert any("course.pptx" in d for d in descriptions)
-    assert any("降级合成" in d for d in descriptions)
+    assert any("交接说明不够完整" in d or "降级" in d for d in descriptions)
+    degraded = next(g for g in payload["gaps"] if g.get("reason") == "degraded_handoff")
+    assert degraded.get("severity") == "warning"
     assert all(g["role"] == "课件工程师" for g in payload["gaps"])
+
+
+def test_landed_files_with_only_degraded_handoff_are_notes_not_failed():
+    """刀1 / 方案 A：strict 场景下已落盘 + 仅 degraded_handoff → notes，非 partial/blocked。"""
+    plan = _plan(RunSpec(run_id="w1", task="写片段", role="分区"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="已落盘",
+            files_touched=["site/sections/s0.html"],
+            file_acceptance=_accepted("site/sections/s0.html"),
+            debrief={"summary": "薄", "degraded": True},
+            delivery_gaps=[
+                {
+                    "description": "交接说明不够完整，系统已代为补写摘要",
+                    "reason": "degraded_handoff",
+                }
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-deg-ok")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert payload["delivered_files"] == ["site/sections/s0.html"]
+    assert payload["gaps"][0]["severity"] == "warning"
+    assert payload["gaps"][0]["reason"] == "degraded_handoff"
+    assert "交接备注" in payload["summary"] or "已交付" in payload["summary"]
+    assert all(a.get("status") != "rejected" for a in payload.get("artifacts") or [])
+
+
+def test_no_landing_with_degraded_handoff_still_blocked():
+    """无落盘 + degraded → 仍未交付（硬拦保留）。"""
+    plan = _plan(RunSpec(run_id="w1", task="写片段", role="分区"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="只有文字",
+            debrief={"summary": "薄", "degraded": True},
+            delivery_gaps=[
+                {
+                    "description": "交接说明不够完整，系统已代为补写摘要",
+                    "reason": "degraded_handoff",
+                }
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-deg-fail")
+    assert payload is not None
+    assert payload["state"] == "blocked"
+    assert payload["delivered_files"] == []
     assert any(g.get("reason") == "degraded_handoff" for g in payload["gaps"])
+    assert all(g.get("severity") != "warning" for g in payload["gaps"] if g.get("reason") == "degraded_handoff")
+
+
+def test_plan_cutoff_skip_suppressed_when_continue_from_ran():
+    """同图 continue_from 补派已跑 → 不并排挂「计划收口时跳过」。"""
+    plan = _plan(
+        RunSpec(run_id="a", task="t", role="A"),
+        RunSpec(
+            run_id="a2",
+            task="续",
+            role="A续",
+            continue_from_run_id="a",
+        ),
+    )
+    results = {
+        "a": RunState(phase=RunPhase.SKIPPED),
+        "a2": RunState(
+            phase=RunPhase.COMPLETED,
+            files_touched=["out.md"],
+            file_acceptance=_accepted("out.md"),
+        ),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-skip-cover")
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    assert not any("计划收口时跳过" in (g.get("description") or "") for g in payload["gaps"])
+    assert payload["delivered_files"] == ["out.md"]
+
+
+def test_plan_cutoff_skip_suppressed_when_replaces_ran():
+    plan = _plan(
+        RunSpec(run_id="old", task="t", role="原"),
+        RunSpec(run_id="new", task="接手", role="新", replaces_run_id="old"),
+    )
+    results = {
+        "old": RunState(phase=RunPhase.SKIPPED),
+        "new": RunState(
+            phase=RunPhase.COMPLETED,
+            files_touched=["x.md"],
+            file_acceptance=_accepted("x.md"),
+        ),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-rep-cover")
+    assert payload is not None
+    assert not any("计划收口时跳过" in (g.get("description") or "") for g in payload["gaps"])
 
 
 def test_blocked_with_criteria_gap_and_bind_action_on_cloud():
@@ -121,6 +220,7 @@ def test_blocked_with_criteria_gap_and_bind_action_on_cloud():
 
 def test_zero_landing_worker_and_criteria_merge_to_one_gap():
     # 同一零落盘谓词：worker 契约 + 批次 files_written → 用户面一条 files_not_landed。
+    from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
     from agentcore.runtime.runs.types import Deliverable
 
     plan = _plan(
@@ -139,20 +239,18 @@ def test_zero_landing_worker_and_criteria_merge_to_one_gap():
                 {
                     "description": (
                         "未把产物写入工作区：交付物须用 file_write / str_replace / "
-                        "file_append 或 code_execute 落盘，而非粘在回复正文里"
+                        "file_append 或 code_execute / file_copy 落盘，而非粘在回复正文里"
                     )
                 }
             ],
         )
     }
+    tools = format_file_landing_tools_slash()
     payload = build_delivery_status(
         plan,
         results,
         execution_id="e-merge",
-        criteria_gaps=[
-            "尚无 worker 将产物写入工作区（需要 file_write / file_append / "
-            "str_replace / write_section / file_move / code_execute 落盘）"
-        ],
+        criteria_gaps=[f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）"],
     )
     assert payload is not None
     assert payload["state"] == "blocked"
@@ -162,6 +260,110 @@ def test_zero_landing_worker_and_criteria_merge_to_one_gap():
     assert gap["reason"] == "files_not_landed"
     assert "未交付" in gap["description"]
     assert "工作区没有新文件" in gap["description"]
+
+
+def test_zero_landing_gap_attributes_channel_dead_from_transcript():
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+    from agentcore.runtime.engine.tool_exec import with_tool_failed_marker
+    from agentcore.runtime.runs.types import Deliverable
+
+    plan = _plan(
+        RunSpec(
+            run_id="w1",
+            task="写文件",
+            role="工程师",
+            deliverable=Deliverable(form="files", requires_files=True),
+        )
+    )
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="w1",
+                    function=ToolCallFunction(
+                        name="file_write",
+                        arguments='{"path": "a.md", "content": "x"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            tool_call_id="w1",
+            content=with_tool_failed_marker(
+                "local workspace op 'write' rejected: channel dead（活性挂起）"
+            ),
+        ),
+    ]
+    results = {
+        "w1": RunState(
+            phase=RunPhase.FAILED,
+            content="",
+            error=(
+                "未把产物写入工作区：写盘通道不可用（local workspace channel dead / "
+                "活性挂起），落盘工具已失败——请恢复工作区通道后重试，"
+                "勿改用正文粘贴冒充落盘"
+            ),
+            transcript=transcript,
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-dead")
+    assert payload is not None
+    gap = payload["gaps"][0]
+    assert gap["reason"] == "files_not_landed"
+    assert "写盘通道不可用" in gap["description"]
+    assert "粘在回复正文" not in gap["description"]
+
+
+def test_zero_landing_gap_attributes_write_failed_from_transcript():
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+    from agentcore.runtime.engine.tool_exec import with_tool_failed_marker
+    from agentcore.runtime.runs.types import Deliverable
+
+    plan = _plan(
+        RunSpec(
+            run_id="w1",
+            task="复制成品",
+            role="工程师",
+            deliverable=Deliverable(form="files", requires_files=True),
+        )
+    )
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="c1",
+                    function=ToolCallFunction(
+                        name="file_copy",
+                        arguments='{"source": "a", "destination": "b.md"}',
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            tool_call_id="c1",
+            content=with_tool_failed_marker("目标已存在：b.md"),
+        ),
+    ]
+    results = {
+        "w1": RunState(
+            phase=RunPhase.FAILED,
+            content="试过了",
+            error="未把产物写入工作区：已尝试写盘但未成功落盘（工具失败）",
+            transcript=transcript,
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-wfail")
+    assert payload is not None
+    gap = payload["gaps"][0]
+    assert gap["reason"] == "files_not_landed"
+    assert "已尝试写盘但未成功" in gap["description"]
+    assert "而非粘在回复正文" in gap["description"] or "粘在回复正文" not in gap[
+        "description"
+    ]
 
 
 def test_maybe_emit_sets_current_delivery_verdict():

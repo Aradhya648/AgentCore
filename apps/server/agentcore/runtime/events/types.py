@@ -127,10 +127,10 @@ class EventType(StrEnum):
     # 不落 journal（reload 时等待已结束或由 live SSE 重挂）。
     COORDINATION_WAIT = "coordination_wait"
     # 交付状态（能力闸门与交付诚实性）：delegate 批次收尾时把已有的完成度缺口 / artifacts
-    # 对账 / degraded 信号汇成面向用户的结构化交付对账（已交付文件 / 缺口 / 待用户操作），
+    # 对账 / degraded 信号汇成结构化交付对账（已交付文件 / 缺口 / 操作元数据），
     # 模板拼接、不调 LLM。DURABLE——落 journal；前端 fold 同 execution_id 保最新（反映
-    # 最近一批委派的对账），刷新后交付状态卡可重建。仅在有实质内容（有落盘文件或有缺口 /
-    # 行动项）时发射——纯 prose 成功批次保持无声。
+    # 最近一批委派的对账），供产物清单与 finish_guard；用户面无验收大卡（失败仅轻提示）。
+    # 仅在有实质内容（有落盘文件或有缺口 / 行动项）时发射——纯 prose 成功批次保持无声。
     DELIVERY_STATUS = "delivery_status"
     # 协调中用户插话：POST …/messages 在 live CoordinationSession 时注入；status 同 key
     # 保最新（delivered → queued）。DURABLE——team 块时间线重放徽标。

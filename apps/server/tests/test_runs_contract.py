@@ -343,13 +343,76 @@ def test_json_file_channel_without_contents_still_warns_existence():
 
 
 def test_requires_files_fails_when_none_written():
+    from agentcore.runtime.runs.contract import zero_files_gap_message
+
     v = check_contract("我把整份代码贴在这里", RunContract(requires_files=True), files_written=0)
     assert not v.ok
     assert any("工作区" in f for f in v.failures)
+    assert any("粘在回复正文" in f for f in v.failures)
+    # Default attribution = paste framing (no landing_failure_kind).
+    assert zero_files_gap_message() in v.failures
+
+
+def test_requires_files_zero_disk_attributes_channel_dead_not_paste():
+    v = check_contract(
+        "写了但通道挂了",
+        RunContract(requires_files=True),
+        files_written=0,
+        landing_failure_kind="channel_dead",
+    )
+    assert not v.ok
+    assert any("写盘通道不可用" in f and "粘在回复正文" not in f for f in v.failures)
+
+
+def test_requires_files_zero_disk_attributes_write_failed_not_paste():
+    v = check_contract(
+        "试过写盘",
+        RunContract(requires_files=True),
+        files_written=0,
+        landing_failure_kind="write_failed",
+    )
+    assert not v.ok
+    assert any("已尝试写盘但未成功" in f and "此缺口来自写盘失败" in f for f in v.failures)
+    assert not any(f.endswith("而非粘在回复正文里") for f in v.failures)
 
 
 def test_requires_files_passes_when_a_file_was_written():
     assert check_contract("已写入 index.html", RunContract(requires_files=True), files_written=1).ok
+
+
+def test_requires_files_passes_when_file_copy_landed():
+    """file_copy 成功落盘须计入 files_written（产物复制进工作区）。"""
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+    from agentcore.runtime.runs.serialize import files_touched_from_transcript
+
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="cp1",
+                    function=ToolCallFunction(
+                        name="file_copy",
+                        arguments=(
+                            '{"source": "tmp/out.pptx",'
+                            ' "destination": "deck.pptx"}'
+                        ),
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(role="tool", content="已复制", tool_call_id="cp1"),
+    ]
+    touched = files_touched_from_transcript(transcript)
+    assert touched == ["deck.pptx"]
+    v = check_contract(
+        "已复制成品",
+        RunContract(requires_files=True, form="files"),
+        files_written=len(touched),
+    )
+    assert v.ok
+    assert not any("未把产物写入工作区" in f for f in v.failures)
 
 
 def test_requires_files_passes_when_str_replace_landed():

@@ -293,7 +293,8 @@ navigate 成功即可（已打开即可，**【禁止】**口头假验收），*
 `delegate`+显式对应验收（靠提示词，引擎不扫用户文硬改工具面）；要执行成功证据时用\
 对应种类，禁止只验 `files_written` 却声称「已跑通 / 已启动」。\
 别混用：能跑通测试才算完的活用带 `verify_command` 的 `code_verified`；须引擎担保进程就绪才用 \
-`runtime_ready`（右坞/浏览器打开省略验收、纯启服报 URL 不派验，见上）；全员 prose 的批次别设 `files_written`。\
+`runtime_ready`（右坞/浏览器打开省略验收、纯启服报 URL 不派验，见上）；全员 prose 的批次别设 `files_written`\
+（要批次落盘就别全员 prose——至少一名 `form=files` / `artifacts`）。\
 `type=custom`【不被引擎验证】——设了也不会机械验收，却可能误导你以为已加闸；需要可验证完成条件时用 \
 `files_written` / `code_verified` / `runtime_ready`，或在各 worker 的 `deliverable.artifacts` / `form=files` 上声明。
 - 环境能力约束（委派前先对照 `<workspace_context>`）：`code_execute=未装配`（以能力行实际标注为准，勿默认\

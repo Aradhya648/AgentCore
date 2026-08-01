@@ -3,25 +3,31 @@
 把收尾侧引擎已有的信号——路径级验收（``file_acceptance``）、契约 / 交接缺口
 (:func:`~agentcore.runtime.delegate.completion.collect_worker_gaps`，含 degraded
 交接与 artifacts 对账残差)、``completion_criteria`` 未满足、失败 / 未执行
-节点——汇成一条面向用户的 ``delivery_status`` 事件（已交付文件 / 缺口 / 待用户操作 /
-``artifacts`` 验收行），模板拼接、不调 LLM。
+节点——汇成一条 ``delivery_status`` 事件（已交付文件 / 缺口 / 待操作元数据 /
+``artifacts`` 验收行），模板拼接、不调 LLM。事件继续发射，供产物清单与
+``finish_guard``；**用户面**已否决验收大卡——桌面/手机仅
+``delivered``/``notes`` 静默、``partial``/``blocked`` 一句轻提示。
 
 ``delivered_files`` / CEO「已交付」= 仅 ``accepted``；cite-tier 等合同点名路径为
 ``rejected``，不得因 soft-COMPLETED 进入 delivered_files。主清单（桌面
 FileArtifactsCard）认 ``artifacts``（accepted+rejected），只走 ``file_acceptance``，
 不从 ``files_touched`` 合成验收行。
 
+刀1 / 方案 A：声明路径已落盘 → verdict 走交付成功路径；``degraded_handoff`` 仅
+notes/warning 备注，不整单硬失败、不拖文件 rejected。真无落盘 / 写盘通道挂仍硬拦。
+同图已有 continue_from / replaces 补派已跑时，收掉并排「计划收口时跳过」。
+
 用户面零落盘缺口合并为一种 ``files_not_landed``（契约层与批次 ``files_written`` 同源谓词，
 不再并列为两条）；CEO / 工具结果仍可保留分层原文。发射时写入回合
-:data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，禁止与卡矛盾的假完成。
+:data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，禁止与对账矛盾的假完成。
 
 挂在 drive 的各收尾路径旁路（正常终态 / 验收未满足 / 部分失败 stash / replan(stop)），
 永不抛错；纯 prose 成功批次（无落盘文件、无缺口）保持无声，不发事件。
 折叠语义：同 ``execution_id`` 保最新——反映最近一批委派的对账（多批场景下 FileArtifactsCard
 仍是全量文件清单，本事件承载「诚实对账」而非全量枚举）。
 
-严重度：``severity=warning``（待核实/示例自注等）不单独撑起 partial/blocked，
-仅有 warning 时 state=``notes``（轻提醒）；blocking 缺口才标「部分未满足 / 未满足」。
+严重度：``severity=warning``（待核实/示例自注/交接备注等）不单独撑起 partial/blocked，
+仅有 warning 时 state=``notes``（用户面静默）；blocking 缺口才标「部分未满足 / 未满足」。
 成篇未写完改由对话框接着说——不再发 ``continue_writing`` 一键按钮。
 """
 
@@ -44,8 +50,12 @@ REASON_PATH_HINT = "path_hint"
 REASON_FILES_NOT_LANDED = "files_not_landed"
 # Verify-shaped tool failure (browser_navigate / test_run / verify 形 code_execute·terminal).
 REASON_VERIFY_FAILED = "verify_failed"
+# Keep in sync with runtime.runs.cutoff.REASON_DEGRADED_HANDOFF (wire gap reason).
+REASON_DEGRADED_HANDOFF = "degraded_handoff"
 _WRITING_CUTOFF_REASONS = frozenset({"token_budget", "worker_timeout"})
 _SOFT_GAP_REASONS = frozenset({REASON_UNVERIFIED_NOTE, REASON_PATH_HINT})
+# 刀1：有落盘时 degraded_handoff 并入 soft（见 _soften_landed_degraded_gaps）。
+_PLAN_CUTOFF_SKIP_DESC = "未执行（计划收口时跳过）"
 
 # Per-worker contract + batch files_written criteria share this predicate.
 _ZERO_LANDING_MARKERS = (
@@ -178,6 +188,37 @@ def _has_completed_revision(run_id: str, results: dict[str, RunState]) -> bool:
     )
 
 
+def _covering_replacement_ran(
+    run_id: str,
+    plan: RunPlan,
+    results: dict[str, RunState],
+) -> bool:
+    """True when same-plan continue_from / replaces already ran for this node.
+
+    Used to drop scary「计划收口时跳过」when a covering补派 has already progressed.
+    """
+    for node in plan.nodes:
+        if node.run_id == run_id:
+            continue
+        covers = (node.continue_from_run_id or "").strip() == run_id or (
+            node.replaces_run_id or ""
+        ).strip() == run_id
+        if not covers:
+            continue
+        st = results.get(node.run_id)
+        if st is None:
+            continue
+        # 已跑或成功（含 FAILED/CANCELLED：补派已发生，勿并排吓人跳过）。
+        if st.phase in (
+            RunPhase.COMPLETED,
+            RunPhase.FAILED,
+            RunPhase.CANCELLED,
+            RunPhase.RUNNING,
+        ):
+            return True
+    return False
+
+
 def _is_path_hint(text: str, reason: str = "") -> bool:
     """True for contract path-reconciliation suggestions (artifact_dir / artifacts)."""
     if reason == REASON_PATH_HINT:
@@ -271,12 +312,45 @@ def _node_gaps(plan: RunPlan, results: dict[str, RunState]) -> list[dict[str, An
                 )
                 emitted = True
             if not emitted:
-                gaps.append({"role": role, "description": "未执行（计划收口时跳过）"})
+                # 同图已有 continue_from / replaces 补派已跑 → 收掉吓人「计划收口跳过」。
+                if _covering_replacement_ran(node.run_id, plan, results):
+                    continue
+                gaps.append({"role": role, "description": _PLAN_CUTOFF_SKIP_DESC})
         elif state.phase is RunPhase.CANCELLED and not _has_completed_revision(
             node.run_id, results
         ):
             gaps.append({"role": role, "description": "未完成（中途取消）"})
     return gaps
+
+
+def _soften_landed_degraded_gaps(
+    gaps: list[dict[str, Any]],
+    *,
+    files_landed: bool,
+) -> list[dict[str, Any]]:
+    """刀1 / 方案 A：有落盘时 degraded_handoff → warning 备注，不挡 delivered/notes。"""
+    if not files_landed:
+        return gaps
+    out: list[dict[str, Any]] = []
+    for gap in gaps:
+        reason = str(gap.get("reason") or "").strip()
+        desc = str(gap.get("description") or "")
+        if reason == REASON_DEGRADED_HANDOFF or "交接说明不够完整" in desc or (
+            "降级合成" in desc
+        ):
+            softened = dict(gap)
+            softened["severity"] = "warning"
+            softened["reason"] = REASON_DEGRADED_HANDOFF
+            # 人口语：去掉可能残留的内部码。
+            text = str(softened.get("description") or "").strip()
+            if not text or "degraded_handoff" in text or "continue_from" in text:
+                softened["description"] = (
+                    "交接说明不够完整，系统已代为补写摘要（已落盘文件不受影响）"
+                )
+            out.append(softened)
+        else:
+            out.append(gap)
+    return out
 
 
 def _is_blocking(gap: dict[str, Any]) -> bool:
@@ -305,9 +379,36 @@ def _code_ran_without_writeback(results: dict[str, RunState]) -> bool:
     return False
 
 
+def _landing_failure_kind_from_results(results: dict[str, RunState]) -> str | None:
+    """Aggregate landing-write failure attribution across workers (channel_dead wins)."""
+    from agentcore.runtime.runs.serialize import landing_write_failure_kind
+
+    saw_write_failed = False
+    for state in results.values():
+        if state is None:
+            continue
+        kind = landing_write_failure_kind(getattr(state, "transcript", None))
+        if kind == "channel_dead":
+            return "channel_dead"
+        if kind == "write_failed":
+            saw_write_failed = True
+    return "write_failed" if saw_write_failed else None
+
+
 def _files_not_landed_gap(results: dict[str, RunState]) -> dict[str, Any]:
     """Single user-facing gap for zero workspace landing (契约 + 批次验收合并投影)."""
-    if _code_ran_without_writeback(results):
+    failure_kind = _landing_failure_kind_from_results(results)
+    if failure_kind == "channel_dead":
+        text = (
+            "未交付：写盘通道不可用（工作区通道已挂起 / 活性挂起），"
+            "落盘工具调用失败——请恢复通道后重试"
+        )
+    elif failure_kind == "write_failed":
+        text = (
+            "未交付：已尝试写盘但未成功（工具失败），工作区仍无新文件"
+            "——此缺口来自写盘失败，而非粘在回复正文"
+        )
+    elif _code_ran_without_writeback(results):
         text = (
             "未交付：已执行代码但未把产物写回工作区"
             "（沙箱内文件不算交付；须用写文件工具落盘，或确保脚本执行后写回工作区）"
@@ -367,10 +468,15 @@ def _build_summary(
     path_only = bool(warnings) and all(
         g.get("reason") == REASON_PATH_HINT for g in warnings
     )
+    degraded_only = bool(warnings) and all(
+        g.get("reason") == REASON_DEGRADED_HANDOFF for g in warnings
+    )
     warn_bit = ""
     if warn_hits:
         if path_only:
             warn_bit = f"{warn_hits} 处路径建议"
+        elif degraded_only:
+            warn_bit = f"{warn_hits} 处交接备注"
         else:
             warn_bit = f"{warn_hits} 处待核实备注"
             if warn_files:
@@ -378,6 +484,8 @@ def _build_summary(
 
     if not blocking:
         if warn_bit:
+            if delivered and degraded_only:
+                return f"已交付 {len(delivered)} 个文件；另有 {warn_bit}"
             return f"有 {warn_bit}"
         if delivered:
             return f"已交付 {len(delivered)} 个文件"
@@ -473,6 +581,8 @@ def build_delivery_status(
     raw_gaps.extend(_node_gaps(plan, results))
     # 用户面：零落盘（worker 契约 + 批次 files_written）合并为一条 files_not_landed。
     gaps = _project_user_gaps(raw_gaps, results)[:_MAX_GAPS]
+    # 刀1 / 方案 A：有 accepted 落盘时 degraded_handoff 降为 warning 备注。
+    gaps = _soften_landed_degraded_gaps(gaps, files_landed=bool(delivered))
 
     blocking = [g for g in gaps if _is_blocking(g)]
     warnings = [g for g in gaps if not _is_blocking(g)]

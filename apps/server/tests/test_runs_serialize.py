@@ -64,6 +64,47 @@ def test_files_touched_from_transcript_collects_file_append():
     assert files_touched_from_transcript(transcript) == ["doc.md"]
 
 
+def test_files_touched_from_transcript_collects_file_copy():
+    """Successful file_copy destination counts toward files_written / 落盘闸."""
+    transcript = [
+        _assistant_call(
+            "c1",
+            "file_copy",
+            '{"source": "staging/out.pptx", "destination": "deliverables/deck.pptx"}',
+        ),
+        _tool_result("c1", "已把 staging/out.pptx 复制到 deliverables/deck.pptx"),
+    ]
+    assert files_touched_from_transcript(transcript) == ["deliverables/deck.pptx"]
+
+
+def test_landing_write_failure_kind_channel_dead_vs_write_failed():
+    from agentcore.runtime.engine.tool_exec import with_tool_failed_marker
+    from agentcore.runtime.runs.serialize import landing_write_failure_kind
+
+    dead = [
+        _assistant_call("c1", "file_write", '{"path": "a.md", "content": "x"}'),
+        _tool_result(
+            "c1",
+            with_tool_failed_marker(
+                "local workspace op 'write' rejected: channel dead（活性挂起）"
+            ),
+        ),
+    ]
+    assert landing_write_failure_kind(dead) == "channel_dead"
+
+    plain_fail = [
+        _assistant_call("c2", "file_copy", '{"source": "a", "destination": "b/out.txt"}'),
+        _tool_result("c2", with_tool_failed_marker("目标已存在：b/out.txt")),
+    ]
+    assert landing_write_failure_kind(plain_fail) == "write_failed"
+
+    paste_only = [
+        LLMMessage(role="assistant", content="整份内容粘在这里"),
+    ]
+    assert landing_write_failure_kind(paste_only) is None
+    assert landing_write_failure_kind([]) is None
+
+
 def test_files_touched_from_transcript_skips_malformed_and_pathless():
     transcript = [
         _assistant_call("c1", "file_write", "not valid json"),

@@ -163,6 +163,34 @@ def _placeholder_hard_exempt_paths(
     ]
 
 
+def zero_files_gap_message(*, landing_failure_kind: str | None = None) -> str:
+    """User/admin-facing zero-disk gap copy, attributed by real cause when known.
+
+    Keeps the shared marker ``未把产物写入工作区`` so :func:`is_zero_files_gap` and
+    delivery_status projection stay aligned. Does **not** invent new gap reason
+    codes — callers keep ``files_not_landed``.
+    """
+    if landing_failure_kind == "channel_dead":
+        return (
+            "未把产物写入工作区：写盘通道不可用（local workspace channel dead / "
+            "活性挂起），落盘工具已失败——请恢复工作区通道后重试，"
+            "勿改用正文粘贴冒充落盘"
+        )
+    if landing_failure_kind == "write_failed":
+        from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
+
+        tools = format_file_landing_tools_slash()
+        return (
+            "未把产物写入工作区：已尝试写盘但未成功落盘（工具失败），"
+            f"请用 {tools} 修复后重写——"
+            "此缺口来自写盘失败，而非「粘在回复正文」"
+        )
+    return (
+        "未把产物写入工作区：交付物须用 file_write / str_replace / file_append "
+        "或 code_execute / file_copy 落盘，而非粘在回复正文里"
+    )
+
+
 def check_contract(
     content: str,
     deliverable: Deliverable | None,
@@ -174,6 +202,7 @@ def check_contract(
     ledger_entries: list[dict[str, Any]] | None = None,
     citable_ids: frozenset[str] | set[str] | None = None,
     enforce_citations: bool = True,
+    landing_failure_kind: str | None = None,
 ) -> ContractVerdict:
     """Check ``content`` against ``deliverable``; return a verdict + human reasons.
 
@@ -183,11 +212,13 @@ def check_contract(
     predictably.
 
     ``files_written`` is the count of workspace paths the run actually landed (from
-    ``files_touched_from_transcript`` — successful file_write/append/str_replace/move
-    results AND ``code_execute`` sandbox write-backs); it backs the ``requires_files`` predicate so
-    a file deliverable that was only pasted into the reply — never written to the
-    workspace — fails and auto-reworks. Stays a pure function (the caller derives the
-    count) so it remains trivially unit-testable.
+    ``files_touched_from_transcript`` — successful file_write/append/str_replace/move/
+    copy results AND ``code_execute`` sandbox write-backs); it backs the
+    ``requires_files`` predicate so a file deliverable that never landed fails and
+    auto-reworks. ``landing_failure_kind`` (optional) attributes the zero-disk gap:
+    ``channel_dead`` / ``write_failed`` vs the default paste-into-prose framing.
+    Stays a pure function (the caller derives the count / kind) so it remains
+    trivially unit-testable.
 
     ``workspace_paths`` is the flat path index used to reconcile ``artifacts``
     patterns (exact / directory prefix / glob). Callers pass the live workspace
@@ -295,10 +326,7 @@ def check_contract(
         elif not _is_json(content):
             failures.append("产出不是可解析的 JSON")
     if (deliverable.requires_files or deliverable.form == "files") and files_written <= 0:
-        failures.append(
-            "未把产物写入工作区：交付物须用 file_write / str_replace / file_append "
-            "或 code_execute 落盘，而非粘在回复正文里"
-        )
+        failures.append(zero_files_gap_message(landing_failure_kind=landing_failure_kind))
     # artifacts / artifact_dir 路径对账：有落盘即过；对不上降为 warnings（不阻断）。
     path_mismatch_warnings: list[str] = []
     if deliverable.artifacts:

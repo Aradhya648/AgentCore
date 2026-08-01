@@ -79,13 +79,19 @@ def message_from_dict(d: dict[str, Any]) -> LLMMessage:
 # derive a run's 文件产出 manifest from its transcript. Delete / move-away are
 # intentionally excluded: the manifest answers "what did this worker produce",
 # not a full mutation audit (a deleted path is not a deliverable).
+# ``file_copy`` counts like ``file_move`` (destination is the landed product path).
 _FILE_PRODUCT_ARG: dict[str, str] = {
     "file_write": "path",
     "file_append": "path",
     "str_replace": "path",
     "write_section": "path",
     "file_move": "destination",
+    "file_copy": "destination",
 }
+
+# Failed landing-tool result → attribution for zero-disk gaps (contract / delivery card).
+# Prefer channel-dead over generic write-failed when both appear.
+_CHANNEL_DEAD_MARKERS = ("channel dead", "活性挂起", "workspace channel dead")
 
 # code_execute 的结构化写回通道（生产方见 tools/builtin/code_execute.py）: a code_execute
 # RESULT carries the sandbox copy-out paths (ExecutionResult.written_files) in a machine
@@ -112,6 +118,41 @@ def file_landing_tool_names() -> tuple[str, ...]:
 def format_file_landing_tools_slash() -> str:
     """Slash-joined landing-tool names for CEO-facing files_written gap copy."""
     return " / ".join(file_landing_tool_names())
+
+
+def landing_write_failure_kind(
+    transcript: list[LLMMessage] | None,
+) -> str | None:
+    """Classify failed file-landing attempts for zero-disk attribution.
+
+    Returns ``channel_dead`` when any failed landing-tool result mentions a dead
+    workspace channel / 活性挂起; ``write_failed`` when landing tools failed for
+    other reasons; ``None`` when no failed landing-tool result is observed (true
+    zero-attempt / paste-into-prose case). Successful landings are ignored here —
+    callers already gate on ``files_written == 0``.
+    """
+    if not transcript:
+        return None
+    landing_call_ids: set[str] = set()
+    saw_failed = False
+    saw_channel_dead = False
+    for msg in transcript:
+        if msg.role == "assistant" and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.function.name in _FILE_PRODUCT_ARG and tc.id:
+                    landing_call_ids.add(tc.id)
+        elif msg.role == "tool" and msg.tool_call_id in landing_call_ids:
+            content = msg.content or ""
+            if not _tool_result_failed(content):
+                continue
+            saw_failed = True
+            if any(marker in content for marker in _CHANNEL_DEAD_MARKERS):
+                saw_channel_dead = True
+    if saw_channel_dead:
+        return "channel_dead"
+    if saw_failed:
+        return "write_failed"
+    return None
 
 
 # 工具失败机器尾注 (生产方见 runtime/engine/tool_exec.py · TOOL_FAILED_MARKER):

@@ -371,8 +371,8 @@ async def test_artifacts_hit_when_file_write_covers_declared_path():
     assert state.files_touched == ["README.md"]
 
 
-async def test_strict_degraded_handoff_fails_not_completed():
-    """Wave3 C: strict file node with dependents + degraded synth → FAILED (续派路径)."""
+async def test_strict_degraded_handoff_completes_when_files_landed():
+    """刀1 / 方案 A：strict + 已落盘 + degraded synth → COMPLETED（备注，非整单 FAILED）。"""
     plan, _ = build_run_plan(
         [
             {
@@ -398,9 +398,7 @@ async def test_strict_degraded_handoff_fails_not_completed():
     reg = ToolRegistry()
     reg.register(_FileWriteTool())
     # Write artifact so contract exists, but never call handoff → degraded synth
-    # after handoff correction shot still empty → Wave3 C blocks COMPLETED.
-    # Stream past MIN_UPSTREAM_BODY_CHARS so the prose-落地空交付闸不抢先于
-    # degraded_handoff（骨架 HTML 不算 prose 豁免）。
+    # after handoff correction shot still empty → 有落盘则放行 COMPLETED。
     from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
 
     body_pad = "分区正文填充。" * ((MIN_UPSTREAM_BODY_CHARS // 7) + 1)
@@ -443,8 +441,60 @@ async def test_strict_degraded_handoff_fails_not_completed():
     )
     res = await WaveScheduler().run(plan, executor)
     sec = res["t_sec"]
+    assert sec.phase is RunPhase.COMPLETED
+    assert sec.debrief and sec.debrief.get("degraded")
+    assert "site/sections/s0.html" in (sec.files_touched or [])
+    # 已落盘文件不得因交接降级被整单 rejected。
+    assert any(
+        isinstance(a, dict) and a.get("path") == "site/sections/s0.html"
+        and a.get("status") == "accepted"
+        for a in (sec.file_acceptance or [])
+    )
+    assert any(
+        isinstance(g, dict) and g.get("reason") == "degraded_handoff"
+        for g in (sec.delivery_gaps or [])
+    )
+
+
+async def test_strict_degraded_handoff_fails_without_files():
+    """无落盘 + degraded → 仍 FAILED（硬拦保留）。"""
+    plan, _ = build_run_plan(
+        [
+            {
+                "id": "sec",
+                "role": "分区",
+                "task": "写片段",
+                "deliverable": {
+                    "form": "files",
+                    "artifacts": ["site/sections/s0.html"],
+                    "strict": True,
+                    "requires_files": True,
+                },
+            },
+        ],
+        id_prefix="t",
+    )
+    # No file_write — prose only → requires_files / hard gap should fail.
+    from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
+
+    body_pad = "分区正文填充。" * ((MIN_UPSTREAM_BODY_CHARS // 7) + 1)
+    rounds = [
+        [LLMChunk(delta_content="只有文字没有落盘。" + body_pad)],
+        [LLMChunk(delta_content="纠正轮仍无落盘。")],
+    ]
+    provider = _ScriptedRounds(rounds)
+    executor = build_agent_executor(
+        plan=plan,
+        llm=provider,
+        tools=ToolRegistry(),
+        sink=EventSink(),
+        base_tool_context=_ctx(),
+        system_prompt="SYS",
+        user_message="req",
+        execution_id="e-nofile",
+    )
+    res = await WaveScheduler().run(plan, executor)
+    # Single-node plans may stamp run_id as t_1 / t_sec depending on builder.
+    sec = res.get("t_sec") or res.get("t_1") or next(iter(res.values()))
     assert sec.phase is RunPhase.FAILED
-    assert "degraded_handoff" in (sec.error or "") or "不得冒充完成" in (sec.error or "")
-    assert sec.error_retryable is False
-    # Downstream cascade-skipped (default on_failure=retry after non-retryable fail)
-    assert res["t_asm"].phase in (RunPhase.SKIPPED, RunPhase.FAILED)
+    assert not (sec.files_touched or [])

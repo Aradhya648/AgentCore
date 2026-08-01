@@ -42,7 +42,6 @@ import type {
   RunStatus,
   TurnStatus,
 } from "@agentcore/protocol-conformance";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 
 /** 幕 kind → 列表分组头短标签（无 title 时回落；手机列表语言，非桌面幕分带）。 */
@@ -175,8 +174,8 @@ export function TeamView({
   acts?: ProjectedAct[];
   /** 团队便签墙 (§2.2 通): notes workers broadcast to their concurrent siblings this turn. */
   teamNotes?: ProjectedTeamNote[];
-  /** 交付状态（`delivery_status`，能力闸门与交付诚实性）：delegate 收尾的结构化交付对账。
-   *  只在有诚实缺口要交代（partial / blocked / notes）时渲染；delivered 由产出文件卡承载。 */
+  /** 交付状态（`delivery_status`）：partial / blocked 一句轻提示；delivered / notes 静默。
+   *  产物清单仍由 ChatPage + FileArtifactsCard 承载。 */
   deliveryStatus?: DeliveryStatusPayload | null;
   /** Turn lifecycle from ProjectedTurn — drives team-notes default expand/collapse. */
   status?: TurnStatus | null;
@@ -293,12 +292,9 @@ export function TeamView({
           order. Empty (the common case) renders nothing. Collapsible like 思考/工具组 (<details>):
           running + active note → default open; finished/stopped → collapsed「团队便签 N」. Remount
           via key when the default flips so turn completion re-applies the collapsed default. */}
-        {/* 交付状态（能力闸门与交付诚实性 · C3）：缺口 / 待用户操作的诚实对账，镜像桌面
-          DeliveryStatusCard（交付验收卡为缺口唯一披露；delivered 不出卡）。手机为云瘦
-          客户端，bind_local_folder 行动项按提示行如实呈现（无本地绑定通道）。 */}
-        {deliveryStatus && deliveryStatus.state !== "delivered" && (
-          <DeliverySection status={deliveryStatus} />
-        )}
+        {/* 交付轻提示（对齐桌面 DeliveryStatusMount）：delivered / notes 静默；
+          partial / blocked 一句 summary；无验收卡、无动作、无缺口明细。 */}
+        {deliveryStatus ? <DeliverySection status={deliveryStatus} /> : null}
         {teamNotes.length > 0 && (
           <TeamNotesWall
             key={notesDefaultOpen ? "open" : "shut"}
@@ -324,182 +320,17 @@ export function TeamView({
   );
 }
 
-const GAP_REASON_LABEL: Record<string, string> = {
-  token_budget: "预算触顶",
-  turn_token_budget: "回合额度触顶",
-  worker_timeout: "运行超时",
-  degraded_handoff: "降级交接",
-  qa_deferred_budget: "验收推迟",
-  unverified_note: "待核实",
-  files_not_landed: "未落盘",
-};
-
-/** Action kinds that mean the user/team can continue or redispatch this batch
- *  (对齐桌面 DeliveryStatusCard；同缺口 escalate 未进 payload → 无续派 CTA 时隐藏 hint)。
- *  成篇未写完改由对话框接着说——已撤 continue_writing。 */
-const REDISPATCH_ACTION_KINDS = new Set([
-  "bind_local_folder",
-  "website_verify",
-  "continue_skipped_runs",
-]);
-
-function mayShowRedispatchHint(status: DeliveryStatusPayload): boolean {
-  return (status.actions ?? []).some((a) =>
-    REDISPATCH_ACTION_KINDS.has(a.kind),
-  );
-}
-
-function deliveryStateLabel(state: DeliveryStatusPayload["state"]): string {
-  if (state === "blocked") return "未满足";
-  if (state === "notes") return "有备注";
-  return "部分未满足";
-}
-
-function deliveryStateClass(state: DeliveryStatusPayload["state"]): string {
-  if (state === "blocked") return "is-blocked";
-  if (state === "notes") return "is-notes";
-  return "is-partial";
-}
-
-/** 交付验收区块（批次验收 / completion_criteria；partial / blocked / notes）：
- *  与 finish_guard「引用/格式核验后已重写」chip 分流——此处是交付验收未过；「团队可能重派」
- *  仅在 actions 含可续派 kind 时显示（非 unmet 恒显）。
- *  C3：交付验收卡为缺口唯一披露；partial / blocked 强调色由头部状态徽标承接（对齐桌面）；
- *  仅 soft 待核实 → notes 轻提醒。手机为云瘦客户端：待核实聚合展示，无「打开相关文件」绑定。 */
+/** 交付轻提示（对齐桌面 DeliveryStatusMount）：砍验收大卡与卡上动作；
+ *  delivered / notes 静默；partial / blocked 最多一句。产物清单不在此。 */
 function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
-  const gaps = status.gaps ?? [];
-  // 已撤 continue_writing：旧载荷若仍带该 action，过滤掉，避免与对话框续写提示重复。
-  const actions = (status.actions ?? []).filter(
-    (a) => a.kind !== "continue_writing",
-  );
-  const showRedispatchHint = mayShowRedispatchHint({ ...status, actions });
-  const blockingGaps = gaps.filter((g) => g.severity !== "warning");
-  const warningGaps = gaps.filter((g) => g.severity === "warning");
-  const writingIncomplete =
-    status.state === "partial" &&
-    blockingGaps.some(
-      (g) => g.reason === "token_budget" || g.reason === "worker_timeout",
-    );
-  // 弱摘要：已交付 = delivered_files（accepted-only）；未通过 = artifacts 中 rejected。
-  // 不重复主清单大卡，仅一行计数提示。
-  const deliveredCount = (status.delivered_files ?? []).length;
-  const rejectedCount = Array.isArray(status.artifacts)
-    ? status.artifacts.filter((a) => a.status === "rejected").length
-    : 0;
-  const fileSummaryParts: string[] = [];
-  if (deliveredCount > 0) fileSummaryParts.push(`已交付 ${deliveredCount} 个`);
-  if (rejectedCount > 0) fileSummaryParts.push(`未通过 ${rejectedCount} 个`);
-  const fileSummary =
-    fileSummaryParts.length > 0
-      ? `${fileSummaryParts.join("；")}（详见下方产物清单）`
-      : "";
-  // 诚实披露卡：默认展开（不套产物卡「>4 收起」阈值）；收起仅折叠 gap 明细与 actions，头部
-  // （交付验收 + 状态徽标 + summary + 条件性「团队可能重派」）恒可见。手机无折叠持久化（对齐本端
-  // FileArtifactsCard 的整行开合 + chevron），本地 state 即可。
-  const [expanded, setExpanded] = useState(true);
-  const [notesOpen, setNotesOpen] = useState(false);
-  const warnHits = warningGaps.reduce((n, g) => {
-    const m = g.description.match(/（(\d+)\s*处）/);
-    return n + (m ? Number(m[1]) || 1 : 1);
-  }, 0);
-  const warnFiles = new Set(warningGaps.flatMap((g) => g.paths ?? [])).size;
-  const warnSummary =
-    warnHits > 0
-      ? `有 ${warnHits} 处待核实备注${warnFiles ? `（${warnFiles} 个文件）` : ""}`
-      : "";
-
+  if (status.state !== "partial" && status.state !== "blocked") return null;
+  const text =
+    status.summary.trim() ||
+    (status.state === "blocked" ? "交付未满足" : "部分交付未满足");
   return (
-    <div className="delivery">
-      <button
-        type="button"
-        className="delivery-head"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <span className="delivery-title">交付验收</span>
-        <span className={`delivery-state ${deliveryStateClass(status.state)}`}>
-          {deliveryStateLabel(status.state)}
-        </span>
-        <span className="delivery-summary">{status.summary}</span>
-        {showRedispatchHint ? (
-          <span className="delivery-hint">团队可能重派</span>
-        ) : null}
-        {expanded ? (
-          <ChevronUp size={15} className="delivery-go" aria-hidden />
-        ) : (
-          <ChevronDown size={15} className="delivery-go" aria-hidden />
-        )}
-      </button>
-      {expanded && fileSummary ? (
-        <div className="delivery-row delivery-file-summary">
-          <span className="delivery-desc">{fileSummary}</span>
-        </div>
-      ) : null}
-      {expanded &&
-        blockingGaps.map((gap, i) => {
-          const reasonLabel =
-            gap.reason && GAP_REASON_LABEL[gap.reason]
-              ? GAP_REASON_LABEL[gap.reason]
-              : null;
-          return (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: 对账快照整体替换（同 execution_id 保最新），行不重排
-              key={`gap-${i}`}
-              className="delivery-row"
-            >
-              <span className="delivery-role">{gap.role}</span>
-              <span className="delivery-desc">
-                {reasonLabel ? (
-                  <span className="delivery-reason">{reasonLabel} </span>
-                ) : null}
-                {gap.description}
-              </span>
-            </div>
-          );
-        })}
-      {expanded && warnSummary ? (
-        <div className="delivery-row">
-          <button
-            type="button"
-            className="delivery-desc"
-            onClick={() => setNotesOpen((v) => !v)}
-          >
-            {warnSummary}
-            <span className="delivery-hint">
-              {" "}
-              {notesOpen ? "收起" : "展开"}
-            </span>
-          </button>
-          {notesOpen
-            ? warningGaps.map((gap, i) => (
-                <div
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 同上
-                  key={`warn-${i}`}
-                  className="delivery-desc"
-                >
-                  {gap.role}：{gap.description}
-                </div>
-              ))
-            : null}
-        </div>
-      ) : null}
-      {expanded && writingIncomplete ? (
-        <div className="delivery-row delivery-action">
-          <span className="delivery-desc">
-            成篇未写完——请在对话框告诉我接着写（从已完成章节继续；勿删稿重写整篇）
-          </span>
-        </div>
-      ) : null}
-      {expanded &&
-        actions.map((action, i) => (
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: 同上，快照整体替换
-            key={`act-${i}`}
-            className="delivery-row delivery-action"
-          >
-            <span className="delivery-desc">{action.description}</span>
-          </div>
-        ))}
-    </div>
+    <p className="delivery-shortfall-hint" data-testid="delivery-shortfall-hint">
+      {text}
+    </p>
   );
 }
 

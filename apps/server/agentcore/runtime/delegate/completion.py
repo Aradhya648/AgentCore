@@ -1347,6 +1347,8 @@ def collect_worker_gaps(
     delivered. Each gap row is ``{description, reason?}`` where ``reason`` is a
     machine code when the signal is a known cutoff
     (``token_budget`` / ``worker_timeout`` / ``degraded_handoff``).
+
+    刀1：worker 已有落盘时 ``degraded_handoff`` 带 ``severity=warning``（备注，非硬缺口）。
     """
     from agentcore.runtime.runs.cutoff import (
         DEGRADED_HANDOFF_WARNING,
@@ -1359,6 +1361,10 @@ def collect_worker_gaps(
         state = results.get(node.run_id)
         if state is None or state.phase is not RunPhase.COMPLETED:
             continue
+        files_landed = bool(state.files_touched) or any(
+            isinstance(a, dict) and a.get("status") == "accepted"
+            for a in (state.file_acceptance or [])
+        )
         gaps: list[dict[str, str]] = []
         seen_desc: set[str] = set()
         # Prefer first-class delivery_gaps when present (single source).
@@ -1376,6 +1382,8 @@ def collect_worker_gaps(
             severity = str(row.get("severity") or "").strip()
             if severity:
                 item["severity"] = severity
+            elif reason == REASON_DEGRADED_HANDOFF and files_landed:
+                item["severity"] = "warning"
             gaps.append(item)
         if state.warnings:
             for raw in state.warnings:
@@ -1387,13 +1395,18 @@ def collect_worker_gaps(
                 code = reason_for_warning(text)
                 if code:
                     entry["reason"] = code
+                    if code == REASON_DEGRADED_HANDOFF and files_landed:
+                        entry["severity"] = "warning"
                 gaps.append(entry)
         debrief = state.debrief if isinstance(state.debrief, dict) else None
         if debrief and debrief.get("degraded"):
             text = DEGRADED_HANDOFF_WARNING
             if text not in seen_desc:
                 seen_desc.add(text)
-                gaps.append({"description": text, "reason": REASON_DEGRADED_HANDOFF})
+                row = {"description": text, "reason": REASON_DEGRADED_HANDOFF}
+                if files_landed:
+                    row["severity"] = "warning"
+                gaps.append(row)
         if gaps:
             label = node.role or node.run_id
             out.append((label, gaps))

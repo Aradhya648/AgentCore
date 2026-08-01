@@ -23,7 +23,8 @@ CUTOFF_REASONS = frozenset(
 # RunState.warnings / gap description 稳定文案（collect_worker_gaps 依文案反查 reason）
 TOKEN_BUDGET_WARNING = "队员因 token 预算触顶被迫收口，产出可能不完整"
 WORKER_TIMEOUT_WARNING = "队员运行超时（硬收尾/强制取消），交付可能缩水"
-DEGRADED_HANDOFF_WARNING = "交接简报由引擎降级合成（worker 未提交合格 handoff）"
+# 用户面口语：避免 worker / handoff 等内部词；引擎反查仍认本常量全文。
+DEGRADED_HANDOFF_WARNING = "交接说明不够完整，系统已代为补写摘要"
 
 WARNING_TO_REASON: dict[str, str] = {
     TOKEN_BUDGET_WARNING: REASON_TOKEN_BUDGET,

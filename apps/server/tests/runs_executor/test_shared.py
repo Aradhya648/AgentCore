@@ -37,15 +37,52 @@ def test_hard_gap_blocks_completion_non_strict_allows():
     assert _hard_gap_blocks_completion(gaps, {"degraded": True}, None) is None
 
 
-def test_hard_gap_blocks_completion_strict_degraded():
-    """Wave3 C: strict + degraded_handoff → must not COMPLETE."""
+def test_hard_gap_blocks_completion_strict_degraded_no_files():
+    """刀1：strict + degraded_handoff + 无落盘 → 仍硬拦。"""
     gaps = [{"description": DEGRADED_HANDOFF_WARNING, "reason": REASON_DEGRADED_HANDOFF}]
     reason = _hard_gap_blocks_completion(
-        gaps, {"summary": "薄", "degraded": True}, Deliverable(strict=True, form="files")
+        gaps,
+        {"summary": "薄", "degraded": True},
+        Deliverable(strict=True, form="files"),
+        files_touched=0,
     )
     assert reason is not None
-    assert "degraded_handoff" in reason
-    assert "不得冒充完成" in reason
+    assert "交接说明不完整" in reason or "不得冒充完成" in reason
+    assert "continue_from_run_id" not in reason
+    assert "degraded_handoff" not in reason
+
+
+def test_hard_gap_blocks_completion_strict_degraded_with_files_allows():
+    """刀1 / 方案 A：strict + degraded_handoff + 已落盘 → 不 FAILED，放行 COMPLETED。"""
+    gaps = [
+        {
+            "description": DEGRADED_HANDOFF_WARNING,
+            "reason": REASON_DEGRADED_HANDOFF,
+            "severity": "warning",
+        }
+    ]
+    assert (
+        _hard_gap_blocks_completion(
+            gaps,
+            {"summary": "薄", "degraded": True},
+            Deliverable(strict=True, form="files"),
+            files_touched=1,
+        )
+        is None
+    )
+    # 即便未预盖 severity，有落盘也不硬拦。
+    gaps_raw = [
+        {"description": DEGRADED_HANDOFF_WARNING, "reason": REASON_DEGRADED_HANDOFF}
+    ]
+    assert (
+        _hard_gap_blocks_completion(
+            gaps_raw,
+            {"summary": "薄", "degraded": True},
+            Deliverable(strict=True, form="files"),
+            files_touched=2,
+        )
+        is None
+    )
 
 
 def test_hard_gap_blocks_completion_strict_missing_artifact_desc():

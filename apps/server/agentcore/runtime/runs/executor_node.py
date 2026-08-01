@@ -97,6 +97,7 @@ from agentcore.runtime.runs.serialize import (
     debrief_from_transcript,
     escalations_from_transcript,
     files_touched_from_transcript,
+    landing_write_failure_kind,
 )
 from agentcore.runtime.runs.types import ContextBlock, RunPhase, RunSpec, RunState
 from agentcore.runtime.runs.website_visual_critic import (
@@ -816,6 +817,11 @@ async def execute_agent_node(
                 touched_now, product_landing_artifacts
             )
             product_files_written = len(product_touched_now)
+            landing_fail_kind = (
+                landing_write_failure_kind(messages)
+                if product_files_written <= 0
+                else None
+            )
             # 自由 delegate 落盘 research/ 时与 playbook 盖戳同口径进入 A→B。
             two_phase = _two_phase_citation(
                 deliverable, landed_paths=touched_now
@@ -889,6 +895,7 @@ async def execute_agent_node(
                 ledger_entries=turn_ledger_entries,
                 citable_ids=turn_citable_ids,
                 enforce_citations=not in_phase_a,
+                landing_failure_kind=landing_fail_kind,
             )
             # P1c visual critic: only after web_quality / contract **hard** gates pass.
             if (
@@ -955,6 +962,7 @@ async def execute_agent_node(
                     ledger_entries=turn_ledger_entries,
                     citable_ids=turn_citable_ids,
                     enforce_citations=True,
+                    landing_failure_kind=landing_fail_kind,
                 )
                 cite_fail, other_fail = partition_citation_failures(probe.failures)
                 if other_fail:
@@ -997,6 +1005,7 @@ async def execute_agent_node(
                             ledger_entries=turn_ledger_entries,
                             citable_ids=turn_citable_ids,
                             enforce_citations=True,
+                            landing_failure_kind=landing_fail_kind,
                         )
                         cite_fail, other_fail = partition_citation_failures(
                             probe.failures
@@ -1212,15 +1221,17 @@ async def execute_agent_node(
         # 调研两阶段安全网：若未升到 B 就收口，仍把成稿引用闸失败并入 verdict，
         # 避免草案被 silent accepted（draft 不得进 delivered_files）。
         if two_phase and not cite_upgrade_used and verdict.ok:
+            _touched_safe = files_touched_from_transcript(messages)
+            _product_safe = len(
+                filter_product_landing_paths(
+                    _touched_safe,
+                    product_landing_artifacts,
+                )
+            )
             probe = check_contract(
                 content,
                 deliverable,
-                files_written=len(
-                    filter_product_landing_paths(
-                        files_touched_from_transcript(messages),
-                        product_landing_artifacts,
-                    )
-                ),
+                files_written=_product_safe,
                 debrief=debrief_from_transcript(messages),
                 workspace_paths=workspace_paths,
                 artifact_contents=artifact_contents,
@@ -1235,6 +1246,9 @@ async def execute_agent_node(
                     else None
                 ),
                 enforce_citations=True,
+                landing_failure_kind=(
+                    landing_write_failure_kind(messages) if _product_safe <= 0 else None
+                ),
             )
             cite_fail, other_fail = partition_citation_failures(probe.failures)
             if other_fail:
@@ -1432,7 +1446,10 @@ async def execute_agent_node(
             run_id=spec.run_id,
         )
         warnings = _apply_cutoff_reasons(cutoff_reasons, warnings=warnings)
-        delivery_gaps = _delivery_gaps_from_warnings(warnings, debrief)
+        # 刀1：已落盘时 degraded_handoff 只记 warning，不抬硬缺口。
+        delivery_gaps = _delivery_gaps_from_warnings(
+            warnings, debrief, files_landed=bool(touched)
+        )
         # 成篇质量：有下游 + 相对合同未满足且无成篇 prose 落盘 → 失败（与 handoff 同口径）。
         # 认 tool_ctx.landed_artifact_kinds（跨 replace 存活）；勿用 has_landed_files /
         # 泛 files_touched（骨架落盘会误豁免）。地板只认 deliverable.min_length。
@@ -1489,10 +1506,12 @@ async def execute_agent_node(
                 transcript=messages,
                 received_context=received_blocks,
             )
-        # Wave3 C: strict deliverables with hard gaps / degraded_handoff must not
-        # silently COMPLETE — fail so CEO takes continue_from / replan (not wrap-up).
+        # 刀1 / 方案 A：strict + 真未落盘仍硬拦；已落盘 + 仅交接降级 → 放行 COMPLETED。
         hard_gap_reason = _hard_gap_blocks_completion(
-            delivery_gaps, debrief, deliverable
+            delivery_gaps,
+            debrief,
+            deliverable,
+            files_touched=len(touched or []),
         )
         if hard_gap_reason:
             logger.info(

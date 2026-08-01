@@ -311,9 +311,12 @@ def test_delivery_gaps_on_soft_accept_and_partial_meta():
     gaps = _delivery_gaps_from_warnings(
         ["缺章节：结论"],
         {"summary": "薄", "degraded": True},
+        files_landed=True,
     )
     assert any("缺章节" in g["description"] for g in gaps)
     assert any(g.get("reason") == "degraded_handoff" for g in gaps)
+    degraded = next(g for g in gaps if g.get("reason") == "degraded_handoff")
+    assert degraded.get("severity") == "warning"
 
     plan = RunPlan(nodes=[RunSpec(run_id="w1", task="t", role="写手")])
     results = {
@@ -330,8 +333,13 @@ def test_delivery_gaps_on_soft_accept_and_partial_meta():
     }
     payload = build_delivery_status(plan, results, execution_id="e1")
     assert payload is not None
+    # 缺章节仍 blocking → partial；degraded 仅为 warning。
     assert payload["state"] == "partial"
     assert payload["gaps"]
+    assert any(
+        g.get("reason") == "degraded_handoff" and g.get("severity") == "warning"
+        for g in payload["gaps"]
+    )
 
 
 # ── 4. 资源计账 ────────────────────────────────────────────────

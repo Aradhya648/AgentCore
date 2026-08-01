@@ -577,7 +577,7 @@ def test_collect_worker_gaps_surfaces_warnings_and_degraded_handoff():
     assert "契约缺口" in block
     assert "集成岗" in block
     assert "架构师" in block
-    assert "降级合成" in block
+    assert "交接说明不够完整" in block or "降级合成" in block
     assert "部分交付" in block
     assert "无需审计" in block
 
@@ -839,6 +839,7 @@ def test_files_written_gap_lists_landing_tools_from_serialize():
     assert "str_replace" in gaps[0]
     assert "write_section" in gaps[0]
     assert "file_move" in gaps[0]
+    assert "file_copy" in gaps[0]
     assert "code_execute" in gaps[0]
 
 def _terminal_ready_transcript():

@@ -39,8 +39,14 @@ FINISH_INTERRUPT_WARNING = (
 def _delivery_gaps_from_warnings(
     warnings: list[str],
     debrief: dict[str, Any] | None,
+    *,
+    files_landed: bool = False,
 ) -> list[dict[str, str]]:
-    """Build first-class delivery_gaps rows from soft-accept warnings + debrief."""
+    """Build first-class delivery_gaps rows from soft-accept warnings + debrief.
+
+    ``files_landed``: 刀1 / 方案 A — 已有声明路径落盘时，``degraded_handoff`` 只记
+    warning 备注，不抬成硬缺口。
+    """
     from agentcore.runtime.delegate.delivery_status import REASON_PATH_HINT
     from agentcore.runtime.runs.cutoff import (
         DEGRADED_HANDOFF_WARNING,
@@ -62,6 +68,8 @@ def _delivery_gaps_from_warnings(
         code = reason_for_warning(text)
         if code:
             row["reason"] = code
+            if code == REASON_DEGRADED_HANDOFF and files_landed:
+                row["severity"] = "warning"
         elif any(m in text for m in path_hint_markers):
             # Contract path-reconciliation (artifact_dir / artifacts) is warning-only.
             row["severity"] = "warning"
@@ -70,7 +78,10 @@ def _delivery_gaps_from_warnings(
     if isinstance(debrief, dict) and debrief.get("degraded"):
         text = DEGRADED_HANDOFF_WARNING
         if text not in seen:
-            gaps.append({"description": text, "reason": REASON_DEGRADED_HANDOFF})
+            row = {"description": text, "reason": REASON_DEGRADED_HANDOFF}
+            if files_landed:
+                row["severity"] = "warning"
+            gaps.append(row)
     return gaps
 
 
@@ -78,12 +89,15 @@ def _hard_gap_blocks_completion(
     delivery_gaps: list[dict[str, str]],
     debrief: dict[str, Any] | None,
     deliverable: Deliverable | None,
+    *,
+    files_touched: int = 0,
 ) -> str | None:
-    """Wave3 C: strict nodes must not COMPLETE with hard gaps / degraded_handoff.
+    """Strict nodes: hard gaps still block COMPLETE; degraded_handoff alone does not
+    when declared paths already landed (刀1 / 方案 A).
 
     Soft anti-slop warnings alone do not trip this. Missing-artifact soft-accept is
     already blocked by ``strict=True`` via :func:`_is_hard_failure`. Returns a fail
-    reason (CEO may ``continue_from_run_id``) or ``None`` to allow COMPLETED.
+    reason (CEO may 续派) or ``None`` to allow COMPLETED.
     """
     if deliverable is None or not deliverable.strict:
         return None
@@ -92,25 +106,32 @@ def _hard_gap_blocks_completion(
         REASON_DEGRADED_HANDOFF,
     )
 
+    files_landed = int(files_touched or 0) > 0
+
     for gap in delivery_gaps or []:
         if not isinstance(gap, dict):
+            continue
+        # Soft-stamped rows (path_hint / landed degraded) never hard-block.
+        if str(gap.get("severity") or "").strip() == "warning":
             continue
         reason = str(gap.get("reason") or "").strip()
         desc = str(gap.get("description") or "").strip()
         if reason == REASON_DEGRADED_HANDOFF or DEGRADED_HANDOFF_WARNING in desc:
+            if files_landed:
+                continue
             return (
-                "硬缺口：降级交接（degraded_handoff），不得冒充完成；"
-                "请 continue_from_run_id 续派或冷补派"
+                "硬缺口：交接说明不完整且工作区无落盘文件，不得冒充完成；"
+                "请续派或冷补派"
             )
         if "未落盘" in desc or "未在工作区找到" in desc:
             return (
                 "硬缺口：声明交付物未落盘，不得冒充完成；"
-                "请 continue_from_run_id 续派或冷补派"
+                "请续派或冷补派"
             )
-    if isinstance(debrief, dict) and debrief.get("degraded"):
+    if isinstance(debrief, dict) and debrief.get("degraded") and not files_landed:
         return (
-            "硬缺口：降级交接（degraded_handoff），不得冒充完成；"
-            "请 continue_from_run_id 续派或冷补派"
+            "硬缺口：交接说明不完整且工作区无落盘文件，不得冒充完成；"
+            "请续派或冷补派"
         )
     return None
 

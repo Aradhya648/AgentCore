@@ -1,4 +1,3 @@
-import { DeliveryStatusCard } from "@/components/chat/DeliveryStatusCard";
 import { FileArtifactsCard } from "@/components/chat/FileArtifactsCard";
 import { Markdown } from "@/components/chat/Markdown";
 import { SourceCards } from "@/components/chat/SourceCards";
@@ -46,6 +45,7 @@ import { AlertTriangle, Check, Copy, KeyRound, RefreshCw } from "lucide-react";
 import { useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AssistantMessageFooter } from "./AssistantMessageFooter";
+import { DeliveryStatusMount } from "./DeliveryStatusMount";
 import { ComposingToolLine, ProcessTimeline } from "./ProcessTimeline";
 import { SyncStatusHint } from "./SyncStatusHint";
 import { ThinkingDots, ThinkingPanel } from "./Thinking";
@@ -59,7 +59,7 @@ function SingleAgentDeliveryAndFiles({
   messageId: string;
   conversationId: string | null;
 }) {
-  // 可用性短问可在无 plan 的 CEO 回合复用 delivery_status——单 Agent 路径也要渲染卡。
+  // 可用性短问可在无 plan 的 CEO 回合复用 delivery_status——单 Agent 路径也要渲染对账提示/产物。
   const deliveryStatus = useExecutionStore(
     (s) => s.byId[messageId]?.deliveryStatus ?? null,
   );
@@ -69,13 +69,7 @@ function SingleAgentDeliveryAndFiles({
   );
   return (
     <>
-      {deliveryStatus && (
-        <DeliveryStatusCard
-          status={deliveryStatus}
-          conversationId={conversationId}
-          turnKey={messageId}
-        />
-      )}
+      <DeliveryStatusMount status={deliveryStatus} />
       {artifacts.length > 0 && (
         <FileArtifactsCard
           artifacts={artifacts}
@@ -89,8 +83,7 @@ function SingleAgentDeliveryAndFiles({
 
 function MultiAgentFileArtifacts({ messageId }: { messageId: string }) {
   const conversationId = useConversationStore((s) => s.currentConversationId);
-  // 交付状态（能力闸门与交付诚实性）：delegate 收尾的结构化交付对账（同 execution_id
-  // 保最新）。缺口/待操作卡渲染在产出文件卡上方——诚实缺口先于清单。
+  // 交付对账（同 execution_id 保最新）：partial/blocked 轻提示在产物清单上方。
   const deliveryStatus = useExecutionStore(
     (s) => s.byId[messageId]?.deliveryStatus ?? null,
   );
@@ -100,13 +93,7 @@ function MultiAgentFileArtifacts({ messageId }: { messageId: string }) {
   );
   return (
     <>
-      {deliveryStatus && (
-        <DeliveryStatusCard
-          status={deliveryStatus}
-          conversationId={conversationId}
-          turnKey={messageId}
-        />
-      )}
+      <DeliveryStatusMount status={deliveryStatus} />
       <FileArtifactsCard
         artifacts={artifacts}
         conversationId={conversationId}

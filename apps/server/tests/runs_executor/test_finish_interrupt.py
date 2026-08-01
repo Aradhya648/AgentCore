@@ -77,7 +77,7 @@ async def test_abort_after_file_write_completes_with_warning_and_degraded_debrie
     assert "契约缺口" in block
     assert "实现" in block
     assert "收尾时中断" in block
-    assert "降级合成" in block
+    assert "交接说明不够完整" in block or "降级合成" in block
 
 
 async def test_abort_with_partial_content_also_flags_finish_interrupt():

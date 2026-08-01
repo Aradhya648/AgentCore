@@ -441,15 +441,12 @@ function CompletedStrip({
   teamPreview,
 }: StatusStripProps & { stopped?: boolean }) {
   const frames = useActiveExecField((rt) => rt.frames);
-  // 交付对账（同 execution_id 保最新）：跑完 ≠ 交付过关。partial/blocked 时勿写单纯「团队完成」。
-  const deliveryStatus = useActiveExecField((rt) => rt.deliveryStatus);
   const { completed, total } = execution.progress;
   const ms = elapsedMs(frames);
   const duration = ms > 0 ? formatDuration(ms) : "";
 
   // 子任务失败只靠 meta（n/m）+ 图节点色 + 右坞详情；完成/停止态不再挂红条复述。
-  const deliveryUnmet =
-    deliveryStatus?.state === "partial" || deliveryStatus?.state === "blocked";
+  // 交付 unmet（partial/blocked）由气泡轻提示承担，完成态条保持中性「团队完成」。
 
   // 费用累计：以协作图上各 run.cost 之和为准（跨回合追加后仍覆盖全图），
   // 不再读「最新助手气泡」——追加回合的 message_end.cost 会盖掉宿主口径。
@@ -471,16 +468,6 @@ function CompletedStrip({
       <div className="flex items-center gap-2">
         {stopped ? (
           <Square size={15} className="shrink-0 text-muted-foreground" />
-        ) : deliveryUnmet ? (
-          <AlertTriangle
-            size={15}
-            className={
-              deliveryStatus?.state === "blocked"
-                ? "shrink-0 text-destructive"
-                : "shrink-0 text-warning"
-            }
-            data-testid="status-strip-delivery-unmet-icon"
-          />
         ) : (
           <CheckCircle2 size={15} className="shrink-0 text-success" />
         )}
@@ -491,9 +478,7 @@ function CompletedStrip({
               ? "已停止"
               : isDebate(execution)
                 ? debatePreviewSubtitle(execution)
-                : deliveryUnmet
-                  ? "已跑完 · 交付未过关"
-                  : "团队完成"}
+                : "团队完成"}
           </span>
           {/* 完成态 meta（Agent 数 / 子任务 / 用时 / ¥）辩论与多 Agent 同口径：
               ¥ 归状态条（前端成本呈现）；标题仍走辩论预告片文案。 */}

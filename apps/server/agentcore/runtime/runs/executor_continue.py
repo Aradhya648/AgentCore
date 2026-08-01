@@ -43,7 +43,11 @@ from agentcore.runtime.runs.executor_shared import (
     _react_and_capture,
 )
 from agentcore.runtime.runs.landing_product import filter_product_landing_paths
-from agentcore.runtime.runs.serialize import debrief_from_transcript, files_touched_from_transcript
+from agentcore.runtime.runs.serialize import (
+    debrief_from_transcript,
+    files_touched_from_transcript,
+    landing_write_failure_kind,
+)
 from agentcore.runtime.runs.session import RunSession
 from agentcore.runtime.runs.types import ContextBlock, RunPhase, RunState
 from agentcore.tools.protocol import ToolContext
@@ -446,6 +450,9 @@ async def _continue_run_scoped(
             ),
             citable_ids=(
                 turn_ledger.draft_citable_ids() if turn_ledger is not None else None
+            ),
+            landing_failure_kind=(
+                landing_write_failure_kind(messages) if product_written <= 0 else None
             ),
         )
         record_turn_fact(

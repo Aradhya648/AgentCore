@@ -167,7 +167,7 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
   delivery_status: {
     verdict: "ported",
     surface:
-      "TeamView · 交付验收（批次验收缺口/待操作；fold 对齐桌面 DeliveryStatusCard）",
+      "TeamView · 交付轻提示（partial/blocked 一句；delivered/notes 静默；对齐桌面 DeliveryStatusMount）",
   },
   user_interjection: {
     verdict: "internal",
@@ -438,11 +438,6 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     surface: "AssistantView · 收到的上下文",
   },
   TeamNotesPanel: { verdict: "ported", surface: "TeamView · 团队便签" },
-  DeliveryStatusCard: {
-    verdict: "ported",
-    surface:
-      "TeamView · 交付验收（C3：批次验收缺口/待操作，交付验收卡为缺口唯一披露；无绑定按钮，云瘦客户端如实提示）",
-  },
   UserInterjectionsPanel: {
     verdict: "simplified",
     reason:
