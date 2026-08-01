@@ -717,10 +717,15 @@ class OpenAICompatibleProvider:
                 body_preview=body_preview(body),
             )
             if is_auth_rejection(status_code, body):
-                extracted = client_error_message(self._name, status_code, body)
-                # Prefer upstream text (e.g. key_expired) over the generic default.
+                # Platform = operator key: product copy only (never upstream gateway
+                # tutorials like CC Switch). BYOK keeps upstream text for diagnosis.
+                auth_message = (
+                    None
+                    if self._name == "platform"
+                    else client_error_message(self._name, status_code, body)
+                )
                 raise LLMAuthError(
-                    extracted,
+                    auth_message,
                     provider_name=self._name,
                     upstream_status=status_code,
                     upstream_body_preview=body_preview(body),

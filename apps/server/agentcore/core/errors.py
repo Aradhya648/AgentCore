@@ -94,10 +94,17 @@ class LLMAuthError(LLMError):
     retryable — re-sending with the same bad key just re-fails — and its message (and
     the ``LLM_KEY_INVALID`` code, which the client maps to a "去配置" action) routes
     the user back to 设置·模型配置 to fix the key.
+
+    Platform keys are operator-owned: default copy must not echo upstream gateway
+    help (e.g. CC Switch tutorials) or the internal provider label ``platform``.
     """
 
     code = ErrorCode.LLM_KEY_INVALID
     retryable = False
+
+    _PLATFORM_MESSAGE = (
+        "平台模型暂时不可用（上游鉴权失败）。请改用自己的 API Key，或联系管理员。"
+    )
 
     def __init__(
         self,
@@ -107,10 +114,14 @@ class LLMAuthError(LLMError):
         **kwargs,
     ):
         if message is None:
-            label = (provider_name or "").strip() or "当前模型"
-            message = (
-                f"{label} API Key 无效或无权限，请在「设置 · 模型配置」中更新后重试。"
-            )
+            name = (provider_name or "").strip()
+            if name == "platform":
+                message = self._PLATFORM_MESSAGE
+            else:
+                label = name if name and name != "user" else "当前模型"
+                message = (
+                    f"{label} API Key 无效或无权限，请在「设置 · 模型配置」中更新后重试。"
+                )
         super().__init__(message, **kwargs)
 
 

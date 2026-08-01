@@ -5,7 +5,9 @@ When a detached coordination drive finishes, the harvester calls
 execution, consumes queued ``ALL_COMPLETED``, and delivers a final assistant
 message. Meta stamps ``origin=execution_harvest`` for attribution.
 
-Mirrors :mod:`agentcore.conversation.stage_card_resolve` ``run_and_persist`` usage.
+Credential routing matches ordinary turns / standing-task fires (conversation
+model selection + billing preflight) — never hardcode ``llm_credentials=None``
+(that silently falls through to the platform key).
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Literal
 
+from agentcore.billing.gate import preflight_llm_credentials
 from agentcore.conversation.common import (
     resolve_conversation_history_access,
     resolve_local_binding,
@@ -23,9 +26,19 @@ from agentcore.conversation.common import (
 from agentcore.conversation.history import load_chat_context
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_runner import run_and_persist
+from agentcore.core.errors import AgentCoreError
 from agentcore.core.logging import get_logger
 from agentcore.db.base import async_session_factory
-from agentcore.db.repositories import BoardRepository, ConversationRepository
+from agentcore.db.repositories import (
+    BoardRepository,
+    ConversationRepository,
+    CostEventRepository,
+    UserRepository,
+)
+from agentcore.llm.resolve import (
+    platform_llm_credentials,
+    resolve_conversation_model_selection,
+)
 from agentcore.push import PushNotification, notify_user
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.turn_runs import turn_runs
@@ -33,6 +46,7 @@ from agentcore.workspace.locate import workspace_storage_key
 from agentcore.workspace.locks import workspace_lock
 
 if TYPE_CHECKING:
+    from agentcore.llm.credentials import LLMCredentials
     from agentcore.runtime.coordination.session import CoordinationSession
 
 logger = get_logger(__name__)
@@ -146,6 +160,38 @@ async def run_harvest_closing_turn(
             return
         user_id = str(conv.user_id)
         folder_id = conv.folder_id
+        user = await UserRepository(db).get_by_id(user_id)
+        if user is None:
+            logger.warning(
+                "coordination.harvest_user_missing",
+                conversation_id=conversation_id,
+                execution_id=execution_id,
+                user_id=user_id,
+            )
+            return
+        try:
+            selection = await resolve_conversation_model_selection(db, conv, user_id)
+            llm_credentials: LLMCredentials | None = await preflight_llm_credentials(
+                session=db,
+                user=user,
+                cost_repo=CostEventRepository(db),
+                byok_missing_message=(
+                    "系统收口需要可用的模型凭证，请先在「设置 · 模型配置」中填入 API Key。"
+                ),
+                model_origin=selection.origin,
+                provider_id=selection.provider_id,
+            )
+            if selection.origin == "platform":
+                llm_credentials = platform_llm_credentials(model=selection.model)
+        except AgentCoreError as e:
+            logger.warning(
+                "coordination.harvest_credentials_unavailable",
+                conversation_id=conversation_id,
+                execution_id=execution_id,
+                error=e.message or str(e),
+                code=getattr(e, "code", None),
+            )
+            return
         local_binding = await resolve_local_binding(db, conv)
         profile_set = await resolve_profile_set(db, conv, user_id)
         memory_enabled = await resolve_memory_enabled(db, user_id)
@@ -196,7 +242,7 @@ async def run_harvest_closing_turn(
                 history=history[:-1] if history else [],
                 attachments=None,
                 backend=backend,
-                llm_credentials=None,
+                llm_credentials=llm_credentials,
                 profile_set=profile_set,
                 memory_enabled=memory_enabled,
                 conversation_history_access=conversation_history_access,

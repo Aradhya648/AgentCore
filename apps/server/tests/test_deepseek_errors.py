@@ -91,6 +91,46 @@ async def test_complete_maps_key_expired_to_auth_error_with_upstream_text():
         await provider.close()
 
 
+async def test_platform_auth_uses_product_copy_not_upstream_gateway_text():
+    """Platform 401 must not echo upstream gateway help (e.g. CC Switch)."""
+    body = json.dumps(
+        {
+            "error": {
+                "message": "This API key has been revoked. 请访问本站查看 CC Switch 配置教程。",
+                "type": "invalid_request_error",
+                "code": "key_revoked",
+            }
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    provider = OpenAICompatibleProvider(
+        name="platform", api_key="k", base_url="http://example.invalid/v1"
+    )
+    await provider._client.aclose()
+    provider._client = httpx.AsyncClient(
+        base_url="http://example.invalid/v1",
+        transport=httpx.MockTransport(lambda request: httpx.Response(401, content=body)),
+    )
+    try:
+        with pytest.raises(LLMAuthError) as ei:
+            await provider.complete(_req())
+        assert "CC Switch" not in ei.value.message
+        assert "platform " not in ei.value.message
+        assert "平台模型暂时不可用" in ei.value.message
+        assert ei.value.details.get("upstream_status") == 401
+        assert "revoked" in (ei.value.details.get("upstream_body_preview") or "").lower()
+    finally:
+        await provider.close()
+
+
+async def test_llm_auth_error_platform_default_message():
+    err = LLMAuthError(provider_name="platform")
+    assert "平台模型暂时不可用" in err.message
+    assert "platform" not in err.message
+    assert "CC Switch" not in err.message
+    assert "设置 · 模型配置" not in err.message  # BYOK remedy, not platform
+
+
 async def test_complete_maps_model_not_allowed_403_to_client_error_not_auth():
     body = json.dumps(
         {
