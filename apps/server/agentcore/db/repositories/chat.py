@@ -318,6 +318,86 @@ class ChatRepository:
         await self._session.refresh(msg)
         return msg
 
+    async def recall_message(
+        self,
+        *,
+        message_id: str,
+        recalled_by_user_id: str,
+        list_preview: str,
+    ) -> ChatMessage | None:
+        """Soft-recall a message: keep the row, clear body, refresh list preview.
+
+        Idempotent when already recalled. ``list_preview`` is written onto the
+        chat only when this message is still the latest (by ``created_at``).
+        """
+        msg = await self.get_message(message_id)
+        if msg is None:
+            return None
+        if msg.recalled_at is not None:
+            return msg
+        now = datetime.now(UTC)
+        msg.recalled_at = now
+        msg.recalled_by_user_id = recalled_by_user_id
+        msg.content = None
+        msg.attachments = []
+        msg.payload = None
+
+        latest = await self._session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.chat_id == msg.chat_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(1)
+        )
+        latest_msg = latest.scalar_one_or_none()
+        if latest_msg is not None and latest_msg.id == msg.id:
+            await self._session.execute(
+                update(Chat)
+                .where(Chat.id == msg.chat_id)
+                .values(last_message_preview=list_preview[:200])
+            )
+
+        await self._session.commit()
+        await self._session.refresh(msg)
+        return msg
+
+    async def edit_message(
+        self,
+        *,
+        message_id: str,
+        content: str,
+        list_preview: str | None,
+    ) -> ChatMessage | None:
+        """Rewrite plain-text content and stamp ``edited_at``.
+
+        When ``list_preview`` is provided and this message is still the chat's
+        latest (by ``created_at``), refresh ``chats.last_message_preview``.
+        """
+        msg = await self.get_message(message_id)
+        if msg is None:
+            return None
+        now = datetime.now(UTC)
+        msg.content = content
+        msg.edited_at = now
+
+        if list_preview is not None:
+            latest = await self._session.execute(
+                select(ChatMessage)
+                .where(ChatMessage.chat_id == msg.chat_id)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(1)
+            )
+            latest_msg = latest.scalar_one_or_none()
+            if latest_msg is not None and latest_msg.id == msg.id:
+                await self._session.execute(
+                    update(Chat)
+                    .where(Chat.id == msg.chat_id)
+                    .values(last_message_preview=list_preview[:200])
+                )
+
+        await self._session.commit()
+        await self._session.refresh(msg)
+        return msg
+
     async def list_messages(
         self, chat_id: str, *, limit: int = 50, offset: int = 0
     ) -> tuple[Sequence[ChatMessage], int]:

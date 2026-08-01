@@ -14,9 +14,11 @@ import {
   type SendContentType,
   type StoredAttachment,
   announce as apiAnnounce,
+  editMessage as apiEditMessage,
   kickMember as apiKickMember,
   leaveChat as apiLeaveChat,
   muteMember as apiMuteMember,
+  recallMessage as apiRecallMessage,
   sendMessage as apiSendMessage,
   isImageAttachment,
   listChats,
@@ -68,6 +70,7 @@ function mergeMessages(
 
 /** A human-readable list-row preview for a message (non-text shows a kind tag). */
 function previewOf(message: ChatMessageDetail): string {
+  if (message.recalled_at) return "[已撤回]";
   switch (message.content_type) {
     case "image":
       return "[图片]";
@@ -187,10 +190,20 @@ interface MessagingState {
   ) => Promise<void>;
   /** Admin 公告: post a system_card; mirror it locally (the firehose also delivers). */
   announce: (chatId: string, content: string) => Promise<void>;
+  /** Soft-recall a message; mirrors locally then reconciles with the API result. */
+  recallMessage: (chatId: string, messageId: string) => Promise<void>;
+  /** Edit a plain-text message; mirrors via applyMessageUpdated. */
+  editMessage: (
+    chatId: string,
+    messageId: string,
+    content: string,
+  ) => Promise<void>;
   /** Merge or prepend a chat the client just learned about (e.g. a new dm). */
   upsertChat: (chat: ChatSummary) => void;
   /** Ingest a realtime message (from the firehose): merge + unread + reorder. */
   applyIncoming: (chatId: string, message: ChatMessageDetail) => void;
+  /** In-place replace (recall/edit firehose): no unread bump. */
+  applyMessageUpdated: (chatId: string, message: ChatMessageDetail) => void;
   /** Apply a firehose ``presence`` event: flip ``online`` on dm peers + rosters. */
   applyPresence: (userId: string, online: boolean) => void;
   clearSendError: () => void;
@@ -405,6 +418,9 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
       reply_to_message_id: replyToMessageId,
       reply_to: replySnapshot,
       mentions: mentionList ?? [],
+      recalled_at: null,
+      recalled_by_user_id: null,
+      edited_at: null,
       created_at: new Date().toISOString(),
     };
 
@@ -565,6 +581,16 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
     get().applyIncoming(chatId, message);
   },
 
+  recallMessage: async (chatId, messageId) => {
+    const message = await apiRecallMessage(chatId, messageId);
+    get().applyMessageUpdated(chatId, message);
+  },
+
+  editMessage: async (chatId, messageId, content) => {
+    const message = await apiEditMessage(chatId, messageId, content);
+    get().applyMessageUpdated(chatId, message);
+  },
+
   upsertChat: (chat) =>
     set((s) => {
       const idx = s.chats.findIndex((c) => c.id === chat.id);
@@ -624,6 +650,39 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
     // A message for a chat we don't know yet (a new incoming request): pull the
     // list so the row appears. Done outside set() to avoid a nested update.
     if (!known) void get().fetchChats();
+  },
+
+  applyMessageUpdated: (chatId, message) => {
+    set((s) => {
+      const list = s.messagesByChat[chatId];
+      const messagesByChat = list
+        ? {
+            ...s.messagesByChat,
+            [chatId]: list.map((m) => (m.id === message.id ? message : m)),
+          }
+        : s.messagesByChat;
+
+      const chat = s.chats.find((c) => c.id === chatId);
+      if (!chat) return { messagesByChat };
+
+      const loaded = messagesByChat[chatId];
+      const lastLoaded = loaded?.[loaded.length - 1];
+      const isLatestLoaded = !!lastLoaded && lastLoaded.id === message.id;
+      const isListTail =
+        chat.last_message_at != null &&
+        chat.last_message_at === message.created_at;
+      if (!isLatestLoaded && !isListTail) {
+        return { messagesByChat };
+      }
+      return {
+        messagesByChat,
+        chats: s.chats.map((c) =>
+          c.id === chatId
+            ? { ...c, last_message_preview: previewOf(message) }
+            : c,
+        ),
+      };
+    });
   },
 
   applyPresence: (userId, online) => {

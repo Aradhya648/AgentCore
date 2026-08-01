@@ -3050,6 +3050,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited At"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -3086,6 +3098,29 @@
               }
             ],
             "title": "Payload"
+          },
+          "recalled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recalled At"
+          },
+          "recalled_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recalled By User Id"
           },
           "reply_to": {
             "anyOf": [
@@ -5605,6 +5640,22 @@
           "version"
         ],
         "title": "DocumentWriteResult",
+        "type": "object"
+      },
+      "EditChatMessageRequest": {
+        "description": "Rewrite a plain-text message body (消息IM.md §8 S4).\n\nAttachments / non-text / recalled / system_card / official are refused by the\nservice. Only the sender within 15 minutes may edit.",
+        "properties": {
+          "content": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "EditChatMessageRequest",
         "type": "object"
       },
       "EnsureStandingTaskTemplateRequest": {
@@ -14753,7 +14804,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.23"
+    "version": "0.3.24"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -29195,6 +29246,184 @@
           }
         },
         "summary": "Send Chat Message",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/chats/{chat_id}/messages/{message_id}": {
+      "patch": {
+        "description": "Edit a plain-text message (消息IM.md §8 S4).\n\nSender within 15 minutes; recalled / attachments / system_card / official\nrefused. Updates ``content`` + ``edited_at``; refreshes list preview when\nthis row is still the latest. Fans ``chat_message_updated`` (no unread bump).\n404 non-member / missing; 403 outside window or without permission.",
+        "operationId": "edit_chat_message_v1_messages_chats__chat_id__messages__message_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "title": "Chat Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditChatMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessageDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Chat Message",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/chats/{chat_id}/messages/{message_id}/recall": {
+      "post": {
+        "description": "Soft-recall a message (消息IM.md §8 S3).\n\nSender within 2 minutes; platform admin may recall any group member message\n(and system_card / official announcements). Body is cleared; row kept.\nFans ``chat_message_updated`` for in-place client replace (no unread bump).\n404 non-member / missing; 403 outside window or without permission.",
+        "operationId": "recall_chat_message_v1_messages_chats__chat_id__messages__message_id__recall_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "title": "Chat Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessageDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recall Chat Message",
         "tags": [
           "messages"
         ]

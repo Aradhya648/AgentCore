@@ -41,6 +41,9 @@ function msg(id: string, at: string) {
     reply_to_message_id: null,
     reply_to: null,
     mentions: [],
+    recalled_at: null,
+    recalled_by_user_id: null,
+    edited_at: null,
     created_at: at,
   };
 }
@@ -333,6 +336,9 @@ describe("messaging store muted mention alert", () => {
       reply_to_message_id: null,
       reply_to: null,
       mentions: [{ kind: "user", user_id: "me" }],
+      recalled_at: null,
+      recalled_by_user_id: null,
+      edited_at: null,
       created_at: "2026-01-01T03:00:00Z",
     });
 
@@ -360,10 +366,109 @@ describe("messaging store muted mention alert", () => {
       reply_to_message_id: null,
       reply_to: null,
       mentions: [],
+      recalled_at: null,
+      recalled_by_user_id: null,
+      edited_at: null,
       created_at: "2026-01-01T03:00:00Z",
     });
 
     expect(useMessagingStore.getState().mentionAlertByChat.g1).toBeUndefined();
     expect(notifyInfo).not.toHaveBeenCalled();
+  });
+});
+
+describe("messaging store applyMessageUpdated (recall)", () => {
+  beforeEach(() => {
+    useMessagingStore.setState({
+      chats: [
+        {
+          id: "c1",
+          type: "dm",
+          title: null,
+          avatar_url: null,
+          peer: null,
+          last_message_at: "2026-01-01T01:00:00Z",
+          last_message_preview: "secret",
+          unread: 0,
+          pinned: false,
+          muted: false,
+          state: "accepted",
+        },
+      ],
+      messagesByChat: {
+        c1: [
+          {
+            id: "m1",
+            chat_id: "c1",
+            sender_user_id: "me",
+            sender_type: "user",
+            content: "secret",
+            content_type: "text",
+            attachments: [],
+            payload: null,
+            reply_to_message_id: null,
+            reply_to: null,
+            mentions: [],
+            recalled_at: null,
+            recalled_by_user_id: null,
+            edited_at: null,
+            created_at: "2026-01-01T01:00:00Z",
+          },
+        ],
+      },
+      activeChatId: "c1",
+    });
+  });
+
+  it("replaces in place and clears list preview without bumping unread", () => {
+    useMessagingStore.getState().applyMessageUpdated("c1", {
+      id: "m1",
+      chat_id: "c1",
+      sender_user_id: "me",
+      sender_type: "user",
+      content: null,
+      content_type: "text",
+      attachments: [],
+      payload: null,
+      reply_to_message_id: null,
+      reply_to: null,
+      mentions: [],
+      recalled_at: "2026-01-01T01:01:00Z",
+      recalled_by_user_id: "me",
+      edited_at: null,
+      created_at: "2026-01-01T01:00:00Z",
+    });
+
+    const state = useMessagingStore.getState();
+    expect(state.messagesByChat.c1?.[0]?.recalled_at).toBeTruthy();
+    expect(state.messagesByChat.c1?.[0]?.content).toBeNull();
+    expect(state.chats[0]?.last_message_preview).toBe("[已撤回]");
+    expect(state.chats[0]?.unread).toBe(0);
+  });
+
+  it("replaces edited body and refreshes list preview without unread bump", () => {
+    useMessagingStore.getState().applyMessageUpdated("c1", {
+      id: "m1",
+      chat_id: "c1",
+      sender_user_id: "me",
+      sender_type: "user",
+      content: "revised",
+      content_type: "text",
+      attachments: [],
+      payload: null,
+      reply_to_message_id: null,
+      reply_to: null,
+      mentions: [],
+      recalled_at: null,
+      recalled_by_user_id: null,
+      edited_at: "2026-01-01T01:02:00Z",
+      created_at: "2026-01-01T01:00:00Z",
+    });
+
+    const state = useMessagingStore.getState();
+    expect(state.messagesByChat.c1?.[0]?.content).toBe("revised");
+    expect(state.messagesByChat.c1?.[0]?.edited_at).toBeTruthy();
+    expect(state.chats[0]?.last_message_preview).toBe("revised");
+    expect(state.chats[0]?.unread).toBe(0);
   });
 });

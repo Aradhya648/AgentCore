@@ -67,8 +67,10 @@ class FakeChats:
         self._seq = 0
 
     def _now(self):
+        # Near-real clock so the 2-minute recall window is exercisable without
+        # per-test created_at patching; ``_seq`` keeps insert order unique.
         self._seq += 1
-        return _EPOCH + timedelta(seconds=self._seq)
+        return datetime.now(UTC) + timedelta(microseconds=self._seq)
 
     @staticmethod
     def dm_key(user_a, user_b):
@@ -281,12 +283,48 @@ class FakeChats:
             reply_to=reply_to,
             mentions=list(mentions) if mentions is not None else [],
             client_msg_id=client_msg_id,
+            recalled_at=None,
+            recalled_by_user_id=None,
+            edited_at=None,
             created_at=self._now(),
         )
         self._messages.append(msg)
         chat = self._chats[chat_id]
         chat.last_message_at = msg.created_at
         chat.last_message_preview = (content or "")[:200]
+        return msg
+
+    async def recall_message(self, *, message_id, recalled_by_user_id, list_preview):
+        msg = await self.get_message(message_id)
+        if msg is None:
+            return None
+        if getattr(msg, "recalled_at", None) is not None:
+            return msg
+        msg.recalled_at = self._now()
+        msg.recalled_by_user_id = recalled_by_user_id
+        msg.content = None
+        msg.attachments = []
+        msg.payload = None
+        rows = sorted(
+            (m for m in self._messages if m.chat_id == msg.chat_id),
+            key=lambda m: m.created_at,
+        )
+        if rows and rows[-1].id == msg.id:
+            self._chats[msg.chat_id].last_message_preview = (list_preview or "")[:200]
+        return msg
+
+    async def edit_message(self, *, message_id, content, list_preview):
+        msg = await self.get_message(message_id)
+        if msg is None:
+            return None
+        msg.content = content
+        msg.edited_at = self._now()
+        rows = sorted(
+            (m for m in self._messages if m.chat_id == msg.chat_id),
+            key=lambda m: m.created_at,
+        )
+        if list_preview is not None and rows and rows[-1].id == msg.id:
+            self._chats[msg.chat_id].last_message_preview = (list_preview or "")[:200]
         return msg
 
     async def list_messages(self, chat_id, *, limit=50, offset=0):
@@ -861,6 +899,249 @@ async def test_send_message_reply_cross_chat_rejected():
             content="cross",
             reply_to_message_id=in_ab.id,
         )
+
+
+# --- recall (S3 撤回) ---
+
+
+async def test_recall_own_message_within_window():
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="secret")
+    msg.created_at = datetime.now(UTC)
+    events.published.clear()
+    recalled = await svc.recall_message(
+        chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id
+    )
+    assert recalled.recalled_at is not None
+    assert recalled.recalled_by_user_id == alice.user_id
+    assert recalled.content is None
+    assert chats._chats[chat.id].last_message_preview == "[已撤回]"
+    recipients, event = events.published[-1]
+    assert set(recipients) == {alice.user_id, bob.user_id}
+    assert event["type"] == "chat_message_updated"
+    assert event["message"]["id"] == msg.id
+    assert event["message"]["recalled_at"] is not None
+    assert event["message"]["content"] is None
+
+
+async def test_recall_own_message_after_window_403():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="late")
+    msg.created_at = datetime.now(UTC) - timedelta(minutes=3)
+    with pytest.raises(AuthorizationError, match="撤回时限"):
+        await svc.recall_message(chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id)
+
+
+async def test_recall_other_user_message_403():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="hi")
+    with pytest.raises(AuthorizationError, match="无权撤回"):
+        await svc.recall_message(chat_id=chat.id, message_id=msg.id, actor_id=bob.user_id)
+
+
+async def test_admin_recall_group_member_message_no_window():
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
+    admin = users.add("admin", role="admin")
+    alice = users.add("alice")
+    group = await chats.create_group(member_ids=[admin.user_id, alice.user_id])
+    msg = await svc.send_message(chat_id=group.id, sender_id=alice.user_id, content="spam")
+    msg.created_at = datetime.now(UTC) - timedelta(hours=1)
+    events.published.clear()
+    recalled = await svc.recall_message(
+        chat_id=group.id, message_id=msg.id, actor_id=admin.user_id
+    )
+    assert recalled.recalled_by_user_id == admin.user_id
+    assert events.published[-1][1]["type"] == "chat_message_updated"
+
+
+async def test_admin_cannot_recall_others_dm_after_window():
+    """Admin governance is group-scoped — DM still needs the sender window."""
+    svc, users, *_ = _make()
+    admin = users.add("admin", role="admin")
+    alice = users.add("alice")
+    chat = (await svc.start_dm(requester_id=admin.user_id, peer_id=alice.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="hi")
+    msg.created_at = datetime.now(UTC) - timedelta(minutes=5)
+    with pytest.raises(AuthorizationError):
+        await svc.recall_message(chat_id=chat.id, message_id=msg.id, actor_id=admin.user_id)
+
+
+async def test_non_admin_cannot_recall_system_card():
+    svc, users, chats, *_ = _make()
+    admin = users.add("admin", role="admin")
+    alice = users.add("alice")
+    group = await chats.create_group(member_ids=[admin.user_id, alice.user_id])
+    notice = await svc.post_announcement(
+        chat_id=group.id, actor_id=admin.user_id, content="公告"
+    )
+    with pytest.raises(AuthorizationError, match="无权撤回"):
+        await svc.recall_message(
+            chat_id=group.id, message_id=notice.id, actor_id=alice.user_id
+        )
+
+
+async def test_admin_can_recall_system_card():
+    svc, users, chats, *_ = _make()
+    admin = users.add("admin", role="admin")
+    alice = users.add("alice")
+    group = await chats.create_group(member_ids=[admin.user_id, alice.user_id])
+    notice = await svc.post_announcement(
+        chat_id=group.id, actor_id=admin.user_id, content="公告"
+    )
+    recalled = await svc.recall_message(
+        chat_id=group.id, message_id=notice.id, actor_id=admin.user_id
+    )
+    assert recalled.recalled_at is not None
+    assert recalled.content is None
+
+
+async def test_recall_keeps_reply_snapshot_readable():
+    svc, users, *_ = _make()
+    alice = users.add("alice", display_name="Alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    original = await svc.send_message(
+        chat_id=chat.id, sender_id=alice.user_id, content="quote me"
+    )
+    original.created_at = datetime.now(UTC)
+    reply = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=bob.user_id,
+        content="ok",
+        reply_to_message_id=original.id,
+    )
+    assert reply.reply_to["body_preview"] == "quote me"
+    await svc.recall_message(chat_id=chat.id, message_id=original.id, actor_id=alice.user_id)
+    # Frozen snapshot on the reply row is unchanged.
+    assert reply.reply_to["body_preview"] == "quote me"
+    # New replies to a recalled target get the withdrawn label.
+    later = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=bob.user_id,
+        content="again",
+        reply_to_message_id=original.id,
+    )
+    assert later.reply_to["body_preview"] == "[已撤回]"
+
+
+async def test_recall_idempotent():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="x")
+    msg.created_at = datetime.now(UTC)
+    first = await svc.recall_message(chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id)
+    second = await svc.recall_message(chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id)
+    assert first.recalled_at == second.recalled_at
+
+
+# --- edit (S4 编辑) ---
+
+
+async def test_edit_own_text_within_window():
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="old")
+    msg.created_at = datetime.now(UTC)
+    events.published.clear()
+    edited = await svc.edit_message(
+        chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id, content="new body"
+    )
+    assert edited.content == "new body"
+    assert edited.edited_at is not None
+    assert chats._chats[chat.id].last_message_preview == "new body"
+    recipients, event = events.published[-1]
+    assert set(recipients) == {alice.user_id, bob.user_id}
+    assert event["type"] == "chat_message_updated"
+    assert event["message"]["content"] == "new body"
+    assert event["message"]["edited_at"] is not None
+
+
+async def test_edit_own_message_after_window_403():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="old")
+    msg.created_at = datetime.now(UTC) - timedelta(minutes=16)
+    with pytest.raises(AuthorizationError, match="编辑时限"):
+        await svc.edit_message(
+            chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id, content="new"
+        )
+
+
+async def test_edit_other_user_message_403():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="old")
+    msg.created_at = datetime.now(UTC)
+    with pytest.raises(AuthorizationError, match="无权编辑"):
+        await svc.edit_message(
+            chat_id=chat.id, message_id=msg.id, actor_id=bob.user_id, content="hack"
+        )
+
+
+async def test_edit_attachment_message_403():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(
+        chat_id=chat.id,
+        sender_id=alice.user_id,
+        content=None,
+        content_type="image",
+        attachments=[{"name": "a.png", "workspace_path": "a.png"}],
+    )
+    msg.created_at = datetime.now(UTC)
+    with pytest.raises(AuthorizationError, match="附件"):
+        await svc.edit_message(
+            chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id, content="caption"
+        )
+
+
+async def test_edit_recalled_message_403():
+    svc, users, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    msg = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="old")
+    msg.created_at = datetime.now(UTC)
+    await svc.recall_message(chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id)
+    with pytest.raises(AuthorizationError, match="已撤回"):
+        await svc.edit_message(
+            chat_id=chat.id, message_id=msg.id, actor_id=alice.user_id, content="new"
+        )
+
+
+async def test_edit_does_not_refresh_preview_when_not_latest():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    first = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="first")
+    first.created_at = datetime.now(UTC) - timedelta(seconds=10)
+    second = await svc.send_message(chat_id=chat.id, sender_id=alice.user_id, content="second")
+    second.created_at = datetime.now(UTC)
+    assert chats._chats[chat.id].last_message_preview == "second"
+    await svc.edit_message(
+        chat_id=chat.id, message_id=first.id, actor_id=alice.user_id, content="edited first"
+    )
+    assert chats._chats[chat.id].last_message_preview == "second"
 
 
 async def test_send_message_blocked_dm_raises():

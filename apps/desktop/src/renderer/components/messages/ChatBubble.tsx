@@ -20,13 +20,16 @@ import {
   downloadChatAttachment,
   isImageAttachment,
 } from "@/services/messaging";
-import { Download, FileText, Folder, Reply } from "lucide-react";
+import type { ChatType } from "@/services/messaging";
+import { Download, FileText, Folder, Pencil, Reply, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChatImageGallery } from "./ChatImageGallery";
 import {
   avatarInitial,
   avatarSrc,
+  canOfferEdit,
+  canOfferRecall,
   messageMentionsUser,
   splitContentByMentions,
 } from "./chatDisplay";
@@ -46,12 +49,22 @@ interface Props {
   highlighted?: boolean;
   /** Viewing user id — drives self-mention highlight in body text. */
   myUserId?: string | null;
+  /** Platform admin — may recall others' group / system_card messages. */
+  isAdmin?: boolean;
+  /** Active chat type (gates admin recall menu). */
+  chatType?: ChatType | null;
   /** Resolve a mentioned user's display name for body `@token` matching. */
   resolveMentionName?: (userId: string) => string | undefined;
   /** Start a reply to this message (hover button / context menu). */
   onReply?: (message: ChatMessageDetail) => void;
+  /** Soft-recall this message. */
+  onRecall?: (message: ChatMessageDetail) => void;
+  /** Start editing this message in the composer. */
+  onEdit?: (message: ChatMessageDetail) => void;
   /** Click the quote block → scroll to the original message. */
   onScrollToReply?: (messageId: string) => void;
+  /** True when the quoted target was later recalled (still show snapshot). */
+  replyTargetRecalled?: boolean;
   /** Group bubble avatar → 资料卡 (消息IM.md §9.4). */
   onAvatarClick?: (userId: string) => void;
 }
@@ -171,10 +184,12 @@ function formatBytes(bytes: number | null | undefined): string {
 function ReplyQuote({
   reply,
   mine,
+  targetRecalled,
   onClick,
 }: {
   reply: MessageReplyTo;
   mine: boolean;
+  targetRecalled?: boolean;
   onClick?: () => void;
 }) {
   return (
@@ -189,12 +204,29 @@ function ReplyQuote({
     >
       <span className="block truncate text-xs font-medium">
         {reply.sender_display_name}
+        {targetRecalled ? " · 原消息已撤回" : ""}
       </span>
       <span className="block truncate text-xs opacity-80">
         {reply.body_preview}
       </span>
     </button>
   );
+}
+
+function recallPlaceholderLabel(
+  message: ChatMessageDetail,
+  mine: boolean,
+  myUserId: string | null | undefined,
+  senderName: string | undefined,
+): string {
+  const by = message.recalled_by_user_id;
+  if (by && myUserId && by === myUserId) return "你撤回了一条消息";
+  if (by && message.sender_user_id && by !== message.sender_user_id) {
+    return "管理员撤回了一条消息";
+  }
+  if (mine) return "你撤回了一条消息";
+  const name = senderName?.trim();
+  return name ? `${name}撤回了一条消息` : "有人撤回了一条消息";
 }
 
 /** Render body text with light @ mention highlights (structured mentions as source). */
@@ -325,24 +357,75 @@ export function ChatBubble({
   layout,
   highlighted = false,
   myUserId,
+  isAdmin = false,
+  chatType = null,
   resolveMentionName,
   onReply,
+  onRecall,
+  onEdit,
   onScrollToReply,
+  replyTargetRecalled = false,
   onAvatarClick,
 }: Props) {
   const time = formatMessageTimeOfDay(message.created_at);
 
+  if (message.recalled_at) {
+    return (
+      <div data-message-id={message.id} className="flex justify-center py-1">
+        <span className="rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+          {recallPlaceholderLabel(message, mine, myUserId, senderName)}
+        </span>
+      </div>
+    );
+  }
+
   if (message.content_type === "system_card") {
     const notice = asProductNoticePayload(message.payload);
     if (notice) {
-      return <ProductNoticeCard message={message} payload={notice} />;
+      const offerRecall = canOfferRecall(message, {
+        mine,
+        isAdmin,
+        chatType,
+      });
+      const card = <ProductNoticeCard message={message} payload={notice} />;
+      if (!offerRecall || !onRecall) return card;
+      return (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div data-message-id={message.id}>{card}</div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => onRecall(message)}>
+              <Undo2 size={14} />
+              撤回
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      );
     }
-    return (
-      <div className="flex justify-center py-1">
+    const offerRecall = canOfferRecall(message, {
+      mine,
+      isAdmin,
+      chatType,
+    });
+    const pill = (
+      <div data-message-id={message.id} className="flex justify-center py-1">
         <span className="rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
           {message.content || "[通知]"}
         </span>
       </div>
+    );
+    if (!offerRecall || !onRecall) return pill;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{pill}</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => onRecall(message)}>
+            <Undo2 size={14} />
+            撤回
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 
@@ -354,8 +437,14 @@ export function ChatBubble({
   const hasText = Boolean(message.content);
   const reply = message.reply_to ?? null;
   const canReply = Boolean(onReply);
+  const offerRecall = canOfferRecall(message, { mine, isAdmin, chatType });
+  const canRecall = offerRecall && Boolean(onRecall);
+  const offerEdit = canOfferEdit(message, { mine, chatType });
+  const canEdit = offerEdit && Boolean(onEdit);
+  const hasMenu = canReply || canRecall || canEdit;
   const replyTargetId = message.reply_to_message_id ?? null;
   const mentionedMe = !mine && messageMentionsUser(message, myUserId ?? null);
+  const edited = Boolean(message.edited_at);
 
   const avatarLabel = avatarName ?? senderName ?? "?";
 
@@ -393,6 +482,7 @@ export function ChatBubble({
               <ReplyQuote
                 reply={reply}
                 mine={mine}
+                targetRecalled={replyTargetRecalled}
                 onClick={
                   replyTargetId && onScrollToReply
                     ? () => onScrollToReply(replyTargetId)
@@ -521,30 +611,51 @@ export function ChatBubble({
         )}
       </div>
 
-      {time && (
-        <SimpleTooltip label={new Date(message.created_at).toLocaleString()}>
-          <span
-            className={`cursor-default px-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 ${
-              mine ? "mr-10" : "ml-10"
-            }`}
-          >
-            {time}
-          </span>
-        </SimpleTooltip>
+      {(time || edited) && (
+        <span
+          className={`flex items-center gap-1.5 px-1 text-xs text-muted-foreground ${
+            mine ? "mr-10 justify-end" : "ml-10"
+          }`}
+        >
+          {edited && <span>已编辑</span>}
+          {time && (
+            <SimpleTooltip
+              label={new Date(message.created_at).toLocaleString()}
+            >
+              <span className="cursor-default opacity-0 transition-opacity group-hover:opacity-100">
+                {time}
+              </span>
+            </SimpleTooltip>
+          )}
+        </span>
       )}
     </div>
   );
 
-  if (!canReply) return content;
+  if (!hasMenu) return content;
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={() => onReply?.(message)}>
-          <Reply size={14} />
-          回复
-        </ContextMenuItem>
+        {canReply && (
+          <ContextMenuItem onSelect={() => onReply?.(message)}>
+            <Reply size={14} />
+            回复
+          </ContextMenuItem>
+        )}
+        {canEdit && (
+          <ContextMenuItem onSelect={() => onEdit?.(message)}>
+            <Pencil size={14} />
+            编辑
+          </ContextMenuItem>
+        )}
+        {canRecall && (
+          <ContextMenuItem onSelect={() => onRecall?.(message)}>
+            <Undo2 size={14} />
+            撤回
+          </ContextMenuItem>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

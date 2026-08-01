@@ -44,6 +44,12 @@ interface ChatMessageEvent {
   message: ChatMessageDetail;
 }
 
+interface ChatMessageUpdatedEvent {
+  type: "chat_message_updated";
+  chat_id: string;
+  message: ChatMessageDetail;
+}
+
 /** 多人共享空间：someone invited me (`shared_space_invite`) or a member / their
  * agent changed a space I'm in (`shared_space_changed`). Firehose is a nudge
  * only — the durable paths are `GET /v1/shared-spaces/invites/pending` (loaded
@@ -115,6 +121,9 @@ function handleFrame(frame: string): void {
     if (event.type === "chat_message") {
       const e = event as ChatMessageEvent;
       useMessagingStore.getState().applyIncoming(e.chat_id, e.message);
+    } else if (event.type === "chat_message_updated") {
+      const e = event as ChatMessageUpdatedEvent;
+      useMessagingStore.getState().applyMessageUpdated(e.chat_id, e.message);
     } else if (event.type === "memory_updated") {
       // The offline consolidation pass refreshed the user's long-term memory (off the
       // turn path). 记忆更新对话内可见 (§1.6): live-append the「记忆已更新」card to the

@@ -39,6 +39,7 @@ function dayKey(iso: string): string | null {
 }
 
 function isClusterable(msg: ChatMessageDetail): boolean {
+  if (msg.recalled_at) return false;
   return msg.content_type !== "system_card";
 }
 

@@ -146,6 +146,8 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='chat.local_turn_recorded'),
     EventSpec(name='chat.local_turn_reuse_paired_user'),
     EventSpec(name='chat.pause_snapshot_failed'),
+    EventSpec(name='chat.message_edited'),
+    EventSpec(name='chat.message_recalled'),
     EventSpec(name='chat.product_notice_published'),
     EventSpec(name='chat.regenerate_error'),
     EventSpec(

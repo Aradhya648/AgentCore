@@ -4,6 +4,8 @@ import {
   EVERYONE_MENTION_LABEL,
   OFFICIAL_CHAT_DISPLAY_NAME,
   buildReplySnapshot,
+  canOfferEdit,
+  canOfferRecall,
   chatDisplayName,
   filterMentionsInContent,
   findImMentionDraft,
@@ -40,6 +42,10 @@ function msg(
     payload: null,
     reply_to_message_id: null,
     reply_to: null,
+    mentions: [],
+    recalled_at: null,
+    recalled_by_user_id: null,
+    edited_at: null,
     created_at: "2026-01-01T00:00:00Z",
     ...partial,
   };
@@ -143,6 +149,120 @@ describe("reply preview helpers", () => {
       sender_display_name: "Bob",
       body_preview: "hello world",
     });
+  });
+
+  it("uses withdrawn label for recalled targets", () => {
+    expect(
+      replyBodyPreview(
+        msg({
+          id: "m-r",
+          content: null,
+          recalled_at: "2026-01-01T00:01:00Z",
+        }),
+      ),
+    ).toBe("[已撤回]");
+  });
+});
+
+describe("canOfferRecall", () => {
+  it("allows own message within the window", () => {
+    const recent = msg({
+      id: "m1",
+      created_at: new Date().toISOString(),
+    });
+    expect(
+      canOfferRecall(recent, { mine: true, isAdmin: false, chatType: "dm" }),
+    ).toBe(true);
+  });
+
+  it("denies own message after the window", () => {
+    const old = msg({
+      id: "m2",
+      created_at: "2020-01-01T00:00:00Z",
+    });
+    expect(
+      canOfferRecall(old, { mine: true, isAdmin: false, chatType: "dm" }),
+    ).toBe(false);
+  });
+
+  it("allows admin to recall group member messages", () => {
+    const old = msg({
+      id: "m3",
+      created_at: "2020-01-01T00:00:00Z",
+    });
+    expect(
+      canOfferRecall(old, { mine: false, isAdmin: true, chatType: "group" }),
+    ).toBe(true);
+  });
+
+  it("restricts system_card to admin", () => {
+    const card = msg({
+      id: "m4",
+      content_type: "system_card",
+      created_at: new Date().toISOString(),
+    });
+    expect(
+      canOfferRecall(card, { mine: true, isAdmin: false, chatType: "group" }),
+    ).toBe(false);
+    expect(
+      canOfferRecall(card, { mine: false, isAdmin: true, chatType: "group" }),
+    ).toBe(true);
+  });
+});
+
+describe("canOfferEdit", () => {
+  it("allows own recent plain-text message", () => {
+    const m = msg({
+      id: "e1",
+      content: "hello",
+      created_at: new Date().toISOString(),
+    });
+    expect(canOfferEdit(m, { mine: true, chatType: "dm" })).toBe(true);
+  });
+
+  it("refuses attachments, recalled, others, and timeout", () => {
+    expect(
+      canOfferEdit(
+        msg({
+          id: "e2",
+          content: "x",
+          attachments: [{ name: "a.png", path: "a.png" }],
+          created_at: new Date().toISOString(),
+        }),
+        { mine: true, chatType: "dm" },
+      ),
+    ).toBe(false);
+    expect(
+      canOfferEdit(
+        msg({
+          id: "e3",
+          content: "x",
+          recalled_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        }),
+        { mine: true, chatType: "dm" },
+      ),
+    ).toBe(false);
+    expect(
+      canOfferEdit(
+        msg({
+          id: "e4",
+          content: "x",
+          created_at: new Date().toISOString(),
+        }),
+        { mine: false, chatType: "dm" },
+      ),
+    ).toBe(false);
+    expect(
+      canOfferEdit(
+        msg({
+          id: "e5",
+          content: "x",
+          created_at: "2020-01-01T00:00:00Z",
+        }),
+        { mine: true, chatType: "dm" },
+      ),
+    ).toBe(false);
   });
 });
 

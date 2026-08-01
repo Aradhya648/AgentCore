@@ -238,6 +238,29 @@ export async function sendMessage(
   });
 }
 
+/** Soft-recall a message (S3). Returns the updated row (body cleared). */
+export async function recallMessage(
+  chatId: string,
+  messageId: string,
+): Promise<ChatMessageDetail> {
+  return api.post<ChatMessageDetail>(
+    `/v1/messages/chats/${chatId}/messages/${messageId}/recall`,
+    {},
+  );
+}
+
+/** Edit a plain-text message (S4). Returns the updated row with ``edited_at``. */
+export async function editMessage(
+  chatId: string,
+  messageId: string,
+  content: string,
+): Promise<ChatMessageDetail> {
+  return api.patch<ChatMessageDetail>(
+    `/v1/messages/chats/${chatId}/messages/${messageId}`,
+    { content },
+  );
+}
+
 // --- Attachments (Stage 4 富消息: 图/文件, 复用工作区存储) ---
 // Two-step like the workspace file API: PUT the raw bytes into the chat's shared
 // space, then reference the returned path in a sendMessage attachment. These

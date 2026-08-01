@@ -29,6 +29,7 @@ from agentcore.api.schemas import (
     ChatSummary,
     CreateFriendRequestBody,
     DirectorySettings,
+    EditChatMessageRequest,
     FriendListResponse,
     FriendRequestDetail,
     FriendRequestListResponse,
@@ -352,6 +353,56 @@ async def send_chat_message(
         reply_to_message_id=body.reply_to_message_id,
         mentions=[m.model_dump() for m in body.mentions],
         client_msg_id=body.client_msg_id,
+    )
+    return ChatMessageDetail.model_validate(message)
+
+
+@router.post(
+    "/chats/{chat_id}/messages/{message_id}/recall",
+    response_model=ChatMessageDetail,
+)
+async def recall_chat_message(
+    chat_id: str,
+    message_id: str,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    """Soft-recall a message (消息IM.md §8 S3).
+
+    Sender within 2 minutes; platform admin may recall any group member message
+    (and system_card / official announcements). Body is cleared; row kept.
+    Fans ``chat_message_updated`` for in-place client replace (no unread bump).
+    404 non-member / missing; 403 outside window or without permission.
+    """
+    message = await svc.recall_message(
+        chat_id=chat_id, message_id=message_id, actor_id=user.user_id
+    )
+    return ChatMessageDetail.model_validate(message)
+
+
+@router.patch(
+    "/chats/{chat_id}/messages/{message_id}",
+    response_model=ChatMessageDetail,
+)
+async def edit_chat_message(
+    chat_id: str,
+    message_id: str,
+    body: EditChatMessageRequest,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    """Edit a plain-text message (消息IM.md §8 S4).
+
+    Sender within 15 minutes; recalled / attachments / system_card / official
+    refused. Updates ``content`` + ``edited_at``; refreshes list preview when
+    this row is still the latest. Fans ``chat_message_updated`` (no unread bump).
+    404 non-member / missing; 403 outside window or without permission.
+    """
+    message = await svc.edit_message(
+        chat_id=chat_id,
+        message_id=message_id,
+        actor_id=user.user_id,
+        content=body.content,
     )
     return ChatMessageDetail.model_validate(message)
 

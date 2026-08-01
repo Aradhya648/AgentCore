@@ -1,7 +1,7 @@
 import { Button, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { buildImThreadItems } from "@/lib/imMessageLayout";
-import { notifyInfo } from "@/lib/toast";
+import { notifyActionError, notifyInfo } from "@/lib/toast";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import type { ChatMessageDetail } from "@/services/messaging";
 import { useAuthStore } from "@/stores/auth";
@@ -14,7 +14,11 @@ import {
 import { ArrowDown, BadgeCheck, Info } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatBubble } from "./ChatBubble";
-import { ChatComposer, type ComposerReplyTarget } from "./ChatComposer";
+import {
+  ChatComposer,
+  type ComposerEditTarget,
+  type ComposerReplyTarget,
+} from "./ChatComposer";
 import { ChatDateDivider } from "./ChatDateDivider";
 import { GroupInfoDialog } from "./GroupInfoDialog";
 import { PresenceAvatar } from "./PresenceAvatar";
@@ -43,8 +47,10 @@ export function ChatThread({ chatId }: Props) {
   const loadMembers = useMessagingStore((s) => s.loadMembers);
   const loadOlderMessages = useMessagingStore((s) => s.loadOlderMessages);
   const openProfile = useMessagingStore((s) => s.openProfile);
+  const recallMessage = useMessagingStore((s) => s.recallMessage);
   const user = useAuthStore((s) => s.user);
   const myId = user?.id ?? null;
+  const isAdmin = user?.role === "admin";
 
   const isGroup = chat?.type === "group";
   const isOfficial = chat?.type === "official";
@@ -53,7 +59,16 @@ export function ChatThread({ chatId }: Props) {
   const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(
     null,
   );
+  const [editTarget, setEditTarget] = useState<ComposerEditTarget | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  const recalledIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of messages) {
+      if (m.recalled_at) ids.add(m.id);
+    }
+    return ids;
+  }, [messages]);
 
   // Group threads label each message with its sender, so they need the roster;
   // load it when a group opens (dms render the single peer's name in the header).
@@ -61,9 +76,10 @@ export function ChatThread({ chatId }: Props) {
     if (isGroup) void loadMembers(chatId);
   }, [isGroup, chatId, loadMembers]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: chatId resets reply draft on switch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chatId resets reply/edit draft on switch.
   useEffect(() => {
     setReplyTarget(null);
+    setEditTarget(null);
     setHighlightId(null);
   }, [chatId]);
 
@@ -129,12 +145,32 @@ export function ChatThread({ chatId }: Props) {
 
   const handleReply = useCallback(
     (message: ChatMessageDetail) => {
+      if (message.recalled_at) return;
+      setEditTarget(null);
       setReplyTarget({
         messageId: message.id,
         snapshot: buildReplySnapshot(message, resolveSenderLabel(message)),
       });
     },
     [resolveSenderLabel],
+  );
+
+  const handleEdit = useCallback((message: ChatMessageDetail) => {
+    if (message.recalled_at) return;
+    setReplyTarget(null);
+    setEditTarget({
+      messageId: message.id,
+      content: message.content ?? "",
+    });
+  }, []);
+
+  const handleRecall = useCallback(
+    (message: ChatMessageDetail) => {
+      void recallMessage(chatId, message.id).catch((e) =>
+        notifyActionError("撤回失败", e),
+      );
+    },
+    [chatId, recallMessage],
   );
 
   const handleScrollToReply = useCallback(
@@ -286,9 +322,19 @@ export function ChatThread({ chatId }: Props) {
                     layout={item.layout}
                     highlighted={highlightId === m.id}
                     myUserId={myId}
+                    isAdmin={isAdmin}
+                    chatType={chat?.type}
                     resolveMentionName={(id) => nameById.get(id)}
-                    onReply={isOfficial ? undefined : handleReply}
+                    onReply={
+                      isOfficial || m.recalled_at ? undefined : handleReply
+                    }
+                    onRecall={handleRecall}
+                    onEdit={isOfficial ? undefined : handleEdit}
                     onScrollToReply={handleScrollToReply}
+                    replyTargetRecalled={
+                      !!m.reply_to_message_id &&
+                      recalledIds.has(m.reply_to_message_id)
+                    }
                     onAvatarClick={isGroup ? openProfile : undefined}
                   />
                 );
@@ -325,6 +371,8 @@ export function ChatThread({ chatId }: Props) {
           chatId={chatId}
           replyTarget={replyTarget}
           onClearReply={() => setReplyTarget(null)}
+          editTarget={editTarget}
+          onClearEdit={() => setEditTarget(null)}
         />
       )}
 

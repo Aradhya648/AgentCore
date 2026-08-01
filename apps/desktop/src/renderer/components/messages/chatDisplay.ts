@@ -47,6 +47,7 @@ export function buildReplySnapshot(
 
 /** Body/attachment label used in reply quotes (never empty for a sendable msg). */
 export function replyBodyPreview(message: ChatMessageDetail): string {
+  if (message.recalled_at) return "[已撤回]";
   const text = truncateReplyPreview(message.content ?? "");
   if (text) return text;
   const attachments = message.attachments ?? [];
@@ -64,6 +65,69 @@ export function replyBodyPreview(message: ChatMessageDetail): string {
     default:
       return "";
   }
+}
+
+/** Self-recall window (aligned with backend 消息IM.md §8.1). */
+export const RECALL_WINDOW_MS = 2 * 60 * 1000;
+
+/** Self-edit window (aligned with backend 消息IM.md §8.1). */
+export const EDIT_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Whether the viewer may be offered a recall menu item (server still enforces).
+ * Own message within 2 minutes; platform admin for group any / system_card /
+ * official; never for an already-recalled row.
+ */
+export function canOfferRecall(
+  message: ChatMessageDetail,
+  opts: {
+    mine: boolean;
+    isAdmin: boolean;
+    chatType: ChatSummary["type"] | null | undefined;
+  },
+): boolean {
+  if (message.recalled_at) return false;
+  const { mine, isAdmin, chatType } = opts;
+  if (
+    message.content_type === "system_card" ||
+    message.sender_type === "official" ||
+    chatType === "official"
+  ) {
+    return isAdmin;
+  }
+  if (isAdmin && chatType === "group") return true;
+  if (!mine) return false;
+  const created = new Date(message.created_at).getTime();
+  if (Number.isNaN(created)) return false;
+  return Date.now() - created < RECALL_WINDOW_MS;
+}
+
+/**
+ * Whether the viewer may be offered an edit menu item (server still enforces).
+ * Own plain-text message within 15 minutes; never attachments / system_card /
+ * official / recalled.
+ */
+export function canOfferEdit(
+  message: ChatMessageDetail,
+  opts: {
+    mine: boolean;
+    chatType: ChatSummary["type"] | null | undefined;
+  },
+): boolean {
+  if (!opts.mine) return false;
+  if (message.recalled_at) return false;
+  if (
+    message.content_type === "system_card" ||
+    message.sender_type === "official" ||
+    opts.chatType === "official"
+  ) {
+    return false;
+  }
+  if (message.content_type !== "text") return false;
+  if ((message.attachments ?? []).length > 0) return false;
+  const created = new Date(message.created_at).getTime();
+  if (Number.isNaN(created)) return false;
+  return Date.now() - created < EDIT_WINDOW_MS;
 }
 
 /** Brand display name for the site-wide official broadcast chat. */

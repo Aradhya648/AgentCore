@@ -147,9 +147,24 @@ class ChatMessageDetail(BaseModel):
     reply_to: ReplyToSnapshot | None = None
     # Frozen @mentions written at send time; empty when none.
     mentions: list[MessageMention] = Field(default_factory=list)
+    # Soft recall (S3): set when withdrawn; body/attachments are cleared.
+    recalled_at: datetime | None = None
+    recalled_by_user_id: str | None = None
+    # Edit stamp (S4): set when the sender rewrote plain-text content.
+    edited_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class EditChatMessageRequest(BaseModel):
+    """Rewrite a plain-text message body (消息IM.md §8 S4).
+
+    Attachments / non-text / recalled / system_card / official are refused by the
+    service. Only the sender within 15 minutes may edit.
+    """
+
+    content: str = Field(..., min_length=1, max_length=32000)
 
 
 class ChatMessageListResponse(BaseModel):

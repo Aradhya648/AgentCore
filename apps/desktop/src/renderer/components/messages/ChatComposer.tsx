@@ -3,6 +3,7 @@ import {
   type ChatMention,
   type MessageReplyTo,
   isImageAttachment,
+  messagingErrorMessage,
 } from "@/services/messaging";
 import { useAuthStore } from "@/stores/auth";
 import {
@@ -32,12 +33,22 @@ export interface ComposerReplyTarget {
   snapshot: MessageReplyTo;
 }
 
+/** Composer-local edit target (id + body prefilled into the textarea). */
+export interface ComposerEditTarget {
+  messageId: string;
+  content: string;
+}
+
 interface Props {
   chatId: string;
   /** Active reply target shown above the input; null when not replying. */
   replyTarget?: ComposerReplyTarget | null;
   /** Clear the reply target (cancel button / after successful send). */
   onClearReply?: () => void;
+  /** Active edit target; when set, composer saves via edit API instead of send. */
+  editTarget?: ComposerEditTarget | null;
+  /** Clear the edit target (cancel / after successful save). */
+  onClearEdit?: () => void;
 }
 
 /** A file staged for sending, with an object URL preview for images. */
@@ -64,8 +75,15 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024; // mirrors workspace_upload_max_bytes
  * local twin and swaps it for the stored message). This owns the draft + staged
  * files and surfaces both local validation errors and the store's send error.
  * An optional reply target renders a cancelable quote bar above the input.
+ * An optional edit target prefills the textarea and saves via PATCH (no attachments).
  */
-export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
+export function ChatComposer({
+  chatId,
+  replyTarget,
+  onClearReply,
+  editTarget,
+  onClearEdit,
+}: Props) {
   const [value, setValue] = useState("");
   const [pending, setPending] = useState<Pending[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -90,6 +108,7 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
   const myId = user?.id ?? null;
   const isPlatformAdmin = user?.role === "admin";
   const isGroup = chat?.type === "group";
+  const isEditing = Boolean(editTarget);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -125,10 +144,28 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
     clearSendError();
   }, [chatId, clearSendError]);
 
-  // Focus the textarea when the user picks a message to reply to.
+  // Focus the textarea when the user picks a message to reply to / edit.
   useEffect(() => {
-    if (replyTarget) textareaRef.current?.focus();
-  }, [replyTarget]);
+    if (replyTarget || editTarget) textareaRef.current?.focus();
+  }, [replyTarget, editTarget]);
+
+  // Prefill + clear staged files when entering edit mode.
+  useEffect(() => {
+    if (!editTarget) return;
+    setValue(editTarget.content);
+    setPending((prev) => {
+      for (const p of prev) {
+        if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+      }
+      return [];
+    });
+    setPendingMentions([]);
+    setMentionOpen(false);
+    setMentionQuery("");
+    setMentionRange(null);
+    setLocalError(null);
+    clearSendError();
+  }, [editTarget, clearSendError]);
 
   // Groups need a roster for the @ menu; DMs use the peer on ChatSummary.
   useEffect(() => {
@@ -252,31 +289,35 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
     [adjustHeight, closeMentionMenu, mentionRange, value],
   );
 
-  const addFiles = useCallback((incoming: File[]) => {
-    if (incoming.length === 0) return;
-    setLocalError(null);
-    setPending((prev) => {
-      const next = [...prev];
-      for (const file of incoming) {
-        if (next.length >= MAX_ATTACHMENTS) {
-          setLocalError(`最多只能添加 ${MAX_ATTACHMENTS} 个附件`);
-          break;
+  const addFiles = useCallback(
+    (incoming: File[]) => {
+      if (isEditing) return;
+      if (incoming.length === 0) return;
+      setLocalError(null);
+      setPending((prev) => {
+        const next = [...prev];
+        for (const file of incoming) {
+          if (next.length >= MAX_ATTACHMENTS) {
+            setLocalError(`最多只能添加 ${MAX_ATTACHMENTS} 个附件`);
+            break;
+          }
+          if (file.size > MAX_FILE_BYTES) {
+            setLocalError(`「${file.name}」超过 25 MB 上限`);
+            continue;
+          }
+          next.push({
+            id: crypto.randomUUID(),
+            file,
+            previewUrl: isImageAttachment(file.name)
+              ? URL.createObjectURL(file)
+              : undefined,
+          });
         }
-        if (file.size > MAX_FILE_BYTES) {
-          setLocalError(`「${file.name}」超过 25 MB 上限`);
-          continue;
-        }
-        next.push({
-          id: crypto.randomUUID(),
-          file,
-          previewUrl: isImageAttachment(file.name)
-            ? URL.createObjectURL(file)
-            : undefined,
-        });
-      }
-      return next;
-    });
-  }, []);
+        return next;
+      });
+    },
+    [isEditing],
+  );
 
   const removePending = useCallback((id: string) => {
     setPending((prev) => {
@@ -289,6 +330,31 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
   const handleSend = useCallback(() => {
     const text = value.trim();
     if (sending) return;
+    if (isEditing && editTarget) {
+      if (!text) return;
+      if (text === editTarget.content.trim()) {
+        onClearEdit?.();
+        setValue("");
+        return;
+      }
+      setSending(true);
+      setLocalError(null);
+      clearSendError();
+      void (async () => {
+        try {
+          await useMessagingStore
+            .getState()
+            .editMessage(chatId, editTarget.messageId, text);
+          setValue("");
+          onClearEdit?.();
+        } catch (err) {
+          setLocalError(messagingErrorMessage(err, "编辑失败，请重试"));
+        } finally {
+          setSending(false);
+        }
+      })();
+      return;
+    }
     if (!text && pending.length === 0) return;
     const files = pending.map((p) => p.file);
     const reply = replyTarget
@@ -325,9 +391,13 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
     chatId,
     replyTarget,
     onClearReply,
+    editTarget,
+    isEditing,
+    onClearEdit,
     pendingMentions,
     resolveUserName,
     closeMentionMenu,
+    clearSendError,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -384,7 +454,9 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
     if (files.length > 0) addFiles(files);
   };
 
-  const canSend = (Boolean(value.trim()) || pending.length > 0) && !sending;
+  const canSubmit = isEditing
+    ? Boolean(value.trim()) && !sending
+    : (Boolean(value.trim()) || pending.length > 0) && !sending;
 
   return (
     <div className="px-4 pb-4 pt-2">
@@ -426,7 +498,30 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
           />
         )}
 
-        {replyTarget && (
+        {editTarget && (
+          <div className="flex items-start gap-2 border-b border-border px-3 py-2">
+            <div className="min-w-0 flex-1 border-l-2 border-primary pl-2">
+              <span className="block truncate text-xs font-medium text-foreground">
+                编辑消息
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                保存后将替换原正文
+              </span>
+            </div>
+            <IconButton
+              onClick={() => {
+                setValue("");
+                onClearEdit?.();
+              }}
+              aria-label="取消编辑"
+              className="shrink-0 text-muted-foreground"
+            >
+              <X size={14} />
+            </IconButton>
+          </div>
+        )}
+
+        {replyTarget && !editTarget && (
           <div className="flex items-start gap-2 border-b border-border px-3 py-2">
             <div className="min-w-0 flex-1 border-l-2 border-primary pl-2">
               <span className="block truncate text-xs font-medium text-foreground">
@@ -446,7 +541,7 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
           </div>
         )}
 
-        {pending.length > 0 && (
+        {pending.length > 0 && !isEditing && (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {pending.map((p) => (
               <div
@@ -490,33 +585,41 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
               e.target.value = "";
             }}
           />
-          <IconButton
-            size="md"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={sending}
-            aria-label="添加附件"
-          >
-            <Paperclip size={16} />
-          </IconButton>
+          {!isEditing && (
+            <IconButton
+              size="md"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              aria-label="添加附件"
+            >
+              <Paperclip size={16} />
+            </IconButton>
+          )}
           <textarea
             ref={textareaRef}
             value={value}
             onChange={(e) => {
               const next = e.target.value;
               setValue(next);
-              syncMentionDraft(next, e.target.selectionStart ?? next.length);
+              if (!isEditing) {
+                syncMentionDraft(next, e.target.selectionStart ?? next.length);
+              }
             }}
             onKeyDown={handleKeyDown}
             onClick={(e) => {
+              if (isEditing) return;
               const el = e.currentTarget;
               syncMentionDraft(el.value, el.selectionStart ?? el.value.length);
             }}
             onSelect={(e) => {
+              if (isEditing) return;
               const el = e.currentTarget;
               syncMentionDraft(el.value, el.selectionStart ?? el.value.length);
             }}
             onPaste={handlePaste}
-            placeholder={replyTarget ? "输入回复…" : "输入消息…"}
+            placeholder={
+              isEditing ? "编辑消息…" : replyTarget ? "输入回复…" : "输入消息…"
+            }
             className="max-h-40 w-full resize-none bg-transparent py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
           />
@@ -524,8 +627,8 @@ export function ChatComposer({ chatId, replyTarget, onClearReply }: Props) {
             size="md"
             tone="primary"
             onClick={handleSend}
-            disabled={!canSend}
-            aria-label="发送"
+            disabled={!canSubmit}
+            aria-label={isEditing ? "保存" : "发送"}
           >
             {sending ? (
               <Loader2 size={14} className="animate-spin" />

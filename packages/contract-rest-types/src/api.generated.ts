@@ -3304,6 +3304,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/messages/chats/{chat_id}/messages/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit Chat Message
+         * @description Edit a plain-text message (消息IM.md §8 S4).
+         *
+         *     Sender within 15 minutes; recalled / attachments / system_card / official
+         *     refused. Updates ``content`` + ``edited_at``; refreshes list preview when
+         *     this row is still the latest. Fans ``chat_message_updated`` (no unread bump).
+         *     404 non-member / missing; 403 outside window or without permission.
+         */
+        patch: operations["edit_chat_message_v1_messages_chats__chat_id__messages__message_id__patch"];
+        trace?: never;
+    };
+    "/v1/messages/chats/{chat_id}/messages/{message_id}/recall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recall Chat Message
+         * @description Soft-recall a message (消息IM.md §8 S3).
+         *
+         *     Sender within 2 minutes; platform admin may recall any group member message
+         *     (and system_card / official announcements). Body is cleared; row kept.
+         *     Fans ``chat_message_updated`` for in-place client replace (no unread bump).
+         *     404 non-member / missing; 403 outside window or without permission.
+         */
+        post: operations["recall_chat_message_v1_messages_chats__chat_id__messages__message_id__recall_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/messages/chats/{chat_id}/read": {
         parameters: {
             query?: never;
@@ -6389,6 +6439,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Edited At */
+            edited_at?: string | null;
             /** Id */
             id: string;
             /** Mentions */
@@ -6397,6 +6449,10 @@ export interface components {
             payload?: {
                 [key: string]: unknown;
             } | null;
+            /** Recalled At */
+            recalled_at?: string | null;
+            /** Recalled By User Id */
+            recalled_by_user_id?: string | null;
             reply_to?: components["schemas"]["ReplyToSnapshot"] | null;
             /** Reply To Message Id */
             reply_to_message_id?: string | null;
@@ -7471,6 +7527,17 @@ export interface components {
             ok: boolean;
             /** Version */
             version: string;
+        };
+        /**
+         * EditChatMessageRequest
+         * @description Rewrite a plain-text message body (消息IM.md §8 S4).
+         *
+         *     Attachments / non-text / recalled / system_card / official are refused by the
+         *     service. Only the sender within 15 minutes may edit.
+         */
+        EditChatMessageRequest: {
+            /** Content */
+            content: string;
         };
         /**
          * EnsureStandingTaskTemplateRequest
@@ -18017,6 +18084,82 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_chat_message_v1_messages_chats__chat_id__messages__message_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                chat_id: string;
+                message_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditChatMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recall_chat_message_v1_messages_chats__chat_id__messages__message_id__recall_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                chat_id: string;
+                message_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

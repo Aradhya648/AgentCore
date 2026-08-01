@@ -19,6 +19,7 @@ new message out to every member's live connections.
 import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from agentcore.core.errors import (
@@ -52,6 +53,11 @@ _MAX_PAGE_SIZE = 100
 _DEFAULT_PAGE_SIZE = 50
 # Reply-quote body preview: keep short for bubble quote bars.
 _REPLY_PREVIEW_MAX = 100
+# Self-recall window (消息IM.md §8.1); platform admin group governance bypasses.
+_RECALL_WINDOW = timedelta(minutes=2)
+_RECALL_LIST_PREVIEW = "[已撤回]"
+# Self-edit window (消息IM.md §8.1); attachments / non-text refused.
+_EDIT_WINDOW = timedelta(minutes=15)
 _OFFICIAL_DISPLAY_NAME = "官方号"
 _ATTACHMENT_PREVIEW_LABELS = {
     "image": "[图片]",
@@ -606,6 +612,144 @@ class MessagingService:
         await self._events.publish([m.user_id for m in members], self._message_event(message))
         return message
 
+    async def recall_message(
+        self, *, chat_id: str, message_id: str, actor_id: str
+    ) -> ChatMessage:
+        """Soft-recall a message (消息IM.md §8 S3).
+
+        Keeps the row (cursors / reply snapshots stay valid), clears body so list
+        previews never re-expose withdrawn text, and fans ``chat_message_updated``
+        (not ``chat_message``) so clients replace in place without bumping unread.
+
+        Permissions:
+        - sender within 2 minutes;
+        - platform admin may recall any member message in a **group** (no window);
+        - ``system_card`` / official-channel messages: platform admin only.
+        Non-members get 404. Already-recalled is idempotent.
+        """
+        member = await self._chats.get_member(chat_id, actor_id)
+        if member is None:
+            raise NotFoundError("会话不存在")
+        chat = await self._chats.get_chat(chat_id)
+        if chat is None:
+            raise NotFoundError("会话不存在")
+        message = await self._chats.get_message(message_id)
+        if message is None or message.chat_id != chat_id:
+            raise NotFoundError("消息不存在")
+        if message.recalled_at is not None:
+            return message
+
+        actor = await self._users.get_by_id(actor_id)
+        is_admin = actor is not None and getattr(actor, "role", None) == "admin"
+        is_protected = (
+            message.content_type == "system_card"
+            or message.sender_type == "official"
+            or chat.type == "official"
+        )
+
+        if is_protected:
+            if not is_admin:
+                raise AuthorizationError("无权撤回该消息")
+        elif is_admin and chat.type == "group":
+            pass  # group governance — any member message, no window
+        elif message.sender_user_id == actor_id:
+            created = message.created_at
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            now = datetime.now(UTC)
+            if created is None or (now - created) > _RECALL_WINDOW:
+                raise AuthorizationError("已超过撤回时限")
+        else:
+            raise AuthorizationError("无权撤回该消息")
+
+        recalled = await self._chats.recall_message(
+            message_id=message_id,
+            recalled_by_user_id=actor_id,
+            list_preview=_RECALL_LIST_PREVIEW,
+        )
+        if recalled is None:
+            raise NotFoundError("消息不存在")
+
+        members = await self._chats.list_members(chat_id)
+        await self._events.publish(
+            [m.user_id for m in members], self._message_updated_event(recalled)
+        )
+        logger.info(
+            "chat.message_recalled",
+            chat=chat_id,
+            message=message_id,
+            by=actor_id,
+        )
+        return recalled
+
+    async def edit_message(
+        self, *, chat_id: str, message_id: str, actor_id: str, content: str
+    ) -> ChatMessage:
+        """Rewrite a plain-text message (消息IM.md §8 S4).
+
+        Sender-only within 15 minutes. Refuses recalled rows, attachment /
+        non-text messages, and ``system_card`` / official channels. Fans
+        ``chat_message_updated`` (same shape as recall) so clients replace in
+        place without bumping unread. Non-members get 404.
+        """
+        member = await self._chats.get_member(chat_id, actor_id)
+        if member is None:
+            raise NotFoundError("会话不存在")
+        chat = await self._chats.get_chat(chat_id)
+        if chat is None:
+            raise NotFoundError("会话不存在")
+        message = await self._chats.get_message(message_id)
+        if message is None or message.chat_id != chat_id:
+            raise NotFoundError("消息不存在")
+
+        text = (content or "").strip()
+        if not text:
+            raise ValidationError("消息内容不能为空")
+
+        if message.recalled_at is not None:
+            raise AuthorizationError("已撤回的消息不可编辑")
+
+        is_protected = (
+            message.content_type == "system_card"
+            or message.sender_type == "official"
+            or chat.type == "official"
+        )
+        if is_protected:
+            raise AuthorizationError("无权编辑该消息")
+
+        if message.sender_user_id != actor_id:
+            raise AuthorizationError("无权编辑该消息")
+
+        if message.content_type != "text" or (message.attachments or []):
+            raise AuthorizationError("附件消息不支持编辑")
+
+        created = message.created_at
+        if created is not None and created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
+        if created is None or (now - created) > _EDIT_WINDOW:
+            raise AuthorizationError("已超过编辑时限")
+
+        edited = await self._chats.edit_message(
+            message_id=message_id,
+            content=text,
+            list_preview=text,
+        )
+        if edited is None:
+            raise NotFoundError("消息不存在")
+
+        members = await self._chats.list_members(chat_id)
+        await self._events.publish(
+            [m.user_id for m in members], self._message_updated_event(edited)
+        )
+        logger.info(
+            "chat.message_edited",
+            chat=chat_id,
+            message=message_id,
+            by=actor_id,
+        )
+        return edited
+
     async def _resolve_reply_to(
         self, *, chat_id: str, reply_to_message_id: str | None
     ) -> tuple[str | None, dict[str, Any] | None]:
@@ -686,6 +830,8 @@ class MessagingService:
     @staticmethod
     def _body_preview(message: ChatMessage) -> str:
         """Truncate body text, or fall back to an attachment-type label."""
+        if getattr(message, "recalled_at", None) is not None:
+            return "[已撤回]"
         text = (message.content or "").strip()
         if text:
             return text[:_REPLY_PREVIEW_MAX]
@@ -1054,23 +1200,46 @@ class MessagingService:
         await self._events.publish([req.from_user_id, req.to_user_id], event)
 
     @staticmethod
+    def _message_payload(message: ChatMessage) -> dict[str, Any]:
+        """Wire shape shared by ``chat_message`` / ``chat_message_updated``."""
+        return {
+            "id": message.id,
+            "chat_id": message.chat_id,
+            "sender_user_id": message.sender_user_id,
+            "sender_type": message.sender_type,
+            "content": message.content,
+            "content_type": message.content_type,
+            "attachments": message.attachments or [],
+            "payload": message.payload,
+            "reply_to_message_id": message.reply_to_message_id,
+            "reply_to": message.reply_to,
+            "mentions": message.mentions or [],
+            "recalled_at": (
+                message.recalled_at.isoformat() if message.recalled_at else None
+            ),
+            "recalled_by_user_id": getattr(message, "recalled_by_user_id", None),
+            "edited_at": (
+                message.edited_at.isoformat()
+                if getattr(message, "edited_at", None)
+                else None
+            ),
+            "created_at": (message.created_at.isoformat() if message.created_at else None),
+        }
+
+    @staticmethod
     def _message_event(message: ChatMessage) -> dict[str, Any]:
         """The ``chat_message`` realtime event (mirrors ``ChatMessageDetail``)."""
         return {
             "type": "chat_message",
             "chat_id": message.chat_id,
-            "message": {
-                "id": message.id,
-                "chat_id": message.chat_id,
-                "sender_user_id": message.sender_user_id,
-                "sender_type": message.sender_type,
-                "content": message.content,
-                "content_type": message.content_type,
-                "attachments": message.attachments or [],
-                "payload": message.payload,
-                "reply_to_message_id": message.reply_to_message_id,
-                "reply_to": message.reply_to,
-                "mentions": message.mentions or [],
-                "created_at": (message.created_at.isoformat() if message.created_at else None),
-            },
+            "message": MessagingService._message_payload(message),
+        }
+
+    @staticmethod
+    def _message_updated_event(message: ChatMessage) -> dict[str, Any]:
+        """In-place update (recall/edit): clients replace by id — no unread bump."""
+        return {
+            "type": "chat_message_updated",
+            "chat_id": message.chat_id,
+            "message": MessagingService._message_payload(message),
         }

@@ -155,6 +155,17 @@ class ChatMessage(Base):
     )
     # Client-minted dedup key for retry-safe sends.
     client_msg_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Soft recall (S3): row kept for cursors/reply snapshots; body cleared.
+    recalled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    recalled_by_user_id: Mapped[str | None] = mapped_column(
+        PG_UUID(as_uuid=False), nullable=True
+    )
+    # Edit stamp (S4): set when the sender rewrites plain-text content.
+    edited_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
