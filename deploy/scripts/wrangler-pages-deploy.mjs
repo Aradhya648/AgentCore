@@ -48,11 +48,13 @@ if (!existsSync(distPath)) {
 const env = cfEnv();
 console.log(`→ wrangler pages deploy → ${project} (${distPath})`);
 
+// Prefer workspace wrangler (pnpm exec). `npx wrangler@4` can fail on Windows
+// with opaque `npm error Invalid Version:` when the npx cache/metadata is bad.
 const result = spawnSync(
-  "npx",
+  "pnpm",
   [
-    "--yes",
-    "wrangler@4",
+    "exec",
+    "wrangler",
     "pages",
     "deploy",
     distPath,
