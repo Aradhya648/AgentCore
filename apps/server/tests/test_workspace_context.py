@@ -18,6 +18,7 @@ class _FakeBackend:
 def test_desktop_client_can_bind_only_electron():
     assert desktop_client_can_bind(None) is True
     assert desktop_client_can_bind("desktop") is True
+    assert desktop_client_can_bind("web") is False
     assert desktop_client_can_bind("mobile") is False
     assert desktop_client_can_bind("mobile-web") is False
     assert desktop_client_can_bind("admin") is False
@@ -217,9 +218,34 @@ def test_mobile_session_omits_bind_nudge():
         terminal_enabled=False,
     )
     assert "桌面端不在线" in out
-    assert "bind_local_folder" not in out
-    assert "grant_readonly_folder" not in out
     assert "区外目录授权仅桌面端可用" in out
+    assert "https://fashitianxia.xyz/download" in out
+    assert "官方桌面客户端" in out
+    assert "勿发 grant_* / bind_local_folder / open_local_project" in out
+    # 禁止语里可点名 action；不得写成可履约的 action= 分流广告
+    assert "action=bind_local_folder" not in out
+    assert "action=grant_readonly_folder" not in out
+    assert "action=open_local_project" not in out
+    assert "立即发卡" not in out
+    assert "与工作区绑定正交" not in out
+    assert "授权已确认" in out  # 铁律禁语
+    assert "本对话尚无会话级区外目录授权" in out
+    assert "本对话已授权区外目录：" not in out  # 无挂载不得声称已授权状态行
+
+
+def test_no_mounts_forbids_claiming_grant_confirmed():
+    """未见 external 挂载行时，prompt 须禁止「授权已确认」。"""
+    out = build_workspace_context(
+        _FakeBackend("server"),
+        desktop_online=False,
+        code_execute_enabled=False,
+        terminal_enabled=False,
+    )
+    assert "本对话尚无会话级区外目录授权" in out
+    assert "本对话已授权区外目录：" not in out
+    assert "禁止说「授权已确认」" in out or (
+        "禁止说" in out and "授权已确认" in out
+    )
 
 
 def test_cloud_desktop_online_allows_external_grant_without_bind():

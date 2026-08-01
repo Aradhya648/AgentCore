@@ -5,6 +5,10 @@
 import { Button, Textarea } from "@/components/ui";
 import { interactiveCheckpointTone } from "@/components/ui/tone-presets";
 import { hasLocalFiles } from "@/lib/capabilities";
+import {
+  guideDesktopDownload,
+  isDesktopFolderAction,
+} from "@/lib/desktopDownload";
 import type { AskAssumption, AskOption, AskQuestion } from "@/types/events";
 import { Check, FolderOpen, Loader2 } from "lucide-react";
 import type { AskTone, AskUserContent } from "./AskUserFields";
@@ -350,6 +354,7 @@ export function ChoiceQuestion({
   conversationId,
   bindBusyLabel,
   onBindOption,
+  onFolderUnavailable,
 }: {
   question: AskQuestion;
   index: number;
@@ -371,6 +376,8 @@ export function ChoiceQuestion({
   conversationId?: string | null;
   bindBusyLabel?: string | null;
   onBindOption?: (opt: AskOption) => void;
+  /** 本机目录 action 不可履约（Web 会附带打开下载页）；禁止 onToggle 假确认。 */
+  onFolderUnavailable?: (message: string) => void;
 }) {
   const canLocalFs = hasLocalFiles() && !!window.fsApi;
   const canBindAction = !!conversationId && !!onBindOption && canLocalFs;
@@ -433,14 +440,12 @@ export function ChoiceQuestion({
               }
             >
               {question.options.map((opt) => {
-                const isBindAction =
-                  (opt.action === "open_local_project" &&
-                    canLocalFs &&
-                    !!onBindOption) ||
-                  (canBindAction &&
-                    (opt.action === "bind_local_folder" ||
-                      opt.action === "grant_readonly_folder" ||
-                      opt.action === "grant_organize_folder"));
+                const desktopFolder = isDesktopFolderAction(opt.action);
+                const canRunFolder =
+                  desktopFolder &&
+                  (opt.action === "open_local_project"
+                    ? !!onBindOption && canLocalFs
+                    : canBindAction);
                 const bindBusy = bindBusyLabel === opt.label;
                 return (
                   <OptionButton
@@ -451,16 +456,34 @@ export function ChoiceQuestion({
                     isDefault={
                       !!question.default && opt.label === question.default
                     }
-                    active={answer.includes(opt.label) || !!bindBusy}
-                    disabled={disabled || (!!bindBusyLabel && !bindBusy)}
-                    onClick={() =>
-                      isBindAction ? onBindOption?.(opt) : onToggle(opt.label)
+                    active={
+                      canRunFolder && (answer.includes(opt.label) || !!bindBusy)
                     }
+                    disabled={disabled || (!!bindBusyLabel && !bindBusy)}
+                    onClick={() => {
+                      if (!desktopFolder) {
+                        onToggle(opt.label);
+                        return;
+                      }
+                      if (!hasLocalFiles()) {
+                        onFolderUnavailable?.(guideDesktopDownload());
+                        return;
+                      }
+                      if (canRunFolder) {
+                        onBindOption?.(opt);
+                        return;
+                      }
+                      onFolderUnavailable?.(
+                        opt.action === "open_local_project"
+                          ? "打开本地项目仅桌面端可用"
+                          : "本机目录授权仅桌面端可用",
+                      );
+                    }}
                     layout={optionLayout}
                     size={optionSize}
                     tone={tone}
                     leadingIcon={
-                      isBindAction ? (
+                      desktopFolder ? (
                         bindBusy ? (
                           <Loader2
                             size={14}

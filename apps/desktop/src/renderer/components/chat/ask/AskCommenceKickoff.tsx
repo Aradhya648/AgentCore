@@ -214,6 +214,7 @@ export function AskCommenceKickoffBody({
             conversationId={conversationId}
             bindBusyLabel={bindBusyLabel}
             onBindOption={(opt) => void handleBindOption(q, opt)}
+            onFolderUnavailable={(msg) => setBindError(msg)}
           />
         ))}
         {bindError && <p className="text-xs text-destructive">{bindError}</p>}

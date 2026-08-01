@@ -12,6 +12,10 @@ import {
 } from "@/lib/bindLocalFolder";
 import { hasLocalFiles } from "@/lib/capabilities";
 import {
+  guideDesktopDownload,
+  isDesktopFolderAction,
+} from "@/lib/desktopDownload";
+import {
   formatGrantOrganizeFolderAnswer,
   pickAndGrantOrganizeFolder,
 } from "@/lib/grantOrganizeFolder";
@@ -31,17 +35,6 @@ import { type AskRow, AskRowGroup } from "./AskOptionRow";
 import type { AskUserContent, useAskAnswer } from "./AskUserFields";
 
 const META = ASK_INTENT_META.decision;
-
-function isDesktopFolderAction(
-  action: AskOption["action"] | undefined,
-): boolean {
-  return (
-    action === "open_local_project" ||
-    action === "bind_local_folder" ||
-    action === "grant_readonly_folder" ||
-    action === "grant_organize_folder"
-  );
-}
 
 export function AskDecisionBody({
   content,
@@ -160,8 +153,9 @@ export function AskDecisionBody({
   const questionRows = (q: AskQuestion): AskRow[] => {
     const picked = answer.answers[q.id] ?? [];
     const rows: AskRow[] = q.options.map((opt) => {
-      const isFolderAction =
-        isDesktopFolderAction(opt.action) &&
+      const desktopFolder = isDesktopFolderAction(opt.action);
+      const canRunFolder =
+        desktopFolder &&
         (opt.action === "open_local_project" ? canLocalFs : canBindAction);
       const bindBusy = bindBusyLabel === opt.label;
       return {
@@ -169,19 +163,35 @@ export function AskDecisionBody({
         label: opt.label,
         detail: opt.detail,
         hint: opt.recommended && q.default !== opt.label ? "推荐" : undefined,
-        icon: isFolderAction ? (
+        icon: desktopFolder ? (
           bindBusy ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
             <FolderOpen size={12} />
           )
         ) : undefined,
-        selected: picked.includes(opt.label) || bindBusy,
+        selected: canRunFolder && (picked.includes(opt.label) || bindBusy),
         disabled: busy || (!!bindBusyLabel && !bindBusy),
-        onSelect: () =>
-          isFolderAction
-            ? void handleBindOption(q, opt)
-            : answer.toggleChoice(q, opt.label),
+        onSelect: () => {
+          if (!desktopFolder) {
+            answer.toggleChoice(q, opt.label);
+            return;
+          }
+          // Web / 无本地文件：禁止退化成 toggleChoice（假确认）。
+          if (!hasLocalFiles()) {
+            setBindError(guideDesktopDownload());
+            return;
+          }
+          if (canRunFolder) {
+            void handleBindOption(q, opt);
+            return;
+          }
+          setBindError(
+            opt.action === "open_local_project"
+              ? "打开本地项目仅桌面端可用"
+              : "本机目录授权仅桌面端可用",
+          );
+        },
       };
     });
     rows.push({

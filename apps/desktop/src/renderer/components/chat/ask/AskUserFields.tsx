@@ -6,6 +6,10 @@ import {
 } from "@/lib/bindLocalFolder";
 import { hasLocalFiles } from "@/lib/capabilities";
 import {
+  guideDesktopDownload,
+  isDesktopFolderAction,
+} from "@/lib/desktopDownload";
+import {
   formatGrantOrganizeFolderAnswer,
   pickAndGrantOrganizeFolder,
 } from "@/lib/grantOrganizeFolder";
@@ -319,6 +323,7 @@ export function AskQuestionFields({
           onToggleOther={() => answer.toggleOther(q)}
           onSetOther={(v) => answer.setOtherValue(q, v)}
           onBindOption={(opt) => void handleBindOption(q, opt)}
+          onFolderUnavailable={(msg) => setBindError(msg)}
         />
       ))}
 
@@ -482,6 +487,7 @@ function QuestionField({
   onToggleOther,
   onSetOther,
   onBindOption,
+  onFolderUnavailable,
 }: {
   index: number;
   numbered: boolean;
@@ -498,6 +504,8 @@ function QuestionField({
   onToggleOther: () => void;
   onSetOther: (value: string) => void;
   onBindOption?: (opt: AskOption) => void;
+  /** 本机目录 action 不可履约时展示文案（Web 会附带打开下载页）；禁止 toggleChoice。 */
+  onFolderUnavailable?: (message: string) => void;
 }) {
   const canLocalFs = hasLocalFiles() && !!window.fsApi;
   const canBindAction = !!conversationId && !!onBindOption && canLocalFs;
@@ -538,28 +546,44 @@ function QuestionField({
                 const active = answer.includes(opt.label);
                 const isDefault =
                   !!question.default && opt.label === question.default;
-                const isFolderAction =
-                  (opt.action === "open_local_project" && canLocalFs) ||
-                  (canBindAction &&
-                    (opt.action === "bind_local_folder" ||
-                      opt.action === "grant_readonly_folder" ||
-                      opt.action === "grant_organize_folder"));
+                const desktopFolder = isDesktopFolderAction(opt.action);
+                const canRunFolder =
+                  desktopFolder &&
+                  (opt.action === "open_local_project"
+                    ? canLocalFs
+                    : canBindAction);
                 const bindBusy = bindBusyLabel === opt.label;
                 return (
                   <div key={opt.label} className="flex w-full flex-col">
                     <Button
                       variant="ghost"
                       disabled={disabled || (!!bindBusyLabel && !bindBusy)}
-                      onClick={() =>
-                        isFolderAction
-                          ? onBindOption?.(opt)
-                          : onToggleChoice(opt.label)
-                      }
+                      onClick={() => {
+                        if (!desktopFolder) {
+                          onToggleChoice(opt.label);
+                          return;
+                        }
+                        if (!hasLocalFiles()) {
+                          onFolderUnavailable?.(guideDesktopDownload());
+                          return;
+                        }
+                        if (canRunFolder) {
+                          onBindOption?.(opt);
+                          return;
+                        }
+                        onFolderUnavailable?.(
+                          opt.action === "open_local_project"
+                            ? "打开本地项目仅桌面端可用"
+                            : "本机目录授权仅桌面端可用",
+                        );
+                      }}
                       className={`h-auto w-full justify-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-xs font-normal disabled:opacity-40 ${
-                        active || bindBusy ? tone.optActive : tone.optIdle
+                        canRunFolder && (active || bindBusy)
+                          ? tone.optActive
+                          : tone.optIdle
                       }`}
                       icon={
-                        isFolderAction ? (
+                        desktopFolder ? (
                           bindBusy ? (
                             <Loader2
                               size={14}

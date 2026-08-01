@@ -590,7 +590,10 @@ _ASK_USER_MIDTASK = """\
 → 确认后 `file_batch(organize_plan_id=…)`；扫描/执行：手写单 worker `tasks`\
 （`deliverable.form=files`，工具面仅文件类、禁 code_execute/terminal）；勿再点名已删 playbook。\
 禁止要用户手填绝对路径；禁止用 code_execute/terminal 探主机家目录找 Desktop。\
-Web/移动端无法履行——如实说明。授权须用户显式确认。
+Web/移动端无法履行——如实说明须用桌面客户端，并引导官网下载 \
+https://fashitianxia.xyz/download ；勿发 grant_*/bind/open_local_project 冒充可授权。\
+铁律：仅当 `<workspace_context>` mounts 行写明「本对话已授权区外目录…」才可声称已授权\
+/可访问本机目录；尚无授权时禁止说「授权已确认」。授权须用户显式确认。
 </ask_user_midtask>"""
 
 _VERIFY_AND_FIX = """\

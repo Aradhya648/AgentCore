@@ -19,9 +19,9 @@ def desktop_client_can_bind(x_client_platform: str | None) -> bool:
     """Whether the calling client can fulfil desktop AskOption folder actions.
 
     Covers ``open_local_project`` / ``bind_local_folder`` / ``grant_*``. Only the
-    Electron desktop app renders the folder-picker actions. Mobile sends
-    ``mobile-web`` / ``mobile``; admin is unrelated. Absent header defaults to desktop
-    (legacy tests / curl — same posture as ``parse_client_platform``).
+    Electron desktop app renders the folder-picker actions. Web sends ``web``;
+    mobile sends ``mobile-web`` / ``mobile``; admin is unrelated. Absent header
+    defaults to desktop (legacy tests / curl — same posture as ``parse_client_platform``).
     """
     raw = (x_client_platform or "desktop").strip().lower()
     return raw == "desktop"
@@ -134,10 +134,16 @@ def build_workspace_context(
     else:
         desktop_line = (
             "客户端通道：桌面端不在线（当前为 Web / 移动端等非桌面会话）——"
-            "无法发起打开本地项目、本机文件夹绑定或区外目录授权；"
-            "需要本机能力时如实说明限制。"
+            "打开本地项目、本机文件夹绑定、区外目录授权均须使用官方桌面客户端，"
+            "当前会话无法履约；请引导用户前往 https://fashitianxia.xyz/download "
+            "下载安装桌面端后再操作；"
+            "勿发 grant_* / bind_local_folder / open_local_project 选项卡冒充可授权。"
         )
-        grant_line = "区外目录授权仅桌面端可用；当前客户端无法履行。"
+        grant_line = (
+            "区外目录授权仅桌面端可用；当前客户端无法履行。"
+            "铁律：仅当 mounts 行写明「本对话已授权区外目录…」时，才可声称已授权"
+            "或可访问本机目录；尚无授权时禁止说「授权已确认」。"
+        )
 
     mounts = getattr(backend, "_mounts", None) or {}
     if mounts:
@@ -152,7 +158,10 @@ def build_workspace_context(
             )
         mounts_line = "本对话已授权区外目录：" + "；".join(parts) + "。"
     else:
-        mounts_line = "本对话尚无会话级区外目录授权。"
+        mounts_line = (
+            "本对话尚无会话级区外目录授权。"
+            "（未见「本对话已授权区外目录…」则禁止声称授权已确认或可访问本机目录。）"
+        )
 
     exec_on = code_execute_enabled
     if exec_on is None:

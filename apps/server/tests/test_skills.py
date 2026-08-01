@@ -570,6 +570,10 @@ def test_ask_user_midtask_skill_teaches_fork_annotate_and_nonblocking():
     # 已绑定本地工程：「打开项目」=跑当前项目，换目录才开卡。
     assert "已绑定本地工程" in body
     assert "跑" in body and "当前" in body
+    # Web 假确认修复：引导桌面下载 + 未见挂载勿称已确认
+    assert "https://fashitianxia.xyz/download" in body
+    assert "授权已确认" in body
+    assert "本对话已授权区外目录" in body
 
 
 def test_delegate_checkpoint_skill_teaches_wave_boundary_pause():
