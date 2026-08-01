@@ -440,7 +440,7 @@ async def test_pillar_d_await_live_detached_drive_delays_until_done():
 
 @pytest.mark.asyncio
 async def test_pillar_d_await_skips_when_no_live_detached_drive():
-    """无 live detached drive（仍附着 / 已停 / 无 session）→ 立即返回，不阻塞 close。"""
+    """无 live detached drive（仍附着 / user_stopped / 无 session）→ 立即返回，不阻塞 close。"""
     from agentcore.runtime.coordination.session import await_live_detached_drive
 
     assert await await_live_detached_drive("missing") is False
@@ -456,6 +456,10 @@ async def test_pillar_d_await_skips_when_no_live_detached_drive():
     session.drive_task = asyncio.create_task(_slow())
     session.turn_attached = True  # still arming turn
     set_active_coordination(session)
+    assert await await_live_detached_drive("conv-d1-attached") is False
+
+    session.turn_attached = False
+    session.user_stopped = True
     assert await await_live_detached_drive("conv-d1-attached") is False
 
     session.drive_task.cancel()
@@ -483,6 +487,158 @@ async def test_pillar_d_execution_events_factories():
         conversation_id="conv-d",
         completed=3,
         total=3,
+        status="completed",
     )
     assert done.type is EventType.EXECUTION_COMPLETED
     assert done.payload["completed"] == 3
+    assert done.payload["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_harvest_emits_execution_status_cancelled():
+    """cancelled harvest → execution_completed.payload.status=cancelled。"""
+    from agentcore.runtime.coordination.harvest import emit_execution_completed
+
+    writer = _RecordingWriter()
+    session = CoordinationSession(
+        execution_id="exec-cancel-status",
+        total_workers=1,
+        conversation_id="conv-cancel-status",
+    )
+    session.soft_stop = True
+    session.turn_attached = False
+    session.completed_run_ids = {"r1"}
+    bind_host_journal(session, writer=writer)
+    set_active_coordination(session)
+
+    emit_execution_completed(session)
+
+    done = next(e for e in writer.entries if e.get("kind") == "execution_completed")
+    assert done["payload"]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_unsettled_runs_emit_run_cancelled_before_execution_completed():
+    """发 execution 终态前：未 settle 的 plan node 先有 run_cancelled。"""
+    from agentcore.runtime.coordination.harvest import emit_execution_completed
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    writer = _RecordingWriter()
+    session = CoordinationSession(
+        execution_id="exec-unsettled",
+        total_workers=2,
+        conversation_id="conv-unsettled",
+    )
+    session.turn_attached = False
+    session.completed_run_ids = {"r1"}
+    session.live_plan = RunPlan(
+        nodes=[
+            RunSpec(run_id="r1", task="done"),
+            RunSpec(run_id="r2", task="still running"),
+        ]
+    )
+    bind_host_journal(session, writer=writer)
+    set_active_coordination(session)
+
+    emit_execution_completed(session)
+
+    kinds = [e.get("kind") for e in writer.entries]
+    assert EventType.RUN_CANCELLED.value in kinds
+    assert EventType.EXECUTION_COMPLETED.value in kinds
+    assert kinds.index(EventType.RUN_CANCELLED.value) < kinds.index(
+        EventType.EXECUTION_COMPLETED.value
+    )
+    cancel = next(e for e in writer.entries if e.get("kind") == "run_cancelled")
+    assert cancel["payload"]["run_id"] == "r2"
+    assert "r2" in session.completed_run_ids
+    done = next(e for e in writer.entries if e.get("kind") == "execution_completed")
+    # 残局 cancelled → status cancelled（不变量优先）
+    assert done["payload"]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_pillar_d_await_soft_stop_still_waits_for_live_drive():
+    """soft_stop 时若 drive 仍 live，须继续 await（勿立刻 False 导致 sink 早关）。"""
+    from agentcore.runtime.coordination.session import await_live_detached_drive
+
+    release = asyncio.Event()
+
+    async def _slow():
+        await release.wait()
+
+    session = CoordinationSession(
+        execution_id="exec-soft-await",
+        total_workers=1,
+        conversation_id="conv-soft-await",
+    )
+    session.drive_task = asyncio.create_task(_slow())
+    session.turn_attached = False
+    session.soft_stop = True
+    set_active_coordination(session)
+
+    closed = asyncio.Event()
+
+    async def _owner():
+        awaited = await await_live_detached_drive("conv-soft-await")
+        assert awaited is True
+        closed.set()
+
+    owner = asyncio.create_task(_owner())
+    await asyncio.sleep(0.05)
+    assert not closed.is_set()
+    release.set()
+    await asyncio.wait_for(owner, timeout=2)
+    assert closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_host_journal_after_contextvar_reset_receives_run_completed():
+    """host journal：ContextVar reset 后仍收到 run_completed（detach 续写）。"""
+    from agentcore.runtime.coordination.session import current_execution_id
+    from agentcore.runtime.journal.writer import current_journal_writer
+
+    writer = _RecordingWriter()
+    stale = _RecordingWriter(turn_id="stale-turn")
+    session = CoordinationSession(
+        execution_id="exec-host-reset",
+        total_workers=1,
+        conversation_id="conv-host-reset",
+    )
+    session.turn_attached = False  # already detached
+    bind_host_journal(session, writer=writer, turn_id="host-turn")
+    set_active_coordination(session)
+
+    # Stale ContextVar still set (child-task inheritance) + execution ContextVar reset.
+    jw_token = current_journal_writer.set(stale)  # type: ignore[arg-type]
+    eid_token = current_execution_id.set(None)
+    try:
+        sink = EventSink(conversation_id="conv-host-reset", message_id="host-turn")
+        sink.emit(
+            SSEEvent(
+                type=EventType.RUN_COMPLETED,
+                payload={
+                    "run_id": "r1",
+                    "agent_id": "w1",
+                    "output_summary": "队员正文",
+                    "duration_ms": 10,
+                    "role": "member",
+                    "model": "test",
+                    "usage": {"input": 1, "output": 1, "total": 2},
+                    "cost": {
+                        "input": 0,
+                        "cached": 0,
+                        "output": 0,
+                        "total": 0,
+                        "currency": "USD",
+                    },
+                    "execution_id": "exec-host-reset",
+                },
+            )
+        )
+    finally:
+        current_journal_writer.reset(jw_token)
+        current_execution_id.reset(eid_token)
+
+    assert EventType.RUN_COMPLETED.value in [e.get("kind") for e in writer.entries]
+    assert not stale.entries  # must not land on the stale ContextVar writer

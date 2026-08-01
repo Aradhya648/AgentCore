@@ -149,6 +149,55 @@ def _regex_error_message(stderr: str) -> str | None:
     return None
 
 
+_RG_IO_HINTS = (
+    "permission denied",
+    "access is denied",
+    "access denied",
+    "os error 5",
+    "os error 13",
+    "os error 32",
+    "拒绝访问",
+)
+
+
+def _is_rg_io_line(line: str) -> bool:
+    lower = line.lower()
+    return any(h in lower for h in _RG_IO_HINTS)
+
+
+def _rg_io_warnings(stderr: str) -> list[str] | None:
+    """If stderr is solely per-path IO/permission noise, return soft warnings.
+
+    ``None`` means the failure is not a soft-skippable IO case (caller should
+    raise). Empty stderr → ``None`` (unknown hard failure).
+    """
+    lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    if any(not _is_rg_io_line(ln) for ln in lines):
+        return None
+    warnings: list[str] = []
+    for ln in lines:
+        # ``rg: path: Access is denied. (os error 5)`` → keep path if present.
+        body = ln[3:].strip() if ln.lower().startswith("rg:") else ln
+        warnings.append(f"跳过无权限路径：{body}")
+    return warnings
+
+
+def _handle_rg_status(code: int, stderr: str) -> list[str]:
+    """Return soft IO warnings, or raise on hard failure. Codes 0/1 → no warnings."""
+    if code in (0, 1):
+        return []
+    regex_msg = _regex_error_message(stderr)
+    if regex_msg:
+        raise WorkspaceIOError(regex_msg)
+    io_warnings = _rg_io_warnings(stderr)
+    if io_warnings is not None:
+        return io_warnings
+    detail = (stderr or "").strip() or f"rg exited with code {code}"
+    raise WorkspaceIOError(f"ripgrep 失败：{detail}")
+
+
 async def _run_rg(
     rg: Path,
     args: list[str],
@@ -176,16 +225,6 @@ async def _run_rg(
     return code, stdout, stderr
 
 
-def _handle_rg_status(code: int, stderr: str) -> None:
-    if code in (0, 1):
-        return
-    regex_msg = _regex_error_message(stderr)
-    if regex_msg:
-        raise WorkspaceIOError(regex_msg)
-    detail = (stderr or "").strip() or f"rg exited with code {code}"
-    raise WorkspaceIOError(f"ripgrep 失败：{detail}")
-
-
 async def _list_candidate_files(
     rg: Path,
     *,
@@ -193,10 +232,10 @@ async def _list_candidate_files(
     case_insensitive: bool,
     name_glob: str | None,
     single_file: bool,
-) -> tuple[list[str], bool]:
+) -> tuple[list[str], bool, list[str]]:
     """Return sorted relative paths under ``search_root``, capped at scan limit."""
     if single_file:
-        return [search_root.name], False
+        return [search_root.name], False, []
 
     args = [
         "--files",
@@ -208,14 +247,14 @@ async def _list_candidate_files(
         ".",
     ]
     code, stdout, stderr = await _run_rg(rg, args, cwd=search_root)
-    _handle_rg_status(code, stderr)
+    warnings = _handle_rg_status(code, stderr)
     files = [ln.replace("\\", "/") for ln in stdout.splitlines() if ln.strip()]
     # ``--sort path`` already sorted; re-sort for defense in depth.
     files.sort()
     truncated = len(files) > GREP_MAX_FILES_SCANNED
     if truncated:
         files = files[:GREP_MAX_FILES_SCANNED]
-    return files, truncated
+    return files, truncated, warnings
 
 
 _FILE_ARG_CHUNK = 200  # stay under OS argv limits when passing paths to rg
@@ -246,10 +285,10 @@ async def _search_paths(
     cwd: Path,
     case_insensitive: bool,
     files_only: bool,
-) -> str:
+) -> tuple[str, list[str]]:
     """Search an explicit path list via positional args (chunked; no --files-from)."""
     if not paths:
-        return ""
+        return "", []
     mode_flags = (
         ["--count", "--with-filename"]
         if files_only
@@ -266,15 +305,16 @@ async def _search_paths(
         pattern,
     ]
     chunks: list[str] = []
+    warnings: list[str] = []
     for i in range(0, len(paths), _FILE_ARG_CHUNK):
         chunk = paths[i : i + _FILE_ARG_CHUNK]
         code, stdout, stderr = await _run_rg(
             rg, [*base, "--", *chunk], cwd=cwd
         )
-        _handle_rg_status(code, stderr)
+        warnings.extend(_handle_rg_status(code, stderr))
         if stdout:
             chunks.append(stdout)
-    return "".join(chunks)
+    return "".join(chunks), warnings
 
 
 async def run_grep_rg(
@@ -295,7 +335,7 @@ async def run_grep_rg(
 
     await _validate_regexp(rg, query.pattern)
 
-    files, scan_truncated = await _list_candidate_files(
+    files, scan_truncated, list_warnings = await _list_candidate_files(
         rg,
         search_root=search_root if not single_file else search_root.parent,
         case_insensitive=query.case_insensitive,
@@ -308,11 +348,11 @@ async def run_grep_rg(
     else:
         search_cwd = search_root
         if not files:
-            return GrepResult(truncated=scan_truncated)
+            return GrepResult(truncated=scan_truncated, warnings=list_warnings)
         path_args = files
 
-    result = GrepResult(truncated=scan_truncated)
-    stdout = await _search_paths(
+    result = GrepResult(truncated=scan_truncated, warnings=list(list_warnings))
+    stdout, search_warnings = await _search_paths(
         rg,
         pattern=query.pattern,
         paths=path_args,
@@ -320,6 +360,7 @@ async def run_grep_rg(
         case_insensitive=query.case_insensitive,
         files_only=query.files_only,
     )
+    result.warnings.extend(search_warnings)
 
     lines = [ln for ln in stdout.splitlines() if ln]
     if query.files_only:

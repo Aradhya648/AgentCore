@@ -140,7 +140,8 @@ EVENT_DISPOSITION: dict[EventType, tuple[Disposition, str]] = {
     ),
     EventType.USER_INTERJECTION: (
         Disposition.DURABLE,
-        "协调中用户插话——同 interjection_id 保最新 status；team 块徽标重放",
+        "协调中用户插话——同 interjection_id 保最新 status"
+        "（received→addressed/queued/failed）；team 块徽标重放",
     ),
     EventType.TURN_QUEUED: (
         Disposition.EPHEMERAL,
@@ -201,6 +202,11 @@ EVENT_DISPOSITION: dict[EventType, tuple[Disposition, str]] = {
         "CEO 协调等待心跳——传输态（waiting true/false）；reload 时等待已结束或由 live SSE 重挂",
     ),
     EventType.RUN_TOOL_PROGRESS: (Disposition.EPHEMERAL, "run 工具进度心跳——传输态"),
+    EventType.RUN_PHASE: (
+        Disposition.EPHEMERAL,
+        "worker 活动相位（thinking/tool/waiting_children/winding_down）——传输态；"
+        "queued/skipped 走 RunStatus；reload 后由 status 兜底",
+    ),
     EventType.WORKSPACE_OP_REQUIRED: (Disposition.EPHEMERAL, "客户端工具请求（请求/响应交换，非回合内容）"),
     EventType.BOARD_OP_REQUIRED: (Disposition.EPHEMERAL, "白板客户端工具请求（请求/响应交换，非回合内容）"),
     EventType.BOARD_READ_REQUIRED: (Disposition.EPHEMERAL, "白板栅格化读取客户端工具请求（非回合内容）"),

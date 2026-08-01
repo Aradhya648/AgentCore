@@ -197,7 +197,11 @@ export function RunDetailBody({
             {turnPresetLabel}
           </span>
         )}
-        <StatusBadge status={run.status} />
+        <StatusBadge
+          status={run.status}
+          phase={run.phase}
+          phaseTool={run.phaseTool}
+        />
         {run.durationMs != null && (
           <span className="shrink-0 text-xs text-muted-foreground">
             {(run.durationMs / 1000).toFixed(1)}s

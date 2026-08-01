@@ -173,30 +173,44 @@ async def generate_title(
         return TitleResult(title=fallback)
 
 
-async def _mint_title_background(
+async def _read_conversation_title(conversation_id: str) -> str | None:
+    """Return a non-empty title string, or ``None`` when missing / blank."""
+    async with async_session_factory() as session:
+        conv = await ConversationRepository(session).get_by_id_unscoped(conversation_id)
+    if conv is None:
+        return None
+    title = str(conv.title).strip() if conv.title else ""
+    return title or None
+
+
+async def _mint_title_core(
     *,
     conversation_id: str,
     user_id: str,
     user_message: str,
-    sink: EventSink,
-) -> None:
-    """Cloud early-title runner: user-message-only LLM mint → conditional write → SSE.
+    sink: EventSink | None = None,
+) -> str | None:
+    """Shared early-title mint: user-message-only LLM → ``update_title_if_empty`` → optional SSE.
 
-    Never raises. Skips when the conversation already has a title (user rename race).
-    Emit is best-effort — a closed sink (short-lived / failed turn) must not undo a
-    successful DB write.
+    Never raises. Skips the LLM when the conversation already has a title (user rename
+    race). Emit is best-effort — a closed sink must not undo a successful DB write.
+    Does **not** manage ``_title_inflight`` (caller owns dedupe).
     """
     try:
+        existing = await _read_conversation_title(conversation_id)
+        if existing is not None:
+            return existing
+        # Row gone → nothing to mint.
         async with async_session_factory() as session:
             conv = await ConversationRepository(session).get_by_id_unscoped(conversation_id)
-            if conv is None or (conv.title and str(conv.title).strip()):
-                return
+        if conv is None:
+            return None
 
         async def _runner(credentials: LLMCredentials) -> TitleResult:
             model = resolve_turn_model(credentials)
             provider = build_provider(credentials, purpose="platform_internal")
             try:
-                # Cloud early path: first user message only — do not wait for assistant reply.
+                # First user message only — do not wait for assistant reply.
                 return await generate_title(
                     provider=provider,
                     conversation_id=conversation_id,
@@ -215,17 +229,20 @@ async def _mint_title_background(
         )
 
         if not minted_title:
-            return
+            return None
 
         async with async_session_factory() as session:
             updated = await ConversationRepository(session).update_title_if_empty(
                 conversation_id, minted_title
             )
         if updated is None:
-            return
+            # Race: user renamed / concurrent mint already wrote.
+            return await _read_conversation_title(conversation_id)
 
-        with contextlib.suppress(Exception):
-            sink.emit(title_generated(minted_title, conversation_id=conversation_id))
+        if sink is not None:
+            with contextlib.suppress(Exception):
+                sink.emit(title_generated(minted_title, conversation_id=conversation_id))
+        return minted_title
     except Exception as e:
         from agentcore.llm.background_failure import classify_background_llm_failure
 
@@ -234,6 +251,65 @@ async def _mint_title_background(
             conversation_id=conversation_id,
             error=str(e),
             reason=classify_background_llm_failure(e),
+        )
+        return None
+
+
+async def mint_title_if_empty(
+    *,
+    conversation_id: str,
+    user_id: str,
+    user_message: str,
+    sink: EventSink | None = None,
+) -> str | None:
+    """Await-able early title mint (REST / shared with cloud schedule).
+
+    Same LLM / ``run_background_llm`` / ``update_title_if_empty`` / ``_title_inflight``
+    dedupe as the cloud SSE path. ``assistant_reply`` is always empty. Optional
+    ``sink`` emits ``title_generated`` after a successful conditional write.
+
+    Returns the conversation title after the call (existing or freshly minted), or
+    ``None`` when the row is missing / mint failed without a write.
+    """
+    existing = await _read_conversation_title(conversation_id)
+    if existing is not None:
+        return existing
+
+    if conversation_id in _title_inflight:
+        # Another path (cloud schedule or concurrent REST) is minting — wait, then
+        # return whatever landed (may still be empty if that mint failed).
+        for _ in range(200):  # ~10s @ 50ms
+            if conversation_id not in _title_inflight:
+                break
+            await asyncio.sleep(0.05)
+        return await _read_conversation_title(conversation_id)
+
+    _title_inflight.add(conversation_id)
+    try:
+        return await _mint_title_core(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            user_message=user_message,
+            sink=sink,
+        )
+    finally:
+        _title_inflight.discard(conversation_id)
+
+
+async def _mint_title_background(
+    *,
+    conversation_id: str,
+    user_id: str,
+    user_message: str,
+    sink: EventSink,
+) -> None:
+    """Cloud early-title runner (schedule already armed ``_title_inflight``)."""
+    try:
+        await _mint_title_core(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            user_message=user_message,
+            sink=sink,
         )
     finally:
         _title_inflight.discard(conversation_id)

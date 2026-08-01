@@ -419,7 +419,7 @@ export function spineMorphSig(
       const s = turnLayouts[turnId];
       if (s?.layoutError) return `${turnId}:error:${s.layoutError}`;
       if (!s?.layoutReady) return `${turnId}:pending`;
-      return `${turnId}:${layoutStructureSig(s.positions, s.nodeHeights, s.nodeSizes)}`;
+      return `${turnId}:${layoutStructureSig(s.positions, s.nodeSizes)}`;
     })
     .join("||");
 }

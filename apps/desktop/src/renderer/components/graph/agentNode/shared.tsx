@@ -1,5 +1,6 @@
 import { statusPillSoft } from "@/components/ui/tone-presets";
 import { formatDuration } from "@/lib/format";
+import { NODE_HEIGHT } from "@/lib/graphMetrics";
 import type { ReviewConcernLevel } from "@/lib/reviewConcern";
 import type {
   DebateBeat,
@@ -11,8 +12,11 @@ import type {
 import {
   debateBeatLabel,
   isDebateTaggedRun,
+  runPhaseLabel,
   runStatusLabel,
+  toolLabel,
 } from "@/stores/execution";
+import type { WorkerRunPhase } from "@/stores/execution";
 import { Check, Loader2, X } from "lucide-react";
 import type { FaceBadgeKey } from "./faceBudget";
 
@@ -35,6 +39,9 @@ export interface AgentNodeData {
   toolProgress?: { toolName: string; chars: number } | null;
   /** Worker tool EXECUTION phase (transport-only `tool_use_progress` with run_id). */
   toolExecutionLive?: { toolName: string; phase: string } | null;
+  /** Worker mid-flight activity phase (`run_phase`); drives face copy when running. */
+  phase?: WorkerRunPhase | null;
+  phaseTool?: string | null;
   tokenCount: number;
   toolCount: number;
   artifacts?: string[];
@@ -110,10 +117,13 @@ export const FACE_ARTIFACT_CAP = 2;
 export const PEEK_ARTIFACT_CAP = 6;
 
 /**
- * Soft max for the agent-node face card (方案 D). Normal rich summaries fit;
- * extreme wrap/chips clip here and stay reachable via hover peek / run detail.
+ * Fixed face card height — equals layout {@link NODE_HEIGHT}. Content clips /
+ * scrolls inside; never grow the RF footprint past the ELK slot.
  */
-export const FACE_CARD_MAX_HEIGHT = 180;
+export const FACE_CARD_HEIGHT = NODE_HEIGHT;
+
+/** @deprecated Prefer {@link FACE_CARD_HEIGHT}; kept as alias for call sites. */
+export const FACE_CARD_MAX_HEIGHT = FACE_CARD_HEIGHT;
 
 export const STATUS_STYLES: Record<string, { ring: string; bg: string }> = {
   pending: { ring: "ring-muted-foreground/30", bg: "bg-card" },
@@ -197,6 +207,9 @@ export function statusFaceLabel(
   witnessSeat?: boolean,
   /** `run_failed.error` — humanizes the failed face line. */
   error?: string | null,
+  /** Worker mid-flight activity phase — preferred over bare「执行中」when running. */
+  phase?: WorkerRunPhase | null,
+  phaseTool?: string | null,
 ): { text: string; cls: string; tickElapsed: boolean } {
   if (debateRoundPhase && status === "running") {
     const suffix =
@@ -231,8 +244,9 @@ export function statusFaceLabel(
     case "running": {
       const suffix =
         elapsedSec !== undefined && elapsedSec >= 1 ? ` · ${elapsedSec}s` : "";
+      const phaseText = runPhaseLabel(phase, phaseTool, toolLabel);
       return {
-        text: `执行中${suffix}`,
+        text: `${phaseText ?? "执行中"}${suffix}`,
         cls: "text-primary/90",
         tickElapsed: true,
       };

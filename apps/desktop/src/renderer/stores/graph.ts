@@ -2,32 +2,11 @@ import {
   createZustandUiStorage,
   registerConversationUiClearer,
 } from "@/lib/uiStorage";
+import type { GraphEdge, GraphLayout } from "@agentcore/graph-layout";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-/** Structural edge. Visual state (animated) is derived live.
- *
- * `dep` (default) is a DAG dependency / input·captain bookend flow; `delegate`
- * is a captain worker → its nested sub-worker (阶段2 父子分组), drawn distinctly
- * (dashed) so a sub-team reads as grouped under the parent rather than as another
- * top-level branch; `revision` is an original worker → its「修订 vN」续写 child
- * (乙 热修 P4), drawn distinctly (dotted) so a re-do reads as a version of the same
- * node, not a new branch; `handoff` is 回落换人「接替」(replaces_run_id → new worker). */
-export interface GraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  kind?: "dep" | "delegate" | "continuation" | "inject" | "handoff";
-}
-
-/**
- * Collaboration-graph layout algorithm (user-switchable from the canvas
- * toolbar). `leftright` is the default left-to-right layered flow — it suits the
- * widescreen displays the desktop targets and keeps the inline↔full-screen
- * direction consistent (no 90° flip on maximize); `tree` is the same layered
- * algorithm rotated top-down.
- */
-export type GraphLayout = "tree" | "leftright";
+export type { GraphEdge, GraphLayout };
 
 /** Max team turns expanded as TurnGroupNode compounds on the conversation spine. */
 export const MAX_EXPANDED_TURNS = 3;

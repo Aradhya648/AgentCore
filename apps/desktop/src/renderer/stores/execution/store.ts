@@ -596,6 +596,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
         let evidenceLedger: EvidenceLedgerEntry[] = [];
         let teamSynthesisPreview: TeamSynthesisPreviewPayload | null = null;
         let deliveryStatus: DeliveryStatusPayload | null = null;
+        /** journal 内 `execution_completed.status`（若有）→ 覆盖 finishReason 投影。 */
+        let fromExecutionCompleted: ExecutionStatus | null = null;
         const userInterjections: UserInterjection[] = [];
         const interjectionIndex = new Map<string, number>();
         for (const event of journal.events) {
@@ -648,7 +650,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
               interjectionId: iid,
               executionId: p.execution_id || "",
               content: p.content || "",
-              status: p.status || "delivered",
+              status: p.status || "received",
               note: typeof p.note === "string" ? p.note : null,
               ...(attachments.length > 0 ? { attachments } : {}),
             };
@@ -724,6 +726,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
           } else if (event.type === "delivery_status") {
             // DURABLE：同 execution_id 保最新（后写覆盖）；刷新后交付状态卡可重建。
             deliveryStatus = event.payload as DeliveryStatusPayload;
+          } else if (event.type === "execution_completed") {
+            // DURABLE：execution 终态权威；缺省 completed（与 live handler 同口径）。
+            const raw = (event.payload as { status?: string }).status;
+            fromExecutionCompleted =
+              raw === "cancelled" || raw === "failed" || raw === "completed"
+                ? raw
+                : "completed";
           } else {
             const frame = frameFromEvent(event);
             if (frame) frames.push(frame);
@@ -761,7 +770,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
               plan,
               frames,
               playhead: null,
-              status: statusFromFinish(journal.finishReason),
+              status:
+                fromExecutionCompleted ??
+                statusFromFinish(journal.finishReason),
               debate,
               debateRounds,
               crossExamEnabled,

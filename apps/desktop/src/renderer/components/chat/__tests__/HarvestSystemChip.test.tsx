@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
-import { HarvestSystemChip } from "@/components/chat/HarvestSystemChip";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import {
   EXECUTION_HARVEST_ORIGIN,
-  HARVEST_SYSTEM_CHIP_LABEL,
   isExecutionHarvestMessage,
 } from "@/lib/executionHarvest";
 import type { Message } from "@/stores/conversation";
@@ -31,7 +29,7 @@ function userMsg(content: string, origin?: string | null): Message {
   };
 }
 
-describe("execution_harvest 系统芯片", () => {
+describe("execution_harvest 隐藏合成行", () => {
   it("isExecutionHarvestMessage：origin 或【系统收口】前缀", () => {
     expect(
       isExecutionHarvestMessage(userMsg("hi", EXECUTION_HARVEST_ORIGIN)),
@@ -44,26 +42,16 @@ describe("execution_harvest 系统芯片", () => {
     expect(isExecutionHarvestMessage(userMsg("普通提问"))).toBe(false);
   });
 
-  it("HarvestSystemChip 渲染固定文案", () => {
-    render(
-      <HarvestSystemChip
-        message={userMsg("【系统收口】…", EXECUTION_HARVEST_ORIGIN)}
-      />,
-    );
-    expect(screen.getByTestId("harvest-system-chip").textContent).toContain(
-      HARVEST_SYSTEM_CHIP_LABEL,
-    );
-  });
-
-  it("MessageBubble：harvest 不走用户气泡", () => {
-    render(
+  it("MessageBubble：harvest 不渲染芯片也不走用户气泡", () => {
+    const { container } = render(
       <MessageBubble
         message={userMsg(
           "【系统收口】后台团队任务已全部完成。请综合队员产出。",
         )}
       />,
     );
-    expect(screen.getByTestId("harvest-system-chip")).toBeTruthy();
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByTestId("harvest-system-chip")).toBeNull();
     expect(screen.queryByText(/请综合队员产出/)).toBeNull();
   });
 });

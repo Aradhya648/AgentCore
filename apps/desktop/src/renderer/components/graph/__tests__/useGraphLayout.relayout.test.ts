@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
  * 结构重算不得把 layoutReady 打回 false（否则 GraphView 卸载 ReactFlow → 整图闪烁）。
- * 实测高度变化走防抖二次 ELK，避免每帧重排。
+ * 白板模型：测高不得触发二次 ELK；仅结构变更重排。
  */
-import { HEIGHT_RELAYOUT_DEBOUNCE_MS, NODE_HEIGHT } from "@/lib/elk-layout";
+import { NODE_HEIGHT } from "@/lib/elk-layout";
 import type { Execution } from "@/stores/execution";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const computeLayout = vi.fn();
 
@@ -93,9 +93,8 @@ describe("useGraphLayout · keep graph during relayout", () => {
   });
 });
 
-describe("useGraphLayout · measured-height secondary ELK", () => {
+describe("useGraphLayout · measure does not secondary-ELK", () => {
   beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     computeLayout.mockReset();
     let n = 0;
     computeLayout.mockImplementation(
@@ -125,22 +124,22 @@ describe("useGraphLayout · measured-height secondary ELK", () => {
     );
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("debounces height patches into one secondary ELK with measured sizes", async () => {
+  it("records RF heights but never schedules a second ELK pass", async () => {
     const emptyExpand = new Set<string>();
     const { result } = renderHook(() =>
       useGraphLayout(exec(["be", "fe"]), "leftright", "view", emptyExpand),
     );
 
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
     await waitFor(() => expect(result.current.layoutReady).toBe(true));
     const afterStructural = computeLayout.mock.calls.length;
     expect(afterStructural).toBeGreaterThanOrEqual(1);
+
+    const structuralSizes = computeLayout.mock.calls.at(-1)?.[6] as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(structuralSizes.be.height).toBe(NODE_HEIGHT);
+    expect(structuralSizes.fe.height).toBe(NODE_HEIGHT);
 
     await act(async () => {
       result.current.onNodesChange([
@@ -156,74 +155,12 @@ describe("useGraphLayout · measured-height secondary ELK", () => {
         },
       ]);
     });
-    // Still within debounce window — no secondary ELK yet.
+
+    expect(result.current.nodeHeights.be).toBe(180);
+    expect(result.current.nodeHeights.fe).toBe(200);
+    // Layout footprint stays fixed; no secondary ELK.
     expect(computeLayout.mock.calls.length).toBe(afterStructural);
-
-    await act(async () => {
-      result.current.onNodesChange([
-        {
-          type: "dimensions",
-          id: "be",
-          dimensions: { width: 210, height: 190 },
-        },
-      ]);
-    });
-    expect(computeLayout.mock.calls.length).toBe(afterStructural);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(HEIGHT_RELAYOUT_DEBOUNCE_MS + 20);
-    });
-
-    await waitFor(() =>
-      expect(computeLayout.mock.calls.length).toBe(afterStructural + 1),
-    );
-
-    const lastSizes = computeLayout.mock.calls.at(-1)?.[6] as Record<
-      string,
-      { width: number; height: number }
-    >;
-    expect(lastSizes.be.height).toBe(190);
-    expect(lastSizes.fe.height).toBe(200);
-    expect(result.current.nodeSizes.be.height).toBe(190);
-    expect(result.current.nodeSizes.fe.height).toBe(200);
-  });
-
-  it("does not re-ELK when measured heights already match nodeSizes", async () => {
-    const emptyExpand = new Set<string>();
-    const { result } = renderHook(() =>
-      useGraphLayout(exec(["be"]), "leftright", "view", emptyExpand),
-    );
-
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
-    await waitFor(() => expect(result.current.layoutReady).toBe(true));
-
-    await act(async () => {
-      result.current.onNodesChange([
-        {
-          type: "dimensions",
-          id: "be",
-          dimensions: { width: 210, height: 160 },
-        },
-      ]);
-      await vi.advanceTimersByTimeAsync(HEIGHT_RELAYOUT_DEBOUNCE_MS + 20);
-    });
-    await waitFor(() => expect(result.current.nodeSizes.be?.height).toBe(160));
-    const afterSecondary = computeLayout.mock.calls.length;
-
-    await act(async () => {
-      // Same height again — gate should skip another ELK.
-      result.current.onNodesChange([
-        {
-          type: "dimensions",
-          id: "be",
-          dimensions: { width: 210, height: 160 },
-        },
-      ]);
-      await vi.advanceTimersByTimeAsync(HEIGHT_RELAYOUT_DEBOUNCE_MS + 20);
-    });
-
-    expect(computeLayout.mock.calls.length).toBe(afterSecondary);
+    expect(result.current.nodeSizes.be.height).toBe(NODE_HEIGHT);
+    expect(result.current.nodeSizes.fe.height).toBe(NODE_HEIGHT);
   });
 });

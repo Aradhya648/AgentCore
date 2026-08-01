@@ -101,10 +101,12 @@ class FakeCredentials:
     async def get_by_user_id(self, user_id):
         return self._by_user.get(user_id)
 
-    async def set_failure_state(self, user_id, *, failed_attempts, locked_until):
+    async def increment_failure(self, user_id, *, max_attempts, lock_until):
+        # Mirror SQL ``failed_attempts = failed_attempts + 1`` (no absolute overwrite).
         cred = self._by_user[user_id]
-        cred.failed_attempts = failed_attempts
-        cred.locked_until = locked_until
+        cred.failed_attempts += 1
+        cred.locked_until = lock_until if cred.failed_attempts >= max_attempts else None
+        return cred.failed_attempts
 
     async def reset_failure_state(self, user_id):
         cred = self._by_user[user_id]
@@ -353,6 +355,23 @@ async def test_login_wrong_password_raises_and_counts():
         await svc.login(username="grace", password="wrong-pw")
     cred = await creds.get_by_user_id(user.user_id)
     assert cred.failed_attempts == 1
+
+
+async def test_login_failure_increments_are_additive():
+    """Concurrent wrong-password paths must not lose counts via absolute overwrite.
+
+    Two handlers that each saw ``failed_attempts=0`` would both write ``1`` under
+    read-modify-write; atomic ``+= 1`` yields ``2``. FakeCredentials mirrors the
+    SQL increment contract.
+    """
+    svc, _u, creds, _t, _invites = _make()
+    user = await svc.register(username="racey", password=_PW)
+    now = datetime.now(UTC)
+    await svc._register_failure(user.user_id, now)
+    await svc._register_failure(user.user_id, now)
+    cred = await creds.get_by_user_id(user.user_id)
+    assert cred.failed_attempts == 2
+    assert cred.locked_until is None
 
 
 async def test_login_locks_after_max_attempts():

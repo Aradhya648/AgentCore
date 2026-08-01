@@ -45,7 +45,8 @@ __all__ = [
 # 统一墙钟 backstop（原 deep 档值）；CEO 显式 timeout_ms 恒优先。
 WORKER_TIMEOUT_BACKSTOP_S = 600
 
-# Repair / light posture: short ReAct ceiling (encoding closed-loop phase 4).
+# Short ReAct ceiling constant (repair_code playbook / CEO explicit caps).
+# ``complexity_hint=light`` no longer stamps this — see :func:`apply_light_round_budgets`.
 # Distinct from contract ``light_repair`` (format-only pass inside executor_node).
 LIGHT_REPAIR_MAX_ROUNDS = 6
 
@@ -120,20 +121,21 @@ def apply_light_round_budgets(
     *,
     complexity_hint: str,
 ) -> None:
-    """Stamp short ``max_rounds`` on nodes when the batch is light posture."""
-    if complexity_hint != "light":
-        return
-    for spec in plan.nodes:
-        if spec.max_rounds is None:
-            spec.max_rounds = LIGHT_REPAIR_MAX_ROUNDS
+    """Retired no-op: ``complexity_hint=light`` no longer stamps short ``max_rounds``.
+
+    Kept (and still called from builder) to avoid a large call-site move. Short
+    round caps remain via CEO explicit ``max_rounds`` and ``repair_code`` playbook
+    builders — not via light posture.
+    """
+    _ = (plan, complexity_hint)
 
 
 def is_short_write_posture(*, max_rounds: int | None) -> bool:
-    """True when light / repair round budget is stamped (or CEO explicit short cap).
+    """True when a short round budget is stamped (CEO explicit / repair_code).
 
-    ``complexity_hint=light`` and ``repair_code`` both stamp ``max_rounds`` via
-    :func:`apply_light_round_budgets` / playbook builders. Standard files workers
-    leave ``max_rounds=None`` (profile default) — not short-write posture.
+    ``complexity_hint=light`` no longer stamps ``max_rounds``. ``repair_code``
+    playbook builders and CEO-declared caps still can. Standard workers leave
+    ``max_rounds=None`` (profile default) — not short-write posture.
     """
     return max_rounds is not None and max_rounds > 0
 
@@ -175,8 +177,8 @@ def should_enable_zero_write(
     stays on round/token ceilings + user stop; ``files_expected`` write_pass still
     **grants** persist tools when needed (seam B via :func:`merge_persist_write_tools`).
 
-    Call-site kwargs retained for compatibility. Prose short idle uses
-    :func:`should_enable_prose_idle` + the shared ``zero_write_*`` counter, not this gate.
+    Call-site kwargs retained for compatibility. Prose idle ladder is also retired
+    (:func:`should_enable_prose_idle` always false).
     """
     _ = (files_expected, short_write_posture, max_rounds, form_prose)
     return False
@@ -188,29 +190,29 @@ def should_enable_prose_idle(
     short_write_posture: bool | None = None,
     max_rounds: int | None = None,
 ) -> bool:
-    """Gate for prose short-budget idle ladder (symmetric to files zero_write).
+    """Prose short-budget idle ladder — **retired** (always off).
 
-    Short-stamped workers that expect prose (not files landing) — e.g. repair
-    ``diagnose`` / ``verify`` — get the same investigation-only streak → warn →
-    FINALIZE path, with handoff counting as delivery success.
+    Formerly: short-stamped prose workers (diagnose/verify) shared the zero_write
+    warn→FINALIZE counter with handoff as delivery. Mid-loop DEGRADED from idle
+    reads is gone; hard ceilings + convergence spin remain. Kwargs kept for
+    call-site compatibility.
     """
-    if short_write_posture is None:
-        short_write_posture = is_short_write_posture(max_rounds=max_rounds)
-    return bool(short_write_posture and not files_expected)
+    _ = (files_expected, short_write_posture, max_rounds)
+    return False
 
 
 def resolve_prose_idle_finalize_rounds(max_rounds: int | None) -> int:
-    """Scale prose idle FINALIZE bar so warn+cut fire before short ``max_rounds``.
+    """Retired helper: prose idle bar derivation (always 0 with default settings).
 
-    Default files zero_write bar (7) never trips inside diagnose's 4 rounds; prose
-    idle uses ``max(2, min(settings_bar, max_rounds - 1))`` so a 4-round worker
-    warns at streak 2 and cuts at 3.
+    Kept for tests/compat; ``create_loop_controller`` no longer enables the ladder.
     """
     from agentcore.config import settings
 
+    _ = max_rounds
     base = max(0, int(settings.engine_zero_write_finalize_rounds))
     if base <= 0:
         return 0
+    # settings override only — production default is 0 (ladder retired).
     if max_rounds is not None and max_rounds > 0:
         return max(2, min(base, max_rounds - 1))
     return max(2, min(base, 4))
@@ -224,7 +226,7 @@ def should_tighten_verify_exec_thrash(
 ) -> bool:
     """Repair verify short posture: tighten unproductive / tool-failure ladders.
 
-    Applies when the worker is short-budget (light / repair_code stamped max_rounds),
+    Applies when the worker is short-budget (CEO / repair_code stamped max_rounds),
     holds execution tools, and is **not** a files-landing node (verify / diagnose
     prose). Reuses LoopController repeated-failure / circuit-breaker / unproductive
     paths — does **not** add a parallel fuse. Files short-write nodes no longer use

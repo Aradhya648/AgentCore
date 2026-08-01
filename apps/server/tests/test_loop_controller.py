@@ -54,6 +54,34 @@ def test_fingerprint_empty_args_stable():
     assert fingerprint_tool_call("t", "") == fingerprint_tool_call("t", "")
 
 
+def test_fingerprint_empty_old_string_collapses_across_paths():
+    """不同 path/new_string 的空 old_string → 同一 fingerprint（畸形收敛）。"""
+    a = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "a.md", "old_string": "", "new_string": "AAA"}',
+    )
+    b = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "b.md", "old_string": "   ", "new_string": "BBB"}',
+    )
+    assert a == b
+    # Non-empty old_string must not collapse into the same bucket.
+    ok = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "a.md", "old_string": "x", "new_string": "y"}',
+    )
+    assert ok != a
+
+
+def test_fingerprint_empty_write_path_collapses():
+    assert fingerprint_tool_call(
+        "file_write", '{"path": "", "content": "x"}'
+    ) == fingerprint_tool_call("file_write", '{"path": "  ", "content": "other"}')
+    assert fingerprint_tool_call(
+        "file_append", '{"path": "", "content": "x"}'
+    ) == fingerprint_tool_call("file_append", '{"path": "  ", "content": "y"}')
+
+
 # --- detect: nothing below threshold ---
 
 
@@ -913,7 +941,7 @@ def test_reflection_due_fires_on_cadence():
 
 
 def test_reflection_latches_one_per_idle_streak():
-    """Soft 进度复盘每空转段一次；再空转交给 zero_write/convergence，不重复同文案。"""
+    """Soft 进度复盘每空转段一次；再空转交给 convergence，不重复同文案。"""
     c = LoopController(reflection_start_round=3, reflection_interval=3)
     assert c.reflection_due(3)
     c.mark_reflection_injected()
@@ -1160,53 +1188,54 @@ def test_progress_tool_resets_spin_streak():
     assert c.convergence_action() is Intervention.CONTINUE
 
 
-# --- zero-write thrashing (files-expected investigation idle) ---
+# --- zero-write / prose_idle ladder retired (factory always off) ---
 
 
-def _files_worker(*, zero_write: int = 7, finalize: int = 30) -> LoopController:
-    return LoopController(
-        convergence_finalize_rounds=finalize,
-        convergence_spin_rounds=0,  # isolate zero-write from same-target spin
-        zero_write_finalize_rounds=zero_write,
-        investigation_tools=frozenset({"file_read", "file_list", "grep"}),
+def test_zero_write_and_prose_idle_retired_no_mid_loop_cut():
+    """Factory never opens zero_write/prose_idle; idle reads do not FINALIZE mid-loop."""
+    from agentcore.runtime.engine.directive import Finalize
+    from agentcore.runtime.engine.governance import (
+        create_loop_controller,
+        govern_after_tools,
     )
+    from agentcore.runtime.engine.outcome import RoundOutcome
 
-
-def test_zero_write_finalizes_before_max_rounds():
-    c = _files_worker(zero_write=7)
-    for i in range(6):
-        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
-        assert c.convergence_action() is Intervention.CONTINUE
-    assert c.zero_write_warn_due()
-    c.record([ToolAttempt(fingerprint="f6", tool_name="file_read", success=True)])
-    assert c.zero_write_investigation_rounds == 7
-    assert c.convergence_action() is Intervention.FINALIZE
-    assert c.is_thrashing()
-
-
-def test_zero_write_disabled_without_threshold():
-    c = LoopController(
-        convergence_finalize_rounds=30,
-        convergence_spin_rounds=0,
-        zero_write_finalize_rounds=0,
-        investigation_tools=frozenset({"file_read"}),
+    c = create_loop_controller(
+        frozenset({"file_read", "file_list", "grep"}),
+        files_expected=True,
+        short_write_posture=False,
     )
+    assert c.zero_write_finalize_rounds == 0
+    assert c.prose_idle is False
     for i in range(12):
         c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
     assert c.convergence_action() is Intervention.CONTINUE
     assert not c.is_thrashing()
+    assert not c.zero_write_warn_due()
 
+    prose = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=False,
+        short_write_posture=True,
+        max_rounds=4,
+    )
+    assert prose.zero_write_finalize_rounds == 0
+    assert prose.prose_idle is False
+    for i in range(6):
+        prose.record([ToolAttempt(fingerprint=f"p{i}", tool_name="file_read", success=True)])
+    assert prose.convergence_action() is Intervention.CONTINUE
 
-def test_govern_after_tools_zero_write_finalize_is_degraded():
-    """Mid-loop zero_write FINALIZE stamps DEGRADED (aligned with ceiling)."""
-    from agentcore.runtime.engine.directive import Finalize
-    from agentcore.runtime.engine.governance import govern_after_tools
-    from agentcore.runtime.engine.outcome import RoundOutcome
-    from agentcore.runtime.events import FinishReason
-
-    c = _files_worker(zero_write=3)
+    # Manually arm dormant counter: controller may still FINALIZE via zero_write
+    # path, but govern no longer stamps DEGRADED / injects 零写 prompts.
+    armed = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=3,
+        investigation_tools=frozenset({"file_read"}),
+    )
     for i in range(3):
-        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+        armed.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
+    assert armed.convergence_action() is Intervention.FINALIZE
     messages: list = []
     directive = govern_after_tools(
         RoundOutcome(
@@ -1217,7 +1246,7 @@ def test_govern_after_tools_zero_write_finalize_is_degraded():
             tool_results=[],
             attempts=[],
         ),
-        c,
+        armed,
         messages=messages,
         round_idx=3,
         run_id="r1",
@@ -1225,50 +1254,51 @@ def test_govern_after_tools_zero_write_finalize_is_degraded():
     )
     assert isinstance(directive, Finalize)
     assert directive.reason == "convergence"
-    assert directive.finish_reason is FinishReason.DEGRADED
+    assert directive.finish_reason is None
+    assert not any("零写" in str(getattr(m, "content", "") or "") for m in messages)
 
 
-def test_landing_success_resets_zero_write_streak():
-    c = _files_worker(zero_write=4)
-    for i in range(3):
-        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
-    assert c.zero_write_investigation_rounds == 3
+def test_landing_success_latches_for_wind_down():
+    """Successful write still latches landing (wind_down keep_landing uses it)."""
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=0,
+        investigation_tools=frozenset({"file_read"}),
+    )
+    c.record([ToolAttempt(fingerprint="f0", tool_name="file_read", success=True)])
     c.record([ToolAttempt(fingerprint="w", tool_name="str_replace", success=True)])
     assert c.landing_succeeded
-    assert c.zero_write_investigation_rounds == 0
-    for i in range(3):
-        c.record([ToolAttempt(fingerprint=f"g{i}", tool_name="file_read", success=True)])
-    assert c.convergence_action() is Intervention.CONTINUE  # streak irrelevant after land
 
 
-def test_landing_attempt_exempts_round_from_zero_write():
-    """Failed write is 落盘意图 — does not bump the idle clock."""
-    c = _files_worker(zero_write=3)
-    c.record([ToolAttempt(fingerprint="a", tool_name="file_read", success=True)])
-    c.record([ToolAttempt(fingerprint="b", tool_name="file_read", success=True)])
+def test_landing_attempt_does_not_require_zero_write_bar():
+    """Failed write is 落盘意图 — landing not yet succeeded, no mid-loop cut."""
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=0,
+        investigation_tools=frozenset({"file_read"}),
+    )
     c.record(
         [
             ToolAttempt(fingerprint="r", tool_name="file_read", success=True),
             ToolAttempt(fingerprint="w", tool_name="str_replace", success=False),
         ]
     )
-    assert c.zero_write_investigation_rounds == 0
+    assert not c.landing_succeeded
     assert c.convergence_action() is Intervention.CONTINUE
 
 
-def test_reviews_md_landing_latches_zero_write():
-    """Writing dossier notes counts as product landing and clears zero-write idle."""
+def test_reviews_md_landing_latches():
+    """Writing dossier notes counts as product landing."""
     from agentcore.workspace.stage_dirs import REVIEWS_DIR
 
     c = LoopController(
         convergence_finalize_rounds=30,
         convergence_spin_rounds=0,
-        zero_write_finalize_rounds=4,
+        zero_write_finalize_rounds=0,
         investigation_tools=frozenset({"file_read", "file_list", "grep"}),
     )
-    for i in range(3):
-        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
-    assert c.zero_write_investigation_rounds == 3
     c.record(
         [
             ToolAttempt(
@@ -1280,19 +1310,17 @@ def test_reviews_md_landing_latches_zero_write():
         ]
     )
     assert c.landing_succeeded
-    assert c.zero_write_investigation_rounds == 0
     # No-path success still latches (compat with older ToolAttempt).
     c2 = LoopController(
         convergence_finalize_rounds=30,
         convergence_spin_rounds=0,
-        zero_write_finalize_rounds=4,
+        zero_write_finalize_rounds=0,
         investigation_tools=frozenset({"file_read"}),
     )
     c2.record(
         [ToolAttempt(fingerprint="legacy", tool_name="str_replace", success=True)]
     )
     assert c2.landing_succeeded
-    assert c2.zero_write_investigation_rounds == 0
 
 
 def test_declared_research_artifact_latches_landing():
@@ -1302,7 +1330,7 @@ def test_declared_research_artifact_latches_landing():
     c = LoopController(
         convergence_finalize_rounds=30,
         convergence_spin_rounds=0,
-        zero_write_finalize_rounds=4,
+        zero_write_finalize_rounds=0,
         investigation_tools=frozenset({"file_read"}),
         product_landing_artifacts=(art,),
     )
@@ -1320,52 +1348,16 @@ def test_declared_research_artifact_latches_landing():
     assert c.landing_succeeded
 
 
-def test_different_targets_still_trip_zero_write():
-    """换文件通读不算 spin，但仍算零写空转。"""
-    c = _files_worker(zero_write=5, finalize=30)
-    for i in range(5):
+def test_different_targets_no_longer_trip_zero_write():
+    """换文件通读不算 spin；零写梯子已退役 → 不 FINALIZE。"""
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=0,
+        investigation_tools=frozenset({"file_read", "file_list", "grep"}),
+    )
+    for i in range(8):
         c.record([ToolAttempt(fingerprint=f"path{i}", tool_name="file_read", success=True)])
     assert c.same_target_investigation_streak == 0
-    assert c.convergence_action() is Intervention.FINALIZE
-    assert c.is_thrashing()
-
-
-def _prose_worker(*, idle: int = 3, finalize: int = 30) -> LoopController:
-    return LoopController(
-        convergence_finalize_rounds=finalize,
-        convergence_spin_rounds=0,
-        zero_write_finalize_rounds=idle,
-        prose_idle=True,
-        investigation_tools=frozenset({"file_read", "grep", "code_search"}),
-    )
-
-
-def test_prose_idle_finalizes_and_handoff_counts_as_delivery():
-    c = _prose_worker(idle=3)
-    for i in range(2):
-        c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
-        assert c.convergence_action() is Intervention.CONTINUE
-    assert c.zero_write_warn_due()
-    c.record([ToolAttempt(fingerprint="f2", tool_name="file_read", success=True)])
-    assert c.convergence_action() is Intervention.FINALIZE
-
-    c2 = _prose_worker(idle=3)
-    c2.record([ToolAttempt(fingerprint="a", tool_name="file_read", success=True)])
-    c2.record([ToolAttempt(fingerprint="b", tool_name="file_read", success=True)])
-    c2.record([ToolAttempt(fingerprint="h", tool_name="handoff", success=True)])
-    assert c2.landing_succeeded
-    assert c2.zero_write_investigation_rounds == 0
-    assert c2.convergence_action() is Intervention.CONTINUE
-
-
-def test_prose_idle_warn_prompt_mentions_prose_not_landing():
-    from agentcore.runtime.loop_controller import (
-        zero_write_finalize_prompt,
-        zero_write_warn_prompt,
-    )
-
-    warn = zero_write_warn_prompt(rounds=2, prose_idle=True)
-    assert "散文" in warn or "诊断" in warn
-    assert "str_replace" not in warn
-    fin = zero_write_finalize_prompt(rounds=3, prose_idle=True)
-    assert "散文" in fin or "根因" in fin
+    assert c.convergence_action() is Intervention.CONTINUE
+    assert not c.is_thrashing()

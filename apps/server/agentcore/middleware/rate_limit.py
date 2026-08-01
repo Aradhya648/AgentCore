@@ -19,12 +19,15 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from agentcore.config import settings
+from agentcore.core.logging import get_logger
 from agentcore.core.rate_limit import (
     FixedWindowRateLimiter,
     RateLimitDecision,
     RateLimiter,
     SlidingWindowRateLimiter,
 )
+
+logger = get_logger(__name__)
 
 # Re-export core limiters for existing ``from agentcore.middleware.rate_limit import …``
 __all__ = [
@@ -42,6 +45,20 @@ __all__ = [
 ]
 
 
+def _warn_redis_fallback(*, prefix: str, exc: Exception) -> None:
+    """Redis construct/ping failed → keep serving with a process-local bucket.
+
+    Availability over strict multi-worker throttling: a Redis outage must not
+    fail-closed the login path. Ops can alert on the stable event name.
+    """
+    logger.warning(
+        "security.rate_limit_redis_fallback",
+        prefix=prefix,
+        error=str(exc),
+        detail="Redis rate limiter unavailable; falling back to in-memory bucket",
+    )
+
+
 # Module-level singletons sized from settings; exposed so tests can reset state.
 def _build_auth_rate_limiter():
     if settings.rate_limit_backend == "redis":
@@ -57,8 +74,8 @@ def _build_auth_rate_limiter():
                 max_requests=settings.auth_rate_limit_max,
                 window_seconds=settings.auth_rate_limit_window_seconds,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            _warn_redis_fallback(prefix="rl:auth", exc=exc)
     return FixedWindowRateLimiter(
         max_requests=settings.auth_rate_limit_max,
         window_seconds=settings.auth_rate_limit_window_seconds,
@@ -79,8 +96,8 @@ def _build_sliding_rate_limiter(*, prefix: str, max_requests: int, window_second
                 max_requests=max_requests,
                 window_seconds=window_seconds,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            _warn_redis_fallback(prefix=prefix, exc=exc)
     return SlidingWindowRateLimiter(
         max_requests=max_requests,
         window_seconds=window_seconds,

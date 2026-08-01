@@ -11,6 +11,7 @@ import {
   toolDetail,
   toolLabel,
 } from "@/components/assistantLabels";
+import { isFileReadCeilingGuidance } from "@/lib/fileReadCeiling";
 import {
   type MessageCopyMode,
   copyText,
@@ -20,6 +21,7 @@ import {
   type SupportDiagnosticIds,
   formatSupportDiagnosticText,
 } from "@/lib/supportDiagnostics";
+import { isVerifyBudgetExceeded } from "@/lib/verifyBudget";
 import type {
   EscalationSlot,
   HotDecisionTrace,
@@ -441,6 +443,61 @@ function groupToolRuns(steps: ProcessStep[]): TimelineNode[] {
   return nodes;
 }
 
+/** CEO 协调空转工具（与桌面 `COORDINATION_IDLE_TOOLS` 对称）。 */
+function isCoordinationIdleTool(toolName: string): boolean {
+  return toolName === "wait";
+}
+
+function isWaitIdleReasoning(steps: ProcessStep[], index: number): boolean {
+  if (steps[index]?.kind !== "reasoning") return false;
+  let i = index + 1;
+  let sawWait = false;
+  while (i < steps.length) {
+    const s = steps[i];
+    if (s.kind === "tool") {
+      if (!isCoordinationIdleTool(s.tool_name)) return false;
+      sawWait = true;
+      i++;
+      continue;
+    }
+    break;
+  }
+  if (sawWait) return true;
+  let j = index - 1;
+  sawWait = false;
+  while (j >= 0) {
+    const s = steps[j];
+    if (s.kind === "tool") {
+      if (!isCoordinationIdleTool(s.tool_name)) return false;
+      sawWait = true;
+      j--;
+      continue;
+    }
+    break;
+  }
+  return sawWait;
+}
+
+/** View-layer omit：隐藏 wait 空转段（S4 Thought 降噪，对称桌面）。 */
+function omitCoordinationIdleSteps(steps: ProcessStep[]): ProcessStep[] {
+  if (steps.length === 0) return steps;
+  let changed = false;
+  const out: ProcessStep[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    if (s.kind === "tool" && isCoordinationIdleTool(s.tool_name)) {
+      changed = true;
+      continue;
+    }
+    if (s.kind === "reasoning" && isWaitIdleReasoning(steps, i)) {
+      changed = true;
+      continue;
+    }
+    out.push(s);
+  }
+  return changed ? out : steps;
+}
+
 /** Header summary for a folded tool group: per-category counts in first-seen order
  *  (「Read file 6 · Edit file 2」), or each call's name/query when a single-category run is ≤3. */
 function toolGroupSummary(tools: ToolStepData[]): string {
@@ -492,7 +549,7 @@ function ProcessTimeline({
   graphAppendAuthorizedBy?: Map<string, string>;
   onFill?: (text: string) => void;
 }) {
-  const nodes = groupToolRuns(steps);
+  const nodes = groupToolRuns(omitCoordinationIdleSteps(steps));
   // Legacy turns whose persisted process predates the `team` marker still carry a team
   // (re-folded from events) — render it once at the top so the graph never vanishes.
   const hasTeamMarker = steps.some((s) => s.kind === "team");
@@ -502,13 +559,17 @@ function ProcessTimeline({
       {nodes.map((node, i) => {
         if (node.kind === "content")
           return (
-            <Markdown
+            <div
               // biome-ignore lint/suspicious/noArrayIndexKey: timeline is an append-only stream; segments never reorder, so the index is stable identity
               key={i}
-              content={node.text}
-              citations={citations}
-              evidenceLedger={evidenceLedger}
-            />
+              className="process-narration"
+            >
+              <Markdown
+                content={node.text}
+                citations={citations}
+                evidenceLedger={evidenceLedger}
+              />
+            </div>
           );
         if (node.kind === "reasoning")
           // biome-ignore lint/suspicious/noArrayIndexKey: timeline is an append-only stream; segments never reorder, so the index is stable identity
@@ -678,7 +739,13 @@ function ToolGroup({
     );
   }
   const errorCount = tools.reduce(
-    (n, t) => n + (t.status === "error" ? 1 : 0),
+    (n, t) =>
+      n +
+      (t.status === "error" &&
+      !isFileReadCeilingGuidance(t.tool_name, t.result) &&
+      !isVerifyBudgetExceeded(t.display)
+        ? 1
+        : 0),
     0,
   );
   return (
@@ -718,7 +785,16 @@ function ToolStep({
   const args = Object.keys(step.arguments).length > 0 ? step.arguments : null;
   const detail = toolDetail(step.arguments);
   const running = step.status === "running";
+  const ceilingGuidance =
+    step.status === "error" &&
+    (isFileReadCeilingGuidance(step.tool_name, step.result) ||
+      isVerifyBudgetExceeded(step.display));
   const elapsed = useRunningElapsed(running);
+  const doneStatus = ceilingGuidance
+    ? isVerifyBudgetExceeded(step.display)
+      ? "验证未完成"
+      : "Notice"
+    : TOOL_STATUS[step.status];
   const runningStatus = running
     ? [
         toolPhaseText(phase) ?? TOOL_STATUS.running,
@@ -726,9 +802,12 @@ function ToolStep({
       ]
         .filter(Boolean)
         .join(" · ")
-    : TOOL_STATUS[step.status];
+    : doneStatus;
+  const shellClass = ceilingGuidance
+    ? "tool tool-guidance"
+    : `tool tool-${step.status}`;
   return (
-    <div className={`tool tool-${step.status}`}>
+    <div className={shellClass}>
       <button
         type="button"
         className="tool-head"
@@ -742,6 +821,9 @@ function ToolStep({
       </button>
       {open && (args || step.result != null) && (
         <div className="tool-body">
+          {isVerifyBudgetExceeded(step.display) && (
+            <div className="tool-incomplete">验证未完成（预算耗尽）</div>
+          )}
           {args && (
             <pre className="tool-pre">{JSON.stringify(args, null, 2)}</pre>
           )}

@@ -250,13 +250,14 @@ async def test_file_read_office_offset_limit_on_extracted_lines(tmp_path: Path):
     # enough alnum so not scanned
     body = body + "\n" + ("word " * 20)
     (tmp_path / "notes.docx").write_bytes(b"PK")
+    ctx = _ctx(tmp_path)
     with patch(
         "agentcore.workspace.attachment_parse._convert_with_markitdown",
         return_value=body,
     ):
         result = await FileReadTool().execute(
             {"path": "notes.docx", "offset": 2, "limit": 3},
-            _ctx(tmp_path),
+            ctx,
         )
     assert result.success is True
     out = result.output or ""
@@ -264,6 +265,7 @@ async def test_file_read_office_offset_limit_on_extracted_lines(tmp_path: Path):
     assert "line-4" in out
     assert "line-1" not in out
     assert "共 " in out
+    assert ctx.file_read_counts.get("notes.docx", 0) == 0
 
 
 async def test_file_read_prefers_existing_md_sidecar(tmp_path: Path):
@@ -347,7 +349,8 @@ async def test_file_read_same_path_limit_is_per_path(tmp_path: Path):
     assert ctx.file_read_counts["b.md"] == 1
 
 
-async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
+async def test_file_read_reread_after_clear_allows_recovery(tmp_path: Path):
+    """Cleared verbatim: grant tip optional; exhausted grant must not hard-reject."""
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
     (tmp_path / "doc.md").write_text("# Doc\nbody", encoding="utf-8")
@@ -364,20 +367,45 @@ async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
     assert ok.success is True
     assert ctx.file_read_counts["doc.md"] == FILE_READ_SAME_PATH_MAX + 1
     assert ctx.file_read_reread_remaining["doc.md"] == 0
-    assert "再读次数已用尽" in (ok.output or "")
-    # Grant exhausted → new copy (must not claim body still in dialogue).
-    blocked = await tool.execute({"path": "doc.md"}, ctx)
-    assert blocked.success is False
-    assert blocked.contract_failure is True
-    assert "再读次数已用尽" in (blocked.error or "")
-    assert "请使用对话中已有正文" not in (blocked.error or "")
-    assert "retire_tools" not in (blocked.metadata or {})
+    assert "再读授额已用尽" in (ok.output or "")
+    # Grant exhausted but body still cleared → recovery full-read still allowed.
+    recovered = await tool.execute({"path": "doc.md"}, ctx)
+    assert recovered.success is True
+    assert "body" in (recovered.output or "")
+    assert ctx.file_read_counts["doc.md"] == FILE_READ_SAME_PATH_MAX + 2
     peer = await tool.execute({"path": "peer.md"}, ctx)
     assert peer.success is True
 
 
+async def test_file_read_reread_grant_overrides_verbatim(tmp_path: Path):
+    """remaining > 0 allows full re-read even while verbatim body is still present."""
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+
+    (tmp_path / "keep.md").write_text("keep-body", encoding="utf-8")
+    (tmp_path / "next.md").write_text("next", encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    tool = FileReadTool()
+    for _ in range(FILE_READ_SAME_PATH_MAX):
+        assert (await tool.execute({"path": "keep.md"}, ctx)).success is True
+    ctx.file_read_verbatim_paths = frozenset({"keep.md"})
+    ctx.file_read_reread_remaining["keep.md"] = 1
+    ok = await tool.execute({"path": "keep.md"}, ctx)
+    assert ok.success is True
+    assert "keep-body" in (ok.output or "")
+    assert ctx.file_read_reread_remaining["keep.md"] == 0
+    assert ctx.file_read_counts["keep.md"] == FILE_READ_SAME_PATH_MAX + 1
+    # Grant spent + verbatim still present → hard reject (正文已在对话中).
+    blocked = await tool.execute({"path": "keep.md"}, ctx)
+    assert blocked.success is False
+    assert blocked.contract_failure is True
+    assert "勿再读此文件" in (blocked.error or "")
+    assert "再读次数已用尽" not in (blocked.error or "")
+    next_ok = await tool.execute({"path": "next.md"}, ctx)
+    assert next_ok.success is True
+
+
 async def test_file_read_reread_refresh_after_citation_rework(tmp_path: Path):
-    """Contract citation rework refreshes grant → same path readable once more after clear."""
+    """Citation refresh grant overrides verbatim ceiling after prior grant spent."""
     from agentcore.runtime.engine.tool_clear import refresh_file_read_reread_grant
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
@@ -386,12 +414,12 @@ async def test_file_read_reread_refresh_after_citation_rework(tmp_path: Path):
     tool = FileReadTool()
     for _ in range(FILE_READ_SAME_PATH_MAX):
         assert (await tool.execute({"path": "draft.md"}, ctx)).success is True
-    ctx.file_read_verbatim_paths = frozenset()
+    ctx.file_read_verbatim_paths = frozenset({"draft.md"})
     ctx.file_read_reread_issued["draft.md"] = True
     ctx.file_read_reread_remaining["draft.md"] = 0
     blocked = await tool.execute({"path": "draft.md"}, ctx)
     assert blocked.success is False
-    assert "再读次数已用尽" in (blocked.error or "")
+    assert "勿再读此文件" in (blocked.error or "")
 
     refresh_file_read_reread_grant(ctx, ["draft.md"])
     ok = await tool.execute({"path": "draft.md"}, ctx)
@@ -399,24 +427,138 @@ async def test_file_read_reread_refresh_after_citation_rework(tmp_path: Path):
     assert ctx.file_read_reread_remaining["draft.md"] == 0
 
 
-async def test_file_read_reread_not_granted_while_verbatim_present(tmp_path: Path):
+async def test_file_read_ranged_does_not_count_or_ceiling(tmp_path: Path):
+    """offset/limit success reads neither bump counts nor hit the same-path ceiling."""
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
-    (tmp_path / "keep.md").write_text("keep", encoding="utf-8")
-    (tmp_path / "next.md").write_text("next", encoding="utf-8")
+    lines = "\n".join(f"L{i}" for i in range(1, 21))
+    (tmp_path / "big.md").write_text(lines + "\n", encoding="utf-8")
     ctx = _ctx(tmp_path)
     tool = FileReadTool()
     for _ in range(FILE_READ_SAME_PATH_MAX):
-        assert (await tool.execute({"path": "keep.md"}, ctx)).success is True
-    ctx.file_read_verbatim_paths = frozenset({"keep.md"})
-    ctx.file_read_reread_remaining["keep.md"] = 1  # even if remaining set, body wins
-    blocked = await tool.execute({"path": "keep.md"}, ctx)
+        assert (await tool.execute({"path": "big.md"}, ctx)).success is True
+    assert ctx.file_read_counts.get("big.md") == FILE_READ_SAME_PATH_MAX
+    # Full read would hard-reject (verbatim None ⇒ body present).
+    blocked = await tool.execute({"path": "big.md"}, ctx)
     assert blocked.success is False
     assert blocked.contract_failure is True
-    assert "勿再读此文件" in (blocked.error or "")
-    assert "retire_tools" not in (blocked.metadata or {})
-    next_ok = await tool.execute({"path": "next.md"}, ctx)
-    assert next_ok.success is True
+    # Ranged still succeeds and does not advance the counter.
+    ranged = await tool.execute({"path": "big.md", "offset": 3, "limit": 2}, ctx)
+    assert ranged.success is True
+    assert "L3" in (ranged.output or "")
+    assert "L4" in (ranged.output or "")
+    assert ctx.file_read_counts.get("big.md") == FILE_READ_SAME_PATH_MAX
+    # Many ranged reads still do not fill or advance the ceiling.
+    for _ in range(FILE_READ_SAME_PATH_MAX + 2):
+        assert (
+            await tool.execute({"path": "big.md", "offset": 1, "limit": 1}, ctx)
+        ).success is True
+    assert ctx.file_read_counts.get("big.md") == FILE_READ_SAME_PATH_MAX
+
+
+async def test_file_read_long_file_window_footer_and_output_limit(tmp_path: Path):
+    """超默认行数：编号窗 + 「共 N 行」页脚；无「中间省略」；output_limit 覆盖全文。"""
+    from agentcore.tools.builtin.file_ops import _DEFAULT_READ_LINES
+
+    total = _DEFAULT_READ_LINES + 50
+    body = "\n".join(f"line-{i}" for i in range(1, total + 1)) + "\n"
+    (tmp_path / "long.md").write_text(body, encoding="utf-8")
+    result = await FileReadTool().execute({"path": "long.md"}, _ctx(tmp_path))
+    assert result.success is True
+    out = result.output or ""
+    assert f"共 {total} 行" in out
+    assert f"第 1–{_DEFAULT_READ_LINES} 行" in out
+    assert f"line-{_DEFAULT_READ_LINES}" in out
+    assert f"line-{total}" not in out  # beyond window
+    assert "中间省略" not in out
+    assert "已保留首尾" not in out
+    assert "系统视图截断" not in out
+    assert result.output_limit is not None
+    assert result.output_limit >= len(out)
+    # Numbered first line
+    assert "     1|line-1" in out
+
+
+async def test_write_hard_rejects_substantial_prose_with_omission(tmp_path: Path):
+    """成篇体量 + 省略标记 → 硬拒（非 soft nudge）。"""
+    body = ("完整段落内容填充字。" * 50) + "\n……（中间省略，已保留首尾）……\n" + ("尾段续写。" * 30)
+    assert len(body.strip()) >= 400
+    result = await FileWriteTool().execute(
+        {"path": "essay.md", "content": body}, _ctx(tmp_path)
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "省略标记" in (result.error or "")
+    assert not (tmp_path / "essay.md").exists()
+
+
+async def test_file_write_resets_read_ceiling_for_verify(tmp_path: Path):
+    """Successful write zeros counts + refreshes grant so post-write verify reads work."""
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+
+    (tmp_path / "draft.md").write_text("v1\n", encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    tool = FileReadTool()
+    for _ in range(FILE_READ_SAME_PATH_MAX):
+        assert (await tool.execute({"path": "draft.md"}, ctx)).success is True
+    blocked = await tool.execute({"path": "draft.md"}, ctx)
+    assert blocked.success is False
+
+    w = await FileWriteTool().execute(
+        {"path": "draft.md", "content": "v2 rewritten\n"}, ctx
+    )
+    assert w.success is True
+    assert ctx.file_read_counts.get("draft.md", -1) == 0
+    assert ctx.file_read_reread_remaining.get("draft.md") == 1
+
+    verify = await tool.execute({"path": "draft.md"}, ctx)
+    assert verify.success is True
+    assert "v2 rewritten" in (verify.output or "")
+    assert ctx.file_read_counts.get("draft.md") == 1
+
+
+async def test_str_replace_success_resets_read_ceiling(tmp_path: Path):
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+
+    (tmp_path / "edit.md").write_text("hello world\n", encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    tool = FileReadTool()
+    for _ in range(FILE_READ_SAME_PATH_MAX):
+        assert (await tool.execute({"path": "edit.md"}, ctx)).success is True
+    assert (await tool.execute({"path": "edit.md"}, ctx)).success is False
+
+    ok = await StrReplaceTool().execute(
+        {"path": "edit.md", "old_string": "world", "new_string": "AgentCore"},
+        ctx,
+    )
+    assert ok.success is True
+    assert ctx.file_read_counts.get("edit.md", -1) == 0
+    assert ctx.file_read_reread_remaining.get("edit.md") == 1
+    verify = await tool.execute({"path": "edit.md"}, ctx)
+    assert verify.success is True
+    assert "AgentCore" in (verify.output or "")
+
+
+async def test_str_replace_failure_does_not_refresh_reread_grant(tmp_path: Path):
+    from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
+
+    (tmp_path / "edit.md").write_text("hello world\n", encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    tool = FileReadTool()
+    for _ in range(FILE_READ_SAME_PATH_MAX):
+        assert (await tool.execute({"path": "edit.md"}, ctx)).success is True
+    ctx.file_read_reread_remaining["edit.md"] = 0
+    ctx.file_read_reread_issued["edit.md"] = True
+    before = dict(ctx.file_read_reread_remaining)
+    before_counts = int(ctx.file_read_counts["edit.md"])
+
+    fail = await StrReplaceTool().execute(
+        {"path": "edit.md", "old_string": "no-such-token", "new_string": "x"},
+        ctx,
+    )
+    assert fail.success is False
+    assert ctx.file_read_counts["edit.md"] == before_counts
+    assert ctx.file_read_reread_remaining.get("edit.md") == before.get("edit.md")
 
 
 async def test_file_read_ceiling_does_not_retire_tool(tmp_path: Path):
@@ -573,6 +715,8 @@ async def test_file_read_author_and_reader_share_same_path_cap(tmp_path: Path):
     )
     assert w.success is True
     assert author_ctx.landed_artifact_kinds.get("shared.md") is not None
+    # Write success refreshes sticky grant; consume it after the normal ceiling.
+    assert author_ctx.file_read_reread_remaining.get("shared.md") == 1
 
     reader_ctx = replace(author_ctx, agent_id="ceo", run_id="ceo-run")
     assert reader_ctx.landed_artifact_kinds is author_ctx.landed_artifact_kinds
@@ -588,11 +732,16 @@ async def test_file_read_author_and_reader_share_same_path_cap(tmp_path: Path):
     assert author_ok.success is True
     assert author_ctx.file_read_counts.get("shared.md", 0) == 2
 
-    # Exhaust remaining slots then both hit the same hard cap.
+    # Exhaust remaining normal slots.
     while int(author_ctx.file_read_counts.get("shared.md", 0)) < FILE_READ_SAME_PATH_MAX:
         assert (
             await FileReadTool().execute({"path": "shared.md"}, author_ctx)
         ).success is True
+    # Write-time grant overrides once more while verbatim still present.
+    grant_ok = await FileReadTool().execute({"path": "shared.md"}, author_ctx)
+    assert grant_ok.success is True
+    assert author_ctx.file_read_reread_remaining.get("shared.md") == 0
+
     blocked_author = await FileReadTool().execute({"path": "shared.md"}, author_ctx)
     blocked_reader = await FileReadTool().execute({"path": "shared.md"}, reader_ctx)
     assert blocked_author.success is False and blocked_author.contract_failure is True
@@ -785,17 +934,16 @@ def test_write_schema_teaches_artifact_first():
     write_desc = FileWriteTool().schema.description
     assert "Artifact-first" in write_desc
     assert "短骨架" in write_desc or "骨架" in write_desc
-    assert "建议" in write_desc and ("分段" in write_desc or "按节" in write_desc)
-    assert "不硬拒" in write_desc
-    assert "硬拒绝（非仅提示）" not in write_desc
+    assert "按节" in write_desc or "分段" in write_desc
+    assert "不硬拒字数" in write_desc
+    assert "成篇省略硬拒" in write_desc or "省略标记" in write_desc
+    assert "硬拒绝" in write_desc
     assert "中间省略" in write_desc
     assert "manifest" in write_desc
     assert "优先" in write_desc and "str_replace" in write_desc
     assert "整文件覆盖亦允许" in write_desc or "整盖" in write_desc
-    assert "硬拒绝】整文件" not in write_desc
-    assert "系统会【硬拒绝】" not in write_desc
     content_desc = FileWriteTool().schema.parameters["properties"]["content"]["description"]
-    assert "不硬拒" in content_desc or "一次写完" in content_desc
+    assert "一次写完" in content_desc or "骨架" in content_desc
 
     append_desc = FileAppendTool().schema.description
     assert "骨架" in append_desc

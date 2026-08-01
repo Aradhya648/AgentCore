@@ -150,3 +150,21 @@ async def test_type_fills_non_password():
     res = await d.type({"ref": "e2", "text": "hello"})
     assert loc.filled == "hello"
     assert res["final_url"] == "u"
+
+
+@pytest.mark.asyncio
+async def test_page_state_returns_bumped_snapshot_version():
+    """Mutations must return the post-bump snapshot_version (align host + tools)."""
+    d = Driver()
+    d._snapshot_version = 4
+
+    class _Page:
+        url = "https://example.com/"
+
+        async def title(self):
+            return "Example"
+
+    d._page = _Page()  # type: ignore[assignment]
+    state = await d._page_state(capture=False)
+    assert state["snapshot_version"] == 5
+    assert d._snapshot_version == 5

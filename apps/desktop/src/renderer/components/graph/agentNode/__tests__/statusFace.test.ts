@@ -36,6 +36,44 @@ describe("statusFaceLabel", () => {
     expect(statusFaceLabel("skipped", null).text).toBe("未执行");
   });
 
+  it("shows phase-specific running labels", () => {
+    expect(
+      statusFaceLabel("running", null, 12, null, false, null, "thinking").text,
+    ).toBe("思考中 · 12s");
+    expect(
+      statusFaceLabel(
+        "running",
+        null,
+        undefined,
+        null,
+        false,
+        null,
+        "waiting_children",
+      ).text,
+    ).toBe("等待子团队");
+    expect(
+      statusFaceLabel("running", null, 3, null, false, null, "winding_down")
+        .text,
+    ).toBe("收尾中 · 3s");
+    expect(
+      statusFaceLabel(
+        "running",
+        null,
+        undefined,
+        null,
+        false,
+        null,
+        "tool",
+        "file_read",
+      ).text,
+    ).toBe("Read file");
+  });
+
+  it("keeps pending queued and skipped distinct from thinking", () => {
+    expect(statusFaceLabel("pending", null).text).toBe("排队中");
+    expect(statusFaceLabel("skipped", null).text).toBe("未执行");
+  });
+
   it("shows 待命 / 未传唤 for witness seat runs", () => {
     expect(statusFaceLabel("pending", null, undefined, null, true).text).toBe(
       "待命",
@@ -311,6 +349,31 @@ describe("buildAgentNodePresentation revision face", () => {
     );
     expect(p.revisionBadge?.kind).toBe("debate");
     expect(p.revisionBadge?.label).toBe("第 2 轮");
+  });
+
+  it("run_phase waiting/winding suppresses residual thinking preview", () => {
+    const waiting = buildAgentNodePresentation(
+      baseNode({
+        status: "running",
+        isAnimating: true,
+        phase: "waiting_children",
+        reasoningPreview: "还在想上一拍…",
+      }),
+    );
+    expect(waiting.statusFace.text).toBe("等待子团队");
+    expect(waiting.liveThinking).toBe("");
+    expect(waiting.peekActivity).toBeNull();
+
+    const winding = buildAgentNodePresentation(
+      baseNode({
+        status: "running",
+        isAnimating: true,
+        phase: "winding_down",
+        reasoningPreview: "不该再当思考中",
+      }),
+    );
+    expect(winding.statusFace.text).toBe("收尾中");
+    expect(winding.liveThinking).toBe("");
   });
 });
 

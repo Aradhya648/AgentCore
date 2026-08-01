@@ -593,6 +593,9 @@ class MessageDetail(BaseModel):
     # errored / empty turn that spent no tokens — parity with the live bubble's omission).
     usage: UsageBreakdown | None = None
     rounds: int | None = None
+    # 回合墙钟用时 (主回复 meta)：与 message_end.duration_ms / turn_metrics 同锚；
+    # 写入 usage JSON，读路径投影。null for user / pre-feature rows.
+    duration_ms: int | None = None
     # Progressive assistant-row lifecycle (messages.usage.status): running / complete /
     # incomplete / failed. Projected on read like ``rounds`` (not part of UsageBreakdown).
     # In-flight turns carry ``running`` + may hold partial content/reasoning (P1 overlay

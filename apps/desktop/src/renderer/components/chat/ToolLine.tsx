@@ -4,6 +4,8 @@ import {
   hasToolResultBody,
   toolResultPeek,
 } from "@/components/chat/toolResult/ToolResultView";
+import { isFileReadCeilingGuidance } from "@/components/chat/toolResult/fileReadCeiling";
+import { isVerifyBudgetExceeded } from "@/components/chat/toolResult/verifyBudget";
 import { Badge, Button } from "@/components/ui";
 import { isBrowserTool } from "@/lib/browserActivity";
 import { formatCompact } from "@/lib/format";
@@ -15,7 +17,14 @@ import {
 } from "@/stores/disclosure";
 import { useSidePanelStore } from "@/stores/sidePanel";
 import type { ProcessStep } from "@/types/events";
-import { Check, ChevronDown, ChevronRight, Radio, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Radio,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   BrowserActivityCard,
@@ -32,6 +41,26 @@ import {
   toolMeta,
   toolPhaseText,
 } from "./message-bubble/constants";
+
+function isToolFaultError(
+  step: Extract<ProcessStep, { kind: "tool" }>,
+): boolean {
+  return (
+    step.status === "error" &&
+    !isFileReadCeilingGuidance(step.tool_name, step.result) &&
+    !isVerifyBudgetExceeded(step.display)
+  );
+}
+
+function isToolCeilingGuidance(
+  step: Extract<ProcessStep, { kind: "tool" }>,
+): boolean {
+  return (
+    step.status === "error" &&
+    (isFileReadCeilingGuidance(step.tool_name, step.result) ||
+      isVerifyBudgetExceeded(step.display))
+  );
+}
 
 /** Tools whose collapsed title already names the target (path / topic / skill / action)
  * and whose peek would only repeat an ack line or leak result body. Skip the peek —
@@ -127,18 +156,21 @@ function WebSearchSkeleton() {
 }
 
 /** 行尾指示（顶层工具行对齐「Read page · N sources」）：进行中脉冲点；否则失败打红✗，
- *  顶层可展开行补一个折叠 chevron（open→ChevronUp / 收起→ChevronDown）明确可开合；
- *  组内明细子行仍用成功绿✓。顶层成功即只留 chevron，成功由「无红✗」隐含（与 read_url 组一致）。 */
+ *  file_read 同 path 天花板走 warning 三角（引导态，非故障红）；顶层可展开行补折叠
+ *  chevron；组内明细子行仍用成功绿✓。顶层成功即只留 chevron（与 read_url 组一致）。 */
 function ToolRowTail({
   status,
   nested,
   hasBody,
   open,
+  ceilingGuidance = false,
 }: {
   status: "running" | "success" | "error";
   nested: boolean;
   hasBody: boolean;
   open: boolean;
+  /** Same-path file_read ceiling — warning affordance, not fault red ✗. */
+  ceilingGuidance?: boolean;
 }) {
   if (status === "running")
     return (
@@ -146,15 +178,21 @@ function ToolRowTail({
     );
   // The verdict icon mounts fresh on the running→done edge, so a one-shot pop marks the
   // state change (设计 §3); reduced-motion skips it. 行尾指示紧跟标题文字（自适应内容右侧、
-  // 不撑到行边缘）：失败红✗；顶层可展开补折叠 chevron；组内明细子行用成功绿✓。
+  // 不撑到行边缘）：失败红✗ / 天花板 warning 三角；顶层可展开补折叠 chevron；组内明细用绿✓。
   return (
     <span className="ml-1 inline-flex items-center gap-1 align-middle">
-      {status === "error" && (
-        <X
-          size={14}
-          className="animate-status-pop text-destructive motion-reduce:animate-none"
-        />
-      )}
+      {status === "error" &&
+        (ceilingGuidance ? (
+          <AlertTriangle
+            size={14}
+            className="animate-status-pop text-warning motion-reduce:animate-none"
+          />
+        ) : (
+          <X
+            size={14}
+            className="animate-status-pop text-destructive motion-reduce:animate-none"
+          />
+        ))}
       {nested && status === "success" && (
         <Check
           size={14}
@@ -206,6 +244,7 @@ export function ToolLine({
   };
   const hasBody = hasToolResultBody(data);
   const running = step.status === "running";
+  const ceilingGuidance = isToolCeilingGuidance(step);
   const isWebSearch = step.tool_name === "web_search";
   const suppressesPeek = PEEK_SUPPRESSED.has(step.tool_name);
   // Real backend-ish start anchor (stamped at tool_use_start) keyed by tool_call_id (= step.id),
@@ -269,6 +308,7 @@ export function ToolLine({
                 nested={nested}
                 hasBody={hasBody}
                 open={open}
+                ceilingGuidance={ceilingGuidance}
               />
             </span>
             {runningHint && (
@@ -279,9 +319,11 @@ export function ToolLine({
             {hasBody && !open && !inlineCount && !suppressesPeek && (
               <span
                 className={`block truncate text-xs ${
-                  step.status === "error"
-                    ? "text-destructive/80"
-                    : "text-muted-foreground/70"
+                  ceilingGuidance
+                    ? "text-warning/80"
+                    : step.status === "error"
+                      ? "text-destructive/80"
+                      : "text-muted-foreground/70"
                 }`}
               >
                 {toolResultPeek(data)}
@@ -394,8 +436,9 @@ function DefaultToolLineGroup({
   const showBrowser = useSidePanelStore((s) => s.showBrowser);
 
   const summary = toolGroupSummary(tools);
+  // file_read 天花板是引导态，不进组头「N failed」红徽章。
   const errorCount = tools.reduce(
-    (n, t) => n + (t.status === "error" ? 1 : 0),
+    (n, t) => n + (isToolFaultError(t) ? 1 : 0),
     0,
   );
   const running = tools.some((t) => t.status === "running");

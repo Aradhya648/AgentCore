@@ -638,7 +638,12 @@ async function bumpSnapshotAndState(
   const quality = opts.quality ?? 70;
   entry.snapshotVersion += 1;
   const meta = await pageMeta(entry);
-  const state: Record<string, unknown> = { ...meta };
+  // Align with sandbox driver `_page_state`: mutation bumps version AND returns it
+  // so the model can keep ref ops version-aligned without a forced re-snapshot.
+  const state: Record<string, unknown> = {
+    ...meta,
+    snapshot_version: entry.snapshotVersion,
+  };
   if (opts.capture) {
     const frame = await captureJpegFrame(entry, quality);
     if (frame) {
@@ -741,7 +746,7 @@ export async function bridgeDispatchLocalBrowser(
         ) {
           return {
             ok: false,
-            error: `ref 版本过期（快照 v${version} ≠ 当前 v${entry.snapshotVersion}）`,
+            error: `ref 版本过期（快照 v${version} ≠ 当前 v${entry.snapshotVersion}）：页面已变化，请重新 browser_snapshot 获取最新 ref`,
           };
         }
         await wc.executeJavaScript(
@@ -764,7 +769,7 @@ export async function bridgeDispatchLocalBrowser(
         ) {
           return {
             ok: false,
-            error: `ref 版本过期（快照 v${version} ≠ 当前 v${entry.snapshotVersion}）`,
+            error: `ref 版本过期（快照 v${version} ≠ 当前 v${entry.snapshotVersion}）：页面已变化，请重新 browser_snapshot 获取最新 ref`,
           };
         }
         const safeRef = ref.replace(/\\/g, "\\\\").replace(/'/g, "\\'");

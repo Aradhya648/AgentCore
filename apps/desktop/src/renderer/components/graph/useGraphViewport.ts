@@ -12,21 +12,19 @@ export type { GraphFitMode };
 
 interface UseGraphViewportOptions {
   fitMode: GraphFitMode;
-  /** Content bbox from computeLayout (origin pinned near padding; no dead band). */
+  /** Structural ELK content bbox (fixed NODE_* footprint). */
   bbox: { width: number; height: number } | null;
-  /**
-   * When fitMode=width and visual content spills above y=0 (soft-centered tall
-   * cards), shift viewport by `-originY * zoom` so the overhang stays in view.
-   */
-  originY?: number;
   layoutReady: boolean;
   onMeasure?: (m: { height: number; overflowing: boolean }) => void;
 }
 
+/**
+ * Camera: setViewport only when structure bbox first ready / bbox identity
+ * changes / container size changes. Never servo on measure / originY drift.
+ */
 export function useGraphViewport({
   fitMode,
   bbox,
-  originY = 0,
   layoutReady,
   onMeasure,
 }: UseGraphViewportOptions) {
@@ -37,6 +35,11 @@ export function useGraphViewport({
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const [overflowing, setOverflowing] = useState(false);
   const viewportSettledRef = useRef(false);
+
+  const bboxKey =
+    bbox && layoutReady
+      ? `${bbox.width.toFixed(2)}x${bbox.height.toFixed(2)}`
+      : "";
 
   useEffect(() => {
     if (!layoutReady) {
@@ -87,23 +90,20 @@ export function useGraphViewport({
       !rfInstance ||
       !bbox ||
       colWidth <= 0 ||
-      !layoutReady
+      !layoutReady ||
+      !bboxKey
     ) {
       return;
     }
-    // bbox = layout footprint, or computeVisualBbox for width (measure→ELK lag).
-    // Target host height from fitWidthBox; if the container is still catching up
-    // (e.g. height transition), further shrink zoom to the *actual* pane so
-    // nodes are never clipped — graphHost: zoom first, never hide via overflow.
+    // Width embed drives host height via onMeasure — never read colHeight back
+    // into zoom (that re-created measure→height→fit jitter). Zoom/box from
+    // structural bbox × column width only (fitWidthBox already caps EMBED_MAX).
     const fit = fitWidthBox(bbox.width, bbox.height, colWidth);
-    const availH = colHeight > 0 ? Math.min(colHeight, fit.height) : fit.height;
-    const zoom =
-      bbox.height > 0 ? Math.min(fit.zoom, availH / bbox.height) : fit.zoom;
+    const zoom = fit.zoom;
     const renderedW = bbox.width * zoom;
     const renderedH = bbox.height * zoom;
     const x = Math.max(0, (colWidth - renderedW) / 2);
-    const yBase = renderedH <= availH ? (availH - renderedH) / 2 : 0;
-    const y = yBase - originY * zoom;
+    const y = renderedH <= fit.height ? (fit.height - renderedH) / 2 : 0;
     const animate = viewportSettledRef.current && !prefersReducedMotion();
     rfInstance.setViewport(
       { x, y, zoom },
@@ -123,16 +123,7 @@ export function useGraphViewport({
       });
     }
     onMeasure?.({ height: fit.height, overflowing: fit.overflowing });
-  }, [
-    fitMode,
-    rfInstance,
-    bbox,
-    originY,
-    colWidth,
-    colHeight,
-    layoutReady,
-    onMeasure,
-  ]);
+  }, [fitMode, rfInstance, bbox, bboxKey, colWidth, layoutReady, onMeasure]);
 
   useEffect(() => {
     if (
@@ -141,7 +132,8 @@ export function useGraphViewport({
       !bbox ||
       colWidth <= 0 ||
       colHeight <= 0 ||
-      !layoutReady
+      !layoutReady ||
+      !bboxKey
     ) {
       return;
     }
@@ -156,7 +148,7 @@ export function useGraphViewport({
       animate ? { duration: 200 } : undefined,
     );
     viewportSettledRef.current = true;
-  }, [fitMode, rfInstance, bbox, colWidth, colHeight, layoutReady]);
+  }, [fitMode, rfInstance, bbox, bboxKey, colWidth, colHeight, layoutReady]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

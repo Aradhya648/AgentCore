@@ -67,6 +67,8 @@ export interface MessageDetail {
   origin?: string | null;
   /** 回合日志关联 id（messages.trace_id）—「复制排查包」冷启动. */
   trace_id?: string | null;
+  /** 回合墙钟用时 (ms)：与 message_end.duration_ms 同锚；重载自 usage JSON. */
+  duration_ms?: number | null;
   created_at: string;
 }
 
@@ -250,6 +252,7 @@ export function toMessageDetail(row: Schemas["MessageDetail"]): MessageDetail {
     followups: row.followups?.length ? row.followups : undefined,
     origin: row.origin ?? null,
     trace_id: row.trace_id ?? null,
+    duration_ms: row.duration_ms ?? null,
     created_at: row.created_at,
   };
 }

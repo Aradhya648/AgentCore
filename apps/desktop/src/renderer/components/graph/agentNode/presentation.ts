@@ -25,13 +25,22 @@ export function buildAgentNodePresentation(
   const presence = PRESENCE_STYLES[d.status] ?? PRESENCE_STYLES.pending;
   const artifacts = d.artifacts ?? [];
   const isRunning = d.status === "running";
+  const phase = isRunning ? (d.phase ?? null) : null;
+  // waiting_children / winding_down must not fall through to residual reasoning
+  // as「思考中」— phase is the activity source of truth while running.
+  const suppressThinkingPreview =
+    phase === "waiting_children" || phase === "winding_down";
   const liveTool = isRunning ? (d.toolProgress ?? null) : null;
   const liveToolExec =
     isRunning && !liveTool ? (d.toolExecutionLive ?? null) : null;
   const livePreview =
     isRunning && !liveTool && !liveToolExec ? d.outputPreview : "";
   const liveThinking =
-    isRunning && !liveTool && !liveToolExec && !livePreview
+    isRunning &&
+    !liveTool &&
+    !liveToolExec &&
+    !livePreview &&
+    !suppressThinkingPreview
       ? (d.reasoningPreview ?? "")
       : "";
   const cardWidth = 210;
@@ -56,6 +65,8 @@ export function buildAgentNodePresentation(
     d.debateRoundPhase,
     witnessSeat,
     d.error,
+    phase,
+    d.phaseTool,
   );
   const statusFace =
     d.debateCrossExamMark?.mode === "replace"

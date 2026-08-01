@@ -385,6 +385,10 @@ class CoordinationSession:
     # Mid-flight user interjections awaiting CEO disposition. Credentials are
     # process-local only — journal snapshots strip ``llm_credentials``.
     pending_interjections: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    # Ids injected into a CEO wake and not yet addressed/queued/failed (process-local).
+    awaiting_disposition: set[str] = field(default_factory=set, repr=False)
+    # Terminal disposition already emitted (idempotent queue_user_message after close).
+    dispositioned_interjections: set[str] = field(default_factory=set, repr=False)
     # Live SSE sink for coordination UX (``coordination_wait``). Set by host when
     # arming; not snapshotted — resume re-attaches from the live tool sink.
     event_sink: Any | None = field(default=None, repr=False)
@@ -1191,8 +1195,17 @@ class CoordinationSession:
         return session
 
     def close(self) -> None:
+        was_active = self.active
         self.active = False
         self.cancel_all_timeouts()
+        # 收口：未消化插话升格对话 FIFO（或终局已答 → addressed）。仅从 active→inactive
+        # 触发一次，避免重复 close 双入队。
+        if was_active and self.pending_interjections:
+            from agentcore.runtime.coordination.interjections import (
+                promote_pending_on_close,
+            )
+
+            promote_pending_on_close(self)
 
 
 def active_coordination(execution_id: str | None = None) -> CoordinationSession | None:
@@ -1519,14 +1532,15 @@ async def await_live_detached_drive(conversation_id: str) -> bool:
     still reach the live UI, and so sidecar outbox READY is not sealed while
     post-detach DURABLE journal appends are still in flight.
 
-    No-op (returns False) when there is no live detached drive — cancel /
-    user_stop / soft-stop pause / still-attached / idle all close immediately.
-    Drive-task cancel/failure does not raise; caller cancellation does.
+    No-op (returns False) when there is no live detached drive — user_stop /
+    still-attached / idle all close immediately. ``soft_stop`` still awaits a
+    live drive so finally-block terminal frames are not dropped by an early
+    sink close. Drive-task cancel/failure does not raise; caller cancellation does.
     """
     session = active_coordination_for_conversation(conversation_id)
     if session is None or not session.active:
         return False
-    if session.user_stopped or session.soft_stop or session.turn_attached:
+    if session.user_stopped or session.turn_attached:
         return False
     task = session.drive_task
     if task is None or task.done():

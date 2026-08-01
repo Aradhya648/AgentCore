@@ -464,3 +464,121 @@ async def test_stream_chat_skips_title_when_already_named(monkeypatch):
         sink=EventSink(),
     )
     assert scheduled == []
+
+
+async def test_mint_title_if_empty_returns_existing_without_llm(monkeypatch):
+    """Await path short-circuits when the conversation already has a title."""
+    core_calls: list[str] = []
+
+    async def _boom(**_kwargs):
+        core_calls.append("called")
+        return "should-not-run"
+
+    monkeypatch.setattr(common, "_mint_title_core", _boom)
+    monkeypatch.setattr(
+        common,
+        "_read_conversation_title",
+        AsyncMock(return_value="已有标题"),
+    )
+    common._title_inflight.clear()
+
+    out = await common.mint_title_if_empty(
+        conversation_id="c1",
+        user_id="u1",
+        user_message="不该铸",
+        sink=None,
+    )
+    assert out == "已有标题"
+    assert core_calls == []
+
+
+async def test_mint_title_if_empty_runs_core_when_untitled(monkeypatch):
+    writes: list[tuple[str, str]] = []
+
+    class _ConvRepo:
+        def __init__(self, _session):
+            pass
+
+        async def get_by_id_unscoped(self, _cid):
+            return SimpleNamespace(title=None)
+
+        async def update_title_if_empty(self, conversation_id, title):
+            writes.append((conversation_id, title))
+            return SimpleNamespace(title=title)
+
+    monkeypatch.setattr(common, "async_session_factory", lambda: _FakeSessionCM())
+    monkeypatch.setattr(common, "ConversationRepository", _ConvRepo)
+
+    async def _run_bg(user_id, *, purpose="title", runner):
+        from agentcore.billing.gate import BackgroundLlmResult
+        from agentcore.llm.credentials import LLMCredentials
+
+        creds = LLMCredentials(
+            api_key="sk", base_url="https://x", default_model="flash", source="platform"
+        )
+        value = await runner(creds)
+        return BackgroundLlmResult(value=value, credentials=creds)
+
+    monkeypatch.setattr(common, "run_background_llm", _run_bg)
+    monkeypatch.setattr(common, "resolve_turn_model", lambda _c: "flash")
+    monkeypatch.setattr(
+        common,
+        "build_provider",
+        lambda *_a, **_k: SimpleNamespace(close=AsyncMock()),
+    )
+    monkeypatch.setattr(
+        common,
+        "generate_title",
+        AsyncMock(return_value=TitleResult(title="并行铸题")),
+    )
+    common._title_inflight.clear()
+
+    out = await common.mint_title_if_empty(
+        conversation_id="c-await",
+        user_id="u1",
+        user_message="帮我写周报",
+        sink=None,
+    )
+    assert out == "并行铸题"
+    assert writes == [("c-await", "并行铸题")]
+    assert "c-await" not in common._title_inflight
+
+
+async def test_mint_title_if_empty_waits_on_inflight(monkeypatch):
+    """When another mint is in flight, await path waits then returns DB title."""
+    reads: list[int] = []
+
+    async def _read(_cid):
+        reads.append(1)
+        if len(reads) == 1:
+            return None  # first check: empty
+        return "他途已铸"
+
+    core_calls: list[str] = []
+
+    async def _boom(**_kwargs):
+        core_calls.append("called")
+        return "should-not"
+
+    monkeypatch.setattr(common, "_read_conversation_title", _read)
+    monkeypatch.setattr(common, "_mint_title_core", _boom)
+    common._title_inflight.add("c-wait")
+
+    async def _clear_later():
+        await asyncio.sleep(0.08)
+        common._title_inflight.discard("c-wait")
+
+    clearer = asyncio.create_task(_clear_later())
+    try:
+        out = await common.mint_title_if_empty(
+            conversation_id="c-wait",
+            user_id="u1",
+            user_message="x",
+            sink=None,
+        )
+        assert out == "他途已铸"
+        assert core_calls == []
+        assert len(reads) >= 2
+    finally:
+        await clearer
+        common._title_inflight.discard("c-wait")

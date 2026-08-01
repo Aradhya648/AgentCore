@@ -26,14 +26,36 @@ function Get-UnityExe {
 }
 
 function Wait-UnityExit {
-    param([int]$TimeoutSec = 60)
+    param(
+        [int]$TimeoutSec = 60,
+        [int]$ProcessId = 0
+    )
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while (Get-Process -Name 'Unity' -ErrorAction SilentlyContinue) {
+    while ($true) {
+        if ($ProcessId -gt 0) {
+            $alive = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        } else {
+            $alive = Get-Process -Name 'Unity' -ErrorAction SilentlyContinue
+        }
+        if (-not $alive) { return }
         if ((Get-Date) -ge $deadline) {
             throw "Timed out waiting for Unity to exit (${TimeoutSec}s). Close any Unity instance and re-run."
         }
         Start-Sleep -Seconds 1
     }
+}
+
+# Kill only the Start-Process PID and its descendants — never Get-Process -Name Unity globally.
+function Stop-UnityProcessTree {
+    param([int]$ProcessId)
+    if ($ProcessId -le 0) { return }
+    try {
+        # /T = kill child tree; scoped to this PID only.
+        & taskkill.exe /PID $ProcessId /T /F 2>$null | Out-Null
+    } catch { }
+    try {
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    } catch { }
 }
 
 function Test-LogMatches {
@@ -97,10 +119,8 @@ function Invoke-UnityBatch {
         }
 
         if (-not $matched -and $WaitLogPattern) {
-            Get-Process -Name 'Unity' -ErrorAction SilentlyContinue |
-                Where-Object { $_.MainWindowTitle -eq '' } |
-                Stop-Process -Force -ErrorAction SilentlyContinue
-            Wait-UnityExit -TimeoutSec 30
+            Stop-UnityProcessTree -ProcessId $proc.Id
+            Wait-UnityExit -TimeoutSec 30 -ProcessId $proc.Id
             throw "Timed out waiting for log pattern '$WaitLogPattern' in $LogFile"
         }
 
@@ -110,11 +130,9 @@ function Invoke-UnityBatch {
             Start-Sleep -Seconds 1
         }
         if (-not $proc.HasExited) {
-            Get-Process -Name 'Unity' -ErrorAction SilentlyContinue |
-                Where-Object { $_.MainWindowTitle -eq '' } |
-                Stop-Process -Force -ErrorAction SilentlyContinue
+            Stop-UnityProcessTree -ProcessId $proc.Id
         }
-        Wait-UnityExit -TimeoutSec 60
+        Wait-UnityExit -TimeoutSec 60 -ProcessId $proc.Id
         return $LogFile
     }
 

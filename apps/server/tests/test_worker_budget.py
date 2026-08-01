@@ -149,28 +149,27 @@ def test_blocks_light_complexity_only_long_form():
     assert not blocks_light_complexity(None)
 
 
-def test_apply_light_round_budgets_stamps_max_rounds():
+def test_apply_light_round_budgets_is_noop():
+    """Retired: light no longer stamps short max_rounds (CEO / repair_code still may)."""
     from agentcore.runtime.runs.plan import RunPlan
     from agentcore.runtime.runs.types import RunSpec
-    from agentcore.runtime.runs.worker_budget import (
-        LIGHT_REPAIR_MAX_ROUNDS,
-        apply_light_round_budgets,
-    )
+    from agentcore.runtime.runs.worker_budget import apply_light_round_budgets
 
     plan = RunPlan()
     plan.add(RunSpec(run_id="a", agent_id="a", agent_name="x", task="t", role="工程师"))
     apply_light_round_budgets(plan, complexity_hint="standard")
     assert plan.nodes[0].max_rounds is None
     apply_light_round_budgets(plan, complexity_hint="light")
-    assert plan.nodes[0].max_rounds == LIGHT_REPAIR_MAX_ROUNDS
+    assert plan.nodes[0].max_rounds is None
 
 
 def test_files_zero_write_retired_always_off():
-    """Files zero-write催写 deleted: never on (standard or short); prose idle separate."""
+    """Files + prose idle ladders retired: factory never opens either."""
     from agentcore.runtime.engine.governance import create_loop_controller
     from agentcore.runtime.runs.worker_budget import (
         LIGHT_REPAIR_MAX_ROUNDS,
         is_short_write_posture,
+        should_enable_prose_idle,
         should_enable_zero_write,
     )
 
@@ -190,6 +189,7 @@ def test_files_zero_write_retired_always_off():
     assert not should_enable_zero_write(
         files_expected=False, max_rounds=LIGHT_REPAIR_MAX_ROUNDS
     )
+    assert not should_enable_prose_idle(files_expected=False, short_write_posture=True)
 
     standard = create_loop_controller(
         frozenset({"file_read"}),
@@ -211,6 +211,7 @@ def test_files_zero_write_retired_always_off():
         form_prose=True,
     )
     assert prose.zero_write_finalize_rounds == 0
+    assert prose.prose_idle is False
 
 
 def test_is_directed_search_role_covers_review_and_investigation():
@@ -266,30 +267,33 @@ def test_build_plan_enriches_reviewer_least_privilege_tools():
     assert "code_search" in tools
 
 
-def test_repair_posture_keeps_browser_navigate():
-    """light/repair 可抠 click / 全仓巡读，但必须保留 browser_navigate（开页任务）。"""
+def test_repair_posture_narrow_is_noop():
+    """Retired: short-round posture no longer strips list / crawl / click tools."""
     from agentcore.runtime.runs.executor_node import (
-        _REPAIR_POSTURE_WITHHOLD,
         _narrow_for_repair_posture,
     )
     from agentcore.tools.registry import ToolRegistry
 
-    assert "browser_navigate" not in _REPAIR_POSTURE_WITHHOLD
-    assert "browser_click" in _REPAIR_POSTURE_WITHHOLD
     allowed = [
         "browser_navigate",
         "browser_click",
         "browser_snapshot",
         "file_list",
         "read_url",
+        "web_search",
     ]
-    _reg, narrowed = _narrow_for_repair_posture(ToolRegistry(), allowed)
-    assert narrowed is not None
-    assert "browser_navigate" in narrowed
-    assert "browser_snapshot" in narrowed
-    assert "browser_click" not in narrowed
-    assert "file_list" not in narrowed
-    assert "read_url" not in narrowed
+    reg = ToolRegistry()
+    out_reg, narrowed = _narrow_for_repair_posture(reg, allowed)
+    assert out_reg is reg
+    assert narrowed is allowed
+    assert narrowed == [
+        "browser_navigate",
+        "browser_click",
+        "browser_snapshot",
+        "file_list",
+        "read_url",
+        "web_search",
+    ]
 
 
 def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
@@ -329,10 +333,9 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
         tighten_verify_exec_thrash=True,
         max_rounds=4,
     )
-    # Prose short idle shares the zero_write counter (scaled under max_rounds); not a
-    # parallel fuse. files zero-write催写 is retired (should_enable_zero_write always false).
-    assert tightened.prose_idle is True
-    assert tightened.zero_write_finalize_rounds == 3  # max(2, min(7, 4-1))
+    # Prose idle ladder retired — factory always leaves zero_write/prose_idle off.
+    assert tightened.prose_idle is False
+    assert tightened.zero_write_finalize_rounds == 0
     # disable<=2：两次同工具失败即 disable（默认 3 才 disable）
     tightened.record(
         [ToolAttempt(fingerprint="fp0", tool_name="code_execute", success=False)]
@@ -377,7 +380,7 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
 
 
 def test_prose_idle_gate_and_scaled_bar():
-    """短散文节点启用 idle 梯；bar 缩进 max_rounds；files 零落盘催写已删。"""
+    """prose_idle / zero_write 梯子已退役：闸恒关；短 max_rounds 仍提前 reflection。"""
     from agentcore.runtime.engine.governance import create_loop_controller
     from agentcore.runtime.runs.worker_budget import (
         resolve_prose_idle_finalize_rounds,
@@ -385,14 +388,14 @@ def test_prose_idle_gate_and_scaled_bar():
         should_enable_zero_write,
     )
 
-    assert should_enable_prose_idle(files_expected=False, short_write_posture=True)
+    assert not should_enable_prose_idle(files_expected=False, short_write_posture=True)
     assert not should_enable_prose_idle(files_expected=True, short_write_posture=True)
     assert not should_enable_prose_idle(files_expected=False, short_write_posture=False)
-    # files zero-write retired
     assert not should_enable_zero_write(files_expected=False, short_write_posture=True)
     assert not should_enable_zero_write(files_expected=True, short_write_posture=True)
-    assert resolve_prose_idle_finalize_rounds(4) == 3
-    assert resolve_prose_idle_finalize_rounds(6) == 5
+    # Default settings bar is 0 → scaled helper stays 0.
+    assert resolve_prose_idle_finalize_rounds(4) == 0
+    assert resolve_prose_idle_finalize_rounds(6) == 0
 
     ctrl = create_loop_controller(
         frozenset({"file_read", "grep"}),
@@ -400,8 +403,8 @@ def test_prose_idle_gate_and_scaled_bar():
         short_write_posture=True,
         max_rounds=4,
     )
-    assert ctrl.prose_idle is True
-    assert ctrl.zero_write_finalize_rounds == 3
+    assert ctrl.prose_idle is False
+    assert ctrl.zero_write_finalize_rounds == 0
     # Short max_rounds pulls reflection earlier (default start 3 → 2).
     assert ctrl.reflection_due(2)
     assert not ctrl.reflection_due(1)

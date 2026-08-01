@@ -151,6 +151,8 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
   let debatePretrial: DebatePretrialState | null = null;
   let teamSynthesisPreview: TeamSynthesisPreviewPayload | null = null;
   let deliveryStatus: DeliveryStatusPayload | null = null;
+  /** journal 内最后一条 `execution_completed.status`（若有）→ 投影到 execution.status。 */
+  let fromExecutionCompleted: ExecutionStatus | null = null;
   let turnWarning: string | null = null;
   const userInterjections: {
     interjectionId: string;
@@ -293,6 +295,7 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
       case "run_output_reset":
       case "run_reasoning_delta":
       case "run_tool_progress":
+      case "run_phase":
       case "run_completed":
       case "run_failed":
       case "run_cancelled":
@@ -480,7 +483,18 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
       case "handoff_job_started":
       case "handoff_apply_done":
       case "execution_detached":
-      case "execution_completed":
+      case "execution_completed": {
+        // DURABLE：execution 终态权威 → 投影到 projectExecution 的 status（缺省 completed）。
+        // TurnStatus 仍跟 finishReason；此处只校正协作图 execution.status。
+        if (ev.type === "execution_completed") {
+          const raw = (ev.payload as { status?: string }).status;
+          fromExecutionCompleted =
+            raw === "cancelled" || raw === "failed" || raw === "completed"
+              ? raw
+              : "completed";
+        }
+        break;
+      }
       case "sim.agent_action":
       case "sim.agent_state":
       case "sim.interaction":
@@ -547,7 +561,7 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
             interjectionId: iid,
             executionId: p.execution_id || "",
             content: p.content || "",
-            status: p.status || "delivered",
+            status: p.status || "received",
             note: typeof p.note === "string" ? p.note : null,
             ...(attachments.length > 0 ? { attachments } : {}),
           };
@@ -578,7 +592,8 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
     status = "running";
   }
 
-  const execStatus: ExecutionStatus = status === "running" ? "running" : status;
+  const execStatus: ExecutionStatus =
+    fromExecutionCompleted ?? (status === "running" ? "running" : status);
   const execution = plan
     ? projectExecution(
         plan,
@@ -658,6 +673,11 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
         : {}),
     })),
     process: r.process,
+    // Worker mid-flight phase: only emit when set (mirrors oracle — absent on
+    // pending/skipped / older vectors without run_phase).
+    ...(r.phase != null
+      ? { phase: r.phase, phaseTool: r.phaseTool ?? null }
+      : {}),
   }));
 
   return {

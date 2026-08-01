@@ -22,15 +22,16 @@ Three layers:
 import json
 from pathlib import Path
 
-from agentcore.core.types import ToolEffect
+from agentcore.core.types import ToolCategory, ToolEffect
 from agentcore.llm.provider.protocol import LLMChunk, LLMMessage, ToolCallDelta
 from agentcore.runtime.engine import react_loop
 from agentcore.runtime.events import EventSink, EventType, FinishReason, SSEEvent
 from agentcore.runtime.facts import FactKind, TurnFactLog, TurnStartedFact, current_fact_log
 from agentcore.runtime.journal import runs_from_entries, window_from_journal
+from agentcore.runtime.runs.executor_shared import resolve_finish_override
 from agentcore.runtime.suspension import captain_transcript
 from agentcore.tools.builtin.ask_user import AskUserTool
-from agentcore.tools.protocol import ToolContext
+from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registry import ToolRegistry
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
@@ -82,6 +83,44 @@ def _drain(sink: EventSink) -> list[SSEEvent]:
     while not sink._queue.empty():  # noqa: SLF001 - test-only inspection
         out.append(sink._queue.get_nowait())
     return out
+
+
+def _tool_chunk(name: str, args: str, *, call_id: str) -> LLMChunk:
+    return LLMChunk(
+        delta_tool_calls=[
+            ToolCallDelta(
+                index=0,
+                id=call_id,
+                function_name=name,
+                arguments_delta=args,
+            )
+        ]
+    )
+
+
+class _FailOrOkTool:
+    """Scripted CEO tool: success once, then failures (drives unproductive streak)."""
+
+    def __init__(self, name: str, *, succeed_first: int = 1) -> None:
+        self._name = name
+        self._succeed_first = succeed_first
+        self.calls = 0
+        self._schema = ToolSchema(
+            name=name,
+            description="stub",
+            parameters={"type": "object", "properties": {}},
+            category=ToolCategory.SEARCH,
+        )
+
+    @property
+    def schema(self) -> ToolSchema:
+        return self._schema
+
+    async def execute(self, arguments, context) -> ToolResult:  # noqa: ANN001
+        self.calls += 1
+        if self.calls <= self._succeed_first:
+            return ToolResult(tool_call_id="", success=True, output="ok")
+        return ToolResult(tool_call_id="", success=False, output="", error="boom")
 
 
 # --- the tool: finalize only when ON and a frame actually saved --------------------
@@ -408,3 +447,102 @@ async def test_loop_absorbs_content_into_blocking_ask_user():
     assert any(e.type is EventType.CONTENT_RESET for e in events)
     llm_facts = [f for f in log.entries() if f["kind"] == FactKind.LLM_CALL.value]
     assert llm_facts[-1]["payload"]["content"] == ""
+
+
+# --- unproductive early-stop then force-finalize ask_user -----------------------
+
+
+async def test_unproductive_then_finalize_ask_user_stamps_paused_last():
+    """Regression: unproductive early-stop must not win over a later ask_user pause.
+
+    Real accident (trace 807ee7b7…): consult/success inventory → 3× debate fail →
+    ``UNPRODUCTIVE`` Finalize → force-finalize ``ask_user`` SUSPEND. The sink correctly
+    appended ``[UNPRODUCTIVE, PAUSED]``, but captain used ``finish_override[0]`` and the
+    client rendered the empty-failure banner instead of「需要你拍板」.
+    """
+    sink = EventSink()
+    frames: list = []
+
+    async def saver(frame) -> None:  # noqa: ANN001 - TurnSuspension
+        frames.append(frame)
+
+    async def deleter(_message_id: str) -> None:
+        return None
+
+    flaky = _FailOrOkTool("flaky", succeed_first=1)
+    ask = _ask_tool(saver, deleter, sink)
+    reg = ToolRegistry()
+    reg.register(flaky)
+    reg.register(ask)
+
+    # Round 0 success (salvage inventory) → rounds 1–3 all-fail → unproductive →
+    # force-finalize LLM round returns ask_user.
+    provider = _ScriptedProvider(
+        [
+            [_tool_chunk("flaky", '{"q": "ok"}', call_id="c0")],
+            [_tool_chunk("flaky", '{"q": "a"}', call_id="c1")],
+            [_tool_chunk("flaky", '{"q": "b"}', call_id="c2")],
+            [_tool_chunk("flaky", '{"q": "c"}', call_id="c3")],
+            [
+                LLMChunk(delta_content="先说清楚：这场辩论没能开起来。"),
+                LLMChunk(
+                    delta_tool_calls=[
+                        ToolCallDelta(
+                            index=0,
+                            id="call_ask",
+                            function_name="ask_user",
+                            arguments_delta=(
+                                '{"message": "DeepSeek 不可用，怎么处理？", '
+                                '"assumptions": [{"label": "换模型", "value": "auto"}]}'
+                            ),
+                        )
+                    ]
+                ),
+            ],
+        ]
+    )
+
+    messages = [
+        LLMMessage(role="system", content="你是 CEO。"),
+        LLMMessage(role="user", content="启动辩论"),
+    ]
+    profile = make_profile_params(max_rounds=20)
+    log = TurnFactLog()
+    log.record_fact(
+        TurnStartedFact(
+            system_prompt="你是 CEO。", user_message="启动辩论", model_profile="m"
+        ).to_fact()
+    )
+    finish_override: list[FinishReason] = []
+    fl_token = current_fact_log.set(log)
+    ct_token = captain_transcript.set(messages)
+    try:
+        _content, _reasoning, _usage, _rounds = await react_loop(
+            messages=messages,
+            llm=provider,
+            tools=reg,
+            sink=sink,
+            tool_context=_ctx(),
+            profile=profile,
+            turn_model="m",
+            finish_override_sink=finish_override,
+            run_id="cap",
+            role="captain",
+        )
+    finally:
+        captain_transcript.reset(ct_token)
+        current_fact_log.reset(fl_token)
+
+    assert finish_override == [FinishReason.UNPRODUCTIVE, FinishReason.PAUSED]
+    assert resolve_finish_override(finish_override) is FinishReason.PAUSED
+    assert len(frames) == 1
+    assert any(e.type is EventType.CHECKPOINT_REQUIRED for e in _drain(sink))
+
+
+def test_resolve_finish_override_latest_wins():
+    assert resolve_finish_override([]) is None
+    assert resolve_finish_override([FinishReason.UNPRODUCTIVE]) is FinishReason.UNPRODUCTIVE
+    assert (
+        resolve_finish_override([FinishReason.UNPRODUCTIVE, FinishReason.PAUSED])
+        is FinishReason.PAUSED
+    )

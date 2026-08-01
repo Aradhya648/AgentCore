@@ -156,4 +156,4 @@ MonoBehaviour:
   - road-side
   - road-straight
   - tile-low
-  xbotPrefab: {fileID: 5601854468159436290, guid: afbd6503532853941a9f1c1ead56b0aa, type: 3}
+  xbotPrefab: {fileID: 0}

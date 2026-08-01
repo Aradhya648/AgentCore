@@ -171,6 +171,34 @@ async def test_snapshot_local_passes_subpath_directory(monkeypatch):
     await task
 
 
+async def test_snapshot_local_holds_workspace_lock(monkeypatch):
+    """Handoff e1 snapshot write must hold the conversation/folder storage-key lock."""
+    from contextlib import asynccontextmanager
+
+    import agentcore.workspace.handoff as handoff_mod
+
+    lock_keys: list[str] = []
+
+    @asynccontextmanager
+    async def _capture_lock(key: str):
+        lock_keys.append(key)
+        yield
+
+    monkeypatch.setattr(handoff_mod, "workspace_lock", _capture_lock)
+
+    archive = _zip_b64({"a.txt": "A"})
+    task, provider = await _drive(
+        monkeypatch,
+        {"archive": archive, "file_count": 1, "total_bytes": 1, "truncated": False},
+    )
+    await task
+
+    assert provider.captured is not None
+    assert lock_keys == [
+        workspace_storage_key(user_id="u1", folder_id=None, conversation_id=CONV)
+    ]
+
+
 def test_handoff_routes_use_turn_routing_binding():
     """Handoff routes must share turn-routing binding (folder inherit / container).
 

@@ -122,6 +122,26 @@ class PermissionAxesUpdate(BaseModel):
     permission_axes: PermissionAxesModel
 
 
+class AutoTitleRequest(BaseModel):
+    """Local-first parallel title mint: first user message only (no assistant reply)."""
+
+    user_message: str = Field(..., min_length=1)
+
+    @field_validator("user_message")
+    @classmethod
+    def _strip_nonempty(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("user_message 不能为空")
+        return trimmed
+
+
+class AutoTitleResponse(BaseModel):
+    """Resulting conversation title (existing or freshly minted)."""
+
+    title: str
+
+
 # Back-compat export alias for OpenAPI / import churn during migration.
 PermissionPresetUpdate = PermissionAxesUpdate
 

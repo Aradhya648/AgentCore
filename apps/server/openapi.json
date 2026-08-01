@@ -1897,6 +1897,35 @@
         "title": "AuditCausalNode",
         "type": "object"
       },
+      "AutoTitleRequest": {
+        "description": "Local-first parallel title mint: first user message only (no assistant reply).",
+        "properties": {
+          "user_message": {
+            "minLength": 1,
+            "title": "User Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_message"
+        ],
+        "title": "AutoTitleRequest",
+        "type": "object"
+      },
+      "AutoTitleResponse": {
+        "description": "Resulting conversation title (existing or freshly minted).",
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "AutoTitleResponse",
+        "type": "object"
+      },
       "AutonomyPolicy": {
         "description": "User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).\n\nRuntime gates read the conversation's ``permission_axes`` — not this column.\nStored on ``users.autonomy_policy`` (设置页「新会话默认权限配方」).",
         "enum": [
@@ -8095,6 +8124,17 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
           },
           "evidence_ledger": {
             "items": {
@@ -14804,7 +14844,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.24"
+    "version": "0.3.25"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20269,6 +20309,91 @@
           }
         },
         "summary": "List File Audit",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{conversation_id}/auto-title": {
+      "post": {
+        "description": "Mint a conversation title from the first user message (await).\n\nLocal sidecar has no cloud SSE ``title_generated`` path — the desktop calls this\nin parallel with the first local turn. Shares the same mint core as cloud\n``schedule_title_generation`` (user message only; ``assistant_reply=\"\"``).\n\nAlready-titled conversations return the existing title without calling the LLM.",
+        "operationId": "auto_title_conversation_v1_conversations__conversation_id__auto_title_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoTitleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoTitleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Auto Title Conversation",
         "tags": [
           "conversations"
         ]

@@ -195,3 +195,5 @@ class MessageEndPayload(WirePayload):
     cost: CostBreakdown | None = absent()
     rounds: int | None = absent()
     collab: TurnCollabMetrics | None = absent()
+    # 回合墙钟用时 (主回复 meta)：与 chat.turn_complete / turn_metrics 同锚；可选，旧向量可省略。
+    duration_ms: int | None = absent()

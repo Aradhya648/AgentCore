@@ -37,12 +37,18 @@ export interface ReadUrlDisplay {
   content: string;
 }
 
-/** `code_execute` rich result: a terminal-style stdout/stderr view + exit code. */
+/** `code_execute` / `test_run` rich result: terminal-style stdout/stderr + exit code.
+ *  ``test_run`` may omit ``language`` and set ``budget_exceeded`` when the verify
+ *  budget was exhausted (incomplete — not a hard tool fault). */
 export interface CodeExecDisplay {
   stdout: string;
   stderr: string;
   exit_code: number;
-  language: string;
+  language?: string;
+  /** True when verify budget exhausted — UI shows incomplete, not fault red. */
+  budget_exceeded?: boolean;
+  check?: string;
+  command?: string;
 }
 
 /** `consult_skill` rich result (渐进披露 可视化): which system「能力」the CEO pulled

@@ -9,7 +9,10 @@ thread to honor the async contract.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import shutil
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,6 +43,19 @@ class FilesystemStorageProvider:
         except FileNotFoundError:
             return None
 
+    @staticmethod
+    def _atomic_write(path: Path, data: bytes) -> None:
+        """Write ``data`` via temp file + ``os.replace`` so readers never see a partial manifest."""
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp_manifest_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+
     async def snapshot(
         self, workspace_root: Path, storage_key: str, *, label: str | None = None
     ) -> SnapshotRef:
@@ -61,7 +77,7 @@ class FilesystemStorageProvider:
         )
         refs = manifest_from_bytes(self._read(key_dir / MANIFEST_NAME))
         refs.insert(0, ref)
-        (key_dir / MANIFEST_NAME).write_bytes(manifest_to_bytes(refs))
+        self._atomic_write(key_dir / MANIFEST_NAME, manifest_to_bytes(refs))
         return ref
 
     async def list_snapshots(self, storage_key: str) -> list[SnapshotRef]:
@@ -98,7 +114,7 @@ class FilesystemStorageProvider:
         refs = manifest_from_bytes(self._read(key_dir / MANIFEST_NAME))
         kept = [r for r in refs if r.snapshot_id != snapshot_id]
         if len(kept) != len(refs):
-            (key_dir / MANIFEST_NAME).write_bytes(manifest_to_bytes(kept))
+            self._atomic_write(key_dir / MANIFEST_NAME, manifest_to_bytes(kept))
 
     async def purge(self, storage_key: str) -> None:
         await asyncio.to_thread(self._purge_sync, storage_key)

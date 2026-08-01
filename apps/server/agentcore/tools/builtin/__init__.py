@@ -50,8 +50,9 @@ def browser_execution_enabled_for(backend: WorkspaceBackend | None) -> bool:
 
     Two paths (never mixed on one session — C4):
 
-    - **server + gVisor**: real isolation; folds the boot-time sandbox health probe.
-      (``code_execute_cloud_enabled`` subprocess path does NOT enable browsers.)
+    - **server + gVisor**: real isolation; folds the boot-time sandbox health probe
+      and the browser netns capability probe (``network_mode=none`` does not cover
+      netns). (``code_execute_cloud_enabled`` subprocess path does NOT enable browsers.)
     - **local + DesktopBrowserBridge**: desktop re-sends ``browserBridge`` on each
       sidecar turn (``apply_desktop_bridge_from_turn``); we require a successful
       ``GET /health`` for the **current** credential generation. Unconfigured /
@@ -81,7 +82,15 @@ def browser_execution_enabled_for(backend: WorkspaceBackend | None) -> bool:
         return False
     from agentcore.tools.sandbox.cloud_health import cloud_sandbox_health
 
-    return cloud_sandbox_health() is not False
+    # False → known unhealthy; True / None (never probed) → config + cloud gate alone.
+    if cloud_sandbox_health() is False:
+        return False
+    # Netns is orthogonal to GVisorSandbox.health_check (network_mode=none): a failed
+    # boot / sticky probe withholds browser_* so the model never first-fails then trips
+    # the circuit. None (tests / unbooted) keeps status quo — do not withhold.
+    from agentcore.tools.sandbox.browser.netns import browser_netns_health
+
+    return browser_netns_health() is not False
 
 
 def build_builtin_registry(
@@ -107,8 +116,8 @@ def build_builtin_registry(
     desktop backfill channel is reachable and ``host≠off``.
 
     ``include_browser`` gates the L3 browser class on the builtin surface
-    (today: ``browser_navigate`` only — CEO+worker narrow exception). Default
-    False so a no-Bridge / no-gVisor process does not leak navigate into the
+    (navigate/click/type/scroll/snapshot — CEO+worker; screenshot stays worker-only).
+    Default False so a no-Bridge / no-gVisor process does not leak browser tools into the
     default builtin roster.
 
     ``location`` stamps ``code_execute``'s description to match the turn's backend
@@ -201,9 +210,9 @@ def build_ceo_tool_registry(
     **B2**: local ``terminal`` is also CEO-holdable (schema NEVER; ``start`` elevates
     at runtime like ``git`` write) for pure start/stop/list of workspace long-running
     processes — not a GRANTABLE schema exception.
-    **Browser narrow exception**: ``browser_navigate`` only (GRANTABLE ·
-    ``browser_class``), gated by ``include_browser`` — same tier as host_shell /
-    terminal; click/type/scroll/snapshot/screenshot stay worker-only.
+    **Browser**: navigate/click/type/scroll/snapshot (GRANTABLE · ``browser_class``),
+    gated by ``include_browser`` — same tier as host_shell / terminal; screenshot
+    stays worker-only (visual验收).
     Orchestration primitives are wired separately in ``_assemble_ceo_toolset``.
     Host tools appear only when ``desktop_online`` ∧ ``host≠off``.
     ``terminal`` appears only when ``backend_location=="local"``.

@@ -106,7 +106,7 @@ export function traceGraphLayoutOk(detail: Record<string, unknown>): void {
   push("layout_ok", detail);
 }
 
-/** 二次测高重排触发。 */
+/** @deprecated Whiteboard model: height-driven secondary ELK removed. */
 export function traceGraphHeightRelayout(
   detail: Record<string, unknown>,
 ): void {

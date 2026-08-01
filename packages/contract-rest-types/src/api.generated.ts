@@ -1295,6 +1295,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/conversations/{conversation_id}/auto-title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Title Conversation
+         * @description Mint a conversation title from the first user message (await).
+         *
+         *     Local sidecar has no cloud SSE ``title_generated`` path — the desktop calls this
+         *     in parallel with the first local turn. Shares the same mint core as cloud
+         *     ``schedule_title_generation`` (user message only; ``assistant_reply=""``).
+         *
+         *     Already-titled conversations return the existing title without calling the LLM.
+         */
+        post: operations["auto_title_conversation_v1_conversations__conversation_id__auto_title_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/conversations/{conversation_id}/browser/input": {
         parameters: {
             query?: never;
@@ -5921,6 +5947,22 @@ export interface components {
             run_id: string;
         };
         /**
+         * AutoTitleRequest
+         * @description Local-first parallel title mint: first user message only (no assistant reply).
+         */
+        AutoTitleRequest: {
+            /** User Message */
+            user_message: string;
+        };
+        /**
+         * AutoTitleResponse
+         * @description Resulting conversation title (existing or freshly minted).
+         */
+        AutoTitleResponse: {
+            /** Title */
+            title: string;
+        };
+        /**
          * AutonomyPolicy
          * @description User-global *default recipe* for new conversations (seeds :class:`PermissionAxes`).
          *
@@ -8621,6 +8663,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Duration Ms */
+            duration_ms?: number | null;
             /** Evidence Ledger */
             evidence_ledger?: components["schemas"]["EvidenceLedgerEntryRest"][];
             /** Feedback */
@@ -14065,6 +14109,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentAuditListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_title_conversation_v1_conversations__conversation_id__auto_title_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoTitleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoTitleResponse"];
                 };
             };
             /** @description Validation Error */

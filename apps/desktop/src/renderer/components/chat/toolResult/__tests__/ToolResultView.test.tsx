@@ -179,3 +179,65 @@ describe("ToolResultView · read_url", () => {
     expect(screen.queryByText(/\{"url":/)).toBeNull();
   });
 });
+
+describe("ToolResultView · file_read ceiling guidance", () => {
+  it("renders ceiling rejection as warning, not destructive", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "file_read",
+          result:
+            "已多次读取 `doc.md`（本 run 上限 5 次）。正文已在对话中，勿再读此文件；",
+          status: "error",
+        })}
+      />,
+    );
+    const pre = container.querySelector("pre");
+    expect(pre?.textContent).toContain("勿再读此文件");
+    expect(pre?.className).toContain("text-warning");
+    expect(pre?.className).not.toContain("text-destructive");
+  });
+
+  it("keeps real file_read errors destructive", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "file_read",
+          result: "读取文件失败：文件不存在",
+          status: "error",
+        })}
+      />,
+    );
+    expect(container.querySelector("pre")?.className).toContain(
+      "text-destructive",
+    );
+  });
+});
+
+describe("ToolResultView · test_run budget exceeded", () => {
+  it("shows incomplete banner and muted Timeout stderr (not fault red)", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "test_run",
+          result: "验证未在 300s 预算内完成（验证未完成，非工具故障）",
+          status: "error",
+          display: {
+            check: "typecheck",
+            command: "npx tsc --noEmit",
+            exit_code: -1,
+            stdout: "",
+            stderr: "Timeout: execution exceeded 300s",
+            budget_exceeded: true,
+          },
+        })}
+      />,
+    );
+    expect(container.textContent).toContain("验证未完成（预算耗尽）");
+    const stderr = Array.from(container.querySelectorAll("pre")).find((p) =>
+      p.textContent?.includes("Timeout"),
+    );
+    expect(stderr?.className).toContain("text-muted-foreground");
+    expect(stderr?.className).not.toContain("text-destructive");
+  });
+});

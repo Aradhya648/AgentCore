@@ -27,7 +27,7 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { dirname, resolve, join } from "node:path";
+import { dirname, resolve, join, relative, sep, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, createReadStream, statSync } from "node:fs";
 
@@ -113,15 +113,28 @@ function responseHeaders(filePath) {
   return headers;
 }
 
+function isInsideRoot(rootDir, filePath) {
+  const rel = relative(rootDir, filePath);
+  // Reject traversal ("..") and absolute/drive-relative escapes (Windows).
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
 function createStaticServer(rootDir) {
   return createServer((req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${host}`);
-      let rel = decodeURIComponent(url.pathname);
+      let rel;
+      try {
+        rel = decodeURIComponent(url.pathname);
+      } catch {
+        res.writeHead(400);
+        res.end("bad request");
+        return;
+      }
       if (rel === "/") rel = "/index.html";
       const filePath = resolve(rootDir, "." + rel);
       if (
-        !filePath.startsWith(rootDir) ||
+        !isInsideRoot(rootDir, filePath) ||
         !existsSync(filePath) ||
         statSync(filePath).isDirectory()
       ) {

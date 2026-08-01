@@ -287,7 +287,8 @@ def test_format_for_ceo_digests_file_producer_not_full_content():
     # 收尾 / 关键取舍 at the tail reach the CEO instead of being silently dropped.
     assert "开头摘要" in out
     assert "结尾独特标记XYZ" in out
-    assert "中间省略" in out
+    assert "系统视图截断" in out
+    assert "中间省略" not in out
     assert ("废" * 5_000) not in out
     assert len(out) < len(long_body)
 
@@ -305,7 +306,8 @@ def test_format_for_ceo_bounds_wide_fanout_keeping_all_workers_and_closing():
         assert f"run_id: `w{i}`" in out
     assert "防幻觉" in out and "简短概览" in out
     assert len(out) < DELEGATE_OUTPUT_LIMIT
-    assert "中间省略" in out
+    assert "系统视图截断" in out
+    assert "中间省略" not in out
 
 
 def test_format_for_ceo_short_prose_passes_through_whole():

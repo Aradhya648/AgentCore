@@ -80,9 +80,11 @@ def format_coordination_events(
     lines.append(
         "先判断本批事件要不要你出手：带指令的事件（阻塞仲裁 / 边界让出 / 插话 / 全部完成）"
         "按其指令办；纯进展事件（worker_completed / note）多数【无需处置】——完成计数与"
-        "各队员完成摘要已由系统自动展示给用户，勿为播报进度调 update_synthesis。"
+        "各队员完成摘要已由系统自动展示给用户，勿为播报进度调 update_synthesis，"
+        "也勿用用户可见正文复述进度（【可静默】）。"
         "无需处置时调 wait（或空响应、不写正文），等下一批事件即可——"
         "禁止用 delegate / update_synthesis 占位等待。"
+        "对用户开口仅三选一：请示用户 / 报告阻塞与选项 / 宣布阶段结论（非纯进度）。"
         "可用工具：wait 确认等待；cancel_worker(run_id, reason) 终止队员；"
         "delegate 再派【全新角色/任务】队员（同回合追加进同一张协作图，不必等全队完成；"
         "禁止对在跑任务同构重派；流水线未完成时亦禁止与在图节点职责/文件目标重叠的追加）；"
@@ -90,13 +92,14 @@ def format_coordination_events(
         "resolve_escalation(run_id, answer) 兑现阻塞升级裁决；"
         "queue_user_message(interjection_id, reason) 把无关插话转入对话级排队（下一回合）；"
         "ask_user 向用户请示（偏好/授权/费用类须先问用户再 resolve）；"
-        "update_synthesis(draft) 只在【里程碑】写合成草稿——一波/一阶段队员全部完成、"
-        "冲突仲裁需记录、方向修正、长跑阶段性收束、终稿收束；例行的单个 worker 完成【不写】"
+        "update_synthesis(draft) 只在【里程碑】写合成草稿——新结论、冲突/方向修正、"
+        "一波/一阶段收束、终稿收束；禁止纯进度播报；例行的单个 worker 完成【不写】"
         "（进度已由系统自动呈现），微调措辞更不算里程碑。"
         "全部完成后做最终合成（走 content_delta），然后退出协调。"
         "【终稿纪律】最终合成是给用户的交付、不是协调日志：交付物在前，过程简述至多一段；"
-        "以上协调事件、escalation 原文与合成草稿是你的工作输入，禁止整段粘进终稿"
-        "——草稿要用也须重写成交付口吻；未交付的承诺产物须显式列出，不得含糊带过。"
+        "协调态进度旁白不得焊进终稿 content；以上协调事件、escalation 原文与合成草稿是你的"
+        "工作输入，禁止整段粘进终稿——草稿要用也须重写成交付口吻；"
+        "未交付的承诺产物须显式列出，不得含糊带过。"
     )
     return "\n".join(lines)
 
@@ -241,6 +244,10 @@ def _format_one(session: CoordinationSession, ev: CoordinationEvent) -> str:
                 path_bit = f" → {wp}" if isinstance(wp, str) and wp.strip() else ""
                 mark = "（二进制）" if binary else ""
                 lines.append(f"  附件：{name}{path_bit}{mark}")
+        lines.append(
+            "  【先回用户】须先用可见正文响应该句（哪怕极短「收到，仍按原计划」），"
+            "再谈团队；禁止把旧进度旁白当成对插话的答复。"
+        )
         lines.append(
             "  相关：图内处置（update_synthesis / delegate 追加队员 / cancel_worker）。"
         )

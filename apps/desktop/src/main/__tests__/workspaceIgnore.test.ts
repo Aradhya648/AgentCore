@@ -18,6 +18,8 @@ describe("workspaceIgnore", () => {
     expect(shouldSkipDirName(".git")).toBe(true);
     expect(shouldSkipDirName("node_modules")).toBe(true);
     expect(shouldSkipDirName(".mypy_cache")).toBe(true);
+    expect(shouldSkipDirName(".pytest_cache")).toBe(true);
+    expect(shouldSkipDirName(".pytest_tmp")).toBe(true);
     expect(shouldSkipDirName(".turbo")).toBe(true);
     expect(shouldSkipDirName("coverage")).toBe(true);
     expect(shouldSkipDirName(".idea")).toBe(true);

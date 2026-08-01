@@ -442,3 +442,80 @@ describe("extractEvidenceLedger", () => {
     expect(ledger.map((e) => e.id)).toEqual(["#e9"]);
   });
 });
+
+describe("fold · run_phase", () => {
+  it("multi_agent_run_phase fixture aligns with golden", () => {
+    const fixture = loadFixtures().find(
+      (f) => f.name === "multi_agent_run_phase",
+    );
+    expect(fixture).toBeTruthy();
+    if (!fixture) return;
+    const actual = fold(fixture.events as SSEEvent[]);
+    expect(diffProjected(fixture.projected, actual)).toEqual([]);
+  });
+
+  it("winding_down sticky; tool sets phaseTool; terminal clears phase", () => {
+    const base = [
+      ev("message_start", { message_id: "m1", conversation_id: "c1" }),
+      ev("run_plan", {
+        execution_id: "exec1",
+        plan_type: "multi_agent",
+        task_summary: "t",
+        agents: [{ id: "w1", role: "写手", thinking: true }],
+        runs: [{ id: "r1", agent_id: "w1", task: "改", depends_on: [] }],
+      }),
+      ev("run_started", {
+        run_id: "r1",
+        agent_id: "w1",
+        parent_run_id: null,
+        kind: "agent",
+      }),
+    ];
+    let turn = fold([
+      ...base,
+      ev("run_phase", {
+        run_id: "r1",
+        agent_id: "w1",
+        phase: "tool",
+        tool_name: "file_read",
+      }),
+    ]);
+    expect(turn.runs[0]?.phase).toBe("tool");
+    expect(turn.runs[0]?.phaseTool).toBe("file_read");
+
+    turn = fold([
+      ...base,
+      ev("run_phase", { run_id: "r1", agent_id: "w1", phase: "winding_down" }),
+      ev("run_phase", {
+        run_id: "r1",
+        agent_id: "w1",
+        phase: "thinking",
+      }),
+      ev("run_phase", {
+        run_id: "r1",
+        agent_id: "w1",
+        phase: "tool",
+        tool_name: "handoff",
+      }),
+    ]);
+    expect(turn.runs[0]?.phase).toBe("winding_down");
+    expect(turn.runs[0]?.phaseTool).toBeNull();
+
+    turn = fold([
+      ...base,
+      ev("run_phase", {
+        run_id: "r1",
+        agent_id: "w1",
+        phase: "waiting_children",
+      }),
+      ev("run_completed", {
+        run_id: "r1",
+        agent_id: "w1",
+        output_summary: "done",
+        duration_ms: 1,
+      }),
+    ]);
+    expect(turn.runs[0]?.phase).toBeUndefined();
+    expect(turn.runs[0]?.phaseTool).toBeUndefined();
+  });
+});

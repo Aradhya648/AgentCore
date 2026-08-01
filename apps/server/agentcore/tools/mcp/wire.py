@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,8 +13,11 @@ from agentcore.tools.registry import ToolRegistry
 
 logger = get_logger(__name__)
 
-# Prepare-time list budget — spawn+handshake; failure ⇒ degrade (no MCP tools).
-_MCP_LIST_TIMEOUT_SECONDS = 45.0
+# Prepare-time list budget — fail-fast so CEO prepare never stalls ~HANDSHAKE.
+# Desktop HANDSHAKE_TIMEOUT_MS stays 45s (spawn+handshake); server intentionally shorter.
+_MCP_LIST_TIMEOUT_SECONDS = 5.0
+_MCP_CACHE_TTL_SECONDS = 300.0
+_MCP_NEGATIVE_CACHE_TTL_SECONDS = 30.0
 _TOOL_NAME_MAX = 64
 
 
@@ -41,6 +45,32 @@ class McpDiscoverResult:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class _DiscoverCacheEntry:
+    result: McpDiscoverResult
+    expires_at: float
+
+
+_discover_cache: dict[str, _DiscoverCacheEntry] = {}
+
+
+def clear_mcp_discover_cache() -> None:
+    """Drop process-local discover cache (tests / forced refresh)."""
+    _discover_cache.clear()
+
+
+def _cache_put(conversation_id: str, result: McpDiscoverResult) -> None:
+    ttl = (
+        _MCP_NEGATIVE_CACHE_TTL_SECONDS
+        if result.degraded
+        else _MCP_CACHE_TTL_SECONDS
+    )
+    _discover_cache[conversation_id] = _DiscoverCacheEntry(
+        result=result,
+        expires_at=time.monotonic() + ttl,
+    )
+
+
 def mcp_capability_label(result: McpDiscoverResult | None, *, desktop_online: bool) -> str:
     """Capability-line token for ``mcp=…``."""
     if not desktop_online:
@@ -59,11 +89,25 @@ async def discover_mcp_tools(
 ) -> McpDiscoverResult:
     """List enabled MCP Servers on the desktop (no registry mutation).
 
-    On channel absence / timeout / error → empty result (turn continues).
-    Per-server handshake failures are skipped (degrade that batch only).
+    Cache-first per ``channel.conversation_id``: success TTL 300s (incl. clean empty),
+    degraded/timeout negative TTL 30s. On channel absence / timeout / error → empty
+    result (turn continues). Per-server handshake failures are skipped (degrade that
+    batch only).
     """
     if channel is None:
         return McpDiscoverResult(detail="no_desktop_channel")
+
+    cache_key = channel.conversation_id
+    now = time.monotonic()
+    cached = _discover_cache.get(cache_key)
+    if cached is not None and cached.expires_at > now:
+        logger.info(
+            "desktop.mcp_list_cache_hit",
+            conversation_id=cache_key,
+            degraded=cached.result.degraded,
+            tool_count=cached.result.tool_count,
+        )
+        return cached.result
 
     try:
         value = await channel.request_mcp(
@@ -73,14 +117,20 @@ async def discover_mcp_tools(
         )
     except McpOpError as e:
         logger.info("desktop.mcp_list_degraded", detail=str(e))
-        return McpDiscoverResult(degraded=True, detail=str(e))
+        result = McpDiscoverResult(degraded=True, detail=str(e))
+        _cache_put(cache_key, result)
+        return result
     except Exception as e:  # noqa: BLE001 — never block a chat turn on MCP
         logger.info("desktop.mcp_list_degraded", detail=str(e))
-        return McpDiscoverResult(degraded=True, detail=str(e))
+        result = McpDiscoverResult(degraded=True, detail=str(e))
+        _cache_put(cache_key, result)
+        return result
 
     servers = value.get("servers") if isinstance(value, dict) else None
     if not isinstance(servers, list):
-        return McpDiscoverResult(degraded=True, detail="invalid_list_payload")
+        result = McpDiscoverResult(degraded=True, detail="invalid_list_payload")
+        _cache_put(cache_key, result)
+        return result
 
     ready = 0
     failed = 0
@@ -126,7 +176,7 @@ async def discover_mcp_tools(
                 )
             )
 
-    return McpDiscoverResult(
+    result = McpDiscoverResult(
         ready_servers=ready,
         failed_servers=failed,
         tool_count=len(specs),
@@ -135,6 +185,8 @@ async def discover_mcp_tools(
         degraded=failed > 0 and len(specs) == 0,
         detail="",
     )
+    _cache_put(cache_key, result)
+    return result
 
 
 def register_mcp_tools(registry: ToolRegistry, result: McpDiscoverResult) -> int:

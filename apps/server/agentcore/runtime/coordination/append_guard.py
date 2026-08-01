@@ -355,6 +355,7 @@ def declare_plan_artifacts(
     only_run_ids: set[str] | frozenset[str] | None = None,
     ancestor_map: dict[str, frozenset[str]] | None = None,
     ancestor_handoff_at_declare: bool = False,
+    completed_run_ids: set[str] | frozenset[str] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Reserve deliverable.artifacts for each node; apply replaces/continue transfers.
 
@@ -362,6 +363,10 @@ def declare_plan_artifacts(
     same path as an ancestor **does not** steal the lock at dispatch — the ancestor
     keeps holding until write-time claim, completion handoff, or explicit transfer.
     Nested lead→child drives pass ``ancestor_handoff_at_declare=True``.
+
+    When ``completed_run_ids`` is set, a hard conflict against a **completed** holder is
+    treated as dispatch-time handoff (审校→修订跨波次)：新节点声明同路径即接手，无需
+    用户点「移交写权」。仍在跑的锁主 / 未完成占位保持冲突。
 
     Returns list of ``(new_run_id, path, conflicting_owner)`` for hard conflicts
     when not force/transfer-eligible (caller should have rejected via overlaps first).
@@ -371,6 +376,8 @@ def declare_plan_artifacts(
     ordered = sorted(plan.nodes, key=lambda n: len(getattr(n, "depends_on", None) or ()))
     conflicts: list[tuple[str, str, str]] = []
     only = set(only_run_ids) if only_run_ids is not None else None
+    done = {str(x).strip() for x in (completed_run_ids or ()) if str(x).strip()}
+    dispatch_handoffs: list[tuple[str, str, str]] = []
 
     for node in ordered:
         rid = node.run_id
@@ -403,7 +410,25 @@ def declare_plan_artifacts(
                 allow_ancestor_handoff=ancestor_handoff_at_declare,
             )
             if owner is not None:
+                if owner in done:
+                    # 原主已完成、本协作会话内仍占位 → 新波次声明同 artifact 即接手。
+                    ownership.transfer(path, rid)
+                    dispatch_handoffs.append((path, owner, rid))
+                    continue
                 conflicts.append((rid, path, owner))
+    if dispatch_handoffs:
+        try:
+            from agentcore.core.logging import get_logger
+
+            get_logger(__name__).info(
+                "file_ownership.dispatch_handoff",
+                transfers=[
+                    {"path": path, "from": old, "to": new}
+                    for path, old, new in dispatch_handoffs
+                ],
+            )
+        except Exception:  # noqa: BLE001 — never break dispatch
+            pass
     return conflicts
 
 
@@ -483,12 +508,22 @@ def declare_nested_drive_artifacts(
 
     ownership = resolve_write_coordinator(execution_id=execution_id)
     force = bool(getattr(tool, "_delegate_force", False))
+    completed: set[str] | frozenset[str] | None = None
+    try:
+        from agentcore.runtime.coordination.session import active_coordination
+
+        sess = active_coordination(execution_id)
+        if sess is not None:
+            completed = sess.completed_run_ids
+    except Exception:  # noqa: BLE001
+        completed = None
     conflicts = declare_plan_artifacts(
         plan,
         ownership,
         force=force,
         ancestor_map=_ancestors_for_plan(plan),
         ancestor_handoff_at_declare=True,
+        completed_run_ids=completed,
     )
     if conflicts:
         from agentcore.core.logging import get_logger

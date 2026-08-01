@@ -98,9 +98,30 @@ def _validate_jwt_secret() -> None:
     )
 
 
+def _validate_cors_credentials() -> None:
+    """Credentialed CORS forbids ``*`` — browsers reject ``ACA-Origin: *`` + credentials.
+
+    ``CORSMiddleware`` is installed with ``allow_credentials=True``; a wildcard
+    origin list is therefore always unsafe. Production refuses to boot; DEBUG
+    warns so local misconfig is visible without blocking iteration.
+    """
+    if "*" not in settings.cors_origins:
+        return
+    detail = (
+        "CORS_ALLOW_ORIGINS contains '*' while credentialed CORS is enabled "
+        "(allow_credentials=True). Browsers reject Access-Control-Allow-Origin: * "
+        "with credentials; list explicit origins instead."
+    )
+    if settings.debug:
+        get_logger(__name__).warning("security.cors_wildcard_credentials", detail=detail)
+        return
+    raise RuntimeError(detail)
+
+
 def _validate_production_security() -> None:
     """Fail fast on insecure config. JWT secret always checked; other guards skip in debug."""
     _validate_jwt_secret()
+    _validate_cors_credentials()
     if settings.debug:
         return
     # byok makes a per-user API key mandatory, so a usable master key is required
@@ -197,9 +218,13 @@ async def lifespan(app: FastAPI):
     # Cloud sandbox availability: one-shot probe when config would enable execution.
     # Failure must not block boot — folds into ``code_execution_enabled_for`` so
     # code_execute/test_run stay withheld and workspace_context says 未装配.
+    from agentcore.tools.sandbox.browser.netns import probe_browser_netns_at_startup
     from agentcore.tools.sandbox.cloud_health import probe_cloud_sandbox_at_startup
 
     await probe_cloud_sandbox_at_startup()
+    # Browser netns is orthogonal to GVisorSandbox.health_check (network_mode=none).
+    # Failure withholds cloud browser_* (no Local fallback — C4); never blocks boot.
+    await probe_browser_netns_at_startup()
     # Schema-drift notice: warn loudly (never block) if the live DB is behind the
     # migration head, so an unapplied migration surfaces at boot instead of as a
     # mid-session UndefinedColumnError on a core endpoint.

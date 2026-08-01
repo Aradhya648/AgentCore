@@ -427,3 +427,80 @@ def test_handoff_owned_paths_on_complete_unique_dependent():
     assert ("site/styles.css", "assemble") in moved
     assert ownership.owner_of("site/CONTRACT.md") == "skeleton"
     assert ownership.owner_of("site/index.html") == "assemble"
+
+
+def test_declare_steals_from_completed_owner_across_waves():
+    """跨波次修订：新节点声明同 artifact、原主已完成 → 派发即移交。"""
+    from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import Deliverable, RunSpec
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    writer = RunSpec(
+        run_id="writer",
+        role="结题写手",
+        task="写总览",
+        deliverable=Deliverable(artifacts=["docs/overview.md"]),
+    )
+    reviser = RunSpec(
+        run_id="reviser",
+        role="修订员",
+        task="落实审校修订",
+        deliverable=Deliverable(artifacts=["docs/overview.md"]),
+    )
+    wave1 = RunPlan()
+    wave1.add(writer)
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(wave1, ownership)
+    assert ownership.owner_of("docs/overview.md") == "writer"
+    ownership.mark_written("docs/overview.md")
+
+    # 第二波：写手已完成；修订员声明同路径 → 自动接手（无需用户点卡）。
+    live = RunPlan()
+    live.add(writer)
+    live.add(reviser)
+    conflicts = declare_plan_artifacts(
+        live,
+        ownership,
+        only_run_ids={"reviser"},
+        completed_run_ids={"writer"},
+    )
+    assert conflicts == []
+    assert ownership.owner_of("docs/overview.md") == "reviser"
+    assert ownership.claim("docs/overview.md", "reviser", frozenset()) is None
+
+
+def test_declare_still_blocks_running_owner():
+    """锁主仍在跑时，无关新节点声明同路径仍冲突（不自动抢）。"""
+    from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import Deliverable, RunSpec
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    a = RunSpec(
+        run_id="a",
+        role="A",
+        task="写",
+        deliverable=Deliverable(artifacts=["x.md"]),
+    )
+    b = RunSpec(
+        run_id="b",
+        role="B",
+        task="也写",
+        deliverable=Deliverable(artifacts=["x.md"]),
+    )
+    plan = RunPlan()
+    plan.add(a)
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(plan, ownership)
+    live = RunPlan()
+    live.add(a)
+    live.add(b)
+    conflicts = declare_plan_artifacts(
+        live,
+        ownership,
+        only_run_ids={"b"},
+        completed_run_ids=set(),  # a still running
+    )
+    assert conflicts == [("b", "x.md", "a")]
+    assert ownership.owner_of("x.md") == "a"

@@ -4,11 +4,11 @@
  * partial/blocked 仅轻提示（无验收卡、无动作、无缺口明细）。对齐桌面 DeliveryStatusMount。
  */
 import { TeamView } from "@/components/TeamView";
+import type { DeliveryStatusPayload } from "@agentcore/contract-types";
 import type {
   ProjectedAgent,
   ProjectedRun,
 } from "@agentcore/protocol-conformance";
-import type { DeliveryStatusPayload } from "@agentcore/contract-types";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 

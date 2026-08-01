@@ -309,6 +309,7 @@ async def test_browser_tool_returns_user_in_control_during_takeover():
     )
     result = await tool.execute({"url": "https://example.com/"}, ctx)
     assert result.success is False
-    assert "接管" in (result.output or "")
+    # Failures put the message in ``error`` only (avoid output+error double).
+    assert "接管" in (result.error or result.output or "")
     assert (result.metadata or {}).get("code") == "user_in_control"
     assert session.sends == []  # the tool never touched the session (no queue/wait)

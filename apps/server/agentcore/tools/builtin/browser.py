@@ -1,9 +1,10 @@
 """L3 team-browser tools (M0) — browser_navigate/click/type/scroll/snapshot/screenshot.
 
-``browser_navigate`` is a narrow CEO+worker exception (``surface=BUILTIN`` ·
-``AUDIENCE_BOTH`` · ``execution_class`` + ``browser_class`` + GRANTABLE) — same tier
-as ``host_shell`` / local ``terminal``. The other five stay worker-only
-(``_BROWSER_REGISTRATION``). Host: desktop Local Bridge or cloud gVisor.
+``browser_navigate`` / ``browser_click`` / ``browser_type`` / ``browser_scroll`` /
+``browser_snapshot`` are CEO+worker (``surface=BUILTIN`` · ``AUDIENCE_BOTH`` ·
+``execution_class`` + ``browser_class`` + GRANTABLE) — same tier as ``host_shell`` /
+local ``terminal``. ``browser_screenshot`` stays worker-only (``_BROWSER_SCREENSHOT_REGISTRATION``)
+so visual验收仍走队员。Host: desktop Local Bridge or cloud gVisor.
 Each tool drives the conversation's long-lived Chromium via the
 ``BrowserSessionRegistry`` + the sandbox stdio channel. State-changing actions
 (and ``screenshot``) auto-capture a jpeg keyframe into the workspace ``browser/``
@@ -45,6 +46,7 @@ from agentcore.tools.registration import (
 from agentcore.tools.sandbox.browser.netns import (
     EGRESS_UNAVAILABLE_CODE,
     is_netns_capability_error,
+    mark_browser_netns_unavailable,
 )
 from agentcore.tools.sandbox.browser.protocol import (
     STATE_CHANGING_ACTIONS,
@@ -110,21 +112,24 @@ _SESSION_ID_PARAM = {
     ),
 }
 
-# Shared by click/type/scroll/snapshot/screenshot — worker-only.
+# Shared by navigate/click/type/scroll/snapshot — CEO+worker (短操作 CEO 自调).
 _BROWSER_REGISTRATION = ToolRegistration(
+    surface=ToolSurface.BUILTIN,
+    audience=AUDIENCE_BOTH,
+    execution_class=True,
+    browser_class=True,
+)
+
+# Screenshot stays worker-only — visual验收 / 截图确认仍派队员.
+_BROWSER_SCREENSHOT_REGISTRATION = ToolRegistration(
     surface=ToolSurface.WORKER_ONLY,
     audience=AUDIENCE_WORKER_ONLY,
     execution_class=True,
     browser_class=True,
 )
 
-# CEO 窄例外：仅 navigate 进 builtin + BOTH（与 host_shell / terminal 并列）。
-_BROWSER_NAVIGATE_REGISTRATION = ToolRegistration(
-    surface=ToolSurface.BUILTIN,
-    audience=AUDIENCE_BOTH,
-    execution_class=True,
-    browser_class=True,
-)
+# Alias for navigate class attribute (same registration as shared CEO+worker set).
+_BROWSER_NAVIGATE_REGISTRATION = _BROWSER_REGISTRATION
 
 
 def _error(
@@ -147,14 +152,30 @@ def _error(
         meta["error_class"] = "permanent"
         if retire_message:
             meta["retire_message"] = retire_message
+    # Only ``error`` — tool_exec joins error+output; identical doubles the model text.
     return ToolResult(
         tool_call_id="",
         success=False,
-        output=out,
+        output="",
         error=out,
         duration_ms=int((time.monotonic() - start) * 1000),
         metadata=meta,
     )
+
+
+def _driver_failure_message(err: str) -> str:
+    """Normalize driver/host failure text for the model (no doubled prefixes)."""
+    msg = (err or "").strip() or "未知错误"
+    # Sandbox driver wraps raised ValueError as ``ValueError: …``.
+    for prefix in ("ValueError: ", "valueerror: "):
+        if msg.startswith(prefix):
+            msg = msg[len(prefix) :].strip()
+            break
+    if msg.startswith("浏览器操作失败："):
+        return msg
+    if msg.startswith(("ref ", "缺少", "password_blocked", "host_unavailable")):
+        return msg
+    return f"浏览器操作失败：{msg}"
 
 
 def _classify_session_error(exc: BrowserSessionError) -> str | None:
@@ -171,6 +192,8 @@ def _classify_session_error(exc: BrowserSessionError) -> str | None:
 
 
 def _egress_unavailable_result(start: float, *, message: str | None = None) -> ToolResult:
+    # Sticky: host netns proven unavailable → withhold browser_* on subsequent turns.
+    mark_browser_netns_unavailable()
     return _error(
         message or _EGRESS_UNAVAILABLE_MSG,
         start,
@@ -212,6 +235,10 @@ class _BrowserToolBase:
         self, data: dict[str, Any], *, source_url: str, keyframe: str | None, note: str | None
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"action": self.action, "final_url": source_url}
+        # Mutations bump snapshot_version in the driver/host; surface it like snapshot
+        # so the model can keep the next ref call version-aligned.
+        if data.get("snapshot_version") is not None:
+            payload["snapshot_version"] = data.get("snapshot_version")
         if keyframe:
             payload["keyframe"] = keyframe
         if note:
@@ -305,13 +332,13 @@ class _BrowserToolBase:
                 return ToolResult(
                     tool_call_id="",
                     success=False,
-                    output=msg,
+                    output="",
                     error=msg,
                     duration_ms=int((time.monotonic() - start) * 1000),
                     metadata={"code": "password_blocked"},
                     contract_failure=True,
                 )
-            return _error(f"浏览器操作失败：{err}", start)
+            return _error(_driver_failure_message(err), start)
 
         # L7 最小：导航/状态变更后回写 url/title 到 Registry。
         if bound_sid and result.data:
@@ -366,7 +393,7 @@ class _BrowserToolBase:
             return ToolResult(
                 tool_call_id="",
                 success=False,
-                output=msg,
+                output="",
                 error=msg,
                 duration_ms=int((time.monotonic() - start) * 1000),
                 metadata={"code": "no_frame"},
@@ -532,7 +559,8 @@ class BrowserClickTool(_BrowserToolBase):
             description=(
                 "点击当前页面上的一个元素。先用 browser_snapshot 获取元素 ref（如 e5）与 "
                 "snapshot_version，再用它们点击；页面变化后旧 ref 会失效，需重新 snapshot。"
-                "操作后自动截关键帧。"
+                "成功结果含当前 snapshot_version（mutation 已抬版本）——下一步 ref 操作请用该"
+                "version；若仍无目标元素的新 ref id 则再 snapshot。操作后自动截关键帧。"
             ),
             parameters={
                 "type": "object",
@@ -578,7 +606,9 @@ class BrowserTypeTool(_BrowserToolBase):
             name="browser_type",
             description=(
                 "向当前页面的输入框填入文本。先用 browser_snapshot 获取输入框 ref 与 "
-                "snapshot_version。会替换该输入框已有内容。操作后自动截关键帧。"
+                "snapshot_version。会替换该输入框已有内容。"
+                "成功结果含当前 snapshot_version（mutation 已抬版本）——下一步 ref 操作请用该"
+                "version；若仍无目标元素的新 ref id 则再 snapshot。操作后自动截关键帧。"
                 "遇 password 角色输入框会硬拒（metadata.code=password_blocked）："
                 "请 escalate(blocking=true, browser_login=true) 让用户接管登录，"
                 "勿尝试填写密码。"
@@ -703,6 +733,7 @@ class BrowserSnapshotTool(_BrowserToolBase):
 
 class BrowserScreenshotTool(_BrowserToolBase):
     action = "screenshot"
+    registration = _BROWSER_SCREENSHOT_REGISTRATION
 
     @property
     def schema(self) -> ToolSchema:

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from agentcore.workspace.stage_dirs import DEBATE_DIR, RESEARCH_DIR, REVIEWS_DIR
@@ -14,17 +15,52 @@ if TYPE_CHECKING:
     from agentcore.core.types import HostAxis
     from agentcore.workspace.protocol import WorkspaceBackend
 
+ChannelSurface = Literal["desktop", "web", "mobile", "unknown"]
+
+_WEB_SURFACES: frozenset[str] = frozenset({"web", "mobile-web"})
+_MOBILE_SURFACES: frozenset[str] = frozenset({"mobile", "android", "ios"})
+
+
+@dataclass(frozen=True)
+class ChannelProfile:
+    """Single source for channel capabilities derived from ``X-Client-Platform``.
+
+    Orthogonal to workspace ``location`` (local/server) and to auth audience
+    (``parse_client_platform`` may still legacy-default desktop for login aud).
+    Missing / unknown headers fail closed — never pretend the web can drive Host.
+    """
+
+    surface: ChannelSurface
+    desktop_online: bool
+    can_bind_folder: bool
+
+
+def resolve_channel_profile(x_client_platform: str | None) -> ChannelProfile:
+    """Map raw ``X-Client-Platform`` → :class:`ChannelProfile` (fail-closed).
+
+    Only explicit ``desktop`` is a fulfillable desktop channel. Absent / blank /
+    unknown values → ``surface=unknown``, both capability flags ``False``.
+    """
+    raw = (x_client_platform or "").strip().lower()
+    if not raw:
+        return ChannelProfile(surface="unknown", desktop_online=False, can_bind_folder=False)
+    if raw == "desktop":
+        return ChannelProfile(surface="desktop", desktop_online=True, can_bind_folder=True)
+    if raw in _WEB_SURFACES:
+        return ChannelProfile(surface="web", desktop_online=False, can_bind_folder=False)
+    if raw in _MOBILE_SURFACES:
+        return ChannelProfile(surface="mobile", desktop_online=False, can_bind_folder=False)
+    return ChannelProfile(surface="unknown", desktop_online=False, can_bind_folder=False)
+
 
 def desktop_client_can_bind(x_client_platform: str | None) -> bool:
-    """Whether the calling client can fulfil desktop AskOption folder actions.
+    """Thin fail-closed wrapper: folder AskOption actions need a desktop client.
 
-    Covers ``open_local_project`` / ``bind_local_folder`` / ``grant_*``. Only the
-    Electron desktop app renders the folder-picker actions. Web sends ``web``;
-    mobile sends ``mobile-web`` / ``mobile``; admin is unrelated. Absent header
-    defaults to desktop (legacy tests / curl — same posture as ``parse_client_platform``).
+    Covers ``open_local_project`` / ``bind_local_folder`` / ``grant_*``. ``None`` /
+    unknown → ``False`` (unlike auth ``parse_client_platform``, which may legacy-
+    default desktop for JWT aud).
     """
-    raw = (x_client_platform or "desktop").strip().lower()
-    return raw == "desktop"
+    return resolve_channel_profile(x_client_platform).can_bind_folder
 
 
 def build_workspace_context(
@@ -247,13 +283,14 @@ def build_workspace_context(
             )
         browser_guide_line = (
             "浏览器指引：本回合已装配 browser_*"
-            "（navigate 由 CEO 可直持，其余 click/type/scroll/snapshot/screenshot 仅 worker）。"
+            "（navigate/click/type/scroll/snapshot 由 CEO 可直持；screenshot 仅 worker）。"
             + path_capability
-            + "仅当用户明确要「用浏览器打开 / 右坞打开 / 直播 / 帮我看页面」某 URL 时："
-            "必须你自己用 `browser_navigate` 打开该 URL"
-            "（右坞会直播；**【禁止】**为此 `delegate`），"
-            "navigate 成功即可收工（已打开即可，**【禁止】**口头假验收）；"
-            "仅用户明确要「验收 / 截图 / 确认渲染」才 `delegate` 做 snapshot/screenshot"
+            + "用户要「用浏览器打开 / 右坞打开 / 直播 / 帮我看页面」或已打开页短操作"
+            "（搜一下 / 点一下 / 填一下）时："
+            "必须你自己用对应 `browser_*` 完成"
+            "（右坞会直播；**【禁止】**为此 `delegate`；「随便搜」省略过重验收），"
+            "短操作或 navigate 成功即可收工（已打开即可，**【禁止】**口头假验收）；"
+            "仅用户明确要「验收 / 截图 / 确认渲染」才 `delegate` 做 screenshot"
             "（screenshot 失败勿多轮空转补验）；"
             "「跑起来 / 打开看一下」≠必须 navigate。"
             "禁止编造 browser_open 等未列出的工具名；"
@@ -275,8 +312,8 @@ def build_workspace_context(
             "禁止静默用 read_url 交差让用户以为已打开浏览器。"
         )
         product_path = (
-            "装配后的产品路径：CEO 直调 browser_navigate 打开目标页"
-            "（click/验收仍 delegate）→"
+            "装配后的产品路径：CEO 直调 browser_navigate / snapshot / type / click "
+            "打开或短操作目标页（「随便搜」省略过重验收；截图验收仍可 delegate）→"
             "需要登录则 escalate(browser_login=true) →"
             "用户在右坞「浏览器」接管 → 点「已登录，继续」；"
             "勿把「复制粘贴整页 / 扫本机 Cookie / 系统浏览器代登」说成主产品路径"

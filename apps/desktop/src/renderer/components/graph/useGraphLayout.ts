@@ -2,18 +2,15 @@
 
 import {
   type GroupLayout,
-  HEIGHT_RELAYOUT_DEBOUNCE_MS,
   type NodeSizeMap,
   buildNodeSizeMap,
   computeLayout,
-  measuredHeightsMatchSizes,
   nodeSpacingForFitMode,
 } from "@/lib/elk-layout";
 import type { ElkGraphLayout } from "@/lib/graph-layout-utils";
 import { computeLayoutHints } from "@/lib/layoutHints";
 import {
   isGraphTraceEnabled,
-  traceGraphHeightRelayout,
   traceGraphLayoutOk,
   traceGraphStructure,
 } from "@/services/graphTrace";
@@ -49,6 +46,10 @@ export interface TurnLayoutSlice {
   layoutReady: boolean;
   /** ELK 失败时非空；与 layoutReady=false 同时出现，避免永久空白占位。 */
   layoutError: string | null;
+  /**
+   * RF measured heights (optional telemetry). Must not drive ELK / fit /
+   * soft-center — layout footprint is always NODE_WIDTH × NODE_HEIGHT.
+   */
   nodeHeights: Record<string, number>;
   nodeSizes: Record<string, { width: number; height: number }>;
   groups: GroupLayout[];
@@ -77,14 +78,11 @@ const EMPTY_SLICE: TurnLayoutSlice = {
 
 const EMPTY_SUBTEAMS: SubTeam[] = [];
 
-function sizeMapForNodes(
-  nodeIds: string[],
-  measuredHeights?: Readonly<Record<string, number>>,
-): NodeSizeMap {
-  const out = buildNodeSizeMap(nodeIds, measuredHeights);
+function sizeMapForNodes(nodeIds: string[]): NodeSizeMap {
+  const out = buildNodeSizeMap(nodeIds);
   // Bookends keep a slot even if structure omitted them from nodeIds.
   if (!out[INPUT_ID]) {
-    out[INPUT_ID] = buildNodeSizeMap([INPUT_ID], measuredHeights)[INPUT_ID];
+    out[INPUT_ID] = buildNodeSizeMap([INPUT_ID])[INPUT_ID];
   }
   return out;
 }
@@ -150,10 +148,6 @@ export function useGraphLayout(
   const [groups, setGroups] = useState<GroupLayout[]>([]);
   const [actCards, setActCards] = useState<ActCardLayout[]>([]);
 
-  const nodeHeightsRef = useRef(nodeHeights);
-  nodeHeightsRef.current = nodeHeights;
-  const nodeSizesRef = useRef(nodeSizes);
-  nodeSizesRef.current = nodeSizes;
   const positionsRef = useRef(positions);
   positionsRef.current = positions;
 
@@ -168,6 +162,7 @@ export function useGraphLayout(
     [],
   );
 
+  // RF dimensions may still write here; they must not trigger layout / viewport.
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodeHeights((prev) => applyDimensionChanges(prev, changes) ?? prev);
   }, []);
@@ -280,20 +275,12 @@ export function useGraphLayout(
     };
 
     const exec = executionRef.current;
-    const knownHeights = nodeHeightsRef.current;
     // 幕级 LOD（≥2 幕）：只为聚焦幕算完整布局 + 幕摘要卡链（画布 per-turn 范式）。
     if (exec && isMultiActExecution(exec)) {
       const sceneNow =
         sceneRef.current ??
         buildGraphScene(exec, { inputId: INPUT_ID, expandedUnits });
-      computeActLodLayout(
-        exec,
-        sceneNow,
-        focusedActId,
-        layoutKind,
-        fitMode,
-        knownHeights,
-      )
+      computeActLodLayout(exec, sceneNow, focusedActId, layoutKind, fitMode)
         .then((res) =>
           onOk(
             res.positions,
@@ -311,7 +298,7 @@ export function useGraphLayout(
       };
     }
 
-    // 单幕：既有整图 ELK 路径，像素级零变化（冷启动）；已知实测高一并灌入。
+    // 单幕：结构-only ELK（固定 NODE_HEIGHT footprint）。
     const runs = projectedRunsRef.current ?? [];
     const captainId = runs.find((r) => r.kind === "captain")?.id ?? null;
     const {
@@ -320,7 +307,7 @@ export function useGraphLayout(
       subTeams: layoutSubTeams,
     } = buildGraphStructure(runs, INPUT_ID, expandedUnits);
     const hints = computeLayoutHints(layoutSubTeams, rawEdges);
-    const sizeMap = sizeMapForNodes(nodeIds, knownHeights);
+    const sizeMap = sizeMapForNodes(nodeIds);
     const elkLayout = layoutKind as ElkGraphLayout;
     const nodeSpacing = nodeSpacingForFitMode(fitMode);
     computeLayout(
@@ -352,134 +339,6 @@ export function useGraphLayout(
       cancelled = true;
     };
   }, [structuralKey, layoutKind, fitMode, setLayout]);
-
-  // 实测高度回灌：防抖二次 ELK（结构不变时只跟高度走，接受轻微位置跳动）。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: height-driven; structuralKey/layoutKind/fitMode gate identity
-  useEffect(() => {
-    if (!structuralKey || !layoutReady) return;
-    const exec = executionRef.current;
-    if (!exec) return;
-
-    const heights = nodeHeights;
-    const currentSizes = nodeSizesRef.current;
-    const sizeIds = Object.keys(currentSizes);
-    if (sizeIds.length === 0) return;
-    if (measuredHeightsMatchSizes(sizeIds, currentSizes, heights)) return;
-
-    let cancelled = false;
-    const gen = layoutGenRef.current;
-    const timer = setTimeout(() => {
-      if (cancelled || gen !== layoutGenRef.current) return;
-
-      if (isGraphTraceEnabled()) {
-        traceGraphHeightRelayout({
-          gen,
-          measuredIds: Object.keys(heights),
-          sizeIds: sizeIds.slice(),
-        });
-      }
-
-      const onOk = (
-        nextPositions: Record<string, { x: number; y: number }>,
-        nextEdges: GraphEdge[],
-        width: number,
-        height: number,
-        sizeMap: NodeSizeMap,
-        nextGroups: GroupLayout[],
-        cards: ActCardLayout[],
-      ) => {
-        if (cancelled || gen !== layoutGenRef.current) return;
-        if (isGraphTraceEnabled()) {
-          const sceneIds =
-            sceneRef.current?.nodeIds.slice() ?? Object.keys(nextPositions);
-          traceGraphLayoutOk({
-            phase: "height-relayout",
-            gen,
-            posIds: Object.keys(nextPositions),
-            sceneIds,
-            bbox: { width, height },
-          });
-        }
-        setLayout(nextPositions, nextEdges);
-        setBbox({ width, height });
-        setNodeSizes(sizeMap);
-        setGroups(nextGroups);
-        setActCards(cards);
-      };
-      const onErr = (err: unknown) => {
-        if (cancelled || gen !== layoutGenRef.current) return;
-        logLayoutFailure(err, {
-          fitMode,
-          layoutKind,
-          phase: "height-relayout",
-        });
-      };
-
-      if (isMultiActExecution(exec)) {
-        const sceneNow =
-          sceneRef.current ??
-          buildGraphScene(exec, { inputId: INPUT_ID, expandedUnits });
-        computeActLodLayout(
-          exec,
-          sceneNow,
-          focusedActId,
-          layoutKind,
-          fitMode,
-          heights,
-        )
-          .then((res) =>
-            onOk(
-              res.positions,
-              res.edges,
-              res.bbox.width,
-              res.bbox.height,
-              res.nodeSizes,
-              res.groups,
-              res.cards,
-            ),
-          )
-          .catch(onErr);
-        return;
-      }
-
-      const runs = projectedRunsRef.current ?? [];
-      const captainId = runs.find((r) => r.kind === "captain")?.id ?? null;
-      const {
-        nodeIds,
-        rawEdges,
-        subTeams: layoutSubTeams,
-      } = buildGraphStructure(runs, INPUT_ID, expandedUnits);
-      const hints = computeLayoutHints(layoutSubTeams, rawEdges);
-      const sizeMap = sizeMapForNodes(nodeIds, heights);
-      computeLayout(
-        nodeIds,
-        rawEdges,
-        layoutKind as ElkGraphLayout,
-        { source: INPUT_ID, sink: captainId ?? undefined },
-        layoutSubTeams,
-        nodeSpacingForFitMode(fitMode),
-        sizeMap,
-        hints,
-      )
-        .then((result) =>
-          onOk(
-            result.positions,
-            rawEdges,
-            result.width,
-            result.height,
-            sizeMap,
-            result.groups,
-            [],
-          ),
-        )
-        .catch(onErr);
-    }, HEIGHT_RELAYOUT_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [nodeHeights, layoutReady, structuralKey, layoutKind, fitMode, setLayout]);
 
   return {
     positions,
@@ -523,20 +382,7 @@ export function useMultiTurnLayouts(
   onNodesChange: (turnId: string, changes: NodeChange[]) => void;
 } {
   const [layouts, setLayouts] = useState<Record<string, TurnLayoutSlice>>({});
-  const [heightByTurn, setHeightByTurn] = useState<
-    Record<string, Record<string, number>>
-  >({});
   const genRef = useRef(0);
-  const turnsRef = useRef(turns);
-  turnsRef.current = turns;
-  const layoutsRef = useRef(layouts);
-  layoutsRef.current = layouts;
-  const heightByTurnRef = useRef(heightByTurn);
-  heightByTurnRef.current = heightByTurn;
-  const collapsedRef = useRef(collapsedSubtrees);
-  collapsedRef.current = collapsedSubtrees;
-  const actFocusRef = useRef(actFocusChoices);
-  actFocusRef.current = actFocusChoices;
 
   const turnKey = useMemo(
     () =>
@@ -569,9 +415,7 @@ export function useMultiTurnLayouts(
     [turns, collapsedSubtrees, actFocusChoices],
   );
 
-  // turnKey encodes turns + collapsedSubtrees; height patches debounce into a
-  // separate secondary ELK (below) so streaming measure does not tear structure.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: structural key is turnKey; height patches intentionally omitted
+  // biome-ignore lint/correctness/useExhaustiveDependencies: structural key is turnKey
   useEffect(() => {
     const gen = ++genRef.current;
     if (turns.length === 0) {
@@ -594,7 +438,6 @@ export function useMultiTurnLayouts(
           inputId: INPUT_ID,
           expandedUnits,
         });
-        const knownHeights = heightByTurnRef.current[t.turnId] ?? {};
 
         // 幕级 LOD（≥2 幕）：只为聚焦幕算完整布局 + 幕摘要卡链，与内联/全屏同语义。
         if (isMultiActExecution(t.execution)) {
@@ -610,7 +453,6 @@ export function useMultiTurnLayouts(
               focus,
               layoutKind,
               fitMode,
-              knownHeights,
             );
             if (cancelled || gen !== genRef.current) return;
             next[t.turnId] = {
@@ -619,7 +461,7 @@ export function useMultiTurnLayouts(
               bbox: res.bbox,
               layoutReady: true,
               layoutError: null,
-              nodeHeights: knownHeights,
+              nodeHeights: {},
               nodeSizes: res.nodeSizes,
               groups: res.groups,
               subTeams: scene.subTeams,
@@ -645,7 +487,7 @@ export function useMultiTurnLayouts(
         }
 
         const { nodeIds, edges: rawEdges, subTeams, fold: foldInfo } = scene;
-        const sizeMap = sizeMapForNodes(nodeIds, knownHeights);
+        const sizeMap = sizeMapForNodes(nodeIds);
 
         try {
           const result = await computeLayout(
@@ -665,7 +507,7 @@ export function useMultiTurnLayouts(
             bbox: { width: result.width, height: result.height },
             layoutReady: true,
             layoutError: null,
-            nodeHeights: knownHeights,
+            nodeHeights: {},
             nodeSizes: sizeMap,
             groups: result.groups,
             subTeams,
@@ -723,135 +565,8 @@ export function useMultiTurnLayouts(
     };
   }, [turnKey, layoutKind, fitMode]);
 
-  // Per-turn measured-height secondary ELK (debounced).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: heightByTurn drives; turnKey/layoutKind/fitMode gate identity
-  useEffect(() => {
-    const pending = Object.entries(heightByTurn).filter(([turnId, heights]) => {
-      const slice = layoutsRef.current[turnId];
-      if (!slice?.layoutReady) return false;
-      const ids = Object.keys(slice.nodeSizes);
-      if (ids.length === 0) return false;
-      return !measuredHeightsMatchSizes(ids, slice.nodeSizes, heights);
-    });
-    if (pending.length === 0) return;
-
-    let cancelled = false;
-    const gen = genRef.current;
-    const timer = setTimeout(() => {
-      if (cancelled || gen !== genRef.current) return;
-      void (async () => {
-        for (const [turnId] of pending) {
-          if (cancelled || gen !== genRef.current) return;
-          const t = turnsRef.current.find((x) => x.turnId === turnId);
-          if (!t) continue;
-          const heights = heightByTurnRef.current[turnId] ?? {};
-          const expandedUnits = expandedUnitsFromFold(
-            t.execution.runs,
-            collapsedRef.current,
-          );
-          const scene = buildGraphScene(t.execution, {
-            inputId: INPUT_ID,
-            expandedUnits,
-          });
-          try {
-            if (isMultiActExecution(t.execution)) {
-              const focus = defaultFocusedActId(
-                scene,
-                t.execution.status,
-                actFocusRef.current.get(t.turnId),
-              );
-              const res = await computeActLodLayout(
-                t.execution,
-                scene,
-                focus,
-                layoutKind,
-                fitMode,
-                heights,
-              );
-              if (cancelled || gen !== genRef.current) return;
-              setLayouts((prev) => ({
-                ...prev,
-                [turnId]: {
-                  positions: res.positions,
-                  edges: res.edges,
-                  bbox: res.bbox,
-                  layoutReady: true,
-                  layoutError: null,
-                  nodeHeights: heights,
-                  nodeSizes: res.nodeSizes,
-                  groups: res.groups,
-                  subTeams: scene.subTeams,
-                  foldInfo: scene.fold,
-                  scene,
-                  actCards: res.cards,
-                },
-              }));
-              continue;
-            }
-
-            const captainId =
-              t.execution.runs.find((r) => r.kind === "captain")?.id ?? null;
-            const {
-              nodeIds,
-              edges: rawEdges,
-              subTeams,
-              fold: foldInfo,
-            } = scene;
-            const sizeMap = sizeMapForNodes(nodeIds, heights);
-            const result = await computeLayout(
-              nodeIds,
-              rawEdges,
-              layoutKind as ElkGraphLayout,
-              { source: INPUT_ID, sink: captainId ?? undefined },
-              subTeams,
-              nodeSpacingForFitMode(fitMode),
-              sizeMap,
-              scene.layoutHints,
-            );
-            if (cancelled || gen !== genRef.current) return;
-            setLayouts((prev) => ({
-              ...prev,
-              [turnId]: {
-                positions: result.positions,
-                edges: rawEdges,
-                bbox: { width: result.width, height: result.height },
-                layoutReady: true,
-                layoutError: null,
-                nodeHeights: heights,
-                nodeSizes: sizeMap,
-                groups: result.groups,
-                subTeams,
-                foldInfo,
-                scene,
-                actCards: [],
-              },
-            }));
-          } catch (err) {
-            if (cancelled || gen !== genRef.current) return;
-            logLayoutFailure(err, {
-              fitMode,
-              layoutKind,
-              turnId,
-              phase: "height-relayout",
-            });
-          }
-        }
-      })();
-    }, HEIGHT_RELAYOUT_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [heightByTurn, turnKey, layoutKind, fitMode]);
-
   const onNodesChange = useCallback((turnId: string, changes: NodeChange[]) => {
-    setHeightByTurn((prev) => {
-      const cur = prev[turnId] ?? {};
-      const next = applyDimensionChanges(cur, changes);
-      if (!next) return prev;
-      return { ...prev, [turnId]: next };
-    });
+    // Measurements stay local to the slice; never schedule secondary ELK.
     setLayouts((prev) => {
       const slice = prev[turnId];
       if (!slice) return prev;

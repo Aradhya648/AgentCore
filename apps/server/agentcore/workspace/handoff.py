@@ -31,6 +31,7 @@ from agentcore.runtime.interaction import default_interaction_registry
 from agentcore.storage import SnapshotRef, build_storage_provider
 from agentcore.workspace.channel import WorkspaceChannel, WorkspaceOp
 from agentcore.workspace.locate import LocalBinding, workspace_storage_key
+from agentcore.workspace.locks import workspace_lock
 from agentcore.workspace.protocol import WorkspaceIOError
 
 logger = get_logger(__name__)
@@ -100,15 +101,14 @@ async def snapshot_local(
     try:
         archive_bytes = _unpack_archive(str(archive_b64), staging)
         label = f"handoff:{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}"
-        ref = await build_storage_provider().snapshot(
-            staging,
-            workspace_storage_key(
-                user_id=user_id,
-                folder_id=folder_id,
-                conversation_id=conversation_id,
-            ),
-            label=label,
+        key = workspace_storage_key(
+            user_id=user_id,
+            folder_id=folder_id,
+            conversation_id=conversation_id,
         )
+        # Folder lock (决策④): serialize the manifest write against turns / API snapshots.
+        async with workspace_lock(key):
+            ref = await build_storage_provider().snapshot(staging, key, label=label)
         logger.info(
             "handoff.snapshot_created",
             conversation_id=conversation_id,

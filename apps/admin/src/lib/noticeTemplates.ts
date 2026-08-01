@@ -79,7 +79,7 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
     id: "release",
     label: "全端发版",
     description: "桌面/手机发版 · 横幅 + IM",
-    title: "版本更新 · 新版本",
+    title: "版本更新 · 新版本 · 约 HH:MM",
     body: `新版本将于今天 HH:MM 起陆续上线。
 
 桌面：应用内检查更新，或官网重新下载安装。
@@ -116,7 +116,7 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
           ? lines.map((line, i) => `${i + 1}. ${line}`).join("\n")
           : "1. …\n2. …\n3. …";
       return {
-        title: `版本更新 · ${version}`,
+        title: `版本更新 · ${version} · 约 ${time}`,
         body: `新版本将于今天 ${time} 起陆续上线。
 
 桌面：应用内检查更新，或官网重新下载安装。

@@ -3,8 +3,10 @@
 from agentcore.runtime.context.workspace_context import (
     build_workspace_context,
     desktop_client_can_bind,
+    resolve_channel_profile,
 )
 from agentcore.runtime.resolve.prompt import assemble_system_prompt
+from agentcore.tools.builtin import build_ceo_tool_registry
 
 
 class _FakeBackend:
@@ -15,14 +17,78 @@ class _FakeBackend:
             self._channel = channel
 
 
-def test_desktop_client_can_bind_only_electron():
-    assert desktop_client_can_bind(None) is True
+def test_desktop_client_can_bind_fail_closed():
+    assert desktop_client_can_bind(None) is False
+    assert desktop_client_can_bind("") is False
     assert desktop_client_can_bind("desktop") is True
     assert desktop_client_can_bind("web") is False
     assert desktop_client_can_bind("mobile") is False
     assert desktop_client_can_bind("mobile-web") is False
+    assert desktop_client_can_bind("android") is False
     assert desktop_client_can_bind("admin") is False
 
+
+def test_resolve_channel_profile_fail_closed_and_surfaces():
+    unknown = resolve_channel_profile(None)
+    assert unknown.surface == "unknown"
+    assert unknown.desktop_online is False
+    assert unknown.can_bind_folder is False
+
+    blank = resolve_channel_profile("  ")
+    assert blank.surface == "unknown"
+    assert blank.desktop_online is False
+
+    desktop = resolve_channel_profile("desktop")
+    assert desktop.surface == "desktop"
+    assert desktop.desktop_online is True
+    assert desktop.can_bind_folder is True
+
+    web = resolve_channel_profile("web")
+    assert web.surface == "web"
+    assert web.desktop_online is False
+    assert web.can_bind_folder is False
+
+    mobile_web = resolve_channel_profile("mobile-web")
+    assert mobile_web.surface == "web"
+    assert mobile_web.desktop_online is False
+
+    mobile = resolve_channel_profile("mobile")
+    assert mobile.surface == "mobile"
+    assert mobile.desktop_online is False
+
+    android = resolve_channel_profile("android")
+    assert android.surface == "mobile"
+    assert android.can_bind_folder is False
+
+    # Unknown tokens fail closed (do not legacy-default to desktop).
+    admin = resolve_channel_profile("admin")
+    assert admin.surface == "unknown"
+    assert admin.desktop_online is False
+
+
+def test_web_and_missing_header_ceo_registry_omits_host():
+    """Acceptance: web / missing header → no host_* on CEO registry (web-safe)."""
+    web_names = {s.name for s in build_ceo_tool_registry(desktop_online=False).list_all()}
+    assert not any(n.startswith("host_") for n in web_names)
+
+    # Profile wiring: web / None → desktop_online False → same roster.
+    assert resolve_channel_profile("web").desktop_online is False
+    assert resolve_channel_profile(None).desktop_online is False
+    missing = {
+        s.name
+        for s in build_ceo_tool_registry(
+            desktop_online=resolve_channel_profile(None).desktop_online
+        ).list_all()
+    }
+    assert not any(n.startswith("host_") for n in missing)
+
+    desktop_names = {
+        s.name
+        for s in build_ceo_tool_registry(
+            desktop_online=resolve_channel_profile("desktop").desktop_online
+        ).list_all()
+    }
+    assert any(n.startswith("host_") for n in desktop_names)
 
 def test_cloud_scratch_facts():
     out = build_workspace_context(

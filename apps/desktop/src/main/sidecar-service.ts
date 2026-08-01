@@ -864,8 +864,8 @@ export class SidecarManager {
   }
 
   /**
-   * 取消一个在跑的回合。无对应 sidecar / RPC 失败时抛错，供 FE 可见提示与重试
-   * （勿静默吞——停止未确认时用户需要知道信号没发出去）。
+   * 取消一个在跑的回合。无对应 sidecar / RPC 失败时抛错，供 FE 可见提示
+   * （勿静默吞——请求失败时用户需要知道信号没发出去，可再点停止）。
    */
   async cancel(req: SidecarCancelRequest): Promise<void> {
     const entry = this.entries.get(entryKey(req.rootId, req.subpath));

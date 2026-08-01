@@ -152,6 +152,45 @@ describe("TeamView · 多幕分组", () => {
     expect(screen.getByText("未传唤")).toBeTruthy();
   });
 
+  it("run.phase 徽章区分思考/工具/等子/收尾；pending=排队中；skipped=未执行", () => {
+    const agents = [makeAgent({ id: "w1", role: "队员", status: "working" })];
+    const cases: Array<{
+      phase?: ProjectedRun["phase"];
+      status: ProjectedRun["status"];
+      label: string;
+    }> = [
+      { status: "running", phase: "thinking", label: "思考中" },
+      { status: "running", phase: "tool", label: "工具中" },
+      { status: "running", phase: "waiting_children", label: "等待子任务" },
+      { status: "running", phase: "winding_down", label: "收尾中" },
+      { status: "pending", label: "排队中" },
+      { status: "skipped", label: "未执行" },
+    ];
+    for (const c of cases) {
+      cleanup();
+      render(
+        <TeamView
+          agents={agents}
+          runs={[
+            makeRun({
+              id: "r1",
+              agentId: "w1",
+              role: "队员",
+              actId: "act-1",
+              status: c.status,
+              phase: c.phase,
+            }),
+          ]}
+          progress={{
+            completed: c.status === "skipped" ? 0 : 0,
+            total: 1,
+          }}
+        />,
+      );
+      expect(screen.getByText(c.label)).toBeTruthy();
+    }
+  });
+
   it("单幕辩论仍显示头部「辩论」徽标、无分组头", () => {
     const acts: ProjectedAct[] = [
       {

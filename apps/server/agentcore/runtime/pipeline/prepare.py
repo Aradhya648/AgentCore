@@ -16,7 +16,7 @@ from agentcore.memory import (
     assemble_turn_rules,
     load_memory_topics,
 )
-from agentcore.runtime.context import build_workspace_context, desktop_client_can_bind
+from agentcore.runtime.context import build_workspace_context, resolve_channel_profile
 from agentcore.runtime.costing import RunCost
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.interaction import default_interaction_registry
@@ -116,7 +116,9 @@ async def prepare_fresh_turn(
     # attachment block is appended LAST below — after the stable CEO hint stack —
     # so a turn carrying attached files does not bust DeepSeek's prefix cache for
     # the hints (缓存友好: 易变内容置于稳定前缀之后).
-    desktop_online = desktop_client_can_bind(x_client_platform) or backend.location == "local"
+    # Host / MCP backfill needs a desktop client — orthogonal to workspace location.
+    channel = resolve_channel_profile(x_client_platform)
+    desktop_online = channel.desktop_online
     from agentcore.tools.sandbox.exec_languages import resolve_exec_languages
 
     exec_languages = await resolve_exec_languages(backend)

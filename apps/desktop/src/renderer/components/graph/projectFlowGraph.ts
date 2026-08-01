@@ -1,4 +1,4 @@
-import {
+﻿import {
   challengePreviewFromContext,
   debateFacePrimaryFromContext,
 } from "@/components/chat/debate/debateFaceCopy";
@@ -12,7 +12,6 @@ import {
   pickCostMoney,
   tailText,
 } from "@/lib/format";
-import { placedNodeY } from "@/lib/graphMetrics";
 import { detectReviewConcern } from "@/lib/reviewConcern";
 import {
   isGraphTraceEnabled,
@@ -177,7 +176,6 @@ function sumDurationMs(
 export function projectFlowNodes({
   execution,
   positions,
-  nodeHeights,
   nodeSizes,
   handleDirection,
   litRunId,
@@ -194,17 +192,7 @@ export function projectFlowNodes({
   expandedUnits = new Set(),
   onToggleUnitExpand,
 }: FlowGraphProjectionInput): Node[] {
-  const placed = (id: string) => {
-    const slot = positions[id];
-    if (!slot) return undefined;
-    const h = nodeHeights[id];
-    if (!h) return slot;
-    // Center within the *layout* slot height. After secondary ELK, layoutH ≈ h
-    // → offset ~0. Before that, soft-center in the cold NODE_HEIGHT slot so
-    // taller cards don't only spill downward into the next peer.
-    const layoutH = nodeSizes[id]?.height ?? NODE_HEIGHT;
-    return { x: slot.x, y: placedNodeY(slot.y, layoutH, h) };
-  };
+  const placed = (id: string) => positions[id];
 
   const workerRuns = execution.runs.filter((r) => r.id !== captainRun?.id);
   const workerIdSet = new Set(workerRuns.map((r) => r.id));
@@ -418,6 +406,8 @@ export function projectFlowNodes({
         reasoningPreview: tailText(reasoning),
         toolProgress: agent?.toolProgress ?? null,
         toolExecutionLive: agent?.toolExecutionLive ?? null,
+        phase: faceRun.phase ?? run.phase ?? null,
+        phaseTool: faceRun.phaseTool ?? run.phaseTool ?? null,
         tokenCount: estimateTokens(output),
         toolCount: agent?.toolCalls.length ?? 0,
         artifacts: agent ? deriveArtifacts(agent.toolCalls) : [],
@@ -602,7 +592,6 @@ export function projectFlowEdges({
   injectOverlay,
   execution,
   positions,
-  nodeHeights,
   nodeSizes,
   handleDirection,
   captainRun,
@@ -614,7 +603,6 @@ export function projectFlowEdges({
   | "injectOverlay"
   | "execution"
   | "positions"
-  | "nodeHeights"
   | "nodeSizes"
   | "handleDirection"
   | "captainRun"
@@ -624,8 +612,7 @@ export function projectFlowEdges({
   const gapEdges = injectOverlay?.activeGapEdges ?? [];
   const allEdges = gapEdges.length > 0 ? [...edges, ...gapEdges] : edges;
   const horizontal = handleDirection === "horizontal";
-  const heightOf = (id: string) =>
-    nodeHeights[id] ?? nodeSizes[id]?.height ?? NODE_HEIGHT;
+  const heightOf = (id: string) => nodeSizes[id]?.height ?? NODE_HEIGHT;
   const ports = computeEdgePorts(allEdges, positions, horizontal, heightOf);
 
   return allEdges.map((e) => {

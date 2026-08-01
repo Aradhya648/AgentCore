@@ -8,6 +8,7 @@ import { notifyError } from "@/lib/toast";
 import { api } from "@/services/api";
 import {
   provisionalConversationTitle,
+  requestAutoTitle,
   setConversationModelProfile,
 } from "@/services/conversations";
 import { ensureDefaultContainerRoot } from "@/services/defaultWorkspace";
@@ -76,7 +77,8 @@ export function useComposerSend({
 
     // Mid-flight：生成中发送走独立 POST SSE（协调短确认 / 经典 turn_queued 后
     // 同连接续流）。经典排队在主路空闲后才插用户气泡并开 turn2，避免与 turn1
-    // 收口帧交叉；协调插话无新气泡，徽标走 user_interjection。
+    // 收口帧交叉；协调插话不经 addMessage——主时间线由 InterjectionTimeline
+    // 投影 execution.userInterjections（user_interjection SSE）。
     if (isGenerating && activeConvId) {
       const pending = attachments;
       const outgoing: OutgoingAttachment[] = [];
@@ -118,11 +120,15 @@ export function useComposerSend({
         trimmed,
         outgoing.length > 0 ? outgoing : undefined,
       );
-      if (result.kind === "delivered" || result.kind === "queued") {
+      if (
+        result.kind === "received" ||
+        result.kind === "delivered" ||
+        result.kind === "queued"
+      ) {
         setValue("");
         setAttachments([]);
         closeMenu();
-        // queued toast 由 turn_queued → dispatch 呈现；delivered 徽标走 SSE。
+        // queued toast 由 turn_queued → dispatch；received 主时间线走 SSE 投影。
       }
       return;
     }
@@ -277,6 +283,15 @@ export function useComposerSend({
     if (isFirstMessage) {
       patchConversationCache(conversationId, {
         title: provisionalConversationTitle(trimmed),
+      });
+    }
+
+    // Local sidecar has no cloud SSE title_generated — mint in parallel with the
+    // turn (same core as cloud schedule_title_generation). Failure keeps the
+    // provisional truncation; local-turns write-back may still fall back.
+    if (isLocal && isFirstMessage) {
+      void requestAutoTitle(conversationId, trimmed).then((title) => {
+        if (title) patchConversationCache(conversationId, { title });
       });
     }
 

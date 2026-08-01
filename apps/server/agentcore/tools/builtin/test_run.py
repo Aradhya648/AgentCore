@@ -62,7 +62,8 @@ TEST_RUN_PARAMETERS: dict[str, Any] = {
                 "验证种类：test=测试套件；typecheck=类型检查（tsc 等）；"
                 "build=项目构建；command=显式跑 command（用于 completion_criteria / "
                 "verify_command）。慢 build / 全量 tsc / 项目测试请用本工具，勿用 "
-                "code_execute。"
+                "code_execute。全量 typecheck/build/`tsc -b` 仅验收员；"
+                "fix worker 请用窄范围（包内 / 改动相关 / 单文件），勿三路并行全仓 tsc。"
             ),
         },
         "command": {
@@ -586,6 +587,9 @@ class TestRunTool:
                 "verify 命令），分钟级预算、可流式输出。适合 completion_criteria="
                 "code_verified 与慢 build、全量 tsc、项目测试——【不要】用 code_execute "
                 "跑这些。超预算返回「验证未完成」，不是工具故障。长驻进程请用 terminal。"
+                "【范围】修码 / fix worker 默认窄范围（scope=file、包内、改动相关）；"
+                "全量 typecheck / build / `tsc -b` 仅验收员角色执行——"
+                "禁止多名 fix worker 三路并行全仓 tsc。"
             ),
             parameters=TEST_RUN_PARAMETERS,
             category=ToolCategory.EXECUTION,

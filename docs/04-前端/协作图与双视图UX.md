@@ -27,13 +27,15 @@ skip_if:
 
 **失败收口**：协作图状态条 / 画布指挥台只报战绩——meta 的 `n/m` + 图节点色 + 右坞详情，**不**另挂「N 个子任务失败」红条；救火统一「对 CEO 再说」或再发一条（同人续派 / `continue_from_run_id`）。**否决**状态条「重试」「重试失败项」、`retry-failed` API、叠「全部重生成」、显式忽略（新 turn 隐式收口）、无帧「继续」。有正文气泡的 regenerate、传输层 RetryBanner 仍保留。`cancelled`/`interrupted` 不出 finishReason chip。
 
-默认展开，按对话持久化。多幕 LOD：≥2 幕恰好一幕展开 DAG；**否决**默认全展开。face 徽标 ≤2；行动条仅 ≥2 待决。**否决**「规划中」态（`run_plan` 同步到达）。插话：composer 不禁发；热路挂起不可绕过。
+默认展开，按对话持久化。多幕 LOD：≥2 幕恰好一幕展开 DAG；**否决**默认全展开。face 徽标 ≤2；行动条仅 ≥2 待决。**否决**「规划中」态（`run_plan` 同步到达）。插话：composer 不禁发；主时间线普通用户气泡 + 四态状态标记（心智「对主 Agent」）；团队块仅追溯；热路挂起不可绕过。
 
 检查点 / 非阻塞发问 / plan_review / ResumePrompt / InteractionStore：语义 → [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)。内联卡只留 resolved；可操作面统一 `ResumePrompt`。**否决**题目 accordion、Wizard、消息流再堆可操作入口。决策区 Chat/画布 `ConversationDecisionPrompts` 单挂载互斥。
 
 ## 五、图视图
 
 内嵌 = 静态预览（禁缩放）；探索在放大态。节点 face：角色→在干什么→用时；¥/token 归 run 详情。点节点 → 右坞 SidePanel（高亮同源）。
+
+**布局 / 相机（白板模型）**：ELK **只**在结构变更时跑；`NODE_WIDTH`×`NODE_HEIGHT` 为布局权威 footprint，face 槽内裁切/滚动。相机只在结构 bbox 就绪/身份变化或容器尺寸变化时 fit（内联一次 fit-width）；**否决**测高二次 ELK、soft-center 抬 footprint、测高伺服相机。宿主常驻：`layoutReady` 不卸载 ReactFlow；内联折叠隐藏不卸树。契约 → `graphHost.tsx`。
 
 **节点 = 一次执行（run）**：独立产出→新节点；轮内从属 beat→折进宿主；状态变化→角标。**否决**单卡堆叠 ×N、工具点节点。无 `continues_run_id` 的同 role ≠「同一人」。辩论不开放「改方向」。能力表一处声明 `planCapabilities.ts`。宿主三入口共用 `graphHost`；布局失败显式错误。
 

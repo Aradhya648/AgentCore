@@ -80,6 +80,11 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
     reason: "协调等待实时信号；手机 fold no-op，等待态由 run/status 派生呈现",
   },
   run_started: { verdict: "ported", surface: "TeamView" },
+  run_phase: {
+    verdict: "ported",
+    surface:
+      "TeamView · worker 活动相位（thinking/tool/waiting_children/winding_down；queued=pending；skipped=status）",
+  },
   run_context: {
     verdict: "ported",
     surface:
@@ -170,9 +175,9 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
       "TeamView · 交付轻提示（partial/blocked 一句；delivered/notes 静默；对齐桌面 DeliveryStatusMount）",
   },
   user_interjection: {
-    verdict: "internal",
-    reason:
-      "协调中用户插话：desktop team 块徽标；手机 parity 仅 fold → userInterjections",
+    verdict: "ported",
+    surface:
+      "ChatPage · InterjectionBubbles 主时间线用户气泡 + 四态文案（fold → userInterjections）",
   },
   turn_queued: {
     verdict: "ported",
@@ -439,9 +444,14 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
   },
   TeamNotesPanel: { verdict: "ported", surface: "TeamView · 团队便签" },
   UserInterjectionsPanel: {
-    verdict: "simplified",
-    reason:
-      "协调插话徽标：desktop team 块渲染；手机本切片仅 fold → userInterjections（parity 最小同步）",
+    verdict: "ported",
+    surface:
+      "ChatPage · InterjectionBubbles（团队块内追溯；主叙事见 InterjectionTimeline）",
+  },
+  InterjectionTimeline: {
+    verdict: "ported",
+    surface:
+      "ChatPage · InterjectionBubbles（主时间线用户气泡 + 四态文案；对齐桌面）",
   },
   SourceCards: { verdict: "ported", surface: "AssistantView · 来源" },
   CitationTierBadge: {
@@ -449,10 +459,6 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     surface: "AssistantView · 来源可信度徽标",
   },
   StatusStrip: { verdict: "ported", surface: "ChatPage · 状态 meta 行" },
-  HarvestSystemChip: {
-    verdict: "ported",
-    surface: "ChatPage · 系统收口芯片（execution_harvest / 【系统收口】前缀）",
-  },
   DebateProgressLine: {
     verdict: "ported",
     surface: "TeamView · 辩论进展预览（fold 对齐 StatusStrip）",

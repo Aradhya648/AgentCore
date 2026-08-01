@@ -155,6 +155,10 @@ export function handleExecutionEvent(
       queueFrameEvent(event, conversationId);
       return true;
     }
+    // Worker mid-flight activity phase (`run_phase`): low-frequency structural
+    // stamp onto RunNode.phase / phaseTool (EPHEMERAL — not journaled; live +
+    // conformance vectors fold via the same frame path).
+    case "run_phase":
     // 结构性帧 (低频): recordFrameNow 先 flush 高频缓冲以保帧顺序，再立即落。
     case "run_completed":
     case "run_failed":
@@ -256,7 +260,9 @@ export function handleExecutionEvent(
       }
       return true;
     }
-    // 后台执行终态：清后台 chrome、标完成、刷新对话以拉入 harvest 终稿。
+    // 后台执行终态：清后台 chrome、按 payload.status 落 execution 终态（缺省 completed），
+    // 再刷新对话以拉入 harvest 终稿。禁止无条件 setStatus("completed")——cancel/fail
+    // 须忠实跟契约，否则顶栏会绿勾「团队完成」而图上仍 running。
     case "execution_completed": {
       const mid = execMessageId(
         conversationId,
@@ -266,8 +272,13 @@ export function handleExecutionEvent(
         const exec = useExecutionStore.getState();
         exec.setExecutionDetached(null, mid);
         const rt = execRuntime(exec, mid);
-        if (rt.plan && rt.status === "running") {
-          exec.setStatus("completed", mid);
+        if (rt.plan) {
+          const raw = (event.payload as { status?: string }).status;
+          const next =
+            raw === "cancelled" || raw === "failed" || raw === "completed"
+              ? raw
+              : "completed";
+          exec.setStatus(next, mid);
         }
       }
       refreshAfterExecutionCompleted(conversationId);
@@ -331,7 +342,7 @@ export function handleExecutionEvent(
               interjectionId: iid,
               executionId: p.execution_id || "",
               content: p.content || "",
-              status: p.status || "delivered",
+              status: p.status || "received",
               note: typeof p.note === "string" ? p.note : null,
               ...(attachments.length > 0 ? { attachments } : {}),
             },

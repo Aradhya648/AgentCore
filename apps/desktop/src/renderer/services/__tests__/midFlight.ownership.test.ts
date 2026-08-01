@@ -308,13 +308,13 @@ describe("midFlight · 主路门 + store 断言", () => {
         interjection_id: "ij1",
         execution_id: "ex1",
         content: "插一句",
-        status: "delivered",
+        status: "received",
       }),
     );
     sse.close();
 
     await expect(pending).resolves.toEqual({
-      kind: "delivered",
+      kind: "received",
       interjectionId: "ij1",
     });
     // 主路仍持有也不妨碍插话短流收口

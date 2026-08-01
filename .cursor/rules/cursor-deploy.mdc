@@ -21,7 +21,7 @@ alwaysApply: false
 - **不重新启用** deploy/release workflow 的 push/tag/schedule 自动触发。
 - **新增/改接口 → 后端必须先部署**。前端 deploy 脚本内置版本漂移门禁。
 - **桌面发版**：Win = 本地 `release:win`（`--publish never` + `gh upload` + 资产断言 + `sync:release-cdn`；对齐 Mac）；Mac = GHA `Release Desktop`（仅 mac）。为省额度：GHA 桌面发布仅 Mac；Win 本地；**勿用 GHA 打 Win**。官网首装 = GitHub Releases；updater feed = 品牌域 nginx（见 [发布与门禁 §7.6b](/docs/05-平台与运维/发布与门禁.md)；勿在 chat 回显主机名或凭据）。
-- 发布前本地一键门禁：`pnpm release:gate`（与 `ci.yml` 同构；触发保留，不关 CI）。含 **schema gate**（迁移 head ↔ ORM；`uv run python scripts/check_schema_gate.py`）。
+- 发布前本地一键门禁：`pnpm release:gate`（与 `ci.yml` 同构；触发保留，不关 CI）。含 **schema gate**（迁移 head ↔ ORM；`uv run python scripts/check_schema_gate.py`）。日常迭代可用 `pnpm release:gate:lite`（跳过 desktop shoot + smoke；**发布仍须全量**）。
 - **后端上线顺序**：`finish-server.sh` / `deploy-server.sh` = 停旧 api → `alembic upgrade` → schema gate `--live` → 起新 api。禁止旧容器接流量时跑破坏性迁移。
 
 ## 全端发布顺序（速查）

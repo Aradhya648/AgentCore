@@ -215,3 +215,48 @@ async def test_enforce_noop_when_rate_limiting_globally_off(monkeypatch):
     limiter = SlidingWindowRateLimiter(max_requests=1, window_seconds=10)
     limiter.check("u", now=0)  # saturate
     await enforce_user_message_rate_limit("u", limiter=limiter, now=0)  # no raise
+
+
+# --- Redis construct fallback (B1) ---
+
+
+def test_auth_redis_construct_fallback_logs_and_uses_memory(monkeypatch):
+    """Redis construct/ping failure must warn and fall back to in-memory — not silent."""
+    from agentcore.middleware import rate_limit as rl
+    from agentcore.middleware import redis_rate_limit as rrl
+    from tests.conftest import LogSpy
+
+    spy = LogSpy()
+    monkeypatch.setattr(rl, "logger", spy)
+    monkeypatch.setattr(settings, "rate_limit_backend", "redis")
+
+    def _boom():
+        raise ConnectionError("redis unavailable")
+
+    monkeypatch.setattr(rrl, "redis_client", _boom)
+    limiter = rl._build_auth_rate_limiter()
+    assert isinstance(limiter, FixedWindowRateLimiter)
+    kw = spy.get("security.rate_limit_redis_fallback")
+    assert kw["prefix"] == "rl:auth"
+    assert "unavailable" in kw["error"]
+
+
+def test_sliding_redis_construct_fallback_logs_and_uses_memory(monkeypatch):
+    from agentcore.middleware import rate_limit as rl
+    from agentcore.middleware import redis_rate_limit as rrl
+    from tests.conftest import LogSpy
+
+    spy = LogSpy()
+    monkeypatch.setattr(rl, "logger", spy)
+    monkeypatch.setattr(settings, "rate_limit_backend", "redis")
+
+    def _boom():
+        raise ConnectionError("redis unavailable")
+
+    monkeypatch.setattr(rrl, "redis_client", _boom)
+    limiter = rl._build_sliding_rate_limiter(
+        prefix="rl:msg", max_requests=5, window_seconds=30
+    )
+    assert isinstance(limiter, SlidingWindowRateLimiter)
+    kw = spy.get("security.rate_limit_redis_fallback")
+    assert kw["prefix"] == "rl:msg"

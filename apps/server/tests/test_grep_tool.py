@@ -146,8 +146,50 @@ async def test_grep_finds_matches_with_path_and_lineno(tmp_path: Path):
 
 async def test_grep_prunes_noise_dirs(tmp_path: Path):
     _seed(tmp_path)
+    # Also plant ``.pytest_tmp`` (Windows lock poison) — must be product-ignored.
+    pt = tmp_path / ".pytest_tmp" / "x"
+    pt.mkdir(parents=True)
+    (pt / "hidden.py").write_text("# TODO inside pytest_tmp\n", encoding="utf-8")
     result = await GrepTool().execute({"pattern": "TODO"}, _ctx(tmp_path))
     assert "node_modules" not in result.output
+    assert ".pytest_tmp" not in result.output
+    assert "hidden.py" not in result.output
+
+
+async def test_grep_soft_skips_rg_access_denied(monkeypatch, tmp_path: Path):
+    """rg exit-2 IO denials become warnings — search still succeeds (no retire)."""
+    from agentcore.workspace import rg_grep as rg_mod
+
+    (tmp_path / "ok.py").write_text("TODO here\n", encoding="utf-8")
+
+    async def fake_run_rg(rg, args, *, cwd):
+        del rg
+        # ``--files`` listing: pretend one path is denied but still emit ok.py
+        if "--files" in args:
+            return (
+                2,
+                "ok.py\n",
+                "rg: ./poison: Access is denied. (os error 5)\n",
+            )
+        # content search
+        if any(a == "ok.py" or a.endswith("ok.py") for a in args):
+            return (0, "ok.py:1:TODO here\n", "")
+        return (1, "", "")
+
+    monkeypatch.setattr(rg_mod, "_run_rg", fake_run_rg)
+    monkeypatch.setattr(
+        rg_mod,
+        "resolve_rg_binary",
+        lambda: tmp_path / "fake-rg",
+    )
+    # require_rg_binary uses resolve; also stub file check via require path
+    monkeypatch.setattr(rg_mod, "require_rg_binary", lambda: tmp_path / "fake-rg")
+
+    result = await GrepTool().execute({"pattern": "TODO"}, _ctx(tmp_path))
+    assert result.success is True
+    assert "ok.py" in (result.output or "")
+    assert "跳过无权限" in (result.output or "")
+    assert result.metadata.get("retire_tools") is None
 
 
 async def test_grep_glob_filters_by_name(tmp_path: Path):

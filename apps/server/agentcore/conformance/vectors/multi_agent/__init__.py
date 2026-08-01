@@ -70,6 +70,7 @@ from .run_control import (
     _multi_agent_run_skipped_cascade,
     _multi_agent_run_stop_cancels_workers,
 )
+from .run_phase import _multi_agent_run_phase
 from .stage_card import (
     _multi_agent_stage_card_orphaned,
     _multi_agent_stage_card_start_debate,
@@ -214,6 +215,11 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
         "多 Agent·未执行收口：级联跳过 run_skipped(cascade) + graceful abort run_skipped(abort)，"
         "节点折 skipped「未执行」而非永久排队",
         _multi_agent_run_skipped_cascade,
+    ),
+    "multi_agent_run_phase": (
+        "多 Agent·worker 活动相位：run_phase(thinking/tool/waiting_children/winding_down) "
+        "+ pending queued + run_skipped；winding_down 粘性",
+        _multi_agent_run_phase,
     ),
     "multi_agent_run_redirect_ignored": (
         "多 Agent·跑一半改方向·忽略路径：改方向来不及应用（r1 确定性失败），忽略+接受走审计/REST 带外，wire 投影保持干净（r1 failed、并行 r2 completed、1/2、无幻影重跑节点）",

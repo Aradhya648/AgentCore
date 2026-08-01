@@ -96,7 +96,7 @@
         "interjection_id": "inj-att",
         "execution_id": "exec1",
         "content": "请对照附件里的成本表再核一遍。",
-        "status": "delivered",
+        "status": "received",
         "attachments": [
           {
             "name": "成本表.xlsx",
@@ -134,6 +134,29 @@
       "timestamp": "2026-01-01T00:00:00.009Z"
     },
     {
+      "type": "user_interjection",
+      "payload": {
+        "interjection_id": "inj-att",
+        "execution_id": "exec1",
+        "content": "请对照附件里的成本表再核一遍。",
+        "status": "addressed",
+        "note": "已在合成草稿中承接",
+        "attachments": [
+          {
+            "name": "成本表.xlsx",
+            "workspace_path": "attachments/成本表.xlsx",
+            "binary": true
+          },
+          {
+            "name": "补充说明.md",
+            "workspace_path": "attachments/补充说明.md",
+            "binary": false
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
       "type": "team_synthesis_preview",
       "payload": {
         "execution_id": "exec1",
@@ -144,7 +167,7 @@
         "workers": [],
         "in_progress": true
       },
-      "timestamp": "2026-01-01T00:00:00.010Z"
+      "timestamp": "2026-01-01T00:00:00.011Z"
     },
     {
       "type": "run_completed",
@@ -424,8 +447,8 @@
         "interjectionId": "inj-att",
         "executionId": "exec1",
         "content": "请对照附件里的成本表再核一遍。",
-        "status": "delivered",
-        "note": null,
+        "status": "addressed",
+        "note": "已在合成草稿中承接",
         "attachments": [
           {
             "name": "成本表.xlsx",

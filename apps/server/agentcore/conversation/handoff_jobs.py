@@ -17,7 +17,8 @@ from agentcore.runtime.events import EventSink, error_event, handoff_job_started
 from agentcore.runtime.journal import persist_turn_journal
 from agentcore.runtime.pipeline import run_chat_pipeline
 from agentcore.workspace.handoff import snapshot_local
-from agentcore.workspace.locate import LocalBinding, build_server_workspace
+from agentcore.workspace.locate import LocalBinding, build_server_workspace, workspace_storage_key
+from agentcore.workspace.locks import workspace_lock
 from agentcore.workspace.snapshots import create_snapshot, restore_into_workspace
 
 logger = get_logger(__name__)
@@ -103,36 +104,43 @@ async def run_handoff_job(
         )
 
     sink = EventSink()
+    # Job conversations are ungrouped (folder_id=None); lock key matches turns / snapshots.
+    dest_key = workspace_storage_key(
+        user_id=user_id, folder_id=None, conversation_id=job_conversation_id
+    )
     try:
-        await restore_into_workspace(
-            source_user_id=user_id,
-            source_folder_id=source_folder_id,
-            source_conversation_id=source_conversation_id,
-            snapshot_id=base_snapshot_id,
-            dest_user_id=user_id,
-            dest_folder_id=None,
-            dest_conversation_id=job_conversation_id,
-        )
-        backend = build_server_workspace(
-            user_id=user_id, folder_id=None, conversation_id=job_conversation_id
-        )
-        result = await run_chat_pipeline(
-            conversation_id=job_conversation_id,
-            user_message=task,
-            history=[],
-            sink=sink,
-            user_id=user_id,
-            backend=backend,
-            approvals_enabled=False,
-            llm_credentials=llm_credentials,
-        )
-        await persist_job_turn(user_id=user_id, conversation_id=job_conversation_id, result=result)
-        result_ref = await create_snapshot(
-            user_id=user_id,
-            folder_id=None,
-            conversation_id=job_conversation_id,
-            label=f"result:{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}",
-        )
+        async with workspace_lock(dest_key):
+            await restore_into_workspace(
+                source_user_id=user_id,
+                source_folder_id=source_folder_id,
+                source_conversation_id=source_conversation_id,
+                snapshot_id=base_snapshot_id,
+                dest_user_id=user_id,
+                dest_folder_id=None,
+                dest_conversation_id=job_conversation_id,
+            )
+            backend = build_server_workspace(
+                user_id=user_id, folder_id=None, conversation_id=job_conversation_id
+            )
+            result = await run_chat_pipeline(
+                conversation_id=job_conversation_id,
+                user_message=task,
+                history=[],
+                sink=sink,
+                user_id=user_id,
+                backend=backend,
+                approvals_enabled=False,
+                llm_credentials=llm_credentials,
+            )
+            await persist_job_turn(
+                user_id=user_id, conversation_id=job_conversation_id, result=result
+            )
+            result_ref = await create_snapshot(
+                user_id=user_id,
+                folder_id=None,
+                conversation_id=job_conversation_id,
+                label=f"result:{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}",
+            )
         async with async_session_factory() as session:
             await HandoffJobRepository(session).mark_succeeded(
                 job_id, result_snapshot_id=result_ref.snapshot_id

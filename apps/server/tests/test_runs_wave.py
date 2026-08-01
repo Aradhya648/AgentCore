@@ -1386,3 +1386,91 @@ async def test_external_cancel_after_redirect_terminates_wave():
         await wave_task
     assert wave_task.done()
     assert wave_task.cancelled() or wave_task.exception() is not None
+
+
+@pytest.mark.asyncio
+async def test_external_cancel_materialises_undispatched_as_skipped():
+    """1B: parent/nested cancel must not silently LEFT OUT never-dispatched siblings.
+
+    Repro shape: fan-out 4, width 2 → _1/_2 in flight, _3/_4 not yet dispatched;
+    outer cancel drains in-flight (run_cancelled) and must emit on_skipped(abort)
+    for the undispatched tail so the graph shows「未执行」instead of ghost pending.
+    """
+    import contextlib
+
+    plan = RunPlan()
+    for x in ("_1", "_2", "_3", "_4"):
+        plan.add(_spec(x))
+    started: set[str] = set()
+    gate = asyncio.Event()
+    skipped: list[tuple[str, str, str]] = []
+
+    async def ex(spec: RunSpec, _completed) -> RunState:
+        started.add(spec.run_id)
+        if len(started) >= 2:
+            gate.set()
+        await asyncio.sleep(10)
+        return RunState(phase=RunPhase.COMPLETED, content=spec.run_id)
+
+    wave_task = asyncio.create_task(
+        WaveScheduler(max_parallel=2).run(
+            plan,
+            ex,
+            on_skipped=lambda rid, aid, reason: skipped.append((rid, aid, reason)),
+        )
+    )
+    await gate.wait()
+    await asyncio.sleep(0.02)  # settle: only width=2 should be in flight
+    assert started == {"_1", "_2"}
+    wave_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await wave_task
+
+    skipped_ids = {rid for rid, _, _ in skipped}
+    assert skipped_ids == {"_3", "_4"}
+    assert all(reason == "abort" for _, _, reason in skipped)
+    assert "_1" not in skipped_ids and "_2" not in skipped_ids
+
+
+@pytest.mark.asyncio
+async def test_soft_stop_cancel_leaves_undispatched_for_resume(monkeypatch):
+    """ask_user soft_stop cancel must NOT durable-skip the tail (resume re-drives it)."""
+    import contextlib
+    from types import SimpleNamespace
+
+    import agentcore.runtime.coordination.session as coord_session
+
+    monkeypatch.setattr(
+        coord_session,
+        "active_coordination",
+        lambda *_a, **_k: SimpleNamespace(soft_stop=True),
+    )
+
+    plan = RunPlan()
+    for x in ("a", "b", "c"):
+        plan.add(_spec(x))
+    started: set[str] = set()
+    gate = asyncio.Event()
+    skipped: list[tuple[str, str, str]] = []
+
+    async def ex(spec: RunSpec, _completed) -> RunState:
+        started.add(spec.run_id)
+        if len(started) >= 1:
+            gate.set()
+        await asyncio.sleep(10)
+        return RunState(phase=RunPhase.COMPLETED, content=spec.run_id)
+
+    wave_task = asyncio.create_task(
+        WaveScheduler(max_parallel=1).run(
+            plan,
+            ex,
+            on_skipped=lambda rid, aid, reason: skipped.append((rid, aid, reason)),
+        )
+    )
+    await gate.wait()
+    await asyncio.sleep(0.02)
+    wave_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await wave_task
+
+    assert skipped == []

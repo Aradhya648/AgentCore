@@ -14,6 +14,7 @@ import type {
   Stance,
   ToolDisplay,
   UsageBreakdown,
+  WorkerRunPhase,
 } from "@/types/events";
 import type { DebatePretrialProjection } from "@agentcore/protocol-conformance";
 
@@ -28,6 +29,8 @@ export type { Stance } from "@/types/events";
 // Re-exported so the graph node renders the「计划已调整」轻痕迹 (设计 §7.2) from the
 // store's contract without reaching into the wire types directly.
 export type { PlanRevisionKind } from "@/types/events";
+
+export type { WorkerRunPhase } from "@/types/events";
 
 export type RunStatus =
   | "pending"
@@ -376,6 +379,14 @@ export interface RunNode {
    * ``run_reasoning_delta`` / ``run_output_delta`` / worker ``tool_use_*``; reload overlays
    * ``runs.run_processes[runId]`` so interleaving matches live (not ``message_final`` splice). */
   process: ProcessStep[];
+  /**
+   * Worker mid-flight activity phase (`run_phase` SSE). Orthogonal to {@link status}.
+   * Absent / null on older journals and after terminal frames. `queued` = status pending;
+   * `skipped` = status skipped (not carried here).
+   */
+  phase?: WorkerRunPhase | null;
+  /** When `phase === "tool"`, the tool currently running / being composed. */
+  phaseTool?: string | null;
 }
 
 /** 多任务并行调度 (batch_metrics): one dispatched node's occupancy window, folded (snake→camel) from a
@@ -461,7 +472,16 @@ export interface Execution {
 }
 
 /** Mid-flight user interjection into live coordination (`user_interjection`).
- * Same interjectionId keeps latest status (delivered → queued). */
+ * Same interjectionId keeps latest status (received → addressed / queued / failed).
+ * Legacy `delivered` ≡ `received`. */
+export type UserInterjectionStatus =
+  | "received"
+  | "addressed"
+  | "queued"
+  | "failed"
+  | "delivered"
+  | string;
+
 export interface UserInterjectionAttachment {
   name: string;
   workspacePath?: string;
@@ -472,7 +492,7 @@ export interface UserInterjection {
   interjectionId: string;
   executionId: string;
   content: string;
-  status: "delivered" | "queued" | string;
+  status: UserInterjectionStatus;
   note: string | null;
   attachments?: UserInterjectionAttachment[];
 }

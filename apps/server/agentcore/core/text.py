@@ -11,9 +11,13 @@ one mechanism, not three drifting copies. Each caller binds a domain-appropriate
 
 from __future__ import annotations
 
-# Generic elision marker (the framing/tail-survival cut). Callers with a domain voice
-# (e.g. compaction's「摘要过长」) pass their own; everyone else takes this default.
-DEFAULT_ELISION_MARKER = "\n\n……（中间省略，已保留首尾）……\n\n"
+# Transport / view-budget cut only — must NOT reuse delivery-omission wording
+# (「中间省略」「已保留首尾」), which file_ops treats as lazy incomplete writes.
+# Write-integrity literals live in ``tools.builtin.file_ops`` (_OMISSION_LITERALS).
+DEFAULT_ELISION_MARKER = "\n\n[系统视图截断·非磁盘内容] ……\n\n"
+
+# Documented twin of the write-path omission literal (detection stays in file_ops).
+DELIVERY_OMISSION_MARKER = "\n\n……（中间省略，已保留首尾）……\n\n"
 
 
 def truncate_head_tail(content: str, limit: int, *, marker: str = DEFAULT_ELISION_MARKER) -> str:

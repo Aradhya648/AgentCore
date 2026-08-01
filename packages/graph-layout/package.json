@@ -1,0 +1,14 @@
+{
+  "name": "@agentcore/graph-layout",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "协作图 ELK 布局纯函数（desktop + promo 共享；无 @/ 别名 / 无 UI store）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "elkjs": "^0.9.0"
+  }
+}

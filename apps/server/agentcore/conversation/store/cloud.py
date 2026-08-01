@@ -70,6 +70,7 @@ def _usage_metadata(
     *,
     status: str,
     extra: dict | None = None,
+    duration_ms: int | None = None,
 ) -> dict:
     meta = {
         "status": status,
@@ -90,6 +91,10 @@ def _usage_metadata(
     collab = result.get("collab")
     if collab:
         meta["collab"] = collab
+    # 回合用时：优先 result，其次 finalize 参数（与 turn_metrics / message_end 同锚）。
+    dm = result.get("duration_ms", duration_ms)
+    if dm is not None:
+        meta["duration_ms"] = int(dm)
     if extra:
         meta.update(extra)
     return meta
@@ -345,6 +350,7 @@ class CloudStore:
                             metadata=_usage_metadata(
                                 result,
                                 status=MESSAGE_STATUS_RUNNING,
+                                duration_ms=duration_ms,
                                 extra={"paused": True},
                             ),
                             merge=True,
@@ -413,7 +419,11 @@ class CloudStore:
                     citations=assistant_citations,
                     evidence_ledger=assistant_evidence_ledger,
                     trace_id=trace_id,
-                    metadata=_usage_metadata(result, status=terminal_status),
+                    metadata=_usage_metadata(
+                        result,
+                        status=terminal_status,
+                        duration_ms=duration_ms,
+                    ),
                     merge=True,
                 )
                 if durable_entries is not None:
@@ -668,7 +678,7 @@ class CloudStore:
             try:
                 ref = await create_snapshot(
                     user_id=user_id,
-                    folder_id=None,
+                    folder_id=folder_id,
                     conversation_id=conversation_id,
                 )
                 logger.info(
@@ -893,6 +903,14 @@ class CloudStore:
             needs_title = bool(conv and not conv.title)
             existing_title = conv.title if conv else None
 
+        # Parallel auto-title (desktop REST) may already be minting — skip write-back
+        # mint to avoid a second LLM call; ``update_title_if_empty`` is the write guard.
+        if needs_title:
+            from agentcore.conversation.common import _title_inflight
+
+            if conversation_id in _title_inflight:
+                needs_title = False
+
         title: str | None = existing_title
         minted_followups: list[str] | None = None
         followups_unavailable_reason: str | None = None
@@ -940,11 +958,12 @@ class CloudStore:
                     title_out: str | None = None
                     followups_out: FollowupsMintResult | None = None
                     if needs_title:
+                        # Align with cloud early mint: first user message only.
                         minted = await mint_title(
                             provider=provider,
                             conversation_id=conversation_id,
                             user_message=user_message,
-                            assistant_reply=assistant_content,
+                            assistant_reply="",
                             model=model,
                         )
                         title_out = minted.title
@@ -970,11 +989,17 @@ class CloudStore:
                 if bg is not None:
                     title_out, followups_out = bg.value
                     if needs_title and title_out:
-                        title = title_out
                         async with async_session_factory() as session:
-                            await ConversationRepository(session).update_title_unscoped(
+                            updated = await ConversationRepository(session).update_title_if_empty(
                                 conversation_id, title_out
                             )
+                            if updated is not None:
+                                title = updated.title
+                            else:
+                                conv = await ConversationRepository(session).get_by_id_unscoped(
+                                    conversation_id
+                                )
+                                title = conv.title if conv else existing_title
                     if wants_followups and followups_out is not None:
                         if followups_out.items and assistant_message_id:
                             async with async_session_factory() as session:

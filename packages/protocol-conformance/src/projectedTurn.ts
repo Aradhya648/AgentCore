@@ -28,6 +28,7 @@ import type {
   Stance,
   TeamSynthesisPreviewPayload,
   UsageBreakdown,
+  WorkerRunPhase,
 } from "@agentcore/contract-types";
 
 export type {
@@ -41,6 +42,7 @@ export type {
   RunDebrief,
   TeamSynthesisPreviewPayload,
   UsageBreakdown,
+  WorkerRunPhase,
 };
 
 /** Turn-level lifecycle, the single fold of desktop's ExecutionStatus + the chat
@@ -214,6 +216,15 @@ export interface ProjectedRun {
   escalations: RunEscalation[];
   /** Per-run 思考·正文·工具 timeline (对称 CEO ``process``). Empty until deltas/tools fold. */
   process: ProcessStep[];
+  /**
+   * Worker mid-flight activity phase (SSE `run_phase` / fold 单一源).
+   * Absent on older journals / vectors without `run_phase`.
+   * `queued` = `status: pending`; `skipped` = `status: skipped` (not carried here).
+   * Cleared on terminal run frames.
+   */
+  phase?: WorkerRunPhase | null;
+  /** When `phase === "tool"`, the tool currently running / being composed. */
+  phaseTool?: string | null;
 }
 
 /** 团队便签墙 (§2.2 通): one note a worker broadcast to its CONCURRENT siblings (`team_note_posted`),
@@ -242,7 +253,8 @@ export interface ProjectedTeamNote {
 }
 
 /** Mid-flight user interjection into a live coordination turn (`user_interjection`).
- * Same `interjectionId` keeps latest `status` (delivered → queued). */
+ * Same `interjectionId` keeps latest `status` (received → addressed / queued / failed).
+ * Legacy `delivered` is accepted as alias of `received`. */
 export interface ProjectedUserInterjectionAttachment {
   name: string;
   workspacePath?: string;
@@ -253,7 +265,7 @@ export interface ProjectedUserInterjection {
   interjectionId: string;
   executionId: string;
   content: string;
-  status: "delivered" | "queued" | string;
+  status: "received" | "addressed" | "queued" | "failed" | "delivered" | string;
   note: string | null;
   attachments?: ProjectedUserInterjectionAttachment[];
 }

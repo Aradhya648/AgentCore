@@ -9,6 +9,7 @@ import {
 import {
   type TimelineNode,
   groupToolRuns,
+  omitCoordinationIdleSteps,
   timelineNodeKeys,
 } from "@/lib/processTimeline";
 import type {
@@ -29,11 +30,16 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment } from "react";
 import { ThinkingDots, ThinkingHeader } from "./Thinking";
 
+/** Thought 折叠覆盖面：推理/工具 + 弱式决策痕迹（批准/委派授权/推进卡）。
+ * 强交互卡（checkpoint/ask/escalation/…）仍外置可见。 */
 function isProcessNode(node: TimelineNode): boolean {
   return (
     node.kind === "reasoning" ||
     node.kind === "tool" ||
-    node.kind === "tool-group"
+    node.kind === "tool-group" ||
+    node.kind === "approval" ||
+    node.kind === "delegation_authorization" ||
+    node.kind === "stage_card"
   );
 }
 
@@ -74,14 +80,15 @@ function InlineReasoning({
   /** 持久化键（`${messageId}:reason:${i}`）：给了才把「思考过程开合」跨卸载/刷新记住；缺省走会话态。 */
   persistKey?: string | null;
 }) {
-  // 「直播中自动展开、收场后按保存值」（Q3）——不再收场强制收起并遗忘。
+  // 「直播中自动展开、收场后按保存值」（Q3）；settled 默认收起（S4 不主动摊开多段）。
   const [expanded, toggle] = useStreamAwareDisclosure(
     persistKey ?? null,
     streaming,
+    { settledDefault: false },
   );
 
   return (
-    <div>
+    <div className="process-thought">
       <ThinkingHeader
         isStreaming={streaming}
         expanded={expanded}
@@ -90,7 +97,7 @@ function InlineReasoning({
         onToggle={toggle}
       />
       {expanded && (
-        <div className="mt-1.5 pl-3">
+        <div className="mt-1.5 text-muted-foreground">
           <Markdown content={text} isStreaming={streaming} muted />
         </div>
       )}
@@ -132,15 +139,18 @@ function ProcessRow({
     );
   }
   if (step.kind === "content") {
+    // 旁白/正文：前景色（vs Thought 的 muted）+ 时间线 space-y，不用左边线区分（S4）。
     return (
-      <Markdown
-        content={step.text}
-        citations={citations}
-        citationToDisplay={citationToDisplay}
-        knownLedgerIds={knownLedgerIds}
-        evidenceLedger={evidenceLedger}
-        isStreaming={streaming}
-      />
+      <div className="process-narration text-foreground">
+        <Markdown
+          content={step.text}
+          citations={citations}
+          citationToDisplay={citationToDisplay}
+          knownLedgerIds={knownLedgerIds}
+          evidenceLedger={evidenceLedger}
+          isStreaming={streaming}
+        />
+      </div>
     );
   }
   if (step.kind === "rework") {
@@ -198,22 +208,29 @@ export function ProcessTimeline({
 }) {
   const last = process[process.length - 1];
   const hasContentStep = process.some((s) => s.kind === "content");
+  // wait 空转后不刷 Thinking 尾迹（S4）；下一轮有真实动作再出现。
   const showThinkingTail =
     isStreaming &&
     !composingTool &&
     last?.kind === "tool" &&
-    last.status !== "running";
+    last.status !== "running" &&
+    last.tool_name !== "wait";
 
-  const nodes = groupToolRuns(process);
+  // CEO 气泡：渲染前去掉 wait 空转段（S4）；run 详情（collapseProcessSteps=false）保留全量。
+  // 摘要步数与可见行同源，避免「Thought 10」展开只剩 3 行。
+  const displayProcess = collapseProcessSteps
+    ? omitCoordinationIdleSteps(process)
+    : process;
+  const nodes = groupToolRuns(displayProcess);
   // 稳定 key（时间线一期）：insertBeforeTeam 中段插入不再位移后续行的 React key。
   const nodeKeys = timelineNodeKeys(nodes);
 
-  const hasProcessSteps = nodes.some(isProcessNode);
   const { reasoningCount, toolCount } = countProcessStats(nodes);
+  // 仅有弱痕迹、无推理/工具时不折叠（避免空摘要按钮）；单段纯 Thought 也不折。
   const shouldCollapseProcess =
     collapseProcessSteps &&
     !isStreaming &&
-    hasProcessSteps &&
+    (reasoningCount > 0 || toolCount > 0) &&
     !(reasoningCount === 1 && toolCount === 0);
   const [processExpanded, toggleProcess] = useStreamAwareDisclosure(
     messageId ? `${messageId}:process` : null,
@@ -233,15 +250,16 @@ export function ProcessTimeline({
     !hasContentStep && Boolean(fallbackContent) && fallbackBeforeTeamIdx < 0;
 
   const renderFallback = (key: string) => (
-    <Markdown
-      key={key}
-      content={fallbackContent}
-      citations={citations}
-      citationToDisplay={citationToDisplay}
-      knownLedgerIds={knownLedgerIds}
-      evidenceLedger={evidenceLedger}
-      isStreaming={isStreaming}
-    />
+    <div key={key} className="process-narration text-foreground">
+      <Markdown
+        content={fallbackContent}
+        citations={citations}
+        citationToDisplay={citationToDisplay}
+        knownLedgerIds={knownLedgerIds}
+        evidenceLedger={evidenceLedger}
+        isStreaming={isStreaming}
+      />
+    </div>
   );
 
   const renderNode = (node: TimelineNode, i: number) => {

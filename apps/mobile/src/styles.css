@@ -612,15 +612,36 @@ button.link {
   background: var(--user);
 }
 
-/* 异步团队收口：合成用户消息 → 居中系统芯片（非用户气泡） */
-.system-chip {
-  align-self: center;
-  max-width: 92%;
-  margin: 4px 0;
-  padding: 6px 12px;
+.interjection-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-self: stretch;
+}
+
+.interjection-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.interjection-status {
   font-size: 12px;
   color: var(--muted);
-  text-align: center;
+  max-width: 85%;
+  text-align: right;
+}
+
+.interjection-status.tone-failed {
+  color: var(--error);
+}
+
+.interjection-note {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 85%;
+  text-align: right;
 }
 
 .bubble.assistant {
@@ -778,6 +799,8 @@ button.link {
   color: var(--muted);
   cursor: pointer;
   list-style: none;
+  /* 不拉满行宽，避免下方旁白被读成思考正文（S4） */
+  display: inline-block;
 }
 
 .reasoning summary::-webkit-details-marker {
@@ -790,6 +813,19 @@ button.link {
 
 .reasoning[open] summary::before {
   content: "▾ ";
+}
+
+.reasoning[open] > :not(summary) {
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+}
+
+/* 过程线旁白：与 .reasoning 左边线/muted 区分（S4） */
+.process-narration {
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--fg);
 }
 
 /* 收到的上下文 · CEO 侧 (上下文传递可视化 通道①): collapsible like 思考 (.reasoning); each
@@ -939,6 +975,19 @@ button.link {
 
 .tool-error .tool-status {
   color: var(--error);
+}
+
+.tool-guidance .tool-status {
+  color: var(--warning);
+}
+
+.tool-incomplete {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: var(--text-xs);
 }
 
 .tool-body {

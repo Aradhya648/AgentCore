@@ -31,16 +31,13 @@ export {
 export {
   type TurnPhase,
   type TurnTerminalOutcome,
-  STOP_CONFIRM_TIMEOUT_MS,
   allowsSseEvent,
   allowsStreamingMutations,
   blocksStreamOpen,
   isTerminalPhase,
-  resetTurnPhaseTimers,
 } from "./turnPhase";
 export {
   beginTurnPreflight,
-  beginTurnStopping,
   completeTurnPhase,
   enterTurnStreaming,
   getTurnPhase,

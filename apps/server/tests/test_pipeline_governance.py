@@ -13,11 +13,13 @@ The engine half (``react_loop`` → ``finish_override_sink``) is covered by
 ``test_engine_governance``; these lock the executor → ``captain_state.finish_override``
 → pipeline (``message_end`` / ``runs``) seam that carries it the rest of the way.
 
-Only 无产出早停 (UNPRODUCTIVE) yields a non-default terminal reason; 工具失败熔断 /
-反思注入 are mid-loop steers (injected into the transcript, asserted at the engine
-level). So here we (1) prove UNPRODUCTIVE rides message_end + persistence, and (2)
-prove a run that trips the circuit breaker but recovers still surfaces a clean
-END_TURN — governance never mis-finishes a recovering turn.
+Only 无产出早停 (UNPRODUCTIVE) yields a non-default terminal reason **when the
+turn actually ends there**; 工具失败熔断 / 反思注入 are mid-loop steers. A later
+force-finalize ``ask_user`` pause supersedes UNPRODUCTIVE (captain takes the last
+``finish_override`` stamp — see ``test_checkpoint_finalize_ask_user``). So here we
+(1) prove UNPRODUCTIVE rides message_end + persistence when salvage does not pause,
+and (2) prove a run that trips the circuit breaker but recovers still surfaces a
+clean END_TURN — governance never mis-finishes a recovering turn.
 """
 
 from pathlib import Path

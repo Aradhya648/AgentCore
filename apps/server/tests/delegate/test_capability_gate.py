@@ -13,12 +13,15 @@ import pytest
 from agentcore.core.types import AutonomyPolicy, recipe_to_axes
 from agentcore.runtime.delegate.completion import (
     execution_capability_warning,
+    node_holds_write_tools,
     plan_mentions_binary_artifact,
     validate_code_verified_worker_tools,
     validate_execution_capability,
+    validate_files_worker_tools,
 )
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.runs import build_run_plan
+from agentcore.runtime.runs.types import RunSpec
 from agentcore.tools.builtin.delegate import DelegateTool
 from agentcore.tools.protocol import ToolCategory, ToolResult, ToolSchema
 from agentcore.tools.registry import ToolRegistry
@@ -692,3 +695,151 @@ async def test_execute_rejects_code_verified_when_all_workers_lack_execution_too
     assert "无人持有执行类工具" in (result.error or "")
     assert "test_run" in (result.error or "")
     assert "repair_code" in (result.error or "")
+
+
+# ── 落盘 × 无写盘白名单硬拒 ───────────────────────────────────────────────────
+
+
+def _plan_files_with_tools(tools: list[str] | None, *, role: str = "前端"):
+    plan, errors = build_run_plan(
+        [
+            {
+                "role": role,
+                "task": "写 index.html",
+                "deliverable": {"form": "files"},
+                **({"tools": tools} if tools is not None else {}),
+            }
+        ],
+        valid_tools=set(tools or [])
+        | {
+            "file_read",
+            "grep",
+            "web_search",
+            "file_write",
+            "str_replace",
+            "test_run",
+        },
+        id_prefix="cap",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    return plan
+
+
+def test_write_tools_gate_rejects_files_form_with_search_only_whitelist():
+    plan = _plan_files_with_tools(["file_read", "grep", "web_search"])
+    msg = validate_files_worker_tools(None, plan)
+    assert msg is not None
+    assert "前端" in msg
+    assert "写盘" in msg or "file_write" in msg
+    assert "form=files" in msg
+
+
+def test_write_tools_gate_passes_prose_with_search_whitelist():
+    plan, errors = build_run_plan(
+        [
+            {
+                "role": "调研",
+                "task": "只读调研",
+                "deliverable": {"form": "prose"},
+                "tools": ["file_read", "grep", "web_search"],
+            }
+        ],
+        valid_tools={"file_read", "grep", "web_search"},
+        id_prefix="cap",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    assert validate_files_worker_tools(None, plan) is None
+
+
+def test_write_tools_gate_passes_files_with_unrestricted_tools():
+    plan = _plan_files_with_tools(None)
+    assert validate_files_worker_tools(None, plan) is None
+    assert validate_files_worker_tools("files_written", plan) is None
+
+
+def test_write_tools_gate_passes_files_with_file_write():
+    plan = _plan_files_with_tools(["file_read", "file_write"])
+    assert node_holds_write_tools(plan.nodes[0]) is True
+    assert validate_files_worker_tools(None, plan) is None
+
+
+def test_write_tools_gate_batch_rejects_files_written_without_write_tools():
+    # 无 form=files，但显式 files_written + 检索白名单 → 批次闸硬拒
+    plan = _plan_with_tools(["file_read", "grep"])
+    msg = validate_files_worker_tools("files_written", plan)
+    assert msg is not None
+    assert "files_written" in msg
+    assert "file_write" in msg
+
+
+def test_write_tools_gate_batch_passes_when_one_non_prose_holds_write():
+    plan, errors = build_run_plan(
+        [
+            {
+                "role": "调研",
+                "task": "只读",
+                "deliverable": {"form": "prose"},
+                "tools": ["file_read", "grep"],
+            },
+            {
+                "role": "实现",
+                "task": "落盘",
+                "deliverable": {"form": "files"},
+                "tools": ["file_read", "file_write"],
+            },
+        ],
+        valid_tools={"file_read", "grep", "file_write"},
+        id_prefix="cap",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    assert validate_files_worker_tools("files_written", plan) is None
+
+
+def test_write_tools_gate_node_holds_write_tools_semantics():
+    assert node_holds_write_tools(RunSpec(run_id="a", role="x", task="t", tools=None))
+    assert node_holds_write_tools(
+        RunSpec(run_id="a", role="x", task="t", tools=["str_replace", "file_read"])
+    )
+    assert not node_holds_write_tools(
+        RunSpec(run_id="a", role="x", task="t", tools=["file_read", "grep"])
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_files_form_with_search_only_tools():
+    """form=files + 检索白名单 → 入闸硬拒，contract_failure。"""
+    reg = _registry("file_read", "grep", "web_search", "file_write")
+    t = DelegateTool(
+        llm=Provider(["X"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="写站",
+        history=[],
+        tools=reg,
+        base_tool_context=local_ctx(),
+        permission_axes=recipe_to_axes(AutonomyPolicy.MANAGED),
+    )
+    result = await t.execute(
+        {
+            "tasks": [
+                {
+                    "role": "前端",
+                    "task": "写 index.html",
+                    "deliverable": {"form": "files"},
+                    "tools": ["file_read", "grep", "web_search"],
+                }
+            ],
+            "coordinate": False,
+        },
+        local_ctx(),
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "前端" in (result.error or "")
+    assert "file_write" in (result.error or "") or "写盘" in (result.error or "")

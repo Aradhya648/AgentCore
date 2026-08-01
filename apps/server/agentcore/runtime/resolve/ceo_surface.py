@@ -36,11 +36,16 @@ COORDINATION_GATED_TOOLS: frozenset[str] = frozenset(
 )
 
 COORDINATION_PERIOD_HINT = (
-    "【协调期】团队正在后台执行：无需处置时调 wait（或空响应）——禁止用 delegate "
-    "占位等待（同构再派会被拒绝）。可用 delegate 追加【全新角色/任务】队员"
+    "【协调期】团队正在后台执行：图在转、无新结论时【可静默】——"
+    "无需处置时调 wait（或空响应），禁止用用户可见正文复述「谁还在跑/仍在检索」"
+    "（协作图才是进度真相，易与图矛盾）。对用户开口仅三选一：请示用户 / "
+    "报告阻塞与选项 / 宣布阶段结论（非纯进度）。禁止用 delegate 占位等待"
+    "（同构再派会被拒绝）。可用 delegate 追加【全新角色/任务】队员"
     "（不传 append_to 即自动并入当前协作图）；确需强制追加传 force=true。"
-    "其它工具：cancel_worker / update_synthesis / resolve_escalation / "
-    "queue_user_message / ask_user；『计划已让出』波边界才用 replan(add=…)。"
+    "其它工具：cancel_worker / update_synthesis（仅新结论/冲突/方向修正，"
+    "禁止纯进度播报）/ resolve_escalation / queue_user_message / ask_user；"
+    "老板插话后须【先】用可见正文响应该句再谈团队；"
+    "『计划已让出』波边界才用 replan(add=…)。"
     "异常：队员触顶（ceiling/max_rounds）、同缺口 contract.retry 连发、或长时间 "
     "0 completed 且非健康依赖等待 → cancel_worker 或波边界 replan 收窄下游/缩 scope，"
     "勿同质 wait。全部完成后做最终合成（正文），然后退出协调。"

@@ -27,6 +27,7 @@ from agentcore.tools.sandbox.protocol import (
     SandboxProvider,
 )
 from agentcore.workspace._paths import (
+    is_access_denied_oserror,
     is_ignored_dir_entry,
     is_ignored_file_name,
     is_system_ignored_file_name,
@@ -564,24 +565,30 @@ class ServerWorkspace:
             parent_rel = directory.replace("\\", "/").strip("/")
             if parent_rel in ("", "."):
                 parent_rel = ""
-            return [
-                DirEntry(
-                    path=self._model_path(entry, logical=directory),
-                    is_dir=entry.is_dir(),
-                )
-                for entry in entries
-                if not (
-                    (
-                        entry.is_dir()
-                        and is_ignored_dir_entry(
-                            parent_rel=parent_rel, name=entry.name
-                        )
+            out: list[DirEntry] = []
+            for entry in entries:
+                # Name-first ignore — avoid touching locked noise dirs (e.g. Windows
+                # ``.pytest_tmp``) before ``is_dir`` / ``is_file``.
+                if is_ignored_dir_entry(parent_rel=parent_rel, name=entry.name):
+                    continue
+                try:
+                    is_dir = entry.is_dir()
+                    is_file = entry.is_file()
+                except OSError as e:
+                    if is_access_denied_oserror(e):
+                        continue
+                    raise WorkspaceIOError(str(e)) from e
+                if is_file and is_system_ignored_file_name(entry.name):
+                    continue
+                # UI REST shares ``list`` — only system noise; AI ``file_list``
+                # applies AI-noise filtering in the tool layer.
+                out.append(
+                    DirEntry(
+                        path=self._model_path(entry, logical=directory),
+                        is_dir=is_dir,
                     )
-                    # UI REST shares ``list`` — only system noise; AI ``file_list``
-                    # applies AI-noise filtering in the tool layer.
-                    or (entry.is_file() and is_system_ignored_file_name(entry.name))
                 )
-            ]
+            return out
         except OSError as e:
             raise WorkspaceIOError(str(e)) from e
 
@@ -645,15 +652,25 @@ class ServerWorkspace:
         entries: list[TreeEntry] = []
         truncated = False
         elided_count = 0
+        warnings: list[str] = []
         name_filter = pattern or "*"
 
-        def walk(dir_path: Path, depth: int) -> None:
+        def walk(dir_path: Path, depth: int, *, is_root: bool) -> None:
             nonlocal truncated, elided_count
             if depth > max_depth:
                 return
             try:
                 children = sorted(dir_path.iterdir(), key=lambda p: p.name.lower())
             except OSError as e:
+                if not is_root and is_access_denied_oserror(e):
+                    try:
+                        rel = dir_path.resolve().relative_to(self._root.resolve()).as_posix()
+                    except ValueError:
+                        rel = dir_path.name
+                    if rel == ".":
+                        rel = directory if directory not in ("", ".") else "."
+                    warnings.append(f"跳过无权限目录：{rel}")
+                    return
                 raise WorkspaceIOError(str(e)) from e
 
             try:
@@ -664,15 +681,23 @@ class ServerWorkspace:
                 parent_rel = ""
 
             for child in children:
-                if child.is_dir() and is_ignored_dir_entry(
-                    parent_rel=parent_rel, name=child.name
-                ):
+                # Name-first prune — do not ``is_dir`` locked ignore-set dirs.
+                if is_ignored_dir_entry(parent_rel=parent_rel, name=child.name):
                     continue
-                if child.is_file() and is_ignored_file_name(child.name):
+                try:
+                    is_dir = child.is_dir() and not child.is_symlink()
+                    is_file = child.is_file()
+                except OSError as e:
+                    if is_access_denied_oserror(e):
+                        rel = f"{parent_rel}/{child.name}" if parent_rel else child.name
+                        warnings.append(f"跳过无权限条目：{rel}")
+                        continue
+                    raise WorkspaceIOError(str(e)) from e
+
+                if is_file and is_ignored_file_name(child.name):
                     continue
 
                 rel = self._model_path(child, logical=directory)
-                is_dir = child.is_dir() and not child.is_symlink()
 
                 if not is_dir and not fnmatch.fnmatch(child.name, name_filter):
                     continue
@@ -684,10 +709,15 @@ class ServerWorkspace:
 
                 entries.append(TreeEntry(path=rel, is_dir=is_dir, depth=depth))
                 if is_dir and depth < max_depth:
-                    walk(child, depth + 1)
+                    walk(child, depth + 1, is_root=False)
 
-        walk(base, 1)
-        return TreeResult(entries=entries, truncated=truncated, elided_count=elided_count)
+        walk(base, 1, is_root=True)
+        return TreeResult(
+            entries=entries,
+            truncated=truncated,
+            elided_count=elided_count,
+            warnings=warnings,
+        )
 
     async def index_files(
         self, cap: int | None = None, *, order: str = "path"

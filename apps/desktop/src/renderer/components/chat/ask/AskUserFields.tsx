@@ -578,7 +578,11 @@ function QuestionField({
                         );
                       }}
                       className={`h-auto w-full justify-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-xs font-normal disabled:opacity-40 ${
-                        canRunFolder && (active || bindBusy)
+                        (
+                          desktopFolder
+                            ? canRunFolder && (active || bindBusy)
+                            : active
+                        )
                           ? tone.optActive
                           : tone.optIdle
                       }`}

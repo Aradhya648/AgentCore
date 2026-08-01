@@ -68,6 +68,29 @@ def test_message_end_omits_collab_when_none():
     assert "collab" not in ev.payload
 
 
+def test_message_end_carries_explicit_duration_ms():
+    ev = message_end(FinishReason.END_TURN, duration_ms=12_345)
+    assert ev.payload["duration_ms"] == 12_345
+
+
+def test_message_end_omits_duration_without_probe():
+    # No TurnLatencyProbe bound → field absent (old clients / vectors stay compatible).
+    ev = message_end(FinishReason.END_TURN)
+    assert "duration_ms" not in ev.payload
+
+
+def test_message_end_auto_fills_duration_from_probe():
+    from agentcore.runtime.turn_latency import bind_turn_latency, reset_turn_latency
+
+    probe, token = bind_turn_latency()
+    try:
+        probe.anchor_mono -= 2.5  # ~2500ms elapsed
+        ev = message_end(FinishReason.END_TURN)
+        assert ev.payload["duration_ms"] >= 2500
+    finally:
+        reset_turn_latency(token)
+
+
 def test_run_completed_carries_role_model_usage_cost():
     usage = {"input": 100, "output": 50, "reasoning": 10, "cache_hit": 60, "cache_miss": 40}
     cost = {"input": 999, "cached": 111, "output": 222, "total": 1221, "currency": "USD"}

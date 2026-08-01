@@ -20,6 +20,7 @@ Parity gate (edit both sides or CI fails)::
   ``list`` keeps them visible (AI-generated images are deliverables).
 """
 
+import errno
 import re
 from pathlib import Path
 
@@ -61,6 +62,7 @@ IGNORED_DIRS: frozenset[str] = frozenset(
         "venv",
         ".mypy_cache",
         ".pytest_cache",
+        ".pytest_tmp",
         ".ruff_cache",
         ".turbo",
         ".cache",
@@ -141,6 +143,34 @@ MAX_FILE_BYTES = 2_000_000  # skip files larger than ~2 MB during content scans
 def is_ignored_dir_name(name: str) -> bool:
     """Whether a single path segment is a system-noise directory (name-only)."""
     return name in IGNORED_DIRS
+
+
+def is_access_denied_oserror(exc: BaseException) -> bool:
+    """True for per-entry permission / lock refusals (skip; do not fail whole walk).
+
+    Covers POSIX ``EACCES``/``EPERM``/``EBUSY``, Windows WinError 5/32, and common
+    localized / English denial strings (e.g. locked ``.pytest_tmp`` on Windows).
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    if not isinstance(exc, OSError):
+        return False
+    winerror = getattr(exc, "winerror", None)
+    if winerror in (5, 32):  # ACCESS_DENIED / SHARING_VIOLATION
+        return True
+    err = getattr(exc, "errno", None)
+    if err in {errno.EACCES, errno.EPERM, errno.EBUSY}:
+        return True
+    text = str(exc).lower()
+    return any(
+        needle in text
+        for needle in (
+            "permission denied",
+            "access is denied",
+            "access denied",
+            "拒绝访问",
+        )
+    )
 
 
 def is_internal_zone_relpath(relpath: str) -> bool:

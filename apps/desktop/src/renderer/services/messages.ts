@@ -127,6 +127,8 @@ export interface BackendMessage {
    * Replayed onto `message.rounds`; the bubble surfaces「N 轮」only when > 1. null for
    * user / pre-feature rows. */
   rounds?: number | null;
+  /** 回合墙钟用时 (ms)：与 message_end.duration_ms 同锚；重载自 usage JSON 投影。 */
+  duration_ms?: number | null;
   /** 协作质量 (学·度量 §2.5): orchestration signals for 诊断模式; nested in usage column. */
   collab?: {
     boundary_yields: number;
@@ -286,6 +288,7 @@ export function toMessage(m: BackendMessage): Message {
     // 「N 轮」caption. Both undefined for user / no-spend turns → no meta row (live parity).
     usage: m.usage ?? undefined,
     rounds: m.rounds ?? undefined,
+    durationMs: m.duration_ms ?? undefined,
     collab: m.collab ?? undefined,
     // 下一步推荐 chips (DERIVED 持久化): replay the last turn's persisted chips on reload,
     // mirroring the live `attachFollowups` stamp (twin of the title). Empty []

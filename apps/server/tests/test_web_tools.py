@@ -2195,7 +2195,7 @@ def test_tool_result_default_truncates_head_and_tail_at_4000():
     r = ToolResult(tool_call_id="", success=True, output=body)
     assert r.output.startswith("HEAD起始")  # head kept
     assert r.output.endswith("TAIL尾注金额￥999")  # tail kept — head-only used to drop it
-    assert "保留首尾" in r.output  # elision marker between the ends
+    assert "系统视图截断" in r.output  # transport elision between the ends
     assert len(r.output) <= 4000
 
 

@@ -9,7 +9,7 @@ from typing import Any
 from agentcore.core.logging import get_logger
 from agentcore.core.types import ToolApproval, ToolCategory
 from agentcore.runtime.coordination.session import active_coordination
-from agentcore.runtime.events import team_synthesis_preview, user_interjection
+from agentcore.runtime.events import team_synthesis_preview
 from agentcore.runtime.interaction import default_interaction_registry
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 
@@ -74,6 +74,7 @@ class WaitTool:
             name="wait",
             description=(
                 "【仅协调模式·无操作】本批事件无需处置时调用——确认继续静默等待团队事件。"
+                "图在转、无新结论时【可静默】，勿另写用户可见进度旁白。"
                 "无副作用、立即返回；比空响应更稳（模型被迫发工具时优先用本工具）。"
                 "【禁止】用 delegate / update_synthesis 占位等待；"
                 "同构再派会被拒绝。有真实动作时改调对应工具，勿调 wait。"
@@ -147,10 +148,10 @@ class UpdateSynthesisTool:
             name="update_synthesis",
             description=(
                 "【仅协调模式】更新你对团队进展的合成草稿（进展中，非终稿）。"
-                "只在【里程碑】调用：一波/一阶段队员全部完成、发现各路产出冲突需仲裁记录、"
-                "方向修正、长跑团队的阶段性收束。例行的单个 worker 完成【不要】调用——"
+                "只在【里程碑】调用——仅新结论 / 冲突仲裁记录 / 方向修正 / "
+                "一波或一阶段收束 / 长跑阶段性收束。例行的单个 worker 完成【不要】调用——"
                 "完成计数 n/m 与各队员完成摘要已由系统自动展示给用户，"
-                "为播报进度或微调措辞而调用是浪费；"
+                "【禁止】纯进度播报（「谁还在跑 / 已完成 n/m / 仍在检索」）或微调措辞；"
                 "无里程碑增量时调 wait（或空响应），勿写「静默等待」类正文（会原样显示给用户），"
                 "也勿用本工具占位。"
                 "草稿会推给用户预览；全部完成后请用正文写出最终合成（content_delta），不要再用本工具。"
@@ -160,7 +161,10 @@ class UpdateSynthesisTool:
                 "properties": {
                     "draft": {
                         "type": "string",
-                        "description": "当前合成草稿全文（会覆盖上一版）。",
+                        "description": (
+                            "当前合成草稿全文（覆盖上一版）。须含新结论/冲突/方向修正；"
+                            "禁止纯进度播报。"
+                        ),
                     },
                 },
                 "required": ["draft"],
@@ -223,6 +227,15 @@ class UpdateSynthesisTool:
             draft_chars=len(draft),
             completed=done,
             total=total,
+        )
+        from agentcore.runtime.coordination.interjections import (
+            address_awaiting_interjections,
+        )
+
+        address_awaiting_interjections(
+            session,
+            self._sink,
+            note="已在合成草稿中承接",
         )
         return ToolResult(
             tool_call_id="",
@@ -575,9 +588,10 @@ class QueueUserMessageTool:
         return ToolSchema(
             name="queue_user_message",
             description=(
-                "【仅协调模式】把老板的中途插话转入对话级排队（排到当前回合结束后的下一回合）。"
+                "【协调模式】把老板的中途插话转入对话级排队（排到当前回合结束后的下一回合）。"
                 "仅当插话与当前团队任务无关、应独立开新回合时使用。"
                 "相关插话请图内处置（update_synthesis / delegate / cancel_worker），不要调本工具。"
+                "协调已收口时仍可调用：系统会写入对话 FIFO 或确认已消化，勿因「不在协调」而放弃。"
             ),
             parameters={
                 "type": "object",
@@ -598,14 +612,14 @@ class QueueUserMessageTool:
         )
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        from agentcore.runtime.coordination.interjections import (
+            enqueue_interjection_to_fifo,
+            final_answer_covers,
+            mark_interjection_addressed,
+            mark_interjection_failed,
+        )
+
         session = active_coordination(context.execution_id)
-        if session is None or not session.active:
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output="",
-                error="当前不在协调模式——仅在协调模式启动团队后可用。",
-            )
         iid = str(arguments.get("interjection_id") or "").strip()
         if not iid:
             return ToolResult(
@@ -614,8 +628,29 @@ class QueueUserMessageTool:
                 output="",
                 error="queue_user_message 需要非空的 interjection_id。",
             )
+        if session is None:
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error="找不到协调会话，无法处理该插话。请在下一条用户消息中再说一次。",
+            )
+        # Already terminal (close promote / prior queue / addressed) — idempotent OK.
+        if iid in session.dispositioned_interjections and session.get_interjection(iid) is None:
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output="该插话已转入下回合排队或已在本回合消化，无需再调。",
+            )
         stashed = session.take_interjection(iid)
         if stashed is None:
+            # Race: close already promoted, or bad id.
+            if iid in session.dispositioned_interjections:
+                return ToolResult(
+                    tool_call_id="",
+                    success=True,
+                    output="该插话已转入下回合排队或已在本回合消化，无需再调。",
+                )
             return ToolResult(
                 tool_call_id="",
                 success=False,
@@ -626,59 +661,48 @@ class QueueUserMessageTool:
                 ),
             )
         reason = str(arguments.get("reason") or "").strip()
-        content = str(stashed.get("content") or "").strip()
-        conversation_id = str(
-            stashed.get("conversation_id") or session.conversation_id or ""
-        ).strip()
-        if not content or not conversation_id:
+        ok, msg, status = enqueue_interjection_to_fifo(
+            session,
+            iid,
+            stashed,
+            sink=self._sink,
+            reason=reason or None,
+        )
+        if ok:
+            pos = getattr(status, "position", 1)
+            depth = getattr(status, "queue_depth", 1)
             return ToolResult(
                 tool_call_id="",
-                success=False,
-                output="",
-                error="插话缺少 content / conversation_id，无法转入排队。",
+                success=True,
+                output=(
+                    f"已将插话转入对话级排队（位置 {pos}/{depth}）。"
+                    "当前回合结束后自动起新回合处理。"
+                ),
             )
-
-        from agentcore.runtime.turn_queue import new_queued_turn, turn_queue
-        from agentcore.workspace.attachments import interjection_attachment_meta
-
-        stashed_attachments = list(stashed.get("attachments") or [])
-        status = turn_queue.enqueue(
-            conversation_id,
-            new_queued_turn(
-                content=content,
-                user_id=str(stashed.get("user_id") or ""),
-                attachments=stashed_attachments,
-                requires_tools=bool(stashed.get("requires_tools")),
-                x_client_platform=stashed.get("x_client_platform"),
-                llm_credentials=stashed.get("llm_credentials"),
-                llm_supports_tools=stashed.get("llm_supports_tools"),
-            ),
-        )
-        note = reason or "与当前团队任务无关，已排到下一回合"
-        att_meta = interjection_attachment_meta(stashed_attachments)
-        self._sink.emit(
-            user_interjection(
-                interjection_id=iid,
-                execution_id=session.execution_id,
-                content=content,
-                status="queued",
-                note=note,
-                attachments=att_meta or None,
+        # True enqueue failure: 终局已答 → addressed；否则 failed（禁止假绿）.
+        if final_answer_covers(session):
+            mark_interjection_addressed(
+                session,
+                iid,
+                stashed,
+                sink=self._sink,
+                note="排队未果，但终局已回应",
             )
-        )
-        logger.info(
-            "coordination.user_interjection_queued",
-            execution_id=session.execution_id,
-            interjection_id=iid,
-            queue_id=status.queue_id,
-            position=status.position,
+            return ToolResult(
+                tool_call_id="",
+                success=True,
+                output="排队通道异常，但终局正文已覆盖该插话，已标为已消化。",
+            )
+        mark_interjection_failed(
+            session,
+            iid,
+            stashed,
+            sink=self._sink,
+            note=msg or "未能排队，请重试或再说一次",
         )
         return ToolResult(
             tool_call_id="",
-            success=True,
-            output=(
-                f"已将插话转入对话级排队（位置 {status.position}/"
-                f"{status.queue_depth}）。当前回合结束后自动起新回合处理。"
-                "用户可见「已排队」徽标。"
-            ),
+            success=False,
+            output="",
+            error=msg or "转入对话级排队失败。",
         )

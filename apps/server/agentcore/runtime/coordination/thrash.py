@@ -1,9 +1,8 @@
 """Thrash rebrand guard: reject cold redelegate after a thrashing worker.
 
-When a recent worker finished thrashing (DEGRADED + ``source=ceiling_backstop``,
-or zero_write/convergence cut with no landing) and a new cold task matches the
-old topic / artifacts fingerprint, refuse silent rebrand — force
-``continue_from_run_id`` or explicit ``force=true``.
+When a recent worker finished thrashing (DEGRADED + ``source=ceiling_backstop``)
+and a new cold task matches the old topic / artifacts fingerprint, refuse silent
+rebrand — force ``continue_from_run_id`` or explicit ``force=true``.
 
 Sibling to :mod:`isomorphic` (same drive admission layer). Does **not** auto-replan,
 does not reuse ``note_completion_gap``, and does not expand isomorphic to arbitrary
@@ -73,19 +72,11 @@ def recent_thrash_records(conversation_id: str) -> list[ThrashRecord]:
 
 
 def is_thrashing_run_state(state: RunState) -> bool:
-    """True when a terminal RunState carries a thrashing backstop signal."""
+    """True when a terminal RunState carries hard-ceiling thrashing backstop."""
     for esc in state.escalations or ():
         if not isinstance(esc, dict):
             continue
         if esc.get("source") == CEILING_BACKSTOP_SOURCE:
-            return True
-    # Form 2 fallback: zero_write/convergence cut with no landing (aligned path
-    # always stamps ceiling_backstop; keep evidence-string check for harvest races).
-    for esc in state.escalations or ():
-        if not isinstance(esc, dict):
-            continue
-        evidence = str(esc.get("evidence") or "")
-        if "zero_write_finalize" in evidence and not state.files_touched:
             return True
     return False
 

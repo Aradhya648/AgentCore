@@ -119,6 +119,9 @@ importers:
       '@agentcore/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@agentcore/graph-layout':
+        specifier: workspace:*
+        version: link:../../packages/graph-layout
       '@agentcore/protocol-conformance':
         specifier: workspace:*
         version: link:../../packages/protocol-conformance
@@ -464,6 +467,12 @@ importers:
   packages/contract-types: {}
 
   packages/design-tokens: {}
+
+  packages/graph-layout:
+    dependencies:
+      elkjs:
+        specifier: ^0.9.0
+        version: 0.9.3
 
   packages/protocol-conformance:
     dependencies:

@@ -1,10 +1,8 @@
 /*
  * Precompute ELK coordinates for the promo STILL scenarios → src/stills/data/stillsLayout.ts.
  *
- * Reuses the REAL desktop computeLayout (incl. its endpoint-centering, sub-team
- * drop and revision-alignment post-processing) via a relative import — elk-layout.ts
- * only imports `elkjs` at runtime (its `@/stores/graph` import is type-only, erased
- * by tsx), so this runs under `npx tsx` with elkjs resolved from apps/promo/node_modules.
+ * Uses `@agentcore/graph-layout` (same computeLayout as desktop; no relative
+ * import into apps/desktop). Runtime deps are packagable (elkjs + pure helpers).
  *
  * Run:  pnpm stills:layout   (cwd = apps/promo)
  *
@@ -15,7 +13,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { computeLayout } from "../../desktop/src/renderer/lib/elk-layout";
+import { computeLayout } from "@agentcore/graph-layout";
 import { STILL_DEFS } from "../src/stills/data/stills";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

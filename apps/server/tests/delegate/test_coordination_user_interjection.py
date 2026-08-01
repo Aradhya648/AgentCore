@@ -71,10 +71,11 @@ def test_user_interjection_sse_carries_attachments():
         interjection_id="inj-a",
         execution_id="exec-a",
         content="对照附件",
-        status="delivered",
+        status="received",
         attachments=meta,
     )
     assert ev.payload["attachments"] == meta
+    assert ev.payload["status"] == "received"
 
 
 def test_interjection_attachment_meta_drops_text():
@@ -200,6 +201,119 @@ async def test_queue_user_message_enqueues_and_emits_queued():
     last = next(e for e in reversed(hist) if e.type.value == "user_interjection")
     assert last.payload["status"] == "queued"
     assert last.payload["interjection_id"] == "inj-1"
+
+
+@pytest.mark.asyncio
+async def test_queue_user_message_works_after_session_closed():
+    """收口后 queue 不再死路——仍可升格 FIFO（或幂等确认已处置）。"""
+    session = CoordinationSession(
+        execution_id="exec-inj",
+        total_workers=2,
+        conversation_id="conv-inj",
+    )
+    set_active_coordination(session)
+    session.stash_interjection(
+        "inj-late",
+        {
+            "content": "收口瞬间插话",
+            "user_id": "u1",
+            "conversation_id": "conv-inj",
+            "attachments": [],
+            "requires_tools": False,
+        },
+    )
+    session.close()
+    # close 已自动 promote → FIFO；再调 queue 应幂等成功，不报「不在协调模式」。
+    assert turn_queue.depth("conv-inj") == 1
+    assert "inj-late" in session.dispositioned_interjections
+
+    sink = EventSink()
+    tool = QueueUserMessageTool(sink=sink)
+    ctx = ToolContext(
+        execution_id="exec-inj",
+        run_id="ceo",
+        agent_id="ceo",
+        backend=MagicMock(),
+        user_id="u1",
+        conversation_id="conv-inj",
+    )
+    result = await tool.execute({"interjection_id": "inj-late", "reason": "无关"}, ctx)
+    assert result.success is True
+    assert "已转入" in (result.output or "") or "已消化" in (result.output or "")
+
+
+@pytest.mark.asyncio
+async def test_close_promotes_unseen_pending_to_fifo():
+    session = CoordinationSession(
+        execution_id="exec-inj",
+        total_workers=2,
+        conversation_id="conv-inj",
+    )
+    set_active_coordination(session)
+    sink = EventSink()
+    session.event_sink = sink
+    session.stash_interjection(
+        "inj-auto",
+        {
+            "content": "未消化短讯",
+            "user_id": "u1",
+            "conversation_id": "conv-inj",
+            "attachments": [],
+            "requires_tools": False,
+        },
+    )
+    session.close()
+    assert turn_queue.depth("conv-inj") == 1
+    assert session.get_interjection("inj-auto") is None
+    last = next(e for e in reversed(list(sink._history)) if e.type.value == "user_interjection")
+    assert last.payload["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_update_synthesis_addresses_awaiting_interjection():
+    from agentcore.runtime.coordination.interjections import note_interjections_injected
+    from agentcore.runtime.coordination.tools import UpdateSynthesisTool
+
+    session = CoordinationSession(
+        execution_id="exec-inj",
+        total_workers=2,
+        conversation_id="conv-inj",
+    )
+    set_active_coordination(session)
+    session.stash_interjection(
+        "inj-rel",
+        {
+            "content": "请点明成本",
+            "user_id": "u1",
+            "conversation_id": "conv-inj",
+            "attachments": [],
+            "requires_tools": False,
+        },
+    )
+    note_interjections_injected(
+        session,
+        [
+            CoordinationEvent(
+                kind=CoordinationEventKind.USER_INTERJECTION,
+                payload={"interjection_id": "inj-rel", "content": "请点明成本"},
+            )
+        ],
+    )
+    sink = EventSink()
+    tool = UpdateSynthesisTool(sink=sink)
+    ctx = ToolContext(
+        execution_id="exec-inj",
+        run_id="ceo",
+        agent_id="ceo",
+        backend=MagicMock(),
+        user_id="u1",
+        conversation_id="conv-inj",
+    )
+    result = await tool.execute({"draft": "已收到：成品会点明成本。"}, ctx)
+    assert result.success is True
+    assert session.get_interjection("inj-rel") is None
+    last = next(e for e in reversed(list(sink._history)) if e.type.value == "user_interjection")
+    assert last.payload["status"] == "addressed"
 
 
 @pytest.mark.asyncio

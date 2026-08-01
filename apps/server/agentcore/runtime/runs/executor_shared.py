@@ -36,6 +36,17 @@ FINISH_INTERRUPT_WARNING = (
 )
 
 
+def resolve_finish_override(sink: list[FinishReason]) -> FinishReason | None:
+    """Terminal finish stamp = last append on the chronological override sink.
+
+    The engine may append more than once in one turn (e.g. ``UNPRODUCTIVE`` on
+    early-stop, then ``PAUSED`` when force-finalize ``ask_user`` suspends). The
+    turn's public ``finish_reason`` must be the latest stamp — earlier early-stop
+    must not win over a durable pause.
+    """
+    return sink[-1] if sink else None
+
+
 def _delivery_gaps_from_warnings(
     warnings: list[str],
     debrief: dict[str, Any] | None,
@@ -258,8 +269,8 @@ def _apply_finish_interrupt(
     """
     if not finish_override:
         return warnings, debrief
-    fr = finish_override[-1]
-    if fr not in _FINISH_INTERRUPT_REASONS:
+    fr = resolve_finish_override(finish_override)
+    if fr is None or fr not in _FINISH_INTERRUPT_REASONS:
         return warnings, debrief
     out_warnings = list(warnings)
     if FINISH_INTERRUPT_WARNING not in out_warnings:
@@ -348,6 +359,12 @@ async def _react_and_capture(
         if streamed_content is not None:
             streamed_content.append(delta)
 
+    def _on_tool_progress(tool: str, chars: int) -> None:
+        sink.emit(run_tool_progress(run_id, agent_id, tool, chars))
+        from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+
+        emit_run_phase(sink, run_id, agent_id, "tool", tool_name=tool)
+
     content, reasoning, usage, rounds = await react_loop(
         messages=messages,
         llm=llm,
@@ -359,9 +376,7 @@ async def _react_and_capture(
         allowed_tool_names=allowed_tools,
         on_content=_on_content,
         on_reasoning=lambda d: sink.emit(run_reasoning_delta(run_id, agent_id, d)),
-        on_tool_progress=lambda tool, chars: sink.emit(
-            run_tool_progress(run_id, agent_id, tool, chars)
-        ),
+        on_tool_progress=_on_tool_progress,
         on_reset=lambda reason: sink.emit(run_output_reset(run_id, agent_id, reason)),
         raise_on_error=True,
         citation_sink=citation_sink,
@@ -374,6 +389,7 @@ async def _react_and_capture(
         on_round_begin=on_round_begin,
         round_sink=round_sink,
         run_id=run_id,
+        agent_id=agent_id,
         role="worker",
         # 交付正文只留最终交付、旁白入 journal (Fork-B, 全队对称): a worker/debater/revision's
         # persisted product (message_final → run card 重载合成 + CEO synthesis input +

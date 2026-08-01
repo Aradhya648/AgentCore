@@ -100,11 +100,16 @@ class EventType(StrEnum):
     # 跑一半改方向 / 整轮停止：单 run 被中断（与 run_failed 正交）。
     # reason=redirect → 用户「立即改此人」；reason=stop → 整轮 abort。
     RUN_CANCELLED = "run_cancelled"
-    # 级联跳过 / graceful abort：未运行尾部物化为 SKIPPED（与 run_cancelled 正交）。
-    # reason=cascade → on_failure=skip 波及下游；reason=abort → 整波 ABORT / plan_review stop。
+    # 级联跳过 / graceful abort / 终端 cancel：未运行尾部物化为 SKIPPED（与 run_cancelled 正交）。
+    # reason=cascade → on_failure=skip 波及下游；reason=abort → 整波 ABORT / plan_review stop /
+    # 父 force_cancel·nested 中止·user_stop（ask_user soft_stop 续跑取消除外）。
     RUN_SKIPPED = "run_skipped"
     RUN_PROGRESS = "run_progress"
     RUN_TOOL_PROGRESS = "run_tool_progress"
+    # Worker/run 活动相位（multi-agent fold 单一源）：等 LLM / 跑工具 / 等子团队 / 收尾。
+    # EPHEMERAL liveliness（对称 run_tool_progress / coordination_wait）——reload 后由
+    # status（pending/skipped/terminal）兜底；queued/skipped 不走本事件（见 status）。
+    RUN_PHASE = "run_phase"
     BATCH_METRICS = "batch_metrics"
     RUN_ESCALATION = "run_escalation"
     # Worker 内部路由 Phase 1：Escalation Gate 方案层判定（确定性后置检查，正交于
@@ -133,7 +138,7 @@ class EventType(StrEnum):
     # 仅在有实质内容（有落盘文件或有缺口 / 行动项）时发射——纯 prose 成功批次保持无声。
     DELIVERY_STATUS = "delivery_status"
     # 协调中用户插话：POST …/messages 在 live CoordinationSession 时注入；status 同 key
-    # 保最新（delivered → queued）。DURABLE——team 块时间线重放徽标。
+    # 保最新（received → addressed / queued / failed）。DURABLE——team 块时间线重放徽标。
     USER_INTERJECTION = "user_interjection"
     # 同对话 FIFO 排队（D9 · 发送即有流）：in-flight 时 POST …/messages 立即在响应 SSE 上
     # 发射；队列 drain 启动该回合后**同一连接**续流。EPHEMERAL——传输态排队提示，不落 journal。

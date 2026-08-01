@@ -201,3 +201,48 @@ async def test_run_handoff_job_failure_marks_failed(monkeypatch):
     assert ("running", "j2") in events
     assert ("failed", "j2", "kaboom") in events
     assert not any(e[0] == "succeeded" for e in events)
+
+
+async def test_run_handoff_job_holds_dest_workspace_lock(monkeypatch):
+    """Restore + pipeline + result snapshot must run under the job conversation lock."""
+    events: list = []
+    lock_keys: list[str] = []
+
+    async def _pipeline(**kw):
+        return {
+            "content": "ok",
+            "message_id": "m1",
+            "reasoning_content": None,
+            "citations": None,
+            "runs": None,
+            "cost_runs": [],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "rounds": 1,
+        }
+
+    _patch_job_runner(monkeypatch, events, pipeline=_pipeline)
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _capture_lock(key: str):
+        lock_keys.append(key)
+        yield
+
+    monkeypatch.setattr(handoff_jobs_mod, "workspace_lock", _capture_lock)
+
+    await run_handoff_job(
+        job_id="j-lock",
+        user_id="u1",
+        source_folder_id="f1",
+        source_conversation_id="src",
+        job_conversation_id="job-lock",
+        base_snapshot_id="base",
+        task="work",
+    )
+
+    assert lock_keys == [
+        workspace_storage_key(user_id="u1", folder_id=None, conversation_id="job-lock")
+    ]
+    assert ("succeeded", "j-lock", "result-snap") in events

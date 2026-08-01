@@ -86,8 +86,10 @@ async def test_file_read_office_extract_budget_is_contract(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_file_read_channel_liveness_maps_meta(tmp_path: Path):
     class _HangBackend(ServerWorkspace):
-        async def read(self, path: str) -> str:  # noqa: ARG002
-            raise WorkspaceIOError("local workspace op 'read' timed out（活性挂起）")
+        async def read_lines(  # noqa: ARG002
+            self, path: str, *, offset: int = 1, limit: int | None = None
+        ):
+            raise WorkspaceIOError("local workspace op 'read_lines' timed out（活性挂起）")
 
     result = await FileReadTool().execute(
         {"path": "a.txt"}, _ctx(_HangBackend(tmp_path, sandbox=SubprocessSandbox()))

@@ -109,6 +109,29 @@ export async function renameConversation(
   await api.patch(`/v1/conversations/${id}`, { title });
 }
 
+/**
+ * Local-first parallel title mint (``POST …/auto-title``).
+ * Awaits the shared server mint core (user message only; no assistant reply).
+ * Returns the resulting title, or ``null`` on failure (caller keeps provisional).
+ */
+export async function requestAutoTitle(
+  conversationId: string,
+  userMessage: string,
+): Promise<string | null> {
+  const trimmed = userMessage.trim();
+  if (!trimmed) return null;
+  try {
+    const res = await api.post<{ title: string }>(
+      `/v1/conversations/${conversationId}/auto-title`,
+      { user_message: trimmed },
+    );
+    const title = res.title?.trim();
+    return title || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Clone a conversation into a brand-new one carrying a copy of its transcript
  * (克隆对话). Returns the new (server-shaped) row — same folder as the source,
  * titled「… 副本」— so the caller can insert it into the sidebar and open it. */

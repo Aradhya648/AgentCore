@@ -21,6 +21,8 @@ import {
 } from "./streamOwnership";
 
 export type MidFlightSendResult =
+  | { kind: "received"; interjectionId: string }
+  /** @deprecated alias of received — keep until callers migrate */
   | { kind: "delivered"; interjectionId: string }
   | { kind: "queued"; position: number; queueDepth: number }
   | { kind: "blocked"; code?: string }
@@ -32,7 +34,8 @@ type DeliverMode = "open" | "buffering" | "live" | "aborted";
  * POST a user message while a turn is already streaming（发送即有流）.
  *
  * Coordination → short SSE confirm with ``user_interjection``（即时 dispatch，不经
- * 主路门）；classic in-flight → ``turn_queued`` 后缓冲后续帧，直至 turn1 主路泵
+ * 主路门；主时间线由 InterjectionTimeline 投影 execution.userInterjections）；
+ * classic in-flight → ``turn_queued`` 后缓冲后续帧，直至 turn1 主路泵
  * 释放（含 message_end / followups / turn_saved），再插用户气泡并续流——守住
  * drain 边界双连接不交叉污染末条气泡。
  *
@@ -203,7 +206,7 @@ export async function sendMidFlightMessage(
         gate.mode = "live";
         const p = event.payload as { interjection_id?: string };
         const iid = (p.interjection_id || "").trim();
-        if (iid) result = { kind: "delivered", interjectionId: iid };
+        if (iid) result = { kind: "received", interjectionId: iid };
         dispatchSSEEvent(event, { conversationId, source: "server" });
         return;
       }

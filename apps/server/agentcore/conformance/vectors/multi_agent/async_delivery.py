@@ -67,6 +67,7 @@ def _multi_agent_execution_detached_completed() -> list[SSEEvent]:
             conversation_id=_CONV,
             completed=1,
             total=1,
+            status="completed",
             host_turn_id="m1",
         ),
     ]

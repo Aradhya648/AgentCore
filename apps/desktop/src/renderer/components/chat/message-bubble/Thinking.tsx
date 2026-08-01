@@ -26,6 +26,8 @@ export function ThinkingDots() {
 /**
  * Borderless disclosure header shared by {@link ThinkingPanel} and
  * {@link ProcessTimeline} (对齐 Cursor 的轻量内联思考样式).
+ *
+ * `w-auto`（非整行）：收起时不把下方 `content` 旁白视觉上收编成 Thought「正文」。
  */
 export function ThinkingHeader({
   isStreaming,
@@ -44,7 +46,7 @@ export function ThinkingHeader({
     <Button
       variant="ghost"
       onClick={onToggle}
-      className="h-auto w-full justify-start gap-2 px-0 py-0 text-sm font-normal text-muted-foreground hover:text-foreground"
+      className="h-auto w-auto justify-start gap-2 px-0 py-0 text-sm font-normal text-muted-foreground hover:text-foreground"
     >
       {isStreaming ? (
         <>
@@ -80,13 +82,15 @@ export function ThinkingPanel({
   persistKey?: string | null;
 }) {
   // 「直播中自动展开、收场后按保存值」（Q3）——不再收场强制收起并遗忘。
+  // settledDefault false：收场不主动摊开（S4）。
   const [expanded, toggle] = useStreamAwareDisclosure(
     persistKey ?? null,
     isStreaming,
+    { settledDefault: false },
   );
 
   return (
-    <div className="mb-2">
+    <div className="mb-2 process-thought">
       <ThinkingHeader
         isStreaming={isStreaming}
         expanded={expanded}
@@ -95,7 +99,7 @@ export function ThinkingPanel({
         onToggle={toggle}
       />
       {expanded && (
-        <div className="mt-1.5 pl-3">
+        <div className="mt-1.5 text-muted-foreground">
           <Markdown content={reasoning} isStreaming={isStreaming} muted />
         </div>
       )}

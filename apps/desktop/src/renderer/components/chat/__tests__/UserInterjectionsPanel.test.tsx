@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { UserInterjectionsPanel } from "../UserInterjectionsPanel";
 
 describe("UserInterjectionsPanel", () => {
-  it("renders delivered vs queued badges", () => {
+  it("renders received vs queued badges (legacy delivered still OK)", () => {
     render(
       <UserInterjectionsPanel
         items={[
@@ -12,7 +12,7 @@ describe("UserInterjectionsPanel", () => {
             interjectionId: "a",
             executionId: "e1",
             content: "补充成本对比",
-            status: "delivered",
+            status: "received",
             note: null,
           },
           {
@@ -25,10 +25,48 @@ describe("UserInterjectionsPanel", () => {
         ]}
       />,
     );
-    expect(screen.getByText("已传达给团队")).toBeTruthy();
-    expect(screen.getByText("已排队")).toBeTruthy();
+    expect(screen.getByText("主 Agent 已收到")).toBeTruthy();
+    expect(screen.getByText("将在下一条回复处理")).toBeTruthy();
     expect(screen.getByText("补充成本对比")).toBeTruthy();
     expect(screen.getByText("与当前任务无关")).toBeTruthy();
+    expect(screen.queryByText("已传达给团队")).toBeNull();
+  });
+
+  it("failed badge is not success-green copy", () => {
+    render(
+      <UserInterjectionsPanel
+        items={[
+          {
+            interjectionId: "f",
+            executionId: "e1",
+            content: "排队失败的插话",
+            status: "failed",
+            note: null,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("未能排队，请重试或再说一次")).toBeTruthy();
+    expect(screen.queryByText("已传达给团队")).toBeNull();
+    expect(screen.queryByText("主 Agent 已收到")).toBeNull();
+  });
+
+  it("addressed uses read-sense copy, not fake success", () => {
+    render(
+      <UserInterjectionsPanel
+        items={[
+          {
+            interjectionId: "x",
+            executionId: "e1",
+            content: "已承接的补充",
+            status: "addressed",
+            note: "已在合成草稿中承接",
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("主 Agent 已回应")).toBeTruthy();
+    expect(screen.queryByText("已传达给团队")).toBeNull();
   });
 
   it("renders attachment name chips", () => {
@@ -53,6 +91,7 @@ describe("UserInterjectionsPanel", () => {
       />,
     );
     expect(screen.getByText("成本表.xlsx")).toBeTruthy();
+    expect(screen.getByText("主 Agent 已收到")).toBeTruthy();
   });
 
   it("renders nothing when empty", () => {

@@ -121,7 +121,7 @@ async function main() {
       Authorization: `Bearer ${token}`,
       Origin: ORIGIN,
     },
-    body: JSON.stringify({ scenario: "town", seed: 42 }),
+    body: JSON.stringify({ scenario: "town", seed: 42, scripted: true }),
   });
   const acao = createRes.headers.get("access-control-allow-origin");
   console.log("create ACAO=", acao, "status=", createRes.status);

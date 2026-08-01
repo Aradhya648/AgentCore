@@ -4,6 +4,8 @@
  * gaps (typecheck + conformance) that CI historically omitted.
  *
  *   pnpm release:gate                    # full run（发布验证必须全量）
+ *   pnpm release:gate:lite               # 日常迭代：跳过 desktop shoot + smoke
+ *   pnpm release:gate --lite             # 同上（亦认 RELEASE_GATE_LITE=1）
  *   pnpm release:gate --from desktop     # 断点续跑：从 desktop 段开始
  *   pnpm release:gate --only backend     # 只跑单段（修复迭代用）
  *
@@ -11,8 +13,12 @@
  * When both contracts and desktop are enabled, they run in parallel child
  * processes (CI already splits them into separate jobs). Set
  * RELEASE_GATE_SERIAL=1 to force the old sequential order.
- * `--from`/`--only` are local iteration aids — a release still requires one
- * uninterrupted full pass.
+ * `--from`/`--only`/`--lite` are local iteration aids — a release still requires
+ * one uninterrupted **full** (non-lite) pass.
+ *
+ * Lite skips the ~10min desktop screenshot matrix + webapp smoke (port-fragile);
+ * lint / typecheck / vitest / conformance stay. Full gate still runs shoot with
+ * SHOOT_FRAMES=3 and smoke:webapp:ci.
  *
  * Any non-zero step fails the whole gate. Backend uses unit pytest
  * (`--ignore=tests/integration`) for local runnability; CI still runs full
@@ -180,11 +186,16 @@ const SECTION_ORDER = ["backend", "contracts", "desktop", "mobile", "admin"];
 function parseSectionArgs(argv) {
   let from = null;
   let only = null;
+  let lite = process.env.RELEASE_GATE_LITE === "1";
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === "--from" && argv[i + 1]) from = argv[++i];
     else if (argv[i] === "--only" && argv[i + 1]) only = argv[++i];
+    else if (argv[i] === "--lite") lite = true;
   }
-  for (const [flag, value] of [["--from", from], ["--only", only]]) {
+  for (const [flag, value] of [
+    ["--from", from],
+    ["--only", only],
+  ]) {
     if (value && !SECTION_ORDER.includes(value)) {
       console.error(`${flag} ${value}: unknown section (${SECTION_ORDER.join(", ")})`);
       process.exit(2);
@@ -194,7 +205,7 @@ function parseSectionArgs(argv) {
     console.error("--from and --only are mutually exclusive");
     process.exit(2);
   }
-  return { from, only };
+  return { from, only, lite };
 }
 
 function sectionEnabled(name, { from, only }) {
@@ -205,19 +216,21 @@ function sectionEnabled(name, { from, only }) {
 
 /** Spawn a nested `release:gate --only <section>` so contracts ∥ desktop can
  *  overlap wall-clock without blocking the parent on spawnSync. */
-function runSectionChild(only) {
+function runSectionChild(only, { lite = false } = {}) {
   return new Promise((resolve, reject) => {
-    console.log(`\n↗ parallel child: --only ${only}`);
-    const child = spawn(
-      process.execPath,
-      [GATE_SCRIPT, "--only", only],
-      {
-        cwd: ROOT,
-        stdio: "inherit",
-        env: { ...process.env, RELEASE_GATE_SERIAL: "1" },
-        shell: false,
+    const args = [GATE_SCRIPT, "--only", only];
+    if (lite) args.push("--lite");
+    console.log(`\n↗ parallel child: --only ${only}${lite ? " --lite" : ""}`);
+    const child = spawn(process.execPath, args, {
+      cwd: ROOT,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        RELEASE_GATE_SERIAL: "1",
+        ...(lite ? { RELEASE_GATE_LITE: "1" } : {}),
       },
-    );
+      shell: false,
+    });
     child.on("error", reject);
     child.on("exit", (code, signal) => {
       if (code === 0) resolve();
@@ -240,7 +253,7 @@ async function runContractsSection() {
   await assertContractIdempotent();
 }
 
-function runDesktopSection() {
+function runDesktopSection({ lite = false } = {}) {
   section("desktop");
   run("desktop lint", "pnpm", ["--filter", "agentcore-desktop", "lint"]);
   run("desktop typecheck", "pnpm", ["--filter", "agentcore-desktop", "typecheck"]);
@@ -252,6 +265,12 @@ function runDesktopSection() {
     "run",
   ]);
   run("desktop conformance", "pnpm", ["--filter", "agentcore-desktop", "conformance"]);
+  if (lite) {
+    console.log(
+      "\n⏭ desktop shoot + smoke:webapp:ci skipped (--lite / RELEASE_GATE_LITE=1)",
+    );
+    return;
+  }
   run("desktop shoot", "pnpm", ["--filter", "agentcore-desktop", "shoot"], {
     env: { SHOOT_FRAMES: "3" },
   });
@@ -265,9 +284,16 @@ function runDesktopSection() {
 async function main() {
   const filter = parseSectionArgs(process.argv);
   const partial = filter.from || filter.only;
+  const modeBits = [];
+  if (filter.lite) modeBits.push("LITE — skipped shoot/smoke; 发布仍需完整全量");
+  if (partial) {
+    modeBits.push(
+      `PARTIAL: ${filter.only ? `only ${filter.only}` : `from ${filter.from}`} — 发布仍需全量绿`,
+    );
+  }
   console.log(
     `release:gate — local CI isomorphic gate${
-      partial ? ` (PARTIAL: ${filter.only ? `only ${filter.only}` : `from ${filter.from}`} — 发布仍需全量绿)` : ""
+      modeBits.length ? ` (${modeBits.join("; ")})` : ""
     }`,
   );
 
@@ -329,10 +355,13 @@ async function main() {
     // first gen-types. Idempotence still re-regens inside the contracts child —
     // if that flakes, use RELEASE_GATE_SERIAL=1 (CI uses separate checkouts).
     regenContracts();
-    await Promise.all([runSectionChild("contracts"), runSectionChild("desktop")]);
+    await Promise.all([
+      runSectionChild("contracts", { lite: filter.lite }),
+      runSectionChild("desktop", { lite: filter.lite }),
+    ]);
   } else {
     if (doContracts) await runContractsSection();
-    if (doDesktop) runDesktopSection();
+    if (doDesktop) runDesktopSection({ lite: filter.lite });
   }
 
   if (sectionEnabled("mobile", filter)) {
@@ -347,11 +376,18 @@ async function main() {
     run("admin typecheck", "pnpm", ["--filter", "agentcore-admin", "typecheck"]);
   }
 
-  console.log(
-    partial
-      ? `\n✓ release:gate PARTIAL passed (${filter.only ? `only ${filter.only}` : `from ${filter.from}`}) — 发布前仍需完整 pnpm release:gate`
-      : "\n✓ release:gate passed",
-  );
+  if (filter.lite || partial) {
+    const bits = [];
+    if (filter.lite) bits.push("LITE");
+    if (partial) {
+      bits.push(filter.only ? `only ${filter.only}` : `from ${filter.from}`);
+    }
+    console.log(
+      `\n✓ release:gate ${bits.join(" + ")} passed — 发布前仍需完整 pnpm release:gate（非 --lite）`,
+    );
+  } else {
+    console.log("\n✓ release:gate passed");
+  }
 }
 
 main().catch((err) => {

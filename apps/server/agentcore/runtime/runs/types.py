@@ -140,6 +140,9 @@ class Deliverable:
     # ``immediate`` / None = 现状（每次合同检查都跑引用闸）。draft 仅内部态，不进
     # ``delivery_status.artifacts`` / ``delivered_files``。
     citation_mode: Literal["immediate", "two_phase"] | None = None
+    # ``code_audit`` 报告结构闸（L2b）：验配套 ``*.audit.json`` 字段语义
+    # （未读全不得中+、高须触发路径等）。与成篇审计硬门正交。
+    code_audit_gate: bool = False
 
 
 RunContract = Deliverable
@@ -428,11 +431,11 @@ class RunState:
     duration_ms: int = 0
     rounds: int = 0
     # B2: a non-default terminal finish the CAPTAIN root should stamp on the turn
-    # instead of the rounds-derived END_TURN / MAX_ROUNDS — ``DEGRADED`` (empty
-    # responses even after the fallback retry) or ``UNPRODUCTIVE`` (early-stopped a
-    # run of all-tools-failed-no-content rounds). ``None`` = normal finish. Worker
-    # runs leave it None (their emptiness is handled by the contract retry / soft-fail
-    # path, not the turn finish).
+    # instead of the rounds-derived END_TURN / MAX_ROUNDS — last stamp wins when the
+    # engine appended more than one (e.g. ``UNPRODUCTIVE`` early-stop then ``PAUSED``
+    # after force-finalize ``ask_user``). ``DEGRADED`` / ``UNPRODUCTIVE`` / ``PAUSED``
+    # are the common cases. ``None`` = normal finish. Worker runs leave it None (their
+    # emptiness is handled by the contract retry / soft-fail path, not the turn finish).
     finish_override: FinishReason | None = None
     # Workspace paths this worker created or modified (file_write / str_replace /
     # file_move), derived from its transcript when the run completes. The DelegateTool

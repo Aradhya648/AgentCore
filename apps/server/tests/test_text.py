@@ -10,8 +10,19 @@ def test_keeps_both_ends_with_marker_between():
     out = truncate_head_tail(content, 1_000)
     assert out.startswith("HEAD起始")  # head (framing) kept
     assert out.endswith("TAIL尾注金额￥999")  # tail kept — a head-only cut drops it
-    assert "中间省略" in out  # default elision marker
+    assert "系统视图截断" in out  # transport marker — not delivery-omission wording
+    assert "中间省略" not in out
+    assert "已保留首尾" not in out
     assert len(out) <= 1_000  # never exceeds the allowance
+
+
+def test_default_marker_is_not_delivery_omission_wording():
+    from agentcore.core.text import DELIVERY_OMISSION_MARKER
+
+    assert "中间省略" not in DEFAULT_ELISION_MARKER
+    assert "已保留首尾" not in DEFAULT_ELISION_MARKER
+    assert "系统视图截断" in DEFAULT_ELISION_MARKER
+    assert "中间省略" in DELIVERY_OMISSION_MARKER  # documented twin only
 
 
 def test_noop_when_within_limit():

@@ -263,10 +263,14 @@ def _render(
             f"{len(result.file_counts)} 个文件中（/{pattern}/）"
         )
 
+    warn_block = ""
+    if result.warnings:
+        warn_block = "\n" + "\n".join(f"⚠ {w}" for w in result.warnings)
+
     if not lines:
-        return _empty_result_note(pattern=pattern, rel_dir=rel_dir, glob=glob)
+        return _empty_result_note(pattern=pattern, rel_dir=rel_dir, glob=glob) + warn_block
 
     body = "\n".join(lines)
     if result.truncated:
         body += "\n[结果已截断——请收窄 path/glob 或细化 pattern]"
-    return f"{summary}\n{body}"
+    return f"{summary}\n{body}{warn_block}"

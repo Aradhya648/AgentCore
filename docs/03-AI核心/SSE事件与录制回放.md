@@ -21,6 +21,7 @@ skip_if:
 **接缝决策**：
 - **`run_escalation`**：worker 调 `escalate` 瞬间即可见（DURABLE + `escalation_id`）；工具经 `on_escalate` 回调，不碰事件词表。escalate 仍非阻塞。
 - **幕序列 `act`**：协作图 = 幕序列；旧 journal 无 `act` → fold 合成单幕。编排 → [辩论编排](/docs/03-AI核心/辩论编排设计.md)；渲染 → [协作图 UX](/docs/04-前端/协作图与双视图UX.md)。
+- **`run_phase`**（✅）：worker mid-flight 活动相位（`thinking` / `tool` / `waiting_children` / `winding_down`）——EPHEMERAL；投影 `run.phase` / `phaseTool`。`queued`=`status:pending`，`skipped`=`status:skipped`。→ 见代码：`runtime/events/run.py:run_phase`
 
 `finish_reason` → 见代码 `FinishReason`。
 

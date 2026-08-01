@@ -1,9 +1,13 @@
+import {
+  INTERJECTION_TONE_CLASS,
+  interjectionStatusLabel,
+  interjectionStatusTone,
+} from "@/components/chat/interjectionStatus";
 import type { UserInterjection } from "@/stores/execution";
 
 /**
- * Lightweight mid-flight interjection rows inside the team block timeline.
- * Badge: 「已传达给团队」(delivered) vs 「已排队」(queued).
- * Attachment chips surface names only (path stays on the wire for agents).
+ * 团队块内插话追溯（S2：主叙事在主时间线 InterjectionTimeline；此处可折叠追溯）。
+ * 四态文案与主时间线对齐；legacy delivered ≡ received。
  */
 export function UserInterjectionsPanel({
   items,
@@ -13,26 +17,23 @@ export function UserInterjectionsPanel({
   if (items.length === 0) return null;
   return (
     <div className="mt-2 space-y-1.5 border-t border-border/60 pt-2">
+      <p className="text-xs text-muted-foreground">插话追溯</p>
       {items.map((item) => {
-        const queued = item.status === "queued";
+        const tone = interjectionStatusTone(item.status);
         const atts = item.attachments ?? [];
         return (
           <div
             key={item.interjectionId}
-            className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-1.5"
+            className="rounded-lg border border-border/70 bg-muted/20 px-2.5 py-1.5"
           >
             <div className="flex items-start gap-2">
               <span
-                className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-xs ${
-                  queued
-                    ? "border-border bg-muted text-muted-foreground"
-                    : "border-success/40 bg-success/10 text-success"
-                }`}
+                className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-xs ${INTERJECTION_TONE_CLASS[tone]}`}
               >
-                {queued ? "已排队" : "已传达给团队"}
+                {interjectionStatusLabel(item.status)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-foreground whitespace-pre-wrap break-words">
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words line-clamp-2">
                   {item.content}
                 </p>
                 {atts.length > 0 ? (

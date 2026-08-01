@@ -1,6 +1,6 @@
 {
   "name": "agentcore-desktop",
-  "version": "0.6.21",
+  "version": "0.6.22",
   "description": "AgentCore Desktop - Multi-Agent AI Workspace",
   "author": "AgentCore",
   "main": "./out/main/index.js",
@@ -63,6 +63,7 @@
     "@agentcore/contract-rest-types": "workspace:*",
     "@agentcore/contract-types": "workspace:*",
     "@agentcore/design-tokens": "workspace:*",
+    "@agentcore/graph-layout": "workspace:*",
     "@agentcore/protocol-conformance": "workspace:*",
     "@biomejs/biome": "^1.9.0",
     "@codemirror/commands": "^6.10.3",

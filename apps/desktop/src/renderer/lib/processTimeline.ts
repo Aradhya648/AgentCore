@@ -450,6 +450,92 @@ export function isOrchestrationTool(toolName: string): boolean {
   return ORCHESTRATION_TOOLS.has(toolName);
 }
 
+/**
+ * CEO 协调空转工具（`wait`）：无用户可见副作用，只确认继续听团。
+ * 过程线降噪用——这类工具步及其紧邻 reasoning 默认不对用户逐段展开。
+ */
+export const COORDINATION_IDLE_TOOLS: ReadonlySet<string> = new Set(["wait"]);
+
+/** Whether a tool is coordination-idle chrome (see {@link COORDINATION_IDLE_TOOLS}). */
+export function isCoordinationIdleTool(toolName: string): boolean {
+  return COORDINATION_IDLE_TOOLS.has(toolName);
+}
+
+/**
+ * True when this `reasoning` step belongs to a pure coordination-wait round:
+ * the following contiguous tools (until the next non-tool boundary) are only
+ * `wait`, OR no tools have arrived yet but the preceding contiguous tools were
+ * only `wait` (live trailing thought mid wait-loop).
+ *
+ * Reliable on the frontend from existing `process[]` — no backend marker needed.
+ */
+export function isWaitIdleReasoning(
+  process: ProcessStep[],
+  index: number,
+): boolean {
+  if (process[index]?.kind !== "reasoning") return false;
+  let i = index + 1;
+  let sawWait = false;
+  while (i < process.length) {
+    const s = process[i];
+    if (s.kind === "tool") {
+      if (!isCoordinationIdleTool(s.tool_name)) return false;
+      sawWait = true;
+      i++;
+      continue;
+    }
+    break;
+  }
+  if (sawWait) return true;
+  return precedingToolsAreOnlyWait(process, index);
+}
+
+function precedingToolsAreOnlyWait(
+  process: ProcessStep[],
+  index: number,
+): boolean {
+  let i = index - 1;
+  let sawWait = false;
+  while (i >= 0) {
+    const s = process[i];
+    if (s.kind === "tool") {
+      if (!isCoordinationIdleTool(s.tool_name)) return false;
+      sawWait = true;
+      i--;
+      continue;
+    }
+    break;
+  }
+  return sawWait;
+}
+
+/**
+ * View-layer omit for CEO bubble chrome (S4 Thought 降噪): drop `wait` tool steps
+ * and wait-idle reasoning so coordination spin does not paint Thought/tool rows.
+ * Does not mutate fold / journal — callers keep the full `process` for counts.
+ * Returns the same reference when nothing was removed.
+ */
+export function omitCoordinationIdleSteps(
+  process: ProcessStep[],
+): ProcessStep[] {
+  if (process.length === 0) return process;
+  let changed = false;
+  const out: ProcessStep[] = [];
+  for (let i = 0; i < process.length; i++) {
+    const s = process[i];
+    if (s.kind === "tool" && isCoordinationIdleTool(s.tool_name)) {
+      changed = true;
+      continue;
+    }
+    if (s.kind === "reasoning" && isWaitIdleReasoning(process, i)) {
+      changed = true;
+      continue;
+    }
+    out.push(s);
+  }
+  return changed ? out : process;
+}
+
 /** CEO self-calls whose inline-timeline slot is stood in for by a DEDICATED marker, so they
  * make NO captain tool step: delegate/debate → `team`; ask_user → `checkpoint`/`ask`. Superset
  * of {@link ORCHESTRATION_TOOLS}. ask_user is here because a blocking ask SUSPENDs without a

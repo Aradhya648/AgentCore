@@ -378,6 +378,7 @@ class DebateTool:
                         turn_model=turn_model,
                         session=session,
                         cross_model=cross_model,
+                        user_message=self._user_message or "",
                     )
             else:
                 model_err = await prepare_debate_model_plan(
@@ -387,6 +388,7 @@ class DebateTool:
                     session=None,
                     catalog=None,
                     cross_model=cross_model,
+                    user_message=self._user_message or "",
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning("debate.model_plan_failed", error=str(exc))
@@ -397,6 +399,7 @@ class DebateTool:
                 session=None,
                 catalog=None,
                 cross_model=cross_model,
+                user_message=self._user_message or "",
             )
         if model_err:
             clear_turn_keeps_stage_card()

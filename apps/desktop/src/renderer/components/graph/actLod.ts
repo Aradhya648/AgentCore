@@ -153,7 +153,7 @@ function focusedActSubgraph(
  * Compose the multi-act LOD layout: run ELK for the focused act only, then lay
  * folded-act cards + the focused block in a linear chain along the flow axis.
  *
- * @param measuredHeights Optional React Flow measured heights (secondary ELK).
+ * Uses the fixed NODE_WIDTH × NODE_HEIGHT footprint (whiteboard / structure-only ELK).
  */
 export async function computeActLodLayout(
   execution: Execution,
@@ -161,7 +161,6 @@ export async function computeActLodLayout(
   focusedActId: string | null,
   layoutKind: GraphLayout,
   fitMode: GraphFitMode,
-  measuredHeights: Readonly<Record<string, number>> = {},
 ): Promise<ActLodLayout> {
   const horizontal = layoutKind === "leftright";
   const acts = scene.acts;
@@ -179,7 +178,7 @@ export async function computeActLodLayout(
   if (effectiveFocus) {
     const sub = focusedActSubgraph(execution, scene, effectiveFocus);
     if (sub.nodeIds.length > 0) {
-      const sizeMap = buildNodeSizeMap(sub.nodeIds, measuredHeights);
+      const sizeMap = buildNodeSizeMap(sub.nodeIds);
       focusedSizeMap = sizeMap;
       const hints = computeLayoutHints(sub.subTeams, sub.edges);
       const result = await computeLayout(

@@ -173,7 +173,10 @@ class Driver:
         if capture:
             state["frame_b64"] = await self._keyframe_b64()
         # Any page mutation invalidates prior snapshot refs (防错点).
+        # Return the bumped version so the model can align the next ref call
+        # without a forced re-snapshot (refs themselves still need snapshot).
         self._snapshot_version += 1
+        state["snapshot_version"] = self._snapshot_version
         return state
 
     def _resolve_ref(self, req: dict):

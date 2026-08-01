@@ -50,6 +50,96 @@ describe("projectExecution (fold)", () => {
     expect(exec.runs.find((s) => s.id === "run-2")?.status).toBe("pending");
   });
 
+  it("folds run_phase with winding_down sticky over thinking/tool", () => {
+    const frames: RunFrame[] = [
+      started("agent-1", "run-1"),
+      {
+        t: 2,
+        kind: "run_phase",
+        runId: "run-1",
+        agentId: "agent-1",
+        phase: "thinking",
+      },
+      {
+        t: 3,
+        kind: "run_phase",
+        runId: "run-1",
+        agentId: "agent-1",
+        phase: "tool",
+        toolName: "file_read",
+      },
+      {
+        t: 4,
+        kind: "run_phase",
+        runId: "run-1",
+        agentId: "agent-1",
+        phase: "waiting_children",
+      },
+      {
+        t: 5,
+        kind: "run_phase",
+        runId: "run-1",
+        agentId: "agent-1",
+        phase: "winding_down",
+      },
+      {
+        t: 6,
+        kind: "run_phase",
+        runId: "run-1",
+        agentId: "agent-1",
+        phase: "thinking",
+      },
+      {
+        t: 7,
+        kind: "run_phase",
+        runId: "run-1",
+        agentId: "agent-1",
+        phase: "tool",
+        toolName: "handoff",
+      },
+    ];
+    const run = projectExecution(plan, frames, "running").runs.find(
+      (r) => r.id === "run-1",
+    );
+    expect(run?.phase).toBe("winding_down");
+    expect(run?.phaseTool).toBeNull();
+
+    const cleared = projectExecution(
+      plan,
+      [
+        ...frames,
+        {
+          t: 8,
+          kind: "run_completed",
+          runId: "run-1",
+          agentId: "agent-1",
+          outputSummary: "done",
+          durationMs: 10,
+        },
+      ],
+      "running",
+    ).runs.find((r) => r.id === "run-1");
+    expect(cleared?.phase).toBeNull();
+    expect(cleared?.phaseTool).toBeNull();
+  });
+
+  it("frameFromEvent maps run_phase payload", () => {
+    const ev = {
+      type: "run_phase",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      payload: {
+        run_id: "run-1",
+        agent_id: "agent-1",
+        phase: "waiting_children",
+      },
+    } as SSEEvent;
+    expect(frameFromEvent(ev)).toMatchObject({
+      kind: "run_phase",
+      runId: "run-1",
+      phase: "waiting_children",
+    });
+  });
+
   it("accumulates streamed output deltas per agent", () => {
     const frames: RunFrame[] = [
       started("agent-1", "run-1"),

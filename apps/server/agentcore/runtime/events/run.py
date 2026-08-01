@@ -200,6 +200,29 @@ def run_reasoning_delta(run_id: str, agent_id: str, delta: str) -> SSEEvent:
     )
 
 
+def run_phase(
+    run_id: str,
+    agent_id: str,
+    phase: str,
+    *,
+    tool_name: str | None = None,
+) -> SSEEvent:
+    """Emit a worker mid-flight activity phase (thinking / tool / waiting_children / winding_down).
+
+    Orthogonal to lifecycle ``RunStatus`` (pending/running/skipped/…). EPHEMERAL —
+    fold keeps the latest per ``run_id``; reload falls back to status. ``tool_name``
+    is only meaningful when ``phase=="tool"``.
+    """
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "phase": phase,
+    }
+    if phase == "tool" and tool_name:
+        payload["tool_name"] = tool_name
+    return SSEEvent(type=EventType.RUN_PHASE, payload=payload)
+
+
 def run_tool_progress(run_id: str, agent_id: str, tool_name: str, chars: int) -> SSEEvent:
     return SSEEvent(
         type=EventType.RUN_TOOL_PROGRESS,
@@ -423,8 +446,9 @@ def run_skipped(
     - ``cascade`` — a dependency failed with ``on_failure=skip``; this node (and further
       dependents) were never dispatched.
     - ``abort`` — scheduling ended via graceful abort (``on_failure=abort``, plan_review
-      stop, or supervised ``replan(stop=true)``); the un-run tail was materialised SKIPPED
-      so the graph shows「未执行」instead of a forever-pending queue.
+      stop, supervised ``replan(stop=true)``, or terminal cancel of the wave — parent
+      force_cancel / nested drive abort / user_stop); the un-run tail was materialised
+      SKIPPED so the graph shows「未执行」instead of a forever-pending queue.
 
     Orthogonal to ``run_cancelled`` (mid-flight interrupt). Durable so reload doesn't leave
     the node stuck ``pending`` / 「排队中」after the turn has closed.
@@ -543,14 +567,15 @@ def user_interjection(
     interjection_id: str,
     execution_id: str,
     content: str,
-    status: str = "delivered",
+    status: str = "received",
     note: str | None = None,
     attachments: list[dict[str, Any]] | None = None,
 ) -> SSEEvent:
     """协调中用户插话（单一输入框 → CEO 智能路由）。
 
-    ``status=delivered`` on inject；CEO ``queue_user_message`` → ``queued``（同
-    ``interjection_id`` 保最新）。DURABLE——team 块时间线徽标重放。
+    ``status=received`` on inject；图内处置 → ``addressed``；
+    ``queue_user_message`` / 收口升格 → ``queued``；真失败 → ``failed``
+    （同 ``interjection_id`` 保最新）。DURABLE——team 块时间线徽标重放。
     ``attachments`` 为名字 + 工作区路径 + 二进制标记（无内联正文）。
     """
     payload: dict[str, Any] = {
@@ -614,15 +639,25 @@ def execution_completed(
     conversation_id: str,
     completed: int,
     total: int,
+    status: str = "completed",
     host_turn_id: str | None = None,
     error: str | None = None,
 ) -> SSEEvent:
-    """后台执行终态：drive 到齐，收割者可发起系统收口回合。"""
+    """后台执行终态：drive 到齐，收割者可发起系统收口回合。
+
+    ``status`` mirrors harvest closing kind (success→completed / failure→failed /
+    cancelled→cancelled) so clients fold UI to cancelled/failed instead of
+    「团队完成」when the batch was stopped or failed.
+    """
+    st = (status or "completed").strip().lower()
+    if st not in ("completed", "failed", "cancelled"):
+        st = "completed"
     payload: dict[str, Any] = {
         "execution_id": execution_id,
         "conversation_id": conversation_id,
         "completed": completed,
         "total": total,
+        "status": st,
     }
     if host_turn_id and host_turn_id.strip():
         payload["host_turn_id"] = host_turn_id.strip()

@@ -89,6 +89,8 @@ vi.mock("@/hooks/useModels", () => ({
 }));
 vi.mock("@/lib/capabilities", () => ({
   hasLocalFiles: () => false,
+  // Desktop Electron under test — keep the web-only「无本地文件夹」chip off.
+  isWebRuntime: () => false,
 }));
 vi.mock("@/services/permissionAxes", () => ({
   RECIPE_LABELS: {

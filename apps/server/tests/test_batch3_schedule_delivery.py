@@ -7,7 +7,7 @@ TIMEOUT 盖章、检索预算补发与耗尽提前收尾、宽度重算、slot_s
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -202,6 +202,36 @@ async def test_hard_timeout_paused_during_llm_inflight():
 
 
 @pytest.mark.asyncio
+async def test_hard_timeout_paused_while_waiting_children():
+    """嵌套等子期间不累计活跃时间 → 不 hard-timeout / grace_wall 强杀父。"""
+    from agentcore.runtime.runs.timeout_hard import mark_waiting_children
+
+    timed_out: list[bool] = []
+    forced: list[str] = []
+    guard = arm_hard_timeout(
+        "w-parent-nested",
+        timeout_s=0.12,
+        warn_ratio=0.0,
+        grace_wall_s=0.08,
+        on_timeout=lambda _g: timed_out.append(True),
+        on_force_cancel=lambda _g, reason: forced.append(reason),
+    )
+    assert guard is not None
+    mark_waiting_children("w-parent-nested", True)
+    await asyncio.sleep(0.35)  # wall ≫ threshold + grace, but waiting children
+    assert timed_out == []
+    assert forced == []
+    assert not guard.was_timed_out()
+    assert not guard.force_cancel_requested
+    assert guard.phase is HardTimeoutPhase.ARMED
+    mark_waiting_children("w-parent-nested", False)
+    await asyncio.sleep(0.20)  # active time accumulates → TIMEOUT
+    assert timed_out == [True]
+    assert guard.was_timed_out()
+    disarm_hard_timeout("w-parent-nested")
+
+
+@pytest.mark.asyncio
 async def test_hard_timeout_still_fires_when_idle():
     """无 LLM 在飞（编排空转）→ 墙钟仍按阈值硬判 TIMEOUT。"""
     timed_out: list[bool] = []
@@ -218,6 +248,190 @@ async def test_hard_timeout_still_fires_when_idle():
     assert guard.was_timed_out()
     disarm_hard_timeout("w-idle")
 
+
+@pytest.mark.asyncio
+async def test_nested_drive_pauses_parent_hard_timeout():
+    """depth>0 drive 期间对 captain_run_id 调用 mark_waiting_children。"""
+    from contextlib import nullcontext
+
+    from agentcore.runtime.delegate.drive import drive
+    from agentcore.tools.protocol import ToolResult
+
+    pauses: list[bool] = []
+
+    def _track(run_id: str, waiting: bool) -> None:
+        if run_id == "parent-lead":
+            pauses.append(waiting)
+
+    class _NestedHost:
+        _calls = 1
+        _depth = 1
+        _captain_run_id = "parent-lead"
+        _pending_boundary = None
+        _pending_pause = False
+
+    async def _fake_body(*_a, **_k):
+        await asyncio.sleep(0.02)
+        return ToolResult(tool_call_id="", success=True, output="ok")
+
+    with (
+        patch(
+            "agentcore.runtime.runs.timeout_hard.mark_waiting_children",
+            side_effect=_track,
+        ),
+        patch(
+            "agentcore.runtime.turn_token_budget.is_turn_token_ceiling_hit",
+            return_value=False,
+        ),
+        patch(
+            "agentcore.runtime.turn_token_budget.nested_turn_envelope_scope",
+            side_effect=lambda **_k: nullcontext(),
+        ),
+        patch(
+            "agentcore.runtime.delegate.drive._drive_body",
+            side_effect=_fake_body,
+        ),
+    ):
+        plan = RunPlan()
+        plan.add(_spec("child-a"))
+        result = await drive(
+            _NestedHost(),
+            plan,
+            execution_id="exec-nested",
+            seed_completed=None,
+            finalize=False,
+            coordinate=False,
+        )
+        assert result.success is True
+
+    assert pauses == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_nested_drive_pauses_on_turn_ceiling_seed_finalize():
+    """depth>0 + turn ceiling + seed_completed finalize 仍须 pause（Bugbot 1A 绕过）。"""
+    from agentcore.runtime.delegate.drive import drive
+    from agentcore.runtime.runs.types import RunPhase, RunState
+    from agentcore.tools.protocol import ToolResult
+
+    pauses: list[bool] = []
+    saw_pause_during_finalize = []
+
+    def _track(run_id: str, waiting: bool) -> None:
+        if run_id == "parent-lead":
+            pauses.append(waiting)
+
+    class _NestedHost:
+        _calls = 1
+        _depth = 1
+        _captain_run_id = "parent-lead"
+        _pending_boundary = None
+        _pending_pause = False
+        agent_id = "parent-lead"
+        _sink = None
+
+    async def _fake_finalize(*_a, **_k):
+        # Pause must already be armed before finalize awaits.
+        saw_pause_during_finalize.append(pauses == [True])
+        await asyncio.sleep(0.01)
+        return ToolResult(tool_call_id="", success=True, output="finalized")
+
+    seed = {
+        "child-done": RunState(phase=RunPhase.COMPLETED, content="ok"),
+    }
+
+    with (
+        patch(
+            "agentcore.runtime.runs.timeout_hard.mark_waiting_children",
+            side_effect=_track,
+        ),
+        patch(
+            "agentcore.runtime.turn_token_budget.is_turn_token_ceiling_hit",
+            return_value=True,
+        ),
+        patch(
+            "agentcore.runtime.delegate.drive._materialise_turn_token_budget_skips",
+        ),
+        patch(
+            "agentcore.runtime.delegate.drive._attach_light_website_gaps",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentcore.runtime.delegate.drive.finalize_drive",
+            side_effect=_fake_finalize,
+        ),
+        patch(
+            "agentcore.runtime.runs.run_phase_emit.emit_run_phase",
+        ),
+    ):
+        plan = RunPlan()
+        plan.add(_spec("child-done"))
+        plan.add(_spec("child-pending"))
+        result = await drive(
+            _NestedHost(),
+            plan,
+            execution_id="exec-ceiling",
+            seed_completed=seed,
+            finalize=True,
+            coordinate=False,
+        )
+        assert result.success is True
+
+    assert saw_pause_during_finalize == [True]
+    assert pauses == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_root_drive_does_not_pause_hard_timeout():
+    """depth=0 根 drive 不调用 mark_waiting_children（普通/协调路径不变）。"""
+    from contextlib import nullcontext
+
+    from agentcore.runtime.delegate.drive import drive
+    from agentcore.tools.protocol import ToolResult
+
+    calls: list[tuple[str, bool]] = []
+
+    class _RootHost:
+        _calls = 1
+        _depth = 0
+        _captain_run_id = "ceo-cap"
+        _pending_boundary = None
+        _pending_pause = False
+
+    async def _fake_body(*_a, **_k):
+        return ToolResult(tool_call_id="", success=True, output="ok")
+
+    with (
+        patch(
+            "agentcore.runtime.runs.timeout_hard.mark_waiting_children",
+            side_effect=lambda rid, w: calls.append((rid, w)),
+        ),
+        patch(
+            "agentcore.runtime.turn_token_budget.is_turn_token_ceiling_hit",
+            return_value=False,
+        ),
+        patch(
+            "agentcore.runtime.turn_token_budget.nested_turn_envelope_scope",
+            side_effect=lambda **_k: nullcontext(),
+        ),
+        patch(
+            "agentcore.runtime.delegate.drive._drive_body",
+            side_effect=_fake_body,
+        ),
+    ):
+        plan = RunPlan()
+        plan.add(_spec("w1"))
+        result = await drive(
+            _RootHost(),
+            plan,
+            execution_id="exec-root",
+            seed_completed=None,
+            finalize=False,
+            coordinate=False,
+        )
+        assert result.success is True
+
+    assert calls == []
 
 # ── 2. 取消级联 ────────────────────────────────────────────────
 

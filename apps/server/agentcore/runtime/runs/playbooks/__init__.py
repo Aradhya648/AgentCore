@@ -27,6 +27,7 @@ from agentcore.runtime.runs.playbooks._common import (
     PlaybookBuilder,
     clean_str,
 )
+from agentcore.runtime.runs.playbooks.audit import code_audit
 from agentcore.runtime.runs.playbooks.build_site import (
     build_toolshed,
     build_website,
@@ -45,6 +46,22 @@ from agentcore.runtime.runs.playbooks.research import (
 )
 
 PLAYBOOKS: dict[str, Playbook] = {
+    "code_audit": Playbook(
+        name="code_audit",
+        summary=(
+            "【代码审计】A 宽扫→B 定案两阶段；强制字段/严重度/checklist/人审骨架；"
+            "报告落 AgentCore/文档/reviews/；多模块并行+主管速览；"
+            "正交于 parallel_brief（摸底）/ research_report（成文审校）/ repair_code（按症状修）"
+        ),
+        slots=(
+            "scope(必填,审计范围路径或子系统;亦接受 topic/target) / "
+            "modules(可选,≥2 模块名数组则并行审计+主管速览;单模块省略本槽) / "
+            "focus(可选,侧重如 security|eng) / "
+            "k(可选,每模块 Phase B 定案上限,默认 8) / "
+            "output_path(可选,单模块报告或汇总速览覆盖路径)"
+        ),
+        build=code_audit,
+    ),
     "parallel_brief": Playbook(
         name="parallel_brief",
         summary=(

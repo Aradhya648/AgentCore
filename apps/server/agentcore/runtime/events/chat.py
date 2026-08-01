@@ -183,7 +183,15 @@ def message_end(
     rounds: int = 0,
     cost: dict[str, Any] | None = None,
     collab: dict[str, int] | None = None,
+    duration_ms: int | None = None,
 ) -> SSEEvent:
+    # 未显式传入时复用 TurnLatencyProbe（与 chat.turn_complete 同锚）；无 probe 则省略字段。
+    if duration_ms is None:
+        from agentcore.runtime.turn_latency import get_turn_latency
+
+        probe = get_turn_latency()
+        if probe is not None:
+            duration_ms = probe.elapsed_ms()
     payload: dict[str, Any] = {
         "finish_reason": finish_reason,
         "usage": {
@@ -198,6 +206,8 @@ def message_end(
     }
     if collab is not None:
         payload["collab"] = collab
+    if duration_ms is not None:
+        payload["duration_ms"] = int(duration_ms)
     return SSEEvent(type=EventType.MESSAGE_END, payload=payload)
 
 

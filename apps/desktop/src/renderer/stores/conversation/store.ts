@@ -17,11 +17,14 @@ import {
   foldToolUseStart,
   messageLaneFromMessage,
 } from "@/lib/foldMessageLane";
-import { notifyWarning } from "@/lib/toast";
 import { discardAllPendingChunks } from "@/services/sse/contentBuffer";
 import { flushPendingFrames } from "@/services/sse/execFrameBuffer";
 import { stopConversation } from "@/services/stopTurn";
-import { useExecutionStore } from "@/stores/execution";
+import {
+  execRuntime,
+  projectExecution,
+  useExecutionStore,
+} from "@/stores/execution";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
 import type { TimelineMarkerDef } from "@/stores/interactions/registry";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
@@ -37,15 +40,36 @@ import type {
   UsageBreakdown,
 } from "@/types/events";
 import { create } from "zustand";
-import { DRAFT_KEY, EMPTY_RUNTIME, activeRuntime } from "./runtime";
+import {
+  DRAFT_KEY,
+  EMPTY_RUNTIME,
+  activeRuntime,
+  lastAssistantProjectionId,
+} from "./runtime";
 import { isConversationSliceBusy, pruneConversationSlices } from "./sliceLru";
 import type { TurnPhase } from "./turnPhase";
-import {
-  armStopConfirmTimeout,
-  clearStopConfirmTimeout,
-  isTerminalPhase,
-} from "./turnPhase";
+import { isTerminalPhase } from "./turnPhase";
 import type { ConversationRuntime, MemoryUpdate, Message } from "./types";
+
+/** Align with StatusStrip canStop: running, or paused with an in-flight run. */
+function canStopCurrentExecution(messages: Message[]): boolean {
+  const mid = lastAssistantProjectionId(messages);
+  if (!mid) return false;
+  const ert = execRuntime(useExecutionStore.getState(), mid);
+  if (!ert.plan) return false;
+  if (ert.status === "running") return true;
+  if (ert.status !== "paused") return false;
+  const exec = projectExecution(
+    ert.plan,
+    ert.frames,
+    ert.status,
+    ert.debate,
+    ert.debateRounds,
+    ert.crossExamEnabled,
+    ert.debateOpening,
+  );
+  return exec.runs.some((r) => r.status === "running");
+}
 
 export interface ConversationState {
   currentConversationId: string | null;
@@ -165,6 +189,7 @@ export interface ConversationState {
     meta: {
       usage?: UsageBreakdown;
       rounds?: number;
+      durationMs?: number;
       finishReason?: string;
       collab?: import("@/types/events").TurnCollabMetrics;
     },
@@ -664,6 +689,9 @@ export const useConversationStore = create<ConversationState>((set, get) => {
             ...last,
             ...(meta.usage !== undefined ? { usage: meta.usage } : {}),
             ...(meta.rounds !== undefined ? { rounds: meta.rounds } : {}),
+            ...(meta.durationMs !== undefined
+              ? { durationMs: meta.durationMs }
+              : {}),
             ...(meta.finishReason !== undefined
               ? { finishReason: meta.finishReason }
               : {}),
@@ -993,32 +1021,29 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       const conversationId = get().currentConversationId;
       const key = conversationId ?? DRAFT_KEY;
       const phase = activeRuntime(get()).turnPhase;
-      if (isTerminalPhase(phase)) return;
 
-      const armUnconfirmed = () => {
-        armStopConfirmTimeout(key, () => {
-          const rt = get().byId[key] ?? EMPTY_RUNTIME;
-          if (rt.turnPhase !== "stopping") return;
-          // 不伪造终态：停留在 stopping，提示可重试 /stop。
-          notifyWarning("停止未确认", {
-            description: "引擎尚未回报终态，可重试停止",
-            action: {
-              label: "重试停止",
-              onClick: () => get().stopGeneration(),
-            },
-          });
+      // GAP A：CEO 已收口（terminal）但 execution 仍可停（含 detached）→ 仅硬取消，
+      // 不进入 stopping 等第二次 message_end（会死等）。UI 靠后续 run/execution 帧收口。
+      if (isTerminalPhase(phase)) {
+        if (
+          !conversationId ||
+          !canStopCurrentExecution(activeRuntime(get()).messages)
+        ) {
+          return;
+        }
+        void stopConversation(conversationId).catch(() => {
           get().setError(
-            "停止未确认，可重试",
+            "停止请求失败，引擎可能仍在运行",
             () => get().stopGeneration(),
             conversationId,
           );
         });
-      };
+        return;
+      }
 
       if (phase !== "stopping") {
         get().setTurnPhase("stopping", conversationId);
       }
-      armUnconfirmed();
 
       // 诚实过渡：落盘已缓冲的 run_*，丢弃正文缓冲；保持 SSE 不断（不 abort），
       // 也不本地伪造 cancelled / finalize——等后端 message_end 定格。
@@ -1029,7 +1054,6 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       if (!conversationId) return;
       void stopConversation(conversationId)
         .then(() => {
-          // 重试成功：清掉「未确认 / 失败」横幅，宽限已在上方重置。
           if (get().byId[key]?.turnPhase === "stopping") {
             get().clearError(conversationId);
           }
@@ -1037,8 +1061,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         .catch(() => {
           const rt = get().byId[key] ?? EMPTY_RUNTIME;
           if (rt.turnPhase !== "stopping") return;
-          clearStopConfirmTimeout(key);
-          // 回滚过渡态，允许用户继续看流并重试停止。
+          // 回滚过渡态，允许用户继续看流并再点停止。
           get().setTurnPhase("streaming", conversationId);
           get().setError(
             "停止请求失败，引擎可能仍在运行",

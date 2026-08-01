@@ -4,7 +4,7 @@ invites."""
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.config import settings
@@ -55,17 +55,35 @@ class CredentialsRepository:
         )
         return result.scalar_one_or_none()
 
-    async def set_failure_state(
-        self, user_id: str, *, failed_attempts: int, locked_until: datetime | None
-    ) -> None:
-        # Exception (P1-8): intentional immediate persist — lockout must survive a
-        # subsequent handler failure; do not mix with other writes on this session.
-        await self._session.execute(
+    async def increment_failure(
+        self,
+        user_id: str,
+        *,
+        max_attempts: int,
+        lock_until: datetime,
+    ) -> int:
+        """Atomically bump ``failed_attempts`` and lock when threshold reached.
+
+        Uses ``failed_attempts = failed_attempts + 1`` so concurrent wrong-password
+        logins cannot lose increments via read-modify-write. Returns the new count.
+        Exception (P1-8): immediate commit — lockout must survive a later handler
+        failure; do not mix with other writes on this session.
+        """
+        new_attempts = Credentials.failed_attempts + 1
+        result = await self._session.execute(
             update(Credentials)
             .where(Credentials.user_id == user_id)
-            .values(failed_attempts=failed_attempts, locked_until=locked_until)
+            .values(
+                failed_attempts=new_attempts,
+                locked_until=case(
+                    (new_attempts >= max_attempts, lock_until),
+                    else_=None,
+                ),
+            )
+            .returning(Credentials.failed_attempts)
         )
         await self._session.commit()
+        return int(result.scalar_one())
 
     async def reset_failure_state(self, user_id: str) -> None:
         # Exception (P1-8): clear lockout immediately on successful login.

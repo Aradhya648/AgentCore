@@ -52,6 +52,12 @@ describe("EscalationCard ownership", () => {
     );
     expect(screen.getByText(/文件写权冲突/)).toBeTruthy();
     expect(screen.getByText("site/index.html")).toBeTruthy();
+    expect(
+      screen.getByText(/不移交写权时将按此继续（目标路径修订会落空）/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "按假设继续（不移交）" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "移交写权" }));
     await waitFor(() => {
       expect(decideEscalation).toHaveBeenCalledWith("conv-1", "esc-own", {
@@ -75,6 +81,27 @@ describe("EscalationCard ownership", () => {
     await waitFor(() => {
       expect(decideEscalation).toHaveBeenCalledWith("conv-1", "esc-own", {
         kind: "keep_ownership",
+      });
+    });
+  });
+
+  it("use_assumption button clarifies no transfer", async () => {
+    render(
+      <EscalationCard
+        {...{
+          escalation: ownershipEsc(),
+          role: "工程师",
+          conversationId: "conv-1",
+          interactive: true as const,
+        }}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "按假设继续（不移交）" }),
+    );
+    await waitFor(() => {
+      expect(decideEscalation).toHaveBeenCalledWith("conv-1", "esc-own", {
+        kind: "use_assumption",
       });
     });
   });

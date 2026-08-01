@@ -521,6 +521,55 @@ async def test_captain_deliverable_only_keeps_timeline_no_reset():
     )
 
 
+async def test_captain_coordination_wait_aside_not_in_deliverable():
+    """协调态进度旁白 + wait：deliverable_only 裁掉终稿 content，旁白仍进 process 流。
+
+    证明路径：content_delta 直播过程旁白；非终止 wait 后回退，最终 messages.content
+    只留交付段（阶段结论）。
+    """
+    from agentcore.runtime.coordination.session import (
+        CoordinationSession,
+        clear_active_coordination,
+        set_active_coordination,
+    )
+    from agentcore.runtime.coordination.tools import WaitTool
+
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    set_active_coordination(session)
+    try:
+        provider = _ScriptedProvider(
+            [
+                [
+                    _content_chunk("研究员还在检索，写手待启动。"),
+                    _tool_chunk("wait", '{"reason": "no disposition"}'),
+                ],
+                [_content_chunk("阶段结论：调研已齐，开始合成。")],
+            ]
+        )
+        sink = _RecordingSink()
+        reg = ToolRegistry()
+        reg.register(WaitTool())
+        content, _r, _u, _rounds = await react_loop(
+            messages=[LLMMessage(role="user", content="go")],
+            llm=provider,
+            tools=reg,
+            sink=sink,
+            tool_context=_context(),
+            profile=make_profile_params(max_rounds=20),
+            turn_model="m",
+            deliverable_only=True,
+        )
+        assert content == "阶段结论：调研已齐，开始合成。"
+        assert "还在检索" not in content
+        assert [e for e in sink.emitted if e.type == EventType.CONTENT_RESET] == []
+        assert any(
+            e.type == EventType.CONTENT_DELTA and "还在检索" in (e.payload.get("delta") or "")
+            for e in sink.emitted
+        )
+    finally:
+        clear_active_coordination()
+
+
 async def test_deliverable_only_keeps_prose_when_all_tools_fail():
     """Failed non-terminal tool must not silently drop already-streamed body.
 

@@ -271,6 +271,10 @@ class EventSink:
             self._persist_barriers.put_nowait(None)
         _run_emit_tap(self, event)
 
+    def emit_sse_only(self, event: SSEEvent) -> None:
+        """Public SSE/history path without journal (e.g. interjection confirm stream)."""
+        self._emit_display_only(event)
+
     def _combine_persist_barriers(
         self,
         futures: list[asyncio.Future[int | None] | None],
@@ -389,9 +393,14 @@ class EventSink:
                 "timestamp": event.timestamp,
             }
         )
-        # Prefer turn ContextVar writer (also updates fact_log). After turn teardown
-        # resets the parent ContextVar, fall back to the execution-bound host writer.
-        if current_journal_writer.get() is not None:
+        # Prefer turn ContextVar writer (also updates fact_log) while the arming
+        # turn is still attached. After ContextVar reset *or* detach
+        # (``turn_attached=False``), DURABLE ``run_*`` / ``execution_*`` must land
+        # on the execution-bound host writer — child tasks may still see a stale
+        # ContextVar pointing at a sealed/new-turn writer.
+        host_writer = self._execution_host_writer(event)
+        detached = self._coordination_detached(event)
+        if current_journal_writer.get() is not None and not detached:
             return record_turn_fact(
                 Fact(
                     kind=event.type.value,
@@ -399,7 +408,6 @@ class EventSink:
                     ts=event.timestamp,
                 )
             )
-        host_writer = self._execution_host_writer(event)
         if host_writer is not None:
             return host_writer.schedule_append(
                 {
@@ -422,6 +430,16 @@ class EventSink:
         Resolve order: payload.execution_id → current_execution_id ContextVar →
         conversation registry (cross-task after turn teardown resets ContextVars).
         """
+        session = self._coordination_session_for_event(event)
+        if session is None:
+            return None
+        writer = getattr(session, "host_journal_writer", None)
+        if writer is None or getattr(writer, "sealed", False):
+            return None
+        return writer
+
+    def _coordination_session_for_event(self, event: SSEEvent):
+        """Live coordination session for ``event``, if any."""
         from agentcore.runtime.coordination.session import (
             active_coordination,
             active_coordination_for_conversation,
@@ -431,12 +449,12 @@ class EventSink:
         session = active_coordination(eid) if eid else active_coordination()
         if session is None and self._conversation_id:
             session = active_coordination_for_conversation(self._conversation_id)
-        if session is None:
-            return None
-        writer = getattr(session, "host_journal_writer", None)
-        if writer is None or getattr(writer, "sealed", False):
-            return None
-        return writer
+        return session
+
+    def _coordination_detached(self, event: SSEEvent) -> bool:
+        """True when the event's coordination session has released the arming turn."""
+        session = self._coordination_session_for_event(event)
+        return session is not None and not session.turn_attached
 
     def _record_history(self, event: SSEEvent) -> None:
         t = event.type

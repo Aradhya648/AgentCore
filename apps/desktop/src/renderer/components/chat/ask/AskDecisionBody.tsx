@@ -170,7 +170,11 @@ export function AskDecisionBody({
             <FolderOpen size={12} />
           )
         ) : undefined,
-        selected: canRunFolder && (picked.includes(opt.label) || bindBusy),
+        // 普通选项：选中态跟 answers；本机目录 action：仅可履约时显示（含绑定中 busy）。
+        // 勿把 selected 绑到 canRunFolder——那会让非 folder 选项永远无选中反馈。
+        selected: desktopFolder
+          ? canRunFolder && (picked.includes(opt.label) || bindBusy)
+          : picked.includes(opt.label),
         disabled: busy || (!!bindBusyLabel && !bindBusy),
         onSelect: () => {
           if (!desktopFolder) {

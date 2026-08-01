@@ -79,6 +79,8 @@ CUT_KEEP_EPHEMERAL: frozenset[EventType] = frozenset(
         # run_failed / run_cancelled 清除，但录制停在工具中途（暂停/中断原片）时丢弃它会让
         # projected 丢 toolProgress——按入表原则补充（拍板预留的 run_tool_progress 情形）。
         EventType.RUN_TOOL_PROGRESS,
+        # oracle 写 run.phase / phaseTool（run_phase 分支）——mid-flight 活动相位单一源。
+        EventType.RUN_PHASE,
     }
 )
 

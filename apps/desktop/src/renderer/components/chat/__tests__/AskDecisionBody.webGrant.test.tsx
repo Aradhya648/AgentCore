@@ -60,23 +60,21 @@ function Harness() {
 }
 
 describe("AskDecisionBody web grant actions", () => {
-  let openSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => {
     window.__WEB__ = true;
-    openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(window, "open").mockReturnValue(null);
   });
 
   afterEach(() => {
     cleanup();
-    openSpy.mockRestore();
+    vi.restoreAllMocks();
     window.__WEB__ = undefined;
   });
 
   it("does not toggleChoice on grant; shows desktop download guide", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /授权本机目录/ }));
-    expect(openSpy).toHaveBeenCalledWith(
+    expect(window.open).toHaveBeenCalledWith(
       DESKTOP_DOWNLOAD_URL,
       "_blank",
       "noopener,noreferrer",
@@ -92,7 +90,10 @@ describe("AskDecisionBody web grant actions", () => {
 
   it("still allows normal non-folder choice without opening download", () => {
     render(<Harness />);
-    fireEvent.click(screen.getByRole("button", { name: /继续用云端/ }));
-    expect(openSpy).not.toHaveBeenCalled();
+    const cloudBtn = screen.getByRole("button", { name: /继续用云端/ });
+    fireEvent.click(cloudBtn);
+    expect(window.open).not.toHaveBeenCalled();
+    // 回归：普通选项选中态不得被 canRunFolder 条件误伤
+    expect(cloudBtn.getAttribute("aria-pressed")).toBe("true");
   });
 });

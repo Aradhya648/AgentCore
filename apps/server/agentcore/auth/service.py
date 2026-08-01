@@ -225,7 +225,7 @@ class AuthService:
             raise AuthenticationError("账户已临时锁定，请稍后再试")
 
         if not verify_password(password, creds.password_hash):
-            await self._register_failure(creds.user_id, creds.failed_attempts, now)
+            await self._register_failure(creds.user_id, now)
             logger.warning(
                 "auth.login_failed",
                 reason="password",
@@ -775,9 +775,9 @@ class AuthService:
         if now - started > max_age:
             raise AuthenticationError("Refresh token family expired")
 
-    async def _register_failure(self, user_id: str, current_attempts: int, now: datetime) -> None:
-        new_attempts = current_attempts + 1
-        locked_until = now + _LOCKOUT_DURATION if new_attempts >= _MAX_FAILED_ATTEMPTS else None
-        await self._credentials.set_failure_state(
-            user_id, failed_attempts=new_attempts, locked_until=locked_until
+    async def _register_failure(self, user_id: str, now: datetime) -> None:
+        await self._credentials.increment_failure(
+            user_id,
+            max_attempts=_MAX_FAILED_ATTEMPTS,
+            lock_until=now + _LOCKOUT_DURATION,
         )

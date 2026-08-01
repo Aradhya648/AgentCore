@@ -20,11 +20,6 @@ export type TurnPhase =
 
 export type TurnTerminalOutcome = "stopped" | "completed" | "failed";
 
-/** 引擎停止确认宽限：超时仍停在 stopping →「停止未确认」可重试（不伪造终态）。 */
-export const STOP_CONFIRM_TIMEOUT_MS = 8_000;
-
-const stopTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-
 export function isTerminalPhase(phase: TurnPhase): boolean {
   return phase === "stopped" || phase === "completed" || phase === "failed";
 }
@@ -76,33 +71,4 @@ export function allowsSseEvent(phase: TurnPhase, eventType: string): boolean {
     eventType === "execution_detached" ||
     eventType === "execution_completed"
   );
-}
-
-export function clearStopConfirmTimeout(conversationId: string): void {
-  const t = stopTimeouts.get(conversationId);
-  if (t !== undefined) {
-    clearTimeout(t);
-    stopTimeouts.delete(conversationId);
-  }
-}
-
-/** 在 stopping 宽限到期时回调；重复 arm 会重置计时。 */
-export function armStopConfirmTimeout(
-  conversationId: string,
-  onTimeout: () => void,
-): void {
-  clearStopConfirmTimeout(conversationId);
-  stopTimeouts.set(
-    conversationId,
-    setTimeout(() => {
-      stopTimeouts.delete(conversationId);
-      onTimeout();
-    }, STOP_CONFIRM_TIMEOUT_MS),
-  );
-}
-
-/** 测试 / 卸载：清掉挂起的停止确认计时器。 */
-export function resetTurnPhaseTimers(): void {
-  for (const [, t] of stopTimeouts) clearTimeout(t);
-  stopTimeouts.clear();
 }

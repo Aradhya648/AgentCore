@@ -12,7 +12,7 @@ from agentcore.config import settings
 from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes, new_id
 from agentcore.desktop.channel import DesktopClientChannel
 from agentcore.llm.profiles import TurnProfiles
-from agentcore.runtime.context import build_workspace_context, desktop_client_can_bind
+from agentcore.runtime.context import build_workspace_context, resolve_channel_profile
 from agentcore.runtime.costing import RunCost
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.interaction import default_interaction_registry
@@ -128,9 +128,9 @@ async def _wire_continuation_toolset(
     from agentcore.tools.sandbox.exec_languages import resolve_exec_languages
 
     exec_languages = await resolve_exec_languages(backend)
-    desktop_online = (
-        desktop_client_can_bind(x_client_platform) or backend.location == "local"
-    )
+    # Host / MCP backfill needs a desktop client — orthogonal to workspace location.
+    channel = resolve_channel_profile(x_client_platform)
+    desktop_online = channel.desktop_online
     desktop_channel = (
         DesktopClientChannel(
             sink=sink,
@@ -295,8 +295,7 @@ async def _wire_continuation_toolset(
         conversation_history_access=conversation_history_access,
         has_memory_topics=topics_present,
         permission_axes=permission_axes,
-        advertise_bind_local_folder=checkpoint_enabled
-        and desktop_client_can_bind(x_client_platform),
+        advertise_bind_local_folder=checkpoint_enabled and channel.can_bind_folder,
         desktop_online=desktop_online,
     )
 

@@ -196,6 +196,10 @@ class WaveScheduler:
           (cascade-skip set + graceful-abort tail), with ``reason`` ``cascade`` or
           ``abort``. Drive wires it to ``run_skipped`` SSE so the graph shows「未执行」
           instead of forever-pending. Seeded SKIPPED nodes are not re-emitted.
+          Terminal cancel (parent force_cancel / nested drive abort / user stop) also
+          fires it for never-dispatched tails before re-raising — so cancel cannot
+          silently LEFT OUT planned nodes. ask_user ``soft_stop`` resume cancels are
+          exempt (resume re-drives the journal seed; durable skips would poison it).
         - ``metrics_sink`` (调度埋点量化), when given, receives ONE :class:`BatchMetrics`
           appended at terminal — concurrency / parallelism / slot-starvation / outcome
           counts for this run — for the host to log. Kept as a sink (not a return /
@@ -204,6 +208,8 @@ class WaveScheduler:
 
         On external cancel (user stop) every in-flight child is cancelled and
         awaited before the cancellation propagates — a worker task is never orphaned.
+        Never-dispatched plan nodes emit ``on_skipped(abort)`` on terminal cancel
+        (see above) so the graph closes as「未执行」instead of ghost pending.
         """
         completed: dict[str, RunState] = dict(seed_completed or {})
         skipped: set[str] = set()
@@ -215,6 +221,33 @@ class WaveScheduler:
         checkpoint_pending: list[RunSpec] = []
         aborted = False
         stopped = False
+
+        # Materialise never-ran nodes as SKIPPED + emit on_skipped. Shared by graceful
+        # abort close and terminal-cancel unwind (1B). Seeded entries stay put.
+        def _materialise_skipped(run_id: str, reason: str) -> None:
+            if run_id in completed:
+                return
+            completed[run_id] = RunState(phase=RunPhase.SKIPPED)
+            if on_skipped is None:
+                return
+            node = plan.by_id(run_id)
+            agent_id = (node.agent_id if node and node.agent_id else "") or run_id
+            on_skipped(run_id, agent_id, reason)
+
+        def _materialise_undispatched_tails(*, abort_reason: str = "abort") -> None:
+            """Cascade set + every plan node not yet terminal → SKIPPED.
+
+            In-flight ids are excluded: they emit ``run_cancelled`` while unwinding,
+            not ``run_skipped``.
+            """
+            inflight_ids = set(running.values())
+            for run_id in skipped:
+                if run_id not in inflight_ids:
+                    _materialise_skipped(run_id, "cascade")
+            for node in plan.nodes:
+                if node.run_id in completed or node.run_id in inflight_ids:
+                    continue
+                _materialise_skipped(node.run_id, abort_reason)
 
         # Cheap topology self-check (defense): build-time paths already call
         # ``plan.waves()``; catch plans that bypassed construction (direct construct /
@@ -573,28 +606,34 @@ class WaveScheduler:
                 task.cancel("stop")
             if running:
                 await asyncio.shield(asyncio.gather(*running, return_exceptions=True))
+            # 1B: terminal cancel must not silently LEFT OUT never-dispatched plan
+            # nodes (nested parent force_cancel / user_stop / crash). Emit
+            # on_skipped(abort) so the graph closes as「未执行」. ask_user soft_stop
+            # cancels the drive so resume can re-drive the journal seed — skip
+            # durable skips there or resume would see false terminals.
+            soft_resume = False
+            try:
+                from agentcore.runtime.coordination.session import active_coordination
+
+                sess = active_coordination()
+                soft_resume = sess is not None and bool(sess.soft_stop)
+            except Exception:  # noqa: BLE001 — cancel path must still re-raise
+                soft_resume = False
+            if not soft_resume:
+                _materialise_undispatched_tails(abort_reason="abort")
             raise
 
         # Materialise cascade-skipped nodes (never ran) as SKIPPED + emit run_skipped
         # so the graph shows「未执行」instead of forever-pending. Seeded entries are
         # left alone (setdefault / membership check) — no re-emit on resume.
-        def _materialise_skipped(run_id: str, reason: str) -> None:
-            if run_id in completed:
-                return
-            completed[run_id] = RunState(phase=RunPhase.SKIPPED)
-            if on_skipped is None:
-                return
-            node = plan.by_id(run_id)
-            agent_id = (node.agent_id if node and node.agent_id else "") or run_id
-            on_skipped(run_id, agent_id, reason)
-
         for run_id in skipped:
             _materialise_skipped(run_id, "cascade")
         # A graceful abort (on_failure=abort, or a plan_review stop) ends scheduling
         # with an un-run tail; materialise it as SKIPPED — the same shape as a cascade
         # skip — so the CEO overview / graph shows「未执行」cleanly instead of a silently
-        # absent node. (A soft should_stop pause is the resume substrate, not an abort,
-        # so its tail is left out of ``completed`` to re-run on resume.)
+        # absent node. (A soft should_stop / YIELD pause is the resume substrate, not an
+        # abort, so its tail is left out of ``completed`` to re-run on resume / for
+        # drive-layer turn-budget enrichment.)
         if aborted:
             for node in plan.nodes:
                 _materialise_skipped(node.run_id, "abort")

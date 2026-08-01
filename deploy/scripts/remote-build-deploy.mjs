@@ -19,6 +19,10 @@ if (!sha) {
   console.error("usage: node deploy/scripts/remote-build-deploy.mjs <short-sha>");
   process.exit(1);
 }
+if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) {
+  console.error(`ERROR: invalid SHA '${sha}' (expected 7–40 hex chars)`);
+  process.exit(1);
+}
 
 // Live stack may sit outside repo/deploy (e.g. a cutover snapshot). finish-server.sh
 // already honors AGENTCORE_DEPLOY_DIR; pass it through SSH when set locally.

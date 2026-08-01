@@ -138,6 +138,8 @@ def needs_file_contents(
         return True
     if deliverable.output_format == "json" and deliverable.artifacts:
         return True
+    if deliverable.code_audit_gate:
+        return True
     if not is_file_deliverable(deliverable):
         return False
     return bool(
@@ -366,6 +368,17 @@ def check_contract(
                 artifact_contents,
                 ledger_entries=ledger_entries,
                 citable_ids=citable_ids,
+            )
+        )
+    # code_audit 结构闸（L2b）：配套 *.audit.json 字段语义；与成篇硬门正交。
+    if deliverable.code_audit_gate:
+        from agentcore.runtime.runs.code_audit_gate import code_audit_json_failures
+
+        failures.extend(
+            code_audit_json_failures(
+                artifacts=deliverable.artifacts,
+                workspace_paths=workspace_paths or [],
+                artifact_contents=artifact_contents,
             )
         )
     soft_failures: list[str] = []
@@ -956,6 +969,14 @@ def describe_deliverable(deliverable: Deliverable | None) -> str:
                 "- 必须调用 file_write / str_replace / file_append 把产物写进工作区"
                 "（成品是落盘文件，不能只贴在回复正文里）"
             )
+    if deliverable.code_audit_gate:
+        lines.append(
+            "- 须另交配套 `*.audit.json`（findings：severity/verification/verdict/evidence；"
+            "高须 trigger_path；安全类或高须 reachability）；"
+            "未读全/待核实不得标中+；全量 tsc/pytest 超时不得标中+；结构闸硬拒违规"
+        )
+    if deliverable.strict:
+        lines.append("- 契约严格模式：返工后仍不达标将判定本节点失败（非软提醒）")
     return "\n".join(lines)
 
 

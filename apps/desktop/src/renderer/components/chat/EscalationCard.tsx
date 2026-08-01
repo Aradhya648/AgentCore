@@ -281,9 +281,14 @@ function PendingOwnershipEscalation({
           </p>
           {escalation.assumption ? (
             <p className="mt-2 rounded-lg bg-card/60 px-2.5 py-1.5 text-xs text-muted-foreground">
-              未答则按此继续：{escalation.assumption}
+              不移交写权时将按此继续（目标路径修订会落空）：
+              {escalation.assumption}
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-2 rounded-lg bg-card/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+              「保持原主 / 按假设继续」均不移交写权，升级方无法改上述路径。
+            </p>
+          )}
         </div>
       </div>
 
@@ -328,7 +333,7 @@ function PendingOwnershipEscalation({
             )
           }
         >
-          按假设继续
+          按假设继续（不移交）
         </Button>
       </div>
     </DecisionCard>
@@ -556,11 +561,24 @@ function ResolvedEscalation({
   const assumed = escalation.status === "assumed";
   const timedOut = escalation.status === "timed_out";
   const isFallback = assumed || timedOut;
+  const ownershipConflict = (escalation.ownershipPaths?.length ?? 0) > 0;
   let headline: string;
   if (assumed) {
-    headline = byCeo ? "主管选按假设继续" : "你选了按假设继续";
+    headline = ownershipConflict
+      ? byCeo
+        ? "主管选按假设继续（未移交写权）"
+        : "你选了按假设继续（未移交写权）"
+      : byCeo
+        ? "主管选按假设继续"
+        : "你选了按假设继续";
   } else if (timedOut) {
-    headline = byCeo ? "主管未裁 · 超时按假设继续" : "超时未答 · 已按假设继续";
+    headline = ownershipConflict
+      ? byCeo
+        ? "主管未裁 · 超时按假设（未移交写权）"
+        : "超时未答 · 已按假设继续（未移交写权）"
+      : byCeo
+        ? "主管未裁 · 超时按假设继续"
+        : "超时未答 · 已按假设继续";
   } else if (byCeo) {
     headline = viaUser ? "CEO 已仲裁（经用户）" : "CEO 已仲裁";
   } else {

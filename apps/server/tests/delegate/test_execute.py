@@ -132,6 +132,16 @@ def test_should_auto_light_delegate():
             }
         ]
     )
+    # light 不再盖短轮：browser_* 工具面可走 auto-light（coordination=none 等）
+    assert delegate_tool_mod._should_auto_light_delegate(
+        [
+            {
+                "role": "浏览器操作员",
+                "task": "打开百度搜一下",
+                "tools": ["browser_navigate", "browser_snapshot", "browser_type", "browser_click"],
+            }
+        ]
+    )
 
 
 async def test_single_worker_auto_infers_light_complexity_hint(monkeypatch):
@@ -164,7 +174,7 @@ async def test_single_worker_deep_deliverable_skips_auto_light(monkeypatch):
 
 
 async def test_explicit_light_with_file_deliverable_kept_for_repair(monkeypatch):
-    """显式 light + requires_files/artifacts → 保留 light（修码快修）；缩 max_rounds。"""
+    """显式 light + requires_files/artifacts → 保留 light（修码快修）；不再缩 max_rounds。"""
     import agentcore.runtime.runs as runs_mod
 
     spy = LogSpy()
@@ -196,7 +206,7 @@ async def test_explicit_light_with_file_deliverable_kept_for_repair(monkeypatch)
     assert spy.get("delegate.started")["complexity_hint"] == "light"
     assert not any(name == "delegate.complexity_hint_ignored" for name, _ in spy.events)
     assert captured["complexity_hint"] == "light"
-    assert captured["max_rounds"] == 6
+    assert captured["max_rounds"] is None
 
 
 async def test_explicit_light_with_long_form_ignored(monkeypatch):
@@ -736,6 +746,7 @@ def test_schema_cues_xor_and_top_level_completion_criteria():
     params = t.schema.parameters
     props = params["properties"]
     assert set(props["playbook"]["enum"]) == {
+        "code_audit",
         "parallel_brief",
         "research_report",
         "build_feature",

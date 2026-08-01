@@ -120,6 +120,16 @@ def test_identity_shape_error_bare_model():
     assert "origin" in err
 
 
+def test_identity_shape_error_slash_in_model():
+    err = identity_shape_error(
+        ModelIdentity(model="platform/deepseek-v4-flash", origin="platform")
+    )
+    assert err
+    assert "/" in err or "路由键" in err
+    assert "platform/platform" not in err
+    assert "分字段" in err or "model=" in err
+
+
 # --- 路由键 / 注入优先 -------------------------------------------------------
 
 
@@ -542,6 +552,8 @@ def test_skill_teaches_triple_not_mvp_empty():
     assert "中立槽" not in body
     assert "moderator_model" in body
     assert "可与辩手同模" in body
+    assert "路由键" in body or "分字段" in body
+    assert "禁止" in body and ("/" in body or "路由键" in body)
 
 
 def test_schema_exposes_moderator_model():
@@ -712,3 +724,134 @@ async def test_prepare_ambiguous_sets_model_candidates():
     assert err
     assert cfg.model_candidates
     assert all("model" in c and "origin" in c and "label" in c for c in cfg.model_candidates)
+    # 候选 tip 分字段，不以 origin/model 作主抄写串
+    assert "model=" in err
+    assert "origin=" in err
+    assert "byok/deepseek-chat" not in err
+    assert "byok/deepseek-coder" not in err
+
+
+@pytest.mark.asyncio
+async def test_prepare_utterance_prefer_disambiguates_platform_byok():
+    """用户话含「平台的」+ 同名 platform/byok → 一次消歧到 platform。"""
+    from agentcore.runtime.debate.models import prepare_debate_model_plan
+
+    sides = [
+        DebateSide(key="pro", name="正", stance="支持", model="glm-5.2", origin="platform"),
+        DebateSide(key="con", name="反", stance="反对", model="DeepSeek V4 flash"),
+    ]
+    cfg = DebateConfig(motion="谁更聪明", form=DebateForm.DEBATE, sides=sides)
+    cat = _catalog(
+        _entry("glm-5.2"),
+        ModelCatalogEntry(
+            id="deepseek-v4-flash",
+            origin="platform",
+            display_name="DeepSeek V4 flash",
+            vendor="test",
+            available=True,
+            provider_id=None,
+        ),
+        ModelCatalogEntry(
+            id="deepseek-v4-flash",
+            origin="byok",
+            display_name="DeepSeek V4 flash",
+            vendor="test",
+            available=True,
+            provider_id="ds-byok",
+        ),
+    )
+    err = await prepare_debate_model_plan(
+        cfg,
+        user_id="u1",
+        turn_model="glm-5.2",
+        catalog=cat,
+        user_message="用平台的 DeepSeek V4 flash 跟 glm 辩一场",
+    )
+    assert err == ""
+    assert cfg.sides[1].model == "deepseek-v4-flash"
+    assert cfg.sides[1].origin == "platform"
+    assert cfg.sides[1].provider_id == ""
+
+
+@pytest.mark.asyncio
+async def test_prepare_model_slash_shape_error_no_double_platform():
+    """model 含 / → 形状错误；文案教分字段；错误串无 platform/platform。"""
+    from agentcore.runtime.debate.models import prepare_debate_model_plan
+
+    sides = [
+        DebateSide(
+            key="pro",
+            name="正",
+            stance="支持",
+            model="platform/deepseek-v4-flash",
+            origin="platform",
+        ),
+        DebateSide(key="con", name="反", stance="反对"),
+    ]
+    cfg = DebateConfig(motion="m", form=DebateForm.DEBATE, sides=sides)
+    cat = _catalog(_entry("deepseek-v4-flash"), _entry("gpt-4o"))
+    err = await prepare_debate_model_plan(
+        cfg,
+        user_id="u1",
+        turn_model="gpt-4o",
+        catalog=cat,
+    )
+    assert err
+    assert "platform/platform" not in err
+    assert "分字段" in err or "禁止写入路由键" in err
+    # 未剥前缀写回
+    assert cfg.sides[0].model == "platform/deepseek-v4-flash"
+
+
+def test_resolve_mention_candidate_tip_field_format():
+    from agentcore.runtime.debate.models import resolve_model_mention
+
+    cat = _catalog(
+        _entry("deepseek-chat", origin="byok", provider_id="a"),
+        _entry("deepseek-coder", origin="byok", provider_id="b"),
+    )
+    r = resolve_model_mention("DeepSeek", cat, side_key="con")
+    assert not r.ok
+    assert "model=" in r.error
+    assert "origin=" in r.error
+    assert "byok/deepseek-chat" not in r.error
+    assert "provider_id=" in r.error
+
+
+def test_infer_utterance_origin_preference_platform():
+    from agentcore.runtime.debate.models import infer_utterance_origin_preference
+
+    assert (
+        infer_utterance_origin_preference("用平台的 DeepSeek 辩", "谁更聪明")
+        == "platform"
+    )
+    assert infer_utterance_origin_preference("", "byok deepseek") == "byok"
+    assert infer_utterance_origin_preference("随便辩一场", "开放命题") is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_no_prefer_still_ambiguous_hard_fail():
+    """无 utterance 偏好 + platform/byok 同提及 → 仍多候选硬失败（禁 silent）。"""
+    from agentcore.runtime.debate.models import prepare_debate_model_plan
+
+    sides = [
+        DebateSide(key="pro", name="正", stance="支持", model="gpt-4o", origin="platform"),
+        DebateSide(key="con", name="反", stance="反对", model="deepseek-v4-flash"),
+    ]
+    cfg = DebateConfig(motion="开放辩题", form=DebateForm.DEBATE, sides=sides)
+    cat = _catalog(
+        _entry("gpt-4o"),
+        _entry("deepseek-v4-flash", origin="platform"),
+        _entry("deepseek-v4-flash", origin="byok", provider_id="ds"),
+    )
+    err = await prepare_debate_model_plan(
+        cfg,
+        user_id="u1",
+        turn_model="gpt-4o",
+        catalog=cat,
+        user_message="两边辩一下",
+    )
+    assert err
+    assert len(cfg.model_candidates) >= 2
+    assert "silent" not in cfg.sides[1].origin  # 未写回 silent 身份
+    assert cfg.sides[1].origin == ""  # 未 silent 选定

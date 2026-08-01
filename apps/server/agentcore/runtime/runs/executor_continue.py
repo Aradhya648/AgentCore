@@ -234,6 +234,9 @@ async def _continue_run_scoped(
             side_key=side_key,
         )
     )
+    from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+
+    emit_run_phase(sink, continuation_run_id, agent_id, "thinking")
     if context_blocks:
         sink.emit(
             run_context(continuation_run_id, agent_id, _context_block_payloads(context_blocks))

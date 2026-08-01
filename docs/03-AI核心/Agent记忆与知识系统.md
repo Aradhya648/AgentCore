@@ -54,8 +54,9 @@ AgentCore/
 1. 工作记忆经 `load_recent_history` 进窗口（CEO / worker 共用）。
 2. 长期记忆折叠进共享 `<rules>` 基座：用户规则在前（权威）、AI 记忆在后（软措辞）；无用户规则时与旧 memory-only 块逐字节一致（护前缀缓存）。
 3. always 序：**全局偏好 → 全局画像 → 项目画像 → 项目导航**（缺文件跳过）；on_demand 主题只列目录，按需 `consult_memory`（项目优先、全局兜底）。
-4. 注入前剥人面 chrome（H1 + 说明引用块），文件本身不动。
-5. 装配顺序权威 → [执行引擎 §七](/docs/03-AI核心/执行引擎架构设计.md) / `runtime/context/`（`SectionOrder`）。
+4. **当前课题认定**（✅）：「继续做项目 / 汇报现状」且用户未点名时，**工作区（及已绑工程）近况 ＞ 全局画像「正在做 X」**——全局仅软参考，不得压过工作区，也不得把旧项目名写进默认提问套用户。偏好/文风等仍可用全局记忆。
+5. 注入前剥人面 chrome（H1 + 说明引用块），文件本身不动。
+6. 装配顺序权威 → [执行引擎 §七](/docs/03-AI核心/执行引擎架构设计.md) / `runtime/context/`（`SectionOrder`）。
 
 → 见代码：`memory/rules_injection.py`
 
@@ -120,7 +121,7 @@ Worker 经 `search_conversations` / `read_conversation` 按需检索本账号历
 
 ## 五、其它要点
 
-- **自动标题**：侧边栏 UX，非记忆层；不进 Agent 上下文。云回合在首条用户消息落库后并行铸题；本地 sidecar 仍回合结束回写。
+- **自动标题**：侧边栏 UX，非记忆层；不进 Agent 上下文。云/本地均在首条用户消息可用后并行铸题（只用用户首句，`assistant_reply=""`）。云走 `schedule_title_generation` + SSE `title_generated`；本地 sidecar 无云 SSE，桌面首发并行 `POST …/auto-title`，回合回写仅空标题兜底（`_title_inflight` 时跳过）。禁止首轮后再补铸。
 - **会话摘要记忆层已移除**：跨会话情景对 CEO 分工帮助有限；可复用信号由长期记忆承载。两层协议的「情景沉淀」不注入——与本否决不冲突。
 - **搜索**：取消向量 RAG 作 prompt 自动注入；agentic 检索（`file_read`/`grep`/`code_search`）为主路。`code_search` = 工具后端（**只查**当前 BM25 快照），索引由回合启动 / 写后后台 `IndexMaintainer` 维护；`building`/`stale` 时模型改用 `grep`。非 RAG 层。
 - **远期**：TWM / recall / 委派预算等延后到窗口不足时（DeepSeek 1M 远大于 MVP 用量）。

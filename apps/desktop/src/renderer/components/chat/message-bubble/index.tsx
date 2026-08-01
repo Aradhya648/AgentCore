@@ -1,7 +1,10 @@
+import { InterjectionTimeline } from "@/components/chat/InterjectionTimeline";
 import { isExecutionHarvestMessage } from "@/lib/executionHarvest";
-import { useActiveMessageFocus } from "@/stores/conversation";
+import {
+  assistantProjectionId,
+  useActiveMessageFocus,
+} from "@/stores/conversation";
 import { memo, useEffect, useRef } from "react";
-import { HarvestSystemChip } from "../HarvestSystemChip";
 import { AssistantMessage } from "./AssistantMessage";
 import { UserMessage } from "./UserMessage";
 import type { MessageBubbleProps } from "./types";
@@ -29,28 +32,28 @@ export const MessageBubble = memo(function MessageBubble({
     ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focus?.id, focus?.nonce, message.id, message.serverMessageId]);
 
+  // 合成收口行：不渲染芯片，也不走用户气泡（避免露出模型提示词）。
   if (isExecutionHarvestMessage(message)) {
-    return (
+    return null;
+  }
+
+  const isAssistant = message.role === "assistant";
+  return (
+    <>
       <div
         ref={ref}
         className="scroll-mt-6 rounded-xl animate-message-enter motion-reduce:animate-none"
       >
-        <HarvestSystemChip message={message} />
+        {isAssistant ? (
+          <AssistantMessage message={message} />
+        ) : (
+          <UserMessage message={message} />
+        )}
       </div>
-    );
-  }
-
-  return (
-    <div
-      ref={ref}
-      className="scroll-mt-6 rounded-xl animate-message-enter motion-reduce:animate-none"
-    >
-      {message.role === "user" ? (
-        <UserMessage message={message} />
-      ) : (
-        <AssistantMessage message={message} />
-      )}
-    </div>
+      {isAssistant ? (
+        <InterjectionTimeline messageId={assistantProjectionId(message)} />
+      ) : null}
+    </>
   );
 });
 

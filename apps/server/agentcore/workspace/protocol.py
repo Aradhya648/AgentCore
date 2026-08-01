@@ -122,6 +122,8 @@ class TreeResult:
     entries: list[TreeEntry]
     truncated: bool
     elided_count: int
+    # Soft skips (e.g. per-dir access denied) — listing still succeeds.
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -161,6 +163,8 @@ class GrepResult:
     file_counts: list[tuple[str, int]] = field(default_factory=list)
     total_matches: int = 0
     truncated: bool = False
+    # Soft skips (e.g. rg IO / access denied on one subtree) — search still succeeds.
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

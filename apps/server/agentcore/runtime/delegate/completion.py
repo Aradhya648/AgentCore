@@ -41,6 +41,19 @@ CriteriaSource = Literal["explicit", "structured", "text_inferred"]
 # Must stay aligned with ``code_execution_enabled_for`` / worker registry execution class.
 _EXECUTION_TOOL_NAMES = frozenset({"code_execute", "test_run", "terminal"})
 
+# Write/landing tool names (structural allow-list for files deliverable / files_written).
+# Keep aligned with serialize ``_FILE_PRODUCT_ARG`` keys; local frozenset avoids import cycles.
+_WRITE_TOOL_NAMES = frozenset(
+    {
+        "file_write",
+        "file_append",
+        "str_replace",
+        "write_section",
+        "file_move",
+        "file_copy",
+    }
+)
+
 # Soft overlay: TypeScript landings may remind about verify (not task-text inference).
 # Soft only — never blocks the batch / criteria_unmet; explicit code_verified still binds.
 _TYPESCRIPT_SUFFIXES = frozenset({".ts", ".tsx"})
@@ -565,6 +578,98 @@ def validate_code_verified_worker_tools(raw: Any, plan: RunPlan) -> str | None:
     )
 
 
+def _deliverable_promises_landing(spec: Any) -> bool:
+    """True when this worker's deliverable commits to landing files on disk.
+
+    ``form=files`` / ``requires_files`` / non-empty ``artifacts`` count.
+    ``form=prose`` never counts (even if other flags were set — those are rejected
+    elsewhere).
+    """
+    deliverable = getattr(spec, "deliverable", None)
+    if deliverable is None:
+        return False
+    if getattr(deliverable, "form", None) == "prose":
+        return False
+    if getattr(deliverable, "form", None) == "files":
+        return True
+    if getattr(deliverable, "requires_files", False):
+        return True
+    artifacts = getattr(deliverable, "artifacts", None) or []
+    return bool(artifacts)
+
+
+def _node_is_non_prose(spec: Any) -> bool:
+    """True when the worker can land files (not explicit ``form=prose``)."""
+    deliverable = getattr(spec, "deliverable", None)
+    return deliverable is None or getattr(deliverable, "form", None) != "prose"
+
+
+def node_holds_write_tools(spec: Any) -> bool:
+    """True when the node is offered the write/landing tool set (structural).
+
+    ``tools is None`` = unrestricted fail-safe default (all team tools, including
+    write class). A non-empty allow-list must intersect ``file_write`` /
+    ``file_append`` / ``str_replace`` / ``write_section`` / ``file_move`` /
+    ``file_copy``. Never uses role text.
+    """
+    tools = getattr(spec, "tools", None)
+    if tools is None:
+        return True
+    return bool(_WRITE_TOOL_NAMES.intersection(tools))
+
+
+def validate_files_worker_tools(raw: Any, plan: RunPlan) -> str | None:
+    """Hard gate: landing promise / file-landing criteria require write tools.
+
+    1. Per worker: deliverable commits to disk (``form=files`` / ``requires_files`` /
+       non-empty ``artifacts``; never ``form=prose``) **and** explicit ``tools``
+       allow-list has no write-tool intersection → reject, naming the role.
+    2. Batch: resolved acceptance is ``files_written`` / ``code_verified`` /
+       ``graph_consistent`` (same resolve as other gates; ``code_verified`` still
+       needs landing) → ≥1 non-prose worker must :func:`node_holds_write_tools`.
+
+    Orthogonal to :func:`validate_code_verified_worker_tools` (execution class).
+    Call after ``apply_continuation_tool_merges``.
+    """
+    write_list = " / ".join(sorted(_WRITE_TOOL_NAMES))
+    offenders: list[str] = []
+    for node in plan.nodes:
+        if not _deliverable_promises_landing(node):
+            continue
+        tools = getattr(node, "tools", None)
+        if tools is None:
+            continue
+        if _WRITE_TOOL_NAMES.intersection(tools):
+            continue
+        offenders.append(str(getattr(node, "role", None) or getattr(node, "run_id", "?")))
+    if offenders:
+        named = "、".join(f"「{r}」" for r in offenders)
+        return (
+            f"契约矛盾：队员{named}承诺落盘（form=files / requires_files / artifacts）"
+            f"但 tools 白名单不含写盘工具（{write_list}）。出路："
+            "① 白名单补上 file_write（或 str_replace / file_append 等）；"
+            "② 纯检索 / 纯文字改 form=prose；"
+            "③ 省略 tools 使用全量工具面。"
+        )
+
+    criteria = resolve_completion_criteria(raw, plan)
+    if criteria is None or criteria.kind not in _FILE_LANDING_CRITERIA_KINDS:
+        return None
+    if any(
+        _node_is_non_prose(node) and node_holds_write_tools(node) for node in plan.nodes
+    ):
+        return None
+    kind = criteria.kind
+    return (
+        f"无法按 {kind} 验收：本批无人持有写盘工具（{write_list}），落盘无法落地。"
+        "出路："
+        "① 给至少一名非 prose worker 的 tools 补上 file_write（或 str_replace 等）；"
+        "乙续派可在原调查面声明超集 tools（只增不减 merge）；"
+        "② 纯文字交付改 form=prose 并省略该类验收，或改用 runtime_ready；"
+        "③ 省略 tools 使用全量工具面。"
+    )
+
+
 def execution_capability_warning(
     raw: Any,
     plan: RunPlan,
@@ -721,7 +826,9 @@ def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
         return (
             "- 本批验收：code_verified（须至少一次成功落盘 + 验绿：默认走有界项目验证 "
             "test_run：tsc|typecheck|test|build 等；【不要】把慢 build/全量 tsc 塞进 "
-            "code_execute；terminal 仅长驻。普通脚本/打印/启动开发服务器不算；"
+            "code_execute；全量 typecheck/build/`tsc -b` 仅验收员执行，修码 worker "
+            "默认窄范围（scope=file / 包内 / 改动相关），禁止三路并行全仓 tsc；"
+            "terminal 仅长驻。普通脚本/打印/启动开发服务器不算；"
             "纯 prose / 零写预存绿测不算过门；落盘用 file_write / str_replace"
             f"{how_line}；你持有执行工具时请在收尾前完成落盘与验证）"
         )

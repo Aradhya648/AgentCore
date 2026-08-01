@@ -63,10 +63,16 @@ logger = get_logger(__name__)
 
 _DEFAULT_READ_LINES = 500
 
-# Overwrite integrity nudge (soft only — never blocks write / never auto-redispatches).
+# Overwrite integrity nudge (soft — never auto-redispatches).
 # Fires when ``file_write`` clobbers a non-empty file and the new body looks truncated
-# (omission markers or severe shrink). Same principle as ``engine.audit_gate_nudge``.
+# (short-body omission markers or severe shrink). Substantial prose with omission
+# markers is hard-rejected at the FileWriteTool accept point (not soft-nudged).
+# Same principle as ``engine.audit_gate_nudge`` for the soft path.
 _INTEGRITY_SHRINK_RATIO = 0.6
+# Delivery-incomplete literals (write-path integrity). Distinct from
+# ``core.text.DEFAULT_ELISION_MARKER`` (system *view* truncation for model-facing
+# budgets). Do not reuse transport elision wording here — models must not treat
+# view cuts as license to land incomplete artifacts.
 _OMISSION_LITERALS = (
     "中间省略",
     "已保留首尾",
@@ -78,8 +84,8 @@ _OMISSION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# "成篇" threshold: delete gate + classify_write_kind / prose-append still depend on it.
-# file_write whole-file overwrite is allowed (prefer str_replace; soft integrity nudge only).
+# "成篇" threshold: delete gate + classify_write_kind / prose-append / omission hard-reject.
+# file_write whole-file overwrite is allowed (prefer str_replace).
 # Length is advisory only (skill / schema 建议分段) — no hard reject on oversized bodies.
 _SUBSTANTIAL_FILE_CHARS = 400
 
@@ -369,11 +375,20 @@ def _mark_landed_files(
     ``kind="prose"`` locks same-path append. ``kind="skeleton"`` or omitted keeps
     append allowed. Existing ``prose`` is never downgraded.
     First writer of ``path`` is recorded in ``landed_artifact_authors`` (setdefault).
+
+    Successful land also resets the same-path ``file_read`` ceiling (counts → 0 +
+    sticky reread grant) so post-write verify / citation refresh is not blocked.
+    Failure paths never call this — no grant on failed ``str_replace`` receipts.
     """
     context.has_landed_files = True
     path_key = _norm_rel_path(path)
     if not path_key:
         return
+    # Post-write verify: clear same-path read ceiling and refresh sticky grant.
+    context.file_read_counts[path_key] = 0
+    from agentcore.runtime.engine.tool_clear import refresh_file_read_reread_grant
+
+    refresh_file_read_reread_grant(context, [path_key])
     # C3: successful I/O → path is no longer declare-only on the ownership ledger.
     coordinator = context.write_coordinator
     if coordinator is not None:
@@ -392,28 +407,49 @@ def _mark_landed_files(
         context.landed_artifact_kinds.setdefault(path_key, "skeleton")
 
 
-def _truncate_content_lines(content: str, max_lines: int) -> str:
-    """Keep the first ``max_lines`` logical lines, preserving original line endings."""
-    if max_lines <= 0:
-        return ""
-    count = 0
-    i = 0
-    n = len(content)
-    while i < n and count < max_lines:
-        count += 1
-        j = content.find("\n", i)
-        if j == -1:
-            return content
-        i = j + 1
-    return content[:i]
-
-
 def _format_numbered_lines(lines: list[str], start_line: int) -> str:
     return "\n".join(
         f"{lineno:>6}|{text}"
         for lineno, text in zip(
             range(start_line, start_line + len(lines)), lines, strict=True
         )
+    )
+
+
+def _format_line_window(
+    lines: list[str],
+    *,
+    start_line: int,
+    end_line: int,
+    total_lines: int,
+) -> str:
+    """Honest ranged view: numbered lines + footer ``（第 a–b 行，共 N 行）``.
+
+    Never silently drops a tail without a footer, and never inserts transport
+    elision (``DEFAULT_ELISION_MARKER``) into filesystem body text.
+    """
+    body = _format_numbered_lines(lines, start_line) if lines else ""
+    footer = f"（第 {start_line}–{end_line} 行，共 {total_lines} 行）"
+    return body + "\n\n" + footer if body else footer
+
+
+def _file_read_ok(output: str, start: float) -> ToolResult:
+    """Successful file_read result; ``output_limit`` covers full view (no 4k head+tail)."""
+    return ToolResult(
+        tool_call_id="",
+        success=True,
+        output=output,
+        duration_ms=int((time.monotonic() - start) * 1000),
+        output_limit=max(len(output), ToolResult._MAX_OUTPUT_LEN),
+    )
+
+
+def prose_omission_rejection(path: str) -> str:
+    """Hard reject when substantial prose lands with delivery-omission markers."""
+    return (
+        f"拒绝写入 `{path}`：成篇正文含省略标记（残缺交付）。"
+        "请用短骨架 + `<!-- SECTION: -->` 按节 file_append / str_replace 填空，"
+        "或一次写完完整正文；禁止用「中间省略」等标记交差。"
     )
 
 
@@ -704,6 +740,7 @@ def _render_file_tree(
     elided_count: int,
     *,
     empty_message: str | None = None,
+    warnings: list[str] | None = None,
 ) -> str:
     """Render ``list_tree`` entries as an ASCII tree (``├──`` / ``└──`` / ``│``)."""
     root_label = "./" if directory == "." else f"{directory.rstrip('/')}/"
@@ -711,7 +748,10 @@ def _render_file_tree(
 
     if not entries:
         empty = empty_message or "（空目录）"
-        return f"{root_label}\n{empty}\n\n（{max_depth} 层深度，共 0 条目）"
+        body = f"{root_label}\n{empty}\n\n（{max_depth} 层深度，共 0 条目）"
+        if warnings:
+            body += "\n" + "\n".join(f"⚠ {w}" for w in warnings)
+        return body
 
     dir_base = "" if directory == "." else directory.rstrip("/")
     root_name = "." if directory == "." else directory.rstrip("/").split("/")[-1]
@@ -755,7 +795,10 @@ def _render_file_tree(
     if truncated and elided_count:
         footer += f"；另有 {elided_count} 个条目因深度/预算未展开"
     footer += "）"
-    return "\n".join(lines) + footer
+    out = "\n".join(lines) + footer
+    if warnings:
+        out += "\n" + "\n".join(f"⚠ {w}" for w in warnings)
+    return out
 
 
 def _error(
@@ -1017,7 +1060,10 @@ def _note_file_read_success(
     *,
     using_reread: bool,
 ) -> str:
-    """Bump ``file_read_counts`` (and consume sticky re-read grant); append tip."""
+    """Bump ``file_read_counts`` for a full (non-ranged) read; consume grant; tip.
+
+    Ranged reads (offset/limit) must not call this — they neither count nor tip.
+    """
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
     context.file_read_counts[path_key] = int(context.file_read_counts.get(path_key, 0)) + 1
@@ -1026,14 +1072,16 @@ def _note_file_read_success(
         context.file_read_reread_remaining[path_key] = max(0, remaining - 1)
         if context.file_read_reread_remaining[path_key] <= 0:
             output += (
-                f"\n\n[系统提示] `{path_key}` 的清理后再读次数已用尽；"
-                "请依据本次正文或清理摘要推进，勿再重复 file_read。"
+                f"\n\n[系统提示] `{path_key}` 的再读授额已用尽；"
+                "请依据本次正文推进；若正文仍在对话中请勿空转整读，"
+                "正文已被清理时可再读，或落盘 / 换其它文件。"
             )
         return output
     if context.file_read_counts[path_key] >= FILE_READ_SAME_PATH_MAX:
         output += (
-            f"\n\n[系统提示] 本 run 对 `{path_key}` 的 file_read 已达上限 "
-            f"（{FILE_READ_SAME_PATH_MAX} 次）；请停止重复读取，改用已有正文落盘。"
+            f"\n\n[系统提示] 本 run 对 `{path_key}` 的整读 file_read 已达上限 "
+            f"（{FILE_READ_SAME_PATH_MAX} 次）；正文仍在对话中时请停止重复整读，"
+            "改用已有正文落盘；可用 offset/limit 精读片段。"
         )
     return output
 
@@ -1044,14 +1092,10 @@ def _format_extracted_read(
     offset: int | None,
     limit: int | None,
 ) -> str:
-    """Apply file_read offset/limit to extracted (or sidecar) text lines."""
-    use_range = offset is not None or limit is not None
-    if not use_range:
-        return _truncate_content_lines(
-            text if text.endswith("\n") or not text else text + "\n",
-            _DEFAULT_READ_LINES,
-        )
+    """Apply file_read offset/limit to extracted (or sidecar) text lines.
 
+    Full and ranged reads share the same honest window: numbered lines + footer.
+    """
     lines = text.splitlines()
     total = len(lines)
     eff_offset = int(offset) if offset is not None else 1
@@ -1062,9 +1106,12 @@ def _format_extracted_read(
     selected = lines[start_idx : start_idx + eff_limit]
     start_line = start_idx + 1
     end_line = start_idx + len(selected)
-    body = _format_numbered_lines(selected, start_line)
-    footer = f"\n\n（第 {start_line}–{end_line} 行，共 {total} 行）"
-    return body + footer if body else footer.lstrip()
+    return _format_line_window(
+        selected,
+        start_line=start_line,
+        end_line=end_line,
+        total_lines=total,
+    )
 
 
 class FileReadTool:
@@ -1085,9 +1132,11 @@ class FileReadTool:
                 "code_execute。"
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
-                "同一相对路径本 run 有成功读取次数上限（整读与 offset/limit 合计）；"
-                "触顶后仅拒绝该路径，其它文件仍可 file_read；须基于已有正文写作 / "
-                "handoff，勿空转重读同一文件。"
+                "回执为编号行 + 页脚「第 a–b 行，共 N 行」（区间视图；"
+                "超默认行数只展示窗口，非磁盘残缺，勿把页脚当正文去 str_replace）。"
+                "同一相对路径本 run 对【整读】有成功次数上限（带 offset/limit 的分段读"
+                "不计入、不触顶）；触顶且正文仍在对话中、又无再读授额时仅拒绝该路径，"
+                "其它文件仍可 file_read。正文已被清理或写成功后可再整读核对。"
                 "已落盘产物优先以写/append 回执中的 artifact manifest 验真。"
             ),
             parameters={
@@ -1125,39 +1174,36 @@ class FileReadTool:
         limit = arguments.get("limit")
         use_range = offset is not None or limit is not None
 
-        # Wave3 B + R1: same-path ceiling; after tool_clear removes verbatim bodies
-        # from the projected window, a sticky +1 re-read grant may apply.
+        # Same-path ceiling (full reads only): hard-reject empty spin only when
+        # verbatim body is still in the projected window AND no reread grant.
+        # Ranged (offset/limit) skips the gate and does not bump counts.
+        # Cleared body → allow recovery read even with remaining == 0.
         from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
 
         path_key = (rel_path or "").strip().replace("\\", "/")
         using_reread = False
-        if path_key:
+        if path_key and not use_range:
             prior = int(context.file_read_counts.get(path_key, 0))
             if prior >= FILE_READ_SAME_PATH_MAX:
-                verbatim = context.file_read_verbatim_paths
-                # None = projection not synced (unit tests / non-engine paths) →
-                # treat as body still present (legacy hard cap).
-                body_present = verbatim is None or path_key in verbatim
                 remaining = int(context.file_read_reread_remaining.get(path_key, 0))
-                if body_present:
-                    return _file_read_path_ceiling_error(
-                        (
-                            f"已多次读取 `{path_key}`（本 run 上限 "
-                            f"{FILE_READ_SAME_PATH_MAX} 次）。正文已在对话中，勿再读此文件；"
-                            "可换其它文件，或基于已有正文落盘 / handoff。"
-                        ),
-                        start,
-                    )
-                if remaining <= 0:
-                    return _file_read_path_ceiling_error(
-                        (
-                            f"已多次读取 `{path_key}`，且上下文中的正文已被清理、"
-                            "再读次数已用尽。请依据清理摘要推进，或读取其它文件 / 落盘；"
-                            "勿空转重复 file_read 此路径。"
-                        ),
-                        start,
-                    )
-                using_reread = True
+                if remaining > 0:
+                    # Grant overrides even when stale verbatim is still present.
+                    using_reread = True
+                else:
+                    verbatim = context.file_read_verbatim_paths
+                    # None = projection not synced (unit tests / non-engine) →
+                    # treat as body still present.
+                    body_present = verbatim is None or path_key in verbatim
+                    if body_present:
+                        return _file_read_path_ceiling_error(
+                            (
+                                f"已多次读取 `{path_key}`（本 run 上限 "
+                                f"{FILE_READ_SAME_PATH_MAX} 次）。正文已在对话中，勿再读此文件；"
+                                "可换其它文件，或基于已有正文落盘 / handoff。"
+                            ),
+                            start,
+                        )
+                    # Cleared: allow recovery full-read (no grant required).
 
         ext = extension_of(path_key or rel_path)
         if ext in SKIP_EXTENSIONS:
@@ -1181,25 +1227,13 @@ class FileReadTool:
             )
 
         try:
-            if use_range:
-                eff_offset = int(offset) if offset is not None else 1
-                eff_limit = int(limit) if limit is not None else _DEFAULT_READ_LINES
-                result = await context.backend.read_lines(
-                    rel_path, offset=eff_offset, limit=eff_limit
-                )
-            else:
-                content = await context.backend.read(rel_path)
-                content = _truncate_content_lines(content, _DEFAULT_READ_LINES)
-                if path_key:
-                    content = _note_file_read_success(
-                        context, path_key, content, using_reread=using_reread
-                    )
-                return ToolResult(
-                    tool_call_id="",
-                    success=True,
-                    output=content,
-                    duration_ms=int((time.monotonic() - start) * 1000),
-                )
+            # Full + ranged share read_lines window (default cap = _DEFAULT_READ_LINES).
+            # Never whole-file read + silent head-only chop without footer.
+            eff_offset = int(offset) if offset is not None else 1
+            eff_limit = int(limit) if limit is not None else _DEFAULT_READ_LINES
+            result = await context.backend.read_lines(
+                rel_path, offset=eff_offset, limit=eff_limit
+            )
         except OutsideWorkspace:
             return _error(
                 _outside_workspace_msg(rel_path, location=context.backend.location),
@@ -1212,23 +1246,18 @@ class FileReadTool:
         except WorkspaceError as e:
             return _map_workspace_read_error(e, path=path_key or rel_path, start=start)
 
-        body = _format_numbered_lines(result.lines, result.start_line)
-        footer = (
-            f"\n\n（第 {result.start_line}–{result.end_line} 行，共 {result.total_lines} 行）"
+        output = _format_line_window(
+            result.lines,
+            start_line=result.start_line,
+            end_line=result.end_line,
+            total_lines=result.total_lines,
         )
-        output = body + footer if body else footer.lstrip()
-
-        if path_key:
+        if path_key and not use_range:
             output = _note_file_read_success(
                 context, path_key, output, using_reread=using_reread
             )
-
-        return ToolResult(
-            tool_call_id="",
-            success=True,
-            output=output,
-            duration_ms=int((time.monotonic() - start) * 1000),
-        )
+        # Ranged success: no file_read_counts bump.
+        return _file_read_ok(output, start)
 
     async def _read_office_or_pdf(
         self,
@@ -1307,16 +1336,12 @@ class FileReadTool:
 
         assert text is not None
         output = _format_extracted_read(text, offset=offset, limit=limit)
-        if path_key:
+        use_range = offset is not None or limit is not None
+        if path_key and not use_range:
             output = _note_file_read_success(
                 context, path_key, output, using_reread=using_reread
             )
-        return ToolResult(
-            tool_call_id="",
-            success=True,
-            output=output,
-            duration_ms=int((time.monotonic() - start) * 1000),
-        )
+        return _file_read_ok(output, start)
 
 
 class FileWriteTool:
@@ -1338,12 +1363,13 @@ class FileWriteTool:
                 "【Artifact-first】短文件可一次写完；长交付物（综述/报告/长文/"
                 "整页 HTML）【建议】分段——先短骨架（标题/锚点/"
                 "`<!-- SECTION: -->`）再按节 file_append 或 str_replace 填空；"
-                "超长正文一次写亦不硬拒，仍建议分段以降低截断风险。"
+                "完整无省略的超长正文一次写完亦不硬拒字数，仍建议分段。"
                 "成功回执为 artifact manifest（优先以此验真；反复 file_read "
                 "受同 path 次数上限约束）。"
-                "【修订已有成品】优先 str_replace；整盖允许但勿惰性省略中段"
-                "（反例：「……（中间省略，已保留首尾）……」会残缺交付——"
-                "省略/字数骤降仅软提示，不拦截写入）。"
+                "【成篇省略硬拒】成篇体量正文若含省略标记（反例："
+                "「……（中间省略，已保留首尾）……」）→ 硬拒绝："
+                "须短骨架+SECTION 按节填，或一次写完完整正文，禁止省略标记交差。"
+                "字数骤降对已有文件仍仅软提示。SECTION 骨架本身可含占位。"
                 "补丁失败（str_replace NoMatch）或读不到原文 ≠ 用残缺骨架交差；"
                 "应对照失败回执中的盘片段再改，或 escalate；确需整盖须写出完整正文。"
                 "【代码完整性】对 .ts/.tsx/.js 等：无 SECTION 骨架标记时，"
@@ -1362,7 +1388,8 @@ class FileWriteTool:
                         "type": "string",
                         "description": (
                             "要写入的内容。短文件一次写完；长交付物建议短骨架 + "
-                            "按节填空（不硬拒整篇一次写）。"
+                            "按节填空。完整无省略的一次成篇允许（不硬拒字数）；"
+                            "成篇体量含省略标记则硬拒。"
                         ),
                     },
                 },
@@ -1416,7 +1443,7 @@ class FileWriteTool:
         except WorkspaceError:
             old_content = None
 
-        # 代码落盘完整性闸 (D1)：括号截断 / 省略标记硬拒；SECTION 骨架豁免。
+        # 代码落盘完整性闸 (D1)：括号截断 / 省略标记硬拒；SECTION 骨架豁免结构闸。
         if is_brace_code_path(rel_path):
             if has_omission_marker(write_content):
                 logger.info(
@@ -1442,6 +1469,24 @@ class FileWriteTool:
                     if coordinator is not None and release_on_fail:
                         coordinator.release(rel_path, context.run_id)
                     return _error(struct_err, start, contract_failure=True)
+        # 成篇 prose 省略硬拒：视图截断语气不得冒充交付；骨架占位豁免。
+        elif (
+            has_omission_marker(write_content)
+            and len((write_content or "").strip()) >= _SUBSTANTIAL_FILE_CHARS
+            and not has_skeleton_markers(write_content)
+        ):
+            logger.info(
+                "file_write.prose_omission_rejected",
+                path=rel_path,
+                chars=len(write_content),
+            )
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            return _error(
+                prose_omission_rejection(rel_path),
+                start,
+                contract_failure=True,
+            )
 
         try:
             written = await context.backend.write(rel_path, write_content)
@@ -1730,6 +1775,7 @@ class FileListTool:
                 merged: dict[str, TreeEntry] = {}
                 truncated = False
                 elided_count = 0
+                soft_warnings: list[str] = []
                 for pat in patterns:
                     tree = await context.backend.list_tree(
                         directory, pattern=pat, max_depth=max_depth
@@ -1738,6 +1784,7 @@ class FileListTool:
                         merged[entry.path] = entry
                     truncated = truncated or tree.truncated
                     elided_count += tree.elided_count
+                    soft_warnings.extend(tree.warnings)
                 entries_tree = list(merged.values())
                 empty_message = None
                 if not entries_tree and _pattern_filters(str(pattern)):
@@ -1753,6 +1800,14 @@ class FileListTool:
                             bare_entries=bare,
                             recursive=True,
                         )
+                # Dedupe soft warnings while preserving order.
+                uniq_warnings: list[str] = []
+                seen_w: set[str] = set()
+                for w in soft_warnings:
+                    if w in seen_w:
+                        continue
+                    seen_w.add(w)
+                    uniq_warnings.append(w)
                 output = _render_file_tree(
                     entries_tree,
                     directory,
@@ -1760,6 +1815,7 @@ class FileListTool:
                     truncated,
                     elided_count,
                     empty_message=empty_message,
+                    warnings=uniq_warnings,
                 )
             else:
                 # ``list`` is shared with user UI (system-noise only); strip AI

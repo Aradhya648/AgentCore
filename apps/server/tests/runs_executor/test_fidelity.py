@@ -32,7 +32,8 @@ def test_truncate_head_tail_keeps_both_ends():
     out = truncate_head_tail(content, 1_000)
     assert out.startswith("HEAD起始")  # head kept
     assert "TAIL尾注金额￥999" in out  # tail kept — the fidelity fix (was dropped before)
-    assert "中间省略" in out  # and the middle was elided
+    assert "系统视图截断" in out  # transport elision — not delivery-omission wording
+    assert "中间省略" not in out
     assert len(out) <= 1_000  # never exceeds the allowance
 
 
@@ -55,7 +56,8 @@ async def test_long_upstream_injected_with_head_and_tail_preserved():
     downstream_user = provider.user_messages[1]
     assert "起始结论" in downstream_user  # head preserved
     assert "关键尾注:法条第42条" in downstream_user  # tail preserved (the fix)
-    assert "中间省略" in downstream_user  # it WAS trimmed, not shipped whole
+    assert "系统视图截断" in downstream_user  # trimmed via transport marker, not shipped whole
+    assert "中间省略" not in downstream_user
 
 
 async def test_summarize_dep_is_compressed_not_passed_through():

@@ -805,13 +805,13 @@ async def test_parallel_same_path_file_read_coalesces_once(tmp_path: Path):
     (tmp_path / "doc.md").write_text("# Hello\nshared body\n", encoding="utf-8")
     backend = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
     reads = {"n": 0}
-    orig_read = backend.read
+    orig_read_lines = backend.read_lines
 
-    async def _counting_read(path: str, *args: Any, **kwargs: Any) -> str:
+    async def _counting_read_lines(path: str, *args: Any, **kwargs: Any):
         reads["n"] += 1
-        return await orig_read(path, *args, **kwargs)
+        return await orig_read_lines(path, *args, **kwargs)
 
-    backend.read = _counting_read  # type: ignore[method-assign]
+    backend.read_lines = _counting_read_lines  # type: ignore[method-assign]
 
     reg = ToolRegistry()
     reg.register(FileReadTool())
@@ -852,13 +852,13 @@ async def test_parallel_distinct_path_file_reads_not_coalesced(tmp_path: Path):
     (tmp_path / "b.md").write_text("BBB", encoding="utf-8")
     backend = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
     reads = {"n": 0}
-    orig_read = backend.read
+    orig_read_lines = backend.read_lines
 
-    async def _counting_read(path: str, *args: Any, **kwargs: Any) -> str:
+    async def _counting_read_lines(path: str, *args: Any, **kwargs: Any):
         reads["n"] += 1
-        return await orig_read(path, *args, **kwargs)
+        return await orig_read_lines(path, *args, **kwargs)
 
-    backend.read = _counting_read  # type: ignore[method-assign]
+    backend.read_lines = _counting_read_lines  # type: ignore[method-assign]
 
     reg = ToolRegistry()
     reg.register(FileReadTool())
@@ -945,7 +945,7 @@ async def test_prose_allowlist_deny_no_handoff_as_write():
 
 
 async def test_captain_browser_navigate_skips_approval_gate():
-    """CEO 窄例外：captain 直调 browser_navigate 不弹审批。"""
+    """CEO：captain 直调 browser_navigate 不弹审批。"""
     from agentcore.core.types import ToolApproval
 
     class _GrantableNavigate:
@@ -979,6 +979,51 @@ async def test_captain_browser_navigate_skips_approval_gate():
     reg.register(tool)
     await execute_tools(
         [_call("c1", "browser_navigate", '{"url":"https://example.com"}')],
+        reg,
+        _ctx(),
+        EventSink(),
+        run_id="cap-run",
+        role="captain",
+        approval_gate=_GateThatMustNotPrompt(),  # type: ignore[arg-type]
+    )
+    assert tool.executed is True
+
+
+async def test_captain_browser_click_skips_approval_gate():
+    """CEO 短操作：captain 直调 browser_click 亦不弹审批。"""
+    from agentcore.core.types import ToolApproval
+
+    class _GrantableClick:
+        executed = False
+
+        @property
+        def schema(self) -> ToolSchema:
+            return ToolSchema(
+                name="browser_click",
+                description="stub",
+                parameters={"type": "object", "properties": {}},
+                category=ToolCategory.EXECUTION,
+                approval=ToolApproval.GRANTABLE,
+            )
+
+        async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+            self.executed = True
+            return ToolResult(tool_call_id="", success=True, output="clicked")
+
+    class _GateThatMustNotPrompt:
+        permission_axes = None
+
+        def will_prompt(self, *args, **kwargs) -> bool:
+            raise AssertionError("captain browser_click must not prompt")
+
+        async def authorize(self, *args, **kwargs):
+            raise AssertionError("captain browser_click must not authorize")
+
+    tool = _GrantableClick()
+    reg = ToolRegistry()
+    reg.register(tool)
+    await execute_tools(
+        [_call("c1", "browser_click", '{"ref":"e1"}')],
         reg,
         _ctx(),
         EventSink(),

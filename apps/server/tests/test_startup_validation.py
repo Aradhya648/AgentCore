@@ -156,3 +156,44 @@ def test_debug_skips_cloud_code_execute_guard(monkeypatch):
     monkeypatch.setattr(settings, "code_execute_cloud_enabled", True)
     monkeypatch.setattr(settings, "code_execute_cloud_unsafe_ack", False)
     _validate_production_security()  # no raise
+
+
+def test_cors_wildcard_refuses_boot_in_production(prod_settings, monkeypatch):
+    """Credentialed CORS + origin '*' is rejected by browsers — refuse production boot."""
+    monkeypatch.setattr(prod_settings, "billing_mode", "platform")
+    monkeypatch.setattr(prod_settings, "cors_allow_origins", "*")
+    with pytest.raises(RuntimeError, match="CORS_ALLOW_ORIGINS"):
+        _validate_production_security()
+
+
+def test_cors_wildcard_among_list_refuses_boot(prod_settings, monkeypatch):
+    monkeypatch.setattr(prod_settings, "billing_mode", "platform")
+    monkeypatch.setattr(
+        prod_settings, "cors_allow_origins", "http://localhost:5173,*,https://app.example"
+    )
+    with pytest.raises(RuntimeError, match="CORS_ALLOW_ORIGINS"):
+        _validate_production_security()
+
+
+def test_cors_wildcard_warns_in_debug(monkeypatch):
+    from tests.conftest import LogSpy
+
+    spy = LogSpy()
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "jwt_secret_key", _GOOD_JWT)
+    monkeypatch.setattr(settings, "allow_insecure_jwt_secret", False)
+    monkeypatch.setattr(settings, "cors_allow_origins", "*")
+    monkeypatch.setattr("agentcore.main.get_logger", lambda _name: spy)
+    _validate_production_security()  # no raise
+    detail = spy.get("security.cors_wildcard_credentials")
+    assert "credentials" in detail["detail"].lower()
+
+
+def test_cors_explicit_origins_boots(prod_settings, monkeypatch):
+    monkeypatch.setattr(prod_settings, "billing_mode", "platform")
+    monkeypatch.setattr(
+        prod_settings,
+        "cors_allow_origins",
+        "http://localhost:5173,https://app.example",
+    )
+    _validate_production_security()  # no raise

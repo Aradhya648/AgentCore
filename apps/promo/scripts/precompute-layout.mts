@@ -1,10 +1,8 @@
 /*
  * Precompute a video package's ELK coordinates → src/videos/<id>/data/layout.ts.
  *
- * Reuses the REAL desktop computeLayout (incl. its endpoint-centering and
- * sub-team post-processing) via a relative import — elk-layout.ts only imports
- * `elkjs` at runtime (its `@/stores/graph` import is type-only, erased by tsx),
- * so this runs under `npx tsx` with elkjs resolved from apps/promo/node_modules.
+ * Uses `@agentcore/graph-layout` (same computeLayout as desktop; no relative
+ * import into apps/desktop). Runtime deps are packagable (elkjs + pure helpers).
  *
  * Run:  pnpm layout -- --video=brand-30s   (cwd = apps/promo)
  *   or: npx tsx scripts/precompute-layout.mts --video=brand-30s
@@ -15,7 +13,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { computeLayout } from "../../desktop/src/renderer/lib/elk-layout";
+import { computeLayout } from "@agentcore/graph-layout";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

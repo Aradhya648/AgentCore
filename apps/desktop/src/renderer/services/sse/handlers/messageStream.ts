@@ -172,6 +172,10 @@ export function handleMessageStreamEvent(
               }
             : undefined,
           rounds: payload.rounds,
+          durationMs:
+            typeof payload.duration_ms === "number"
+              ? payload.duration_ms
+              : undefined,
           finishReason: payload.finish_reason,
           collab: payload.collab,
         },

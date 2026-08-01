@@ -20,10 +20,9 @@ class EngineSettings(BaseModel):
     engine_convergence_finalize_rounds: int = 48
     # Consecutive investigation-only rounds re-reading the same targets before finalize.
     engine_convergence_spin_rounds: int = 3
-    # Base bar for prose short-idle FINALIZE (scaled under max_rounds). Files
-    # zero-write催写 is retired; this setting no longer enables files landing nudges.
-    # 0 = disable prose-idle bar derivation too when used as base.
-    engine_zero_write_finalize_rounds: int = 7
+    # 零写整条已退役（files 催写 + prose_idle 梯子 + 中途 FINALIZE/DEGRADED）。
+    # 保留字段兼容旧配置/测试；默认 0 = 不开。硬顶 thrashing 走 ceiling_backstop。
+    engine_zero_write_finalize_rounds: int = 0
     engine_finish_guard_max_reworks: int = 2
     # C2 概览契约：本回合已发 delivery_status 时，CEO 终稿超过此字数 → finish_guard 回炉压缩。
     # 细节已在交付卡 / 产物卡 / run 详情；气泡只做索引。≤0 关闭。无交付卡的 prose 回合不设顶。
@@ -51,9 +50,11 @@ class EngineSettings(BaseModel):
     # pointer+summary strictly below engine_tool_clear_min_chars (idempotency).
     engine_tool_clear_file_read_summary_max_chars: int = 1200
     # R1: when a path has zero verbatim file_read bodies left in the projected
-    # window, grant this many sticky extra successful reads beyond
-    # FILE_READ_SAME_PATH_MAX (per path per run, never re-granted after clear).
-    # 0 = disable re-read (hard cap only).
+    # window, grant this many sticky extra successful full-reads beyond
+    # FILE_READ_SAME_PATH_MAX (per path per run sticky issue; write success may
+    # refresh via refresh_file_read_reread_grant). Cleared paths are not hard-
+    # rejected when grant is exhausted. 0 = disable sticky grant (hard cap only
+    # while verbatim still present).
     engine_file_read_reread_grant: int = 1
     # C3 较强文件归属：True = 协调会话级归属表（声明即占、完成后仍占、写时互斥含
     # str_replace/write_section）。False = 回滚「仅未完成启发式 overlap + 批内

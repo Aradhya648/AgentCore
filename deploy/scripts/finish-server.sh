@@ -12,6 +12,11 @@ ENVF="$DEPLOY/config/production.env"
 ROOT_ENV="${AGENTCORE_HOME:-/opt/agentcore}/.env"
 TAG="${1:?usage: finish-server.sh <short-sha|latest>}"
 
+if [[ ! "$TAG" =~ ^([0-9a-fA-F]{7,40}|latest)$ ]]; then
+  echo "ERROR: invalid TAG '$TAG' (expected 7–40 hex chars or 'latest')"
+  exit 1
+fi
+
 [[ -f "$ENVF" ]] || { echo "ERROR: $ENVF 不存在"; exit 1; }
 
 echo "== [1/9] 切 IMAGE_TAG -> $TAG =="

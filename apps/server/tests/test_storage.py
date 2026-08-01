@@ -105,6 +105,32 @@ async def test_delete_removes_from_manifest_and_is_idempotent(tmp_path: Path):
         await provider.read_snapshot("k", ref.snapshot_id)
 
 
+async def test_manifest_write_uses_os_replace(tmp_path: Path, monkeypatch):
+    """Manifest updates must be atomic (temp + os.replace), not in-place write_bytes."""
+    import os
+
+    ws = tmp_path / "ws"
+    _seed(ws)
+    provider = FilesystemStorageProvider(base_dir=tmp_path / "snaps")
+    replaces: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def _spy_replace(src, dst, *a, **kw):
+        replaces.append((str(src), str(dst)))
+        return real_replace(src, dst, *a, **kw)
+
+    monkeypatch.setattr(os, "replace", _spy_replace)
+
+    ref = await provider.snapshot(ws, "k")
+    assert replaces, "snapshot must call os.replace for manifest"
+    assert all(dst.endswith("manifest.json") for _, dst in replaces)
+
+    replaces.clear()
+    await provider.delete_snapshot("k", ref.snapshot_id)
+    assert replaces, "delete must call os.replace for manifest"
+    assert all(dst.endswith("manifest.json") for _, dst in replaces)
+
+
 # --- archive helpers ---
 
 

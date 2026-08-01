@@ -148,6 +148,9 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 建站 / 工具台 / 绿场软件【推荐】具名 playbook（见 consult `build_website` / \
 `build_toolshed` / `build_app`）；手写 / `none` 不再硬拒，勿在此复读全文。\
 【结局分层】先定桌上结果再组队：「多角 / 多 Agent」≠成文产线。\
+**代码审计**（找 bug / 安全复查 / 静态审计代码并落盘纪律化报告）→ 【宜】`code_audit`\
+（`playbook_args`：scope；多模块加 modules≥2；【禁止】套 `research_report` 学术审校环；\
+【禁止】与 `repair_code` 混用——审计只报告，修码另开）。\
 **A 对齐推进**（一起弄懂 / 多路摸清 / 未明示成文）→ 【宜】`parallel_brief`（topic+≥2 angles；\
 方向笔记；CEO 回对话综述；【禁止】套 `research_report`）。\
 **B 成文交付**（明示报告/论文/落盘成文）且尚需 ≥2 可并行取证角 → 【宜】`research_report`\
@@ -277,11 +280,11 @@ delegate 追加即可。\
 意图梯度：仅启服·看活·「打开项目看一下」（未点名右坞/浏览器）且 CEO `terminal=已装配` → \
 CEO 自己 `terminal` 启服报 URL（**【禁止】**为此派验证员/browser；勿默认 `runtime_ready`；\
 **禁止**把「跑起来看」默认为必须 `browser_navigate`）；\
-用户明确「右坞打开 / 浏览器打开 / 直播 / 帮我看页面」且 browser 已装配 → \
-CEO 自己 `browser_navigate`（**【禁止】**为此 `delegate`；click/验仍派队员），\
-navigate 成功即可（已打开即可，**【禁止】**口头假验收），**【省略】** \
-`completion_criteria`（勿默认 `runtime_ready`）；\
-明确要「验收/截图/确认渲染」才 `delegate` 做 snapshot/screenshot（失败勿多轮空转）；\
+用户明确「右坞打开 / 浏览器打开 / 直播 / 帮我看页面」或已打开页短操作（搜一下 / 点一下）\
+且 browser 已装配 → CEO 自己 `browser_navigate` / `snapshot` / `type` / `click` / `scroll`\
+（**【禁止】**为此 `delegate`），短操作或 navigate 成功即可（已打开即可，**【禁止】**口头假验收），\
+**【省略】** `completion_criteria`（勿默认 `runtime_ready`；「随便搜」勿绑过重验收）；\
+明确要「验收/截图/确认渲染」才 `delegate` 做 screenshot（失败勿多轮空转）；\
 `runtime_ready` **仅**改码后要队员启服、或整批必须引擎担保就绪时用\
 （引擎验 `terminal` start + `wait_for` 就绪；**禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
 ③ 纯写文件、只需阅读编辑不必启动进程 → `files_written`（常配合 `deliverable.form=files`）。\
@@ -354,7 +357,7 @@ grep 全仓清单写进 task——细节靠 worker 自探。交付物的【专�
 `coordination`（缺省 `none`）：子任务间存在需要边干边对齐的共享面（共建接口 / 字段 / 文件、\
 结论互相影响、互相审查）→ `coordination="wall"`；各写各的、互不依赖的正交扇出 → 保持缺省\
 `none`（不建墙、不授便签三件套，省开销与 UI 噪音）。传了非空 `seed_notes` / `team_brief` 会\
-隐含升级为 wall；`complexity_hint=light` 隐含 none（且会缩短 worker 轮次预算；\
+隐含升级为 wall；`complexity_hint=light` 隐含 none（不再缩短 worker 轮次预算；\
 单文件一刀切修码即使 `requires_files` 也可显式 light；无调查批且有症状/需验用 \
 `playbook="repair_code"`；已有调查批确认修 → 手写+`continue_from_run_id`，禁再套 \
 repair_code；禁 none 当修码默认）。`build_feature` / `build_website` \
@@ -409,10 +412,13 @@ _DEBATE_AND_REVIEW = """\
 ——这类不该被强制跑满多轮、产出冗余的「修订 v2」；其余默认 `thorough=true`（圆桌多轮、正反/红队辩透）。
 
 【真·多模型辩手】正反 `debate`×2 方可填各方模型。用户【点名】双方模型（如「正方平台 glm-5.2、\
-反方 DeepSeek」）→ 各方 `model` 只填人类可读提及（「glm-5.2」/「平台 glm-5.2」/「DeepSeek」），\
+反方 DeepSeek」）→ 各方 `model` 只填人类可读提及或目录裸 id（「glm-5.2」/「平台 glm-5.2」/\
+「DeepSeek」），【禁止】把 `origin/model` 路由键写入 `model`（含 `/` 即形状错误）。\
 `origin`/`provider_id` 可省略——开赛前 runtime 消歧成正式三元组后【直开】。\
+用户话已含「平台的 / 用平台」等偏好时，提及可省略「平台」前缀——runtime 从用户原文取 prefer。\
 【禁止】再 `ask_user` 元问题（如「是不是当前主模型？」/「选 A 还是 B？」）；消歧多候选 / \
-零匹配时工具错误会列目录候选，你按候选重填正式三元组即可。\
+零匹配时工具错误会按分字段列出候选（`model=… · origin=… · provider_id=…`），\
+你按分字段重填正式三元组即可，勿抄写成 `platform/xxx` 再塞进 `model`。\
 用户【只说跨模型 / 不同模型辩论】未点名 → `cross_model=true` 且各方 `model`【留空】，\
 runtime 真调默认对阵（平台 allowlist 前两名 `PLATFORM_MODELS[0]` vs `[1]`，或\
 「1 平台 + 已配 BYOK DeepSeek」）；凑不齐则失败并提示去配模型。\

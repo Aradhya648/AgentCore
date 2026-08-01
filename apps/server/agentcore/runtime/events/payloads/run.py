@@ -187,6 +187,25 @@ class RunToolProgressPayload(WirePayload):
     chars: int
 
 
+# Mid-flight activity phase for a running worker (桌面/手机 fold 单一源).
+# ``queued`` / ``skipped`` are NOT on this wire — they are ``RunStatus``
+# (pending / skipped). Terminal runs clear ``phase`` in the projection.
+WorkerRunPhase = Literal["thinking", "tool", "waiting_children", "winding_down"]
+
+
+class RunPhasePayload(WirePayload):
+    """Worker 活动相位（``run_phase``）：等 LLM / 跑工具 / 等子 / 超时·token 收尾。
+
+    EPHEMERAL——传输态；``tool_name`` 仅 ``phase=tool`` 时有意义。``winding_down``
+    在投影侧粘性覆盖 thinking/tool，直到 run 终态。
+    """
+
+    run_id: str
+    agent_id: str
+    phase: WorkerRunPhase
+    tool_name: str | None = absent()
+
+
 class RunEscalationPayload(WirePayload):
     """升级实时可见 (非阻塞 raised): a worker flagged a decision/blocker and kept working.
 
@@ -352,12 +371,16 @@ class UserInterjectionAttachment(WirePayload):
 
 
 class UserInterjectionPayload(WirePayload):
-    """Mid-flight user message into a live coordination turn (CEO routes)."""
+    """Mid-flight user message into a live coordination turn (CEO routes).
+
+    Lifecycle (S1): ``received`` → ``addressed`` / ``queued`` / ``failed``.
+    Legacy wire may still carry ``delivered`` (= ``received``); folds accept both.
+    """
 
     interjection_id: str
     execution_id: str
     content: str
-    status: Literal["delivered", "queued"]
+    status: Literal["received", "addressed", "queued", "failed", "delivered"]
     note: str | None = absent()
     attachments: list[UserInterjectionAttachment] | None = absent()
 
@@ -393,6 +416,9 @@ class ExecutionCompletedPayload(WirePayload):
     conversation_id: str
     completed: int
     total: int
+    # harvest 收口分类映射：success→completed / failure→failed / cancelled→cancelled。
+    # 缺省 completed 兼容旧 fixture；新工厂始终写入。
+    status: Literal["completed", "failed", "cancelled"] = "completed"
     host_turn_id: str | None = absent()
     error: str | None = absent()
 

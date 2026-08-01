@@ -56,6 +56,7 @@ export type SSEEventType =
   | "run_failed"
   | "run_output_delta"
   | "run_output_reset"
+  | "run_phase"
   | "run_plan"
   | "run_progress"
   | "run_reasoning_delta"

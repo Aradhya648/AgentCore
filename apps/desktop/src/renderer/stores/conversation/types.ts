@@ -221,6 +221,8 @@ export interface Message {
   cost?: CostBreakdown;
   usage?: UsageBreakdown;
   rounds?: number;
+  /** 回合墙钟用时 (ms)：live 自 message_end.duration_ms；重载自 MessageDetail.duration_ms。 */
+  durationMs?: number;
   finishReason?: string;
   /** 协作质量 (学·度量 §2.5): turn-level orchestration signals. Live via
    * message_end; reload via messages API (nested in usage column). Orchestration

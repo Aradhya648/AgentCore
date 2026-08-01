@@ -561,6 +561,23 @@ export interface RunToolProgressPayload {
   chars: number;
 }
 
+export type WorkerRunPhase =
+  | "thinking"
+  | "tool"
+  | "waiting_children"
+  | "winding_down";
+
+/** Worker 活动相位（``run_phase``）：等 LLM / 跑工具 / 等子 / 超时·token 收尾。
+ * 
+ * EPHEMERAL——传输态；``tool_name`` 仅 ``phase=tool`` 时有意义。``winding_down``
+ * 在投影侧粘性覆盖 thinking/tool，直到 run 终态。 */
+export interface RunPhasePayload {
+  run_id: string;
+  agent_id: string;
+  phase: WorkerRunPhase;
+  tool_name?: string;
+}
+
 export type EscalationKind = "normal" | "scope" | "dep";
 
 /** 升级实时可见 (非阻塞 raised): a worker flagged a decision/blocker and kept working.
@@ -777,12 +794,15 @@ export interface UserInterjectionAttachment {
   binary?: boolean;
 }
 
-/** Mid-flight user message into a live coordination turn (CEO routes). */
+/** Mid-flight user message into a live coordination turn (CEO routes).
+ * 
+ * Lifecycle (S1): ``received`` → ``addressed`` / ``queued`` / ``failed``.
+ * Legacy wire may still carry ``delivered`` (= ``received``); folds accept both. */
 export interface UserInterjectionPayload {
   interjection_id: string;
   execution_id: string;
   content: string;
-  status: "delivered" | "queued";
+  status: "received" | "addressed" | "queued" | "failed" | "delivered";
   note?: string;
   attachments?: UserInterjectionAttachment[];
 }
@@ -814,6 +834,7 @@ export interface ExecutionCompletedPayload {
   conversation_id: string;
   completed: number;
   total: number;
+  status?: "completed" | "failed" | "cancelled";
   host_turn_id?: string;
   error?: string;
 }
@@ -1345,6 +1366,7 @@ export interface MessageEndPayload {
   cost?: CostBreakdown;
   rounds?: number;
   collab?: TurnCollabMetrics;
+  duration_ms?: number;
 }
 
 export interface ErrorContext {
@@ -1792,6 +1814,7 @@ export type SSEPayloadMap = {
   run_output_reset: RunOutputResetPayload;
   run_reasoning_delta: RunReasoningDeltaPayload;
   run_tool_progress: RunToolProgressPayload;
+  run_phase: RunPhasePayload;
   run_completed: RunCompletedPayload;
   run_failed: RunFailedPayload;
   run_cancelled: RunCancelledPayload;

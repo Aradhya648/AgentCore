@@ -15,6 +15,7 @@
     "sync:legal:check": "node scripts/sync-legal-md.mjs --check",
     "bump-version": "node scripts/bump-version.mjs",
     "release:gate": "node scripts/release-gate.mjs",
+    "release:gate:lite": "node scripts/release-gate.mjs --lite",
     "audit:deps:py": "cd apps/server && uv run --with pip-audit pip-audit",
     "audit:deps:js": "pnpm audit --prod",
     "audit:deps": "node scripts/audit-deps.mjs",

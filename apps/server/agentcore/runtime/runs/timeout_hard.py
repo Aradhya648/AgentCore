@@ -3,9 +3,14 @@
 与协调 session 解耦：嵌套子团队（无 CoordinationSession）与根协调共用同一状态机。
 引擎在 LLM / 工具入口查询本模块；计时器由 :func:`arm_hard_timeout` 武装。
 
-墙钟语义：阈值只累计 worker **编排 / 空转**时间。LLM 调用在飞期间
-（:func:`mark_llm_inflight`）暂停倒计时，避免慢上游单次调用被误判
-``coordination.worker_timeout``；wind_down 软着陆与宽限轮机制不变。
+墙钟语义：阈值只累计 worker **自身编排 / 空转**时间。以下区间暂停倒计时：
+
+- LLM 调用在飞（:func:`mark_llm_inflight`）——避免慢上游单次调用被误判；
+- 嵌套子团队阻塞等待（:func:`mark_waiting_children`）—— depth-1 lead 在
+  nested ``drive`` 墙钟内等子队员时，不得按「自己在干活」耗尽 hard-timeout /
+  ``grace_wall`` 强杀父节点。
+
+普通非嵌套 worker 的空转 / 自有工具时间仍累计。wind_down 软着陆与宽限轮机制不变。
 """
 
 from __future__ import annotations
@@ -57,8 +62,9 @@ class HardTimeoutGuard:
     force_cancel_requested: bool = False
     started_at: float = field(default_factory=time.monotonic)
     _task: asyncio.Task[None] | None = field(default=None, repr=False)
-    # Nested-safe depth: pause active-time countdown while > 0.
-    _llm_inflight_depth: int = field(default=0, repr=False)
+    # Nested-safe depth: pause active-time countdown while > 0
+    # (LLM inflight and/or waiting on nested children).
+    _pause_depth: int = field(default=0, repr=False)
     _resume_event: asyncio.Event | None = field(default=None, repr=False)
 
     def arm(self) -> None:
@@ -70,7 +76,7 @@ class HardTimeoutGuard:
         self.grace_granted = False
         self.grace_consumed = False
         self.force_cancel_requested = False
-        self._llm_inflight_depth = 0
+        self._pause_depth = 0
         self._resume_event = asyncio.Event()
         self._resume_event.set()
         self.started_at = time.monotonic()
@@ -89,35 +95,43 @@ class HardTimeoutGuard:
         if self._resume_event is not None and not self._resume_event.is_set():
             self._resume_event.set()
 
-    def mark_llm_inflight(self, inflight: bool) -> None:
-        """Pause (True) / resume (False) active-time countdown around an LLM call."""
+    def mark_timeout_paused(self, paused: bool) -> None:
+        """Pause (True) / resume (False) active-time countdown (nested-safe depth)."""
         if self._resume_event is None:
             self._resume_event = asyncio.Event()
             self._resume_event.set()
-        if inflight:
-            was_idle = self._llm_inflight_depth == 0
-            self._llm_inflight_depth += 1
+        if paused:
+            was_idle = self._pause_depth == 0
+            self._pause_depth += 1
             if was_idle:
                 self._resume_event.clear()
             return
-        if self._llm_inflight_depth <= 0:
+        if self._pause_depth <= 0:
             return
-        self._llm_inflight_depth -= 1
-        if self._llm_inflight_depth == 0:
+        self._pause_depth -= 1
+        if self._pause_depth == 0:
             self._resume_event.set()
 
+    def mark_llm_inflight(self, inflight: bool) -> None:
+        """Pause / resume active-time around an LLM call."""
+        self.mark_timeout_paused(inflight)
+
+    def mark_waiting_children(self, waiting: bool) -> None:
+        """Pause / resume while this worker blocks on a nested sub-team drive."""
+        self.mark_timeout_paused(waiting)
+
     async def _sleep_active(self, duration: float) -> bool:
-        """Accumulate ``duration`` seconds of non-LLM-inflight time.
+        """Accumulate ``duration`` seconds of non-paused active time.
 
         Returns False if the guard was disarmed before the budget was spent.
-        LLM-inflight intervals do not consume the budget (wall clock may exceed
-        ``duration``).
+        Paused intervals (LLM inflight / waiting children) do not consume the
+        budget (wall clock may exceed ``duration``).
         """
         remaining = max(0.0, float(duration))
         while remaining > 0.0:
             if self.phase is HardTimeoutPhase.DISARMED:
                 return False
-            if self._llm_inflight_depth > 0:
+            if self._pause_depth > 0:
                 event = self._resume_event
                 if event is None:
                     await asyncio.sleep(_ACTIVE_SLEEP_CHUNK_S)
@@ -131,8 +145,8 @@ class HardTimeoutGuard:
             await asyncio.sleep(chunk)
             if self.phase is HardTimeoutPhase.DISARMED:
                 return False
-            # Became inflight mid-chunk → refund (safe direction: fewer false timeouts).
-            if self._llm_inflight_depth > 0:
+            # Became paused mid-chunk → refund (safe direction: fewer false timeouts).
+            if self._pause_depth > 0:
                 continue
             remaining -= chunk
         return True
@@ -282,8 +296,8 @@ def get_hard_timeout(run_id: str) -> HardTimeoutGuard | None:
     return _GUARDS.get(run_id)
 
 
-def mark_llm_inflight(run_id: str, inflight: bool) -> None:
-    """Pause/resume hard-timeout active-time while an LLM call is in flight.
+def mark_timeout_paused(run_id: str, paused: bool) -> None:
+    """Pause/resume hard-timeout active-time (LLM inflight or waiting children).
 
     No-op when ``run_id`` has no armed guard (CEO / solo / already disarmed).
     """
@@ -292,7 +306,20 @@ def mark_llm_inflight(run_id: str, inflight: bool) -> None:
     guard = _GUARDS.get(run_id)
     if guard is None:
         return
-    guard.mark_llm_inflight(inflight)
+    guard.mark_timeout_paused(paused)
+
+
+def mark_llm_inflight(run_id: str, inflight: bool) -> None:
+    """Pause/resume hard-timeout active-time while an LLM call is in flight."""
+    mark_timeout_paused(run_id, inflight)
+
+
+def mark_waiting_children(run_id: str, waiting: bool) -> None:
+    """Pause/resume hard-timeout while a nested lead blocks on its sub-team.
+
+    Armed on nested ``drive`` (``depth > 0``) against the lead's ``captain_run_id``.
+    """
+    mark_timeout_paused(run_id, waiting)
 
 
 def arm_hard_timeout(

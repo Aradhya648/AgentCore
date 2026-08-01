@@ -452,15 +452,39 @@ class CircuitBreak:
         return "[系统提示] " + " ".join(parts)
 
 
+def _collapse_malformed_required_args(name: str, parsed: dict[str, object]) -> dict[str, object]:
+    """Collapse empty-required-field calls so stuck detection sees one path.
+
+    Distinct ``path`` / ``new_string`` with empty ``old_string`` must not mint a new
+    fingerprint each time — that let workers burn token budgets on free validation
+    retries. Sentinel shape is stable and intentional (not a real tool schema).
+    """
+    if name == "str_replace":
+        old = parsed.get("old_string")
+        if old is None or (isinstance(old, str) and not old.strip()):
+            return {"__malformed__": "old_string"}
+        path = parsed.get("path")
+        if path is None or (isinstance(path, str) and not path.strip()):
+            return {"__malformed__": "path"}
+    if name in {"file_write", "file_append"}:
+        path = parsed.get("path")
+        if path is None or (isinstance(path, str) and not path.strip()):
+            return {"__malformed__": "path"}
+    return parsed
+
+
 def fingerprint_tool_call(name: str, arguments: str) -> str:
     """Stable hash of ``(tool_name, normalized args)``.
 
     Args are normalized via key-sorted JSON so semantically identical calls map
     to one fingerprint; malformed JSON falls back to the raw argument string so
-    verbatim repeats are still caught.
+    verbatim repeats are still caught. Empty required fields collapse to a
+    stable sentinel (see ``_collapse_malformed_required_args``).
     """
     try:
         parsed = json.loads(arguments) if arguments else {}
+        if isinstance(parsed, dict):
+            parsed = _collapse_malformed_required_args(name, parsed)
         normalized = json.dumps(parsed, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     except (json.JSONDecodeError, TypeError):
         normalized = arguments or ""

@@ -51,6 +51,7 @@ from agentcore.runtime.events import FinishReason
 from agentcore.runtime.pipeline import run_chat_pipeline
 from agentcore.runtime.plan_only import PLAN_ONLY_CEO_MAX_ROUNDS, use_plan_only
 from agentcore.runtime.prompt_profile import use_profile
+from agentcore.runtime.runs.executor_shared import resolve_finish_override
 from agentcore.tools.builtin import build_ceo_tool_registry, build_worker_registry
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
@@ -141,9 +142,9 @@ def single_outcome(
     """把 ``react_loop`` 的返回值 + sink 截获的事实归一化成 :class:`TurnOutcome`.
 
     ``react_loop`` 的四元组不带 finish_reason，但 B2 收敛治理会把非默认终态经
-    ``finish_override_sink`` 抬出来：``DEGRADED``（空响应即便 fallback 后仍空）/
-    ``UNPRODUCTIVE``（连续全失败无正文早停）。有 ``finish_override`` 就用它（评估据此能
-    断言降级 / 早停、与 team 路径口径一致），否则镜像 pipeline 按轮数推导（rounds 达上限即
+    ``finish_override_sink`` 抬出来（取最后一次：如 ``UNPRODUCTIVE`` 后收尾轮
+    ``ask_user`` → ``PAUSED``）。有 ``finish_override`` 就用它（评估据此能断言降级 /
+    早停 / 挂起、与 team 路径口径一致），否则镜像 pipeline 按轮数推导（rounds 达上限即
     ``max_rounds``，否则 ``end_turn``）。成本用 ``runtime/costing`` 的定价按 usage+model
     现算（``react_loop`` 不回 cost）。纯函数，便于单测。
     """
@@ -345,7 +346,7 @@ class EvalHarness:
             sink=sink,
             citations=citations,
             latency_ms=_ms(t0),
-            finish_override=finish_override[0] if finish_override else None,
+            finish_override=resolve_finish_override(finish_override),
             workspace_root=workspace_root,
         )
 

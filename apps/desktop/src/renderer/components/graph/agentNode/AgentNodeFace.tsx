@@ -23,7 +23,7 @@ import {
   type AgentNodeData,
   type AgentNodePresentation,
   FACE_ARTIFACT_CAP,
-  FACE_CARD_MAX_HEIGHT,
+  FACE_CARD_HEIGHT,
   basename,
   escalationKindLabel,
   isDebateAgentNode,
@@ -62,7 +62,7 @@ export function AgentNodeCardFace({
         {
           "--graph-flash-color": flashColor,
           width: p.cardWidth,
-          maxHeight: FACE_CARD_MAX_HEIGHT,
+          height: FACE_CARD_HEIGHT,
         } as React.CSSProperties
       }
       className={`relative cursor-pointer overflow-hidden rounded-xl border px-3 py-2.5 text-left shadow-sm outline-none ring-2 ${p.style.bg} ${p.style.ring} ${isRunning ? "animate-pulse" : ""} ${flashing ? "animate-graph-node-flash" : ""} ${
@@ -328,6 +328,8 @@ function AgentNodeStatusLine({
     d.debateRoundPhase,
     d.group === "debate:witness" && d.continuesRunId == null,
     d.error,
+    d.status === "running" ? (d.phase ?? null) : null,
+    d.phaseTool,
   );
   const mark = d.debateCrossExamMark;
 

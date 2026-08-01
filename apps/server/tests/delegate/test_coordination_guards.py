@@ -585,7 +585,10 @@ def test_healthy_idle_inject_has_progress_and_no_action_guidance():
     assert "无需追加" in brief
     assert "正常推进" in brief
     assert "不要 delegate" in brief or "勿" in brief
-    assert "完成后会再汇报" in brief
+    assert "可静默" in brief
+    assert "谁还在跑" in brief
+    assert "三选一" in brief
+    assert "谁在后台推进" not in brief
     assert "保持静默即可" not in brief
     assert "保持等待" in brief or "保持静默" in brief  # forbid phrasing appears as prohibition
 
@@ -593,7 +596,7 @@ def test_healthy_idle_inject_has_progress_and_no_action_guidance():
     assert len(msgs) == 1
     assert "流水线进度" in (msgs[0].content or "")
     assert "无需追加" in (msgs[0].content or "")
-    assert "完成后会再汇报" in (msgs[0].content or "")
+    assert "可静默" in (msgs[0].content or "")
     assert "保持静默即可" not in (msgs[0].content or "")
 
 
@@ -635,7 +638,7 @@ def test_idle_yield_brief_pending_approval_forbids_wait(monkeypatch):
     assert "正常推进" not in brief
     assert "这是预期中的等待" not in brief
     assert "禁止" in brief or "勿" in brief
-    assert "再汇报" in brief
+    assert "会继续" in brief or "报告阻塞" in brief
     assert "保持静默，引导" not in brief
 
 

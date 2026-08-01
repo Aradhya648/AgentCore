@@ -16,7 +16,6 @@ from agentcore.runtime.browser.desktop_bridge import (
 from agentcore.runtime.browser.keyframes import KeyframeTracker
 from agentcore.tools.builtin import browser_execution_enabled_for, build_worker_registry
 from agentcore.tools.builtin.browser import (
-    BROWSER_TOOL_CLASSES,
     BROWSER_TOOL_NAMES,
     BrowserNavigateTool,
     BrowserScreenshotTool,
@@ -30,7 +29,11 @@ from agentcore.tools.registration import (
     ToolSurface,
     tool_registration,
 )
-from agentcore.tools.sandbox.browser.netns import EGRESS_UNAVAILABLE_CODE
+from agentcore.tools.sandbox.browser.netns import (
+    EGRESS_UNAVAILABLE_CODE,
+    browser_netns_health,
+    set_browser_netns_health_for_tests,
+)
 from agentcore.tools.sandbox.browser.protocol import (
     BrowserCommandResult,
     BrowserDriverCrashedError,
@@ -55,8 +58,13 @@ _BROWSER_NAMES = frozenset(
 )
 
 
+def _fail_text(result) -> str:
+    """Browser failures put the message in ``error`` only (avoid output+error double)."""
+    return (result.error or result.output or "")
+
+
 # -- governance (D11 五维) ------------------------------------------------------
-def test_navigate_is_builtin_both_narrow_exception():
+def test_navigate_is_builtin_both():
     reg = tool_registration(BrowserNavigateTool)
     schema = BrowserNavigateTool().schema
     assert reg.surface is ToolSurface.BUILTIN
@@ -67,24 +75,33 @@ def test_navigate_is_builtin_both_narrow_exception():
     assert schema.category is ToolCategory.EXECUTION
 
 
-def test_other_five_browser_tools_remain_worker_only():
-    seen = set()
-    for cls in BROWSER_TOOL_CLASSES:
-        if cls is BrowserNavigateTool:
-            continue
+def test_interactive_browser_tools_are_builtin_both():
+    from agentcore.tools.builtin.browser import (
+        BrowserClickTool,
+        BrowserScrollTool,
+        BrowserSnapshotTool,
+        BrowserTypeTool,
+    )
+
+    for cls in (BrowserClickTool, BrowserTypeTool, BrowserScrollTool, BrowserSnapshotTool):
         reg = tool_registration(cls)
         schema = cls().schema
-        seen.add(schema.name)
-        assert reg.surface is ToolSurface.WORKER_ONLY
-        assert reg.audience == AUDIENCE_WORKER_ONLY
-        assert reg.execution_class is True
-        assert reg.browser_class is True
+        assert reg.surface is ToolSurface.BUILTIN, schema.name
+        assert reg.audience == AUDIENCE_BOTH, schema.name
+        assert reg.browser_class and reg.execution_class
         assert schema.approval is ToolApproval.GRANTABLE
-        assert schema.category is ToolCategory.EXECUTION
-    assert seen == _BROWSER_NAMES - {"browser_navigate"}
 
 
-def test_ceo_registry_holds_navigate_only_when_include_browser():
+def test_screenshot_remains_worker_only():
+    reg = tool_registration(BrowserScreenshotTool)
+    schema = BrowserScreenshotTool().schema
+    assert reg.surface is ToolSurface.WORKER_ONLY
+    assert reg.audience == AUDIENCE_WORKER_ONLY
+    assert reg.browser_class and reg.execution_class
+    assert schema.approval is ToolApproval.GRANTABLE
+
+
+def test_ceo_registry_holds_interactive_browser_when_include_browser():
     from agentcore.tools.builtin import build_ceo_tool_registry
 
     off = {s.name for s in build_ceo_tool_registry().list_all()}
@@ -92,10 +109,13 @@ def test_ceo_registry_holds_navigate_only_when_include_browser():
     assert not (_BROWSER_NAMES & off)
 
     on = {s.name for s in build_ceo_tool_registry(include_browser=True).list_all()}
-    assert "browser_navigate" in on
-    assert (_BROWSER_NAMES & on) == {"browser_navigate"}
+    assert (_BROWSER_NAMES & on) == (_BROWSER_NAMES - {"browser_screenshot"})
+    assert "browser_screenshot" not in on
     assert build_ceo_tool_registry(include_browser=True).get(
         "browser_navigate"
+    ).schema.approval is ToolApproval.GRANTABLE
+    assert build_ceo_tool_registry(include_browser=True).get(
+        "browser_click"
     ).schema.approval is ToolApproval.GRANTABLE
 
 
@@ -116,6 +136,24 @@ def test_gate_requires_server_plus_gvisor_plus_health(tmp_path, monkeypatch):
     assert browser_execution_enabled_for(backend) is True
     set_cloud_sandbox_health_for_tests(False)
     assert browser_execution_enabled_for(backend) is False  # probe says unhealthy
+
+
+def test_gate_withholds_when_browser_netns_unhealthy(tmp_path, monkeypatch):
+    """Cloud sandbox ok but netns capability False → do not assemble browser_*."""
+    backend = _server_backend(tmp_path)
+    monkeypatch.setattr(settings, "gvisor_enabled", True)
+    set_cloud_sandbox_health_for_tests(True)
+    set_browser_netns_health_for_tests(False)
+    assert browser_execution_enabled_for(backend) is False
+
+
+def test_gate_netns_unprobed_keeps_cloud_health_semantics(tmp_path, monkeypatch):
+    """None netns health + cloud healthy → still True (tests / unbooted compatibility)."""
+    backend = _server_backend(tmp_path)
+    monkeypatch.setattr(settings, "gvisor_enabled", True)
+    set_cloud_sandbox_health_for_tests(True)
+    assert browser_netns_health() is None
+    assert browser_execution_enabled_for(backend) is True
 
 
 def test_gate_local_requires_desktop_bridge_health(monkeypatch):
@@ -287,10 +325,61 @@ async def test_snapshot_wraps_tree_untrusted_no_keyframe(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_type_success_returns_current_snapshot_version(tmp_path):
+    """Mutation success must surface bumped snapshot_version (same field as snapshot)."""
+    from agentcore.tools.builtin.browser import BrowserClickTool
+
+    session = _FakeSession(
+        BrowserCommandResult(
+            ok=True,
+            data={
+                "final_url": "https://example.com/",
+                "title": "Example",
+                "snapshot_version": 3,
+            },
+            frame=b"\xff\xd8\xff\xe0jpeg",
+        )
+    )
+    tool = BrowserTypeTool(registry=_FakeRegistry(session=session))
+    result = await tool.execute(
+        {"ref": "e1", "text": "hello", "snapshot_version": 2}, _ctx(tmp_path)
+    )
+    assert result.success
+    payload = json.loads(result.output)
+    assert payload["snapshot_version"] == 3
+    assert payload["action"] == "type"
+
+    click = BrowserClickTool(registry=_FakeRegistry(session=session))
+    clicked = await click.execute({"ref": "e2", "snapshot_version": 3}, _ctx(tmp_path))
+    assert clicked.success
+    assert json.loads(clicked.output)["snapshot_version"] == 3
+
+
+@pytest.mark.asyncio
+async def test_ref_stale_error_is_not_doubled(tmp_path):
+    """Driver ValueError + host prefix must not appear twice in model-facing text."""
+    from agentcore.tools.builtin.browser import BrowserClickTool
+
+    session = _FakeSession(
+        BrowserCommandResult(
+            ok=False,
+            error="ValueError: ref 版本过期（快照 v1 ≠ 当前 v2）：页面已变化，请重新 browser_snapshot 获取最新 ref",
+        )
+    )
+    tool = BrowserClickTool(registry=_FakeRegistry(session=session))
+    result = await tool.execute({"ref": "e1", "snapshot_version": 1}, _ctx(tmp_path))
+    assert not result.success
+    text = _fail_text(result)
+    assert text.count("ref 版本过期") == 1
+    assert "ValueError:" not in text
+    assert result.output == ""
+
+
+@pytest.mark.asyncio
 async def test_busy_returns_explainable_failure(tmp_path):
     tool = BrowserNavigateTool(registry=_FakeRegistry(busy=True))
     result = await tool.execute({"url": "https://x/"}, _ctx(tmp_path))
-    assert not result.success and "已满" in result.output
+    assert not result.success and "已满" in _fail_text(result)
 
 
 @pytest.mark.asyncio
@@ -324,9 +413,11 @@ async def test_egress_unavailable_retires_all_browser_tools(tmp_path):
     assert (result.metadata or {}).get("code") == EGRESS_UNAVAILABLE_CODE
     assert set(result.metadata.get("retire_tools") or []) == BROWSER_TOOL_NAMES
     assert "retire_message" in (result.metadata or {})
-    assert "web_search" in result.output and "browser_" in result.output
+    assert "web_search" in _fail_text(result) and "browser_" in _fail_text(result)
     # No double「浏览器会话启动失败」prefix on the classified path.
-    assert result.output.count("浏览器会话启动失败") == 0
+    assert _fail_text(result).count("浏览器会话启动失败") == 0
+    # Sticky: next turn's assembly gate must see netns as unavailable.
+    assert browser_netns_health() is False
 
 
 @pytest.mark.asyncio
@@ -344,6 +435,7 @@ async def test_egress_unavailable_from_wrapped_netns_message(tmp_path):
     assert not result.success
     assert (result.metadata or {}).get("code") == EGRESS_UNAVAILABLE_CODE
     assert set(result.metadata.get("retire_tools") or []) == BROWSER_TOOL_NAMES
+    assert browser_netns_health() is False
 
 
 @pytest.mark.asyncio
@@ -367,7 +459,7 @@ async def test_driver_crash_drops_session_and_informs(tmp_path):
     tool = BrowserNavigateTool(registry=reg)
     result = await tool.execute({"url": "https://x/"}, _ctx(tmp_path))
     assert not result.success
-    assert "页面状态已丢失" in result.output and "重新开始" in result.output
+    assert "页面状态已丢失" in _fail_text(result) and "重新开始" in _fail_text(result)
     assert reg.closed == ["c1"]  # dead session dropped → next call rebuilds
 
 
@@ -431,7 +523,7 @@ async def test_screenshot_missing_frame_is_weak_failure(tmp_path):
     tool = BrowserScreenshotTool(registry=_FakeRegistry(session=session))
     result = await tool.execute({}, _ctx(tmp_path))
     assert result.success is False
-    assert "未截到画面" in (result.output or "")
+    assert "未截到画面" in _fail_text(result)
     assert (result.metadata or {}).get("code") == "no_frame"
 
 
@@ -439,7 +531,7 @@ async def test_screenshot_missing_frame_is_weak_failure(tmp_path):
 async def test_missing_url_is_rejected(tmp_path):
     tool = BrowserNavigateTool(registry=_FakeRegistry(session=_FakeSession()))
     result = await tool.execute({}, _ctx(tmp_path))
-    assert not result.success and "url" in result.output
+    assert not result.success and "url" in _fail_text(result)
 
 
 @pytest.mark.asyncio
@@ -457,8 +549,8 @@ async def test_type_password_blocked_maps_to_tool_result(tmp_path):
     assert result.success is False
     assert result.contract_failure is True
     assert result.metadata.get("code") == "password_blocked"
-    assert "escalate" in (result.output or "")
-    assert "browser_login" in (result.output or "")
+    assert "escalate" in _fail_text(result)
+    assert "browser_login" in _fail_text(result)
     assert session.sent and session.sent[0].action == "type"
 
 
@@ -487,7 +579,7 @@ async def test_sandbox_relative_path_fails_honestly_no_fake_success(tmp_path):
     tool = BrowserNavigateTool(registry=_FakeRegistry(session=session))
     result = await tool.execute({"url": "site/index.html"}, _ctx(tmp_path))
     assert result.success is False
-    assert "完整预览" in (result.output or "")
+    assert "完整预览" in _fail_text(result)
     assert session.sent == []
 
 
@@ -501,7 +593,7 @@ async def test_sandbox_workspace_url_fails_honestly(tmp_path):
         {"url": "workspace://c1/site/index.html"}, _ctx(tmp_path)
     )
     assert result.success is False
-    assert "完整预览" in (result.output or "")
+    assert "完整预览" in _fail_text(result)
     assert session.sent == []
 
 

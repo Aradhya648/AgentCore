@@ -64,9 +64,14 @@ _HOST_SHELL_ORDER = [
     "host_shell",
 ]
 
-# CEO+worker GRANTABLE 窄例外：browser_navigate（builtin · browser_class · include_browser 闸）
-_BROWSER_NAVIGATE_ORDER = [
+# CEO+worker GRANTABLE：browser_*（builtin · browser_class · include_browser 闸；
+# screenshot 仍 worker-only，不在此列表）
+_BROWSER_CEO_ORDER = [
     "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_scroll",
+    "browser_snapshot",
 ]
 
 _WORKER_ONLY_ORDER = [
@@ -76,6 +81,10 @@ _WORKER_ONLY_ORDER = [
     "amend_note",
     "handoff",
     "desktop_notify",
+]
+
+_BROWSER_SCREENSHOT_ORDER = [
+    "browser_screenshot",
 ]
 
 _HOST_L2_ORDER = [
@@ -190,17 +199,18 @@ def test_tool_registry_ceo_builtin_order_and_roster():
 
 def test_tool_registry_builtin_includes_navigate_when_include_browser():
     names = [s.name for s in build_builtin_registry(include_browser=True).list_all()]
-    assert names == _BUILTIN_ORDER + _BROWSER_NAVIGATE_ORDER
+    assert names == _BUILTIN_ORDER + _BROWSER_CEO_ORDER
 
 
 def test_tool_registry_ceo_includes_navigate_when_include_browser():
     names = [s.name for s in build_ceo_tool_registry(include_browser=True).list_all()]
-    assert names == _CEO_BUILTIN_ORDER + _BROWSER_NAVIGATE_ORDER
+    assert names == _CEO_BUILTIN_ORDER + _BROWSER_CEO_ORDER
 
 
-def test_browser_navigate_available_to_both():
+def test_browser_tools_ceo_holds_interactive_screenshot_worker_only():
     from agentcore.tools.registration import (
         AUDIENCE_BOTH,
+        AUDIENCE_WORKER_ONLY,
         declared_tool_name,
         declared_tools,
         tool_registration,
@@ -210,19 +220,14 @@ def test_browser_navigate_available_to_both():
         declared_tool_name(cls): tool_registration(cls)
         for cls in declared_tools()
     }
-    reg = by_name["browser_navigate"]
-    assert reg.audience == AUDIENCE_BOTH
-    assert reg.surface.value == "builtin"
-    assert reg.browser_class and reg.execution_class
-    for other in (
-        "browser_click",
-        "browser_type",
-        "browser_scroll",
-        "browser_snapshot",
-        "browser_screenshot",
-    ):
-        assert by_name[other].audience == ("worker",)
-        assert by_name[other].surface.value == "worker_only"
+    for name in _BROWSER_CEO_ORDER:
+        reg = by_name[name]
+        assert reg.audience == AUDIENCE_BOTH, name
+        assert reg.surface.value == "builtin", name
+        assert reg.browser_class and reg.execution_class, name
+    shot = by_name["browser_screenshot"]
+    assert shot.audience == AUDIENCE_WORKER_ONLY
+    assert shot.surface.value == "worker_only"
 
 
 def test_tool_registry_builtin_approvals_snapshot():
@@ -317,7 +322,7 @@ def test_catalog_categories_present():
 
 def test_tool_registry_declarations_cover_roster():
     """Every declared class has ``registration``; CEO builtins stay NEVER-aligned
-    except Host P3 ``host_shell`` and browser ``browser_navigate`` GRANTABLE exceptions.
+    except Host P3 ``host_shell`` and browser interactive GRANTABLE exceptions.
     """
     from agentcore.tools.registration import (
         AUDIENCE_CEO,
@@ -328,8 +333,10 @@ def test_tool_registry_declarations_cover_roster():
         tool_registration,
     )
 
-    # Explicit break of「CEO 永不持 GRANTABLE」— Host face + browser navigate 窄例外.
-    _ceo_grantable_exceptions = frozenset({"host_shell", "browser_navigate"})
+    # Explicit break of「CEO 永不持 GRANTABLE」— Host face + browser interactive.
+    _ceo_grantable_exceptions = frozenset(
+        {"host_shell", *_BROWSER_CEO_ORDER}
+    )
 
     declared = declared_tools()
     assert declared, "DECLARED_TOOLS must not be empty"
@@ -345,7 +352,7 @@ def test_tool_registry_declarations_cover_roster():
                 if schema.name == "host_shell":
                     assert reg.host_class, schema.name
                     assert not reg.execution_class, schema.name
-                elif schema.name == "browser_navigate":
+                elif schema.name.startswith("browser_"):
                     assert reg.browser_class, schema.name
                     assert reg.execution_class, schema.name
             else:

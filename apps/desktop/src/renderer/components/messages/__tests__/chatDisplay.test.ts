@@ -226,7 +226,15 @@ describe("canOfferEdit", () => {
         msg({
           id: "e2",
           content: "x",
-          attachments: [{ name: "a.png", path: "a.png" }],
+          attachments: [
+            {
+              name: "a.png",
+              path: "a.png",
+              kind: "file",
+              binary: true,
+              truncated: false,
+            },
+          ],
           created_at: new Date().toISOString(),
         }),
         { mine: true, chatType: "dm" },

@@ -112,8 +112,15 @@ def _patch_persistence(
         async def get_by_id_unscoped(self, _conversation_id):
             return SimpleNamespace(title=existing_title)
 
-        async def update_title_unscoped(self, conversation_id, title):
+        async def update_title_if_empty(self, conversation_id, title):
+            if existing_title and str(existing_title).strip():
+                return None
             events.append(("title", conversation_id, title))
+            return SimpleNamespace(title=title)
+
+        async def update_title_unscoped(self, conversation_id, title):
+            events.append(("title_unscoped", conversation_id, title))
+            return SimpleNamespace(title=title)
 
     async def _fake_journal(_session, **kw):
         events.append(("journal", kw.get("message_id")))
@@ -148,7 +155,14 @@ def _patch_persistence(
 
     from agentcore.memory.conversation_title import TitleResult
 
-    async def _fake_title(**_kw):
+    async def _fake_title(**kw):
+        events.append(
+            (
+                "title_mint",
+                kw.get("assistant_reply"),
+                kw.get("user_message"),
+            )
+        )
         return TitleResult(title="本地回合标题")
 
     monkeypatch.setattr(cloud_mod, "mint_title", _fake_title)
@@ -192,11 +206,60 @@ async def test_record_local_turn_persists_messages_and_journal(monkeypatch):
     assert ("upsert", "assistant", "c1") in events
     assert ("journal", "assistant-id") in events
     assert ("title", "c1", "本地回合标题") in events
+    # Fallback mint uses user message only (align cloud early path).
+    assert ("title_mint", "", "列出本地文件") in events
+    assert not any(e[0] == "title_unscoped" for e in events)
     assert result["user_message_id"] == "user-id"
     assert result["assistant_message_id"] == "assistant-id"
     assert result["title"] == "本地回合标题"
     usage = next(e for e in events if e[0] == "usage")
     assert usage[2]["status"] == "complete"
+
+
+async def test_record_local_turn_skips_title_when_inflight(monkeypatch):
+    """Desktop auto-title in flight → write-back must not start a second mint."""
+    import agentcore.conversation.common as common
+
+    events: list = []
+    _patch_persistence(monkeypatch, events, existing_title=None)
+    common._title_inflight.add("c-inflight")
+    try:
+        result = await record_local_turn(
+            conversation_id="c-inflight",
+            user_id="u1",
+            user_message="hi",
+            assistant_content="ok",
+            runs={"events": [], "finish_reason": "end_turn"},
+            user_message_id=_USER_MSG_ID,
+            message_id="m-inflight",
+            trace_id=_TRACE,
+        )
+    finally:
+        common._title_inflight.discard("c-inflight")
+
+    assert not any(e[0] == "title_mint" for e in events)
+    assert not any(e[0] == "title" for e in events)
+    assert result["title"] is None
+
+
+async def test_record_local_turn_skips_title_when_already_named(monkeypatch):
+    events: list = []
+    _patch_persistence(monkeypatch, events, existing_title="已有标题")
+
+    result = await record_local_turn(
+        conversation_id="c1",
+        user_id="u1",
+        user_message="hi",
+        assistant_content="ok",
+        runs={"events": [], "finish_reason": "end_turn"},
+        user_message_id=_USER_MSG_ID,
+        message_id="m-named",
+        trace_id=_TRACE,
+    )
+
+    assert not any(e[0] == "title_mint" for e in events)
+    assert not any(e[0] == "title" for e in events)
+    assert result["title"] == "已有标题"
 
 
 async def test_record_local_turn_empty_reply_skips_assistant_and_journal(monkeypatch):

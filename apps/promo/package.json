@@ -14,6 +14,7 @@
     "stills": "node scripts/render-stills.mjs"
   },
   "dependencies": {
+    "@agentcore/graph-layout": "file:../../packages/graph-layout",
     "@remotion/cli": "^4.0.0",
     "@remotion/tailwind-v4": "^4.0.0",
     "@xyflow/react": "^12.0.0",

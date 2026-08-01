@@ -302,19 +302,20 @@ class ToolContext:
     # signal only — ``dataclasses.replace`` drops this bool. Handoff / executor
     # body-floor exemption must read ``landed_artifact_kinds`` (prose) instead.
     has_landed_files: bool = False
-    # Wave3 B：本 run 内各相对路径成功 ``file_read`` 次数（共享可变 dict；
-    # ``dataclasses.replace`` 浅拷贝仍指向同一计数器）。超 ``FILE_READ_SAME_PATH_MAX``
-    # 时工具拒绝重复读。
+    # Wave3 B：本 run 内各相对路径成功【整读】``file_read`` 次数（共享可变 dict；
+    # ``dataclasses.replace`` 浅拷贝仍指向同一计数器）。带 offset/limit 的分段读不计入。
+    # 超 ``FILE_READ_SAME_PATH_MAX`` 且投影窗内仍有该 path 正文、又无再读授额时拒绝。
     file_read_counts: dict[str, int] = field(default_factory=dict)
     # R1 tool_clear 双态：engine 在每轮 ``execute_tools`` 前对 canonical 再跑
     # ``project_cleared_window`` 后写入。``None`` = 未同步（单测/旁路）→ 视为正文仍在，
     # 保持纯 ``FILE_READ_SAME_PATH_MAX`` 硬顶。``frozenset`` = 投影窗内仍有 verbatim
-    # ``file_read`` 正文的 path 集合（空集 = 该窗内全部已清）。
+    # ``file_read`` 正文的 path 集合（空集 = 该窗内全部已清）。正文已清时不因授额用尽硬拒。
     file_read_verbatim_paths: frozenset[str] | None = None
     # R1：每 path 每 run sticky「已授再读」标记（共享可变 dict；值恒 True）。
-    # 一旦发出，清窗再次发生也不二次授额。
+    # 一旦发出，清窗再次发生也不二次授额（写成功 ``refresh_file_read_reread_grant`` 可刷新）。
     file_read_reread_issued: dict[str, bool] = field(default_factory=dict)
-    # R1：各 path 剩余再读次数（共享可变 dict）。engine 授额时写入；成功再读时工具扣减。
+    # R1：各 path 剩余再读次数（共享可变 dict）。engine / 写成功授额；成功再读时工具扣减。
+    # 授额 > 0 时可覆盖仍在窗内的 stale 正文（写后核对 / citation refresh）。
     file_read_reread_remaining: dict[str, int] = field(default_factory=dict)
     # Artifact-first Writing：本 execution 已落盘 path → ``skeleton`` | ``prose``（共享可变
     # dict；``dataclasses.replace`` 浅拷贝与 ``file_read_counts`` 同模式）。``prose`` = 成篇

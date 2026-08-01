@@ -271,12 +271,14 @@ def _coordination_start_echo(
         "你将收到团队事件（worker_completed / note / escalation / "
         "user_interjection / all_completed）。完成进度与各队员完成摘要由系统自动展示给用户；"
         "仅当形成新的中间结论、发现各路产出冲突或需要方向修正时用 update_synthesis 更新合成草稿，"
-        "勿为播报进度而更新；无需处置时调 wait（或空响应，系统已豁免）；"
-        "若对用户开口须短说谁在后台、完成后会再汇报，不要写「静默等待中」——"
-        "那会原样显示给用户且无收尾承诺；"
+        "勿为播报进度而更新；无需处置时调 wait（或空响应，系统已豁免）——"
+        "图在转、无新结论时【可静默】，禁止用用户可见正文复述「谁还在跑/仍在检索」"
+        "（协作图才是进度真相）；对用户开口仅三选一：请示用户 / 报告阻塞与选项 / "
+        "宣布阶段结论（非纯进度）；勿写「静默等待中」类空旁白（会原样显示且无收尾）；"
         "也勿用 delegate 占位等待（同构再派会被拒绝）；"
-        "老板中途插话：相关则图内处置，无关则 queue_user_message 转对话级排队；"
-        "全部完成后做最终合成并收口。"
+        "老板中途插话：【先】用可见正文响应该句（哪怕极短「收到，仍按原计划」），"
+        "再谈团队；相关则图内处置，无关则 queue_user_message 转对话级排队；"
+        "全部完成后做最终合成并收口（协调态进度旁白不是终稿）。"
         "用户要立等结果的快任务请用 finalize 阻塞收口；"
         "单 worker / finalize / 嵌套 lead / 显式 coordinate=false 仍走阻塞等待。"
     )
@@ -528,6 +530,7 @@ def _merge_into_active_coordination(
             force=force,
             only_run_ids={n.run_id for n in added_nodes},
             ancestor_map=_ancestors_by_id(live),
+            completed_run_ids=session.completed_run_ids,
         )
     # Budget merge（两池遥测）：派新批按 batch 规模补充两池计数额度，各自封顶。
     topup_progress, topup_decision = split_coordination_budget(
@@ -772,14 +775,24 @@ def try_start_coordination(
     if file_ownership_v2_enabled() and fresh_session:
         from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
 
-        declare_plan_artifacts(plan, session.ensure_file_ownership(), force=force)
+        declare_plan_artifacts(
+            plan,
+            session.ensure_file_ownership(),
+            force=force,
+            completed_run_ids=session.completed_run_ids,
+        )
         record_coordination_snapshot(session)
     elif file_ownership_v2_enabled() and session.file_ownership is None:
         # Resume without ownership in snapshot (legacy frame) — backfill from live plan.
         from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
 
         live = session.live_plan or plan
-        declare_plan_artifacts(live, session.ensure_file_ownership(), force=force)
+        declare_plan_artifacts(
+            live,
+            session.ensure_file_ownership(),
+            force=force,
+            completed_run_ids=session.completed_run_ids,
+        )
         record_coordination_snapshot(session)
 
     # 疑似缺依赖提示搭车协调注入通道：随首个团队事件简报一并呈现给 CEO，不新增独立唤醒。

@@ -1060,6 +1060,7 @@ def _deliverable_from_dict(raw: dict[str, Any], *, name: str = "") -> Deliverabl
         must_contain_soft=must_contain_soft,
         strict=bool(raw.get("strict", False)),
         citation_mode=citation_mode,  # type: ignore[arg-type]
+        code_audit_gate=bool(raw.get("code_audit_gate", False)),
     )
 
 

@@ -7,7 +7,7 @@
 // These mirror the desktop `TOOL_META` / `CONTEXT_CHANNEL_META` labels so the two ends read the
 // same (各端全新建 per cross-platform-frontend; labels are chrome, NOT shared business logic).
 
-import type { ToolPhase } from "@agentcore/contract-types";
+import type { ToolPhase, WorkerRunPhase } from "@agentcore/contract-types";
 
 /** Context channel → 中文 label (上下文传递可视化). Covers the CEO-side opening channels
  *  (系统提示 / 对话历史 / 原始请求 / 队员回传) and the worker-side / 续写 channels (任务 / 交付物 /
@@ -77,6 +77,23 @@ const TOOL_PHASE_TEXT: Record<ToolPhase, string> = {
 export function toolPhaseText(phase: string | undefined): string | null {
   if (!phase) return null;
   return TOOL_PHASE_TEXT[phase as ToolPhase] ?? "Working";
+}
+
+/** Worker mid-flight `run.phase` → badge copy (SSE `run_phase`).
+ *  queued = status pending →「排队中」; skipped = status skipped →「未执行」(caller).
+ *  Absent phase on running → null (caller keeps generic「进行中」). */
+const RUN_PHASE_LABEL: Record<WorkerRunPhase, string> = {
+  thinking: "思考中",
+  tool: "工具中",
+  waiting_children: "等待子任务",
+  winding_down: "收尾中",
+};
+
+export function runPhaseLabel(
+  phase: WorkerRunPhase | null | undefined,
+): string | null {
+  if (!phase) return null;
+  return RUN_PHASE_LABEL[phase] ?? null;
 }
 
 /** The most descriptive string arg to show beside a tool (its query / url / path / …);

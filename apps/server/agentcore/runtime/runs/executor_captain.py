@@ -28,7 +28,7 @@ from agentcore.runtime.runs.executor_context import (
     _build_captain_context_blocks,
     _context_block_payloads,
 )
-from agentcore.runtime.runs.executor_shared import _priced_failure
+from agentcore.runtime.runs.executor_shared import _priced_failure, resolve_finish_override
 from agentcore.runtime.runs.types import ContextBlock, RunPhase, RunSpec, RunState
 from agentcore.runtime.suspension import captain_transcript
 from agentcore.tools.protocol import ToolContext
@@ -198,10 +198,10 @@ async def _drive_captain_loop(
     # so an LLM error RETURNS partial usage (priced on the COMPLETED path below); this
     # except only catches non-LLM crashes, where the mirror is the only record left.
     inflight: list[TokenUsage] = []
-    # B2: react_loop appends a FinishReason here when the captain loop ends on a
-    # non-default terminal path (DEGRADED — empty responses even after the fallback
-    # retry; or UNPRODUCTIVE — early-stopped on all-tools-failed-no-content rounds),
-    # so the turn finishes on that reason instead of END_TURN.
+    # B2: react_loop appends FinishReason stamps here when the captain loop ends on a
+    # non-default terminal path (DEGRADED / UNPRODUCTIVE / PAUSED, …). Chronological:
+    # later stamps supersede earlier ones (e.g. unproductive early-stop then
+    # force-finalize ask_user → PAUSED). resolve_finish_override takes the last.
     finish_override: list[FinishReason] = []
     try:
         with log_context(
@@ -273,7 +273,7 @@ async def _drive_captain_loop(
             rounds=rounds,
             usage=usage_dict,
             cost=cost,
-            finish_override=finish_override[0] if finish_override else None,
+            finish_override=resolve_finish_override(finish_override),
             received_context=received_blocks or [],
         )
     except Exception as e:  # noqa: BLE001 — surface any captain failure to UI/state

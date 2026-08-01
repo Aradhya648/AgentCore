@@ -12,6 +12,7 @@ from agentcore.runtime.runs.playbooks import (
     available_playbooks,
     expand_playbook,
 )
+from agentcore.workspace.stage_dirs import REVIEWS_DIR
 
 
 def _roles(tasks: list[dict]) -> list[str]:
@@ -20,6 +21,71 @@ def _roles(tasks: list[dict]) -> list[str]:
 
 def _by_id(tasks: list[dict]) -> dict[str, dict]:
     return {t["id"]: t for t in tasks}
+
+
+# ── code_audit ────────────────────────────────────────────────────────────────
+
+
+def test_code_audit_single_module_one_auditor():
+    tasks, errors = expand_playbook("code_audit", {"scope": "apps/desktop/src/preload"})
+    assert errors == []
+    assert len(tasks) == 1
+    t = tasks[0]
+    assert t["role"] == "代码审计员"
+    assert not t.get("depends_on")
+    d = t["deliverable"]
+    assert d["form"] == "files"
+    assert d["strict"] is True
+    assert d["code_audit_gate"] is True
+    assert len(d["artifacts"]) == 2
+    assert d["artifacts"][0].startswith(f"{REVIEWS_DIR}/code-audit-")
+    assert d["artifacts"][1].endswith(".audit.json")
+    assert "〇、人审速览" in d["required_sections"]
+    assert "验证方式" in d["must_contain"]
+    assert "两阶段" in t["task"] or "A 宽扫" in t["task"]
+    assert "K=8" in t["task"] or "最多定案 K=8" in t["task"]
+    assert ".audit.json" in t["task"]
+    plan, plan_errs = build_run_plan(tasks)
+    assert plan_errs == []
+    assert len(plan.nodes) == 1
+    assert plan.nodes[0].deliverable is not None
+    assert plan.nodes[0].deliverable.strict is True
+    assert plan.nodes[0].deliverable.code_audit_gate is True
+
+
+def test_code_audit_multi_module_parallel_plus_synth():
+    tasks, errors = expand_playbook(
+        "code_audit",
+        {"scope": "AgentCore monorepo", "modules": ["server", "desktop", "town"]},
+    )
+    assert errors == []
+    by_id = _by_id(tasks)
+    assert set(by_id) == {"audit_0", "audit_1", "audit_2", "audit_synth"}
+    assert all(by_id[i]["role"] == "代码审计员" for i in ("audit_0", "audit_1", "audit_2"))
+    synth = by_id["audit_synth"]
+    assert synth["role"] == "审计主管"
+    assert set(synth["depends_on"]) == {"audit_0", "audit_1", "audit_2"}
+    assert synth["deliverable"]["artifacts"] == [f"{REVIEWS_DIR}/code-audit-汇总速览.md"]
+    plan, plan_errs = build_run_plan(tasks)
+    assert plan_errs == []
+    assert len(plan.waves()) >= 2
+
+
+def test_code_audit_requires_scope_and_rejects_single_module_list():
+    tasks, errors = expand_playbook("code_audit", {"modules": ["a", "b"]})
+    assert tasks == []
+    assert any("scope" in e for e in errors)
+    tasks2, errors2 = expand_playbook(
+        "code_audit", {"scope": "x", "modules": ["only-one"]}
+    )
+    assert tasks2 == []
+    assert any("≥2" in e or "modules" in e for e in errors2)
+
+
+def test_available_playbooks_lists_code_audit():
+    listing = available_playbooks()
+    assert "code_audit" in listing
+    assert "代码审计" in listing
 
 
 # ── parallel_brief ────────────────────────────────────────────────────────────
@@ -875,6 +941,7 @@ def test_expand_rejects_non_object_args():
 def test_available_playbooks_lists_all_registered():
     listing = available_playbooks()
     assert set(PLAYBOOKS) == {
+        "code_audit",
         "parallel_brief",
         "research_report",
         "build_feature",
@@ -895,6 +962,7 @@ def test_available_playbooks_lists_all_registered():
 
 def test_every_playbook_expansion_builds_a_valid_run_plan():
     samples = {
+        "code_audit": {"scope": "apps/server", "modules": ["auth", "storage"]},
         "parallel_brief": {"topic": "T", "angles": ["a", "b", "c"]},
         "research_report": {"topic": "T", "angles": ["a", "b"], "checkpoint": True},
         "build_feature": {"feature": "F", "stack": "S"},
@@ -911,6 +979,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         "multi_lens_research": {"topic": "T"},
     }
     expected_nodes = {
+        "code_audit": 3,  # 2 auditors + synth
         "parallel_brief": 3,
         "research_report": 5,
         "build_feature": 3,

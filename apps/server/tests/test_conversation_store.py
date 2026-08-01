@@ -394,6 +394,92 @@ async def test_finalize_cloud_keeps_existing_partial_on_empty_error(monkeypatch)
     assert upserted["metadata"]["status"] == MESSAGE_STATUS_FAILED
 
 
+async def test_finalize_cloud_auto_snapshot_passes_folder_id(monkeypatch):
+    """Folder chats must auto-snapshot under the folder storage key (B4 lock alignment)."""
+    from datetime import UTC, datetime
+
+    from agentcore.config import settings
+    from agentcore.storage import SnapshotRef
+
+    captured: dict[str, Any] = {}
+
+    class MsgRepo:
+        def __init__(self, _s):
+            pass
+
+        async def get_by_id(self, *_a, **_k):
+            return None
+
+        async def upsert_assistant(self, **kw):
+            return SimpleNamespace(id=kw["message_id"])
+
+        async def set_followups(self, *_a, **_k):
+            return None
+
+    class MetricsRepo:
+        def __init__(self, _s):
+            pass
+
+        async def record(self, **_kw):
+            return None
+
+    class CM:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    async def _fake_create_snapshot(**kw):
+        captured.update(kw)
+        return SnapshotRef(
+            snapshot_id="snap-folder",
+            label=None,
+            created_at=datetime.now(UTC),
+            size_bytes=1,
+        )
+
+    monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
+    monkeypatch.setattr(cloud_mod, "MessageRepository", MsgRepo)
+    monkeypatch.setattr(
+        "agentcore.billing.turn_ledger.reconcile_turn_cost_ledger",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(cloud_mod, "TurnMetricsRepository", MetricsRepo)
+    monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
+    monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction", lambda *_a, **_k: None)
+    monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
+    monkeypatch.setattr(settings, "workspace_snapshot_enabled", True)
+    monkeypatch.setattr(cloud_mod, "create_snapshot", _fake_create_snapshot)
+
+    await CloudStore().finalize(
+        mode="cloud",
+        result={
+            "message_id": "m-snap",
+            "content": "done",
+            "finish_reason": FinishReason.END_TURN,
+            "rounds": 1,
+            # Tape path skips LLM followup mint so the test stays hermetic.
+            "followups": ["next"],
+        },
+        conversation_id="c-folder",
+        user_id="u1",
+        folder_id="folder-42",
+        backend=SimpleNamespace(location="server", dirty=True),
+        sink=SimpleNamespace(emit=lambda *_a, **_k: None),
+        user_message="hi",
+        llm_credentials=None,
+        trace_id="d" * 32,
+        turn_id="turn-snap",
+        duration_ms=10,
+    )
+
+    assert captured["user_id"] == "u1"
+    assert captured["folder_id"] == "folder-42"
+    assert captured["conversation_id"] == "c-folder"
+
+
 async def test_finalize_local_settles_empty_error_with_error_code(monkeypatch):
     """Local write-back: empty ERROR must settle (was gated on non-empty content)."""
     from agentcore.core.error_codes import ErrorCode

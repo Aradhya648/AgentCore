@@ -310,6 +310,7 @@ class LocalWorkspace:
             ],
             truncated=bool(value.get("truncated", False)),
             elided_count=int(value.get("elided_count", 0)),
+            warnings=[str(w) for w in value.get("warnings", [])],
         )
 
     async def index_files(
@@ -428,6 +429,7 @@ class LocalWorkspace:
             ],
             total_matches=int(value.get("total_matches", 0)),
             truncated=bool(value.get("truncated", False)),
+            warnings=[str(w) for w in value.get("warnings", [])],
         )
 
     async def execute(self, req: ExecutionRequest) -> ExecutionResult:

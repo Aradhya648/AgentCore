@@ -9,6 +9,7 @@ import { StreamHttpError } from "@/lib/errors";
 import type { SSEEvent, TurnQueuedPayload } from "@agentcore/contract-types";
 
 export type MidFlightSendResult =
+  | { kind: "received" }
   | { kind: "delivered" }
   | { kind: "queued"; position: number; queueDepth: number }
   | { kind: "blocked"; code?: string; message?: string }
@@ -159,7 +160,7 @@ export async function sendMidFlightMessage(
 
       if (event.type === "user_interjection") {
         gate.mode = "live";
-        result = { kind: "delivered" };
+        result = { kind: "received" };
         hooks.onLiveEvent(event);
         return;
       }

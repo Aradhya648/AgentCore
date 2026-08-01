@@ -30,7 +30,9 @@ assistant / system messages.
 
 R1 (file_read): cleared ``file_read`` results may append a deterministic structural
 digest (no LLM). When a path has zero verbatim bodies left in the projected window,
-the engine may grant a sticky +1 re-read beyond ``FILE_READ_SAME_PATH_MAX``.
+the engine may grant a sticky +1 re-read beyond ``FILE_READ_SAME_PATH_MAX`` (hint /
+grant override while verbatim still present). Cleared paths are never hard-rejected
+solely for exhausted re-read grants — recovery full-reads remain allowed.
 """
 
 from __future__ import annotations
@@ -287,7 +289,8 @@ def apply_file_read_clear_state(
 
     Sticky grant: when a path has ``file_read_counts >= FILE_READ_SAME_PATH_MAX`` and
     zero verbatim bodies in the projection, issue at most ``reread_grant`` once per
-    path per run (``file_read_reread_issued``).
+    path per run (``file_read_reread_issued``). Grant enables override while
+    verbatim is still present; cleared paths allow recovery reads without grant.
     """
     from agentcore.config import settings
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX

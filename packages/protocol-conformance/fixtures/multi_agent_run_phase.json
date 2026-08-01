@@ -1,0 +1,373 @@
+{
+  "name": "multi_agent_run_phase",
+  "description": "多 Agent·worker 活动相位：run_phase(thinking/tool/waiting_children/winding_down) + pending queued + run_skipped；winding_down 粘性",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "组队中。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec-phase",
+        "plan_type": "multi_agent",
+        "task_summary": "相位可区分",
+        "agents": [
+          {
+            "id": "w1",
+            "role": "小组长",
+            "thinking": true
+          },
+          {
+            "id": "w2",
+            "role": "排队队员",
+            "thinking": true
+          },
+          {
+            "id": "w3",
+            "role": "未执行队员",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "agent_id": "w1",
+            "task": "带队改码",
+            "depends_on": []
+          },
+          {
+            "id": "r2",
+            "agent_id": "w2",
+            "task": "等槽位",
+            "depends_on": []
+          },
+          {
+            "id": "r3",
+            "agent_id": "w3",
+            "task": "级联未跑",
+            "depends_on": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "parent_run_id": null,
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "thinking"
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "run_tool_progress",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "tool_name": "file_read",
+        "chars": 40
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "tool",
+        "tool_name": "file_read"
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "tool_use_start",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "file_read",
+        "arguments": {
+          "path": "a.ts"
+        },
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "tool_use_end",
+      "payload": {
+        "tool_call_id": "tc1",
+        "tool_name": "file_read",
+        "status": "success",
+        "result": "ok",
+        "run_id": "r1"
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "thinking"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "waiting_children"
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "thinking"
+      },
+      "timestamp": "2026-01-01T00:00:00.012Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "winding_down"
+      },
+      "timestamp": "2026-01-01T00:00:00.013Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "thinking"
+      },
+      "timestamp": "2026-01-01T00:00:00.014Z"
+    },
+    {
+      "type": "run_phase",
+      "payload": {
+        "run_id": "r1",
+        "agent_id": "w1",
+        "phase": "tool",
+        "tool_name": "handoff"
+      },
+      "timestamp": "2026-01-01T00:00:00.015Z"
+    },
+    {
+      "type": "run_skipped",
+      "payload": {
+        "run_id": "r3",
+        "agent_id": "w3",
+        "reason": "cascade"
+      },
+      "timestamp": "2026-01-01T00:00:00.016Z"
+    }
+  ],
+  "projected": {
+    "status": "running",
+    "finishReason": null,
+    "content": "组队中。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "组队中。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec-phase"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "w1",
+        "role": "小组长",
+        "thinking": true,
+        "status": "working",
+        "currentRunId": "r1",
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w2",
+        "role": "排队队员",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "w3",
+        "role": "未执行队员",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "r1",
+        "agentId": "w1",
+        "task": "带队改码",
+        "status": "running",
+        "dependsOn": [],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "tool",
+            "id": "tc1",
+            "tool_name": "file_read",
+            "arguments": {
+              "path": "a.ts"
+            },
+            "result": "ok",
+            "status": "success"
+          }
+        ],
+        "phase": "winding_down",
+        "phaseTool": null
+      },
+      {
+        "id": "r2",
+        "agentId": "w2",
+        "task": "等槽位",
+        "status": "pending",
+        "dependsOn": [],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "r3",
+        "agentId": "w3",
+        "task": "级联未跑",
+        "status": "skipped",
+        "dependsOn": [
+          "r1"
+        ],
+        "outputSummary": null,
+        "debrief": null,
+        "durationMs": null,
+        "error": null,
+        "parentRunId": null,
+        "kind": "agent",
+        "role": null,
+        "model": null,
+        "usage": null,
+        "cost": null,
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "multi_agent",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 0,
+      "total": 3
+    },
+    "interactions": [],
+    "cost": null,
+    "debate": null,
+    "debateRounds": [],
+    "debatePretrial": null,
+    "crossExamEnabled": false,
+    "debateOpening": null,
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

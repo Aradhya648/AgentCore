@@ -125,9 +125,8 @@ _LIGHT_REPAIR_TOOL_NAMES: frozenset[str] = frozenset(
 )
 _LIGHT_REPAIR_MAX_ROUNDS = 4
 
-# Repair / light coding posture (encoding closed-loop phase 4): withhold全仓巡读 /
-# web crawl. Keep ``browser_navigate`` — opening a URL is the lightest browser
-# task and must not be stripped while snapshot/screenshot remain (dogfood 2026-07-28).
+# Retired: short-round repair posture no longer strips list / crawl / click tools.
+# Constant kept for tests / compat; :func:`_narrow_for_repair_posture` is identity.
 _REPAIR_POSTURE_WITHHOLD: frozenset[str] = frozenset(
     {"file_list", "web_search", "read_url", "browser_click"}
 )
@@ -178,12 +177,13 @@ def _narrow_for_repair_posture(
     worker_tools: Any,
     allowed_tools: list[str] | None,
 ) -> tuple[Any, list[str] | None]:
-    """Strip全仓 list / web crawl for short-round repair posture."""
-    narrowed_registry = _registry_without(worker_tools, *sorted(_REPAIR_POSTURE_WITHHOLD))
-    if allowed_tools is None:
-        return narrowed_registry, None
-    withhold = _REPAIR_POSTURE_WITHHOLD
-    return narrowed_registry, [t for t in allowed_tools if t not in withhold]
+    """Retired no-op: short-round posture no longer strips list / crawl tools.
+
+    Formerly withheld ``file_list`` / ``web_search`` / ``read_url`` / ``browser_click``
+    when ``max_rounds>0``. Kept as identity so call sites / tests need not relocate.
+    """
+    _ = _REPAIR_POSTURE_WITHHOLD
+    return worker_tools, allowed_tools
 
 
 def _retry_token_budget(*, ceiling: int, spent: int) -> int:
@@ -323,6 +323,9 @@ async def execute_agent_node(
             replaces_run_id=spec.replaces_run_id,
         )
     )
+    from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+
+    emit_run_phase(env.sink, spec.run_id, agent_id, "thinking")
     start = time.monotonic()
     deliverable = spec.deliverable
     # Hoisted out of the try so a hard exception can still bill what this run
@@ -487,11 +490,8 @@ async def execute_agent_node(
                 withheld = set(PROSE_WITHHELD_WRITE_TOOLS)
                 allowed_tools = [t for t in allowed_tools if t not in withheld]
             tool_ctx = replace(tool_ctx, withheld_write_tools="prose")
-        # Repair / light short-round posture: no全仓 list / web crawl.
-        if spec.max_rounds is not None and spec.max_rounds > 0:
-            worker_tools, allowed_tools = _narrow_for_repair_posture(
-                worker_tools, allowed_tools
-            )
+        # Short-round repair posture tool strip retired (no-op kept for compat).
+        # CEO / repair_code may still stamp max_rounds; tools stay full surface.
         files_expected = _files_expected(deliverable)
         product_landing_artifacts: list[str] | None = (
             list(deliverable.artifacts)

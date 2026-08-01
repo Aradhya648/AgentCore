@@ -83,7 +83,7 @@ describe("sendMidFlightMessage", () => {
     expect(turn2).toEqual(["message_start", "message_end"]);
   });
 
-  it("user_interjection：即时 delivered，不开 turn2", async () => {
+  it("user_interjection：即时 received，不开 turn2", async () => {
     fetchMock.mockResolvedValue(
       new Response(
         sseBody([ev("user_interjection", { interjection_id: "ij1" })]),
@@ -108,7 +108,7 @@ describe("sendMidFlightMessage", () => {
       waitPrimaryIdle: async () => {},
     });
 
-    expect(result).toEqual({ kind: "delivered" });
+    expect(result).toEqual({ kind: "received" });
     expect(live).toEqual(["user_interjection"]);
     expect(began).toBe(0);
   });

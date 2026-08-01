@@ -37,6 +37,7 @@ import {
 import { ConversationDrawer } from "@/components/ConversationDrawer";
 import { DelegationAuthorizationCard } from "@/components/DelegationAuthorizationCard";
 import { FileArtifactsCard } from "@/components/FileArtifactsCard";
+import { InterjectionBubbles } from "@/components/InterjectionBubbles";
 import { MemoryUpdateCard } from "@/components/MemoryUpdateCard";
 import { ModelPicker } from "@/components/ModelPicker";
 import { PauseCard } from "@/components/PauseCard";
@@ -59,11 +60,8 @@ import {
 import {
   STOPPED_LABEL,
   STOP_FAILED_MESSAGE,
-  STOP_RETRY_LABEL,
-  STOP_UNCONFIRMED_MESSAGE,
   type StopUiPhase,
   allowsEventWhileStopping,
-  createStopConfirmTimer,
   isStopBusy,
   isStopConfirmEvent,
   reduceStopPhase,
@@ -73,6 +71,7 @@ import {
   type SupportDiagnosticIds,
   extractSupportIdsFromEvents,
 } from "@/lib/supportDiagnostics";
+import { formatDuration, formatMessageTime } from "@/lib/time";
 import { useStickScroll } from "@/lib/useStickScroll";
 import { useVoiceInput } from "@/lib/useVoiceInput";
 import {
@@ -160,6 +159,48 @@ function AttachmentChips({
   );
 }
 
+/** Live 回合时钟：优先 message_start.timestamp，否则首帧。 */
+function extractTurnClock(events: SSEEvent[]): string | null {
+  for (const e of events) {
+    if (e.type === "message_start" && e.timestamp) return e.timestamp;
+  }
+  return events[0]?.timestamp ?? null;
+}
+
+/** Live 回合用时：message_end.duration_ms（旁路，不入 ProjectedTurn）。 */
+function extractTurnDurationMs(events: SSEEvent[]): number | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type !== "message_end") continue;
+    const ms = (e.payload as MessageEndPayload | undefined)?.duration_ms;
+    return typeof ms === "number" && ms > 0 ? ms : null;
+  }
+  return null;
+}
+
+/** 气泡底部时间 meta：时钟 · 用时（有则显）。 */
+function TurnTimeMeta({
+  clockIso,
+  durationMs,
+}: {
+  clockIso: string | null | undefined;
+  durationMs?: number | null;
+}) {
+  const clockLabel = clockIso ? formatMessageTime(clockIso) : "";
+  const dur =
+    durationMs != null && durationMs > 0
+      ? `用时 ${formatDuration(durationMs)}`
+      : "";
+  if (!clockLabel && !dur) return null;
+  return (
+    <div className="meta time-meta">
+      {clockLabel}
+      {clockLabel && dur ? " · " : ""}
+      {dur}
+    </div>
+  );
+}
+
 /** Build 排查包 ids for a history assistant row (REST trace_id + journal execution_id). */
 function historySupportIds(
   m: MessageDetail,
@@ -190,13 +231,11 @@ function historySupportIds(
 const RECONNECT_BANNER = "连接中断，回合仍在后台继续。点「重连」继续查看。";
 
 /** A turn-level error with an optional one-tap reconnect (a held SSE that dropped while
- *  the run lives on), a stop retry (诚实停止：/stop 失败或未确认), or a config remedy
- *  (e.g.「去配置」→ 模型配置 for LLM_KEY_REQUIRED). */
+ *  the run lives on), or a config remedy (e.g.「去配置」→ 模型配置 for LLM_KEY_REQUIRED).
+ *  /stop 失败只出诚实文案，可再点停止按钮（无「重试停止」专属路径）。 */
 interface ChatError {
   text: string;
   reconnect?: boolean;
-  /** /stop 失败或宽限未确认 — 点「重试停止」再走停止闭环。 */
-  retryStop?: boolean;
   action?: ErrorAction;
 }
 
@@ -446,6 +485,8 @@ function AssistantBubble({
     [live, turn.events],
   );
   const meta = summarize(p);
+  const clockIso = extractTurnClock(turn.events);
+  const durationMs = extractTurnDurationMs(turn.events);
   const isMulti = p.runs.length > 0;
   const team = isMulti
     ? {
@@ -489,57 +530,63 @@ function AssistantBubble({
     ...extractSupportIdsFromEvents(turn.events),
   };
   return (
-    <div className="bubble assistant">
-      {turnWarning && <div className="turn-warning">{turnWarning}</div>}
-      {turnQueued && (
-        <div className="finish-chip muted" data-testid="turn-queued-chip">
-          排队中（第 {turnQueued.position} 位
-          {turnQueued.queueDepth > 1 ? ` / 共 ${turnQueued.queueDepth} 条` : ""}
-          ）
-        </div>
-      )}
-      {empty && !failureNotice ? (
-        <span className="muted">
-          {live ? (turnQueued ? "等待上一回合结束…" : "…") : ""}
-        </span>
-      ) : !empty ? (
-        <AssistantContent
-          process={p.process}
-          content={p.content}
-          reasoning={p.reasoning}
-          citations={p.citations}
-          evidenceLedger={turnEvidenceLedger}
-          captainContext={p.captainContext}
-          team={team}
-          debate={p.debate}
-          debateRounds={p.debateRounds}
-          debatePretrial={p.debatePretrial}
-          asks={asks}
-          escalationSlots={escalationSlots}
-          hotTraces={hotTraces}
-          stageCardTraces={stageCardTraces}
-          toolPhases={toolPhases}
-          graphAppendActKinds={graphAppendActKinds}
-          graphAppendAuthorizedBy={graphAppendAuthorizedBy}
-          onFill={onFill}
-          supportIds={supportIds}
+    <>
+      <div className="bubble assistant">
+        {turnWarning && <div className="turn-warning">{turnWarning}</div>}
+        {turnQueued && (
+          <div className="finish-chip muted" data-testid="turn-queued-chip">
+            排队中（第 {turnQueued.position} 位
+            {turnQueued.queueDepth > 1
+              ? ` / 共 ${turnQueued.queueDepth} 条`
+              : ""}
+            ）
+          </div>
+        )}
+        {empty && !failureNotice ? (
+          <span className="muted">
+            {live ? (turnQueued ? "等待上一回合结束…" : "…") : ""}
+          </span>
+        ) : !empty ? (
+          <AssistantContent
+            process={p.process}
+            content={p.content}
+            reasoning={p.reasoning}
+            citations={p.citations}
+            evidenceLedger={turnEvidenceLedger}
+            captainContext={p.captainContext}
+            team={team}
+            debate={p.debate}
+            debateRounds={p.debateRounds}
+            debatePretrial={p.debatePretrial}
+            asks={asks}
+            escalationSlots={escalationSlots}
+            hotTraces={hotTraces}
+            stageCardTraces={stageCardTraces}
+            toolPhases={toolPhases}
+            graphAppendActKinds={graphAppendActKinds}
+            graphAppendAuthorizedBy={graphAppendAuthorizedBy}
+            onFill={onFill}
+            supportIds={supportIds}
+          />
+        ) : null}
+        {failureNotice && (
+          <div className="error inline-actions">
+            <span>{failureNotice}</span>
+            <SupportDiagnosticCopyButton ids={supportIds} />
+          </div>
+        )}
+        <FileArtifactsCard
+          artifacts={artifacts}
+          conversationId={conversationId}
         />
-      ) : null}
-      {failureNotice && (
-        <div className="error inline-actions">
-          <span>{failureNotice}</span>
-          <SupportDiagnosticCopyButton ids={supportIds} />
-        </div>
-      )}
-      <FileArtifactsCard
-        artifacts={artifacts}
-        conversationId={conversationId}
-      />
-      {/* The team view carries its own progress header; the one-line meta is the
-          single-agent fallback. */}
-      {!isMulti && meta && <div className="meta">{meta}</div>}
-      {cost && <div className="cost">{cost}</div>}
-    </div>
+        {/* The team view carries its own progress header; the one-line meta is the
+            single-agent fallback. */}
+        {!isMulti && meta && <div className="meta">{meta}</div>}
+        <TurnTimeMeta clockIso={clockIso} durationMs={durationMs} />
+        {cost && <div className="cost">{cost}</div>}
+      </div>
+      <InterjectionBubbles items={p.userInterjections} />
+    </>
   );
 }
 
@@ -571,6 +618,7 @@ function HistoryAssistant({
     graphAppendActKinds,
     graphAppendAuthorizedBy,
     deliveryStatus,
+    userInterjections,
   } = useMemo(() => {
     const events = m.runs?.events;
     const warning =
@@ -587,6 +635,7 @@ function HistoryAssistant({
         graphAppendActKinds: new Map<string, string>(),
         graphAppendAuthorizedBy: new Map<string, string>(),
         deliveryStatus: null,
+        userInterjections: [] as ProjectedTurn["userInterjections"],
       };
     const p = fold(events);
     const team =
@@ -614,6 +663,7 @@ function HistoryAssistant({
       graphAppendActKinds: extractGraphAppendActKinds(events),
       graphAppendAuthorizedBy: extractGraphAppendAuthorizedBy(events),
       deliveryStatus: p.deliveryStatus,
+      userInterjections: p.userInterjections,
     };
   }, [m.runs]);
   const process = m.runs?.process ?? undefined;
@@ -679,57 +729,62 @@ function HistoryAssistant({
     !interrupted &&
     !stopped &&
     !streaming &&
-    !failureNotice
+    !failureNotice &&
+    userInterjections.length === 0
   ) {
     return null;
   }
   return (
-    <div
-      className="bubble assistant"
-      ref={columnBilled == null ? ref : undefined}
-    >
-      {turnWarning && <div className="turn-warning">{turnWarning}</div>}
-      {streaming && !m.content && !m.reasoning_content && !process?.length ? (
-        <span className="muted">…</span>
-      ) : emptyBody && failureNotice ? null : (
-        <AssistantContent
-          process={process}
-          content={m.content ?? ""}
-          reasoning={m.reasoning_content ?? undefined}
-          citations={m.citations}
-          evidenceLedger={historyEvidenceLedger}
-          captainContext={m.runs?.captain_context ?? undefined}
-          team={team}
-          debate={debate}
-          debateRounds={debateRounds}
-          debatePretrial={debatePretrial}
-          asks={asks}
-          escalationSlots={escalationSlots}
-          hotTraces={hotTraces}
-          stageCardTraces={stageCardTraces}
-          graphAppendActKinds={graphAppendActKinds}
-          graphAppendAuthorizedBy={graphAppendAuthorizedBy}
-          onFill={onFill}
-          supportIds={supportIds}
+    <>
+      <div
+        className="bubble assistant"
+        ref={columnBilled == null ? ref : undefined}
+      >
+        {turnWarning && <div className="turn-warning">{turnWarning}</div>}
+        {streaming && !m.content && !m.reasoning_content && !process?.length ? (
+          <span className="muted">…</span>
+        ) : emptyBody && failureNotice ? null : (
+          <AssistantContent
+            process={process}
+            content={m.content ?? ""}
+            reasoning={m.reasoning_content ?? undefined}
+            citations={m.citations}
+            evidenceLedger={historyEvidenceLedger}
+            captainContext={m.runs?.captain_context ?? undefined}
+            team={team}
+            debate={debate}
+            debateRounds={debateRounds}
+            debatePretrial={debatePretrial}
+            asks={asks}
+            escalationSlots={escalationSlots}
+            hotTraces={hotTraces}
+            stageCardTraces={stageCardTraces}
+            graphAppendActKinds={graphAppendActKinds}
+            graphAppendAuthorizedBy={graphAppendAuthorizedBy}
+            onFill={onFill}
+            supportIds={supportIds}
+          />
+        )}
+        {failureNotice && (
+          <div className="error inline-actions">
+            <span>{failureNotice}</span>
+            <SupportDiagnosticCopyButton ids={supportIds} />
+          </div>
+        )}
+        <FileArtifactsCard
+          artifacts={artifacts}
+          conversationId={conversationId}
         />
-      )}
-      {failureNotice && (
-        <div className="error inline-actions">
-          <span>{failureNotice}</span>
-          <SupportDiagnosticCopyButton ids={supportIds} />
-        </div>
-      )}
-      <FileArtifactsCard
-        artifacts={artifacts}
-        conversationId={conversationId}
-      />
-      {(interrupted || stopped) && isLast && onRetry && (
-        <button type="button" className="retry-btn" onClick={onRetry}>
-          重试
-        </button>
-      )}
-      {cost && !streaming && <div className="cost">{cost}</div>}
-    </div>
+        {(interrupted || stopped) && isLast && onRetry && (
+          <button type="button" className="retry-btn" onClick={onRetry}>
+            重试
+          </button>
+        )}
+        <TurnTimeMeta clockIso={m.created_at} durationMs={m.duration_ms} />
+        {cost && !streaming && <div className="cost">{cost}</div>}
+      </div>
+      <InterjectionBubbles items={userInterjections} />
+    </>
   );
 }
 
@@ -802,7 +857,6 @@ export function ChatPage() {
   /** 主路 + mid-flight 在途数；>0 则 sending。 */
   const inflightRef = useRef(0);
   const stopPhaseRef = useRef<StopUiPhase>("idle");
-  const stopTimerRef = useRef(createStopConfirmTimer());
 
   const markStreamStart = () => {
     inflightRef.current += 1;
@@ -836,7 +890,6 @@ export function ChatPage() {
   const isStoppingNow = (): boolean => stopPhaseRef.current === "stopping";
 
   const clearStopping = () => {
-    stopTimerRef.current.clear();
     applyStopPhase("idle");
   };
 
@@ -1342,7 +1395,7 @@ export function ChatPage() {
         });
         return;
       }
-      // 诚实停止等待中断流：不自动重连，保持 stopping + 未确认可重试。
+      // 诚实停止等待中断流：不自动重连，保持 stopping 等引擎终态。
       if (isStoppingNow()) return;
       // A mid-stream drop no longer means the turn died (slice 1a: it runs detached) —
       // rejoin it (1b) rather than resending, which would double-run it.
@@ -1418,7 +1471,7 @@ export function ChatPage() {
   }
 
   // 诚实停止闭环：进入「停止中」可见态，POST /stop，保持 SSE 等后端终态（不本地 abort /
-  // 不伪造终态）。失败或宽限未确认 → 可见并可重试。
+  // 不伪造终态）。/stop 失败 → 回滚 idle + 诚实失败提示，可再点停止。
   function stop() {
     if (!busy && stopPhaseRef.current !== "stopping") return;
     if (!conversationId) {
@@ -1428,28 +1481,11 @@ export function ChatPage() {
     }
     setError(null);
     applyStopPhase(reduceStopPhase(stopPhaseRef.current, "request_stop"));
-    stopTimerRef.current.arm(() => {
+    void stopConversation(conversationId).catch(() => {
       if (stopPhaseRef.current !== "stopping") return;
-      setError({
-        text: STOP_UNCONFIRMED_MESSAGE,
-        retryStop: true,
-      });
+      applyStopPhase(reduceStopPhase("stopping", "stop_http_fail"));
+      setError({ text: STOP_FAILED_MESSAGE });
     });
-    void stopConversation(conversationId)
-      .then(() => {
-        if (stopPhaseRef.current === "stopping") {
-          setError((e) => (e?.retryStop ? null : e));
-        }
-      })
-      .catch(() => {
-        if (stopPhaseRef.current !== "stopping") return;
-        stopTimerRef.current.clear();
-        applyStopPhase(reduceStopPhase("stopping", "stop_http_fail"));
-        setError({
-          text: STOP_FAILED_MESSAGE,
-          retryStop: true,
-        });
-      });
   }
 
   // Rejoin a turn whose live stream dropped mid-flight (实时重连续看 C1 · slice 1b). Resets
@@ -1834,22 +1870,14 @@ export function ChatPage() {
               );
             const atts = m.attachments ?? [];
             if (!m.content && atts.length === 0) return null;
-            // 异步团队收口：优先 REST origin；正文前缀兜底旧数据
+            // 异步团队收口：识别后隐藏（不渲染用户气泡，避免露出模型提示词）
             if (
               m.role === "user" &&
               (m.origin === "execution_harvest" ||
                 (typeof m.content === "string" &&
                   m.content.startsWith("【系统收口】")))
             ) {
-              return (
-                <div
-                  key={m.id}
-                  className="system-chip"
-                  data-testid="harvest-system-chip"
-                >
-                  后台团队已完成，系统自动收口
-                </div>
-              );
+              return null;
             }
             return (
               <div key={m.id} className="bubble user">
@@ -1981,15 +2009,6 @@ export function ChatPage() {
                 onClick={() => void reconnect()}
               >
                 重连
-              </button>
-            )}
-            {error.retryStop && (
-              <button
-                type="button"
-                className="link reconnect"
-                onClick={() => stop()}
-              >
-                {STOP_RETRY_LABEL}
               </button>
             )}
           </div>

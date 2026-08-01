@@ -139,28 +139,8 @@ async def apply_loop_directive(
         case Finalize(reason=reason, finish_reason=fr):
             if fr is not None and finish_override_sink is not None:
                 finish_override_sink.append(fr)
-            # Mid-loop zero_write thrashing: same DEGRADED + ceiling_backstop signal
-            # as hard-ceiling thrashing (avoid split signals for the rebrand gate).
-            if (
-                fr is FinishReason.DEGRADED
-                and reason == "convergence"
-                and role == "worker"
-                and run_id
-            ):
-                from agentcore.runtime.engine.ceiling import record_thrashing_backstop
-
-                zw_rounds = controller.zero_write_investigation_rounds
-                record_thrashing_backstop(
-                    run_id=run_id,
-                    agent_id=tool_context.agent_id,
-                    question=(
-                        "Worker 因零写空转被中途强制收口，"
-                        "已交付当前产出——可能未落盘或不完整。"
-                    ),
-                    evidence=f"zero_write_finalize: rounds={zw_rounds}",
-                    sink=sink,
-                    gate_escalation_sink=gate_escalation_sink,
-                )
+            # Mid-loop zero_write → DEGRADED + raised「Worker 因零写…」已退役。
+            # Hard-ceiling thrashing still uses ceiling.record_thrashing_backstop.
             from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
 
             finalize_allowed = allowed_tool_names

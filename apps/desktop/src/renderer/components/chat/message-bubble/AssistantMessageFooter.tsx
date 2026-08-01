@@ -12,7 +12,7 @@ import { FINISH_REASON_META } from "@/components/ui/finish-reason-chip";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/lib/clipboard";
 import { formatCollabSummary } from "@/lib/collabSummary";
-import { formatCompact } from "@/lib/format";
+import { formatCompact, formatDuration } from "@/lib/format";
 import { formatMessageExport } from "@/lib/messageExport";
 import { formatSupportDiagnosticText } from "@/lib/supportDiagnostics";
 import { notifyError, notifySuccess } from "@/lib/toast";
@@ -39,7 +39,7 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DeleteMessageAction, MessageTime } from "./MessageActions";
 import { useCopyAction } from "./useCopyAction";
@@ -61,59 +61,74 @@ function UsageDir({ dir }: { dir: "in" | "out" }) {
   );
 }
 
-/** Compact token / round / cost summary — right-aligned in the footer. */
+/** Compact token / round / cost / duration summary — right-aligned in the footer. */
 function MessageUsageSummary({
   usage,
   rounds,
   costText,
+  durationMs,
 }: {
   usage: UsageBreakdown | undefined;
   rounds: number | undefined;
   costText: string | null;
+  durationMs?: number;
 }) {
-  if (!usage && (rounds == null || rounds <= 1) && !costText) return null;
+  const durationText =
+    durationMs != null && durationMs > 0 ? formatDuration(durationMs) : null;
+  if (!usage && (rounds == null || rounds <= 1) && !costText && !durationText)
+    return null;
 
   const rate = usage ? cacheRatePercent(usage) : null;
   const tooltip = usage
     ? `输入 ${formatCompact(usage.input)}（缓存命中 ${formatCompact(usage.cache_hit)} · 未命中 ${formatCompact(usage.cache_miss)}）· 输出 ${formatCompact(usage.output)}（思考 ${formatCompact(usage.reasoning)}）`
     : undefined;
 
-  const body = (
-    <span className="inline-flex cursor-default items-center gap-1.5 text-xs tabular-nums text-muted-foreground/70">
-      {usage && (
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-flex items-baseline">
-            <UsageDir dir="in" />
-            <span>
-              {formatCompact(usage.input)}
-              {rate != null && rate > 0 ? `(缓${rate}%)` : ""}
-            </span>
-          </span>
-          <span className="inline-flex items-baseline">
-            <UsageDir dir="out" />
-            <span>
-              {formatCompact(usage.output)}
-              {usage.reasoning > 0
-                ? `(思${formatCompact(usage.reasoning)})`
-                : ""}
-            </span>
+  const parts: ReactNode[] = [];
+  const pushSep = () => {
+    if (parts.length > 0)
+      parts.push(
+        <span key={`sep-${parts.length}`} aria-hidden>
+          ·
+        </span>,
+      );
+  };
+
+  if (usage) {
+    parts.push(
+      <span key="usage" className="inline-flex items-center gap-1">
+        <span className="inline-flex items-baseline">
+          <UsageDir dir="in" />
+          <span>
+            {formatCompact(usage.input)}
+            {rate != null && rate > 0 ? `(缓${rate}%)` : ""}
           </span>
         </span>
-      )}
-      {rounds != null && rounds > 1 && (
-        <>
-          {usage ? <span aria-hidden>·</span> : null}
-          <span>{rounds} 轮</span>
-        </>
-      )}
-      {costText && (
-        <>
-          {usage || (rounds != null && rounds > 1) ? (
-            <span aria-hidden>·</span>
-          ) : null}
-          <span>{costText}</span>
-        </>
-      )}
+        <span className="inline-flex items-baseline">
+          <UsageDir dir="out" />
+          <span>
+            {formatCompact(usage.output)}
+            {usage.reasoning > 0 ? `(思${formatCompact(usage.reasoning)})` : ""}
+          </span>
+        </span>
+      </span>,
+    );
+  }
+  if (rounds != null && rounds > 1) {
+    pushSep();
+    parts.push(<span key="rounds">{rounds} 轮</span>);
+  }
+  if (costText) {
+    pushSep();
+    parts.push(<span key="cost">{costText}</span>);
+  }
+  if (durationText) {
+    pushSep();
+    parts.push(<span key="dur">用时 {durationText}</span>);
+  }
+
+  const body = (
+    <span className="inline-flex cursor-default items-center gap-1.5 text-xs tabular-nums text-muted-foreground/70">
+      {parts}
     </span>
   );
 
@@ -397,8 +412,8 @@ export function AssistantMessageFooter({
   );
 
   return (
-    <div className="mt-1 flex items-center justify-between gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-      <div className="flex min-w-0 items-center gap-0.5">
+    <div className="mt-1 flex items-center justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         {hasProcess ? (
           <DropdownMenu>
             <SimpleTooltip label={copied || copiedProcess ? "已复制" : "复制"}>
@@ -456,6 +471,7 @@ export function AssistantMessageFooter({
           usage={message.usage}
           rounds={message.rounds}
           costText={costText}
+          durationMs={message.durationMs}
         />
         <MessageTime iso={message.createdAt} />
       </div>

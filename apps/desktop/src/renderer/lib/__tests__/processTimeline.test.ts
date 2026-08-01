@@ -5,6 +5,8 @@ import {
   dropTrailingContentSteps,
   groupToolRuns,
   isOrchestrationTool,
+  isWaitIdleReasoning,
+  omitCoordinationIdleSteps,
   promoteScalarContentIntoProcess,
 } from "@/lib/processTimeline";
 import type { ProcessStep } from "@/types/events";
@@ -161,6 +163,58 @@ describe("isOrchestrationTool", () => {
     expect(isOrchestrationTool("file_read")).toBe(false);
     expect(isOrchestrationTool("web_search")).toBe(false);
     expect(isOrchestrationTool("")).toBe(false);
+  });
+});
+
+describe("isWaitIdleReasoning / omitCoordinationIdleSteps (S4)", () => {
+  it("marks reasoning followed only by wait as idle", () => {
+    const process = [
+      reasoning("无需处置"),
+      tool("w1", "wait"),
+      content("旁白"),
+    ];
+    expect(isWaitIdleReasoning(process, 0)).toBe(true);
+    expect(isWaitIdleReasoning(process, 2)).toBe(false);
+  });
+
+  it("marks trailing reasoning after wait as idle (live wait-loop)", () => {
+    const process = [tool("w1", "wait"), reasoning("继续听团")];
+    expect(isWaitIdleReasoning(process, 1)).toBe(true);
+  });
+
+  it("does not mark reasoning before a real tool as idle", () => {
+    const process = [reasoning("要读文件"), tool("a", "file_read")];
+    expect(isWaitIdleReasoning(process, 0)).toBe(false);
+  });
+
+  it("does not mark the first open reasoning (no wait neighbor) as idle", () => {
+    expect(isWaitIdleReasoning([reasoning("开场想一下")], 0)).toBe(false);
+  });
+
+  it("omits wait tools and idle reasoning; keeps content / real tools", () => {
+    const process = [
+      reasoning("派活"),
+      tool("d1", "file_read"),
+      reasoning("空等"),
+      tool("w1", "wait"),
+      tool("w2", "wait"),
+      reasoning("仍空等"),
+      content("对用户说一句"),
+      reasoning("收尾想"),
+      tool("a", "update_synthesis"),
+    ];
+    expect(omitCoordinationIdleSteps(process)).toEqual([
+      reasoning("派活"),
+      tool("d1", "file_read"),
+      content("对用户说一句"),
+      reasoning("收尾想"),
+      tool("a", "update_synthesis"),
+    ]);
+  });
+
+  it("returns the same reference when nothing is idle", () => {
+    const process = [reasoning("想"), tool("a"), content("答")];
+    expect(omitCoordinationIdleSteps(process)).toBe(process);
   });
 });
 

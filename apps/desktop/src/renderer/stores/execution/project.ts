@@ -311,6 +311,22 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
       if (agent) agent.toolProgress = { toolName: f.toolName, chars: f.chars };
       break;
     }
+    case "run_phase": {
+      // Worker mid-flight activity phase. winding_down is sticky over thinking/tool
+      // until a terminal frame clears it (mirrors backend oracle).
+      ensureRun(s, f.runId);
+      const run = s.runIndex.get(f.runId);
+      if (!run) break;
+      if (
+        run.phase === "winding_down" &&
+        (f.phase === "thinking" || f.phase === "tool")
+      ) {
+        break;
+      }
+      run.phase = f.phase;
+      run.phaseTool = f.phase === "tool" ? (f.toolName ?? null) : null;
+      break;
+    }
     case "run_completed": {
       const run = s.runIndex.get(f.runId);
       if (run) {
@@ -324,6 +340,8 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
         run.model = f.model ?? null;
         run.usage = f.usage ?? null;
         run.cost = f.cost ?? null;
+        run.phase = null;
+        run.phaseTool = null;
       }
       const agent = s.agentIndex.get(f.agentId);
       if (agent) {
@@ -377,6 +395,8 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
         run.status = "failed";
         run.error = f.error;
         run.debrief = f.debrief ?? null;
+        run.phase = null;
+        run.phaseTool = null;
       }
       const agent = s.agentIndex.get(f.agentId);
       if (agent) {
@@ -389,7 +409,11 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
       // 跑一半改方向 / 整轮停止: interrupt mid-flight (orthogonal to run_failed).
       // Clear currentRunId + toolProgress so the node leaves its live「正在生成」line.
       const run = s.runIndex.get(f.runId);
-      if (run) run.status = "cancelled";
+      if (run) {
+        run.status = "cancelled";
+        run.phase = null;
+        run.phaseTool = null;
+      }
       const agent = s.agentIndex.get(f.agentId);
       if (agent) {
         agent.status = "cancelled";
@@ -403,7 +427,11 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
       // (never got run_started) then mark skipped; agent stays idle.
       ensureRun(s, f.runId);
       const run = s.runIndex.get(f.runId);
-      if (run) run.status = "skipped";
+      if (run) {
+        run.status = "skipped";
+        run.phase = null;
+        run.phaseTool = null;
+      }
       break;
     }
     case "run_progress": {
@@ -636,7 +664,14 @@ export function finalizeFold(
   const frozenTurn = status === "cancelled" || status === "failed";
   let finalRuns = frozenTurn
     ? runs.map((r) =>
-        r.status === "running" ? { ...r, status: "cancelled" as const } : r,
+        r.status === "running"
+          ? {
+              ...r,
+              status: "cancelled" as const,
+              phase: null,
+              phaseTool: null,
+            }
+          : r,
       )
     : runs;
   const finalAgents = frozenTurn
@@ -749,6 +784,19 @@ export function describeFrame(frame: RunFrame, plan: ExecutionPlan): string {
       return `${role(frame.agentId)} 思考中…`;
     case "run_tool_progress":
       return `${role(frame.agentId)} 生成 ${toolLabel(frame.toolName)}…`;
+    case "run_phase": {
+      const phaseText =
+        frame.phase === "waiting_children"
+          ? "等待子团队"
+          : frame.phase === "winding_down"
+            ? "收尾中"
+            : frame.phase === "tool"
+              ? frame.toolName
+                ? `调用 ${toolLabel(frame.toolName)}`
+                : "调用工具"
+              : "思考中";
+      return `${role(frame.agentId)} ${phaseText}`;
+    }
     case "run_completed":
       return `${role(frame.agentId)} 完成`;
     case "run_failed":

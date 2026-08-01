@@ -7,7 +7,6 @@ import { useCoordinationWaitChrome } from "@/components/chat/useCoordinationWait
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { useTurnAudit } from "@/hooks/useTurnAudit";
 import { resolveEffectiveGraphLayout } from "@/lib/graph-layout-utils";
-import { computeVisualBbox } from "@/lib/graphMetrics";
 import { isGraphTraceEnabled, traceGraphDomClip } from "@/services/graphTrace";
 import {
   isTerminalPhase,
@@ -164,18 +163,10 @@ export function GraphView({
     expandedUnits,
     focusedActId,
   );
-  // fitMode=width: drive fit / onMeasure from current visual footprint (measured
-  // heights) so the embed does not wait on secondary ELK — graphHost contract.
-  const fitBbox = useMemo(() => {
-    if (!bbox) return null;
-    if (fitMode !== "width") return { ...bbox, originY: 0 };
-    return computeVisualBbox(positions, nodeSizes, nodeHeights, bbox);
-  }, [fitMode, bbox, positions, nodeSizes, nodeHeights]);
   const { containerRef, rfRef, overflowing, fitView, centerNode, onInit } =
     useGraphViewport({
       fitMode,
-      bbox: fitBbox,
-      originY: fitBbox?.originY ?? 0,
+      bbox,
       layoutReady,
       onMeasure,
     });
@@ -500,35 +491,41 @@ export function GraphView({
               {layoutError ? (
                 <GraphLayoutError detail={layoutError} />
               ) : (
-                layoutReady && (
-                  <GraphHoverContext.Provider value={hoverState}>
-                    <ReactFlow
-                      nodes={flowNodes}
-                      edges={flowEdges}
-                      nodeTypes={nodeTypes}
-                      edgeTypes={edgeTypes}
-                      onInit={onInit}
-                      onNodesChange={onNodesChange}
-                      onNodeClick={onNodeClick}
-                      onNodeMouseEnter={onNodeMouseEnter}
-                      onNodeMouseLeave={onNodeMouseLeave}
-                      onNodeContextMenu={onNodeContextMenu}
-                      onPaneContextMenu={onPaneContextMenu}
-                      onPaneClick={onPaneClick}
-                      fitView={fitMode === "view"}
-                      nodesDraggable={false}
-                      nodesConnectable={false}
-                      nodesFocusable={false}
-                      elementsSelectable={false}
-                      proOptions={{ hideAttribution: true }}
-                      {...interactionProps}
+                <GraphHoverContext.Provider value={hoverState}>
+                  <ReactFlow
+                    nodes={flowNodes}
+                    edges={flowEdges}
+                    nodeTypes={nodeTypes}
+                    edgeTypes={edgeTypes}
+                    onInit={onInit}
+                    onNodesChange={onNodesChange}
+                    onNodeClick={onNodeClick}
+                    onNodeMouseEnter={onNodeMouseEnter}
+                    onNodeMouseLeave={onNodeMouseLeave}
+                    onNodeContextMenu={onNodeContextMenu}
+                    onPaneContextMenu={onPaneContextMenu}
+                    onPaneClick={onPaneClick}
+                    fitView={fitMode === "view"}
+                    nodesDraggable={false}
+                    nodesConnectable={false}
+                    nodesFocusable={false}
+                    elementsSelectable={false}
+                    proOptions={{ hideAttribution: true }}
+                    {...interactionProps}
+                  >
+                    <Background gap={20} size={1} />
+                    <WaveLanes waves={laneBands} />
+                    <DebateStageBands bands={debateBands} />
+                  </ReactFlow>
+                  {!layoutReady && (
+                    <div
+                      className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/50"
+                      aria-hidden
                     >
-                      <Background gap={20} size={1} />
-                      <WaveLanes waves={laneBands} />
-                      <DebateStageBands bands={debateBands} />
-                    </ReactFlow>
-                  </GraphHoverContext.Provider>
-                )
+                      <div className="h-2 w-24 animate-pulse rounded-full bg-muted" />
+                    </div>
+                  )}
+                </GraphHoverContext.Provider>
               )}
 
               {fitMode === "width" && overflowing && (

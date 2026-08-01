@@ -103,6 +103,16 @@ def _reset_cloud_sandbox_health():
 
 
 @pytest.fixture(autouse=True)
+def _reset_browser_netns_health():
+    """Clear the browser netns health cache so sticky/probe injection cannot leak."""
+    from agentcore.tools.sandbox.browser.netns import reset_browser_netns_health_for_tests
+
+    reset_browser_netns_health_for_tests()
+    yield
+    reset_browser_netns_health_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _disarm_demo_tape_recorder():
     """Clear the process-wide EventSink emit tap after every test.
 

@@ -34,6 +34,12 @@ def test_is_thrashing_run_state_detects_ceiling_backstop():
         escalations=[{"source": CEILING_BACKSTOP_SOURCE, "question": "打转"}]
     )
     assert is_thrashing_run_state(thrash)
+    # zero_write_finalize evidence alone is no longer a thrashing signal (ladder retired).
+    legacy = RunState(
+        escalations=[{"evidence": "zero_write_finalize: rounds=3", "question": "旧"}],
+        files_touched=[],
+    )
+    assert not is_thrashing_run_state(legacy)
 
 
 def test_find_thrash_collision_on_similar_task_and_artifacts():

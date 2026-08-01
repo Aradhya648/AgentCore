@@ -186,21 +186,25 @@ export function InlineTeamGraph({
               disclosureKey={`${messageId}:debate-progress`}
             />
           )}
-          {expanded && (
+          {/* 折叠优先隐藏 GraphArea，勿卸载 ReactFlow（白板宿主常驻）。 */}
+          <div
+            className={expanded ? undefined : "hidden"}
+            aria-hidden={!expanded}
+          >
             <GraphArea
               execution={execution}
               messageId={messageId}
               height={graphHeight}
               onMeasure={onMeasure}
             />
-          )}
+          </div>
           {debateSettled && (
             <DebateProgressLine
               execution={execution}
               disclosureKey={`${messageId}:debate-progress`}
             />
           )}
-          {/* 协调中用户插话：轻量徽标「已传达给团队」/「已排队」。 */}
+          {/* S2：主叙事在主时间线用户气泡；团队块仅保留折叠追溯。 */}
           <div className="px-3 pb-1">
             <UserInterjectionsPanel items={userInterjections} />
           </div>

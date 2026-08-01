@@ -170,7 +170,9 @@ def repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
             "task": (
                 f"按诊断结果修补【{problem}】。{target_hint}"
                 "用 str_replace 就地改（已有非空代码禁骨架整文件重写）；"
-                "改完自检语法；禁止重新从零巡仓。"
+                "改完自检语法；禁止重新从零巡仓；"
+                "禁止对本步跑全量 typecheck/build/`tsc -b`（全量验证归验收员；"
+                "若需自检仅窄范围：单文件 / 包内 / 改动相关）。"
             ),
             "depends_on": ["diagnose"],
             "tools": list(_REPAIR_PATCH_TOOLS),
@@ -185,6 +187,7 @@ def repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
                 "默认用 test_run（check=command，command 填该约定命令；或 "
                 "check=test/typecheck/build）跑通且 exit 0；"
                 "【不要】把慢 build/全量 tsc 塞进 code_execute；"
+                "全量 typecheck/build/`tsc -b` 由本验收员独占执行，勿与 fix 批并行全仓；"
                 "纯 prose 交卷不算过门。失败则 escalate 说明缺口，"
                 "禁止新开巡读或换马甲从零读仓库；禁止无产出反复空跑同一失败命令。"
             ),

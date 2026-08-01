@@ -69,6 +69,8 @@ function hasActiveRunningRuns(execution: Execution): boolean {
 /**
  * Lifecycle header row above the collaboration graph (前端UX设计.md §三).
  * Dispatches to running / paused / completed / cancelled / failed variants.
+ * ``cancelled`` → CompletedStrip(stopped)「已停止」——忠实跟 execution.status，
+ * 勿加「图上仍有 running 就不显示完成」特判（终态不变量由服务端 + payload.status 保证）。
  *
  * Incremental kickoff (`paused` while first batch still running): keep the
  * running strip scrolling and overlay a「新批次待确认」badge — do not replace

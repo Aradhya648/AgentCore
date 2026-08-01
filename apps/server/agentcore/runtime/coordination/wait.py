@@ -331,6 +331,9 @@ async def await_coordination_injection(
 
     # 记账首个完成等决策点（对齐 is_necessary_decision）。
     session.note_decision_points(events)
+    from agentcore.runtime.coordination.interjections import note_interjections_injected
+
+    note_interjections_injected(session, events)
 
     waited_ms = int((time.perf_counter() - t0) * 1000)
     event_kinds = [e.kind.value for e in events]

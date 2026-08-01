@@ -166,69 +166,99 @@ async def drive(
 
     depth = int(getattr(tool, "_depth", 0) or 0)
 
-    # Turn 顶已触：新开批拒绝；resume 续跑则跳过未跑尾并 finalize（不 cancel 已完成）。
-    # 嵌套信封开启时：父顶只决定「能否开工」；波内停靠信封（见下方 scope）。
-    if is_turn_token_ceiling_hit():
-        from agentcore.core.logging import get_logger
+    # Nested lead: pause the parent's hard-timeout for the whole drive, including
+    # turn-ceiling early finalize/reject (those paths still await work on the
+    # parent stack). Root CEO (depth=0) is unchanged.
+    nested_parent = (
+        str(getattr(tool, "_captain_run_id", None) or "") if depth > 0 else ""
+    )
+    if nested_parent:
+        from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+        from agentcore.runtime.runs.timeout_hard import mark_waiting_children
 
-        get_logger(__name__).info(
-            "delegate.turn_token_ceiling_rejected",
-            spent=current_turn_tokens(),
-            ceiling=resolve_turn_token_ceiling(),
-            via="drive",
-            has_seed=bool(seed_completed),
-            depth=depth,
+        mark_waiting_children(nested_parent, True)
+        emit_run_phase(
+            getattr(tool, "_sink", None),
+            nested_parent,
+            str(getattr(tool, "agent_id", "") or nested_parent),
+            "waiting_children",
         )
-        if seed_completed:
-            results = dict(seed_completed)
-            _materialise_turn_token_budget_skips(tool, plan, results)
-            await _attach_light_website_gaps(tool, results)
-            return await finalize_drive(
-                tool,
-                plan,
-                results,
-                execution_id=execution_id,
-                finalize=finalize,
-                seed_completed=seed_completed,
-                completion_criteria=completion_criteria,
-                session=session,
-                call_idx=call_idx,
-                complexity_hint=complexity_hint,
-                batch_metrics=[],
-            )
-        return ToolResult(
-            tool_call_id="",
-            success=False,
-            output="",
-            error=turn_token_ceiling_reject_message(),
-            contract_failure=True,
-        )
-
     try:
-        with nested_turn_envelope_scope(depth=depth):
-            return await _drive_body(
-                tool,
-                plan,
-                execution_id=execution_id,
-                seed_completed=seed_completed,
-                finalize=finalize,
-                seed_notes=seed_notes,
-                complexity_hint=complexity_hint,
-                coordination=coordination,
-                call_idx=call_idx,
-                completion_criteria=completion_criteria,
-                coordinate=coordinate,
-                session=session,
+        # Turn 顶已触：新开批拒绝；resume 续跑则跳过未跑尾并 finalize（不 cancel 已完成）。
+        # 嵌套信封开启时：父顶只决定「能否开工」；波内停靠信封（见下方 scope）。
+        if is_turn_token_ceiling_hit():
+            from agentcore.core.logging import get_logger
+
+            get_logger(__name__).info(
+                "delegate.turn_token_ceiling_rejected",
+                spent=current_turn_tokens(),
+                ceiling=resolve_turn_token_ceiling(),
+                via="drive",
+                has_seed=bool(seed_completed),
+                depth=depth,
             )
-    except NestedEnvelopeRejected as exc:
-        # 嵌套信封拨付失败（父剩余 0）：与父顶拒开同族。
-        return ToolResult(
-            tool_call_id="",
-            success=False,
-            output="",
-            error=str(exc),
-            contract_failure=True,
-        )
+            if seed_completed:
+                results = dict(seed_completed)
+                _materialise_turn_token_budget_skips(tool, plan, results)
+                await _attach_light_website_gaps(tool, results)
+                return await finalize_drive(
+                    tool,
+                    plan,
+                    results,
+                    execution_id=execution_id,
+                    finalize=finalize,
+                    seed_completed=seed_completed,
+                    completion_criteria=completion_criteria,
+                    session=session,
+                    call_idx=call_idx,
+                    complexity_hint=complexity_hint,
+                    batch_metrics=[],
+                )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=turn_token_ceiling_reject_message(),
+                contract_failure=True,
+            )
+
+        try:
+            with nested_turn_envelope_scope(depth=depth):
+                return await _drive_body(
+                    tool,
+                    plan,
+                    execution_id=execution_id,
+                    seed_completed=seed_completed,
+                    finalize=finalize,
+                    seed_notes=seed_notes,
+                    complexity_hint=complexity_hint,
+                    coordination=coordination,
+                    call_idx=call_idx,
+                    completion_criteria=completion_criteria,
+                    coordinate=coordinate,
+                    session=session,
+                )
+        except NestedEnvelopeRejected as exc:
+            # 嵌套信封拨付失败（父剩余 0）：与父顶拒开同族。
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=str(exc),
+                contract_failure=True,
+            )
+    finally:
+        if nested_parent:
+            from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+            from agentcore.runtime.runs.timeout_hard import mark_waiting_children
+
+            mark_waiting_children(nested_parent, False)
+            emit_run_phase(
+                getattr(tool, "_sink", None),
+                nested_parent,
+                str(getattr(tool, "agent_id", "") or nested_parent),
+                "thinking",
+            )
 
 
 async def _drive_body(

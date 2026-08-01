@@ -96,7 +96,7 @@
         "interjection_id": "inj1",
         "execution_id": "exec1",
         "content": "补充一点：结论里请点明成本对比。",
-        "status": "delivered"
+        "status": "received"
       },
       "timestamp": "2026-01-01T00:00:00.007Z"
     },
@@ -122,6 +122,17 @@
       "timestamp": "2026-01-01T00:00:00.009Z"
     },
     {
+      "type": "user_interjection",
+      "payload": {
+        "interjection_id": "inj1",
+        "execution_id": "exec1",
+        "content": "补充一点：结论里请点明成本对比。",
+        "status": "addressed",
+        "note": "已在合成草稿中承接"
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
       "type": "team_synthesis_preview",
       "payload": {
         "execution_id": "exec1",
@@ -132,7 +143,7 @@
         "workers": [],
         "in_progress": true
       },
-      "timestamp": "2026-01-01T00:00:00.010Z"
+      "timestamp": "2026-01-01T00:00:00.011Z"
     },
     {
       "type": "run_completed",
@@ -412,8 +423,8 @@
         "interjectionId": "inj1",
         "executionId": "exec1",
         "content": "补充一点：结论里请点明成本对比。",
-        "status": "delivered",
-        "note": null
+        "status": "addressed",
+        "note": "已在合成草稿中承接"
       }
     ]
   }

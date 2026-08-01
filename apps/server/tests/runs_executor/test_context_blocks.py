@@ -203,7 +203,7 @@ def test_team_brief_block_injected_before_task():
     assert capped["truncated"] is True
     assert capped["chars"] == len(long_body)
     assert len(capped["body"]) <= _CONTEXT_BLOCK_BODY_CAP
-    assert "已保留首尾" in capped["body"]  # head+tail truncation marker
+    assert "系统视图截断" in capped["body"]  # transport elision (not delivery-omission)
     # the wire shape carries every field the frontend / oracle fold reads.
     assert set(capped) == {
         "channel",

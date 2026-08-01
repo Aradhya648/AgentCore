@@ -22,14 +22,18 @@ export const GREP_MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const ARCHIVE_MAX_FILES = 20000; // 最多打包文件数
 export const ARCHIVE_MAX_BYTES = 100 * 1024 * 1024; // 原始字节上限（zip 前）100 MiB
 
-// 本地代码执行（P2c）：镜像服务端 SubprocessSandbox。命令/扩展名/超时上限一一对齐；
+// 本地代码执行（P2c）：镜像服务端 SubprocessSandbox。命令/扩展名一一对齐；
 // 进程 cwd = 绑定的本地根（让代码与文件工具同目录，呼应服务端 cwd=workspace）。
+//
+// 超时分工：本通道上限须能兑现 ``test_run`` 验证预算（300s + engine slack）；
+// ``code_execute`` 工具自身仍在服务端把请求 clamp 到 ≤60s，不靠本帽当工具上限。
 export const EXEC_LANGS: Record<string, { cmd: string[]; ext: string }> = {
   python: { cmd: ["python", "-u"], ext: ".py" },
   javascript: { cmd: ["node"], ext: ".js" },
   bash: { cmd: ["bash"], ext: ".sh" },
 };
-export const EXEC_TIMEOUT_CAP_S = 60; // 与 code_execute 工具 60s 上限对齐（双保险）
+/** Workspace ``execute`` 通道墙钟上限（秒）。≥ test_run 300 + 30 slack。 */
+export const EXEC_TIMEOUT_CAP_S = 330;
 // 单流捕获硬上限：防失控输出占内存/撑大通道回填；模型可见截断（8000）由服务端
 // ExecutionResult.__post_init__ 统一处理，故此处留足余量、不抢那层语义。
 export const EXEC_CAPTURE_CAP = 100_000;

@@ -21,12 +21,20 @@ from agentcore.tools.mcp.dynamic import McpDynamicTool, sanitize_mcp_tool_name
 from agentcore.tools.mcp.wire import (
     McpDiscoverResult,
     McpToolSpec,
+    clear_mcp_discover_cache,
     discover_mcp_tools,
     mcp_capability_label,
     register_mcp_tools,
 )
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.registry import ToolRegistry
+
+
+@pytest.fixture(autouse=True)
+def _isolate_mcp_discover_cache():
+    clear_mcp_discover_cache()
+    yield
+    clear_mcp_discover_cache()
 
 
 def test_sanitize_mcp_tool_name_stable_and_bounded():
@@ -182,6 +190,37 @@ async def test_discover_mcp_tools_parses_ready_and_failed():
     assert result.failed_servers == 1
     assert result.tool_count == 1
     assert result.specs[0].mcp_tool_name == "echo"
+    channel.request_mcp.assert_awaited_once()
+    assert channel.request_mcp.await_args.kwargs.get("timeout") == 5.0
+
+
+@pytest.mark.asyncio
+async def test_discover_mcp_tools_cache_hit_skips_request():
+    channel = DesktopClientChannel(
+        sink=AsyncMock(),
+        conversation_id="c-cache",
+        registry=AsyncMock(),
+        timeout_seconds=5,
+    )
+    channel.request_mcp = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "servers": [
+                {
+                    "id": "ok",
+                    "name": "OK",
+                    "status": "ready",
+                    "tools": [{"name": "echo", "description": "Echo"}],
+                }
+            ]
+        }
+    )
+    first = await discover_mcp_tools(channel)
+    second = await discover_mcp_tools(channel)
+    assert first.tool_count == 1
+    assert second.tool_count == 1
+    assert second.specs == first.specs
+    channel.request_mcp.assert_awaited_once()
+    assert channel.request_mcp.await_args.kwargs.get("timeout") == 5.0
 
 
 @pytest.mark.asyncio
@@ -198,6 +237,28 @@ async def test_discover_mcp_tools_degrades_on_timeout():
     result = await discover_mcp_tools(channel)
     assert result.degraded
     assert result.tool_count == 0
+    channel.request_mcp.assert_awaited_once()
+    assert channel.request_mcp.await_args.kwargs.get("timeout") == 5.0
+
+
+@pytest.mark.asyncio
+async def test_discover_mcp_tools_negative_cache_skips_request():
+    channel = DesktopClientChannel(
+        sink=AsyncMock(),
+        conversation_id="c-neg",
+        registry=AsyncMock(),
+        timeout_seconds=5,
+    )
+    channel.request_mcp = AsyncMock(  # type: ignore[method-assign]
+        side_effect=McpOpError("timeout")
+    )
+    first = await discover_mcp_tools(channel)
+    second = await discover_mcp_tools(channel)
+    assert first.degraded
+    assert second.degraded
+    assert second.detail == first.detail
+    channel.request_mcp.assert_awaited_once()
+    assert channel.request_mcp.await_args.kwargs.get("timeout") == 5.0
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ from agentcore.workspace._paths import (
     IGNORED_DIRS,
     IGNORED_FILE_SUFFIXES,
     SYSTEM_IGNORED_FILE_SUFFIXES,
+    is_access_denied_oserror,
     is_ai_noise_file_name,
     is_ignored_dir_name,
     is_ignored_file_name,
@@ -33,12 +34,17 @@ def test_ignored_dirs_include_git_and_ide_caches_not_bare_internal():
     assert "node_modules" in IGNORED_DIRS
     assert ".turbo" in IGNORED_DIRS
     assert "coverage" in IGNORED_DIRS
+    assert ".pytest_cache" in IGNORED_DIRS
+    assert ".pytest_tmp" in IGNORED_DIRS
     assert ".idea" in IGNORED_DIRS
     assert ".vscode" in IGNORED_DIRS
     assert is_ignored_dir_name(".git")
+    assert is_ignored_dir_name(".pytest_tmp")
     assert not is_ignored_dir_name("src")
     assert not is_ignored_dir_name("index")
-
+    assert is_access_denied_oserror(PermissionError(13, "Permission denied"))
+    assert is_access_denied_oserror(OSError(5, "Access is denied"))
+    assert not is_access_denied_oserror(OSError(2, "No such file"))
 
 def test_internal_zone_relpath_is_path_aware():
     assert is_internal_zone_relpath("AgentCore/index")
@@ -174,3 +180,50 @@ async def test_list_shows_media_hides_system_noise(tmp_path: Path):
     }
     assert "规则" in ac_names
     assert "index" not in ac_names
+
+
+async def test_list_and_tree_ignore_pytest_tmp(tmp_path: Path):
+    """``.pytest_tmp`` is product noise (alongside ``.pytest_cache``)."""
+    (tmp_path / "ok.txt").write_text("x", encoding="utf-8")
+    poison = tmp_path / ".pytest_tmp" / "locked"
+    poison.mkdir(parents=True)
+    (poison / "secret.py").write_text("TODO poison", encoding="utf-8")
+
+    ws = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
+    names = {e.path for e in await ws.list(".", "*")}
+    assert "ok.txt" in names
+    assert ".pytest_tmp" not in names
+
+    tree = await ws.list_tree(".", max_depth=3)
+    paths = {e.path for e in tree.entries}
+    assert "ok.txt" in paths
+    assert not any(p == ".pytest_tmp" or p.startswith(".pytest_tmp/") for p in paths)
+
+
+async def test_list_tree_skips_access_denied_child(tmp_path: Path, monkeypatch):
+    """Per-dir PermissionError soft-skips with warning — not WorkspaceIOError."""
+    (tmp_path / "ok.txt").write_text("hi", encoding="utf-8")
+    locked = tmp_path / "locked_dir"
+    locked.mkdir()
+    (locked / "secret.txt").write_text("nope", encoding="utf-8")
+
+    real_iterdir = Path.iterdir
+
+    def fake_iterdir(self: Path):
+        try:
+            if self.resolve() == locked.resolve():
+                raise PermissionError(13, "Permission denied", str(self))
+        except OSError:
+            # resolve itself can fail on some platforms; fall through to name match
+            if self.name == "locked_dir" and self.parent.resolve() == tmp_path.resolve():
+                raise PermissionError(13, "Permission denied", str(self)) from None
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", fake_iterdir)
+
+    ws = ServerWorkspace(root=tmp_path, sandbox=SubprocessSandbox())
+    tree = await ws.list_tree(".", max_depth=3)
+    paths = {e.path for e in tree.entries}
+    assert "ok.txt" in paths
+    assert not any(p.startswith("locked_dir/") for p in paths)
+    assert any("locked_dir" in w for w in tree.warnings)

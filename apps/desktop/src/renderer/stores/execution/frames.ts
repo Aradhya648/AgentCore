@@ -18,6 +18,7 @@ import type {
   RunKind,
   RunOutputDeltaPayload,
   RunOutputResetPayload,
+  RunPhasePayload,
   RunProgressPayload,
   RunReasoningDeltaPayload,
   RunSkippedPayload,
@@ -29,6 +30,7 @@ import type {
   ToolDisplay,
   ToolUseEndPayload,
   ToolUseStartPayload,
+  WorkerRunPhase,
 } from "@/types/events";
 import type { BatchMetricsSnapshot } from "./types";
 
@@ -96,6 +98,16 @@ export type RunFrame =
       agentId: string;
       toolName: string;
       chars: number;
+    }
+  | {
+      // Worker mid-flight activity phase (`run_phase`). EPHEMERAL on the wire;
+      // folded for live + conformance vectors (reload falls back to status).
+      t: number;
+      kind: "run_phase";
+      runId: string;
+      agentId: string;
+      phase: WorkerRunPhase;
+      toolName?: string;
     }
   | {
       t: number;
@@ -332,6 +344,26 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
         agentId: p.agent_id,
         toolName: p.tool_name,
         chars: p.chars,
+      };
+    }
+    case "run_phase": {
+      const p = event.payload as RunPhasePayload;
+      const phase = p.phase;
+      if (
+        phase !== "thinking" &&
+        phase !== "tool" &&
+        phase !== "waiting_children" &&
+        phase !== "winding_down"
+      ) {
+        return null;
+      }
+      return {
+        t,
+        kind: "run_phase",
+        runId: p.run_id,
+        agentId: p.agent_id,
+        phase,
+        toolName: phase === "tool" ? p.tool_name : undefined,
       };
     }
     case "run_completed": {

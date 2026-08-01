@@ -624,9 +624,20 @@ def test_shared_base_teaches_work_authority():
     assert "ask_user" in _DEFAULT_SYSTEM_PROMPT
     assert "禁静默改权威稿" in _DEFAULT_SYSTEM_PROMPT
     assert "扩范围" in _DEFAULT_SYSTEM_PROMPT
+    # 当前课题：工作区 ＞ 全局「正在做 X」
+    assert "当前课题" in _DEFAULT_SYSTEM_PROMPT
+    assert "工作区" in _DEFAULT_SYSTEM_PROMPT
+    assert "正在做" in _DEFAULT_SYSTEM_PROMPT
 
 
-def test_ceo_core_work_discipline_hooks():
+def test_ceo_core_workspace_outranks_global_current_project_memory():
+    """继续项目 / 汇报现状：工作区优先于全局画像「正在做 X」。"""
+    hint = _CEO_CORE_HINT
+    assert "【继续项目 / 汇报现状】" in hint
+    assert "跟工作区" in hint
+    assert "上一题残留" in hint
+    assert "ask_user" in hint
+    assert "旧项目名" in hint
     # CEO 增量钩：权威线索 / 未定案窄义 / 禁为读规则再派；HOW 在 work_discipline。
     hint = _CEO_CORE_HINT
     assert "权威线索" in hint
@@ -637,12 +648,15 @@ def test_ceo_core_work_discipline_hooks():
 
 
 def test_core_guides_out_of_workspace_absolute_paths():
-    # 区外路径：核心钉意图 + action 名；中文标签在 ask_user schema，操作手册在 ask_user_*。
+    # 区外路径：对照 workspace_context 能力行；仅桌面已装配才授权；操作手册在 ask_user_*。
     hint = _CEO_CORE_HINT
     assert "工作区外" in hint
+    assert "workspace_context" in hint
     assert "grant_readonly_folder" in hint
     assert "grant_organize_folder" in hint
     assert "ask_user" in hint
+    # 不得无条件鼓动「立即发卡」——本机 Host/区外叙述只留在 workspace_context。
+    assert "立即发卡" not in hint
     mid = build_system_skill_registry().get("ask_user_midtask")
     assert mid is not None
     assert "开只读授权" in mid.body or "区外目录" in mid.body

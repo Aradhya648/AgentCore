@@ -19,11 +19,13 @@ import { Markdown } from "@/components/Markdown";
 import { Modal } from "@/components/Modal";
 import {
   CONTEXT_CHANNEL_LABEL,
+  runPhaseLabel,
   toolDetail,
   toolLabel,
   toolPhaseText,
 } from "@/components/assistantLabels";
 import { buildLedgerMap } from "@/lib/evidenceLedger";
+import { isFileReadCeilingGuidance } from "@/lib/fileReadCeiling";
 import type { RunToolCall } from "@/protocol/fold";
 import { actAuthorizedByLabel } from "@/protocol/fold";
 import type {
@@ -94,7 +96,7 @@ const NOTE_KIND_CLASS: Record<string, string> = {
 };
 
 const RUN_STATUS: Record<RunStatus, { label: string; tone: string }> = {
-  pending: { label: "等待", tone: "muted" },
+  pending: { label: "排队中", tone: "muted" },
   running: { label: "进行中", tone: "run" },
   completed: { label: "完成", tone: "ok" },
   failed: { label: "失败", tone: "err" },
@@ -102,17 +104,28 @@ const RUN_STATUS: Record<RunStatus, { label: string; tone: string }> = {
   skipped: { label: "未执行", tone: "muted" },
 };
 
-/** 证人席位根：开赛挂席、点名才作答 — pending→待命，skipped→未传唤。 */
+/** 证人席位根：开赛挂席、点名才作答 — pending→待命，skipped→未传唤。
+ *  running + `run.phase` → 相位文案（不再一律「进行中」/「思考中」）。 */
 function runStatusLabel(
   status: RunStatus,
-  run: { group?: string | null; continuesRunId?: string | null },
+  run: {
+    group?: string | null;
+    continuesRunId?: string | null;
+    phase?: ProjectedRun["phase"];
+  },
 ): { label: string; tone: string } {
   const base = RUN_STATUS[status];
   const witnessSeat =
     run.group === "debate:witness" && run.continuesRunId == null;
-  if (!witnessSeat) return base;
-  if (status === "pending") return { label: "待命", tone: "muted" };
-  if (status === "skipped") return { label: "未传唤", tone: "muted" };
+  if (witnessSeat) {
+    if (status === "pending") return { label: "待命", tone: "muted" };
+    if (status === "skipped") return { label: "未传唤", tone: "muted" };
+    return base;
+  }
+  if (status === "running") {
+    const phase = runPhaseLabel(run.phase);
+    if (phase) return { label: phase, tone: "run" };
+  }
   return base;
 }
 
@@ -328,7 +341,10 @@ function DeliverySection({ status }: { status: DeliveryStatusPayload }) {
     status.summary.trim() ||
     (status.state === "blocked" ? "交付未满足" : "部分交付未满足");
   return (
-    <p className="delivery-shortfall-hint" data-testid="delivery-shortfall-hint">
+    <p
+      className="delivery-shortfall-hint"
+      data-testid="delivery-shortfall-hint"
+    >
       {text}
     </p>
   );
@@ -961,15 +977,23 @@ function RunToolRow({ call }: { call: RunToolCall }) {
   const [open, setOpen] = useState(false);
   const args = Object.keys(call.arguments).length > 0 ? call.arguments : null;
   const detail = toolDetail(call.arguments);
+  const ceilingGuidance =
+    call.status === "error" &&
+    isFileReadCeilingGuidance(call.toolName, call.result);
   const status =
     call.status === "running"
       ? "Running"
-      : call.status === "error"
-        ? "Failed"
-        : "Done";
+      : ceilingGuidance
+        ? "Notice"
+        : call.status === "error"
+          ? "Failed"
+          : "Done";
   const hasBody = !!args || (call.result != null && call.result !== "");
+  const shellClass = ceilingGuidance
+    ? "tool tool-guidance"
+    : `tool tool-${call.status}`;
   return (
-    <div className={`tool tool-${call.status}`}>
+    <div className={shellClass}>
       <button
         type="button"
         className="tool-head"

@@ -734,3 +734,87 @@ describe("ComposingToolLine · 中文组装心跳", () => {
     expect(screen.queryByText(/字/)).toBeNull();
   });
 });
+
+describe("ToolLine · file_read ceiling guidance", () => {
+  it("shows warning affordance instead of fault-red ✗", () => {
+    const { container } = renderWithTooltip(
+      <ToolLine
+        step={step({
+          tool_name: "file_read",
+          arguments: { path: "doc.md" },
+          result:
+            "已多次读取 `doc.md`（本 run 上限 5 次）。正文已在对话中，勿再读此文件；可换其它文件。",
+          status: "error",
+        })}
+      />,
+    );
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    expect(container.querySelector(".text-warning")).toBeTruthy();
+  });
+
+  it("keeps real file_read IO failures destructive", () => {
+    const { container } = renderWithTooltip(
+      <ToolLine
+        step={step({
+          tool_name: "file_read",
+          arguments: { path: "missing.md" },
+          result: "读取文件失败：文件不存在",
+          status: "error",
+        })}
+      />,
+    );
+    expect(container.querySelector(".text-destructive")).toBeTruthy();
+    expect(container.querySelector(".text-warning")).toBeNull();
+  });
+
+  it("excludes ceiling guidance from tool-group failed badge", () => {
+    renderWithTooltip(
+      <ToolLineGroup
+        tools={[
+          step({
+            id: "a",
+            tool_name: "file_read",
+            arguments: { path: "a.md" },
+            result: "已多次读取 `a.md`，勿再读此文件",
+            status: "error",
+          }),
+          step({
+            id: "b",
+            tool_name: "code_execute",
+            arguments: {},
+            result: "boom",
+            status: "error",
+          }),
+        ]}
+        isStreaming={false}
+      />,
+    );
+    // Only the real code_execute fault counts — ceiling is guidance.
+    expect(screen.getByText("1 failed")).toBeTruthy();
+  });
+});
+
+describe("ToolLine · test_run budget exceeded", () => {
+  it("shows warning affordance instead of fault-red ✗", () => {
+    const { container } = renderWithTooltip(
+      <ToolLine
+        step={step({
+          tool_name: "test_run",
+          arguments: { check: "typecheck" },
+          result: "验证未在 300s 预算内完成（验证未完成，非工具故障）",
+          status: "error",
+          display: {
+            check: "typecheck",
+            exit_code: -1,
+            stdout: "",
+            stderr: "Timeout: execution exceeded 300s",
+            budget_exceeded: true,
+          },
+        })}
+      />,
+    );
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    expect(container.querySelector(".text-warning")).toBeTruthy();
+    expect(container.textContent).toContain("验证未完成（预算耗尽）");
+  });
+});

@@ -23,22 +23,18 @@ export function positionsMorphSig(
     .join("|");
 }
 
-/** Full structural signature (positions + measured heights + node sizes). */
+/** Full structural signature (positions + node sizes). */
 export function layoutStructureSig(
   positions: Record<string, { x: number; y: number }>,
-  nodeHeights: Record<string, number>,
   nodeSizes: Record<string, { width: number; height: number }>,
 ): string {
   const pos = Object.entries(positions)
     .map(([k, v]) => `${k}:${v.x},${v.y}`)
     .join("|");
-  const heights = Object.entries(nodeHeights)
-    .map(([k, v]) => `${k}:${v}`)
-    .join("|");
   const sizes = Object.entries(nodeSizes)
     .map(([k, v]) => `${k}:${v.width}x${v.height}`)
     .join("|");
-  return `${pos}#${heights}#${sizes}`;
+  return `${pos}#${sizes}`;
 }
 
 /** True for ~320ms after `layoutSig` changes (skips the first settled layout). */

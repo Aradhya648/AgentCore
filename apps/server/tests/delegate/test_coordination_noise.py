@@ -235,6 +235,10 @@ def test_update_synthesis_tool_is_milestone_only():
     desc = tool.schema.description
     assert "里程碑" in desc
     assert "例行的单个 worker 完成" in desc
+    assert "禁止" in desc and "纯进度播报" in desc
+    assert "新结论" in desc or "方向修正" in desc
+    draft_desc = tool.schema.parameters["properties"]["draft"]["description"]
+    assert "禁止纯进度播报" in draft_desc
 
 
 def test_inject_footer_teaches_milestone_synthesis():
@@ -242,6 +246,26 @@ def test_inject_footer_teaches_milestone_synthesis():
     text = format_coordination_events(session, [_wc("w1")])
     assert "只在【里程碑】写合成草稿" in text
     assert "例行的单个 worker 完成【不写】" in text
+    assert "可静默" in text
+    assert "三选一" in text
+    assert "纯进度播报" in text
+    assert "进度旁白不得焊进终稿" in text or "焊进终稿" in text
+
+
+def test_inject_interjection_requires_user_first_reply():
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    text = format_coordination_events(
+        session,
+        [
+            CoordinationEvent(
+                kind=CoordinationEventKind.USER_INTERJECTION,
+                payload={"interjection_id": "inj-1", "content": "优先做登录页"},
+            )
+        ],
+    )
+    assert "先回用户" in text or "先】用可见正文" in text or "响应该句" in text
+    assert "旧进度旁白" in text
+    assert "优先做登录页" in text
 
 
 # --- suspect_missing_dep 搭车注入通道（Task 5）--------------------------------

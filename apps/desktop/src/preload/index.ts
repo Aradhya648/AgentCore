@@ -361,58 +361,29 @@ const windowApi: WindowApi = {
   getFramePreset: () => ipcRenderer.invoke(WINDOW_CHANNELS.getFramePreset),
 };
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld("agentTownApi", agentTownApi);
-    contextBridge.exposeInMainWorld("fsApi", fsApi);
-    contextBridge.exposeInMainWorld("sidecarApi", sidecarApi);
-    contextBridge.exposeInMainWorld("outboxApi", outboxApi);
-    contextBridge.exposeInMainWorld("localStoreApi", localStoreApi);
-    contextBridge.exposeInMainWorld("updaterApi", updaterApi);
-    contextBridge.exposeInMainWorld("logApi", logApi);
-    contextBridge.exposeInMainWorld("terminalApi", terminalApi);
-    contextBridge.exposeInMainWorld("processApi", processApi);
-    contextBridge.exposeInMainWorld("ptyApi", ptyApi);
-    contextBridge.exposeInMainWorld("notificationApi", notificationApi);
-    contextBridge.exposeInMainWorld("hostApi", hostApi);
-    contextBridge.exposeInMainWorld("mcpApi", mcpApi);
-    contextBridge.exposeInMainWorld("previewApi", previewApi);
-    contextBridge.exposeInMainWorld("browserApi", browserApi);
-    contextBridge.exposeInMainWorld("windowApi", windowApi);
-  } catch (error) {
-    console.error(error);
-  }
-} else {
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.agentTownApi = agentTownApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.fsApi = fsApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.sidecarApi = sidecarApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.outboxApi = outboxApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.localStoreApi = localStoreApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.updaterApi = updaterApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.logApi = logApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.terminalApi = terminalApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.processApi = processApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.ptyApi = ptyApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.notificationApi = notificationApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.hostApi = hostApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.mcpApi = mcpApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.previewApi = previewApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.browserApi = browserApi;
-  // @ts-ignore - 非隔离环境下直接挂载
-  window.windowApi = windowApi;
+if (!process.contextIsolated) {
+  throw new Error(
+    "preload requires contextIsolation; refusing to mount APIs on window",
+  );
+}
+
+try {
+  contextBridge.exposeInMainWorld("agentTownApi", agentTownApi);
+  contextBridge.exposeInMainWorld("fsApi", fsApi);
+  contextBridge.exposeInMainWorld("sidecarApi", sidecarApi);
+  contextBridge.exposeInMainWorld("outboxApi", outboxApi);
+  contextBridge.exposeInMainWorld("localStoreApi", localStoreApi);
+  contextBridge.exposeInMainWorld("updaterApi", updaterApi);
+  contextBridge.exposeInMainWorld("logApi", logApi);
+  contextBridge.exposeInMainWorld("terminalApi", terminalApi);
+  contextBridge.exposeInMainWorld("processApi", processApi);
+  contextBridge.exposeInMainWorld("ptyApi", ptyApi);
+  contextBridge.exposeInMainWorld("notificationApi", notificationApi);
+  contextBridge.exposeInMainWorld("hostApi", hostApi);
+  contextBridge.exposeInMainWorld("mcpApi", mcpApi);
+  contextBridge.exposeInMainWorld("previewApi", previewApi);
+  contextBridge.exposeInMainWorld("browserApi", browserApi);
+  contextBridge.exposeInMainWorld("windowApi", windowApi);
+} catch (error) {
+  console.error(error);
 }

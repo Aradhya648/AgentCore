@@ -54,6 +54,7 @@ import type {
   RunFailedPayload,
   RunOutputDeltaPayload,
   RunOutputResetPayload,
+  RunPhasePayload,
   RunPlanPayload,
   RunReasoningDeltaPayload,
   RunSkippedPayload,
@@ -69,6 +70,7 @@ import type {
   ToolUseStartPayload,
   TurnEvidenceLedgerEntry,
   TurnWarningPayload,
+  WorkerRunPhase,
 } from "@agentcore/contract-types";
 import type {
   ActKind,
@@ -458,8 +460,22 @@ function runFromPlan(
     // 升级实时可见: appended by the run_escalation event; empty until a worker escalates.
     escalations: [],
     process: [],
+    // phase / phaseTool set by run_phase; omitted until then (queued=pending, skipped=status).
   };
 }
+
+/** Mid-flight activity phase cleared on terminal run frames (mirrors backend oracle). */
+function clearRunPhase(run: ProjectedRun): void {
+  run.phase = undefined;
+  run.phaseTool = undefined;
+}
+
+const RUN_PHASES: ReadonlySet<string> = new Set([
+  "thinking",
+  "tool",
+  "waiting_children",
+  "winding_down",
+]);
 
 export function fold(events: SSEEvent[]): ProjectedTurn {
   let content = "";
@@ -489,6 +505,8 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
   let debatePretrial: DebatePretrialProjection | null = null;
   let teamSynthesisPreview: TeamSynthesisPreviewPayload | null = null;
   let deliveryStatus: DeliveryStatusPayload | null = null;
+  /** journal 内最后一条 `execution_completed.status`（若有）→ 投影到 turn/execution 终态。 */
+  let fromExecutionCompleted: TurnStatus | null = null;
   let turnWarning: string | null = null;
   // 团队便签墙 (§2.2 通): notes broadcast to siblings this turn, in post order (deduped by noteId).
   const teamNotes: ProjectedTeamNote[] = [];
@@ -802,6 +820,27 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
         if (ag) ag.toolProgress = { toolName: p.tool_name, chars: p.chars };
         break;
       }
+      case "run_phase": {
+        // Worker mid-flight activity phase (thinking / tool / waiting_children / winding_down).
+        // winding_down sticky over thinking/tool until terminal; queued=pending, skipped=status.
+        const p = ev.payload as RunPhasePayload;
+        const run = runById(p.run_id);
+        if (run) {
+          const phase = p.phase;
+          const current = run.phase;
+          if (
+            current === "winding_down" &&
+            (phase === "thinking" || phase === "tool")
+          ) {
+            break;
+          }
+          if (RUN_PHASES.has(phase)) {
+            run.phase = phase as WorkerRunPhase;
+            run.phaseTool = phase === "tool" ? (p.tool_name ?? null) : null;
+          }
+        }
+        break;
+      }
       case "run_completed": {
         const p = ev.payload as RunCompletedPayload;
         // Additive ``gaps`` (缺章/超时缩水) — UI badge deferred to frontend batch;
@@ -817,6 +856,7 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
           run.model = p.model;
           run.usage = p.usage;
           run.cost = p.cost;
+          clearRunPhase(run);
         }
         const ag = agentById(p.agent_id);
         if (ag) {
@@ -833,6 +873,7 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
           run.status = "failed";
           run.error = p.error;
           run.debrief = p.debrief ?? null;
+          clearRunPhase(run);
         }
         const ag = agentById(p.agent_id);
         if (ag) {
@@ -845,7 +886,10 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
         // 跑一半改方向 / 整轮停止: interrupt mid-flight (orthogonal to run_failed).
         const p = ev.payload as RunCancelledPayload;
         const run = runById(p.run_id);
-        if (run) run.status = "cancelled";
+        if (run) {
+          run.status = "cancelled";
+          clearRunPhase(run);
+        }
         const ag = agentById(p.agent_id);
         if (ag) {
           ag.status = "cancelled";
@@ -858,7 +902,10 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
         // 级联跳过 / graceful abort: node never ran —「未执行」. Agent stays idle.
         const p = ev.payload as RunSkippedPayload;
         const run = runById(p.run_id);
-        if (run) run.status = "skipped";
+        if (run) {
+          run.status = "skipped";
+          clearRunPhase(run);
+        }
         break;
       }
       case "run_progress":
@@ -1136,7 +1183,17 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
       case "handoff_job_started":
       case "handoff_apply_done":
       case "execution_detached":
-      case "execution_completed":
+        break;
+      case "execution_completed": {
+        // 对齐桌面：payload.status 投影到终态（缺省 completed）。
+        const raw = (ev.payload as { status?: string }).status;
+        if (raw === "cancelled" || raw === "failed" || raw === "completed") {
+          fromExecutionCompleted = raw;
+        } else if (raw == null) {
+          fromExecutionCompleted = "completed";
+        }
+        break;
+      }
       case "sim.agent_action":
       case "sim.agent_state":
       case "sim.interaction":
@@ -1202,7 +1259,7 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
             interjectionId: iid,
             executionId: p.execution_id || "",
             content: p.content || "",
-            status: p.status || "delivered",
+            status: p.status || "received",
             note: typeof p.note === "string" ? p.note : null,
             ...(attachments.length > 0 ? { attachments } : {}),
           };
@@ -1223,7 +1280,9 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
 
   const interactions = foldInteractions(events);
   let status: TurnStatus;
-  if (finishReason != null) {
+  if (fromExecutionCompleted != null) {
+    status = fromExecutionCompleted;
+  } else if (finishReason != null) {
     status = FINISH_TO_STATUS[finishReason] ?? "completed";
   } else if (sawError) {
     status = "failed";
@@ -1239,7 +1298,12 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
   // crash / lost terminal frame) with a still-running worker would otherwise replay as a
   // forever-spinning node on reload.
   if (status === "cancelled" || status === "failed") {
-    for (const r of runs) if (r.status === "running") r.status = "cancelled";
+    for (const r of runs) {
+      if (r.status === "running") {
+        r.status = "cancelled";
+        clearRunPhase(r);
+      }
+    }
     for (const a of agents) if (a.status === "working") a.status = "cancelled";
   }
 

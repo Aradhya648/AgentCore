@@ -13,7 +13,7 @@ from agentcore.runtime.context import (
     ContextAssembler,
     SectionOrder,
     build_workspace_overview,
-    desktop_client_can_bind,
+    resolve_channel_profile,
 )
 from agentcore.runtime.events import EventSink
 from agentcore.runtime.interaction import default_interaction_registry
@@ -129,6 +129,8 @@ async def assemble_ceo_turn(
     # Look up via ``pipeline.run`` so governance tests can monkeypatch the seam.
     from agentcore.runtime.pipeline import run as run_mod
 
+    # ChannelProfile is orthogonal to workspace location (no local lift).
+    channel = resolve_channel_profile(x_client_platform)
     delegate_tool, debate_tool, chat_tools = run_mod._assemble_ceo_toolset(
         llm=prepared.llm,
         sink=sink,
@@ -156,10 +158,8 @@ async def assemble_ceo_turn(
         has_memory_topics=bool(prepared.memory_topics),
         permission_axes=permission_axes,
         # Same live-user gate as ask_user itself, plus desktop-only: web/mobile omit.
-        advertise_bind_local_folder=checkpoint_enabled
-        and desktop_client_can_bind(x_client_platform),
-        desktop_online=desktop_client_can_bind(x_client_platform)
-        or backend.location == "local",
+        advertise_bind_local_folder=checkpoint_enabled and channel.can_bind_folder,
+        desktop_online=channel.desktop_online,
     )
 
     # AI 协作白板: in a 白板会话, hand the CEO the board tools so it can draw on

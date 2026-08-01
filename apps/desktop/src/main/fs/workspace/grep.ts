@@ -130,12 +130,43 @@ function regexErrorMessage(stderr: string): string | null {
   return null;
 }
 
-function handleRgStatus(code: number, stderr: string): void {
-  if (code === 0 || code === 1) return;
+function handleRgStatus(code: number, stderr: string): string[] {
+  if (code === 0 || code === 1) return [];
   const regexMsg = regexErrorMessage(stderr);
   if (regexMsg) throw new Error(regexMsg);
+  const ioWarnings = rgIoWarnings(stderr);
+  if (ioWarnings !== null) return ioWarnings;
   const detail = stderr.trim() || `rg exited with code ${code}`;
   throw new Error(`ripgrep 失败：${detail}`);
+}
+
+const RG_IO_HINTS = [
+  "permission denied",
+  "access is denied",
+  "access denied",
+  "os error 5",
+  "os error 13",
+  "os error 32",
+  "拒绝访问",
+];
+
+function isRgIoLine(line: string): boolean {
+  const lower = line.toLowerCase();
+  return RG_IO_HINTS.some((h) => lower.includes(h));
+}
+
+/** Soft-skip warnings when stderr is solely per-path IO denials; else null. */
+function rgIoWarnings(stderr: string): string[] | null {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  if (lines.some((ln) => !isRgIoLine(ln))) return null;
+  return lines.map((ln) => {
+    const body = ln.toLowerCase().startsWith("rg:") ? ln.slice(3).trim() : ln;
+    return `跳过无权限路径：${body}`;
+  });
 }
 
 function parseLineHit(
@@ -179,8 +210,8 @@ async function searchPaths(
     caseInsensitive: boolean;
     filesOnly: boolean;
   },
-): Promise<string> {
-  if (opts.paths.length === 0) return "";
+): Promise<{ stdout: string; warnings: string[] }> {
+  if (opts.paths.length === 0) return { stdout: "", warnings: [] };
   const modeFlags = opts.filesOnly
     ? ["--count", "--with-filename"]
     : ["--line-number", "--with-filename", "--no-heading"];
@@ -195,13 +226,14 @@ async function searchPaths(
     opts.pattern,
   ];
   const chunks: string[] = [];
+  const warnings: string[] = [];
   for (let i = 0; i < opts.paths.length; i += FILE_ARG_CHUNK) {
     const chunk = opts.paths.slice(i, i + FILE_ARG_CHUNK);
     const ran = await runRg(rg, [...base, "--", ...chunk], opts.cwd);
-    handleRgStatus(ran.code, ran.stderr);
+    warnings.push(...handleRgStatus(ran.code, ran.stderr));
     if (ran.stdout) chunks.push(ran.stdout);
   }
-  return chunks.join("");
+  return { stdout: chunks.join(""), warnings };
 }
 
 export async function opGrep(
@@ -255,6 +287,7 @@ export async function opGrep(
 
     let candidateFiles: string[] = [];
     let scanTruncated = false;
+    const softWarnings: string[] = [];
 
     if (baseIsFile) {
       candidateFiles = [baseReal.path.split(/[/\\]/).pop() ?? baseReal.path];
@@ -269,7 +302,7 @@ export async function opGrep(
         ".",
       ];
       const listed = await runRg(rg, listArgs, searchCwd);
-      handleRgStatus(listed.code, listed.stderr);
+      softWarnings.push(...handleRgStatus(listed.code, listed.stderr));
       candidateFiles = listed.stdout
         .split(/\r?\n/)
         .map((l) => l.replace(/\\/g, "/").trim())
@@ -285,18 +318,20 @@ export async function opGrep(
           file_counts: [],
           total_matches: 0,
           truncated: scanTruncated,
+          warnings: softWarnings,
         });
       }
     }
 
-    const stdout = await searchPaths(rg, {
+    const searched = await searchPaths(rg, {
       pattern,
       paths: candidateFiles,
       cwd: searchCwd,
       caseInsensitive,
       filesOnly,
     });
-    const lines = stdout.split(/\r?\n/).filter(Boolean);
+    softWarnings.push(...searched.warnings);
+    const lines = searched.stdout.split(/\r?\n/).filter(Boolean);
 
     if (filesOnly) {
       const parsed = lines
@@ -319,6 +354,7 @@ export async function opGrep(
         file_counts: fileCounts,
         total_matches: total,
         truncated,
+        warnings: softWarnings,
       });
     }
 
@@ -341,20 +377,24 @@ export async function opGrep(
       truncated = true;
       hits = hits.slice(0, maxResults);
     }
-    const countMap = new Map<string, number>();
+    const fileCountsMap = new Map<string, number>();
     for (const h of hits) {
-      countMap.set(h.path, (countMap.get(h.path) ?? 0) + 1);
+      fileCountsMap.set(h.path, (fileCountsMap.get(h.path) ?? 0) + 1);
     }
-    const fileCounts = [...countMap.entries()].sort((a, b) =>
-      a[0].localeCompare(b[0]),
-    );
     return opOk({
       hits,
-      file_counts: fileCounts,
+      file_counts: [...fileCountsMap.entries()].sort((a, b) =>
+        a[0].localeCompare(b[0]),
+      ),
       total_matches: hits.length,
       truncated,
+      warnings: softWarnings,
     });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.startsWith("正则表达式无效")) {
+      return opErr("WorkspaceIOError", msg);
+    }
     return opErr("WorkspaceIOError", toReason(e));
   }
 }

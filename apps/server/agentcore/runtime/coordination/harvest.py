@@ -137,26 +137,95 @@ def emit_execution_completed(session: CoordinationSession) -> None:
     Called from :func:`finish_detached_coordination` *before* the async harvest
     task so ``await_live_detached_drive`` owners can still deliver the frame
     before closing the turn sink / sealing outbox READY.
+
+    Invariant: execution terminal ⇒ every non-skipped plan run is terminal.
+    Unsettled workers get ``run_cancelled`` first; ``status`` mirrors
+    ``harvest_closing_kind`` (success→completed / failure→failed /
+    cancelled→cancelled) so cancel/harvest never folds as 「团队完成」.
     """
+    from agentcore.conversation.execution_harvest import harvest_closing_kind
     from agentcore.runtime.events import execution_completed
 
+    _cancel_unsettled_plan_workers(session)
+
+    kind = harvest_closing_kind(session)
+    status = {"success": "completed", "failure": "failed", "cancelled": "cancelled"}[
+        kind
+    ]
     event = execution_completed(
         execution_id=session.execution_id,
         conversation_id=session.conversation_id or "",
         completed=len(session.completed_run_ids),
         total=session.total_workers,
+        status=status,
         host_turn_id=session.host_turn_id or None,
     )
+    _emit_coordination_durable(session, event)
+    logger.info(
+        "coordination.execution_completed_emitted",
+        execution_id=session.execution_id,
+        completed=len(session.completed_run_ids),
+        total=session.total_workers,
+        status=status,
+    )
+
+
+def _cancel_unsettled_plan_workers(session: CoordinationSession) -> list[str]:
+    """Emit ``run_cancelled`` for plan nodes that are not yet terminal.
+
+    Skipped nodes already sit in ``completed_run_ids`` (via wave materialisation).
+    Remaining pending/running nodes are cancelled so fold never freezes them
+    under a completed execution. Returns cancelled run_ids (stable plan order).
+    """
+    from agentcore.runtime.events import run_cancelled
+
+    candidates: list[tuple[str, str]] = []
+    live = session.live_plan
+    nodes = getattr(live, "nodes", None) if live is not None else None
+    if nodes:
+        for node in nodes:
+            rid = (getattr(node, "run_id", None) or "").strip()
+            if not rid or rid in session.completed_run_ids:
+                continue
+            # Phase-1: agent_id == run_id on wire.
+            candidates.append((rid, rid))
+    else:
+        for rid, _role in session.running_workers():
+            if rid in session.completed_run_ids:
+                continue
+            candidates.append((rid, rid))
+
+    cancelled: list[str] = []
+    for run_id, agent_id in candidates:
+        session.request_cancel(run_id)
+        session.mark_worker_completed(run_id)
+        event = run_cancelled(
+            run_id,
+            agent_id,
+            reason="stop",
+            execution_id=session.execution_id,
+        )
+        _emit_coordination_durable(session, event)
+        cancelled.append(run_id)
+    if cancelled:
+        logger.info(
+            "coordination.unsettled_runs_cancelled",
+            execution_id=session.execution_id,
+            run_ids=cancelled,
+        )
+    return cancelled
+
+
+def _emit_coordination_durable(session: CoordinationSession, event: object) -> None:
+    """Emit via live sink (open or closed DURABLE path) else host journal."""
+    from agentcore.runtime.events.types import SSEEvent
+
+    if not isinstance(event, SSEEvent):
+        return
     sink = session.event_sink
     if sink is not None:
         with contextlib.suppress(Exception):
             sink.emit(event)
-            logger.info(
-                "coordination.execution_completed_emitted",
-                execution_id=session.execution_id,
-                completed=len(session.completed_run_ids),
-                total=session.total_workers,
-            )
             return
     writer = session.host_journal_writer
     if writer is not None and not getattr(writer, "sealed", False):
@@ -168,12 +237,6 @@ def emit_execution_completed(session: CoordinationSession) -> None:
                     "ts": event.timestamp,
                 }
             )
-    logger.info(
-        "coordination.execution_completed_emitted",
-        execution_id=session.execution_id,
-        completed=len(session.completed_run_ids),
-        total=session.total_workers,
-    )
 
 
 # Back-compat alias (tests / older call sites).

@@ -3,20 +3,15 @@
  *
  * 对齐桌面契约语义，不共享实现：
  * - 点停止 → 可见「停止中」；UI 不先于后端进终态
- * - /stop 失败或宽限内未确认 → 可见并可重试
+ * - /stop 失败 → 诚实失败提示（可再点停止）
  * - 终态文案走「已停止」体系
  */
 
 export type StopUiPhase = "idle" | "stopping";
 
-/** 引擎停止确认宽限：超时仍停在 stopping →「停止未确认」可重试（不伪造终态）。 */
-export const STOP_CONFIRM_TIMEOUT_MS = 8_000;
-
 export const STOPPING_LABEL = "停止中…";
 export const STOP_BUTTON_LABEL = "停止";
 export const STOP_FAILED_MESSAGE = "停止请求失败，引擎可能仍在运行";
-export const STOP_UNCONFIRMED_MESSAGE = "停止未确认，可重试";
-export const STOP_RETRY_LABEL = "重试停止";
 /** 用户主动停止后的终态文案（团队 summarize / 状态条；气泡不再出 chip）。 */
 export const STOPPED_LABEL = "已停止";
 
@@ -58,11 +53,10 @@ export type StopPhaseAction =
   | "request_stop"
   | "stop_http_ok"
   | "stop_http_fail"
-  | "confirm_terminal"
-  | "confirm_timeout";
+  | "confirm_terminal";
 
 /**
- * Pure phase reducer — HTTP 失败回滚到 idle（继续看流）；超时不伪造终态。
+ * Pure phase reducer — HTTP 失败回滚到 idle（继续看流）；不伪造终态。
  */
 export function reduceStopPhase(
   phase: StopUiPhase,
@@ -76,32 +70,8 @@ export function reduceStopPhase(
     case "confirm_terminal":
       return "idle";
     case "stop_http_ok":
-    case "confirm_timeout":
       return phase === "stopping" ? "stopping" : phase;
     default:
       return phase;
   }
-}
-
-/** Arm / clear the stop-confirm grace timer (one per ChatPage instance). */
-export function createStopConfirmTimer(): {
-  arm: (onTimeout: () => void, ms?: number) => void;
-  clear: () => void;
-} {
-  let handle: ReturnType<typeof setTimeout> | undefined;
-  return {
-    arm(onTimeout, ms = STOP_CONFIRM_TIMEOUT_MS) {
-      if (handle !== undefined) clearTimeout(handle);
-      handle = setTimeout(() => {
-        handle = undefined;
-        onTimeout();
-      }, ms);
-    },
-    clear() {
-      if (handle !== undefined) {
-        clearTimeout(handle);
-        handle = undefined;
-      }
-    },
-  };
 }

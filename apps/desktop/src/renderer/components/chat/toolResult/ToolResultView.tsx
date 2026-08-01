@@ -27,7 +27,9 @@ import { useNavigate } from "react-router-dom";
 import { Favicon } from "../Favicon";
 import { SearchHitResult } from "./SearchHitResult";
 import { type DiffLine, lineDiff } from "./diff";
+import { isFileReadCeilingGuidance } from "./fileReadCeiling";
 import { isSearchHitTool } from "./parseSearchHits";
+import { isVerifyBudgetExceeded } from "./verifyBudget";
 
 /** Normalized data a tool result renders from, shared by the single-agent process
  * panel (ProcessToolRow) and the multi-agent run detail (RunDetailBody): the call
@@ -137,6 +139,7 @@ export function toolResultPeek(d: ToolResultData): string {
     return clampLine(title);
   }
   if (isCodeExecDisplay(d.display)) {
+    if (isVerifyBudgetExceeded(d.display)) return "验证未完成（预算耗尽）";
     const code =
       typeof d.display.exit_code === "number" ? d.display.exit_code : 0;
     if (code !== 0) return `退出码 ${code}`;
@@ -272,25 +275,35 @@ function ReadUrlResult({ display }: { display: ReadUrlDisplay }) {
   );
 }
 
-/** Terminal-style stdout/stderr view + exit-code badge — stderr in destructive so
- * a failing run reads at a glance. */
+/** Terminal-style stdout/stderr view + exit-code badge.
+ *  Hard fail → stderr destructive; ``budget_exceeded`` → incomplete banner + muted/warning
+ *  (Timeout stderr is not painted as fault red). */
 function CodeExecResult({ display }: { display: CodeExecDisplay }) {
   const exitCode =
     typeof display.exit_code === "number" ? display.exit_code : 0;
-  const failed = exitCode !== 0;
+  const incomplete = isVerifyBudgetExceeded(display);
+  const failed = !incomplete && exitCode !== 0;
   const stdout = (display.stdout ?? "").replace(/\n+$/, "");
   const stderr = (display.stderr ?? "").replace(/\n+$/, "");
   const empty = !stdout && !stderr;
+  const exitTone = incomplete
+    ? "text-warning"
+    : failed
+      ? "text-destructive"
+      : "text-success";
   return (
     <div className="mt-1 overflow-hidden rounded-lg border border-border">
+      {incomplete && (
+        <div className="border-border/60 border-b bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          验证未完成（预算耗尽）
+        </div>
+      )}
       <div className="flex items-center gap-2 border-border/60 border-b bg-muted/40 px-2.5 py-1 text-xs">
         <Terminal size={12} className="shrink-0 text-muted-foreground" />
         <span className="text-muted-foreground">
-          {display.language || "shell"}
+          {display.language || display.check || "shell"}
         </span>
-        <span
-          className={`ml-auto tabular-nums ${failed ? "text-destructive" : "text-success"}`}
-        >
+        <span className={`ml-auto tabular-nums ${exitTone}`}>
           退出码 {exitCode}
         </span>
       </div>
@@ -302,7 +315,11 @@ function CodeExecResult({ display }: { display: CodeExecDisplay }) {
           </pre>
         )}
         {stderr && (
-          <pre className="mt-1 whitespace-pre-wrap break-words text-destructive">
+          <pre
+            className={`mt-1 whitespace-pre-wrap break-words ${
+              incomplete ? "text-muted-foreground" : "text-destructive"
+            }`}
+          >
             {stderr}
           </pre>
         )}
@@ -566,15 +583,21 @@ function FileWriteCard({
 function TextResult({
   result,
   status,
+  ceilingGuidance = false,
 }: {
   result: string;
   status: ToolResultData["status"];
+  /** Same-path file_read ceiling — warning/muted, not fault red. */
+  ceilingGuidance?: boolean;
 }) {
+  const tone = ceilingGuidance
+    ? "text-warning/90"
+    : status === "error"
+      ? "text-destructive/90"
+      : "text-muted-foreground";
   return (
     <pre
-      className={`mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-2 py-1.5 text-xs ${
-        status === "error" ? "text-destructive/90" : "text-muted-foreground"
-      }`}
+      className={`mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-2 py-1.5 text-xs ${tone}`}
     >
       {result}
     </pre>
@@ -650,5 +673,14 @@ export function ToolResultView({ data }: { data: ToolResultData }) {
   ) {
     return <SearchHitResult result={data.result} kind={data.toolName} />;
   }
-  return <TextResult result={data.result ?? ""} status={data.status} />;
+  const ceilingGuidance =
+    data.status === "error" &&
+    isFileReadCeilingGuidance(data.toolName, data.result);
+  return (
+    <TextResult
+      result={data.result ?? ""}
+      status={data.status}
+      ceilingGuidance={ceilingGuidance}
+    />
+  );
 }

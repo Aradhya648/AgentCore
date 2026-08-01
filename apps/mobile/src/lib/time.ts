@@ -10,6 +10,36 @@ export function clock(iso: string): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * 消息时间戳展示串：今天 "HH:MM"，昨天 "昨天 HH:MM"，同年 "M月D日 HH:MM"，
+ * 跨年带年。非法输入返回空串。
+ */
+export function formatMessageTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const tod = clock(iso);
+  const now = new Date();
+  const startOfDay = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (days <= 0) return tod;
+  if (days === 1) return `昨天 ${tod}`;
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`;
+  if (d.getFullYear() === now.getFullYear()) return `${md} ${tod}`;
+  return `${d.getFullYear()}年${md} ${tod}`;
+}
+
+/** 毫秒时长 → "45s" / "2m34s" / "1h2m"（对齐桌面 formatDuration）。 */
+export function formatDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h${m}m`;
+  return `${m}m${s}s`;
+}
+
 /** Compact relative label for a list row's last-activity time: clock today, 昨天
  *  yesterday, M月D日 within the year, else YYYY/M/D. */
 export function relativeTime(iso: string | null | undefined): string {

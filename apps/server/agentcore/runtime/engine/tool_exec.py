@@ -19,6 +19,7 @@ from agentcore.runtime.citations import (
 )
 from agentcore.runtime.events import (
     EventSink,
+    run_phase,
     tool_use_end,
     tool_use_progress,
     tool_use_start,
@@ -126,8 +127,8 @@ def _is_prose_write_withheld(context: ToolContext | None) -> bool:
 def _file_read_round_coalesce_key(args: dict[str, Any]) -> str | None:
     """Same-round parallel ``file_read`` coalesce key: normalized path only.
 
-    Offset/limit variants still share one underlying read and one
-    ``file_read_counts`` bump (整读与 ranged 计同 path). Empty path → no coalesce.
+    Offset/limit variants still share one underlying read (fan-out); only full
+    reads bump ``file_read_counts``. Empty path → no coalesce.
     """
     if not isinstance(args, dict):
         return None
@@ -380,7 +381,7 @@ async def execute_tools(
 
     Same-round parallel ``file_read`` calls that share a normalized path execute
     the underlying read once; sibling tool_calls receive fan-out clones (one
-    ``file_read_counts`` bump).
+    count bump when the shared result is a full read).
     """
     # Captain self-tools: inline timeline (no run_id on wire); facts/audit keep run_id.
     event_run_id = "" if role == "captain" else run_id
@@ -491,6 +492,15 @@ async def execute_tools(
                     tc.function.arguments = json.dumps(args, ensure_ascii=False)
 
         sink.emit(tool_use_start(tc.id, name, args, run_id=event_run_id))
+        if event_run_id:
+            sink.emit(
+                run_phase(
+                    event_run_id,
+                    getattr(context, "agent_id", "") or event_run_id,
+                    "tool",
+                    tool_name=name or raw_name or None,
+                )
+            )
 
         if allowed_set is not None and name not in allowed_set:
             if name in _FILE_PRODUCT_TOOL_NAMES and _is_prose_write_withheld(context):
@@ -648,13 +658,14 @@ async def execute_tools(
             approval_gate is not None
             and tool_call_requires_approval(name, tool.schema.approval, args)
         )
-        # CEO 窄例外：captain 直调 browser_navigate 不弹审批（force_breaker 仍拦）。
-        # Worker navigate 本地仍走 GRANTABLE；click/type/… 仍 worker-only。
+        # CEO 短操作：captain 直调 browser_*（navigate/click/type/scroll/snapshot）
+        # 不弹审批（force_breaker 仍拦）；screenshot 仅 worker，不走本分支。
         if (
             needs_approval
             and not force_breaker
             and role == "captain"
-            and name == "browser_navigate"
+            and name.startswith("browser_")
+            and name != "browser_screenshot"
         ):
             needs_approval = False
         # Cloud *workers* historically ungated for server-sandbox tools. When
@@ -980,12 +991,14 @@ async def execute_tools(
             # ``output``, not the short ``error`` (e.g. code_execute's error is
             # just "退出码 N" while the traceback / "command not found" lives in
             # output). Either may be empty; join the non-empty parts.
-            output = (
-                "\n".join(
-                    p for p in ((result.error or "").strip(), (result.output or "").strip()) if p
-                )
-                or "Unknown error"
-            )
+            # Identical error+output (common when tools mirror the same string)
+            # must not double the model-visible failure text.
+            err_part = (result.error or "").strip()
+            out_part = (result.output or "").strip()
+            if err_part and out_part and err_part == out_part:
+                output = err_part
+            else:
+                output = "\n".join(p for p in (err_part, out_part) if p) or "Unknown error"
         # 挂起即收口: a SUSPEND terminal already persisted its *_required card in the
         # pause snapshot. Emitting a durable tool_use_end here would append a fact that
         # diverges snapshot vs DB (and the call stays PENDING — no tool_call fact either).

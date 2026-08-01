@@ -473,6 +473,27 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 ag["currentRunId"] = rid
                 ag["toolProgress"] = None
 
+        elif etype == "run_phase":
+            # Worker 活动相位单一源：thinking / tool / waiting_children / winding_down.
+            # winding_down 粘性覆盖 thinking/tool，直到终态清除。
+            # queued = status pending；skipped = status skipped（不经本事件）。
+            run = run_by_id(p.get("run_id", ""))
+            if run is not None:
+                phase = p.get("phase") or ""
+                current = run.get("phase")
+                if current == "winding_down" and phase in ("thinking", "tool"):
+                    pass
+                elif phase in (
+                    "thinking",
+                    "tool",
+                    "waiting_children",
+                    "winding_down",
+                ):
+                    run["phase"] = phase
+                    run["phaseTool"] = (
+                        p.get("tool_name") if phase == "tool" else None
+                    )
+
         elif etype == "run_context":
             # 收到的上下文 (上下文传递可视化): the structured context this run was fed, carried
             # verbatim (wire-shaped snake_case blocks) — the same data the LLM saw. The
@@ -555,6 +576,8 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 run["model"] = p.get("model")
                 run["usage"] = p.get("usage")
                 run["cost"] = p.get("cost")
+                run.pop("phase", None)
+                run.pop("phaseTool", None)
             ag = agent_by_id(p.get("agent_id", ""))
             if ag:
                 ag["status"] = "completed"
@@ -569,6 +592,8 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 # 完工交接简报 on a failed run: the author's wrap-up when a contract-missing
                 # worker still produced one (else absent → stays None).
                 run["debrief"] = p.get("debrief")
+                run.pop("phase", None)
+                run.pop("phaseTool", None)
             ag = agent_by_id(p.get("agent_id", ""))
             if ag:
                 ag["status"] = "error"
@@ -582,6 +607,8 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
             run = run_by_id(p.get("run_id", ""))
             if run is not None:
                 run["status"] = "cancelled"
+                run.pop("phase", None)
+                run.pop("phaseTool", None)
             ag = agent_by_id(p.get("agent_id", ""))
             if ag:
                 ag["status"] = "cancelled"
@@ -594,6 +621,8 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
             run = run_by_id(p.get("run_id", ""))
             if run is not None:
                 run["status"] = "skipped"
+                run.pop("phase", None)
+                run.pop("phaseTool", None)
             # Agent never started — leave idle (no currentRunId / toolProgress to clear).
 
         elif etype == "run_progress":
@@ -969,7 +998,7 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "interjectionId": iid,
                 "executionId": str(p.get("execution_id") or ""),
                 "content": str(p.get("content") or ""),
-                "status": str(p.get("status") or "delivered"),
+                "status": str(p.get("status") or "received"),
                 "note": p.get("note") if isinstance(p.get("note"), str) else None,
             }
             raw_atts = p.get("attachments")
@@ -1035,6 +1064,8 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
         for r in runs:
             if r["status"] == "running":
                 r["status"] = "cancelled"
+                r.pop("phase", None)
+                r.pop("phaseTool", None)
         for a in agents:
             if a["status"] == "working":
                 a["status"] = "cancelled"

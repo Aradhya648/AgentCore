@@ -115,6 +115,7 @@ async def react_loop(
     usage_sink: list[TokenUsage] | None = None,
     finish_override_sink: list[FinishReason] | None = None,
     run_id: str = "",
+    agent_id: str = "",
     role: str = "",
     deliverable_only: bool = False,
     supports_tools: bool | None = None,
@@ -425,6 +426,9 @@ async def react_loop(
             allowed_tools=narrowed,
             keep_file_read=keep_file_read,
         )
+        from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+
+        emit_run_phase(sink, run_id, agent_id, "winding_down")
 
     def _consume_timeout_wind_down_pending() -> bool:
         """Consume timeout wind-down from hard-timeout guard and/or coordination session.
@@ -634,6 +638,9 @@ async def react_loop(
                 from agentcore.runtime.coordination.session import note_coord_worker_busy
 
                 note_coord_worker_busy(run_id, "llm")
+                from agentcore.runtime.runs.run_phase_emit import emit_run_phase
+
+                emit_run_phase(sink, run_id, agent_id, "thinking")
             # 协调已活 → 进入本轮 LLM 前装好 wait 等闸内工具（与 mid-turn promote 对齐）。
             if role == "captain":
                 from agentcore.runtime.resolve.ceo_surface import (
@@ -1009,9 +1016,6 @@ async def react_loop(
                         total_usage = tool_round.total_usage
                         if tool_round.tool_defs_changed:
                             tool_defs = tool_round.tool_defs
-                        # zero_write 催写已注入 → 下一轮起补写盘授权（要盘无写接缝）。
-                        if controller is not None and controller.zero_write_warned:
-                            _grant_persist_writes("zero_write_warn")
                         if wind_down_breach_pending_nudge:
                             from agentcore.runtime.engine.directive import Continue
                             from agentcore.runtime.runs.cutoff import (

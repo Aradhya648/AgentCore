@@ -22,7 +22,7 @@ from .tool_exec import execute_tools
 
 logger = get_logger(__name__)
 
-# Shared thrashing signal source (ceiling hard-stop + mid-loop zero_write FINALIZE).
+# Thrashing signal source for hard-ceiling DEGRADED (mid-loop zero_write retired).
 CEILING_BACKSTOP_SOURCE = "ceiling_backstop"
 
 

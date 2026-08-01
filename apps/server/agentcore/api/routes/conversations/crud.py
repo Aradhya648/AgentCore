@@ -22,6 +22,8 @@ from agentcore.api.dependencies import (
 )
 from agentcore.api.download_headers import download_headers
 from agentcore.api.schemas import (
+    AutoTitleRequest,
+    AutoTitleResponse,
     ConversationListResponse,
     ConversationSummary,
     CreateConversationRequest,
@@ -31,7 +33,10 @@ from agentcore.api.schemas import (
     StatusResponse,
     UpdateConversationRequest,
 )
-from agentcore.conversation.common import default_permission_axes_for_user
+from agentcore.conversation.common import (
+    default_permission_axes_for_user,
+    mint_title_if_empty,
+)
 from agentcore.conversation.export import (
     conversation_to_json,
     conversation_to_markdown,
@@ -207,6 +212,46 @@ async def get_conversation(
     if not conv:
         raise NotFoundError("对话不存在")
     return ConversationSummary.model_validate(conv)
+
+
+@router.post("/{conversation_id}/auto-title", response_model=AutoTitleResponse)
+async def auto_title_conversation(
+    conversation_id: str,
+    body: AutoTitleRequest,
+    user: AuthUser,
+    repo: ConversationRepository = Depends(get_conversation_repo),
+):
+    """Mint a conversation title from the first user message (await).
+
+    Local sidecar has no cloud SSE ``title_generated`` path — the desktop calls this
+    in parallel with the first local turn. Shares the same mint core as cloud
+    ``schedule_title_generation`` (user message only; ``assistant_reply=""``).
+
+    Already-titled conversations return the existing title without calling the LLM.
+    """
+    conv = await repo.get_by_id(conversation_id, user_id=user.user_id)
+    if not conv:
+        raise NotFoundError("对话不存在")
+    existing = str(conv.title).strip() if conv.title else ""
+    if existing:
+        return AutoTitleResponse(title=existing)
+
+    title = await mint_title_if_empty(
+        conversation_id=conversation_id,
+        user_id=user.user_id,
+        user_message=body.user_message,
+        sink=None,
+    )
+    if not title:
+        # Mint failed without a write — degrade to truncation so the client always
+        # gets a non-empty title string (sidebar already shows a provisional).
+        from agentcore.conversation.common import fallback_title
+
+        title = fallback_title(body.user_message)
+        updated = await repo.update_title_if_empty(conversation_id, title)
+        if updated is not None and updated.title:
+            title = str(updated.title)
+    return AutoTitleResponse(title=title)
 
 
 @router.put("/{conversation_id}/permission-axes", response_model=ConversationSummary)

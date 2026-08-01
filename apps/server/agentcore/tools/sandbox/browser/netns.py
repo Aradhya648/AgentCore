@@ -10,17 +10,28 @@ into netstack (the OCI must reference the netns by PATH — see PoC finding #1).
 
 All calls shell out to ``ip`` and only run on Linux under a real gVisor deploy;
 they never execute in tests / on the dev host (the registry uses fakes there).
+
+Boot / sticky health (``browser_netns_health``) gates cloud ``browser_*`` assembly —
+``GVisorSandbox.health_check`` uses ``network_mode=none`` and does not cover netns.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import sys
 
 from agentcore.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 NETNS_RUN_DIR = "/var/run/netns"
+
+# Dedicated name for the boot probe (must not collide with slot-derived ``acbrw{N}``).
+_PROBE_NETNS_NAME = "acbrwprobe"
+
+# None = never probed → ``browser_execution_enabled_for`` keeps cloud-health-only semantics.
+_browser_netns_healthy: bool | None = None
 
 
 class NetnsError(RuntimeError):
@@ -30,6 +41,29 @@ class NetnsError(RuntimeError):
 # Stable tool ``metadata.code`` when sandbox network isolation cannot be created.
 # Permanent for the run: retrying browser_* will hit the same host capability gap.
 EGRESS_UNAVAILABLE_CODE = "egress_unavailable"
+
+
+def browser_netns_health() -> bool | None:
+    """Cached netns capability: ``True`` / ``False``, or ``None`` if never probed."""
+    return _browser_netns_healthy
+
+
+def reset_browser_netns_health_for_tests() -> None:
+    """Clear the process-wide cache so tests cannot leak health across cases."""
+    global _browser_netns_healthy
+    _browser_netns_healthy = None
+
+
+def set_browser_netns_health_for_tests(healthy: bool | None) -> None:
+    """Inject netns health for unit tests. ``None`` = unprobed."""
+    global _browser_netns_healthy
+    _browser_netns_healthy = healthy
+
+
+def mark_browser_netns_unavailable() -> None:
+    """Sticky: host netns proven unavailable → withhold cloud browser_* until restart."""
+    global _browser_netns_healthy
+    _browser_netns_healthy = False
 
 
 def is_netns_capability_error(exc: BaseException) -> bool:
@@ -63,6 +97,47 @@ async def _ip(*args: str, check: bool = True) -> tuple[int, str]:
     if check and proc.returncode != 0:
         raise NetnsError(f"ip {' '.join(args)} failed ({proc.returncode}): {text.strip()}")
     return proc.returncode or 0, text
+
+
+async def probe_browser_netns_at_startup() -> None:
+    """One-shot boot probe when gVisor browser path is config-enabled. Never raises.
+
+    Minimal check: ``ip netns add`` + ``del`` a dedicated probe name. Only runs on
+    Linux with ``settings.gvisor_enabled``. Non-Linux / config-off leave the cache
+    at ``None`` (tests / unbooted keep status-quo assembly semantics).
+    """
+    global _browser_netns_healthy
+    from agentcore.config import settings
+
+    if sys.platform != "linux" or not settings.gvisor_enabled:
+        return
+
+    reason = "unhealthy"
+    detail = ""
+    try:
+        # Best-effort clear of a stale probe remnant, then add + del.
+        await _ip("netns", "del", _PROBE_NETNS_NAME, check=False)
+        await _ip("netns", "add", _PROBE_NETNS_NAME)
+        await _ip("netns", "del", _PROBE_NETNS_NAME, check=False)
+        ok = True
+    except Exception as exc:  # noqa: BLE001 — probe must never break startup
+        ok = False
+        reason = type(exc).__name__
+        detail = str(exc)[:200]
+        with contextlib.suppress(Exception):
+            await _ip("netns", "del", _PROBE_NETNS_NAME, check=False)
+
+    _browser_netns_healthy = ok
+    if ok:
+        logger.debug("browser.netns_health_ok")
+        return
+
+    logger.warning(
+        "browser.netns_health_failed",
+        reason=reason,
+        detail=detail or None,
+        hint="云端 browser_* 将不装配，直到主机 netns 能力可用（不回退 Local）",
+    )
 
 
 class SessionNetns:

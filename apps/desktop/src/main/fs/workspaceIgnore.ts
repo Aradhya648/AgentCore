@@ -35,6 +35,7 @@ export const LIST_FILES_SKIP_DIRS = new Set([
   "venv",
   ".mypy_cache",
   ".pytest_cache",
+  ".pytest_tmp",
   ".ruff_cache",
   ".turbo",
   ".cache",

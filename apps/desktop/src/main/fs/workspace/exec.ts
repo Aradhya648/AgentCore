@@ -228,6 +228,8 @@ export async function opExecute(
 
   const code = String(args.code ?? "");
   const stdin = args.stdin == null ? null : String(args.stdin);
+  // 通道上限 = EXEC_TIMEOUT_CAP_S（须覆盖 test_run 验证预算）；工具层自己的上限
+  // （code_execute ≤60）在服务端 clamp，本处只兑现请求方给出的 timeout_seconds。
   const timeoutSeconds = Math.max(
     1,
     Math.min(Number(args.timeout_seconds ?? 30), EXEC_TIMEOUT_CAP_S),

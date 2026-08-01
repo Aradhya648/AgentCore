@@ -100,6 +100,8 @@ def _should_auto_light_delegate(tasks_raw: list[Any]) -> bool:
 
     Skips auto-light when deliverable signals deep work (files / artifacts / long-form)
     so budget mapping can still promote standard → deep.
+    ``complexity_hint=light`` no longer stamps short ``max_rounds``; browser tool
+    surfaces are not excluded from auto-light for round-budget reasons.
     """
     if len(tasks_raw) != 1:
         return False
@@ -668,6 +670,7 @@ class DelegateTool:
             validate_completion_against_forms,
             validate_criteria_kind_fit,
             validate_execution_capability,
+            validate_files_worker_tools,
             validate_repair_how_fixed,
         )
 
@@ -847,6 +850,30 @@ class DelegateTool:
                 success=False,
                 output="",
                 error=tools_surface_error,
+                contract_failure=True,
+            )
+        # 落盘承诺 / files_written 等须持写盘工具（与执行类闸正交）。
+        write_tools_error = validate_files_worker_tools(
+            completion_criteria,
+            plan,
+        )
+        if write_tools_error:
+            kind = (
+                resolved_acceptance.criteria.kind
+                if resolved_acceptance.criteria is not None
+                else "unknown"
+            )
+            logger.info(
+                "delegate.capability_rejected",
+                criteria=kind,
+                reason="no_write_tools",
+                explicit=completion_criteria is not None,
+            )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=write_tools_error,
                 contract_failure=True,
             )
         capability_warning = execution_capability_warning(

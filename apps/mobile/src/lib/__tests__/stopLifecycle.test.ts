@@ -1,13 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   STOPPED_LABEL,
   STOPPING_LABEL,
-  STOP_CONFIRM_TIMEOUT_MS,
   STOP_FAILED_MESSAGE,
-  STOP_UNCONFIRMED_MESSAGE,
   allowsEventWhileStopping,
-  createStopConfirmTimer,
   isStopBusy,
   isStopConfirmEvent,
   reduceStopPhase,
@@ -27,8 +24,7 @@ describe("stopLifecycle · phase reducer", () => {
     expect(reduceStopPhase("stopping", "confirm_terminal")).toBe("idle");
   });
 
-  it("confirm_timeout / stop_http_ok 保持 stopping", () => {
-    expect(reduceStopPhase("stopping", "confirm_timeout")).toBe("stopping");
+  it("stop_http_ok 保持 stopping", () => {
     expect(reduceStopPhase("stopping", "stop_http_ok")).toBe("stopping");
   });
 });
@@ -69,44 +65,8 @@ describe("stopLifecycle · copy & busy", () => {
     expect(isStopBusy(false, "idle")).toBe(false);
   });
 
-  it("终态 / 失败文案常量", () => {
+  it("终态 / 失败文案常量（无停止未确认 / 重试停止路径）", () => {
     expect(STOPPED_LABEL).toBe("已停止");
     expect(STOP_FAILED_MESSAGE).toContain("失败");
-    expect(STOP_UNCONFIRMED_MESSAGE).toContain("未确认");
-  });
-});
-
-describe("stopLifecycle · confirm timer", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("宽限到期回调；clear 取消；arm 重置", () => {
-    const timer = createStopConfirmTimer();
-    const onTimeout = vi.fn();
-
-    timer.arm(onTimeout);
-    vi.advanceTimersByTime(STOP_CONFIRM_TIMEOUT_MS - 1);
-    expect(onTimeout).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
-    expect(onTimeout).toHaveBeenCalledTimes(1);
-
-    onTimeout.mockClear();
-    timer.arm(onTimeout);
-    timer.clear();
-    vi.advanceTimersByTime(STOP_CONFIRM_TIMEOUT_MS + 100);
-    expect(onTimeout).not.toHaveBeenCalled();
-
-    timer.arm(onTimeout);
-    vi.advanceTimersByTime(STOP_CONFIRM_TIMEOUT_MS / 2);
-    timer.arm(onTimeout);
-    vi.advanceTimersByTime(STOP_CONFIRM_TIMEOUT_MS / 2);
-    expect(onTimeout).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(STOP_CONFIRM_TIMEOUT_MS / 2);
-    expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 });

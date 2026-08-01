@@ -495,12 +495,10 @@ def create_loop_controller(
 
     ``seed`` restores the five cross-suspension latches (see
     :meth:`LoopController.apply_seed`); omit on a fresh turn.
-    Delivery-idle thrashing enables when:
-    - short-write posture and not files → prose idle (handoff = delivery; bar
-      scaled under ``max_rounds``; reuses the ``zero_write_*`` counter).
-    Files zero-write催写 is **retired** (:func:`should_enable_zero_write` always
-    false) — no nudge solely for zero landing files; write_pass still grants
-    persist tools when ``files_expected`` (seam B).
+
+    Zero-write / prose_idle mid-loop warn→FINALIZE is **retired** (always off).
+    Delivery pressure stays on round/token hard ceilings + convergence spin;
+    write_pass still grants persist tools when ``files_expected`` (seam B).
 
     Short ``max_rounds`` also pulls ``reflection_start_round`` earlier so the
     progress-review inject is not collinear with the hard ceiling.
@@ -510,27 +508,7 @@ def create_loop_controller(
     ``code_execute`` ladders reach nudge→finalize sooner — still the same
     LoopController paths, not a parallel fuse.
     """
-    from agentcore.runtime.runs.worker_budget import (
-        resolve_prose_idle_finalize_rounds,
-        should_enable_prose_idle,
-        should_enable_zero_write,
-    )
-
-    files_idle = should_enable_zero_write(
-        files_expected=files_expected,
-        short_write_posture=short_write_posture,
-        form_prose=form_prose,
-    )
-    prose_idle = should_enable_prose_idle(
-        files_expected=files_expected,
-        short_write_posture=short_write_posture,
-    )
-    if files_idle:
-        zero_write = int(settings.engine_zero_write_finalize_rounds)
-    elif prose_idle:
-        zero_write = resolve_prose_idle_finalize_rounds(max_rounds)
-    else:
-        zero_write = 0
+    _ = files_expected  # call-site seam; write_pass grant is outside this factory
 
     tool_failure_warn = settings.engine_tool_failure_warn
     tool_failure_disable = settings.engine_tool_failure_disable
@@ -554,8 +532,9 @@ def create_loop_controller(
         reflection_interval=settings.engine_reflection_interval,
         convergence_finalize_rounds=settings.engine_convergence_finalize_rounds,
         convergence_spin_rounds=settings.engine_convergence_spin_rounds,
-        zero_write_finalize_rounds=zero_write,
-        prose_idle=prose_idle,
+        # 零写 / prose_idle 整条已退役 — 不开计数与中途 FINALIZE。
+        zero_write_finalize_rounds=0,
+        prose_idle=False,
         form_prose=form_prose,
         investigation_tools=investigation_tools,
         product_landing_artifacts=product_landing_artifacts,
@@ -824,60 +803,15 @@ def govern_after_tools(
         )
         return Finalize(reason="unproductive", finish_reason=FinishReason.UNPRODUCTIVE)
 
-    if breaker_message is None and controller.zero_write_warn_due():
-        from agentcore.runtime.loop_controller import zero_write_warn_prompt
-
-        warn = zero_write_warn_prompt(
-            rounds=controller.zero_write_investigation_rounds,
-            prose_idle=controller.prose_idle,
-        )
-        controller.mark_zero_write_warned()
-        logger.info(
-            "engine.zero_write_warn",
-            round=round_idx,
-            zero_write_rounds=controller.zero_write_investigation_rounds,
-            prose_idle=controller.prose_idle,
-        )
-        messages.append(LLMMessage(role="user", content=warn))
-        record_turn_fact(
-            NoteFact(role="user", content=warn, reason="zero_write_warn", run_id=run_id).to_fact()
-        )
-
     if breaker_message is None and controller.convergence_action() is Intervention.FINALIZE:
-        zero_write_cut = (
-            not controller.landing_succeeded
-            and controller.zero_write_finalize_rounds > 0
-            and controller.zero_write_investigation_rounds
-            >= controller.zero_write_finalize_rounds
-        )
-        if zero_write_cut:
-            from agentcore.runtime.loop_controller import zero_write_finalize_prompt
-
-            fin = zero_write_finalize_prompt(
-                rounds=controller.zero_write_investigation_rounds,
-                prose_idle=controller.prose_idle,
-            )
-            messages.append(LLMMessage(role="user", content=fin))
-            record_turn_fact(
-                NoteFact(
-                    role="user", content=fin, reason="zero_write_finalize", run_id=run_id
-                ).to_fact()
-            )
+        # Zero-write mid-loop DEGRADED is retired; spin / absolute-cap FINALIZE
+        # stays plain convergence (hard-ceiling thrashing still stamps DEGRADED).
         logger.warning(
             "engine.convergence_finalize",
             round=round_idx,
             investigation_rounds=controller.investigation_rounds,
             investigation_calls=controller.investigation_calls,
-            zero_write_rounds=controller.zero_write_investigation_rounds,
-            zero_write_cut=zero_write_cut,
-            prose_idle=controller.prose_idle,
         )
-        # Mid-loop zero_write FINALIZE aligns with ceiling: DEGRADED + same source.
-        if zero_write_cut:
-            return Finalize(
-                reason="convergence",
-                finish_reason=FinishReason.DEGRADED,
-            )
         return Finalize(reason="convergence")
 
     if breaker_message is None and controller.reflection_due(round_idx):

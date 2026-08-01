@@ -100,6 +100,8 @@ from .collaboration_timeline import (
 )
 from .common import StatusResponse
 from .conversations import (
+    AutoTitleRequest,
+    AutoTitleResponse,
     ConversationListResponse,
     ConversationSummary,
     CreateConversationRequest,
@@ -390,6 +392,8 @@ __all__ = [
     "ConversationListResponse",
     "UpdateConversationRequest",
     "PermissionAxesUpdate",
+    "AutoTitleRequest",
+    "AutoTitleResponse",
     "CreateFolderRequest",
     "UpdateFolderRequest",
     "FolderSummary",

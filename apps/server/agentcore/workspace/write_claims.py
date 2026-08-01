@@ -10,7 +10,9 @@ Two eras share one class:
 
   - **Dispatch ``declare``** claims a free path; does **not** steal from an
     ancestor holder (downstream only records intent via plan artifacts). Nested
-    lead→child drives opt into declare-time handoff explicitly.
+    lead→child drives opt into declare-time handoff explicitly. Cross-wave:
+    declaring a path whose holder is already in ``completed_run_ids`` auto-
+    transfers at dispatch (reviser after writer).
   - **Write ``claim``** may hand off from an ancestor (downstream consolidates).
   - **Completion handoff** moves owned paths to the unique dependent that listed
     the same artifact.

@@ -12,6 +12,11 @@ import { collectWorkspaceFiles } from "../tree";
 import { shouldSkipWorkspaceEntry } from "../workspaceIgnore";
 import { globToRegExp, opErr, opOk, toPosix } from "./result";
 
+function isAccessDeniedError(e: unknown): boolean {
+  const code = (e as NodeJS.ErrnoException)?.code;
+  return code === "EACCES" || code === "EPERM" || code === "EBUSY";
+}
+
 export async function opRead(
   root: StoredRoot,
   relPath: string,
@@ -88,6 +93,7 @@ export async function opList(
     try {
       dirents = await fs.readdir(absDir, { withFileTypes: true });
     } catch {
+      // Per-subdir unreadability: skip; do not fail the whole list.
       return;
     }
     dirents.sort((a, b) => a.name.localeCompare(b.name));
@@ -99,7 +105,10 @@ export async function opList(
           ? `${listBaseRel}/${relFromBase}`
           : relFromBase
         : listBaseRel;
-      if (shouldSkipWorkspaceEntry(d.name, isDir, parentRel)) continue;
+      // Name-first dir ignore (locked ``.pytest_tmp`` etc.) before trusting type.
+      if (shouldSkipWorkspaceEntry(d.name, true, parentRel)) continue;
+      if (!isDir && shouldSkipWorkspaceEntry(d.name, false, parentRel))
+        continue;
       const childRel = relFromBase ? `${relFromBase}/${d.name}` : d.name;
       if (re.test(childRel)) {
         results.push({
@@ -211,6 +220,7 @@ export async function opListTree(
   const entries: { path: string; is_dir: boolean; depth: number }[] = [];
   let truncated = false;
   let elidedCount = 0;
+  const warnings: string[] = [];
   const nameFilter = pattern || "*";
   const matchName = (name: string, isDir: boolean) =>
     isDir || globToRegExp(nameFilter).test(name);
@@ -219,15 +229,28 @@ export async function opListTree(
     absDir: string,
     parentRel: string,
     depth: number,
+    isRoot: boolean,
   ): Promise<void> => {
     if (depth > maxDepth) return;
-    const dirents = await fs.readdir(absDir, { withFileTypes: true });
+    let dirents: import("node:fs").Dirent[];
+    try {
+      dirents = await fs.readdir(absDir, { withFileTypes: true });
+    } catch (e) {
+      if (!isRoot && isAccessDeniedError(e)) {
+        warnings.push(`跳过无权限目录：${parentRel || "."}`);
+        return;
+      }
+      throw e;
+    }
     dirents.sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
     for (const d of dirents) {
+      // Name-first ignore prune before descending into locked noise dirs.
+      if (shouldSkipWorkspaceEntry(d.name, true, parentRel)) continue;
       const isDir = d.isDirectory() && !d.isSymbolicLink();
-      if (shouldSkipWorkspaceEntry(d.name, isDir, parentRel)) continue;
+      if (!isDir && shouldSkipWorkspaceEntry(d.name, false, parentRel))
+        continue;
       const childAbs = join(absDir, d.name);
       const childRel = parentRel ? `${parentRel}/${d.name}` : d.name;
       if (!matchName(d.name, isDir)) continue;
@@ -242,18 +265,23 @@ export async function opListTree(
         depth,
       });
       if (isDir && depth < maxDepth) {
-        await walk(childAbs, childRel, depth + 1);
+        await walk(childAbs, childRel, depth + 1, false);
       }
     }
   };
 
   try {
     const baseRel = toPosix(relative(root.absPath, baseReal.path));
-    await walk(baseReal.path, baseRel === "." ? "" : baseRel, 1);
+    await walk(baseReal.path, baseRel === "." ? "" : baseRel, 1, true);
   } catch (e) {
     return opErr("WorkspaceIOError", toReason(e));
   }
-  return opOk({ entries, truncated, elided_count: elidedCount });
+  return opOk({
+    entries,
+    truncated,
+    elided_count: elidedCount,
+    warnings,
+  });
 }
 
 // index_files：把绑定根（或其 `base` 子树）扁平索引成相对文件路径列表（忽略目录剪枝 + cap），

@@ -180,6 +180,9 @@ async def list_messages(
         rounds = usage.get("rounds")
         if rounds is not None:
             detail.rounds = rounds
+        duration_ms = usage.get("duration_ms")
+        if duration_ms is not None:
+            detail.duration_ms = int(duration_ms)
         # Assistant-row lifecycle (usage.status) — overlay criterion for stream_state.
         status = usage.get("status")
         if status is not None:
@@ -425,24 +428,25 @@ async def send_message(
                 # Session closing between lookup and post — fall through to queue.
                 coord.take_interjection(interjection_id)
             else:
-                # Live turn observers see the interjection on the in-flight sink.
+                # Live turn observers: durable once on the in-flight sink.
                 existing.sink.emit(
                     user_interjection(
                         interjection_id=interjection_id,
                         execution_id=coord.execution_id,
                         content=body.content,
-                        status="delivered",
+                        status="received",
                         attachments=att_meta or None,
                     )
                 )
-                # Sender's POST always gets SSE (发送即有流): short confirm stream.
+                # Sender's POST: short SSE confirm — history/SSE only, do NOT re-journal
+                # (same interjection_id must not double-write the host journal).
                 confirm = EventSink()
-                confirm.emit(
+                confirm.emit_sse_only(
                     user_interjection(
                         interjection_id=interjection_id,
                         execution_id=coord.execution_id,
                         content=body.content,
-                        status="delivered",
+                        status="received",
                         attachments=att_meta or None,
                     )
                 )

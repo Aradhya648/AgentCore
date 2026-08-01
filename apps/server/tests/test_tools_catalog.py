@@ -253,17 +253,23 @@ def test_ceo_registry_host_shell_grantable_exception_when_desktop_online():
         assert schema.approval is ToolApproval.NEVER, name
 
 
-def test_ceo_registry_browser_navigate_grantable_exception_when_include_browser():
+def test_ceo_registry_browser_interactive_grantable_when_include_browser():
     schemas = {
         s.name: s for s in build_ceo_tool_registry(include_browser=True).list_all()
     }
-    assert "browser_navigate" in schemas
-    assert schemas["browser_navigate"].approval is ToolApproval.GRANTABLE
-    # Other browser_* stay worker-only.
-    assert "browser_click" not in schemas
+    for name in (
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_snapshot",
+    ):
+        assert name in schemas
+        assert schemas[name].approval is ToolApproval.GRANTABLE
+    # Screenshot stays worker-only.
     assert "browser_screenshot" not in schemas
     for name, schema in schemas.items():
-        if name == "browser_navigate":
+        if name.startswith("browser_") or name == "host_shell":
             continue
         assert schema.approval is ToolApproval.NEVER, name
 
@@ -271,6 +277,7 @@ def test_ceo_registry_browser_navigate_grantable_exception_when_include_browser(
 def test_ceo_registry_excludes_browser_navigate_by_default():
     names = {schema.name for schema in build_ceo_tool_registry().list_all()}
     assert "browser_navigate" not in names
+    assert "browser_click" not in names
     assert names == _CEO_READONLY_NAMES
 
 

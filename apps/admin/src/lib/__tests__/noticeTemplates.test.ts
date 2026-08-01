@@ -62,7 +62,7 @@ describe("noticeTemplates", () => {
       time: "10:00",
       highlights: "消息编辑\n撤回优化\n多余行应被截断\n不会出现",
     });
-    expect(built.title).toBe("版本更新 · 0.4.2");
+    expect(built.title).toBe("版本更新 · 0.4.2 · 约 10:00");
     expect(built.body).toContain("1. 消息编辑");
     expect(built.body).toContain("2. 撤回优化");
     expect(built.body).toContain("3. 多余行应被截断");

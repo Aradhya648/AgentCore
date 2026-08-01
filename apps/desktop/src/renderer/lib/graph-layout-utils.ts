@@ -1,4 +1,4 @@
-import type { GraphLayout } from "@/stores/graph";
+import type { GraphLayout } from "@agentcore/graph-layout";
 
 /** Dependency layouts (ELK). Same as {@link GraphLayout} after timeline removal. */
 export type ElkGraphLayout = GraphLayout;

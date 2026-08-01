@@ -41,7 +41,7 @@ def _agents_and_plan() -> tuple[list[dict], list[dict]]:
 
 
 def _multi_agent_user_interjection_handled() -> list[SSEEvent]:
-    """插话入图处置：delivered 后 CEO 用 update_synthesis 承接，status 保持 delivered。"""
+    """插话入图处置：received 后 CEO 用 update_synthesis 承接 → addressed。"""
     agents, plan_runs = _agents_and_plan()
     return [
         message_start("m1", conversation_id=_CONV),
@@ -64,7 +64,7 @@ def _multi_agent_user_interjection_handled() -> list[SSEEvent]:
             interjection_id="inj1",
             execution_id="exec1",
             content="补充一点：结论里请点明成本对比。",
-            status="delivered",
+            status="received",
         ),
         tool_use_start(
             "syn1",
@@ -76,6 +76,13 @@ def _multi_agent_user_interjection_handled() -> list[SSEEvent]:
             "update_synthesis",
             success=True,
             output="已更新合成草稿（18 字），用户可见「进展中」预览。",
+        ),
+        user_interjection(
+            interjection_id="inj1",
+            execution_id="exec1",
+            content="补充一点：结论里请点明成本对比。",
+            status="addressed",
+            note="已在合成草稿中承接",
         ),
         team_synthesis_preview(
             execution_id="exec1",
@@ -113,7 +120,7 @@ def _multi_agent_user_interjection_handled() -> list[SSEEvent]:
 
 
 def _multi_agent_user_interjection_queued() -> list[SSEEvent]:
-    """插话转排队：delivered → CEO queue_user_message → status=queued（同 id 保最新）。"""
+    """插话转排队：received → CEO queue_user_message → status=queued（同 id 保最新）。"""
     agents, plan_runs = _agents_and_plan()
     return [
         message_start("m1", conversation_id=_CONV),
@@ -136,7 +143,7 @@ def _multi_agent_user_interjection_queued() -> list[SSEEvent]:
             interjection_id="inj2",
             execution_id="exec1",
             content="另外帮我写一封生日贺卡，跟这个项目无关。",
-            status="delivered",
+            status="received",
         ),
         tool_use_start(
             "q1",
@@ -186,7 +193,7 @@ def _multi_agent_user_interjection_queued() -> list[SSEEvent]:
 
 
 def _multi_agent_user_interjection_with_attachments() -> list[SSEEvent]:
-    """带附件插话：delivered SSE 携带 attachments 元数据（名字 + 路径 + 二进制标记）。"""
+    """带附件插话：received SSE 携带 attachments 元数据（名字 + 路径 + 二进制标记）。"""
     agents, plan_runs = _agents_and_plan()
     att_meta = [
         {
@@ -221,7 +228,7 @@ def _multi_agent_user_interjection_with_attachments() -> list[SSEEvent]:
             interjection_id="inj-att",
             execution_id="exec1",
             content="请对照附件里的成本表再核一遍。",
-            status="delivered",
+            status="received",
             attachments=att_meta,
         ),
         tool_use_start(
@@ -234,6 +241,14 @@ def _multi_agent_user_interjection_with_attachments() -> list[SSEEvent]:
             "update_synthesis",
             success=True,
             output="已更新合成草稿，用户可见「进展中」预览。",
+        ),
+        user_interjection(
+            interjection_id="inj-att",
+            execution_id="exec1",
+            content="请对照附件里的成本表再核一遍。",
+            status="addressed",
+            note="已在合成草稿中承接",
+            attachments=att_meta,
         ),
         team_synthesis_preview(
             execution_id="exec1",

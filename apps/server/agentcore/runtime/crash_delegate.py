@@ -141,9 +141,10 @@ async def production_crash_delegate_factory(
             memory_store, user_id, folder_id=folder_id, enabled=memory_enabled
         )
         exec_languages = await resolve_exec_languages(backend)
+        # Crash rebuild has no live client header → fail-closed (no Host pretence).
         workspace_facts = build_workspace_context(
             backend,
-            desktop_online=backend.location == "local",
+            desktop_online=False,
             exec_languages=exec_languages,
         )
         system_prompt = assemble_system_prompt(
