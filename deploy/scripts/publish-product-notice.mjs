@@ -3,12 +3,17 @@
  * Publish a product notice on production (Banner + IM 官方号).
  *
  *   pnpm publish:notice -- --title "…" --body "…" [--severity high] [--surface both|modal]
+ *   [--dismiss once] [--end-hours N|none] [--body-file path]
  *
  * Uses DEPLOY_SSH_* from deploy/.env.deploy.local. Runs create+publish inside
  * the live api container (no admin password needed). Template copy →
  * docs/05-平台与运维/产品公告文案模板.md
  * Surfaces ``inbox`` / ``both`` / ``modal`` also write IM 官方号 on first publish.
+ *
+ * ``--end-hours``: omit or ``none`` / ``0`` = no expiry (policy/modal). Positive N =
+ * hours from now (hotfixes historically used 2).
  */
+import { readFileSync } from "node:fs";
 import { loadDeployEnv, sshScript } from "./load-deploy-env.mjs";
 
 loadDeployEnv();
@@ -20,20 +25,37 @@ function arg(name, fallback = "") {
 }
 
 const title = arg("title").trim();
-const body = arg("body").trim();
+const bodyFile = arg("body-file").trim();
+const body = (bodyFile ? readFileSync(bodyFile, "utf8") : arg("body")).trim();
 const severity = arg("severity", "high").trim() || "high";
 const surface = arg("surface", "both").trim() || "both";
 const dismiss = arg("dismiss", "once").trim() || "once";
+const endHoursRaw = arg("end-hours", surface === "modal" ? "none" : "2").trim();
+const endHours =
+  endHoursRaw === "" || endHoursRaw === "none" || endHoursRaw === "0"
+    ? null
+    : Number(endHoursRaw);
 
 if (!title || !body) {
   console.error(
-    'usage: pnpm publish:notice -- --title "系统更新 · 约 12:30" --body "…" [--severity high] [--surface both]',
+    'usage: pnpm publish:notice -- --title "…" --body "…" [--surface both|modal] [--end-hours N|none] [--body-file path]',
   );
+  process.exit(1);
+}
+if (endHours != null && (!Number.isFinite(endHours) || endHours <= 0)) {
+  console.error("--end-hours must be a positive number, or none/0");
   process.exit(1);
 }
 
 // Escape for embedding in a single-quoted remote Python string via JSON.
-const payload = JSON.stringify({ title, body, severity, surface, dismiss });
+const payload = JSON.stringify({
+  title,
+  body,
+  severity,
+  surface,
+  dismiss,
+  end_hours: endHours,
+});
 
 const deployDir = process.env.AGENTCORE_DEPLOY_DIR?.trim() || "";
 const deployDirExport = deployDir
@@ -75,6 +97,12 @@ async def main() -> None:
         if admin is None:
             raise SystemExit("no admin user for created_by")
         repo = ProductNoticeRepository(session)
+        end_hours = SPEC.get("end_hours")
+        end_at = (
+            datetime.now(UTC) + timedelta(hours=float(end_hours))
+            if end_hours is not None
+            else None
+        )
         row = await repo.create(
             title=SPEC["title"],
             body=SPEC["body"],
@@ -82,7 +110,7 @@ async def main() -> None:
             surface=SPEC["surface"],
             dismiss_policy=SPEC["dismiss"],
             created_by=str(admin.user_id),
-            end_at=datetime.now(UTC) + timedelta(hours=2),
+            end_at=end_at,
         )
         first = row.status != "published"
         published = await repo.publish(row.id)

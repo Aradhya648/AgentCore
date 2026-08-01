@@ -5,6 +5,14 @@ import { Spinner } from "@/components/ui/Spinner";
 import { cn, fmtTime } from "@/lib/utils";
 import { errorMessage } from "@/services/api";
 import {
+  NOTICE_TEMPLATES,
+  buildFromSlots,
+  emptySlotValues,
+  surfacePublishHint,
+  templateToFormSeed,
+  type NoticeTemplate,
+} from "@/lib/noticeTemplates";
+import {
   type CreateNoticeRequest,
   type Notice,
   type NoticeDismissPolicy,
@@ -20,6 +28,7 @@ import {
 } from "@/services/adminNotices";
 import {
   Archive,
+  Copy,
   Megaphone,
   Pencil,
   Plus,
@@ -27,7 +36,7 @@ import {
   Send,
   X,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type Tone = "success" | "neutral" | "warning" | "destructive" | "primary";
@@ -156,7 +165,32 @@ export function NoticesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Notice | "new" | null>(null);
+  /** 新建时的表单种子（模板 / 复制草稿）；编辑已有公告时忽略 */
+  const [formSeed, setFormSeed] = useState<FormState | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const openNew = (seed: FormState | null = null) => {
+    setFormSeed(seed);
+    setEditing("new");
+  };
+
+  const openEdit = (notice: Notice) => {
+    setFormSeed(null);
+    setEditing(notice);
+  };
+
+  const closeEditor = () => {
+    setEditing(null);
+    setFormSeed(null);
+  };
+
+  const copyAsDraft = (notice: Notice) => {
+    openNew({
+      ...noticeToForm(notice),
+      start_at: "",
+      end_at: "",
+    });
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -225,7 +259,7 @@ export function NoticesPage() {
   };
 
   const onSaved = (saved: Notice, isNew: boolean) => {
-    setEditing(null);
+    closeEditor();
     if (isNew) {
       toast.success("草稿已创建");
       void load();
@@ -249,7 +283,7 @@ export function NoticesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setEditing("new")}>
+          <Button size="sm" onClick={() => openNew()}>
             <Plus size={14} />
             新建公告
           </Button>
@@ -334,12 +368,22 @@ export function NoticesPage() {
                           variant="ghost"
                           size="sm"
                           disabled={rowBusy}
-                          onClick={() => setEditing(n)}
+                          onClick={() => openEdit(n)}
                         >
                           <Pencil size={14} />
                           编辑
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={rowBusy}
+                        onClick={() => copyAsDraft(n)}
+                        title="复制字段为新草稿"
+                      >
+                        <Copy size={14} />
+                        复制
+                      </Button>
                       {status === "draft" && (
                         <Button
                           variant="ghost"
@@ -362,9 +406,6 @@ export function NoticesPage() {
                           {rowBusy ? <Spinner /> : <Archive size={14} />}
                           归档
                         </Button>
-                      )}
-                      {status === "archived" && (
-                        <span className="text-muted-foreground">—</span>
                       )}
                     </div>
                   </td>
@@ -401,7 +442,8 @@ export function NoticesPage() {
       {editing && (
         <NoticeFormDialog
           notice={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
+          seed={editing === "new" ? formSeed : null}
+          onClose={closeEditor}
           onSaved={onSaved}
         />
       )}
@@ -411,23 +453,55 @@ export function NoticesPage() {
 
 function NoticeFormDialog({
   notice,
+  seed,
   onClose,
   onSaved,
 }: {
   notice: Notice | null;
+  seed: FormState | null;
   onClose: () => void;
   onSaved: (saved: Notice, isNew: boolean) => void;
 }) {
   const isNew = notice === null;
-  const [form, setForm] = useState<FormState>(
-    () => (notice ? noticeToForm(notice) : EMPTY_FORM),
-  );
+  const [form, setForm] = useState<FormState>(() => {
+    if (notice) return noticeToForm(notice);
+    if (seed) return seed;
+    return EMPTY_FORM;
+  });
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [slotValues, setSlotValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  const activeTemplate = NOTICE_TEMPLATES.find((t) => t.id === activeTemplateId);
+  const invalidModalNever =
+    form.surface === "modal" && form.dismiss_policy === "never";
 
   const set =
     <K extends keyof FormState>(key: K) =>
     (value: FormState[K]) =>
       setForm((prev) => ({ ...prev, [key]: value }));
+
+  const applyTemplate = (t: NoticeTemplate) => {
+    setForm(templateToFormSeed(t));
+    setActiveTemplateId(t.id);
+    setSlotValues(emptySlotValues(t));
+  };
+
+  const applySlotsToCopy = () => {
+    if (!activeTemplate) return;
+    const built = buildFromSlots(activeTemplate, slotValues);
+    setForm((prev) => ({ ...prev, title: built.title, body: built.body }));
+    toast.success("已根据快捷填写生成标题与正文");
+  };
+
+  const publishHint = useMemo(
+    () =>
+      surfacePublishHint(
+        form.surface as NoticeTemplate["surface"],
+        form.dismiss_policy as NoticeTemplate["dismiss_policy"],
+      ),
+    [form.surface, form.dismiss_policy],
+  );
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -438,6 +512,10 @@ function NoticeFormDialog({
     }
     if (!form.body.trim()) {
       toast.error("请填写正文");
+      return;
+    }
+    if (invalidModalNever) {
+      toast.error("弹窗展示面仅支持「可关闭」策略");
       return;
     }
     setSaving(true);
@@ -467,7 +545,7 @@ function NoticeFormDialog({
       onMouseDown={onClose}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border border-border bg-card p-5 shadow-lg"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border border-border bg-card p-5 shadow-lg"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
@@ -477,7 +555,7 @@ function NoticeFormDialog({
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {isNew
-                ? "创建后为草稿；首次发布且含官方号展示面时，会写入 IM「AgentCore 官方」一条共享卡片"
+                ? "可先套用模板，用快捷填写生成正文后再微调；创建后为草稿"
                 : "已归档不可改；已发布内容修改后立即对用户生效（不回填历史 IM）"}
             </p>
           </div>
@@ -495,6 +573,95 @@ function NoticeFormDialog({
           onSubmit={handleSubmit}
           className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
         >
+          {isNew && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                套用模板
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {NOTICE_TEMPLATES.map((t) => {
+                  const selected = activeTemplateId === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      title={t.description}
+                      onClick={() => applyTemplate(t)}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1 text-xs transition-colors",
+                        selected
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {activeTemplate?.endHint && (
+                <p className="text-xs text-warning">{activeTemplate.endHint}</p>
+              )}
+              {activeTemplate && activeTemplate.slots.length > 0 && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      快捷填写（填完点生成，可再手改标题/正文）
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={applySlotsToCopy}
+                    >
+                      生成正文
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    {activeTemplate.slots.map((slot) => (
+                      <label
+                        key={slot.key}
+                        className={cn(
+                          "flex flex-col gap-1",
+                          slot.multiline && "sm:col-span-2",
+                        )}
+                      >
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          {slot.label}
+                        </span>
+                        {slot.multiline ? (
+                          <textarea
+                            value={slotValues[slot.key] ?? ""}
+                            onChange={(e) =>
+                              setSlotValues((prev) => ({
+                                ...prev,
+                                [slot.key]: e.target.value,
+                              }))
+                            }
+                            placeholder={slot.placeholder}
+                            rows={2}
+                            className="w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                          />
+                        ) : (
+                          <Input
+                            value={slotValues[slot.key] ?? ""}
+                            onChange={(e) =>
+                              setSlotValues((prev) => ({
+                                ...prev,
+                                [slot.key]: e.target.value,
+                              }))
+                            }
+                            placeholder={slot.placeholder}
+                          />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">
               标题
@@ -517,7 +684,7 @@ function NoticeFormDialog({
               onChange={(e) => set("body")(e.target.value)}
               placeholder="公告正文"
               required
-              rows={5}
+              rows={7}
               className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
           </label>
@@ -575,6 +742,19 @@ function NoticeFormDialog({
             </label>
           </div>
 
+          {publishHint && (
+            <p
+              className={cn(
+                "rounded-lg border px-3 py-2 text-xs",
+                invalidModalNever
+                  ? "border-destructive/40 bg-destructive/10 text-destructive"
+                  : "border-border bg-muted/40 text-muted-foreground",
+              )}
+            >
+              {publishHint}
+            </p>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">
@@ -631,7 +811,11 @@ function NoticeFormDialog({
             >
               取消
             </Button>
-            <Button type="submit" size="sm" disabled={saving}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={saving || invalidModalNever}
+            >
               {saving && <Spinner />}
               {isNew ? "创建草稿" : "保存"}
             </Button>
