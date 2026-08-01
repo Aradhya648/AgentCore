@@ -516,6 +516,18 @@ class DelegateTool:
                     append_to = None
                 else:
                     append_to = resolved
+        # 同回合显式 append_to 命中当前活跃协作图 ≡ 不传 append（与 latest 软化对齐）。
+        # 活跃图 A + append_to=B（B≠A）仍走下方跨图 load，禁止误吞。
+        if append_to:
+            from agentcore.runtime.coordination.session import active_coordination
+
+            active = active_coordination(self._base_tool_context.execution_id)
+            if (
+                active is not None
+                and active.active
+                and append_to == active.execution_id
+            ):
+                append_to = None
         if append_to:
             from agentcore.runtime.delegate.graph_append import (
                 load_host_plan_and_completed,

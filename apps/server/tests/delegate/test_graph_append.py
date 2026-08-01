@@ -492,6 +492,134 @@ async def test_delegate_append_latest_with_active_coord_merges_like_no_append(mo
 
 
 @pytest.mark.asyncio
+async def test_delegate_append_explicit_same_eid_with_active_coord_merges(
+    monkeypatch,
+):
+    """同回合活跃协调图 + 显式 append_to=同一 eid → 等同不传，并入当前图；禁硬失败。"""
+    from agentcore.runtime.coordination.session import (
+        active_coordination,
+        clear_active_coordination,
+    )
+    from tests.delegate.test_coordination_secondary_delegate import _SlowWorkers
+
+    clear_active_coordination()
+    resolve_calls: list[dict[str, Any]] = []
+
+    async def fake_resolve(*, conversation_id: str, execution_id: str) -> str | None:
+        resolve_calls.append(
+            {"conversation_id": conversation_id, "execution_id": execution_id}
+        )
+        return None  # 若误走跨图 load 会落到「缺少可合并的计划快照」
+
+    monkeypatch.setattr(
+        "agentcore.runtime.delegate.graph_append.resolve_host_message_id",
+        fake_resolve,
+    )
+    t = tool(_SlowWorkers(["A", "B", "C"], delay=0.4))
+    first = await t.execute(
+        {
+            "tasks": [
+                {"role": "研究员", "task": "做A"},
+                {"role": "写手", "task": "做B"},
+            ],
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert first.success is True
+    session = active_coordination("e")
+    assert session is not None and session.active
+    session_id = id(session)
+    drive = session.drive_task
+    assert drive is not None and not drive.done()
+
+    second = await t.execute(
+        {
+            "tasks": [{"role": "审查", "task": "做C"}],
+            "append_to_execution_id": "e",  # 显式同 eid ≡ 不传
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert second.success is True
+    assert "缺少可合并的计划快照" not in (second.error or "") + (second.output or "")
+    assert "追加解析失败" not in (second.error or "")
+    assert "队员已追加" in (second.output or "")
+    # 同 eid 软化后不应再走跨图 resolve/load。
+    assert resolve_calls == []
+    after = active_coordination("e")
+    assert after is not None
+    assert id(after) == session_id
+    assert after.total_workers == 3
+
+    drive.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drive
+    clear_active_coordination("e")
+
+
+@pytest.mark.asyncio
+async def test_delegate_append_explicit_other_eid_with_active_coord_still_cross_graph(
+    monkeypatch,
+):
+    """活跃图 A + append_to=B（B≠A）仍走跨图 load，禁止误吞成同回合并入。"""
+    from agentcore.runtime.coordination.session import (
+        active_coordination,
+        clear_active_coordination,
+    )
+    from tests.delegate.test_coordination_secondary_delegate import _SlowWorkers
+
+    clear_active_coordination()
+    resolve_calls: list[str] = []
+
+    async def fake_resolve(*, conversation_id: str, execution_id: str) -> str | None:
+        resolve_calls.append(execution_id)
+        return None  # 故意 miss → 跨图拒绝路径
+
+    monkeypatch.setattr(
+        "agentcore.runtime.delegate.graph_append.resolve_host_message_id",
+        fake_resolve,
+    )
+    t = tool(_SlowWorkers(["A", "B"], delay=0.4))
+    first = await t.execute(
+        {
+            "tasks": [
+                {"role": "研究员", "task": "做A"},
+                {"role": "写手", "task": "做B"},
+            ],
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert first.success is True
+    session = active_coordination("e")
+    assert session is not None and session.active
+    drive = session.drive_task
+    assert drive is not None and not drive.done()
+
+    second = await t.execute(
+        {
+            "tasks": [{"role": "审查", "task": "做C"}],
+            "append_to_execution_id": "exec-other",
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert second.success is False
+    assert resolve_calls == ["exec-other"]
+    assert "找不到" in (second.error or "") or "exec-other" in (second.error or "")
+    # 活跃图仍在，未被误吞清空。
+    after = active_coordination("e")
+    assert after is not None and after.active
+    assert after.total_workers == 2
+
+    drive.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drive
+    clear_active_coordination("e")
+
+
+@pytest.mark.asyncio
 async def test_delegate_append_rejected_for_nested_lead():
     """跨回合追加仅根协调者可用：嵌套 lead（depth>0）显式拒绝，防跨图串写。"""
     from agentcore.tools.builtin.delegate import DelegateTool
