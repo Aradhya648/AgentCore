@@ -614,7 +614,7 @@ class MessageDetail(BaseModel):
     # reply — "up" | "down" | null(未评价). Auto-populated from the ORM attribute via
     # from_attributes so a reloaded bubble replays the user's rating. null for user rows.
     feedback: str | None = None
-    # 回合 ¥ 成本 (P2 DERIVED)：messages.cost 列快照；读路径补 cny_total（当前 FX）。
+    # 回合 ¥ 成本 (P2 DERIVED)：messages.cost 列快照；读路径补 cny_total（元 = nano/1e9）。
     # null for user / unmetered / pre-feature rows. Hover payroll still uses GET …/cost.
     cost: CostBreakdown | None = None
     created_at: datetime
@@ -644,8 +644,8 @@ class MessageDetail(BaseModel):
     @field_validator("cost", mode="before")
     @classmethod
     def _cost_from_row(cls, v: object) -> object:
-        # Column stores nano-USD components (+ currency); attach display CNY via the
-        # single server-owned FX rate (parity with cost_view.cost_breakdown).
+        # Column stores nano-CNY components (+ currency); attach display yuan via
+        # nano_to_yuan (parity with cost_view.cost_breakdown).
         if isinstance(v, dict) and "cny_total" not in v:
             from agentcore.api.cost_view import cost_breakdown
 

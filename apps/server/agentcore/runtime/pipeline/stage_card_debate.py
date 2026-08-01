@@ -188,7 +188,7 @@ async def run_stage_card_debate_pipeline(
             "cached": 0,
             "output": 0,
             "total": 0,
-            "currency": "USD",
+            "currency": "CNY",
             "pricing_source": "curated",
             "credential_source": "platform",
         }
@@ -204,7 +204,7 @@ async def run_stage_card_debate_pipeline(
                     "cached": int(priced.get("cached", 0) or 0),
                     "output": int(priced.get("output", 0) or 0),
                     "total": int(priced.get("total", 0) or 0),
-                    "currency": str(priced.get("currency") or "USD"),
+                    "currency": str(priced.get("currency") or "CNY"),
                     "pricing_source": str(priced.get("pricing_source") or "curated"),
                     "credential_source": str(
                         priced.get("credential_source") or "platform"

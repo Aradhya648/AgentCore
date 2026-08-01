@@ -74,7 +74,7 @@ def _run_row_values(
             "cost": r.get("cost") or {},
             "cost_total_nano": int(r.get("cost_total_nano", 0)),
             "cost_estimated_nano": int(r.get("cost_estimated_nano", 0)),
-            "currency": r.get("currency", "USD"),
+            "currency": r.get("currency", "CNY"),
             "rounds": int(r.get("rounds", 0)),
             "duration_ms": int(r.get("duration_ms", 0)),
             "trace_id": trace_id,
@@ -158,7 +158,7 @@ class CostEventRepository:
                 "cost": c.get("cost") or {},
                 "cost_total_nano": int(c.get("cost_total_nano", 0)),
                 "cost_estimated_nano": int(c.get("cost_estimated_nano", 0)),
-                "currency": c.get("currency", "USD"),
+                "currency": c.get("currency", "CNY"),
                 "duration_ms": int(c.get("duration_ms", 0)),
                 "trace_id": trace_id,
             }
@@ -221,7 +221,7 @@ class CostEventRepository:
                     "cost": r.cost or {},
                     "cost_total_nano": int(r.cost_total_nano or 0),
                     "cost_estimated_nano": int(getattr(r, "cost_estimated_nano", 0) or 0),
-                    "currency": r.currency or "USD",
+                    "currency": r.currency or "CNY",
                     "duration_ms": int(r.duration_ms or 0),
                 }
                 for r in call_rows
@@ -337,7 +337,7 @@ class CostEventRepository:
                     "cost": r.cost or {},
                     "cost_total_nano": int(r.cost_total_nano or 0),
                     "cost_estimated_nano": int(getattr(r, "cost_estimated_nano", 0) or 0),
-                    "currency": r.currency or "USD",
+                    "currency": r.currency or "CNY",
                     "duration_ms": int(r.duration_ms or 0),
                 }
                 for r in call_rows
@@ -571,8 +571,8 @@ class CostEventRepository:
         ``cost_total_nano`` plus a distinct-turn count, joining ``users`` for the
         display identity. Only accounts that actually spent (>0) are returned,
         ordered by spend desc and capped at ``limit`` (Top spenders) — no user
-        filter, this is the whole platform. Money is integer nano-USD; the caller
-        formats ¥ from the single ``cny_per_usd`` rate.
+        filter, this is the whole platform. Money is integer nano-CNY; clients
+        format ¥ as ``cost_total / 1e9``.
         """
         total = _sum_int(CostEvent.cost_total_nano)
         stmt = (
@@ -610,8 +610,7 @@ class CostEventRepository:
         Groups the conversation's ledger rows by the assistant turn they belong to
         (``message_id``) and SUMs the scalar ``cost_total_nano``. Off-turn rows
         (标题/记忆, ``message_id`` NULL) are excluded — they belong to no turn. The
-        admin 复盘 view attaches each turn's ¥ from this map (no re-pricing; the
-        caller folds the single ``cny_per_usd`` rate).
+        admin 复盘 view attaches each turn's ¥ from this map (``nano / 1e9``; no FX).
         """
         stmt = (
             select(

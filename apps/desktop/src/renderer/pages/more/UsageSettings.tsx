@@ -1,12 +1,6 @@
 import { Button, Card, IconButton } from "@/components/ui";
 import { SimpleTooltip } from "@/components/ui/tooltip";
-import { useLlmProviders } from "@/hooks/useLlmProviders";
-import {
-  formatCompact,
-  formatCost,
-  formatDisplayCost,
-  formatUsd,
-} from "@/lib/format";
+import { formatCompact, formatCost, formatDisplayCost } from "@/lib/format";
 import { useUsageStore } from "@/stores/usage";
 import { KeyRound, Loader2, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
@@ -18,18 +12,15 @@ import { SettingsHeader } from "./SettingsHeader";
  * 大众面 leads with two semantic quota meters (本月额度 / 今日 tokens) so the user
  * reads「还剩多少」at a glance without big raw numbers. Token / cost breakdown and
  * run-detail「资源消耗」default-expand are always on. All numbers come from
- * `GET /usage/summary` via the usage store; money formats off the single server FX rate.
- * Free-tier users (`free_tier_active`) relabel the monthly meter; BYOK-with-key shows
- * token meters + ≈¥ estimates when `estimated_cost` / `cost_estimated_total` is present.
+ * `GET /usage/summary` via the usage store; money is nano-CNY → ¥（无汇率）.
+ * BYOK-with-key shows token meters + ≈¥ estimates when `estimated_cost` /
+ * `cost_estimated_total` is present.
  */
 export function UsageSettings() {
   const summary = useUsageStore((s) => s.summary);
   const loading = useUsageStore((s) => s.loading);
   const error = useUsageStore((s) => s.error);
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
   const fetchSummary = useUsageStore((s) => s.fetchSummary);
-  const { data: llmProviders } = useLlmProviders();
-  const freeTierActive = llmProviders?.free_tier_active === true;
 
   // Refresh on open: the bootstrap snapshot may be stale by the time the user
   // lands here. Best-effort (the store keeps the last value + a soft error).
@@ -38,9 +29,8 @@ export function UsageSettings() {
   }, [fetchSummary]);
 
   const refresh = () => void fetchSummary();
-  // BYOK with a configured key: platform quota is dormant. Free-tier (no key)
-  // must NOT take this branch — they see platform meters with a free-tier label.
-  const byok = summary?.billing_mode === "byok" && !freeTierActive;
+  // BYOK: platform quota is dormant. Platform mode shows quota meters.
+  const byok = summary?.billing_mode === "byok";
 
   return (
     <div>
@@ -49,9 +39,7 @@ export function UsageSettings() {
         description={
           byok
             ? "自带 Key 模式：平台不限额。有估算价时显示 ≈¥（非上游账单），并以 token 用量为主。"
-            : freeTierActive
-              ? "本月免费额度与今日用量。额度用完可接入自己的模型继续。"
-              : "本月额度与今日用量，以人民币展示。"
+            : "本月额度与今日用量，以人民币展示。"
         }
         action={
           // Manual refresh once data exists — numbers go stale after running tasks
@@ -79,12 +67,7 @@ export function UsageSettings() {
       {summary ? (
         <>
           {error && <RefreshErrorBanner message={error} onRetry={refresh} />}
-          <Dashboard
-            summary={summary}
-            cnyPerUsd={cnyPerUsd}
-            byok={byok}
-            freeTierActive={freeTierActive}
-          />
+          <Dashboard summary={summary} byok={byok} />
         </>
       ) : error ? (
         <ErrorState message={error} onRetry={refresh} />
@@ -144,14 +127,10 @@ function RefreshErrorBanner({
 
 function Dashboard({
   summary,
-  cnyPerUsd,
   byok,
-  freeTierActive,
 }: {
   summary: Summary;
-  cnyPerUsd: number;
   byok: boolean;
-  freeTierActive: boolean;
 }) {
   const { today, month, quota } = summary;
   const monthLimit = quota.monthly_cost_nano;
@@ -163,7 +142,7 @@ function Dashboard({
   const dayReqLimit = quota.daily_requests;
   const dayReqUsed = today.requests;
   const monthNear = monthLimit > 0 && monthUsed / monthLimit >= 0.8;
-  const monthLabel = freeTierActive ? "本月免费额度" : "本月额度";
+  const monthLabel = "本月额度";
 
   // Reset captions derive from the backend's UTC window boundaries (usage.py /
   // quota.py) rendered in local time — see resetTexts() for why.
@@ -171,11 +150,11 @@ function Dashboard({
 
   const moneyCaption =
     monthLimit > 0
-      ? `已用 ${formatCost(monthUsed, cnyPerUsd)} / ${formatCost(monthLimit, cnyPerUsd)} · ${monthlyResetText}`
-      : `已用 ${formatCost(monthUsed, cnyPerUsd)} · 不限`;
+      ? `已用 ${formatCost(monthUsed)} / ${formatCost(monthLimit)} · ${monthlyResetText}`
+      : `已用 ${formatCost(monthUsed)} · 不限`;
   // 单日成本 backstop (F2) — only surfaced when a daily cost cap is configured
   // (platform flip); byok / free-tier deployments leave it 0 and this meter hides.
-  const dayCostCaption = `已用 ${formatCost(dayCostUsed, cnyPerUsd)} / ${formatCost(dayCostLimit, cnyPerUsd)} · ${dailyResetText}`;
+  const dayCostCaption = `已用 ${formatCost(dayCostUsed)} / ${formatCost(dayCostLimit)} · ${dailyResetText}`;
   const tokenCaption =
     dayTokenLimit > 0
       ? `${formatCompact(dayTokensUsed)} / ${formatCompact(dayTokenLimit)} · ${dailyResetText}`
@@ -207,9 +186,7 @@ function Dashboard({
           />
           {monthNear && (
             <p className="-mt-3 text-xs text-destructive">
-              {freeTierActive
-                ? "接近本月免费额度，用完后请接入自己的模型继续。"
-                : "接近本月额度，用完可联系管理员提额，或接入自己的 key 继续。"}
+              接近本月额度，用完可联系管理员提额，或接入自己的 key 继续。
             </p>
           )}
           {dayCostLimit > 0 && (
@@ -238,10 +215,10 @@ function Dashboard({
       {/* 近 7 日成本趋势 (§7.3D) — ¥ over time, 大众-visible. Hidden when the whole
           window had no spend (a flat zero trend tells the user nothing). */}
       {summary.recent_daily_cost.some((p) => p.cost_total > 0) && !byok && (
-        <CostTrend points={summary.recent_daily_cost} cnyPerUsd={cnyPerUsd} />
+        <CostTrend points={summary.recent_daily_cost} />
       )}
 
-      <UsageDetail summary={summary} cnyPerUsd={cnyPerUsd} byok={byok} />
+      <UsageDetail summary={summary} byok={byok} />
     </div>
   );
 }
@@ -347,10 +324,8 @@ function weekdayLabel(isoDate: string): string {
  */
 function CostTrend({
   points,
-  cnyPerUsd,
 }: {
   points: Summary["recent_daily_cost"];
-  cnyPerUsd: number;
 }) {
   const max = points.reduce((m, p) => Math.max(m, p.cost_total), 0);
   const total = points.reduce((s, p) => s + p.cost_total, 0);
@@ -359,7 +334,7 @@ function CostTrend({
       <div className="flex items-baseline justify-between">
         <p className="text-sm text-foreground">近 7 日成本</p>
         <span className="text-xs text-muted-foreground">
-          合计 {formatCost(total, cnyPerUsd)}
+          合计 {formatCost(total)}
         </span>
       </div>
       <div className="mt-3 flex h-16 items-end gap-1.5">
@@ -369,7 +344,7 @@ function CostTrend({
           return (
             <SimpleTooltip
               key={p.date}
-              label={`${weekdayLabel(p.date)} · ${formatCost(p.cost_total, cnyPerUsd)}`}
+              label={`${weekdayLabel(p.date)} · ${formatCost(p.cost_total)}`}
             >
               <div className="flex flex-1 flex-col items-center gap-1">
                 <div className="flex w-full flex-1 items-end">
@@ -393,11 +368,9 @@ function CostTrend({
 /** Power breakdown: today's tokens / cache hit rate, plus month cost + requests. */
 function UsageDetail({
   summary,
-  cnyPerUsd,
   byok,
 }: {
   summary: Summary;
-  cnyPerUsd: number;
   byok: boolean;
 }) {
   const { today, month } = summary;
@@ -416,11 +389,11 @@ function UsageDetail({
     rows.push(
       {
         label: "今日成本",
-        value: `${formatCost(today.cost.total, cnyPerUsd)}（${formatUsd(today.cost.total)}）`,
+        value: formatCost(today.cost.total),
       },
       {
         label: "本月成本",
-        value: `${formatCost(month.cost.total, cnyPerUsd)}（${formatUsd(month.cost.total)}）`,
+        value: formatCost(month.cost.total),
       },
     );
   } else {
@@ -434,11 +407,11 @@ function UsageDetail({
       rows.push(
         {
           label: "今日估算",
-          value: formatDisplayCost(todayEst, cnyPerUsd, true),
+          value: formatDisplayCost(todayEst, true),
         },
         {
           label: "本月估算",
-          value: formatDisplayCost(monthEst, cnyPerUsd, true),
+          value: formatDisplayCost(monthEst, true),
         },
       );
     }

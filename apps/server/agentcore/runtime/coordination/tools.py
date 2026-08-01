@@ -291,8 +291,35 @@ class CancelWorkerTool:
         # unresolved short name would silently never cancel (fake success).
         resolution = session.resolve_cancel_target(raw)
         if resolution.run_id is None:
+            # Already finished / handoff for this session → idempotent success
+            # (no tool red-error). Truly unknown ids still fail below.
+            ended = session.resolve_ended_worker(raw)
+            if ended.run_id is not None:
+                ended_id = ended.run_id
+                logger.info(
+                    "coordination.worker_cancel_already_ended",
+                    execution_id=session.execution_id,
+                    run_id=ended_id,
+                    raw=raw,
+                    match=ended.reason,
+                )
+                msg = (
+                    f"worker {ended_id} 已结束（完成/交接），无需取消。"
+                )
+                if ended_id != raw:
+                    msg = (
+                        f"worker {ended_id}（由「{raw}」解析）已结束（完成/交接），"
+                        "无需取消。"
+                    )
+                return ToolResult(tool_call_id="", success=True, output=msg)
             running = session.running_workers()
-            if not running:
+            if ended.reason == "ambiguous":
+                listing = "；".join(ended.candidates) or "（无）"
+                hint = (
+                    f"「{raw}」同时匹配多个已结束 worker，无法确定目标。"
+                    f"请改用完整 run_id。候选：{listing}。"
+                )
+            elif not running:
                 hint = (
                     f"找不到匹配「{raw}」的在跑 worker：当前没有在跑的 worker 可取消"
                     "（可能都已完成或已被取消）。"

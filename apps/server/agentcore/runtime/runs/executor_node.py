@@ -225,8 +225,18 @@ def _wind_down_entered(
 def _narrow_for_light_repair(
     worker_tools: Any,
     allowed_tools: list[str] | None,
+    *,
+    grant_write_tools: bool = False,
 ) -> tuple[Any, list[str]]:
-    """Strip investigation tools for a format-only light repair pass."""
+    """Strip investigation tools for a format-only light repair pass.
+
+    When ``grant_write_tools`` (files_expected write_pass / light 修盘), an explicit
+    allowlist missing persist writes gets the minimal write set merged in so
+    feedback「请用 file_write」is executable. prose withhold already stripped writes
+    from the registry → merge is a no-op.
+    """
+    from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
+
     withhold = tuple(
         sorted(
             RETRIEVAL_TOOL_NAMES
@@ -246,6 +256,12 @@ def _narrow_for_light_repair(
     narrowed_allowed = [t for t in allowed_tools if t in _LIGHT_REPAIR_TOOL_NAMES]
     if HANDOFF_TOOL_NAME not in narrowed_allowed:
         narrowed_allowed = [*narrowed_allowed, HANDOFF_TOOL_NAME]
+    if grant_write_tools:
+        present = {s.name for s in narrowed_registry.list_all()}
+        narrowed_allowed = (
+            merge_persist_write_tools(narrowed_allowed, registry_names=present)
+            or narrowed_allowed
+        )
     return narrowed_registry, narrowed_allowed
 
 
@@ -708,7 +724,9 @@ async def execute_agent_node(
                     max_rounds=min(_LIGHT_REPAIR_MAX_ROUNDS, remaining_rounds),
                 )
                 pass_tools, pass_allowed = _narrow_for_light_repair(
-                    worker_tools, allowed_tools
+                    worker_tools,
+                    allowed_tools,
+                    grant_write_tools=files_expected,
                 )
                 light_mode = False
             use_rtd = (

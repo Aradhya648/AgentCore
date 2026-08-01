@@ -1,5 +1,6 @@
 """Tests for parallel tool execution and per-tool exception firewall (audit/05 P2-1)."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -368,6 +369,127 @@ async def test_illegal_json_args_return_explicit_error_not_empty_dict():
     assert "不是合法 JSON" in (ends[0].payload.get("result") or "")
 
     assert any(entry.get("event") == "tool.args_parse_failed" for entry in logs)
+
+
+async def test_delegate_parse_failure_steers_away_from_nested_arguments():
+    """delegate JSON parse fail：明示顶层放 tasks/playbook，禁止再包 arguments。"""
+    tracked = _OkTool("delegate", output="ok")
+    reg = ToolRegistry()
+    reg.register(tracked)
+    bad = '{"tasks":[{"role":"A","task":"查 "foo" }]}'
+    sink = EventSink()
+    messages, terminal, attempts = await execute_tools(
+        [_call("c1", "delegate", bad)],
+        reg,
+        _ctx(),
+        sink,
+        run_id="r1",
+    )
+    assert terminal is None
+    assert tracked.executed is False
+    assert attempts[0].parse_failure is True
+    content = messages[0].content or ""
+    assert "不是合法 JSON" in content
+    assert "禁止再包一层" in content or "禁止再包" in content
+    assert "arguments" in content
+    assert "tasks" in content
+    from agentcore.runtime.runs.playbooks import available_playbooks
+
+    assert available_playbooks() not in content
+
+
+class _CapturingArgsTool:
+    def __init__(self, name: str = "delegate") -> None:
+        self._name = name
+        self.seen_args: dict[str, Any] | None = None
+
+    @property
+    def schema(self) -> ToolSchema:
+        return ToolSchema(
+            name=self._name,
+            description="stub",
+            parameters={"type": "object", "properties": {}},
+            category=ToolCategory.SEARCH,
+        )
+
+    async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        self.seen_args = dict(arguments)
+        return ToolResult(tool_call_id="", success=True, output="ok")
+
+
+def test_unwrap_nested_delegate_arguments_success_and_no_false_positive():
+    from agentcore.runtime.engine.tool_protocol_sanitize import (
+        unwrap_nested_delegate_arguments,
+    )
+
+    inner_tasks = [{"role": "A", "task": "短目标"}]
+    nested = {"arguments": json.dumps({"tasks": inner_tasks}, ensure_ascii=False)}
+    out = unwrap_nested_delegate_arguments(nested)
+    assert out is not None
+    assert out["tasks"] == inner_tasks
+
+    as_dict = {"arguments": {"playbook": "build_website", "playbook_args": {"site": "X"}}}
+    out2 = unwrap_nested_delegate_arguments(as_dict)
+    assert out2 is not None
+    assert out2["playbook"] == "build_website"
+
+    # Real top-level tasks + unrelated arguments → do not unwrap.
+    mixed = {
+        "tasks": inner_tasks,
+        "arguments": json.dumps({"tasks": [{"role": "B", "task": "其他"}]}, ensure_ascii=False),
+    }
+    assert unwrap_nested_delegate_arguments(mixed) is None
+
+    # Empty / garbage inner → no unwrap.
+    assert unwrap_nested_delegate_arguments({"arguments": "{not-json"}) is None
+    assert unwrap_nested_delegate_arguments({"arguments": {"coordinate": True}}) is None
+
+
+async def test_execute_tools_unwraps_nested_delegate_arguments():
+    """json.loads 成功后窄 unwrap：双包 arguments 到达工具时已是顶层 tasks。"""
+    tracked = _CapturingArgsTool("delegate")
+    reg = ToolRegistry()
+    reg.register(tracked)
+    inner = {"tasks": [{"role": "调研", "task": "目标+边界+验收"}], "team_brief": "共享口径"}
+    wire = json.dumps({"arguments": json.dumps(inner, ensure_ascii=False)}, ensure_ascii=False)
+    sink = EventSink()
+    with capture_logs() as logs:
+        messages, terminal, attempts = await execute_tools(
+            [_call("c1", "delegate", wire)],
+            reg,
+            _ctx(),
+            sink,
+            run_id="r1",
+        )
+    assert terminal is None
+    assert attempts[0].success is True
+    assert tracked.seen_args is not None
+    assert "arguments" not in tracked.seen_args
+    assert tracked.seen_args.get("tasks") == inner["tasks"]
+    assert tracked.seen_args.get("team_brief") == "共享口径"
+    assert any(entry.get("event") == "tool.delegate_arguments_unwrapped" for entry in logs)
+    starts = [e for e in sink._history if e.type == EventType.TOOL_USE_START]  # noqa: SLF001
+    assert starts and starts[0].payload.get("arguments", {}).get("tasks") == inner["tasks"]
+
+
+async def test_execute_tools_does_not_unwrap_when_top_level_tasks_present():
+    tracked = _CapturingArgsTool("delegate")
+    reg = ToolRegistry()
+    reg.register(tracked)
+    real_tasks = [{"role": "A", "task": "真顶层"}]
+    wire = json.dumps(
+        {
+            "tasks": real_tasks,
+            "arguments": json.dumps(
+                {"tasks": [{"role": "B", "task": "内层应忽略"}]}, ensure_ascii=False
+            ),
+        },
+        ensure_ascii=False,
+    )
+    await execute_tools([_call("c1", "delegate", wire)], reg, _ctx(), EventSink(), run_id="r1")
+    assert tracked.seen_args is not None
+    assert tracked.seen_args["tasks"] == real_tasks
+    assert "arguments" in tracked.seen_args
 
 
 async def test_write_tool_parse_failure_splits_user_and_model_copy():
@@ -820,3 +942,48 @@ async def test_prose_allowlist_deny_no_handoff_as_write():
     assert "form=prose" in content or "仅文字" in content
     assert "产物请改经 handoff 正文回报" not in content
     assert "请用 delegate" not in content
+
+
+async def test_captain_browser_navigate_skips_approval_gate():
+    """CEO 窄例外：captain 直调 browser_navigate 不弹审批。"""
+    from agentcore.core.types import ToolApproval
+
+    class _GrantableNavigate:
+        executed = False
+
+        @property
+        def schema(self) -> ToolSchema:
+            return ToolSchema(
+                name="browser_navigate",
+                description="stub",
+                parameters={"type": "object", "properties": {}},
+                category=ToolCategory.EXECUTION,
+                approval=ToolApproval.GRANTABLE,
+            )
+
+        async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+            self.executed = True
+            return ToolResult(tool_call_id="", success=True, output="opened")
+
+    class _GateThatMustNotPrompt:
+        permission_axes = None
+
+        def will_prompt(self, *args, **kwargs) -> bool:
+            raise AssertionError("captain browser_navigate must not prompt")
+
+        async def authorize(self, *args, **kwargs):
+            raise AssertionError("captain browser_navigate must not authorize")
+
+    tool = _GrantableNavigate()
+    reg = ToolRegistry()
+    reg.register(tool)
+    await execute_tools(
+        [_call("c1", "browser_navigate", '{"url":"https://example.com"}')],
+        reg,
+        _ctx(),
+        EventSink(),
+        run_id="cap-run",
+        role="captain",
+        approval_gate=_GateThatMustNotPrompt(),  # type: ignore[arg-type]
+    )
+    assert tool.executed is True

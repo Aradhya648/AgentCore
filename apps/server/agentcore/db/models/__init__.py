@@ -49,7 +49,13 @@ from .shared_spaces import SharedSpace, SharedSpaceEvent, SharedSpaceMember
 from .simulation import SimAgent, SimEvent, SimTick, SimulationRun
 from .standing_tasks import StandingTask, StandingTaskRun
 from .user_workflows import UserWorkflow
-from .users import User, UserBlock, UserDirectorySettings
+from .users import (
+    FriendRequest,
+    Friendship,
+    User,
+    UserBlock,
+    UserDirectorySettings,
+)
 
 __all__ = [
     "AdminAuditLog",
@@ -97,6 +103,8 @@ __all__ = [
     "User",
     "UserBlock",
     "UserDirectorySettings",
+    "Friendship",
+    "FriendRequest",
     "UserLlmProvider",
     "UserWorkflow",
     "_new_uuid",

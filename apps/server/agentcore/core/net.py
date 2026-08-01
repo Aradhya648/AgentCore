@@ -10,6 +10,9 @@ a security guard, and guarantees the favicon proxy and ``read_url`` apply the
 What lives here (stateless):
 - :func:`web_timeout` — an ``httpx.Timeout`` with a short connect deadline
   (blocked hosts fail fast) and a longer read window (slow sites still succeed).
+- :func:`outbound_async_client` — product egress ``httpx.AsyncClient`` with
+  ``trust_env=False`` (do not inherit system SOCKS / HTTP proxy env; avoids
+  missing-``socksio``「调用失败」on Clash/V2Ray machines).
 - :func:`describe_net_error` — turn opaque httpx errors into an honest,
   model-facing reason (so logs show the real cause, not ``error: ""``).
 - :func:`site_of` — display hostname for source/citation cards.
@@ -63,6 +66,20 @@ class PinnedAddressError(httpx.ConnectError):
 def web_timeout(read: float = WEB_READ_TIMEOUT) -> httpx.Timeout:
     """Timeout with a short connect deadline and a configurable read window."""
     return httpx.Timeout(read, connect=WEB_CONNECT_TIMEOUT)
+
+
+def outbound_async_client(**kwargs: object) -> httpx.AsyncClient:
+    """Product outbound ``httpx.AsyncClient`` that ignores process proxy env.
+
+    Default httpx ``trust_env=True`` reads ``HTTP(S)_PROXY`` / ``ALL_PROXY``. On
+    maintainer and end-user machines those often point at a local Clash/V2Ray
+    **SOCKS** port; without optional ``socksio`` (``httpx[socks]``) every call
+    fails with a raw install hint shown as「调用失败」. Industry default for
+    first-party / LLM / tool egress: do not silently inherit system SOCKS.
+    Explicit ``proxy=`` / mounts still work when passed by the caller.
+    """
+    kwargs.setdefault("trust_env", False)
+    return httpx.AsyncClient(**kwargs)  # type: ignore[arg-type]
 
 
 def site_of(url: str) -> str:

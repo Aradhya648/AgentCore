@@ -7,14 +7,13 @@ import {
   credentialSourceLabel,
 } from "@/components/conversation-replay/shared";
 import { Badge } from "@/components/ui/Badge";
-import { cn, fmtCny, fmtMs, fmtTime, nanoUsdToCny } from "@/lib/utils";
+import { cn, fmtCny, fmtMs, fmtTime, nanoToYuan } from "@/lib/utils";
 import type { ReplayMessage } from "@/services/adminObservability";
 import { Users } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 export function ChatTimeline({
   messages,
-  cnyPerUsd,
   selectedId,
   selectedRunId,
   onSelect,
@@ -22,7 +21,6 @@ export function ChatTimeline({
   isAnchored,
 }: {
   messages: ReplayMessage[];
-  cnyPerUsd: number;
   selectedId: string | null;
   selectedRunId: string | null;
   onSelect: (id: string) => void;
@@ -60,7 +58,6 @@ export function ChatTimeline({
           ) : (
             <AssistantBubble
               message={m}
-              cnyPerUsd={cnyPerUsd}
               selected={m.id === selectedId}
               selectedRunId={m.id === selectedId ? selectedRunId : null}
               anchored={isAnchored(m)}
@@ -132,7 +129,6 @@ function UserBubble({
 
 function AssistantBubble({
   message,
-  cnyPerUsd,
   selected,
   selectedRunId,
   anchored,
@@ -140,7 +136,6 @@ function AssistantBubble({
   onSelectRun,
 }: {
   message: ReplayMessage;
-  cnyPerUsd: number;
   selected: boolean;
   selectedRunId: string | null;
   anchored: boolean;
@@ -186,7 +181,7 @@ function AssistantBubble({
         )}
         {message.cost_total > 0 && (
           <span className="ml-auto text-muted-foreground text-xs tabular-nums">
-            {fmtCny(nanoUsdToCny(message.cost_total, cnyPerUsd))}
+            {fmtCny(nanoToYuan(message.cost_total))}
           </span>
         )}
       </div>

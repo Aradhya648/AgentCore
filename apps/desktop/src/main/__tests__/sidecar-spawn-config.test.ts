@@ -22,7 +22,22 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
 }));
 
-import { resolveSpawnConfig } from "../sidecar-service";
+import { resolveSpawnConfig, scrubSocksProxyEnv } from "../sidecar-service";
+
+describe("scrubSocksProxyEnv", () => {
+  it("removes socks5(h) proxy vars and keeps http proxies", () => {
+    const out = scrubSocksProxyEnv({
+      ALL_PROXY: "socks5://127.0.0.1:7890",
+      HTTPS_PROXY: "socks5h://127.0.0.1:7890",
+      HTTP_PROXY: "http://127.0.0.1:8080",
+      PATH: "/usr/bin",
+    });
+    expect(out.ALL_PROXY).toBeUndefined();
+    expect(out.HTTPS_PROXY).toBeUndefined();
+    expect(out.HTTP_PROXY).toBe("http://127.0.0.1:8080");
+    expect(out.PATH).toBe("/usr/bin");
+  });
+});
 
 describe("resolveSpawnConfig packaged unix", () => {
   const prevResources = (process as NodeJS.Process & { resourcesPath?: string })

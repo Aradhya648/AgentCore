@@ -24,15 +24,10 @@ from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentcore.billing.preference import (
-    is_free_tier_enabled,
-    platform_catalog_visible,
-)
-from agentcore.config import settings
+from agentcore.billing.preference import platform_catalog_visible
 from agentcore.conversation.quota import QuotaLimits, enforce_quota
 from agentcore.core.errors import (
     BYOKKeyMissingError,
-    FreeTierExhaustedError,
     LLMAuthError,
     PlatformBillingUnavailableError,
     QuotaExceededError,
@@ -48,14 +43,15 @@ from agentcore.llm.resolve import (
     resolve_background_user_fallback,
     resolve_model_config,
     resolve_user_llm_credentials,
-    user_has_provider,
 )
 
 logger = get_logger(__name__)
 
 _PLATFORM_UNAVAILABLE_MESSAGE = (
-    "平台免费额度暂不可用（运营方未配置平台 Key）。请在设置中切换为自带 API Key，或联系管理员。"
+    "平台额度暂不可用（运营方未配置平台 Key，或当前部署未开放平台代付）。"
+    "请在设置中切换为自带 API Key，或联系管理员。"
 )
+
 
 @dataclass(frozen=True)
 class BackgroundLlmResult[T]:
@@ -82,8 +78,8 @@ async def preflight_llm_credentials(
 
     Returns resolved BYOK credentials, or ``None`` when the turn runs on the
     platform key (quota already enforced). Raises ``BYOKKeyMissingError`` (402),
-    ``FreeTierExhaustedError`` / ``QuotaExceededError`` (429), or
-    ``PlatformBillingUnavailableError`` (503) when the call must be refused.
+    ``QuotaExceededError`` (429), or ``PlatformBillingUnavailableError`` (503)
+    when the call must be refused.
 
     ``provider_id`` pins the exact BYOK 服务商 resolved for this turn (from the
     conversation override or the account default). It is authoritative: the turn runs
@@ -104,14 +100,10 @@ async def preflight_llm_credentials(
     if not platform_catalog_visible():
         raise PlatformBillingUnavailableError(_PLATFORM_UNAVAILABLE_MESSAGE)
 
-    has_key = await user_has_provider(session, user.user_id)
-    free_tier_path = (not has_key) and is_free_tier_enabled()
-    use_free_tier_defaults = settings.billing_mode == "byok"
     await enforce_quota(
         cost_repo,
         user.user_id,
-        limits=QuotaLimits.for_user(user, use_free_tier_defaults=use_free_tier_defaults),
-        free_tier=free_tier_path,
+        limits=QuotaLimits.for_user(user),
     )
     return None
 
@@ -162,17 +154,13 @@ async def resolve_and_gate_background(
     if user is None:
         return None
 
-    has_key = await user_has_provider(session, user_id)
-    free_tier_path = (not has_key) and is_free_tier_enabled()
-    use_free_tier_defaults = settings.billing_mode == "byok"
     try:
         await enforce_quota(
             CostEventRepository(session),
             user_id,
-            limits=QuotaLimits.for_user(user, use_free_tier_defaults=use_free_tier_defaults),
-            free_tier=free_tier_path,
+            limits=QuotaLimits.for_user(user),
         )
-    except (QuotaExceededError, FreeTierExhaustedError) as e:
+    except QuotaExceededError as e:
         logger.info(
             "billing.background_quota_skip",
             user_id=user_id,

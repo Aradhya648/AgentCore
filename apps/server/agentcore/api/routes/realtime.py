@@ -3,7 +3,8 @@
 The 消息 page's "对方" is another person's client, so the server must fan A's
 message out to B — this channel is that delivery path (server→client only;
 sending stays POST). Carries ``chat_message``, ``presence`` (online transitions
-to co-chat users), ``memory_updated``, and shared-space nudges. Typing remains
+to co-chat users), ``friend_request`` (created/accepted/rejected/cancelled),
+``memory_updated``, and shared-space nudges. Typing remains
 ⏳ (消息IM.md §七).
 
 Auth is the access-token cookie, like every route. SSE cannot refresh a token

@@ -97,7 +97,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         }
       },
@@ -134,7 +134,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "debrief": {
@@ -227,7 +227,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "rounds": 0
@@ -427,7 +427,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         }
       },
@@ -476,7 +476,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         }
       },
@@ -549,7 +549,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         }
       },
@@ -578,7 +578,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "rounds": 0
@@ -690,7 +690,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "stance": null,
@@ -755,7 +755,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "stance": null,
@@ -796,7 +796,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "stance": null,
@@ -837,7 +837,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "stance": "pro",
@@ -883,7 +883,7 @@
           "cached": 64000,
           "output": 120000,
           "total": 360000,
-          "currency": "USD",
+          "currency": "CNY",
           "pricing_source": "curated"
         },
         "stance": "con",
@@ -957,7 +957,7 @@
       "cached": 64000,
       "output": 120000,
       "total": 360000,
-      "currency": "USD",
+      "currency": "CNY",
       "pricing_source": "curated"
     },
     "debate": {

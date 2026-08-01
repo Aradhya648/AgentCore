@@ -37,8 +37,8 @@ class AdminUserResponse(BaseModel):
     status: Literal["active", "disabled"]
     is_unlimited: bool
     quota_daily_tokens: int | None
-    quota_monthly_cost_usd: float | None
-    quota_daily_cost_usd: float | None
+    quota_monthly_cost_cny: float | None
+    quota_daily_cost_cny: float | None
     quota_daily_requests: int | None
     created_at: datetime
     # NULL for a live account; a timestamp marks a 注销 (self-service deleted +
@@ -50,9 +50,9 @@ class AdminUserResponse(BaseModel):
 class AdminUserListItem(AdminUserResponse):
     """A roster row: the account record + its all-time cumulative spend.
 
-    Extends the account view with ``cost_total`` (all-time, integer nano-USD) so the
+    Extends the account view with ``cost_total`` (all-time, integer nano-CNY) so the
     用户管理 roster can both **sort by** and **display** per-user lifetime cost without a
-    second round-trip. The client folds the response's ``cny_per_usd`` for ¥.
+    second round-trip. Clients format ¥ as ``cost_total / 1e9``.
     """
 
     cost_total: int
@@ -63,8 +63,6 @@ class AdminUserListResponse(BaseModel):
     total: int
     page: int
     page_size: int
-    # FX rate to fold each row's nano-USD ``cost_total`` into ¥ (single source: config).
-    cny_per_usd: float
 
 
 class AdminUpdateUserRequest(BaseModel):
@@ -86,8 +84,8 @@ class AdminUpdateUserRequest(BaseModel):
     status: Literal["active", "disabled"] | None = None
     is_unlimited: bool | None = None
     quota_daily_tokens: int | None = Field(None, ge=0)
-    quota_monthly_cost_usd: float | None = Field(None, ge=0)
-    quota_daily_cost_usd: float | None = Field(None, ge=0)
+    quota_monthly_cost_cny: float | None = Field(None, ge=0)
+    quota_daily_cost_cny: float | None = Field(None, ge=0)
     quota_daily_requests: int | None = Field(None, ge=0)
 
 
@@ -122,8 +120,7 @@ class AdminSetPasswordRequest(BaseModel):
 class AdminUserCostLine(BaseModel):
     """One account's spend over a window — the platform 工资单 by user (全站看板).
 
-    Money is integer nano-USD; the client formats ¥ from the summary's single
-    ``cny_per_usd`` (no re-pricing).
+    Money is integer nano-CNY; clients format ¥ as ``cost_total / 1e9``.
     """
 
     user_id: str
@@ -153,7 +150,6 @@ class AdminUsageSummary(BaseModel):
     month_by_model: list[ModelCostLine]
     # Last 7 UTC days incl today, oldest-first, zero-filled — the platform trend.
     recent_daily_cost: list[DailyCost]
-    cny_per_usd: float
     billing_mode: str
 
 
@@ -161,13 +157,12 @@ class AdminSystemStatus(BaseModel):
     """Read-only platform status for the admin console (``GET /v1/admin/system``).
 
     A deployment sanity-check at a glance (管理员后台 P2): the billing mode + global
-    quota defaults + FX rate (all deploy-time ``config``, not editable here),
-    database reachability, build provenance, and account tallies. Everything is
-    read-only — config changes go through env + redeploy, not the console.
+    quota defaults (deploy-time ``config``, not editable here), database reachability,
+    build provenance, and account tallies. Everything is read-only — config changes
+    go through env + redeploy, not the console. API no longer ships an FX rate.
     """
 
     billing_mode: str
-    cny_per_usd: float
     # Global quota defaults (config); per-user overrides live on the user record.
     quota: QuotaStatus
     # A live ``SELECT 1`` round-trip succeeded within the probe timeout.
@@ -305,7 +300,7 @@ class AdminOverview(BaseModel):
 
     Today's vitals (active users / turn health / cost), account tallies, the 7-day
     cost + turn trends, deployment health, and the most recent errors (drillable
-    into 会话复盘). Money is integer nano-USD; the client folds ``cny_per_usd`` for ¥.
+    into 会话复盘). Money is integer nano-CNY; ``CostBreakdown.cny_total`` is yuan.
     """
 
     # 今日 pulse: distinct users that took a turn, the turn-health rollup (turns /
@@ -323,7 +318,6 @@ class AdminOverview(BaseModel):
     # Deployment health + a short recent-errors feed (drill into 会话复盘 by id).
     database_ok: bool
     recent_errors: list[TurnMetricLine]
-    cny_per_usd: float
     billing_mode: str
 
 
@@ -353,9 +347,9 @@ class AdminConversationListItem(BaseModel):
     """One row in the platform-wide 对话 roster (``GET /v1/admin/conversations``).
 
     Cross-user conversation index for ops: owner identity, housekeeping flags,
-    message/turn/error rollups, and all-time spend (nano-USD). Soft-deleted
-    conversations and tombstone owners are surfaced when requested — the client
-    folds ``cny_per_usd`` for ¥. Drill into 会话复盘 by ``id``.
+    message/turn/error rollups, and all-time spend (nano-CNY). Soft-deleted
+    conversations and tombstone owners are surfaced when requested. Clients format
+    ¥ as ``cost_total / 1e9``. Drill into 会话复盘 by ``id``.
     """
 
     id: str
@@ -386,7 +380,6 @@ class AdminConversationListResponse(BaseModel):
     total: int
     page: int
     page_size: int
-    cny_per_usd: float
 
 
 class AdminTurnListItem(TurnMetricLine):
@@ -429,8 +422,8 @@ class AdminUserDetail(BaseModel):
     API key), this account's usage (today/month/
     trend/by-model — the per-user counterpart of ``AdminUsageSummary``),
     its recent conversations, and its recent turn activity (``turn_metrics``, each
-    drillable into 会话复盘). Money is integer nano-USD; the client folds the single
-    ``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).
+    drillable into 会话复盘). Money is integer nano-CNY; ``CostBreakdown.cny_total``
+    is yuan. ``billing_mode`` frames cost honestly (byok = own-key spend).
     """
 
     user: AdminUserResponse
@@ -449,7 +442,6 @@ class AdminUserDetail(BaseModel):
     conversations: list[AdminConversationLine]
     # Recent turns (newest-first, capped) — each drillable into 会话复盘.
     recent_turns: list[TurnMetricLine]
-    cny_per_usd: float
     billing_mode: str
 
 
@@ -524,7 +516,7 @@ class ReplayMessage(BaseModel):
     created_at: datetime
     trace_id: str | None
     metrics: TurnMetricLine | None = None
-    # Per-turn spend (integer nano-USD); the client folds ``cny_per_usd`` for ¥.
+    # Per-turn spend (integer nano-CNY); clients format ¥ as ``cost_total / 1e9``.
     cost_total: int = 0
     # Distinct model ids from ``cost_calls`` (deduped, first-seen order). Empty when
     # the turn left no call ledger rows.
@@ -569,6 +561,5 @@ class AdminConversationReplay(BaseModel):
     # Conversation rollup over its traced turns.
     turns: int
     errors: int
-    # Total turn spend (integer nano-USD) + the single FX rate for ¥ display.
+    # Total turn spend (integer nano-CNY); clients format ¥ as ``cost_total / 1e9``.
     cost_total: int
-    cny_per_usd: float

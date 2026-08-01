@@ -98,6 +98,8 @@ async def ceiling_finalize(
     finish_override_sink: list[FinishReason] | None,
     gate_escalation_sink: list[dict[str, Any]] | None,
     cutoff_reason_sink: list[str] | None = None,
+    files_expected: bool = False,
+    form_prose: bool = False,
 ) -> tuple[str, str, TokenUsage, int]:
     """Force-finalize after the round loop exits on a hard ceiling.
 
@@ -106,11 +108,17 @@ async def ceiling_finalize(
     On-track ``token_budget`` still stamps ``cutoff_reason_sink`` so delivery_status
     / CEO gaps stay honest (不标 DEGRADED、不自动 replan).
     """
+    from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
+
     # Hard-ceiling termination: the token backstop broke the loop, or max_rounds
     # exhausted. Always force-finalize (杜绝死循环); route the finish by run health so an
     # on-track worker delivers its work while a thrashing one is flagged. 据审计: the
     # signal is SURFACED, not auto-actioned — there is no「升级→CEO 自动重分解」闭环; the
     # CEO may voluntarily replan off this signal.
+    if files_expected and not form_prose:
+        allowed_tool_names = merge_persist_write_tools(
+            allowed_tool_names, registry_names=set(tools.names)
+        )
     rounds_done = round_idx if ceiling_reason == "token_budget" else profile.max_rounds
     thrashing = role == "worker" and controller.is_thrashing()
     logger.warning(
@@ -170,6 +178,8 @@ async def ceiling_finalize(
         run_id=run_id,
         on_reset=emit_reset,
         outstanding_tool_failures=controller.outstanding_tool_failures(),
+        files_expected=files_expected,
+        form_prose=form_prose,
     )
     # force_finalize contract: when soft round returns tools, caller must execute.
     # Files workers may call file_write/handoff here — discarding would leave

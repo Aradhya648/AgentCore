@@ -827,7 +827,7 @@ export interface UsageBreakdown {
   cache_miss: number;
 }
 
-/** A run's / turn's cost in integer nano-USD (1 USD = 1e9). */
+/** A run's / turn's cost in integer nano-CNY (1 CNY = 1e9). */
 export interface CostBreakdown {
   input: number;
   cached: number;

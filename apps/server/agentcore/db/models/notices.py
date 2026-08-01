@@ -1,4 +1,4 @@
-"""Product notices (全局 Notice：banner / inbox)."""
+"""Product notices (全局 Notice：banner / inbox / modal)."""
 
 from datetime import datetime
 
@@ -21,7 +21,7 @@ class ProductNoticeRow(Base):
             name="ck_product_notices_severity",
         ),
         CheckConstraint(
-            "surface in ('banner', 'inbox', 'both')",
+            "surface in ('banner', 'inbox', 'both', 'modal')",
             name="ck_product_notices_surface",
         ),
         CheckConstraint(

@@ -591,10 +591,12 @@ def test_task_description_matches_what_worker_actually_receives():
     task_desc = t.schema.parameters["properties"]["tasks"]["items"]["properties"]["task"][
         "description"
     ]
-    # Schema 瘦身：task 描述强调自包含 + worker 看不到完整历史（细节进 skill）。
+    # Schema 瘦身：自包含=目标+边界+验收；细则/共识进 deliverable / team_brief。
     assert "自包含" in task_desc
     assert "看不到完整历史" in task_desc
-
+    assert "目标" in task_desc and "边界" in task_desc and "验收" in task_desc
+    assert "deliverable" in task_desc or "must_contain" in task_desc
+    assert "team_brief" in task_desc
 
 async def test_playbook_instantiates_whole_team_and_runs():
     # 拆·playbook 固化 (§2.1): naming a固化形状 + slots expands to a full team and flows through the

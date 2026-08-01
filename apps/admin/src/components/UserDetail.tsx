@@ -31,10 +31,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 function quotaSummary(u: AdminUserDetail["user"]): string {
   if (u.is_unlimited) return "无限额";
   const tokens = u.quota_daily_tokens ?? "继承";
-  const monthCost = u.quota_monthly_cost_usd ?? "继承";
-  const dayCost = u.quota_daily_cost_usd ?? "继承";
+  const monthCost = u.quota_monthly_cost_cny ?? "继承";
+  const dayCost = u.quota_daily_cost_cny ?? "继承";
   const req = u.quota_daily_requests ?? "继承";
-  return `日 ${tokens} token · 日 $${dayCost} · 月 $${monthCost} · ${req} 请求`;
+  return `日 ${tokens} token · 日 ${typeof dayCost === "number" ? `¥${dayCost}` : dayCost} · 月 ${typeof monthCost === "number" ? `¥${monthCost}` : monthCost} · ${req} 请求`;
 }
 
 export function UserDetail({
@@ -183,10 +183,7 @@ export function UserDetail({
             <h2 className="mb-4 text-base font-semibold text-foreground">
               近 7 日成本趋势
             </h2>
-            <CostTrendBars
-              data={data.recent_daily_cost}
-              cnyPerUsd={data.cny_per_usd}
-            />
+            <CostTrendBars data={data.recent_daily_cost} />
           </section>
 
           <section className="overflow-hidden rounded-xl border border-border bg-card">
@@ -230,7 +227,7 @@ export function UserDetail({
                         {fmtCompact(row.tokens_total)}
                       </td>
                       <td className="px-5 py-3 text-right font-medium text-foreground tabular-nums">
-                        {fmtNanoCny(row.cost_total, data.cny_per_usd)}
+                        {fmtNanoCny(row.cost_total)}
                       </td>
                       <td
                         className="px-5 py-3 text-right text-muted-foreground tabular-nums"
@@ -240,11 +237,7 @@ export function UserDetail({
                             : undefined
                         }
                       >
-                        {fmtNanoCny(
-                          row.cost_estimated_total,
-                          data.cny_per_usd,
-                          true,
-                        )}
+                        {fmtNanoCny(row.cost_estimated_total, true)}
                       </td>
                     </tr>
                   ))}

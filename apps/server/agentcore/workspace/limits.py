@@ -24,6 +24,29 @@ LIVENESS_TIMEOUT_DETAIL_MARKERS = (
     "活性挂起",
 )
 
+# Local workspace IO family retired together when the desktop channel is sticky-dead
+# (fail-fast alone still lets the model thrash / re-delegate writers).
+WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS: tuple[str, ...] = (
+    "file_read",
+    "file_list",
+    "file_write",
+    "file_append",
+    "str_replace",
+    "write_section",
+    "file_delete",
+    "file_move",
+    "file_copy",
+    "file_batch",
+    "grep",
+    "host_ping",
+)
+
+WORKSPACE_CHANNEL_DEAD_RETIRE_STEER = (
+    "本地工作区文件通道已挂起（活性无响应）：本回合起停用全部本地文件读写工具。"
+    "请向用户说明「本地文件暂时连不上」，基于已有信息收口或请用户检查桌面连接后重试；"
+    "禁止再调用文件工具，也禁止再派需要读写本地文件的队员。"
+)
+
 
 def is_file_too_large_detail(detail: str | None) -> bool:
     """True when a workspace I/O detail is the shared oversized-file capacity signal."""

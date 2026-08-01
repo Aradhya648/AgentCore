@@ -164,7 +164,7 @@ def _wire_cost(cost: dict[str, Any] | None) -> dict[str, Any] | None:
         "cached": int(cost.get("cached", 0) or 0),
         "output": int(cost.get("output", 0) or 0),
         "total": int(cost.get("total", 0) or 0),
-        "currency": str(cost.get("currency") or "USD"),
+        "currency": str(cost.get("currency") or "CNY"),
         "pricing_source": str(cost.get("pricing_source") or "curated"),
     }
     if cost.get("estimated_total") is not None:

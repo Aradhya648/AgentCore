@@ -50,7 +50,7 @@ async def test_parallel_workers_complete_with_usage():
 
 async def test_worker_usage_split_and_cost_priced():
     # Worker strong tier → DeepSeek V4 Flash (pinned via profile_set; platform default may differ).
-    # cache_miss 1M @ $0.14 + output 1M @ $0.28 = $0.42; cache_hit 1M @ $0.0028.
+    # Flash has curated CNY card (中文官价 ¥0.02 / ¥1 / ¥2) → nano-CNY ledger.
     plan, _ = build_run_plan([{"role": "A", "task": "做A"}], id_prefix="t")
     res = await WaveScheduler().run(
         plan,
@@ -61,11 +61,12 @@ async def test_worker_usage_split_and_cost_priced():
     # The cache split survives into RunState.usage (not collapsed to one input).
     assert state.usage["cache_hit"] == 1_000_000
     assert state.usage["cache_miss"] == 1_000_000
-    # Cost is computed once, in nano-USD, on the state.
-    assert state.cost["cached"] == 2_800_000  # 0.0028 USD
-    assert state.cost["output"] == 280_000_000  # 0.28 USD
-    assert state.cost["total"] == 2_800_000 + 140_000_000 + 280_000_000
-    assert state.cost["currency"] == "USD"
+    # Cost is computed once, in nano-CNY, on the state (1M tokens × ¥/1M × 1000).
+    assert state.cost["cached"] == 20_000_000  # ¥0.02
+    assert state.cost["output"] == 2_000_000_000  # ¥2
+    assert state.cost["total"] == 20_000_000 + 1_000_000_000 + 2_000_000_000
+    assert state.cost["currency"] == "CNY"
+    assert state.cost["pricing_source"] == "curated"
 
 
 async def test_dag_injects_upstream_product_downstream():

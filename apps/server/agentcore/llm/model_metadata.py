@@ -116,17 +116,17 @@ _METADATA: dict[str, ModelMeta] = {
         capabilities=frozenset({CAPABILITY_VISION, CAPABILITY_TOOLS}),
         context_length=8_000,
     ),
+    # Platform relay default id (config/platform.py PLATFORM_MODEL). GLM-5.2 on
+    # the operator's中转 upstream; curated as 智谱 AI for catalog display.
+    "glm-5.2": ModelMeta(
+        display_name="GLM-5.2",
+        vendor="智谱 AI",
+        capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
+        context_length=128_000,
+    ),
     "grok-4.5": ModelMeta(
         display_name="Grok 4.5",
         vendor="xAI",
-        capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
-        context_length=256_000,
-    ),
-    # Platform relay default id (config/platform.py PLATFORM_MODEL). A reasoning model on
-    # the operator's中转 upstream; true vendor is relay-defined, so vendor stays neutral.
-    "5.2": ModelMeta(
-        display_name="5.2",
-        vendor="平台中转",
         capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
         context_length=128_000,
     ),

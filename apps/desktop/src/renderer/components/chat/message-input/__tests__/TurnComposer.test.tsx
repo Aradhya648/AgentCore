@@ -26,7 +26,6 @@ vi.mock("@/hooks/useLlmProviders", () => ({
       billing_mode: "byok",
       platform_available: false,
       platform_model: null,
-      free_tier_active: false,
     },
     isLoading: false,
   }),
@@ -38,7 +37,7 @@ vi.mock("@/hooks/useLlmModelProfiles", () => ({
       data: [
         {
           id: "sys-52",
-          name: "5.2",
+          name: "GLM-5.2",
           kind: "system",
           is_default: true,
           main: {

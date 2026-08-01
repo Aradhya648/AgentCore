@@ -12,6 +12,7 @@ import httpx
 
 from agentcore.config.settings import settings
 from agentcore.core.logging import get_logger
+from agentcore.core.net import outbound_async_client
 
 logger = get_logger(__name__)
 
@@ -152,7 +153,7 @@ async def _probe_sub2api() -> Sub2ApiProbeResult | None:
     if not settings.sub2api_admin_url:
         return None
 
-    async with httpx.AsyncClient(
+    async with outbound_async_client(
         base_url=settings.sub2api_admin_url.rstrip("/"),
         timeout=httpx.Timeout(_PROBE_TIMEOUT),
     ) as client:

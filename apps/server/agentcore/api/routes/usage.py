@@ -19,7 +19,6 @@ from agentcore.api.dependencies import (
     AuthUser,
     get_conversation_repo,
     get_cost_event_repo,
-    get_user_llm_provider_repo,
     get_user_repo,
 )
 from agentcore.api.schemas import (
@@ -31,7 +30,6 @@ from agentcore.api.schemas import (
     UsageSummary,
     UsageWindow,
 )
-from agentcore.billing.preference import is_free_tier_active
 from agentcore.config import settings
 from agentcore.conversation.quota import QuotaLimits
 from agentcore.core.errors import NotFoundError
@@ -39,7 +37,6 @@ from agentcore.db.models import CostEvent
 from agentcore.db.repositories import (
     ConversationRepository,
     CostEventRepository,
-    UserLlmProviderRepository,
     UserRepository,
 )
 
@@ -168,22 +165,20 @@ async def get_usage_summary(
     user: AuthUser,
     repo: CostEventRepository = Depends(get_cost_event_repo),
     user_repo: UserRepository = Depends(get_user_repo),
-    provider_repo: UserLlmProviderRepository = Depends(get_user_llm_provider_repo),
 ) -> UsageSummary:
     """Account dashboard: today's tokens/cost, the month's cost, the recent
     daily-cost trend, and the quota.
 
     Windows are bounded at the current UTC day / month start (MVP — a per-user
     timezone is a later refinement). ``recent_daily_cost`` is the last
-    ``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline. Also
-    carries ``cny_per_usd`` so the client formats money from the single
-    server-owned rate. Per-role split lives on the turn payroll
+    ``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline.
+    Money is nano-CNY; ``CostBreakdown.cny_total`` is already yuan (no FX).
+    Per-role split lives on the turn payroll
     (``GET /messages/{id}/cost``), not this monthly account view.
 
-    ``quota`` mirrors what ``enforce_quota`` will actually apply to this user
-    (D7): per-user override columns first, else free-tier defaults on a byok
-    deployment's platform-paid path (keyless free-tier riders), else global
-    ``quota_*`` — so the meters never show a cap the gate wouldn't enforce.
+    ``quota`` mirrors what ``enforce_quota`` will actually apply to this user:
+    per-user override columns first, else global ``quota_*`` — so the meters
+    never show a cap the gate wouldn't enforce.
     """
     now = datetime.now(UTC)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -203,16 +198,11 @@ async def get_usage_summary(
 
     account = await user_repo.get_by_id(user.user_id)
 
-    # Mirror the gate's limit resolution: keyless users on free tier get free_tier_*
-    # defaults on byok deployments; users with a BYOK provider inherit global quota_*.
-    has_key = await provider_repo.count_for_user(user.user_id) > 0
-    use_free_tier_defaults = (
-        is_free_tier_active(has_user_key=has_key) and settings.billing_mode == "byok"
-    )
+    # Mirror the gate's limit resolution (per-user override → global quota_*).
     limits = (
-        QuotaLimits.for_user(account, use_free_tier_defaults=use_free_tier_defaults)
+        QuotaLimits.for_user(account)
         if account is not None
-        else QuotaLimits.from_settings(use_free_tier_defaults=use_free_tier_defaults)
+        else QuotaLimits.from_settings()
     )
 
     return UsageSummary(
@@ -235,6 +225,5 @@ async def get_usage_summary(
             daily_cost_nano=limits.daily_cost_nano,
             daily_requests=limits.daily_requests,
         ),
-        cny_per_usd=settings.cny_per_usd,
         billing_mode=settings.billing_mode,
     )

@@ -115,10 +115,28 @@ async def resolve_session(
         session = await tool._session_loader(target)
         if session is not None and tool._session_store is not None:
             tool._session_store.put(session)
+            # Loader hit on a tip id is rare (DB keys are roots); if tip somehow
+            # persisted as root, no alias needed. If we resolved via in-memory
+            # alias already, session is non-None above.
+    if session is None and tool._session_store is not None and tool._session_loader is not None:
+        # Tip id miss in memory: try loading the aliased root if we still have the map
+        # after a partial prune (alias present, root session flushed to DB only).
+        root = tool._session_store.root_for_alias(target)
+        if root:
+            session = await tool._session_loader(root)
+            if session is not None:
+                tool._session_store.put(session)
+                tool._session_store.link_alias(target, session.run_id)
+                logger.info(
+                    "delegate.continuation_alias_rehydrated",
+                    tip_run_id=target,
+                    root_run_id=session.run_id,
+                )
     if session is None:
         raise ContinuationRejectedError(
             f"找不到 run_id 为 `{target}` 的可续写现场（内存与落盘均未命中）。"
-            "请改用冷委派：把需要的上下文写进 task，必要时设 replaces_run_id 标接手。"
+            "若该 id 是图上续派链末端，请改填现场根（wire `continues_run_id` / "
+            "首次冷开的 run_id）；或改用冷委派并设 `replaces_run_id` 标接手。"
         )
     if session.recall_count >= DEFAULT_RECALL_LIMIT:
         raise ContinuationRejectedError(
@@ -154,6 +172,20 @@ async def run_continuation(
             continue_from=spec.continue_from_run_id,
             reason=exc.message,
         )
+        # 图态接缝：plan 已入图的节点若无 run_failed，前端会卡在「排队中」。
+        # 拒续在进 continue_run / run_started 之前，须显式下发终态帧。
+        if tool._sink is not None:
+            from agentcore.runtime.events.run import run_failed
+
+            agent_id = (spec.agent_id or spec.run_id or "").strip() or spec.run_id
+            tool._sink.emit(
+                run_failed(
+                    spec.run_id,
+                    agent_id,
+                    exc.message,
+                    execution_id=execution_id,
+                )
+            )
         # 折成 FAILED 交回 CEO，并标记调度层不可重试（复用 executor contract.failed 的
         # non-retryable 机制）：输入校验是确定性的，重跑必再拒——避免同错在日志里重放两次。
         return RunState(phase=RunPhase.FAILED, error=exc.message, error_retryable=False)
@@ -200,6 +232,9 @@ async def run_continuation(
         session.updated_at = time.time()
         if tool._session_store is not None:
             tool._session_store.put(session)
+            # 星型存：链末端 id 别名到根，使下一跳 continue_from 填图上可见节点仍可溯根。
+            if spec.run_id != session.run_id:
+                tool._session_store.link_alias(spec.run_id, session.run_id)
         if tool._session_saver is not None:
             await tool._session_saver(session)
         tool.note_continuation(spec.run_id)

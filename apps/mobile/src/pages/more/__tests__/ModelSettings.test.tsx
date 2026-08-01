@@ -126,9 +126,9 @@ vi.mocked(updateModelProfile);
 
 const SYSTEM_52: LlmModelProfileView = {
   id: "00000000-0000-4000-8000-000000000011",
-  name: "5.2",
+  name: "GLM-5.2",
   kind: "system",
-  main: { origin: "platform", model: "5.2", provider_id: null },
+  main: { origin: "platform", model: "glm-5.2", provider_id: null },
   worker: null,
   background: null,
   is_default: true,
@@ -174,7 +174,6 @@ function makeProviders(
     billing_mode: "platform",
     platform_available: true,
     platform_model: "deepseek-v4-pro",
-    free_tier_active: false,
     ...overrides,
   };
 }
@@ -206,7 +205,7 @@ describe("ModelSettings (profiles + providers)", () => {
     expect(screen.getByText("模型 deepseek-v4-pro")).toBeTruthy();
     expect(screen.getAllByTestId("provider-card")).toHaveLength(2);
     expect(screen.getByTestId("profiles-section")).toBeTruthy();
-    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2")).toBeTruthy();
     expect(screen.getByText("写作强档")).toBeTruthy();
     expect(screen.getByText("账号默认")).toBeTruthy();
     expect(screen.getByText("DeepSeek V4 Pro · GPT-4o")).toBeTruthy();

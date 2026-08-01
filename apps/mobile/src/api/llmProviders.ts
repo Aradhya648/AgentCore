@@ -28,8 +28,6 @@ export interface LlmProvidersResponse {
   platform_available: boolean;
   /** Operator platform model id when platform is available. */
   platform_model?: string | null;
-  /** True when a keyless user runs on the free tier (no provider + platform creds). */
-  free_tier_active: boolean;
   /** Echo of account default combination id (authoritative list is llm-model-profiles). */
   default_model_profile_id?: string | null;
 }

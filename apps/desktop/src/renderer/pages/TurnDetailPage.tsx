@@ -75,7 +75,7 @@ export function TurnDetailPage() {
   }, [compareA, compareB]);
 
   // Ensure conversation data is loaded (same contract as ConversationPage:
-  // adopt window when cold; always runHydrateAttachSettle from recovery).
+  // early ready after adopt / SWR cache; attach/settle runs in background).
   // biome-ignore lint/correctness/useExhaustiveDependencies: hydrateRetry is an intentional re-run key
   useEffect(() => {
     if (!conversationId) return;
@@ -91,15 +91,53 @@ export function TurnDetailPage() {
     let cancelled = false;
     let attachAbort: AbortController | null = null;
     void (async () => {
-      try {
-        const win = await fetchMessageWindow(conversationId);
+      const winPromise = fetchMessageWindow(conversationId);
+
+      if (!warm) {
+        const cached = await loadCachedConversation(conversationId);
         if (cancelled) return;
-        // Adopt only overwrites an empty cold slice; warm reopen keeps memory
-        // but still runs attach/settle (same contract as ConversationPage).
-        const s = useConversationStore.getState();
-        if (s.currentConversationId === conversationId) {
-          const rt = getRuntime(conversationId);
-          if (!(rt.isGenerating || rt.messages.length > 0)) {
+        if (cached) {
+          const s = useConversationStore.getState();
+          if (s.currentConversationId === conversationId) {
+            const rt = getRuntime(conversationId);
+            if (!(rt.isGenerating || rt.messages.length > 0)) {
+              s.setMessageWindow(
+                cached.messages as Message[],
+                {
+                  hasMoreBefore: cached.hasMoreBefore,
+                  hasMoreAfter: cached.hasMoreAfter,
+                },
+                conversationId,
+              );
+              s.setMemoryUpdates(
+                cached.memoryUpdates as MemoryUpdate[],
+                conversationId,
+              );
+              if (shouldSetGeneratingOnHydrate(cached.messages as Message[])) {
+                s.setGenerating(true, conversationId);
+              }
+              setHydratePhase("ready");
+            }
+          }
+        }
+      }
+
+      try {
+        const win = await winPromise;
+        if (cancelled) return;
+        if (
+          useConversationStore.getState().currentConversationId !==
+          conversationId
+        ) {
+          return;
+        }
+        // Warm memory: keep slice. Cold: adopt empty or SWR-reconcile over cache.
+        if (!warm) {
+          const s = useConversationStore.getState();
+          if (
+            s.currentConversationId === conversationId &&
+            !getRuntime(conversationId).isGenerating
+          ) {
             s.setMessageWindow(
               win.messages,
               {
@@ -123,39 +161,67 @@ export function TurnDetailPage() {
         }
         const recovery = await recoveryLoaded;
         if (cancelled) return;
+        setHydratePhase("ready");
         attachAbort = new AbortController();
-        await runHydrateAttachSettle(conversationId, recovery, {
+        void runHydrateAttachSettle(conversationId, recovery, {
           signal: attachAbort.signal,
         });
-        if (cancelled) return;
-        if (!cancelled) setHydratePhase("ready");
       } catch {
         // Align with ConversationPage: offline cache, else explicit error (no silent blank).
         if (cancelled) return;
-        const cached = await loadCachedConversation(conversationId);
-        if (cancelled) return;
-        if (cached) {
-          const s = useConversationStore.getState();
-          if (s.currentConversationId === conversationId) {
-            const rt = getRuntime(conversationId);
-            if (!(rt.isGenerating || rt.messages.length > 0)) {
-              s.setMessageWindow(
-                cached.messages as Message[],
-                {
-                  hasMoreBefore: cached.hasMoreBefore,
-                  hasMoreAfter: cached.hasMoreAfter,
-                },
-                conversationId,
-              );
-              s.setMemoryUpdates(
-                cached.memoryUpdates as MemoryUpdate[],
-                conversationId,
-              );
-            }
-          }
+        if (
+          getRuntime(conversationId).messages.length > 0 ||
+          getRuntime(conversationId).isGenerating
+        ) {
           setHydratePhase("ready");
-        } else if (!warm) {
-          setHydratePhase("error");
+          const recovery = await recoveryLoaded;
+          if (
+            !cancelled &&
+            useConversationStore.getState().currentConversationId ===
+              conversationId
+          ) {
+            attachAbort = new AbortController();
+            void runHydrateAttachSettle(conversationId, recovery, {
+              signal: attachAbort.signal,
+            });
+          }
+        } else {
+          const cached = await loadCachedConversation(conversationId);
+          if (cancelled) return;
+          if (cached) {
+            const s = useConversationStore.getState();
+            if (s.currentConversationId === conversationId) {
+              const rt = getRuntime(conversationId);
+              if (!(rt.isGenerating || rt.messages.length > 0)) {
+                s.setMessageWindow(
+                  cached.messages as Message[],
+                  {
+                    hasMoreBefore: cached.hasMoreBefore,
+                    hasMoreAfter: cached.hasMoreAfter,
+                  },
+                  conversationId,
+                );
+                s.setMemoryUpdates(
+                  cached.memoryUpdates as MemoryUpdate[],
+                  conversationId,
+                );
+              }
+            }
+            setHydratePhase("ready");
+            const recovery = await recoveryLoaded;
+            if (
+              !cancelled &&
+              useConversationStore.getState().currentConversationId ===
+                conversationId
+            ) {
+              attachAbort = new AbortController();
+              void runHydrateAttachSettle(conversationId, recovery, {
+                signal: attachAbort.signal,
+              });
+            }
+          } else if (!warm) {
+            setHydratePhase("error");
+          }
         }
       }
     })();

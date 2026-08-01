@@ -165,8 +165,8 @@ def test_apply_light_round_budgets_stamps_max_rounds():
     assert plan.nodes[0].max_rounds == LIGHT_REPAIR_MAX_ROUNDS
 
 
-def test_zero_write_only_for_short_write_posture():
-    """standard + files → zero_write off; light/repair stamped max_rounds → on."""
+def test_files_zero_write_retired_always_off():
+    """Files zero-write催写 deleted: never on (standard or short); prose idle separate."""
     from agentcore.runtime.engine.governance import create_loop_controller
     from agentcore.runtime.runs.worker_budget import (
         LIGHT_REPAIR_MAX_ROUNDS,
@@ -180,27 +180,37 @@ def test_zero_write_only_for_short_write_posture():
 
     assert not should_enable_zero_write(files_expected=True, max_rounds=None)
     assert not should_enable_zero_write(
-        files_expected=False, max_rounds=LIGHT_REPAIR_MAX_ROUNDS
-    )
-    assert should_enable_zero_write(
         files_expected=True, max_rounds=LIGHT_REPAIR_MAX_ROUNDS
     )
-    assert should_enable_zero_write(files_expected=True, short_write_posture=True)
+    assert not should_enable_zero_write(files_expected=True, short_write_posture=True)
     assert not should_enable_zero_write(files_expected=True, short_write_posture=False)
+    assert not should_enable_zero_write(
+        files_expected=True, form_prose=True, short_write_posture=True
+    )
+    assert not should_enable_zero_write(
+        files_expected=False, max_rounds=LIGHT_REPAIR_MAX_ROUNDS
+    )
 
-    # create_loop_controller mirrors the gate (threshold from settings when on).
-    off = create_loop_controller(
+    standard = create_loop_controller(
         frozenset({"file_read"}),
         files_expected=True,
         short_write_posture=False,
     )
-    assert off.zero_write_finalize_rounds == 0
-    on = create_loop_controller(
+    assert standard.zero_write_finalize_rounds == 0
+    short_files = create_loop_controller(
         frozenset({"file_read"}),
         files_expected=True,
         short_write_posture=True,
     )
-    assert on.zero_write_finalize_rounds > 0
+    assert short_files.zero_write_finalize_rounds == 0
+    assert short_files.prose_idle is False
+    prose = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=True,
+        short_write_posture=True,
+        form_prose=True,
+    )
+    assert prose.zero_write_finalize_rounds == 0
 
 
 def test_is_directed_search_role_covers_review_and_investigation():
@@ -283,7 +293,7 @@ def test_repair_posture_keeps_browser_navigate():
 
 
 def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
-    """E3：修码验证短姿态启用收紧；files 短写仍走 zero_write，不平行造熔断器。"""
+    """E3：修码验证短姿态启用收紧；files 短写不再走 zero_write催写（已删）。"""
     from agentcore.runtime.engine.governance import create_loop_controller
     from agentcore.runtime.loop_controller import ToolAttempt
     from agentcore.runtime.runs.worker_budget import should_tighten_verify_exec_thrash
@@ -294,7 +304,7 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
         files_expected=False,
         has_execution_tools=True,
     )
-    # patch 落盘节点：zero_write，不 tighten
+    # patch 落盘节点：不 tighten（曾走 zero_write；催写已删，仍不走 verify 熔断）
     assert not should_tighten_verify_exec_thrash(
         short_write_posture=True,
         files_expected=True,
@@ -320,7 +330,7 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
         max_rounds=4,
     )
     # Prose short idle shares the zero_write counter (scaled under max_rounds); not a
-    # parallel fuse. files zero_write gate stays separate (should_enable_zero_write).
+    # parallel fuse. files zero-write催写 is retired (should_enable_zero_write always false).
     assert tightened.prose_idle is True
     assert tightened.zero_write_finalize_rounds == 3  # max(2, min(7, 4-1))
     # disable<=2：两次同工具失败即 disable（默认 3 才 disable）
@@ -367,7 +377,7 @@ def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
 
 
 def test_prose_idle_gate_and_scaled_bar():
-    """短散文节点启用 idle 梯；bar 缩进 max_rounds 下，与 files zero_write 门分立。"""
+    """短散文节点启用 idle 梯；bar 缩进 max_rounds；files 零落盘催写已删。"""
     from agentcore.runtime.engine.governance import create_loop_controller
     from agentcore.runtime.runs.worker_budget import (
         resolve_prose_idle_finalize_rounds,
@@ -378,8 +388,9 @@ def test_prose_idle_gate_and_scaled_bar():
     assert should_enable_prose_idle(files_expected=False, short_write_posture=True)
     assert not should_enable_prose_idle(files_expected=True, short_write_posture=True)
     assert not should_enable_prose_idle(files_expected=False, short_write_posture=False)
-    # files gate unchanged
+    # files zero-write retired
     assert not should_enable_zero_write(files_expected=False, short_write_posture=True)
+    assert not should_enable_zero_write(files_expected=True, short_write_posture=True)
     assert resolve_prose_idle_finalize_rounds(4) == 3
     assert resolve_prose_idle_finalize_rounds(6) == 5
 
@@ -402,4 +413,70 @@ def test_prose_idle_gate_and_scaled_bar():
         max_rounds=4,
     )
     assert files.prose_idle is False
-    assert files.zero_write_finalize_rounds > 0
+    assert files.zero_write_finalize_rounds == 0
+
+
+def test_merge_persist_write_tools_and_light_repair_grant():
+    """窄 allowlist 缺 file_write + files_expected → write_pass/light 并入写盘集；prose no-op。"""
+    from agentcore.core.types import ToolCategory
+    from agentcore.runtime.runs.executor_node import _narrow_for_light_repair
+    from agentcore.runtime.runs.worker_budget import (
+        PERSIST_WRITE_TOOL_NAMES,
+        merge_persist_write_tools,
+    )
+    from agentcore.tools.protocol import ToolResult, ToolSchema
+    from agentcore.tools.registry import ToolRegistry
+
+    assert "file_write" in PERSIST_WRITE_TOOL_NAMES
+    assert merge_persist_write_tools(None, registry_names={"file_write"}) is None
+    merged = merge_persist_write_tools(
+        ["file_read", "grep", "handoff"],
+        registry_names={"file_read", "grep", "handoff", "file_write", "str_replace"},
+    )
+    assert merged is not None
+    assert "file_write" in merged
+    assert "str_replace" in merged
+    assert "grep" in merged
+    # registry 无写工具（prose withhold）→ 不并入
+    assert merge_persist_write_tools(
+        ["file_read", "handoff"], registry_names={"file_read", "handoff"}
+    ) == ["file_read", "handoff"]
+
+    class _T:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        @property
+        def schema(self) -> ToolSchema:
+            return ToolSchema(
+                name=self._name,
+                description="t",
+                parameters={"type": "object", "properties": {}},
+                category=ToolCategory.FILESYSTEM,
+            )
+
+        async def execute(self, arguments, context) -> ToolResult:  # noqa: ANN001
+            return ToolResult(tool_call_id="", success=True, output="ok")
+
+    reg = ToolRegistry()
+    for n in (
+        "file_read",
+        "grep",
+        "handoff",
+        "file_write",
+        "str_replace",
+        "web_search",
+    ):
+        reg.register(_T(n))
+
+    _r, no_grant = _narrow_for_light_repair(
+        reg, ["file_read", "grep", "handoff"], grant_write_tools=False
+    )
+    assert "file_write" not in no_grant
+    _r2, granted = _narrow_for_light_repair(
+        reg, ["file_read", "grep", "handoff"], grant_write_tools=True
+    )
+    assert "file_write" in granted
+    assert "str_replace" in granted
+    assert "handoff" in granted
+    assert "grep" not in granted  # investigation stripped

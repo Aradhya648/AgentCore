@@ -231,7 +231,8 @@ def test_ceo_registry_excludes_every_mutation_tool():
 def test_ceo_registry_holds_only_auto_run_tools():
     # The split is by approval level: the CEO keeps only NEVER tools (auto-run, no
     # consent), while every GRANTABLE (env-mutating) tool is delegated — **except**
-    # Host P3 ``host_shell`` (desktop_online gate; not in the default no-desktop set).
+    # Host P3 ``host_shell`` / browser ``browser_navigate`` (gated; not in the
+    # default no-desktop / no-browser set).
     schemas = build_ceo_tool_registry().list_all()
     assert schemas, "CEO must retain its read/retrieval tools"
     assert all(s.approval is ToolApproval.NEVER for s in schemas)
@@ -250,6 +251,27 @@ def test_ceo_registry_host_shell_grantable_exception_when_desktop_online():
         if name == "host_shell":
             continue
         assert schema.approval is ToolApproval.NEVER, name
+
+
+def test_ceo_registry_browser_navigate_grantable_exception_when_include_browser():
+    schemas = {
+        s.name: s for s in build_ceo_tool_registry(include_browser=True).list_all()
+    }
+    assert "browser_navigate" in schemas
+    assert schemas["browser_navigate"].approval is ToolApproval.GRANTABLE
+    # Other browser_* stay worker-only.
+    assert "browser_click" not in schemas
+    assert "browser_screenshot" not in schemas
+    for name, schema in schemas.items():
+        if name == "browser_navigate":
+            continue
+        assert schema.approval is ToolApproval.NEVER, name
+
+
+def test_ceo_registry_excludes_browser_navigate_by_default():
+    names = {schema.name for schema in build_ceo_tool_registry().list_all()}
+    assert "browser_navigate" not in names
+    assert names == _CEO_READONLY_NAMES
 
 
 def test_ceo_registry_excludes_delegate_primitive():

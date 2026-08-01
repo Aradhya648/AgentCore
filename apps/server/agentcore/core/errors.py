@@ -125,6 +125,27 @@ class LLMAuthError(LLMError):
         super().__init__(message, **kwargs)
 
 
+class InferenceTokenExpiredError(LLMAuthError):
+    """Sidecar→cloud inference proxy JWT rejected (invalid / expired).
+
+    Distinct from BYOK ``LLM_KEY_INVALID``: the user should remint / re-login /
+    retry the turn — not open「设置 · 服务商」to edit an API key. ``retryable``
+    so the desktop can clear the cache, mint once, and retry the turn.
+    """
+
+    code = ErrorCode.INFERENCE_TOKEN_EXPIRED
+    retryable = True
+
+    _DEFAULT_MESSAGE = (
+        "本地与云端的推理凭证已失效或过期。请点击重试（将自动换新凭证）；"
+        "仍失败请重新登录后再试。"
+    )
+
+    def __init__(self, message: str | None = None, **kwargs):
+        # Bypass LLMAuthError's BYOK「去设置」default copy.
+        LLMError.__init__(self, message or self._DEFAULT_MESSAGE, **kwargs)
+
+
 class LLMClientClosedError(LLMError):
     """httpx client was closed while a caller still tried to send (turn teardown race).
 
@@ -293,39 +314,6 @@ class QuotaExceededError(AgentCoreError):
         self.used = used
         self.limit = limit
         super().__init__(message, dimension=dimension, used=used, limit=limit, **kwargs)
-
-
-_FREE_TIER_EXHAUSTED_MESSAGE = (
-    "本月免费额度已用完——接入自己的模型即可不限量继续"
-)
-
-
-class FreeTierExhaustedError(QuotaExceededError):
-    """Free-tier monthly (or daily) cap reached — conversion CTA, not wait-for-reset.
-
-    Same HTTP 429 / dimension payload as :class:`QuotaExceededError`, but a
-    dedicated code so the client can route to BYOK settings instead of the
-    generic quota-wait UX. Message is the single backend source for the CTA copy.
-    """
-
-    code = ErrorCode.FREE_TIER_EXHAUSTED
-
-    def __init__(
-        self,
-        message: str = "",
-        *,
-        dimension: str = "",
-        used: int = 0,
-        limit: int = 0,
-        **kwargs,
-    ):
-        super().__init__(
-            message or _FREE_TIER_EXHAUSTED_MESSAGE,
-            dimension=dimension,
-            used=used,
-            limit=limit,
-            **kwargs,
-        )
 
 
 class BYOKKeyMissingError(AgentCoreError):

@@ -543,6 +543,8 @@ class LoopController:
         self._tool_succeeded_after_fail: dict[str, bool] = {}
         # Last counted failure was a liveness hang (outer/channel timeout meta).
         self._tool_liveness_last: dict[str, bool] = {}
+        # Sticky: local workspace channel dead → allow disabling LANDING_TOOLS too.
+        self._workspace_channel_dead: bool = False
         self._tool_warned: set[str] = set()
         self._tool_disabled: set[str] = set()
         # Write/landing tools that hit disable threshold but stay enabled (强制分段).
@@ -873,10 +875,10 @@ class LoopController:
                 self._tool_liveness_last[attempt.tool_name] = bool(
                     meta.get("liveness_timeout")
                 )
-            # Explicit hard-stop retire (browser egress / file_read same-path ceiling /
+            # Explicit hard-stop retire (browser egress / workspace channel dead /
             # permanent class / access-permission) must apply even when
-            # ``contract_failure`` — otherwise tip thrashing never disables the tool
-            # (P2: attachment file_read tip×N).
+            # ``contract_failure`` — otherwise tip thrashing never disables the tool.
+            # Same-path file_read ceiling is path-scoped only (no retire_tools).
             if not attempt.success:
                 retire_list: list[str] = []
                 retire = meta.get("retire_tools")
@@ -894,6 +896,11 @@ class LoopController:
                     # Access permission (e.g. grep 无权限): retire so re-call denies.
                     # Allowlist denials stay policy-only (already denied by allowlist).
                     retire_list = [attempt.tool_name]
+                if meta.get("workspace_channel_dead") or (
+                    meta.get("liveness_timeout")
+                    and meta.get("timeout_layer") == "channel"
+                ):
+                    self._workspace_channel_dead = True
                 if retire_list:
                     summary = (attempt.error_summary or "").strip()
                     for sname in retire_list:
@@ -1060,12 +1067,14 @@ class LoopController:
         toolset for the remaining rounds. A tool that leaps straight to the disable
         count is only disabled (no redundant warn).
 
-        Landing / write tools (``LANDING_TOOLS``) are never circuit-disabled: hitting
-        the disable threshold yields ``force_segmented`` instead (keep the pen, force
-        skeleton + section writes). Orchestration tools (``ORCHESTRATION_TOOLS``) are
-        never disabled on **parse-only** failures either (keep the dispatcher; typed
-        JSON-format steer). Non-landing tools (e.g. ``read_url`` via ``retire_tools``)
-        still disable normally.
+        Landing / write tools (``LANDING_TOOLS``) are never circuit-disabled **except**
+        when the local workspace channel is sticky-dead (``_workspace_channel_dead``):
+        then pens are disabled with the rest of the workspace IO family. Otherwise
+        hitting the disable threshold yields ``force_segmented`` instead (keep the
+        pen, force skeleton + section writes). Orchestration tools (``ORCHESTRATION_TOOLS``)
+        are never disabled on **parse-only** failures either (keep the dispatcher;
+        typed JSON-format steer). Non-landing tools (e.g. ``read_url`` via
+        ``retire_tools``) still disable normally.
 
         Same-path consecutive classified write rejects (prose-append / code integrity)
         also enter ``force_segmented`` via the same latch — early strategy upgrade,
@@ -1086,10 +1095,16 @@ class LoopController:
                     self._tool_failures[name] > 0
                     and self._tool_parse_failures.get(name, 0) == self._tool_failures[name]
                 )
-                if name in LANDING_TOOLS:
+                if name in LANDING_TOOLS and not self._workspace_channel_dead:
                     self._tool_segmented_forced.add(name)
                     self._tool_warned.discard(name)
                     newly_force_segmented.append(name)
+                    continue
+                if name in LANDING_TOOLS and self._workspace_channel_dead:
+                    # Channel dead: writing cannot succeed — disable pens with family.
+                    self._tool_disabled.add(name)
+                    self._tool_warned.discard(name)
+                    newly_disabled.append(name)
                     continue
                 if name in ORCHESTRATION_TOOLS and parse_only_tool:
                     # Keep delegate/ask_user available; one-shot format steer via warn path.
@@ -1282,6 +1297,11 @@ class LoopController:
     def mark_zero_write_warned(self) -> None:
         """Latch the one-shot zero-write warn so it cannot re-fire."""
         self._zero_write_warned = True
+
+    @property
+    def zero_write_warned(self) -> bool:
+        """True after the one-shot zero-write warn was injected."""
+        return self._zero_write_warned
 
     def convergence_action(self) -> Intervention:
         """Over-investigation finalize: progress-aware spinning, zero-write, absolute cap.

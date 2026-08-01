@@ -74,6 +74,8 @@ class SessionStore:
         ttl_seconds: float = DEFAULT_ROSTER_TTL_SECONDS,
     ) -> None:
         self._sessions: OrderedDict[str, RunSession] = OrderedDict()
+        # 星型存 · 链式渲：图上续派链末端 id → 现场根 run_id（不另开 session）。
+        self._aliases: dict[str, str] = {}
         self._max_sessions = max_sessions
         self._max_bytes = max_bytes
         self._ttl = ttl_seconds
@@ -87,18 +89,44 @@ class SessionStore:
         self._sessions.move_to_end(session.run_id)
         self._prune()
 
+    def link_alias(self, alias_run_id: str, root_run_id: str) -> None:
+        """Map a continuation-node id onto the session root (星型存).
+
+        CEO / UI often pass the chain tip from the graph; lookups resolve through
+        this alias to the same :class:`RunSession` keyed by ``root_run_id``.
+        """
+        alias = (alias_run_id or "").strip()
+        root = (root_run_id or "").strip()
+        if not alias or not root or alias == root:
+            return
+        self.last_access = time.time()
+        self._aliases[alias] = root
+
+    def root_for_alias(self, run_id: str) -> str | None:
+        """Return the session-root id if ``run_id`` is a known chain-tip alias."""
+        return self._aliases.get((run_id or "").strip())
+
     def get(self, run_id: str) -> RunSession | None:
         """The live session for ``run_id`` (refreshing its recency), or ``None`` when
-        it is absent or has expired — both → 回落甲 at the call site."""
+        it is absent or has expired — both → 回落甲 at the call site.
+
+        Also accepts a continuation-chain tip previously registered via
+        :meth:`link_alias` (resolves to the session root).
+        """
         self.last_access = time.time()
-        session = self._sessions.get(run_id)
+        key = run_id
+        if key not in self._sessions:
+            root = self._aliases.get(key)
+            if root is not None:
+                key = root
+        session = self._sessions.get(key)
         if session is None:
             return None
         if self._is_expired(session):
-            del self._sessions[run_id]
-            logger.info("roster.session_expired", run_id=run_id)
+            self._drop_session(key)
+            logger.info("roster.session_expired", run_id=key)
             return None
-        self._sessions.move_to_end(run_id)
+        self._sessions.move_to_end(key)
         return session
 
     def is_idle(self, ttl_seconds: float) -> bool:
@@ -109,6 +137,12 @@ class SessionStore:
     def _is_expired(self, session: RunSession) -> bool:
         return (time.time() - session.updated_at) > self._ttl
 
+    def _drop_session(self, run_id: str) -> None:
+        self._sessions.pop(run_id, None)
+        dead = [a for a, root in self._aliases.items() if root == run_id or a == run_id]
+        for a in dead:
+            del self._aliases[a]
+
     def _prune(self) -> None:
         """Drop expired sessions, then LRU-evict (oldest first) until within the
         count and byte caps. Rosters are small, so the O(n) byte recount per evicted
@@ -116,11 +150,13 @@ class SessionStore:
         now = time.time()
         expired = [rid for rid, s in self._sessions.items() if (now - s.updated_at) > self._ttl]
         for rid in expired:
-            del self._sessions[rid]
+            self._drop_session(rid)
         while len(self._sessions) > self._max_sessions:
-            self._sessions.popitem(last=False)
+            oldest, _ = next(iter(self._sessions.items()))
+            self._drop_session(oldest)
         while self._total_bytes() > self._max_bytes and len(self._sessions) > 1:
-            self._sessions.popitem(last=False)
+            oldest, _ = next(iter(self._sessions.items()))
+            self._drop_session(oldest)
 
     def _total_bytes(self) -> int:
         return sum(_session_bytes(s) for s in self._sessions.values())
@@ -143,6 +179,10 @@ class SessionStore:
                 live.append(session)
         for rid in expired:
             del self._sessions[rid]
+            # Drop aliases that pointed at the expired root (or were the expired key).
+            dead = [a for a, root in self._aliases.items() if root == rid or a == rid]
+            for a in dead:
+                del self._aliases[a]
             logger.info("roster.session_expired", run_id=rid)
         return live
 

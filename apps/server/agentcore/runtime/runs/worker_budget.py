@@ -11,6 +11,7 @@ delegate 复杂度改写等复用——与本模块的统一 token/超时 backst
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ __all__ = [
     "DIRECTED_SEARCH_DISCIPLINE",
     "DIRECTED_SEARCH_TOOL_NAMES",
     "LIGHT_REPAIR_MAX_ROUNDS",
+    "PERSIST_WRITE_TOOL_NAMES",
     "WORKER_TIMEOUT_BACKSTOP_S",
     "apply_directed_search_tools",
     "apply_directed_search_tools_to_specs",
@@ -33,6 +35,7 @@ __all__ = [
     "is_directed_search_role",
     "is_research_root",
     "is_short_write_posture",
+    "merge_persist_write_tools",
     "resolve_prose_idle_finalize_rounds",
     "should_enable_prose_idle",
     "should_enable_zero_write",
@@ -45,6 +48,17 @@ WORKER_TIMEOUT_BACKSTOP_S = 600
 # Repair / light posture: short ReAct ceiling (encoding closed-loop phase 4).
 # Distinct from contract ``light_repair`` (format-only pass inside executor_node).
 LIGHT_REPAIR_MAX_ROUNDS = 6
+
+# Minimal write set for files_expected 催写补授权 (align light-repair / wind_down persist).
+# prose withhold strips these from the registry → merge is a no-op.
+PERSIST_WRITE_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "file_write",
+        "file_append",
+        "str_replace",
+        "write_section",
+    }
+)
 
 # 审查 / 调查类 worker：定向检索工具（复用现有 grep / code_search，不新造）。
 # CEO 若手搓 least-privilege 成 ``file_list``+``file_read``，builder 会补回这些工具，
@@ -124,21 +138,48 @@ def is_short_write_posture(*, max_rounds: int | None) -> bool:
     return max_rounds is not None and max_rounds > 0
 
 
+def merge_persist_write_tools(
+    allowed: list[str] | None,
+    *,
+    registry_names: Collection[str],
+) -> list[str] | None:
+    """Explicit allowlist missing write tools → merge minimal persist write set.
+
+    ``None`` (unrestricted) unchanged. Only adds names present in ``registry_names``
+    so ``form=prose`` withhold (writes stripped from registry) stays a no-op.
+    """
+    if allowed is None:
+        return None
+    have = set(allowed)
+    extras = [
+        name
+        for name in sorted(PERSIST_WRITE_TOOL_NAMES)
+        if name in registry_names and name not in have
+    ]
+    if not extras:
+        return allowed
+    return [*allowed, *extras]
+
+
 def should_enable_zero_write(
     *,
     files_expected: bool,
     short_write_posture: bool | None = None,
     max_rounds: int | None = None,
+    form_prose: bool = False,
 ) -> bool:
-    """Gate for zero-write thrashing: files landing expected AND short-write posture.
+    """Files zero-write催写 — **retired** (always off).
 
-    Pass either ``short_write_posture`` or ``max_rounds`` (stamped light/repair budget).
-    Standard + files large-repo workers keep zero_write off; they still rely on
-    convergence_spin / max_rounds / contract. Do not widen with recon exemptions.
+    Product: do not nudge/finalize solely because landing files are still zero
+    after N investigation rounds (standard or short/light). Delivery pressure
+    stays on round/token ceilings + user stop; ``files_expected`` write_pass still
+    **grants** persist tools when needed (seam B via :func:`merge_persist_write_tools`).
+
+    Call-site kwargs retained for compatibility. Prose short idle uses
+    :func:`should_enable_prose_idle` + the shared ``zero_write_*`` counter, not this gate.
     """
-    if short_write_posture is None:
-        short_write_posture = is_short_write_posture(max_rounds=max_rounds)
-    return bool(files_expected and short_write_posture)
+    _ = (files_expected, short_write_posture, max_rounds, form_prose)
+    return False
 
 
 def should_enable_prose_idle(
@@ -186,8 +227,8 @@ def should_tighten_verify_exec_thrash(
     Applies when the worker is short-budget (light / repair_code stamped max_rounds),
     holds execution tools, and is **not** a files-landing node (verify / diagnose
     prose). Reuses LoopController repeated-failure / circuit-breaker / unproductive
-    paths — does **not** add a parallel fuse. Files short-write nodes keep zero_write
-    instead.
+    paths — does **not** add a parallel fuse. Files short-write nodes no longer use
+    zero-write催写 (retired); they still skip this verify tighten path.
     """
     return bool(
         short_write_posture and has_execution_tools and not files_expected

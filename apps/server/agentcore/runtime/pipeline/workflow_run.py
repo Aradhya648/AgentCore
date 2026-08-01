@@ -185,7 +185,7 @@ async def run_workflow_pipeline(
             "cached": 0,
             "output": 0,
             "total": 0,
-            "currency": "USD",
+            "currency": "CNY",
             "pricing_source": "curated",
             "credential_source": "platform",
         }

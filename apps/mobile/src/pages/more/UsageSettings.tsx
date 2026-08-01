@@ -2,17 +2,16 @@ import { type UsageSummary, getUsageSummary } from "@/api/usage";
 // 用量 (/more/usage) — the account spend dashboard (mirrors desktop UsageSettings).
 //
 // Leads with quota meters (or a BYOK note when the user runs on their own key), then
-// this month's cost and a 7-day trend. Money is formatted from the summary's single
-// server-owned FX rate (cny_per_usd) — the client never re-prices. The desktop's
-// global「用量明细」Power toggle lives in a UI store there; mobile shows the core
-// figures inline.
+// this month's cost and a 7-day trend. Money is nano-CNY → ¥（`nano/1e9`，无汇率）.
+// The desktop's global「用量明细」Power toggle lives in a UI store there; mobile shows
+// the core figures inline.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "@/pages/more/more.css";
 
-function cny(nanoUsd: number, rate: number, estimated = false): string {
-  if (nanoUsd <= 0) return "—";
-  const yuan = (nanoUsd / 1e9) * rate;
+function cny(nanoCny: number, estimated = false): string {
+  if (nanoCny <= 0) return "—";
+  const yuan = nanoCny / 1e9;
   const body = yuan < 0.01 ? "<¥0.01" : `¥${yuan.toFixed(2)}`;
   return estimated ? `≈${body}` : body;
 }
@@ -85,13 +84,12 @@ export function UsageSettings() {
 }
 
 function Dashboard({ summary }: { summary: UsageSummary }) {
-  const rate = summary.cny_per_usd;
   const byok = summary.billing_mode === "byok";
   const { today, month, quota } = summary;
   const monthLimit = quota.monthly_cost_nano;
   const monthUsed = month.cost.total;
   // 单日成本 backstop (成本配额与计费 §〇·六 F2) — 与桌面同语义：仅在配了日成本上限时画，
-  // 0 = 不限不画。平台翻转后才会 >0（byok/免费档留 0）。
+  // 0 = 不限不画。platform 代付才会 >0（byok 留 0）。
   const dayCostLimit = quota.daily_cost_nano;
   const dayCostUsed = today.cost.total;
   const todayEst = today.estimated_cost?.total ?? 0;
@@ -112,8 +110,8 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
             limit={monthLimit}
             caption={
               monthLimit > 0
-                ? `已用 ${cny(monthUsed, rate)} / ${cny(monthLimit, rate)}`
-                : `已用 ${cny(monthUsed, rate)} · 不限`
+                ? `已用 ${cny(monthUsed)} / ${cny(monthLimit)}`
+                : `已用 ${cny(monthUsed)} · 不限`
             }
           />
           {dayCostLimit > 0 && (
@@ -121,7 +119,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
               label="今日额度"
               used={dayCostUsed}
               limit={dayCostLimit}
-              caption={`已用 ${cny(dayCostUsed, rate)} / ${cny(dayCostLimit, rate)}`}
+              caption={`已用 ${cny(dayCostUsed)} / ${cny(dayCostLimit)}`}
             />
           )}
         </>
@@ -134,9 +132,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
             <>
               <div className="payroll-row" style={{ padding: 0 }}>
                 <span>本月</span>
-                <span className="payroll-cost">
-                  {cny(month.cost.total, rate)}
-                </span>
+                <span className="payroll-cost">{cny(month.cost.total)}</span>
               </div>
               <div
                 className="payroll-row"
@@ -147,9 +143,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
                 }}
               >
                 <span>今日</span>
-                <span className="payroll-cost">
-                  {cny(today.cost.total, rate)}
-                </span>
+                <span className="payroll-cost">{cny(today.cost.total)}</span>
               </div>
             </>
           )}
@@ -194,9 +188,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
                 }}
               >
                 <span>今日估算</span>
-                <span className="payroll-cost">
-                  {cny(todayEst, rate, true)}
-                </span>
+                <span className="payroll-cost">{cny(todayEst, true)}</span>
               </div>
               <div
                 className="payroll-row"
@@ -207,9 +199,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
                 }}
               >
                 <span>本月估算</span>
-                <span className="payroll-cost">
-                  {cny(monthEst, rate, true)}
-                </span>
+                <span className="payroll-cost">{cny(monthEst, true)}</span>
               </div>
             </>
           )}
@@ -217,7 +207,7 @@ function Dashboard({ summary }: { summary: UsageSummary }) {
       </div>
 
       {summary.recent_daily_cost.some((p) => p.cost_total > 0) && !byok && (
-        <CostTrend points={summary.recent_daily_cost} rate={rate} />
+        <CostTrend points={summary.recent_daily_cost} />
       )}
     </>
   );
@@ -265,10 +255,8 @@ function weekday(isoDate: string): string {
 
 function CostTrend({
   points,
-  rate,
 }: {
   points: UsageSummary["recent_daily_cost"];
-  rate: number;
 }) {
   const max = points.reduce((m, p) => Math.max(m, p.cost_total), 0);
   const total = points.reduce((s, p) => s + p.cost_total, 0);
@@ -282,7 +270,7 @@ function CostTrend({
         }}
       >
         <h2 className="section-title">近 7 日成本</h2>
-        <span className="meter-cap">合计 {cny(total, rate)}</span>
+        <span className="meter-cap">合计 {cny(total)}</span>
       </div>
       <div
         style={{

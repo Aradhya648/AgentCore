@@ -179,10 +179,7 @@ async def _default_chat_provider_row(
     profile walk. Prefer ``resolve_account_default_model`` for turn selection.
     """
     from agentcore.db.repositories import UserLlmProviderRepository, UserRepository
-    from agentcore.llm.model_profiles import (
-        SYSTEM_PRESETS,
-        is_system_profile_id,
-    )
+    from agentcore.llm.model_profiles import is_system_profile_id
 
     repo = UserLlmProviderRepository(session)
     if user is None:
@@ -200,7 +197,7 @@ async def _default_chat_provider_row(
             row = await repo.get(row_prof.main_provider_id, user_id=user_id)
             if row is not None:
                 return row
-    elif profile_id in SYSTEM_PRESETS:
+    elif profile_id and is_system_profile_id(profile_id):
         # System presets are platform-origin; no BYOK default row.
         return await repo.first_for_user(user_id)
     return await repo.first_for_user(user_id)
@@ -264,7 +261,7 @@ async def resolve_user_llm_credentials(
 async def resolve_account_default_model(
     session: AsyncSession, user_id: str
 ) -> ModelSelection:
-    """Account default main slot (default profile / system 5.2 preset)."""
+    """Account default main slot (default profile / system glm-5.2 preset)."""
     from agentcore.llm.model_profiles import LlmModelProfileService
 
     expanded = await LlmModelProfileService(session).expand(user_id, None)
@@ -279,7 +276,7 @@ async def resolve_conversation_model_selection(
     """Resolve main model + origin + provider for a user-facing turn (profile expand).
 
     ``conversations.model_profile_id`` when set; else account ``default_model_profile_id``;
-    else system 5.2 preset. Live expand — dangling provider pins fall back silently.
+    else system glm-5.2 preset. Live expand — dangling provider pins fall back silently.
     """
     from agentcore.llm.model_profiles import LlmModelProfileService
 

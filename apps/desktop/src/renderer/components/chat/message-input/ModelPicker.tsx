@@ -4,6 +4,7 @@ import {
   useConversations,
 } from "@/hooks/useConversations";
 import { useLlmModelProfiles } from "@/hooks/useLlmModelProfiles";
+import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
 import { notifyError, notifySuccess } from "@/lib/toast";
 import { setConversationModelProfile } from "@/services/conversations";
@@ -118,6 +119,8 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
     refetch,
   } = useLlmModelProfiles();
   const { data: catalog } = useModels();
+  const { data: providers } = useLlmProviders();
+  const platformAvailable = providers?.platform_available === true;
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
@@ -307,16 +310,22 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
             ) : visibleProfiles.length === 0 ? (
               <div className="px-2.5 py-4 text-xs text-muted-foreground">
                 <p>暂无可用组合</p>
-                <p className="mt-1">
-                  请先{" "}
-                  <Link
-                    to="/more/providers"
-                    onClick={() => setOpen(false)}
-                    className="text-primary underline-offset-2 hover:underline"
-                  >
-                    接入服务商
-                  </Link>
-                </p>
+                {platformAvailable ? (
+                  <p className="mt-1">
+                    平台额度暂不可用，请联系管理员或稍后重试。
+                  </p>
+                ) : (
+                  <p className="mt-1">
+                    请先{" "}
+                    <Link
+                      to="/more/providers"
+                      onClick={() => setOpen(false)}
+                      className="text-primary underline-offset-2 hover:underline"
+                    >
+                      接入服务商
+                    </Link>
+                  </p>
+                )}
               </div>
             ) : (
               <>

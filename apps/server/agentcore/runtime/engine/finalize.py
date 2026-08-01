@@ -93,9 +93,16 @@ async def run_finalize_round(
     on_reset: Callable[[str], None] | None = None,
     prior_deliverable: str = "",
     outstanding_tool_failures: list | None = None,
+    files_expected: bool = False,
+    form_prose: bool = False,
 ) -> FinalizeRoundResult:
     """One finalize LLM round: coordination (+ persist when files), or tool-free."""
-    persist = finalize_allows_persist(tools, allowed_tool_names)
+    persist = finalize_allows_persist(
+        tools,
+        allowed_tool_names,
+        files_expected=files_expected,
+        form_prose=form_prose,
+    )
     if inject_instruction:
         _inject_finalize_instructions(
             messages,
@@ -114,7 +121,13 @@ async def run_finalize_round(
         )
 
         ensure_coordination_surface_before_llm(tools)
-        tool_defs = resolve_finalize_coordination_tools(tools, allowed_tool_names, disabled_tools)
+        tool_defs = resolve_finalize_coordination_tools(
+            tools,
+            allowed_tool_names,
+            disabled_tools,
+            files_expected=files_expected,
+            form_prose=form_prose,
+        )
         tool_choice = "auto" if tool_defs else "none"
 
     request = build_request(
@@ -209,6 +222,8 @@ async def force_finalize(
     run_id: str = "",
     on_reset: Callable[[str], None] | None = None,
     outstanding_tool_failures: list | None = None,
+    files_expected: bool = False,
+    form_prose: bool = False,
 ) -> tuple[str, str, TokenUsage, int, FinalizeRoundResult | None]:
     """Attempt a coordination-tool finalize round, then fall back to tool-free.
 
@@ -228,6 +243,13 @@ async def force_finalize(
         debrief_from_transcript,
         files_touched_from_transcript,
     )
+    from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
+
+    # files_expected催写：显式名单缺写盘时并入最小写盘集（供 offer + execute）。
+    if files_expected and not form_prose:
+        allowed_tool_names = merge_persist_write_tools(
+            allowed_tool_names, registry_names=set(tools.names)
+        )
 
     prior_brief = debrief_from_transcript(messages)
     prior_files = files_touched_from_transcript(messages)
@@ -259,6 +281,8 @@ async def force_finalize(
             on_reset=on_reset,
             prior_deliverable=final_content,
             outstanding_tool_failures=outstanding_tool_failures,
+            files_expected=files_expected,
+            form_prose=form_prose,
         )
     except Exception as e:
         logger.error("engine.force_finalize_failed", reason=reason, error=str(e))
@@ -294,6 +318,8 @@ async def force_finalize(
             hard_tool_free=True,
             inject_instruction=False,
             on_reset=on_reset,
+            files_expected=files_expected,
+            form_prose=form_prose,
         )
     except Exception as e:
         logger.error("engine.force_finalize_hard_failed", reason=reason, error=str(e))

@@ -24,7 +24,12 @@ from agentcore.tools.builtin.browser import (
     BrowserTypeTool,
 )
 from agentcore.tools.protocol import ToolContext
-from agentcore.tools.registration import AUDIENCE_WORKER_ONLY, ToolSurface, tool_registration
+from agentcore.tools.registration import (
+    AUDIENCE_BOTH,
+    AUDIENCE_WORKER_ONLY,
+    ToolSurface,
+    tool_registration,
+)
 from agentcore.tools.sandbox.browser.netns import EGRESS_UNAVAILABLE_CODE
 from agentcore.tools.sandbox.browser.protocol import (
     BrowserCommandResult,
@@ -51,9 +56,22 @@ _BROWSER_NAMES = frozenset(
 
 
 # -- governance (D11 五维) ------------------------------------------------------
-def test_all_six_tools_share_the_governance_five_dim():
+def test_navigate_is_builtin_both_narrow_exception():
+    reg = tool_registration(BrowserNavigateTool)
+    schema = BrowserNavigateTool().schema
+    assert reg.surface is ToolSurface.BUILTIN
+    assert reg.audience == AUDIENCE_BOTH
+    assert reg.execution_class is True
+    assert reg.browser_class is True
+    assert schema.approval is ToolApproval.GRANTABLE
+    assert schema.category is ToolCategory.EXECUTION
+
+
+def test_other_five_browser_tools_remain_worker_only():
     seen = set()
     for cls in BROWSER_TOOL_CLASSES:
+        if cls is BrowserNavigateTool:
+            continue
         reg = tool_registration(cls)
         schema = cls().schema
         seen.add(schema.name)
@@ -63,7 +81,22 @@ def test_all_six_tools_share_the_governance_five_dim():
         assert reg.browser_class is True
         assert schema.approval is ToolApproval.GRANTABLE
         assert schema.category is ToolCategory.EXECUTION
-    assert seen == _BROWSER_NAMES
+    assert seen == _BROWSER_NAMES - {"browser_navigate"}
+
+
+def test_ceo_registry_holds_navigate_only_when_include_browser():
+    from agentcore.tools.builtin import build_ceo_tool_registry
+
+    off = {s.name for s in build_ceo_tool_registry().list_all()}
+    assert "browser_navigate" not in off
+    assert not (_BROWSER_NAMES & off)
+
+    on = {s.name for s in build_ceo_tool_registry(include_browser=True).list_all()}
+    assert "browser_navigate" in on
+    assert (_BROWSER_NAMES & on) == {"browser_navigate"}
+    assert build_ceo_tool_registry(include_browser=True).get(
+        "browser_navigate"
+    ).schema.approval is ToolApproval.GRANTABLE
 
 
 # -- cloud / local gate --------------------------------------------------------

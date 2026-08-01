@@ -26,6 +26,7 @@ from agentcore.core.errors import (
     LLMTimeoutError,
 )
 from agentcore.core.logging import get_logger
+from agentcore.core.net import outbound_async_client
 from agentcore.llm.observability import log_llm_call
 from agentcore.llm.provider.protocol import TokenUsage
 from agentcore.vision.protocol import VisionReading
@@ -108,7 +109,7 @@ class QwenVLReader:
             "Content-Type": "application/json",
         }
         start = time.monotonic()
-        async with httpx.AsyncClient(
+        async with outbound_async_client(
             base_url=self._base_url,
             headers=headers,
             timeout=httpx.Timeout(self._timeout, connect=10.0),

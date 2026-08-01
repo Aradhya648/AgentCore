@@ -4,7 +4,7 @@ Pure and DB-free: they pin how a finished run becomes a ``cost_events`` row.
 Both a delegated member and the captain root read the price the executor already
 stamped onto their ``RunState`` (neither is re-priced — pricing happens once, in
 the executor, via :func:`calculate_cost`); these builders only reshape that priced
-state into a ledger row. Money is integer nano-USD throughout.
+state into a ledger row. Money is integer nano-CNY throughout.
 """
 
 from dataclasses import asdict
@@ -62,7 +62,7 @@ def test_member_run_cost_reads_state_without_repricing():
     assert row.cost_estimated_nano == 0
     assert row.rounds == 2
     assert row.duration_ms == 1234
-    assert row.currency == "USD"
+    assert row.currency == "CNY"
 
 
 def test_member_run_cost_defaults_agent_id_to_run_id():
@@ -126,7 +126,7 @@ def test_captain_run_cost_from_state_reads_priced_state():
     # state.cost); this builder reads that verbatim (no re-price) and stamps the
     # captain role with no parent (it is the turn's root). Build the state the way
     # the executor does — cost = the single calculate_cost — so the row must carry
-    # exactly those nano-USD.
+    # exactly those nano-CNY.
     usage = TokenUsage(
         input_tokens=2_000_000,
         output_tokens=1_000_000,
@@ -156,20 +156,19 @@ def test_captain_run_cost_from_state_reads_priced_state():
     assert row.cost["cached"] == priced.cached
     assert row.cost["output"] == priced.output
     assert row.cost["total"] == priced.total
+    # Flash CNY curated（中文定价页 ¥0.02 / ¥1 / ¥2）。
     assert row.cost["pricing_source"] == "curated"
     assert row.cost_total_nano == priced.total
-    # Concrete nano-USD (Flash tier): cache_hit 2.8e6 + cache_miss 1.4e8 = input,
-    # output 2.8e8 — pins both the split pricing and the int coercion.
-    assert row.cost["cached"] == 2_800_000
-    assert row.cost["input"] == 142_800_000
-    assert row.cost["output"] == 280_000_000
-    assert row.cost["total"] == 422_800_000
+    assert row.cost["cached"] == 20_000_000  # ¥0.02
+    assert row.cost["input"] == 20_000_000 + 1_000_000_000  # hit + miss ¥1
+    assert row.cost["output"] == 2_000_000_000  # ¥2
+    assert row.cost["total"] == 3_020_000_000
     assert row.rounds == 3
     assert row.duration_ms == 4321
-
+    assert row.currency == "CNY"
 
 def test_captain_cost_values_are_integers():
-    # Money is integer nano-USD end to end — no Decimal/float may leak out.
+    # Money is integer nano-CNY end to end — no Decimal/float may leak out.
     usage = TokenUsage(input_tokens=123, output_tokens=45, cache_miss_tokens=123)
     state = RunState(
         model=DEEPSEEK_V4_FLASH,
@@ -208,12 +207,14 @@ def test_vision_run_cost_prices_subcall_under_vision_role():
     assert row.cost["output"] == priced.output
     assert row.cost["total"] == priced.total
     assert row.cost_total_nano == priced.total
-    # qwen-vl-max: input billed as a miss (no cache split) 1200×$0.80/1M = 960_000 nano;
-    # output 40×$3.20/1M = 128_000 — pins the price table + miss reconciliation.
+    # qwen-vl-max: no curated CNY card → community snapshot (same numeric rates);
+    # input billed as a miss (no cache split) 1200×0.80/1M = 960_000 nano;
+    # output 40×3.20/1M = 128_000.
     assert row.cost["input"] == 960_000
     assert row.cost["cached"] == 0
     assert row.cost["output"] == 128_000
     assert row.cost["total"] == 1_088_000
+    assert row.cost["pricing_source"] == "estimated"
     assert all(
         isinstance(v, int) for k, v in row.cost.items() if k in ("input", "cached", "output", "total")
     )
@@ -245,7 +246,7 @@ def test_aggregate_cost_sums_priced_rows_across_tiers():
         "tokens": {"input": 1, "output": 1, "reasoning": 0, "cache_hit": 0, "cache_miss": 1},
         "cost": {"input": 100, "cached": 0, "output": 200, "total": 300},
         "cost_total_nano": 300,
-        "currency": "USD",
+        "currency": "CNY",
         "rounds": 1,
         "duration_ms": 5,
     }
@@ -258,7 +259,7 @@ def test_aggregate_cost_sums_priced_rows_across_tiers():
     # Total mirrors the redundant scalar the account-window SUM runs on.
     assert agg["total"] == captain["cost_total_nano"] + 300
     assert agg["total"] == agg["input"] + agg["output"]
-    assert agg["currency"] == "USD"
+    assert agg["currency"] == "CNY"
 
 
 def test_aggregate_cost_empty_is_zero():
@@ -270,7 +271,7 @@ def test_aggregate_cost_empty_is_zero():
         "output": 0,
         "total": 0,
         "estimated_total": 0,
-        "currency": "USD",
+        "currency": "CNY",
         "pricing_source": "curated",
     }
 

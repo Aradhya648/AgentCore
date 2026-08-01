@@ -22,10 +22,10 @@ from agentcore.llm.provider_service import LlmProviderService
 from tests.integration.conftest import register_and_login
 
 _MASTER_KEY = "a" * 64
-# Above the platform monthly cap (quota_monthly_cost_usd ≈ $138.89 → ≈¥1000) — and
-# also above the ≈$13.89 单日成本 backstop, so a fresh over-quota turn is refused
+# Above the platform monthly cap (quota_monthly_cost_cny = ¥10) — and
+# also above the ¥10 单日成本 backstop, so a fresh over-quota turn is refused
 # whichever cost window trips first (both raise QUOTA_EXCEEDED).
-_OVER_MONTHLY_NANO = 200_000_000_000
+_OVER_MONTHLY_NANO = 20_000_000_000
 _REWRITE_PATH = "/v1/files/assist/rewrite"
 _VALID_BODY = {"selection": "今天天气不错", "instruction": "改得更正式"}
 _REWRITTEN = "改写后的文本"

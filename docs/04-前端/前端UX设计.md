@@ -33,7 +33,7 @@ skip_if:
 
 **全局协作感知**：列表状态点（执行中脉动 / 「等你决策」光环）；跨对话完成 Toast + 原生通知。`finish_reason=paused` ≠ 完成。→ `teamActivityNotifications.ts`。
 
-**产品公告**（运营 Notice，≠ 群公告 / ≠ 站立收件箱）：顶栏 Banner（同时 ≤1，紧急/维护）+ 消息页「AgentCore 官方」只读会话回看；Banner 软轮询；inbox 走 IM 未读。More「公告」已撤（`#/more/notices` → 官方会话）。契约 → [管理员后台 · 产品公告](/docs/05-平台与运维/管理员后台.md#产品公告全局-notice)、[消息 IM](/docs/05-平台与运维/消息IM.md)。→ `ProductNoticeBanner`、`stores/productNotices.ts`、MessagesPage 官方号。
+**产品公告**（运营 Notice，≠ 群公告 / ≠ 站立收件箱）：顶栏 Banner（同时 ≤1，紧急/维护）+ 登录后一次性弹窗（`surface=modal`，关即 dismiss）+ 消息页「AgentCore 官方」只读会话回看；Banner/Modal 软轮询；inbox 走 IM 未读。More「公告」已撤（`#/more/notices` → 官方会话）。契约 → [管理员后台 · 产品公告](/docs/05-平台与运维/管理员后台.md#产品公告全局-notice)、[消息 IM](/docs/05-平台与运维/消息IM.md)。→ `ProductNoticeBanner`、`ProductNoticeModal`、`stores/productNotices.ts`、MessagesPage 官方号。
 
 **团队展示**：多 Agent 走内联 `ProcessTimeline`，协作图嵌在 `delegate`/`debate` 步；单 Agent / 开工挂起零 run **不出图**。形态分工 → [协作图 UX](/docs/04-前端/协作图与双视图UX.md)。
 
@@ -53,7 +53,7 @@ skip_if:
 
 ## 十、详情面板（右坞）
 
-单一 `SidePanel`（对话/画布右坞）。高亮同源 sidePanel。**否决**覆盖式单 tab、独立 reasoning Tab、并排双右坞、把白板塞进右坞、顶栏全局命令板（首期）。委派：单一 GraphView + 单一 `AgentRun` 模型。诊断模式 ⊥ 用量呈现。→ `stores/sidePanel.ts`、`RunDetailBody.tsx`。
+单一 `SidePanel`（对话/画布右坞）。高亮同源 sidePanel。**否决**覆盖式单 tab、独立 reasoning Tab、并排双右坞、把白板塞进右坞、顶栏全局命令板（首期）。委派：单一 GraphView + 单一 `AgentRun` 模型。诊断模式 ⊥ 用量呈现。run 详情时间线：进行中贴底跟随（同主对话 stick 语义，上滑脱钩 +「回到底部」）；回看已结束 run 打开置顶。→ `stores/sidePanel.ts`、`RunDetailScroll.tsx` / `RunDetailBody.tsx`。
 
 **右坞 IA**：顶栏 = `[工作区*] [改动?] | 内容 tabs | [+]`（工作区固定不可关；**改动按本对话有无 AI 文件改动条件出现**，出现后位次第二、不可关）。内容 tab 多开并存、只存引用；可关 tab 上限 **12**（固定/条件固定不计）。`+` 菜单：文件 / 终端 / 浏览器（**文件**可多开顶栏 tab；**终端 / 浏览器**各一壳，多会话/页签在壳内管理）。**浏览器** = 统一 BrowserSession 壳（可新空白页+地址栏；非「等 AI 才亮」）；产物完整预览并入同壳（桌面 workspace 协议；**否决**平行「预览」tab）。**否决**「团队浏览器 vs 通用浏览器」双入口。画布态另出「指挥台」（条件固定，不进 `+`）。工作区 tab 内保留文件树 + 项目·本地/云端 chip + 新建文件/文件夹等工具栏；点文件开顶栏 File tab（不 swap 掉树）。
 

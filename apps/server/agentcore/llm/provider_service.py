@@ -14,7 +14,6 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.billing.preference import (
-    is_free_tier_active,
     platform_catalog_visible,
 )
 from agentcore.config import settings
@@ -66,7 +65,6 @@ class LlmProvidersView:
     billing_mode: str = "byok"
     platform_available: bool = False
     platform_model: str | None = None
-    free_tier_active: bool = False
 
 
 def _mask_key_ciphertext(enc: KeyEncryptor | None, api_key_enc: bytes) -> str | None:
@@ -129,7 +127,6 @@ class LlmProviderService:
         rows = await self._repo.list_for_user(user_id)
         providers = [self._view(row, enc=enc) for row in rows]
         platform_available = platform_catalog_visible()
-        free_tier = is_free_tier_active(has_user_key=len(rows) > 0)
         return LlmProvidersView(
             providers=providers,
             default_model_profile_id=(
@@ -138,7 +135,6 @@ class LlmProviderService:
             billing_mode=settings.billing_mode,
             platform_available=platform_available,
             platform_model=settings.platform_model if platform_available else None,
-            free_tier_active=free_tier,
         )
 
     async def create_provider(

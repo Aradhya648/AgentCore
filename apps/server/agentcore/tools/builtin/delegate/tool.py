@@ -489,43 +489,33 @@ class DelegateTool:
                 contract_failure=True,
             )
         if append_to and append_to.lower() == "latest":
-            from agentcore.runtime.delegate.graph_append import (
-                resolve_latest_appendable_execution,
-            )
+            from agentcore.runtime.coordination.session import active_coordination
 
-            resolved = await resolve_latest_appendable_execution(
-                conversation_id=self._conversation_id or "",
-                exclude_message_id=self._message_id,
-            )
-            if not resolved:
-                from agentcore.runtime.coordination.session import active_coordination
-
-                active = active_coordination(self._base_tool_context.execution_id)
-                if active is not None and active.active:
-                    # 同回合已有活跃协调：误传 latest → 仍硬失败引导「勿传 latest」。
-                    msg = (
-                        "追加解析失败：本回合已有活跃协作图。同回合追加无需 "
-                        'append_to_execution_id="latest"——直接再调 delegate（不传该参数）'
-                        "即会自动并入当前协作图（同一 execution_id / 同一协调会话）。"
-                        "向用户汇报时说「已往当前团队追加」，不要说成新组建团队。"
-                    )
-                    return ToolResult(
-                        tool_call_id="",
-                        success=False,
-                        output="",
-                        error=msg,
-                        contract_failure=True,
-                    )
-                # 无图可追加：自动降级为不带 append 新建（勿 success=False 空转）。
-                latest_miss_degraded_note = (
-                    '【latest 未命中·已自动新建】append_to_execution_id="latest" '
-                    "未解析到可追加协作图（旧图已收口或本对话尚无图）；"
-                    "已自动不带 append 新开团队。"
-                    "向用户如实告知：本次是新组建团队、未在旧图上追加。"
-                )
+            # 同回合已有活跃协调图：latest ≡ 不传（自动并入当前图），禁止硬失败。
+            # 跨回合 / 无同回合活跃图时仍走历史 multi_agent 解析（exclude 本 turn）。
+            active = active_coordination(self._base_tool_context.execution_id)
+            if active is not None and active.active:
                 append_to = None
             else:
-                append_to = resolved
+                from agentcore.runtime.delegate.graph_append import (
+                    resolve_latest_appendable_execution,
+                )
+
+                resolved = await resolve_latest_appendable_execution(
+                    conversation_id=self._conversation_id or "",
+                    exclude_message_id=self._message_id,
+                )
+                if not resolved:
+                    # 无图可追加：自动降级为不带 append 新建（勿 success=False 空转）。
+                    latest_miss_degraded_note = (
+                        '【latest 未命中·已自动新建】append_to_execution_id="latest" '
+                        "未解析到可追加协作图（旧图已收口或本对话尚无图）；"
+                        "已自动不带 append 新开团队。"
+                        "向用户如实告知：本次是新组建团队、未在旧图上追加。"
+                    )
+                    append_to = None
+                else:
+                    append_to = resolved
         if append_to:
             from agentcore.runtime.delegate.graph_append import (
                 load_host_plan_and_completed,
@@ -735,8 +725,16 @@ class DelegateTool:
         # 冷启动探索未完成：探路队须 ≥2 worker（form/artifacts 与写盘闸正交；
         # worker write_scope=explore_memory 在写工具层限制路径）。旗标在 assemble
         # 置位、画像写入成功后清除。
+        # code_verified / repair_code：用户定案「真正改代码时放行」——跳过探路队形
+        # 闸，并立刻放开写工程（摸底笔记闸仅约束非修码批）。
         explore_pending = bool(self._base_tool_context.cold_start_explore_pending)
-        if explore_pending:
+        if explore_pending and code_verified_batch:
+            self._base_tool_context.write_scope = "project"
+            logger.info(
+                "delegate.code_fix_write_scope_lifted",
+                playbook=playbook_early if isinstance(playbook_early, str) else None,
+            )
+        if explore_pending and not code_verified_batch:
             explore_form_err = validate_cold_start_explore_deliverables(
                 plan,
                 explicit_criteria=completion_criteria,
@@ -788,7 +786,7 @@ class DelegateTool:
         resolved_acceptance = resolve_completion_with_source(
             completion_criteria,
             plan,
-            suppress_structured_files_written=explore_pending,
+            suppress_structured_files_written=explore_pending and not code_verified_batch,
         )
         acceptance_echo = format_resolved_acceptance_echo(resolved_acceptance)
         capability_error = validate_execution_capability(

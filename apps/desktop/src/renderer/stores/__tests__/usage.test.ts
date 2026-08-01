@@ -16,7 +16,7 @@ const summaryBody = {
       cached: 0,
       output: 0,
       total: 0,
-      currency: "USD",
+      currency: "CNY",
       cny_total: 0,
     },
     requests: 0,
@@ -28,7 +28,7 @@ const summaryBody = {
       cached: 0,
       output: 0,
       total: 0,
-      currency: "USD",
+      currency: "CNY",
       cny_total: 0,
     },
     requests: 0,
@@ -39,7 +39,8 @@ const summaryBody = {
     daily_cost_nano: 0,
     daily_requests: 200,
   },
-  cny_per_usd: 7.5,
+  billing_mode: "platform",
+  recent_daily_cost: [],
 };
 
 const turnBody = {
@@ -56,7 +57,7 @@ const turnBody = {
     cached: 0,
     output: 14,
     total: 28,
-    currency: "USD",
+    currency: "CNY",
     cny_total: 0,
   },
   rounds: 1,
@@ -65,7 +66,6 @@ const turnBody = {
 
 beforeEach(() => {
   useUsageStore.setState({
-    cnyPerUsd: 7.2,
     summary: null,
     loading: false,
     error: null,
@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe("fetchSummary", () => {
-  it("stores the summary and adopts its FX rate (single source)", async () => {
+  it("stores the summary on success", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve(json(summaryBody))),
@@ -87,12 +87,11 @@ describe("fetchSummary", () => {
     await useUsageStore.getState().fetchSummary();
 
     const s = useUsageStore.getState();
-    expect(s.cnyPerUsd).toBe(7.5);
     expect(s.summary?.quota.daily_tokens).toBe(2_000_000);
     expect(s.error).toBeNull();
   });
 
-  it("keeps the default rate and sets a soft error on failure", async () => {
+  it("sets a soft error on failure", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.reject(new TypeError("offline"))),
@@ -101,7 +100,6 @@ describe("fetchSummary", () => {
     await useUsageStore.getState().fetchSummary();
 
     const s = useUsageStore.getState();
-    expect(s.cnyPerUsd).toBe(7.2);
     expect(s.summary).toBeNull();
     expect(s.error).not.toBeNull();
   });

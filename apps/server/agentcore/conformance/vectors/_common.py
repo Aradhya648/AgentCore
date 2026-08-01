@@ -6,7 +6,7 @@ _CONV = "conv_demo"
 
 _USAGE = {"input": 1200, "output": 300, "reasoning": 120, "cache_hit": 800, "cache_miss": 400}
 
-_COST = {"input": 240_000, "cached": 64_000, "output": 120_000, "total": 360_000, "currency": "USD"}
+_COST = {"input": 240_000, "cached": 64_000, "output": 120_000, "total": 360_000, "currency": "CNY"}
 
 def _ctx_block(
     channel: str,

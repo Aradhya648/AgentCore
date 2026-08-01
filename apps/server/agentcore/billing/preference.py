@@ -1,4 +1,4 @@
-"""Deployment-level billing helpers (platform availability, free tier)."""
+"""Deployment-level billing helpers (platform availability)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def platform_model_allowlist() -> list[str]:
 
     Parses the comma-separated ``PLATFORM_MODELS`` env into an ordered, de-duped id
     list. Empty ⇒ ``[]`` and the catalog falls back to ``platform_model`` (+ background
-    model) — keeping byok / free-tier deployments unchanged (asset dormancy).
+    model).
     """
     raw = settings.platform_models or ""
     seen: set[str] = set()
@@ -37,39 +37,24 @@ def platform_model_allowlist() -> list[str]:
     return ordered
 
 
-def is_free_tier_enabled() -> bool:
-    """Deployment switch for keyless → platform-paid free tier fallback."""
-    return bool(settings.platform_free_tier_enabled)
-
-
-def is_free_tier_active(*, has_user_key: bool) -> bool:
-    """Whether this user currently rides the free tier (signal for llm-key status).
-
-    True iff: no BYOK key ∧ free tier switch on ∧ platform credentials available.
-    """
-    return (not has_user_key) and is_free_tier_enabled() and is_platform_available()
-
-
 def platform_billing_selectable() -> bool:
     """Whether platform-billed model rows are selectable at all (代付总闸).
 
-    Platform deployments always are; BYOK deployments only when the free tier is
-    on. A BYOK deployment with the free tier off means the operator does not
-    subsidize any calls — platform rows are then withheld from the catalog, a
-    stored platform override silently falls back to the account default, and the
-    billing gate refuses keyless platform-origin turns with 402 (guide to BYOK).
-    Credential availability is a separate check (see :func:`platform_catalog_visible`).
+    Only ``billing_mode=platform`` opens the gate. BYOK deployments do not subsidize
+    calls — platform rows are withheld, a stored platform override falls back to the
+    account default, and the billing gate refuses keyless platform-origin turns with
+    402 (guide to BYOK). Credential availability is a separate check (see
+    :func:`platform_catalog_visible`).
     """
-    return settings.billing_mode == "platform" or is_free_tier_enabled()
+    return settings.billing_mode == "platform"
 
 
 def platform_catalog_visible() -> bool:
     """Single gate for platform catalog / presets / providers signal / paid paths.
 
     ``platform_billing_selectable() ∧ is_platform_available()``. When false
-    (BYOK dormancy with free tier off, or missing credentials), system presets
-    hide, catalog has no platform rows, providers report platform unavailable,
-    and background chrome must not spend on the platform key — even if
-    ``PLATFORM_API_KEY`` is still configured.
+    (BYOK deployment, or missing credentials), system presets hide, catalog has no
+    platform rows, providers report platform unavailable, and background chrome must
+    not spend on the platform key — even if ``PLATFORM_API_KEY`` is still configured.
     """
     return platform_billing_selectable() and is_platform_available()

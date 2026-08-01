@@ -187,8 +187,7 @@ async def assemble_ceo_turn(
             evaluate_explore_fingerprint_drift,
             project_profile_explore_reason,
             resolve_folder_workspace_key,
-            user_named_explore_refresh,
-            user_named_project_work,
+            resolve_hard_explore_reason,
         )
 
         mem_store = run_mod.default_memory_store()
@@ -199,13 +198,10 @@ async def assemble_ceo_turn(
             folder_id,
             current_workspace_key=current_key,
         )
-        # Named refresh hard gate (点名硬闸): allow-list phrases only; same pending as empty/rebind.
-        if not explore_reason and user_named_explore_refresh(user_message):
-            explore_reason = "refresh"
-        # Empty profile: soft hint only unless user named project work (硬挡允许表).
-        if explore_reason == "empty" and not user_named_project_work(user_message):
-            explore_reason = None
-            project_profile_empty_soft = True
+        explore_reason, project_profile_empty_soft = resolve_hard_explore_reason(
+            explore_reason,
+            user_message,
+        )
         # R2 soft hint + R1 background refresh: fingerprint drift never blocks.
         if not explore_reason:
             live_fp = await compute_workspace_explore_fingerprint(backend)

@@ -46,6 +46,7 @@ from .documents import DocumentRepository
 from .external_grants import ExternalGrantRepository
 from .feedback import FeedbackRepository
 from .folders import FolderRepository
+from .friends import FriendRepository
 from .llm_profiles import LlmModelProfileRepository
 from .memory_updates import MemoryUpdateRepository
 from .messages import MessageRepository
@@ -105,6 +106,7 @@ __all__ = [
     "TurnStreamStateRepository",
     "UserBlockRepository",
     "UserDirectoryRepository",
+    "FriendRepository",
     "UserLlmProviderRepository",
     "UserRepository",
     "UserWorkflowRepository",

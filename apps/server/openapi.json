@@ -173,10 +173,21 @@
             },
             "title": "Inbox",
             "type": "array"
+          },
+          "modal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActiveNotice"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "banner",
+          "modal",
           "inbox"
         ],
         "title": "ActiveNoticesResponse",
@@ -361,7 +372,7 @@
         "type": "object"
       },
       "AdminConversationListItem": {
-        "description": "One row in the platform-wide 对话 roster (``GET /v1/admin/conversations``).\n\nCross-user conversation index for ops: owner identity, housekeeping flags,\nmessage/turn/error rollups, and all-time spend (nano-USD). Soft-deleted\nconversations and tombstone owners are surfaced when requested — the client\nfolds ``cny_per_usd`` for ¥. Drill into 会话复盘 by ``id``.",
+        "description": "One row in the platform-wide 对话 roster (``GET /v1/admin/conversations``).\n\nCross-user conversation index for ops: owner identity, housekeeping flags,\nmessage/turn/error rollups, and all-time spend (nano-CNY). Soft-deleted\nconversations and tombstone owners are surfaced when requested. Clients format\n¥ as ``cost_total / 1e9``. Drill into 会话复盘 by ``id``.",
         "properties": {
           "archived": {
             "title": "Archived",
@@ -489,10 +500,6 @@
       "AdminConversationListResponse": {
         "description": "Paginated platform conversation roster (admin-only).",
         "properties": {
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
-          },
           "data": {
             "items": {
               "$ref": "#/components/schemas/AdminConversationListItem"
@@ -517,8 +524,7 @@
           "data",
           "total",
           "page",
-          "page_size",
-          "cny_per_usd"
+          "page_size"
         ],
         "title": "AdminConversationListResponse",
         "type": "object"
@@ -526,10 +532,6 @@
       "AdminConversationReplay": {
         "description": "One conversation's 复盘 timeline (``GET /v1/admin/observability/conversations/{id}``).\n\nMerges the three turn sources by trace_id / message_id: the message thread\n(bodies, from ``messages``), per-turn outcome/quality (``turn_metrics``), and\nper-turn spend (``cost_events``). Admin-only, cross-user — the drill-down target\nof the 观测看板's 近期错误 feed (opens a failed turn in full context).",
         "properties": {
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
-          },
           "conversation": {
             "$ref": "#/components/schemas/ReplayConversation"
           },
@@ -558,8 +560,7 @@
           "messages",
           "turns",
           "errors",
-          "cost_total",
-          "cny_per_usd"
+          "cost_total"
         ],
         "title": "AdminConversationReplay",
         "type": "object"
@@ -612,7 +613,7 @@
         "type": "object"
       },
       "AdminOverview": {
-        "description": "Landing dashboard (``GET /v1/admin/overview``, admin-only) — platform pulse.\n\nToday's vitals (active users / turn health / cost), account tallies, the 7-day\ncost + turn trends, deployment health, and the most recent errors (drillable\ninto 会话复盘). Money is integer nano-USD; the client folds ``cny_per_usd`` for ¥.",
+        "description": "Landing dashboard (``GET /v1/admin/overview``, admin-only) — platform pulse.\n\nToday's vitals (active users / turn health / cost), account tallies, the 7-day\ncost + turn trends, deployment health, and the most recent errors (drillable\ninto 会话复盘). Money is integer nano-CNY; ``CostBreakdown.cny_total`` is yuan.",
         "properties": {
           "active_users_today": {
             "title": "Active Users Today",
@@ -625,10 +626,6 @@
           "billing_mode": {
             "title": "Billing Mode",
             "type": "string"
-          },
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
           },
           "cost_today": {
             "$ref": "#/components/schemas/CostBreakdown"
@@ -681,7 +678,6 @@
           "recent_daily_turns",
           "database_ok",
           "recent_errors",
-          "cny_per_usd",
           "billing_mode"
         ],
         "title": "AdminOverview",
@@ -722,7 +718,7 @@
         "type": "object"
       },
       "AdminSystemStatus": {
-        "description": "Read-only platform status for the admin console (``GET /v1/admin/system``).\n\nA deployment sanity-check at a glance (管理员后台 P2): the billing mode + global\nquota defaults + FX rate (all deploy-time ``config``, not editable here),\ndatabase reachability, build provenance, and account tallies. Everything is\nread-only — config changes go through env + redeploy, not the console.",
+        "description": "Read-only platform status for the admin console (``GET /v1/admin/system``).\n\nA deployment sanity-check at a glance (管理员后台 P2): the billing mode + global\nquota defaults (deploy-time ``config``, not editable here), database reachability,\nbuild provenance, and account tallies. Everything is read-only — config changes\ngo through env + redeploy, not the console. API no longer ships an FX rate.",
         "properties": {
           "admins": {
             "title": "Admins",
@@ -735,10 +731,6 @@
           "built_at": {
             "title": "Built At",
             "type": "string"
-          },
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
           },
           "database_ok": {
             "title": "Database Ok",
@@ -766,7 +758,6 @@
         },
         "required": [
           "billing_mode",
-          "cny_per_usd",
           "quota",
           "database_ok",
           "version",
@@ -1011,7 +1002,7 @@
             ],
             "title": "Is Unlimited"
           },
-          "quota_daily_cost_usd": {
+          "quota_daily_cost_cny": {
             "anyOf": [
               {
                 "minimum": 0.0,
@@ -1021,7 +1012,7 @@
                 "type": "null"
               }
             ],
-            "title": "Quota Daily Cost Usd"
+            "title": "Quota Daily Cost Cny"
           },
           "quota_daily_requests": {
             "anyOf": [
@@ -1047,7 +1038,7 @@
             ],
             "title": "Quota Daily Tokens"
           },
-          "quota_monthly_cost_usd": {
+          "quota_monthly_cost_cny": {
             "anyOf": [
               {
                 "minimum": 0.0,
@@ -1057,7 +1048,7 @@
                 "type": "null"
               }
             ],
-            "title": "Quota Monthly Cost Usd"
+            "title": "Quota Monthly Cost Cny"
           },
           "role": {
             "anyOf": [
@@ -1100,10 +1091,6 @@
             "title": "Billing Mode",
             "type": "string"
           },
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
-          },
           "month": {
             "$ref": "#/components/schemas/UsageWindow"
           },
@@ -1138,14 +1125,13 @@
           "month_by_user",
           "month_by_model",
           "recent_daily_cost",
-          "cny_per_usd",
           "billing_mode"
         ],
         "title": "AdminUsageSummary",
         "type": "object"
       },
       "AdminUserCostLine": {
-        "description": "One account's spend over a window — the platform 工资单 by user (全站看板).\n\nMoney is integer nano-USD; the client formats ¥ from the summary's single\n``cny_per_usd`` (no re-pricing).",
+        "description": "One account's spend over a window — the platform 工资单 by user (全站看板).\n\nMoney is integer nano-CNY; clients format ¥ as ``cost_total / 1e9``.",
         "properties": {
           "cost_total": {
             "title": "Cost Total",
@@ -1179,7 +1165,7 @@
         "type": "object"
       },
       "AdminUserDetail": {
-        "description": "One account's drill-down (``GET /v1/admin/users/{id}/detail``, admin-only).\n\nStitches the per-user views an operator needs to understand an account: the\nfull record (``user``), the account BYOK default chat/background model names +\nprovider count (from the ``users`` pointers / ``user_llm_providers`` — never the\nAPI key), this account's usage (today/month/\ntrend/by-model — the per-user counterpart of ``AdminUsageSummary``),\nits recent conversations, and its recent turn activity (``turn_metrics``, each\ndrillable into 会话复盘). Money is integer nano-USD; the client folds the single\n``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).",
+        "description": "One account's drill-down (``GET /v1/admin/users/{id}/detail``, admin-only).\n\nStitches the per-user views an operator needs to understand an account: the\nfull record (``user``), the account BYOK default chat/background model names +\nprovider count (from the ``users`` pointers / ``user_llm_providers`` — never the\nAPI key), this account's usage (today/month/\ntrend/by-model — the per-user counterpart of ``AdminUsageSummary``),\nits recent conversations, and its recent turn activity (``turn_metrics``, each\ndrillable into 会话复盘). Money is integer nano-CNY; ``CostBreakdown.cny_total``\nis yuan. ``billing_mode`` frames cost honestly (byok = own-key spend).",
         "properties": {
           "background_model": {
             "anyOf": [
@@ -1195,10 +1181,6 @@
           "billing_mode": {
             "title": "Billing Mode",
             "type": "string"
-          },
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
           },
           "conversations": {
             "items": {
@@ -1262,14 +1244,13 @@
           "recent_daily_cost",
           "conversations",
           "recent_turns",
-          "cny_per_usd",
           "billing_mode"
         ],
         "title": "AdminUserDetail",
         "type": "object"
       },
       "AdminUserListItem": {
-        "description": "A roster row: the account record + its all-time cumulative spend.\n\nExtends the account view with ``cost_total`` (all-time, integer nano-USD) so the\n用户管理 roster can both **sort by** and **display** per-user lifetime cost without a\nsecond round-trip. The client folds the response's ``cny_per_usd`` for ¥.",
+        "description": "A roster row: the account record + its all-time cumulative spend.\n\nExtends the account view with ``cost_total`` (all-time, integer nano-CNY) so the\n用户管理 roster can both **sort by** and **display** per-user lifetime cost without a\nsecond round-trip. Clients format ¥ as ``cost_total / 1e9``.",
         "properties": {
           "cost_total": {
             "title": "Cost Total",
@@ -1315,7 +1296,7 @@
             "title": "Is Unlimited",
             "type": "boolean"
           },
-          "quota_daily_cost_usd": {
+          "quota_daily_cost_cny": {
             "anyOf": [
               {
                 "type": "number"
@@ -1324,7 +1305,7 @@
                 "type": "null"
               }
             ],
-            "title": "Quota Daily Cost Usd"
+            "title": "Quota Daily Cost Cny"
           },
           "quota_daily_requests": {
             "anyOf": [
@@ -1348,7 +1329,7 @@
             ],
             "title": "Quota Daily Tokens"
           },
-          "quota_monthly_cost_usd": {
+          "quota_monthly_cost_cny": {
             "anyOf": [
               {
                 "type": "number"
@@ -1357,7 +1338,7 @@
                 "type": "null"
               }
             ],
-            "title": "Quota Monthly Cost Usd"
+            "title": "Quota Monthly Cost Cny"
           },
           "role": {
             "enum": [
@@ -1389,8 +1370,8 @@
           "status",
           "is_unlimited",
           "quota_daily_tokens",
-          "quota_monthly_cost_usd",
-          "quota_daily_cost_usd",
+          "quota_monthly_cost_cny",
+          "quota_daily_cost_cny",
           "quota_daily_requests",
           "created_at",
           "deleted_at",
@@ -1401,10 +1382,6 @@
       },
       "AdminUserListResponse": {
         "properties": {
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
-          },
           "data": {
             "items": {
               "$ref": "#/components/schemas/AdminUserListItem"
@@ -1429,8 +1406,7 @@
           "data",
           "total",
           "page",
-          "page_size",
-          "cny_per_usd"
+          "page_size"
         ],
         "title": "AdminUserListResponse",
         "type": "object"
@@ -1478,7 +1454,7 @@
             "title": "Is Unlimited",
             "type": "boolean"
           },
-          "quota_daily_cost_usd": {
+          "quota_daily_cost_cny": {
             "anyOf": [
               {
                 "type": "number"
@@ -1487,7 +1463,7 @@
                 "type": "null"
               }
             ],
-            "title": "Quota Daily Cost Usd"
+            "title": "Quota Daily Cost Cny"
           },
           "quota_daily_requests": {
             "anyOf": [
@@ -1511,7 +1487,7 @@
             ],
             "title": "Quota Daily Tokens"
           },
-          "quota_monthly_cost_usd": {
+          "quota_monthly_cost_cny": {
             "anyOf": [
               {
                 "type": "number"
@@ -1520,7 +1496,7 @@
                 "type": "null"
               }
             ],
-            "title": "Quota Monthly Cost Usd"
+            "title": "Quota Monthly Cost Cny"
           },
           "role": {
             "enum": [
@@ -1552,8 +1528,8 @@
           "status",
           "is_unlimited",
           "quota_daily_tokens",
-          "quota_monthly_cost_usd",
-          "quota_daily_cost_usd",
+          "quota_monthly_cost_cny",
+          "quota_daily_cost_cny",
           "quota_daily_requests",
           "created_at",
           "deleted_at"
@@ -3970,7 +3946,7 @@
         "type": "object"
       },
       "CostBreakdown": {
-        "description": "A run's / turn's / window's cost in integer nano-USD (canonical).",
+        "description": "A run's / turn's / window's cost in integer nano-CNY (canonical).",
         "properties": {
           "cached": {
             "title": "Cached",
@@ -3981,7 +3957,7 @@
             "type": "number"
           },
           "currency": {
-            "default": "USD",
+            "default": "CNY",
             "title": "Currency",
             "type": "string"
           },
@@ -4218,6 +4194,33 @@
         "title": "CreateFolderRequest",
         "type": "object"
       },
+      "CreateFriendRequestBody": {
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "user_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "CreateFriendRequestBody",
+        "type": "object"
+      },
       "CreateInviteRequest": {
         "properties": {
           "expires_in_days": {
@@ -4301,7 +4304,7 @@
             ],
             "description": "OpenAI-compatible endpoint including version prefix",
             "examples": [
-              "https://jiurelay.com/openai/v1"
+              "https://tokenrhythm.studio/v1"
             ],
             "title": "Base Url"
           },
@@ -4414,7 +4417,8 @@
             "enum": [
               "banner",
               "inbox",
-              "both"
+              "both",
+              "modal"
             ],
             "title": "Surface",
             "type": "string"
@@ -5256,7 +5260,7 @@
         "type": "object"
       },
       "DirectorySettings": {
-        "description": "A user's discoverability + who-can-DM privacy (任意搜人 护栏).",
+        "description": "A user's discoverability + who-can-DM / who-can-friend privacy.",
         "properties": {
           "discoverable": {
             "default": true,
@@ -5267,9 +5271,19 @@
             "default": "anyone",
             "enum": [
               "anyone",
-              "contacts"
+              "friends"
             ],
             "title": "Who Can Dm",
+            "type": "string"
+          },
+          "who_can_friend": {
+            "default": "anyone",
+            "enum": [
+              "anyone",
+              "group_members",
+              "nobody"
+            ],
+            "title": "Who Can Friend",
             "type": "string"
           }
         },
@@ -6103,6 +6117,146 @@
           "updated_at"
         ],
         "title": "FolderSummary",
+        "type": "object"
+      },
+      "FriendListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/FriendSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "total"
+        ],
+        "title": "FriendListResponse",
+        "type": "object"
+      },
+      "FriendRequestDetail": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "from_user_id": {
+            "title": "From User Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "peer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FriendSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "to_user_id": {
+            "title": "To User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "from_user_id",
+          "to_user_id",
+          "status"
+        ],
+        "title": "FriendRequestDetail",
+        "type": "object"
+      },
+      "FriendRequestListResponse": {
+        "properties": {
+          "incoming": {
+            "items": {
+              "$ref": "#/components/schemas/FriendRequestDetail"
+            },
+            "title": "Incoming",
+            "type": "array"
+          },
+          "outgoing": {
+            "items": {
+              "$ref": "#/components/schemas/FriendRequestDetail"
+            },
+            "title": "Outgoing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "incoming",
+          "outgoing"
+        ],
+        "title": "FriendRequestListResponse",
+        "type": "object"
+      },
+      "FriendSummary": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name"
+        ],
+        "title": "FriendSummary",
         "type": "object"
       },
       "FromPlaybookRequest": {
@@ -7058,7 +7212,7 @@
         "properties": {
           "billing_mode": {
             "default": "byok",
-            "description": "Deployment billing mode (config.billing_mode). In 'platform' a keyless user runs on platform credit and BYOK is opt-in; in 'byok' a provider is required unless the free tier is active.",
+            "description": "Deployment billing mode (config.billing_mode). In 'platform' a keyless user runs on platform credit and BYOK is opt-in; in 'byok' a provider is required (402 if missing).",
             "title": "Billing Mode",
             "type": "string"
           },
@@ -7072,12 +7226,6 @@
               }
             ],
             "title": "Default Model Profile Id"
-          },
-          "free_tier_active": {
-            "default": false,
-            "description": "True when this user has no BYOK provider, free tier is enabled, and platform credentials are available (keyless users can chat on free quota)",
-            "title": "Free Tier Active",
-            "type": "boolean"
           },
           "platform_available": {
             "default": false,
@@ -8332,7 +8480,7 @@
         "type": "object"
       },
       "ModelCostLine": {
-        "description": "One model's call-level spend over a window — admin per-model payroll.\n\nAggregated from ``cost_calls`` (``GROUP BY model``), never from\n``cost_events.model`` (that column only records the run's first call; multi-model\nruns would mis-attribute). Money is integer nano-USD; ``tokens_total`` is\n``SUM(input + output + reasoning)``. The client formats ¥ from the summary's\nsingle ``cny_per_usd``.",
+        "description": "One model's call-level spend over a window — admin per-model payroll.\n\nAggregated from ``cost_calls`` (``GROUP BY model``), never from\n``cost_events.model`` (that column only records the run's first call; multi-model\nruns would mis-attribute). Money is integer nano-CNY; ``tokens_total`` is\n``SUM(input + output + reasoning)``. Clients format ¥ as ``cost_total / 1e9``.",
         "properties": {
           "calls": {
             "title": "Calls",
@@ -9070,7 +9218,7 @@
         "type": "object"
       },
       "QuotaStatus": {
-        "description": "Resolved quota limits (决策④ / F2); 0 = unlimited. Money is USD nano internally.",
+        "description": "Resolved quota limits (决策④ / F2); 0 = unlimited. Money is nano-CNY internally.",
         "properties": {
           "daily_cost_nano": {
             "title": "Daily Cost Nano",
@@ -13179,7 +13327,7 @@
               {
                 "enum": [
                   "anyone",
-                  "contacts"
+                  "friends"
                 ],
                 "type": "string"
               },
@@ -13188,6 +13336,22 @@
               }
             ],
             "title": "Who Can Dm"
+          },
+          "who_can_friend": {
+            "anyOf": [
+              {
+                "enum": [
+                  "anyone",
+                  "group_members",
+                  "nobody"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Who Can Friend"
           }
         },
         "title": "UpdateDirectorySettingsRequest",
@@ -13474,7 +13638,8 @@
                 "enum": [
                   "banner",
                   "inbox",
-                  "both"
+                  "both",
+                  "modal"
                 ],
                 "type": "string"
               },
@@ -13831,15 +13996,11 @@
         "type": "object"
       },
       "UsageSummary": {
-        "description": "Account dashboard payload (``GET /usage/summary``).\n\nAlso carries ``cny_per_usd`` so the client formats money from a single\nserver-owned rate (it never hard-codes the FX rate).",
+        "description": "Account dashboard payload (``GET /usage/summary``).\n\nMoney fields are nano-CNY; ``CostBreakdown.cny_total`` is already yuan.\nAPI no longer ships an FX rate.",
         "properties": {
           "billing_mode": {
             "title": "Billing Mode",
             "type": "string"
-          },
-          "cny_per_usd": {
-            "title": "Cny Per Usd",
-            "type": "number"
           },
           "month": {
             "$ref": "#/components/schemas/UsageWindow"
@@ -13863,7 +14024,6 @@
           "month",
           "recent_daily_cost",
           "quota",
-          "cny_per_usd",
           "billing_mode"
         ],
         "title": "UsageSummary",
@@ -13899,6 +14059,59 @@
           "requests"
         ],
         "title": "UsageWindow",
+        "type": "object"
+      },
+      "UserProfile": {
+        "description": "资料卡 (消息IM.md §9.3).",
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "relation": {
+            "enum": [
+              "self",
+              "none",
+              "outgoing_request",
+              "incoming_request",
+              "friends",
+              "blocked"
+            ],
+            "title": "Relation",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "relation"
+        ],
+        "title": "UserProfile",
         "type": "object"
       },
       "UserResponse": {
@@ -15837,7 +16050,7 @@
     },
     "/v1/admin/notices/{notice_id}/publish": {
       "post": {
-        "description": "Admin: publish a notice (sets published_at).\n\nWhen ``surface ∈ {inbox, both}``, also inserts one shared ``system_card`` into\nthe official IM broadcast chat (first publish only — re-publish does not\nduplicate). Banner-only surfaces skip IM.",
+        "description": "Admin: publish a notice (sets published_at).\n\nWhen ``surface ∈ {inbox, both, modal}``, also inserts one shared ``system_card``\ninto the official IM broadcast chat (first publish only — re-publish does not\nduplicate). Banner-only surfaces skip IM.",
         "operationId": "publish_notice_v1_admin_notices__notice_id__publish_post",
         "parameters": [
           {
@@ -16207,7 +16420,7 @@
     },
     "/v1/admin/system": {
       "get": {
-        "description": "系统状态 (read-only): billing mode + global quota defaults + FX rate (config),\ndatabase reachability, build provenance, and account tallies.\n\nA deployment sanity-check — nothing here is editable from the console (config is\nenv + redeploy). Reuses the same DB probe as ``/readyz`` and the same version as\n``/version`` so the panel never drifts from the real signals.",
+        "description": "系统状态 (read-only): billing mode + global quota defaults (config),\ndatabase reachability, build provenance, and account tallies.\n\nA deployment sanity-check — nothing here is editable from the console (config is\nenv + redeploy). Reuses the same DB probe as ``/readyz`` and the same version as\n``/version`` so the panel never drifts from the real signals.",
         "operationId": "system_status_v1_admin_system_get",
         "parameters": [
           {
@@ -16341,7 +16554,7 @@
     },
     "/v1/admin/users": {
       "get": {
-        "description": "The full account roster, paginated, each row carrying its all-time spend.\n\nFilters (AND): ``q`` substring-matches username/display_name, ``role``/``status``\npin those dimensions. ``sort`` ∈ {``created_at``, ``cost``} (累计成本) with ``order``\n∈ {``asc``, ``desc``}. ``include_deleted`` surfaces 注销 (soft-deleted, anonymized)\naccounts — hidden by default as tombstones, shown on demand for audit. Admin-only\ndirectory — enumeration is intended here. ``cny_per_usd`` folds each row's nano-USD\n``cost_total`` into ¥.",
+        "description": "The full account roster, paginated, each row carrying its all-time spend.\n\nFilters (AND): ``q`` substring-matches username/display_name, ``role``/``status``\npin those dimensions. ``sort`` ∈ {``created_at``, ``cost``} (累计成本) with ``order``\n∈ {``asc``, ``desc``}. ``include_deleted`` surfaces 注销 (soft-deleted, anonymized)\naccounts — hidden by default as tombstones, shown on demand for audit. Admin-only\ndirectory — enumeration is intended here. Money is nano-CNY; clients format ¥ as\n``cost_total / 1e9``.",
         "operationId": "list_users_v1_admin_users_get",
         "parameters": [
           {
@@ -27853,7 +28066,7 @@
         ]
       },
       "post": {
-        "description": "Block a user (symmetric: severs DMs and hides each from the other's search).\n\n422 self-block; 404 unknown target.",
+        "description": "Block a user (symmetric: severs DMs and hides each from the other's search).\n\nAlso drops friendship and cancels pending friend requests (§九).\n422 self-block; 404 unknown target.",
         "operationId": "block_user_v1_messages_blocks_post",
         "parameters": [
           {
@@ -28070,7 +28283,7 @@
     },
     "/v1/messages/chats/dm": {
       "post": {
-        "description": "Open (or reuse) a 1:1 chat with another user (by their user id).\n\n422 self-dm; 404 unknown/disabled peer; 403 when blocked or the peer only\naccepts contacts. The peer joins as a pending message request until they reply.",
+        "description": "Open (or reuse) a 1:1 chat with another user (by their user id).\n\n422 self-dm; 404 unknown/disabled peer; 403 when blocked or the peer only\naccepts friends. Friends open freely; strangers need peer ``who_can_dm=anyone``\n(peer joins as a pending message request).",
         "operationId": "start_dm_v1_messages_chats_dm_post",
         "parameters": [
           {
@@ -29074,7 +29287,7 @@
     },
     "/v1/messages/directory": {
       "get": {
-        "description": "This user's discoverability + who-can-DM privacy (defaults when unset).",
+        "description": "This user's discoverability + who-can-DM / who-can-friend (defaults when unset).",
         "operationId": "get_directory_settings_v1_messages_directory_get",
         "parameters": [
           {
@@ -29212,6 +29425,508 @@
         ]
       }
     },
+    "/v1/messages/friends": {
+      "get": {
+        "description": "通讯录 — accepted friends.",
+        "operationId": "list_friends_v1_messages_friends_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Friends",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/friends/requests": {
+      "get": {
+        "description": "Friend-request inbox: pending incoming + outgoing.",
+        "operationId": "list_friend_requests_v1_messages_friends_requests_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Friend Requests",
+        "tags": [
+          "messages"
+        ]
+      },
+      "post": {
+        "description": "Send a friend request (rate-limited like message send).",
+        "operationId": "create_friend_request_v1_messages_friends_requests_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFriendRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Friend Request",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/friends/requests/{request_id}": {
+      "delete": {
+        "operationId": "cancel_friend_request_v1_messages_friends_requests__request_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Friend Request",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/friends/requests/{request_id}/accept": {
+      "post": {
+        "operationId": "accept_friend_request_v1_messages_friends_requests__request_id__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Friend Request",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/friends/requests/{request_id}/reject": {
+      "post": {
+        "operationId": "reject_friend_request_v1_messages_friends_requests__request_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Friend Request",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/v1/messages/friends/{friend_id}": {
+      "delete": {
+        "operationId": "remove_friend_v1_messages_friends__friend_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "friend_id",
+            "required": true,
+            "schema": {
+              "title": "Friend Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Friend",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
     "/v1/messages/users/search": {
       "get": {
         "description": "Exact-match people-search for starting a chat (任意搜人 + 可见性护栏).\n\nReturns at most ``limit`` discoverable users; self, blocked pairs, and users\nwho opted out of discovery are filtered out by the service.",
@@ -29301,6 +30016,81 @@
         ]
       }
     },
+    "/v1/messages/users/{user_id}/profile": {
+      "get": {
+        "description": "资料卡: display + online + relation; non-visible targets → 404.",
+        "operationId": "get_user_profile_v1_messages_users__user_id__profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get User Profile",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
     "/v1/messages/{message_id}/cost": {
       "get": {
         "description": "The team payroll for one assistant turn (per-Agent cost + the turn total).\n\nRebuilt from the ledger by ``message_id`` (scoped to the caller), so a past\nturn's payroll replays on reload. An unknown / non-owned message yields zeros\n+ an empty roster rather than 404 — it never leaks whether the id exists.",
@@ -29378,7 +30168,7 @@
     },
     "/v1/notices/active": {
       "get": {
-        "description": "Return the current banner (≤1) and inbox list for the signed-in user.",
+        "description": "Return banner (≤1), modal (≤1, undismissed), and inbox for the signed-in user.\n\nPriority: ``critical`` banner > undismissed modal > non-critical banner.\nWhen an undismissed modal is present and the banner candidate is not\n``critical``, ``banner`` is omitted.",
         "operationId": "get_active_notices_v1_notices_active_get",
         "parameters": [
           {
@@ -32711,7 +33501,7 @@
     },
     "/v1/usage/summary": {
       "get": {
-        "description": "Account dashboard: today's tokens/cost, the month's cost, the recent\ndaily-cost trend, and the quota.\n\nWindows are bounded at the current UTC day / month start (MVP — a per-user\ntimezone is a later refinement). ``recent_daily_cost`` is the last\n``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline. Also\ncarries ``cny_per_usd`` so the client formats money from the single\nserver-owned rate. Per-role split lives on the turn payroll\n(``GET /messages/{id}/cost``), not this monthly account view.\n\n``quota`` mirrors what ``enforce_quota`` will actually apply to this user\n(D7): per-user override columns first, else free-tier defaults on a byok\ndeployment's platform-paid path (keyless free-tier riders), else global\n``quota_*`` — so the meters never show a cap the gate wouldn't enforce.",
+        "description": "Account dashboard: today's tokens/cost, the month's cost, the recent\ndaily-cost trend, and the quota.\n\nWindows are bounded at the current UTC day / month start (MVP — a per-user\ntimezone is a later refinement). ``recent_daily_cost`` is the last\n``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline.\nMoney is nano-CNY; ``CostBreakdown.cny_total`` is already yuan (no FX).\nPer-role split lives on the turn payroll\n(``GET /messages/{id}/cost``), not this monthly account view.\n\n``quota`` mirrors what ``enforce_quota`` will actually apply to this user:\nper-user override columns first, else global ``quota_*`` — so the meters\nnever show a cap the gate wouldn't enforce.",
         "operationId": "get_usage_summary_v1_usage_summary_get",
         "parameters": [
           {

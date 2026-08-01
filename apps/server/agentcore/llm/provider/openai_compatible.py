@@ -15,6 +15,7 @@ from typing import Literal
 import httpx
 
 from agentcore.core.errors import (
+    InferenceTokenExpiredError,
     LLMAuthError,
     LLMClientClosedError,
     LLMError,
@@ -25,6 +26,7 @@ from agentcore.core.errors import (
     is_llm_client_closed_error,
 )
 from agentcore.core.logging import get_logger
+from agentcore.core.net import outbound_async_client
 from agentcore.llm.errors import (
     body_preview,
     client_error_message,
@@ -213,7 +215,7 @@ class OpenAICompatibleProvider:
         }
         if self._extra_headers:
             headers.update(self._extra_headers)
-        self._client = httpx.AsyncClient(
+        self._client = outbound_async_client(
             base_url=self._base_url,
             headers=headers,
             timeout=httpx.Timeout(_REQUEST_TIMEOUT, connect=10.0),
@@ -716,6 +718,13 @@ class OpenAICompatibleProvider:
                 status_code=status_code,
                 body_preview=body_preview(body),
             )
+            # Sidecar cloud proxy: Bearer is the short-lived inference JWT, not a BYOK key.
+            # Map to a distinct code so the desktop remints / retries instead of「去设置」.
+            if "/inference/" in self._base_url:
+                raise InferenceTokenExpiredError(
+                    upstream_status=status_code,
+                    upstream_body_preview=body_preview(body),
+                )
             if is_auth_rejection(status_code, body):
                 # Platform = operator key: product copy only (never upstream gateway
                 # tutorials like CC Switch). BYOK keeps upstream text for diagnosis.
@@ -1041,6 +1050,11 @@ class OpenAICompatibleProvider:
             raise LLMError(f"无法连接 {self._name}：{e}") from e
         code = response.status_code
         if code in (401, 403):
+            if "/inference/" in self._base_url:
+                raise InferenceTokenExpiredError(
+                    upstream_status=code,
+                    upstream_body_preview=body_preview(response.content),
+                )
             raise LLMAuthError(
                 provider_name=self._name,
                 upstream_status=code,

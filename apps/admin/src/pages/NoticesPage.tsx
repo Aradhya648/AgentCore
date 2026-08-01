@@ -48,6 +48,7 @@ const SURFACE: Record<NoticeSurface, string> = {
   banner: "横幅",
   inbox: "IM 官方号",
   both: "横幅 + IM 官方号",
+  modal: "弹窗 + IM 官方号",
 };
 
 const DISMISS: Record<NoticeDismissPolicy, string> = {
@@ -240,7 +241,7 @@ export function NoticesPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">公告</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            产品全局 Notice · 发布后写入桌面顶栏横幅与/或 IM「AgentCore 官方」· 共{" "}
+            产品全局 Notice · 发布后写入桌面横幅/弹窗与/或 IM「AgentCore 官方」· 共{" "}
             {total} 条
             {statusFilter === "all"
               ? ""
@@ -550,6 +551,7 @@ function NoticeFormDialog({
                 className={selectClass}
               >
                 <option value="both">横幅 + IM 官方号</option>
+                <option value="modal">弹窗 + IM 官方号</option>
                 <option value="banner">仅横幅</option>
                 <option value="inbox">仅 IM 官方号</option>
               </select>

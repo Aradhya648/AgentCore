@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * QuotaDialog test — pins the 日成本 (daily cost) override dimension added for the
- * platform billing flip (成本配额与计费 §〇·六 F2). Services mocked so no real HTTP;
- * asserts the field prefills from `quota_daily_cost_usd` and that save sends it
- * (value → number, empty → null = 继承全局) through the tri-state PATCH.
+ * QuotaDialog test — pins the 日成本 (daily cost) override dimension.
+ * Services mocked so no real HTTP; asserts the field prefills from
+ * `quota_daily_cost_cny` and that save sends it (value → number, empty → null =
+ * 继承全局) through the tri-state PATCH.
  */
 import { QuotaDialog } from "@/components/QuotaDialog";
 import { type AdminUser, updateUser } from "@/services/adminUsers";
@@ -34,8 +34,8 @@ function makeUser(p: Partial<AdminUser> = {}): AdminUser {
     status: "active",
     is_unlimited: false,
     quota_daily_tokens: null,
-    quota_monthly_cost_usd: null,
-    quota_daily_cost_usd: null,
+    quota_monthly_cost_cny: null,
+    quota_daily_cost_cny: null,
     quota_daily_requests: null,
     created_at: "2026-06-01T00:00:00Z",
     deleted_at: null,
@@ -43,14 +43,14 @@ function makeUser(p: Partial<AdminUser> = {}): AdminUser {
   };
 }
 
-const DAILY_COST_LABEL = "日成本上限（USD / 日）";
+const DAILY_COST_LABEL = "日成本上限（元 / 日）";
 
 describe("QuotaDialog daily-cost dimension", () => {
-  it("prefills quota_daily_cost_usd and sends the edited value on save", async () => {
+  it("prefills quota_daily_cost_cny and sends the edited value on save", async () => {
     vi.mocked(updateUser).mockResolvedValue(makeUser());
     render(
       <QuotaDialog
-        user={makeUser({ quota_daily_cost_usd: 1.5 })}
+        user={makeUser({ quota_daily_cost_cny: 1.5 })}
         onClose={() => undefined}
         onSaved={() => undefined}
       />,
@@ -65,7 +65,7 @@ describe("QuotaDialog daily-cost dimension", () => {
     await waitFor(() =>
       expect(updateUser).toHaveBeenCalledWith(
         "u1",
-        expect.objectContaining({ quota_daily_cost_usd: 3 }),
+        expect.objectContaining({ quota_daily_cost_cny: 3 }),
       ),
     );
   });
@@ -88,7 +88,7 @@ describe("QuotaDialog daily-cost dimension", () => {
     await waitFor(() =>
       expect(updateUser).toHaveBeenCalledWith(
         "u1",
-        expect.objectContaining({ quota_daily_cost_usd: null }),
+        expect.objectContaining({ quota_daily_cost_cny: null }),
       ),
     );
   });

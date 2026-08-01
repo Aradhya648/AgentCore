@@ -1,46 +1,64 @@
+import { BlockedUsersDialog } from "@/components/messages/BlockedUsersDialog";
 import { Card } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
 import { notifyError, notifySuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
   type DirectorySettings,
-  type WhoCanDm,
+  type WhoCanFriend,
   getDirectory,
+  normalizeWhoCanDm,
   updateDirectory,
 } from "@/services/messaging";
-import { Check, Loader2 } from "lucide-react";
+import { Check, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsHeader } from "./SettingsHeader";
 
-interface DmOption {
-  value: WhoCanDm;
+interface OptionRow<T extends string> {
+  value: T;
   label: string;
   description: string;
 }
 
-const DM_OPTIONS: DmOption[] = [
+const DM_OPTIONS: OptionRow<"anyone" | "friends">[] = [
   {
     value: "anyone",
     label: "任何人",
     description: "可被搜到的用户均可向你发起私信（陌生人首条会进入消息请求）。",
   },
   {
-    value: "contacts",
-    label: "仅联系人",
-    description: "只有你已接受会话的联系人可以向你发起新私信。",
+    value: "friends",
+    label: "仅好友",
+    description: "只有已同意的好友可以向你发起新私信。",
+  },
+];
+
+const FRIEND_OPTIONS: OptionRow<WhoCanFriend>[] = [
+  {
+    value: "anyone",
+    label: "任何人",
+    description: "可被搜到的用户均可向你发送好友申请。",
+  },
+  {
+    value: "group_members",
+    label: "仅共同群成员",
+    description: "须与你有共同群聊的用户才能申请加好友。",
+  },
+  {
+    value: "nobody",
+    label: "不允许任何人",
+    description: "关闭好友申请入口（已有好友不受影响）。",
   },
 ];
 
 /**
- * 消息隐私设置（/more/messages）— discoverability + who-can-DM（消息IM.md §五）。
- *
- * Controls whether others can find you via exact username/ID search and who may
- * open a new DM. Defaults are open (discoverable + anyone); changes persist via
- * PATCH /v1/messages/directory.
+ * 消息隐私设置（/more/messages）— discoverable + who_can_friend + who_can_dm
+ * + 拉黑列表入口（消息IM.md §九）。
  */
 export function ImPrivacySettings() {
   const [settings, setSettings] = useState<DirectorySettings | null>(null);
   const [pending, setPending] = useState(false);
+  const [blocksOpen, setBlocksOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -72,11 +90,14 @@ export function ImPrivacySettings() {
     }
   };
 
+  const whoCanDm = settings ? normalizeWhoCanDm(settings.who_can_dm) : null;
+  const whoCanFriend: WhoCanFriend = settings?.who_can_friend ?? "anyone";
+
   return (
     <div>
       <SettingsHeader
         title="消息隐私"
-        description="控制他人能否搜到你，以及谁可以向你发起私信。陌生人首条消息会进入消息请求，回复即代表接受。"
+        description="控制他人能否搜到你、谁可以加你为好友，以及谁可以向你发起私信。"
       />
 
       <section className="mt-6 space-y-6">
@@ -104,31 +125,73 @@ export function ImPrivacySettings() {
         </Card>
 
         <div>
+          <h2 className="text-sm font-medium text-foreground">
+            谁可以加我为好友
+          </h2>
+          <div className="mt-3 space-y-2">
+            {FRIEND_OPTIONS.map((option) => (
+              <SelectOptionRow
+                key={option.value}
+                option={option}
+                selected={whoCanFriend === option.value}
+                disabled={settings === null || pending}
+                onSelect={() => void patch({ who_can_friend: option.value })}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div>
           <h2 className="text-sm font-medium text-foreground">谁可以私信我</h2>
           <div className="mt-3 space-y-2">
             {DM_OPTIONS.map((option) => (
-              <DmOptionRow
+              <SelectOptionRow
                 key={option.value}
                 option={option}
-                selected={settings?.who_can_dm === option.value}
+                selected={whoCanDm === option.value}
                 disabled={settings === null || pending}
                 onSelect={() => void patch({ who_can_dm: option.value })}
               />
             ))}
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setBlocksOpen(true)}
+          className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+        >
+          <span>
+            <span className="block text-sm font-medium text-foreground">
+              已拉黑
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              查看并管理拉黑列表
+            </span>
+          </span>
+          <ChevronRight
+            size={16}
+            className="shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+        </button>
       </section>
+
+      <BlockedUsersDialog
+        open={blocksOpen}
+        onClose={() => setBlocksOpen(false)}
+      />
     </div>
   );
 }
 
-function DmOptionRow({
+function SelectOptionRow<T extends string>({
   option,
   selected,
   disabled,
   onSelect,
 }: {
-  option: DmOption;
+  option: OptionRow<T>;
   selected: boolean;
   disabled: boolean;
   onSelect: () => void;

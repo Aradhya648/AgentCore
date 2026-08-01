@@ -370,6 +370,8 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
       break;
     }
     case "run_failed": {
+      // Plan-declared nodes may fail before run_started (e.g. continue_from rejected).
+      ensureRun(s, f.runId);
       const run = s.runIndex.get(f.runId);
       if (run) {
         run.status = "failed";

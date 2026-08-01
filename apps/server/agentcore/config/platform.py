@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from typing import Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class PlatformSettings(BaseModel):
@@ -15,15 +16,17 @@ class PlatformSettings(BaseModel):
     platform_background_model: str = ""
     # Explicit platform model catalog allowlist (运营配置, 成本配额与计费 §〇·六 F3):
     # comma-separated ids the operator subsidizes on the partner relay. Empty = fall
-    # back to platform_model (+ background) so byok / free-tier deployments are
-    # unchanged. Every listed id MUST have a curated price card (F4); discovery of the
+    # back to platform_model (+ background). Every listed id MUST have a curated price
+    # card (F4) or it is hard-excluded from catalog / system presets; discovery of the
     # full upstream set is deliberately NOT used here (stays a BYOK-row concern).
+    # When non-empty, PLATFORM_MODEL and (if set) PLATFORM_BACKGROUND_MODEL must be
+    # members — fail-fast at settings load (no silent drift).
     platform_models: str = ""
     # Per-model platform credential overrides (运营中转「一 key 一模型」, 成本配额与计费
     # §〇·六 F3): a JSON object mapping model id → {"api_key"?, "base_url"?}. When a model
     # in the catalog has an entry, its api_key / base_url win for that model; each missing
     # field falls back to platform_api_key / platform_base_url. Empty = every platform
-    # model shares the default key/base_url (byok / free-tier deployments unchanged).
+    # model shares the default key/base_url.
     platform_model_credentials: str = ""
 
     # --- 多厂商 provider（OpenAI 兼容，经 ProviderRouter 按 provider/model 前缀路由） ---
@@ -42,8 +45,6 @@ class PlatformSettings(BaseModel):
 
     # --- 计费模式 ---
     billing_mode: str = "byok"
-    # BYOK 部署下：无用户 key 时是否允许 fallback 到平台代付免费档（默认关）。
-    platform_free_tier_enabled: bool = False
 
     # Sub2API 管理 API（可选）。配置后 platform 模式 503 时自动探测账号状态生成诊断。
     sub2api_admin_url: str = ""
@@ -52,6 +53,33 @@ class PlatformSettings(BaseModel):
 
     # AES-256-GCM 主密钥，用于把 BYOK API Key 加密后落库。
     encryption_key: str = ""
+
+    @model_validator(mode="after")
+    def _platform_models_allowlist_membership(self) -> Self:
+        """Fail-fast when PLATFORM_MODELS is set but defaults sit outside it."""
+        raw = self.platform_models or ""
+        seen: set[str] = set()
+        allowlist: list[str] = []
+        for part in raw.split(","):
+            mid = part.strip()
+            if mid and mid not in seen:
+                seen.add(mid)
+                allowlist.append(mid)
+        if not allowlist:
+            return self
+        platform_model = (self.platform_model or "").strip()
+        if platform_model and platform_model not in seen:
+            raise ValueError(
+                f"PLATFORM_MODEL={platform_model!r} must be in PLATFORM_MODELS "
+                f"({', '.join(allowlist)}); empty PLATFORM_MODELS skips this check"
+            )
+        background = (self.platform_background_model or "").strip()
+        if background and background not in seen:
+            raise ValueError(
+                f"PLATFORM_BACKGROUND_MODEL={background!r} must be in PLATFORM_MODELS "
+                f"({', '.join(allowlist)}); empty PLATFORM_MODELS skips this check"
+            )
+        return self
 
 
 def parse_platform_model_credentials(raw: str) -> dict[str, dict[str, str]]:

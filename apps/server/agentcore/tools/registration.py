@@ -208,6 +208,8 @@ def _load_declared_tools() -> tuple[type, ...]:
         CodeExecuteTool,
         # Long-running process face (CEO+worker · local_only · start 运行时升审批)
         TerminalTool,
+        # L3 团队浏览器 navigate：builtin BOTH 窄例外（与 host_shell / terminal 并列）
+        BrowserNavigateTool,
         # Host 第三能力面 P0–P3 (L1 NEVER · CEO+worker；P3 host_shell GRANTABLE 例外)
         HostPingTool,
         HostInfoTool,
@@ -229,8 +231,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         # Host L3 受控白名单 (GRANTABLE · worker only · host_class · 禁 execution_class)
         HostAudioSetDefaultTool,
         HostServiceRestartTool,
-        # L3 团队浏览器 (D11): worker-only, cloud-only gVisor, execution_class + GRANTABLE
-        BrowserNavigateTool,
+        # L3 团队浏览器其余五工具 (worker-only · browser_class · GRANTABLE)
         BrowserClickTool,
         BrowserTypeTool,
         BrowserScrollTool,

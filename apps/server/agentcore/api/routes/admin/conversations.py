@@ -21,7 +21,6 @@ from agentcore.api.schemas import (
     AdminTurnListResponse,
     TurnMetricLine,
 )
-from agentcore.config import settings
 from agentcore.db.repositories import (
     ConversationRepository,
     CostEventRepository,
@@ -114,7 +113,6 @@ async def list_conversations(
         total=total,
         page=page,
         page_size=page_size,
-        cny_per_usd=settings.cny_per_usd,
     )
 
 

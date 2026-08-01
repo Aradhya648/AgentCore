@@ -308,8 +308,12 @@ async def _wire_continuation_toolset(
     # Same explore-pending sink as fresh assemble (resume mid-explore: suppress
     # structured files_written inference + worker write_scope=explore_memory until
     # update_project_profile clears the flag).
+    # Soft-empty / named-refresh via resolve_hard_explore_reason（与 assemble 同源）.
     if memory_enabled and folder_id:
-        from agentcore.memory.explore_profile import project_profile_explore_reason
+        from agentcore.memory.explore_profile import (
+            project_profile_explore_reason,
+            resolve_hard_explore_reason,
+        )
         from agentcore.memory.store import default_memory_store
 
         explore_reason = await project_profile_explore_reason(
@@ -317,6 +321,7 @@ async def _wire_continuation_toolset(
             user_id,
             folder_id,
         )
+        explore_reason, _soft = resolve_hard_explore_reason(explore_reason, user_message)
         if explore_reason:
             base_tool_context.cold_start_explore_pending = True
             base_tool_context.write_scope = "explore_memory"

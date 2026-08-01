@@ -1,25 +1,23 @@
 """Cost & usage (团队工资单 + 账户仪表盘) schemas.
 
-Money is integer nano-USD (1 USD = 1e9) everywhere — never a float. The single
-display-only CNY conversion rides on ``cny_total`` (server-side via CNY_PER_USD),
-so the client never re-derives money. Token fields use the ledger short keys
-(matching cost_events.tokens / RunState.usage), distinct from message_end's
-legacy ``*_tokens`` SSE shape.
+Money is integer nano-CNY (1 CNY = 1e9) everywhere — never a float. Display yuan
+rides on ``cny_total`` (``nano / 1e9``; name kept, already 元 — not USD×FX).
+Token fields use the ledger short keys (matching cost_events.tokens /
+RunState.usage), distinct from message_end's legacy ``*_tokens`` SSE shape.
 """
 
 from pydantic import BaseModel
 
 
 class CostBreakdown(BaseModel):
-    """A run's / turn's / window's cost in integer nano-USD (canonical)."""
+    """A run's / turn's / window's cost in integer nano-CNY (canonical)."""
 
     input: int
     cached: int
     output: int
     total: int
-    currency: str = "USD"
-    # Display-only CNY value (元), converted server-side via the single
-    # CNY_PER_USD rate so the client shows money without re-pricing.
+    currency: str = "CNY"
+    # Display yuan (元) = total / 1e9. Name ``cny_total`` kept; not FX from USD.
     cny_total: float
     # Which price layer produced these numbers (缺省 curated 兼容旧数据).
     pricing_source: str = "curated"
@@ -85,7 +83,7 @@ class UsageWindow(BaseModel):
 
 
 class QuotaStatus(BaseModel):
-    """Resolved quota limits (决策④ / F2); 0 = unlimited. Money is USD nano internally."""
+    """Resolved quota limits (决策④ / F2); 0 = unlimited. Money is nano-CNY internally."""
 
     daily_tokens: int
     monthly_cost_nano: int
@@ -99,9 +97,8 @@ class ModelCostLine(BaseModel):
 
     Aggregated from ``cost_calls`` (``GROUP BY model``), never from
     ``cost_events.model`` (that column only records the run's first call; multi-model
-    runs would mis-attribute). Money is integer nano-USD; ``tokens_total`` is
-    ``SUM(input + output + reasoning)``. The client formats ¥ from the summary's
-    single ``cny_per_usd``.
+    runs would mis-attribute). Money is integer nano-CNY; ``tokens_total`` is
+    ``SUM(input + output + reasoning)``. Clients format ¥ as ``cost_total / 1e9``.
     """
 
     model: str
@@ -123,8 +120,8 @@ class DailyCost(BaseModel):
 class UsageSummary(BaseModel):
     """Account dashboard payload (``GET /usage/summary``).
 
-    Also carries ``cny_per_usd`` so the client formats money from a single
-    server-owned rate (it never hard-codes the FX rate).
+    Money fields are nano-CNY; ``CostBreakdown.cny_total`` is already yuan.
+    API no longer ships an FX rate.
     """
 
     today: UsageWindow
@@ -132,7 +129,6 @@ class UsageSummary(BaseModel):
     # Last 7 UTC days incl today, oldest-first, zero-filled — the trend sparkline.
     recent_daily_cost: list[DailyCost]
     quota: QuotaStatus
-    cny_per_usd: float
     # Billing mode (config.billing_mode). In "byok" the platform quota is dormant
     # (the turn runs on the user's own key), so the client reframes the quota meters
     # as「自带 Key 不限额」and presents cost as the user's own DeepSeek spend.

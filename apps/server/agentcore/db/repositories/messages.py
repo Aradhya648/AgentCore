@@ -260,7 +260,7 @@ class MessageRepository:
 
         Same finalize-tail pattern as :meth:`set_followups`: the ledger write happens in the
         same session as the assistant upsert, then this targeted UPDATE stamps the
-        ``message_end.cost`` shape (nano-USD components + currency) so reload footers do not
+        ``message_end.cost`` shape (nano-CNY components + currency) so reload footers do not
         need a second round-trip. Scoped by conversation_id; a no-match id is a no-op.
         """
         await self._session.execute(

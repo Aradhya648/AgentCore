@@ -27,20 +27,26 @@ from agentcore.api.schemas import (
     ChatMessageListResponse,
     ChatParticipant,
     ChatSummary,
+    CreateFriendRequestBody,
     DirectorySettings,
+    FriendListResponse,
+    FriendRequestDetail,
+    FriendRequestListResponse,
+    FriendSummary,
     MarkReadRequest,
     SendChatMessageRequest,
     StartDmRequest,
     StatusResponse,
     UpdateDirectorySettingsRequest,
     UpdateMembershipRequest,
+    UserProfile,
     UserSearchResponse,
     UserSearchResult,
 )
 from agentcore.config import settings
 from agentcore.conversation.rate_limit import enforce_user_message_rate_limit
 from agentcore.core.errors import ValidationError
-from agentcore.messaging import ChatView, DirectoryView, MessagingService
+from agentcore.messaging import ChatView, DirectoryView, MessagingService, ProfileView
 from agentcore.messaging.hub import default_chat_hub
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -103,7 +109,43 @@ def _chat_summary(
 
 
 def _directory_settings(view: DirectoryView) -> DirectorySettings:
-    return DirectorySettings(discoverable=view.discoverable, who_can_dm=view.who_can_dm)
+    return DirectorySettings(
+        discoverable=view.discoverable,
+        who_can_dm=view.who_can_dm,  # type: ignore[arg-type]
+        who_can_friend=view.who_can_friend,  # type: ignore[arg-type]
+    )
+
+
+def _friend_summary(user, *, online: bool = False) -> FriendSummary:
+    return FriendSummary(
+        id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        online=online,
+    )
+
+
+def _user_profile(view: ProfileView, *, online: bool = False) -> UserProfile:
+    return UserProfile(
+        id=view.user.user_id,
+        username=view.user.username,
+        display_name=view.user.display_name,
+        online=online,
+        relation=view.relation,
+        request_id=view.request_id,
+    )
+
+
+def _friend_request_detail(req, *, peer) -> FriendRequestDetail:
+    return FriendRequestDetail(
+        id=req.id,
+        from_user_id=req.from_user_id,
+        to_user_id=req.to_user_id,
+        message=req.message,
+        status=req.status,
+        created_at=req.created_at,
+        peer=_friend_summary(peer) if peer is not None else None,
+    )
 
 
 # --- People search (任意搜人) ---
@@ -150,7 +192,8 @@ async def start_dm(
     """Open (or reuse) a 1:1 chat with another user (by their user id).
 
     422 self-dm; 404 unknown/disabled peer; 403 when blocked or the peer only
-    accepts contacts. The peer joins as a pending message request until they reply.
+    accepts friends. Friends open freely; strangers need peer ``who_can_dm=anyone``
+    (peer joins as a pending message request).
     """
     view = await svc.start_dm(requester_id=user.user_id, peer_id=body.user_id)
     return _chat_summary(view)
@@ -392,7 +435,7 @@ async def mark_chat_read(
     return StatusResponse()
 
 
-# --- Directory settings (discoverability + who-can-DM, 任意搜人 护栏) ---
+# --- Directory settings (discoverability + who-can-DM / who-can-friend) ---
 
 
 @router.get("/directory", response_model=DirectorySettings)
@@ -400,7 +443,7 @@ async def get_directory_settings(
     user: AuthUser,
     svc: MessagingService = Depends(get_messaging_service),
 ):
-    """This user's discoverability + who-can-DM privacy (defaults when unset)."""
+    """This user's discoverability + who-can-DM / who-can-friend (defaults when unset)."""
     view = await svc.get_directory_settings(user_id=user.user_id)
     return _directory_settings(view)
 
@@ -416,8 +459,121 @@ async def update_directory_settings(
         user_id=user.user_id,
         discoverable=body.discoverable,
         who_can_dm=body.who_can_dm,
+        who_can_friend=body.who_can_friend,
     )
     return _directory_settings(view)
+
+
+# --- Friends (消息IM.md §九) ---
+
+
+@router.get("/users/{user_id}/profile", response_model=UserProfile)
+async def get_user_profile(
+    user_id: str,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    """资料卡: display + online + relation; non-visible targets → 404."""
+    view = await svc.get_profile(viewer_id=user.user_id, target_id=user_id)
+    online = default_chat_hub().is_online(view.user.user_id)
+    return _user_profile(view, online=online)
+
+
+@router.get("/friends", response_model=FriendListResponse)
+async def list_friends(
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    """通讯录 — accepted friends."""
+    friends = await svc.list_friends(user_id=user.user_id)
+    online_ids = default_chat_hub().online_user_ids()
+    data = [_friend_summary(u, online=u.user_id in online_ids) for u in friends]
+    return FriendListResponse(data=data, total=len(data))
+
+
+@router.get("/friends/requests", response_model=FriendRequestListResponse)
+async def list_friend_requests(
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    """Friend-request inbox: pending incoming + outgoing."""
+    box = await svc.list_friend_requests(user_id=user.user_id)
+    incoming: list[FriendRequestDetail] = []
+    for req in box.incoming:
+        peer_view = await svc.get_profile(
+            viewer_id=user.user_id, target_id=req.from_user_id
+        )
+        incoming.append(_friend_request_detail(req, peer=peer_view.user))
+    outgoing: list[FriendRequestDetail] = []
+    for req in box.outgoing:
+        peer_view = await svc.get_profile(
+            viewer_id=user.user_id, target_id=req.to_user_id
+        )
+        outgoing.append(_friend_request_detail(req, peer=peer_view.user))
+    return FriendRequestListResponse(incoming=incoming, outgoing=outgoing)
+
+
+@router.post("/friends/requests", response_model=FriendRequestDetail, status_code=201)
+async def create_friend_request(
+    body: CreateFriendRequestBody,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    """Send a friend request (rate-limited like message send)."""
+    await enforce_user_message_rate_limit(f"friend:{user.user_id}")
+    req = await svc.send_friend_request(
+        from_user_id=user.user_id,
+        to_user_id=body.user_id,
+        message=body.message,
+    )
+    peer_view = await svc.get_profile(viewer_id=user.user_id, target_id=req.to_user_id)
+    return _friend_request_detail(req, peer=peer_view.user)
+
+
+@router.post("/friends/requests/{request_id}/accept", response_model=FriendRequestDetail)
+async def accept_friend_request(
+    request_id: str,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    req = await svc.accept_friend_request(user_id=user.user_id, request_id=request_id)
+    peer_view = await svc.get_profile(
+        viewer_id=user.user_id, target_id=req.from_user_id
+    )
+    return _friend_request_detail(req, peer=peer_view.user)
+
+
+@router.post("/friends/requests/{request_id}/reject", response_model=FriendRequestDetail)
+async def reject_friend_request(
+    request_id: str,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    req = await svc.reject_friend_request(user_id=user.user_id, request_id=request_id)
+    peer_view = await svc.get_profile(
+        viewer_id=user.user_id, target_id=req.from_user_id
+    )
+    return _friend_request_detail(req, peer=peer_view.user)
+
+
+@router.delete("/friends/requests/{request_id}", response_model=StatusResponse)
+async def cancel_friend_request(
+    request_id: str,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    await svc.cancel_friend_request(user_id=user.user_id, request_id=request_id)
+    return StatusResponse()
+
+
+@router.delete("/friends/{friend_id}", response_model=StatusResponse)
+async def remove_friend(
+    friend_id: str,
+    user: AuthUser,
+    svc: MessagingService = Depends(get_messaging_service),
+):
+    await svc.remove_friend(user_id=user.user_id, friend_id=friend_id)
+    return StatusResponse()
 
 
 # --- Blocking (任意搜人 护栏) ---
@@ -442,6 +598,7 @@ async def block_user(
 ):
     """Block a user (symmetric: severs DMs and hides each from the other's search).
 
+    Also drops friendship and cancels pending friend requests (§九).
     422 self-block; 404 unknown target.
     """
     await svc.block_user(user_id=user.user_id, target_id=body.user_id)

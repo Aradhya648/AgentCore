@@ -146,14 +146,17 @@ def test_browser_capability_override():
     assert "local_open=未装配" in out
     assert "escalate(browser_login=true)" in out
     assert "接管登录" in out
-    assert "delegate" in out
     assert "browser_navigate" in out
+    assert "禁止为此" in out or "勿为此" in out or "你自己" in out
     assert "禁止只用 read_url" in out or "假装已打开" in out
     assert "browser_open" in out  # 明示禁编造
     # 意图梯度：navigate 成功即可；验收/截图才 snapshot；跑起来≠必须 navigate
     assert "navigate 成功" in out or "即可收工" in out
     assert "验收" in out and "截图" in out
     assert "≠必须 navigate" in out or "跑起来" in out
+    # CEO 可直持 navigate；其余 browser_* 仍 worker
+    assert "CEO 可直持" in out or "navigate 由 CEO" in out
+    assert "仅 worker" in out
     # 乙：沙箱已装配时仍标明相对路径不可测 / 完整预览
     assert "相对" in out or "完整预览" in out
     assert "http(s)" in out or "公网" in out

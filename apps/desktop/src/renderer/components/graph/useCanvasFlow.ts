@@ -24,7 +24,6 @@ import {
 import { useConversationFold, useGraphStore } from "@/stores/graph";
 import { type EndpointKind, useSidePanelStore } from "@/stores/sidePanel";
 import { turnDetailPath } from "@/stores/ui";
-import { useUsageStore } from "@/stores/usage";
 import type { NodeChange } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -242,7 +241,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     onEndpointSelect,
   });
 
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
   const handleDirection =
     effectiveLayoutKind === "leftright"
       ? ("horizontal" as const)
@@ -298,7 +296,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
         execById,
         handleDirection,
         edgePathType,
-        cnyPerUsd,
         litRunId,
         litEndpointMessageId,
         finalAnswer,
@@ -315,7 +312,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
       collapsedSubtrees,
       handleDirection,
       edgePathType,
-      cnyPerUsd,
       effectiveFocus,
       effectiveLayoutKind,
       litRunId,

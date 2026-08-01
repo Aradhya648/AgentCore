@@ -217,3 +217,165 @@ async def test_publish_banner_skips_official_im(client, make_admin, make_invite)
     assert not any(
         m.get("payload", {}).get("kind") == "product_notice" for m in r.json()["data"]
     )
+
+
+async def test_modal_active_and_inbox(client, make_admin, make_invite):
+    """surface=modal → active.modal + inbox; dismiss clears modal."""
+    await _admin_login(client, make_admin, "notice-modal-admin")
+    notice_id = await _create_and_publish(
+        client,
+        title="政策弹窗",
+        body="额度调整说明",
+        severity="normal",
+        surface="modal",
+        dismiss_policy="once",
+    )
+
+    invite = await make_invite("NOTICE-MODAL")
+    await register_and_login(client, invite, "notice-modal-user", password=_PW)
+
+    r = await client.get("/v1/notices/active")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["modal"] is not None
+    assert body["modal"]["id"] == notice_id
+    assert body["modal"]["dismissed"] is False
+    assert any(n["id"] == notice_id for n in body["inbox"])
+    # No competing banner in this fixture.
+    assert body["banner"] is None
+
+    r = await client.post(f"/v1/notices/{notice_id}/dismiss")
+    assert r.status_code == 204, r.text
+
+    r = await client.get("/v1/notices/active")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["modal"] is None
+    # inbox still lists the notice with dismissed=true
+    hit = next(n for n in body["inbox"] if n["id"] == notice_id)
+    assert hit["dismissed"] is True
+
+
+async def test_modal_suppresses_non_critical_banner(client, make_admin, make_invite):
+    """Undismissed modal suppresses non-critical banner."""
+    await _admin_login(client, make_admin, "notice-modal-suppress-admin")
+    modal_id = await _create_and_publish(
+        client, title="弹窗", body="m", surface="modal", severity="normal"
+    )
+    await _create_and_publish(
+        client, title="高优横幅", body="b", surface="banner", severity="high"
+    )
+
+    invite = await make_invite("NOTICE-MODAL-SUPPRESS")
+    await register_and_login(client, invite, "notice-modal-suppress-user", password=_PW)
+
+    r = await client.get("/v1/notices/active")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["modal"]["id"] == modal_id
+    assert body["banner"] is None
+
+
+async def test_modal_banner_priority(client, make_admin, make_invite):
+    """critical banner coexists with modal; normal/high banner is suppressed."""
+    await _admin_login(client, make_admin, "notice-prio-admin")
+    modal_id = await _create_and_publish(
+        client, title="弹窗", body="m", surface="modal", severity="normal"
+    )
+    await _create_and_publish(
+        client, title="高优横幅", body="h", surface="banner", severity="high"
+    )
+    critical_id = await _create_and_publish(
+        client, title="紧急横幅", body="c", surface="banner", severity="critical"
+    )
+
+    invite = await make_invite("NOTICE-PRIO")
+    await register_and_login(client, invite, "notice-prio-user", password=_PW)
+
+    r = await client.get("/v1/notices/active")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["modal"]["id"] == modal_id
+    # critical wins over modal suppression
+    assert body["banner"] is not None
+    assert body["banner"]["id"] == critical_id
+    assert body["banner"]["severity"] == "critical"
+
+
+async def test_publish_modal_writes_official_im(client, make_admin, make_invite):
+    await _admin_login(client, make_admin, "notice-modal-im-admin")
+    notice_id = await _create_and_publish(
+        client, title="弹窗 IM", body="同步官方号", surface="modal"
+    )
+
+    invite = await make_invite("NOTICE-MODAL-IM")
+    await register_and_login(client, invite, "notice-modal-im-user", password=_PW)
+
+    r = await client.get("/v1/messages/chats")
+    assert r.status_code == 200, r.text
+    official = next((c for c in r.json()["data"] if c["type"] == "official"), None)
+    assert official is not None
+    r = await client.get(f"/v1/messages/chats/{official['id']}/messages")
+    assert r.status_code == 200, r.text
+    hits = [
+        m
+        for m in r.json()["data"]
+        if m.get("payload", {}).get("kind") == "product_notice"
+        and m["payload"].get("notice_id") == notice_id
+    ]
+    assert len(hits) == 1
+
+
+async def test_modal_never_rejected_on_create_and_update(client, make_admin):
+    await _admin_login(client, make_admin, "notice-modal-never-admin")
+
+    r = await client.post(
+        "/v1/admin/notices",
+        json={
+            "title": "坏弹窗",
+            "body": "x",
+            "severity": "normal",
+            "surface": "modal",
+            "dismiss_policy": "never",
+        },
+    )
+    assert r.status_code == 400, r.text
+
+    # Create a valid modal, then patch dismiss_policy → never
+    r = await client.post(
+        "/v1/admin/notices",
+        json={
+            "title": "好弹窗",
+            "body": "y",
+            "severity": "normal",
+            "surface": "modal",
+            "dismiss_policy": "once",
+        },
+    )
+    assert r.status_code == 201, r.text
+    notice_id = r.json()["id"]
+
+    r = await client.patch(
+        f"/v1/admin/notices/{notice_id}",
+        json={"dismiss_policy": "never"},
+    )
+    assert r.status_code == 400, r.text
+
+    # Create banner+never, then patch surface → modal
+    r = await client.post(
+        "/v1/admin/notices",
+        json={
+            "title": "永不关横幅",
+            "body": "z",
+            "severity": "normal",
+            "surface": "banner",
+            "dismiss_policy": "never",
+        },
+    )
+    assert r.status_code == 201, r.text
+    banner_id = r.json()["id"]
+    r = await client.patch(
+        f"/v1/admin/notices/{banner_id}",
+        json={"surface": "modal"},
+    )
+    assert r.status_code == 400, r.text

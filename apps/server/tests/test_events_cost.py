@@ -20,7 +20,7 @@ def test_message_end_exposes_cache_split_and_cost():
         "cached": 2_800_000,
         "output": 280_000_000,
         "total": 422_800_000,
-        "currency": "USD",
+        "currency": "CNY",
     }
     ev = message_end(
         FinishReason.END_TURN,
@@ -108,7 +108,7 @@ def test_run_completed_defaults_to_full_zeroed_shapes():
         "cached": 0,
         "output": 0,
         "total": 0,
-        "currency": "USD",
+        "currency": "CNY",
         "pricing_source": "curated",
     }
 

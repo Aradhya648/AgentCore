@@ -36,6 +36,7 @@ from agentcore.db.repositories import (
     DocumentRepository,
     FeedbackRepository,
     FolderRepository,
+    FriendRepository,
     HandoffJobRepository,
     InviteRepository,
     MemoryUpdateRepository,
@@ -265,7 +266,7 @@ def get_notice_repo(session: AsyncSession = Depends(get_db)) -> ProductNoticeRep
 def get_messaging_service(
     session: AsyncSession = Depends(get_db),
 ) -> MessagingService:
-    """Build MessagingService (消息页 找人 IM) with its four repos on one session.
+    """Build MessagingService (消息页 找人 IM) with its repos on one session.
 
     The realtime publisher fans a persisted message out to recipients' SSE
     firehoses through the process-wide in-process hub (消息IM.md §四); swap it
@@ -277,6 +278,7 @@ def get_messaging_service(
         chats=ChatRepository(session),
         blocks=UserBlockRepository(session),
         directory=UserDirectoryRepository(session),
+        friends=FriendRepository(session),
         events=HubChatEventPublisher(default_chat_hub()),
         shared_spaces=SharedSpaceRepository(session),
     )

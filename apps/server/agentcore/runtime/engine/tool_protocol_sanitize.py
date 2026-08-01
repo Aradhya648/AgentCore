@@ -8,10 +8,16 @@ illegal names become retryable and briefs stay readable — no provider-specific
 Also used **before** ``json.loads`` on raw tool-call arguments: models sometimes mix
 Anthropic-style ``<parameter>`` / ``<object>`` fragments into OpenAI JSON args, which
 would otherwise hard-fail as ``args_parse_failed``.
+
+After a successful ``json.loads``, :func:`unwrap_nested_delegate_arguments` eats one
+known protocol fumble: double-wrapping the payload as ``{"arguments": "<json>"}``
+(wire field name collision) — same family as ``coerce_list_arg`` / hoist, not generic
+JSON repair.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -20,7 +26,12 @@ __all__ = [
     "sanitize_raw_tool_arguments",
     "sanitize_tool_args",
     "sanitize_tool_name",
+    "unwrap_nested_delegate_arguments",
 ]
+
+# Delegate payload carriers — used to decide whether nested ``arguments`` is the
+# sole top-level payload key (narrow unwrap; do not guess other fields).
+_DELEGATE_PAYLOAD_KEYS = frozenset({"tasks", "playbook", "playbook_id", "arguments"})
 
 # Vendor / generic tool-protocol tags (open or close), optionally with attrs.
 # Includes bare structural wrappers (``object`` / ``list`` / ``item``) seen when
@@ -102,3 +113,60 @@ def sanitize_tool_args(args: Any) -> Any:
     if isinstance(args, dict):
         return {k: sanitize_tool_args(v) for k, v in args.items()}
     return args
+
+
+def _delegate_payload_keys_present(args: dict[str, Any]) -> set[str]:
+    """Which of ``_DELEGATE_PAYLOAD_KEYS`` are meaningfully present at this level."""
+    present: set[str] = set()
+    tasks = args.get("tasks")
+    if isinstance(tasks, list) and bool(tasks):
+        present.add("tasks")
+    for key in ("playbook", "playbook_id"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            present.add(key)
+    if "arguments" in _DELEGATE_PAYLOAD_KEYS and "arguments" in args:
+        raw = args.get("arguments")
+        if (isinstance(raw, str) and raw.strip()) or (isinstance(raw, dict) and raw):
+            present.add("arguments")
+    return present
+
+
+def _inner_has_delegate_payload(inner: dict[str, Any]) -> bool:
+    tasks = inner.get("tasks")
+    if isinstance(tasks, list) and bool(tasks):
+        return True
+    for key in ("playbook", "playbook_id"):
+        value = inner.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
+def unwrap_nested_delegate_arguments(args: Any) -> dict[str, Any] | None:
+    """Narrow unwrap of double-wrapped delegate payload.
+
+    Only when the top-level dict's sole meaningful payload key (among
+    ``tasks`` / ``playbook`` / ``playbook_id`` / ``arguments``) is ``arguments``,
+    and that value is a JSON object string or dict whose inner body carries
+    non-empty ``tasks`` or a named ``playbook`` / ``playbook_id``. Returns the
+    inner dict to use as replacement, or ``None`` when the shape does not match
+    (including real top-level ``tasks`` plus an unrelated ``arguments`` key).
+    """
+    if not isinstance(args, dict):
+        return None
+    if _delegate_payload_keys_present(args) != {"arguments"}:
+        return None
+    raw = args.get("arguments")
+    if isinstance(raw, str):
+        try:
+            inner: Any = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    elif isinstance(raw, dict):
+        inner = raw
+    else:
+        return None
+    if not isinstance(inner, dict) or not _inner_has_delegate_payload(inner):
+        return None
+    return inner

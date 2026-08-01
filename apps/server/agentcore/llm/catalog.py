@@ -181,11 +181,12 @@ def _provider_entries(
 
 
 def _platform_model_ids() -> list[str]:
-    """The platform catalog's model ids (成本配额与计费 §〇·六 F3).
+    """The platform catalog's configured model ids (成本配额与计费 §〇·六 F3).
 
     Explicit ``PLATFORM_MODELS`` allowlist when set (the flip's curated set); else the
     single ``platform_model`` (+ background) fallback — byok / free-tier deployments
-    keep their one dormant platform row unchanged.
+    keep their one dormant platform row unchanged. Does **not** filter by curated
+    pricing — see :func:`_platform_listable_model_ids` for the 上架 set.
     """
     allowlist = platform_model_allowlist()
     if allowlist:
@@ -195,20 +196,29 @@ def _platform_model_ids() -> list[str]:
     return _dedupe([platform_model, background])
 
 
-def _platform_entry(model_id: str) -> ModelCatalogEntry:
-    """One platform-billed catalog row (nominal-price ledger, F4).
+def _platform_listable_model_ids() -> list[str]:
+    """Allowlist / fallback ids that may appear in catalog and system presets (F4).
 
-    A platform catalog model MUST have a curated price card — a Flash
-    ``cost.pricing_fallback`` on a platform-billed row is a 漏配缺陷 (F4), so a
-    missing card is logged loudly for ops rather than silently degrading the bill.
+    Missing curated price card → hard-exclude (不上架); log once per id for ops.
     """
-    if not has_curated_pricing(model_id):
-        logger.warning("platform_catalog.pricing_missing", model=model_id)
+    listable: list[str] = []
+    for mid in _platform_model_ids():
+        if has_curated_pricing(mid):
+            listable.append(mid)
+        else:
+            logger.warning("platform_catalog.pricing_missing", model=mid)
+    return listable
+
+
+def _platform_entry(model_id: str) -> ModelCatalogEntry:
+    """One platform-billed catalog row (nominal-price ledger, F4). Caller must pass
+    a listable (curated) model id — see :func:`_platform_listable_model_ids`.
+    """
     return _entry(model_id, origin="platform", available=True, credential_source="platform")
 
 
 def _platform_entries() -> list[ModelCatalogEntry]:
-    return [_platform_entry(mid) for mid in _platform_model_ids()]
+    return [_platform_entry(mid) for mid in _platform_listable_model_ids()]
 
 
 async def resolve_model_catalog(session: AsyncSession, user_id: str) -> ModelCatalog:

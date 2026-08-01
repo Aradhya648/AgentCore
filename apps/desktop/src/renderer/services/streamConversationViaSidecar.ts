@@ -1,7 +1,11 @@
 import { patchConversationCache } from "@/hooks/useConversations";
 import { StreamError } from "@/lib/errors";
 import { notifyWarning } from "@/lib/toast";
-import { resolveSidecarInference } from "@/services/inferenceToken";
+import {
+  clearSidecarInference,
+  looksLikeInferenceTokenFailure,
+  resolveSidecarInference,
+} from "@/services/inferenceToken";
 import { resolveConversationPermissionAxes } from "@/services/permissionAxes";
 import { claimSidecarTurnSink } from "@/services/sidecarEventPump";
 import {
@@ -177,9 +181,9 @@ export async function streamConversationViaSidecar({
   const turnId = newTurnId();
   // 本回合 trace_id：贯穿云代理推理调用 + 回写落库，使推理日志↔气泡同 trace（打通气泡↔日志）。
   const traceId = newTraceId();
-  // 云推理凭据（平台 key 不下放本机，走云端代理鉴权——Slice 4a）。取不到则带 undefined：
-  // dev 下 sidecar 回退其自身配置，生产则以可重试的引擎错误失败（胜过静默跑成无计费回合）。
-  const inference = (await resolveSidecarInference()) ?? undefined;
+  // 云推理凭据（平台 key 不下放本机，走云端代理鉴权——Slice 4a）。每回合强制续铸，避免挂过期票。
+  // 取不到则带 undefined：dev 下 sidecar 回退其自身配置，生产则以可重试的引擎错误失败。
+  let inference = (await resolveSidecarInference({ force: true })) ?? undefined;
   // 本会话权限轴随回合送达本地引擎；取不到则 sidecar 沿用其当前值。
   const permissionAxes =
     await resolveConversationPermissionAxes(conversationId);
@@ -206,6 +210,13 @@ export async function streamConversationViaSidecar({
         inference,
         permissionAxes,
       }),
+    remintInference: async () => {
+      clearSidecarInference();
+      inference = (await resolveSidecarInference({ force: true })) ?? undefined;
+      if (!inference) {
+        throw new Error("推理凭证续铸失败，请重新登录后再试");
+      }
+    },
     writeBack: () => persistAndReconcile(conversationId, optimisticUserId),
   });
 }
@@ -234,8 +245,8 @@ export async function resumeConversationViaSidecar({
   console.warn(
     `[Resume] resumeConversationViaSidecar start conversationId=${conversationId} messageId=${messageId} decision=${decision} rootId=${rootId} subpath=${subpath}`,
   );
-  // 续跑同样要跑 LLM（重启后会新拉起引擎），故随带当前云推理凭据（同 startTurn）。
-  const inference = (await resolveSidecarInference()) ?? undefined;
+  // 续跑同样要跑 LLM（重启后会新拉起引擎），故强制续铸当前云推理凭据（同 startTurn）。
+  let inference = (await resolveSidecarInference({ force: true })) ?? undefined;
   // 本会话权限轴（同 startTurn）：续跑期间的能力授权按会话当前轴。
   const permissionAxes =
     await resolveConversationPermissionAxes(conversationId);
@@ -268,6 +279,14 @@ export async function resumeConversationViaSidecar({
           inference,
           permissionAxes,
         }),
+      remintInference: async () => {
+        clearSidecarInference();
+        inference =
+          (await resolveSidecarInference({ force: true })) ?? undefined;
+        if (!inference) {
+          throw new Error("推理凭证续铸失败，请重新登录后再试");
+        }
+      },
       writeBack: () => persistAndReconcile(conversationId, userMessageId),
     });
     console.warn(
@@ -296,8 +315,11 @@ interface RunSidecarTurnOptions {
   usedFallback: boolean;
   /** 兜底错误文案（onStatus / RPC 真因都取不到时）。 */
   failMessage: string;
-  /** 实际的 RPC 调用（startTurn / resume），Promise 在回合结束时携最终结果 resolve。 */
+  /** 实际的 RPC 调用（startTurn / resume），Promise 在回合结束时携最终结果 resolve。
+   *  可被调用多次：开跑前 inference JWT 失效时会清缓存换票后重调一次（仅 !sawAnyEvent）。 */
   invoke: () => Promise<SidecarTurnResult>;
+  /** 开跑前 inference 鉴权失败时：清缓存并换新票；失败则抛出让外层走原错误。 */
+  remintInference?: () => Promise<void>;
   /** 回合结束后冲刷 outbox 并对账（主进程回写；renderer 只反映同步态）。 */
   writeBack: (result: SidecarTurnResult) => Promise<void>;
 }
@@ -317,6 +339,7 @@ async function runSidecarTurn({
   usedFallback,
   failMessage,
   invoke,
+  remintInference,
   writeBack,
 }: RunSidecarTurnOptions): Promise<SidecarTurnResult> {
   // 回合从干净的审批门开始（与云链路一致）。
@@ -347,7 +370,24 @@ async function runSidecarTurn({
     throwIfCannotOpenStream(conversationId, signal);
     enterTurnStreaming(conversationId);
 
-    const result = await invoke();
+    let result: SidecarTurnResult;
+    try {
+      result = await invoke();
+    } catch (firstErr) {
+      // 仅开跑前失败（尚无任何事件）才换票重试一次；中途 JWT 过期不能整回合重开。
+      if (
+        sawAnyEvent ||
+        !remintInference ||
+        !looksLikeInferenceTokenFailure(firstErr)
+      ) {
+        throw firstErr;
+      }
+      console.warn(
+        "[sidecar] inference token rejected before turn events; reminting and retrying once",
+      );
+      await remintInference();
+      result = await invoke();
+    }
     // 记下本回合真正跑的模型（引擎侧 resolve_turn_model），供输入框徽章如实展示；纯云会话
     // 无此信号、徽章回退账号配置。回退回合（无令牌）额外弹一条非阻断提示，点破「用了本机平台
     // 模型而非账号模型」——两个信号同源（result.model 即回退时的平台模型），避免再查一次配置。

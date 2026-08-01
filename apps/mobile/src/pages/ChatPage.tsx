@@ -205,20 +205,15 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
-/** Format an integer nano-USD cost as a money caption (1 USD = 1e9). Returns null for
- *  0 / unknown so a free turn shows nothing, never「$0.00」(§7.5). BYOK estimates get ≈. */
+/** Format an integer nano-CNY cost as ¥ caption (1 元 = 1e9). Returns null for
+ *  0 / unknown so a free turn shows nothing, never「¥0.00」(§7.5). BYOK estimates get ≈. */
 function formatCost(
-  nanoUsd: number | null | undefined,
+  nanoCny: number | null | undefined,
   estimated = false,
 ): string | null {
-  if (!nanoUsd || nanoUsd <= 0) return null;
-  const usd = nanoUsd / 1e9;
-  const body =
-    usd < 0.0001
-      ? "<$0.0001"
-      : usd < 0.01
-        ? `$${usd.toFixed(4)}`
-        : `$${usd.toFixed(2)}`;
+  if (!nanoCny || nanoCny <= 0) return null;
+  const yuan = nanoCny / 1e9;
+  const body = yuan < 0.01 ? "<¥0.01" : `¥${yuan.toFixed(yuan < 0.1 ? 4 : 2)}`;
   return estimated ? `≈${body} 自带密钥·估算` : body;
 }
 

@@ -1,3 +1,4 @@
+import { listLlmProviders } from "@/api/llmProviders";
 import {
   type LlmModelProfileListResponse,
   type LlmModelProfileView,
@@ -13,6 +14,7 @@ import { MODEL_CONFIG_PATH } from "@/lib/errors";
 // Lists account combinations; selection is a profile id (or null = 跟随账号默认).
 // 「管理组合」routes to 设置·模型配置. No bare model list.
 import { Check, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export function ModelPicker({
@@ -29,6 +31,21 @@ export function ModelPicker({
   const navigate = useNavigate();
   const { data, loading, error } = useModelProfiles({ force: true });
   const { data: catalog } = useModels();
+  const [platformAvailable, setPlatformAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listLlmProviders()
+      .then((res) => {
+        if (!cancelled) setPlatformAvailable(res.platform_available === true);
+      })
+      .catch(() => {
+        if (!cancelled) setPlatformAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hasOverride = conversationProfileId !== null;
   const accountDefault = defaultProfile(data);
@@ -70,7 +87,9 @@ export function ModelPicker({
               list={data}
               effectiveId={effectiveId}
               catalog={catalog}
+              platformAvailable={platformAvailable}
               onSelect={onSelect}
+              onOpenManage={openManage}
             />
 
             <button
@@ -106,12 +125,16 @@ function ProfileRows({
   list,
   effectiveId,
   catalog,
+  platformAvailable,
   onSelect,
+  onOpenManage,
 }: {
   list: LlmModelProfileListResponse;
   effectiveId: string | null;
   catalog: ReturnType<typeof useModels>["data"];
+  platformAvailable: boolean;
   onSelect: (profileId: string | null) => void;
+  onOpenManage: () => void;
 }) {
   // Hide migration-only implicit profiles from the picker unless currently selected.
   const rows = list.data.filter(
@@ -120,9 +143,21 @@ function ProfileRows({
 
   if (rows.length === 0) {
     return (
-      <p className="muted hint" data-testid="profiles-empty">
-        暂无可用组合
-      </p>
+      <div className="muted hint" data-testid="profiles-empty">
+        <p>暂无可用组合</p>
+        {platformAvailable ? (
+          <p data-testid="profiles-empty-platform">
+            平台额度暂不可用，请联系管理员或稍后重试。
+          </p>
+        ) : (
+          <p data-testid="profiles-empty-byok">
+            请先{" "}
+            <button type="button" className="link" onClick={onOpenManage}>
+              去模型配置
+            </button>
+          </p>
+        )}
+      </div>
     );
   }
 

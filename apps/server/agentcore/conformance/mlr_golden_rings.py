@@ -598,8 +598,8 @@ def collect_metrics(bundle: GoldenBundle) -> dict[str, Any]:
                     return float(cost[key])
                 except (TypeError, ValueError):
                     pass
-        # nano-USD 分量
-        for key in ("total_nano_usd", "nano_usd"):
+        # nano-CNY 分量（兼容旧 nano-USD 键名）
+        for key in ("total_nano", "total_nano_usd", "nano_usd", "nano_cny"):
             if key in cost and cost[key] is not None:
                 try:
                     return float(cost[key]) / 1_000_000_000.0

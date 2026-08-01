@@ -427,6 +427,71 @@ async def test_delegate_append_latest_without_graph_auto_creates(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delegate_append_latest_with_active_coord_merges_like_no_append(monkeypatch):
+    """同回合活跃协调图 + append_to_execution_id=latest → 等同不传，并入当前图；禁硬失败。"""
+    from agentcore.runtime.coordination.session import (
+        active_coordination,
+        clear_active_coordination,
+    )
+    from tests.delegate.test_coordination_secondary_delegate import _SlowWorkers
+
+    clear_active_coordination()
+    latest_calls: list[dict[str, Any]] = []
+
+    async def fake_latest(*, conversation_id: str, exclude_message_id=None) -> str | None:
+        latest_calls.append(
+            {"conversation_id": conversation_id, "exclude_message_id": exclude_message_id}
+        )
+        return None  # 即使返回 None 也不应硬失败
+
+    monkeypatch.setattr(
+        "agentcore.runtime.delegate.graph_append.resolve_latest_appendable_execution",
+        fake_latest,
+    )
+    t = tool(_SlowWorkers(["A", "B", "C"], delay=0.4))
+    first = await t.execute(
+        {
+            "tasks": [
+                {"role": "研究员", "task": "做A"},
+                {"role": "写手", "task": "做B"},
+            ],
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert first.success is True
+    session = active_coordination("e")
+    assert session is not None and session.active
+    session_id = id(session)
+    drive = session.drive_task
+    assert drive is not None and not drive.done()
+
+    second = await t.execute(
+        {
+            "tasks": [{"role": "审查", "task": "做C"}],
+            "append_to_execution_id": "latest",
+            "coordinate": True,
+        },
+        ctx(),
+    )
+    assert second.success is True
+    assert "追加解析失败" not in (second.error or "")
+    assert "无需 latest" not in (second.error or "") + (second.output or "")
+    assert "队员已追加" in (second.output or "")
+    # 同回合活跃图路径不应再去查历史 latest。
+    assert latest_calls == []
+    after = active_coordination("e")
+    assert after is not None
+    assert id(after) == session_id
+    assert after.total_workers == 3
+
+    drive.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drive
+    clear_active_coordination("e")
+
+
+@pytest.mark.asyncio
 async def test_delegate_append_rejected_for_nested_lead():
     """跨回合追加仅根协调者可用：嵌套 lead（depth>0）显式拒绝，防跨图串写。"""
     from agentcore.tools.builtin.delegate import DelegateTool

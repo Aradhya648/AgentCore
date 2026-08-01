@@ -149,19 +149,29 @@ async def test_fence_stream_failure_emits_llm_call_failed():
 
 
 def test_build_provider_wraps_with_fence(monkeypatch):
-    monkeypatch.setattr(
-        "agentcore.llm.factory.platform_llm_credentials",
-        lambda **_k: None,
+    from agentcore.llm.credentials import LLMCredentials
+
+    provider = build_provider(
+        LLMCredentials(
+            api_key="k",
+            base_url="http://x/v1",
+            default_model="deepseek-v4-flash",
+            source="user",
+        )
     )
-    monkeypatch.setattr("agentcore.llm.factory.settings.platform_api_key", "k")
-    monkeypatch.setattr("agentcore.llm.factory.settings.platform_base_url", "http://x/v1")
-    provider = build_provider()
     assert isinstance(provider, ObservingLLMProvider)
     assert unwrap_provider(provider).__class__.__name__ == "OpenAICompatibleProvider"
     assert observe_provider(provider) is provider  # idempotent
     # BYOK 设置·测试 calls probe on the fence-wrapped provider — must not AttributeError.
     assert callable(getattr(provider, "probe", None))
     assert callable(getattr(provider, "probe_tools", None))
+
+
+def test_build_provider_rejects_none_credentials():
+    from agentcore.llm.factory import MissingLLMCredentialsError
+
+    with pytest.raises(MissingLLMCredentialsError, match="explicit credentials"):
+        build_provider(None)
 
 
 @pytest.mark.asyncio

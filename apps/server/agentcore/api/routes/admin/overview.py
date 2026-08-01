@@ -95,6 +95,5 @@ async def overview(
         recent_daily_turns=recent_daily_turns,
         database_ok=db_ok,
         recent_errors=[TurnMetricLine.model_validate(r) for r in errors],
-        cny_per_usd=settings.cny_per_usd,
         billing_mode=settings.billing_mode,
     )

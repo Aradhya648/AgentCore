@@ -102,7 +102,6 @@ describe("ChatTimeline chat layout", () => {
     render(
       <ChatTimeline
         messages={messages}
-        cnyPerUsd={7.2}
         selectedId="a1"
         selectedRunId={null}
         onSelect={vi.fn()}
@@ -141,7 +140,6 @@ describe("ChatTimeline chat layout", () => {
     render(
       <ChatTimeline
         messages={messages}
-        cnyPerUsd={7.2}
         selectedId="a1"
         selectedRunId={null}
         onSelect={vi.fn()}

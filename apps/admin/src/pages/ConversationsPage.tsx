@@ -10,7 +10,7 @@ import {
   fmtInt,
   fmtMs,
   fmtTime,
-  nanoUsdToCny,
+  nanoToYuan,
 } from "@/lib/utils";
 import { errorMessage } from "@/services/api";
 import {
@@ -265,7 +265,6 @@ function ConversationsPanel({
 }) {
   const [rows, setRows] = useState<AdminConversationListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [cnyPerUsd, setCnyPerUsd] = useState(0);
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -316,7 +315,6 @@ function ConversationsPanel({
       });
       setRows(res.data);
       setTotal(res.total);
-      setCnyPerUsd(res.cny_per_usd);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -561,7 +559,7 @@ function ConversationsPanel({
                   </td>
                   <td className="px-5 py-3 text-right text-muted-foreground tabular-nums">
                     {c.cost_total > 0
-                      ? fmtCny(nanoUsdToCny(c.cost_total, cnyPerUsd))
+                      ? fmtCny(nanoToYuan(c.cost_total))
                       : "—"}
                   </td>
                   <td className="whitespace-nowrap px-5 py-3 text-muted-foreground tabular-nums">

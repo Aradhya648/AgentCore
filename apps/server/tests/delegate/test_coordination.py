@@ -553,25 +553,46 @@ async def test_cancel_worker_miss_lists_running_workers():
     clear_active_coordination()
 
 
-async def test_cancel_worker_not_resolvable_after_completion():
-    """完成 / disarm 后从登记表清除 → 短名与全名都不再可解析。"""
+async def test_cancel_worker_already_ended_is_idempotent_success():
+    """完成 / disarm 后：在跑表解析不到，但确认为本会话已结束 → 幂等成功、不进红错。"""
     clear_active_coordination()
     from agentcore.runtime.coordination.session import set_active_coordination
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
 
     session = CoordinationSession(execution_id="e", total_workers=2)
     set_active_coordination(session)
+    session.live_plan = RunPlan(
+        nodes=[
+            RunSpec(run_id="del_abc_data_researcher", role="数据研究员", task="研"),
+            RunSpec(run_id="del_xyz_writer", role="写手", task="写"),
+        ]
+    )
     session.arm_worker_timeout("del_abc_data_researcher", role="数据研究员", timeout_s=60)
     session.arm_worker_timeout("del_xyz_writer", role="写手", timeout_s=60)
     session.mark_worker_completed("del_abc_data_researcher")
-    # 已完成 worker：短名与全名都解析不到。
+    # 已完成：不再出现在在跑解析；ended 解析仍命中。
     assert session.resolve_cancel_target("data_researcher").run_id is None
     assert session.resolve_cancel_target("del_abc_data_researcher").run_id is None
-    # 仍在跑的 worker 照常可解析。
+    assert (
+        session.resolve_ended_worker("del_abc_data_researcher").run_id
+        == "del_abc_data_researcher"
+    )
+    assert session.resolve_ended_worker("data_researcher").run_id == "del_abc_data_researcher"
+    # 仍在跑的 worker 照常可解析并取消。
     assert session.resolve_cancel_target("writer").run_id == "del_xyz_writer"
     cancel = CancelWorkerTool()
-    result = await cancel.execute({"run_id": "data_researcher"}, ctx())
-    assert result.success is False
+    ended = await cancel.execute({"run_id": "data_researcher"}, ctx())
+    assert ended.success is True
+    assert "已结束" in (ended.output or "")
     assert "del_abc_data_researcher" not in session.cancel_run_ids()
+    # 全名同样幂等成功。
+    ended_full = await cancel.execute({"run_id": "del_abc_data_researcher"}, ctx())
+    assert ended_full.success is True
+    assert "无需取消" in (ended_full.output or "")
+    # 乱 id 仍失败。
+    miss = await cancel.execute({"run_id": "不存在的名字"}, ctx())
+    assert miss.success is False
     session.close()
     await asyncio.sleep(0)
     clear_active_coordination()

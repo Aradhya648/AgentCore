@@ -29,7 +29,7 @@ from agentcore.llm.tools_gate import TOOLS_SOFT_GATE_WARNING
 from tests.integration.conftest import register_and_login
 
 _MASTER_KEY = "a" * 64
-_OVER_MONTHLY_NANO = 6_000_000_000  # above the default $5 monthly cap
+_OVER_MONTHLY_NANO = 20_000_000_000  # above the default ¥10 monthly cap
 _BASE = "/v1/users/me/llm-providers"
 
 
@@ -296,22 +296,12 @@ async def test_test_missing_provider_returns_404(client, make_invite, byok):
 
 
 async def test_list_reports_platform_capability_dormant(client, make_invite, byok, monkeypatch):
-    """byok + free_tier off + key still present → platform_available false."""
+    """byok + key still present → platform_available false."""
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
     await register_and_login(client, await make_invite("INV-P-CAP"), "provcap")
     body = (await client.get(_BASE)).json()
     assert body["platform_available"] is False
     assert body["platform_model"] is None
-    assert body["billing_mode"] == "byok"
-
-
-async def test_list_reports_platform_capability_free_tier(client, make_invite, byok, monkeypatch):
-    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
-    await register_and_login(client, await make_invite("INV-P-CAPFT"), "provcapft")
-    body = (await client.get(_BASE)).json()
-    assert body["platform_available"] is True
     assert body["billing_mode"] == "byok"
 
 
@@ -382,9 +372,8 @@ async def test_preflight_tools_soft_gate_warning(client, make_invite, session_fa
 
 
 async def test_preflight_platform_enforces_quota(client, make_invite, session_factory, monkeypatch):
-    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
     user_id = await register_and_login(client, await make_invite("INV-P-PLATQ"), "provuser16")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(

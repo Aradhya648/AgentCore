@@ -107,7 +107,7 @@ async def test_ceiling_finalize_stamps_token_budget_on_track():
         await ceiling_finalize(
             messages=[],
             llm=MagicMock(),
-            profile=MagicMock(max_rounds=28),
+            profile=MagicMock(max_rounds=56),
             active_model="m",
             base_model="m",
             tools=MagicMock(),

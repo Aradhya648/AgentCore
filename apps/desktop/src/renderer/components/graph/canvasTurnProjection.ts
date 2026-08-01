@@ -25,7 +25,6 @@ export interface CanvasProjectionContext {
   execById: Record<string, ExecutionRuntime>;
   handleDirection: "horizontal" | "vertical";
   edgePathType: "smoothstep" | "bezier";
-  cnyPerUsd: number;
   litRunId: string | null;
   litEndpointMessageId: string | null;
   finalAnswer: { id: string; content: string } | null;
@@ -79,7 +78,6 @@ export function buildCanvasTurnProjections(
       edges: slice.edges,
       handleDirection: ctx.handleDirection,
       edgePathType: ctx.edgePathType,
-      cnyPerUsd: ctx.cnyPerUsd,
       litRunId: isFocus ? ctx.litRunId : null,
       litEndpointMessageId: isFocus ? ctx.litEndpointMessageId : null,
       captainRun: captain,

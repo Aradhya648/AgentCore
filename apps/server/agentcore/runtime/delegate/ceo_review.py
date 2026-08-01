@@ -13,6 +13,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
+from agentcore.config import settings
 from agentcore.core.logging import get_logger
 from agentcore.llm.profiles import build_request, get_profile
 from agentcore.llm.provider.protocol import LLMMessage
@@ -192,7 +193,8 @@ async def run_ceo_review(
         f"{artifacts}{pending_lines}"
     )
     profile = get_profile("compaction")
-    resolved_model = model or "grok-4.5"
+    # Inherit caller model; empty → deployment default (never hardcode a product SKU).
+    resolved_model = (model or "").strip() or (settings.platform_model or "").strip()
     request = build_request(
         profile,
         [LLMMessage(role="user", content=prompt)],

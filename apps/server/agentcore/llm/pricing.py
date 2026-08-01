@@ -1,24 +1,22 @@
 """Single source of truth for turning token usage into money (不变量 #2).
 
 Every place that needs a cost calls :func:`calculate_cost` — there is no other
-price table and no per-site arithmetic. Prices are USD per 1M tokens: DeepSeek from
-``docs/05-平台与运维/平台LLM接入.md``（DeepSeek 易错 + 官方价以官网为准）; third-party vendors
-(豆包/方舟) from the vendor's published CNY rate converted at ``CNY_PER_USD`` (see the
-table comments). Per-input-length tiers + FX-from-config are the Phase 2 定价表 item.
+price table and no per-site arithmetic. **Ledger authority is nano-CNY**
+(``1 CNY = 1e9 nano``); curated domestic cards write ¥/1M tokens directly.
+API / display paths use nano-CNY with no FX (``nano_to_yuan``; ``cny_total`` is yuan).
 
 Money is never a float. Costs are computed in :class:`~decimal.Decimal` and
-returned as integer **nano-USD** (1 USD = 1e9 nano) — the canonical unit stored
-in the ``cost_events`` ledger and carried over the API. Only the display layer
-converts to CNY (via the single configured rate), so rounding never accretes
-across a month of aggregation.
+returned as integer **nano-CNY** — the canonical unit stored in the
+``cost_events`` ledger and carried over the API. Display converts nano → 元
+via :func:`nano_to_yuan` (``nano / 1e9``, no FX).
 
 Pricing layers (call-level ``credential_source``):
 
-- User (BYOK): community estimate table → ``unpriced`` (never Flash)
-- Platform/vendor: curated ``_PRICING`` → community → Flash fallback + warning
+- User (BYOK): community estimate table → ``unpriced`` (never Flash/glm fallback)
+- Platform/vendor: curated ``_PRICING`` → community → glm-5.2 fallback + warning
 
-User path never falls back to Flash — unknown → ``unpriced`` (0). Platform/vendor
-keep Flash fallback + warning (quota must not go blank).
+User path never falls back to the default tier — unknown → ``unpriced`` (0).
+Platform/vendor keep default-tier fallback + warning (quota must not go blank).
 """
 
 from __future__ import annotations
@@ -40,106 +38,77 @@ CredentialSource = Literal["user", "platform", "vendor"]
 PricingSource = Literal["curated", "estimated", "unpriced"]
 _VENDOR_PREFIXES = frozenset({"doubao", "kimi", "zhipu"})
 
-# 1 USD expressed in nano-USD. The ledger and API speak integer nano-USD.
-NANO_PER_USD = 1_000_000_000
+# 1 CNY expressed in nano-CNY. The ledger and API speak integer nano-CNY.
+NANO_PER_CNY = 1_000_000_000
 
 # 豆包 (Volcengine 方舟) routed model id — keyed WITH the ``doubao/`` prefix because
 # that is the exact string that reaches calculate_cost: the ProviderRouter only strips
 # the prefix when *calling* the vendor, so cost accounting still sees the original id.
 # TODO(Phase 2 定价表): match by vendor prefix so a new dated version (…-2606xx) keeps
-# its price instead of silently degrading to Flash.
+# its price instead of silently degrading to the default tier.
 DOUBAO_SEED_TURBO = "doubao/doubao-seed-2-1-turbo-260628"
 
-# Qwen-VL-Max (通义千问视觉) — the default board 读图 reader via DashScope's
-# OpenAI-compatible endpoint (AI协作白板.md §九.4). Keyed by the exact ``vision_model``
-# config string that reaches calculate_cost (config/llm.py default). Other vision models
-# (GLM-4V / GPT-4o / 本地 vLLM…) are user-selectable and fall back to the default tier +
-# a logged warning until added — same posture as any unpriced model.
+# Qwen-VL-Max (通义千问视觉) — model id constant for vision reader config.
+# No curated CNY card this step (USD list withdrawn); platform path → community /
+# glm fallback. Constant kept for imports elsewhere.
 QWEN_VL_MAX = "qwen-vl-max"
 
-# Platform upstream reference model (OpenAI-compatible). Prices below are for ledger/quota.
-# gpt-4o: OpenAI API list price (2025-04) as the platform reference tier.
+# Platform upstream reference model id (OpenAI-compatible). Constant kept for
+# imports; no curated card this step (USD list withdrawn).
 PLATFORM_GPT_4O = "gpt-4o"
 
 # Platform relay catalog models (billing_mode=platform 内测中转目录, 成本配额与计费 §〇·六 F4).
-# The operator's relay upstream cost is ≈0; these are NOMINAL reference prices for
-# ledger/quota only (名义记账, F4 要求目录模型必须有 curated 价卡). 名义参考价、运营可调.
-PLATFORM_RELAY_52 = "5.2"  # 平台默认；名义按 gpt-4o 档
-PLATFORM_RELAY_GROK_45 = "grok-4.5"  # 名义参考 community grok-3 档
+PLATFORM_RELAY_GLM_52 = "glm-5.2"  # 平台默认；bigmodel.cn 人民币列表价直写
+PLATFORM_RELAY_GROK_45 = "grok-4.5"  # id 常量保留；本步无 curated CNY 卡
 
-# USD per 1M tokens. DeepSeek: 平台LLM接入.md 四·附 / api-docs.deepseek.com;
-# cache_hit is ~50× cheaper than cache_miss — splitting input by hit/miss is what keeps
-# the bill honest on multi-turn chats (DeepSeek prefix caching).
+# CNY per 1M tokens (F4 curated). 国内官价直写 ¥。
+# DeepSeek：api-docs.deepseek.com/zh-cn/quick_start/pricing（人民币表）。
+# gpt-4o / grok-4.5 / qwen-vl-max — 仍无 curated（不上架）。
 _PRICING: dict[str, dict[str, Decimal]] = {
+    # DeepSeek V4 — 中文定价页：百万 tokens 输入（缓存命中/未命中）/ 输出。
+    # Flash: ¥0.02 / ¥1 / ¥2；Pro: ¥0.025 / ¥3 / ¥6（卡保留，allowlist 可暂不上架）。
     DEEPSEEK_V4_FLASH: {
-        "cache_hit": Decimal("0.0028"),
-        "cache_miss": Decimal("0.14"),
-        "output": Decimal("0.28"),
+        "cache_hit": Decimal("0.02"),
+        "cache_miss": Decimal("1"),
+        "output": Decimal("2"),
     },
     DEEPSEEK_V4_PRO: {
-        "cache_hit": Decimal("0.003625"),
-        "cache_miss": Decimal("0.435"),
-        "output": Decimal("0.87"),
+        "cache_hit": Decimal("0.025"),
+        "cache_miss": Decimal("3"),
+        "output": Decimal("6"),
     },
-    # 豆包 doubao-seed-2.1-turbo via 火山方舟. Volcengine 豆包1.6 统一定价 (深度思考/非思考同价),
-    # tiered by INPUT length; this is the 0–32K tier (input ¥0.8/1M, output ¥8/1M) — the
-    # common case (debate prompts sit well under 32K). USD = CNY ÷ 7.2 (settings.cny_per_usd):
-    # ¥0.8→$0.1111, ¥8→$1.1111. No usable cache tier here: the generic OpenAI-compatible
-    # provider doesn't surface a prompt cache split, so input is always billed as a miss
-    # (cache_hit mirrors cache_miss and is never exercised). Source: Volcengine 豆包大模型 1.6
-    # 定价 (2025 FORCE). TODO(Phase 2 定价表): per-input-length tiers + FX from config.
+    # 豆包 doubao-seed-2.1-turbo via 火山方舟. Volcengine 豆包1.6 统一定价,
+    # tiered by INPUT length; this is the 0–32K tier (input ¥0.8/1M, output ¥8/1M).
+    # No usable cache tier: generic OpenAI-compatible provider doesn't surface a
+    # prompt cache split, so input is always billed as a miss (cache_hit mirrors
+    # cache_miss). Source: Volcengine 豆包大模型 1.6 定价 (2025 FORCE).
     DOUBAO_SEED_TURBO: {
-        "cache_hit": Decimal("0.1111"),
-        "cache_miss": Decimal("0.1111"),
-        "output": Decimal("1.1111"),
+        "cache_hit": Decimal("0.8"),
+        "cache_miss": Decimal("0.8"),
+        "output": Decimal("8"),
     },
-    # Qwen-VL-Max via DashScope international (USD-denominated, the default compatible-mode
-    # base_url): input $0.80/1M, output $3.20/1M, cache hit = 20% of input = $0.16/1M.
-    # Source: 阿里云百炼模型价格 + help.aliyun.com/zh/model-studio Context Cache (命中缓存的输入
-    # 按标准输入单价 20% 计费). QwenVLReader parses the OpenAI-style prompt-cache split
-    # (``prompt_tokens_details.cached_tokens``, TokenUsage.from_openai_wire), so a reported
-    # hit prices at this discounted rate; absent split still bills the prompt as a miss.
-    QWEN_VL_MAX: {
-        "cache_hit": Decimal("0.16"),
-        "cache_miss": Decimal("0.80"),
-        "output": Decimal("3.20"),
-    },
-    # Platform upstream — OpenAI gpt-4o (config/platform.py default platform_model).
-    # Source: OpenAI API pricing (input $2.50/1M, cached input $1.25/1M, output $10/1M).
-    PLATFORM_GPT_4O: {
-        "cache_hit": Decimal("1.25"),
-        "cache_miss": Decimal("2.50"),
-        "output": Decimal("10.00"),
-    },
-    # Platform relay default "5.2" — 名义参考价、运营可调 (F4: platform catalog models MUST
-    # be curated; actual relay cost ≈0). Tracks the gpt-4o tier (input $2.50/1M, cached
-    # $1.25/1M, output $10/1M) so the ledger/quota stays honest without a real unit cost.
-    PLATFORM_RELAY_52: {
-        "cache_hit": Decimal("1.25"),
-        "cache_miss": Decimal("2.50"),
-        "output": Decimal("10.00"),
-    },
-    # Platform relay "grok-4.5" — 名义参考价、运营可调. References the community grok-3 tier
-    # (community_prices.json: cache_hit $1.50/1M, input $3.00/1M, output $15.00/1M).
-    PLATFORM_RELAY_GROK_45: {
-        "cache_hit": Decimal("1.50"),
-        "cache_miss": Decimal("3.00"),
-        "output": Decimal("15.00"),
+    # Platform relay default "glm-5.2" — F4 curated = 智谱开放平台（bigmodel.cn）
+    # 人民币列表价直写。Source: bigmodel.cn/pricing
+    # GLM-5.2：输入 ¥8/1M、缓存命中 ¥2/1M、输出 ¥28/1M。
+    PLATFORM_RELAY_GLM_52: {
+        "cache_hit": Decimal("2"),
+        "cache_miss": Decimal("8"),
+        "output": Decimal("28"),
     },
 }
 
-# Unknown / unset model falls back to the cheaper Flash tier rather than failing:
-# a missing price must never crash a turn (the bill degrades, the chat does not).
+# Unknown / unset platform model falls back to glm-5.2 (has CNY curated card)
+# rather than failing: a missing price must never crash a turn.
 # Platform/vendor only — user path stays unpriced instead.
-_DEFAULT_MODEL = DEEPSEEK_V4_FLASH
+_DEFAULT_MODEL = PLATFORM_RELAY_GLM_52
 
-# tokens × (USD / 1M tokens) → nano-USD  ==  tokens × usd_per_million × 1000.
-_USD_PER_MILLION_TO_NANO = Decimal(1000)
+# tokens × (CNY / 1M tokens) → nano-CNY  ==  tokens × cny_per_million × 1000.
+_PER_MILLION_TO_NANO = Decimal(1000)
 
 
 @dataclass(frozen=True)
 class Cost:
-    """A run's (or turn's) cost in integer nano-USD.
+    """A run's (or turn's) cost in integer nano-CNY.
 
     ``input`` is the whole input bill (cached + uncached); ``cached`` re-states
     just the cache-hit portion so the UI can show「省了多少」without re-pricing.
@@ -154,16 +123,16 @@ class Cost:
     cached: int
     output: int
     total: int
-    currency: str = "USD"
+    currency: str = "CNY"
     pricing_source: PricingSource = "curated"
     credential_source: CredentialSource = "platform"
 
 
 def _nano(tokens: int, price_per_million: Decimal) -> int:
-    """Price ``tokens`` at ``price_per_million`` USD/1M, as integer nano-USD."""
+    """Price ``tokens`` at ``price_per_million`` CNY/1M, as integer nano-CNY."""
     if tokens <= 0:
         return 0
-    value = Decimal(tokens) * price_per_million * _USD_PER_MILLION_TO_NANO
+    value = Decimal(tokens) * price_per_million * _PER_MILLION_TO_NANO
     return int(value.quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
@@ -212,8 +181,8 @@ def resolve_price_card(
 ) -> tuple[dict[str, Decimal] | None, PricingSource, bool]:
     """Resolve ``(card, pricing_source, used_flash_fallback)`` for one call.
 
-    User: community → unpriced (never Flash).
-    Platform/vendor: curated → community → Flash fallback.
+    User: community → unpriced (never default-tier fallback).
+    Platform/vendor: curated → community → glm-5.2 fallback.
     """
     if credential_source == "user":
         community = community_pricing_for(model)
@@ -231,7 +200,7 @@ def resolve_price_card(
 
 
 def pricing_for(model: str) -> dict[str, Decimal]:
-    """The price card for a model, falling back to the default (Flash) tier."""
+    """The price card for a model, falling back to the default (glm-5.2) tier."""
     card, _src, _fb = resolve_price_card(model, credential_source="platform")
     assert card is not None
     return card
@@ -240,7 +209,7 @@ def pricing_for(model: str) -> dict[str, Decimal]:
 def has_curated_pricing(model: str) -> bool:
     """Whether ``model`` has an authoritative curated price card (不落社区/回落).
 
-    Platform catalog models MUST have one (成本配额与计费 §〇·六 F4): a Flash
+    Platform catalog models MUST have one (成本配额与计费 §〇·六 F4): a default-tier
     ``cost.pricing_fallback`` on a platform-billed catalog row is a 漏配缺陷, not a
     graceful degrade. The catalog builder uses this to surface such misconfiguration.
     """
@@ -274,7 +243,7 @@ def calculate_cost(
     """Convert a run's token usage into money — the only place this happens.
 
     Input is split by cache hit/miss (DeepSeek pre-splits the counts); output is
-    priced whole (reasoning already included). Returns integer nano-USD.
+    priced whole (reasoning already included). Returns integer nano-CNY.
 
     Pricing follows **call-level credential source** and the two-layer card
     resolve, not deployment ``settings.billing_mode``.
@@ -290,7 +259,7 @@ def calculate_cost(
       (``hit + miss == prompt``) this is a no-op, and when the split is missing
       the whole prompt is priced as a cache miss instead of vanishing.
     - **Fallback visibility** (platform/vendor only): an unknown/unset ``model``
-      degrades to the Flash tier, logged as ``cost.pricing_fallback``.
+      degrades to the glm-5.2 tier, logged as ``cost.pricing_fallback``.
     """
     source = resolve_credential_source(
         credential_source=credential_source,
@@ -342,7 +311,7 @@ def cache_savings(
     credential_source: CredentialSource | None = None,
     billing_mode: str | None = None,
 ) -> int:
-    """Nano-USD saved by prefix-cache hits this run vs. paying the miss price.
+    """Nano-CNY saved by prefix-cache hits this run vs. paying the miss price.
 
     ``cache_hit_tokens × (miss_price − hit_price)`` — powers the「前缀缓存替你省了
     ¥X」彩蛋 (§七E). Zero when nothing hit the cache.
@@ -359,11 +328,11 @@ def cache_savings(
     return max(full - paid, 0)
 
 
-def nano_usd_to_cny(nano_usd: int, cny_per_usd: float) -> float:
-    """Convert nano-USD to CNY yuan for display, rounded to fen (2 decimals).
+def nano_to_yuan(nano: int) -> float:
+    """Convert ledger nano-CNY to yuan for display, rounded to fen (2 decimals).
 
-    Display-only (the ledger stays USD nano). ``cny_per_usd`` is the single
-    configured rate (``settings.cny_per_usd``), passed in to keep this pure.
+    ``nano / NANO_PER_CNY`` — no FX. Wire field ``cny_total`` carries this yuan value
+    (name kept; semantics are 元, not USD×rate).
     """
-    yuan = Decimal(nano_usd) / Decimal(NANO_PER_USD) * Decimal(str(cny_per_usd))
+    yuan = Decimal(nano) / Decimal(NANO_PER_CNY)
     return float(yuan.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))

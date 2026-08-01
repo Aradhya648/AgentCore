@@ -332,6 +332,88 @@ async def test_continuation_rejected_is_non_retryable():
     assert state.error_retryable is False
 
 
+async def test_continuation_rejected_emits_run_failed():
+    """拒续派须发 run_failed，否则协作图节点卡在「排队中」。"""
+    store = SessionStore()
+    sink = EventSink()
+    tool = _tool(store, _Provider(["x"]), sink)
+    spec = RunSpec(
+        run_id="t_tip",
+        agent_id="t_tip",
+        task="接着写",
+        continue_from_run_id="ghost",
+    )
+    state = await run_continuation(tool, spec, {}, execution_id="e")
+    assert state.phase is RunPhase.FAILED
+    sink.close()
+    events = [e async for e in sink]
+    failed = [e for e in events if e.type is EventType.RUN_FAILED]
+    assert len(failed) == 1
+    assert failed[0].payload["run_id"] == "t_tip"
+    assert "找不到" in failed[0].payload["error"]
+
+
+async def test_continue_from_chain_tip_alias_resolves_to_root():
+    """续派成功后登记链末端→根别名；下一跳填图上末端仍可溯根。"""
+    store = SessionStore()
+    provider = _Provider(["第一版", "续写版", "再续一版"])
+    await _seed(store, provider)
+    sink = EventSink()
+    tool = _tool(store, provider, sink)
+
+    result = await tool.execute(
+        {
+            "tasks": [
+                {
+                    "id": "rev1",
+                    "role": "研究员",
+                    "task": "改一版",
+                    "continue_from_run_id": "t_1",
+                }
+            ],
+            "coordinate": False,
+            "complexity_hint": "light",
+        },
+        _ctx(),
+    )
+    assert result.success is True
+    # 续派节点 id 形如 del_*_rev1 或带 prefix；从 sink 取 continues 链末端
+    sink.close()
+    events = [e async for e in sink]
+    started = [
+        e
+        for e in events
+        if e.type is EventType.RUN_STARTED and e.payload.get("continues_run_id") == "t_1"
+    ]
+    assert started
+    tip_id = started[0].payload["run_id"]
+    assert tip_id != "t_1"
+    assert store.get(tip_id) is not None
+    assert store.get(tip_id).run_id == "t_1"
+    assert store.root_for_alias(tip_id) == "t_1"
+
+    # 第二跳：continue_from 填链末端
+    sink2 = EventSink()
+    tool2 = _tool(store, provider, sink2)
+    result2 = await tool2.execute(
+        {
+            "tasks": [
+                {
+                    "role": "研究员",
+                    "task": "再改一版",
+                    "continue_from_run_id": tip_id,
+                }
+            ],
+            "coordinate": False,
+            "complexity_hint": "light",
+        },
+        _ctx(),
+    )
+    assert result2.success is True
+    assert "再续一版" in result2.output or tool2.continuation_count >= 1
+    assert store.get("t_1").recall_count >= 2
+
+
 async def test_continue_from_failed_run_is_allowed():
     """端到端：CEO 用 continue_from 让原作者在失败草稿上改写。"""
     store = SessionStore()

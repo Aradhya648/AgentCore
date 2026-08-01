@@ -44,6 +44,7 @@ from .tool_protocol_sanitize import (
     sanitize_raw_tool_arguments,
     sanitize_tool_args,
     sanitize_tool_name,
+    unwrap_nested_delegate_arguments,
 )
 
 logger = get_logger(__name__)
@@ -312,12 +313,20 @@ def _format_args_parse_error(
         )
         return model_msg, _USER_WRITE_PARSE_MSG
     if tool_name in {"delegate", "ask_user"}:
-        model_msg = (
-            technical
-            + "【策略】参数必须是单一合法 JSON 对象，禁止混入 XML/"
-            "<parameter>/<object> 等协议标签；按工具 schema 重发精简参数，"
-            "勿把整篇正文塞进 task 字段。"
+        dual_wrap = (
+            "【策略】payload 顶层直接放字段（delegate：`tasks` 或 `playbook`/`playbook_id`），"
+            "禁止再包一层 `arguments` 字符串；参数须为单一合法 JSON 对象，"
+            "禁止混入 XML/<parameter>/<object> 等协议标签；"
+            "按工具 schema 重发精简参数，勿把整篇正文塞进 task 字段"
+            "（细则进 deliverable / team_brief）。"
+            if tool_name == "delegate"
+            else (
+                "【策略】参数必须是单一合法 JSON 对象，禁止混入 XML/"
+                "<parameter>/<object> 等协议标签；按工具 schema 重发精简参数，"
+                "勿把整篇正文塞进参数字段。"
+            )
         )
+        model_msg = technical + dual_wrap
         return model_msg, model_msg
     model_msg = (
         technical
@@ -452,6 +461,29 @@ async def execute_tools(
             )
 
         if isinstance(args, dict):
+            if name == "delegate":
+                unwrapped = unwrap_nested_delegate_arguments(args)
+                if unwrapped is not None:
+                    logger.info(
+                        "tool.delegate_arguments_unwrapped",
+                        tool_call_id=tc.id,
+                        inner_keys=sorted(unwrapped.keys())[:20],
+                        has_tasks=isinstance(unwrapped.get("tasks"), list)
+                        and bool(unwrapped.get("tasks")),
+                        has_playbook=bool(
+                            (
+                                isinstance(unwrapped.get("playbook"), str)
+                                and str(unwrapped.get("playbook") or "").strip()
+                            )
+                            or (
+                                isinstance(unwrapped.get("playbook_id"), str)
+                                and str(unwrapped.get("playbook_id") or "").strip()
+                            )
+                        ),
+                    )
+                    args = unwrapped
+                    with contextlib.suppress(TypeError, ValueError):
+                        tc.function.arguments = json.dumps(args, ensure_ascii=False)
             cleaned_args = sanitize_tool_args(args)
             if cleaned_args != args:
                 args = cleaned_args
@@ -616,6 +648,15 @@ async def execute_tools(
             approval_gate is not None
             and tool_call_requires_approval(name, tool.schema.approval, args)
         )
+        # CEO 窄例外：captain 直调 browser_navigate 不弹审批（force_breaker 仍拦）。
+        # Worker navigate 本地仍走 GRANTABLE；click/type/… 仍 worker-only。
+        if (
+            needs_approval
+            and not force_breaker
+            and role == "captain"
+            and name == "browser_navigate"
+        ):
+            needs_approval = False
         # Cloud *workers* historically ungated for server-sandbox tools. When
         # resolve_worker_gate shares the turn gate only for MCP/Host, narrow
         # prompts to desktop-touch tools (file_write etc. stay ungated on cloud

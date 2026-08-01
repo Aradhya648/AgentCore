@@ -59,6 +59,7 @@ export function GroupInfoDialog({ chatId, open, onClose }: Props) {
   const loadMembers = useMessagingStore((s) => s.loadMembers);
   const setMembershipFlags = useMessagingStore((s) => s.setMembershipFlags);
   const leaveChat = useMessagingStore((s) => s.leaveChat);
+  const openProfile = useMessagingStore((s) => s.openProfile);
   const navigate = useNavigate();
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -121,31 +122,35 @@ export function GroupInfoDialog({ chatId, open, onClose }: Props) {
             </p>
             <ul className="max-h-60 overflow-y-auto px-2 pb-2">
               {members.map((m) => (
-                <li
-                  key={m.id}
-                  className="flex items-center gap-3 rounded-lg px-3 py-1.5 hover:bg-accent/50"
-                >
-                  <PresenceAvatar
-                    label={avatarInitial(m.display_name || m.username)}
-                    sizeClass="size-8"
-                    textClass="text-sm"
-                    online={!!m.online}
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate text-sm text-foreground">
-                        {m.display_name || m.username}
-                      </span>
-                      {m.is_admin && (
-                        <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
-                          管理员
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    onClick={() => openProfile(m.id)}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`查看 ${m.display_name || m.username} 的资料`}
+                  >
+                    <PresenceAvatar
+                      label={avatarInitial(m.display_name || m.username)}
+                      sizeClass="size-8"
+                      textClass="text-sm"
+                      online={!!m.online}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm text-foreground">
+                          {m.display_name || m.username}
                         </span>
-                      )}
+                        {m.is_admin && (
+                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
+                            管理员
+                          </span>
+                        )}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {m.online ? "在线" : `@${m.username}`}
+                      </span>
                     </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {m.online ? "在线" : `@${m.username}`}
-                    </span>
-                  </span>
+                  </button>
                 </li>
               ))}
             </ul>

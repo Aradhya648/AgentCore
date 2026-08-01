@@ -23,7 +23,6 @@ import {
 } from "@/stores/execution";
 import { useGraphStore } from "@/stores/graph";
 import type { EndpointKind } from "@/stores/sidePanel";
-import { useUsageStore } from "@/stores/usage";
 import { Background, type Node, ReactFlow } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CanvasPlaybackControls } from "./CanvasPlaybackControls";
@@ -184,7 +183,6 @@ export function GraphView({
     effectiveLayoutKind === "leftright"
       ? ("horizontal" as const)
       : ("vertical" as const);
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
 
   const {
     activateNode,
@@ -360,7 +358,6 @@ export function GraphView({
             actCards,
             edges,
             handleDirection,
-            cnyPerUsd,
             litRunId,
             litEndpointMessageId,
             captainRun,
@@ -388,7 +385,6 @@ export function GraphView({
       actCards,
       edges,
       handleDirection,
-      cnyPerUsd,
       litRunId,
       litEndpointMessageId,
       captainRun,

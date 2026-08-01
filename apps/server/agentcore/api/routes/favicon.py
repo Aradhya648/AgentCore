@@ -38,6 +38,7 @@ from agentcore.core.net import (
     PinnedIPTransport,
     describe_net_error,
     is_safe_url,
+    outbound_async_client,
     web_timeout,
 )
 
@@ -203,7 +204,7 @@ async def _resolve_favicon(domain: str) -> tuple[bytes, str] | None:
     # hop is SSRF-rechecked in _fetch_checked. PinnedIPTransport closes the
     # DNS-rebinding TOCTOU (the relaxed verify rides the inner transport, since a
     # custom transport makes the client-level ``verify`` kwarg a no-op).
-    async with httpx.AsyncClient(
+    async with outbound_async_client(
         timeout=web_timeout(8.0),
         follow_redirects=False,
         transport=PinnedIPTransport(verify=False),

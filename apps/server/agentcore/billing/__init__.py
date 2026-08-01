@@ -8,15 +8,11 @@ it directly). Import ``preflight_llm_credentials`` from ``agentcore.billing.gate
 """
 
 from agentcore.billing.preference import (
-    is_free_tier_active,
-    is_free_tier_enabled,
     is_platform_available,
     platform_catalog_visible,
 )
 
 __all__ = [
-    "is_free_tier_active",
-    "is_free_tier_enabled",
     "is_platform_available",
     "platform_catalog_visible",
 ]

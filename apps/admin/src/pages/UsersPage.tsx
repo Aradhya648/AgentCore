@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Spinner } from "@/components/ui/Spinner";
-import { cn, fmtCny, nanoUsdToCny } from "@/lib/utils";
+import { cn, fmtCny, nanoToYuan } from "@/lib/utils";
 import { errorMessage } from "@/services/api";
 import {
   type AdminUser,
@@ -42,9 +42,9 @@ function fmtDate(iso: string): string {
 function quotaSummary(u: AdminUser): string {
   if (u.is_unlimited) return "无限额";
   const tokens = u.quota_daily_tokens ?? "继承";
-  const cost = u.quota_monthly_cost_usd ?? "继承";
+  const cost = u.quota_monthly_cost_cny ?? "继承";
   const req = u.quota_daily_requests ?? "继承";
-  return `日 ${tokens} token · 月 $${cost} · ${req} 请求`;
+  return `日 ${tokens} token · 月 ${typeof cost === "number" ? `¥${cost}` : cost} · ${req} 请求`;
 }
 
 /** A clickable column header: shows the active sort direction, neutral otherwise. */
@@ -85,8 +85,6 @@ export function UsersPage() {
   const selfId = useAuthStore((s) => s.user?.id);
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
   const [total, setTotal] = useState(0);
-  // FX rate from the response, to fold each row's nano-USD cost into ¥.
-  const [cnyPerUsd, setCnyPerUsd] = useState(0);
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -130,7 +128,6 @@ export function UsersPage() {
       });
       setUsers(res.data);
       setTotal(res.total);
-      setCnyPerUsd(res.cny_per_usd);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -393,7 +390,7 @@ export function UsersPage() {
                     {fmtDate(u.created_at)}
                   </td>
                   <td className="px-4 py-3 text-right text-foreground text-xs tabular-nums">
-                    {fmtCny(nanoUsdToCny(u.cost_total, cnyPerUsd))}
+                    {fmtCny(nanoToYuan(u.cost_total))}
                   </td>
                   <td className="px-4 py-3">
                     {isDeleted ? (

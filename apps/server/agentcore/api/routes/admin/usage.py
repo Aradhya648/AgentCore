@@ -92,6 +92,5 @@ async def usage_summary(
             for row in month_by_model
         ],
         recent_daily_cost=recent_daily_cost,
-        cny_per_usd=settings.cny_per_usd,
         billing_mode=settings.billing_mode,
     )

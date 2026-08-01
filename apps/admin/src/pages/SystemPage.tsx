@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
-import { cn, fmtCompact, fmtInt, nanoUsdToUsd } from "@/lib/utils";
+import { cn, fmtCompact, fmtCny, fmtInt, nanoToYuan } from "@/lib/utils";
 import {
   clientGitSha,
   clientVersion,
@@ -131,15 +131,6 @@ export function SystemPage() {
             </p>
           </Card>
 
-          <Card title="汇率">
-            <div className="text-lg font-semibold text-foreground tabular-nums">
-              1 USD = ¥{data.cny_per_usd.toFixed(2)}
-            </div>
-            <p className="mt-3 text-muted-foreground text-xs">
-              单一来源，仅用于展示层换算。
-            </p>
-          </Card>
-
           <Card title="版本">
             <Row label="控制台版本">{clientVersion()}</Row>
             <Row label="控制台构建">{formatGitSha(clientGitSha())}</Row>
@@ -202,14 +193,14 @@ export function SystemPage() {
               {quotaLimit(
                 data.quota.monthly_cost_nano === 0
                   ? "0"
-                  : `$${nanoUsdToUsd(data.quota.monthly_cost_nano).toFixed(2)}`,
+                  : fmtCny(nanoToYuan(data.quota.monthly_cost_nano)),
               )}
             </Row>
             <Row label="日成本">
               {quotaLimit(
                 data.quota.daily_cost_nano === 0
                   ? "0"
-                  : `$${nanoUsdToUsd(data.quota.daily_cost_nano).toFixed(2)}`,
+                  : fmtCny(nanoToYuan(data.quota.daily_cost_nano)),
               )}
             </Row>
             <Row label="日请求">

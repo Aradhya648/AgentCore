@@ -332,6 +332,36 @@ def _fake_merge_tool(*, force: bool = False) -> MagicMock:
 # --- B3: append overlap guard (role / deliverable) --------------------------
 
 
+def test_append_overlap_reject_message_mentions_replaces_not_cancel_for_done():
+    """拒派文案须明示 replaces_run_id，并点明已完成不能靠 cancel。"""
+    from agentcore.runtime.coordination.append_guard import (
+        AppendOverlap,
+        append_overlap_reject_message,
+    )
+
+    empty = append_overlap_reject_message([], completed=0, total=2)
+    assert "replaces_run_id" in empty
+    assert "不能靠 cancel" in empty
+
+    detailed = append_overlap_reject_message(
+        [
+            AppendOverlap(
+                new_role="内容策略",
+                live_role="内容文案",
+                live_run_id="copy",
+                new_run_id="dup",
+                reason="role+deliverable",
+            )
+        ],
+        completed=1,
+        total=2,
+    )
+    assert "replaces_run_id" in detailed
+    assert "replan" in detailed
+    assert "不能靠 cancel" in detailed
+    assert "内容策略" in detailed
+
+
 def test_roles_and_file_targets_detect_geo_class_overlap():
     from agentcore.runtime.coordination.append_guard import (
         find_append_overlaps,
@@ -441,6 +471,9 @@ async def test_merge_rejects_overlapping_append_with_explanation():
         err = result.error or ""
         assert "重叠" in err
         assert "波次" in err or "等待" in err
+        assert "replaces_run_id" in err
+        assert "cancel_worker" in err
+        assert "已完成" in err and "不能靠 cancel" in err
         assert result.contract_failure is True
         assert session.total_workers == 2
         assert len(live.nodes) == 2
@@ -1203,6 +1236,8 @@ async def test_append_overlap_reject_emits_no_run_plan():
     )
     assert second.success is False
     assert "重叠" in (second.error or "") or "归属" in (second.error or "")
+    assert "replaces_run_id" in (second.error or "")
+    assert "不能靠 cancel" in (second.error or "")
     plans_after_reject = [e for e in sink._history if e.type is EventType.RUN_PLAN]
     assert len(plans_after_reject) == 1
     assert session.total_workers == 2

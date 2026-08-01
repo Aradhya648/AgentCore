@@ -1,9 +1,10 @@
 """Unit tests for MessagingService using in-memory fake repositories (no DB).
 
 Covers the 消息 page (找人 IM) policy: people-search visibility, the start-dm
-gates (self / unknown / disabled / blocked / contacts-only), send-message member
-+ block + message-request handling and idempotency, list/unread, read cursor,
-blocking, and directory settings. Mirrors test_auth_service.py's fake-repo style.
+gates (self / unknown / disabled / blocked / friends-only), friend request
+lifecycle, send-message member + block + message-request handling and
+idempotency, list/unread, read cursor, blocking, and directory settings.
+Mirrors test_auth_service.py's fake-repo style.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -304,6 +305,23 @@ class FakeChats:
         member = await self.get_member(chat_id, user_id)
         member.state = "accepted"
 
+    async def share_group(self, user_a, user_b):
+        a_groups = {
+            m.chat_id
+            for m in self._members
+            if m.user_id == user_a
+            and m.chat_id in self._chats
+            and getattr(self._chats[m.chat_id], "type", None) == "group"
+        }
+        b_groups = {
+            m.chat_id
+            for m in self._members
+            if m.user_id == user_b
+            and m.chat_id in self._chats
+            and getattr(self._chats[m.chat_id], "type", None) == "group"
+        }
+        return bool(a_groups & b_groups)
+
     async def unread_counts(self, user_id):
         out: dict = {}
         my_chats = {m.chat_id: m for m in self._members if m.user_id == user_id}
@@ -333,6 +351,99 @@ class FakeBlocks:
         return [b for (a, b) in self._pairs if a == user_id]
 
 
+class FakeFriends:
+    def __init__(self) -> None:
+        self._pairs: set = set()
+        self._requests: dict = {}
+
+    @staticmethod
+    def _pair(a, b):
+        return (a, b) if a < b else (b, a)
+
+    @staticmethod
+    def _pair_key(a, b):
+        x, y = (a, b) if a < b else (b, a)
+        return f"{x}:{y}"
+
+    async def are_friends(self, user_a, user_b):
+        return self._pair(user_a, user_b) in self._pairs
+
+    async def list_friend_ids(self, user_id):
+        out = []
+        for a, b in self._pairs:
+            if a == user_id:
+                out.append(b)
+            elif b == user_id:
+                out.append(a)
+        return out
+
+    async def add_friendship(self, user_a, user_b):
+        self._pairs.add(self._pair(user_a, user_b))
+
+    async def remove_friendship(self, user_a, user_b):
+        key = self._pair(user_a, user_b)
+        if key not in self._pairs:
+            return False
+        self._pairs.discard(key)
+        return True
+
+    async def get_request(self, request_id):
+        return self._requests.get(request_id)
+
+    async def get_pending_between(self, user_a, user_b):
+        key = self._pair_key(user_a, user_b)
+        for req in self._requests.values():
+            if req.status == "pending" and req.pair_key == key:
+                return req
+        return None
+
+    async def create_request(self, *, from_user_id, to_user_id, message=None):
+        from types import SimpleNamespace
+
+        req = SimpleNamespace(
+            id=new_id(),
+            from_user_id=from_user_id,
+            to_user_id=to_user_id,
+            pair_key=self._pair_key(from_user_id, to_user_id),
+            message=message,
+            status="pending",
+            created_at=_EPOCH,
+            updated_at=_EPOCH,
+        )
+        self._requests[req.id] = req
+        return req
+
+    async def set_request_status(self, request_id, status):
+        req = self._requests.get(request_id)
+        if req is None:
+            return None
+        req.status = status
+        return req
+
+    async def cancel_pending_between(self, user_a, user_b):
+        key = self._pair_key(user_a, user_b)
+        cancelled = []
+        for req in self._requests.values():
+            if req.status == "pending" and req.pair_key == key:
+                req.status = "cancelled"
+                cancelled.append(req)
+        return cancelled
+
+    async def list_pending_incoming(self, user_id):
+        return [
+            r
+            for r in self._requests.values()
+            if r.to_user_id == user_id and r.status == "pending"
+        ]
+
+    async def list_pending_outgoing(self, user_id):
+        return [
+            r
+            for r in self._requests.values()
+            if r.from_user_id == user_id and r.status == "pending"
+        ]
+
+
 class FakeDirectory:
     def __init__(self) -> None:
         self._by_user: dict = {}
@@ -340,24 +451,34 @@ class FakeDirectory:
     async def get(self, user_id):
         return self._by_user.get(user_id)
 
-    async def upsert(self, user_id, *, discoverable=None, who_can_dm=None):
+    async def upsert(self, user_id, *, discoverable=None, who_can_dm=None, who_can_friend=None):
         from types import SimpleNamespace
 
         settings = self._by_user.get(user_id)
         if settings is None:
-            settings = SimpleNamespace(user_id=user_id, discoverable=True, who_can_dm="anyone")
+            settings = SimpleNamespace(
+                user_id=user_id,
+                discoverable=True,
+                who_can_dm="anyone",
+                who_can_friend="anyone",
+            )
             self._by_user[user_id] = settings
         if discoverable is not None:
             settings.discoverable = discoverable
         if who_can_dm is not None:
             settings.who_can_dm = who_can_dm
+        if who_can_friend is not None:
+            settings.who_can_friend = who_can_friend
         return settings
 
-    def set(self, user_id, *, discoverable=True, who_can_dm="anyone"):
+    def set(self, user_id, *, discoverable=True, who_can_dm="anyone", who_can_friend="anyone"):
         from types import SimpleNamespace
 
         self._by_user[user_id] = SimpleNamespace(
-            user_id=user_id, discoverable=discoverable, who_can_dm=who_can_dm
+            user_id=user_id,
+            discoverable=discoverable,
+            who_can_dm=who_can_dm,
+            who_can_friend=who_can_friend,
         )
 
 
@@ -374,15 +495,17 @@ def _make():
     chats = FakeChats()
     blocks = FakeBlocks()
     directory = FakeDirectory()
+    friends = FakeFriends()
     events = FakeEvents()
     svc = MessagingService(
         users=users,
         chats=chats,
         blocks=blocks,
         directory=directory,
+        friends=friends,
         events=events,
     )
-    return svc, users, chats, blocks, directory, events
+    return svc, users, chats, blocks, directory, events, friends
 
 
 # --- search_users ---
@@ -414,7 +537,7 @@ async def test_search_excludes_blocked_pair():
 
 
 async def test_search_excludes_undiscoverable():
-    svc, users, _chats, _blocks, directory, _events = _make()
+    svc, users, _chats, _blocks, directory, _events, _friends = _make()
     alice = users.add("alice")
     carol = users.add("carol")
     directory.set(carol.user_id, discoverable=False)
@@ -477,24 +600,44 @@ async def test_start_dm_blocked_raises():
         await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)
 
 
-async def test_start_dm_contacts_only_raises():
-    svc, users, _chats, _blocks, directory, _events = _make()
+async def test_start_dm_friends_only_raises():
+    svc, users, _chats, _blocks, directory, _events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
-    directory.set(bob.user_id, who_can_dm="contacts")
+    directory.set(bob.user_id, who_can_dm="friends")
     with pytest.raises(AuthorizationError):
         await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)
 
 
-async def test_start_dm_reuse_skips_contacts_gate():
-    svc, users, _chats, _blocks, directory, _events = _make()
+async def test_start_dm_reuse_skips_friends_gate():
+    svc, users, _chats, _blocks, directory, _events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     first = await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)
-    # bob later locks down to contacts-only; the existing dm still reopens
-    directory.set(bob.user_id, who_can_dm="contacts")
+    # bob later locks down to friends-only; the existing dm still reopens
+    directory.set(bob.user_id, who_can_dm="friends")
     again = await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)
     assert first.chat.id == again.chat.id
+
+
+async def test_start_dm_friends_both_accepted():
+    svc, users, chats, _blocks, _directory, _events, friends = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    await friends.add_friendship(alice.user_id, bob.user_id)
+    view = await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)
+    peer_member = await chats.get_member(view.chat.id, bob.user_id)
+    assert peer_member.state == "accepted"
+
+
+async def test_start_dm_anyone_message_request():
+    svc, users, chats, _blocks, directory, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    directory.set(bob.user_id, who_can_dm="anyone")
+    view = await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)
+    peer_member = await chats.get_member(view.chat.id, bob.user_id)
+    assert peer_member.state == "pending"
 
 
 # --- send_message ---
@@ -511,7 +654,7 @@ async def test_send_message_non_member_404():
 
 
 async def test_send_message_persists_and_fans_out():
-    svc, users, _chats, _blocks, _directory, events = _make()
+    svc, users, _chats, _blocks, _directory, events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
@@ -530,7 +673,7 @@ async def test_send_message_persists_and_fans_out():
 
 
 async def test_send_message_mentions_user_accepted_member():
-    svc, users, chats, _blocks, _directory, events = _make()
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     carol = users.add("carol")
@@ -577,7 +720,7 @@ async def test_send_message_mentions_pending_member_rejected():
 
 
 async def test_send_message_mentions_everyone_admin_ok():
-    svc, users, chats, _blocks, _directory, events = _make()
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
     admin = users.add("admin", role="admin")
     bob = users.add("bob")
     chat = await chats.create_group(member_ids=(admin.user_id, bob.user_id))
@@ -643,7 +786,7 @@ async def test_send_message_mentions_dedupes_user_and_everyone():
 
 
 async def test_send_message_reply_freezes_snapshot():
-    svc, users, _chats, _blocks, _directory, events = _make()
+    svc, users, _chats, _blocks, _directory, events, _friends = _make()
     alice = users.add("alice", display_name="Alice Chen")
     bob = users.add("bob", display_name="Bob")
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
@@ -744,7 +887,7 @@ async def test_reply_accepts_pending_request():
 
 
 async def test_send_message_idempotent_client_msg_id():
-    svc, users, _chats, _blocks, _directory, events = _make()
+    svc, users, _chats, _blocks, _directory, events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
@@ -763,7 +906,7 @@ async def test_send_message_idempotent_client_msg_id():
 
 
 async def test_list_chats_resolves_peer_and_unread():
-    svc, users, _chats, _blocks, _directory, _events = _make()
+    svc, users, _chats, _blocks, _directory, _events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
@@ -781,7 +924,7 @@ async def test_list_chats_resolves_peer_and_unread():
 
 
 async def test_list_chats_orders_recent_first():
-    svc, users, _chats, _blocks, _directory, _events = _make()
+    svc, users, _chats, _blocks, _directory, _events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     carol = users.add("carol")
@@ -798,7 +941,7 @@ async def test_list_chats_orders_recent_first():
 
 
 async def test_list_messages_paginates():
-    svc, users, _chats, _blocks, _directory, _events = _make()
+    svc, users, _chats, _blocks, _directory, _events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
@@ -868,15 +1011,112 @@ async def test_directory_defaults_when_missing():
     view = await svc.get_directory_settings(user_id=alice.user_id)
     assert view.discoverable is True
     assert view.who_can_dm == "anyone"
+    assert view.who_can_friend == "anyone"
 
 
 async def test_update_directory_partial_preserves_other_field():
     svc, users, *_ = _make()
     alice = users.add("alice")
     await svc.update_directory_settings(user_id=alice.user_id, discoverable=False)
-    view = await svc.update_directory_settings(user_id=alice.user_id, who_can_dm="contacts")
+    view = await svc.update_directory_settings(user_id=alice.user_id, who_can_dm="friends")
     assert view.discoverable is False  # untouched by the second patch
-    assert view.who_can_dm == "contacts"
+    assert view.who_can_dm == "friends"
+
+
+async def test_directory_normalizes_legacy_contacts():
+    svc, users, _chats, _blocks, directory, *_ = _make()
+    alice = users.add("alice")
+    directory.set(alice.user_id, who_can_dm="contacts")
+    view = await svc.get_directory_settings(user_id=alice.user_id)
+    assert view.who_can_dm == "friends"
+
+
+# --- friends (§九) ---
+
+
+async def test_friend_request_lifecycle():
+    svc, users, _chats, _blocks, _directory, events, friends = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    req = await svc.send_friend_request(
+        from_user_id=alice.user_id, to_user_id=bob.user_id, message="hi"
+    )
+    assert req.status == "pending"
+    assert any(e[1]["type"] == "friend_request" and e[1]["action"] == "created" for e in events.published)
+
+    box = await svc.list_friend_requests(user_id=bob.user_id)
+    assert len(box.incoming) == 1
+    assert box.incoming[0].id == req.id
+
+    accepted = await svc.accept_friend_request(user_id=bob.user_id, request_id=req.id)
+    assert accepted.status == "accepted"
+    assert await friends.are_friends(alice.user_id, bob.user_id)
+    friend_list = await svc.list_friends(user_id=alice.user_id)
+    assert [u.user_id for u in friend_list] == [bob.user_id]
+
+
+async def test_friend_request_group_members_gate():
+    svc, users, chats, _blocks, directory, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    directory.set(bob.user_id, who_can_friend="group_members")
+    with pytest.raises(AuthorizationError):
+        await svc.send_friend_request(from_user_id=alice.user_id, to_user_id=bob.user_id)
+    await chats.create_group(member_ids=(alice.user_id, bob.user_id))
+    req = await svc.send_friend_request(from_user_id=alice.user_id, to_user_id=bob.user_id)
+    assert req.status == "pending"
+
+
+async def test_accept_friend_activates_pending_dm():
+    svc, users, chats, _blocks, directory, *_ = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    directory.set(bob.user_id, who_can_dm="anyone")
+    dm = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat
+    peer = await chats.get_member(dm.id, bob.user_id)
+    assert peer.state == "pending"
+    req = await svc.send_friend_request(from_user_id=alice.user_id, to_user_id=bob.user_id)
+    await svc.accept_friend_request(user_id=bob.user_id, request_id=req.id)
+    peer = await chats.get_member(dm.id, bob.user_id)
+    assert peer.state == "accepted"
+
+
+async def test_block_cascades_friendship_and_requests():
+    svc, users, _chats, blocks, _directory, events, friends = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    req = await svc.send_friend_request(from_user_id=alice.user_id, to_user_id=bob.user_id)
+    await svc.accept_friend_request(user_id=bob.user_id, request_id=req.id)
+    assert await friends.are_friends(alice.user_id, bob.user_id)
+    # New pending from carol path not needed — create another pending via carol?
+    # Re-request after remove: send from alice after unfriend via a third?
+    # Just block: should drop friendship. Also cancel a fresh pending.
+    await friends.remove_friendship(alice.user_id, bob.user_id)
+    pending = await svc.send_friend_request(from_user_id=alice.user_id, to_user_id=bob.user_id)
+    await svc.block_user(user_id=bob.user_id, target_id=alice.user_id)
+    assert not await friends.are_friends(alice.user_id, bob.user_id)
+    assert await blocks.is_blocked_between(alice.user_id, bob.user_id)
+    assert (await friends.get_request(pending.id)).status == "cancelled"
+    assert any(
+        e[1].get("type") == "friend_request" and e[1].get("action") == "cancelled"
+        for e in events.published
+    )
+
+
+async def test_profile_relations():
+    svc, users, *_rest = _make()
+    alice = users.add("alice")
+    bob = users.add("bob")
+    self_p = await svc.get_profile(viewer_id=alice.user_id, target_id=alice.user_id)
+    assert self_p.relation == "self"
+    none_p = await svc.get_profile(viewer_id=alice.user_id, target_id=bob.user_id)
+    assert none_p.relation == "none"
+    req = await svc.send_friend_request(from_user_id=alice.user_id, to_user_id=bob.user_id)
+    out_p = await svc.get_profile(viewer_id=alice.user_id, target_id=bob.user_id)
+    assert out_p.relation == "outgoing_request"
+    assert out_p.request_id == req.id
+    in_p = await svc.get_profile(viewer_id=bob.user_id, target_id=alice.user_id)
+    assert in_p.relation == "incoming_request"
 
 
 # --- auto-join (内测全员群) + group members ---
@@ -1021,7 +1261,7 @@ async def test_ensure_official_does_not_rejoin_beta_group():
 
 
 async def test_publish_product_notice_inbox_posts_system_card():
-    svc, users, chats, _blocks, _directory, events = _make()
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     official = await chats.create_official(member_ids=[alice.user_id, bob.user_id])
@@ -1081,6 +1321,23 @@ async def test_publish_product_notice_both_posts_once():
     assert len(chats._messages) == 1
 
 
+async def test_publish_product_notice_modal_posts_system_card():
+    svc, users, chats, *_ = _make()
+    alice = users.add("alice")
+    await chats.create_official(member_ids=[alice.user_id])
+    msg = await svc.publish_product_notice(
+        notice_id="notice-4",
+        title="弹窗公告",
+        body="登录后弹一次",
+        severity="normal",
+        surface="modal",
+    )
+    assert msg is not None
+    assert msg.payload["kind"] == "product_notice"
+    assert msg.payload["notice_id"] == "notice-4"
+    assert len(chats._messages) == 1
+
+
 async def test_set_chat_flags_updates_and_returns_view():
     svc, users, chats, *_ = _make()
     alice = users.add("alice")
@@ -1118,7 +1375,7 @@ async def test_set_chat_flags_non_member_404():
 
 
 async def test_kick_member_removes_and_posts_system_card():
-    svc, users, chats, _blocks, _directory, events = _make()
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
     admin = users.add("admin", role="admin")
     alice = users.add("alice")
     group = await chats.create_group(member_ids=[admin.user_id, alice.user_id])
@@ -1200,7 +1457,7 @@ async def test_admin_mute_reflected_in_roster():
 
 
 async def test_announce_posts_system_card_to_all_members():
-    svc, users, chats, _blocks, _directory, events = _make()
+    svc, users, chats, _blocks, _directory, events, _friends = _make()
     admin = users.add("admin", role="admin")
     alice = users.add("alice")
     group = await chats.create_group(member_ids=[admin.user_id, alice.user_id])
@@ -1353,7 +1610,7 @@ async def test_upload_attachment_traversal_rejected(tmp_path: Path, monkeypatch)
 
 async def test_send_message_attachments_only_no_content(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
-    svc, users, _chats, _blocks, _directory, events = _make()
+    svc, users, _chats, _blocks, _directory, events, _friends = _make()
     alice = users.add("alice")
     bob = users.add("bob")
     chat = (await svc.start_dm(requester_id=alice.user_id, peer_id=bob.user_id)).chat

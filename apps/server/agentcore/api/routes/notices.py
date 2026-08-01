@@ -1,6 +1,6 @@
 """User-facing product notice routes (全局 Notice).
 
-- ``GET  /v1/notices/active``          banner + inbox for current user
+- ``GET  /v1/notices/active``          banner + modal + inbox for current user
 - ``POST /v1/notices/{id}/dismiss``    dismiss (once); never → 409; idempotent
 """
 
@@ -33,11 +33,17 @@ async def get_active_notices(
     user: AuthUser,
     repo: ProductNoticeRepository = Depends(get_notice_repo),
 ):
-    """Return the current banner (≤1) and inbox list for the signed-in user."""
+    """Return banner (≤1), modal (≤1, undismissed), and inbox for the signed-in user.
+
+    Priority: ``critical`` banner > undismissed modal > non-critical banner.
+    When an undismissed modal is present and the banner candidate is not
+    ``critical``, ``banner`` is omitted.
+    """
     rows = await repo.list_active_published()
     dismissed_ids = await repo.list_dismissed_ids(user.user_id, [r.id for r in rows])
 
     banner: ActiveNotice | None = None
+    modal: ActiveNotice | None = None
     inbox: list[ActiveNotice] = []
     for row in rows:
         dismissed = row.id in dismissed_ids
@@ -48,10 +54,17 @@ async def get_active_notices(
             and (not dismissed or row.dismiss_policy == "never")
         ):
             banner = _active(row, dismissed=dismissed)
-        if row.surface in ("inbox", "both"):
+        # modal: only undismissed (policy is always once); ≤1 via sort order.
+        if modal is None and row.surface == "modal" and not dismissed:
+            modal = _active(row, dismissed=False)
+        if row.surface in ("inbox", "both", "modal"):
             inbox.append(_active(row, dismissed=dismissed))
 
-    return ActiveNoticesResponse(banner=banner, inbox=inbox)
+    # critical > modal > normal/high banner
+    if modal is not None and banner is not None and banner.severity != "critical":
+        banner = None
+
+    return ActiveNoticesResponse(banner=banner, modal=modal, inbox=inbox)
 
 
 @router.post("/{notice_id}/dismiss", status_code=204)

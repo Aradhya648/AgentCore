@@ -459,7 +459,7 @@ def _print_human(
             for c in priced:
                 by_spend[(c.get("scenario", "?"), c.get("model", "?"))].append(c)
             total_nano = sum(int(c.get("cost_nano") or 0) for c in priced)
-            print(f"  Spend      ${total_nano / 1e9:.6f}  ({total_nano:,} nano-USD)")
+            print(f"  Spend      ¥{total_nano / 1e9:.6f}  ({total_nano:,} nano-CNY)")
             print("  By scenario · model spend:")
             for (scenario, model), calls in sorted(
                 by_spend.items(),
@@ -468,7 +468,7 @@ def _print_human(
                 nano = sum(int(x.get("cost_nano") or 0) for x in calls)
                 label = f"{scenario} · {model}"
                 print(
-                    f"    {label:<34} {len(calls):>3} calls  ${nano / 1e9:.6f}"
+                    f"    {label:<34} {len(calls):>3} calls  ¥{nano / 1e9:.6f}"
                     f"  ({nano:,} nano)"
                 )
 
@@ -495,9 +495,9 @@ def _print_human(
     if cost_records:
         print(f"\n── Cost (cost.recorded: {len(cost_records)} turns) ──")
         total_nano = sum(int(c.get("total_nano", 0) or 0) for c in cost_records)
-        total_usd = total_nano / 1e9
-        print(f"  Total      ${total_usd:.6f}  ({total_nano:,} nano-USD)")
-        print(f"  Per turn   avg ${total_usd / len(cost_records):.6f}")
+        total_yuan = total_nano / 1e9
+        print(f"  Total      ¥{total_yuan:.6f}  ({total_nano:,} nano-CNY)")
+        print(f"  Per turn   avg ¥{total_yuan / len(cost_records):.6f}")
         model_mix: Counter[str] = Counter()
         role_nano: Counter[str] = Counter()
         role_runs: Counter[str] = Counter()

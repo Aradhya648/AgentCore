@@ -4,9 +4,7 @@ import {
   type UserSearchResult,
   messagingErrorMessage,
   searchUsers,
-  startDm,
 } from "@/services/messaging";
-import { useMessagingStore } from "@/stores/messaging";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { avatarInitial } from "./chatDisplay";
@@ -14,33 +12,28 @@ import { avatarInitial } from "./chatDisplay";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onStarted: (chatId: string) => void;
+  /** Open the profile card — never jump straight into a free DM (§9.4). */
+  onOpenProfile: (userId: string) => void;
 }
 
 /**
- * Start a chat by 任意搜人 (exact-match people search → open dm). The server
- * filters search visibility and gates who-can-DM / blocks, so a refusal here
- * (403 contacts-only, 404 unknown) is surfaced via the shared zh phrasing.
+ * Exact-match people search. Results open the 资料卡 (加好友 / 发消息 by
+ * relation); they no longer auto-start a DM as the only path (消息IM.md §9.4).
  */
-export function NewChatDialog({ open, onClose, onStarted }: Props) {
+export function NewChatDialog({ open, onClose, onOpenProfile }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Each open is a fresh search. (Focus is handled by the Dialog's
-  // onOpenAutoFocus below, once the content has mounted.)
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setResults([]);
     setError(null);
-    setStarting(null);
   }, [open]);
 
-  // Debounced exact-match search; the empty query clears results.
   useEffect(() => {
     if (!open) return;
     const q = query.trim();
@@ -76,20 +69,6 @@ export function NewChatDialog({ open, onClose, onStarted }: Props) {
     };
   }, [query, open]);
 
-  const handleStart = async (user: UserSearchResult) => {
-    setStarting(user.id);
-    setError(null);
-    try {
-      const chat = await startDm(user.id);
-      useMessagingStore.getState().upsertChat(chat);
-      onStarted(chat.id);
-      onClose();
-    } catch (err) {
-      setError(messagingErrorMessage(err, "无法发起会话"));
-      setStarting(null);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
@@ -102,15 +81,15 @@ export function NewChatDialog({ open, onClose, onStarted }: Props) {
           inputRef.current?.focus();
         }}
       >
-        <DialogTitle className="sr-only">新建会话</DialogTitle>
+        <DialogTitle className="sr-only">查找用户</DialogTitle>
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <SearchField
             ref={inputRef}
             variant="plain"
             value={query}
             onValueChange={setQuery}
-            placeholder="查找联系人…"
-            aria-label="按用户名或 ID 查找联系人"
+            placeholder="按用户名或 ID 查找…"
+            aria-label="按用户名或 ID 查找用户"
             clearable={false}
             escapeClears={false}
             className="flex-1"
@@ -135,7 +114,7 @@ export function NewChatDialog({ open, onClose, onStarted }: Props) {
           )}
           {!error && !loading && !query.trim() && (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-              输入用户名或 ID 查找联系人
+              输入用户名或 ID 查找用户，结果将打开资料卡
             </p>
           )}
           {!error && !loading && query.trim() && results.length === 0 && (
@@ -149,9 +128,11 @@ export function NewChatDialog({ open, onClose, onStarted }: Props) {
                 <li key={u.id}>
                   <Button
                     variant="ghost"
-                    disabled={starting !== null}
-                    onClick={() => void handleStart(u)}
-                    className="h-auto w-full justify-start gap-3 rounded-none px-4 py-2 font-normal disabled:opacity-50"
+                    onClick={() => {
+                      onOpenProfile(u.id);
+                      onClose();
+                    }}
+                    className="h-auto w-full justify-start gap-3 rounded-none px-4 py-2 font-normal"
                   >
                     <span className="flex w-full items-center gap-3 text-left">
                       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
@@ -165,11 +146,9 @@ export function NewChatDialog({ open, onClose, onStarted }: Props) {
                           @{u.username}
                         </span>
                       </span>
-                      {starting === u.id && (
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          发起中…
-                        </span>
-                      )}
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        查看资料
+                      </span>
                     </span>
                   </Button>
                 </li>

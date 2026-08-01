@@ -65,7 +65,7 @@ class CostEvent(Base):
     model: Mapped[str] = mapped_column(String(50))
     # Token counts ({input, output, reasoning, cache_hit, cache_miss}).
     tokens: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
-    # Money is always integer nano-USD (1 USD = 1e9), never float.
+    # Money is always integer nano-CNY (1 CNY = 1e9), never float.
     # cost = {input, cached, output, total}.
     cost: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # Redundant scalar total so window SUMs run on an integer column (precise +
@@ -75,7 +75,7 @@ class CostEvent(Base):
     cost_estimated_nano: Mapped[int] = mapped_column(
         BigInteger, default=0, server_default=text("0")
     )
-    currency: Mapped[str] = mapped_column(String(8), default="USD", server_default=text("'USD'"))
+    currency: Mapped[str] = mapped_column(String(8), default="CNY", server_default=text("'USD'"))
     rounds: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     # Correlation key to the turn's runtime logs: joins a spend row to its trace
@@ -119,7 +119,7 @@ class CostCall(Base):
     cost_estimated_nano: Mapped[int] = mapped_column(
         BigInteger, default=0, server_default=text("0")
     )
-    currency: Mapped[str] = mapped_column(String(8), default="USD", server_default=text("'USD'"))
+    currency: Mapped[str] = mapped_column(String(8), default="CNY", server_default=text("'USD'"))
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     trace_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -94,7 +94,7 @@ describe("profileSlotsSummary", () => {
     expect(
       profileSlotsSummary(CATALOG, {
         id: "p1",
-        name: "5.2",
+        name: "GLM-5.2",
         kind: "system",
         main: {
           origin: "byok",
@@ -145,7 +145,7 @@ describe("profileDisplayLabel", () => {
     data: [
       {
         id: "def",
-        name: "5.2",
+        name: "GLM-5.2",
         kind: "system" as const,
         main: {
           origin: "platform" as const,
@@ -177,7 +177,7 @@ describe("profileDisplayLabel", () => {
   });
 
   it("falls back to the account default name", () => {
-    expect(profileDisplayLabel(list, null)).toBe("5.2");
+    expect(profileDisplayLabel(list, null)).toBe("GLM-5.2");
   });
 });
 

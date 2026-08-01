@@ -266,11 +266,38 @@ async def react_loop(
     wind_down_breach_nudge_text = ""
     # 检索预算临界（剩 ≤2）一次性 reflection，缓解同轮 fan-out 超订。
     retrieval_critical_warned = False
+    # Mutable allowlist: files_expected催写路径可并入最小写盘集（prose registry 无写 → no-op）。
+    live_allowed: list[str] | None = (
+        list(allowed_tool_names) if allowed_tool_names is not None else None
+    )
+    persist_write_granted = False
 
     def _effective_allowed() -> list[str] | None:
         if wind_down_effective_allowed is not None:
             return wind_down_effective_allowed
-        return allowed_tool_names
+        return live_allowed
+
+    def _grant_persist_writes(reason: str) -> None:
+        """files_expected催写：显式名单缺写盘时并入最小写盘集。"""
+        nonlocal live_allowed, tool_defs, persist_write_granted
+        if persist_write_granted or form_prose or not files_expected:
+            return
+        from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
+
+        prior = list(live_allowed) if live_allowed is not None else None
+        merged = merge_persist_write_tools(
+            live_allowed, registry_names=set(tools.names)
+        )
+        persist_write_granted = True
+        if merged is not None and merged != live_allowed:
+            live_allowed = merged
+            tool_defs = resolve_openai_tool_defs(tools, live_allowed, disabled_tools)
+            logger.info(
+                "engine.persist_write_grant",
+                reason=reason,
+                run_id=run_id,
+                added=[n for n in merged if prior is None or n not in prior],
+            )
 
     controller: LoopController | None = None
 
@@ -362,13 +389,15 @@ async def react_loop(
         wind_down_active = True
         wind_down_reason = reason
         available = set(tools.names)
+        # 收尾也是催写路径：files_expected 且名单缺写盘时先并入再收窄。
+        _grant_persist_writes(f"wind_down:{reason}")
         keep_file_read = worker_keeps_file_read_in_wind_down(
-            available=available, allowed=allowed_tool_names
+            available=available, allowed=live_allowed
         )
         wind_down_whitelist = wind_down_allowed_tools(keep_file_read=keep_file_read)
         narrowed = narrow_tools_for_wind_down(
             available,
-            allowed=allowed_tool_names,
+            allowed=live_allowed,
             keep_file_read=keep_file_read,
         )
         wind_down_effective_allowed = narrowed
@@ -980,6 +1009,9 @@ async def react_loop(
                         total_usage = tool_round.total_usage
                         if tool_round.tool_defs_changed:
                             tool_defs = tool_round.tool_defs
+                        # zero_write 催写已注入 → 下一轮起补写盘授权（要盘无写接缝）。
+                        if controller is not None and controller.zero_write_warned:
+                            _grant_persist_writes("zero_write_warn")
                         if wind_down_breach_pending_nudge:
                             from agentcore.runtime.engine.directive import Continue
                             from agentcore.runtime.runs.cutoff import (
@@ -1031,6 +1063,8 @@ async def react_loop(
                 controller=controller,
                 content_before_round=content_before_round,
                 finish_guard_reworks=finish_guard_reworks,
+                files_expected=files_expected,
+                form_prose=form_prose,
             )
             if applied.action == "return":
                 _export_tool_failures()
@@ -1131,6 +1165,8 @@ async def react_loop(
             finish_override_sink=finish_override_sink,
             gate_escalation_sink=gate_escalation_sink,
             cutoff_reason_sink=cutoff_reason_sink,
+            files_expected=files_expected,
+            form_prose=form_prose,
         )
         _export_tool_failures()
         return _exit(*result)

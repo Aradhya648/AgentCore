@@ -15,8 +15,10 @@ from agentcore.messaging.service import (
     AttachmentUpload,
     ChatView,
     DirectoryView,
+    FriendRequestBox,
     MessagePage,
     MessagingService,
+    ProfileView,
 )
 
 __all__ = [
@@ -25,10 +27,12 @@ __all__ = [
     "ChatHub",
     "ChatView",
     "DirectoryView",
+    "FriendRequestBox",
     "HubChatEventPublisher",
     "MessagePage",
     "MessagingService",
     "NullChatEventPublisher",
+    "ProfileView",
     "Subscription",
     "default_chat_hub",
 ]

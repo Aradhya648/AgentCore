@@ -9,7 +9,7 @@ skip_if:
 
 # 消息 IM（找人）
 
-> **状态**：**P0（人 ↔ 人单聊）✅ + 内测全员群 MVP & 自助管理（退群/静音/置顶/成员面板）& 审核治理 & 富消息（图/文件）✅ 已落地**；**官方号产品公告广播 ✅**（全站唯一 `type=official` + Admin Notice publish → IM）；**P1 在线态（部分）✅**（ChatHub 真在线 + firehose `presence` + REST `online`；桌面单聊绿点/头副标题、群成员绿点/「N 人在线」）；**回复引用 S1 ✅**；**@人/@所有人 S2 ✅**（结构化 mentions + 桌面菜单/高亮/静音弱通知）；⏳ **基础社交原语余项**（撤回与编辑，见 §八）；⏳ 官方号服务推送（任务/审批 deep-link）、P1 余项（已读 UI / 正在输入 / 联系人 / 隐私设置面）、P2 余项（通用建群 + 群审核；人+AI 混合群见远期规划）、多 worker 实时。
+> **状态**：**P0（人 ↔ 人单聊）✅ + 内测全员群 MVP & 自助管理（退群/静音/置顶/成员面板）& 审核治理 & 富消息（图/文件）✅ 已落地**；**官方号产品公告广播 ✅**；**P1 在线态（部分）✅**；**回复引用 S1 ✅**；**@人/@所有人 S2 ✅**；**隐私设置面 ✅**；**好友关系 + 资料卡 / 通讯录 ✅**（见 §九）；⏳ **基础社交原语余项**（撤回与编辑，见 §八）；⏳ 官方号服务推送（任务/审批 deep-link）、P1 余项（已读 UI / 正在输入）、P2 余项（通用建群 + 群审核；人+AI 混合群见远期规划）、多 worker 实时。
 >
 > **定位**：**对话页 = 找 AI，消息页 = 找人**——复用前端聊天内核 + 实时通道，IM 另开后端表。
 
@@ -23,22 +23,24 @@ skip_if:
 |---|---|
 | 双入口分工 | 对话页找 AI（保留），消息页找人（IM 收件箱）。纯 AI 团队群聊归对话页；消息页承载「人 ↔ 人」「官方号」「人 + AI 混合群（远期，见 远期规划 §4.1（详细提案不在公开仓 / 维护者本地））」 |
 | 复用边界 | 复用的是**前端组件 + 实时通道**，不是同一张表 |
-| 关系模型 | **任意搜人**：按用户名 / ID 精确搜到即可发起，非好友前置；配套隐私 / 反滥用护栏（§五） |
+| 关系模型 | **双向好友图**（§九）：精确搜人仍开放（找得到 → 加好友），**默认仅好友可自由私信**；隐私档可放宽为 `anyone`。通讯录 = 已同意好友列表（不另做星标收藏） |
 | 实时通道 | **每用户一条 SSE firehose + POST 发送**（§四） |
 
-**被否决**：① 扩 `messages` 加 `sender_user_id` 复用同表——污染 AI 热路径表、跨域耦合 AI 与社交两套演进；改为新开 IM 表。② 起步用 WebSocket——要新传输 + 新鉴权、脱离现有 401 刷新纪律；先用 SSE firehose 复用基建，真成瓶颈再上 WS。
+**被否决**：① 扩 `messages` 加 `sender_user_id` 复用同表——污染 AI 热路径表、跨域耦合 AI 与社交两套演进；改为新开 IM 表。② 起步用 WebSocket——要新传输 + 新鉴权、脱离现有 401 刷新纪律；先用 SSE firehose 复用基建，真成瓶颈再上 WS。③ **长期「非好友前置」**——群内无法从人头建关系、`who_can_dm=contacts` 无图可依；改为真·加好友（§九）。
 
-## 二、数据模型（✅ 已落地，5 表）
+## 二、数据模型（✅ 已落地）
 
-遵循项目建模约定（UUID 主键、**无 ForeignKey**、`server_default`、按查询维度建索引；见 [`核心接口定义.md` §6.2](/docs/02-架构/核心接口定义.md)）。字段细节 → 见代码 `db/models/chat.py`。
+遵循项目建模约定（UUID 主键、**无 ForeignKey**、`server_default`、按查询维度建索引；见 [`核心接口定义.md` §6.2](/docs/02-架构/核心接口定义.md)）。字段细节 → 见代码 `db/models/chat.py`、`db/models/users.py`（好友）。
 
 | 表 | 说明 |
 |---|---|
 | `chats` | IM 会话；`auto_join=true` 标记「新用户默认入群」（内测全员群 + 全站唯一 `type=official` 官方号，见 §七） |
 | `chat_members` | 参与者 + 每人会话态；`state=pending` 即陌生人「消息请求」门；`muted`=用户自静音、`muted_by_admin`=管理员禁言（可读不可发）；官方号默认 `pinned`、禁止 leave |
 | `chat_messages` | 人向消息；`client_msg_id` 解断网重发去重；`system_card`+`payload` 承载产品公告（`kind=product_notice`）与二期服务 deep-link |
-| `user_blocks` | 对称拉黑：断 DM + 双向搜索互隐 |
-| `user_directory_settings` | 隐私自决；缺行 = 可被搜到（开放为默认） |
+| `user_blocks` | 对称拉黑：断 DM + 双向搜索互隐；拉黑时解除好友（§九） |
+| `user_directory_settings` | 隐私自决；缺行 = 可被搜到 + 默认可被加好友 + `who_can_dm=anyone`；`who_can_dm`=`anyone`/`friends`；`who_can_friend`=`anyone`/`group_members`/`nobody` |
+| `friendships` | 双向已同意好友（规范序 `user_a_id < user_b_id` 唯一行） |
+| `friend_requests` | 加好友申请：`pending` / `accepted` / `rejected` / `cancelled`；可带验证语 |
 
 ## 三、后端 API（✅ `/v1/messages`）
 
@@ -57,17 +59,17 @@ skip_if:
 - **离线补偿**：不另建表，上线时按 `last_read_message_id` 拉 `chat_messages` 增量。
 - **多 worker（⏳）**：换 Redis / NATS pub-sub——`ChatEventPublisher` Protocol 已抽象（`events.py`），届时为 seam 局部替换，不动业务逻辑（同限流 / 审批门的多机化路径）。
 
-## 五、隐私与反滥用（✅ 已落地护栏）
+## 五、隐私与反滥用（✅ 护栏；好友门见 §九）
 
-开放搜人滥用面大，起步即带默认护栏（实现细节，不改「任意搜人」决策）：
+精确搜人滥用面仍在；好友图落地后主路径是「搜到 → 加好友 → 私信」，陌生人私信仅当对方显式放开：
 
 | 护栏 | 处理 |
 |---|---|
 | 防遍历 | 搜索按**精确**用户名 / ID，不做模糊枚举 |
-| 隐私自决 | `discoverable`（可否被搜到）/ `who_can_dm`（anyone / contacts），默认开放 |
-| 防骚扰 | 陌生人首条进「消息请求」（`chat_members.state=pending`），对方回信前受限 |
-| 拉黑 | `user_blocks` 对称，断 DM + 互隐搜索；共享空间联动：挡新邀请 + 自动拒双方 pending（不自动移除已有成员，见 [双模式工作区 §十一](/docs/02-架构/双模式工作区.md)） |
-| 限流 | 发消息复用按用户限流（`conversation/rate_limit.py`） |
+| 隐私自决 | `discoverable`（可否被搜到）/ `who_can_friend`（anyone / group_members / nobody，默认 anyone）/ `who_can_dm`（anyone / friends，默认 anyone；原 `contacts` → `friends`） |
+| 防骚扰 | **默认**：非好友不能开自由 DM（须先加好友）。对方 `who_can_dm=anyone` 时仍允许陌生人开 DM，peer 进 `pending` 消息请求（与好友申请分轨）。好友申请另受限流 |
+| 拉黑 | `user_blocks` 对称，断 DM + 互隐搜索 + **解除好友 + 取消双方 pending 申请**；共享空间联动：挡新邀请 + 自动拒双方 pending（不自动移除已有成员，见 [双模式工作区 §十一](/docs/02-架构/双模式工作区.md)） |
+| 限流 | 发消息复用按用户限流（`conversation/rate_limit.py`）；好友申请按用户限流（防刷申请） |
 | IDOR | → 见 [`认证与会话.md` §八](/docs/05-平台与运维/认证与会话.md) |
 
 ## 六、前端 MessagesPage（✅ 已落地）
@@ -82,8 +84,8 @@ skip_if:
 
 | 项 | 现状 / 缺口 |
 |---|---|
-| 官方号(C) 推送 | **产品公告 ✅**：Admin `publish` 且 `surface∈{inbox,both}` → 写入全站唯一 `type=official` 会话 1 条共享 `system_card`（`payload.kind=product_notice`），经现有 `chat_message` firehose 扇出；归档/过期不删 IM 历史、不回填。任务完成 / 审批 → 官方号 deep-link **二期 ⏳** |
-| P1 | 已读回执 UI、**在线态 ✅（见 §四）** / 正在输入 ⏳（typing 仍待；在线态走 ChatHub 真在线，不入库、无 Redis TTL）、联系人收藏、隐私设置面板；**基础社交原语 → §八** |
+| 官方号(C) 推送 | **产品公告 ✅**：Admin `publish` 且 `surface∈{inbox,both,modal}` → 写入全站唯一 `type=official` 会话 1 条共享 `system_card`（`payload.kind=product_notice`），经现有 `chat_message` firehose 扇出；归档/过期不删 IM 历史、不回填。任务完成 / 审批 → 官方号 deep-link **二期 ⏳** |
+| P1 | 已读回执 UI、**在线态 ✅（见 §四）** / 正在输入 ⏳（typing 仍待）、**隐私设置面 ✅**、**好友 / 资料卡 / 通讯录 ✅（§九）**；**基础社交原语 → §八** |
 | P2 | **人群聊：内测全员群 MVP + 自助管理 + 审核治理 + 富消息（图/文件）✅ 已落地**（`type=group` + `auto_join` 默认进群 + 群线程/发送者名/群标识 + 退群/静音/置顶/成员面板 + 平台 admin 踢人/禁言/公告 + system_card 系统提示 + 图/文件附件复用工作区存储，关键决策见下方）；通用建群 + 群审核仍 ⏳；**人 + AI 混合群**（`@` 唤起 agent → 接 CEO 编排，消息页独有差异化形态）已迁远期规划 → 远期规划 §4.1（详细提案不在公开仓 / 维护者本地） |
 | 多 worker 实时 | firehose / pub-sub 上 Redis / NATS（见 §四） |
 
@@ -133,3 +135,71 @@ skip_if:
 - **变更**：撤回 / 编辑走**独立写接口**（或同资源 PATCH + `action`），经现有 firehose 扇出 `chat_message` 更新帧（或显式 `chat_message_updated`）；客户端按 `message_id` 原地替换，不靠整页重拉。
 - **快照**：引用预览字段与消息同生命周期返回；不另建「引用表」。
 - **被否**：① 用正文 `@Name` 正则当唯一真相源；② 撤回物理删除行；③ 全员群开放全员 `@所有人`；④ 首期做反应/转发冒充「基础能力」。
+
+## 九、好友关系与资料卡（✅ 已落地）
+
+> **目标**：群内点头像 → 资料卡 → 加好友 / 发消息 / 拉黑；完整申请流 + 通讯录；默认仅好友自由私信。  
+> **改写**：废止「非好友前置」；「联系人收藏」由**通讯录（已同意好友）**替代，不另做星标。  
+> **客户端**：契约 + 桌面 ✅；手机跟渲染，不阻塞桌面验收。  
+> **范围外**：撤回/编辑（§八）、已读/正在输入、通用建群、手机跟版。
+
+### 9.1 关键取舍（已定）
+
+| 决策 | 结论 | 理由 |
+|---|---|---|
+| 关系图 | 双向好友；申请 → 同意后写入 `friendships`；拒绝/取消不建友谊 | 对齐微信；单方「收藏」无法支撑「仅好友可私信」 |
+| 私信门 | **默认仅好友**可 `POST .../chats/dm` 且双方 accepted；对方 `who_can_dm=anyone` 时陌生人仍可开 DM（peer `pending`） | 完整加好友；保留宽松档给愿收陌生人私信者 |
+| 消息请求 vs 好友申请 | **分轨**：好友申请是主路径；`pending` DM 仅服务 `who_can_dm=anyone` 宽松档 | 合并两套状态机易糊；主路径不引导陌生人先发消息 |
+| 谁可加我 | `who_can_friend`：`anyone`（默认）/ `group_members`（须有共同 `type=group` 会话）/ `nobody` | 默认开放与现搜人一致；可收紧 |
+| 同群可见 | `discoverable=false` **不掩盖**已在群内身份（与 §七 群内隐私一致）；资料卡仍可从群打开 | 群 roster 已暴露显示名 |
+| 同意好友 | 接受申请后：建 `friendships`；若已有 pending DM 则双方 `accepted`；可直接「发消息」 | 免二次门 |
+| 删除好友 | 删 `friendships`；**不**自动删 DM 历史；再私信按当前 `who_can_dm` 门 | 历史会话保留 |
+| 拉黑 | 对称拉黑 + 解除好友 + 取消双方 pending 申请 + 既有断 DM/搜隐 | 一处收口 |
+| 实时 | firehose 增 `friend_request`（新申请/对方处理结果）；不入库补偿——上线拉申请列表 | 与 presence 同通道 |
+| 搜人入口文案 | 「发起会话」可保留搜人，结果进资料卡（加好友/发消息按关系），禁止暗示「无好友即可自由私信」为唯一路径 | 产品诚实 |
+
+### 9.2 数据（语义）
+
+- **`friend_requests`**：`id`，`from_user_id`，`to_user_id`，`message`（验证语，可空，限长），`status`（`pending`/`accepted`/`rejected`/`cancelled`），时间戳。同一对用户至多一条 `pending`（任一方向）；已是好友则拒新申请。
+- **`friendships`**：`user_a_id < user_b_id` 唯一；`created_at`。无「备注名」首期。
+- **`user_directory_settings`**：加 `who_can_friend`；`who_can_dm` check 改为 `anyone`/`friends`；迁移：`contacts` → `friends`。
+
+### 9.3 API 契约（锁语义；路径挂 `/v1/messages`）
+
+| 方法 | 路径 | 语义 |
+|---|---|---|
+| `GET` | `/users/{user_id}/profile` | 资料卡：显示名/用户名/在线/关系（`self`/`none`/`outgoing_request`/`incoming_request`/`friends`/`blocked`）+ 相关 request id；非可见目标 → 404（不泄露） |
+| `GET` | `/friends` | 通讯录（已同意好友列表） |
+| `GET` | `/friends/requests` | 申请箱：`incoming` + `outgoing`（仅 `pending` 为主；实现可附带近期已处理） |
+| `POST` | `/friends/requests` | 发起申请（`user_id` + 可选 `message`）；校验 `who_can_friend`、拉黑、非自加、非已好友；限流 |
+| `POST` | `/friends/requests/{id}/accept` | 仅 `to_user`；建友谊；清该对 pending；可选激活已有 DM |
+| `POST` | `/friends/requests/{id}/reject` | 仅 `to_user` |
+| `DELETE` | `/friends/requests/{id}` | 仅 `from_user` 取消 pending |
+| `DELETE` | `/friends/{user_id}` | 删除好友 |
+| `POST` | `/chats/dm` | **改门**：已是好友 → 正常开/回 DM；非好友且对方 `who_can_dm=friends` → **403**；非好友且对方 `anyone` → 沿用 pending 消息请求 |
+| `GET`/`PATCH` | `/directory` | 扩展 `who_can_friend`；`who_can_dm` 枚举 `anyone`\|`friends`（兼容读旧 `contacts` 当 `friends` 一版后可删） |
+| 既有 | `/blocks*` | 拉黑时级联解好友 + 取消 pending 申请 |
+
+Firehose：`{ type: "friend_request", action: "created"|"accepted"|"rejected"|"cancelled", request: {...} }` 推给相关方。
+
+### 9.4 桌面 UX（验收）
+
+| 表面 | 行为 |
+|---|---|
+| 群气泡头像 / 群成员行 / 单聊头栏 | 可点 → 资料卡 |
+| 资料卡 | 按关系：加好友（可填验证语）/ 已申请 / 同意·拒绝 / 发消息 / 删除好友 / 拉黑 |
+| 通讯录 | 消息页入口；列表 → 资料卡或进 DM |
+| 新的朋友 | 申请收件箱（角标）；同意/拒绝 |
+| 消息隐私 | 可被搜索 + 谁可加我 + 谁可私信我；已拉黑列表入口 |
+| 搜人 | 结果点开资料卡，不再「一点即开自由 DM」冒充唯一路径（好友可直达发消息） |
+
+### 9.5 验收要点
+
+- 群点头像 → 资料卡 → 加好友 → 对方同意 → 双方通讯录有对方 → 「发消息」进同一 DM  
+- 非好友 + 对方 `who_can_dm=friends` → 开 DM **403**；对方 `anyone` → 仍可消息请求  
+- `who_can_friend=group_members` 时：无共同群申请 → 403；同群可申请  
+- 拉黑后：友谊解除、申请取消、不可再申请/私信、搜索互隐  
+- `discoverable=false`：搜不到，但群内资料卡仍可开  
+- 单测覆盖门控；桌面可点验上述路径  
+
+**被否**：① 仅做前端假「加好友」无服务端图；② 好友与消息请求合并成同一状态机冒充简化；③ 首期做好友备注/分组/朋友圈。

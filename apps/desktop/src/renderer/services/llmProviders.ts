@@ -19,7 +19,7 @@ export type LlmProviderView = Schemas["LlmProviderView"];
  * 设置·模型配置的服务商列表 + 部署级能力。
  *
  * 部署级字段（`billing_mode` / `platform_available` / `platform_model` /
- * `free_tier_active` / `default_model_profile_id`）描述账号/部署，不属于任何单个服务商。
+ * `default_model_profile_id`）描述账号/部署，不属于任何单个服务商。
  */
 export type LlmProvidersResponse = Schemas["LlmProvidersResponse"];
 

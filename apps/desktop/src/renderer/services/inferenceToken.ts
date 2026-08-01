@@ -14,8 +14,8 @@ import type { SidecarInference } from "@shared/sidecar-contract";
  * - `model` = 服务端按用户计费/BYOK 解析的 chat 模型名（与推理代理上游一致）。
  *
  * 令牌经 cookie 会话向 `POST /v1/inference/token` 兑换（与其余 API 同源鉴权）。令牌有 TTL
- * （服务端 `inference_token_expire_minutes`，默认 12h），故这里**缓存到临近过期再续铸**——
- * sidecar 每回合都会重读 `inference`，拿到当前令牌即可，无需每次发消息都打一次兑换。
+ * （服务端 `inference_token_expire_minutes`，默认 12h）。默认缓存到临近过期再续铸；
+ * `startTurn` / `resume` 应传 `force: true` 每回合强制换新，避免长会话挂着过期票开跑。
  */
 
 interface InferenceTokenResponse {
@@ -43,6 +43,11 @@ async function mint(): Promise<{
   };
 }
 
+export interface ResolveSidecarInferenceOptions {
+  /** 跳过缓存、立刻向云端兑换新令牌（startTurn / resume / 401 重试用）。 */
+  force?: boolean;
+}
+
 /**
  * 解析出一次本地回合可用的云推理凭据；取不到则返回 `null`。
  *
@@ -50,9 +55,12 @@ async function mint(): Promise<{
  * `undefined` 交由 sidecar 处理（dev 回退其自身配置；生产则以可重试的引擎错误失败，胜过把
  * 一个本机持久挂起帧误路由到必然 404 的云端续跑）。
  */
-export async function resolveSidecarInference(): Promise<SidecarInference | null> {
+export async function resolveSidecarInference(
+  options?: ResolveSidecarInferenceOptions,
+): Promise<SidecarInference | null> {
   try {
-    if (!cached || cached.expiresAtMs - RENEW_SKEW_MS <= Date.now()) {
+    const force = options?.force === true;
+    if (force || !cached || cached.expiresAtMs - RENEW_SKEW_MS <= Date.now()) {
       cached = await mint();
     }
     return {
@@ -67,7 +75,38 @@ export async function resolveSidecarInference(): Promise<SidecarInference | null
   }
 }
 
-/** 丢弃缓存令牌（登出时调），使下次回合在新会话下重新兑换。 */
+/** 丢弃缓存令牌（登出 / 鉴权失败后调），使下次回合重新兑换。 */
 export function clearSidecarInference(): void {
   cached = null;
+}
+
+/** 文案 / 错误码是否像「推理 JWT 失效」（兼容旧版仍报 LLM_KEY_INVALID 的引擎）。 */
+export function looksLikeInferenceTokenFailure(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : String(err ?? "");
+  const lower = msg.toLowerCase();
+  if (lower.includes("inference token") || lower.includes("inference_token")) {
+    return true;
+  }
+  if (
+    lower.includes("推理凭证") &&
+    (lower.includes("失效") || lower.includes("过期"))
+  ) {
+    return true;
+  }
+  if (
+    err &&
+    typeof err === "object" &&
+    "code" in err &&
+    (err as { code?: string }).code === "INFERENCE_TOKEN_EXPIRED"
+  ) {
+    return true;
+  }
+  return false;
 }

@@ -61,6 +61,24 @@ function adoptMessageWindow(
   return true;
 }
 
+/** Cold SWR: overwrite empty/cache-backed slice from network (never a live stream). */
+function reconcileMessageWindow(
+  id: string,
+  messages: Message[],
+  flags: { hasMoreBefore: boolean; hasMoreAfter: boolean },
+  memoryUpdates: MemoryUpdate[],
+): boolean {
+  const s = useConversationStore.getState();
+  if (s.currentConversationId !== id) return false;
+  if (getRuntime(id).isGenerating) return false;
+  s.setMessageWindow(messages, flags, id);
+  s.setMemoryUpdates(memoryUpdates, id);
+  if (shouldSetGeneratingOnHydrate(messages)) {
+    s.setGenerating(true, id);
+  }
+  return true;
+}
+
 async function persistOpenedCache(
   id: string,
   messages: Message[],
@@ -123,49 +141,14 @@ export function ConversationPage() {
     let cancelled = false;
     let attachAbort: AbortController | null = null;
     void (async () => {
-      try {
-        const win = await fetchMessageWindow(id);
-        if (cancelled) return;
-        // Adopt only overwrites an empty cold slice; warm reopen (messages
-        // already in memory) skips overwrite but still runs attach/settle.
-        const adopted = adoptMessageWindow(
-          id,
-          win.messages,
-          {
-            hasMoreBefore: win.hasMoreBefore,
-            hasMoreAfter: win.hasMoreAfter,
-          },
-          win.memoryUpdates,
-        );
-        if (adopted) {
-          void persistOpenedCache(id, win.messages, win.memoryUpdates, {
-            hasMoreBefore: win.hasMoreBefore,
-            hasMoreAfter: win.hasMoreAfter,
-          });
-        }
-        if (cancelled) return;
-        if (useConversationStore.getState().currentConversationId !== id) {
-          return;
-        }
-        // P4 unified hydrate: recovery + attach/settle independent of adopt.
-        // Branch on main-process facts (D6 二次修订) — never resolveSidecarRoot
-        // (routing intent / React Query cache; empty on refresh cold start).
-        const recovery = await recoveryLoaded;
-        if (cancelled) return;
-        // Await + abort on leave: serialize hydrate attach; 切会话停旧泵
-        // （claim 释放），避免 fire-and-forget 叠第二个 onEvent。
-        attachAbort = new AbortController();
-        await runHydrateAttachSettle(id, recovery, {
-          signal: attachAbort.signal,
-        });
-        if (cancelled) return;
-        if (!cancelled) setHydratePhase("ready");
-      } catch {
-        // N4-A: network / outage → fall back to local-store snapshot for this id.
-        if (cancelled) return;
+      // Kick network early; online SWR may reveal from local cache first.
+      const winPromise = fetchMessageWindow(id);
+
+      if (!warm) {
         const cached = await loadCachedConversation(id);
         if (cancelled) return;
-        if (cached) {
+        if (
+          cached &&
           adoptMessageWindow(
             id,
             cached.messages as Message[],
@@ -174,16 +157,104 @@ export function ConversationPage() {
               hasMoreAfter: cached.hasMoreAfter,
             },
             cached.memoryUpdates as MemoryUpdate[],
-          );
+          )
+        ) {
           logEvent("info", "conversation.hydrate", {
             conversation_id: id,
-            branch: "offline_cache",
+            branch: "online_swr_cache",
           });
           setHydratePhase("ready");
-        } else if (!warm) {
-          // No cache + cold slice: explicit error (never silent blank like a draft).
-          setHydratePhase("error");
+        }
+      }
+
+      try {
+        const win = await winPromise;
+        if (cancelled) return;
+        if (useConversationStore.getState().currentConversationId !== id) {
           return;
+        }
+        // Warm memory: keep slice (adopt skips). Cold: adopt empty or SWR-reconcile cache.
+        if (!warm) {
+          const wrote = reconcileMessageWindow(
+            id,
+            win.messages,
+            {
+              hasMoreBefore: win.hasMoreBefore,
+              hasMoreAfter: win.hasMoreAfter,
+            },
+            win.memoryUpdates,
+          );
+          if (wrote) {
+            void persistOpenedCache(id, win.messages, win.memoryUpdates, {
+              hasMoreBefore: win.hasMoreBefore,
+              hasMoreAfter: win.hasMoreAfter,
+            });
+          }
+        }
+        if (cancelled) return;
+        if (useConversationStore.getState().currentConversationId !== id) {
+          return;
+        }
+        // P0: ready after message-window adopt (+ parallel recovery), attach in background.
+        const recovery = await recoveryLoaded;
+        if (cancelled) return;
+        if (useConversationStore.getState().currentConversationId !== id) {
+          return;
+        }
+        setHydratePhase("ready");
+        attachAbort = new AbortController();
+        void runHydrateAttachSettle(id, recovery, {
+          signal: attachAbort.signal,
+        });
+      } catch {
+        // N4-A: network / outage → fall back to local-store snapshot for this id.
+        if (cancelled) return;
+        // Online SWR may already have revealed from cache — stay ready.
+        if (getRuntime(id).messages.length > 0 || getRuntime(id).isGenerating) {
+          setHydratePhase("ready");
+          const recovery = await recoveryLoaded;
+          if (
+            !cancelled &&
+            useConversationStore.getState().currentConversationId === id
+          ) {
+            attachAbort = new AbortController();
+            void runHydrateAttachSettle(id, recovery, {
+              signal: attachAbort.signal,
+            });
+          }
+        } else {
+          const cached = await loadCachedConversation(id);
+          if (cancelled) return;
+          if (cached) {
+            adoptMessageWindow(
+              id,
+              cached.messages as Message[],
+              {
+                hasMoreBefore: cached.hasMoreBefore,
+                hasMoreAfter: cached.hasMoreAfter,
+              },
+              cached.memoryUpdates as MemoryUpdate[],
+            );
+            logEvent("info", "conversation.hydrate", {
+              conversation_id: id,
+              branch: "offline_cache",
+            });
+            setHydratePhase("ready");
+            const recovery = await recoveryLoaded;
+            if (
+              !cancelled &&
+              useConversationStore.getState().currentConversationId === id
+            ) {
+              attachAbort = new AbortController();
+              void runHydrateAttachSettle(id, recovery, {
+                signal: attachAbort.signal,
+              });
+            }
+          } else if (!warm) {
+            // No cache + cold slice: explicit error (never silent blank like a draft).
+            setHydratePhase("error");
+            return;
+          }
         }
       }
       // Honor a search-hit jump that navigated in from elsewhere: now that this

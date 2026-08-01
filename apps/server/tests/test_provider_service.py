@@ -125,24 +125,24 @@ async def test_create_provider_without_master_key_raises(service):
         await service.create_provider("u1", label="X", api_key="sk-x")
 
 
-async def test_list_providers_reports_profile_id_and_free_tier(service, monkeypatch):
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
+async def test_list_providers_reports_profile_id_and_platform(service, monkeypatch):
+    from agentcore.llm.model_profiles import platform_preset_id
+
+    preset = platform_preset_id("glm-5.2")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "billing_mode", "byok")
+    monkeypatch.setattr(settings, "billing_mode", "platform")
     service._repo.list_for_user = AsyncMock(return_value=[])
     service._users.get_by_id = AsyncMock(
-        return_value=_user(default_model_profile_id="00000000-0000-4000-8000-000000000011")
+        return_value=_user(default_model_profile_id=preset)
     )
     view = await service.list_providers("u1")
     assert view.providers == []
-    assert view.default_model_profile_id == "00000000-0000-4000-8000-000000000011"
+    assert view.default_model_profile_id == preset
     assert view.platform_available is True
-    assert view.free_tier_active is True
 
 
 async def test_list_providers_platform_signal_false_when_dormant(service, monkeypatch):
-    """byok + free_tier off + key still present → platform_available false."""
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+    """byok + key still present → platform_available false."""
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "billing_mode", "byok")
     monkeypatch.setattr(settings, "platform_model", "plat-model")
@@ -151,7 +151,6 @@ async def test_list_providers_platform_signal_false_when_dormant(service, monkey
     view = await service.list_providers("u1")
     assert view.platform_available is False
     assert view.platform_model is None
-    assert view.free_tier_active is False
 
 
 class _FakeProbeProvider:

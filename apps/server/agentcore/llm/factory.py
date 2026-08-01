@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from agentcore.config import settings
 from agentcore.llm.call_fence import observe_provider
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
 from agentcore.llm.provider.platform import PlatformProvider
 from agentcore.llm.provider.protocol import LLMProvider
 from agentcore.llm.provider.router import ProviderRouter
-from agentcore.llm.resolve import ProviderPurpose, platform_llm_credentials
+from agentcore.llm.resolve import ProviderPurpose
+
+
+class MissingLLMCredentialsError(ValueError):
+    """``build_provider`` was called without explicit credentials (no silent platform key)."""
+
 
 _VENDOR_PROVIDERS: dict[str, tuple[str, str]] = {
     "kimi": ("moonshot_api_key", "moonshot_base_url"),
@@ -34,17 +38,17 @@ def build_provider(
 ) -> LLMProvider:
     """Build an upstream provider from resolved credentials.
 
-    ``purpose`` is retained for call-site clarity; credentials are authoritative.
-    Background callers resolve platform-first via ``run_background_llm`` /
-    ``resolve_model_config`` — this factory must not override a resolved user-key
-    fallback with the platform key. Missing credentials still fall back to the
-    platform key when configured (legacy free-tier paths); prefer passing explicit
-    credentials from the gate helper so quota skips are not silently re-platformed.
+    Credentials are authoritative — callers (billing gate, background resolve, BYOK
+    settings probe) must pass them explicitly. ``credentials=None`` is rejected so
+    user-facing paths cannot silently re-platform onto ``PLATFORM_API_KEY``.
+
+    ``purpose`` is retained for call-site clarity only.
 
     ``source=platform`` always yields :class:`PlatformProvider` (per-model key
     resolution). Pre-resolved platform ``api_key`` on ``credentials`` is not frozen
     into the leaf — the request's model id selects the key at call time so a single
-    ``platform/`` router entry can serve ``5.2`` and ``grok-4.5`` together.
+    ``platform/`` router entry can serve multiple catalog models together
+    (per-model credentials).
 
     Callers that need ambient call-level pricing should bind
     ``credential_source`` in log context (pipeline / proxy) from ``creds.source``.
@@ -54,28 +58,26 @@ def build_provider(
     The fence also forwards leaf ``probe`` / ``probe_tools`` for BYOK connectivity tests.
     """
     _ = purpose  # call-site documentation only
-    creds = credentials
-    if creds is None:
-        creds = platform_llm_credentials()
-    if creds is not None and creds.source == "platform":
+    if credentials is None:
+        raise MissingLLMCredentialsError(
+            "build_provider requires explicit credentials; resolve via billing gate "
+            "or platform_llm_credentials(model=…) — silent PLATFORM_API_KEY fallback "
+            "is removed"
+        )
+    if credentials.source == "platform":
         return build_platform_provider(purpose=purpose)
-    if creds is not None:
-        leaf: LLMProvider = OpenAICompatibleProvider(
-            name=creds.source,
-            api_key=creds.api_key,
-            base_url=creds.base_url,
-            extra_headers=creds.extra_headers,
-        )
-    else:
-        leaf = OpenAICompatibleProvider(
-            name="platform",
-            api_key=settings.platform_api_key,
-            base_url=settings.platform_base_url,
-        )
+    leaf: LLMProvider = OpenAICompatibleProvider(
+        name=credentials.source,
+        api_key=credentials.api_key,
+        base_url=credentials.base_url,
+        extra_headers=credentials.extra_headers,
+    )
     return observe_provider(leaf)
 
 
 def _vendor_extras() -> dict[str, LLMProvider]:
+    from agentcore.config import settings
+
     extras: dict[str, LLMProvider] = {}
     for prefix, (key_attr, url_attr) in _VENDOR_PROVIDERS.items():
         api_key = getattr(settings, key_attr, "")
@@ -122,8 +124,13 @@ async def build_turn_router(
     from agentcore.llm.profiles import PLATFORM_PROVIDER_SENTINEL, TurnProfiles
     from agentcore.llm.resolve import platform_llm_credentials, resolve_provider_credentials
 
+    if credentials is None:
+        raise MissingLLMCredentialsError(
+            "build_turn_router requires explicit credentials (no silent platform key)"
+        )
+
     extras: dict[str, LLMProvider] = {}
-    turn_provider_id = credentials.provider_id if credentials is not None else None
+    turn_provider_id = credentials.provider_id
     agent_provider_id = getattr(profiles, "agent_provider_id", None) if profiles else None
     if (
         isinstance(profiles, TurnProfiles)
@@ -154,6 +161,10 @@ def build_router(
     *,
     purpose: ProviderPurpose = "user_facing",
 ) -> ProviderRouter:
+    if credentials is None:
+        raise MissingLLMCredentialsError(
+            "build_router requires explicit credentials (no silent platform key)"
+        )
     return build_router_around(build_provider(credentials, purpose=purpose))
 
 

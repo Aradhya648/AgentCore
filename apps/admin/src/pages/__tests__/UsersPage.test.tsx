@@ -73,8 +73,8 @@ function userItem(
     is_unlimited: false,
     quota_daily_tokens: null,
     quota_daily_requests: null,
-    quota_monthly_cost_usd: null,
-    quota_daily_cost_usd: null,
+    quota_monthly_cost_cny: null,
+    quota_daily_cost_cny: null,
     cost_total: 0,
     created_at: "2026-06-01T00:00:00Z",
     ...p,
@@ -85,7 +85,7 @@ function listResp(
   data: AdminUserListItem[],
   total = data.length,
 ): AdminUserListResponse {
-  return { data, total, page: 1, page_size: 20, cny_per_usd: 7 };
+  return { data, total, page: 1, page_size: 20 };
 }
 
 function renderUsers() {

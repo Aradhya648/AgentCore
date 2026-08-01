@@ -306,7 +306,7 @@ class RunSpec:
     # 显式回填值。辩论 ``research_then_draft`` 与普通 worker 共用此顶。
     token_ceiling: int | None = None
     # Optional per-node ReAct round cap (repair / light posture). ``None`` = use
-    # the agent profile default (28). Stamped by builder for light / repair_code.
+    # the agent profile default (56). Stamped by builder for light / repair_code.
     max_rounds: int | None = None
     policy: RunPolicy = field(default_factory=RunPolicy)
     # Fan-out awareness: a concise list of the *other* nodes that fanned out from
@@ -375,7 +375,7 @@ class RunState:
 
     ``usage`` carries this node's token counts (short-key form: {"input",
     "output", "reasoning", "cache_hit", "cache_miss"}) so the caller folds them
-    into the turn totals; ``cost`` is this run's priced money in integer nano-USD
+    into the turn totals; ``cost`` is this run's priced money in integer nano-CNY
     ({"input", "cached", "output", "total"}), computed once by the executor so the
     per-run ledger and UI payroll read it without re-pricing. ``rounds`` counts
     the LLM calls this run made (summed across contract retries).

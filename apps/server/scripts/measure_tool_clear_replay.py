@@ -5,7 +5,7 @@
 把**真实跑过**的回合（含真实系统提示、真实 web_search/read_url/file_read 结果）原样
 折回引擎当时喂给模型的 ``list[LLMMessage]``，再投影对比。
 
-只读：不写库、不改任何回合；用全局 .env key（build_provider(None)）。
+只读：不写库、不改任何回合；显式 platform_llm_credentials → build_provider。
 跑法（在 apps/server 下）：
   ``uv run python scripts/measure_tool_clear_replay.py --list``         # 列候选回合
   ``uv run python scripts/measure_tool_clear_replay.py``                # 回放默认回合
@@ -107,7 +107,11 @@ async def main() -> None:
     print(f"原始字符总量：{base_chars:,}  min_chars={min_chars}")
     print("-" * 80)
 
-    provider = build_provider(None)
+    from agentcore.llm.resolve import platform_llm_credentials
+    creds = platform_llm_credentials()
+    if creds is None:
+        raise RuntimeError('PLATFORM_API_KEY required (no silent build_provider fallback)')
+    provider = build_provider(creds)
     rows: list[tuple[int | None, int, int, int, int, int]] = []
     try:
         for kr in sweep:

@@ -22,7 +22,6 @@ import {
 } from "@/stores/execution";
 import { useSidePanelStore } from "@/stores/sidePanel";
 import { turnDetailPath, useUIStore } from "@/stores/ui";
-import { useUsageStore } from "@/stores/usage";
 import { Pencil, RotateCcw, Shield, Square } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -100,7 +99,6 @@ export function RunDetailBody({
   runId: string;
 }) {
   const execution = useMessageExecution(messageId);
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
   const diagnosticMode = useUIStore((s) => s.diagnosticMode);
   const showRunDetail = useSidePanelStore((s) => s.showRunDetail);
   const navigate = useNavigate();
@@ -498,7 +496,6 @@ export function RunDetailBody({
         <ResourceSection
           run={run}
           agent={agent}
-          cnyPerUsd={cnyPerUsd}
           defaultExpanded
           keyBase={`run:${runId}`}
         />

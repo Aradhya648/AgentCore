@@ -268,6 +268,10 @@ export interface DescribedError {
 export function errorActionForCode(
   code: string | undefined,
 ): ErrorAction | null {
+  // Inference JWT ≠ BYOK key — never push「去设置 · 服务商」.
+  if (code === "INFERENCE_TOKEN_EXPIRED") {
+    return null;
+  }
   if (code !== undefined && SETTINGS_ERROR_CODES.includes(code)) {
     return { label: "去设置", href: "/more/providers" };
   }
@@ -349,6 +353,19 @@ function resolveMessage(f: ErrorFacts): string {
       "请先在「设置 · 服务商」中填入你的 API Key，再发起对话。"
     );
   }
+  if (f.code === "INFERENCE_TOKEN_EXPIRED") {
+    return (
+      f.serverMessage ??
+      "本地与云端的推理凭证已失效或过期。请点击重试（将自动换新凭证）；仍失败请重新登录后再试。"
+    );
+  }
+  // Legacy engine builds still surface the English JWT rejection under LLM_KEY_INVALID.
+  if (
+    f.serverMessage &&
+    /invalid or expired inference token/i.test(f.serverMessage)
+  ) {
+    return "本地与云端的推理凭证已失效或过期。请点击重试（将自动换新凭证）；仍失败请重新登录后再试。";
+  }
   if (f.code === "ADMIN_PRODUCT_FORBIDDEN") {
     return "此账号为管理员账号，请使用管理后台登录";
   }
@@ -400,16 +417,23 @@ export function isFeatureUnavailable(err: unknown): boolean {
 export function describeError(err: unknown): DescribedError | null {
   const f = factsOf(err);
   if (f.auth) return null;
+  const inferenceTokenFailure =
+    f.code === "INFERENCE_TOKEN_EXPIRED" ||
+    (f.serverMessage != null &&
+      /invalid or expired inference token/i.test(f.serverMessage));
   return {
     message: resolveMessage(f),
-    action: errorActionForCode(f.code),
+    action: inferenceTokenFailure ? null : errorActionForCode(f.code),
     // Suppress retry on refusals that an immediate re-send can't fix (quota used /
     // key missing-or-invalid / wallet empty / server key-storage down / free tier
-    // exhausted). The shared contract-types catalog is the single source.
-    retriable: !(
-      f.code !== undefined &&
-      (NON_RETRIABLE_ERROR_CODES as readonly string[]).includes(f.code)
-    ),
+    // exhausted). Inference JWT expiry is remintable — keep retry. The shared
+    // contract-types catalog is the single source for the rest.
+    retriable: inferenceTokenFailure
+      ? true
+      : !(
+          f.code !== undefined &&
+          (NON_RETRIABLE_ERROR_CODES as readonly string[]).includes(f.code)
+        ),
     code: f.code,
     context: f.context,
   };

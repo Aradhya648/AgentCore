@@ -2,11 +2,12 @@
 /**
  * Publish a product notice on production (Banner + IM 官方号).
  *
- *   pnpm publish:notice -- --title "…" --body "…" [--severity high] [--surface both]
+ *   pnpm publish:notice -- --title "…" --body "…" [--severity high] [--surface both|modal]
  *
  * Uses DEPLOY_SSH_* from deploy/.env.deploy.local. Runs create+publish inside
  * the live api container (no admin password needed). Template copy →
  * docs/05-平台与运维/产品公告文案模板.md
+ * Surfaces ``inbox`` / ``both`` / ``modal`` also write IM 官方号 on first publish.
  */
 import { loadDeployEnv, sshScript } from "./load-deploy-env.mjs";
 
@@ -87,7 +88,7 @@ async def main() -> None:
         published = await repo.publish(row.id)
         if published is None:
             raise SystemExit("publish failed")
-        if first and published.surface in ("inbox", "both"):
+        if first and published.surface in ("inbox", "both", "modal"):
             messaging = MessagingService(
                 users=UserRepository(session),
                 chats=ChatRepository(session),

@@ -50,7 +50,7 @@ function usageWindow(cnyTotal: number, requests: number): UsageWindow {
     cost: {
       cached: 0,
       cny_total: cnyTotal,
-      currency: "USD",
+      currency: "CNY",
       input: 0,
       output: 0,
       total: 0,
@@ -64,7 +64,6 @@ function usageWindow(cnyTotal: number, requests: number): UsageWindow {
 function usageSummary(p?: Partial<AdminUsageSummary>): AdminUsageSummary {
   return {
     billing_mode: "platform",
-    cny_per_usd: 7,
     today: usageWindow(12.5, 3),
     month: usageWindow(88, 9),
     month_by_model: [],

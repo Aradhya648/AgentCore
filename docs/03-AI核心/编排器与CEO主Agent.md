@@ -31,7 +31,7 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 | 开工前只读探路；团队跑完写简短概览 | 为简单对话支付规划税 |
 | 理解意图、拆任务、定角色与依赖（`depends_on`） | 复述各 worker 全文（细节由前端 run / 图视图展示） |
 
-工具结构分界：`approval=NEVER` → CEO 持有；`GRANTABLE` schema → 仅 worker——**GRANTABLE 唯一例外**：本机 Host 的 `host_shell`（CEO+worker · `host` 轴授 · 禁 kickoff 静默授；L2/L3 仍仅 worker）。另：**本地 `terminal`** 亦 CEO 可持（schema `NEVER`，`start` 运行时升审批，与 `git` 写同姿）——纯启服 / 停 / 读，非改产物。自研编排（否决 LangGraph / CrewAI 等）：编排是核心壁垒，须完全掌控。聊天优先 + 按需编排（否决「编排器唯一入口」——每条消息付编排税）。
+工具结构分界：`approval=NEVER` → CEO 持有；`GRANTABLE` schema → 仅 worker——**GRANTABLE 例外**：① 本机 Host 的 `host_shell`（CEO+worker · `host` 轴授 · 禁 kickoff 静默授；L2/L3 仍仅 worker）；② **`browser_navigate`**（CEO+worker · `browser_class` · 有 Bridge/gVisor 才装配；captain 直调跳过审批；click/type/scroll/snapshot/screenshot 仍仅 worker）。另：**本地 `terminal`** 亦 CEO 可持（schema `NEVER`，`start` 运行时升审批，与 `git` 写同姿）——纯启服 / 停 / 读，非改产物。自研编排（否决 LangGraph / CrewAI 等）：编排是核心壁垒，须完全掌控。聊天优先 + 按需编排（否决「编排器唯一入口」——每条消息付编排税）。
 
 **档位取舍**：档 2.5 = 结构取档 2（CEO 只读 + 窄例外；否决档 1 全能 CEO、档 3 纯编排 CEO）+ 路由按「活的规模与结构」细化。档 1 污染上下文、弱化团队心智；档 3 给高频轻量只读 / 纯启服加委派税。
 
@@ -105,10 +105,10 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 | 类 | 条件 | 挡当前请求？ |
 |---|---|---|
 | 软幕 | 项目 `画像.md` 空，且非下表硬挡 | **不挡**。注入软提示（可组队摸仓）；**不**置 explore-pending；域外主题 / 纯调研可直接 `parallel_brief` 等 |
-| 硬挡 | `_memory_meta.explore_workspace_key` 与当前绑定不一致（换绑）**或** 用户点名「先了解 / 重新了解 / 刷新项目记忆」**或** 请求带结构化工程信号（点名本仓改/建/继续开发等允许表短语，**不扫长文猜意图**）且画像仍空 | 是 → 先探索再继续原请求；pending 期间 `write_scope≤explore_memory` |
+| 硬挡 | `_memory_meta.explore_workspace_key` 与当前绑定不一致（换绑）**或** 用户点名「先了解 / 重新了解 / 刷新项目记忆」**或** 请求带结构化工程信号（点名本仓改/建/继续开发等允许表短语，**不扫长文猜意图**）且画像仍空 | 是 → 先探索再继续原请求；pending 期间 `write_scope≤explore_memory`（**例外**：`code_verified` / `repair_code` 批立刻放开写工程并跳过探路队形闸） |
 | 指纹漂移 | 相对上次探索，**顶层树 + 关键清单指纹**已变 | **不挡**。一期✅：脏标记 + `<project_nav_stale>` 软提示可点名刷新；二期✅：`schedule_explore_refresh` 旁路静默更新（→ [记忆 · 探索触发](/docs/03-AI核心/Agent记忆与知识系统.md)） |
 
-**硬挡流程**：注入 `<cold_start_explore>`（换绑 / 点名刷新 / 空画像+工程信号；指纹与「仅空画像」**不**进此块）→ 先轻量探路（≤5 **轮**；同轮并行多工具只计 1 轮）→ `delegate`（`team_preview`）组调研队（**≥2 角并行**，禁止 1 人包办整仓）→ 收尾经 `update_project_profile` 合并写项目 **画像 + 导航.md**，记录 `workspace_key` 与指纹；主题软顶 5 / 总数受 `memory_max_topic_files` → **立刻继续原请求**。pending 期间允许 `form=files`，但写盘不得出 `explore_memory` 根；`文档/项目/` 不在本幕写。点名硬闸（与 pending 同级）✅。
+**硬挡流程**：注入 `<cold_start_explore>`（换绑 / 点名刷新 / 空画像+工程信号；指纹与「仅空画像」**不**进此块）→ 先轻量探路（≤5 **轮**；同轮并行多工具只计 1 轮）→ `delegate`（`team_preview`）组调研队（**≥2 角并行**，禁止 1 人包办整仓）→ 收尾经 `update_project_profile` 合并写项目 **画像 + 导航.md**，记录 `workspace_key` 与指纹；主题软顶 5 / 总数受 `memory_max_topic_files` → **立刻继续原请求**。pending 期间允许 `form=files`，但写盘不得出 `explore_memory` 根（修码批除外，见上表）；`文档/项目/` 不在本幕写。点名硬闸（与 pending 同级）✅。**resume 与开场同源**：空画像软降级走 `resolve_hard_explore_reason`，禁止 resume 把「仅空画像」误硬拦。
 
 **强制 / 豁免**：点名强制开幕（合并更新；硬闸 ✅）。旧画像无 key → 不因缺 key 硬开。裸聊 / 纯闲聊 / 空工作区不自动开幕、不写假画像/导航。对已有工程「继续开发 / 全面摸底」亦须 ≥2 角并行（提示词纪律；冷启动闸另硬拒单 worker）。探路硬闸**不扫用户原文猜意图**分叉：统一「到限后 delegate，或短答并自报归类（闲聊/单点事实/追问）」；闸后长文一律丢稿再催一次。成篇形状 / 修码选型 / 跑·修·打开验证终向 / 点名对比扇出靠提示词与结构验收，不靠意图分类器（`exec_verify` 用户意图硬闸、`named_entity_fanout` 用户扫硬拒已移除）。成篇审计硬门只认成文专线 `playbook=research_report` 与 deliverable 结构字段（如 `min_length≥3000`）；`parallel_brief` / 普通多角摸底不进硬门（软闸亦同）；不扫 task/角色自由文。审后默认向用户收口，同轮 `continue_from_run_id` 修订非默认路径。
 

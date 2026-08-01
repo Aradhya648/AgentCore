@@ -88,8 +88,8 @@ async def list_users(
     pin those dimensions. ``sort`` ∈ {``created_at``, ``cost``} (累计成本) with ``order``
     ∈ {``asc``, ``desc``}. ``include_deleted`` surfaces 注销 (soft-deleted, anonymized)
     accounts — hidden by default as tombstones, shown on demand for audit. Admin-only
-    directory — enumeration is intended here. ``cny_per_usd`` folds each row's nano-USD
-    ``cost_total`` into ¥.
+    directory — enumeration is intended here. Money is nano-CNY; clients format ¥ as
+    ``cost_total / 1e9``.
     """
     rows, total = await service.list_users(
         page=page,
@@ -106,7 +106,6 @@ async def list_users(
         total=total,
         page=page,
         page_size=page_size,
-        cny_per_usd=settings.cny_per_usd,
     )
 
 
@@ -132,10 +131,10 @@ async def update_user(
         quota["is_unlimited"] = body.is_unlimited
     if "quota_daily_tokens" in fields:
         quota["daily_tokens"] = body.quota_daily_tokens
-    if "quota_monthly_cost_usd" in fields:
-        quota["monthly_cost_usd"] = body.quota_monthly_cost_usd
-    if "quota_daily_cost_usd" in fields:
-        quota["daily_cost_usd"] = body.quota_daily_cost_usd
+    if "quota_monthly_cost_cny" in fields:
+        quota["monthly_cost_cny"] = body.quota_monthly_cost_cny
+    if "quota_daily_cost_cny" in fields:
+        quota["daily_cost_cny"] = body.quota_daily_cost_cny
     if "quota_daily_requests" in fields:
         quota["daily_requests"] = body.quota_daily_requests
 
@@ -373,6 +372,5 @@ async def user_detail(
         recent_daily_cost=recent_daily_cost,
         conversations=conversation_lines,
         recent_turns=[TurnMetricLine.model_validate(r) for r in recent_turns],
-        cny_per_usd=settings.cny_per_usd,
         billing_mode=settings.billing_mode,
     )

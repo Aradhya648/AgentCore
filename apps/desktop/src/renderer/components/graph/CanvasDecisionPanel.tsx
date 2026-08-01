@@ -28,7 +28,6 @@ import {
 } from "@/stores/interactions";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
 import { useSidePanelStore } from "@/stores/sidePanel";
-import { AlertTriangle } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 /** Re-export for canvas consumers that historically imported from this module. */
@@ -256,13 +255,9 @@ export function useCommandRegion(): CommandRegionData {
  */
 export function CommandPanelBody({
   message,
-  execution,
   conversationId,
   interactive,
-}: Pick<
-  CommandRegionData,
-  "message" | "execution" | "conversationId" | "interactive"
->) {
+}: Pick<CommandRegionData, "message" | "conversationId" | "interactive">) {
   // 统一投影键（时间线一期）：interaction entries key by `serverMessageId ?? id`
   // (execMessageId)，query must match or the dock's cards silently vanish.
   const { checkpoints, planReviews } = useMessageInteractionCards(
@@ -270,30 +265,11 @@ export function CommandPanelBody({
     message ? assistantProjectionId(message) : "",
   );
 
-  const recoverable = isTurnRecoverable(execution);
-  const showFailureNotice = recoverable && !!message;
-  const failedCount =
-    execution?.runs.filter((r) => r.status === "failed").length ?? 0;
-  const failureNotice =
-    execution?.status === "cancelled"
-      ? "本回合已停止。"
-      : failedCount > 0
-        ? `${failedCount} 个子任务失败。`
-        : "本回合执行失败。";
-
   return (
     <div className="h-full overflow-y-auto py-3">
-      {/* Transport / channel RetryBanner + focused turn failure notice (statement
-          only — no graph-mounted retry-failed / regenerate firefighting). */}
+      {/* Transport / channel RetryBanner only — turn failure scoreboard lives on
+          meta (n/m) + graph node chrome + run detail; no red notice here. */}
       <RetryBanner />
-      {showFailureNotice && (
-        <div className="mx-4 mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-xs text-destructive">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span>{failureNotice}</span>
-          </div>
-        </div>
-      )}
       {/* Conversation-level decisions (self-contained: own store + active
           conversation). They bring their own mx-4 mb-2 gutter, so the turn-level
           cards below match with px-4 and the mb-2 supplies the inter-group gap. */}

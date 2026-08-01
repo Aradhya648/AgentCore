@@ -28,7 +28,6 @@ _FAILURE_CATEGORY_LABELS: dict[str, str] = {
     ErrorCode.LLM_ERROR: "模型调用失败",
     ErrorCode.PIPELINE_ERROR: "管线执行失败",
     ErrorCode.QUOTA_EXCEEDED: "额度已用尽",
-    ErrorCode.FREE_TIER_EXHAUSTED: "免费额度已用尽",
     ErrorCode.KEY_STORAGE_UNAVAILABLE: "密钥存储不可用",
 }
 

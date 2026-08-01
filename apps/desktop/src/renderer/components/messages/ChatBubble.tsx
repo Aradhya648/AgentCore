@@ -52,6 +52,8 @@ interface Props {
   onReply?: (message: ChatMessageDetail) => void;
   /** Click the quote block → scroll to the original message. */
   onScrollToReply?: (messageId: string) => void;
+  /** Group bubble avatar → 资料卡 (消息IM.md §9.4). */
+  onAvatarClick?: (userId: string) => void;
 }
 
 const SEVERITY_LABEL: Record<string, string> = {
@@ -111,27 +113,43 @@ function textBubbleRadius(
 function ChatAvatar({
   name,
   url,
+  onClick,
 }: {
   name: string;
   url?: string | null;
+  onClick?: () => void;
 }) {
   const src = avatarSrc(url);
+  const interactive = Boolean(onClick);
+  const wrap = (node: ReactNode) =>
+    interactive ? (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`查看 ${name} 的资料`}
+        className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {node}
+      </button>
+    ) : (
+      node
+    );
   if (src) {
-    return (
+    return wrap(
       <img
         src={src}
         alt=""
         className="size-8 shrink-0 rounded-full object-cover"
-      />
+      />,
     );
   }
-  return (
+  return wrap(
     <span
       className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary"
       aria-hidden
     >
       {avatarInitial(name)}
-    </span>
+    </span>,
   );
 }
 
@@ -310,6 +328,7 @@ export function ChatBubble({
   resolveMentionName,
   onReply,
   onScrollToReply,
+  onAvatarClick,
 }: Props) {
   const time = formatMessageTimeOfDay(message.created_at);
 
@@ -472,7 +491,18 @@ export function ChatBubble({
           className={`mt-0.5 shrink-0 ${layout.showAvatar ? "" : "invisible"}`}
           aria-hidden={!layout.showAvatar}
         >
-          <ChatAvatar name={avatarLabel} url={senderAvatarUrl} />
+          <ChatAvatar
+            name={avatarLabel}
+            url={senderAvatarUrl}
+            onClick={
+              layout.showAvatar &&
+              !mine &&
+              message.sender_user_id &&
+              onAvatarClick
+                ? () => onAvatarClick(message.sender_user_id as string)
+                : undefined
+            }
+          />
         </div>
 
         {bubbleBody}

@@ -18,6 +18,7 @@ from agentcore.core.net import (
     PinnedAddressError,
     PinnedIPTransport,
     describe_net_error,
+    outbound_async_client,
     site_of,
     web_timeout,
 )
@@ -456,7 +457,7 @@ class ReadUrlTool:
             # verify=False: tolerate broken cert chains on gov/court/academic mirrors
             # (same posture as the favicon proxy). SSRF pinning still bounds which hosts
             # we reach; only TLS trust is relaxed.
-            async with httpx.AsyncClient(
+            async with outbound_async_client(
                 timeout=web_timeout(),
                 follow_redirects=False,
                 transport=PinnedIPTransport(verify=False),

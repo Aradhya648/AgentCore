@@ -15,9 +15,6 @@ export { ERROR_CODES, type ErrorCode };
 export const KEY_CONFIG_ERROR_CODES: readonly ErrorCode[] = [
   "LLM_KEY_REQUIRED",
   "LLM_KEY_INVALID",
-  // Monthly free tier spent — the remedy is the same one-click "去配置" route
-  // (configure a BYOK key to continue unlimited), per 成本配额与计费 §〇·五 D5.
-  "FREE_TIER_EXHAUSTED",
 ];
 
 /** Codes where an immediate retry is pointless until the user acts — top up the wallet,
@@ -25,7 +22,6 @@ export const KEY_CONFIG_ERROR_CODES: readonly ErrorCode[] = [
  * retry affordance for these (rate limits stay retriable: they clear on their own). */
 export const NON_RETRIABLE_ERROR_CODES: readonly ErrorCode[] = [
   "QUOTA_EXCEEDED",
-  "FREE_TIER_EXHAUSTED",
   "LLM_KEY_REQUIRED",
   "LLM_KEY_INVALID",
   "LLM_INSUFFICIENT_BALANCE",

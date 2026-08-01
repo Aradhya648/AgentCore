@@ -1,13 +1,14 @@
 """Quota enforcement — the「总量」防线 that refuses a new turn once a user has
 exhausted a configured usage window (成本配额与计费.md §一).
 
-Three independent dimensions, each with its own rolling window:
+Four independent dimensions, each with its own rolling window:
 
 | 维度          | 窗口         | 阈值 (config)               |
 |---------------|--------------|-----------------------------|
-| 日 token      | 当日 0 点起  | ``quota_daily_tokens`` / free_tier_* |
-| 月成本 (USD)  | 当月 1 号起  | ``quota_monthly_cost_usd`` / free_tier_* |
-| 日请求数      | 当日 0 点起  | ``quota_daily_requests`` / free_tier_* |
+| 日 token      | 当日 0 点起  | ``quota_daily_tokens`` |
+| 月成本 (CNY)  | 当月 1 号起  | ``quota_monthly_cost_cny`` |
+| 日请求数      | 当日 0 点起  | ``quota_daily_requests`` |
+| 日成本 (CNY)  | 当日 0 点起  | ``quota_daily_cost_cny`` |
 
 A ``0`` threshold means that dimension is unlimited (fail-safe 宽松默认); when
 *every* dimension is unlimited the check skips the DB read entirely. The check is
@@ -16,12 +17,10 @@ its *next* turn rather than having an in-flight reply cut off (不腰斩进行�
 Spend is read from the ``cost_events`` ledger (the money truth source, 不变量
 #1), so the limit reflects 真实记账 rather than an estimate.
 
-Limits resolve per user (决策④ / D7): ``QuotaLimits.for_user`` reads the override
-columns on the ``users`` row (NULL = inherit defaults for that dimension; an
-explicit ``0`` = unlimited for that dimension). Defaults are free-tier caps when
-``use_free_tier_defaults`` (byok deployment platform-paid paths), else global
-``quota_*``. ``is_unlimited`` collapses to all-unlimited so a trusted/operator
-account is never gated.
+Limits resolve per user: ``QuotaLimits.for_user`` reads the override columns on
+the ``users`` row (NULL = inherit global ``quota_*``; an explicit ``0`` =
+unlimited for that dimension). ``is_unlimited`` collapses to all-unlimited so a
+trusted/operator account is never gated.
 """
 
 from __future__ import annotations
@@ -31,9 +30,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentcore.config import settings
-from agentcore.core.errors import FreeTierExhaustedError, QuotaExceededError
+from agentcore.core.errors import QuotaExceededError
 from agentcore.db.repositories import CostEventRepository
-from agentcore.llm.pricing import NANO_PER_USD, nano_usd_to_cny
+from agentcore.llm.pricing import NANO_PER_CNY, nano_to_yuan
 
 if TYPE_CHECKING:
     from agentcore.db.models import User
@@ -49,9 +48,9 @@ _BYOK_EXIT = "或接入自己的 key 继续（设置 · 模型配置）"
 class QuotaLimits:
     """Resolved quota thresholds (``0`` = that dimension is unlimited).
 
-    Cost dimensions are pre-converted from the USD config to the ledger's integer
-    nano-USD unit so the comparison stays in one currency口径 (决策①). ``daily_cost_nano``
-    is the F2 单日成本 backstop (防单日打爆); it rides last for positional back-compat.
+    Cost dimensions are pre-converted from the CNY config to the ledger's integer
+    nano-CNY unit so the comparison stays in one currency口径. ``daily_cost_nano``
+    is the 单日成本 backstop (防单日打爆); it rides last for positional back-compat.
     """
 
     daily_tokens: int
@@ -60,49 +59,34 @@ class QuotaLimits:
     daily_cost_nano: int = 0
 
     @classmethod
-    def from_settings(cls, *, use_free_tier_defaults: bool = False) -> QuotaLimits:
-        if use_free_tier_defaults:
-            return cls(
-                daily_tokens=settings.free_tier_daily_tokens,
-                monthly_cost_nano=int(settings.free_tier_monthly_cost_usd * NANO_PER_USD),
-                daily_requests=settings.free_tier_daily_requests,
-                daily_cost_nano=int(settings.free_tier_daily_cost_usd * NANO_PER_USD),
-            )
+    def from_settings(cls) -> QuotaLimits:
         return cls(
             daily_tokens=settings.quota_daily_tokens,
-            monthly_cost_nano=int(settings.quota_monthly_cost_usd * NANO_PER_USD),
+            monthly_cost_nano=int(settings.quota_monthly_cost_cny * NANO_PER_CNY),
             daily_requests=settings.quota_daily_requests,
-            daily_cost_nano=int(settings.quota_daily_cost_usd * NANO_PER_USD),
+            daily_cost_nano=int(settings.quota_daily_cost_cny * NANO_PER_CNY),
         )
 
     @classmethod
-    def for_user(cls, user: User, *, use_free_tier_defaults: bool = False) -> QuotaLimits:
-        """Resolve limits for ``user``: override columns, else defaults (D7 / F2).
+    def for_user(cls, user: User) -> QuotaLimits:
+        """Resolve limits for ``user``: override columns, else global ``quota_*``.
 
         ``is_unlimited`` short-circuits to all-unlimited. For every dimension a
-        ``None`` override inherits the chosen defaults (free-tier or global), while
-        an explicit ``0`` means that dimension is unlimited *for this user*.
+        ``None`` override inherits the global defaults, while an explicit ``0``
+        means that dimension is unlimited *for this user*.
         """
         if user.is_unlimited:
             return cls(0, 0, 0, 0)
-        defaults = cls.from_settings(use_free_tier_defaults=use_free_tier_defaults)
-        monthly_usd = (
-            user.quota_monthly_cost_usd
-            if user.quota_monthly_cost_usd is not None
-            else (
-                settings.free_tier_monthly_cost_usd
-                if use_free_tier_defaults
-                else settings.quota_monthly_cost_usd
-            )
+        defaults = cls.from_settings()
+        monthly_cny = (
+            user.quota_monthly_cost_cny
+            if user.quota_monthly_cost_cny is not None
+            else settings.quota_monthly_cost_cny
         )
-        daily_usd = (
-            user.quota_daily_cost_usd
-            if getattr(user, "quota_daily_cost_usd", None) is not None
-            else (
-                settings.free_tier_daily_cost_usd
-                if use_free_tier_defaults
-                else settings.quota_daily_cost_usd
-            )
+        daily_cny = (
+            user.quota_daily_cost_cny
+            if getattr(user, "quota_daily_cost_cny", None) is not None
+            else settings.quota_daily_cost_cny
         )
         return cls(
             daily_tokens=(
@@ -110,13 +94,13 @@ class QuotaLimits:
                 if user.quota_daily_tokens is not None
                 else defaults.daily_tokens
             ),
-            monthly_cost_nano=int(monthly_usd * NANO_PER_USD),
+            monthly_cost_nano=int(monthly_cny * NANO_PER_CNY),
             daily_requests=(
                 user.quota_daily_requests
                 if user.quota_daily_requests is not None
                 else defaults.daily_requests
             ),
-            daily_cost_nano=int(daily_usd * NANO_PER_USD),
+            daily_cost_nano=int(daily_cny * NANO_PER_CNY),
         )
 
     @property
@@ -135,19 +119,14 @@ async def enforce_quota(
     *,
     now: datetime | None = None,
     limits: QuotaLimits | None = None,
-    free_tier: bool = False,
 ) -> None:
-    """Raise quota / free-tier exhausted if ``user_id`` has hit any quota.
+    """Raise ``QuotaExceededError`` if ``user_id`` has hit any quota.
 
     No-op (and no DB read) when every dimension is unlimited. Otherwise sums the
-    user's ledger over the day window (daily tokens + requests); only if those
-    pass *and* a monthly cap is configured does it read the month window (monthly
-    cost). That is 1–2 indexed aggregates on ``ix_cost_events_user_created`` —
-    light enough for the turn hot path.
-
-    When ``free_tier`` is True, refusals use :class:`FreeTierExhaustedError`
-    (``FREE_TIER_EXHAUSTED``) with the conversion CTA message; otherwise
-    :class:`QuotaExceededError` (``QUOTA_EXCEEDED``) keeps wait-for-reset semantics.
+    user's ledger over the day window (daily tokens + requests + daily cost);
+    only if those pass *and* a monthly cap is configured does it read the month
+    window (monthly cost). That is 1–2 indexed aggregates on
+    ``ix_cost_events_user_created`` — light enough for the turn hot path.
     """
     limits = limits or QuotaLimits.from_settings()
     if limits.all_unlimited:
@@ -163,12 +142,6 @@ async def enforce_quota(
         # reasoning), matching TokenUsage.total_tokens.
         used = int(today["usage"]["input"]) + int(today["usage"]["output"])
         if used >= limits.daily_tokens:
-            if free_tier:
-                raise FreeTierExhaustedError(
-                    dimension="daily_tokens",
-                    used=used,
-                    limit=limits.daily_tokens,
-                )
             raise QuotaExceededError(
                 f"已达每日 token 上限（{used:,} / {limits.daily_tokens:,}），"
                 f"明日 0 点（UTC）重置；{_BYOK_EXIT}。",
@@ -181,12 +154,6 @@ async def enforce_quota(
         # 一回合 = 一个 assistant message_id（与对话累计 / 仪表盘的「请求」口径一致）。
         used = int(today["turns"])
         if used >= limits.daily_requests:
-            if free_tier:
-                raise FreeTierExhaustedError(
-                    dimension="daily_requests",
-                    used=used,
-                    limit=limits.daily_requests,
-                )
             raise QuotaExceededError(
                 f"已达每日请求上限（{used} / {limits.daily_requests}），"
                 f"明日 0 点（UTC）重置；{_BYOK_EXIT}。",
@@ -195,18 +162,12 @@ async def enforce_quota(
                 limit=limits.daily_requests,
             )
 
-    # 日成本 backstop (F2): reuses the day window already fetched — no extra DB read.
+    # 日成本 backstop: reuses the day window already fetched — no extra DB read.
     if limits.daily_cost_nano > 0:
         used = int(today["cost"]["total"])
         if used >= limits.daily_cost_nano:
-            if free_tier:
-                raise FreeTierExhaustedError(
-                    dimension="daily_cost",
-                    used=used,
-                    limit=limits.daily_cost_nano,
-                )
-            spent_cny = nano_usd_to_cny(used, settings.cny_per_usd)
-            cap_cny = nano_usd_to_cny(limits.daily_cost_nano, settings.cny_per_usd)
+            spent_cny = nano_to_yuan(used)
+            cap_cny = nano_to_yuan(limits.daily_cost_nano)
             raise QuotaExceededError(
                 f"已达今日额度上限（约 ¥{spent_cny:.2f} / ¥{cap_cny:.2f}），"
                 f"明日 0 点（UTC）重置；{_BYOK_EXIT}。",
@@ -220,14 +181,8 @@ async def enforce_quota(
         month = await repo.aggregate_for_window(user_id=user_id, since=month_start)
         used = int(month["cost"]["total"])
         if used >= limits.monthly_cost_nano:
-            if free_tier:
-                raise FreeTierExhaustedError(
-                    dimension="monthly_cost",
-                    used=used,
-                    limit=limits.monthly_cost_nano,
-                )
-            spent_cny = nano_usd_to_cny(used, settings.cny_per_usd)
-            cap_cny = nano_usd_to_cny(limits.monthly_cost_nano, settings.cny_per_usd)
+            spent_cny = nano_to_yuan(used)
+            cap_cny = nano_to_yuan(limits.monthly_cost_nano)
             # F6 主文案: 用完 + 下月 1 日重置 + 联系管理员提额; _BYOK_EXIT = 次级弱化出口.
             raise QuotaExceededError(
                 f"本月额度已用完（约 ¥{spent_cny:.2f} / ¥{cap_cny:.2f}），"

@@ -1,4 +1,4 @@
-import { cn, fmtCny, mmdd, nanoUsdToCny } from "@/lib/utils";
+import { cn, fmtCny, mmdd, nanoToYuan } from "@/lib/utils";
 import type { DailyTurns } from "@/services/adminObservability";
 import type { DailyCost } from "@/services/adminUsage";
 
@@ -7,19 +7,13 @@ import type { DailyCost } from "@/services/adminUsage";
  * same cost sparkline; 观测 / 概览 share the turn one). Kept presentational and
  * dependency-light so every surface renders an identical chart instead of drifting.
  */
-export function CostTrendBars({
-  data,
-  cnyPerUsd,
-}: {
-  data: DailyCost[];
-  cnyPerUsd: number;
-}) {
+export function CostTrendBars({ data }: { data: DailyCost[] }) {
   const max = Math.max(1, ...data.map((d) => d.cost_total));
   return (
     <div className="flex items-end gap-2">
       {data.map((d) => {
         const pct = (d.cost_total / max) * 100;
-        const cny = nanoUsdToCny(d.cost_total, cnyPerUsd);
+        const cny = nanoToYuan(d.cost_total);
         return (
           <div key={d.date} className="flex flex-1 flex-col items-center gap-2">
             <div className="flex h-28 w-full items-end">

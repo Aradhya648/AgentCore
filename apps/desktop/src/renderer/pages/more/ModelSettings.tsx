@@ -40,8 +40,21 @@ function hasSelectableModels(groups: DefaultProviderGroup[]): boolean {
   return groups.some((g) => g.models.length > 0);
 }
 
-/** 无可选模型时的引导：与 EmptyProfilesCta / PlatformStatusLine 同页「接入服务商」风格。 */
-function NoAvailableModelsGuide({ className }: { className?: string }) {
+/** 无可选模型时的引导：平台开闸空目录 vs BYOK 休眠分流。 */
+function NoAvailableModelsGuide({
+  platformAvailable,
+  className,
+}: {
+  platformAvailable: boolean;
+  className?: string;
+}) {
+  if (platformAvailable) {
+    return (
+      <p className={cn("text-xs text-muted-foreground", className)}>
+        暂无可用模型。平台额度暂不可用，请联系管理员或稍后重试。
+      </p>
+    );
+  }
   return (
     <p className={cn("text-xs text-muted-foreground", className)}>
       暂无可用模型，请先{" "}
@@ -100,7 +113,6 @@ export function ModelSettings() {
         <div className="mt-6 space-y-4">
           <PlatformStatusLine
             platformAvailable={platformAvailable}
-            freeTierActive={response.free_tier_active}
             platformModel={response.platform_model ?? null}
             hasProviders={providers.length > 0}
           />
@@ -109,6 +121,7 @@ export function ModelSettings() {
             <ModelProfilesSection
               providers={providers}
               catalog={catalog}
+              platformAvailable={platformAvailable}
               onChanged={refresh}
             />
           ) : (
@@ -140,12 +153,10 @@ function EmptyProfilesCta() {
 
 function PlatformStatusLine({
   platformAvailable,
-  freeTierActive,
   platformModel,
   hasProviders,
 }: {
   platformAvailable: boolean;
-  freeTierActive: boolean;
   platformModel: string | null;
   hasProviders: boolean;
 }) {
@@ -164,12 +175,11 @@ function PlatformStatusLine({
   }
   if (!platformAvailable) return null;
 
-  const status = freeTierActive ? "可用平台免费额度" : "可用平台额度";
   const modelHint = platformModel ? ` · ${platformModel}` : "";
 
   return (
     <p className="text-xs text-muted-foreground">
-      {status}
+      可用平台额度
       {modelHint}。{" "}
       <Link
         to="/more/providers"
@@ -188,10 +198,12 @@ function PlatformStatusLine({
 function ModelProfilesSection({
   providers,
   catalog,
+  platformAvailable,
   onChanged,
 }: {
   providers: LlmProviderView[];
   catalog: ReturnType<typeof useModels>["data"];
+  platformAvailable: boolean;
   onChanged: () => void;
 }) {
   const {
@@ -289,7 +301,9 @@ function ModelProfilesSection({
   const onCreate = () => {
     const main = seedMain();
     if (!main) {
-      setActionError(<NoAvailableModelsGuide />);
+      setActionError(
+        <NoAvailableModelsGuide platformAvailable={platformAvailable} />,
+      );
       return;
     }
     setActionError(null);
@@ -362,6 +376,7 @@ function ModelProfilesSection({
             <ProfileEditor
               title="新建组合"
               groups={groups}
+              platformAvailable={platformAvailable}
               initial={{
                 name: "未命名组合",
                 main: seedMain(),
@@ -380,6 +395,7 @@ function ModelProfilesSection({
                 key={profile.id}
                 title={`编辑「${profile.name}」`}
                 groups={groups}
+                platformAvailable={platformAvailable}
                 initial={{
                   name: profile.name,
                   main: profile.main,
@@ -530,6 +546,7 @@ function ProfileListRow({
 function ProfileEditor({
   title,
   groups,
+  platformAvailable,
   initial,
   pending,
   onCancel,
@@ -537,6 +554,7 @@ function ProfileEditor({
 }: {
   title: string;
   groups: DefaultProviderGroup[];
+  platformAvailable: boolean;
   initial: ProfileDraft;
   pending: boolean;
   onCancel: () => void;
@@ -570,7 +588,12 @@ function ProfileEditor({
           disabled={pending}
           onChange={(value) => setMain(decodePointer(value))}
         />
-        {noSelectableModels && <NoAvailableModelsGuide className="mt-1" />}
+        {noSelectableModels && (
+          <NoAvailableModelsGuide
+            platformAvailable={platformAvailable}
+            className="mt-1"
+          />
+        )}
       </label>
       <label className="block" htmlFor="profile-worker">
         <span className="text-xs text-muted-foreground">Worker 模型</span>

@@ -41,7 +41,7 @@ from agentcore.evals.types import (
     artifacts_from_tool_calls,
 )
 from agentcore.llm.factory import build_provider
-from agentcore.llm.pricing import NANO_PER_USD, calculate_cost
+from agentcore.llm.pricing import NANO_PER_CNY, calculate_cost
 from agentcore.llm.profiles import ProfileParams, TurnProfiles
 from agentcore.llm.provider.protocol import LLMMessage, TokenUsage
 from agentcore.llm.resolve import LLMCredentials
@@ -84,19 +84,32 @@ def _clamp_ceo_rounds(profiles: TurnProfiles, max_rounds: int) -> TurnProfiles:
     return _Clamped(model=profiles.model, model_overrides=dict(profiles.model_overrides))
 
 
-def _eval_credentials() -> LLMCredentials | None:
-    """eval 的 DeepSeek 凭据：优先 eval 专用环境变量，缺省回落平台/全局 key（§十三）.
+def _eval_credentials() -> LLMCredentials:
+    """eval 的 DeepSeek / 平台凭据：优先 eval 专用环境变量，否则显式平台凭据.
 
     BYOK 内测下平台 ``platform_api_key`` 多为空 → 真跑必须自带 ``EVAL_DEEPSEEK_API_KEY``
-    （建议配低额度账号 + nightly 限次）。返回 ``None`` 时 :func:`build_provider` 退回
-    ``settings`` 全局 key（本地开发便利）；单测走注入的假 provider，不读这里。
+    （建议配低额度账号 + nightly 限次）。不再经 ``build_provider(None)`` 静默回落。
+    单测走注入的假 provider，不读这里。
     """
+    from agentcore.llm.resolve import platform_llm_credentials
+
     key = os.environ.get("EVAL_DEEPSEEK_API_KEY", "").strip()
-    if not key:
-        return None
-    base = os.environ.get("EVAL_DEEPSEEK_BASE_URL", "").strip() or settings.platform_base_url
-    model = os.environ.get("EVAL_DEEPSEEK_MODEL", "").strip() or settings.platform_model
-    return LLMCredentials(api_key=key, base_url=base, default_model=model)
+    if key:
+        base = (
+            os.environ.get("EVAL_DEEPSEEK_BASE_URL", "").strip()
+            or settings.platform_base_url
+        )
+        model = (
+            os.environ.get("EVAL_DEEPSEEK_MODEL", "").strip() or settings.platform_model
+        )
+        return LLMCredentials(api_key=key, base_url=base, default_model=model)
+    plat = platform_llm_credentials()
+    if plat is None:
+        raise RuntimeError(
+            "eval needs EVAL_DEEPSEEK_API_KEY or a configured PLATFORM_API_KEY "
+            "(build_provider no longer silent-falls back)"
+        )
+    return plat
 
 
 def _history_messages(history: list[dict]) -> list[LLMMessage]:
@@ -149,7 +162,7 @@ def single_outcome(
         delegated=False,
         roster=[],
         usage=usage.as_dict(),
-        cost_usd=cost_nano / NANO_PER_USD,
+        cost_usd=cost_nano / NANO_PER_CNY,
         latency_ms=latency_ms,
         plan_runs=list(sink.plan_runs),
         plan_type=sink.plan_type,
@@ -196,7 +209,7 @@ def team_outcome(
         delegated=any(role != "CEO" for role in sink.roster),
         roster=list(sink.roster),
         usage=usage,
-        cost_usd=cost_nano / NANO_PER_USD,
+        cost_usd=cost_nano / NANO_PER_CNY,
         latency_ms=latency_ms,
         error=result.get("error"),
         plan_runs=list(sink.plan_runs),

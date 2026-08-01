@@ -51,7 +51,6 @@ def _collection_to_response(view: LlmProvidersView) -> LlmProvidersResponse:
         billing_mode=view.billing_mode,
         platform_available=view.platform_available,
         platform_model=view.platform_model,
-        free_tier_active=view.free_tier_active,
     )
 
 

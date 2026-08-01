@@ -87,6 +87,8 @@ async def apply_loop_directive(
     controller: LoopController,
     content_before_round: str,
     finish_guard_reworks: int,
+    files_expected: bool = False,
+    form_prose: bool = False,
 ) -> DirectiveApplyResult:
     """Dispatch Return / Finalize / Rework / Continue for one round."""
     match directive:
@@ -159,6 +161,13 @@ async def apply_loop_directive(
                     sink=sink,
                     gate_escalation_sink=gate_escalation_sink,
                 )
+            from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
+
+            finalize_allowed = allowed_tool_names
+            if files_expected and not form_prose:
+                finalize_allowed = merge_persist_write_tools(
+                    allowed_tool_names, registry_names=set(tools.names)
+                )
             (
                 final_content,
                 final_reasoning,
@@ -171,7 +180,7 @@ async def apply_loop_directive(
                 profile=profile,
                 active_model=active_model or base_model,
                 tools=tools,
-                allowed_tool_names=allowed_tool_names,
+                allowed_tool_names=finalize_allowed,
                 disabled_tools=disabled_tools,
                 emit_content=emit_content,
                 emit_reasoning=emit_reasoning,
@@ -183,6 +192,8 @@ async def apply_loop_directive(
                 run_id=run_id,
                 on_reset=emit_reset,
                 outstanding_tool_failures=controller.outstanding_tool_failures(),
+                files_expected=files_expected,
+                form_prose=form_prose,
             )
             if coordination is not None and coordination.kind == "coordination_tools":
                 if coordination.content:
@@ -225,7 +236,7 @@ async def apply_loop_directive(
                     ledger_registrant=ledger_registrant,
                     run_id=run_id,
                     role=role,
-                    allowed_tool_names=allowed_tool_names,
+                    allowed_tool_names=finalize_allowed,
                 )
                 messages.extend(tool_results)
                 if gate_escalation_sink is not None and role == "worker":
@@ -261,7 +272,7 @@ async def apply_loop_directive(
                 controller.record(attempts)
                 note_delegate_batches(controller, tool_calls, attempts)
                 tool_defs = resolve_openai_tool_defs(
-                    tools, allowed_tool_names, disabled_tools
+                    tools, finalize_allowed, disabled_tools
                 )
                 breaker = apply_circuit_breaker(
                     controller,
@@ -272,7 +283,7 @@ async def apply_loop_directive(
                 )
                 if breaker.refresh_tool_defs:
                     tool_defs = resolve_openai_tool_defs(
-                        tools, allowed_tool_names, disabled_tools
+                        tools, finalize_allowed, disabled_tools
                     )
                 _ = govern_after_tools(
                     outcome=RoundOutcome(

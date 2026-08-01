@@ -194,9 +194,6 @@ function hostFromBaseUrl(url: string | null | undefined): string {
 }
 
 function PlatformStatusLine({ response }: { response: LlmProvidersResponse }) {
-  const status = response.free_tier_active
-    ? "当前用平台免费额度，无需接入自己的模型"
-    : "未接入自己的模型时，对话默认走平台额度";
   return (
     <div className="flex items-start gap-2 text-sm text-muted-foreground">
       <Sparkles size={16} className="mt-0.5 shrink-0 text-primary" />
@@ -206,7 +203,7 @@ function PlatformStatusLine({ response }: { response: LlmProvidersResponse }) {
           无需配置
         </span>
         <span className="text-xs">
-          {status}
+          未接入自己的模型时，对话默认走平台额度
           {response.platform_model
             ? ` · 平台模型 ${response.platform_model}`
             : ""}

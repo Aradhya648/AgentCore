@@ -22,6 +22,15 @@ from agentcore.messaging import MessagingService
 router = APIRouter()
 
 
+def _reject_modal_never(*, surface: str, dismiss_policy: str) -> None:
+    """``modal`` only allows ``dismiss_policy=once``."""
+    if surface == "modal" and dismiss_policy == "never":
+        raise HTTPException(
+            status_code=400,
+            detail="modal surface requires dismiss_policy=once",
+        )
+
+
 def _summary(row) -> NoticeSummary:
     return NoticeSummary(
         id=row.id,
@@ -62,6 +71,7 @@ async def create_notice(
     repo: ProductNoticeRepository = Depends(get_notice_repo),
 ):
     """Admin: create a draft notice."""
+    _reject_modal_never(surface=body.surface, dismiss_policy=body.dismiss_policy)
     row = await repo.create(
         title=body.title,
         body=body.body,
@@ -92,6 +102,14 @@ async def update_notice(
         raise HTTPException(status_code=409, detail="Archived notices cannot be updated")
 
     fields = body.model_fields_set
+    effective_surface = body.surface if "surface" in fields else existing.surface
+    effective_dismiss = (
+        body.dismiss_policy if "dismiss_policy" in fields else existing.dismiss_policy
+    )
+    _reject_modal_never(
+        surface=effective_surface or existing.surface or "both",
+        dismiss_policy=effective_dismiss or existing.dismiss_policy or "once",
+    )
     row = await repo.update(
         notice_id,
         title=body.title if "title" in fields else None,
@@ -118,8 +136,8 @@ async def publish_notice(
 ):
     """Admin: publish a notice (sets published_at).
 
-    When ``surface ∈ {inbox, both}``, also inserts one shared ``system_card`` into
-    the official IM broadcast chat (first publish only — re-publish does not
+    When ``surface ∈ {inbox, both, modal}``, also inserts one shared ``system_card``
+    into the official IM broadcast chat (first publish only — re-publish does not
     duplicate). Banner-only surfaces skip IM.
     """
     existing = await repo.get(notice_id)
@@ -131,7 +149,7 @@ async def publish_notice(
     row = await repo.publish(notice_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Notice not found")
-    if first_publish and row.surface in ("inbox", "both"):
+    if first_publish and row.surface in ("inbox", "both", "modal"):
         await messaging.publish_product_notice(
             notice_id=row.id,
             title=row.title,

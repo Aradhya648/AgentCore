@@ -44,7 +44,7 @@ function costBd(total = 0): CostBreakdown {
     cached: 0,
     output: 0,
     total,
-    currency: "USD",
+    currency: "CNY",
     cny_total: 0,
     pricing_source: "curated",
   };
@@ -66,7 +66,6 @@ function makeSummary(quota: Partial<QuotaStatus>): UsageSummary {
       daily_requests: 0,
       ...quota,
     },
-    cny_per_usd: 7,
     billing_mode: "platform",
   };
 }

@@ -129,8 +129,8 @@ export function formatDuration(ms: number): string {
   return `${m}m${s}s`;
 }
 
-/** 1 USD = 10^9 nano-USD：台账/接口里钱的规范单位（整数，绝不用 float）。 */
-const NANO_PER_USD = 1_000_000_000;
+/** 1 元 = 10^9 nano-CNY：台账/接口里钱的规范单位（整数，绝不用 float）。 */
+const NANO_PER_YUAN = 1_000_000_000;
 
 /**
  * BYOK 估算金额的轻量说明（tooltip / title）——与平台记账 ¥ 视觉分离，
@@ -153,48 +153,25 @@ export const COST_UNPRICED_HINT =
   "平台无此模型价目（社区价目缺），实际费用以上游供应商账单为准";
 
 /**
- * 把整数 nano-USD 成本折算成人民币展示串（大众面，§7.2）。
+ * 把整数 nano-CNY 成本格式化为人民币展示串（大众面，§7.2）。
  *
- * 钱一律以整数 nano-USD 流转（1 USD = 1e9），绝不用 float；汇率 `cnyPerUsd` 由
- * 后端单一来源下发（`/usage/summary`），前端不写死。约定（§7.5）：0 / 无花销显
- * 「—」（不显「¥0.00」）；有花销但折算不足 1 分显「<¥0.01」。
+ * 钱一律以整数 nano-CNY 流转（1 元 = 1e9），绝不用 float；前端直接 `nano/1e9`，
+ * 不再走汇率。约定（§7.5）：0 / 无花销显「—」（不显「¥0.00」）；有花销但不足
+ * 1 分显「<¥0.01」。
  */
-export function formatCost(nanoUsd: number, cnyPerUsd: number): string {
-  if (nanoUsd <= 0) return "—";
-  const yuan = (nanoUsd / NANO_PER_USD) * cnyPerUsd;
+export function formatCost(nanoCny: number): string {
+  if (nanoCny <= 0) return "—";
+  const yuan = nanoCny / NANO_PER_YUAN;
   if (yuan < 0.01) return "<¥0.01";
   return `¥${yuan.toFixed(2)}`;
-}
-
-/**
- * 把整数 nano-USD 成本格式化为 USD 展示串（power 面，§7.2）：`$0.0123`。
- *
- * 同 {@link formatCost}：0 / 无花销显「—」；有花销但不足 $0.0001 显「<$0.0001」。
- */
-export function formatUsd(nanoUsd: number): string {
-  if (nanoUsd <= 0) return "—";
-  const usd = nanoUsd / NANO_PER_USD;
-  if (usd < 0.0001) return "<$0.0001";
-  return `$${usd.toFixed(4)}`;
 }
 
 /**
  * 展示金额：平台记账走 {@link formatCost}；估算金额一律带「≈」前缀，
  * 不得与记账 ¥ 混淆。0 / 无值仍显「—」（`pricing_source=unpriced` 同此）。
  */
-export function formatDisplayCost(
-  nanoUsd: number,
-  cnyPerUsd: number,
-  estimated = false,
-): string {
-  const base = formatCost(nanoUsd, cnyPerUsd);
-  if (base === "—" || !estimated) return base;
-  return `≈${base}`;
-}
-
-/** 同 {@link formatDisplayCost} 的 USD 面。 */
-export function formatDisplayUsd(nanoUsd: number, estimated = false): string {
-  const base = formatUsd(nanoUsd);
+export function formatDisplayCost(nanoCny: number, estimated = false): string {
+  const base = formatCost(nanoCny);
   if (base === "—" || !estimated) return base;
   return `≈${base}`;
 }
@@ -218,12 +195,8 @@ export function pickCostMoney(
 }
 
 /** 费用展示串：有金额时附带「自带密钥·估算」标注。 */
-export function formatCostCaption(
-  nanoUsd: number,
-  cnyPerUsd: number,
-  estimated = false,
-): string {
-  const base = formatDisplayCost(nanoUsd, cnyPerUsd, estimated);
+export function formatCostCaption(nanoCny: number, estimated = false): string {
+  const base = formatDisplayCost(nanoCny, estimated);
   if (base === "—" || !estimated) return base;
   return `${base} ${COST_ESTIMATE_LABEL}`;
 }

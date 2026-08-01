@@ -9,7 +9,7 @@ DeepSeek，对比**实报** input / cache_hit / cache_miss token——把净收�
   - warm：复发 = 生产稳态（同一窗口逐轮重发的真实成本）
 
 档位：``None`` = full 基线（不清理）；整数 = 该 keep_recent。min_chars 取 settings。
-只读：不写库、不动正在跑的 server；用全局 .env key（build_provider(None)）。
+只读：不写库、不动正在跑的 server；显式 platform_llm_credentials → build_provider。
 跑法（在 apps/server 下）：
   ``uv run python scripts/measure_tool_clear.py``          # 默认扫 full,6,4,3
   ``uv run python scripts/measure_tool_clear.py 6 4 3 2``  # 自定义档位
@@ -144,7 +144,11 @@ async def main() -> None:
     print(f"原始字符总量（full）：{base_chars:,}")
     print("-" * 80)
 
-    provider = build_provider(None)
+    from agentcore.llm.resolve import platform_llm_credentials
+    creds = platform_llm_credentials()
+    if creds is None:
+        raise RuntimeError('PLATFORM_API_KEY required (no silent build_provider fallback)')
+    provider = build_provider(creds)
     # (keep_recent, n_cleared, chars, warm_input, warm_hit, warm_miss)
     rows: list[tuple[int | None, int, int, int, int, int]] = []
     try:

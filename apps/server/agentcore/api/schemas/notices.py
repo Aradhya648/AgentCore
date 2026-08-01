@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Severity = Literal["critical", "high", "normal"]
-Surface = Literal["banner", "inbox", "both"]
+Surface = Literal["banner", "inbox", "both", "modal"]
 NoticeStatus = Literal["draft", "published", "archived"]
 DismissPolicy = Literal["once", "never"]
 
@@ -73,4 +73,5 @@ class ActiveNotice(BaseModel):
 
 class ActiveNoticesResponse(BaseModel):
     banner: ActiveNotice | None
+    modal: ActiveNotice | None
     inbox: list[ActiveNotice]

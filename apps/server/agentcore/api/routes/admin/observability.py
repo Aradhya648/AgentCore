@@ -32,7 +32,6 @@ from agentcore.api.schemas import (
     ReplayMessage,
     TurnMetricLine,
 )
-from agentcore.config import settings
 from agentcore.core.errors import NotFoundError
 from agentcore.db.repositories import (
     ConversationRepository,
@@ -228,5 +227,4 @@ async def observability_conversation(
         turns=len(metrics),
         errors=sum(1 for m in metrics if m.status == "error"),
         cost_total=sum(cost_by_message.values()),
-        cny_per_usd=settings.cny_per_usd,
     )

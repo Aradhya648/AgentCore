@@ -8,9 +8,8 @@ import type { components } from "@/types/api.generated";
  * The REST types below are GENERATED from the backend OpenAPI spec
  * (`types/api.generated.ts`, via `pnpm gen:api`), so they track `api/schemas.py`
  * automatically with zero hand-written drift — this file is the reference slice
- * for that codegen migration (API 开发规范). Money is always integer nano-USD
- * (1 USD = 1e9) and the server attaches the display CNY value so the client never
- * re-prices.
+ * for that codegen migration (API 开发规范). Money is always integer nano-CNY
+ * (1 元 = 1e9); ``CostBreakdown.cny_total`` is already yuan (no FX).
  *
  * The ledger (`cost_events`) is the truth source for spend, so these reads replay
  * a past turn's payroll on reload (the streamed `run_completed.cost` /
@@ -21,7 +20,7 @@ type Schemas = components["schemas"];
 
 /** Token counts (cache_hit + cache_miss == input; reasoning ⊆ output). */
 export type UsageBreakdown = Schemas["UsageBreakdown"];
-/** A cost in integer nano-USD plus the server-computed CNY display value. */
+/** A cost in integer nano-CNY plus the server-computed yuan display value. */
 export type CostBreakdown = Schemas["CostBreakdown"];
 /** One participant's row in the team payroll (one Run = one Agent). */
 export type AgentCostLine = Schemas["AgentCostLine"];
@@ -29,14 +28,14 @@ export type AgentCostLine = Schemas["AgentCostLine"];
 export type TurnCost = Schemas["TurnCost"];
 /** Aggregated usage over a time window (today / month). */
 export type UsageWindow = Schemas["UsageWindow"];
-/** Free-tier limits (决策④); 0 = unlimited. Money is USD nano internally. */
+/** Quota limits (决策④); 0 = unlimited. Money is nano-CNY internally. */
 export type QuotaStatus = Schemas["QuotaStatus"];
 /** One UTC day's total spend — a point in the dashboard 7-day trend sparkline. */
 export type DailyCost = Schemas["DailyCost"];
 /** Account dashboard payload (`GET /v1/usage/summary`). */
 export type UsageSummary = Schemas["UsageSummary"];
 
-/** Account dashboard: today's tokens/cost, the month's cost, the quota + FX. */
+/** Account dashboard: today's tokens/cost, the month's cost, and quota. */
 export function getUsageSummary(): Promise<UsageSummary> {
   return api.get<UsageSummary>("/v1/usage/summary");
 }

@@ -34,6 +34,9 @@ vi.mock("@/lib/toast", () => ({
 // a live token mint, which has no server in the unit env.)
 vi.mock("@/services/inferenceToken", () => ({
   resolveSidecarInference: vi.fn(),
+  clearSidecarInference: vi.fn(),
+  // Default: not a token failure → catch path rethrows (existing cases assert sidecar StreamError / AbortError).
+  looksLikeInferenceTokenFailure: vi.fn(() => false),
 }));
 
 import { notifyWarning } from "@/lib/toast";

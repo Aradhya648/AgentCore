@@ -41,7 +41,7 @@ PROFILES: dict[str, ProfileParams] = {
     "chat": ProfileParams(temperature=0.7, max_rounds=16),
     # Single delegated-worker profile: one round budget (28) for every worker —
     # 力度差异由委派协作结构（拆分 / 复审 / replan）表达，不再有 per-worker 档位。
-    "agent": ProfileParams(temperature=0.7, max_rounds=28),
+    "agent": ProfileParams(temperature=0.7, max_rounds=56),
     "memory": ProfileParams(temperature=0.3, max_rounds=1, thinking=False),
     "compaction": ProfileParams(temperature=0.3, max_rounds=1, thinking=False),
     "file.rewrite": ProfileParams(temperature=0.4, max_rounds=1, thinking=False),

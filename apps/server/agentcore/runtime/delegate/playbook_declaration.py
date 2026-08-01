@@ -40,12 +40,9 @@ HANDWRITTEN_PLAYBOOK_ARGS_MSG = (
 )
 
 _EMPTY_DELEGATE_MSG = (
-    "delegate 须传手写 `tasks`，或具名 `playbook`/`playbook_id` + `playbook_args`。"
-    f"建站 / 落地页 / 营销官网【推荐】用 `playbook=\"build_website\"`；"
-    f"控制台 / 后台 / 工具台 dense【推荐】用 `playbook=\"build_toolshed\"`；"
-    f"绿场软件 / SPA 完整交付【推荐】用 `playbook=\"build_app\"`"
-    f"（可用：{available_playbooks()}）。"
-    "其余任务自由组队：按任务手写 tasks 即可，形状词仅供对照（可选快捷展开）。"
+    "delegate 缺 tasks/playbook：请在 payload 顶层直接放非空 `tasks`，"
+    "或具名 `playbook`/`playbook_id`（+ playbook_args）。"
+    "禁止再包一层 `arguments` 字符串；可用形状见工具 schema。"
 )
 
 
@@ -59,7 +56,9 @@ def declaration_reject_gate(error: str | None) -> DeclarationRejectGate:
         HANDWRITTEN_PLAYBOOK_ARGS_MSG,
     ) or error.startswith("playbook 与 tasks 二选一"):
         return "xor"
-    if error == _EMPTY_DELEGATE_MSG or error.startswith("delegate 须传手写"):
+    if error == _EMPTY_DELEGATE_MSG or error.startswith(
+        ("delegate 须传手写", "delegate 缺 tasks/playbook")
+    ):
         return "empty"
     return "unknown"
 

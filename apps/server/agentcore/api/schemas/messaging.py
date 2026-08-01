@@ -207,17 +207,19 @@ class MarkReadRequest(BaseModel):
 
 
 class DirectorySettings(BaseModel):
-    """A user's discoverability + who-can-DM privacy (任意搜人 护栏)."""
+    """A user's discoverability + who-can-DM / who-can-friend privacy."""
 
     discoverable: bool = True
-    who_can_dm: Literal["anyone", "contacts"] = "anyone"
+    who_can_dm: Literal["anyone", "friends"] = "anyone"
+    who_can_friend: Literal["anyone", "group_members", "nobody"] = "anyone"
 
     model_config = {"from_attributes": True}
 
 
 class UpdateDirectorySettingsRequest(BaseModel):
     discoverable: bool | None = None
-    who_can_dm: Literal["anyone", "contacts"] | None = None
+    who_can_dm: Literal["anyone", "friends"] | None = None
+    who_can_friend: Literal["anyone", "group_members", "nobody"] | None = None
 
 
 class BlockUserRequest(BaseModel):
@@ -235,3 +237,54 @@ class BlockedUser(BaseModel):
 class BlockListResponse(BaseModel):
     data: list[BlockedUser]
     total: int
+
+
+class UserProfile(BaseModel):
+    """资料卡 (消息IM.md §9.3)."""
+
+    id: str
+    username: str
+    display_name: str
+    online: bool = False
+    relation: Literal[
+        "self",
+        "none",
+        "outgoing_request",
+        "incoming_request",
+        "friends",
+        "blocked",
+    ]
+    request_id: str | None = None
+
+
+class FriendSummary(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    online: bool = False
+
+
+class FriendListResponse(BaseModel):
+    data: list[FriendSummary]
+    total: int
+
+
+class CreateFriendRequestBody(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=64)
+    message: str | None = Field(default=None, max_length=200)
+
+
+class FriendRequestDetail(BaseModel):
+    id: str
+    from_user_id: str
+    to_user_id: str
+    message: str | None = None
+    status: Literal["pending", "accepted", "rejected", "cancelled"]
+    created_at: datetime | None = None
+    # The other party relative to the viewer (for inbox rows).
+    peer: FriendSummary | None = None
+
+
+class FriendRequestListResponse(BaseModel):
+    incoming: list[FriendRequestDetail]
+    outgoing: list[FriendRequestDetail]

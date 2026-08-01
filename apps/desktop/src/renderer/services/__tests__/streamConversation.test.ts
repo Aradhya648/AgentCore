@@ -117,23 +117,10 @@ describe("errorActionForCode", () => {
     });
   });
 
-  it("routes FREE_TIER_EXHAUSTED to providers (conversion CTA)", () => {
-    expect(errorActionForCode("FREE_TIER_EXHAUSTED")).toEqual({
-      label: "去设置",
-      href: "/more/providers",
-    });
-    const err = new StreamError("http", 429, {
-      code: "FREE_TIER_EXHAUSTED",
-      serverMessage: "本月免费额度已用完——接入自己的模型即可不限量继续",
-    });
-    expect(describeStreamError(err)).toBe(
-      "本月免费额度已用完——接入自己的模型即可不限量继续",
-    );
-    expect(isRetriableStreamError(err)).toBe(false);
-    expect(streamErrorAction(err)).toEqual({
-      label: "去设置",
-      href: "/more/providers",
-    });
+  it("routes FREE_TIER_EXHAUSTED as unknown code (no settings CTA)", () => {
+    // FREE_TIER_EXHAUSTED retired with the free-tier path; leftover wire codes
+    // fall through to null action (quota uses QUOTA_EXCEEDED).
+    expect(errorActionForCode("FREE_TIER_EXHAUSTED")).toBeNull();
   });
 
   it("routes balance errors to settings; quota offers a BYOK secondary exit (F6)", () => {

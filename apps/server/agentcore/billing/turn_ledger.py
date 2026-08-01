@@ -106,7 +106,7 @@ def _event_as_run_dict(event: Any) -> dict[str, Any]:
         "cost": dict(event.cost or {}),
         "cost_total_nano": int(event.cost_total_nano or 0),
         "cost_estimated_nano": int(getattr(event, "cost_estimated_nano", 0) or 0),
-        "currency": event.currency or "USD",
+        "currency": event.currency or "CNY",
         "rounds": int(event.rounds or 0),
         "duration_ms": int(event.duration_ms or 0),
     }

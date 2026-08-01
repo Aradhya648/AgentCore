@@ -345,28 +345,63 @@ def test_retire_tools_hard_disables_family_on_first_failure():
     assert not c.tool_circuit_breaker()
 
 
-def test_retire_tools_honored_even_with_contract_failure():
-    """file_read same-path tip is contract_failure but must still hard-stop via retire."""
+def test_workspace_channel_dead_disables_landing_tools():
+    """Channel dead must disable pens (not force_segmented) + retire family steer."""
+    from agentcore.workspace.limits import (
+        WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
+        WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS,
+    )
+
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
-    steer = "file_read 因同路径触顶已停用：请基于已有正文写作"
+    c.record(
+        [
+            ToolAttempt(
+                "dead",
+                "file_list",
+                success=False,
+                error_summary="活性挂起",
+                meta={
+                    "liveness_timeout": True,
+                    "timeout_layer": "channel",
+                    "error_class": "permanent",
+                    "workspace_channel_dead": True,
+                    "retire_tools": list(WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS),
+                    "retire_message": WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
+                },
+            )
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert "file_write" in cb.disabled
+    assert "str_replace" in cb.disabled
+    assert "file_list" in cb.disabled
+    assert not cb.force_segmented
+    assert WORKSPACE_CHANNEL_DEAD_RETIRE_STEER in (cb.message() or "")
+    assert "派需要读写本地文件的队员" in (cb.message() or "")
+
+
+def test_retire_tools_honored_even_with_contract_failure():
+    """Explicit retire_tools must hard-stop even when contract_failure skips tallies."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    steer = "工具 `browser` 因 egress 策略已停用：请改用其它手段"
     c.record(
         [
             ToolAttempt(
                 "tip",
-                "file_read",
+                "browser",
                 success=False,
-                error_summary="已多次读取",
+                error_summary="egress denied",
                 contract_failure=True,
-                meta={"retire_tools": ["file_read"], "retire_message": steer},
+                meta={"retire_tools": ["browser"], "retire_message": steer},
             )
         ]
     )
     # Without retire honor, contract_failure would leave failures at 0.
-    assert c.tool_failure_count("file_read") >= 3
+    assert c.tool_failure_count("browser") >= 3
     cb = c.tool_circuit_breaker()
-    assert cb.disabled == ("file_read",)
+    assert cb.disabled == ("browser",)
     assert cb.retire_message == steer
-    assert "基于已有正文" in (cb.message() or "")
+    assert "egress" in (cb.message() or "")
 
 
 def test_permanent_sandbox_network_retires_code_execute_on_first_fail():

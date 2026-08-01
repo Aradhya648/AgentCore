@@ -1,6 +1,8 @@
 import { FINISH_REASON_META } from "@/components/ui/finish-reason-chip";
 import {
+  StreamError,
   connectivityEscalationSuffix,
+  describeError,
   errorActionForCode,
   isClientSideLlmRejection,
   isConnectivityErrorCode,
@@ -58,8 +60,30 @@ describe("error action by type", () => {
       "去设置",
     );
     expect(errorActionForCode("LLM_TIMEOUT")).toBeNull();
+    expect(errorActionForCode("INFERENCE_TOKEN_EXPIRED")).toBeNull();
     expect(isConnectivityErrorCode("LLM_TIMEOUT")).toBe(true);
     expect(isConnectivityErrorCode("LLM_KEY_INVALID")).toBe(false);
+  });
+
+  it("inference JWT expiry → retry, never 去设置 (incl. legacy English copy)", () => {
+    const coded = describeError(
+      new StreamError("http", undefined, {
+        code: "INFERENCE_TOKEN_EXPIRED",
+        serverMessage: "本地与云端的推理凭证已失效或过期。请点击重试",
+      }),
+    );
+    expect(coded?.action).toBeNull();
+    expect(coded?.retriable).toBe(true);
+
+    const legacy = describeError(
+      new StreamError("http", undefined, {
+        code: "LLM_KEY_INVALID",
+        serverMessage: "user Invalid or expired inference token",
+      }),
+    );
+    expect(legacy?.action).toBeNull();
+    expect(legacy?.retriable).toBe(true);
+    expect(legacy?.message).toContain("推理凭证");
   });
 });
 
@@ -71,7 +95,7 @@ describe("isClientSideLlmRejection", () => {
     expect(isClientSideLlmRejection({ upstreamStatus: 502 })).toBe(false);
   });
 
-  it("matches invalid_request / jiurelay copy in message text", () => {
+  it("matches invalid_request copy in message text", () => {
     expect(
       isClientSideLlmRejection({
         message:

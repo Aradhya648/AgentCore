@@ -40,10 +40,12 @@ _MAX_FILES = 24
 _MAX_GAPS = 12
 
 REASON_UNVERIFIED_NOTE = "unverified_note"
+REASON_PATH_HINT = "path_hint"
 REASON_FILES_NOT_LANDED = "files_not_landed"
 # Verify-shaped tool failure (browser_navigate / test_run / verify 形 code_execute·terminal).
 REASON_VERIFY_FAILED = "verify_failed"
 _WRITING_CUTOFF_REASONS = frozenset({"token_budget", "worker_timeout"})
+_SOFT_GAP_REASONS = frozenset({REASON_UNVERIFIED_NOTE, REASON_PATH_HINT})
 
 # Per-worker contract + batch files_written criteria share this predicate.
 _ZERO_LANDING_MARKERS = (
@@ -72,6 +74,12 @@ _SOFT_REMINDER_MARKERS = (
     "待核实/示例自注",
     "素材覆盖提醒（软）",
     "契约软提醒",
+)
+# Contract path-reconciliation warnings (artifacts / artifact_dir) — warning-only
+# at contract.py; must stay soft on the delivery card (notes, never partial).
+_SOFT_PATH_HINT_MARKERS = (
+    "产物未写入案卷目录",
+    "声明的交付物路径未落盘",
 )
 
 # build_website task books embed ``站点【…】`` — reuse for verify-action prompt.
@@ -170,9 +178,18 @@ def _has_completed_revision(run_id: str, results: dict[str, RunState]) -> bool:
     )
 
 
+def _is_path_hint(text: str, reason: str = "") -> bool:
+    """True for contract path-reconciliation suggestions (artifact_dir / artifacts)."""
+    if reason == REASON_PATH_HINT:
+        return True
+    return any(marker in (text or "") for marker in _SOFT_PATH_HINT_MARKERS)
+
+
 def _is_soft_reminder(text: str, reason: str = "") -> bool:
-    """True when this gap row is a soft note (待核实等), not a blocking shortfall."""
-    if reason == REASON_UNVERIFIED_NOTE:
+    """True when this gap row is a soft note (待核实 / 路径建议等), not blocking."""
+    if reason in _SOFT_GAP_REASONS:
+        return True
+    if _is_path_hint(text, reason):
         return True
     return any(marker in text for marker in _SOFT_REMINDER_MARKERS)
 
@@ -205,12 +222,17 @@ def _annotate_gap(
     text: str,
     *,
     reason: str = "",
+    severity: str = "",
 ) -> dict[str, Any]:
     """Build one gap row; soft reminders get severity=warning + optional paths."""
     item: dict[str, Any] = {"role": role, "description": text}
-    if _is_soft_reminder(text, reason):
+    soft = severity == "warning" or _is_soft_reminder(text, reason)
+    if soft:
         item["severity"] = "warning"
-        item["reason"] = reason or REASON_UNVERIFIED_NOTE
+        if _is_path_hint(text, reason):
+            item["reason"] = reason or REASON_PATH_HINT
+        else:
+            item["reason"] = reason or REASON_UNVERIFIED_NOTE
         paths = _soft_paths(text)
         if paths:
             item["paths"] = paths
@@ -243,7 +265,10 @@ def _node_gaps(plan: RunPlan, results: dict[str, RunState]) -> list[dict[str, An
                 if not text:
                     continue
                 reason = str(row.get("reason") or "").strip()
-                gaps.append(_annotate_gap(role, text, reason=reason))
+                severity = str(row.get("severity") or "").strip()
+                gaps.append(
+                    _annotate_gap(role, text, reason=reason, severity=severity)
+                )
                 emitted = True
             if not emitted:
                 gaps.append({"role": role, "description": "未执行（计划收口时跳过）"})
@@ -339,11 +364,17 @@ def _build_summary(
 ) -> str:
     """Human summary: separate 未完成 vs 待核实; writing cutoff → 成篇未写完."""
     warn_hits, warn_files = _warning_note_stats(warnings)
+    path_only = bool(warnings) and all(
+        g.get("reason") == REASON_PATH_HINT for g in warnings
+    )
     warn_bit = ""
     if warn_hits:
-        warn_bit = f"{warn_hits} 处待核实备注"
-        if warn_files:
-            warn_bit += f"（{warn_files} 个文件）"
+        if path_only:
+            warn_bit = f"{warn_hits} 处路径建议"
+        else:
+            warn_bit = f"{warn_hits} 处待核实备注"
+            if warn_files:
+                warn_bit += f"（{warn_files} 个文件）"
 
     if not blocking:
         if warn_bit:
@@ -413,12 +444,16 @@ def build_delivery_status(
             if isinstance(row, dict):
                 text = str(row.get("description") or "").strip()
                 reason = str(row.get("reason") or "").strip()
+                severity = str(row.get("severity") or "").strip()
             else:
                 text = str(row).strip()
                 reason = ""
+                severity = ""
             if not text:
                 continue
-            raw_gaps.append(_annotate_gap(role, text, reason=reason))
+            raw_gaps.append(
+                _annotate_gap(role, text, reason=reason, severity=severity)
+            )
     # ①b 验证形工具失败（可用性诚实性 · 丙）——COMPLETED 但 browser_navigate /
     # test_run / verify 形 code_execute·terminal 失败 → 不得仍为 delivered。
     for role, rows in collect_verify_failure_gaps(plan, results):

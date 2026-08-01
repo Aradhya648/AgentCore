@@ -82,7 +82,7 @@ class LlmProvidersResponse(BaseModel):
         description=(
             "Deployment billing mode (config.billing_mode). In 'platform' a keyless "
             "user runs on platform credit and BYOK is opt-in; in 'byok' a provider is "
-            "required unless the free tier is active."
+            "required (402 if missing)."
         ),
     )
     platform_available: bool = Field(
@@ -95,11 +95,4 @@ class LlmProvidersResponse(BaseModel):
     )
     platform_model: str | None = Field(
         default=None, description="Operator platform model id when platform is available"
-    )
-    free_tier_active: bool = Field(
-        default=False,
-        description=(
-            "True when this user has no BYOK provider, free tier is enabled, and "
-            "platform credentials are available (keyless users can chat on free quota)"
-        ),
     )

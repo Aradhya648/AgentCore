@@ -45,7 +45,7 @@ def _clamp_to_ceiling(assignments: Assignments, ceiling: frozenset[str]) -> Assi
 def _base_model() -> str:
     """被评基座模型：``EVAL_BASE_MODEL`` 覆盖（对比不同上游模型时用），缺省 Flash。
 
-    有的中转 key 只认自家模型名（如 ``grok-4.5``），发 ``deepseek-v4-flash`` 直接 403 ——
+    有的中转 key 只认自家模型名（如 ``glm-5.2``），发 ``deepseek-v4-flash`` 直接 403 ——
     对比评测须能把 team 路径的基座名切到该 key 认的名字（D3 授权的可配化）。
     """
     return os.environ.get("EVAL_BASE_MODEL", "").strip() or DEEPSEEK_V4_FLASH

@@ -12,6 +12,7 @@ vi.mock("@/lib/detachLocalBrowserHost", () => ({
 }));
 
 import {
+  CONVERSATION_SLICE_LRU_LIMIT,
   getActiveRuntime,
   getRuntime,
   useConversationStore,
@@ -39,6 +40,7 @@ beforeEach(() => {
   useConversationStore.setState({
     currentConversationId: null,
     byId: {},
+    sliceLruOrder: [],
   });
   useInteractionStore.getState().clear();
   detachLocalBrowserHost.mockClear();
@@ -92,7 +94,8 @@ describe("conversation store", () => {
   });
 
   // Step 4: switching no longer aborts the turn you leave. A live turn keeps
-  // streaming into its own slice in the background; an idle slice is released.
+  // streaming into its own slice in the background; idle slices stay in an LRU
+  // (warm reopen) instead of being dropped immediately.
   describe("switchConversation (background turns)", () => {
     const userMsg = {
       id: "m1",
@@ -112,12 +115,13 @@ describe("conversation store", () => {
       expect(store().byId.a?.messages).toHaveLength(1);
     });
 
-    it("releases an idle conversation's buffer when leaving it", () => {
+    it("keeps an idle conversation's buffer in LRU when leaving it", () => {
       store().switchConversation("a");
       store().addMessage(userMsg); // byId.a: idle (no live turn)
       store().switchConversation("b");
-      // a is idle → buffer dropped so memory stays bounded (reloads on return).
-      expect(store().byId.a).toBeUndefined();
+      // a is idle → retained for warm reopen (not dropped on leave).
+      expect(store().byId.a?.messages).toHaveLength(1);
+      expect(store().byId.a?.messages[0].content).toBe("hi");
     });
 
     it("returns to a live background turn without wiping its stream", () => {
@@ -128,6 +132,54 @@ describe("conversation store", () => {
       store().switchConversation("a"); // return to a
       expect(store().byId.a?.messages[0].content).toBe("partial");
       expect(store().byId.a?.isGenerating).toBe(true);
+    });
+
+    it("returns to an idle LRU slice as warm (messages intact)", () => {
+      store().switchConversation("a");
+      store().addMessage(userMsg);
+      store().switchConversation("b");
+      store().switchConversation("a");
+      expect(store().byId.a?.messages[0].content).toBe("hi");
+      expect(getRuntime("a").messages).toHaveLength(1);
+    });
+  });
+
+  describe("switchConversation (slice LRU)", () => {
+    const userMsg = {
+      id: "m1",
+      role: "user" as const,
+      content: "hi",
+      createdAt: "",
+      executionId: null,
+      isStreaming: false,
+    };
+
+    it("evicts the oldest idle slice beyond CONVERSATION_SLICE_LRU_LIMIT", () => {
+      // Open LIMIT+2 conversations with messages; active = last.
+      // Idle retained = LIMIT most recent; oldest idle evicted.
+      const ids = Array.from(
+        { length: CONVERSATION_SLICE_LRU_LIMIT + 2 },
+        (_, i) => `c${i}`,
+      );
+      for (const id of ids) {
+        store().switchConversation(id);
+        store().addMessage({ ...userMsg, id: `m-${id}`, content: id });
+      }
+      expect(store().byId.c0).toBeUndefined();
+      for (let i = 1; i < ids.length; i++) {
+        expect(store().byId[ids[i]]).toBeDefined();
+      }
+    });
+
+    it("never evicts a busy slice even when idle cache is full", () => {
+      store().switchConversation("busy");
+      store().createAssistantMessage(); // generating
+      for (let i = 0; i < CONVERSATION_SLICE_LRU_LIMIT + 1; i++) {
+        const id = `idle-${i}`;
+        store().switchConversation(id);
+        store().addMessage({ ...userMsg, id: `m-${id}`, content: id });
+      }
+      expect(store().byId.busy?.isGenerating).toBe(true);
     });
   });
 
@@ -154,10 +206,11 @@ describe("conversation store", () => {
       expect(getRuntime("b").isGenerating).toBe(false);
     });
 
-    it("reports a released idle conversation as not generating", () => {
+    it("reports a background idle LRU conversation as not generating", () => {
       store().switchConversation("a");
       store().addMessage(userMsg); // a idle (no live turn)
-      store().switchConversation("b"); // a released
+      store().switchConversation("b"); // a retained in LRU
+      expect(store().byId.a).toBeDefined();
       expect(getRuntime("a").isGenerating).toBe(false);
     });
   });

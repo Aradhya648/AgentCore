@@ -8,6 +8,8 @@ import {
   type ChatMessageDetail,
   type ChatParticipant,
   type ChatSummary,
+  type FriendRequest,
+  type FriendSummary,
   type MessageReplyTo,
   type SendContentType,
   type StoredAttachment,
@@ -18,6 +20,8 @@ import {
   sendMessage as apiSendMessage,
   isImageAttachment,
   listChats,
+  listFriendRequests,
+  listFriends,
   listMembers,
   listMessages,
   markRead,
@@ -128,10 +132,26 @@ interface MessagingState {
   /** Transient zh error for the last failed send, or null. */
   sendError: string | null;
 
+  /** Accepted friends (通讯录); loaded lazily / on firehose. */
+  friends: FriendSummary[];
+  friendsLoaded: boolean;
+  /** Pending friend-request inbox. */
+  friendRequestsIncoming: FriendRequest[];
+  friendRequestsOutgoing: FriendRequest[];
+  friendRequestsLoaded: boolean;
+  /** Open profile-card target (null = closed). Owned here so firehose can refresh. */
+  profileUserId: string | null;
+
   fetchChats: () => Promise<void>;
   /** Make a chat active, load its history, then advance its read cursor. */
   openChat: (chatId: string) => Promise<void>;
   setActiveChat: (chatId: string | null) => void;
+  openProfile: (userId: string) => void;
+  closeProfile: () => void;
+  fetchFriends: () => Promise<void>;
+  fetchFriendRequests: () => Promise<void>;
+  /** Refresh request box (+ friends when an accept may have landed). */
+  applyFriendRequestEvent: () => void;
   loadMessages: (chatId: string) => Promise<void>;
   /** Fetch the next older page and prepend it (deduped, scroll position preserved by caller). */
   loadOlderMessages: (chatId: string) => Promise<void>;
@@ -188,6 +208,42 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
   mentionAlertByChat: {},
   activeChatId: null,
   sendError: null,
+  friends: [],
+  friendsLoaded: false,
+  friendRequestsIncoming: [],
+  friendRequestsOutgoing: [],
+  friendRequestsLoaded: false,
+  profileUserId: null,
+
+  openProfile: (userId) => set({ profileUserId: userId }),
+  closeProfile: () => set({ profileUserId: null }),
+
+  fetchFriends: async () => {
+    try {
+      const friends = await listFriends();
+      set({ friends, friendsLoaded: true });
+    } catch {
+      /* best-effort — keep prior list */
+    }
+  },
+
+  fetchFriendRequests: async () => {
+    try {
+      const box = await listFriendRequests();
+      set({
+        friendRequestsIncoming: box.incoming,
+        friendRequestsOutgoing: box.outgoing,
+        friendRequestsLoaded: true,
+      });
+    } catch {
+      /* best-effort */
+    }
+  },
+
+  applyFriendRequestEvent: () => {
+    void get().fetchFriendRequests();
+    void get().fetchFriends();
+  },
 
   fetchChats: async () => {
     set({ loadingChats: true });
@@ -624,4 +680,9 @@ export function useUnreadTotal(): number {
   return useMessagingStore((s) =>
     s.chats.reduce((sum, c) => sum + (c.muted ? 0 : c.unread), 0),
   );
+}
+
+/** Pending incoming friend requests — drives 「新的朋友」角标. */
+export function useIncomingFriendRequestCount(): number {
+  return useMessagingStore((s) => s.friendRequestsIncoming.length);
 }

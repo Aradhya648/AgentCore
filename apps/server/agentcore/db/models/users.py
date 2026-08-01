@@ -1,4 +1,6 @@
-"""User identity and social settings: User, UserBlock, UserDirectorySettings."""
+"""User identity and social settings: User, UserBlock, UserDirectorySettings,
+friendships / friend_requests (消息IM.md §九).
+"""
 
 from datetime import datetime
 
@@ -8,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     text,
@@ -53,18 +56,18 @@ class User(Base):
     status: Mapped[str] = mapped_column(
         String(20), default="active", server_default=text("'active'")
     )
-    # --- Per-user quota overrides (成本配额与计费.md §一, 决策④) ---
-    # `is_unlimited` short-circuits all three quota checks (operator/trusted
-    # accounts). The three override columns are NULL = inherit the global config
-    # threshold for that dimension; a non-null value (including 0 = unlimited)
-    # overrides it. Monthly cost mirrors the config unit (float USD), converted to
-    # nano-USD at check time. Resolved by `QuotaLimits.for_user`.
+    # --- Per-user quota overrides (成本配额与计费.md §一) ---
+    # `is_unlimited` short-circuits all quota checks (operator/trusted accounts).
+    # Override columns are NULL = inherit the global config threshold for that
+    # dimension; a non-null value (including 0 = unlimited) overrides it. Monthly /
+    # daily cost mirror the config unit (float CNY), converted to nano-CNY at check
+    # time. Resolved by `QuotaLimits.for_user`.
     is_unlimited: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     quota_daily_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    quota_monthly_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # 日成本 backstop override (成本配额与计费 §〇·六 F2). NULL = inherit config; 0 =
-    # unlimited for this user. USD like quota_monthly_cost_usd (→ nano at check time).
-    quota_daily_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quota_monthly_cost_cny: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 日成本 backstop override. NULL = inherit config; 0 = unlimited for this user.
+    # CNY like quota_monthly_cost_cny (→ nano at check time).
+    quota_daily_cost_cny: Mapped[float | None] = mapped_column(Float, nullable=True)
     quota_daily_requests: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Legacy column: product memory gate is always on (定案 A). Retained so we avoid
     # a destructive migration; resolve + user API ignore this value. Defaults True.
@@ -83,7 +86,7 @@ class User(Base):
         String(32), default="less_interrupt", server_default=text("'less_interrupt'")
     )
     # --- 账号默认模型组合 (模型组合配置 · llm_model_profiles) ---
-    # 指向用户组合或系统预置虚拟 id（5.2 / Grok 4.5）。NULL = 解析时回落系统「5.2」预置。
+    # 指向用户组合或系统预置虚拟 id（glm-5.2）。NULL = 解析时回落系统「glm-5.2」预置。
     # 活引用：改组合定义 → 下一 turn 用新展开。与场景 ProfileParams（温度等）无关。
     default_model_profile_id: Mapped[str | None] = mapped_column(
         PG_UUID(as_uuid=False), nullable=True
@@ -118,8 +121,12 @@ class UserDirectorySettings(Base):
     __tablename__ = "user_directory_settings"
     __table_args__ = (
         CheckConstraint(
-            "who_can_dm in ('anyone', 'contacts')",
+            "who_can_dm in ('anyone', 'friends')",
             name="ck_user_directory_who_can_dm",
+        ),
+        CheckConstraint(
+            "who_can_friend in ('anyone', 'group_members', 'nobody')",
+            name="ck_user_directory_who_can_friend",
         ),
     )
 
@@ -128,6 +135,69 @@ class UserDirectorySettings(Base):
     discoverable: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     who_can_dm: Mapped[str] = mapped_column(
         String(20), default="anyone", server_default=text("'anyone'")
+    )
+    # Who may send a friend request: anyone (default) / shared group / nobody.
+    who_can_friend: Mapped[str] = mapped_column(
+        String(20), default="anyone", server_default=text("'anyone'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), onupdate=datetime.now
+    )
+
+
+class Friendship(Base):
+    """Bidirectional accepted friendship (canonical order user_a_id < user_b_id)."""
+
+    __tablename__ = "friendships"
+    __table_args__ = (
+        CheckConstraint("user_a_id < user_b_id", name="ck_friendships_canonical_order"),
+        Index("ix_friendships_user_b_id", "user_b_id"),
+    )
+
+    user_a_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True)
+    user_b_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class FriendRequest(Base):
+    """Friend request: pending → accepted / rejected / cancelled (消息IM.md §9.2)."""
+
+    __tablename__ = "friend_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending', 'accepted', 'rejected', 'cancelled')",
+            name="ck_friend_requests_status",
+        ),
+        CheckConstraint(
+            "from_user_id <> to_user_id",
+            name="ck_friend_requests_not_self",
+        ),
+        Index("ix_friend_requests_to_status", "to_user_id", "status"),
+        Index("ix_friend_requests_from_status", "from_user_id", "status"),
+        # At most one pending request between a pair (either direction).
+        Index(
+            "uq_friend_requests_pending_pair",
+            "pair_key",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid
+    )
+    from_user_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False))
+    to_user_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False))
+    # Canonical ``min:max`` of the two user ids — uniqueness of pending pairs.
+    pair_key: Mapped[str] = mapped_column(String(80))
+    message: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default=text("'pending'")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

@@ -316,8 +316,8 @@ export interface paths {
          * Publish Notice
          * @description Admin: publish a notice (sets published_at).
          *
-         *     When ``surface ∈ {inbox, both}``, also inserts one shared ``system_card`` into
-         *     the official IM broadcast chat (first publish only — re-publish does not
+         *     When ``surface ∈ {inbox, both, modal}``, also inserts one shared ``system_card``
+         *     into the official IM broadcast chat (first publish only — re-publish does not
          *     duplicate). Banner-only surfaces skip IM.
          */
         post: operations["publish_notice_v1_admin_notices__notice_id__publish_post"];
@@ -439,7 +439,7 @@ export interface paths {
         };
         /**
          * System Status
-         * @description 系统状态 (read-only): billing mode + global quota defaults + FX rate (config),
+         * @description 系统状态 (read-only): billing mode + global quota defaults (config),
          *     database reachability, build provenance, and account tallies.
          *
          *     A deployment sanity-check — nothing here is editable from the console (config is
@@ -497,8 +497,8 @@ export interface paths {
          *     pin those dimensions. ``sort`` ∈ {``created_at``, ``cost``} (累计成本) with ``order``
          *     ∈ {``asc``, ``desc``}. ``include_deleted`` surfaces 注销 (soft-deleted, anonymized)
          *     accounts — hidden by default as tombstones, shown on demand for audit. Admin-only
-         *     directory — enumeration is intended here. ``cny_per_usd`` folds each row's nano-USD
-         *     ``cost_total`` into ¥.
+         *     directory — enumeration is intended here. Money is nano-CNY; clients format ¥ as
+         *     ``cost_total / 1e9``.
          */
         get: operations["list_users_v1_admin_users_get"];
         put?: never;
@@ -3039,6 +3039,7 @@ export interface paths {
          * Block User
          * @description Block a user (symmetric: severs DMs and hides each from the other's search).
          *
+         *     Also drops friendship and cancels pending friend requests (§九).
          *     422 self-block; 404 unknown target.
          */
         post: operations["block_user_v1_messages_blocks_post"];
@@ -3102,7 +3103,8 @@ export interface paths {
          * @description Open (or reuse) a 1:1 chat with another user (by their user id).
          *
          *     422 self-dm; 404 unknown/disabled peer; 403 when blocked or the peer only
-         *     accepts contacts. The peer joins as a pending message request until they reply.
+         *     accepts friends. Friends open freely; strangers need peer ``who_can_dm=anyone``
+         *     (peer joins as a pending message request).
          */
         post: operations["start_dm_v1_messages_chats_dm_post"];
         delete?: never;
@@ -3331,7 +3333,7 @@ export interface paths {
         };
         /**
          * Get Directory Settings
-         * @description This user's discoverability + who-can-DM privacy (defaults when unset).
+         * @description This user's discoverability + who-can-DM / who-can-friend (defaults when unset).
          */
         get: operations["get_directory_settings_v1_messages_directory_get"];
         put?: never;
@@ -3344,6 +3346,118 @@ export interface paths {
          * @description Patch privacy settings; an omitted/null field is left unchanged.
          */
         patch: operations["update_directory_settings_v1_messages_directory_patch"];
+        trace?: never;
+    };
+    "/v1/messages/friends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Friends
+         * @description 通讯录 — accepted friends.
+         */
+        get: operations["list_friends_v1_messages_friends_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/friends/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Friend Requests
+         * @description Friend-request inbox: pending incoming + outgoing.
+         */
+        get: operations["list_friend_requests_v1_messages_friends_requests_get"];
+        put?: never;
+        /**
+         * Create Friend Request
+         * @description Send a friend request (rate-limited like message send).
+         */
+        post: operations["create_friend_request_v1_messages_friends_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/friends/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel Friend Request */
+        delete: operations["cancel_friend_request_v1_messages_friends_requests__request_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/friends/requests/{request_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Friend Request */
+        post: operations["accept_friend_request_v1_messages_friends_requests__request_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/friends/requests/{request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Friend Request */
+        post: operations["reject_friend_request_v1_messages_friends_requests__request_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/friends/{friend_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Friend */
+        delete: operations["remove_friend_v1_messages_friends__friend_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/messages/users/search": {
@@ -3361,6 +3475,26 @@ export interface paths {
          *     who opted out of discovery are filtered out by the service.
          */
         get: operations["search_users_v1_messages_users_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/users/{user_id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get User Profile
+         * @description 资料卡: display + online + relation; non-visible targets → 404.
+         */
+        get: operations["get_user_profile_v1_messages_users__user_id__profile_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3402,7 +3536,11 @@ export interface paths {
         };
         /**
          * Get Active Notices
-         * @description Return the current banner (≤1) and inbox list for the signed-in user.
+         * @description Return banner (≤1), modal (≤1, undismissed), and inbox for the signed-in user.
+         *
+         *     Priority: ``critical`` banner > undismissed modal > non-critical banner.
+         *     When an undismissed modal is present and the banner candidate is not
+         *     ``critical``, ``banner`` is omitted.
          */
         get: operations["get_active_notices_v1_notices_active_get"];
         put?: never;
@@ -4047,15 +4185,14 @@ export interface paths {
          *
          *     Windows are bounded at the current UTC day / month start (MVP — a per-user
          *     timezone is a later refinement). ``recent_daily_cost`` is the last
-         *     ``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline. Also
-         *     carries ``cny_per_usd`` so the client formats money from the single
-         *     server-owned rate. Per-role split lives on the turn payroll
+         *     ``_TREND_DAYS`` UTC days (zero-filled, oldest-first) for the sparkline.
+         *     Money is nano-CNY; ``CostBreakdown.cny_total`` is already yuan (no FX).
+         *     Per-role split lives on the turn payroll
          *     (``GET /messages/{id}/cost``), not this monthly account view.
          *
-         *     ``quota`` mirrors what ``enforce_quota`` will actually apply to this user
-         *     (D7): per-user override columns first, else free-tier defaults on a byok
-         *     deployment's platform-paid path (keyless free-tier riders), else global
-         *     ``quota_*`` — so the meters never show a cap the gate wouldn't enforce.
+         *     ``quota`` mirrors what ``enforce_quota`` will actually apply to this user:
+         *     per-user override columns first, else global ``quota_*`` — so the meters
+         *     never show a cap the gate wouldn't enforce.
          */
         get: operations["get_usage_summary_v1_usage_summary_get"];
         put?: never;
@@ -5039,6 +5176,7 @@ export interface components {
             banner: components["schemas"]["ActiveNotice"] | null;
             /** Inbox */
             inbox: components["schemas"]["ActiveNotice"][];
+            modal: components["schemas"]["ActiveNotice"] | null;
         };
         /**
          * AdminAgentAuditSummary
@@ -5127,9 +5265,9 @@ export interface components {
          * @description One row in the platform-wide 对话 roster (``GET /v1/admin/conversations``).
          *
          *     Cross-user conversation index for ops: owner identity, housekeeping flags,
-         *     message/turn/error rollups, and all-time spend (nano-USD). Soft-deleted
-         *     conversations and tombstone owners are surfaced when requested — the client
-         *     folds ``cny_per_usd`` for ¥. Drill into 会话复盘 by ``id``.
+         *     message/turn/error rollups, and all-time spend (nano-CNY). Soft-deleted
+         *     conversations and tombstone owners are surfaced when requested. Clients format
+         *     ¥ as ``cost_total / 1e9``. Drill into 会话复盘 by ``id``.
          */
         AdminConversationListItem: {
             /** Archived */
@@ -5182,8 +5320,6 @@ export interface components {
          * @description Paginated platform conversation roster (admin-only).
          */
         AdminConversationListResponse: {
-            /** Cny Per Usd */
-            cny_per_usd: number;
             /** Data */
             data: components["schemas"]["AdminConversationListItem"][];
             /** Page */
@@ -5203,8 +5339,6 @@ export interface components {
          *     of the 观测看板's 近期错误 feed (opens a failed turn in full context).
          */
         AdminConversationReplay: {
-            /** Cny Per Usd */
-            cny_per_usd: number;
             conversation: components["schemas"]["ReplayConversation"];
             /** Cost Total */
             cost_total: number;
@@ -5247,7 +5381,7 @@ export interface components {
          *
          *     Today's vitals (active users / turn health / cost), account tallies, the 7-day
          *     cost + turn trends, deployment health, and the most recent errors (drillable
-         *     into 会话复盘). Money is integer nano-USD; the client folds ``cny_per_usd`` for ¥.
+         *     into 会话复盘). Money is integer nano-CNY; ``CostBreakdown.cny_total`` is yuan.
          */
         AdminOverview: {
             /** Active Users Today */
@@ -5256,8 +5390,6 @@ export interface components {
             admins: number;
             /** Billing Mode */
             billing_mode: string;
-            /** Cny Per Usd */
-            cny_per_usd: number;
             cost_today: components["schemas"]["CostBreakdown"];
             /** Database Ok */
             database_ok: boolean;
@@ -5306,9 +5438,9 @@ export interface components {
          * @description Read-only platform status for the admin console (``GET /v1/admin/system``).
          *
          *     A deployment sanity-check at a glance (管理员后台 P2): the billing mode + global
-         *     quota defaults + FX rate (all deploy-time ``config``, not editable here),
-         *     database reachability, build provenance, and account tallies. Everything is
-         *     read-only — config changes go through env + redeploy, not the console.
+         *     quota defaults (deploy-time ``config``, not editable here), database reachability,
+         *     build provenance, and account tallies. Everything is read-only — config changes
+         *     go through env + redeploy, not the console. API no longer ships an FX rate.
          */
         AdminSystemStatus: {
             /** Admins */
@@ -5317,8 +5449,6 @@ export interface components {
             billing_mode: string;
             /** Built At */
             built_at: string;
-            /** Cny Per Usd */
-            cny_per_usd: number;
             /** Database Ok */
             database_ok: boolean;
             /** Git Sha */
@@ -5424,14 +5554,14 @@ export interface components {
         AdminUpdateUserRequest: {
             /** Is Unlimited */
             is_unlimited?: boolean | null;
-            /** Quota Daily Cost Usd */
-            quota_daily_cost_usd?: number | null;
+            /** Quota Daily Cost Cny */
+            quota_daily_cost_cny?: number | null;
             /** Quota Daily Requests */
             quota_daily_requests?: number | null;
             /** Quota Daily Tokens */
             quota_daily_tokens?: number | null;
-            /** Quota Monthly Cost Usd */
-            quota_monthly_cost_usd?: number | null;
+            /** Quota Monthly Cost Cny */
+            quota_monthly_cost_cny?: number | null;
             /** Role */
             role?: ("user" | "admin") | null;
             /** Status */
@@ -5450,8 +5580,6 @@ export interface components {
         AdminUsageSummary: {
             /** Billing Mode */
             billing_mode: string;
-            /** Cny Per Usd */
-            cny_per_usd: number;
             month: components["schemas"]["UsageWindow"];
             /** Month By Model */
             month_by_model: components["schemas"]["ModelCostLine"][];
@@ -5465,8 +5593,7 @@ export interface components {
          * AdminUserCostLine
          * @description One account's spend over a window — the platform 工资单 by user (全站看板).
          *
-         *     Money is integer nano-USD; the client formats ¥ from the summary's single
-         *     ``cny_per_usd`` (no re-pricing).
+         *     Money is integer nano-CNY; clients format ¥ as ``cost_total / 1e9``.
          */
         AdminUserCostLine: {
             /** Cost Total */
@@ -5490,16 +5617,14 @@ export interface components {
          *     API key), this account's usage (today/month/
          *     trend/by-model — the per-user counterpart of ``AdminUsageSummary``),
          *     its recent conversations, and its recent turn activity (``turn_metrics``, each
-         *     drillable into 会话复盘). Money is integer nano-USD; the client folds the single
-         *     ``cny_per_usd`` for ¥. ``billing_mode`` frames cost honestly (byok = own-key spend).
+         *     drillable into 会话复盘). Money is integer nano-CNY; ``CostBreakdown.cny_total``
+         *     is yuan. ``billing_mode`` frames cost honestly (byok = own-key spend).
          */
         AdminUserDetail: {
             /** Background Model */
             background_model?: string | null;
             /** Billing Mode */
             billing_mode: string;
-            /** Cny Per Usd */
-            cny_per_usd: number;
             /** Conversations */
             conversations: components["schemas"]["AdminConversationLine"][];
             /** Default Model */
@@ -5523,9 +5648,9 @@ export interface components {
          * AdminUserListItem
          * @description A roster row: the account record + its all-time cumulative spend.
          *
-         *     Extends the account view with ``cost_total`` (all-time, integer nano-USD) so the
+         *     Extends the account view with ``cost_total`` (all-time, integer nano-CNY) so the
          *     用户管理 roster can both **sort by** and **display** per-user lifetime cost without a
-         *     second round-trip. The client folds the response's ``cny_per_usd`` for ¥.
+         *     second round-trip. Clients format ¥ as ``cost_total / 1e9``.
          */
         AdminUserListItem: {
             /** Cost Total */
@@ -5545,14 +5670,14 @@ export interface components {
             id: string;
             /** Is Unlimited */
             is_unlimited: boolean;
-            /** Quota Daily Cost Usd */
-            quota_daily_cost_usd: number | null;
+            /** Quota Daily Cost Cny */
+            quota_daily_cost_cny: number | null;
             /** Quota Daily Requests */
             quota_daily_requests: number | null;
             /** Quota Daily Tokens */
             quota_daily_tokens: number | null;
-            /** Quota Monthly Cost Usd */
-            quota_monthly_cost_usd: number | null;
+            /** Quota Monthly Cost Cny */
+            quota_monthly_cost_cny: number | null;
             /**
              * Role
              * @enum {string}
@@ -5568,8 +5693,6 @@ export interface components {
         };
         /** AdminUserListResponse */
         AdminUserListResponse: {
-            /** Cny Per Usd */
-            cny_per_usd: number;
             /** Data */
             data: components["schemas"]["AdminUserListItem"][];
             /** Page */
@@ -5604,14 +5727,14 @@ export interface components {
             id: string;
             /** Is Unlimited */
             is_unlimited: boolean;
-            /** Quota Daily Cost Usd */
-            quota_daily_cost_usd: number | null;
+            /** Quota Daily Cost Cny */
+            quota_daily_cost_cny: number | null;
             /** Quota Daily Requests */
             quota_daily_requests: number | null;
             /** Quota Daily Tokens */
             quota_daily_tokens: number | null;
-            /** Quota Monthly Cost Usd */
-            quota_monthly_cost_usd: number | null;
+            /** Quota Monthly Cost Cny */
+            quota_monthly_cost_cny: number | null;
             /**
              * Role
              * @enum {string}
@@ -6662,7 +6785,7 @@ export interface components {
         };
         /**
          * CostBreakdown
-         * @description A run's / turn's / window's cost in integer nano-USD (canonical).
+         * @description A run's / turn's / window's cost in integer nano-CNY (canonical).
          */
         CostBreakdown: {
             /** Cached */
@@ -6671,7 +6794,7 @@ export interface components {
             cny_total: number;
             /**
              * Currency
-             * @default USD
+             * @default CNY
              */
             currency: string;
             /** Input */
@@ -6749,6 +6872,13 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** CreateFriendRequestBody */
+        CreateFriendRequestBody: {
+            /** Message */
+            message?: string | null;
+            /** User Id */
+            user_id: string;
+        };
         /** CreateInviteRequest */
         CreateInviteRequest: {
             /** Expires In Days */
@@ -6780,7 +6910,7 @@ export interface components {
             /**
              * Base Url
              * @description OpenAI-compatible endpoint including version prefix
-             * @example https://jiurelay.com/openai/v1
+             * @example https://tokenrhythm.studio/v1
              */
             base_url?: string | null;
             /**
@@ -6825,7 +6955,7 @@ export interface components {
              * @default both
              * @enum {string}
              */
-            surface: "banner" | "inbox" | "both";
+            surface: "banner" | "inbox" | "both" | "modal";
             /** Title */
             title: string;
         };
@@ -7185,7 +7315,7 @@ export interface components {
         };
         /**
          * DirectorySettings
-         * @description A user's discoverability + who-can-DM privacy (任意搜人 护栏).
+         * @description A user's discoverability + who-can-DM / who-can-friend privacy.
          */
         DirectorySettings: {
             /**
@@ -7198,7 +7328,13 @@ export interface components {
              * @default anyone
              * @enum {string}
              */
-            who_can_dm: "anyone" | "contacts";
+            who_can_dm: "anyone" | "friends";
+            /**
+             * Who Can Friend
+             * @default anyone
+             * @enum {string}
+             */
+            who_can_friend: "anyone" | "group_members" | "nobody";
         };
         /**
          * DispatchHandoffRequest
@@ -7580,6 +7716,53 @@ export interface components {
              */
             updated_at: string;
         };
+        /** FriendListResponse */
+        FriendListResponse: {
+            /** Data */
+            data: components["schemas"]["FriendSummary"][];
+            /** Total */
+            total: number;
+        };
+        /** FriendRequestDetail */
+        FriendRequestDetail: {
+            /** Created At */
+            created_at?: string | null;
+            /** From User Id */
+            from_user_id: string;
+            /** Id */
+            id: string;
+            /** Message */
+            message?: string | null;
+            peer?: components["schemas"]["FriendSummary"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected" | "cancelled";
+            /** To User Id */
+            to_user_id: string;
+        };
+        /** FriendRequestListResponse */
+        FriendRequestListResponse: {
+            /** Incoming */
+            incoming: components["schemas"]["FriendRequestDetail"][];
+            /** Outgoing */
+            outgoing: components["schemas"]["FriendRequestDetail"][];
+        };
+        /** FriendSummary */
+        FriendSummary: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: string;
+            /**
+             * Online
+             * @default false
+             */
+            online: boolean;
+            /** Username */
+            username: string;
+        };
         /**
          * FromPlaybookRequest
          * @description Copy an official playbook into a user workflow (use = 复制为我的).
@@ -7959,18 +8142,12 @@ export interface components {
         LlmProvidersResponse: {
             /**
              * Billing Mode
-             * @description Deployment billing mode (config.billing_mode). In 'platform' a keyless user runs on platform credit and BYOK is opt-in; in 'byok' a provider is required unless the free tier is active.
+             * @description Deployment billing mode (config.billing_mode). In 'platform' a keyless user runs on platform credit and BYOK is opt-in; in 'byok' a provider is required (402 if missing).
              * @default byok
              */
             billing_mode: string;
             /** Default Model Profile Id */
             default_model_profile_id?: string | null;
-            /**
-             * Free Tier Active
-             * @description True when this user has no BYOK provider, free tier is enabled, and platform credentials are available (keyless users can chat on free quota)
-             * @default false
-             */
-            free_tier_active: boolean;
             /**
              * Platform Available
              * @description Whether platform-billed models are usable on this deployment (billing selectable ∧ platform credentials). False while BYOK-dormant even if PLATFORM_API_KEY is still configured.
@@ -8574,9 +8751,8 @@ export interface components {
          *
          *     Aggregated from ``cost_calls`` (``GROUP BY model``), never from
          *     ``cost_events.model`` (that column only records the run's first call; multi-model
-         *     runs would mis-attribute). Money is integer nano-USD; ``tokens_total`` is
-         *     ``SUM(input + output + reasoning)``. The client formats ¥ from the summary's
-         *     single ``cny_per_usd``.
+         *     runs would mis-attribute). Money is integer nano-CNY; ``tokens_total`` is
+         *     ``SUM(input + output + reasoning)``. Clients format ¥ as ``cost_total / 1e9``.
          */
         ModelCostLine: {
             /** Calls */
@@ -8921,7 +9097,7 @@ export interface components {
         };
         /**
          * QuotaStatus
-         * @description Resolved quota limits (决策④ / F2); 0 = unlimited. Money is USD nano internally.
+         * @description Resolved quota limits (决策④ / F2); 0 = unlimited. Money is nano-CNY internally.
          */
         QuotaStatus: {
             /** Daily Cost Nano */
@@ -10774,7 +10950,9 @@ export interface components {
             /** Discoverable */
             discoverable?: boolean | null;
             /** Who Can Dm */
-            who_can_dm?: ("anyone" | "contacts") | null;
+            who_can_dm?: ("anyone" | "friends") | null;
+            /** Who Can Friend */
+            who_can_friend?: ("anyone" | "group_members" | "nobody") | null;
         };
         /** UpdateFeedbackStatusRequest */
         UpdateFeedbackStatusRequest: {
@@ -10849,7 +11027,7 @@ export interface components {
             /** Start At */
             start_at?: string | null;
             /** Surface */
-            surface?: ("banner" | "inbox" | "both") | null;
+            surface?: ("banner" | "inbox" | "both" | "modal") | null;
             /** Title */
             title?: string | null;
         };
@@ -10962,14 +11140,12 @@ export interface components {
          * UsageSummary
          * @description Account dashboard payload (``GET /usage/summary``).
          *
-         *     Also carries ``cny_per_usd`` so the client formats money from a single
-         *     server-owned rate (it never hard-codes the FX rate).
+         *     Money fields are nano-CNY; ``CostBreakdown.cny_total`` is already yuan.
+         *     API no longer ships an FX rate.
          */
         UsageSummary: {
             /** Billing Mode */
             billing_mode: string;
-            /** Cny Per Usd */
-            cny_per_usd: number;
             month: components["schemas"]["UsageWindow"];
             quota: components["schemas"]["QuotaStatus"];
             /** Recent Daily Cost */
@@ -10986,6 +11162,30 @@ export interface components {
             /** Requests */
             requests: number;
             usage: components["schemas"]["UsageBreakdown"];
+        };
+        /**
+         * UserProfile
+         * @description 资料卡 (消息IM.md §9.3).
+         */
+        UserProfile: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: string;
+            /**
+             * Online
+             * @default false
+             */
+            online: boolean;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "self" | "none" | "outgoing_request" | "incoming_request" | "friends" | "blocked";
+            /** Request Id */
+            request_id?: string | null;
+            /** Username */
+            username: string;
         };
         /** UserResponse */
         UserResponse: {
@@ -17944,6 +18144,249 @@ export interface operations {
             };
         };
     };
+    list_friends_v1_messages_friends_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_friend_requests_v1_messages_friends_requests_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_friend_request_v1_messages_friends_requests_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFriendRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_friend_request_v1_messages_friends_requests__request_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_friend_request_v1_messages_friends_requests__request_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_friend_request_v1_messages_friends_requests__request_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_friend_v1_messages_friends__friend_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                friend_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     search_users_v1_messages_users_search_get: {
         parameters: {
             query: {
@@ -17967,6 +18410,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserSearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_user_profile_v1_messages_users__user_id__profile_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserProfile"];
                 };
             };
             /** @description Validation Error */

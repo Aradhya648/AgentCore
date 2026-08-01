@@ -10,7 +10,7 @@ skip_if:
 
 # 平台 LLM 接入
 
-> **现状**：目标仍是 `billing_mode=platform`；**现网临时 `byok` + 免费档关**（平台代付休眠，见 [成本配额与计费](/docs/05-平台与运维/成本配额与计费.md) 文首）。**dev 默认仍 BYOK**。本文只记上游接入事实（厂商坑、BYOK 去向、platform 排查）。
+> **现状**：目标仍是 `billing_mode=platform`（额度 `quota_*` · ¥10/月·¥10/日 · 台账 **nano-CNY**，无 FX）；**现网可临时 `byok`**（见 [成本配额与计费](/docs/05-平台与运维/成本配额与计费.md) 文首）。**dev 默认仍 BYOK**。本文只记上游接入事实（厂商坑、BYOK 去向、platform 排查）。
 
 ## 一、三条上游路径
 
@@ -18,25 +18,27 @@ skip_if:
 |---|---|---|
 | **BYOK 直连** | 用户配了 OpenAI 兼容服务商 | 用户自带端点（多服务商；典型 DeepSeek） |
 | **多厂商 provider 路由** | model 串带 `厂商/` 前缀 | 豆包 / Moonshot / 智谱 等（§四） |
-| **platform 平台凭据** | 免费档 fallback / 显式 platform / `billing_mode=platform` | `PLATFORM_*` 三项 |
+| **platform 平台凭据** | `billing_mode=platform` / 显式 platform | `PLATFORM_*` 三项 |
 
 **BYOK 去向**：每用户多服务商列表（`user_llm_providers`：AES-GCM 密文 key + base_url + 默认模型）；账号/会话选的是**模型组合**（`llm_model_profiles` → `{main, worker?, background?}` 槽，每槽 `(model, origin, provider_id)`）。key **不在 `.env`**。BYOK 且无服务商、又无 platform 回退 → `402 LLM_KEY_REQUIRED`。
 
 ## 二、模型与凭据解析
 
-**模型组合**：CRUD `/v1/users/me/llm-model-profiles`；会话只认 `model_profile_id`（null = 账号默认；**活引用**）。系统预置「5.2」/「Grok 4.5」（`origin=platform`）；未设默认 → 回落 5.2。明确不做：质量档矩阵、角色→模型矩阵、输入框双 picker。
+**模型组合**：CRUD `/v1/users/me/llm-model-profiles`；会话只认 `model_profile_id`（null = 账号默认；**活引用**）。系统预置由平台目录 / `PLATFORM_MODELS`（空则 `[PLATFORM_MODEL, PLATFORM_BACKGROUND_MODEL]`）动态投影，稳定 id = `uuid5(…, agentcore:platform-preset:{model_id})`，无硬编码产品 UUID；逻辑默认 = `PLATFORM_MODEL` 对应预置（须在目录内）否则 allowlist 首个。明确不做：质量档矩阵、角色→模型矩阵、输入框双 picker。
 
 `llm/resolve.py` 单点：
 
 - **主对话**：用户 key 优先；无 key 才 platform。
 - **后台档**（title/memory/compaction/followups）：**平台优先** + 必过 `enforce_quota`（防白嫖）；平台不可用（配置缺失 **或** 上游 auth 拒绝）才回落用户 BYOK。统一入口 `billing/gate.py::run_background_llm`（`resolve_and_gate_background` 解析 + 一次 auth→BYOK；耗尽 / 两边都失败 → `None`，不 429 主回合）。禁止调用点各自 try/except 拼回落、禁止进程内 auth 熔断缓存。
-- **`platform_billing_selectable`**：`billing_mode=platform` 恒可选；BYOK 部署仅免费档开时可选。
+- **`platform_billing_selectable`**：仅 `billing_mode=platform` 时可选；BYOK 部署不开放平台代付。
 - **Worker 槽**：空 = 跟随主模型；跨 origin 时 `build_turn_router` 注入 extras。Sidecar `cost_role=member` 按 Worker 槽重解析。
 - **统一目录** `GET /v1/users/me/models`：键 `(id, origin, provider_id)`；BYOK 行代理发现（禁硬编码清单）；platform 行有补贴才列。
 
 ## 三、sidecar 推理代理
 
 桌面本地引擎**不拿 BYOK key**——经服务端出网：`POST /v1/inference/token` 铸 scoped token + 服务端解析 `model`；`POST /v1/inference/v1/chat/completions` 过同一道计费闸后转发。模型以服务端解析为准。→ `api/routes/inference/`；整体 → [双模式工作区](/docs/02-架构/双模式工作区.md)。
+
+**令牌 TTL**：默认 `inference_token_expire_minutes=720`（12h）。桌面在每次 `startTurn` / `resume` **强制续铸**；开跑前若代理仍拒票则清缓存换票再 RPC 一次。代理 401/403 映射为 `INFERENCE_TOKEN_EXPIRED`（可重试、勿引导「去设置 · 服务商」），与 BYOK 的 `LLM_KEY_INVALID` 区分。
 
 ## 四、多厂商 provider 路由
 
@@ -65,6 +67,8 @@ skip_if:
 
 `billing_mode=platform` 走 `PLATFORM_*`；改三项须重启后端。
 
-**多模型 + 每模型凭据覆盖**（成本 §〇·六 F3）：`PLATFORM_MODELS` allowlist；`PLATFORM_MODEL_CREDENTIALS`（JSON `{model → {api_key?, base_url?}}`）给「一 key 一模型」中转绑独立凭据；单点 `platform_llm_credentials(model=…)`。可用性 = 默认 key **或**任一覆盖有 key。
+**多模型 + 每模型凭据覆盖**（成本 §〇·六 F3）：`PLATFORM_MODELS` allowlist（非空时 `PLATFORM_MODEL` / 后台档须 ∈ 列表，否则启动 fail-fast）；`PLATFORM_MODEL_CREDENTIALS`（JSON `{model → {api_key?, base_url?}}`）给「一 key 一模型」中转绑独立凭据；单点 `platform_llm_credentials(model=…)`。可用性 = 默认 key **或**任一覆盖有 key。缺 curated 价卡的 allowlist id → 不上架。
 
 **排查**：curl 直连 `{PLATFORM_BASE_URL}/chat/completions` 分辨代理 vs 上游；日志 `inference.proxy_upstream_error` / `llm.*`。可选 `SUB2API_ADMIN_*` 探测（非当前上游）。
+
+**本机系统代理**：产品出网 httpx 默认 `trust_env=False`（不继承 `HTTP(S)_PROXY` / `ALL_PROXY`）。用户装 Clash 等把 `ALL_PROXY` 设成 `socks5://…` 时，旧行为会因缺少可选依赖 `socksio` 报「调用失败」；桌面 sidecar 启动时另剥离 SOCKS 类代理环境变量（HTTP 代理保留）。显式应用内代理配置仍可后续加，不靠默吃系统 SOCKS。

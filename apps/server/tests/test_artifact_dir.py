@@ -87,6 +87,46 @@ def test_contract_root_write_warns_under_artifact_dir():
     assert not any("案卷目录" in w for w in ok.warnings)
 
 
+def test_artifact_dir_warning_stays_soft_on_delivery_status():
+    """Contract artifact_dir path hint → delivery_gaps soft → state=notes."""
+    from agentcore.runtime.delegate.delivery_status import build_delivery_status
+    from agentcore.runtime.runs.executor_shared import _delivery_gaps_from_warnings
+    from agentcore.runtime.runs.file_acceptance import build_file_acceptance
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunPhase, RunSpec, RunState
+
+    d = Deliverable(form="files", artifact_dir=RESEARCH_DIR, requires_files=True, artifacts=[])
+    verdict = check_contract(
+        "已写",
+        d,
+        files_written=1,
+        workspace_paths=["miro-research.md"],
+    )
+    assert verdict.ok
+    gaps = _delivery_gaps_from_warnings(list(verdict.warnings), None)
+    assert any(g.get("severity") == "warning" for g in gaps)
+    assert any(g.get("reason") == "path_hint" for g in gaps)
+
+    plan = RunPlan(nodes=[RunSpec(run_id="w1", task="调研 Miro", role="竞品分析师")])
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["miro-research.md"],
+            file_acceptance=build_file_acceptance(
+                ["miro-research.md"], phase=RunPhase.COMPLETED
+            ),
+            warnings=list(verdict.warnings),
+            delivery_gaps=gaps,
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-adir-pipe")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert all(g.get("severity") == "warning" for g in payload["gaps"])
+    assert payload["delivered_files"] == ["miro-research.md"]
+
+
 def test_build_run_plan_injects_artifact_dir_for_dossier_batch():
     plan, errors = build_run_plan(
         [

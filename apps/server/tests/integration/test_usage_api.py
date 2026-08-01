@@ -33,7 +33,7 @@ def _run(
         "tokens": {"input": 100, "output": 50, "reasoning": 10, "cache_hit": 60, "cache_miss": 40},
         "cost": {"input": 800, "cached": 100, "output": 200, "total": total},
         "cost_total_nano": total,
-        "currency": "USD",
+        "currency": "CNY",
         "rounds": 2,
         "duration_ms": 500,
     }
@@ -74,9 +74,9 @@ async def test_message_cost_returns_payroll_and_turn_total(client, make_invite, 
     # Turn total = sum of the two priced rows; rounds summed.
     assert body["cost"]["total"] == 1500
     assert body["cost"]["input"] == 1600
-    assert body["cost"]["currency"] == "USD"
+    assert body["cost"]["currency"] == "CNY"
     assert body["rounds"] == 4
-    # Display CNY rides along (7.2 rate by default): 1500 nano-USD → tiny, rounds
+    # Display CNY is nano/1e9 (no FX): 1500 nano-CNY → tiny, rounds
     # to 0.00 元 but the field is present and a float.
     assert isinstance(body["cost"]["cny_total"], float)
     # Usage rolled up from both rows (short ledger keys).
@@ -174,38 +174,34 @@ async def test_usage_summary_windows_and_quota(client, make_invite, session_fact
     assert len(trend) == 7
     assert trend[-1]["cost_total"] == 2500
     assert sum(p["cost_total"] for p in trend) == 2500
-    # Quota defaults (决策④ / F2) + the single display FX rate are surfaced. Read from
-    # settings so the assertion tracks the config group instead of hard-coding numbers.
+    # Quota defaults (决策④ / F2) are surfaced. Read from settings so the
+    # assertion tracks the config group instead of hard-coding numbers.
     from agentcore.config import settings
 
     assert body["quota"]["daily_tokens"] == settings.quota_daily_tokens
     assert body["quota"]["monthly_cost_nano"] == int(
-        settings.quota_monthly_cost_usd * 1_000_000_000
+        settings.quota_monthly_cost_cny * 1_000_000_000
     )
-    assert body["quota"]["daily_cost_nano"] == int(settings.quota_daily_cost_usd * 1_000_000_000)
+    assert body["quota"]["daily_cost_nano"] == int(settings.quota_daily_cost_cny * 1_000_000_000)
     assert body["quota"]["daily_requests"] == settings.quota_daily_requests
-    assert body["cny_per_usd"] == 7.2
+    assert "cny_per_usd" not in body
 
 
-async def test_usage_summary_quota_shows_free_tier_limits(client, make_invite, monkeypatch):
-    # A keyless free-tier rider must see the free_tier_* caps the gate actually
-    # enforces (D7) — not the global quota_* defaults (every meter would lie 36x).
+async def test_usage_summary_quota_shows_global_limits(client, make_invite):
+    # Every account sees the same global quota_* caps (per-user override absent).
     from agentcore.config import settings
 
-    code = await make_invite("INV-SUMMARY-FT")
-    await register_and_login(client, code, "summaryfreetier")
+    code = await make_invite("INV-SUMMARY-Q")
+    await register_and_login(client, code, "summaryquota")
 
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
-    monkeypatch.setattr(settings, "platform_api_key", "sk-platform-test")
-    monkeypatch.setattr(settings, "billing_mode", "byok")
     r = await client.get("/v1/usage/summary")
 
     assert r.status_code == 200, r.text
     quota = r.json()["quota"]
-    assert quota["daily_tokens"] == settings.free_tier_daily_tokens
-    assert quota["monthly_cost_nano"] == int(settings.free_tier_monthly_cost_usd * 1_000_000_000)
-    assert quota["daily_cost_nano"] == int(settings.free_tier_daily_cost_usd * 1_000_000_000)
-    assert quota["daily_requests"] == settings.free_tier_daily_requests
+    assert quota["daily_tokens"] == settings.quota_daily_tokens
+    assert quota["monthly_cost_nano"] == int(settings.quota_monthly_cost_cny * 1_000_000_000)
+    assert quota["daily_cost_nano"] == int(settings.quota_daily_cost_cny * 1_000_000_000)
+    assert quota["daily_requests"] == settings.quota_daily_requests
 
 
 async def test_usage_summary_recent_daily_cost_buckets_by_utc_day(

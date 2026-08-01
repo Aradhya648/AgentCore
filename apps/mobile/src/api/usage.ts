@@ -13,7 +13,7 @@ type Schemas = components["schemas"];
 type TurnCost = Schemas["TurnCost"];
 
 /**
- * A turn's persisted display money in integer nano-USD. Prefers ledger `cost.total`;
+ * A turn's persisted display money in integer nano-CNY. Prefers ledger `cost.total`;
  * falls back to `estimated_cost.total` for BYOK. Returns null when neither is >0.
  */
 export async function getMessageCostDisplay(

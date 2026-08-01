@@ -3,8 +3,8 @@
  *
  * 走真实 execution store 折叠（startExecution + recordFrames）而非手搓投影——判定的坐标系
  * （`assistantProjectionId` 键 + `agent.toolCalls`）必须与 sidePanel / 终端 tab 一致，手搓
- * 会把这条一致性测掉。覆盖：无活动 / worker 用过浏览器 / 用完（turn 结束）仍为真 / 只按本
- * 会话消息计（不串其他会话）。
+ * 会把这条一致性测掉。覆盖：无活动 / worker 用过浏览器 / CEO process 直调 navigate /
+ * 用完（turn 结束）仍为真 / 只按本会话消息计（不串其他会话）。
  */
 
 import type { Message } from "@/stores/conversation/types";
@@ -32,7 +32,7 @@ const plan: ExecutionPlan = {
 };
 
 /** 一条 assistant 消息（`assistantProjectionId` 无 serverMessageId 时落本地 id）。 */
-function assistantMessage(id: string): Message {
+function assistantMessage(id: string, process?: Message["process"]): Message {
   return {
     id,
     role: "assistant",
@@ -40,6 +40,7 @@ function assistantMessage(id: string): Message {
     createdAt: "2026-07-26T00:00:00.000Z",
     executionId: null,
     isStreaming: false,
+    ...(process ? { process } : {}),
   };
 }
 
@@ -135,6 +136,46 @@ describe("conversationHasBrowserActivity", () => {
         useExecutionStore.getState().byId,
       ),
     ).toBe(true);
+  });
+
+  it("is true when CEO process has browser_navigate only", () => {
+    expect(
+      conversationHasBrowserActivity(
+        [
+          assistantMessage(MID, [
+            {
+              kind: "tool",
+              id: "tc-ceo",
+              tool_name: "browser_navigate",
+              arguments: { url: "https://example.com" },
+              result: null,
+              status: "running",
+            },
+          ]),
+        ],
+        {},
+      ),
+    ).toBe(true);
+  });
+
+  it("is false when CEO process has only non-browser tools", () => {
+    expect(
+      conversationHasBrowserActivity(
+        [
+          assistantMessage(MID, [
+            {
+              kind: "tool",
+              id: "tc-ceo",
+              tool_name: "web_search",
+              arguments: { query: "x" },
+              result: null,
+              status: "running",
+            },
+          ]),
+        ],
+        {},
+      ),
+    ).toBe(false);
   });
 
   it("stays true after the turn finished (入口窗口 ≠ running 窗口)", () => {

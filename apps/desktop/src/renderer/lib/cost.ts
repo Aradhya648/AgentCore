@@ -4,7 +4,7 @@
  * the components only render the result. (Per-Agent ¥ now shows directly on each
  * graph node from `run.cost`, §7.3B — no payroll split needed.)
  *
- * Money is integer nano-USD throughout (1 USD = 1e9). This never re-prices; it
+ * Money is integer nano-CNY throughout (1 CNY = 1e9). This never re-prices; it
  * only sums already-priced run totals (§7.2：合计以各 run 已定价之和为准).
  * BYOK: billed `total` stays 0; `estimated_total` may carry a community estimate.
  */

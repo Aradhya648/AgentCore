@@ -41,11 +41,15 @@ def _delivery_gaps_from_warnings(
     debrief: dict[str, Any] | None,
 ) -> list[dict[str, str]]:
     """Build first-class delivery_gaps rows from soft-accept warnings + debrief."""
+    from agentcore.runtime.delegate.delivery_status import REASON_PATH_HINT
     from agentcore.runtime.runs.cutoff import (
         DEGRADED_HANDOFF_WARNING,
         REASON_DEGRADED_HANDOFF,
         reason_for_warning,
     )
+
+    # Keep in sync with delivery_status._SOFT_PATH_HINT_MARKERS (contract warning-only).
+    path_hint_markers = ("产物未写入案卷目录", "声明的交付物路径未落盘")
 
     gaps: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -58,6 +62,10 @@ def _delivery_gaps_from_warnings(
         code = reason_for_warning(text)
         if code:
             row["reason"] = code
+        elif any(m in text for m in path_hint_markers):
+            # Contract path-reconciliation (artifact_dir / artifacts) is warning-only.
+            row["severity"] = "warning"
+            row["reason"] = REASON_PATH_HINT
         gaps.append(row)
     if isinstance(debrief, dict) and debrief.get("degraded"):
         text = DEGRADED_HANDOFF_WARNING

@@ -23,7 +23,7 @@ from agentcore.core.log_context import log_context, new_trace_id
 from agentcore.core.types import new_id
 from agentcore.evals.recording_sink import RecordingSink
 from agentcore.llm.factory import build_provider
-from agentcore.llm.pricing import NANO_PER_USD, calculate_cost
+from agentcore.llm.pricing import NANO_PER_CNY, calculate_cost
 from agentcore.llm.profiles import ProfileParams
 from agentcore.llm.provider.protocol import LLMMessage, TokenUsage
 from agentcore.runtime.engine.governance import resolve_openai_tool_defs
@@ -242,7 +242,7 @@ async def run_agent_tick(
                 rounds=1,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 usage=usage.as_dict(),
-                cost_usd=cost / NANO_PER_USD,
+                cost_usd=cost / NANO_PER_CNY,
             )
         except Exception as e:
             return TickResult(
@@ -295,7 +295,14 @@ async def run_spike03_mock() -> TickResult:
 
 def build_real_llm():
     """Sync stub — prefer :func:`build_real_llm_async` for DeepSeek resolution."""
-    return build_provider()
+    from agentcore.llm.resolve import platform_llm_credentials
+
+    creds = platform_llm_credentials()
+    if creds is None:
+        raise RuntimeError(
+            "sim real LLM needs PLATFORM_API_KEY (build_provider no longer silent-falls back)"
+        )
+    return build_provider(creds)
 
 
 async def build_real_llm_async(session, user_id: str | None = None):

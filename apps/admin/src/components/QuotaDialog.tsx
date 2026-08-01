@@ -39,10 +39,10 @@ export function QuotaDialog({
     initial(user.quota_daily_tokens),
   );
   const [monthlyCost, setMonthlyCost] = useState(
-    initial(user.quota_monthly_cost_usd),
+    initial(user.quota_monthly_cost_cny),
   );
   const [dailyCost, setDailyCost] = useState(
-    initial(user.quota_daily_cost_usd),
+    initial(user.quota_daily_cost_cny),
   );
   const [dailyRequests, setDailyRequests] = useState(
     initial(user.quota_daily_requests),
@@ -56,8 +56,8 @@ export function QuotaDialog({
     const patch: AdminUpdateUserRequest = {
       is_unlimited: unlimited,
       quota_daily_tokens: numOrNull(dailyTokens),
-      quota_monthly_cost_usd: numOrNull(monthlyCost),
-      quota_daily_cost_usd: numOrNull(dailyCost),
+      quota_monthly_cost_cny: numOrNull(monthlyCost),
+      quota_daily_cost_cny: numOrNull(dailyCost),
       quota_daily_requests: numOrNull(dailyRequests),
     };
     try {
@@ -119,7 +119,7 @@ export function QuotaDialog({
                 disabled={unlimited}
               />
             </Field>
-            <Field label="月成本上限（USD）">
+            <Field label="月成本上限（元）">
               <Input
                 type="number"
                 min={0}
@@ -131,7 +131,7 @@ export function QuotaDialog({
                 disabled={unlimited}
               />
             </Field>
-            <Field label="日成本上限（USD / 日）">
+            <Field label="日成本上限（元 / 日）">
               <Input
                 type="number"
                 min={0}

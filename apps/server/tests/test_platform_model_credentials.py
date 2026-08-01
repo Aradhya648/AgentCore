@@ -25,7 +25,7 @@ from agentcore.llm.resolve import (
 )
 
 _OVERRIDE = (
-    '{"grok-4.5": {"api_key": "sk-grok-key", "base_url": "https://relay.example/openai/v1"}}'
+    '{"relay-b": {"api_key": "sk-relay-b-key", "base_url": "https://relay.example/openai/v1"}}'
 )
 
 
@@ -35,8 +35,8 @@ def _user():
         user_id="u1",
         is_unlimited=False,
         quota_daily_tokens=None,
-        quota_monthly_cost_usd=None,
-        quota_daily_cost_usd=None,
+        quota_monthly_cost_cny=None,
+        quota_daily_cost_cny=None,
         quota_daily_requests=None,
     )
 
@@ -73,41 +73,41 @@ def test_parse_blank_and_malformed_degrade_to_empty():
 def test_no_arg_call_unchanged(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "sk-default")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "5.2")
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
     creds = platform_llm_credentials()
     assert creds is not None
     assert creds.api_key == "sk-default"
     assert creds.base_url == "https://default/v1"
-    assert creds.default_model == "5.2"
+    assert creds.default_model == "glm-5.2"
     assert creds.source == "platform"
 
 
 def test_override_model_uses_its_own_key_and_base_url(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "sk-default")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "5.2")
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
-    creds = platform_llm_credentials(model="grok-4.5")
+    creds = platform_llm_credentials(model="relay-b")
     assert creds is not None
-    assert creds.api_key == "sk-grok-key"
+    assert creds.api_key == "sk-relay-b-key"
     assert creds.base_url == "https://relay.example/openai/v1"
     # default_model is the requested model, not settings.platform_model.
-    assert creds.default_model == "grok-4.5"
+    assert creds.default_model == "relay-b"
     assert creds.source == "platform"
 
 
 def test_unlisted_model_falls_back_to_default_key(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "sk-default")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "5.2")
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
-    creds = platform_llm_credentials(model="5.2")
+    creds = platform_llm_credentials(model="glm-5.2")
     assert creds is not None
-    # 5.2 has no override entry → shared default key/base_url, default_model=5.2.
+    # glm-5.2 has no override entry → shared default key/base_url, default_model=glm-5.2.
     assert creds.api_key == "sk-default"
     assert creds.base_url == "https://default/v1"
-    assert creds.default_model == "5.2"
+    assert creds.default_model == "glm-5.2"
 
 
 def test_override_missing_base_url_falls_back_to_default(monkeypatch):
@@ -126,9 +126,9 @@ def test_override_only_key_serves_model_when_default_absent(monkeypatch):
     """No shared default key, but the model's override has one → resolvable."""
     monkeypatch.setattr(settings, "platform_api_key", "")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
-    assert platform_llm_credentials(model="grok-4.5") is not None
+    assert platform_llm_credentials(model="relay-b") is not None
     # A model with neither an override key nor a default key stays None.
-    assert platform_llm_credentials(model="5.2") is None
+    assert platform_llm_credentials(model="glm-5.2") is None
     assert platform_llm_credentials() is None
 
 
@@ -181,10 +181,7 @@ async def test_gate_platform_available_via_override_key(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
     monkeypatch.setattr(settings, "billing_mode", "platform")
-    with (
-        patch("agentcore.billing.gate.user_has_provider", AsyncMock(return_value=False)),
-        patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
-    ):
+    with patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce:
         result = await preflight_llm_credentials(
             session=MagicMock(),
             user=_user(),
@@ -223,7 +220,7 @@ def _mock_keyless(monkeypatch):
         "agentcore.llm.resolve.resolve_account_default_model",
         AsyncMock(
             return_value=ModelSelection(
-                model="grok-4.5", origin="platform", provider_id=None
+                model="relay-b", origin="platform", provider_id=None
             )
         ),
     )
@@ -233,7 +230,7 @@ def _mock_keyless(monkeypatch):
 async def test_resolve_model_config_platform_chat_uses_per_model_key(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "grok-4.5")
+    monkeypatch.setattr(settings, "platform_model", "relay-b")
     monkeypatch.setattr(settings, "platform_background_model", "")
     monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
@@ -241,8 +238,8 @@ async def test_resolve_model_config_platform_chat_uses_per_model_key(monkeypatch
     cfg = await resolve_model_config(MagicMock(), "u1", "chat")
     assert cfg is not None
     assert cfg.source == "platform"
-    assert cfg.model == "grok-4.5"
-    assert cfg.api_key == "sk-grok-key"
+    assert cfg.model == "relay-b"
+    assert cfg.api_key == "sk-relay-b-key"
     assert cfg.base_url == "https://relay.example/openai/v1"
 
 
@@ -253,16 +250,16 @@ async def test_resolve_model_config_platform_background_downgrade_resolves_that_
     """Background purpose 降档 to platform_background_model → its per-model key is used."""
     monkeypatch.setattr(settings, "platform_api_key", "sk-default")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "5.2")
-    monkeypatch.setattr(settings, "platform_background_model", "grok-4.5")
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
+    monkeypatch.setattr(settings, "platform_background_model", "relay-b")
     monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
     _mock_keyless(monkeypatch)
     cfg = await resolve_model_config(MagicMock(), "u1", "title")
     assert cfg is not None
     assert cfg.source == "platform"
-    assert cfg.model == "grok-4.5"  # downgraded model name
-    assert cfg.api_key == "sk-grok-key"  # resolved for the downgraded model
+    assert cfg.model == "relay-b"  # downgraded model name
+    assert cfg.api_key == "sk-relay-b-key"  # resolved for the downgraded model
 
 
 # --- PlatformProvider: per-request model → key (辩论跨模型 / F3) --------------
@@ -270,14 +267,14 @@ async def test_resolve_model_config_platform_background_downgrade_resolves_that_
 
 @pytest.mark.asyncio
 async def test_platform_provider_uses_per_model_key(monkeypatch):
-    """同一 leaf 上 5.2 与 grok-4.5 必须打到各自的 key（回归：冻死 grok key → 5.2 403）。"""
+    """同一 leaf 上 glm-5.2 与 relay-b 必须打到各自的 key（回归：冻死第二 key → 默认模型 403）。"""
     from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
     from agentcore.llm.provider.platform import PlatformProvider
     from agentcore.llm.provider.protocol import LLMMessage, LLMRequest, LLMResponse
 
     monkeypatch.setattr(settings, "platform_api_key", "sk-default")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "5.2")
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
 
     seen: list[tuple[str, str]] = []
@@ -289,9 +286,9 @@ async def test_platform_provider_uses_per_model_key(monkeypatch):
     monkeypatch.setattr(OpenAICompatibleProvider, "complete", _capture_complete)
     provider = PlatformProvider()
     msgs = [LLMMessage(role="user", content="hi")]
-    await provider.complete(LLMRequest(messages=msgs, model="5.2"))
-    await provider.complete(LLMRequest(messages=msgs, model="grok-4.5"))
-    assert seen == [("5.2", "sk-default"), ("grok-4.5", "sk-grok-key")]
+    await provider.complete(LLMRequest(messages=msgs, model="glm-5.2"))
+    await provider.complete(LLMRequest(messages=msgs, model="relay-b"))
+    assert seen == [("glm-5.2", "sk-default"), ("relay-b", "sk-relay-b-key")]
     await provider.close()
 
 
@@ -308,7 +305,7 @@ async def test_build_provider_platform_source_is_resolving_leaf(monkeypatch):
         LLMCredentials(
             api_key="sk-ignored-frozen",
             base_url="https://ignored/v1",
-            default_model="5.2",
+            default_model="glm-5.2",
             source="platform",
         )
     )
@@ -317,17 +314,25 @@ async def test_build_provider_platform_source_is_resolving_leaf(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ensure_debate_route_extras_platform_per_model(monkeypatch):
-    """正方 5.2 + 反方 grok-4.5：router ``platform/…`` 各自用对 key。"""
+    """正方 glm-5.2 + 反方 deepseek-v4-flash：router ``platform/…`` 各自用对 key。
+
+    Both ids have curated CNY cards (内测只上架有卡模型). Override key is on Flash.
+    """
     from agentcore.llm.credentials import LLMCredentials
     from agentcore.llm.factory import build_router
     from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
     from agentcore.llm.provider.protocol import LLMMessage, LLMRequest, LLMResponse
     from agentcore.runtime.debate.models import ModelIdentity, ensure_debate_route_extras
 
+    flash_override = (
+        '{"deepseek-v4-flash": {"api_key": "sk-flash-key",'
+        ' "base_url": "https://relay.example/openai/v1"}}'
+    )
+    monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_api_key", "sk-default")
     monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
-    monkeypatch.setattr(settings, "platform_model", "5.2")
-    monkeypatch.setattr(settings, "platform_model_credentials", _OVERRIDE)
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
+    monkeypatch.setattr(settings, "platform_model_credentials", flash_override)
 
     seen: list[tuple[str, str]] = []
 
@@ -350,13 +355,13 @@ async def test_ensure_debate_route_extras_platform_per_model(monkeypatch):
     await ensure_debate_route_extras(
         router,
         [
-            ModelIdentity(model="5.2", origin="platform"),
-            ModelIdentity(model="grok-4.5", origin="platform"),
+            ModelIdentity(model="glm-5.2", origin="platform"),
+            ModelIdentity(model="deepseek-v4-flash", origin="platform"),
         ],
     )
     assert "platform" in router.available_prefixes
     msgs = [LLMMessage(role="user", content="hi")]
-    await router.complete(LLMRequest(messages=msgs, model="platform/5.2"))
-    await router.complete(LLMRequest(messages=msgs, model="platform/grok-4.5"))
-    assert seen == [("5.2", "sk-default"), ("grok-4.5", "sk-grok-key")]
+    await router.complete(LLMRequest(messages=msgs, model="platform/glm-5.2"))
+    await router.complete(LLMRequest(messages=msgs, model="platform/deepseek-v4-flash"))
+    assert seen == [("glm-5.2", "sk-default"), ("deepseek-v4-flash", "sk-flash-key")]
     await router.close()

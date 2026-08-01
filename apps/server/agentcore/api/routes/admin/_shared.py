@@ -182,8 +182,8 @@ def _admin_user_response(user: User) -> AdminUserResponse:
         status=user.status,
         is_unlimited=user.is_unlimited,
         quota_daily_tokens=user.quota_daily_tokens,
-        quota_monthly_cost_usd=user.quota_monthly_cost_usd,
-        quota_daily_cost_usd=user.quota_daily_cost_usd,
+        quota_monthly_cost_cny=user.quota_monthly_cost_cny,
+        quota_daily_cost_cny=user.quota_daily_cost_cny,
         quota_daily_requests=user.quota_daily_requests,
         created_at=user.created_at,
         deleted_at=user.deleted_at,
@@ -191,5 +191,5 @@ def _admin_user_response(user: User) -> AdminUserResponse:
 
 
 def _admin_user_list_item(user: User, cost_total: int) -> AdminUserListItem:
-    """A roster row = the account record + its all-time cumulative spend (nano-USD)."""
+    """A roster row = the account record + its all-time cumulative spend (nano-CNY)."""
     return AdminUserListItem(**_admin_user_response(user).model_dump(), cost_total=cost_total)

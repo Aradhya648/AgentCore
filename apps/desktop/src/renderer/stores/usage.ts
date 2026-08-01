@@ -7,26 +7,16 @@ import {
 import { create } from "zustand";
 
 /**
- * Account-level usage/cost state — the single front-end home for the FX rate,
- * the dashboard snapshot, and the per-turn payroll cache.
+ * Account-level usage/cost state — dashboard snapshot + per-turn payroll cache.
  *
- * `cnyPerUsd` is the one source every `formatCost` call reads, so the UI never
- * hard-codes the rate (§7.2): it is seeded from the backend default and refreshed
- * to the authoritative `settings.cny_per_usd` the moment `/usage/summary` loads.
+ * Money is nano-CNY end-to-end; the UI formats ¥ as `nano / 1e9` (no FX).
  */
-
-/** Fallback FX until `/usage/summary` is fetched — only avoids a NaN before the
- * first load. Must stay aligned with the backend default (`settings.cny_per_usd`,
- * 见 `config.py`); the fetched value supersedes it. */
-const DEFAULT_CNY_PER_USD = 7.2;
 
 // In-flight message-cost fetches, deduped outside the store so a re-render storm
 // of hovers can't fire duplicate requests (and this churn never re-renders).
 const inflightMessageCosts = new Set<string>();
 
 interface UsageState {
-  /** USD→CNY display rate; single source for every `formatCost` call. */
-  cnyPerUsd: number;
   /** Last account-dashboard snapshot, or null before the first fetch. */
   summary: UsageSummary | null;
   loading: boolean;
@@ -37,7 +27,7 @@ interface UsageState {
    * `message.cost`, so they never land here). */
   messageCosts: Record<string, TurnCost>;
 
-  /** Fetch the account-dashboard summary and refresh the FX rate from it. */
+  /** Fetch the account-dashboard summary. */
   fetchSummary: () => Promise<void>;
   /** Lazily load + cache a turn's persisted payroll by message id (回落快照).
    * No-op if already cached or in flight; failures are swallowed (cost is
@@ -46,7 +36,6 @@ interface UsageState {
 }
 
 export const useUsageStore = create<UsageState>((set, get) => ({
-  cnyPerUsd: DEFAULT_CNY_PER_USD,
   summary: null,
   loading: false,
   error: null,
@@ -56,10 +45,10 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const summary = await getUsageSummary();
-      set({ summary, cnyPerUsd: summary.cny_per_usd, loading: false });
+      set({ summary, loading: false });
     } catch {
       // A failed dashboard load must never break the chat (用量是附属呈现);
-      // keep the last rate and surface a soft error for the dashboard view.
+      // surface a soft error for the dashboard view.
       set({ loading: false, error: "用量加载失败，请重试" });
     }
   },

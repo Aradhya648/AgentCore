@@ -242,6 +242,77 @@ def test_overlay_soft_criteria_gaps_are_notes_not_partial():
     assert payload["actions"] == []
 
 
+def test_artifact_dir_path_hint_only_is_notes_not_partial():
+    """Accepted files + only artifact_dir path suggestion → notes (not partial)."""
+    plan = _plan(RunSpec(run_id="w1", task="调研 Miro 落盘", role="竞品分析师"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["miro-research.md"],
+            file_acceptance=_accepted("miro-research.md"),
+            delivery_gaps=[
+                {
+                    "description": (
+                        "产物未写入案卷目录 `docs/research/`"
+                        "（建议落在此目录下，勿写到工作区根）"
+                    ),
+                    "severity": "warning",
+                    "reason": "path_hint",
+                }
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-adir")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert payload["gaps"][0]["severity"] == "warning"
+    assert payload["gaps"][0]["reason"] == "path_hint"
+    assert "案卷目录" in payload["gaps"][0]["description"]
+    assert "路径建议" in payload["summary"]
+    assert payload["delivered_files"] == ["miro-research.md"]
+    assert payload["actions"] == []
+
+
+def test_artifact_dir_path_hint_from_warnings_alone_is_notes():
+    """Raw contract warning text (no pre-stamped severity) still soft via markers."""
+    plan = _plan(RunSpec(run_id="w1", task="调研", role="研究员"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["notes.md"],
+            file_acceptance=_accepted("notes.md"),
+            warnings=[
+                "产物未写入案卷目录 `docs/research/`（建议落在此目录下，勿写到工作区根）"
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-adir-warn")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert payload["gaps"][0]["severity"] == "warning"
+    assert payload["gaps"][0]["reason"] == "path_hint"
+
+
+def test_declared_artifact_path_mismatch_is_notes_not_partial():
+    """Sibling path-reconciliation warning (declared artifacts) stays soft too."""
+    plan = _plan(RunSpec(run_id="w1", task="写 README", role="文档"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="ok",
+            files_touched=["other.md"],
+            file_acceptance=_accepted("other.md"),
+            warnings=["声明的交付物路径未落盘：`README.md`"],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-art-path")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert payload["gaps"][0]["severity"] == "warning"
+    assert payload["gaps"][0]["reason"] == "path_hint"
+
 def test_partial_writing_cutoff_summary_without_continue_writing():
     plan = _plan(RunSpec(run_id="w1", task="写成篇", role="撰稿人"))
     results = {

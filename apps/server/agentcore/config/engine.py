@@ -16,12 +16,13 @@ class EngineSettings(BaseModel):
     engine_reflection_interval: int = 3
     # Absolute investigation-round ceiling (safety net). Progress-aware spinning detection
     # normally triggers earlier; this is the hard backstop. Must be ≤ worker agent
-    # max_rounds (28) or the cap never fires before the loop exits.
-    engine_convergence_finalize_rounds: int = 24
+    # max_rounds (56) or the cap never fires before the loop exits.
+    engine_convergence_finalize_rounds: int = 48
     # Consecutive investigation-only rounds re-reading the same targets before finalize.
     engine_convergence_spin_rounds: int = 3
-    # Files-expected workers: investigation-only rounds with zero landing writes before
-    # mid-loop FINALIZE (thrashing). 0 = disabled. Landing intent (write attempt) resets.
+    # Base bar for prose short-idle FINALIZE (scaled under max_rounds). Files
+    # zero-write催写 is retired; this setting no longer enables files landing nudges.
+    # 0 = disable prose-idle bar derivation too when used as base.
     engine_zero_write_finalize_rounds: int = 7
     engine_finish_guard_max_reworks: int = 2
     # C2 概览契约：本回合已发 delivery_status 时，CEO 终稿超过此字数 → finish_guard 回炉压缩。

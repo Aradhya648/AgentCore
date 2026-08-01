@@ -99,6 +99,25 @@ def user_named_project_work(user_message: str | None) -> bool:
     return any(phrase in text for phrase in _NAMED_PROJECT_WORK_PHRASES)
 
 
+def resolve_hard_explore_reason(
+    explore_reason: str | None,
+    user_message: str | None,
+) -> tuple[str | None, bool]:
+    """Named-refresh + soft-empty downgrade (assemble / resume must stay identical).
+
+    Returns ``(hard_reason, project_profile_empty_soft)``.
+    ``hard_reason`` is set for pending/write_scope=explore_memory; soft empty alone
+    yields ``(None, True)`` so the request is not blocked.
+    """
+    soft_empty = False
+    if not explore_reason and user_named_explore_refresh(user_message):
+        explore_reason = "refresh"
+    if explore_reason == "empty" and not user_named_project_work(user_message):
+        soft_empty = True
+        explore_reason = None
+    return explore_reason, soft_empty
+
+
 def profile_has_substance(markdown: str | None) -> bool:
     """True when project ``画像.md`` has real content (not chrome / empty headers only)."""
     raw = markdown or ""

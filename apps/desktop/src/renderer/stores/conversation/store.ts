@@ -23,7 +23,6 @@ import { flushPendingFrames } from "@/services/sse/execFrameBuffer";
 import { stopConversation } from "@/services/stopTurn";
 import { useExecutionStore } from "@/stores/execution";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
-import { useInteractionStore } from "@/stores/interactions";
 import type { TimelineMarkerDef } from "@/stores/interactions/registry";
 import { usePausedTurnStore } from "@/stores/pausedTurns";
 import type {
@@ -39,6 +38,7 @@ import type {
 } from "@/types/events";
 import { create } from "zustand";
 import { DRAFT_KEY, EMPTY_RUNTIME, activeRuntime } from "./runtime";
+import { isConversationSliceBusy, pruneConversationSlices } from "./sliceLru";
 import type { TurnPhase } from "./turnPhase";
 import {
   armStopConfirmTimeout,
@@ -50,6 +50,8 @@ import type { ConversationRuntime, MemoryUpdate, Message } from "./types";
 export interface ConversationState {
   currentConversationId: string | null;
   byId: Record<string, ConversationRuntime>;
+  /** MRU order of retained conversation slice keys (excludes draft). */
+  sliceLruOrder: string[];
   pendingFocus: { conversationId: string; messageId: string } | null;
 
   setCurrentConversation: (id: string | null) => void;
@@ -268,6 +270,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
   return {
     currentConversationId: null,
     byId: {},
+    sliceLruOrder: [],
     pendingFocus: null,
 
     setCurrentConversation: (id) => set({ currentConversationId: id }),
@@ -282,6 +285,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
               ? null
               : state.currentConversationId,
           byId,
+          sliceLruOrder: (state.sliceLruOrder ?? []).filter((k) => k !== id),
         };
       }),
 
@@ -947,13 +951,18 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       void detachLocalBrowserHost();
       set((state) => {
         const byId = { ...state.byId };
-        const prev = byId[prevKey];
-        const prevBusy =
-          !!prev?.isGenerating ||
-          useInteractionStore.getState().listPending(prevKey).length > 0;
-        if (!prevBusy) delete byId[prevKey];
         if (!byId[nextKey]) byId[nextKey] = { ...EMPTY_RUNTIME };
-        return { currentConversationId: id, byId };
+        const pruned = pruneConversationSlices(
+          byId,
+          state.sliceLruOrder ?? [],
+          nextKey,
+          prevKey,
+        );
+        return {
+          currentConversationId: id,
+          byId: pruned.byId,
+          sliceLruOrder: pruned.sliceLruOrder,
+        };
       });
     },
 
@@ -963,13 +972,15 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         if (conversationId === activeKey) return {};
         const slice = state.byId[conversationId];
         if (!slice) return {};
-        const busy =
-          slice.isGenerating ||
-          useInteractionStore.getState().listPending(conversationId).length > 0;
-        if (busy) return {};
+        if (isConversationSliceBusy(conversationId, slice)) return {};
         const byId = { ...state.byId };
         delete byId[conversationId];
-        return { byId };
+        return {
+          byId,
+          sliceLruOrder: (state.sliceLruOrder ?? []).filter(
+            (k) => k !== conversationId,
+          ),
+        };
       }),
 
     setAbort: (a, conversationId) =>

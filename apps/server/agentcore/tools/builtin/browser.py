@@ -1,10 +1,14 @@
 """L3 team-browser tools (M0) — browser_navigate/click/type/scroll/snapshot/screenshot.
 
-Worker-only, cloud-only (gVisor), ``execution_class`` + GRANTABLE (D11). Each tool
-drives the conversation's long-lived Chromium via the ``BrowserSessionRegistry`` +
-the sandbox stdio channel. State-changing actions (and ``screenshot``) auto-capture
-a jpeg keyframe into the workspace ``browser/`` dir; the keyframe path rides that
-step's ``tool_use_end.display`` (the shared frontend contract — DURABLE, replayable).
+``browser_navigate`` is a narrow CEO+worker exception (``surface=BUILTIN`` ·
+``AUDIENCE_BOTH`` · ``execution_class`` + ``browser_class`` + GRANTABLE) — same tier
+as ``host_shell`` / local ``terminal``. The other five stay worker-only
+(``_BROWSER_REGISTRATION``). Host: desktop Local Bridge or cloud gVisor.
+Each tool drives the conversation's long-lived Chromium via the
+``BrowserSessionRegistry`` + the sandbox stdio channel. State-changing actions
+(and ``screenshot``) auto-capture a jpeg keyframe into the workspace ``browser/``
+dir; the keyframe path rides that step's ``tool_use_end.display`` (the shared
+frontend contract — DURABLE, replayable).
 
 Untrusted-content boundary (prompt-injection defense): all page-derived text (title,
 accessibility tree) is returned inside an ``untrusted_web_content`` field annotated
@@ -33,6 +37,7 @@ from agentcore.runtime.browser.registry import (
 )
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
+    AUDIENCE_BOTH,
     AUDIENCE_WORKER_ONLY,
     ToolRegistration,
     ToolSurface,
@@ -105,10 +110,18 @@ _SESSION_ID_PARAM = {
     ),
 }
 
-# Shared registration: all six are worker-only, cloud-only gVisor, execution-class + GRANTABLE.
+# Shared by click/type/scroll/snapshot/screenshot — worker-only.
 _BROWSER_REGISTRATION = ToolRegistration(
     surface=ToolSurface.WORKER_ONLY,
     audience=AUDIENCE_WORKER_ONLY,
+    execution_class=True,
+    browser_class=True,
+)
+
+# CEO 窄例外：仅 navigate 进 builtin + BOTH（与 host_shell / terminal 并列）。
+_BROWSER_NAVIGATE_REGISTRATION = ToolRegistration(
+    surface=ToolSurface.BUILTIN,
+    audience=AUDIENCE_BOTH,
     execution_class=True,
     browser_class=True,
 )
@@ -422,6 +435,7 @@ class _BrowserToolBase:
 
 class BrowserNavigateTool(_BrowserToolBase):
     action = "navigate"
+    registration = _BROWSER_NAVIGATE_REGISTRATION
 
     @property
     def schema(self) -> ToolSchema:

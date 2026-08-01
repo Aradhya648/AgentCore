@@ -34,6 +34,7 @@ from agentcore.core.net import (
     WEB_CONNECT_TIMEOUT,
     EgressError,
     describe_net_error,
+    outbound_async_client,
 )
 from agentcore.tools.builtin.web._net import (
     circuit_remaining,
@@ -272,7 +273,7 @@ class SearXNGBackend:
         a multi-engine search is slow-but-reachable, not unreachable.
         """
         if self._client is None:
-            self._client = httpx.AsyncClient(
+            self._client = outbound_async_client(
                 timeout=httpx.Timeout(SEARCH_TIMEOUT, connect=WEB_CONNECT_TIMEOUT)
             )
         return self._client
@@ -418,7 +419,7 @@ class TavilyBackend:
         ``SEARCH_TIMEOUT`` read budget.
         """
         if self._client is None:
-            self._client = httpx.AsyncClient(
+            self._client = outbound_async_client(
                 timeout=httpx.Timeout(SEARCH_TIMEOUT, connect=WEB_CONNECT_TIMEOUT)
             )
         return self._client
@@ -592,7 +593,7 @@ async def probe_search_backend() -> tuple[bool, str] | None:
         return None  # custom backend (e.g. pure Tavily): nothing SearXNG-specific to probe
     base = backend.base_url
     try:
-        async with httpx.AsyncClient(
+        async with outbound_async_client(
             timeout=httpx.Timeout(5.0, connect=WEB_CONNECT_TIMEOUT)
         ) as client:
             resp = await client.get(f"{base}/healthz")

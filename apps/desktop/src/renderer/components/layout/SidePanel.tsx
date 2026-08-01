@@ -1,5 +1,5 @@
 import { Markdown } from "@/components/chat/Markdown";
-import { RunDetailBody } from "@/components/chat/detail/RunDetailBody";
+import { RunDetailScroll } from "@/components/chat/detail/RunDetailScroll";
 import { FileDetail } from "@/components/files/FileDetail";
 import { EmptyHint } from "@/components/files/parts";
 import {
@@ -452,7 +452,6 @@ export function SidePanel() {
           <div className={`absolute inset-0 ${commandActive ? "" : "hidden"}`}>
             <CommandPanelBody
               message={command.message}
-              execution={command.execution}
               conversationId={command.conversationId}
               interactive={command.interactive}
             />
@@ -497,13 +496,11 @@ export function SidePanel() {
           );
         })}
         {activeTab?.kind === "run" && (
-          <div className="absolute inset-0 overflow-y-auto">
-            <RunDetailBody
-              key={`${activeTab.id}:${activeTab.runId}`}
-              messageId={activeTab.messageId}
-              runId={activeTab.runId}
-            />
-          </div>
+          <RunDetailScroll
+            key={`${activeTab.id}:${activeTab.runId}`}
+            messageId={activeTab.messageId}
+            runId={activeTab.runId}
+          />
         )}
         {activeTab?.kind === "content" && (
           <div className="absolute inset-0 overflow-y-auto p-4">

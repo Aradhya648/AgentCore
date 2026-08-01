@@ -20,7 +20,8 @@ def _user(**quota):
         user_id="u1",
         is_unlimited=False,
         quota_daily_tokens=quota.get("daily_tokens"),
-        quota_monthly_cost_usd=quota.get("monthly_cost_usd"),
+        quota_monthly_cost_cny=quota.get("monthly_cost_cny"),
+        quota_daily_cost_cny=quota.get("daily_cost_cny"),
         quota_daily_requests=quota.get("daily_requests"),
     )
 
@@ -36,11 +37,10 @@ def test_is_platform_available_requires_operator_key(monkeypatch):
 
 
 def test_platform_catalog_visible_dormant_despite_key(monkeypatch):
-    """byok + free_tier off + PLATFORM_API_KEY still set → catalog gate closed."""
+    """byok + PLATFORM_API_KEY still set → catalog gate closed."""
     monkeypatch.setattr(settings, "platform_model_credentials", "")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "billing_mode", "byok")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
     assert is_platform_available() is True
     assert platform_catalog_visible() is False
 
@@ -49,16 +49,45 @@ def test_platform_catalog_visible_platform_mode_with_key(monkeypatch):
     monkeypatch.setattr(settings, "platform_model_credentials", "")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "billing_mode", "platform")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
     assert platform_catalog_visible() is True
 
 
-def test_platform_catalog_visible_free_tier_with_key(monkeypatch):
-    monkeypatch.setattr(settings, "platform_model_credentials", "")
-    monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "billing_mode", "byok")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
-    assert platform_catalog_visible() is True
+def test_platform_models_allowlist_fail_fast_rejects_orphan_platform_model():
+    """PLATFORM_MODELS 非空时 PLATFORM_MODEL 必须 ∈ allowlist，否则启动失败。"""
+    from pydantic import ValidationError
+
+    from agentcore.config.platform import PlatformSettings
+
+    with pytest.raises(ValidationError, match="PLATFORM_MODEL"):
+        PlatformSettings(
+            platform_models="glm-5.2,grok-4.5",
+            platform_model="deepseek-v4-flash",
+        )
+
+
+def test_platform_models_allowlist_fail_fast_rejects_orphan_background():
+    from pydantic import ValidationError
+
+    from agentcore.config.platform import PlatformSettings
+
+    with pytest.raises(ValidationError, match="PLATFORM_BACKGROUND_MODEL"):
+        PlatformSettings(
+            platform_models="glm-5.2",
+            platform_model="glm-5.2",
+            platform_background_model="deepseek-v4-flash",
+        )
+
+
+def test_platform_models_empty_allowlist_skips_membership_check():
+    from agentcore.config.platform import PlatformSettings
+
+    # Empty allowlist = fallback catalog; no membership conflict.
+    cfg = PlatformSettings(
+        platform_models="",
+        platform_model="deepseek-v4-flash",
+        platform_background_model="deepseek-v4-pro",
+    )
+    assert cfg.platform_model == "deepseek-v4-flash"
 
 def _mock_provider_default(monkeypatch, *, user, row):
     """Wire resolve's UserRepository + UserLlmProviderRepository for the default provider."""
@@ -116,7 +145,7 @@ async def test_resolve_account_default_without_provider(monkeypatch):
 
     expanded = ExpandedProfile(
         profile_id="bal",
-        name="5.2",
+        name="GLM-5.2",
         kind="system",
         main=ModelSelection(model="plat-model", origin="platform", provider_id=None),
     )
@@ -207,15 +236,8 @@ async def test_gate_byok_origin_skips_quota(monkeypatch):
 @pytest.mark.asyncio
 async def test_gate_platform_origin_enforces_quota(monkeypatch):
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "billing_mode", "byok")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", True)
-    with (
-        patch(
-            "agentcore.billing.gate.user_has_provider",
-            AsyncMock(return_value=False),
-        ),
-        patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
-    ):
+    monkeypatch.setattr(settings, "billing_mode", "platform")
+    with patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce:
         result = await preflight_llm_credentials(
             session=MagicMock(),
             user=_user(),
@@ -225,7 +247,6 @@ async def test_gate_platform_origin_enforces_quota(monkeypatch):
         )
     assert result is None
     enforce.assert_awaited_once()
-    assert enforce.await_args.kwargs["free_tier"] is True
 
 
 @pytest.mark.asyncio
@@ -251,10 +272,6 @@ async def test_resolve_and_gate_background_platform_enforces_quota(monkeypatch):
             "agentcore.billing.gate.UserRepository",
             lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=_user())),
         ),
-        patch(
-            "agentcore.billing.gate.user_has_provider",
-            AsyncMock(return_value=True),
-        ),
         patch("agentcore.billing.gate.enforce_quota", AsyncMock()) as enforce,
     ):
         result = await resolve_and_gate_background(MagicMock(), "u1", purpose="title")
@@ -262,7 +279,6 @@ async def test_resolve_and_gate_background_platform_enforces_quota(monkeypatch):
     assert result.source == "platform"
     assert result.api_key == "sk-platform"
     enforce.assert_awaited_once()
-    assert enforce.await_args.kwargs["free_tier"] is False
 
 
 @pytest.mark.asyncio
@@ -288,10 +304,6 @@ async def test_resolve_and_gate_background_quota_exceeded_returns_none(monkeypat
         patch(
             "agentcore.billing.gate.UserRepository",
             lambda _s: SimpleNamespace(get_by_id=AsyncMock(return_value=_user())),
-        ),
-        patch(
-            "agentcore.billing.gate.user_has_provider",
-            AsyncMock(return_value=True),
         ),
         patch(
             "agentcore.billing.gate.enforce_quota",
@@ -490,11 +502,10 @@ async def test_resolve_and_gate_background_user_fallback_skips_quota(monkeypatch
 
 @pytest.mark.asyncio
 async def test_gate_platform_origin_dormant_refuses(monkeypatch):
-    """byok + free_tier off + key still present → platform origin refused."""
+    """byok + key still present → platform origin refused."""
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "platform_model_credentials", "")
     monkeypatch.setattr(settings, "billing_mode", "byok")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
     with pytest.raises(PlatformBillingUnavailableError):
         await preflight_llm_credentials(
             session=MagicMock(),
@@ -551,7 +562,6 @@ async def test_resolve_model_config_background_dormant_skips_platform(monkeypatc
     monkeypatch.setattr(settings, "platform_model", "plat-model")
     monkeypatch.setattr(settings, "platform_background_model", "")
     monkeypatch.setattr(settings, "billing_mode", "byok")
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
     monkeypatch.setattr(
         "agentcore.llm.resolve.resolve_background_user_fallback",
         AsyncMock(return_value=None),

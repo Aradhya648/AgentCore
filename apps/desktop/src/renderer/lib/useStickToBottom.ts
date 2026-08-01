@@ -12,23 +12,40 @@ import {
   useState,
 } from "react";
 
+export interface StickToBottomOptions {
+  /**
+   * When `resetKey` changes: `true` (default) re-sticks to the latest content;
+   * `false` opens at the top and stays detached (for historical / finished runs).
+   * Read via ref at reset time so a live→done flip mid-view does not yank to top.
+   */
+  followOnReset?: boolean;
+}
+
 /**
  * Keeps a transcript pinned to the newest content without hijacking the user's
  * reading. The view sticks while near the bottom; an upward wheel/touch detaches
  * immediately (so streaming cannot yank the viewport back), and hysteresis keeps
- * re-attach from flickering at the band edge. A change of `resetKey` re-sticks.
+ * re-attach from flickering at the band edge. A change of `resetKey` re-sticks
+ * (unless {@link StickToBottomOptions.followOnReset} is false).
  *
  * Auto-follow uses instant scrolling (a smooth animation can't keep pace with a
  * fast token stream and fights the scroll listener); the manual jump can afford
  * to be instant too.
  *
- * Shared by the IM 消息 thread (ChatThread). AI 对话 uses {@link useChatScroll},
- * which applies the same stick helpers plus bidirectional windowing.
+ * Shared by the IM 消息 thread (ChatThread) and the SidePanel run-detail dock.
+ * AI 对话 uses {@link useChatScroll}, which applies the same stick helpers plus
+ * bidirectional windowing.
  */
-export function useStickToBottom(contentKey: string, resetKey: string | null) {
+export function useStickToBottom(
+  contentKey: string,
+  resetKey: string | null,
+  options?: StickToBottomOptions,
+) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const touchYRef = useRef<number | null>(null);
+  const followOnResetRef = useRef(options?.followOnReset !== false);
+  followOnResetRef.current = options?.followOnReset !== false;
   const [atBottom, setAtBottom] = useState(true);
 
   const applyStick = useCallback((stuck: boolean) => {
@@ -106,11 +123,17 @@ export function useStickToBottom(contentKey: string, resetKey: string | null) {
     else setAtBottom(false);
   }, [contentKey, scrollToBottom]);
 
-  // Context switch: always re-stick and land on the latest item.
+  // Context switch: re-stick to latest, or open at top when followOnReset is false.
   // biome-ignore lint/correctness/useExhaustiveDependencies: resetKey is an intentional re-run key.
   useLayoutEffect(() => {
-    applyStick(true);
-    scrollToBottom("auto");
+    if (followOnResetRef.current) {
+      applyStick(true);
+      scrollToBottom("auto");
+      return;
+    }
+    applyStick(false);
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: 0, behavior: "auto" });
   }, [resetKey, applyStick, scrollToBottom]);
 
   return { scrollRef, atBottom, jumpToBottom };

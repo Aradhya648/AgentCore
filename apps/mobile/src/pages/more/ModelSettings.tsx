@@ -256,6 +256,7 @@ export function ModelSettings() {
           <ProfileForm
             profile={surface.mode === "edit" ? surface.profile : undefined}
             catalog={catalog}
+            platformAvailable={platformMode}
             platformModel={data?.platform_model}
             onSaved={() => {
               setSurface({ kind: "list" });
@@ -489,12 +490,14 @@ function ProfilesSection({
 function ProfileForm({
   profile,
   catalog,
+  platformAvailable,
   platformModel,
   onSaved,
   onCancel,
 }: {
   profile?: LlmModelProfileView;
   catalog: ModelCatalog | null;
+  platformAvailable: boolean;
   platformModel?: string | null;
   onSaved: () => void;
   onCancel: () => void;
@@ -504,6 +507,7 @@ function ProfileForm({
   const firstMain =
     groups[0]?.items[0]?.value ??
     (platformModel ? `${PLATFORM_POINTER_ID}::${platformModel}` : "");
+  const noSelectableModels = groups.every((g) => g.items.length === 0);
 
   const [name, setName] = useState(profile?.name ?? "");
   const [mainValue, setMainValue] = useState(
@@ -614,6 +618,17 @@ function ProfileForm({
             )}
             {renderOptgroups()}
           </select>
+          {noSelectableModels && (
+            <p
+              className="muted"
+              data-testid="profile-no-models"
+              style={{ fontSize: 12, marginTop: 4 }}
+            >
+              {platformAvailable
+                ? "暂无可用模型。平台额度暂不可用，请联系管理员或稍后重试。"
+                : "暂无可用模型，请先添加服务商。"}
+            </p>
+          )}
         </div>
         <div className="field">
           <label className="field-label" htmlFor="profile-worker">

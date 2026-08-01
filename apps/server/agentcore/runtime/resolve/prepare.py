@@ -180,6 +180,7 @@ def _assemble_ceo_toolset(
         desktop_online=desktop_online,
         permission_axes=permission_axes,
         backend_location=backend_location,
+        include_browser="browser_navigate" in worker_tools.names,
     )
     chat_tools.register(delegate_tool)
     # debate (辩论编排原语): the CEO's对抗性多视角思考 primitive, sibling to delegate —

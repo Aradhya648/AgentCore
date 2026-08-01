@@ -19,7 +19,7 @@ def _wire_cost(cost: dict[str, Any] | None) -> dict[str, Any]:
             "cached": 0,
             "output": 0,
             "total": 0,
-            "currency": "USD",
+            "currency": "CNY",
             "pricing_source": "curated",
         }
     out: dict[str, Any] = {
@@ -27,7 +27,7 @@ def _wire_cost(cost: dict[str, Any] | None) -> dict[str, Any]:
         "cached": int(cost.get("cached", 0) or 0),
         "output": int(cost.get("output", 0) or 0),
         "total": int(cost.get("total", 0) or 0),
-        "currency": str(cost.get("currency") or "USD"),
+        "currency": str(cost.get("currency") or "CNY"),
         "pricing_source": str(cost.get("pricing_source") or "curated"),
     }
     if cost.get("estimated_total") is not None:

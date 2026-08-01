@@ -111,7 +111,11 @@ def _ask_detail(args_json: str) -> str:
 
 async def _build_ceo_context(mode: str):
     """复用 pipeline 真实装配，返回 (provider, profile, ceo_prompt, tool_defs)。"""
-    provider = build_provider(None)  # None -> 回落 settings 全局 key
+    from agentcore.llm.resolve import platform_llm_credentials
+    creds = platform_llm_credentials()
+    if creds is None:
+        raise RuntimeError('PLATFORM_API_KEY required (no silent build_provider fallback)')
+    provider = build_provider(creds)
     profiles = resolve_profile_set(mode, custom_modes={}, ceiling=frozenset(KNOWN_MODELS))
     chat_profile = profiles.get("chat")
     chat_model = profiles.model_for("chat")

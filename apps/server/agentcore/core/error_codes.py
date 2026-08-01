@@ -49,7 +49,6 @@ class ErrorCode(StrEnum):
     MFA_SETUP_REQUIRED = "MFA_SETUP_REQUIRED"
     RATE_LIMITED = "RATE_LIMITED"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
-    FREE_TIER_EXHAUSTED = "FREE_TIER_EXHAUSTED"  # monthly free tier spent (429 + BYOK CTA)
 
     # ── LLM provider (DeepSeek / BYOK) ───────────────────────────────────
     LLM_ERROR = "LLM_ERROR"
@@ -57,6 +56,7 @@ class ErrorCode(StrEnum):
     LLM_TIMEOUT = "LLM_TIMEOUT"
     LLM_INSUFFICIENT_BALANCE = "LLM_INSUFFICIENT_BALANCE"  # valid key, empty wallet (402)
     LLM_KEY_INVALID = "LLM_KEY_INVALID"  # configured key rejected mid-turn (401/403)
+    INFERENCE_TOKEN_EXPIRED = "INFERENCE_TOKEN_EXPIRED"  # sidecar cloud-proxy JWT invalid/expired
     LLM_KEY_REQUIRED = "LLM_KEY_REQUIRED"  # no BYOK key at preflight (402)
     PLATFORM_BILLING_UNAVAILABLE = "PLATFORM_BILLING_UNAVAILABLE"  # platform mode but no operator key (503)
     KEY_STORAGE_UNAVAILABLE = "KEY_STORAGE_UNAVAILABLE"  # no master encryption key (503)

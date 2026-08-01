@@ -312,10 +312,10 @@ async def test_file_read_allows_up_to_same_path_max(tmp_path: Path):
 
 async def test_file_read_rejects_same_path_over_max(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
-    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "site").mkdir()
     (tmp_path / "site" / "DESIGN.md").write_text("tokens", encoding="utf-8")
+    (tmp_path / "site" / "OTHER.md").write_text("other body", encoding="utf-8")
     ctx = _ctx(tmp_path)
     tool = FileReadTool()
     for _ in range(FILE_READ_SAME_PATH_MAX):
@@ -325,8 +325,14 @@ async def test_file_read_rejects_same_path_over_max(tmp_path: Path):
     assert blocked.contract_failure is True
     assert "已多次读取" in (blocked.error or "")
     assert "site/DESIGN.md" in (blocked.error or "")
-    assert blocked.metadata.get("retire_tools") == ["file_read"]
-    assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
+    assert "勿再读此文件" in (blocked.error or "")
+    assert "可换其它文件" in (blocked.error or "")
+    # Path-scoped only: must not retire the whole tool.
+    assert "retire_tools" not in (blocked.metadata or {})
+    assert blocked.metadata.get("error_class") != "permanent"
+    other = await tool.execute({"path": "site/OTHER.md"}, ctx)
+    assert other.success is True
+    assert "other body" in (other.output or "")
 
 
 async def test_file_read_same_path_limit_is_per_path(tmp_path: Path):
@@ -343,9 +349,9 @@ async def test_file_read_same_path_limit_is_per_path(tmp_path: Path):
 
 async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
-    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "doc.md").write_text("# Doc\nbody", encoding="utf-8")
+    (tmp_path / "peer.md").write_text("peer", encoding="utf-8")
     ctx = _ctx(tmp_path)
     tool = FileReadTool()
     for _ in range(FILE_READ_SAME_PATH_MAX):
@@ -365,8 +371,9 @@ async def test_file_read_reread_after_clear_allows_one(tmp_path: Path):
     assert blocked.contract_failure is True
     assert "再读次数已用尽" in (blocked.error or "")
     assert "请使用对话中已有正文" not in (blocked.error or "")
-    assert blocked.metadata.get("retire_tools") == ["file_read"]
-    assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
+    assert "retire_tools" not in (blocked.metadata or {})
+    peer = await tool.execute({"path": "peer.md"}, ctx)
+    assert peer.success is True
 
 
 async def test_file_read_reread_refresh_after_citation_rework(tmp_path: Path):
@@ -394,9 +401,9 @@ async def test_file_read_reread_refresh_after_citation_rework(tmp_path: Path):
 
 async def test_file_read_reread_not_granted_while_verbatim_present(tmp_path: Path):
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
-    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "keep.md").write_text("keep", encoding="utf-8")
+    (tmp_path / "next.md").write_text("next", encoding="utf-8")
     ctx = _ctx(tmp_path)
     tool = FileReadTool()
     for _ in range(FILE_READ_SAME_PATH_MAX):
@@ -406,21 +413,20 @@ async def test_file_read_reread_not_granted_while_verbatim_present(tmp_path: Pat
     blocked = await tool.execute({"path": "keep.md"}, ctx)
     assert blocked.success is False
     assert blocked.contract_failure is True
-    assert "请使用对话中已有正文" in (blocked.error or "")
-    assert blocked.metadata.get("retire_tools") == ["file_read"]
-    assert blocked.metadata.get("retire_message") == _FILE_READ_PATH_CEILING_RETIRE_STEER
+    assert "勿再读此文件" in (blocked.error or "")
+    assert "retire_tools" not in (blocked.metadata or {})
+    next_ok = await tool.execute({"path": "next.md"}, ctx)
+    assert next_ok.success is True
 
 
-async def test_file_read_ceiling_retire_trips_breaker_despite_contract_failure(
-    tmp_path: Path,
-):
-    """P2: tip alone was ignored; retire_tools must hard-disable file_read."""
+async def test_file_read_ceiling_does_not_retire_tool(tmp_path: Path):
+    """Same-path ceiling rejects only that path; file_read stays available."""
     from agentcore.runtime.loop_controller import LoopController, ToolAttempt
     from agentcore.runtime.runs.constants import FILE_READ_SAME_PATH_MAX
-    from agentcore.tools.builtin.file_ops import _FILE_READ_PATH_CEILING_RETIRE_STEER
 
     (tmp_path / "attachments").mkdir()
     (tmp_path / "attachments" / "PRD.md").write_text("# PRD\n" + ("x" * 200), encoding="utf-8")
+    (tmp_path / "attachments" / "SPEC.md").write_text("# SPEC\nok", encoding="utf-8")
     ctx = _ctx(tmp_path)
     tool = FileReadTool()
     for _ in range(FILE_READ_SAME_PATH_MAX):
@@ -428,6 +434,8 @@ async def test_file_read_ceiling_retire_trips_breaker_despite_contract_failure(
     blocked = await tool.execute({"path": "attachments/PRD.md"}, ctx)
     assert blocked.success is False
     assert blocked.contract_failure is True
+    assert "retire_tools" not in (blocked.metadata or {})
+    assert blocked.metadata.get("error_class") != "permanent"
 
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
     c.record(
@@ -442,26 +450,12 @@ async def test_file_read_ceiling_retire_trips_breaker_despite_contract_failure(
             )
         ]
     )
-    cb = c.tool_circuit_breaker()
-    assert cb.disabled == ("file_read",)
-    assert cb.retire_message == _FILE_READ_PATH_CEILING_RETIRE_STEER
-    msg = cb.message() or ""
-    assert "基于" in msg and "正文" in msg
-    assert "已多次失败" not in msg
-    # Further tip retries must not re-fire breaker noise.
-    c.record(
-        [
-            ToolAttempt(
-                "ceil2",
-                "file_read",
-                success=False,
-                contract_failure=True,
-                meta=dict(blocked.metadata),
-            )
-        ]
-    )
     assert not c.tool_circuit_breaker()
+    assert c.tool_failure_count("file_read") == 0
 
+    other = await tool.execute({"path": "attachments/SPEC.md"}, ctx)
+    assert other.success is True
+    assert "SPEC" in (other.output or "")
 
 # --- file_append ---
 

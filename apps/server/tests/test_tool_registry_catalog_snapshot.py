@@ -64,6 +64,11 @@ _HOST_SHELL_ORDER = [
     "host_shell",
 ]
 
+# CEO+worker GRANTABLE 窄例外：browser_navigate（builtin · browser_class · include_browser 闸）
+_BROWSER_NAVIGATE_ORDER = [
+    "browser_navigate",
+]
+
 _WORKER_ONLY_ORDER = [
     "escalate",
     "post_note",
@@ -183,6 +188,43 @@ def test_tool_registry_ceo_builtin_order_and_roster():
     assert names == _CEO_BUILTIN_ORDER
 
 
+def test_tool_registry_builtin_includes_navigate_when_include_browser():
+    names = [s.name for s in build_builtin_registry(include_browser=True).list_all()]
+    assert names == _BUILTIN_ORDER + _BROWSER_NAVIGATE_ORDER
+
+
+def test_tool_registry_ceo_includes_navigate_when_include_browser():
+    names = [s.name for s in build_ceo_tool_registry(include_browser=True).list_all()]
+    assert names == _CEO_BUILTIN_ORDER + _BROWSER_NAVIGATE_ORDER
+
+
+def test_browser_navigate_available_to_both():
+    from agentcore.tools.registration import (
+        AUDIENCE_BOTH,
+        declared_tool_name,
+        declared_tools,
+        tool_registration,
+    )
+
+    by_name = {
+        declared_tool_name(cls): tool_registration(cls)
+        for cls in declared_tools()
+    }
+    reg = by_name["browser_navigate"]
+    assert reg.audience == AUDIENCE_BOTH
+    assert reg.surface.value == "builtin"
+    assert reg.browser_class and reg.execution_class
+    for other in (
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_snapshot",
+        "browser_screenshot",
+    ):
+        assert by_name[other].audience == ("worker",)
+        assert by_name[other].surface.value == "worker_only"
+
+
 def test_tool_registry_builtin_approvals_snapshot():
     approvals = {s.name: s.approval for s in build_builtin_registry().list_all()}
     never = {
@@ -275,7 +317,7 @@ def test_catalog_categories_present():
 
 def test_tool_registry_declarations_cover_roster():
     """Every declared class has ``registration``; CEO builtins stay NEVER-aligned
-    except the Host P3 ``host_shell`` GRANTABLE exception.
+    except Host P3 ``host_shell`` and browser ``browser_navigate`` GRANTABLE exceptions.
     """
     from agentcore.tools.registration import (
         AUDIENCE_CEO,
@@ -286,8 +328,8 @@ def test_tool_registry_declarations_cover_roster():
         tool_registration,
     )
 
-    # Explicit break of「CEO 永不持 GRANTABLE」— Host face only (定案 P3).
-    _ceo_grantable_exceptions = frozenset({"host_shell"})
+    # Explicit break of「CEO 永不持 GRANTABLE」— Host face + browser navigate 窄例外.
+    _ceo_grantable_exceptions = frozenset({"host_shell", "browser_navigate"})
 
     declared = declared_tools()
     assert declared, "DECLARED_TOOLS must not be empty"
@@ -300,8 +342,12 @@ def test_tool_registry_declarations_cover_roster():
             schema = cls().schema if not reg.needs_location else cls(location=None).schema
             if schema.name in _ceo_grantable_exceptions:
                 assert schema.approval is ToolApproval.GRANTABLE, schema.name
-                assert reg.host_class, schema.name
-                assert not reg.execution_class, schema.name
+                if schema.name == "host_shell":
+                    assert reg.host_class, schema.name
+                    assert not reg.execution_class, schema.name
+                elif schema.name == "browser_navigate":
+                    assert reg.browser_class, schema.name
+                    assert reg.execution_class, schema.name
             else:
                 assert schema.approval is ToolApproval.NEVER, schema.name
 

@@ -1,8 +1,8 @@
-"""Set a user's per-user quota overrides (成本配额与计费.md §一, 决策④).
+"""Set a user's per-user quota overrides (成本配额与计费.md §一).
 
 Operator tool for granting a specific account more (or unlimited) headroom during
 内测, without touching the database by hand. The same ``UserRepository.set_quota``
-this calls will back a future admin 成员-page endpoint.
+this calls backs the admin 成员-page endpoint.
 
 Run from ``apps/server``::
 
@@ -12,8 +12,8 @@ Run from ``apps/server``::
     # raise just the daily token budget, leave the rest inheriting global config
     uv run python scripts/set_quota.py bob --daily-tokens 5000000
 
-    # cap monthly spend at $20 and clear the daily-requests override (inherit again)
-    uv run python scripts/set_quota.py carol --monthly-usd 20 --daily-requests inherit
+    # cap monthly spend at ¥20 and clear the daily-requests override (inherit again)
+    uv run python scripts/set_quota.py carol --monthly-cny 20 --daily-requests inherit
 
 Semantics per dimension: a number sets the override (``0`` = unlimited for that
 dimension); ``inherit`` clears it back to the global config threshold; omitting the
@@ -65,18 +65,18 @@ def _parse_args() -> argparse.Namespace:
         help="daily token cap (0 = unlimited; 'inherit' clears the override)",
     )
     p.add_argument(
-        "--monthly-usd",
+        "--monthly-cny",
         type=_opt_float,
         default=_UNSET,
         metavar="X|inherit",
-        help="monthly cost cap in USD (0 = unlimited; 'inherit' clears)",
+        help="monthly cost cap in CNY (0 = unlimited; 'inherit' clears)",
     )
     p.add_argument(
-        "--daily-usd",
+        "--daily-cny",
         type=_opt_float,
         default=_UNSET,
         metavar="X|inherit",
-        help="daily cost cap in USD (0 = unlimited; 'inherit' clears)",
+        help="daily cost cap in CNY (0 = unlimited; 'inherit' clears)",
     )
     p.add_argument(
         "--daily-requests",
@@ -101,10 +101,10 @@ async def _run(args: argparse.Namespace) -> None:
             kwargs["is_unlimited"] = args.unlimited
         if args.daily_tokens is not _UNSET:
             kwargs["daily_tokens"] = args.daily_tokens
-        if args.monthly_usd is not _UNSET:
-            kwargs["monthly_cost_usd"] = args.monthly_usd
-        if args.daily_usd is not _UNSET:
-            kwargs["daily_cost_usd"] = args.daily_usd
+        if args.monthly_cny is not _UNSET:
+            kwargs["monthly_cost_cny"] = args.monthly_cny
+        if args.daily_cny is not _UNSET:
+            kwargs["daily_cost_cny"] = args.daily_cny
         if args.daily_requests is not _UNSET:
             kwargs["daily_requests"] = args.daily_requests
 
@@ -117,8 +117,8 @@ async def _run(args: argparse.Namespace) -> None:
 
         print(f"  is_unlimited        : {user.is_unlimited}")
         print(f"  quota_daily_tokens  : {_fmt(user.quota_daily_tokens)}")
-        print(f"  quota_monthly_usd   : {_fmt(user.quota_monthly_cost_usd)}")
-        print(f"  quota_daily_usd     : {_fmt(user.quota_daily_cost_usd)}")
+        print(f"  quota_monthly_cny   : {_fmt(user.quota_monthly_cost_cny)}")
+        print(f"  quota_daily_cny     : {_fmt(user.quota_daily_cost_cny)}")
         print(f"  quota_daily_requests: {_fmt(user.quota_daily_requests)}")
 
 

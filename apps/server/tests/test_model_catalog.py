@@ -140,7 +140,8 @@ async def test_catalog_with_key_mixes_byok_and_platform(monkeypatch):
     row = _prov("prov-1", default_model="deepseek-v4-flash", label="DeepSeek")
     monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(catalog.settings, "billing_mode", "platform")
-    monkeypatch.setattr(catalog.settings, "platform_model", "deepseek-v4-flash")
+    # Platform listable requires curated CNY card (step1: glm-5.2 only among defaults).
+    monkeypatch.setattr(catalog.settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(catalog.settings, "platform_models", "")
     _mock_catalog(
         monkeypatch,
@@ -155,7 +156,7 @@ async def test_catalog_with_key_mixes_byok_and_platform(monkeypatch):
     assert cat.current.provider_id == "prov-1"
     keys = {(m.id, m.origin, m.provider_id) for m in cat.models}
     assert ("deepseek-v4-flash", "byok", "prov-1") in keys
-    assert ("deepseek-v4-flash", "platform", None) in keys
+    assert ("glm-5.2", "platform", None) in keys
     assert ("some-endpoint-model", "byok", "prov-1") in keys
     # BYOK rows carry the provider label for UI grouping.
     byok = [m for m in cat.models if m.origin == "byok"]
@@ -186,18 +187,18 @@ async def test_catalog_same_model_id_under_two_providers(monkeypatch):
 async def test_catalog_keyless_platform_on_hides_guide_rows(monkeypatch):
     monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(catalog.settings, "billing_mode", "platform")
-    monkeypatch.setattr(catalog.settings, "platform_model", "deepseek-v4-flash")
+    monkeypatch.setattr(catalog.settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(catalog.settings, "platform_models", "")
     _mock_catalog(
         monkeypatch,
         providers=[],
-        selection=ModelSelection(model="deepseek-v4-flash", origin="platform", provider_id=None),
+        selection=ModelSelection(model="glm-5.2", origin="platform", provider_id=None),
     )
     cat = await resolve_model_catalog(None, "u1")
     assert cat.byok_configured is False
     assert cat.current.origin == "platform"
     keys = {(m.id, m.origin) for m in cat.models}
-    assert ("deepseek-v4-flash", "platform") in keys
+    assert ("glm-5.2", "platform") in keys
     assert all(m.origin == "platform" and m.available for m in cat.models)
 
 
@@ -205,7 +206,6 @@ async def test_catalog_keyless_platform_off_returns_empty(monkeypatch):
     """Keyless + no platform subsidy: empty catalog (UI shows an empty state, no guide rows)."""
     monkeypatch.setattr(catalog.settings, "platform_api_key", "")
     monkeypatch.setattr(catalog.settings, "billing_mode", "byok")
-    monkeypatch.setattr(catalog.settings, "platform_free_tier_enabled", False)
     _mock_catalog(
         monkeypatch,
         providers=[],
@@ -217,14 +217,13 @@ async def test_catalog_keyless_platform_off_returns_empty(monkeypatch):
 
 
 async def test_catalog_dormant_hides_platform_despite_key(monkeypatch):
-    """byok + free_tier off + PLATFORM_API_KEY still set → no platform catalog rows."""
+    """byok + PLATFORM_API_KEY still set → no platform catalog rows."""
     reset_discovery_cache_for_tests()
     row = _prov("provA", label="DeepSeek")
     monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(catalog.settings, "billing_mode", "byok")
-    monkeypatch.setattr(catalog.settings, "platform_free_tier_enabled", False)
     monkeypatch.setattr(catalog.settings, "platform_model", "deepseek-v4-flash")
-    monkeypatch.setattr(catalog.settings, "platform_models", "5.2,grok-4.5")
+    monkeypatch.setattr(catalog.settings, "platform_models", "glm-5.2,relay-b")
     _mock_catalog(
         monkeypatch,
         providers=[row],
@@ -239,21 +238,42 @@ async def test_catalog_dormant_hides_platform_despite_key(monkeypatch):
 async def test_catalog_platform_allowlist_drives_rows(monkeypatch):
     monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(catalog.settings, "billing_mode", "platform")
-    monkeypatch.setattr(catalog.settings, "platform_model", "deepseek-v4-flash")
+    monkeypatch.setattr(catalog.settings, "platform_model", "glm-5.2")
     monkeypatch.setattr(
         catalog.settings,
         "platform_models",
-        "deepseek-v4-flash, deepseek-v4-pro , gpt-4o, deepseek-v4-pro",
+        "glm-5.2, doubao/doubao-seed-2-1-turbo-260628 , glm-5.2",
     )
     _mock_catalog(
         monkeypatch,
         providers=[],
-        selection=ModelSelection(model="deepseek-v4-flash", origin="platform", provider_id=None),
+        selection=ModelSelection(model="glm-5.2", origin="platform", provider_id=None),
     )
     cat = await resolve_model_catalog(None, "u1")
     platform_ids = [m.id for m in cat.models if m.origin == "platform"]
-    assert platform_ids == ["deepseek-v4-flash", "deepseek-v4-pro", "gpt-4o"]
+    assert platform_ids == ["glm-5.2", "doubao/doubao-seed-2-1-turbo-260628"]
     assert all(m.available and m.price is not None for m in cat.models if m.origin == "platform")
+
+
+async def test_catalog_excludes_models_without_curated_pricing(monkeypatch):
+    """缺 curated 价卡 → 不上架（不进目录），不只 warning 仍 available。"""
+    monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
+    monkeypatch.setattr(catalog.settings, "billing_mode", "platform")
+    monkeypatch.setattr(catalog.settings, "platform_model", "glm-5.2")
+    monkeypatch.setattr(
+        catalog.settings,
+        "platform_models",
+        "glm-5.2,totally-unknown-relay-model",
+    )
+    _mock_catalog(
+        monkeypatch,
+        providers=[],
+        selection=ModelSelection(model="glm-5.2", origin="platform", provider_id=None),
+    )
+    cat = await resolve_model_catalog(None, "u1")
+    platform_ids = [m.id for m in cat.models if m.origin == "platform"]
+    assert platform_ids == ["glm-5.2"]
+    assert "totally-unknown-relay-model" not in platform_ids
 
 
 # --- validate_model_choice ----------------------------------------------------
@@ -262,14 +282,25 @@ async def test_catalog_platform_allowlist_drives_rows(monkeypatch):
 async def test_validate_platform_allowlist_membership(monkeypatch):
     monkeypatch.setattr(catalog.settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(catalog.settings, "billing_mode", "platform")
-    monkeypatch.setattr(catalog.settings, "platform_models", "deepseek-v4-pro,gpt-4o")
+    # Only curated-CNY ids list；无卡的 allowlist 成员不上架 / 不可选。
+    monkeypatch.setattr(
+        catalog.settings,
+        "platform_models",
+        "glm-5.2,doubao/doubao-seed-2-1-turbo-260628,gpt-4o",
+    )
     _mock_catalog(
         monkeypatch,
         providers=[],
-        selection=ModelSelection(model="deepseek-v4-pro", origin="platform", provider_id=None),
+        selection=ModelSelection(model="glm-5.2", origin="platform", provider_id=None),
     )
-    assert await validate_model_choice(None, "u1", "gpt-4o", "platform") is True
-    assert await validate_model_choice(None, "u1", "deepseek-v4-pro", "platform") is True
+    assert await validate_model_choice(None, "u1", "glm-5.2", "platform") is True
+    assert (
+        await validate_model_choice(
+            None, "u1", "doubao/doubao-seed-2-1-turbo-260628", "platform"
+        )
+        is True
+    )
+    assert await validate_model_choice(None, "u1", "gpt-4o", "platform") is False
     assert await validate_model_choice(None, "u1", "deepseek-v4-flash", "platform") is False
 
 
@@ -296,8 +327,12 @@ async def test_validate_model_choice_is_provider_scoped(monkeypatch):
 def test_has_curated_pricing_flags_uncurated():
     from agentcore.llm.pricing import has_curated_pricing
 
+    assert not has_curated_pricing("gpt-4o")
     assert has_curated_pricing("deepseek-v4-flash")
-    assert has_curated_pricing("gpt-4o")
+    assert has_curated_pricing("deepseek-v4-pro")
+    assert has_curated_pricing("glm-5.2")
+    assert not has_curated_pricing("grok-4.5")
+    assert has_curated_pricing("doubao/doubao-seed-2-1-turbo-260628")
     assert not has_curated_pricing("totally-unknown-relay-model")
 
 
@@ -331,7 +366,7 @@ async def test_platform_selection_passes_through_to_turn(monkeypatch):
 
     expanded = ExpandedProfile(
         profile_id="sys",
-        name="5.2",
+        name="GLM-5.2",
         kind="system",
         main=ModelSelection(model="deepseek-v4-pro", origin="platform", provider_id=None),
     )
@@ -516,7 +551,7 @@ async def test_dangling_profile_falls_back_via_expand(monkeypatch):
 
     fallback = ExpandedProfile(
         profile_id="bal",
-        name="5.2",
+        name="GLM-5.2",
         kind="system",
         main=ModelSelection(model="acct-model", origin="byok", provider_id="p2"),
     )

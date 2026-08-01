@@ -47,7 +47,6 @@ export interface FlowGraphProjectionInput {
   nodeHeights: Record<string, number>;
   nodeSizes: Record<string, { width: number; height: number }>;
   handleDirection: "horizontal" | "vertical";
-  cnyPerUsd: number;
   litRunId: string | null;
   litEndpointMessageId: string | null;
   captainRun: { id: string } | null;
@@ -181,7 +180,6 @@ export function projectFlowNodes({
   nodeHeights,
   nodeSizes,
   handleDirection,
-  cnyPerUsd,
   litRunId,
   litEndpointMessageId,
   captainRun,
@@ -431,9 +429,7 @@ export function projectFlowNodes({
         startedAt: faceRun.startedAt ?? run.startedAt,
         realTokens,
         costText:
-          costNano > 0
-            ? formatCostCaption(costNano, cnyPerUsd, costEstimated)
-            : undefined,
+          costNano > 0 ? formatCostCaption(costNano, costEstimated) : undefined,
         handleDirection,
         isSubtask,
         isRevision: isContinuation,

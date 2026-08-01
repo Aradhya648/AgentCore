@@ -3,7 +3,12 @@ import { queryClient } from "@/lib/queryClient";
 import { notifyInfo } from "@/lib/toast";
 import { BASE_URL, notifyUnauthorized, tryRefresh } from "@/services/api";
 import { toMemoryUpdate } from "@/services/messages";
-import type { ChatMessageDetail } from "@/services/messaging";
+import type {
+  ChatMessageDetail,
+  FriendRequest,
+  FriendRequestAction,
+} from "@/services/messaging";
+import { useAuthStore } from "@/stores/auth";
 import { useConversationStore } from "@/stores/conversation";
 import { useMessagingStore } from "@/stores/messaging";
 
@@ -57,6 +62,13 @@ interface PresenceEvent {
   online: boolean;
 }
 
+/** Friend-request lifecycle (消息IM.md §9.3) — refresh inbox / profile relation. */
+interface FriendRequestEvent {
+  type: "friend_request";
+  action: FriendRequestAction;
+  request: FriendRequest;
+}
+
 /** 记忆更新对话内可见 (§1.6): one offline-consolidation pass that changed a memory
  * file. `update` (the conversation-tail card payload) is present whenever the pass
  * recorded a row; its shape mirrors the REST `MemoryUpdateView` so {@link toMemoryUpdate}
@@ -87,6 +99,7 @@ interface MemoryUpdatedEvent {
 function catchUp(): void {
   const store = useMessagingStore.getState();
   void store.fetchChats();
+  void store.fetchFriendRequests();
   if (store.activeChatId) void store.loadMessages(store.activeChatId);
 }
 
@@ -148,6 +161,14 @@ function handleFrame(frame: string): void {
       const e = event as PresenceEvent;
       if (e.user_id) {
         useMessagingStore.getState().applyPresence(e.user_id, !!e.online);
+      }
+    } else if (event.type === "friend_request") {
+      // Refresh request box + friends; open profile card re-fetches via store subscribe.
+      useMessagingStore.getState().applyFriendRequestEvent();
+      const e = event as FriendRequestEvent;
+      const myId = useAuthStore.getState().user?.id;
+      if (e.action === "created" && myId && e.request?.to_user_id === myId) {
+        notifyInfo("你收到一条好友申请");
       }
     }
     // "ready" and any other event types: no-op here.

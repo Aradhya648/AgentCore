@@ -23,7 +23,7 @@ ROLE_MEMORY = "memory"
 # as its own line on the turn team payroll (``GET /messages/{id}/cost``).
 ROLE_VISION = "vision"
 PERSONA_CEO = "CEO"
-# The four money keys carried in cost_events.cost (integer nano-USD). The Cost
+# The four money keys carried in cost_events.cost (integer nano-CNY). The Cost
 # dataclass also exposes ``currency`` / ``pricing_source`` / ``credential_source``.
 COST_KEYS = ("input", "cached", "output", "total")
 # The five short-key token counts carried on RunState.usage / a tool's accumulated
@@ -87,7 +87,7 @@ def split_cost(cost: dict) -> tuple[dict[str, int | str], int, int, str]:
     body["pricing_source"] = pricing_source
     body["credential_source"] = credential_source
     total = int(body["total"])
-    currency = str(cost.get("currency", "USD"))
+    currency = str(cost.get("currency", "CNY"))
     if credential_source == "user":
         return body, 0, total, currency
     return body, total, 0, currency
@@ -142,7 +142,7 @@ def run_cost_from_calls(calls: Sequence[CallCost | Mapping[str, Any]]) -> RunCos
         cost=cost_body,
         cost_total_nano=billed,
         cost_estimated_nano=estimated,
-        currency=str(first_map.get("currency") or "USD"),
+        currency=str(first_map.get("currency") or "CNY"),
         rounds=len(calls),
         duration_ms=duration,
     )

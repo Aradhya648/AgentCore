@@ -63,7 +63,6 @@ function providersResponse(
     billing_mode: "byok",
     platform_available: false,
     platform_model: null,
-    free_tier_active: false,
     ...over,
   };
 }

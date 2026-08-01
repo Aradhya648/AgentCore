@@ -19,7 +19,7 @@ from agentcore.db.repositories import (
     TurnMetricsRepository,
     UserRepository,
 )
-from agentcore.llm.pricing import NANO_PER_USD
+from agentcore.llm.pricing import NANO_PER_CNY
 from tests.integration.conftest import login_admin, register_and_login
 
 _PW = "password123"
@@ -263,9 +263,9 @@ async def test_admin_roster_carries_cost_and_sorts_by_spend(client, make_admin, 
     await _seed_spend(session_factory, user_id=alice, total=3000)
     await _seed_spend(session_factory, user_id=bob, total=1000)
 
-    # Default sort still carries cost_total per row + the single FX rate.
+    # Default sort still carries cost_total per row (nano-CNY; no FX field).
     body = (await client.get("/v1/admin/users")).json()
-    assert body["cny_per_usd"] == settings.cny_per_usd
+    assert "cny_per_usd" not in body
     costs = {u["id"]: u["cost_total"] for u in body["data"]}
     assert costs[alice] == 8000
     assert costs[bob] == 1000
@@ -596,7 +596,7 @@ async def test_admin_sets_then_clears_quota(client, make_admin, session_factory)
         json={
             "is_unlimited": True,
             "quota_daily_tokens": 1000,
-            "quota_monthly_cost_usd": 5.5,
+            "quota_monthly_cost_cny": 5.5,
             "quota_daily_requests": 50,
         },
     )
@@ -604,7 +604,7 @@ async def test_admin_sets_then_clears_quota(client, make_admin, session_factory)
     b = r.json()
     assert b["is_unlimited"] is True
     assert b["quota_daily_tokens"] == 1000
-    assert b["quota_monthly_cost_usd"] == 5.5
+    assert b["quota_monthly_cost_cny"] == 5.5
     assert b["quota_daily_requests"] == 50
 
     # explicit null clears one override (inherit global); untouched fields persist
@@ -808,10 +808,10 @@ async def test_admin_system_status_reports_config_health_and_counts(
 
     # Config snapshot (deploy-time settings, surfaced read-only).
     assert b["billing_mode"] == settings.billing_mode
-    assert b["cny_per_usd"] == settings.cny_per_usd
+    assert "cny_per_usd" not in b
     assert b["quota"]["daily_tokens"] == settings.quota_daily_tokens
     assert b["quota"]["daily_requests"] == settings.quota_daily_requests
-    assert b["quota"]["monthly_cost_nano"] == int(settings.quota_monthly_cost_usd * NANO_PER_USD)
+    assert b["quota"]["monthly_cost_nano"] == int(settings.quota_monthly_cost_cny * NANO_PER_CNY)
     # Health + provenance: the request itself proves the DB is reachable.
     assert b["database_ok"] is True
     assert isinstance(b["version"], str) and b["version"]
@@ -1175,11 +1175,11 @@ async def test_admin_conversation_replay_merges_timeline(client, make_admin, ses
     assert b["conversation"]["user_id"] == alice
     assert b["conversation"]["username"] == "alice"
 
-    # Rollup over the conversation's traced turns + the FX rate for ¥ display.
+    # Rollup over the conversation's traced turns (nano-CNY; no FX field).
     assert b["turns"] == 1
     assert b["errors"] == 1
     assert b["cost_total"] == 4200
-    assert b["cny_per_usd"] == settings.cny_per_usd
+    assert "cny_per_usd" not in b
 
     # Timeline is oldest-first: the user prompt, then the assistant reply.
     msgs = b["messages"]
@@ -1479,7 +1479,7 @@ async def test_admin_user_detail_composes_account_view(client, make_admin, sessi
     assert turns[0]["conversation_id"] == conv_id
     assert turns[0]["status"] == "ok"
 
-    assert b["cny_per_usd"] == settings.cny_per_usd
+    assert "cny_per_usd" not in b
     assert b["billing_mode"] == settings.billing_mode
     # No BYOK → model names empty; conversation fixture seeds one cost_calls row.
     assert b["default_model"] is None
@@ -1673,7 +1673,7 @@ async def test_admin_list_conversations_roster(client, make_admin, session_facto
     assert by_id[err_id]["errors"] == 1
     assert by_id[err_id]["cost_total"] == 1000
     assert by_id[err_id]["delegated_turns"] == 1
-    assert b["cny_per_usd"] == settings.cny_per_usd
+    assert "cny_per_usd" not in b
 
 
 async def test_admin_list_conversations_filters_has_delegated(

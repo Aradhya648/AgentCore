@@ -4,7 +4,7 @@ Value objects / ``run_cost_from_calls`` live in the leaf ``agentcore.costing``
 (so ``db`` never imports this module). This file keeps RunState reshape builders
 and re-exports the leaf symbols for the historical ``runtime.costing`` import path.
 
-Money stays integer nano-USD throughout; pricing happens exactly once via
+Money stays integer nano-CNY throughout; pricing happens exactly once via
 :func:`agentcore.llm.pricing.calculate_cost`. This module only *reshapes*
 priced states / usages into ledger rows — it never re-prices.
 Ledger routing by ``credential_source`` (on the priced ``Cost`` / cost dict):
@@ -315,7 +315,7 @@ def aggregate_cost(cost_runs: Sequence[dict]) -> dict[str, int | str]:
         "output": 0,
         "total": 0,
         "estimated_total": 0,
-        "currency": "USD",
+        "currency": "CNY",
         "pricing_source": "curated",
     }
     sources: set[str] = set()

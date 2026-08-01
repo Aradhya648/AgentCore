@@ -232,12 +232,10 @@ def _open_registration(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _free_tier_off(monkeypatch) -> None:
-    """Pin the free-tier fallback OFF so a local ``.env`` with
-    ``PLATFORM_FREE_TIER_ENABLED=true`` (a legitimate dev/prod config) can't flip
-    keyless-BYOK tests from 402 to the platform-paid path. Free-tier tests
-    re-patch it to True in-body, which overrides this."""
-    monkeypatch.setattr(settings, "platform_free_tier_enabled", False)
+def _pin_billing_mode_byok(monkeypatch) -> None:
+    """Pin billing_mode=byok so a local ``.env`` with ``BILLING_MODE=platform``
+    cannot open the platform catalog for keyless-BYOK tests that expect 402."""
+    monkeypatch.setattr(settings, "billing_mode", "byok")
 
 
 @pytest_asyncio.fixture

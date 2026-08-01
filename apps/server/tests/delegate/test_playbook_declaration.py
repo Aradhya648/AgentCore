@@ -110,14 +110,21 @@ def test_resolve_named_playbook_ok():
 
 
 def test_resolve_empty_delegate_rejected():
-    """无 tasks 且无具名 playbook → 拒。"""
+    """无 tasks 且无具名 playbook → 拒（短文案，不倾倒 playbook 全家桶）。"""
+    from agentcore.runtime.delegate.playbook_declaration import _EMPTY_DELEGATE_MSG
+    from agentcore.runtime.runs.playbooks import available_playbooks
+
     name, reason, err = resolve_playbook_declaration({})
     assert name is None and reason is None
-    assert err is not None
+    assert err == _EMPTY_DELEGATE_MSG
     assert "tasks" in err
-    assert "build_website" in err
-    assert "推荐" in err
-
+    assert "arguments" in err
+    assert "禁止" in err
+    # Must not dump the full playbook catalog into every empty reject.
+    assert available_playbooks() not in err
+    assert "build_toolshed" not in err
+    assert declaration_reject_gate(err) == "empty"
+    assert declaration_reject_gate("delegate 缺 tasks/playbook：…") == "empty"
 
 def test_website_intent_none_allowed():
     """建站意图 + none → 放行（不再硬拒；软引导靠 skill/schema）。"""

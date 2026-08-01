@@ -758,14 +758,6 @@ def _render_file_tree(
     return "\n".join(lines) + footer
 
 
-# Same-path ceiling hard-stop: tip alone was ignored (contract_failure skipped the
-# breaker), so attach retire_tools to strip file_read and force write-from-context.
-_FILE_READ_PATH_CEILING_RETIRE_STEER = (
-    "file_read 因同路径触顶已停用：请基于对话中已有正文或清理摘要直接写作 / handoff，"
-    "禁止再 file_read 空转。"
-)
-
-
 def _error(
     error: str,
     start: float,
@@ -779,7 +771,7 @@ def _error(
     concurrent-write collision the model fixes by renaming) so the run-scoped tool
     circuit breaker skips normal failure tallies — see
     :class:`~agentcore.tools.protocol.ToolResult`. Explicit ``retire_tools`` in
-    ``metadata`` still hard-disables named tools (same-path ceiling).
+    ``metadata`` still hard-disables named tools (e.g. workspace channel dead).
     """
     return ToolResult(
         tool_call_id="",
@@ -825,17 +817,25 @@ def _office_extract_budget_error(path: str, size: int, start: float) -> ToolResu
 
 def _liveness_workspace_error(detail: str, start: float) -> ToolResult:
     """Liveness hang on the local workspace channel (permanent first-fail retire)."""
+    from agentcore.workspace.limits import (
+        WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
+        WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS,
+    )
+
     return _error(
         (
             f"本地工作区通道活性挂起（无响应）：{detail}。"
-            "这不是文件过大或参数合同失败——请缩小范围、换路径策略或改用云端可读副本；"
-            "禁止原样重试同一 workspace op。"
+            "这不是文件过大或参数合同失败——"
+            f"{WORKSPACE_CHANNEL_DEAD_RETIRE_STEER}"
         ),
         start,
         metadata={
             "liveness_timeout": True,
             "timeout_layer": "channel",
             "error_class": "permanent",
+            "workspace_channel_dead": True,
+            "retire_tools": list(WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS),
+            "retire_message": WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
         },
     )
 
@@ -851,16 +851,11 @@ def _map_workspace_read_error(exc: WorkspaceError, *, path: str, start: float) -
 
 
 def _file_read_path_ceiling_error(error: str, start: float) -> ToolResult:
-    """Reject a same-path over-cap read and retire ``file_read`` for this run."""
+    """Reject a same-path over-cap read (path-scoped; does not retire ``file_read``)."""
     return _error(
         error,
         start,
         contract_failure=True,
-        metadata={
-            "retire_tools": ["file_read"],
-            "retire_message": _FILE_READ_PATH_CEILING_RETIRE_STEER,
-            "error_class": "permanent",
-        },
     )
 
 
@@ -1091,7 +1086,8 @@ class FileReadTool:
                 "宜在 grep / code_search 命中后再读；优先传 offset/limit 精读片段，"
                 "禁止无目标地整目录逐文件通读。"
                 "同一相对路径本 run 有成功读取次数上限（整读与 offset/limit 合计）；"
-                "触顶后本 run 停用 file_read，须基于已有正文写作 / handoff，勿空转重读。"
+                "触顶后仅拒绝该路径，其它文件仍可 file_read；须基于已有正文写作 / "
+                "handoff，勿空转重读同一文件。"
                 "已落盘产物优先以写/append 回执中的 artifact manifest 验真。"
             ),
             parameters={
@@ -1147,9 +1143,8 @@ class FileReadTool:
                     return _file_read_path_ceiling_error(
                         (
                             f"已多次读取 `{path_key}`（本 run 上限 "
-                            f"{FILE_READ_SAME_PATH_MAX} 次）。请使用对话中已有正文，"
-                            "勿重复 file_read 空转；缺细节改用 offset/limit 精读其它文件，"
-                            "或基于已注入的契约摘要直接落盘。"
+                            f"{FILE_READ_SAME_PATH_MAX} 次）。正文已在对话中，勿再读此文件；"
+                            "可换其它文件，或基于已有正文落盘 / handoff。"
                         ),
                         start,
                     )
@@ -1158,7 +1153,7 @@ class FileReadTool:
                         (
                             f"已多次读取 `{path_key}`，且上下文中的正文已被清理、"
                             "再读次数已用尽。请依据清理摘要推进，或读取其它文件 / 落盘；"
-                            "勿空转重复 file_read。"
+                            "勿空转重复 file_read 此路径。"
                         ),
                         start,
                     )

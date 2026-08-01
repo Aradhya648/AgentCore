@@ -8,7 +8,6 @@ import {
   formatCompact,
   formatCostCaption,
   formatDisplayCost,
-  formatDisplayUsd,
   pickCostMoney,
 } from "@/lib/format";
 import { usePersistentDisclosure } from "@/stores/disclosure";
@@ -28,13 +27,11 @@ import { MetricRow } from "./shared";
 export function ResourceSection({
   run,
   agent,
-  cnyPerUsd,
   defaultExpanded,
   keyBase,
 }: {
   run: RunNode;
   agent: AgentState;
-  cnyPerUsd: number;
   defaultExpanded: boolean;
   keyBase: string;
 }) {
@@ -56,7 +53,7 @@ export function ResourceSection({
   const byokTitle = unpriced ? COST_UNPRICED_HINT : COST_ESTIMATE_HINT;
   const costLabel =
     money != null && money.nano > 0
-      ? formatCostCaption(money.nano, cnyPerUsd, money.estimated)
+      ? formatCostCaption(money.nano, money.estimated)
       : tokenTotal > 0 && byokHint
         ? `${formatCompact(tokenTotal)} tok · ${byokLabel}`
         : null;
@@ -106,7 +103,7 @@ export function ResourceSection({
                 label={
                   money.estimated ? `成本（${COST_ESTIMATE_LABEL}）` : "成本"
                 }
-                value={`${formatDisplayCost(money.nano, cnyPerUsd, money.estimated)} · ${formatDisplayUsd(money.nano, money.estimated)}`}
+                value={formatDisplayCost(money.nano, money.estimated)}
               />
               {money.estimated ? (
                 <SimpleTooltip label={COST_ESTIMATE_HINT}>
@@ -116,10 +113,10 @@ export function ResourceSection({
                 </SimpleTooltip>
               ) : cost ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  输入 {formatDisplayUsd(cost.input)} · 输出{" "}
-                  {formatDisplayUsd(cost.output)}
+                  输入 {formatDisplayCost(cost.input)} · 输出{" "}
+                  {formatDisplayCost(cost.output)}
                   {cost.cached > 0 && (
-                    <> · 缓存省 {formatDisplayUsd(cost.cached)}</>
+                    <> · 缓存省 {formatDisplayCost(cost.cached)}</>
                   )}
                 </p>
               ) : null}

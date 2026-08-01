@@ -21,7 +21,7 @@ class UsageBreakdown(WirePayload):
 
 
 class CostBreakdown(WirePayload):
-    """A run's / turn's cost in integer nano-USD (1 USD = 1e9)."""
+    """A run's / turn's cost in integer nano-CNY (1 CNY = 1e9)."""
 
     input: int
     cached: int

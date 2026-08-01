@@ -67,7 +67,11 @@ DELEGATE_PARAMETERS = {
                     "role": {"type": "string"},
                     "task": {
                         "type": "string",
-                        "description": "自包含任务；worker 看不到完整历史。",
+                        "description": (
+                            "自包含=目标+边界+验收（宜短；worker 看不到完整历史）。"
+                            "细则进 deliverable.must_contain/artifacts；"
+                            "全队共识进顶层 team_brief（勿把长文塞进本字段）。"
+                        ),
                     },
                     "objective": {"type": "string"},
                     "deliverable": TASK_DELIVERABLE_SCHEMA,
@@ -178,7 +182,13 @@ DELEGATE_PARAMETERS = {
                 "required": ["text"],
             },
         },
-        "team_brief": {"type": "string"},
+        "team_brief": {
+            "type": "string",
+            "description": (
+                "全队共识（预算口径、日期、共享约束等）；"
+                "写入后各 worker 开局可见——勿在每个 task 里重复粘贴。"
+            ),
+        },
         "complexity_hint": {
             "type": "string",
             "enum": ["light", "standard"],

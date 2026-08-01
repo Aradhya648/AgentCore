@@ -1,15 +1,20 @@
 """Model combination profiles (模型组合) — CRUD + expand + system presets.
 
 A profile is ``{main, worker?, background?}``. Empty worker / background = follow_main.
-System presets are virtual well-known ids pinned to fixed platform model ids
-(``5.2`` / ``grok-4.5``); a preset whose model is absent from the live platform
-catalog is hidden from list and falls back on expand.
+
+System presets are virtual well-known ids projected from the live platform catalog /
+allowlist (``PLATFORM_MODELS``, or ``[PLATFORM_MODEL, PLATFORM_BACKGROUND_MODEL]`` when
+empty). Each listable platform model id → one system combo (main = that platform model;
+worker / background follow). Display names come from ``model_metadata``. Stable ids use
+``uuid5(NAMESPACE_URL, "agentcore:platform-preset:{model_id}")`` — no hardcoded product
+UUID table.
 
 Distinct from scenario ``ProfileParams`` (temperature / rounds) in ``llm/profiles.py``.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Literal
 
@@ -31,16 +36,8 @@ from agentcore.llm.resolve import ModelOrigin, ModelSelection
 
 ProfileKind = Literal["system", "user", "implicit"]
 
-# Well-known UUIDs for virtual system presets (not stored in llm_model_profiles).
-SYSTEM_PROFILE_52 = "00000000-0000-4000-8000-000000000011"
-SYSTEM_PROFILE_GROK = "00000000-0000-4000-8000-000000000012"
-SYSTEM_PROFILE_DEFAULT = SYSTEM_PROFILE_52
-
-# profile_id → fixed platform model id (worker / background always follow main).
-SYSTEM_PRESETS: dict[str, str] = {
-    SYSTEM_PROFILE_52: "5.2",
-    SYSTEM_PROFILE_GROK: "grok-4.5",
-}
+_PRESET_NS = uuid.NAMESPACE_URL
+_PRESET_PREFIX = "agentcore:platform-preset:"
 
 
 @dataclass(frozen=True)
@@ -73,8 +70,35 @@ class ModelProfileView:
     is_default: bool = False
 
 
+def platform_preset_id(model_id: str) -> str:
+    """Stable virtual system-preset id for a platform model id."""
+    return str(uuid.uuid5(_PRESET_NS, f"{_PRESET_PREFIX}{model_id}"))
+
+
+def system_presets() -> dict[str, str]:
+    """profile_id → platform model id, projected from listable platform catalog ids.
+
+    Late-imports catalog so tests can monkeypatch ``_platform_listable_model_ids``.
+    """
+    from agentcore.llm.catalog import _platform_listable_model_ids
+
+    return {platform_preset_id(mid): mid for mid in _platform_listable_model_ids()}
+
+
+def system_profile_default_id() -> str | None:
+    """Logical default preset: ``PLATFORM_MODEL`` if listable, else first system preset."""
+    presets = system_presets()
+    if not presets:
+        return None
+    platform_model = (settings.platform_model or "").strip() or PLATFORM_MODEL_FLASH
+    for pid, mid in presets.items():
+        if mid == platform_model:
+            return pid
+    return next(iter(presets))
+
+
 def is_system_profile_id(profile_id: str | None) -> bool:
-    return bool(profile_id) and profile_id in SYSTEM_PRESETS
+    return bool(profile_id) and profile_id in system_presets()
 
 
 def _system_preset_display_name(model_id: str) -> str:
@@ -84,22 +108,18 @@ def _system_preset_display_name(model_id: str) -> str:
 def _system_preset_available(profile_id: str) -> bool:
     """True when this system preset may appear in list / be selected.
 
-    Align with catalog: :func:`platform_catalog_visible` ∧ model in
-    ``PLATFORM_MODELS`` allowlist. Late-import the gate so tests can monkeypatch
-    ``billing.preference``.
+    Align with catalog: :func:`platform_catalog_visible` ∧ id in current projection.
     """
     from agentcore.billing.preference import platform_catalog_visible as _visible
-    from agentcore.llm.catalog import _platform_model_ids
 
     if not _visible():
         return False
-    model_id = SYSTEM_PRESETS[profile_id]
-    return model_id in _platform_model_ids()
+    return profile_id in system_presets()
 
 
 def resolve_system_preset_main(profile_id: str) -> ModelSelection:
     """Fixed platform model for a system preset (no keyword ranking)."""
-    model_id = SYSTEM_PRESETS[profile_id]
+    model_id = system_presets()[profile_id]
     return ModelSelection(model=model_id, origin="platform", provider_id=None)
 
 
@@ -175,7 +195,7 @@ class LlmModelProfileService:
         return getattr(user, "default_model_profile_id", None)
 
     def _view_system(self, profile_id: str, *, is_default: bool) -> ModelProfileView:
-        model_id = SYSTEM_PRESETS[profile_id]
+        model_id = system_presets()[profile_id]
         main = resolve_system_preset_main(profile_id)
         return ModelProfileView(
             id=profile_id,
@@ -207,7 +227,7 @@ class LlmModelProfileService:
         )
 
     def _visible_system_ids(self) -> list[str]:
-        return [pid for pid in SYSTEM_PRESETS if _system_preset_available(pid)]
+        return [pid for pid in system_presets() if _system_preset_available(pid)]
 
     def _mark_default(
         self, views: list[ModelProfileView], default_id: str | None
@@ -217,8 +237,9 @@ class LlmModelProfileService:
         # default only; never rewrite DB.
         effective = default_id if default_id in known else None
         if effective is None:
-            if SYSTEM_PROFILE_DEFAULT in known:
-                effective = SYSTEM_PROFILE_DEFAULT
+            logical = system_profile_default_id()
+            if logical is not None and logical in known:
+                effective = logical
             else:
                 effective = next((v.id for v in views if v.kind == "system"), None)
             if effective is None:
@@ -270,9 +291,9 @@ class LlmModelProfileService:
                 raise ValidationError(f"{label} 平台模型不能指定服务商")
             if not platform_catalog_visible():
                 raise ValidationError("当前部署不可用平台模型")
-            from agentcore.llm.catalog import _platform_model_ids
+            from agentcore.llm.catalog import _platform_listable_model_ids
 
-            if slot.model.strip() not in _platform_model_ids():
+            if slot.model.strip() not in _platform_listable_model_ids():
                 raise ValidationError(f"{label} 所选模型不在平台目录中")
             return
         if not slot.provider_id:
@@ -454,19 +475,21 @@ class LlmModelProfileService:
         user_id: str,
         profile_id: str | None,
     ) -> ExpandedProfile:
-        """Expand a profile id (or account default / 5.2 preset) into live selections."""
-        effective = profile_id or await self._default_id(user_id) or SYSTEM_PROFILE_DEFAULT
+        """Expand a profile id (or account default / platform preset) into live selections."""
+        logical_default = system_profile_default_id()
+        effective = profile_id or await self._default_id(user_id) or logical_default
 
-        if is_system_profile_id(effective):
+        if effective and is_system_profile_id(effective):
             if not _system_preset_available(effective):
                 if (
-                    effective != SYSTEM_PROFILE_DEFAULT
-                    and _system_preset_available(SYSTEM_PROFILE_DEFAULT)
+                    logical_default
+                    and effective != logical_default
+                    and _system_preset_available(logical_default)
                 ):
-                    return await self.expand(user_id, SYSTEM_PROFILE_DEFAULT)
+                    return await self.expand(user_id, logical_default)
                 # Dormant / missing from allowlist — logical fallback, keep DB pin.
                 return await self._expand_logical_fallback(user_id)
-            model_id = SYSTEM_PRESETS[effective]
+            model_id = system_presets()[effective]
             name = _system_preset_display_name(model_id)
             main = resolve_system_preset_main(effective)
             return ExpandedProfile(
@@ -478,10 +501,15 @@ class LlmModelProfileService:
                 background=None,
             )
 
+        if not effective:
+            return await self._expand_logical_fallback(user_id)
+
         row = await self._repo.get(effective, user_id=user_id)
         if row is None:
-            # Dangling default / conversation pin / retired virtual id → 5.2 preset.
-            return await self.expand(user_id, SYSTEM_PROFILE_DEFAULT)
+            # Dangling default / conversation pin / retired virtual id → logical default.
+            if logical_default and _system_preset_available(logical_default):
+                return await self.expand(user_id, logical_default)
+            return await self._expand_logical_fallback(user_id)
 
         main_slot = _slot_from_row(row.main_origin, row.main_model, row.main_provider_id)
         assert main_slot is not None

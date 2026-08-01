@@ -250,11 +250,11 @@ class UserRepository:
         *,
         is_unlimited: bool | object = _UNSET,
         daily_tokens: int | None | object = _UNSET,
-        monthly_cost_usd: float | None | object = _UNSET,
-        daily_cost_usd: float | None | object = _UNSET,
+        monthly_cost_cny: float | None | object = _UNSET,
+        daily_cost_cny: float | None | object = _UNSET,
         daily_requests: int | None | object = _UNSET,
     ) -> None:
-        """Patch a user's per-user quota overrides (成本配额与计费.md §一, 决策④ / F2).
+        """Patch a user's per-user quota overrides (成本配额与计费.md §一).
 
         Only the fields actually passed are written, so callers can flip one knob
         without disturbing the others. For the override dimensions an explicit
@@ -266,10 +266,10 @@ class UserRepository:
             values["is_unlimited"] = is_unlimited
         if daily_tokens is not _UNSET:
             values["quota_daily_tokens"] = daily_tokens
-        if monthly_cost_usd is not _UNSET:
-            values["quota_monthly_cost_usd"] = monthly_cost_usd
-        if daily_cost_usd is not _UNSET:
-            values["quota_daily_cost_usd"] = daily_cost_usd
+        if monthly_cost_cny is not _UNSET:
+            values["quota_monthly_cost_cny"] = monthly_cost_cny
+        if daily_cost_cny is not _UNSET:
+            values["quota_daily_cost_cny"] = daily_cost_cny
         if daily_requests is not _UNSET:
             values["quota_daily_requests"] = daily_requests
         if not values:
@@ -414,6 +414,7 @@ class UserDirectoryRepository:
         *,
         discoverable: bool | object = _UNSET,
         who_can_dm: str | object = _UNSET,
+        who_can_friend: str | object = _UNSET,
     ) -> UserDirectorySettings:
         settings = await self.get(user_id)
         if settings is None:
@@ -423,6 +424,8 @@ class UserDirectoryRepository:
             settings.discoverable = discoverable  # type: ignore[assignment]
         if who_can_dm is not _UNSET:
             settings.who_can_dm = who_can_dm  # type: ignore[assignment]
+        if who_can_friend is not _UNSET:
+            settings.who_can_friend = who_can_friend  # type: ignore[assignment]
         await self._session.commit()
         await self._session.refresh(settings)
         return settings

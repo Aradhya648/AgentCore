@@ -20,6 +20,7 @@ import { Sidebar } from "../sidebar/Sidebar";
 import { CommandPalette } from "./CommandPalette";
 import { OutdatedClientBanner } from "./OutdatedClientBanner";
 import { ProductNoticeBanner } from "./ProductNoticeBanner";
+import { ProductNoticeModal } from "./ProductNoticeModal";
 import { TitleBar } from "./TitleBar";
 
 export function AppShell() {
@@ -34,9 +35,8 @@ export function AppShell() {
   // there's no store to hydrate here; this call only kicks off the shared fetch.
   useGroupedConversations();
 
-  // Load the account usage summary once on mount so the FX rate (cnyPerUsd) every
-  // cost row formats with is the authoritative server value, not the default
-  // fallback. Best-effort: the store keeps the default rate on failure.
+  // Load the account usage summary once on mount so the 用量 dashboard has a
+  // warm snapshot before the user opens it. Best-effort: soft error on failure.
   useEffect(() => {
     void useUsageStore.getState().fetchSummary();
   }, []);
@@ -57,7 +57,7 @@ export function AppShell() {
     return useStandingInboxStore.getState().startPolling();
   }, []);
 
-  // Product notices (全局公告 banner + inbox) — soft-poll; skip offline preview.
+  // Product notices (全局公告 banner + modal + inbox) — soft-poll; skip offline preview.
   useEffect(() => {
     if (typeof window !== "undefined" && window.__WEB_PREVIEW__) return;
     return useProductNoticesStore.getState().startPolling();
@@ -139,6 +139,7 @@ export function AppShell() {
         </main>
       </div>
 
+      <ProductNoticeModal />
       <CommandPalette />
       <ShareConversationDialog />
       <CreateFolderMenuHost />

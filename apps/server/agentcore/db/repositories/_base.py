@@ -78,7 +78,7 @@ def _sum_int(expr: ColumnElement) -> ColumnElement:
 
 
 def _json_int(column: ColumnElement, key: str) -> ColumnElement:
-    """Read a JSONB integer field as a castable BigInteger (nano-USD / tokens).
+    """Read a JSONB integer field as a castable BigInteger (nano-CNY / tokens).
 
     ``->>`` yields text; a missing key is NULL, which SUM ignores — so absent
     token/cost keys simply don't contribute rather than erroring.

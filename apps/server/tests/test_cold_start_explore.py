@@ -24,6 +24,7 @@ from agentcore.memory.explore_profile import (
     project_profile_needs_explore,
     record_explore_closeout,
     record_explore_workspace_key,
+    resolve_hard_explore_reason,
     user_named_explore_refresh,
     user_named_project_work,
     write_project_navigation,
@@ -356,6 +357,18 @@ def test_user_named_project_work_allow_list():
     assert user_named_project_work("今天天气怎么样") is False
     assert user_named_project_work("帮我改一下 README") is False
     assert user_named_project_work("") is False
+
+
+def test_resolve_hard_explore_reason_soft_empty_and_named_work():
+    """Empty alone → soft; empty+工程点名 → hard; refresh phrase → hard."""
+    hard, soft = resolve_hard_explore_reason("empty", "进度条卡 0% 请修一下")
+    assert hard is None and soft is True
+    hard, soft = resolve_hard_explore_reason("empty", "请继续开发这个功能")
+    assert hard == "empty" and soft is False
+    hard, soft = resolve_hard_explore_reason(None, "请重新了解项目")
+    assert hard == "refresh" and soft is False
+    hard, soft = resolve_hard_explore_reason("rebind", "随便说说")
+    assert hard == "rebind" and soft is False
 
 
 def test_compose_prompt_without_profile_tool_skips_write_hint():

@@ -529,7 +529,11 @@ async def _build_ceo_context(
     ``workspace_context`` 与 prepare 同形注入；``code_execute`` / ``browser`` 覆盖能力行
     （测缺能力 ASK / 有能力 DELEGATE 分叉）。
     """
-    provider = build_provider(None)
+    from agentcore.llm.resolve import platform_llm_credentials
+    creds = platform_llm_credentials()
+    if creds is None:
+        raise RuntimeError('PLATFORM_API_KEY required (no silent build_provider fallback)')
+    provider = build_provider(creds)
     profiles = resolve_profile_set(mode, custom_modes={}, ceiling=frozenset(KNOWN_MODELS))
     chat_profile = profiles.get("chat")
     chat_model = profiles.model_for("chat")

@@ -240,16 +240,41 @@ export function formatSidecarExitError(
   return new Error("sidecar 进程已退出");
 }
 
+/** Strip SOCKS proxy env so sidecar httpx does not require optional ``socksio``.
+ *
+ * Desktop inherits the user shell env (Clash/V2Ray often set ``ALL_PROXY=socks5://…``).
+ * Product egress uses ``trust_env=False``; scrubbing here is defense-in-depth for any
+ * library that still reads proxy env. HTTP(S) proxies are left intact.
+ */
+export function scrubSocksProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  const keys = [
+    "ALL_PROXY",
+    "all_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+  ] as const;
+  for (const key of keys) {
+    const raw = out[key];
+    if (typeof raw === "string" && /^socks5h?:\/\//i.test(raw.trim())) {
+      delete out[key];
+    }
+  }
+  return out;
+}
+
 function spawnTransport(config: SpawnConfig): Transport {
   const child = spawn(config.cmd, config.args, {
     cwd: config.cwd,
-    env: {
+    env: scrubSocksProxyEnv({
       ...process.env,
       PYTHONUTF8: "1",
       PYTHONIOENCODING: "utf-8",
       ...config.env,
       // Bridge creds are per-turn via RPC (currentBrowserBridge), not spawn env.
-    },
+    }),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.setDefaultEncoding("utf-8");

@@ -95,8 +95,12 @@ async def test_file_read_channel_liveness_maps_meta(tmp_path: Path):
     assert result.success is False
     assert result.contract_failure is False
     assert result.metadata.get("liveness_timeout") is True
+    assert result.metadata.get("workspace_channel_dead") is True
+    assert "file_write" in (result.metadata.get("retire_tools") or [])
     assert "活性挂起" in (result.error or "")
-    assert "禁止原样重试" in (result.error or "")
+    assert "禁止再调用文件工具" in (result.error or "") or "停用全部本地文件" in (
+        result.error or ""
+    )
 
 
 def test_derive_channel_timeout_from_outer_deadline():

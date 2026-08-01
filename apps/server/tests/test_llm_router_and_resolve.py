@@ -344,13 +344,17 @@ async def test_resolve_model_config_byok_with_background_slot(monkeypatch):
 
 
 async def test_resolve_model_config_background_platform_beats_profile_slot(monkeypatch):
-    """Platform key present → background ignores BYOK profile background slot."""
+    """Platform catalog visible → background ignores BYOK profile background slot.
+
+    Fixture models are curated-CNY listable ids (glm-5.2 / deepseek-v4-flash).
+    """
     from agentcore.llm.model_profiles import ExpandedProfile
     from agentcore.llm.resolve import ModelSelection
 
+    monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    monkeypatch.setattr(settings, "platform_model", "platform-flash")
-    monkeypatch.setattr(settings, "platform_background_model", "platform-bg")
+    monkeypatch.setattr(settings, "platform_model", "glm-5.2")
+    monkeypatch.setattr(settings, "platform_background_model", "deepseek-v4-flash")
     expanded = ExpandedProfile(
         profile_id="p",
         name="当前配置",
@@ -381,5 +385,5 @@ async def test_resolve_model_config_background_platform_beats_profile_slot(monke
     title = await resolve_model_config(MagicMock(), "u1", "title")
     assert title is not None
     assert title.source == "platform"
-    assert title.model == "platform-bg"
+    assert title.model == "deepseek-v4-flash"
     assert title.api_key == "sk-platform"

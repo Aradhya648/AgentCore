@@ -284,23 +284,23 @@ def test_moderator_prefers_deepseek(monkeypatch):
 
 
 def test_moderator_default_allows_same_as_debater_deepseek(monkeypatch):
-    """未点名且辩手已用 DeepSeek → 默认仍可选 DeepSeek，不再跳到 grok。"""
+    """未点名且辩手已用 DeepSeek → 默认仍可选 DeepSeek，不再跳到其它平台槽。"""
     monkeypatch.setattr(
         "agentcore.billing.preference.platform_model_allowlist",
-        lambda: ["grok-4.5", "deepseek-v4-flash"],
+        lambda: ["relay-b", "deepseek-v4-flash"],
     )
     cat = _catalog(
-        _entry("grok-4.5"),
+        _entry("relay-b"),
         _entry("deepseek-v4-flash"),
     )
     ds = ModelIdentity(model="deepseek-v4-flash", origin="platform")
     res = resolve_moderator_identity(
         catalog=cat,
         debater_identities=[
-            ModelIdentity(model="grok-4.5", origin="platform"),
+            ModelIdentity(model="relay-b", origin="platform"),
             ds,
         ],
-        turn_main=ModelIdentity(model="grok-4.5", origin="platform"),
+        turn_main=ModelIdentity(model="relay-b", origin="platform"),
     )
     assert res.identity.model == "deepseek-v4-flash"
     assert res.same_model_debate is False
@@ -352,7 +352,7 @@ async def test_prepare_named_moderator_deepseek_same_as_con():
     )
     cat = _catalog(
         _entry("gpt-4o"),
-        _entry("grok-4.5"),
+        _entry("relay-b"),
         _entry("deepseek-chat", origin="byok", provider_id="ds"),
     )
     err = await prepare_debate_model_plan(
@@ -372,12 +372,12 @@ async def test_prepare_named_moderator_deepseek_same_as_con():
 
 @pytest.mark.asyncio
 async def test_prepare_named_moderator_beats_auto_default(monkeypatch):
-    """点名裁判优先于自动默认（目录有 DeepSeek 默认槽，点名 grok 则用 grok）。"""
+    """点名裁判优先于自动默认（目录有 DeepSeek 默认槽，点名 relay-b 则用 relay-b）。"""
     from agentcore.runtime.debate.models import prepare_debate_model_plan
 
     monkeypatch.setattr(
         "agentcore.billing.preference.platform_model_allowlist",
-        lambda: ["grok-4.5", "deepseek-v4-flash"],
+        lambda: ["relay-b", "deepseek-v4-flash"],
     )
     sides = [
         DebateSide(
@@ -399,12 +399,12 @@ async def test_prepare_named_moderator_beats_auto_default(monkeypatch):
         motion="m",
         form=DebateForm.DEBATE,
         sides=sides,
-        moderator_model="grok-4.5",
+        moderator_model="relay-b",
         moderator_origin="platform",
     )
     cat = _catalog(
         _entry("gpt-4o"),
-        _entry("grok-4.5"),
+        _entry("relay-b"),
         _entry("deepseek-v4-flash"),
     )
     err = await prepare_debate_model_plan(
@@ -414,7 +414,7 @@ async def test_prepare_named_moderator_beats_auto_default(monkeypatch):
         catalog=cat,
     )
     assert err == ""
-    assert cfg.moderator_model == "grok-4.5"
+    assert cfg.moderator_model == "relay-b"
     assert cfg.moderator_origin == "platform"
 
 
@@ -422,12 +422,12 @@ async def test_prepare_named_moderator_beats_auto_default(monkeypatch):
 async def test_prepare_unnamed_moderator_keeps_deepseek_when_debater_uses_it(
     monkeypatch,
 ):
-    """未点名且反方已是 DeepSeek → 默认仍选 DeepSeek，不开到 grok。"""
+    """未点名且反方已是 DeepSeek → 默认仍选 DeepSeek，不开到其它平台槽。"""
     from agentcore.runtime.debate.models import prepare_debate_model_plan
 
     monkeypatch.setattr(
         "agentcore.billing.preference.platform_model_allowlist",
-        lambda: ["grok-4.5", "deepseek-v4-flash"],
+        lambda: ["relay-b", "deepseek-v4-flash"],
     )
     sides = [
         DebateSide(
@@ -448,7 +448,7 @@ async def test_prepare_unnamed_moderator_keeps_deepseek_when_debater_uses_it(
     cfg = DebateConfig(motion="m", form=DebateForm.DEBATE, sides=sides)
     cat = _catalog(
         _entry("gpt-4o"),
-        _entry("grok-4.5"),
+        _entry("relay-b"),
         _entry("deepseek-v4-flash"),
     )
     err = await prepare_debate_model_plan(
@@ -537,7 +537,7 @@ def test_skill_teaches_triple_not_mvp_empty():
     assert "请留空" not in body
     assert "cross_model" in body
     assert "禁止" in body and "元问题" in body
-    assert "平台 5.2" in body or "DeepSeek" in body
+    assert "平台 glm-5.2" in body or "DeepSeek" in body
     assert "PLATFORM_MODELS" in body or "跨模型" in body
     assert "中立槽" not in body
     assert "moderator_model" in body
@@ -580,20 +580,20 @@ def test_resolve_mention_52_and_platform_prefix():
     from agentcore.runtime.debate.models import resolve_model_mention
 
     cat = _catalog(
-        _entry("5.2", origin="platform"),
+        _entry("glm-5.2", origin="platform"),
         _entry("deepseek-chat", origin="byok", provider_id="ds"),
     )
-    r1 = resolve_model_mention("5.2", cat)
-    assert r1.ok and r1.identity.model == "5.2" and r1.identity.origin == "platform"
-    r2 = resolve_model_mention("平台 5.2", cat)
-    assert r2.ok and r2.identity.origin == "platform" and r2.identity.model == "5.2"
+    r1 = resolve_model_mention("glm-5.2", cat)
+    assert r1.ok and r1.identity.model == "glm-5.2" and r1.identity.origin == "platform"
+    r2 = resolve_model_mention("平台 glm-5.2", cat)
+    assert r2.ok and r2.identity.origin == "platform" and r2.identity.model == "glm-5.2"
 
 
 def test_resolve_mention_deepseek_byok():
     from agentcore.runtime.debate.models import resolve_model_mention
 
     cat = _catalog(
-        _entry("5.2"),
+        _entry("glm-5.2"),
         _entry("deepseek-chat", origin="byok", provider_id="prov-ds"),
     )
     r = resolve_model_mention("DeepSeek", cat)
@@ -669,22 +669,22 @@ async def test_prepare_disambiguates_mentions_then_validates():
     from agentcore.runtime.debate.models import prepare_debate_model_plan
 
     sides = [
-        DebateSide(key="pro", name="正", stance="支持", model="平台 5.2"),
+        DebateSide(key="pro", name="正", stance="支持", model="平台 glm-5.2"),
         DebateSide(key="con", name="反", stance="反对", model="DeepSeek"),
     ]
     cfg = DebateConfig(motion="m", form=DebateForm.DEBATE, sides=sides)
     cat = _catalog(
-        _entry("5.2"),
+        _entry("glm-5.2"),
         _entry("deepseek-chat", origin="byok", provider_id="ds"),
     )
     err = await prepare_debate_model_plan(
         cfg,
         user_id="u1",
-        turn_model="5.2",
+        turn_model="glm-5.2",
         catalog=cat,
     )
     assert err == ""
-    assert cfg.sides[0].model == "5.2" and cfg.sides[0].origin == "platform"
+    assert cfg.sides[0].model == "glm-5.2" and cfg.sides[0].origin == "platform"
     assert cfg.sides[1].model == "deepseek-chat"
     assert cfg.sides[1].origin == "byok"
     assert cfg.sides[1].provider_id == "ds"

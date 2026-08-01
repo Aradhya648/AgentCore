@@ -88,6 +88,7 @@ def build_builtin_registry(
     *,
     include_execution_tools: bool = True,
     include_host_tools: bool = False,
+    include_browser: bool = False,
     location: Literal["server", "local"] | None = None,
     languages: tuple[str, ...] | list[str] | None = None,
 ) -> ToolRegistry:
@@ -105,6 +106,11 @@ def build_builtin_registry(
     ``include_host_tools`` gates the Host face (``host_class``): only when the
     desktop backfill channel is reachable and ``host≠off``.
 
+    ``include_browser`` gates the L3 browser class on the builtin surface
+    (today: ``browser_navigate`` only — CEO+worker narrow exception). Default
+    False so a no-Bridge / no-gVisor process does not leak navigate into the
+    default builtin roster.
+
     ``location`` stamps ``code_execute``'s description to match the turn's backend
     and gates ``local_only`` tools (``terminal`` only when ``location=="local"``).
     ``languages`` trims ``code_execute``'s language enum after a local/sidecar probe
@@ -116,6 +122,8 @@ def build_builtin_registry(
         if reg.execution_class and not include_execution_tools:
             continue
         if reg.host_class and not include_host_tools:
+            continue
+        if reg.browser_class and not include_browser:
             continue
         if reg.local_only and location != "local":
             continue
@@ -156,6 +164,7 @@ def build_worker_registry(
     registry = build_builtin_registry(
         include_execution_tools=include_execution,
         include_host_tools=include_host,
+        include_browser=include_browser,
         location=location,
         languages=resolved_languages,
     )
@@ -182,6 +191,7 @@ def build_ceo_tool_registry(
     desktop_online: bool = False,
     permission_axes: "PermissionAxes | None" = None,
     backend_location: str | None = None,
+    include_browser: bool = False,
 ) -> ToolRegistry:
     """The CEO chat agent's DIRECT toolset: read / retrieval + Host + local terminal.
 
@@ -191,6 +201,9 @@ def build_ceo_tool_registry(
     **B2**: local ``terminal`` is also CEO-holdable (schema NEVER; ``start`` elevates
     at runtime like ``git`` write) for pure start/stop/list of workspace long-running
     processes — not a GRANTABLE schema exception.
+    **Browser narrow exception**: ``browser_navigate`` only (GRANTABLE ·
+    ``browser_class``), gated by ``include_browser`` — same tier as host_shell /
+    terminal; click/type/scroll/snapshot/screenshot stay worker-only.
     Orchestration primitives are wired separately in ``_assemble_ceo_toolset``.
     Host tools appear only when ``desktop_online`` ∧ ``host≠off``.
     ``terminal`` appears only when ``backend_location=="local"``.
@@ -203,6 +216,7 @@ def build_ceo_tool_registry(
     )
     full = build_builtin_registry(
         include_host_tools=include_host,
+        include_browser=include_browser,
         location=location,
     )
     registry = ToolRegistry()

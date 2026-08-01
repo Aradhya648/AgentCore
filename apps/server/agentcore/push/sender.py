@@ -23,10 +23,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-import httpx
-
 from agentcore.config import settings
 from agentcore.core.logging import get_logger
+from agentcore.core.net import outbound_async_client
 
 logger = get_logger(__name__)
 
@@ -110,7 +109,7 @@ class FcmPushSender:
                     self._private_key,
                     algorithm="RS256",
                 )
-                async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+                async with outbound_async_client(timeout=_HTTP_TIMEOUT) as client:
                     resp = await client.post(
                         self._token_uri,
                         data={"grant_type": _JWT_BEARER_GRANT, "assertion": assertion},
@@ -138,7 +137,7 @@ class FcmPushSender:
             return []
         headers = {"Authorization": f"Bearer {bearer}"}
         dead: list[str] = []
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        async with outbound_async_client(timeout=_HTTP_TIMEOUT) as client:
             for token in tokens:
                 message = {
                     "token": token,

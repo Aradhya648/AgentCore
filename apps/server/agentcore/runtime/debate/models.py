@@ -627,7 +627,7 @@ async def ensure_debate_route_extras(
     """为辩手+裁判所需 prefix 注册 ProviderRouter extras（突破单 Worker extra）。
 
     平台身份一律挂 :func:`build_platform_provider`（按 request.model 取 key），
-    不按「最后一个平台辩手」冻死单 key——跨 ``5.2`` / ``grok-4.5`` 辩论依赖此点。
+    不按「最后一个平台辩手」冻死单 key——跨平台模型辩论依赖此点（per-model credentials）。
     """
     from agentcore.billing.preference import platform_catalog_visible
     from agentcore.llm.factory import build_platform_provider, build_provider

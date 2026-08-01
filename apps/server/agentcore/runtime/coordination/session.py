@@ -663,6 +663,41 @@ class CoordinationSession:
             candidates=candidates,
         )
 
+    def resolve_ended_worker(self, raw: str) -> CancelResolution:
+        """Resolve ``raw`` to a session worker that already finished (completed/handoff).
+
+        Used by ``cancel_worker`` for idempotent success when the target is no
+        longer in ``_running_workers`` but is confirmed ended for this session.
+        Matching mirrors :meth:`resolve_cancel_target` against ``completed_run_ids``
+        (+ live_plan roles). Ambiguous / unknown → ``not_found`` / ``ambiguous``.
+        """
+        target = (raw or "").strip()
+        if not target:
+            return CancelResolution(run_id=None, reason="not_found")
+        done = self.completed_run_ids
+        if target in done:
+            return CancelResolution(run_id=target, reason="exact")
+        suffix = f"_{target}"
+        suffix_hits = sorted(rid for rid in done if rid.endswith(suffix))
+        if len(suffix_hits) == 1:
+            return CancelResolution(run_id=suffix_hits[0], reason="suffix")
+        role_by_id: dict[str, str] = {}
+        live = self.live_plan
+        if live is not None:
+            for node in getattr(live, "nodes", ()) or ():
+                rid = getattr(node, "run_id", "") or ""
+                if rid in done:
+                    role_by_id[rid] = (getattr(node, "role", None) or rid).strip() or rid
+        role_hits = sorted(rid for rid, role in role_by_id.items() if role == target)
+        if len(role_hits) == 1:
+            return CancelResolution(run_id=role_hits[0], reason="role")
+        candidates = tuple(sorted(set(suffix_hits) | set(role_hits)))
+        return CancelResolution(
+            run_id=None,
+            reason="ambiguous" if candidates else "not_found",
+            candidates=candidates,
+        )
+
     def arm_worker_timeout(
         self,
         run_id: str,

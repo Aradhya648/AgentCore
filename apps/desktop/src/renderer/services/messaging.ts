@@ -25,8 +25,14 @@ export type ChatMemberState = Schemas["ChatSummary"]["state"];
 export type ChatSenderType = Schemas["ChatMessageDetail"]["sender_type"];
 /** Message body kind (generated from `ChatMessageDetail.content_type`). */
 export type MessageContentType = Schemas["ChatMessageDetail"]["content_type"];
-/** Who may DM this user (generated from `DirectorySettings.who_can_dm`). */
-export type WhoCanDm = Schemas["DirectorySettings"]["who_can_dm"];
+/** Who may DM this user (generated; read-compat still maps legacy `contacts`). */
+export type WhoCanDm = Schemas["DirectorySettings"]["who_can_dm"] | "contacts";
+
+/** Who may send this user a friend request. */
+export type WhoCanFriend = Schemas["DirectorySettings"]["who_can_friend"];
+
+/** Viewer↔target relationship on a profile card. */
+export type ProfileRelation = Schemas["UserProfile"]["relation"];
 
 /** A human shown on a chat (the peer of a dm; a member of a group). */
 export type ChatParticipant = Schemas["ChatParticipant"];
@@ -54,8 +60,27 @@ export type UserSearchResult = Schemas["UserSearchResult"];
 /** A user this account has blocked. */
 export type BlockedUser = Schemas["BlockedUser"];
 
-/** This user's discoverability + who-can-DM privacy (任意搜人 护栏). */
+/** Discoverability + who-can-friend + who-can-DM privacy. */
 export type DirectorySettings = Schemas["DirectorySettings"];
+
+/** Profile card payload (`GET /v1/messages/users/{id}/profile`). */
+export type UserProfile = Schemas["UserProfile"];
+
+/** One row in the contacts (friends) list. */
+export type FriendSummary = Schemas["FriendSummary"];
+
+/** A friend-request row (incoming or outgoing); peer = the other party. */
+export type FriendRequest = Schemas["FriendRequestDetail"];
+
+/** Friend-request inbox (`GET /v1/messages/friends/requests`). */
+export type FriendRequestsBox = Schemas["FriendRequestListResponse"];
+
+/** Firehose `friend_request` action (消息IM.md §9.3; not in OpenAPI REST). */
+export type FriendRequestAction =
+  | "created"
+  | "accepted"
+  | "rejected"
+  | "cancelled";
 
 type ChatListResponse = Schemas["ChatListResponse"];
 type ChatMembersResponse = Schemas["ChatMembersResponse"];
@@ -63,6 +88,13 @@ type UserSearchResponse = Schemas["UserSearchResponse"];
 type ChatMessageListResponse = Schemas["ChatMessageListResponse"];
 type BlockListResponse = Schemas["BlockListResponse"];
 
+/** Map legacy `contacts` → `friends` for UI selection (read-compat). */
+export function normalizeWhoCanDm(
+  value: WhoCanDm | string | null | undefined,
+): "anyone" | "friends" {
+  if (value === "friends" || value === "contacts") return "friends";
+  return "anyone";
+}
 /** A page of a chat's messages (oldest first), paging echoed back. */
 export interface MessagePage {
   messages: ChatMessageDetail[];
@@ -284,16 +316,91 @@ export async function markRead(
   });
 }
 
-// --- Directory settings (discoverability + who-can-DM) ---
+// --- Friends / profile (消息IM.md §9.3) ---
+
+type FriendListResponse = Schemas["FriendListResponse"];
+type UpdateDirectorySettingsRequest = Schemas["UpdateDirectorySettingsRequest"];
+
+/** Profile card for a user (404 if not visible — do not leak existence). */
+export async function getUserProfile(userId: string): Promise<UserProfile> {
+  return api.get<UserProfile>(`/v1/messages/users/${userId}/profile`);
+}
+
+/** Accepted friends = 通讯录. */
+export async function listFriends(): Promise<FriendSummary[]> {
+  const res = await api.get<FriendListResponse>("/v1/messages/friends");
+  return res.data;
+}
+
+/** Pending friend-request inbox (incoming + outgoing). */
+export async function listFriendRequests(): Promise<FriendRequestsBox> {
+  const res = await api.get<FriendRequestsBox>("/v1/messages/friends/requests");
+  return { incoming: res.incoming ?? [], outgoing: res.outgoing ?? [] };
+}
+
+/** Send a friend request (optional verification message). */
+export async function sendFriendRequest(
+  userId: string,
+  message?: string,
+): Promise<FriendRequest> {
+  return api.post<FriendRequest>("/v1/messages/friends/requests", {
+    user_id: userId,
+    ...(message?.trim() ? { message: message.trim() } : {}),
+  });
+}
+
+export async function acceptFriendRequest(
+  requestId: string,
+): Promise<FriendRequest> {
+  return api.post<FriendRequest>(
+    `/v1/messages/friends/requests/${requestId}/accept`,
+    {},
+  );
+}
+
+export async function rejectFriendRequest(
+  requestId: string,
+): Promise<FriendRequest> {
+  return api.post<FriendRequest>(
+    `/v1/messages/friends/requests/${requestId}/reject`,
+    {},
+  );
+}
+
+/** Cancel an outgoing pending request (from_user only). */
+export async function cancelFriendRequest(requestId: string): Promise<void> {
+  await api.delete(`/v1/messages/friends/requests/${requestId}`);
+}
+
+/** Remove an accepted friendship (DM history kept). */
+export async function removeFriend(userId: string): Promise<void> {
+  await api.delete(`/v1/messages/friends/${userId}`);
+}
+
+// --- Directory settings (discoverability + who-can-friend + who-can-DM) ---
+
+function coerceDirectory(raw: DirectorySettings): DirectorySettings {
+  return {
+    discoverable: raw.discoverable ?? true,
+    who_can_dm: normalizeWhoCanDm(raw.who_can_dm),
+    who_can_friend: raw.who_can_friend ?? "anyone",
+  };
+}
 
 export async function getDirectory(): Promise<DirectorySettings> {
-  return api.get<DirectorySettings>("/v1/messages/directory");
+  const raw = await api.get<DirectorySettings>("/v1/messages/directory");
+  return coerceDirectory(raw);
 }
 
 export async function updateDirectory(
   patch: Partial<DirectorySettings>,
 ): Promise<DirectorySettings> {
-  return api.patch<DirectorySettings>("/v1/messages/directory", patch);
+  const body: UpdateDirectorySettingsRequest = { ...patch };
+  const raw = await api.patch<DirectorySettings>(
+    "/v1/messages/directory",
+    body,
+  );
+  return coerceDirectory(raw);
 }
 
 // --- Blocking (任意搜人 护栏) ---

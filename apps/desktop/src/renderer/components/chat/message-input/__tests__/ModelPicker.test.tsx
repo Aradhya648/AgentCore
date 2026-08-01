@@ -20,6 +20,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/hooks/useLlmModelProfiles", () => ({
   useLlmModelProfiles: vi.fn(),
 }));
+vi.mock("@/hooks/useLlmProviders", () => ({
+  useLlmProviders: vi.fn(),
+}));
 vi.mock("@/hooks/useModels", () => ({ useModels: vi.fn() }));
 vi.mock("@/hooks/useConversations", () => ({
   useConversations: vi.fn(() => []),
@@ -39,6 +42,7 @@ import {
   useConversations,
 } from "@/hooks/useConversations";
 import { useLlmModelProfiles } from "@/hooks/useLlmModelProfiles";
+import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
 import { __setUiStorageBackendForTests } from "@/lib/uiStorage";
 import { setConversationModelProfile } from "@/services/conversations";
@@ -49,6 +53,7 @@ import type { Conversation } from "@/stores/conversation";
 import { ModelPicker } from "../ModelPicker";
 
 const useProfilesMock = vi.mocked(useLlmModelProfiles);
+const useProvidersMock = vi.mocked(useLlmProviders);
 const useModelsMock = vi.mocked(useModels);
 const useConversationsMock = vi.mocked(useConversations);
 const setProfileMock = vi.mocked(setConversationModelProfile);
@@ -61,7 +66,7 @@ function profiles(
     data: [
       {
         id: "sys-52",
-        name: "5.2",
+        name: "GLM-5.2",
         kind: "system",
         is_default: true,
         main: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
@@ -69,9 +74,9 @@ function profiles(
         background: null,
       },
       {
-        id: "sys-grok",
-        name: "Grok 4.5",
-        kind: "system",
+        id: "user-research",
+        name: "研究",
+        kind: "user",
         is_default: false,
         main: { origin: "byok", provider_id: "p2", model: "gpt-4o" },
         worker: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
@@ -120,6 +125,20 @@ function renderPicker() {
   );
 }
 
+function mockProviders(platformAvailable = false): void {
+  useProvidersMock.mockReturnValue({
+    data: {
+      providers: [],
+      default_model_profile_id: null,
+      billing_mode: platformAvailable ? "platform" : "byok",
+      platform_available: platformAvailable,
+      platform_model: null,
+    },
+    isLoading: false,
+    isError: false,
+  } as unknown as ReturnType<typeof useLlmProviders>);
+}
+
 beforeEach(() => {
   const store = new Map<string, string>();
   __setUiStorageBackendForTests({
@@ -134,6 +153,7 @@ beforeEach(() => {
   });
   useConversationStore.setState({ currentConversationId: null, byId: {} });
   useConversationsMock.mockReturnValue([]);
+  mockProviders(false);
   useModelsMock.mockReturnValue({
     data: {
       byok_configured: true,
@@ -184,7 +204,7 @@ describe("ModelPicker", () => {
   it("shows the account default profile on a fresh conversation", () => {
     mockProfiles(profiles());
     renderPicker();
-    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2")).toBeTruthy();
     // 触发器只有一行组合名（与同排徽章等高）；主 · Worker 摘要退到 tooltip 与下拉行。
     expect(screen.queryByText(/DeepSeek V4 Pro · 跟随主模型/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
@@ -194,11 +214,11 @@ describe("ModelPicker", () => {
   it("shows the conversation's profile override over the account default", () => {
     useConversationStore.setState({ currentConversationId: "c1", byId: {} });
     useConversationsMock.mockReturnValue([
-      conv({ id: "c1", modelProfileId: "sys-grok" }),
+      conv({ id: "c1", modelProfileId: "user-research" }),
     ]);
     mockProfiles(profiles());
     renderPicker();
-    expect(screen.getByText("Grok 4.5")).toBeTruthy();
+    expect(screen.getByText("研究")).toBeTruthy();
   });
 
   it("lists system + user profiles and a manage link", () => {
@@ -253,10 +273,10 @@ describe("ModelPicker", () => {
   });
 
   it("inherits the last-used profile id as the suggestion on a new chat", () => {
-    setLastUsedProfileId("sys-grok");
+    setLastUsedProfileId("user-research");
     mockProfiles(profiles());
     renderPicker();
-    expect(screen.getByText("Grok 4.5")).toBeTruthy();
+    expect(screen.getByText("研究")).toBeTruthy();
   });
 
   it("empty profile list shows providers guide and keeps manage-combinations link", () => {
@@ -266,6 +286,19 @@ describe("ModelPicker", () => {
     expect(screen.getByText("暂无可用组合")).toBeTruthy();
     const providersLink = screen.getByRole("link", { name: "接入服务商" });
     expect(providersLink.getAttribute("href")).toBe("/more/providers");
+    expect(screen.getByText("管理组合…")).toBeTruthy();
+  });
+
+  it("empty profile list with platform_available shows admin/retry copy, not providers CTA", () => {
+    mockProviders(true);
+    mockProfiles(profiles({ data: [] }));
+    renderPicker();
+    fireEvent.click(screen.getByRole("button", { name: /模型组合：/ }));
+    expect(screen.getByText("暂无可用组合")).toBeTruthy();
+    expect(
+      screen.getByText("平台额度暂不可用，请联系管理员或稍后重试。"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "接入服务商" })).toBeNull();
     expect(screen.getByText("管理组合…")).toBeTruthy();
   });
 });

@@ -7,9 +7,8 @@ export function cn(...inputs: ClassValue[]): string {
 }
 
 /**
- * Money in CNY (元) from the server-provided value (the backend owns the single
- * FX rate, so the client never re-prices). Tiny non-zero spend floors to
- * "<¥0.01" so a real-but-rounding-to-zero cost never reads as free.
+ * Money in CNY (元). Tiny non-zero spend floors to "<¥0.01" so a
+ * real-but-rounding-to-zero cost never reads as free.
  */
 export function fmtCny(yuan: number): string {
   if (yuan > 0 && yuan < 0.01) return "<¥0.01";
@@ -61,31 +60,22 @@ export function fmtTime(iso: string): string {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-const NANO_PER_USD = 1_000_000_000;
+/** 1 元 = 10^9 nano-CNY：台账规范单位。 */
+const NANO_PER_YUAN = 1_000_000_000;
 
 /**
- * Convert integer nano-USD (the ledger's canonical money unit) to CNY (元) via the
- * single server-provided rate. Used for the raw-nano fields (trend / per-user
- * rows) that don't ship a pre-computed `cny_total` like the window breakdowns do.
+ * Integer nano-CNY → 元. Used for raw-nano fields (trend / per-user rows) that
+ * don't ship a pre-computed `cny_total` like the window breakdowns do.
  */
-export function nanoUsdToCny(nano: number, cnyPerUsd: number): number {
-  return (nano / NANO_PER_USD) * cnyPerUsd;
+export function nanoToYuan(nano: number): number {
+  return nano / NANO_PER_YUAN;
 }
 
-/** nano-USD → display CNY string; `estimated` adds ≈ prefix. */
-export function fmtNanoCny(
-  nano: number,
-  cnyPerUsd: number,
-  estimated = false,
-): string {
+/** nano-CNY → display ¥ string; `estimated` adds ≈ prefix. */
+export function fmtNanoCny(nano: number, estimated = false): string {
   if (nano <= 0) return "—";
-  const yuan = nanoUsdToCny(nano, cnyPerUsd);
+  const yuan = nanoToYuan(nano);
   return estimated ? fmtEstimatedCny(yuan) : fmtCny(yuan);
-}
-
-/** Integer nano-USD → USD (the unit global quota thresholds are configured in). */
-export function nanoUsdToUsd(nano: number): number {
-  return nano / NANO_PER_USD;
 }
 
 /**

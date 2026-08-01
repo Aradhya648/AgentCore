@@ -15,7 +15,7 @@ import {
   fmtMs,
   fmtNanoCny,
   fmtTime,
-  nanoUsdToCny,
+  nanoToYuan,
 } from "@/lib/utils";
 import {
   type AdminObservabilitySummary,
@@ -248,7 +248,7 @@ function CostPanel({
         <h2 className="mb-4 text-base font-semibold text-foreground">
           近 7 日成本趋势
         </h2>
-        <CostTrendBars data={data.recent_daily_cost} cnyPerUsd={data.cny_per_usd} />
+        <CostTrendBars data={data.recent_daily_cost} />
       </section>
 
       <section className="overflow-hidden rounded-xl border border-border bg-card">
@@ -292,7 +292,7 @@ function CostPanel({
                     {fmtCompact(row.tokens_total)}
                   </td>
                   <td className="px-5 py-3 text-right font-medium text-foreground tabular-nums">
-                    {fmtNanoCny(row.cost_total, data.cny_per_usd)}
+                    {fmtNanoCny(row.cost_total)}
                   </td>
                   <td
                     className="px-5 py-3 text-right text-muted-foreground tabular-nums"
@@ -302,11 +302,7 @@ function CostPanel({
                         : undefined
                     }
                   >
-                    {fmtNanoCny(
-                      row.cost_estimated_total,
-                      data.cny_per_usd,
-                      true,
-                    )}
+                    {fmtNanoCny(row.cost_estimated_total, true)}
                   </td>
                 </tr>
               ))}
@@ -351,7 +347,7 @@ function CostPanel({
                   </div>
                 </td>
                 <td className="px-5 py-3 text-right font-medium text-foreground tabular-nums">
-                  {fmtCny(nanoUsdToCny(row.cost_total, data.cny_per_usd))}
+                  {fmtCny(nanoToYuan(row.cost_total))}
                 </td>
                 <td className="px-5 py-3 text-right text-muted-foreground tabular-nums">
                   {fmtInt(row.turns)}

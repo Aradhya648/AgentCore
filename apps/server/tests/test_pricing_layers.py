@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentcore.llm.pricing import calculate_cost
+from agentcore.llm.pricing import PLATFORM_RELAY_GLM_52, calculate_cost
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
 from agentcore.llm.provider.protocol import TokenUsage
 from agentcore.llm.resolve import _model_for_purpose
@@ -13,15 +13,15 @@ def _usage(**kw: int) -> TokenUsage:
     return TokenUsage(**kw)
 
 
-def test_user_unknown_model_is_unpriced_not_flash():
+def test_user_unknown_model_is_unpriced_not_default_fallback():
     usage = _usage(input_tokens=1_000_000, cache_miss_tokens=1_000_000, output_tokens=1000)
     cost = calculate_cost("totally-unknown-xyz", usage, credential_source="user")
     assert cost.pricing_source == "unpriced"
     assert cost.total == 0
     assert cost.credential_source == "user"
-    # Platform still falls back to Flash.
+    # Platform falls back to glm-5.2 (CNY curated default).
     platform = calculate_cost("totally-unknown-xyz", usage, credential_source="platform")
-    assert platform.total == calculate_cost(DEEPSEEK_V4_FLASH, usage).total
+    assert platform.total == calculate_cost(PLATFORM_RELAY_GLM_52, usage).total
     assert platform.pricing_source == "curated"
 
 
@@ -40,11 +40,13 @@ def test_user_estimate_does_not_enter_billed_nano():
     assert call.cost_total_nano == 0
     assert call.cost_estimated_nano > 0
     assert call.cost["pricing_source"] == "estimated"
+    # Platform glm curated → billed nano; Flash (no curated) → community estimated still billed.
     platform = priced_call_cost(
-        model=DEEPSEEK_V4_FLASH, usage=usage, role="captain", credential_source="platform"
+        model=PLATFORM_RELAY_GLM_52, usage=usage, role="captain", credential_source="platform"
     )
     assert platform.cost_total_nano > 0
     assert platform.cost_estimated_nano == 0
+    assert platform.cost["pricing_source"] == "curated"
 
 
 def test_background_model_prefers_user_then_platform(monkeypatch):

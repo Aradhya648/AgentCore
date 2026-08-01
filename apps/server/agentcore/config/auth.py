@@ -29,7 +29,9 @@ class AuthSettings(BaseModel):
     refresh_token_retention_days: int = 7
     refresh_token_sweep_interval_seconds: int = 6 * 3600
     refresh_token_sweep_batch_limit: int = 500
-    inference_token_expire_minutes: int = 120  # 2h — scoped sidecar proxy token
+    # 12h — covers long local turns; desktop also remints at each startTurn/resume.
+    # Keep shorter than session cookies so a leaked inference JWT ages out first.
+    inference_token_expire_minutes: int = 720
 
     inference_token_mint_max: int = 10
     inference_token_mint_window_seconds: int = 60

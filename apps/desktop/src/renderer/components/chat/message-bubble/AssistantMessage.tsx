@@ -118,7 +118,6 @@ function MultiAgentFileArtifacts({ messageId }: { messageId: string }) {
 
 export function AssistantMessage({ message }: MessageBubbleProps) {
   const isGenerating = useActiveGenerating();
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
   const loadMessageCost = useUsageStore((s) => s.loadMessageCost);
   const cachedTurn = useUsageStore((s) => s.messageCosts[message.id] ?? null);
   const conversationId = useConversationStore((s) => s.currentConversationId);
@@ -209,7 +208,7 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
   // 未计价可见 (拍板 2026-07-20)：BYOK 无价可算时明示「未计价」，不静默省略。
   const costText =
     message.executionId === null && money != null && money.nano > 0
-      ? formatCostCaption(money.nano, cnyPerUsd, money.estimated)
+      ? formatCostCaption(money.nano, money.estimated)
       : message.executionId === null &&
           message.cost?.pricing_source === "unpriced"
         ? COST_UNPRICED_LABEL

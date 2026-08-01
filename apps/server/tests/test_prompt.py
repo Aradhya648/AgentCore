@@ -445,7 +445,7 @@ def test_skill_teaches_constraint_vs_solution_boundary():
 def test_core_teaches_delegate_point_dont_answer():
     # task 长教法下沉编排 skill；核心只留短钩子。
     hint = _CEO_CORE_HINT
-    assert "目标·约束·验收" in hint
+    assert "目标·边界·验收" in hint
     assert "编排 skill" in hint or "team_orchestration_advanced" in hint
     skill = _TEAM_ORCHESTRATION_ADVANCED
     assert "施工图" in skill or "填字员" in skill
@@ -535,7 +535,9 @@ def test_core_teaches_delivery_path_by_workspace_type():
     assert "用浏览器打开" in hint
     assert "navigate 成功即可" in hint or "帮我看页面" in hint
     assert "跑起来" in hint or "打开看一下" in hint  # 切断跑起来→必须 navigate
-    assert "delegate" in hint
+    assert "你自己" in hint  # CEO 直调 navigate
+    assert "口头假验收" in hint or "已打开即可" in hint
+    assert "delegate" in hint  # 验收仍 delegate
     assert "read_url" in hint
     assert "双击打开" in hint
     assert "系统浏览器" in hint

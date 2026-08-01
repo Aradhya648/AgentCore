@@ -42,6 +42,7 @@ export function ChatThread({ chatId }: Props) {
   );
   const loadMembers = useMessagingStore((s) => s.loadMembers);
   const loadOlderMessages = useMessagingStore((s) => s.loadOlderMessages);
+  const openProfile = useMessagingStore((s) => s.openProfile);
   const user = useAuthStore((s) => s.user);
   const myId = user?.id ?? null;
 
@@ -166,25 +167,56 @@ export function ChatThread({ chatId }: Props) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <PresenceAvatar
-          label={avatarInitial(name || "?")}
-          sizeClass="size-7"
-          textClass="text-xs"
-          online={chat?.type === "dm" && peerOnline}
-        />
-        <span className="flex min-w-0 flex-col">
-          <span className="flex items-center gap-1 truncate text-base font-medium text-foreground">
-            {isOfficial && (
-              <BadgeCheck size={14} className="shrink-0 text-primary" />
-            )}
-            <span className="min-w-0 truncate">{name}</span>
-          </span>
-          {headerSubtitle && (
-            <span className="text-xs text-muted-foreground">
-              {headerSubtitle}
+        {chat?.type === "dm" && chat.peer?.id ? (
+          <button
+            type="button"
+            onClick={() => {
+              const peerId = chat.peer?.id;
+              if (peerId) openProfile(peerId);
+            }}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`查看 ${name} 的资料`}
+          >
+            <PresenceAvatar
+              label={avatarInitial(name || "?")}
+              sizeClass="size-7"
+              textClass="text-xs"
+              online={peerOnline}
+            />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-base font-medium text-foreground">
+                {name}
+              </span>
+              {headerSubtitle && (
+                <span className="text-xs text-muted-foreground">
+                  {headerSubtitle}
+                </span>
+              )}
             </span>
-          )}
-        </span>
+          </button>
+        ) : (
+          <>
+            <PresenceAvatar
+              label={avatarInitial(name || "?")}
+              sizeClass="size-7"
+              textClass="text-xs"
+              online={false}
+            />
+            <span className="flex min-w-0 flex-col">
+              <span className="flex items-center gap-1 truncate text-base font-medium text-foreground">
+                {isOfficial && (
+                  <BadgeCheck size={14} className="shrink-0 text-primary" />
+                )}
+                <span className="min-w-0 truncate">{name}</span>
+              </span>
+              {headerSubtitle && (
+                <span className="text-xs text-muted-foreground">
+                  {headerSubtitle}
+                </span>
+              )}
+            </span>
+          </>
+        )}
         {showInfo && (
           <SimpleTooltip label={isOfficial ? "会话设置" : "群信息"}>
             <IconButton
@@ -257,6 +289,7 @@ export function ChatThread({ chatId }: Props) {
                     resolveMentionName={(id) => nameById.get(id)}
                     onReply={isOfficial ? undefined : handleReply}
                     onScrollToReply={handleScrollToReply}
+                    onAvatarClick={isGroup ? openProfile : undefined}
                   />
                 );
               })}

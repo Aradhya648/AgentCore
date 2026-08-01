@@ -10,7 +10,7 @@ from agentcore.api.schemas import AdminSystemStatus, QuotaStatus
 from agentcore.config import settings
 from agentcore.db.base import database_ready
 from agentcore.db.repositories import UserRepository
-from agentcore.llm.pricing import NANO_PER_USD
+from agentcore.llm.pricing import NANO_PER_CNY
 
 router = APIRouter(tags=["admin"])
 
@@ -20,7 +20,7 @@ async def system_status(
     admin: AdminUser,
     users: UserRepository = Depends(get_user_repo),
 ) -> AdminSystemStatus:
-    """系统状态 (read-only): billing mode + global quota defaults + FX rate (config),
+    """系统状态 (read-only): billing mode + global quota defaults (config),
     database reachability, build provenance, and account tallies.
 
     A deployment sanity-check — nothing here is editable from the console (config is
@@ -31,11 +31,10 @@ async def system_status(
     db_ok = await database_ready()
     return AdminSystemStatus(
         billing_mode=settings.billing_mode,
-        cny_per_usd=settings.cny_per_usd,
         quota=QuotaStatus(
             daily_tokens=settings.quota_daily_tokens,
-            monthly_cost_nano=int(settings.quota_monthly_cost_usd * NANO_PER_USD),
-            daily_cost_nano=int(settings.quota_daily_cost_usd * NANO_PER_USD),
+            monthly_cost_nano=int(settings.quota_monthly_cost_cny * NANO_PER_CNY),
+            daily_cost_nano=int(settings.quota_daily_cost_cny * NANO_PER_CNY),
             daily_requests=settings.quota_daily_requests,
         ),
         database_ok=db_ok,

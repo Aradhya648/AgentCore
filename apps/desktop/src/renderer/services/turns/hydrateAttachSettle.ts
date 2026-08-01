@@ -1,9 +1,11 @@
 /**
  * Open-time attach/settle after message-window fetch (P4 unified hydrate).
  *
- * Decoupled from message-window adopt: warm reopen keeps the in-memory slice
- * (adopt skips overwrite) but still runs recovery-driven attach/settle so a
- * detached live / ghost running assistant is not left as fake "Replying".
+ * Decoupled from message-window adopt and from hydrate UI ready: ConversationPage
+ * reveals after adopt (+ recovery await); this runs in the background (void).
+ * Warm reopen keeps the in-memory slice (adopt skips overwrite) but still runs
+ * recovery-driven attach/settle so a detached live / ghost running assistant is
+ * not left as fake "Replying".
  */
 import { logEvent } from "@/lib/log";
 import {

@@ -7,10 +7,9 @@
  * 只在 turn `running` 时渲染：用户必须在跑的时候先点开 tab 才能在停下后接管，没提前点开就
  * 再无入口，而此时沙箱还活着（idle TTL）、页面状态还在，正是最该上手的时刻。
  *
- * 判定只扫 execution 投影的 `agent.toolCalls`——`browser_*` 契约上 **worker-only**
- * （`surface=worker_only`，见 `docs/03-AI核心/工具与能力系统.md`），CEO 直调不存在，故
- * `message.process` 一律不扫。**若哪天浏览器工具开放给 CEO 直调，这里要一并加 process 侧**
- * （否则 tab 不出现）；不预留半通的防御分支。
+ * 判定扫两处：① execution 投影的 `agent.toolCalls`（worker）；② assistant
+ * `message.process` 里 `kind==="tool"` 且 `isBrowserTool(tool_name)`（CEO 可直调
+ * `browser_navigate`，其余 browser_* 仍 worker-only）。只扫其一会漏亮右坞 tab。
  *
  * 本地模式：sidecar 在 DesktopBrowserBridge 健康时装配 `browser_*`
  * （`browser_execution_enabled_for`：local + `AGENTCORE_BROWSER_BRIDGE_*` 探活）；
@@ -39,6 +38,11 @@ export function conversationHasBrowserActivity(
 ): boolean {
   for (const msg of messages) {
     if (msg.role !== "assistant") continue;
+    if (
+      msg.process?.some((s) => s.kind === "tool" && isBrowserTool(s.tool_name))
+    ) {
+      return true;
+    }
     const rt = executionById[assistantProjectionId(msg)];
     if (!rt) continue;
     const exec = projectRuntime(rt);

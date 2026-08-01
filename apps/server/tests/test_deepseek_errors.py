@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from agentcore.core.errors import (
+    InferenceTokenExpiredError,
     LLMAuthError,
     LLMError,
     LLMInsufficientBalanceError,
@@ -66,6 +67,31 @@ async def test_complete_maps_401_403_to_auth_error(code):
         assert "invalid api key" in ei.value.message
         assert ei.value.details.get("upstream_status") == code
         assert "invalid api key" in (ei.value.details.get("upstream_body_preview") or "")
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("code", [401, 403])
+async def test_inference_proxy_401_maps_to_inference_token_expired(code):
+    """Sidecar→cloud /inference/ base_url: JWT rejection ≠ BYOK key invalid."""
+    body = b'{"error":{"message":"Invalid or expired inference token"}}'
+    provider = OpenAICompatibleProvider(
+        name="user",
+        api_key="tok",
+        base_url="http://127.0.0.1:8000/v1/inference/v1",
+    )
+    await provider._client.aclose()
+    provider._client = httpx.AsyncClient(
+        base_url="http://127.0.0.1:8000/v1/inference/v1",
+        transport=httpx.MockTransport(lambda request: httpx.Response(code, content=body)),
+    )
+    try:
+        with pytest.raises(InferenceTokenExpiredError) as ei:
+            await provider.complete(_req())
+        assert ei.value.code == "INFERENCE_TOKEN_EXPIRED"
+        assert ei.value.retryable is True
+        assert "推理凭证" in ei.value.message
+        assert ei.value.details.get("upstream_status") == code
     finally:
         await provider.close()
 
@@ -293,6 +319,13 @@ def test_build_payload_disables_thinking_for_deepseek_v4_background():
 def test_balance_and_auth_errors_are_not_retryable():
     assert LLMInsufficientBalanceError().retryable is False
     assert LLMAuthError().retryable is False
+
+
+def test_inference_token_expired_is_retryable():
+    err = InferenceTokenExpiredError()
+    assert err.retryable is True
+    assert err.code == "INFERENCE_TOKEN_EXPIRED"
+    assert "推理凭证" in err.message
 
 
 def test_upstream_error_is_retryable():

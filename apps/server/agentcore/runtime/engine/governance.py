@@ -495,11 +495,12 @@ def create_loop_controller(
 
     ``seed`` restores the five cross-suspension latches (see
     :meth:`LoopController.apply_seed`); omit on a fresh turn.
-    Delivery-idle thrashing enables when short-write posture and either:
-    - ``files_expected`` → files zero-write (landing = delivery), or
-    - not files → prose idle (handoff = delivery; bar scaled under ``max_rounds``).
-    Standard files workers keep it off — still bounded by convergence_spin /
-    max_rounds / contract.
+    Delivery-idle thrashing enables when:
+    - short-write posture and not files → prose idle (handoff = delivery; bar
+      scaled under ``max_rounds``; reuses the ``zero_write_*`` counter).
+    Files zero-write催写 is **retired** (:func:`should_enable_zero_write` always
+    false) — no nudge solely for zero landing files; write_pass still grants
+    persist tools when ``files_expected`` (seam B).
 
     Short ``max_rounds`` also pulls ``reflection_start_round`` earlier so the
     progress-review inject is not collinear with the hard ceiling.
@@ -518,6 +519,7 @@ def create_loop_controller(
     files_idle = should_enable_zero_write(
         files_expected=files_expected,
         short_write_posture=short_write_posture,
+        form_prose=form_prose,
     )
     prose_idle = should_enable_prose_idle(
         files_expected=files_expected,
@@ -582,15 +584,23 @@ def resolve_openai_tool_defs(
 def finalize_allows_persist(
     tools: ToolRegistry,
     allowed_tool_names: list[str] | None,
+    *,
+    files_expected: bool = False,
+    form_prose: bool = False,
 ) -> bool:
     """True when finalize should keep file_write+handoff (files-form / wind_down).
 
-    Inferred from the live tool surface: prose workers withhold ``file_write``, so
-    they stay coordination-only; requires_files / form=files / wind_down keep it.
+    Prose withhold (``form_prose`` or writes absent from registry) → coordination
+    only. ``files_expected``催写/finalize grants persist when ``file_write`` is
+    registered even if the explicit allowlist omitted it (least-privilege seam).
     """
+    if form_prose or "file_write" not in tools.names:
+        return False
+    if files_expected:
+        return True
     if allowed_tool_names is not None:
         return "file_write" in allowed_tool_names
-    return "file_write" in tools.names
+    return True
 
 
 def finalize_tool_allowlist(*, persist: bool) -> frozenset[str]:
@@ -604,6 +614,9 @@ def resolve_finalize_coordination_tools(
     tools: ToolRegistry,
     allowed_tool_names: list[str] | None,
     disabled_tools: set[str],
+    *,
+    files_expected: bool = False,
+    form_prose: bool = False,
 ) -> list[dict[str, Any]] | None:
     """OpenAI tool defs for a forced-finalize round.
 
@@ -615,7 +628,12 @@ def resolve_finalize_coordination_tools(
         candidates = list(tools.names) if tools.count > 0 else []
     else:
         candidates = list(allowed_tool_names)
-    persist = finalize_allows_persist(tools, allowed_tool_names)
+    persist = finalize_allows_persist(
+        tools,
+        allowed_tool_names,
+        files_expected=files_expected,
+        form_prose=form_prose,
+    )
     allow = finalize_tool_allowlist(persist=persist)
     # ``allow`` is the sole gate: when persist is on it re-includes file_write.
     selected = [

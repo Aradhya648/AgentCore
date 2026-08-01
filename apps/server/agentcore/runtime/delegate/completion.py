@@ -1373,6 +1373,9 @@ def collect_worker_gaps(
             reason = str(row.get("reason") or "").strip()
             if reason:
                 item["reason"] = reason
+            severity = str(row.get("severity") or "").strip()
+            if severity:
+                item["severity"] = severity
             gaps.append(item)
         if state.warnings:
             for raw in state.warnings:

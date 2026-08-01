@@ -27,7 +27,6 @@ import {
   isDebate,
   useActiveExecField,
 } from "@/stores/execution";
-import { useUsageStore } from "@/stores/usage";
 import type { ExecutionDetachedPayload } from "@/types/events";
 import {
   AlertTriangle,
@@ -448,19 +447,12 @@ function CompletedStrip({
   const ms = elapsedMs(frames);
   const duration = ms > 0 ? formatDuration(ms) : "";
 
-  const failedRuns = execution.runs.filter((s) => s.status === "failed");
-  const failedRoles = failedRuns
-    .map((s) => execution.agents.find((a) => a.id === s.agentId)?.role)
-    .filter((r): r is string => Boolean(r));
-  const failedRolesText =
-    failedRoles.length > 0 ? `：${failedRoles.join("、")}` : "";
-  const failureNotice = `${failedRuns.length} 个子任务失败${failedRolesText}。`;
+  // 子任务失败只靠 meta（n/m）+ 图节点色 + 右坞详情；完成/停止态不再挂红条复述。
   const deliveryUnmet =
     deliveryStatus?.state === "partial" || deliveryStatus?.state === "blocked";
 
   // 费用累计：以协作图上各 run.cost 之和为准（跨回合追加后仍覆盖全图），
   // 不再读「最新助手气泡」——追加回合的 message_end.cost 会盖掉宿主口径。
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
   const money = resolveTurnDisplayMoney(
     null,
     execution.runs.map((r) => r.cost),
@@ -469,7 +461,7 @@ function CompletedStrip({
   // 显式标注，不再静默省略费用段（读起来像「免费」）。金额位绝不冒充数字。
   const costSegment =
     money && money.nano > 0
-      ? ` · ${stopped ? "已花 " : ""}${formatCostCaption(money.nano, cnyPerUsd, money.estimated)}`
+      ? ` · ${stopped ? "已花 " : ""}${formatCostCaption(money.nano, money.estimated)}`
       : hasUnpricedUsage(execution.runs)
         ? ` · ${COST_UNPRICED_LABEL}`
         : "";
@@ -522,13 +514,6 @@ function CompletedStrip({
           teamPreview={teamPreview}
         />
       </div>
-
-      {failedRuns.length > 0 && (
-        <div className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          <span>{failureNotice}</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -543,7 +528,6 @@ function FailureStrip({
   collabSummary,
   teamPreview,
 }: StatusStripProps) {
-  const cnyPerUsd = useUsageStore((s) => s.cnyPerUsd);
   const detached = useActiveExecField((rt) => rt.executionDetached);
 
   const failedRun = execution.runs.find((s) => s.status === "failed") ?? null;
@@ -558,7 +542,7 @@ function FailureStrip({
   // 未计价可见 (拍板 2026-07-20)：无价可算时不写「已花」+ 数字，改挂未计价标注。
   const spentSegment =
     money != null && money.nano > 0
-      ? ` · 已花 ${formatCostCaption(money.nano, cnyPerUsd, money.estimated)}`
+      ? ` · 已花 ${formatCostCaption(money.nano, money.estimated)}`
       : hasUnpricedUsage(execution.runs)
         ? ` · ${COST_UNPRICED_LABEL}`
         : null;

@@ -205,8 +205,8 @@ class Message(Base):
     followups: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
-    # 回合 ¥ 成本 (P2 DERIVED)：finalize 回写的 message_end.cost 快照（nano-USD 分量 +
-    # currency；cny_total 在读路径按当前 FX 投影）。与 followups/title 同辙——重载 footer
+    # 回合 ¥ 成本 (P2 DERIVED)：finalize 回写的 message_end.cost 快照（nano-CNY 分量 +
+    # currency；cny_total 在读路径按 nano/1e9 投影为元）。与 followups/title 同辙——重载 footer
     # 直接用；hover 工资单明细仍走 GET /v1/messages/{id}/cost（cost_events 台账）。
     # NULL for user / unmetered / pre-feature rows.
     cost: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

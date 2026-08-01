@@ -9,6 +9,7 @@ export {
   activeRuntime,
 } from "./runtime";
 export { useConversationStore, type ConversationState } from "./store";
+export { CONVERSATION_SLICE_LRU_LIMIT } from "./sliceLru";
 export {
   useActiveMessages,
   useActiveMessageContent,

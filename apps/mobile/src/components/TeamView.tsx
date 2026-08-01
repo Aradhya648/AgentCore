@@ -769,17 +769,12 @@ function formatCompact(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-/** Integer nano-USD (1 USD = 1e9) → money caption; all-zero renders「—」(§7.5), never「$0.00」.
+/** Integer nano-CNY (1 元 = 1e9) → ¥ caption; all-zero renders「—」(§7.5), never「¥0.00」.
  *  BYOK estimates use ≈ prefix. */
-function formatCostUsd(nanoUsd: number, estimated = false): string {
-  const usd = nanoUsd / 1e9;
-  if (usd <= 0) return "—";
-  const body =
-    usd < 0.0001
-      ? "<$0.0001"
-      : usd < 0.01
-        ? `$${usd.toFixed(4)}`
-        : `$${usd.toFixed(2)}`;
+function formatCostYuan(nanoCny: number, estimated = false): string {
+  const yuan = nanoCny / 1e9;
+  if (yuan <= 0) return "—";
+  const body = yuan < 0.01 ? "<¥0.01" : `¥${yuan.toFixed(yuan < 0.1 ? 4 : 2)}`;
   return estimated ? `≈${body} 自带密钥·估算` : body;
 }
 
@@ -1272,7 +1267,7 @@ function ResourceBlock({
         {money && money.nano > 0 && (
           <MetricRow
             label={money.estimated ? "成本（自带密钥·估算）" : "成本"}
-            value={formatCostUsd(money.nano, money.estimated)}
+            value={formatCostYuan(money.nano, money.estimated)}
           />
         )}
         {!money && usage && tokenTotal > 0 && byokUnpriced && (

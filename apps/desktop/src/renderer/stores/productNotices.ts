@@ -1,10 +1,12 @@
 /**
- * Product notices (全局公告) — banner + inbox, polled at the app shell.
+ * Product notices (全局公告) — banner + modal + inbox, polled at the app shell.
  * Distinct from IM unread and standing-task inbox badge.
  *
  * Banner close is always available:
  * - ``once`` → server dismiss (不回潮)
  * - ``never`` → session snooze banner only (inbox 仍可见；刷新会话后横幅可再出现)
+ *
+ * Modal is always ``once`` (server-enforced); close → dismiss, never session-snoozed.
  */
 
 import {
@@ -18,6 +20,7 @@ const POLL_MS = 60_000;
 
 interface ProductNoticesState {
   banner: ActiveNotice | null;
+  modal: ActiveNotice | null;
   inbox: ActiveNotice[];
   /** Banner ids snoozed for this session (``dismiss_policy=never``). */
   sessionSnoozed: string[];
@@ -39,6 +42,7 @@ function pickBanner(
 export const useProductNoticesStore = create<ProductNoticesState>(
   (set, get) => ({
     banner: null,
+    modal: null,
     inbox: [],
     sessionSnoozed: [],
     loading: false,
@@ -51,6 +55,7 @@ export const useProductNoticesStore = create<ProductNoticesState>(
         const snoozed = get().sessionSnoozed;
         set({
           banner: pickBanner(res.banner, snoozed),
+          modal: res.modal ?? null,
           inbox: Array.isArray(res.inbox) ? res.inbox : [],
         });
       } catch {
@@ -69,16 +74,21 @@ export const useProductNoticesStore = create<ProductNoticesState>(
     },
 
     dismiss: async (id: string) => {
-      const { banner, inbox, sessionSnoozed } = get();
+      const { banner, modal, inbox, sessionSnoozed } = get();
       const notice =
-        banner?.id === id ? banner : (inbox.find((n) => n.id === id) ?? null);
+        banner?.id === id
+          ? banner
+          : modal?.id === id
+            ? modal
+            : (inbox.find((n) => n.id === id) ?? null);
 
-      // Optimistic: hide banner immediately.
-      if (banner?.id === id) {
-        set({ banner: null });
-      }
+      // Optimistic: clear matching banner / modal immediately.
+      const patch: Partial<ProductNoticesState> = {};
+      if (banner?.id === id) patch.banner = null;
+      if (modal?.id === id) patch.modal = null;
+      if (Object.keys(patch).length > 0) set(patch);
 
-      // ``never``: session-snooze banner only (API would 409).
+      // ``never``: session-snooze banner only (API would 409). Modal is never ``never``.
       if (notice?.dismiss_policy === "never") {
         if (!sessionSnoozed.includes(id)) {
           set({ sessionSnoozed: [...sessionSnoozed, id] });

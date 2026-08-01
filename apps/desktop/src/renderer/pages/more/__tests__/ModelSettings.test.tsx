@@ -77,7 +77,6 @@ function providersResponse(
     billing_mode: "byok",
     platform_available: false,
     platform_model: null,
-    free_tier_active: false,
     ...over,
   };
 }
@@ -90,7 +89,7 @@ function profilesResponse(
     data: [
       {
         id: "sys-52",
-        name: "5.2",
+        name: "GLM-5.2",
         kind: "system",
         is_default: true,
         main: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
@@ -187,7 +186,7 @@ describe("ModelSettings (profiles)", () => {
     mockProviders(providersResponse());
     renderPage();
     expect(screen.getByText("模型组合")).toBeTruthy();
-    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2")).toBeTruthy();
     expect(screen.getByText("办公")).toBeTruthy();
     expect(screen.getByText("默认组合")).toBeTruthy();
     expect(screen.queryByText("••••abcd")).toBeNull();
@@ -201,7 +200,6 @@ describe("ModelSettings (profiles)", () => {
         platform_available: true,
         platform_model: "deepseek-v4-flash",
         billing_mode: "platform",
-        free_tier_active: true,
       }),
     );
     mockProfiles(
@@ -209,7 +207,7 @@ describe("ModelSettings (profiles)", () => {
         data: [
           {
             id: "sys-52",
-            name: "5.2",
+            name: "GLM-5.2",
             kind: "system",
             is_default: true,
             main: {
@@ -224,9 +222,9 @@ describe("ModelSettings (profiles)", () => {
       }),
     );
     renderPage();
-    expect(screen.getByText(/平台免费额度/)).toBeTruthy();
+    expect(screen.getByText(/可用平台额度 · deepseek-v4-flash/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "接入服务商" })).toBeTruthy();
-    expect(screen.queryByText("平台额度")).toBeNull();
+    expect(screen.queryByText(/平台免费额度/)).toBeNull();
   });
 
   it("sets a user profile as the account default", async () => {
@@ -248,7 +246,7 @@ describe("ModelSettings (profiles)", () => {
   it("copies a system preset into a user profile", async () => {
     vi.mocked(createLlmModelProfile).mockResolvedValue({
       id: "user-copy",
-      name: "5.2 副本",
+      name: "GLM-5.2 副本",
       kind: "user",
       is_default: false,
       main: { origin: "byok", provider_id: "p1", model: "deepseek-v4-pro" },
@@ -259,7 +257,7 @@ describe("ModelSettings (profiles)", () => {
     await waitFor(() =>
       expect(createLlmModelProfile).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "5.2 副本",
+          name: "GLM-5.2 副本",
           main: {
             origin: "byok",
             provider_id: "p1",
@@ -285,7 +283,7 @@ describe("ModelSettings (profiles)", () => {
   it("does not offer delete on system presets", () => {
     mockProviders(providersResponse());
     renderPage();
-    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2")).toBeTruthy();
     expect(screen.getByText("预置")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(1);
   });
@@ -360,7 +358,6 @@ describe("ModelSettings (profiles)", () => {
         platform_available: true,
         platform_model: "platform-flash",
         billing_mode: "platform",
-        free_tier_active: true,
       }),
     );
     mockProfiles(
@@ -368,7 +365,7 @@ describe("ModelSettings (profiles)", () => {
         data: [
           {
             id: "sys-52",
-            name: "5.2",
+            name: "GLM-5.2",
             kind: "system",
             is_default: true,
             main: {
@@ -384,7 +381,7 @@ describe("ModelSettings (profiles)", () => {
     );
     renderPage();
     expect(screen.getByText("模型组合")).toBeTruthy();
-    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2")).toBeTruthy();
   });
 
   it("shows empty CTA to providers when byok has no providers or platform", () => {
@@ -436,6 +433,34 @@ describe("ModelSettings (profiles)", () => {
     expect(screen.getByText(/暂无可用模型/)).toBeTruthy();
   });
 
+  it("on 新建 when seedMain fails with platform_available shows admin/retry copy", () => {
+    useModelsMock.mockReturnValue({
+      data: {
+        byok_configured: false,
+        current: undefined,
+        models: [],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useModels>);
+    mockProviders(
+      providersResponse({
+        providers: [],
+        platform_available: true,
+        billing_mode: "platform",
+      }),
+    );
+    mockProfiles(profilesResponse({ data: [] }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.queryByText("新建组合", { selector: "p" })).toBeNull();
+    expect(
+      screen.getByText(/平台额度暂不可用，请联系管理员或稍后重试/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/暂无可用模型，请先/)).toBeNull();
+  });
+
   it("when groups have no models, create editor shows providers guide and disables Worker/background", () => {
     // current 可 seedMain，但 provider 不在列表且无 catalog/default → groups.models 合计为空
     useModelsMock.mockReturnValue({
@@ -484,6 +509,38 @@ describe("ModelSettings (profiles)", () => {
       "disabled",
       true,
     );
+  });
+
+  it("when groups have no models with platform_available, editor shows admin/retry copy", () => {
+    useModelsMock.mockReturnValue({
+      data: {
+        byok_configured: false,
+        current: {
+          id: "orphan-model",
+          origin: "platform",
+        },
+        models: [],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useModels>);
+    mockProviders(
+      providersResponse({
+        providers: [],
+        platform_available: true,
+        platform_model: "orphan-model",
+        billing_mode: "platform",
+      }),
+    );
+    mockProfiles(profilesResponse({ data: [] }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.getByText("新建组合", { selector: "p" })).toBeTruthy();
+    expect(
+      screen.getByText(/平台额度暂不可用，请联系管理员或稍后重试/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/暂无可用模型，请先/)).toBeNull();
   });
 
   it("surfaces ADMIN_PRODUCT_FORBIDDEN instead of a generic load failure", () => {

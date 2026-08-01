@@ -4,9 +4,9 @@ Holds all IM policy so the HTTP layer stays thin and the repos do pure data
 access:
 - 任意搜人 visibility: exact-match search, minus self, blocked pairs, and users
   who opted out of discovery (``user_directory_settings.discoverable``);
-- who-can-DM gate: opening a *new* dm with someone set to ``contacts`` is refused
-  (no contact graph in P0 → effectively a hard opt-out), while the default
-  ``anyone`` lets a stranger through as a *message request* (peer starts pending);
+- friend graph + request lifecycle (消息IM.md §九);
+- who-can-DM gate: friends open freely; non-friends need peer ``who_can_dm=anyone``
+  (message request / pending), while ``friends`` refuses strangers (403);
 - send-message guards: must be a chat member (else 404, IDOR-safe), dm blocked
   pairs are refused, and a reply by the requested party clears their pending gate;
 - list / unread / read-cursor / block / directory-settings management.
@@ -19,7 +19,7 @@ new message out to every member's live connections.
 import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from agentcore.core.errors import (
     AuthorizationError,
@@ -27,9 +27,10 @@ from agentcore.core.errors import (
     ValidationError,
 )
 from agentcore.core.logging import get_logger
-from agentcore.db.models import Chat, ChatMember, ChatMessage, User
+from agentcore.db.models import Chat, ChatMember, ChatMessage, FriendRequest, User
 from agentcore.db.repositories import (
     ChatRepository,
+    FriendRepository,
     UserBlockRepository,
     UserDirectoryRepository,
     UserRepository,
@@ -58,6 +59,21 @@ _ATTACHMENT_PREVIEW_LABELS = {
     "system_card": "[系统消息]",
 }
 
+FriendRelation = Literal[
+    "self",
+    "none",
+    "outgoing_request",
+    "incoming_request",
+    "friends",
+    "blocked",
+]
+FriendRequestAction = Literal["created", "accepted", "rejected", "cancelled"]
+
+
+def _normalize_who_can_dm(value: str) -> str:
+    """Map legacy ``contacts`` → ``friends`` (one-release read compat)."""
+    return "friends" if value == "contacts" else value
+
 
 @dataclass(frozen=True)
 class ChatView:
@@ -73,10 +89,29 @@ class ChatView:
 
 @dataclass(frozen=True)
 class DirectoryView:
-    """A user's resolved discoverability + who-can-DM (defaults applied)."""
+    """A user's resolved discoverability + who-can-DM / who-can-friend (defaults)."""
 
     discoverable: bool
     who_can_dm: str
+    who_can_friend: str
+
+
+@dataclass(frozen=True)
+class ProfileView:
+    """资料卡 domain shape for ``GET /users/{id}/profile``."""
+
+    user: User
+    relation: FriendRelation
+    request_id: str | None
+    online: bool = False
+
+
+@dataclass(frozen=True)
+class FriendRequestBox:
+    """Pending friend-request inbox (incoming + outgoing)."""
+
+    incoming: Sequence[FriendRequest]
+    outgoing: Sequence[FriendRequest]
 
 
 @dataclass(frozen=True)
@@ -124,6 +159,7 @@ class MessagingService:
         chats: ChatRepository,
         blocks: UserBlockRepository,
         directory: UserDirectoryRepository,
+        friends: FriendRepository | None = None,
         events: ChatEventPublisher | None = None,
         shared_spaces: Any | None = None,
     ) -> None:
@@ -131,10 +167,18 @@ class MessagingService:
         self._chats = chats
         self._blocks = blocks
         self._directory = directory
+        # Optional so older test fixtures without friends still construct; production
+        # always injects FriendRepository via get_messaging_service.
+        self._friends = friends
         self._events: ChatEventPublisher = events or NullChatEventPublisher()
         # Optional SharedSpaceRepository — when set, blocking auto-rejects
         # pending shared-space invites between the pair (D3); does not kick members.
         self._shared_spaces = shared_spaces
+
+    def _require_friends(self) -> FriendRepository:
+        if self._friends is None:
+            raise RuntimeError("FriendRepository is required for friend operations")
+        return self._friends
 
     # --- People search (任意搜人 + 护栏) ---
 
@@ -164,9 +208,9 @@ class MessagingService:
         """Open (or reuse) a 1:1 chat with another user.
 
         Reuses the existing dm if there is one (idempotent open). For a brand-new
-        dm: refuses self-dm, unknown/disabled peers, blocked pairs, and peers set
-        to ``who_can_dm = contacts``. The peer joins ``pending`` (message request)
-        until they reply.
+        dm: refuses self-dm, unknown/disabled peers, blocked pairs. Friends open
+        with both sides accepted; non-friends need peer ``who_can_dm=anyone``
+        (peer starts pending) — ``friends`` refuses with 403.
         """
         if peer_id == requester_id:
             raise ValidationError("不能与自己发起会话")
@@ -176,21 +220,41 @@ class MessagingService:
         if await self._blocks.is_blocked_between(requester_id, peer_id):
             raise AuthorizationError("无法向该用户发送消息")
 
+        are_friends = False
+        if self._friends is not None:
+            are_friends = await self._friends.are_friends(requester_id, peer_id)
+
         existing = await self._chats.get_dm(requester_id, peer_id)
         if existing is not None:
+            if are_friends:
+                await self._activate_pending_dm(existing.id, requester_id, peer_id)
             member = await self._chats.get_member(existing.id, requester_id)
             assert member is not None  # creator is always a member of their dm
             return ChatView(chat=existing, member=member, peer=peer, unread=0)
 
-        settings = await self._directory.get(peer_id)
-        if settings is not None and settings.who_can_dm == "contacts":
-            raise AuthorizationError("对方仅允许联系人发起会话")
+        if not are_friends:
+            settings = await self._directory.get(peer_id)
+            who = _normalize_who_can_dm(
+                settings.who_can_dm if settings is not None else "anyone"
+            )
+            if who == "friends":
+                raise AuthorizationError("对方仅允许好友发起会话")
 
-        chat = await self._chats.create_dm(creator_id=requester_id, peer_id=peer_id)
+        peer_state = "accepted" if are_friends else "pending"
+        chat = await self._chats.create_dm(
+            creator_id=requester_id, peer_id=peer_id, peer_state=peer_state
+        )
         member = await self._chats.get_member(chat.id, requester_id)
         assert member is not None
         logger.debug("dm.opened", chat=chat.id, by=requester_id, peer=peer_id)
         return ChatView(chat=chat, member=member, peer=peer, unread=0)
+
+    async def _activate_pending_dm(self, chat_id: str, *user_ids: str) -> None:
+        """Clear pending message-request gates for the given members (friend accept)."""
+        for uid in user_ids:
+            member = await self._chats.get_member(chat_id, uid)
+            if member is not None and member.state == "pending":
+                await self._chats.accept_request(chat_id, uid)
 
     async def join_auto_join_chats(self, *, user_id: str) -> None:
         """Enroll a user into every auto-join chat (内测群 + official broadcast).
@@ -355,11 +419,11 @@ class MessagingService:
     ) -> ChatMessage | None:
         """Mirror a published product Notice into the official broadcast chat.
 
-        Only ``surface ∈ {inbox, both}`` writes an IM message (banner-only stays
-        on the Notice surfaces). One shared ``system_card`` for all members —
+        Only ``surface ∈ {inbox, both, modal}`` writes an IM message (banner-only
+        stays on the Notice surfaces). One shared ``system_card`` for all members —
         never per-user copies. Returns ``None`` when the surface skips IM.
         """
-        if surface not in ("inbox", "both"):
+        if surface not in ("inbox", "both", "modal"):
             return None
         chat = await self._chats.get_or_create_official_chat()
         payload: dict[str, Any] = {
@@ -734,6 +798,12 @@ class MessagingService:
         if target is None:
             raise NotFoundError("用户不存在")
         await self._blocks.block(user_id, target_id)
+        # Cascade: drop friendship + cancel pending friend requests (§九).
+        if self._friends is not None:
+            await self._friends.remove_friendship(user_id, target_id)
+            cancelled = await self._friends.cancel_pending_between(user_id, target_id)
+            for req in cancelled:
+                await self._publish_friend_request(req, action="cancelled")
         if self._shared_spaces is not None:
             await self._shared_spaces.delete_pending_between(user_id, target_id)
         logger.info("dm.user_blocked", user=user_id, target=target_id)
@@ -746,13 +816,189 @@ class MessagingService:
         users = await self._users.get_by_ids(blocked_ids)
         return [users[uid] for uid in blocked_ids if uid in users]
 
-    # --- Directory settings (discoverability + who-can-DM) ---
+    # --- Friends (消息IM.md §九) ---
+
+    async def get_profile(self, *, viewer_id: str, target_id: str) -> ProfileView:
+        """资料卡: relation + request id; non-visible targets → 404 (no leak)."""
+        friends = self._require_friends()
+        if target_id == viewer_id:
+            me = await self._users.get_by_id(viewer_id)
+            if me is None or me.status != "active":
+                raise NotFoundError("用户不存在")
+            return ProfileView(user=me, relation="self", request_id=None)
+
+        target = await self._users.get_by_id(target_id)
+        if target is None or target.status != "active":
+            raise NotFoundError("用户不存在")
+
+        blocked = await self._blocks.is_blocked_between(viewer_id, target_id)
+        are_friends = await friends.are_friends(viewer_id, target_id)
+        pending = await friends.get_pending_between(viewer_id, target_id)
+
+        if not blocked and not are_friends and pending is None:
+            settings = await self._directory.get(target_id)
+            discoverable = settings is None or settings.discoverable
+            if not discoverable and not await self._chats.share_group(viewer_id, target_id):
+                raise NotFoundError("用户不存在")
+
+        request_id: str | None = None
+        if blocked:
+            relation: FriendRelation = "blocked"
+        elif are_friends:
+            relation = "friends"
+        elif pending is not None:
+            if pending.from_user_id == viewer_id:
+                relation = "outgoing_request"
+            else:
+                relation = "incoming_request"
+            request_id = pending.id
+        else:
+            relation = "none"
+        return ProfileView(user=target, relation=relation, request_id=request_id)
+
+    async def list_friends(self, *, user_id: str) -> list[User]:
+        friends = self._require_friends()
+        friend_ids = await friends.list_friend_ids(user_id)
+        users = await self._users.get_by_ids(list(friend_ids))
+        # Stable order by display_name then username.
+        ordered = [users[uid] for uid in friend_ids if uid in users]
+        ordered.sort(key=lambda u: ((u.display_name or "").lower(), u.username.lower()))
+        return ordered
+
+    async def list_friend_requests(self, *, user_id: str) -> FriendRequestBox:
+        friends = self._require_friends()
+        incoming = await friends.list_pending_incoming(user_id)
+        outgoing = await friends.list_pending_outgoing(user_id)
+        return FriendRequestBox(incoming=incoming, outgoing=outgoing)
+
+    async def send_friend_request(
+        self,
+        *,
+        from_user_id: str,
+        to_user_id: str,
+        message: str | None = None,
+    ) -> FriendRequest:
+        friends = self._require_friends()
+        if to_user_id == from_user_id:
+            raise ValidationError("不能加自己为好友")
+        target = await self._users.get_by_id(to_user_id)
+        if target is None or target.status != "active":
+            raise NotFoundError("用户不存在")
+        if await self._blocks.is_blocked_between(from_user_id, to_user_id):
+            raise AuthorizationError("无法向该用户发起好友申请")
+        if await friends.are_friends(from_user_id, to_user_id):
+            raise ValidationError("你们已经是好友")
+
+        existing = await friends.get_pending_between(from_user_id, to_user_id)
+        if existing is not None:
+            if existing.from_user_id == from_user_id:
+                raise ValidationError("已向对方发起好友申请")
+            raise ValidationError("对方已向你发起好友申请，请先处理")
+
+        settings = await self._directory.get(to_user_id)
+        who = settings.who_can_friend if settings is not None else "anyone"
+        if who == "nobody":
+            raise AuthorizationError("对方不接受好友申请")
+        if who == "group_members" and not await self._chats.share_group(
+            from_user_id, to_user_id
+        ):
+            raise AuthorizationError("仅共同群成员可发起好友申请")
+
+        msg = (message or "").strip() or None
+        if msg is not None and len(msg) > 200:
+            raise ValidationError("验证语过长")
+
+        req = await friends.create_request(
+            from_user_id=from_user_id,
+            to_user_id=to_user_id,
+            message=msg,
+        )
+        await self._publish_friend_request(req, action="created")
+        logger.info("friend.request_created", from_user=from_user_id, to_user=to_user_id)
+        return req
+
+    async def accept_friend_request(
+        self, *, user_id: str, request_id: str
+    ) -> FriendRequest:
+        friends = self._require_friends()
+        req = await friends.get_request(request_id)
+        if req is None or req.status != "pending":
+            raise NotFoundError("好友申请不存在")
+        if req.to_user_id != user_id:
+            raise NotFoundError("好友申请不存在")
+        if await self._blocks.is_blocked_between(req.from_user_id, req.to_user_id):
+            raise AuthorizationError("无法接受该好友申请")
+
+        updated = await friends.set_request_status(request_id, "accepted")
+        assert updated is not None
+        await friends.add_friendship(req.from_user_id, req.to_user_id)
+
+        dm = await self._chats.get_dm(req.from_user_id, req.to_user_id)
+        if dm is not None:
+            await self._activate_pending_dm(dm.id, req.from_user_id, req.to_user_id)
+
+        await self._publish_friend_request(updated, action="accepted")
+        logger.info(
+            "friend.request_accepted",
+            request=request_id,
+            from_user=req.from_user_id,
+            to_user=req.to_user_id,
+        )
+        return updated
+
+    async def reject_friend_request(
+        self, *, user_id: str, request_id: str
+    ) -> FriendRequest:
+        friends = self._require_friends()
+        req = await friends.get_request(request_id)
+        if req is None or req.status != "pending":
+            raise NotFoundError("好友申请不存在")
+        if req.to_user_id != user_id:
+            raise NotFoundError("好友申请不存在")
+        updated = await friends.set_request_status(request_id, "rejected")
+        assert updated is not None
+        await self._publish_friend_request(updated, action="rejected")
+        logger.info("friend.request_rejected", request=request_id, by=user_id)
+        return updated
+
+    async def cancel_friend_request(
+        self, *, user_id: str, request_id: str
+    ) -> FriendRequest:
+        friends = self._require_friends()
+        req = await friends.get_request(request_id)
+        if req is None or req.status != "pending":
+            raise NotFoundError("好友申请不存在")
+        if req.from_user_id != user_id:
+            raise NotFoundError("好友申请不存在")
+        updated = await friends.set_request_status(request_id, "cancelled")
+        assert updated is not None
+        await self._publish_friend_request(updated, action="cancelled")
+        logger.info("friend.request_cancelled", request=request_id, by=user_id)
+        return updated
+
+    async def remove_friend(self, *, user_id: str, friend_id: str) -> None:
+        friends = self._require_friends()
+        if friend_id == user_id:
+            raise ValidationError("不能删除自己")
+        removed = await friends.remove_friendship(user_id, friend_id)
+        if not removed:
+            raise NotFoundError("好友关系不存在")
+        logger.info("friend.removed", user=user_id, friend=friend_id)
+
+    # --- Directory settings (discoverability + who-can-DM / who-can-friend) ---
 
     async def get_directory_settings(self, *, user_id: str) -> DirectoryView:
         settings = await self._directory.get(user_id)
         if settings is None:
-            return DirectoryView(discoverable=True, who_can_dm="anyone")
-        return DirectoryView(discoverable=settings.discoverable, who_can_dm=settings.who_can_dm)
+            return DirectoryView(
+                discoverable=True, who_can_dm="anyone", who_can_friend="anyone"
+            )
+        who_friend = getattr(settings, "who_can_friend", None) or "anyone"
+        return DirectoryView(
+            discoverable=settings.discoverable,
+            who_can_dm=_normalize_who_can_dm(settings.who_can_dm),
+            who_can_friend=who_friend,
+        )
 
     async def update_directory_settings(
         self,
@@ -760,17 +1006,52 @@ class MessagingService:
         user_id: str,
         discoverable: bool | None = None,
         who_can_dm: str | None = None,
+        who_can_friend: str | None = None,
     ) -> DirectoryView:
         """Patch the user's privacy settings; ``None`` leaves a field unchanged."""
+        if who_can_dm is not None:
+            who_can_dm = _normalize_who_can_dm(who_can_dm)
+            if who_can_dm not in ("anyone", "friends"):
+                raise ValidationError("who_can_dm 仅支持 anyone / friends")
+        if who_can_friend is not None and who_can_friend not in (
+            "anyone",
+            "group_members",
+            "nobody",
+        ):
+            raise ValidationError("who_can_friend 仅支持 anyone / group_members / nobody")
         changes: dict[str, Any] = {}
         if discoverable is not None:
             changes["discoverable"] = discoverable
         if who_can_dm is not None:
             changes["who_can_dm"] = who_can_dm
+        if who_can_friend is not None:
+            changes["who_can_friend"] = who_can_friend
         settings = await self._directory.upsert(user_id, **changes)
-        return DirectoryView(discoverable=settings.discoverable, who_can_dm=settings.who_can_dm)
+        who_friend = getattr(settings, "who_can_friend", None) or "anyone"
+        return DirectoryView(
+            discoverable=settings.discoverable,
+            who_can_dm=_normalize_who_can_dm(settings.who_can_dm),
+            who_can_friend=who_friend,
+        )
 
     # --- Realtime event payloads ---
+
+    async def _publish_friend_request(
+        self, req: FriendRequest, *, action: FriendRequestAction
+    ) -> None:
+        event = {
+            "type": "friend_request",
+            "action": action,
+            "request": {
+                "id": req.id,
+                "from_user_id": req.from_user_id,
+                "to_user_id": req.to_user_id,
+                "message": req.message,
+                "status": req.status,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+            },
+        }
+        await self._events.publish([req.from_user_id, req.to_user_id], event)
 
     @staticmethod
     def _message_event(message: ChatMessage) -> dict[str, Any]:

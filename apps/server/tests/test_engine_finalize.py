@@ -102,6 +102,16 @@ def test_files_form_force_finalize_surface_keeps_file_write_and_handoff():
     prose_names = {d["function"]["name"] for d in (prose_defs or [])}
     assert prose_names == FINALIZE_COORDINATION_TOOLS
     assert "file_write" not in prose_names
+    # files_expected + narrow allowlist missing write → still persist (催写补授权)
+    narrow = ["file_read", "grep", "handoff"]
+    assert finalize_allows_persist(reg, narrow, files_expected=True) is True
+    assert finalize_allows_persist(reg, narrow, files_expected=True, form_prose=True) is False
+    narrow_defs = resolve_finalize_coordination_tools(
+        reg, narrow, set(), files_expected=True
+    )
+    narrow_names = {d["function"]["name"] for d in (narrow_defs or [])}
+    assert "file_write" in narrow_names
+    assert "handoff" in narrow_names
 
 
 @pytest.mark.asyncio

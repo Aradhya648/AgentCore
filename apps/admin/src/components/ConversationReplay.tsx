@@ -4,7 +4,7 @@ import { InspectorPanel } from "@/components/conversation-replay/InspectorPanel"
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
-import { cn, fmtCny, fmtInt, fmtTime, nanoUsdToCny } from "@/lib/utils";
+import { cn, fmtCny, fmtInt, fmtTime, nanoToYuan } from "@/lib/utils";
 import {
   type AdminConversationReplay,
   type ReplayMessage,
@@ -118,7 +118,7 @@ export function ConversationReplay({
 
   const dockCny =
     selected && selected.cost_total > 0 && data
-      ? fmtCny(nanoUsdToCny(selected.cost_total, data.cny_per_usd))
+      ? fmtCny(nanoToYuan(selected.cost_total))
       : null;
 
   return (
@@ -206,7 +206,7 @@ export function ConversationReplay({
                 <KpiChip
                   label="成本"
                   value={fmtCny(
-                    nanoUsdToCny(data.cost_total, data.cny_per_usd),
+                    nanoToYuan(data.cost_total),
                   )}
                 />
                 {multiAgentTurns > 0 && (
@@ -243,7 +243,6 @@ export function ConversationReplay({
             ) : (
               <ChatTimeline
                 messages={data.messages}
-                cnyPerUsd={data.cny_per_usd}
                 selectedId={selected?.id ?? null}
                 selectedRunId={selectedRunId}
                 onSelect={selectTurn}
@@ -264,7 +263,6 @@ export function ConversationReplay({
           >
             <ChatTimeline
               messages={data.messages}
-              cnyPerUsd={data.cny_per_usd}
               selectedId={selected?.id ?? null}
               selectedRunId={selectedRunId}
               onSelect={selectTurn}

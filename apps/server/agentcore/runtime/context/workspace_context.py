@@ -237,12 +237,14 @@ def build_workspace_context(
                 "禁止假装已用 browser_navigate 打开工作区页。"
             )
         browser_guide_line = (
-            "浏览器指引：本回合已装配 browser_*（仅 worker 持有，CEO 不直持）。"
+            "浏览器指引：本回合已装配 browser_*"
+            "（navigate 由 CEO 可直持，其余 click/type/scroll/snapshot/screenshot 仅 worker）。"
             + path_capability
-            + "仅当用户明确要「用浏览器打开 / 右坞打开 / 直播 / 帮我看页面 / 接管登录」某 URL 时："
-            "必须 `delegate` 队员用 `browser_navigate` 打开该 URL（右坞会直播），"
-            "navigate 成功即可收工；"
-            "仅用户明确要「验收 / 截图 / 确认渲染」才 snapshot/screenshot"
+            + "仅当用户明确要「用浏览器打开 / 右坞打开 / 直播 / 帮我看页面」某 URL 时："
+            "必须你自己用 `browser_navigate` 打开该 URL"
+            "（右坞会直播；**【禁止】**为此 `delegate`），"
+            "navigate 成功即可收工（已打开即可，**【禁止】**口头假验收）；"
+            "仅用户明确要「验收 / 截图 / 确认渲染」才 `delegate` 做 snapshot/screenshot"
             "（screenshot 失败勿多轮空转补验）；"
             "「跑起来 / 打开看一下」≠必须 navigate。"
             "禁止编造 browser_open 等未列出的工具名；"
@@ -264,7 +266,8 @@ def build_workspace_context(
             "禁止静默用 read_url 交差让用户以为已打开浏览器。"
         )
         product_path = (
-            "装配后的产品路径：delegate+browser_* 打开目标页 →"
+            "装配后的产品路径：CEO 直调 browser_navigate 打开目标页"
+            "（click/验收仍 delegate）→"
             "需要登录则 escalate(browser_login=true) →"
             "用户在右坞「浏览器」接管 → 点「已登录，继续」；"
             "勿把「复制粘贴整页 / 扫本机 Cookie / 系统浏览器代登」说成主产品路径"

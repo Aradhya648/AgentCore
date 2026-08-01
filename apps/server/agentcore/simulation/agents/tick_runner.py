@@ -24,7 +24,7 @@ from agentcore.config import settings
 from agentcore.core.log_context import log_context, new_trace_id
 from agentcore.core.types import new_id
 from agentcore.evals.recording_sink import RecordingSink
-from agentcore.llm.pricing import NANO_PER_USD, calculate_cost
+from agentcore.llm.pricing import NANO_PER_CNY, calculate_cost
 from agentcore.llm.profiles import ProfileParams
 from agentcore.llm.provider.protocol import LLMMessage, TokenUsage
 from agentcore.runtime.engine.governance import resolve_openai_tool_defs
@@ -331,7 +331,7 @@ async def run_agent_tick(
                 rounds=1,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 usage=usage.as_dict(),
-                cost_usd=cost / NANO_PER_USD,
+                cost_usd=cost / NANO_PER_CNY,
             )
         except Exception as e:
             action = SimAgentAction(

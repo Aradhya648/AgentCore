@@ -131,7 +131,7 @@ DEBATE_PARAMETERS = {
                         "type": "string",
                         "description": (
                             "（可选）该方辩手模型：可填目录 id，或人类可读提及"
-                            "（如「5.2」「平台 5.2」「DeepSeek」）。"
+                            "（如「glm-5.2」「平台 glm-5.2」「DeepSeek」）。"
                             "点名时只填提及即可，origin/provider_id 可省略——开赛前 runtime 消歧成三元组；"
                             "已有完整三元组亦可直通。空=跟本 turn 主模型（同模型场）。"
                         ),
@@ -181,7 +181,7 @@ DEBATE_PARAMETERS = {
             "type": "string",
             "description": (
                 "（可选）裁判 / 主持人模型：同 sides[].model，可填目录 id 或人类可读提及"
-                "（如「DeepSeek」「平台 5.2」）。用户点名裁判时填此字段；"
+                "（如「DeepSeek」「平台 glm-5.2」）。用户点名裁判时填此字段；"
                 "origin/provider_id 可省略——开赛前 runtime 消歧。空=系统默认（可与辩手同模）。"
             ),
         },

@@ -37,11 +37,6 @@ vi.mock("@/stores/ui", () => ({
   turnDetailPath: () => "/t",
 }));
 
-vi.mock("@/stores/usage", () => ({
-  useUsageStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ cnyPerUsd: 7.2 }),
-}));
-
 vi.mock("@/hooks/useTurnAudit", () => ({
   useTurnAudit: () => ({ data: null }),
 }));

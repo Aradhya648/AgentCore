@@ -358,6 +358,21 @@ class ChatRepository:
         )
         await self._session.commit()
 
+    async def share_group(self, user_a: str, user_b: str) -> bool:
+        """True when both users are members of at least one ``type=group`` chat."""
+        b_chats = select(ChatMember.chat_id).where(ChatMember.user_id == user_b)
+        result = await self._session.execute(
+            select(ChatMember.chat_id)
+            .join(Chat, Chat.id == ChatMember.chat_id)
+            .where(
+                ChatMember.user_id == user_a,
+                ChatMember.chat_id.in_(b_chats),
+                Chat.type == "group",
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def unread_counts(self, user_id: str) -> dict[str, int]:
         """Per-chat unread message counts for a user, keyed by chat id.
 

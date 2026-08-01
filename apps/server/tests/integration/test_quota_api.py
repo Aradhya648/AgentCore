@@ -30,11 +30,11 @@ def _platform_billing():
     settings.billing_mode = original
 
 
-# Above the platform monthly cap (quota_monthly_cost_usd ≈ $138.89 → ≈¥1000) — and
-# also above the ≈$13.89 单日成本 backstop, so a fresh over-quota turn is refused
-# whichever cost window trips first (both raise QUOTA_EXCEEDED).
-_OVER_MONTHLY_NANO = 200_000_000_000
-# Under the global caps, but enough to trip a tightened per-user monthly override ($2).
+# Above the platform monthly cap (quota_monthly_cost_cny = ¥10) — and also above
+# the ¥10 单日成本 backstop, so a fresh over-quota turn is refused whichever cost
+# window trips first (both raise QUOTA_EXCEEDED).
+_OVER_MONTHLY_NANO = 20_000_000_000
+# Under the global caps, but enough to trip a tightened per-user monthly override (¥2).
 _UNDER_GLOBAL_NANO = 3_000_000_000
 
 
@@ -103,8 +103,8 @@ async def test_regenerate_blocked_when_over_monthly_quota(client, make_invite, s
 
 
 async def test_per_user_override_tightens_cap(client, make_invite, session_factory):
-    # Spend ($3) is UNDER the global $5 cap, so default config would let the turn
-    # through — but the user's own $2 monthly override trips 429. Proves the turn
+    # Spend (¥3) is UNDER the global ¥10 cap, so default config would let the turn
+    # through — but the user's own ¥2 monthly override trips 429. Proves the turn
     # gate resolves limits via QuotaLimits.for_user (per-user), not just config.
     code = await make_invite("INV-QUOTA-OVR")
     user_id = await register_and_login(client, code, "quotaovr")
@@ -113,7 +113,7 @@ async def test_per_user_override_tightens_cap(client, make_invite, session_facto
         session_factory, user_id=user_id, conversation_id=conv_id, total=_UNDER_GLOBAL_NANO
     )
     async with session_factory() as session:
-        await UserRepository(session).set_quota(user_id, monthly_cost_usd=2.0)
+        await UserRepository(session).set_quota(user_id, monthly_cost_cny=2.0)
 
     r = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "hi"})
 

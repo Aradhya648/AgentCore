@@ -276,9 +276,11 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 意图梯度：仅启服·看活·「打开项目看一下」（未点名右坞/浏览器）且 CEO `terminal=已装配` → \
 CEO 自己 `terminal` 启服报 URL（**【禁止】**为此派验证员/browser；勿默认 `runtime_ready`；\
 **禁止**把「跑起来看」默认为必须 `browser_navigate`）；\
-用户明确「右坞打开 / 浏览器打开 / 直播 / 帮我看页面」→ `delegate` 启服 + `browser_navigate`，\
-navigate 成功即可，**【省略】** `completion_criteria`（勿默认 `runtime_ready`）；\
-明确要「验收/截图/确认渲染」才 snapshot/screenshot（失败勿多轮空转）；\
+用户明确「右坞打开 / 浏览器打开 / 直播 / 帮我看页面」且 browser 已装配 → \
+CEO 自己 `browser_navigate`（**【禁止】**为此 `delegate`；click/验仍派队员），\
+navigate 成功即可（已打开即可，**【禁止】**口头假验收），**【省略】** \
+`completion_criteria`（勿默认 `runtime_ready`）；\
+明确要「验收/截图/确认渲染」才 `delegate` 做 snapshot/screenshot（失败勿多轮空转）；\
 `runtime_ready` **仅**改码后要队员启服、或整批必须引擎担保就绪时用\
 （引擎验 `terminal` start + `wait_for` 就绪；**禁止**对启动任务设 `code_verified`，会被契约闸拒绝）；\
 ③ 纯写文件、只需阅读编辑不必启动进程 → `files_written`（常配合 `deliverable.form=files`）。\
@@ -307,9 +309,10 @@ navigate 成功即可，**【省略】** `completion_criteria`（勿默认 `runt
 无执行：允许 Marp.md 或脚本+说明，收尾必须标缺口，【禁止】称「PPT 已落盘可直接使用」。
 - 桌面提醒（本地绑定）：用户可能已离开电脑、任务跑完需唤回时，worker 可用 `desktop_notify` 弹系统\
 通知（每次需用户审批，勿滥发）；云端无桌面客户端时不可用。
-- 约束 vs 方案（写 task 的根本分寸）：task 里交【目标·约束·验收】——目标、硬指标、关键前提、\
-验收底线、分工范围；**必读锚点 ≤2–3 个路径**，**禁止**长文件清单 / grep 全仓清单写进 task——\
-细节靠 worker 自探。交付物的【专业方案】——章节结构与论证脉络、代码的模块划分与架构、页面布局\
+- 约束 vs 方案（写 task 的根本分寸）：task 里交【目标·边界·验收】——目标、硬指标、关键前提、\
+验收底线、分工范围（宜短，防 tool JSON 写断）；细则清单进 `deliverable.must_contain` / \
+`artifacts`，全队共享口径进顶层 `team_brief`；**必读锚点 ≤2–3 个路径**，**禁止**长文件清单 / \
+grep 全仓清单写进 task——细节靠 worker 自探。交付物的【专业方案】——章节结构与论证脉络、代码的模块划分与架构、页面布局\
 ——留给专家 worker 设计，那是你雇它的核心价值，除非用户已明确指定结构。别在 task 里替它把骨架列全，\
 也别拿 `deliverable.required_sections` 当结构蓝图——它只兜「必须覆盖的少数验收要点」，不是替专家\
 规定完整章节。审查 / 评估 / 研究类同理：可写范围与验收，别写风险预判、引导性问题清单、法条 / \
@@ -403,8 +406,8 @@ _DEBATE_AND_REVIEW = """\
 「快速对碰一下」，或意图明显轻量（如「测试下这个功能」「简单一点就好」「随便聊聊 / 看个大概」）\
 ——这类不该被强制跑满多轮、产出冗余的「修订 v2」；其余默认 `thorough=true`（圆桌多轮、正反/红队辩透）。
 
-【真·多模型辩手】正反 `debate`×2 方可填各方模型。用户【点名】双方模型（如「正方平台 5.2、\
-反方 DeepSeek」）→ 各方 `model` 只填人类可读提及（「5.2」/「平台 5.2」/「DeepSeek」），\
+【真·多模型辩手】正反 `debate`×2 方可填各方模型。用户【点名】双方模型（如「正方平台 glm-5.2、\
+反方 DeepSeek」）→ 各方 `model` 只填人类可读提及（「glm-5.2」/「平台 glm-5.2」/「DeepSeek」），\
 `origin`/`provider_id` 可省略——开赛前 runtime 消歧成正式三元组后【直开】。\
 【禁止】再 `ask_user` 元问题（如「是不是当前主模型？」/「选 A 还是 B？」）；消歧多候选 / \
 零匹配时工具错误会列目录候选，你按候选重填正式三元组即可。\
@@ -870,7 +873,7 @@ _WORK_DISCIPLINE = """\
 
 【大文件拆分·软】按职责 / 变更原因拆，不按行数；多员并行时优先降低同文件冲突面。单一内聚可不动。
 
-【写 task】只写目标·约束·验收；执行层细节留给工人。方案层岔路预留 escalate，勿在 task 里替工人选定架构。
+【写 task】只写目标·边界·验收；细则进 deliverable，全队共识进 team_brief；执行层细节留给工人。方案层岔路预留 escalate，勿在 task 里替工人选定架构。
 </work_discipline>"""
 
 

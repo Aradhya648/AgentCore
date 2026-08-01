@@ -2,13 +2,21 @@
 /**
  * Render + interaction tests for the mobile 会话级模型组合 selector (ModelPicker).
  */
+import type { LlmProvidersResponse } from "@/api/llmProviders";
+import { listLlmProviders } from "@/api/llmProviders";
 import type { LlmModelProfileListResponse } from "@/api/modelProfiles";
 import type { ModelCatalog } from "@/api/models";
 import { ModelPicker } from "@/components/ModelPicker";
 import { MODEL_CONFIG_PATH } from "@/lib/errors";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/Modal", () => ({
   Modal: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -23,14 +31,18 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+vi.mock("@/api/llmProviders", () => ({
+  listLlmProviders: vi.fn(),
+}));
+
 const PROFILES: LlmModelProfileListResponse = {
   default_model_profile_id: "00000000-0000-4000-8000-000000000011",
   data: [
     {
       id: "00000000-0000-4000-8000-000000000011",
-      name: "5.2",
+      name: "GLM-5.2",
       kind: "system",
-      main: { origin: "platform", model: "5.2", provider_id: null },
+      main: { origin: "platform", model: "glm-5.2", provider_id: null },
       worker: null,
       background: null,
       is_default: true,
@@ -73,10 +85,10 @@ const CATALOG: ModelCatalog = {
   },
   models: [
     {
-      id: "5.2",
+      id: "glm-5.2",
       origin: "platform",
-      display_name: "5.2",
-      vendor: "Platform",
+      display_name: "GLM-5.2",
+      vendor: "智谱 AI",
       capabilities: [],
       context_length: null,
       price: null,
@@ -119,12 +131,14 @@ const CATALOG: ModelCatalog = {
   ],
 };
 
+let profilesData: LlmModelProfileListResponse = PROFILES;
+
 vi.mock("@/api/modelProfiles", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/modelProfiles")>();
   return {
     ...actual,
     useModelProfiles: () => ({
-      data: PROFILES,
+      data: profilesData,
       loading: false,
       error: null,
       refetch: vi.fn(),
@@ -145,9 +159,28 @@ vi.mock("@/api/models", async (importOriginal) => {
   };
 });
 
+const mockListProviders = vi.mocked(listLlmProviders);
+
+function providersResponse(
+  over: Partial<LlmProvidersResponse> = {},
+): LlmProvidersResponse {
+  return {
+    providers: [],
+    billing_mode: "byok",
+    platform_available: false,
+    platform_model: null,
+    ...over,
+  };
+}
+
 afterEach(() => {
   cleanup();
   mockNavigate.mockReset();
+});
+
+beforeEach(() => {
+  profilesData = PROFILES;
+  mockListProviders.mockResolvedValue(providersResponse());
 });
 
 describe("ModelPicker (mobile profiles)", () => {
@@ -160,9 +193,9 @@ describe("ModelPicker (mobile profiles)", () => {
       />,
     );
     expect(screen.getByText("选择模型组合")).toBeTruthy();
-    expect(screen.getByText("5.2")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2")).toBeTruthy();
     expect(screen.getByText("写作强档")).toBeTruthy();
-    expect(screen.getByText("5.2 · 跟随主模型")).toBeTruthy();
+    expect(screen.getByText("GLM-5.2 · 跟随主模型")).toBeTruthy();
     expect(screen.getByText("DeepSeek V4 Pro · GPT-4o")).toBeTruthy();
     expect(screen.queryByText("隐式组合")).toBeNull();
     expect(screen.queryByText("跟随账号默认")).toBeNull();
@@ -223,5 +256,49 @@ describe("ModelPicker (mobile profiles)", () => {
     fireEvent.click(screen.getByTestId("profile-manage"));
     expect(onClose).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith(MODEL_CONFIG_PATH);
+  });
+
+  it("empty list with BYOK shows 去模型配置 CTA", async () => {
+    profilesData = { default_model_profile_id: null, data: [] };
+    mockListProviders.mockResolvedValue(providersResponse());
+    const onClose = vi.fn();
+    render(
+      <ModelPicker
+        conversationProfileId={null}
+        onSelect={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByTestId("profiles-empty")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId("profiles-empty-byok")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("去模型配置"));
+    expect(onClose).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith(MODEL_CONFIG_PATH);
+  });
+
+  it("empty list with platform_available shows admin/retry copy", async () => {
+    profilesData = { default_model_profile_id: null, data: [] };
+    mockListProviders.mockResolvedValue(
+      providersResponse({
+        platform_available: true,
+        billing_mode: "platform",
+      }),
+    );
+    render(
+      <ModelPicker
+        conversationProfileId={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("profiles-empty-platform")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText("平台额度暂不可用，请联系管理员或稍后重试。"),
+    ).toBeTruthy();
+    expect(screen.queryByText("去模型配置")).toBeNull();
   });
 });

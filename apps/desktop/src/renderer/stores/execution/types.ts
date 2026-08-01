@@ -325,7 +325,7 @@ export interface RunNode {
   model: string | null;
   /** This run's token usage (payroll power detail); null until completed. */
   usage: UsageBreakdown | null;
-  /** This run's priced cost in nano-USD (lights up one payroll row, §7.3B);
+  /** This run's priced cost in nano-CNY (lights up one payroll row, §7.3B);
    * null until completed / unmetered. All-zero `total` renders as「—」(§7.5). */
   cost: CostBreakdown | null;
   /** 辩论/审查 呈现标记 (前端UX设计.md §四, display-only): this run's side in an
