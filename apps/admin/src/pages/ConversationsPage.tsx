@@ -45,6 +45,14 @@ const PAGE_SIZE = 20;
 
 type Segment = "conversations" | "turns";
 
+function credentialSourceLabel(
+  source: "user" | "platform" | null | undefined,
+): string | null {
+  if (source === "user") return "BYOK";
+  if (source === "platform") return "平台";
+  return null;
+}
+
 /** UTC day bounds for ``since`` / ``until`` query params (date input → ISO). */
 function dateToSince(isoDate: string): string {
   return `${isoDate}T00:00:00.000Z`;
@@ -744,6 +752,7 @@ function TurnsPanel({
             <tbody>
               {rows.map((t) => {
                 const isError = t.status === "error";
+                const credLabel = credentialSourceLabel(t.credential_source);
                 return (
                   <tr
                     key={t.turn_id}
@@ -803,6 +812,17 @@ function TurnsPanel({
                             <Users size={10} className="mr-0.5" />
                             多 Agent · {t.workers}
                           </Badge>
+                        )}
+                        {credLabel && (
+                          <Badge tone="neutral">{credLabel}</Badge>
+                        )}
+                        {(t.models?.length ?? 0) > 0 && (
+                          <span
+                            className="max-w-[9rem] text-muted-foreground text-[11px] leading-snug break-words"
+                            title={t.models.join(", ")}
+                          >
+                            {t.models.join(", ")}
+                          </span>
                         )}
                       </div>
                     </td>

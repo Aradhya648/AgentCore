@@ -50,4 +50,10 @@ describe("toMessageDetail evidence_ledger", () => {
     ).toBeUndefined();
     expect(toMessageDetail(baseRow()).evidenceLedger).toBeUndefined();
   });
+
+  it("maps REST trace_id onto MessageDetail.trace_id", () => {
+    const tid = "b".repeat(32);
+    expect(toMessageDetail(baseRow({ trace_id: tid })).trace_id).toBe(tid);
+    expect(toMessageDetail(baseRow()).trace_id).toBeNull();
+  });
 });

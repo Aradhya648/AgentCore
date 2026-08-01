@@ -253,6 +253,7 @@ def build_local_workspace(
             settings.workspace_op_timeout_seconds if timeout_seconds is None else timeout_seconds
         ),
         root_id=binding.root_id,
+        max_inflight=settings.workspace_channel_max_inflight,
     )
     return LocalWorkspace(
         channel,
@@ -319,4 +320,5 @@ def workspace_channel_for_tools(
         registry=registry or default_interaction_registry(),
         timeout_seconds=settings.workspace_op_timeout_seconds,
         root_id="",
+        max_inflight=settings.workspace_channel_max_inflight,
     )

@@ -220,6 +220,13 @@ async def stream_llm_round(
             except TimeoutError:
                 committed = bool(content_parts) or bool(tc_accumulators)
                 elapsed_ms = int((time.monotonic() - start) * 1000)
+                stall_extra: dict[str, object] = {}
+                cred_src = get_log_value("credential_source")
+                if cred_src:
+                    stall_extra["credential_source"] = cred_src
+                provider_id = get_log_value("provider_id")
+                if provider_id:
+                    stall_extra["provider_id"] = provider_id
                 logger.warning(
                     "llm.stream_stalled",
                     scenario=request.scenario,
@@ -231,6 +238,7 @@ async def stream_llm_round(
                     committed=committed,
                     attempt=attempt + 1,
                     max_attempts=MAX_RETRIES,
+                    **stall_extra,
                 )
                 if committed:
                     aborted = True

@@ -46,6 +46,21 @@ DEFAULT_TOOL_FAILURE_DISABLE = 3
 # before the cumulative per-tool disable threshold. Covers prose-append / code
 # integrity hard rejects (contract_failure) that skip the normal failure tally.
 DEFAULT_PATH_WRITE_REJECT_STREAK = 2
+# Validation / contract self-correct: same fingerprint consecutive failures →
+# stop that path (steer), tool stays available (not a parallel disable tally).
+DEFAULT_VALIDATION_PATH_STREAK = 2
+# Error-class diversion (permanent / permission / validation / transient).
+ERROR_CLASS_PERMANENT = "permanent"
+ERROR_CLASS_PERMISSION = "permission"
+ERROR_CLASS_VALIDATION = "validation"
+ERROR_CLASS_TRANSIENT = "transient"
+_PERMANENT_RETIRE_STEER = (
+    "因不可恢复错误已停用——请换路径推进，禁止原样重试该工具。"
+)
+_VALIDATION_PATH_STOP_STEER = (
+    "同因参数/契约错误已连续出现：请停止原样重试该调用路径，"
+    "修正参数或换策略后再试；工具保持可用。"
+)
 # Consecutive *unproductive* rounds that trip an early stop (B2 无产出早停). An
 # unproductive round = the model called ≥1 tool, every call FAILED, and it produced
 # no content — it is "working" but getting nowhere. Distinct from an empty round
@@ -227,6 +242,28 @@ class ToolAttempt:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+def resolve_error_class(attempt: ToolAttempt) -> str | None:
+    """Classify a failed attempt for breaker diversion (or ``None`` on success).
+
+    Prefer explicit ``meta.error_class``; else infer from existing markers
+    (``retire_tools`` / ``liveness_timeout`` / ``policy_failure`` /
+    ``contract_failure`` / ``parse_failure``). Unknown failures stay transient.
+    """
+    if attempt.success:
+        return None
+    meta = attempt.meta or {}
+    raw = meta.get("error_class")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    if meta.get("retire_tools") or meta.get("liveness_timeout"):
+        return ERROR_CLASS_PERMANENT
+    if attempt.policy_failure:
+        return ERROR_CLASS_PERMISSION
+    if attempt.contract_failure or attempt.parse_failure:
+        return ERROR_CLASS_VALIDATION
+    return ERROR_CLASS_TRANSIENT
+
+
 @dataclass(frozen=True)
 class StuckSignal:
     """A detected stuck pattern plus the facts needed to anchor a nudge."""
@@ -284,6 +321,9 @@ class CircuitBreak:
 
     ``liveness_warned`` names tools whose latest counted failure was a hang /
     no-response timeout (活性挂起) — warn steer forbids identical retry.
+
+    ``validation_stop`` is a one-shot steer when the same validation fingerprint
+    failed consecutively (path stop; tool stays available).
     """
 
     warned: tuple[str, ...] = ()
@@ -292,9 +332,15 @@ class CircuitBreak:
     force_segmented: frozenset[str] = frozenset()
     retire_message: str | None = None
     liveness_warned: frozenset[str] = frozenset()
+    validation_stop: str | None = None
 
     def __bool__(self) -> bool:
-        return bool(self.warned or self.disabled or self.force_segmented)
+        return bool(
+            self.warned
+            or self.disabled
+            or self.force_segmented
+            or self.validation_stop
+        )
 
     def message(self) -> str | None:
         """The single ``[系统提示]`` to inject this round, or ``None``.
@@ -391,6 +437,8 @@ class CircuitBreak:
                         "请修复 JSON 格式（尤其是字符串内引号转义）后原样重发全部参数，"
                         "不要改写、缩短或删减内容；也可换一个工具或基于已有信息直接推进。"
                     )
+        if self.validation_stop:
+            parts.append(self.validation_stop.strip())
         if not parts:
             return None
         return "[系统提示] " + " ".join(parts)
@@ -427,6 +475,7 @@ class LoopController:
         tool_failure_warn: int = DEFAULT_TOOL_FAILURE_WARN,
         tool_failure_disable: int = DEFAULT_TOOL_FAILURE_DISABLE,
         path_write_reject_streak: int = DEFAULT_PATH_WRITE_REJECT_STREAK,
+        validation_path_streak: int = DEFAULT_VALIDATION_PATH_STREAK,
         unproductive_threshold: int = DEFAULT_UNPRODUCTIVE_THRESHOLD,
         reflection_start_round: int = DEFAULT_REFLECTION_START_ROUND,
         reflection_interval: int = DEFAULT_REFLECTION_INTERVAL,
@@ -444,6 +493,7 @@ class LoopController:
         self._tool_failure_warn = max(1, tool_failure_warn)
         self._tool_failure_disable = max(self._tool_failure_warn, tool_failure_disable)
         self._path_write_reject_streak = max(1, path_write_reject_streak)
+        self._validation_path_streak = max(1, validation_path_streak)
         self._unproductive_threshold = max(1, unproductive_threshold)
         self._reflection_start_round = max(0, reflection_start_round)
         self._reflection_interval = max(1, reflection_interval)
@@ -507,6 +557,10 @@ class LoopController:
         # One-shot hard-stop steer from a tool that retires a family (e.g. browser
         # egress_unavailable). Consumed by :meth:`tool_circuit_breaker`.
         self._pending_retire_message: str | None = None
+        # Validation same-fingerprint streak → path-stop steer (tool stays available).
+        self._validation_fp_streak: tuple[str, str, int] | None = None  # fp, tool, n
+        self._validation_stopped_fps: set[str] = set()
+        self._pending_validation_stop: str | None = None
         # B2 no-output early stop: consecutive unproductive rounds (all tools failed,
         # no content). Reset by any productive round (content OR a tool success).
         self._consecutive_unproductive = 0
@@ -779,12 +833,23 @@ class LoopController:
         inv_fps: set[str] = set()
         for attempt in attempts:
             self._recent.append(attempt)
-            # ``policy_failure`` (upstream block) and ``contract_failure`` (self-correctable
-            # 参数契约拒绝) are honest failures for the model but must not feed the run-scoped
-            # circuit breaker: they still ride the sliding window above (REPEATED_FAILURE /
-            # round recording) and count toward per-round unproductive detection, only the
-            # cumulative warn/disable tally skips them.
-            if not attempt.success and not attempt.policy_failure and not attempt.contract_failure:
+            error_class = resolve_error_class(attempt)
+            meta = attempt.meta or {}
+            # ``policy_failure`` (upstream block / permission) and ``contract_failure``
+            # (self-correctable 参数契约拒绝) are honest failures for the model but must
+            # not feed the run-scoped circuit breaker: they still ride the sliding window
+            # above (REPEATED_FAILURE / round recording) and count toward per-round
+            # unproductive detection, only the cumulative warn/disable tally skips them.
+            # Permanent failures skip the incremental tally too — retire below leaps
+            # straight to disable on first hit (no warn=2 / disable=3 window).
+            counts_toward_breaker = (
+                not attempt.success
+                and not attempt.policy_failure
+                and not attempt.contract_failure
+                and error_class != ERROR_CLASS_PERMANENT
+                and error_class != ERROR_CLASS_PERMISSION
+            )
+            if counts_toward_breaker:
                 name = attempt.tool_name
                 self._tool_failures[name] += 1
                 if attempt.parse_failure:
@@ -794,20 +859,44 @@ class LoopController:
                     self._tool_last_error[name] = cap_error_summary(summary)
                 # A later failure re-opens the gap until a subsequent success.
                 self._tool_succeeded_after_fail[name] = False
-                self._tool_liveness_last[name] = bool(
-                    (attempt.meta or {}).get("liveness_timeout")
+                self._tool_liveness_last[name] = bool(meta.get("liveness_timeout"))
+            elif (
+                not attempt.success
+                and error_class == ERROR_CLASS_PERMANENT
+                and attempt.tool_name
+            ):
+                # Still stamp last-error / liveness for finalize + steer typing.
+                summary = (attempt.error_summary or "").strip()
+                if summary and attempt.tool_name not in self._tool_last_error:
+                    self._tool_last_error[attempt.tool_name] = cap_error_summary(summary)
+                self._tool_succeeded_after_fail[attempt.tool_name] = False
+                self._tool_liveness_last[attempt.tool_name] = bool(
+                    meta.get("liveness_timeout")
                 )
-            # Explicit hard-stop retire (browser egress / file_read same-path ceiling)
-            # must apply even when ``contract_failure`` — otherwise tip thrashing
-            # never disables the tool (P2: attachment file_read tip×N).
+            # Explicit hard-stop retire (browser egress / file_read same-path ceiling /
+            # permanent class / access-permission) must apply even when
+            # ``contract_failure`` — otherwise tip thrashing never disables the tool
+            # (P2: attachment file_read tip×N).
             if not attempt.success:
-                retire = attempt.meta.get("retire_tools") if attempt.meta else None
+                retire_list: list[str] = []
+                retire = meta.get("retire_tools")
                 if isinstance(retire, (list, tuple, set, frozenset)) and retire:
+                    retire_list = [str(s).strip() for s in retire if str(s).strip()]
+                elif error_class == ERROR_CLASS_PERMANENT and attempt.tool_name:
+                    # First permanent failure (liveness / stamped permanent without
+                    # an explicit family) retires the tool itself.
+                    retire_list = [attempt.tool_name]
+                elif (
+                    error_class == ERROR_CLASS_PERMISSION
+                    and meta.get("permission_kind") == "access"
+                    and attempt.tool_name
+                ):
+                    # Access permission (e.g. grep 无权限): retire so re-call denies.
+                    # Allowlist denials stay policy-only (already denied by allowlist).
+                    retire_list = [attempt.tool_name]
+                if retire_list:
                     summary = (attempt.error_summary or "").strip()
-                    for sibling in retire:
-                        sname = str(sibling).strip()
-                        if not sname:
-                            continue
+                    for sname in retire_list:
                         self._tool_failures[sname] = max(
                             int(self._tool_failures.get(sname, 0)),
                             self._tool_failure_disable,
@@ -815,11 +904,40 @@ class LoopController:
                         if summary and sname not in self._tool_last_error:
                             self._tool_last_error[sname] = cap_error_summary(summary)
                         self._tool_succeeded_after_fail[sname] = False
-                    retire_msg = attempt.meta.get("retire_message") if attempt.meta else None
+                        if meta.get("liveness_timeout"):
+                            self._tool_liveness_last[sname] = True
+                    retire_msg = meta.get("retire_message")
                     if isinstance(retire_msg, str) and retire_msg.strip():
                         self._pending_retire_message = retire_msg.strip()
+                    elif error_class == ERROR_CLASS_PERMANENT and not self._pending_retire_message:
+                        names = "、".join(f"`{n}`" for n in retire_list)
+                        self._pending_retire_message = (
+                            f"工具 {names} {_PERMANENT_RETIRE_STEER}"
+                        )
             if attempt.success and self._tool_failures.get(attempt.tool_name, 0) > 0:
                 self._tool_succeeded_after_fail[attempt.tool_name] = True
+            # Validation same-fingerprint streak → path stop (tool stays available).
+            if not attempt.success and error_class == ERROR_CLASS_VALIDATION:
+                fp = attempt.fingerprint
+                tool = attempt.tool_name
+                prev = self._validation_fp_streak
+                streak = prev[2] + 1 if prev is not None and prev[0] == fp else 1
+                self._validation_fp_streak = (fp, tool, streak)
+                if (
+                    streak >= self._validation_path_streak
+                    and fp not in self._validation_stopped_fps
+                ):
+                    self._validation_stopped_fps.add(fp)
+                    self._pending_validation_stop = (
+                        f"工具 `{tool}` {_VALIDATION_PATH_STOP_STEER}"
+                    )
+            elif attempt.success or error_class != ERROR_CLASS_VALIDATION:
+                # Break validation streak on success or a different error class.
+                if self._validation_fp_streak is not None and (
+                    attempt.success
+                    or attempt.fingerprint != self._validation_fp_streak[0]
+                ):
+                    self._validation_fp_streak = None
             # Same-path classified write rejects → early force_segmented (合流熔断出口).
             # contract_failure skips the cumulative tally above; this streak is the
             # dedicated early path for prose-append / code-integrity hard rejects.
@@ -1005,6 +1123,14 @@ class LoopController:
         if newly_disabled and self._pending_retire_message:
             retire_message = self._pending_retire_message
             self._pending_retire_message = None
+        elif newly_force_segmented and self._pending_retire_message:
+            # Landing tools convert permanent retire → force_segmented; drop the
+            # pending hard-stop copy so it cannot leak onto a later unrelated disable.
+            self._pending_retire_message = None
+        validation_stop = None
+        if self._pending_validation_stop:
+            validation_stop = self._pending_validation_stop
+            self._pending_validation_stop = None
         return CircuitBreak(
             warned=tuple(newly_warned),
             disabled=tuple(newly_disabled),
@@ -1014,6 +1140,7 @@ class LoopController:
             liveness_warned=frozenset(
                 n for n in newly_warned if self._tool_liveness_last.get(n)
             ),
+            validation_stop=validation_stop,
         )
 
     def tool_failure_count(self, tool_name: str) -> int:

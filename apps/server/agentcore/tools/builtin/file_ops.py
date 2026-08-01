@@ -824,7 +824,7 @@ def _office_extract_budget_error(path: str, size: int, start: float) -> ToolResu
 
 
 def _liveness_workspace_error(detail: str, start: float) -> ToolResult:
-    """Liveness hang on the local workspace channel (counts toward breaker)."""
+    """Liveness hang on the local workspace channel (permanent first-fail retire)."""
     return _error(
         (
             f"本地工作区通道活性挂起（无响应）：{detail}。"
@@ -832,7 +832,11 @@ def _liveness_workspace_error(detail: str, start: float) -> ToolResult:
             "禁止原样重试同一 workspace op。"
         ),
         start,
-        metadata={"liveness_timeout": True, "timeout_layer": "channel"},
+        metadata={
+            "liveness_timeout": True,
+            "timeout_layer": "channel",
+            "error_class": "permanent",
+        },
     )
 
 
@@ -855,6 +859,7 @@ def _file_read_path_ceiling_error(error: str, start: float) -> ToolResult:
         metadata={
             "retire_tools": ["file_read"],
             "retire_message": _FILE_READ_PATH_CEILING_RETIRE_STEER,
+            "error_class": "permanent",
         },
     )
 

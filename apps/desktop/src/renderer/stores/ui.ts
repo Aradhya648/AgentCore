@@ -89,9 +89,9 @@ interface UIState {
   searchInitialBookmarks: boolean;
   theme: Theme;
   /** 开发者 / 诊断模式 (前端UX设计.md §十). When true, low-level execution
-   * diagnostics (run / trace ids 等) surface in run detail + the bubble's trace-id
-   * action — dev-only noise kept off the 大众 path. Persisted via uiStorage
-   * (`agentcore:diagnostic-mode`). */
+   * diagnostics (run / trace ids、调度埋点等) surface in run detail — dev-only
+   * noise kept off the 大众 path. 「复制排查包」(错误卡 / 气泡更多) 不依赖本开关。
+   * Persisted via uiStorage (`agentcore:diagnostic-mode`). */
   diagnosticMode: boolean;
   /** 每对话的视图模式（聊天 ⇄ 画布双视图，前端UX设计.md §六）。默认聊天（`"chat"`），
    * 用户可在对话顶栏切到画布（`"canvas"`）。画布已毕业（无实验开关），入口恒显示。

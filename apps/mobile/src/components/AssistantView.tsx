@@ -16,6 +16,10 @@ import {
   copyText,
   formatMessageExport,
 } from "@/lib/messageExport";
+import {
+  type SupportDiagnosticIds,
+  formatSupportDiagnosticText,
+} from "@/lib/supportDiagnostics";
 import type {
   EscalationSlot,
   HotDecisionTrace,
@@ -126,6 +130,7 @@ export function AssistantContent({
   graphAppendActKinds,
   graphAppendAuthorizedBy,
   onFill,
+  supportIds,
 }: {
   process?: ProcessStep[];
   content: string;
@@ -168,6 +173,8 @@ export function AssistantContent({
   /** Tap an ask/chip → fill the composer (回填输入框, review before send). Absent → chips
    *  render but no-op (e.g. a read-only context with no composer). */
   onFill?: (text: string) => void;
+  /** 复制排查包 ids（报障 / Cursor 日志查询）；有任一 id 即在复制行显示入口. */
+  supportIds?: SupportDiagnosticIds;
 }) {
   const hasTeam = !!team && team.runs.length > 0;
   const turnLedger = evidenceLedger;
@@ -216,21 +223,31 @@ export function AssistantContent({
       {citations && citations.length > 0 ? (
         <Citations items={citations} />
       ) : null}
-      <MessageCopyActions content={content} process={process} />
+      <MessageCopyActions
+        content={content}
+        process={process}
+        supportIds={supportIds}
+      />
     </>
   );
 }
 
-/** 复制出口：仅交付（默认）/ 含过程 — 对齐桌面两档，搜索与 history 仍只用交付。 */
+/** 复制出口：仅交付 / 含过程 + 恒可用的「复制排查包」（对齐桌面报障出口）. */
 function MessageCopyActions({
   content,
   process,
+  supportIds,
 }: {
   content: string;
   process?: ProcessStep[];
+  supportIds?: SupportDiagnosticIds;
 }) {
-  const [copied, setCopied] = useState<MessageCopyMode | null>(null);
-  if (!content.trim() && !(process && process.length > 0)) return null;
+  const [copied, setCopied] = useState<MessageCopyMode | "support" | null>(
+    null,
+  );
+  const supportText = supportIds ? formatSupportDiagnosticText(supportIds) : "";
+  const hasContent = !!content.trim() || (process && process.length > 0);
+  if (!hasContent && !supportText) return null;
   const hasProcess = (process?.length ?? 0) > 0;
 
   const onCopy = async (mode: MessageCopyMode) => {
@@ -241,16 +258,26 @@ function MessageCopyActions({
     }
   };
 
+  const onCopySupport = async () => {
+    if (!supportText) return;
+    if (await copyText(supportText)) {
+      setCopied("support");
+      window.setTimeout(() => setCopied(null), 1500);
+    }
+  };
+
   return (
     <div className="msg-copy">
-      <button
-        type="button"
-        className="msg-copy-btn"
-        onClick={() => void onCopy("deliverable")}
-      >
-        {copied === "deliverable" ? "已复制" : "复制交付"}
-      </button>
-      {hasProcess && (
+      {hasContent && (
+        <button
+          type="button"
+          className="msg-copy-btn"
+          onClick={() => void onCopy("deliverable")}
+        >
+          {copied === "deliverable" ? "已复制" : "复制交付"}
+        </button>
+      )}
+      {hasContent && hasProcess && (
         <button
           type="button"
           className="msg-copy-btn"
@@ -259,7 +286,42 @@ function MessageCopyActions({
           {copied === "with_process" ? "已复制" : "含过程"}
         </button>
       )}
+      {supportText && (
+        <button
+          type="button"
+          className="msg-copy-btn"
+          onClick={() => void onCopySupport()}
+        >
+          {copied === "support" ? "已复制" : "复制排查包"}
+        </button>
+      )}
     </div>
+  );
+}
+
+/** Inline error-row「复制排查包」(empty failure bubbles have no MessageCopyActions). */
+export function SupportDiagnosticCopyButton({
+  ids,
+}: {
+  ids: SupportDiagnosticIds;
+}) {
+  const [copied, setCopied] = useState(false);
+  const text = formatSupportDiagnosticText(ids);
+  if (!text) return null;
+  return (
+    <button
+      type="button"
+      className="msg-copy-btn"
+      onClick={() => {
+        void copyText(text).then((ok) => {
+          if (!ok) return;
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+    >
+      {copied ? "已复制" : "复制排查包"}
+    </button>
   );
 }
 

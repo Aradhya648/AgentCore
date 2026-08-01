@@ -143,6 +143,20 @@ class GrepTool:
             # model sees the dialect hint immediately.
             if "正则" in msg:
                 return _fail(msg, start)
+            # Access permission: permanent for this tool this run (retire on first hit).
+            if _is_access_permission_error(msg):
+                return _fail(
+                    f"搜索失败：{e}",
+                    start,
+                    policy_failure=True,
+                    error_class="permission",
+                    permission_kind="access",
+                    retire_tools=["grep"],
+                    retire_message=(
+                        "工具 `grep` 因无访问权限已停用——请改用已授权路径/工具，"
+                        "禁止原样重试 grep。"
+                    ),
+                )
             return _fail(f"搜索失败：{e}", start)
 
         output = _render(
@@ -165,13 +179,44 @@ class GrepTool:
         )
 
 
-def _fail(error: str, start: float) -> ToolResult:
+def _fail(
+    error: str,
+    start: float,
+    *,
+    policy_failure: bool = False,
+    error_class: str | None = None,
+    permission_kind: str | None = None,
+    retire_tools: list[str] | None = None,
+    retire_message: str | None = None,
+) -> ToolResult:
+    meta: dict[str, Any] = {}
+    if policy_failure:
+        meta["policy_failure"] = True
+    if error_class:
+        meta["error_class"] = error_class
+    if permission_kind:
+        meta["permission_kind"] = permission_kind
+    if retire_tools:
+        meta["retire_tools"] = list(retire_tools)
+    if retire_message:
+        meta["retire_message"] = retire_message
     return ToolResult(
         tool_call_id="",
         success=False,
         output="",
         error=error,
         duration_ms=int((time.monotonic() - start) * 1000),
+        metadata=meta,
+    )
+
+
+def _is_access_permission_error(msg: str) -> bool:
+    text = (msg or "").lower()
+    return (
+        "没有访问权限" in (msg or "")
+        or "permission denied" in text
+        or "access is denied" in text
+        or "access denied" in text
     )
 
 

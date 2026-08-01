@@ -228,8 +228,147 @@ async def test_malformed_envelope_raises_io_error():
 async def test_timeout_raises_io_error():
     local, _registry, _sink = _make(timeout=0.05)
     # No desktop answers, so the op times out and surfaces as a WorkspaceIOError.
-    with pytest.raises(WorkspaceIOError):
+    with pytest.raises(WorkspaceIOError, match="活性挂起"):
         await local.read("never-answered.txt")
+
+
+async def test_after_timeout_second_request_fail_fast():
+    """Sticky channel-dead: a follow-up op must not wait another full deadline."""
+    local, _registry, _sink = _make(timeout=2.0)
+    with pytest.raises(WorkspaceIOError, match="活性挂起"):
+        await local.read("never-answered.txt")
+
+    t0 = asyncio.get_running_loop().time()
+    with pytest.raises(WorkspaceIOError, match="channel dead.*活性挂起"):
+        await local.read("also-never.txt")
+    elapsed = asyncio.get_running_loop().time() - t0
+    # Fail-fast: far shorter than the 2s channel timeout (no SSE / no suspend).
+    assert elapsed < 0.2
+
+
+async def test_parallel_ops_one_timeout_fails_sibling_as_channel_dead():
+    """First liveness hang settles same-channel inflight without burning deadline."""
+    sink = EventSink()
+    registry = InteractionRegistry()
+    channel = WorkspaceChannel(
+        sink=sink,
+        conversation_id=CONV,
+        registry=registry,
+        # Floor is max(1.0, …) in derive_channel_timeout — use 1s vs 5s contrast.
+        timeout_seconds=1.0,
+        root_id=ROOT_ID,
+    )
+    # Short (channel default) vs long: A hangs first; B must not burn its 5s budget.
+    t_a = asyncio.create_task(channel.request(WorkspaceOp.READ, {"path": "a.txt"}))
+    t_b = asyncio.create_task(
+        channel.request(WorkspaceOp.READ, {"path": "b.txt"}, timeout=5.0)
+    )
+    await _await_request(sink)
+    await _await_request(sink)
+
+    t0 = asyncio.get_running_loop().time()
+    results = await asyncio.gather(t_a, t_b, return_exceptions=True)
+    elapsed = asyncio.get_running_loop().time() - t0
+
+    assert all(isinstance(r, WorkspaceIOError) for r in results)
+    details = [str(r) for r in results]
+    assert any("timed out" in d and "活性挂起" in d for d in details)
+    assert any("channel dead" in d and "活性挂起" in d for d in details)
+    # Sibling had a 5s budget — channel-dead settle must finish near A's 1s hang.
+    assert elapsed < 2.0
+
+
+async def test_channel_caps_concurrent_suspends():
+    """At most max_inflight ops may be suspended; extras wait for a slot."""
+    sink = EventSink()
+    registry = InteractionRegistry()
+    cap = 2
+    channel = WorkspaceChannel(
+        sink=sink,
+        conversation_id=CONV,
+        registry=registry,
+        timeout_seconds=5.0,
+        root_id=ROOT_ID,
+        max_inflight=cap,
+    )
+    tasks = [
+        asyncio.create_task(channel.request(WorkspaceOp.READ, {"path": f"{i}.txt"}))
+        for i in range(cap + 2)
+    ]
+    # Pump until the first wave emits; the overflow must not emit yet.
+    events: list[SSEEvent] = []
+    for _ in range(200):
+        while not sink._queue.empty():  # noqa: SLF001
+            events.append(sink._queue.get_nowait())
+        if len(events) >= cap:
+            break
+        await asyncio.sleep(0)
+    assert len(events) == cap
+    assert len(channel._inflight) == cap  # noqa: SLF001
+    await asyncio.sleep(0)
+    assert sink._queue.empty()  # noqa: SLF001
+
+    # Release one slot → a parked waiter suspends and emits.
+    assert registry.resolve(
+        events[0].payload["request_id"], {"ok": True, "value": "a"}, conversation_id=CONV
+    )
+    third = await _await_request(sink)
+    assert third.payload["args"]["path"] in {f"{i}.txt" for i in range(cap + 2)}
+
+    # Settle every remaining suspended op (wave 1 leftover + newly admitted).
+    to_settle = [events[1], third]
+    for _ in range(100):
+        while not sink._queue.empty():  # noqa: SLF001
+            to_settle.append(sink._queue.get_nowait())
+        progressed = False
+        for ev in list(to_settle):
+            if registry.resolve(
+                ev.payload["request_id"], {"ok": True, "value": "x"}, conversation_id=CONV
+            ):
+                to_settle.remove(ev)
+                progressed = True
+        if all(t.done() for t in tasks):
+            break
+        if not progressed:
+            await asyncio.sleep(0)
+    results = await asyncio.gather(*tasks)
+    assert len(results) == cap + 2
+    assert all(r in ("a", "x") for r in results)
+
+
+async def test_queued_waiter_fail_fast_after_channel_dead():
+    """After sticky-dead, a queued waiter that obtains a slot fail-fasts (no SSE)."""
+    sink = EventSink()
+    registry = InteractionRegistry()
+    channel = WorkspaceChannel(
+        sink=sink,
+        conversation_id=CONV,
+        registry=registry,
+        timeout_seconds=1.0,
+        root_id=ROOT_ID,
+        max_inflight=1,
+    )
+    # Fill the only slot; leave it hanging so the next caller queues.
+    t_hold = asyncio.create_task(channel.request(WorkspaceOp.READ, {"path": "hold.txt"}))
+    await _await_request(sink)
+    t_queued = asyncio.create_task(channel.request(WorkspaceOp.READ, {"path": "queued.txt"}))
+    # Queued task parks on the semaphore — no second SSE while hold is open.
+    for _ in range(50):
+        await asyncio.sleep(0)
+    assert sink._queue.empty()  # noqa: SLF001
+
+    t0 = asyncio.get_running_loop().time()
+    results = await asyncio.gather(t_hold, t_queued, return_exceptions=True)
+    elapsed = asyncio.get_running_loop().time() - t0
+
+    assert all(isinstance(r, WorkspaceIOError) for r in results)
+    details = [str(r) for r in results]
+    assert any("timed out" in d and "活性挂起" in d for d in details)
+    assert any("channel dead" in d and "活性挂起" in d for d in details)
+    # Queued waiter fail-fasts after hold's ~1s hang — not another full deadline.
+    assert elapsed < 2.0
+    # No workspace_op_required for the queued op.
+    assert sink._queue.empty()  # noqa: SLF001
 
 
 # --- per-op transport deadline (执行门 timeout policy) ----------------------

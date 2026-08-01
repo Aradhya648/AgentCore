@@ -131,6 +131,7 @@ def _error(
         meta["code"] = code
     if retire_tools:
         meta["retire_tools"] = sorted(retire_tools)
+        meta["error_class"] = "permanent"
         if retire_message:
             meta["retire_message"] = retire_message
     return ToolResult(

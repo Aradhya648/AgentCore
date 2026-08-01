@@ -132,13 +132,16 @@ async def list_conversation_turns(
     until: datetime | None = Query(None),
     include_deleted_conversations: bool = Query(True),
     metrics_repo: TurnMetricsRepository = Depends(get_turn_metrics_repo),
+    cost_repo: CostEventRepository = Depends(get_cost_event_repo),
 ) -> AdminTurnListResponse:
     """平台回合流水 (对话页 · 回合段): cross-user paginated turn feed.
 
     Finer-grained than the session roster — each row is one ``turn_metrics`` record
     with conversation title + owner identity for triage. Newest-first; filters
     AND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).
-    Drill into 会话复盘 by ``conversation_id``.
+    ``models`` / ``credential_source`` join ``cost_calls`` by ``trace_id`` (not
+    ``turn_id`` — that column is attempt_id ≠ assistant message_id). Drill into
+    会话复盘 by ``conversation_id``.
     """
     rows, total = await metrics_repo.list_platform(
         page=page,
@@ -152,12 +155,16 @@ async def list_conversation_turns(
         since=since,
         until=until,
     )
+    call_by_trace = await cost_repo.models_and_source_by_trace(
+        [tm.trace_id for tm, _conv, _owner in rows if tm.trace_id]
+    )
     data: list[AdminTurnListItem] = []
     for tm, conv, owner in rows:
         title = conv.title or None
         if title == "":
             title = None
         base = TurnMetricLine.model_validate(tm)
+        models, cred_src = call_by_trace.get(tm.trace_id or "", ([], None))
         data.append(
             AdminTurnListItem(
                 **base.model_dump(),
@@ -165,6 +172,8 @@ async def list_conversation_turns(
                 username=owner.username if owner else None,
                 display_name=owner.display_name if owner else None,
                 conversation_deleted_at=conv.deleted_at,
+                models=models,
+                credential_source=cred_src,
             )
         )
 

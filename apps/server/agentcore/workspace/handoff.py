@@ -80,6 +80,7 @@ async def snapshot_local(
         registry=default_interaction_registry(),
         timeout_seconds=settings.workspace_handoff_timeout_seconds,
         root_id=binding.root_id,
+        max_inflight=settings.workspace_channel_max_inflight,
     )
     # Scope ARCHIVE to the workspace subpath (项目子目录 / 裸聊
     # ``conversations/<id>``)，zip 内路径保持工作区相对——与 LocalWorkspace 前缀口径一致。

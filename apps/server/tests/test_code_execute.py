@@ -310,3 +310,26 @@ async def test_code_execute_nonzero_exit_without_launcher_msg_not_contract():
     assert result.success is False
     assert result.contract_failure is False
     assert result.metadata == {}
+
+
+async def test_code_execute_sandbox_network_unsupported_is_permanent_retire():
+    """gVisor rootless network unsupported → permanent retire of code_execute."""
+    backend = _FakeBackend(
+        ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="creating sandbox: sandbox network isn't supported with --rootless",
+            exit_code=128,
+            duration_ms=5,
+        )
+    )
+    result = await CodeExecuteTool().execute(
+        {"code": "print(1)", "language": "python"},
+        _ctx(backend),
+    )
+    assert result.success is False
+    assert result.contract_failure is False
+    assert result.metadata.get("error_class") == "permanent"
+    assert result.metadata.get("code") == "sandbox_network_unsupported"
+    assert result.metadata.get("retire_tools") == ["code_execute"]
+    assert "沙箱网络" in (result.metadata.get("retire_message") or "")

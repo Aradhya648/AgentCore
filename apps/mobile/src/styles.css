@@ -3500,6 +3500,26 @@ dialog.dialog::backdrop {
   font-size: 13px;
 }
 
+.error.inline-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.error.inline-actions .msg-copy-btn {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.error-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
 .error.bar {
   border-top: 1px solid var(--border);
   border-bottom: none;

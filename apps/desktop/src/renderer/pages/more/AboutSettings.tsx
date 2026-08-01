@@ -103,10 +103,10 @@ function UpdateSection() {
 }
 
 /**
- * 开发者 / 诊断模式 (前端UX设计.md §十) — an advanced, off-by-default toggle that
- * surfaces low-level execution diagnostics (run / trace ids in run detail, the
- * bubble「更多」→「复制排查包」) for debugging. Lives on 关于 — next to build
- * 溯源 — so this dev affordance stays off the 大众-facing 偏好 pages.
+ * 开发者 / 诊断模式 (前端UX设计.md §十) — advanced, off-by-default toggle that
+ * surfaces low-level execution diagnostics in run detail (裸 run / trace ids、
+ * 调度埋点等)。报障出口（错误卡 / 气泡「更多」→「复制排查包」）不依赖本开关。
+ * Lives on 关于 — next to build 溯源 — so this stays off 大众-facing 偏好 pages.
  */
 function DiagnosticModeSection() {
   const diagnosticMode = useUIStore((s) => s.diagnosticMode);
@@ -120,8 +120,8 @@ function DiagnosticModeSection() {
             开发者 / 诊断模式
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            显示运行 / 追踪 ID
-            等底层诊断信息（运行详情面板、消息「更多」里的「复制排查包」），便于排查问题。普通使用无需开启；报障可直接用错误卡「复制排查包」。
+            在运行详情里显示运行 / 追踪
+            ID、调度埋点等底层信息。普通使用无需开启；报障请用错误卡或消息「更多」里的「复制排查包」（无需开本开关）。
           </p>
         </div>
         <Switch

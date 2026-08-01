@@ -346,6 +346,7 @@ class ReadUrlTool:
                 duration_ms=int((time.monotonic() - start) * 1000),
                 metadata={
                     "retire_tools": ["read_url"],
+                    "error_class": "permanent",
                     # CircuitBreak.message() prefixes ``[系统提示]`` once.
                     "retire_message": retire_msg,
                 },

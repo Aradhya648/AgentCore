@@ -113,7 +113,8 @@ def test_derive_channel_timeout_from_outer_deadline():
     assert derive_channel_timeout(channel_default=60.0) == 60.0
 
 
-def test_liveness_circuit_warn_steer():
+def test_liveness_circuit_first_fail_retires():
+    """Workspace / outer liveness is permanent: first fail retires the tool."""
     ctrl = LoopController(
         tool_failure_warn=2,
         tool_failure_disable=3,
@@ -121,25 +122,24 @@ def test_liveness_circuit_warn_steer():
         reflection_start_round=99,
         reflection_interval=99,
     )
-    for _ in range(2):
-        ctrl.record(
-            [
-                ToolAttempt(
-                    "fp",
-                    "file_read",
-                    success=False,
-                    error_summary="活性挂起",
-                    meta={"liveness_timeout": True},
-                )
-            ]
-        )
+    ctrl.record(
+        [
+            ToolAttempt(
+                "fp",
+                "file_read",
+                success=False,
+                error_summary="活性挂起",
+                meta={"liveness_timeout": True, "error_class": "permanent"},
+            )
+        ]
+    )
     br = ctrl.tool_circuit_breaker()
-    assert br.warned == ("file_read",)
-    assert "file_read" in br.liveness_warned
+    assert br.disabled == ("file_read",)
+    assert br.warned == ()
     msg = br.message() or ""
-    assert "活性挂起" in msg
-    assert "原样重试" in msg
+    assert "停用" in msg or "原样重试" in msg or "换路径" in msg
 
 
 def test_circuit_break_liveness_field_defaults():
     assert CircuitBreak().liveness_warned == frozenset()
+    assert CircuitBreak().validation_stop is None

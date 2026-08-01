@@ -14,9 +14,11 @@ Pins ``stream_llm_round``'s per-chunk IDLE ceiling:
 import asyncio
 
 import pytest
+from structlog.testing import capture_logs
 
 from agentcore.config import settings
 from agentcore.core.errors import LLMTimeoutError
+from agentcore.core.log_context import bind_log_context, clear_log_context
 from agentcore.llm.provider.protocol import (
     MAX_RETRIES,
     LLMChunk,
@@ -102,11 +104,23 @@ async def test_committed_stall_returns_aborted_partial(monkeypatch):
     monkeypatch.setattr(settings, "engine_llm_stream_idle_timeout_seconds", 0.05)
     seen: list[str] = []
     provider = _StallProvider([LLMChunk(delta_content="thinking…")], stall=1.0)
-    result = await stream_llm_round(provider, _request(), seen.append, lambda _d: None)
+
+    clear_log_context()
+    bind_log_context(credential_source="platform", provider_id="prov-stall")
+    try:
+        with capture_logs() as caps:
+            result = await stream_llm_round(provider, _request(), seen.append, lambda _d: None)
+    finally:
+        clear_log_context()
     assert result.aborted is True
     assert result.content == "thinking…"
     assert seen == ["thinking…"]
     assert provider.calls == 1  # post-commit: salvage, no retry
+    stalled = next(c for c in caps if c.get("event") == "llm.stream_stalled")
+    assert stalled["model"] == "m"
+    assert stalled["credential_source"] == "platform"
+    assert stalled["provider_id"] == "prov-stall"
+    assert "base_url" not in stalled
 
 
 async def test_uncommitted_stall_retries_then_raises(monkeypatch):

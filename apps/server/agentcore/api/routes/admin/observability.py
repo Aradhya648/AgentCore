@@ -42,6 +42,7 @@ from agentcore.db.repositories import (
     TurnMetricsRepository,
     UserRepository,
 )
+from agentcore.llm.model_profiles import LlmModelProfileService
 
 router = APIRouter(tags=["admin"])
 
@@ -118,7 +119,8 @@ async def observability_conversation(
     """会话复盘 (观测 P2): one conversation's merged timeline — the message thread
     (bodies) overlaid with each turn's outcome/quality (turn_metrics), spend
     (cost_events), execution spans, and multi-agent runs (turn_journal), joined by
-    trace_id / message_id.
+    trace_id / message_id. Per-message ``models`` / ``credential_source`` come from
+    ``cost_calls`` (message_id; bare turn markers fall back to trace_id).
 
     Admin-only and cross-user (any account's conversation), unlike the owner-scoped
     ``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a
@@ -136,10 +138,21 @@ async def observability_conversation(
     # trace overlays exactly one message — its turn's outcome/quality.
     metrics_by_trace = {m.trace_id: m for m in metrics if m.trace_id}
     cost_by_message = await cost_repo.aggregate_cost_by_message_for_conversation(conversation_id)
+    call_by_message = await cost_repo.models_and_source_by_message_for_conversation(
+        conversation_id
+    )
+    # Bare text-less turn markers have no message_id — fall back to trace join.
+    message_traces = {m.trace_id for m in rows if m.trace_id}
+    bare_traces = [
+        tm.trace_id for tm in metrics if tm.trace_id and tm.trace_id not in message_traces
+    ]
+    call_by_trace = await cost_repo.models_and_source_by_trace(bare_traces)
     # Each turn's execution spans live in turn_journal keyed by turn_id == the
     # assistant message id (NOT turn_metrics.turn_id, a separate id). Batch-load all
     # assistant turns' journals in one query (no N+1); a plain chat journaled nothing.
     journals = await journal_repo.load_map([m.id for m in rows if m.role == "assistant"])
+
+    expanded = await LlmModelProfileService(db).expand_for_conversation(conv.user_id, conv)
 
     # The timeline is the messages ⟕ turns outer-join: a turn with a text reply rides
     # that assistant message (overlay); a text-less turn (e.g. an early hard error
@@ -152,6 +165,7 @@ async def observability_conversation(
         if overlay is not None:
             consumed.add(m.trace_id)
         journal = journals.get(m.id, [])
+        models, cred_src = call_by_message.get(m.id, ([], None))
         timeline.append(
             ReplayMessage(
                 id=m.id,
@@ -161,6 +175,8 @@ async def observability_conversation(
                 trace_id=m.trace_id,
                 metrics=TurnMetricLine.model_validate(overlay) if overlay else None,
                 cost_total=cost_by_message.get(m.id, 0),
+                models=models,
+                credential_source=cred_src,
                 spans=_project_spans(journal),
                 runs=_project_runs(journal) if m.role == "assistant" else [],
             )
@@ -168,6 +184,7 @@ async def observability_conversation(
     for tm in metrics:
         if not tm.trace_id or tm.trace_id in consumed:
             continue
+        models, cred_src = call_by_trace.get(tm.trace_id, ([], None))
         timeline.append(
             ReplayMessage(
                 id=tm.turn_id,
@@ -177,6 +194,8 @@ async def observability_conversation(
                 trace_id=tm.trace_id,
                 metrics=TurnMetricLine.model_validate(tm),
                 cost_total=0,
+                models=models,
+                credential_source=cred_src,
             )
         )
     timeline.sort(key=lambda r: r.created_at)
@@ -202,6 +221,8 @@ async def observability_conversation(
             username=owner.username if owner else None,
             display_name=owner.display_name if owner else None,
             created_at=conv.created_at,
+            model_profile_id=conv.model_profile_id,
+            model_profile_name=expanded.name,
         ),
         messages=timeline,
         turns=len(metrics),

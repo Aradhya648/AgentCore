@@ -393,13 +393,22 @@ class AdminTurnListItem(TurnMetricLine):
     """One turn in the platform-wide 回合 feed — TurnMetricLine + list context.
 
     Carries the owning conversation title and account display identity so an
-    operator can triage without opening 复盘 first.
+    operator can triage without opening 复盘 first. ``models`` /
+    ``credential_source`` come from ``cost_calls`` joined by ``trace_id``
+    (``turn_metrics.turn_id`` ≠ assistant ``message_id`` — never join on turn_id).
     """
 
     conversation_title: str | None = None
     username: str | None = None
     display_name: str | None = None
     conversation_deleted_at: datetime | None = None
+    # Distinct model ids from ``cost_calls`` for this turn's ``trace_id`` (deduped,
+    # first-seen order). Empty when the turn left no call ledger rows.
+    models: list[str] = []
+    # From ``cost_calls.cost`` JSONB ``credential_source``. No ledger → null.
+    # Rows present but key missing → ``platform`` (matches ledger ``split_cost``).
+    # Mixed sources → ``user`` if any call is user, else ``platform`` (vendor→platform).
+    credential_source: Literal["user", "platform"] | None = None
 
 
 class AdminTurnListResponse(BaseModel):
@@ -503,6 +512,10 @@ class ReplayMessage(BaseModel):
     have none. ``content`` is the raw message text (the prompt / reply) — the
     substance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight
     tree nodes for triage — not the desktop team canvas).
+
+    ``models`` / ``credential_source`` come from ``cost_calls`` (call authority):
+    message rows join by ``message_id``; bare text-less turn markers join by
+    ``trace_id``. No ledger → empty models + null source.
     """
 
     id: str
@@ -513,6 +526,13 @@ class ReplayMessage(BaseModel):
     metrics: TurnMetricLine | None = None
     # Per-turn spend (integer nano-USD); the client folds ``cny_per_usd`` for ¥.
     cost_total: int = 0
+    # Distinct model ids from ``cost_calls`` (deduped, first-seen order). Empty when
+    # the turn left no call ledger rows.
+    models: list[str] = []
+    # From ``cost_calls.cost`` JSONB ``credential_source``. No ledger → null.
+    # Rows present but key missing → ``platform`` (matches ledger ``split_cost``).
+    # Mixed sources → ``user`` if any call is user, else ``platform`` (vendor→platform).
+    credential_source: Literal["user", "platform"] | None = None
     # The turn's tool/LLM spans (turn_journal projection); empty for user prompts and
     # for turns that journaled nothing (a plain single-agent chat with no tools).
     spans: list[ReplaySpan] = []
@@ -521,7 +541,7 @@ class ReplayMessage(BaseModel):
 
 
 class ReplayConversation(BaseModel):
-    """The conversation header for a 复盘 (owner identity + title)."""
+    """The conversation header for a 复盘 (owner identity + title + model profile)."""
 
     id: str
     title: str | None
@@ -529,6 +549,10 @@ class ReplayConversation(BaseModel):
     username: str | None
     display_name: str | None
     created_at: datetime
+    # Session pin into ``llm_model_profiles`` (or system preset id); null = follow
+    # account default. Display name always comes from expand (effective combo).
+    model_profile_id: str | None = None
+    model_profile_name: str | None = None
 
 
 class AdminConversationReplay(BaseModel):

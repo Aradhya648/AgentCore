@@ -780,7 +780,7 @@
         "type": "object"
       },
       "AdminTurnListItem": {
-        "description": "One turn in the platform-wide 回合 feed — TurnMetricLine + list context.\n\nCarries the owning conversation title and account display identity so an\noperator can triage without opening 复盘 first.",
+        "description": "One turn in the platform-wide 回合 feed — TurnMetricLine + list context.\n\nCarries the owning conversation title and account display identity so an\noperator can triage without opening 复盘 first. ``models`` /\n``credential_source`` come from ``cost_calls`` joined by ``trace_id``\n(``turn_metrics.turn_id`` ≠ assistant ``message_id`` — never join on turn_id).",
         "properties": {
           "agent_id": {
             "anyOf": [
@@ -824,6 +824,21 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "credential_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "platform"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Source"
           },
           "delegated": {
             "title": "Delegated",
@@ -873,6 +888,14 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "models": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
           },
           "output_tokens": {
             "title": "Output Tokens",
@@ -9346,7 +9369,7 @@
         "type": "object"
       },
       "ReplayConversation": {
-        "description": "The conversation header for a 复盘 (owner identity + title).",
+        "description": "The conversation header for a 复盘 (owner identity + title + model profile).",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -9367,6 +9390,28 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "model_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Profile Id"
+          },
+          "model_profile_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Profile Name"
           },
           "title": {
             "anyOf": [
@@ -9407,7 +9452,7 @@
         "type": "object"
       },
       "ReplayMessage": {
-        "description": "One message in a 会话复盘 timeline (the thread + per-turn overlays).\n\nAn assistant message carries its turn's telemetry (``metrics``, joined by\ntrace_id), spend (``cost_total``, summed from cost_events by message_id), and the\nturn's execution spans (``spans``, projected from turn_journal); user messages\nhave none. ``content`` is the raw message text (the prompt / reply) — the\nsubstance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight\ntree nodes for triage — not the desktop team canvas).",
+        "description": "One message in a 会话复盘 timeline (the thread + per-turn overlays).\n\nAn assistant message carries its turn's telemetry (``metrics``, joined by\ntrace_id), spend (``cost_total``, summed from cost_events by message_id), and the\nturn's execution spans (``spans``, projected from turn_journal); user messages\nhave none. ``content`` is the raw message text (the prompt / reply) — the\nsubstance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight\ntree nodes for triage — not the desktop team canvas).\n\n``models`` / ``credential_source`` come from ``cost_calls`` (call authority):\nmessage rows join by ``message_id``; bare text-less turn markers join by\n``trace_id``. No ledger → empty models + null source.",
         "properties": {
           "content": {
             "anyOf": [
@@ -9430,6 +9475,21 @@
             "title": "Created At",
             "type": "string"
           },
+          "credential_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "platform"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Source"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -9443,6 +9503,14 @@
                 "type": "null"
               }
             ]
+          },
+          "models": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
           },
           "role": {
             "title": "Role",
@@ -14472,7 +14540,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.21"
+    "version": "0.3.23"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -15012,7 +15080,7 @@
     },
     "/v1/admin/conversations/turns": {
       "get": {
-        "description": "平台回合流水 (对话页 · 回合段): cross-user paginated turn feed.\n\nFiner-grained than the session roster — each row is one ``turn_metrics`` record\nwith conversation title + owner identity for triage. Newest-first; filters\nAND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).\nDrill into 会话复盘 by ``conversation_id``.",
+        "description": "平台回合流水 (对话页 · 回合段): cross-user paginated turn feed.\n\nFiner-grained than the session roster — each row is one ``turn_metrics`` record\nwith conversation title + owner identity for triage. Newest-first; filters\nAND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).\n``models`` / ``credential_source`` join ``cost_calls`` by ``trace_id`` (not\n``turn_id`` — that column is attempt_id ≠ assistant message_id). Drill into\n会话复盘 by ``conversation_id``.",
         "operationId": "list_conversation_turns_v1_admin_conversations_turns_get",
         "parameters": [
           {
@@ -15844,7 +15912,7 @@
     },
     "/v1/admin/observability/conversations/{conversation_id}": {
       "get": {
-        "description": "会话复盘 (观测 P2): one conversation's merged timeline — the message thread\n(bodies) overlaid with each turn's outcome/quality (turn_metrics), spend\n(cost_events), execution spans, and multi-agent runs (turn_journal), joined by\ntrace_id / message_id.\n\nAdmin-only and cross-user (any account's conversation), unlike the owner-scoped\n``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a\nfailed turn in full context (prompt + reply/error + rounds/latency + ¥ + the\nturn's tool/LLM spans + member tree).",
+        "description": "会话复盘 (观测 P2): one conversation's merged timeline — the message thread\n(bodies) overlaid with each turn's outcome/quality (turn_metrics), spend\n(cost_events), execution spans, and multi-agent runs (turn_journal), joined by\ntrace_id / message_id. Per-message ``models`` / ``credential_source`` come from\n``cost_calls`` (message_id; bare turn markers fall back to trace_id).\n\nAdmin-only and cross-user (any account's conversation), unlike the owner-scoped\n``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a\nfailed turn in full context (prompt + reply/error + rounds/latency + ¥ + the\nturn's tool/LLM spans + member tree).",
         "operationId": "observability_conversation_v1_admin_observability_conversations__conversation_id__get",
         "parameters": [
           {

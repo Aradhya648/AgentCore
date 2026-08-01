@@ -13,7 +13,7 @@ from agentcore.conversation.turn_persistence import (
     salvage_incomplete_turn,
 )
 from agentcore.conversation.turn_stats import turn_worker_stats
-from agentcore.core.log_context import log_context, new_trace_id
+from agentcore.core.log_context import get_log_value, log_context, new_trace_id
 from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
 from agentcore.llm.profiles import TurnProfiles as ProfileSet
@@ -258,6 +258,18 @@ async def run_and_persist(
                 duration_ms = int((time.monotonic() - started) * 1000)
                 delegated, workers = turn_worker_stats(result)
                 collab = result.get("collab") or {}
+                turn_extra: dict = {}
+                turn_model = (
+                    llm_credentials.default_model if llm_credentials is not None else ""
+                )
+                if turn_model:
+                    turn_extra["model"] = turn_model
+                cred_src = get_log_value("credential_source")
+                if cred_src:
+                    turn_extra["credential_source"] = cred_src
+                provider_id = get_log_value("provider_id")
+                if provider_id:
+                    turn_extra["provider_id"] = provider_id
                 logger.info(
                     "chat.turn_complete",
                     finish_reason=getattr(finish, "value", finish),
@@ -278,6 +290,7 @@ async def run_and_persist(
                     duration_ms=duration_ms,
                     error=result.get("error"),
                     **latency_probe.as_log_fields(),
+                    **turn_extra,
                 )
 
                 # Persist INSIDE the trace scope so the post-turn tail (cost.recorded,

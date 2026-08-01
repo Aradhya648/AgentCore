@@ -24,7 +24,7 @@ import {
   assistantProjectionId,
   useConversationStore,
 } from "@/stores/conversation";
-import { turnDetailPath, useUIStore } from "@/stores/ui";
+import { turnDetailPath } from "@/stores/ui";
 import type { ContextBlockWire } from "@/types/events";
 import {
   Bookmark,
@@ -187,12 +187,11 @@ function MessageMoreMenu({
   finishReason: string | undefined;
 }) {
   const [contextOpen, setContextOpen] = useState(false);
-  const diagnosticMode = useUIStore((s) => s.diagnosticMode);
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const navigate = useNavigate();
 
-  // DEV or 诊断模式：合并项沿用原 trace 项的宽松可见性（不再要求 diagnosticMode）。
-  const showDiagnostics = import.meta.env.DEV || diagnosticMode;
+  // 「复制排查包」恒可用（对齐错误卡；行业常见：支持 ID 可复制，底层检视才 gated）。
+  // 诊断模式只管运行详情里的裸 ID / 调度埋点等噪声，不挡报障出口。
   const serverMessageId = assistantProjectionId(message);
   const diagnosticText = formatSupportDiagnosticText({
     conversationId,
@@ -209,7 +208,7 @@ function MessageMoreMenu({
     captainContext.length > 0 ||
     !!message.executionId ||
     !!message.usage ||
-    (showDiagnostics && !!diagnosticText) ||
+    !!diagnosticText ||
     !!finishLabel;
 
   const openInCanvas = () => {
@@ -279,7 +278,7 @@ function MessageMoreMenu({
               </p>
             </>
           )}
-          {showDiagnostics && diagnosticText && (
+          {diagnosticText && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem

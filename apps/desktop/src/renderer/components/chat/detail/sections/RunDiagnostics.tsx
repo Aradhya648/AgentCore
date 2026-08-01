@@ -8,8 +8,9 @@ import { DiagRow } from "./shared";
  * 诊断 / 开发者面板 (前端UX设计.md §十) — gated behind 诊断模式, never shown to 大众.
  * Surfaces the low-level identifiers that tie this run to the server journal + logs
  * (run / agent / execution / trace ids, the run's wire shape): noise for normal use,
- * but the first thing you reach for when debugging a turn. Display-only, selectable
- * mono text; the message bubble carries the one-click trace-id copy.
+ * but the first thing you reach for when inspecting a turn in-place. Display-only,
+ * selectable mono text; one-click 排查包 copy lives on the bubble / error card
+ * (always available, not behind this gate).
  */
 export function DiagnosticSection({
   run,

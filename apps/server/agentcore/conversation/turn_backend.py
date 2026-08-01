@@ -122,6 +122,7 @@ async def build_turn_backend(
                         registry=default_interaction_registry(),
                         timeout_seconds=settings.workspace_op_timeout_seconds,
                         root_id="",
+                        max_inflight=settings.workspace_channel_max_inflight,
                     )
                 )
 

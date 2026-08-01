@@ -42,13 +42,17 @@ class LLMCredentials:
 
 
 def bind_credential_pricing_context(creds: LLMCredentials | None) -> None:
-    """Bind call-level ``credential_source`` into structlog context for the turn.
+    """Bind call-level ``credential_source`` (+ optional ``provider_id``) into structlog.
 
     Fresh turns (:func:`prepare_chat_turn`) and durable resumes must both call this
     before any LLM work — ``calculate_cost`` / ``log_llm_call`` / the call meter read
     ambient ``credential_source`` when the call site does not pass an explicit source.
     Skipping the bind on resume made BYOK calls fall through to ``platform`` and
     write false billed amounts.
+
+    When ``creds.provider_id`` is set it is bound as ambient ``provider_id`` so
+    failure / stall / turn-complete lines can attach it without logging secrets or
+    ``base_url``. Platform / unset → leave ``provider_id`` unbound (callers skip).
     """
     from agentcore.core.log_context import bind_log_context
 
@@ -56,4 +60,6 @@ def bind_credential_pricing_context(creds: LLMCredentials | None) -> None:
         bind_log_context(credential_source="platform")
         return
     bind_log_context(credential_source=creds.source)
+    if creds.provider_id:
+        bind_log_context(provider_id=creds.provider_id)
 

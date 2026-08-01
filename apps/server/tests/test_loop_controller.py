@@ -369,22 +369,176 @@ def test_retire_tools_honored_even_with_contract_failure():
     assert "基于已有正文" in (cb.message() or "")
 
 
+def test_permanent_sandbox_network_retires_code_execute_on_first_fail():
+    """sandbox network unsupported → permanent; first fail disables code_execute."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record(
+        [
+            ToolAttempt(
+                "a",
+                "code_execute",
+                success=False,
+                error_summary="sandbox network isn't supported with --rootless",
+                meta={
+                    "error_class": "permanent",
+                    "code": "sandbox_network_unsupported",
+                    "retire_tools": ["code_execute"],
+                    "retire_message": "工具 `code_execute` 因沙箱网络能力不可用已停用",
+                },
+            )
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ("code_execute",)
+    assert cb.warned == ()
+    assert "沙箱网络" in (cb.message() or "")
+    # Second identical failure must not re-fire or wait for threshold 3.
+    c.record(
+        [
+            ToolAttempt(
+                "b",
+                "code_execute",
+                success=False,
+                meta={
+                    "error_class": "permanent",
+                    "retire_tools": ["code_execute"],
+                },
+            )
+        ]
+    )
+    assert not c.tool_circuit_breaker()
+
+
+def test_permission_access_retires_tool_allowlist_does_not():
+    """grep access permission retires; allowlist deny stays policy-only (no disable)."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record(
+        [
+            ToolAttempt(
+                "g1",
+                "grep",
+                success=False,
+                policy_failure=True,
+                error_summary="没有访问权限",
+                meta={
+                    "error_class": "permission",
+                    "permission_kind": "access",
+                    "retire_tools": ["grep"],
+                    "retire_message": "工具 `grep` 因无访问权限已停用",
+                },
+            )
+        ]
+    )
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ("grep",)
+    assert c.tool_failure_count("grep") >= 3
+
+    c2 = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    deny = ToolAttempt(
+        "a",
+        "file_write",
+        success=False,
+        policy_failure=True,
+        meta={"error_class": "permission", "permission_kind": "allowlist"},
+    )
+    c2.record([deny, deny, deny])
+    assert not c2.tool_circuit_breaker()
+    assert c2.tool_failure_count("file_write") == 0
+
+
+def test_permission_does_not_affect_transient_thresholds():
+    """Permission denials must not burn warn=2 / disable=3 for other tools."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    perm = ToolAttempt(
+        "p",
+        "grep",
+        success=False,
+        policy_failure=True,
+        meta={"error_class": "permission", "permission_kind": "allowlist"},
+    )
+    c.record([perm, perm, perm])
+    assert not c.tool_circuit_breaker()
+    c.record([_fail("a", "read_url")])
+    assert not c.tool_circuit_breaker()
+    c.record([_fail("b", "read_url")])
+    warn = c.tool_circuit_breaker()
+    assert warn.warned == ("read_url",)
+    assert warn.disabled == ()
+
+
+def test_validation_same_fingerprint_stops_path_at_two():
+    """Validation ×2 same fingerprint → path-stop steer; tool stays available."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    rej = ToolAttempt(
+        "same-fp",
+        "delegate",
+        success=False,
+        contract_failure=True,
+        meta={"error_class": "validation"},
+    )
+    c.record([rej])
+    assert not c.tool_circuit_breaker()
+    c.record([rej])
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ()
+    assert cb.warned == ()
+    assert c.tool_failure_count("delegate") == 0
+    assert cb.validation_stop is not None
+    assert "delegate" in (cb.validation_stop or "")
+    msg = cb.message() or ""
+    assert "同因" in msg or "路径" in msg
+    # Idempotent for same fp; different fp can self-correct again.
+    c.record([rej])
+    assert not c.tool_circuit_breaker()
+    other = ToolAttempt(
+        "other-fp",
+        "delegate",
+        success=False,
+        contract_failure=True,
+        meta={"error_class": "validation"},
+    )
+    c.record([other])
+    assert not c.tool_circuit_breaker()
+    c.record([other])
+    cb2 = c.tool_circuit_breaker()
+    assert cb2.validation_stop is not None
+    assert cb2.disabled == ()
+
+
+def test_transient_still_warns_at_two_disables_at_three():
+    """Unclassified / transient failures keep warn=2 / disable=3."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    c.record([_fail("a", "web_search")])
+    assert not c.tool_circuit_breaker()
+    c.record([_fail("b", "web_search")])
+    assert c.tool_circuit_breaker().warned == ("web_search",)
+    c.record([_fail("c", "web_search")])
+    assert c.tool_circuit_breaker().disabled == ("web_search",)
+
+
 def test_circuit_breaker_ignores_contract_failures_in_one_round():
     # 参数契约拒绝 (web_search A3 query 过长/过多) 是零成本可修正的参数打回：一个研究员
     # 同轮扇出 5 条超长查询也不该烧穿断路器，否则模型还没看到「改 2–4 个核心词重试」的
     # 提示就永久失去 web_search。5 > disable(3)，若计数早已 disable。
+    # Same fingerprint ×2+ may fire validation path-stop (tool stays available).
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
     rej = ToolAttempt("a", "web_search", success=False, contract_failure=True)
     c.record([rej, rej, rej, rej, rej])
-    assert not c.tool_circuit_breaker()
+    cb = c.tool_circuit_breaker()
+    assert cb.disabled == ()
+    assert cb.warned == ()
     assert c.tool_failure_count("web_search") == 0
+    assert cb.validation_stop is not None
+    assert "web_search" in (cb.validation_stop or "")
 
 
 def test_circuit_breaker_contract_failures_across_rounds_still_ignored():
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
     for fp in ("a", "b", "c", "d"):
         c.record([ToolAttempt(fp, "web_search", success=False, contract_failure=True)])
-        assert not c.tool_circuit_breaker()
+        cb = c.tool_circuit_breaker()
+        assert cb.disabled == ()
+        assert cb.warned == ()
     assert c.tool_failure_count("web_search") == 0
 
 

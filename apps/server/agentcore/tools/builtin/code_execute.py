@@ -385,6 +385,24 @@ class CodeExecuteTool:
             and result.exit_code == 127
             and "代码执行环境启动失败" in (result.stderr or "")
         )
+        # gVisor rootless: sandbox network unsupported is permanent for this run —
+        # first fail retires code_execute (no warn=2 / disable=3 empty retries).
+        stderr_l = (result.stderr or "").lower()
+        sandbox_network_unsupported = (
+            not result.success
+            and "sandbox network isn't supported" in stderr_l
+        )
+        meta: dict[str, Any] = {}
+        if launcher_unavailable:
+            meta["code"] = "launcher_unavailable"
+        elif sandbox_network_unsupported:
+            meta["code"] = "sandbox_network_unsupported"
+            meta["error_class"] = "permanent"
+            meta["retire_tools"] = ["code_execute"]
+            meta["retire_message"] = (
+                "工具 `code_execute` 因沙箱网络能力不可用已停用——"
+                "请换路径推进（勿再依赖沙箱出网），禁止原样重试。"
+            )
         return ToolResult(
             tool_call_id="",
             success=result.success,
@@ -392,8 +410,6 @@ class CodeExecuteTool:
             error=None if result.success else f"退出码 {result.exit_code}",
             duration_ms=duration_ms,
             display=display,
-            metadata=(
-                {"code": "launcher_unavailable"} if launcher_unavailable else {}
-            ),
+            metadata=meta,
             contract_failure=launcher_unavailable,
         )

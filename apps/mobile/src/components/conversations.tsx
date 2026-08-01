@@ -2,6 +2,7 @@ import type { ConversationSummary } from "@/api/conversations";
 import type { SearchSection } from "@/api/search";
 import { Modal } from "@/components/Modal";
 import { copyText } from "@/lib/messageExport";
+import { formatSupportDiagnosticText } from "@/lib/supportDiagnostics";
 // Shared conversation-management UI primitives (对话管理 · 复用于历史抽屉).
 //
 // Extracted from the old ConversationsPage so the 历史 drawer (ConversationDrawer) and any
@@ -130,14 +131,17 @@ export function ActionSheet({
         type="button"
         className="sheet-item"
         onClick={() => {
-          void copyText(conv.id).then((ok) => {
+          const text = formatSupportDiagnosticText({
+            conversationId: conv.id,
+          });
+          void copyText(text || conv.id).then((ok) => {
             if (!ok) return;
             setCopiedId(true);
             window.setTimeout(() => setCopiedId(false), 1500);
           });
         }}
       >
-        {copiedId ? "已复制对话 ID" : "复制对话 ID"}
+        {copiedId ? "已复制排查包" : "复制排查包"}
       </button>
       <button
         type="button"

@@ -183,8 +183,12 @@ async def test_write_conflict_does_not_trip_run_circuit_breaker(tmp_path: Path):
         controller.record(attempts)
 
     # The run-scoped breaker never tallied the collisions → tool stays enabled.
+    # Same-fingerprint validation may path-stop (steer) without disabling the pen.
     assert controller.tool_failure_count("file_write") == 0
-    assert not controller.tool_circuit_breaker()
+    cb = controller.tool_circuit_breaker()
+    assert cb.disabled == ()
+    assert cb.warned == ()
+    assert cb.force_segmented == frozenset()
     # A's deliverable survived every collision (B never overwrote it).
     assert (tmp_path / "report.md").read_text(encoding="utf-8") == "from-A"
 

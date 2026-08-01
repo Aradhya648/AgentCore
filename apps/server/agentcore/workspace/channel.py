@@ -20,13 +20,17 @@ Flow (one op):
 
 State is in-process (single-worker posture, same as the approval gate); front
 with Redis to scale to multiple workers (see ``config.py``). A result the client
-never delivers fails as a ``WorkspaceIOError`` after the timeout, so a dropped
-desktop never hangs the turn.
+never delivers fails as a ``WorkspaceIOError`` after the timeout and marks the
+channel sticky-dead for the turn (sibling inflight settle + later ops fail-fast),
+so a dropped desktop never hangs the turn on cascaded deadlines. Concurrent
+desktop round-trips are capped (``max_inflight``, default 2); extras queue before
+suspend, and queue wait rides the outer tool wall clock.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, NoReturn
 
@@ -133,6 +137,11 @@ def raise_op_error(error: dict[str, Any]) -> NoReturn:
     raise cls(detail)
 
 
+# Shared detail fragment so ``is_liveness_timeout_detail`` keeps matching channel-dead
+# fail-fast / sibling cancel envelopes (capacity contract ≠ liveness).
+_CHANNEL_DEAD_DETAIL = "local workspace channel dead（活性挂起）"
+
+
 @dataclass
 class WorkspaceChannel:
     """Suspends one LocalWorkspace op until the bound desktop runs it.
@@ -141,6 +150,15 @@ class WorkspaceChannel:
     bound to one desktop FS ``root_id``. ``request`` is the only entry point;
     ``LocalWorkspace`` builds the JSON-safe ``args`` and interprets the returned
     ``value`` per op.
+
+    Sticky dead: the first transport ``TimeoutError`` (desktop liveness hang) marks
+    the channel dead for the rest of the turn — subsequent ``request``s fail-fast
+    without SSE, and same-channel inflight ops are settled with a failure envelope
+    so they do not burn the remaining deadline.
+
+    Bounded in-flight: a semaphore caps concurrent desktop round-trips
+    (``max_inflight``, default 2). Extra callers queue before suspend; queue wait
+    rides the outer tool wall clock (no separate channel timeout stretch).
     """
 
     sink: EventSink
@@ -148,6 +166,53 @@ class WorkspaceChannel:
     registry: ClientRequestBridge
     timeout_seconds: float
     root_id: str = ""  # which desktop FS root this workspace is bound to (P2d)
+    max_inflight: int = 2  # concurrent suspends; settings.workspace_channel_max_inflight
+    _dead: bool = field(default=False, init=False, repr=False)
+    _inflight: set[str] = field(default_factory=set, init=False, repr=False)
+    _sem: asyncio.Semaphore | None = field(default=None, init=False, repr=False)
+
+    def _get_sem(self) -> asyncio.Semaphore:
+        """Lazy semaphore so it binds to the running event loop on first acquire."""
+        if self._sem is None:
+            self._sem = asyncio.Semaphore(max(1, self.max_inflight))
+        return self._sem
+
+    def _fail_inflight_siblings(self, *, trigger_request_id: str) -> None:
+        """Settle other same-channel awaits with a channel-dead failure envelope."""
+        envelope = {
+            "ok": False,
+            "error": {"kind": "WorkspaceIOError", "detail": _CHANNEL_DEAD_DETAIL},
+        }
+        for rid in list(self._inflight):
+            if rid == trigger_request_id:
+                continue
+            # resolve → Future.set_result; already-done / unknown is a no-op.
+            self.registry.resolve(rid, envelope, conversation_id=self.conversation_id)
+
+    def _mark_dead(self, *, op: str, request_id: str) -> None:
+        """First liveness hang: sticky-dead + cancel siblings (idempotent)."""
+        if self._dead:
+            return
+        self._dead = True
+        logger.info(
+            "workspace.channel_dead",
+            op=op,
+            request_id=request_id,
+            conversation_id=self.conversation_id,
+        )
+        self._fail_inflight_siblings(trigger_request_id=request_id)
+
+    def _reject_if_dead(self, op_name: str) -> None:
+        if not self._dead:
+            return
+        logger.info(
+            "workspace.op_rejected_channel_dead",
+            op=op_name,
+            conversation_id=self.conversation_id,
+        )
+        raise WorkspaceIOError(
+            f"local workspace op '{op_name}' rejected: channel dead（活性挂起）"
+        )
 
     async def request(
         self,
@@ -178,47 +243,68 @@ class WorkspaceChannel:
         ``root_id`` overrides the channel's bound root for this one op (W3 session
         read-only mounts under ``external/<alias>/``); omit to use the workspace
         binding root. Does not change the conversation workspace binding contract.
+
+        After the first liveness timeout the channel stays sticky-dead: new requests
+        raise immediately (no SSE) so a hung desktop cannot cascade into more 60s waits.
+
+        Concurrency order: dead-check → acquire slot → dead-check → suspend. A
+        waiter that obtains a slot after the channel died fail-fasts without SSE.
         """
         op_name = str(op)
-        request_id = new_id()
-        deadline = derive_channel_timeout(
-            explicit=timeout,
-            channel_default=self.timeout_seconds,
-        )
-        timeout_ms = max(1, int(deadline * 1000))
-        rid = self.root_id if root_id is None else root_id
+        self._reject_if_dead(op_name)
+
+        sem = self._get_sem()
+        await sem.acquire()
         try:
-            result = await self.registry.suspend(
-                request_id,
-                self.conversation_id,
-                kind=InteractionKind.CLIENT_TOOL,
-                payload=client_tool_payload(
-                    CHANNEL_WORKSPACE,
-                    EventType.WORKSPACE_OP_REQUIRED.value,
-                    params={
-                        "root_id": rid,
-                        "op": op_name,
-                        "args": args,
-                        "timeout_ms": timeout_ms,
-                    },
-                ),
-                timeout=deadline,
-                on_suspended=lambda: self.sink.emit(
-                    workspace_op_required(
-                        request_id=request_id,
-                        conversation_id=self.conversation_id,
-                        root_id=rid,
-                        op=op_name,
-                        args=args,
-                        timeout_ms=timeout_ms,
-                    )
-                ),
+            # Re-check after queueing: channel may have died while we waited.
+            self._reject_if_dead(op_name)
+
+            request_id = new_id()
+            deadline = derive_channel_timeout(
+                explicit=timeout,
+                channel_default=self.timeout_seconds,
             )
-        except TimeoutError as e:
-            logger.info("workspace.op_timeout", op=op_name, request_id=request_id)
-            raise WorkspaceIOError(
-                f"local workspace op '{op_name}' timed out（活性挂起）"
-            ) from e
+            timeout_ms = max(1, int(deadline * 1000))
+            rid = self.root_id if root_id is None else root_id
+            self._inflight.add(request_id)
+            try:
+                try:
+                    result = await self.registry.suspend(
+                        request_id,
+                        self.conversation_id,
+                        kind=InteractionKind.CLIENT_TOOL,
+                        payload=client_tool_payload(
+                            CHANNEL_WORKSPACE,
+                            EventType.WORKSPACE_OP_REQUIRED.value,
+                            params={
+                                "root_id": rid,
+                                "op": op_name,
+                                "args": args,
+                                "timeout_ms": timeout_ms,
+                            },
+                        ),
+                        timeout=deadline,
+                        on_suspended=lambda: self.sink.emit(
+                            workspace_op_required(
+                                request_id=request_id,
+                                conversation_id=self.conversation_id,
+                                root_id=rid,
+                                op=op_name,
+                                args=args,
+                                timeout_ms=timeout_ms,
+                            )
+                        ),
+                    )
+                except TimeoutError as e:
+                    logger.info("workspace.op_timeout", op=op_name, request_id=request_id)
+                    self._mark_dead(op=op_name, request_id=request_id)
+                    raise WorkspaceIOError(
+                        f"local workspace op '{op_name}' timed out（活性挂起）"
+                    ) from e
+            finally:
+                self._inflight.discard(request_id)
+        finally:
+            sem.release()
 
         if not isinstance(result, dict) or not result.get("ok"):
             error = result.get("error") if isinstance(result, dict) else None

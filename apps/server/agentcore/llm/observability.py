@@ -186,10 +186,22 @@ def log_llm_call_failed(
     attempt: int = 1,
     error_type: str | None = None,
 ) -> None:
-    """Emit one ``llm.call_failed`` line (observation only — no metering / retry)."""
+    """Emit one ``llm.call_failed`` line (observation only — no metering / retry).
+
+    Always includes ``model`` + ambient ``credential_source`` (when bound). Optional
+    ambient ``provider_id`` is attached when present — never ``base_url`` / secrets.
+    """
+    from agentcore.core.log_context import get_log_value
+
     extra: dict[str, Any] = {}
     if error_type:
         extra["error_type"] = error_type
+    cred_src = get_log_value("credential_source")
+    if cred_src:
+        extra["credential_source"] = cred_src
+    provider_id = get_log_value("provider_id")
+    if provider_id:
+        extra["provider_id"] = provider_id
     logger.error(
         "llm.call_failed",
         scenario=scenario,

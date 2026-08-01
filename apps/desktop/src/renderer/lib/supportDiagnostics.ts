@@ -1,6 +1,7 @@
 /**
  * Format a paste-ready「排查包」for support / Cursor AI log lookup.
  * Lead line triggers conversation-logs workflow; trailing line is log_timeline.py.
+ * Always available from error cards and bubble「更多」(not gated by 诊断模式).
  */
 export function formatSupportDiagnosticText(ids: {
   conversationId?: string | null;

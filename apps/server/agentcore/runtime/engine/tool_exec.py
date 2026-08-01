@@ -27,6 +27,9 @@ from agentcore.runtime.evidence_ledger import EvidenceLedgerCore
 from agentcore.runtime.facts import ToolCallFact, record_turn_fact
 from agentcore.runtime.ledger_channel import emit_ledger_delta
 from agentcore.runtime.loop_controller import (
+    ERROR_CLASS_PERMANENT,
+    ERROR_CLASS_PERMISSION,
+    ERROR_CLASS_VALIDATION,
     ToolAttempt,
     classify_segmented_write_reject,
     fingerprint_tool_call,
@@ -91,6 +94,14 @@ def _attempt_meta_with_landing_path(
     )
     if reject_class:
         meta["segmented_write_reject"] = reject_class
+    # Permanent liveness: ensure first-fail retire of this tool (loop_controller).
+    if meta.get("liveness_timeout") and "retire_tools" not in meta and name:
+        meta["error_class"] = ERROR_CLASS_PERMANENT
+        meta["retire_tools"] = [name]
+        if not meta.get("retire_message"):
+            meta["retire_message"] = (
+                f"工具 `{name}` 因活性挂起已停用——请换路径推进，禁止原样重试。"
+            )
     return meta
 
 _PROSE_WITHHELD_WRITE_MSG = (
@@ -435,6 +446,7 @@ async def execute_tools(
                     success=False,
                     parse_failure=True,
                     error_summary=model_msg,
+                    meta={"error_class": ERROR_CLASS_VALIDATION},
                 ),
                 [],
             )
@@ -487,7 +499,14 @@ async def execute_tools(
                     success=False,
                     policy_failure=True,
                     error_summary=error_msg,
-                    meta=_attempt_meta_with_landing_path(name or raw_name, args),
+                    meta=_attempt_meta_with_landing_path(
+                        name or raw_name,
+                        args,
+                        {
+                            "error_class": ERROR_CLASS_PERMISSION,
+                            "permission_kind": "allowlist",
+                        },
+                    ),
                 ),
                 [],
             )
@@ -749,7 +768,19 @@ async def execute_tools(
                         name,
                         success=False,
                         error_summary=exhausted,
-                        meta=_attempt_meta_with_landing_path(name, args),
+                        meta=_attempt_meta_with_landing_path(
+                            name,
+                            args,
+                            {
+                                "error_class": ERROR_CLASS_PERMANENT,
+                                "code": "retrieval_budget_exhausted",
+                                "retire_tools": sorted(RETRIEVAL_TOOL_NAMES),
+                                "retire_message": (
+                                    "检索预算已尽：web_search / read_url 本回合已停用——"
+                                    "请基于已有材料交付，禁止再调用检索工具。"
+                                ),
+                            },
+                        ),
                     ),
                     [],
                 )
@@ -843,7 +874,13 @@ async def execute_tools(
                     success=False,
                     error_summary=timeout_msg,
                     meta=_attempt_meta_with_landing_path(
-                        name, args, {"liveness_timeout": True, "timeout_layer": "outer"}
+                        name,
+                        args,
+                        {
+                            "liveness_timeout": True,
+                            "timeout_layer": "outer",
+                            "error_class": ERROR_CLASS_PERMANENT,
+                        },
                     ),
                 ),
                 [],
@@ -959,6 +996,14 @@ async def execute_tools(
         error_summary = ""
         if not result.success and not policy_failure:
             error_summary = output if isinstance(output, str) else ""
+        result_meta = dict(result.metadata) if result.metadata else {}
+        if not result.success and "error_class" not in result_meta:
+            if result_meta.get("retire_tools") or result_meta.get("liveness_timeout"):
+                result_meta["error_class"] = ERROR_CLASS_PERMANENT
+            elif policy_failure:
+                result_meta["error_class"] = ERROR_CLASS_PERMISSION
+            elif contract_failure:
+                result_meta["error_class"] = ERROR_CLASS_VALIDATION
         return (
             message,
             (result if result.is_terminal else None),
@@ -972,7 +1017,7 @@ async def execute_tools(
                 meta=_attempt_meta_with_landing_path(
                     name,
                     args,
-                    dict(result.metadata) if result.metadata else None,
+                    result_meta or None,
                     error=error_summary,
                     contract_failure=contract_failure,
                 ),

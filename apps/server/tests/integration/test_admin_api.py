@@ -1085,6 +1085,43 @@ async def _seed_conversation_with_turn(
                     "duration_ms": 700,
                 }
             ],
+            trace_id=trace_id,
+        )
+        # Call authority for models / credential_source overlays (message + trace join).
+        await CostEventRepository(session).record_calls(
+            user_id=user_id,
+            conversation_id=conv.id,
+            message_id=assistant.id,
+            trace_id=trace_id,
+            calls=[
+                {
+                    "call_id": new_id(),
+                    "run_id": new_id(),
+                    "parent_run_id": None,
+                    "agent_id": new_id(),
+                    "role": "captain",
+                    "model": "deepseek-v4-pro",
+                    "tokens": {
+                        "input": 120,
+                        "output": 60,
+                        "reasoning": 0,
+                        "cache_hit": 0,
+                        "cache_miss": 120,
+                    },
+                    "cost": {
+                        "input": 0,
+                        "cached": 0,
+                        "output": 0,
+                        "total": cost_nano,
+                        "credential_source": "platform",
+                        "pricing_source": "curated",
+                    },
+                    "cost_total_nano": cost_nano,
+                    "cost_estimated_nano": 0,
+                    "currency": "USD",
+                    "duration_ms": 700,
+                }
+            ],
         )
         # The turn's execution journal (keyed by the assistant message id) — the
         # source the 复盘 projects tool/LLM spans from.
@@ -1158,6 +1195,12 @@ async def test_admin_conversation_replay_merges_timeline(client, make_admin, ses
     # (by message_id) onto the thread row.
     assert assistant_msg["id"] == assistant_id
     assert assistant_msg["cost_total"] == 4200
+    assert assistant_msg["models"] == ["deepseek-v4-pro"]
+    assert assistant_msg["credential_source"] == "platform"
+    # Session profile pin may be null; expand still yields a display name.
+    assert "model_profile_id" in b["conversation"]
+    assert isinstance(b["conversation"]["model_profile_name"], str)
+    assert b["conversation"]["model_profile_name"]
     m = assistant_msg["metrics"]
     assert m is not None
     assert m["status"] == "error"
@@ -1166,6 +1209,10 @@ async def test_admin_conversation_replay_merges_timeline(client, make_admin, ses
     assert m["rounds"] == 2
     assert m["delegated"] is True and m["workers"] == 1
     assert m["trace_id"] == assistant_msg["trace_id"]
+
+    # User prompt has no ledger overlay.
+    assert user_msg["models"] == []
+    assert user_msg["credential_source"] is None
 
     # Execution spans projected from turn_journal (llm_call + tool_call), in order.
     spans = assistant_msg["spans"]
@@ -1434,10 +1481,18 @@ async def test_admin_user_detail_composes_account_view(client, make_admin, sessi
 
     assert b["cny_per_usd"] == settings.cny_per_usd
     assert b["billing_mode"] == settings.billing_mode
-    # No BYOK config / no cost_calls → model fields empty.
+    # No BYOK → model names empty; conversation fixture seeds one cost_calls row.
     assert b["default_model"] is None
     assert b["background_model"] is None
-    assert b["recent_by_model"] == []
+    assert b["recent_by_model"] == [
+        {
+            "model": "deepseek-v4-pro",
+            "calls": 1,
+            "tokens_total": 180,
+            "cost_total": 4200,
+            "cost_estimated_total": 0,
+        }
+    ]
 
 
 async def test_admin_user_detail_exposes_models_and_by_model_usage(
@@ -1785,3 +1840,5 @@ async def test_admin_list_conversation_turns_feed(client, make_admin, session_fa
     assert row["username"] == "alice"
     assert row["status"] == "error"
     assert row["error"] == "boom"
+    assert row["models"] == ["deepseek-v4-pro"]
+    assert row["credential_source"] == "platform"

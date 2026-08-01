@@ -159,8 +159,8 @@ body {
 /* Compact Markdown for conversation replay (MessageBlock). Semantic tokens only. */
 .markdown-body {
   color: var(--foreground);
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.9375rem;
+  line-height: 1.65;
   word-break: break-word;
   overflow-wrap: anywhere;
 }

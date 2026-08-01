@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import ast
 import re
+import unicodedata
 from pathlib import Path
+
+# Match ruff E501: East-Asian wide chars count as 2 columns.
+_LINE_LIMIT = 100
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTCORE = ROOT / "agentcore"
@@ -43,6 +47,9 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
         "assemble_ms": "int",
         "ttft_reasoning_ms": "int",
         "ttft_content_ms": "int",
+        "model": "str",
+        "credential_source": "str",
+        "provider_id": "str",
     },
     "chat.resume_complete": {
         "finish_reason": "str",
@@ -128,7 +135,20 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
     },
     "llm.request": {"scenario": "str", "model": "str"},
     "llm.response": {"scenario": "str", "model": "str"},
-    "llm.call_failed": {"error": "str", "scenario": "str"},
+    "llm.call_failed": {
+        "error": "str",
+        "scenario": "str",
+        "model": "str",
+        "credential_source": "str",
+        "provider_id": "str",
+    },
+    "llm.stream_stalled": {
+        "model": "str",
+        "credential_source": "str",
+        "provider_id": "str",
+        "scenario": "str",
+        "committed": "bool",
+    },
     "contract.retry": {},
     "contract.failed": {},
     "run.failed": {"error": "str"},
@@ -175,7 +195,7 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
 
 KEY_DESC: dict[str, str] = {
     "chat.turn_start": "回合起点（preview/chars/history）",
-    "chat.turn_complete": "回合收尾（含 Phase-0 延迟：prepare/assemble/ttft_*）",
+    "chat.turn_complete": "回合收尾（含 Phase-0 延迟：prepare/assemble/ttft_*；model/credential_source）",
     "chat.resume_complete": "暂停恢复回合收尾（终态带协作计数；STOP 终结不带）",
     "delegate.started": "编排委派开始（agents/plan/waves）",
     "delegate.completed": "委派批次完成（escalations/scope）",
@@ -191,6 +211,8 @@ KEY_DESC: dict[str, str] = {
     "llm.call": "单次 LLM 调用（latency/tokens/cost_nano）",
     "llm.request": "LLM prompt 截断脱敏（需 LOG_LLM_BODIES）",
     "llm.response": "LLM 回复截断脱敏（需 LOG_LLM_BODIES）",
+    "llm.call_failed": "LLM 调用失败（model/credential_source；可取则带 provider_id）",
+    "llm.stream_stalled": "LLM 流式空闲超时（model/credential_source；可取则带 provider_id）",
     "cost.recorded": "回合落账成功（含 by_role 角色拆解）",
     "pipeline.error": "回合管线未捕获异常",
     "http.unhandled_error": "HTTP 层未捕获异常",
@@ -236,6 +258,35 @@ def scan_events() -> set[str]:
     return events
 
 
+def _display_width(s: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(c) in ("F", "W") else 1 for c in s)
+
+
+def _format_description_arg(indent: str, desc: str) -> list[str]:
+    """Emit ``description=...`` lines, each ≤ ``_LINE_LIMIT`` display cols."""
+    single = f"{indent}description={desc!r},"
+    if _display_width(single) <= _LINE_LIMIT:
+        return [single]
+    # Parenthesized implicit string concat so long CJK desc stays under limit.
+    inner = indent + "    "
+    lines = [f"{indent}description=("]
+    remaining = desc
+    while remaining:
+        lo, hi, best = 1, len(remaining), 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            candidate = f"{inner}{remaining[:mid]!r}"
+            if _display_width(candidate) <= _LINE_LIMIT:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        lines.append(f"{inner}{remaining[:best]!r}")
+        remaining = remaining[best:]
+    lines.append(f"{indent}),")
+    return lines
+
+
 def _format_spec(name: str) -> list[str]:
     """Emit one EventSpec as one or more lines (keep ≤100 cols)."""
     desc = KEY_DESC.get(name, "")
@@ -243,13 +294,17 @@ def _format_spec(name: str) -> list[str]:
     if not fields and not desc:
         return [f"    EventSpec(name={name!r}),"]
     if not fields:
-        return [f"    EventSpec(name={name!r}, description={desc!r}),"]
-    out = [
-        "    EventSpec(",
-        f"        name={name!r},",
-        f"        description={desc!r},",
-        "        fields={",
-    ]
+        one = f"    EventSpec(name={name!r}, description={desc!r}),"
+        if _display_width(one) <= _LINE_LIMIT:
+            return [one]
+        out = ["    EventSpec(", f"        name={name!r},"]
+        out.extend(_format_description_arg("        ", desc))
+        out.append("    ),")
+        return out
+    out = ["    EventSpec(", f"        name={name!r},"]
+    if desc:
+        out.extend(_format_description_arg("        ", desc))
+    out.append("        fields={")
     for k, v in sorted(fields.items()):
         out.append(f"            {k!r}: FieldType({v!r}),")
     out.append("        },")

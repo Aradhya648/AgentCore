@@ -138,6 +138,21 @@ export function scp(localPath, remotePath) {
   ]);
 }
 
+/** Pull a remote file onto the local machine (inverse of {@link scp}). */
+export function scpFrom(remotePath, localPath) {
+  const { host, user, port, keyPath } = sshArgs();
+  run(`scp ← ${remotePath}`, "scp", [
+    "-i",
+    keyPath,
+    "-P",
+    port,
+    "-o",
+    "StrictHostKeyChecking=accept-new",
+    `${user}@${host}:${remotePath}`,
+    localPath,
+  ]);
+}
+
 export function sshScript(scriptText) {
   const { host, user, port, keyPath } = sshArgs();
   run("ssh remote script", "ssh", [
@@ -150,6 +165,47 @@ export function sshScript(scriptText) {
     `${user}@${host}`,
     "bash -s",
   ], { input: scriptText });
+}
+
+/**
+ * Run a remote bash script via stdin and capture utf-8 stdout/stderr.
+ * Does not inherit stdio — use for discovery probes, not long progress dumps.
+ */
+export function sshCapture(scriptText, { allowFail = false } = {}) {
+  const { host, user, port, keyPath } = sshArgs();
+  const useShell = process.platform === "win32";
+  const args = [
+    "-i",
+    keyPath,
+    "-p",
+    port,
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "StrictHostKeyChecking=accept-new",
+    `${user}@${host}`,
+    "bash -s",
+  ];
+  const result = spawnSync(
+    useShell ? winShellQuote("ssh") : "ssh",
+    useShell ? args.map(winShellQuote) : args,
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      input: scriptText,
+      shell: useShell,
+      env: process.env,
+    },
+  );
+  const status = result.status ?? 1;
+  const stdout = (result.stdout ?? "").replace(/\r\n/g, "\n");
+  const stderr = (result.stderr ?? "").replace(/\r\n/g, "\n");
+  if (status !== 0 && !allowFail) {
+    if (stderr.trim()) console.error(stderr.trimEnd());
+    if (stdout.trim()) console.error(stdout.trimEnd());
+    process.exit(status);
+  }
+  return { status, stdout, stderr };
 }
 
 /** Run a git command from REPO_ROOT and capture trimmed stdout. */

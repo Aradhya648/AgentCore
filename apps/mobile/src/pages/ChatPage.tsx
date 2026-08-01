@@ -30,7 +30,10 @@ import {
   stopConversation,
 } from "@/api/turn";
 import { getMessageCostDisplay } from "@/api/usage";
-import { AssistantContent } from "@/components/AssistantView";
+import {
+  AssistantContent,
+  SupportDiagnosticCopyButton,
+} from "@/components/AssistantView";
 import { ConversationDrawer } from "@/components/ConversationDrawer";
 import { DelegationAuthorizationCard } from "@/components/DelegationAuthorizationCard";
 import { FileArtifactsCard } from "@/components/FileArtifactsCard";
@@ -66,6 +69,10 @@ import {
   reduceStopPhase,
   stopButtonLabel,
 } from "@/lib/stopLifecycle";
+import {
+  type SupportDiagnosticIds,
+  extractSupportIdsFromEvents,
+} from "@/lib/supportDiagnostics";
 import { useStickScroll } from "@/lib/useStickScroll";
 import { useVoiceInput } from "@/lib/useVoiceInput";
 import {
@@ -151,6 +158,31 @@ function AttachmentChips({
       ))}
     </div>
   );
+}
+
+/** Build 排查包 ids for a history assistant row (REST trace_id + journal execution_id). */
+function historySupportIds(
+  m: MessageDetail,
+  conversationId: string | null,
+): SupportDiagnosticIds {
+  const fromEvents = m.runs?.events?.length
+    ? extractSupportIdsFromEvents(m.runs.events)
+    : {};
+  let executionId = fromEvents.executionId;
+  if (!executionId && m.runs?.process) {
+    for (const s of m.runs.process) {
+      if (s.kind === "team" && s.execution_id) {
+        executionId = s.execution_id;
+        break;
+      }
+    }
+  }
+  return {
+    conversationId,
+    messageId: m.id,
+    traceId: m.trace_id ?? fromEvents.traceId,
+    executionId,
+  };
 }
 
 // A run keeps running detached after a dropped connection (执行与请求解耦 C1 · slice 1a),
@@ -457,6 +489,10 @@ function AssistantBubble({
       ? COST_UNPRICED_LABEL
       : null;
   const turnWarning = p.turnWarning;
+  const supportIds: SupportDiagnosticIds = {
+    conversationId,
+    ...extractSupportIdsFromEvents(turn.events),
+  };
   return (
     <div className="bubble assistant">
       {turnWarning && <div className="turn-warning">{turnWarning}</div>}
@@ -491,9 +527,15 @@ function AssistantBubble({
           graphAppendActKinds={graphAppendActKinds}
           graphAppendAuthorizedBy={graphAppendAuthorizedBy}
           onFill={onFill}
+          supportIds={supportIds}
         />
       ) : null}
-      {failureNotice && <div className="error">{failureNotice}</div>}
+      {failureNotice && (
+        <div className="error inline-actions">
+          <span>{failureNotice}</span>
+          <SupportDiagnosticCopyButton ids={supportIds} />
+        </div>
+      )}
       <FileArtifactsCard
         artifacts={artifacts}
         conversationId={conversationId}
@@ -634,6 +676,7 @@ function HistoryAssistant({
     !streaming && !(m.content ?? "").trim()
       ? emptyFailureNotice(m.runs?.finish_reason)
       : null;
+  const supportIds = historySupportIds(m, conversationId);
 
   if (
     emptyBody &&
@@ -672,9 +715,15 @@ function HistoryAssistant({
           graphAppendActKinds={graphAppendActKinds}
           graphAppendAuthorizedBy={graphAppendAuthorizedBy}
           onFill={onFill}
+          supportIds={supportIds}
         />
       )}
-      {failureNotice && <div className="error">{failureNotice}</div>}
+      {failureNotice && (
+        <div className="error inline-actions">
+          <span>{failureNotice}</span>
+          <SupportDiagnosticCopyButton ids={supportIds} />
+        </div>
+      )}
       <FileArtifactsCard
         artifacts={artifacts}
         conversationId={conversationId}
@@ -1912,38 +1961,43 @@ export function ChatPage() {
       {error && (
         <div className="error bar">
           <span>{error.text}</span>
-          {error.action && (
-            <button
-              type="button"
-              className="link config-action"
-              onClick={() => {
-                const href = error.action?.href;
-                if (!href) return;
-                setError(null);
-                navigate(href);
-              }}
-            >
-              {error.action.label}
-            </button>
-          )}
-          {error.reconnect && (
-            <button
-              type="button"
-              className="link reconnect"
-              onClick={() => void reconnect()}
-            >
-              重连
-            </button>
-          )}
-          {error.retryStop && (
-            <button
-              type="button"
-              className="link reconnect"
-              onClick={() => stop()}
-            >
-              {STOP_RETRY_LABEL}
-            </button>
-          )}
+          <div className="error-bar-actions">
+            {conversationId && (
+              <SupportDiagnosticCopyButton ids={{ conversationId }} />
+            )}
+            {error.action && (
+              <button
+                type="button"
+                className="link config-action"
+                onClick={() => {
+                  const href = error.action?.href;
+                  if (!href) return;
+                  setError(null);
+                  navigate(href);
+                }}
+              >
+                {error.action.label}
+              </button>
+            )}
+            {error.reconnect && (
+              <button
+                type="button"
+                className="link reconnect"
+                onClick={() => void reconnect()}
+              >
+                重连
+              </button>
+            )}
+            {error.retryStop && (
+              <button
+                type="button"
+                className="link reconnect"
+                onClick={() => stop()}
+              >
+                {STOP_RETRY_LABEL}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

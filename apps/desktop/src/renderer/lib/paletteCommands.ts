@@ -217,7 +217,7 @@ export function buildPaletteCommands(ctx: CommandContext): PaletteCommand[] {
     },
     {
       // 开发者 / 诊断模式 (前端UX设计.md §十): surfaces low-level run / trace ids
-      // for debugging, off by default.
+      // in run detail for debugging, off by default（报障复制不依赖此开关）。
       id: "toggle-diagnostic-mode",
       title: "开发者 / 诊断模式",
       category: "操作",

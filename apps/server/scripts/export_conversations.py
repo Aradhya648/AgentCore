@@ -4,7 +4,13 @@ Run from apps/server:
 
     uv run python scripts/export_conversations.py [--days N] [--output DIR]
 
-Default: last 7 days → ../../data/export (repo-root data/export/).
+Default output:
+  - If ``DATA_DIR`` is set (prod container): ``$DATA_DIR/export``
+  - Else (dev monorepo): ``<repo>/data/export``
+
+Column sets come from the live ORM tables intersected with an allowlist — never
+hardcode SELECT lists that drift from migrations (``tool_calls`` / ``finish_reason``
+left ``messages`` long ago). Works in monorepo and Docker (``/app/scripts/…``).
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -19,10 +26,109 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-# scripts/ -> server -> apps -> <repo root>
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_OUTPUT = _REPO_ROOT / "data" / "export"
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_SCRIPT = Path(__file__).resolve()
+_SERVER_ROOT = _SCRIPT.parent.parent  # apps/server or /app
+if (_SERVER_ROOT / "agentcore").is_dir():
+    sys.path.insert(0, str(_SERVER_ROOT))
+
+
+def _default_output() -> Path:
+    data_dir = (os.environ.get("DATA_DIR") or "").strip()
+    if data_dir:
+        return Path(data_dir) / "export"
+    parents = _SCRIPT.parents
+    if len(parents) >= 4:
+        return parents[3] / "data" / "export"
+    return Path("data") / "export"
+
+
+_DEFAULT_OUTPUT = _default_output()
+
+# Curated offline-analysis fields. Intersected with ORM columns at runtime so an
+# older image / newer allowlist (or the reverse) never SELECT a missing column.
+_CONV_KEEP = (
+    "id",
+    "user_id",
+    "title",
+    "agent_id",
+    "mode",
+    "folder_id",
+    "pinned",
+    "archived",
+    "created_at",
+)
+_MSG_KEEP = (
+    "id",
+    "conversation_id",
+    "role",
+    "content",
+    "reasoning_content",
+    "usage",
+    "attachments",
+    "citations",
+    "evidence_ledger",
+    "followups",
+    "cost",
+    "feedback",
+    "trace_id",
+    "baseline_snapshot_id",
+    "created_at",
+)
+_COST_KEEP = (
+    "id",
+    "user_id",
+    "conversation_id",
+    "message_id",
+    "run_id",
+    "parent_run_id",
+    "agent_id",
+    "role",
+    "persona",
+    "model",
+    "tokens",
+    "cost",
+    "cost_total_nano",
+    "cost_estimated_nano",
+    "currency",
+    "rounds",
+    "duration_ms",
+    "trace_id",
+    "created_at",
+)
+_TURN_METRICS_KEEP = (
+    "id",
+    "turn_id",
+    "conversation_id",
+    "user_id",
+    "agent_id",
+    "trace_id",
+    "kind",
+    "status",
+    "finish_reason",
+    "error",
+    "rounds",
+    "duration_ms",
+    "delegated",
+    "workers",
+    "input_tokens",
+    "output_tokens",
+    "boundary_yields",
+    "scope_signals",
+    "revises",
+    "escalations",
+    "audit_drops",
+    "created_at",
+)
+_TURN_JOURNAL_KEEP = (
+    "turn_id",
+    "seq",
+    "kind",
+    "payload",
+    "ts",
+    "conversation_id",
+    "trace_id",
+    "created_at",
+)
 
 
 def _json_default(obj: Any) -> Any:
@@ -35,10 +141,6 @@ def _json_default(obj: Any) -> Any:
     if isinstance(obj, Decimal):
         return float(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
-
-def _row_to_dict(columns: list[str], row: Any) -> dict[str, Any]:
-    return {col: row[i] for i, col in enumerate(columns)}
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> int:
@@ -56,204 +158,139 @@ def _create_engine():
     return create_async_engine(settings.database_url, pool_size=2, max_overflow=0)
 
 
-_CONVERSATIONS_SQL = """
-SELECT id, user_id, title, agent_id, mode, folder_id,
-       pinned, archived, created_at
-FROM conversations
-WHERE deleted_at IS NULL AND created_at >= :cutoff
-"""
+def _cols(table: Any, keep: tuple[str, ...], live: set[str]) -> list[Any]:
+    """Allowlist ∩ ORM ∩ live DB — survives schema drift in either direction."""
+    available = {c.name: c for c in table.columns}
+    selected = [
+        available[name] for name in keep if name in available and name in live
+    ]
+    if not selected:
+        raise RuntimeError(
+            f"no exportable columns on {table.name} "
+            f"(allowlist={list(keep)}; live={sorted(live)})"
+        )
+    skipped = [name for name in keep if name not in live or name not in available]
+    if skipped:
+        print(f"  note: skip missing columns on {table.name}: {', '.join(skipped)}")
+    return selected
 
-_MESSAGES_SQL = """
-SELECT id, conversation_id, role, content, reasoning_content,
-       tool_calls, usage, attachments, citations, followups,
-       feedback, finish_reason, trace_id, created_at
-FROM messages
-WHERE conversation_id = ANY(:conv_ids)
-ORDER BY conversation_id, created_at
-"""
 
-_COST_EVENTS_SQL = """
-SELECT id, user_id, conversation_id, message_id, run_id,
-       parent_run_id, agent_id, role, model, tokens, cost,
-       cost_total_nano, currency, rounds, duration_ms, trace_id, created_at
-FROM cost_events
-WHERE conversation_id = ANY(:conv_ids)
-"""
+def _mapping_rows(result: Any) -> list[dict[str, Any]]:
+    return [dict(row) for row in result.mappings().all()]
 
-_TURN_METRICS_SQL = """
-SELECT id, turn_id, conversation_id, user_id, agent_id, trace_id,
-       kind, status, finish_reason, error, rounds, duration_ms,
-       delegated, workers, input_tokens, output_tokens,
-       boundary_yields, scope_signals, revises, escalations, created_at
-FROM turn_metrics
-WHERE conversation_id = ANY(:conv_ids)
-"""
 
-_TURN_JOURNAL_SQL = """
-SELECT turn_id, seq, kind, payload, ts, conversation_id,
-       trace_id, created_at
-FROM turn_journal
-WHERE conversation_id = ANY(:conv_ids)
-ORDER BY turn_id, seq
-"""
+async def _live_columns(conn: Any, table_name: str) -> set[str]:
+    from sqlalchemy import text
+
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = :t"
+            ),
+            {"t": table_name},
+        )
+    ).all()
+    return {r[0] for r in rows}
 
 
 async def export_conversations(days: int, output_dir: Path) -> None:
-    from sqlalchemy import text
+    from sqlalchemy import select
+
+    from agentcore.db.models.billing import CostEvent
+    from agentcore.db.models.conversations import Conversation, Message
+    from agentcore.db.models.runs import TurnJournalRow, TurnMetricsRow
 
     output_dir.mkdir(parents=True, exist_ok=True)
     engine = _create_engine()
     cutoff = datetime.now(UTC) - timedelta(days=days)
 
     async with engine.connect() as conn:
-        conv_rows = (
-            await conn.execute(
-                text(_CONVERSATIONS_SQL),
-                {"cutoff": cutoff},
-            )
-        ).all()
-        conv_cols = [
-            "id",
-            "user_id",
-            "title",
-            "agent_id",
-            "mode",
-            "folder_id",
-            "pinned",
-            "archived",
-            "created_at",
-        ]
-        conversations = [_row_to_dict(conv_cols, r) for r in conv_rows]
+        conv_cols = _cols(
+            Conversation.__table__,
+            _CONV_KEEP,
+            await _live_columns(conn, "conversations"),
+        )
+        msg_cols = _cols(
+            Message.__table__,
+            _MSG_KEEP,
+            await _live_columns(conn, "messages"),
+        )
+        cost_cols = _cols(
+            CostEvent.__table__,
+            _COST_KEEP,
+            await _live_columns(conn, "cost_events"),
+        )
+        tm_cols = _cols(
+            TurnMetricsRow.__table__,
+            _TURN_METRICS_KEEP,
+            await _live_columns(conn, "turn_metrics"),
+        )
+        tj_cols = _cols(
+            TurnJournalRow.__table__,
+            _TURN_JOURNAL_KEEP,
+            await _live_columns(conn, "turn_journal"),
+        )
+        conv_stmt = select(*conv_cols).where(Conversation.created_at >= cutoff)
+        if "deleted_at" in Conversation.__table__.columns:
+            conv_stmt = conv_stmt.where(Conversation.deleted_at.is_(None))
+        conversations = _mapping_rows(await conn.execute(conv_stmt))
         conv_ids = [c["id"] for c in conversations]
-
         conv_count = _write_jsonl(output_dir / "conversations.jsonl", conversations)
 
+        empty_targets = (
+            ("messages.jsonl", msg_cols),
+            ("cost_events.jsonl", cost_cols),
+            ("turn_metrics.jsonl", tm_cols),
+            ("turn_journal.jsonl", tj_cols),
+        )
+
         if not conv_ids:
-            for name in (
-                "messages",
-                "cost_events",
-                "turn_metrics",
-                "turn_journal",
-            ):
-                _write_jsonl(output_dir / f"{name}.jsonl", [])
+            for name, _ in empty_targets:
+                _write_jsonl(output_dir / name, [])
+            msg_count = cost_count = tm_count = tj_count = 0
         else:
-            msg_rows = (
-                await conn.execute(text(_MESSAGES_SQL), {"conv_ids": conv_ids})
-            ).all()
-            msg_cols = [
-                "id",
-                "conversation_id",
-                "role",
-                "content",
-                "reasoning_content",
-                "tool_calls",
-                "usage",
-                "attachments",
-                "citations",
-                "followups",
-                "feedback",
-                "finish_reason",
-                "trace_id",
-                "created_at",
-            ]
+            msg_stmt = (
+                select(*msg_cols)
+                .where(Message.conversation_id.in_(conv_ids))
+                .order_by(Message.conversation_id, Message.created_at)
+            )
             msg_count = _write_jsonl(
                 output_dir / "messages.jsonl",
-                [_row_to_dict(msg_cols, r) for r in msg_rows],
+                _mapping_rows(await conn.execute(msg_stmt)),
             )
 
-            cost_rows = (
-                await conn.execute(text(_COST_EVENTS_SQL), {"conv_ids": conv_ids})
-            ).all()
-            cost_cols = [
-                "id",
-                "user_id",
-                "conversation_id",
-                "message_id",
-                "run_id",
-                "parent_run_id",
-                "agent_id",
-                "role",
-                "model",
-                "tokens",
-                "cost",
-                "cost_total_nano",
-                "currency",
-                "rounds",
-                "duration_ms",
-                "trace_id",
-                "created_at",
-            ]
+            cost_stmt = select(*cost_cols).where(CostEvent.conversation_id.in_(conv_ids))
             cost_count = _write_jsonl(
                 output_dir / "cost_events.jsonl",
-                [_row_to_dict(cost_cols, r) for r in cost_rows],
+                _mapping_rows(await conn.execute(cost_stmt)),
             )
 
-            tm_rows = (
-                await conn.execute(text(_TURN_METRICS_SQL), {"conv_ids": conv_ids})
-            ).all()
-            tm_cols = [
-                "id",
-                "turn_id",
-                "conversation_id",
-                "user_id",
-                "agent_id",
-                "trace_id",
-                "kind",
-                "status",
-                "finish_reason",
-                "error",
-                "rounds",
-                "duration_ms",
-                "delegated",
-                "workers",
-                "input_tokens",
-                "output_tokens",
-                "boundary_yields",
-                "scope_signals",
-                "revises",
-                "escalations",
-                "created_at",
-            ]
+            tm_stmt = select(*tm_cols).where(TurnMetricsRow.conversation_id.in_(conv_ids))
             tm_count = _write_jsonl(
                 output_dir / "turn_metrics.jsonl",
-                [_row_to_dict(tm_cols, r) for r in tm_rows],
+                _mapping_rows(await conn.execute(tm_stmt)),
             )
 
-            tj_rows = (
-                await conn.execute(text(_TURN_JOURNAL_SQL), {"conv_ids": conv_ids})
-            ).all()
-            tj_cols = [
-                "turn_id",
-                "seq",
-                "kind",
-                "payload",
-                "ts",
-                "conversation_id",
-                "trace_id",
-                "created_at",
-            ]
+            tj_stmt = (
+                select(*tj_cols)
+                .where(TurnJournalRow.conversation_id.in_(conv_ids))
+                .order_by(TurnJournalRow.turn_id, TurnJournalRow.seq)
+            )
             tj_count = _write_jsonl(
                 output_dir / "turn_journal.jsonl",
-                [_row_to_dict(tj_cols, r) for r in tj_rows],
+                _mapping_rows(await conn.execute(tj_stmt)),
             )
 
     await engine.dispose()
 
     stats = [
         ("conversations.jsonl", conv_count),
+        ("messages.jsonl", msg_count),
+        ("cost_events.jsonl", cost_count),
+        ("turn_metrics.jsonl", tm_count),
+        ("turn_journal.jsonl", tj_count),
     ]
-    if conv_ids:
-        stats.extend(
-            [
-                ("messages.jsonl", msg_count),
-                ("cost_events.jsonl", cost_count),
-                ("turn_metrics.jsonl", tm_count),
-                ("turn_journal.jsonl", tj_count),
-            ]
-        )
-    else:
-        for name in ("messages", "cost_events", "turn_metrics", "turn_journal"):
-            stats.append((f"{name}.jsonl", 0))
 
     print(f"\nExport complete → {output_dir}\n")
     total_bytes = 0

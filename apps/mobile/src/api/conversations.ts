@@ -65,6 +65,8 @@ export interface MessageDetail {
   followups?: string[];
   /** 消息来源（如 execution_harvest 系统收口）；正文前缀为旧数据兜底. */
   origin?: string | null;
+  /** 回合日志关联 id（messages.trace_id）—「复制排查包」冷启动. */
+  trace_id?: string | null;
   created_at: string;
 }
 
@@ -247,6 +249,7 @@ export function toMessageDetail(row: Schemas["MessageDetail"]): MessageDetail {
     cost: row.cost ?? null,
     followups: row.followups?.length ? row.followups : undefined,
     origin: row.origin ?? null,
+    trace_id: row.trace_id ?? null,
     created_at: row.created_at,
   };
 }

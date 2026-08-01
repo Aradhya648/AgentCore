@@ -8,6 +8,7 @@ at-least-once durability.
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import case, distinct, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -19,6 +20,34 @@ from agentcore.costing import run_cost_from_calls
 from agentcore.db.models import CostCall, CostEvent, User
 
 from ._base import _json_int, _sum_int
+
+CredentialSourceApi = Literal["user", "platform"]
+
+
+def _fold_call_models_and_source(
+    rows: Sequence[CostCall],
+) -> tuple[list[str], CredentialSourceApi | None]:
+    """Dedupe models (first-seen) + fold credential_source from cost JSONB.
+
+    No rows → ``([], None)``. Rows present with missing ``credential_source`` key →
+    ``platform`` (ledger ``split_cost`` default). ``vendor`` coerces to ``platform``
+    for the admin API surface (``user|platform|null``). Mixed → ``user`` if any
+    call is user, else ``platform``.
+    """
+    if not rows:
+        return [], None
+    models: list[str] = []
+    seen: set[str] = set()
+    any_user = False
+    for row in rows:
+        model = (row.model or "").strip()
+        if model and model not in seen:
+            seen.add(model)
+            models.append(model)
+        raw = (row.cost or {}).get("credential_source") or "platform"
+        if str(raw) == "user":
+            any_user = True
+    return models, ("user" if any_user else "platform")
 
 
 def _run_row_values(
@@ -597,6 +626,57 @@ class CostEventRepository:
         )
         rows = (await self._session.execute(stmt)).all()
         return {row.message_id: int(row.c_total) for row in rows}
+
+    async def models_and_source_by_message_for_conversation(
+        self, conversation_id: str
+    ) -> dict[str, tuple[list[str], CredentialSourceApi | None]]:
+        """Per-message models + credential_source from ``cost_calls`` (会话复盘).
+
+        Groups call rows by ``message_id`` (NULL / off-turn excluded). Models are
+        distinct first-seen; credential_source folds per ``_fold_call_models_and_source``.
+        """
+        result = await self._session.execute(
+            select(CostCall)
+            .where(
+                CostCall.conversation_id == conversation_id,
+                CostCall.message_id.is_not(None),
+            )
+            .order_by(CostCall.created_at.asc())
+        )
+        by_message: dict[str, list[CostCall]] = {}
+        for row in result.scalars().all():
+            mid = row.message_id
+            if mid is None:
+                continue
+            by_message.setdefault(mid, []).append(row)
+        return {
+            mid: _fold_call_models_and_source(calls) for mid, calls in by_message.items()
+        }
+
+    async def models_and_source_by_trace(
+        self, trace_ids: Sequence[str]
+    ) -> dict[str, tuple[list[str], CredentialSourceApi | None]]:
+        """Per-``trace_id`` models + credential_source from ``cost_calls`` (回合列表).
+
+        ``turn_metrics.turn_id`` ≠ assistant ``message_id`` — join cost by trace only.
+        """
+        ids = [t for t in dict.fromkeys(trace_ids) if t]
+        if not ids:
+            return {}
+        result = await self._session.execute(
+            select(CostCall)
+            .where(CostCall.trace_id.in_(ids))
+            .order_by(CostCall.created_at.asc())
+        )
+        by_trace: dict[str, list[CostCall]] = {}
+        for row in result.scalars().all():
+            tid = row.trace_id
+            if not tid:
+                continue
+            by_trace.setdefault(tid, []).append(row)
+        return {
+            tid: _fold_call_models_and_source(calls) for tid, calls in by_trace.items()
+        }
 
     async def aggregate_cost_by_conversations(
         self, conversation_ids: Sequence[str]

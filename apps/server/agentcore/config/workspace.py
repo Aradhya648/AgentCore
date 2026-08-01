@@ -30,6 +30,10 @@ class WorkspaceSettings(BaseModel):
     # Inside ``tool_exec``, ``WorkspaceChannel`` **derives** its deadline from the
     # outer tool liveness budget (``tool_default_timeout_seconds`` − settle slack) —
     # never a second independent 60s clock. See ``runtime/tool_deadline.py``.
+    # Local WorkspaceChannel only: max concurrent desktop round-trips (awaiting
+    # suspend). Extra ops queue; queue wait counts on the outer tool wall clock.
+    # Does not apply to cloud ServerWorkspace / workspace_lock.
+    workspace_channel_max_inflight: int = 2
     workspace_execute_timeout_slack_seconds: float = 30.0
     workspace_handoff_timeout_seconds: float = 300.0
     # AI 协作白板 (AI协作白板.md §六 M2): how long the BoardChannel waits for the bound

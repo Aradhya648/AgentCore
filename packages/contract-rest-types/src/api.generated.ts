@@ -186,7 +186,9 @@ export interface paths {
          *     Finer-grained than the session roster — each row is one ``turn_metrics`` record
          *     with conversation title + owner identity for triage. Newest-first; filters
          *     AND-combine (``delegated`` = multi-agent only; ``trace_id`` for 复盘深链解析).
-         *     Drill into 会话复盘 by ``conversation_id``.
+         *     ``models`` / ``credential_source`` join ``cost_calls`` by ``trace_id`` (not
+         *     ``turn_id`` — that column is attempt_id ≠ assistant message_id). Drill into
+         *     会话复盘 by ``conversation_id``.
          */
         get: operations["list_conversation_turns_v1_admin_conversations_turns_get"];
         put?: never;
@@ -337,7 +339,8 @@ export interface paths {
          * @description 会话复盘 (观测 P2): one conversation's merged timeline — the message thread
          *     (bodies) overlaid with each turn's outcome/quality (turn_metrics), spend
          *     (cost_events), execution spans, and multi-agent runs (turn_journal), joined by
-         *     trace_id / message_id.
+         *     trace_id / message_id. Per-message ``models`` / ``credential_source`` come from
+         *     ``cost_calls`` (message_id; bare turn markers fall back to trace_id).
          *
          *     Admin-only and cross-user (any account's conversation), unlike the owner-scoped
          *     ``/v1/conversations/*``. The drill-down target of the 近期错误 feed: open a
@@ -5333,7 +5336,9 @@ export interface components {
          * @description One turn in the platform-wide 回合 feed — TurnMetricLine + list context.
          *
          *     Carries the owning conversation title and account display identity so an
-         *     operator can triage without opening 复盘 first.
+         *     operator can triage without opening 复盘 first. ``models`` /
+         *     ``credential_source`` come from ``cost_calls`` joined by ``trace_id``
+         *     (``turn_metrics.turn_id`` ≠ assistant ``message_id`` — never join on turn_id).
          */
         AdminTurnListItem: {
             /** Agent Id */
@@ -5349,6 +5354,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Credential Source */
+            credential_source?: ("user" | "platform") | null;
             /** Delegated */
             delegated: boolean;
             /** Display Name */
@@ -5363,6 +5370,11 @@ export interface components {
             input_tokens: number;
             /** Kind */
             kind: string;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
             /** Output Tokens */
             output_tokens: number;
             /** Rounds */
@@ -9044,7 +9056,7 @@ export interface components {
         };
         /**
          * ReplayConversation
-         * @description The conversation header for a 复盘 (owner identity + title).
+         * @description The conversation header for a 复盘 (owner identity + title + model profile).
          */
         ReplayConversation: {
             /**
@@ -9056,6 +9068,10 @@ export interface components {
             display_name: string | null;
             /** Id */
             id: string;
+            /** Model Profile Id */
+            model_profile_id?: string | null;
+            /** Model Profile Name */
+            model_profile_name?: string | null;
             /** Title */
             title: string | null;
             /** User Id */
@@ -9073,6 +9089,10 @@ export interface components {
          *     have none. ``content`` is the raw message text (the prompt / reply) — the
          *     substance of the post-mortem. Multi-agent turns also carry ``runs`` (lightweight
          *     tree nodes for triage — not the desktop team canvas).
+         *
+         *     ``models`` / ``credential_source`` come from ``cost_calls`` (call authority):
+         *     message rows join by ``message_id``; bare text-less turn markers join by
+         *     ``trace_id``. No ledger → empty models + null source.
          */
         ReplayMessage: {
             /** Content */
@@ -9087,9 +9107,16 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Credential Source */
+            credential_source?: ("user" | "platform") | null;
             /** Id */
             id: string;
             metrics?: components["schemas"]["TurnMetricLine"] | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
             /** Role */
             role: string;
             /**

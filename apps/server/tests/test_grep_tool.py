@@ -54,6 +54,29 @@ async def test_grep_requires_pattern(tmp_path: Path):
     assert "pattern" in result.error
 
 
+async def test_grep_access_permission_is_policy_retire():
+    """「没有访问权限」→ permission class + retire grep (not transient 2/3)."""
+    from agentcore.workspace.protocol import WorkspaceError
+
+    class _DeniedBackend:
+        async def grep(self, query):  # noqa: ARG002
+            raise WorkspaceError("没有访问权限")
+
+    ctx = ToolContext(
+        execution_id="e",
+        run_id="s",
+        agent_id="a",
+        backend=_DeniedBackend(),  # type: ignore[arg-type]
+        user_id="u",
+    )
+    result = await GrepTool().execute({"pattern": "TODO"}, ctx)
+    assert result.success is False
+    assert result.metadata.get("policy_failure") is True
+    assert result.metadata.get("error_class") == "permission"
+    assert result.metadata.get("permission_kind") == "access"
+    assert result.metadata.get("retire_tools") == ["grep"]
+
+
 async def test_grep_rejects_invalid_regex(tmp_path: Path):
     result = await GrepTool().execute({"pattern": "("}, _ctx(tmp_path))
     assert result.success is False

@@ -89,7 +89,32 @@ async def test_fence_complete_failure_emits_llm_call_failed():
     assert failed["attempt"] == 3  # 0-based retry_attempts=2 → 1-based 3
     assert failed["stream"] is False
     assert "boom" in failed["error"]
+    assert "model" in failed
     assert not any(c.get("event") == "llm.call" for c in caps)
+
+
+@pytest.mark.asyncio
+async def test_fence_complete_failure_includes_ambient_credential_fields():
+    """llm.call_failed surfaces ambient credential_source + provider_id (no base_url)."""
+    from agentcore.core.log_context import bind_log_context, clear_log_context
+
+    leaf = _FakeLeaf()
+    leaf.complete = AsyncMock(
+        side_effect=LLMUpstreamError("boom", upstream_status=502, retry_attempts=0)
+    )
+    provider = observe_provider(leaf)
+    clear_log_context()
+    bind_log_context(credential_source="user", provider_id="prov-1")
+    try:
+        with capture_logs() as caps, pytest.raises(LLMUpstreamError):
+            await provider.complete(_req())
+    finally:
+        clear_log_context()
+    failed = next(c for c in caps if c.get("event") == "llm.call_failed")
+    assert failed["model"] == DEEPSEEK_V4_FLASH
+    assert failed["credential_source"] == "user"
+    assert failed["provider_id"] == "prov-1"
+    assert "base_url" not in failed
 
 
 @pytest.mark.asyncio
