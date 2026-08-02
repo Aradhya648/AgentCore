@@ -308,12 +308,12 @@ def test_partial_verdict_rejects_all_success_claim():
         delivery_verdict=verdict,
     )
     assert len(reworks) == 1
-    assert "部分未满足" in reworks[0]
-    assert "全部完成" in reworks[0]
+    assert "部分未满足" in reworks[0] or "档位" in reworks[0]
+    assert "姿势 A" in reworks[0]
 
 
 def test_partial_verdict_rejects_fully_usable_claim():
-    """可用性诚实性：blocked/partial +「已完整可用」→ finish_guard 回炉。"""
+    """可用性诚实性：blocked/partial +「已完整可用」→ finish_guard 回炉（档位禁 A）。"""
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
     verdict = DeliveryVerdict(
@@ -327,7 +327,7 @@ def test_partial_verdict_rejects_fully_usable_claim():
         delivery_verdict=verdict,
     )
     assert len(reworks) == 1
-    assert "已完整可用" in reworks[0] or "完整可用" in reworks[0]
+    assert "姿势 A" in reworks[0]
 
 
 def test_blocked_verdict_rejects_fully_usable_claim():
@@ -343,7 +343,7 @@ def test_blocked_verdict_rejects_fully_usable_claim():
         citation_count=0,
         delivery_verdict=verdict,
     )
-    assert any("可用" in r for r in reworks)
+    assert any("姿势 A" in r or "档位" in r for r in reworks)
 
 
 def test_bare_now_usable_does_not_trigger_fully_usable_gate():
@@ -402,7 +402,7 @@ def test_partial_verdict_allows_honest_gap_summary():
 
 
 def test_partial_verdict_rejects_fixed_claim():
-    """乙：blocked/partial +「已修好」→ finish_guard 回炉。"""
+    """乙并入姿势 A：blocked/partial +「已修好」→ finish_guard 回炉。"""
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
     verdict = DeliveryVerdict(
@@ -416,11 +416,11 @@ def test_partial_verdict_rejects_fixed_claim():
         delivery_verdict=verdict,
     )
     assert len(reworks) == 1
-    assert "已修好" in reworks[0] or "修码完成" in reworks[0]
+    assert "姿势 A" in reworks[0]
 
 
 def test_blocked_verdict_rejects_verified_green_claims():
-    """乙：blocked + 验证通过 / 测试已通过 / 已跑通 → 回炉。"""
+    """乙并入姿势 A：blocked + 验证通过 / 测试已通过 / 已跑通 → 回炉。"""
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
     verdict = DeliveryVerdict(
@@ -442,9 +442,7 @@ def test_blocked_verdict_rejects_verified_green_claims():
             citation_count=0,
             delivery_verdict=verdict,
         )
-        assert any(
-            "修好" in r or "验证通过" in r or "跑通" in r or "修码" in r for r in reworks
-        ), claim
+        assert any("姿势 A" in r or "档位" in r for r in reworks), claim
 
 
 def test_partial_verdict_allows_negated_fixed_phrase():
@@ -486,7 +484,7 @@ def test_partial_verdict_allows_honest_fix_gap_summary():
 
 
 def test_partial_verdict_rejects_delivery_done_claims():
-    """交付完成闭集 / 站点做好了：partial + 文件 → 回炉。"""
+    """交付完成闭集并入姿势 A：partial + 文件 → 回炉。站点「做好了」已退役（禁加词）。"""
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
     verdict = DeliveryVerdict(
@@ -503,23 +501,36 @@ def test_partial_verdict_rejects_delivery_done_claims():
         "已全部收卷。",
         "三路调研已收齐，汇总如下。",
         "已全部收齐。",
-        "站点做好了。",
-        "网站已经做好了。",
-        "页面基本做好了。",
     ):
         reworks = finish_guard(
             claim,
             citation_count=0,
             delivery_verdict=verdict,
         )
-        assert any(
-            "已完成交付" in r
-            or "交付完成" in r
-            or "做好了" in r
-            or "收卷" in r
-            or "收齐" in r
-            for r in reworks
-        ), claim
+        assert any("姿势 A" in r or "档位" in r for r in reworks), claim
+
+
+def test_site_done_phrase_not_expanded_into_posture_a():
+    """禁止案面加词：站点/页面「做好了」不进姿势 A；建站正常收口不误伤。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+    from agentcore.runtime.closing_posture import claims_posture_a
+
+    assert not claims_posture_a("站点做好了。")
+    assert not claims_posture_a("网站已经做好了。")
+    assert not claims_posture_a("页面基本做好了。")
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("site/index.html",),
+        execution_id="e1",
+    )
+    assert (
+        finish_guard(
+            "站点做好了，仍有验收缺口。",
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        == []
+    )
 
 
 def test_partial_verdict_allows_negated_delivery_done_phrase():
@@ -561,7 +572,7 @@ def test_partial_verdict_allows_honest_delivery_gap_with_landed_file():
 
 
 def test_delivery_done_claim_skipped_for_workers():
-    """worker check_citations=False：交付完成闸不继承。"""
+    """worker check_citations=False：档位姿势闸不继承。"""
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
     verdict = DeliveryVerdict(
@@ -571,7 +582,7 @@ def test_delivery_done_claim_skipped_for_workers():
     )
     assert (
         finish_guard(
-            "已完成交付，站点做好了。",
+            "已完成交付，全部完成。",
             citation_count=0,
             check_citations=False,
             delivery_verdict=verdict,
@@ -626,7 +637,7 @@ def test_blocked_with_files_rejects_all_success_not_file_claim():
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
     # blocked + some files is unusual but state can be blocked when gaps dominate;
-    # all-success still forbidden; bare「已落盘」alone is OK when files exist.
+    # posture A still forbidden; bare「已落盘」alone is OK when files exist.
     verdict = DeliveryVerdict(
         state="blocked",
         delivered_files=("notes.md",),
@@ -646,28 +657,26 @@ def test_blocked_with_files_rejects_all_success_not_file_claim():
         delivery_verdict=verdict,
     )
     assert len(reworks) == 1
-    assert "未满足" in reworks[0]
-    assert "全部完成" in reworks[0]
+    assert "姿势 A" in reworks[0]
+    assert "档位" in reworks[0] or "未满足" in reworks[0]
 
 
-def test_notes_verdict_allows_all_success_claim():
+def test_notes_verdict_rejects_posture_a_claim():
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
-    # Soft warnings only → notes; do not treat as blocking gaps.
+    # Soft warnings → notes ≈ 草稿·部分；非正式完成，不得姿势 A。
     verdict = DeliveryVerdict(
         state="notes",
         delivered_files=("src/a.ts",),
         execution_id="e1",
     )
-    assert (
-        finish_guard(
-            "全部完成，产物见工作区。",
-            citation_count=0,
-            delivery_verdict=verdict,
-            overview_max_chars=1000,
-        )
-        == []
+    reworks = finish_guard(
+        "全部完成，产物见工作区。",
+        citation_count=0,
+        delivery_verdict=verdict,
+        overview_max_chars=1000,
     )
+    assert any("姿势 A" in r or "档位" in r for r in reworks)
 
 
 def test_delivery_verdict_rejects_oversized_overview():

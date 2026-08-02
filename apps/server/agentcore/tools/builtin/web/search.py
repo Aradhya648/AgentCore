@@ -1,4 +1,11 @@
-"""Built-in tool: web_search (via the configured search backend)."""
+"""Built-in tool: web_search (via the configured search backend).
+
+Academic literature posture (``search_policy=academic_literature``): junk /
+uniformly-weak / empty inject stamps structured ``evidence_gap`` on ToolResult
+metadata + JSON payload and sticky ``ToolContext.retrieval_budget.evidence_gap``.
+Delivery downgrade (``research_quality``) consumes that true source — not a
+separate ``evidence_deficit`` search stamp.
+"""
 
 import json
 import re
@@ -841,7 +848,9 @@ class WebSearchTool:
 
         硬拦（``blocked``）域名在检索出口剔除，不进模型可见结果与 citations；低质
         （``weak``）默认仍回模型；``search_policy=debate_evidence`` 下 weak 与
-        商城/词典/医院百科硬剔（可进 dropped）。可被 ``#rN`` 显式引用并带弱源徽标（P2）。
+        商城/词典/医院百科硬剔（可进 dropped）。``search_policy=academic_literature``
+        偏论文/DOI、降权百科词典门户，并在 junk/空结果时戳 ``evidence_gap``。
+        可被 ``#rN`` 显式引用并带弱源徽标（P2）。
         """
         kept, blocked_hosts = _split_blocked(results)
 
@@ -869,6 +878,8 @@ class WebSearchTool:
             empty_streak = budget.note_search_empty()
         elif not is_empty_injection and budget is not None:
             budget.note_search_hit()
+        if filtered.evidence_gap and budget is not None:
+            budget.note_evidence_gap()
         if filtered.uniformly_weak:
             # Uniformly-weak → empty injection + accurate quality note (not the generic
             # empty-SERP tip). Model must rephrase; do not cite SERP scraps.
@@ -876,6 +887,7 @@ class WebSearchTool:
                 dropped=filtered.dropped,
                 truncated_snippets=filtered.truncated_snippets,
                 uniformly_weak=True,
+                evidence_gap=filtered.evidence_gap,
             )
             if rel_note:
                 notes.append(rel_note)
@@ -891,6 +903,7 @@ class WebSearchTool:
                     dropped=filtered.dropped,
                     truncated_snippets=filtered.truncated_snippets,
                     uniformly_weak=False,
+                    evidence_gap=filtered.evidence_gap,
                 )
                 notes.append(
                     rel_note or _empty_result_note(query, empty_streak=empty_streak)
@@ -903,6 +916,7 @@ class WebSearchTool:
                 dropped=filtered.dropped,
                 truncated_snippets=filtered.truncated_snippets,
                 uniformly_weak=False,
+                evidence_gap=filtered.evidence_gap,
             )
             if rel_note:
                 notes.append(rel_note)
@@ -913,6 +927,10 @@ class WebSearchTool:
             # Model-visible discard feedback (no schema change / no re-fetch API):
             # workers can see what was trimmed and refine the query if needed.
             payload["dropped_hosts"] = dropped_hosts
+        if filtered.evidence_gap:
+            # Model-visible twin of metadata so workers see the gap without parsing
+            # tool metadata; delivery consumers prefer metadata / budget sticky flag.
+            payload["evidence_gap"] = True
         output = json.dumps(payload, ensure_ascii=False)
         citations = [
             stamp_citation_tier(
@@ -958,6 +976,9 @@ class WebSearchTool:
         if filtered.uniformly_weak:
             # Honest observability: uniformly near-irrelevant SERP (empty injection).
             metadata["low_relevance"] = True
+        if filtered.evidence_gap:
+            # Structured「证据差」for delivery downgrade (not prompt-only).
+            metadata["evidence_gap"] = True
         if search_policy:
             metadata["search_policy"] = search_policy
         # 检索观测：query + backend + 命中/剔除计数，便于还原「搜了什么 / 拿回什么」。
@@ -969,6 +990,7 @@ class WebSearchTool:
             blocked_count=len(blocked_hosts),
             dropped_count=len(filtered.dropped),
             low_relevance=bool(filtered.uniformly_weak),
+            evidence_gap=bool(filtered.evidence_gap),
             empty_streak=empty_streak,
             backend=backend_name,
             cached=cached,

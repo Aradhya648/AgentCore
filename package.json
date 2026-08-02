@@ -27,7 +27,7 @@
     "deploy:backend:status": "node deploy/scripts/check-remote-build.mjs",
     "publish:notice": "node deploy/scripts/publish-product-notice.mjs",
     "sync:release-cdn": "node deploy/scripts/sync-release-cdn.mjs",
-    "sync:logs": "bash scripts/sync-prod-logs.sh",
+    "sync:logs": "node scripts/sync-prod-logs.mjs",
     "town:build": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/build-unity.ps1",
     "town:build:webgl": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/build-unity.ps1 -Target WebGL",
     "town:spike:webgl": "powershell -ExecutionPolicy Bypass -File apps/town/scripts/spike-webgl-sse.ps1",

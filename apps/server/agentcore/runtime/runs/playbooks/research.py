@@ -6,6 +6,7 @@ from typing import Any
 
 from agentcore.runtime.runs.playbooks._common import (
     DIRECTED_SEARCH_TASK_HINT,
+    RESEARCHER_ACADEMIC_SEARCH_DISCIPLINE,
     RESEARCHER_NOTE_GUIDANCE,
     RESEARCHER_SEARCH_DISCIPLINE,
     USER_MESSAGE_MECH_KEY,
@@ -217,6 +218,8 @@ def research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[st
             task_body: dict[str, Any] = {
                 "id": rid,
                 "role": "调研员",
+                # 成文综述：结构化学术检索挡位（偏论文站；junk → evidence_gap）。
+                "search_policy": "academic_literature",
                 "task": (
                     f"围绕主题【{topic}】，{scope}"
                     "给出该子方向的关键事实 / 现状 / 证据；关键数字 / 关键结论旁须就地标"
@@ -230,6 +233,7 @@ def research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[st
                     "（内容=本子方向完整要点 + 来源，不是 handoff 摘要的复制）；"
                     "handoff 结构化简报照旧，落盘是叠加、不得替代 handoff。"
                     f"{RESEARCHER_SEARCH_DISCIPLINE}"
+                    f"{RESEARCHER_ACADEMIC_SEARCH_DISCIPLINE}"
                     f"{RESEARCHER_NOTE_GUIDANCE}"
                     f"{fold_hint}"
                 ),
@@ -250,6 +254,7 @@ def research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[st
             {
                 "id": "research_0",
                 "role": "调研员",
+                "search_policy": "academic_literature",
                 "task": (
                     f"调研主题【{topic}】：覆盖关键事实 / 现状 / 主要观点与证据；"
                     "关键数字 / 关键结论旁须就地标台账 id（#rN，与工具「[已登记来源]」一致）"
@@ -261,6 +266,7 @@ def research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[st
                     "（内容=本主题完整要点 + 来源，不是 handoff 摘要的复制）；"
                     "handoff 结构化简报照旧，落盘是叠加、不得替代 handoff。"
                     f"{RESEARCHER_SEARCH_DISCIPLINE}"
+                    f"{RESEARCHER_ACADEMIC_SEARCH_DISCIPLINE}"
                     f"{RESEARCHER_NOTE_GUIDANCE}"
                 ),
                 "deliverable": {

@@ -115,9 +115,13 @@ def test_parallel_brief_fans_out_notes_without_write_pipeline():
         assert "方向笔记" in t["task"]
         assert "终稿" in t["task"]
         assert "≤12 词" in t["task"]
+        # A 档摸底不盖学术检索挡位
+        assert t.get("search_policy") in (None, "", False) or not t.get("search_policy")
+        assert "学术检索" not in t["task"]
     plan, plan_errs = build_run_plan(tasks)
     assert plan_errs == []
     assert len(plan.nodes) == 4
+    assert all(n.search_policy == "" for n in plan.nodes)
 
 
 def test_parallel_brief_requires_topic_and_two_angles():
@@ -210,6 +214,23 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     # 深读姿态：关键法条 / 司法解释 / 判例须 read_url 核对原文。
     assert "read_url" in by_id["research_1"]["task"]
     assert "法条" in by_id["research_1"]["task"]
+    # 成文综述：调研员盖学术检索挡位 + 纪律句；提纲/撰稿/审校不盖。
+    for rid in research_ids:
+        assert by_id[rid]["search_policy"] == "academic_literature"
+        assert "学术检索" in by_id[rid]["task"]
+        assert "论文库" in by_id[rid]["task"] or "arxiv" in by_id[rid]["task"]
+        assert "全面综述" in by_id[rid]["task"]
+    assert by_id["outline"].get("search_policy") in (None, "")
+    assert by_id["write"].get("search_policy") in (None, "")
+    assert by_id["review"].get("search_policy") in (None, "")
+    plan, plan_errs = build_run_plan(tasks)
+    assert plan_errs == []
+    research_nodes = [n for n in plan.nodes if n.role == "调研员"]
+    assert research_nodes
+    assert all(n.search_policy == "academic_literature" for n in research_nodes)
+    assert all(
+        n.search_policy == "" for n in plan.nodes if n.role != "调研员"
+    )
     assert "read_url" in by_id["review"]["task"]
     assert "法条" in by_id["review"]["task"]
     # 真纯丙：审校不再靠显式 tools 名单；定向检索纪律写在 task 正文。
@@ -230,6 +251,8 @@ def test_research_report_without_angles_uses_single_researcher():
     # 单调研员路径同样钉住主张须证教法。
     assert "#rN" in by_id["research_0"]["task"]
     assert "待核实" in by_id["research_0"]["task"]
+    assert by_id["research_0"]["search_policy"] == "academic_literature"
+    assert "学术检索" in by_id["research_0"]["task"]
     # 无 angles 时默认案卷路径（仍落 RESEARCH_DIR，不用角色名）。
     d = by_id["research_0"]["deliverable"]
     assert d["form"] == "files"

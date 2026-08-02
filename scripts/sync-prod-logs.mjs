@@ -2,7 +2,8 @@
 /**
  * Sync production AI logs to local for analysis.
  *
- *   pnpm sync:logs                 # events + DB export
+ *   pnpm sync:logs                 # events + slim DB export (no turn_journal)
+ *   pnpm sync:logs --full          # include turn_journal (large)
  *   pnpm sync:logs --events-only
  *   pnpm sync:logs --export-only
  *   pnpm sync:logs --days 3        # DB export window (default 7)
@@ -10,11 +11,8 @@
  * Prerequisites:
  *   deploy/.env.deploy.local with DEPLOY_SSH_HOST / USER / KEY_PATH (/ PORT)
  *
- * Why not bash+rsync+$AGENTCORE_HOME/logs:
- *   - Prod LOG_FILE lives on the api container's appdata volume (/data/logs/…),
- *     not $AGENTCORE_HOME/logs.
- *   - Maintainer machines are often Windows (no rsync; WSL bash may be broken).
- *   - Deploy credentials already live in DEPLOY_SSH_* — reuse them.
+ * Why Node (not bash wrapper): Windows maintainers often lack working WSL bash;
+ * package.json calls this file directly. Deploy credentials live in DEPLOY_SSH_*.
  */
 
 import { spawnSync } from "node:child_process";
@@ -49,6 +47,7 @@ const LOCAL_EXPORT_SCRIPT = join(
 const args = process.argv.slice(2);
 let syncEvents = true;
 let syncExport = true;
+let fullExport = false;
 let days = 7;
 
 for (let i = 0; i < args.length; i++) {
@@ -59,6 +58,9 @@ for (let i = 0; i < args.length; i++) {
       break;
     case "--export-only":
       syncEvents = false;
+      break;
+    case "--full":
+      fullExport = true;
       break;
     case "--days": {
       const raw = args[++i];
@@ -72,11 +74,13 @@ for (let i = 0; i < args.length; i++) {
     }
     case "-h":
     case "--help":
-      console.log(`Usage: pnpm sync:logs [--events-only | --export-only] [--days N]
+      console.log(`Usage: pnpm sync:logs [--events-only | --export-only] [--full] [--days N]
 
 Pull production structured logs into logs/prod-export/ using
 deploy/.env.deploy.local (DEPLOY_SSH_*).
 
+  (default)       Slim DB export: skip turn_journal (fast daily pull)
+  --full          Include turn_journal (large; for deep dig / --raw)
   --events-only   Only sync LOG_FILE JSONL (+ rotation backups)
   --export-only   Only run DB export inside the api container + pull
   --days N        DB export window (default 7)
@@ -86,7 +90,7 @@ deploy/.env.deploy.local (DEPLOY_SSH_*).
     default:
       console.error(`Unknown argument: ${arg}`);
       console.error(
-        "Usage: pnpm sync:logs [--events-only | --export-only] [--days N]",
+        "Usage: pnpm sync:logs [--events-only | --export-only] [--full] [--days N]",
       );
       process.exit(1);
   }
@@ -245,7 +249,12 @@ function syncDbExport() {
   }
   // Ship the local script so path fixes apply before the next image deploy
   // (image copy historically assumed monorepo parents[3] → IndexError in Docker).
-  console.log("→ upload export script + run inside api container");
+  const skipJournalFlag = fullExport ? "" : " --skip-journal";
+  console.log(
+    fullExport
+      ? "→ upload export script + run inside api container (full, incl. journal)"
+      : "→ upload export script + run inside api container (slim, skip journal)",
+  );
   scp(LOCAL_EXPORT_SCRIPT, REMOTE_EXPORT_SCRIPT);
   const hostExport = discoverHostDataExportDir();
   console.log(`  host export dir: ${hostExport}`);
@@ -253,7 +262,7 @@ function syncDbExport() {
 CONTAINER="${CONTAINER}"
 docker cp ${REMOTE_EXPORT_SCRIPT} "$CONTAINER":/tmp/export_conversations.py
 docker exec -u root "$CONTAINER" chown app:app /tmp/export_conversations.py || true
-docker exec "$CONTAINER" python /tmp/export_conversations.py --days ${days} --output /data/export
+docker exec "$CONTAINER" python /tmp/export_conversations.py --days ${days} --output /data/export${skipJournalFlag}
 rm -f ${REMOTE_EXPORT_SCRIPT}
 mkdir -p "${hostExport}"
 cd "${hostExport}"

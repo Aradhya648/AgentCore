@@ -11,6 +11,12 @@ are trace-informed defaults, not calibrated on real traffic.
 Debate evidence posture (``search_policy=debate_evidence``): additionally drop
 ``citation_tier=weak`` and mall/dictionary/hospital-encyclopedia hosts (task-book
 「商城/词典不算证据」) into ``dropped`` — ordinary research keeps the default policy.
+
+Academic literature posture (``search_policy=academic_literature``): prefer paper /
+preprint / DOI hosts; demote encyclopedia / dictionary / portal junk (do **not**
+copy the debate deny-all-weak set — preprints and discussion pages may stay). When
+the SERP is uniformly weak or yields no preferred academic host, surface a
+structured ``evidence_gap`` flag for delivery downgrade consumers.
 """
 
 from __future__ import annotations
@@ -32,10 +38,14 @@ _SNIPPET_MAX_CHARS = 160
 # Trace junk (support.microsoft.com vs 商标法… / weather.com vs 茉莉奶白…) scored ~0;
 # on-topic news cards usually hit ≥2 CJK tokens → comfortably above this floor.
 _MIN_SCORE = 0.12
+# Academic: demoted hosts ≥ this fraction of score-passers → evidence_gap even if
+# a residual scrap was kept (case: encyclopedia/dict/portal-dominated SERP).
+_ACADEMIC_JUNK_FRACTION = 0.6
 
 # Per-run search posture (structured signal on RunSpec / ToolContext — never prompt text).
-SearchPolicy = Literal["", "debate_evidence"]
+SearchPolicy = Literal["", "debate_evidence", "academic_literature"]
 SEARCH_POLICY_DEBATE_EVIDENCE: SearchPolicy = "debate_evidence"
+SEARCH_POLICY_ACADEMIC_LITERATURE: SearchPolicy = "academic_literature"
 
 _LATIN_TOKEN_RE = re.compile(r"[A-Za-z]{2,}|\d{2,}")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -113,6 +123,102 @@ _DEBATE_DENY_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Academic literature: prefer paper / preprint / DOI / indexed scholarship hosts.
+# Not an allowlist — preferred rows float to the inject window; others may stay.
+_ACADEMIC_PREFERRED_DOMAINS: frozenset[str] = frozenset(
+    {
+        "arxiv.org",
+        "biorxiv.org",
+        "medrxiv.org",
+        "ssrn.com",
+        "pubmed.ncbi.nlm.nih.gov",
+        "ncbi.nlm.nih.gov",
+        "doi.org",
+        "dx.doi.org",
+        "nature.com",
+        "science.org",
+        "sciencemag.org",
+        "sciencedirect.com",
+        "springer.com",
+        "springerlink.com",
+        "ieee.org",
+        "ieeexplore.ieee.org",
+        "acm.org",
+        "dl.acm.org",
+        "wiley.com",
+        "onlinelibrary.wiley.com",
+        "plos.org",
+        "frontiersin.org",
+        "mdpi.com",
+        "tandfonline.com",
+        "oup.com",
+        "academic.oup.com",
+        "nih.gov",
+        "semanticscholar.org",
+        "openreview.net",
+        "aclweb.org",
+        "aclanthology.org",
+        "cnki.net",
+        "wanfangdata.com.cn",
+        "cqvip.com",
+        "cochranelibrary.com",
+        "who.int",
+        "nejm.org",
+        "thelancet.com",
+        "bmj.com",
+        "jama.jamanetwork.com",
+        "jamanetwork.com",
+    }
+)
+# Path / host heuristics for DOI landing pages not on doi.org itself.
+_ACADEMIC_DOI_PATH_RE = re.compile(r"(?:^|/)doi(?:/|$|\?)", re.IGNORECASE)
+
+# Demote only (not debate-style hard deny of all weak): encyclopedia / dictionary /
+# mass portals that dominated hollow survey SERPs. Preprint discussion / Zhihu may
+# remain as residual when no preferred host exists (still flags evidence_gap).
+_ACADEMIC_DEMOTE_DOMAINS: frozenset[str] = frozenset(
+    {
+        # 百科
+        "baike.baidu.com",
+        "baike.com",
+        "wikipedia.org",
+        "zh.wikipedia.org",
+        "en.wikipedia.org",
+        "baikemy.com",
+        # 词典 / 字词条（与辩论 deny 交集，但不扩到商城全集）
+        "dict.youdao.com",
+        "dict.cn",
+        "iciba.com",
+        "zdic.net",
+        "hanyu.baidu.com",
+        "cidian.911cha.com",
+        "dictionary.cambridge.org",
+        "oxfordlearnersdictionaries.com",
+        "merriam-webster.com",
+        "collinsdictionary.com",
+        "weblio.jp",
+        "kotobank.jp",
+        # 门户 / 内容农场（案面常见假文献命中）
+        "163.com",
+        "sohu.com",
+        "sina.com.cn",
+        "qq.com",
+        "ifeng.com",
+        "toutiao.com",
+        "jianshu.com",
+        "csdn.net",
+        "blog.csdn.net",
+        "zhihu.com",
+        "zhuanlan.zhihu.com",
+        "baijiahao.baidu.com",
+        "wenku.baidu.com",
+    }
+)
+_ACADEMIC_DEMOTE_PATH_RE = re.compile(
+    r"/(?:baike|pedia|encyclop(?:a?edia)?|dict|dictionary)(?:/|$|\?)",
+    re.IGNORECASE,
+)
+
 
 def unquoted_span(query: str) -> str:
     """Query text with quoted / book-title phrases removed (A3 quote exemption)."""
@@ -147,6 +253,9 @@ class RelevanceFilterOutcome:
     # Injection returns empty (no min_keep residual); the caller reuses this judgement
     # for Tavily weak-retry and the model-facing quality note.
     uniformly_weak: bool = False
+    # Structured「证据差」signal (academic_literature / uniformly_weak junk): delivery
+    # downgrade consumers read this — not just the model-facing note.
+    evidence_gap: bool = False
 
 
 def tokenize_query(query: str) -> set[str]:
@@ -231,6 +340,88 @@ def _apply_debate_evidence_policy(
         else:
             keep.append(r)
     return keep, denied
+
+
+def academic_preferred(url: str) -> bool:
+    """True when the URL is a preferred paper / preprint / DOI-class host."""
+    host = _host_of(url)
+    if host:
+        for d in _ACADEMIC_PREFERRED_DOMAINS:
+            if _domain_matches(host, d):
+                return True
+    try:
+        path = urlparse(url if "://" in url else f"https://{url}").path or ""
+    except Exception:
+        path = ""
+    return bool(_ACADEMIC_DOI_PATH_RE.search(path))
+
+
+def academic_demoted(url: str) -> bool:
+    """True when the hit is encyclopedia / dictionary / portal junk under academic policy.
+
+    Demotion only — not the debate deny-all-weak set. Preferred hosts win; demoted
+    rows sort last and are dropped when any preferred/neutral survivor exists.
+    """
+    if academic_preferred(url):
+        return False
+    host = _host_of(url)
+    if host:
+        for d in _ACADEMIC_DEMOTE_DOMAINS:
+            if _domain_matches(host, d):
+                return True
+    try:
+        path = urlparse(url if "://" in url else f"https://{url}").path or ""
+    except Exception:
+        path = ""
+    return bool(_ACADEMIC_DEMOTE_PATH_RE.search(path))
+
+
+def _apply_academic_literature_policy(
+    passed: list[SearchResult],
+) -> tuple[list[SearchResult], list[SearchResult]]:
+    """Prefer academic hosts; demote encyclopedia/dict/portal when better rows exist.
+
+    Order: preferred → neutral → (demoted only if nothing else). Demoted rows are
+    dropped into ``denied`` when any preferred or neutral survivor exists so they
+    do not consume the inject window.
+    """
+    preferred: list[SearchResult] = []
+    neutral: list[SearchResult] = []
+    demoted: list[SearchResult] = []
+    for r in passed:
+        if academic_preferred(r.url):
+            preferred.append(r)
+        elif academic_demoted(r.url):
+            demoted.append(r)
+        else:
+            neutral.append(r)
+    if preferred or neutral:
+        return preferred + neutral, demoted
+    # Only demoted survived scoring — keep them (降权, not hard empty) but caller
+    # will still raise evidence_gap because no preferred host remains.
+    return demoted, []
+
+
+def _academic_evidence_gap(
+    *,
+    uniformly_weak: bool,
+    passed_before_policy: list[SearchResult],
+    kept: list[SearchResult],
+) -> bool:
+    """Structured gap when academic SERP has no preferred host or is junk-dominated."""
+    if uniformly_weak:
+        return True
+    if not kept:
+        return True
+    if any(academic_preferred(r.url) for r in kept):
+        return False
+    # No preferred academic host in injection.
+    if passed_before_policy:
+        demoted_n = sum(1 for r in passed_before_policy if academic_demoted(r.url))
+        if demoted_n / len(passed_before_policy) >= _ACADEMIC_JUNK_FRACTION:
+            return True
+    # Residual scraps without a paper/DOI host → still a gap for literature tasks.
+    return True
 
 
 def _select_by_score(
@@ -321,9 +512,17 @@ def filter_results_for_injection(
     when at least one score-passer exists).
     ``search_policy=debate_evidence`` additionally drops weak-tier + mall/dict/
     hospital-encyclopedia hits into ``dropped``.
+    ``search_policy=academic_literature`` prefers paper/DOI hosts, demotes
+    encyclopedia/dict/portal junk, and sets ``evidence_gap`` when the inject set
+    has no preferred academic host (or the SERP is uniformly weak / junk-heavy).
     """
     if not results:
-        return RelevanceFilterOutcome(kept=[], dropped=[], truncated_snippets=False)
+        return RelevanceFilterOutcome(
+            kept=[],
+            dropped=[],
+            truncated_snippets=False,
+            evidence_gap=search_policy == SEARCH_POLICY_ACADEMIC_LITERATURE,
+        )
 
     tokens = tokenize_query(query)
     ranked = sorted(
@@ -347,8 +546,11 @@ def filter_results_for_injection(
         passed, _ = _select_by_score(ranked, min_keep=min_keep, min_score=min_score)
 
     policy_denied: list[SearchResult] = []
+    passed_before_policy = list(passed)
     if search_policy == SEARCH_POLICY_DEBATE_EVIDENCE and passed:
         passed, policy_denied = _apply_debate_evidence_policy(passed)
+    elif search_policy == SEARCH_POLICY_ACADEMIC_LITERATURE and passed:
+        passed, policy_denied = _apply_academic_literature_policy(passed)
 
     if uniformly_weak:
         # Empty success — every raw hit is dropped; no min_keep residual.
@@ -358,6 +560,9 @@ def filter_results_for_injection(
             dropped=dropped,
             truncated_snippets=False,
             uniformly_weak=True,
+            # Academic posture: uniformly-weak SERP is an observable evidence gap
+            # (delivery consumers), not only a model-facing note.
+            evidence_gap=search_policy == SEARCH_POLICY_ACADEMIC_LITERATURE,
         )
 
     kept_raw = passed[: max(1, max_inject)] if passed else []
@@ -377,11 +582,21 @@ def filter_results_for_injection(
             truncated = True
         else:
             kept.append(r)
+
+    evidence_gap = False
+    if search_policy == SEARCH_POLICY_ACADEMIC_LITERATURE:
+        evidence_gap = _academic_evidence_gap(
+            uniformly_weak=False,
+            passed_before_policy=passed_before_policy,
+            kept=kept,
+        )
+
     return RelevanceFilterOutcome(
         kept=kept,
         dropped=dropped,
         truncated_snippets=truncated,
         uniformly_weak=False,
+        evidence_gap=evidence_gap,
     )
 
 
@@ -393,18 +608,25 @@ _WEAK_SERP_NOTE = (
     "建议换用更通用或同义的核心词重拟查询后重试，或对相关主张标注「待核实」。"
 )
 
+_ACADEMIC_GAP_NOTE = (
+    "【证据差】本批检索未拿到论文库/预印本/DOI 等优先来源（或百科词典门户占比过高）。"
+    "须报告证据缺口并换论文站策略；禁止脑补成全面综述。"
+)
+
 
 def relevance_note(
     *,
     dropped: list[SearchResult],
     truncated_snippets: bool,
     uniformly_weak: bool = False,
+    evidence_gap: bool = False,
 ) -> str | None:
     """Short model-facing note when filtering changed the payload.
 
     When ``uniformly_weak`` (not one hit reached ``min_score``), injection is empty
     and the note asks for a rewritten query — it replaces any "dropped N" line
-    (there is nothing on-topic to keep).
+    (there is nothing on-topic to keep). ``evidence_gap`` adds the academic
+    literature gap line (structured flag is separate on the ToolResult metadata).
     """
     parts: list[str] = []
     if uniformly_weak:
@@ -422,6 +644,8 @@ def relevance_note(
             f"已按与查询的字面重合度剔除 {len(dropped)} 条低相关结果{host_bit}。"
             "若误杀，请把关键专有名词/域名写进查询后重搜；不要把已剔除条目当证据引用。"
         )
+    if evidence_gap:
+        parts.append(_ACADEMIC_GAP_NOTE)
     if truncated_snippets:
         parts.append(f"摘要已截断至约 {_SNIPPET_MAX_CHARS} 字以控制上下文体积。")
     if not parts:

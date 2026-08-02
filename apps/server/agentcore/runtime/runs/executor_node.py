@@ -118,6 +118,35 @@ from agentcore.tools.protocol import RetrievalBudgetState
 
 logger = get_logger(__name__)
 
+
+def _stamp_retrieval_evidence_gap(
+    state: RunState,
+    tool_ctx: Any,
+    *,
+    search_policy: str = "",
+) -> RunState:
+    """Copy sticky ``RetrievalBudgetState.evidence_gap`` onto RunState for consumers.
+
+    Search stamps the sticky on the budget during academic_literature junk/empty
+    injects; delivery / research_quality read ``state.evidence_gap`` or
+    ``state.evidence_meta["evidence_gap"]`` without scanning every tool event.
+    """
+    rb = getattr(tool_ctx, "retrieval_budget", None) if tool_ctx is not None else None
+    if rb is None or not getattr(rb, "evidence_gap", False):
+        return state
+    state.evidence_gap = True
+    meta = getattr(state, "evidence_meta", None)
+    if not isinstance(meta, dict):
+        meta = {}
+    else:
+        meta = dict(meta)
+    meta["evidence_gap"] = True
+    policy = (search_policy or "").strip()
+    if policy:
+        meta.setdefault("search_policy", policy)
+    state.evidence_meta = meta
+    return state
+
 # Light-repair allow-list: format backfill / handoff enrichment only — no re-investigation.
 _LIGHT_REPAIR_TOOL_NAMES: frozenset[str] = frozenset(
     {
@@ -1432,30 +1461,34 @@ async def execute_agent_node(
             # Contract retries already exhausted inside this executor; mark
             # non-retryable so WaveScheduler's on_failure=retry does not cold-
             # start the whole node (same tokens, same empty/short product).
-            return RunState(
-                phase=RunPhase.FAILED,
-                content=content,
-                reasoning=reasoning,
-                error=reason,
-                error_retryable=False,
-                escalations=escalations,
-                debrief=debrief,
-                citations=worker_citations,
-                model=priced_model,
-                duration_ms=duration_ms,
-                rounds=run_rounds,
-                files_touched=touched,
-                file_acceptance=build_file_acceptance(
-                    touched,
+            return _stamp_retrieval_evidence_gap(
+                RunState(
                     phase=RunPhase.FAILED,
+                    content=content,
+                    reasoning=reasoning,
                     error=reason,
-                    path_rejections=path_rej,
+                    error_retryable=False,
+                    escalations=escalations,
+                    debrief=debrief,
+                    citations=worker_citations,
+                    model=priced_model,
+                    duration_ms=duration_ms,
+                    rounds=run_rounds,
+                    files_touched=touched,
+                    file_acceptance=build_file_acceptance(
+                        touched,
+                        phase=RunPhase.FAILED,
+                        error=reason,
+                        path_rejections=path_rej,
+                    ),
+                    tool_failures=list(tool_failures),
+                    usage=usage,
+                    cost=cost,
+                    transcript=messages,
+                    received_context=received_blocks,
                 ),
-                tool_failures=list(tool_failures),
-                usage=usage,
-                cost=cost,
-                transcript=messages,
-                received_context=received_blocks,
+                tool_ctx,
+                search_policy=spec.search_policy or "",
             )
         # Soft-accept / clean complete: still surface an interrupted LLM finish so CEO
         # synthesis sees the gap (files may be on disk but handoff missing/thin).
@@ -1536,23 +1569,27 @@ async def execute_agent_node(
                     execution_id=env.execution_id,
                 )
             )
-            return RunState(
-                phase=RunPhase.FAILED,
-                content=content,
-                reasoning=reasoning,
-                error=reason,
-                error_retryable=False,
-                escalations=escalations,
-                debrief=debrief,
-                citations=worker_citations,
-                model=priced_model,
-                duration_ms=duration_ms,
-                rounds=run_rounds,
-                tool_failures=list(tool_failures),
-                usage=usage,
-                cost=cost,
-                transcript=messages,
-                received_context=received_blocks,
+            return _stamp_retrieval_evidence_gap(
+                RunState(
+                    phase=RunPhase.FAILED,
+                    content=content,
+                    reasoning=reasoning,
+                    error=reason,
+                    error_retryable=False,
+                    escalations=escalations,
+                    debrief=debrief,
+                    citations=worker_citations,
+                    model=priced_model,
+                    duration_ms=duration_ms,
+                    rounds=run_rounds,
+                    tool_failures=list(tool_failures),
+                    usage=usage,
+                    cost=cost,
+                    transcript=messages,
+                    received_context=received_blocks,
+                ),
+                tool_ctx,
+                search_policy=spec.search_policy or "",
             )
         # 刀1 / 方案 A：strict + 真未落盘仍硬拦；已落盘 + 仅交接降级 → 放行 COMPLETED。
         hard_gap = _hard_gap_blocks_completion(
@@ -1579,32 +1616,36 @@ async def execute_agent_node(
                     execution_id=env.execution_id,
                 )
             )
-            return RunState(
-                phase=RunPhase.FAILED,
-                content=content,
-                reasoning=reasoning,
-                error=hard_gap.reason,
-                error_retryable=False,
-                warnings=warnings,
-                delivery_gaps=delivery_gaps,
-                escalations=escalations,
-                debrief=debrief,
-                citations=worker_citations,
-                model=priced_model,
-                duration_ms=duration_ms,
-                rounds=run_rounds,
-                files_touched=touched,
-                file_acceptance=build_file_acceptance(
-                    touched,
+            return _stamp_retrieval_evidence_gap(
+                RunState(
                     phase=RunPhase.FAILED,
+                    content=content,
+                    reasoning=reasoning,
                     error=hard_gap.reason,
-                    path_rejections=path_rej,
+                    error_retryable=False,
+                    warnings=warnings,
+                    delivery_gaps=delivery_gaps,
+                    escalations=escalations,
+                    debrief=debrief,
+                    citations=worker_citations,
+                    model=priced_model,
+                    duration_ms=duration_ms,
+                    rounds=run_rounds,
+                    files_touched=touched,
+                    file_acceptance=build_file_acceptance(
+                        touched,
+                        phase=RunPhase.FAILED,
+                        error=hard_gap.reason,
+                        path_rejections=path_rej,
+                    ),
+                    tool_failures=list(tool_failures),
+                    usage=usage,
+                    cost=cost,
+                    transcript=messages,
+                    received_context=received_blocks,
                 ),
-                tool_failures=list(tool_failures),
-                usage=usage,
-                cost=cost,
-                transcript=messages,
-                received_context=received_blocks,
+                tool_ctx,
+                search_policy=spec.search_policy or "",
             )
         # The worker's terminal RunState is journaled at the ``execute`` choke point
         # below (run_final_fact — covers COMPLETED *and* FAILED in one place), so resume
@@ -1630,29 +1671,33 @@ async def execute_agent_node(
                 execution_id=env.execution_id,
             )
         )
-        return RunState(
-            phase=RunPhase.COMPLETED,
-            content=content,
-            reasoning=reasoning,
-            warnings=warnings,
-            delivery_gaps=delivery_gaps,
-            escalations=escalations,
-            debrief=debrief,
-            citations=worker_citations,
-            model=priced_model,
-            duration_ms=duration_ms,
-            rounds=run_rounds,
-            files_touched=touched,
-            file_acceptance=build_file_acceptance(
-                touched,
+        return _stamp_retrieval_evidence_gap(
+            RunState(
                 phase=RunPhase.COMPLETED,
-                path_rejections=path_rej,
+                content=content,
+                reasoning=reasoning,
+                warnings=warnings,
+                delivery_gaps=delivery_gaps,
+                escalations=escalations,
+                debrief=debrief,
+                citations=worker_citations,
+                model=priced_model,
+                duration_ms=duration_ms,
+                rounds=run_rounds,
+                files_touched=touched,
+                file_acceptance=build_file_acceptance(
+                    touched,
+                    phase=RunPhase.COMPLETED,
+                    path_rejections=path_rej,
+                ),
+                tool_failures=list(tool_failures),
+                usage=usage,
+                cost=cost,
+                transcript=messages,
+                received_context=received_blocks,
             ),
-            tool_failures=list(tool_failures),
-            usage=usage,
-            cost=cost,
-            transcript=messages,
-            received_context=received_blocks,
+            tool_ctx,
+            search_policy=spec.search_policy or "",
         )
     except asyncio.CancelledError as e:
         # Dual cancel semantics: redirect = salvage + return CANCELLED (wave absorbs);
@@ -1731,7 +1776,7 @@ async def execute_agent_node(
                 product_landed=product_landed or None,
             )
         )
-        return _priced_failure(
+        failed = _priced_failure(
             str(e),
             model=priced_model,
             usage=run_usage,
@@ -1741,6 +1786,12 @@ async def execute_agent_node(
             transcript=frozen or None,
             content=content_from_transcript(frozen) if frozen else "",
         )
+        ctx = locals().get("tool_ctx")
+        if ctx is not None:
+            return _stamp_retrieval_evidence_gap(
+                failed, ctx, search_policy=spec.search_policy or ""
+            )
+        return failed
     finally:
         # Browser B: release this run's session bind so a later worker omitting
         # session_id can reuse the conversation's unbound unique/active live tab

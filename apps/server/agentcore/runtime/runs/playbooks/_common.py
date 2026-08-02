@@ -111,6 +111,14 @@ RESEARCHER_SEARCH_DISCIPLINE = (
     "禁止同一空转 query 反复烧预算；权威出处须 read_url 核对原文后再引用。"
 )
 
+# 成文综述学术检索加句（仅 research_report 调研员；parallel_brief 不盖）。
+# 与 search_policy=academic_literature 配套：先论文库、搜废报缺口、禁脑补全面综述。
+RESEARCHER_ACADEMIC_SEARCH_DISCIPLINE = (
+    "【学术检索】优先论文库 / 预印本 / DOI（arxiv、PubMed、doi.org、CNKI 等）；"
+    "百科 / 词典 / 门户命中过多视为搜废——须报告证据缺口并换论文站策略，"
+    "禁止脑补成全面综述。"
+)
+
 # 审查 / 调查类 playbook 任务书检索纪律（与 worker_budget.DIRECTED_SEARCH_DISCIPLINE 同义；
 # playbook 内联避免循环 import，测试可对 task 文案断言）。
 DIRECTED_SEARCH_TASK_HINT = (

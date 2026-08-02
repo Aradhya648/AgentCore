@@ -297,7 +297,9 @@ class RunSpec:
     retrieval_budget: int | None = None
     # Per-run web_search posture (结构化信号，禁止靠 prompt 触发)。
     # ``""`` = 默认调研；``"debate_evidence"`` = 庭前取证员 / 辩手 speech research
-    # （weak 档与商城/词典/医院百科硬剔）。经 task payload → builder → ToolContext。
+    # （weak 档与商城/词典/医院百科硬剔）；``"academic_literature"`` = 成文综述
+    # （偏论文/DOI、降权百科词典门户、junk 戳 evidence_gap）。经 task payload →
+    # builder → ToolContext。
     search_policy: str = ""
     # Per-run verify posture (结构化信号，禁止靠 task 文案猜)。
     # ``""`` = 默认可跑外环 test_run；``"inner"`` = 调查/审查姿态：禁全仓

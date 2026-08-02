@@ -1168,3 +1168,254 @@ def test_two_phase_predicate_and_playbook_stamp():
     for t in ml_tasks:
         assert t["deliverable"].get("citation_mode") == "two_phase"
 
+
+def _literature_report_plan() -> RunPlan:
+    """Minimal research_report-shaped plan: writer + review + two_phase main file."""
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    return _plan(
+        RunSpec(
+            run_id="write",
+            task="成文",
+            role="撰稿人",
+            deliverable=Deliverable(
+                form="files",
+                artifacts=[main],
+                citation_mode="two_phase",
+            ),
+        ),
+        RunSpec(
+            run_id="review",
+            task="学术审校",
+            role="学术审校员",
+            depends_on=["write"],
+        ),
+    )
+
+
+def test_literature_evidence_deficit_depresses_delivered():
+    """证据不足（几乎无学术源）→ research_report 形对账不得 delivered。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    plan = _literature_report_plan()
+    results = {
+        "write": RunState(
+            phase=RunPhase.COMPLETED,
+            content="长文成稿",
+            files_touched=[main],
+            file_acceptance=_accepted(main),
+            citations=[
+                {"url": "https://baike.baidu.com/item/x", "title": "百科"},
+                {"url": "https://www.iciba.com/word", "title": "词典"},
+                {"url": "https://www.163.com/dy/article/a.html", "title": "门户"},
+            ],
+        ),
+        "review": RunState(phase=RunPhase.COMPLETED, content="审校通过（形式）"),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ev-def")
+    assert payload is not None
+    assert payload["state"] == "partial"
+    assert payload["state"] != "delivered"
+    assert any(g.get("reason") == "evidence_deficit" for g in payload["gaps"])
+    assert any("证据不足" in g["description"] for g in payload["gaps"])
+
+
+def test_literature_evidence_deficit_from_prior_knowledge_marker():
+    """审校标明无参考文献 / 靠先验 → blocking evidence_deficit。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    plan = _literature_report_plan()
+    results = {
+        "write": RunState(
+            phase=RunPhase.COMPLETED,
+            content="基于对该领域的了解整理成文",
+            files_touched=[main],
+            file_acceptance=_accepted(main),
+            citations=[{"url": "https://arxiv.org/abs/2301.00001", "title": "paper"}],
+        ),
+        "review": RunState(
+            phase=RunPhase.COMPLETED,
+            content="主要问题：无参考文献表；对比表缺引用。",
+        ),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ev-prior")
+    assert payload is not None
+    assert payload["state"] != "delivered"
+    assert any(g.get("reason") == "evidence_deficit" for g in payload["gaps"])
+
+
+def test_literature_evidence_deficit_from_search_seam_signal():
+    """学术搜索块接缝：RunState.evidence_meta.evidence_gap + academic_literature → 降档。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    plan = _literature_report_plan()
+    writer = RunState(
+        phase=RunPhase.COMPLETED,
+        content="成稿",
+        files_touched=[main],
+        file_acceptance=_accepted(main),
+        citations=[{"url": "https://arxiv.org/abs/2301.00001", "title": "ok"}],
+    )
+    # Search true source: evidence_gap + academic_literature (executor may also
+    # copy RetrievalBudgetState sticky onto state.evidence_gap / evidence_meta).
+    writer.evidence_meta = {
+        "evidence_gap": True,
+        "search_policy": "academic_literature",
+    }
+    results = {
+        "write": writer,
+        "review": RunState(phase=RunPhase.COMPLETED, content="形式审校"),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ev-seam")
+    assert payload is not None
+    assert payload["state"] == "partial"
+    assert any(g.get("reason") == "evidence_deficit" for g in payload["gaps"])
+
+
+def test_literature_evidence_deficit_from_legacy_evidence_deficit_stamp():
+    """兼容：旧 evidence_deficit 戳仍可触发降档。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    plan = _literature_report_plan()
+    writer = RunState(
+        phase=RunPhase.COMPLETED,
+        content="成稿",
+        files_touched=[main],
+        file_acceptance=_accepted(main),
+        citations=[{"url": "https://arxiv.org/abs/2301.00001", "title": "ok"}],
+    )
+    writer.evidence_meta = {"evidence_deficit": True, "evidence_quality": "poor"}
+    results = {
+        "write": writer,
+        "review": RunState(phase=RunPhase.COMPLETED, content="形式审校"),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ev-seam-legacy")
+    assert payload is not None
+    assert payload["state"] == "partial"
+    assert any(g.get("reason") == "evidence_deficit" for g in payload["gaps"])
+
+
+def test_literature_worker_delivery_gap_evidence_deficit_depresses():
+    """Worker 已 stamp delivery_gaps.reason=evidence_deficit → 经 collect_worker_gaps 降档。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    plan = _literature_report_plan()
+    results = {
+        "write": RunState(
+            phase=RunPhase.COMPLETED,
+            content="成稿",
+            files_touched=[main],
+            file_acceptance=_accepted(main),
+            citations=[{"url": "https://arxiv.org/abs/2301.00001", "title": "ok"}],
+            delivery_gaps=[
+                {
+                    "description": "学术检索 junk 过高",
+                    "reason": "evidence_deficit",
+                }
+            ],
+        ),
+        "review": RunState(phase=RunPhase.COMPLETED, content="形式审校"),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ev-gap")
+    assert payload is not None
+    assert payload["state"] == "partial"
+    assert any(g.get("reason") == "evidence_deficit" for g in payload["gaps"])
+    # 不因接缝谓词再叠一条重复的验收缺口
+    ev_gaps = [g for g in payload["gaps"] if g.get("reason") == "evidence_deficit"]
+    assert len(ev_gaps) == 1
+
+def test_literature_adequate_evidence_stays_delivered():
+    """学术源充足且无先验缺口 → 不误伤，仍可为 delivered。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    main = f"{RESEARCH_PREFIX}报告.md"
+    plan = _literature_report_plan()
+    results = {
+        "write": RunState(
+            phase=RunPhase.COMPLETED,
+            content="据 arXiv / PubMed 文献综述。",
+            files_touched=[main],
+            file_acceptance=_accepted(main),
+            citations=[
+                {"url": "https://arxiv.org/abs/2301.00001", "title": "A"},
+                {"url": "https://pubmed.ncbi.nlm.nih.gov/12345/", "title": "B"},
+                {"url": "https://doi.org/10.1000/xyz", "title": "C"},
+            ],
+        ),
+        "review": RunState(phase=RunPhase.COMPLETED, content="引用规范可接受"),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-ev-ok")
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    assert all(g.get("reason") != "evidence_deficit" for g in payload["gaps"])
+
+
+def test_parallel_brief_junk_citations_not_evidence_deficit():
+    """parallel_brief 默认不套证据降档（即使 citation 全是水站）。"""
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    note = f"{RESEARCH_PREFIX}方向笔记.md"
+    plan = _plan(
+        RunSpec(
+            run_id="brief_0",
+            task="摸底",
+            role="方向专员",
+            deliverable=Deliverable(
+                form="files",
+                artifacts=[note],
+                citation_mode="two_phase",
+            ),
+        ),
+        RunSpec(
+            run_id="brief_1",
+            task="摸底2",
+            role="方向专员",
+        ),
+    )
+    results = {
+        "brief_0": RunState(
+            phase=RunPhase.COMPLETED,
+            content="方向笔记",
+            files_touched=[note],
+            file_acceptance=_accepted(note),
+            citations=[
+                {"url": "https://baike.baidu.com/item/x", "title": "百科"},
+                {"url": "https://www.iciba.com/word", "title": "词典"},
+            ],
+        ),
+        "brief_1": RunState(phase=RunPhase.COMPLETED, content="另一方向"),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-brief-ok")
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    assert all(g.get("reason") != "evidence_deficit" for g in payload["gaps"])
+
+
+def test_non_literature_landed_files_unaffected():
+    """普通落盘批次不受文献证据闸影响。"""
+    plan = _plan(RunSpec(run_id="w1", task="写讲稿", role="撰写"))
+    results = {
+        "w1": RunState(
+            phase=RunPhase.COMPLETED,
+            content="讲稿",
+            files_touched=["讲稿.md"],
+            file_acceptance=_accepted("讲稿.md"),
+            citations=[
+                {"url": "https://baike.baidu.com/item/x", "title": "百科"},
+                {"url": "https://www.iciba.com/word", "title": "词典"},
+            ],
+        )
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-plain")
+    assert payload is not None
+    assert payload["state"] == "delivered"
+    assert all(g.get("reason") != "evidence_deficit" for g in payload["gaps"])
+

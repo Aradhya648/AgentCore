@@ -20,8 +20,13 @@ from agentcore.runtime.loop_controller import LoopController
 from agentcore.runtime.runs.plan import RunPlan
 from agentcore.runtime.runs.research_quality import (
     MIN_UPSTREAM_BODY_CHARS,
+    academic_usable_citation_count,
+    collect_evidence_deficit_gaps,
     deliverable_signals_long_form,
     has_landed_prose_artifact,
+    is_academic_usable_url,
+    literature_evidence_deficit_hit,
+    plan_is_literature_report_delivery,
     plan_signals_long_form_audit,
     promote_brief_to_deliverable,
     upstream_body_floor_satisfied,
@@ -535,3 +540,225 @@ def test_research_report_write_task_has_chapter_discipline():
     outline = next(t for t in tasks if t["id"] == "outline")
     assert outline["deliverable"]["form"] == "files"
     assert outline["deliverable"]["artifacts"] == [f"{RESEARCH_DIR}/提纲.md"]
+
+
+def test_plan_is_literature_report_delivery_binds_research_report_not_brief():
+    from agentcore.runtime.runs.playbooks import expand_playbook
+
+    rr, errs = expand_playbook(
+        "research_report", {"topic": "医学文献", "angles": ["成像", "生成"]}
+    )
+    assert not errs
+    assert plan_is_literature_report_delivery(rr) is True
+
+    brief, b_errs = expand_playbook(
+        "parallel_brief", {"topic": "开源选型", "angles": ["兼容", "生态"]}
+    )
+    assert not b_errs
+    assert plan_is_literature_report_delivery(brief) is False
+
+    # 同等成文：审校 + two_phase 案卷
+    assert plan_is_literature_report_delivery(
+        [
+            {
+                "role": "撰稿人",
+                "deliverable": {
+                    "form": "files",
+                    "artifacts": ["AgentCore/文档/research/报告.md"],
+                    "citation_mode": "two_phase",
+                },
+            },
+            {"role": "学术审校员", "deliverable": {"name": "审校"}},
+        ]
+    )
+    # 仅 long-form 结构信号
+    assert plan_is_literature_report_delivery(
+        [{"role": "撰稿", "deliverable": {"min_length": 4000}}]
+    )
+
+
+def test_academic_usable_url_and_citation_count():
+    assert is_academic_usable_url("https://arxiv.org/abs/2301.1")
+    assert is_academic_usable_url("https://doi.org/10.1000/xyz")
+    assert not is_academic_usable_url("https://baike.baidu.com/item/x")
+    cites = [
+        {"url": "https://baike.baidu.com/item/x"},
+        {"url": "https://arxiv.org/abs/1"},
+        {"url": "https://arxiv.org/abs/1"},  # dedupe
+    ]
+    assert academic_usable_citation_count(cites) == 1
+
+
+def test_collect_evidence_deficit_gaps_combinable_triggers():
+    from agentcore.runtime.runs.types import Deliverable, RunPhase, RunState
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    nodes = [
+        RunSpec(
+            run_id="write",
+            role="撰稿人",
+            task="写",
+            deliverable=Deliverable(
+                form="files",
+                artifacts=[f"{RESEARCH_PREFIX}报告.md"],
+                citation_mode="two_phase",
+            ),
+        ),
+        RunSpec(run_id="review", role="学术审校员", task="审"),
+    ]
+    # Adequate → no gap
+    ok = {
+        "write": RunState(
+            phase=RunPhase.COMPLETED,
+            content="成稿",
+            citations=[
+                {"url": "https://arxiv.org/abs/1"},
+                {"url": "https://pubmed.ncbi.nlm.nih.gov/1/"},
+            ],
+        ),
+        "review": RunState(phase=RunPhase.COMPLETED, content="可接受"),
+    }
+    assert collect_evidence_deficit_gaps(nodes, ok) == []
+    hit, bits = literature_evidence_deficit_hit(nodes, ok)
+    assert hit is False
+    assert bits == []
+
+    # Junk citations only
+    junk = {
+        "write": RunState(
+            phase=RunPhase.COMPLETED,
+            content="成稿",
+            citations=[
+                {"url": "https://baike.baidu.com/a"},
+                {"url": "https://www.iciba.com/b"},
+            ],
+        ),
+        "review": RunState(phase=RunPhase.COMPLETED, content="ok"),
+    }
+    gaps = collect_evidence_deficit_gaps(nodes, junk)
+    assert len(gaps) == 1
+    assert gaps[0]["reason"] == "evidence_deficit"
+    assert "几乎无学术可用源" in gaps[0]["description"]
+
+    # Structured seam only (academic cites present — still trips on search true source)
+    stamped_writer = RunState(
+        phase=RunPhase.COMPLETED,
+        content="成稿",
+        citations=[{"url": "https://arxiv.org/abs/1"}],
+    )
+    stamped_writer.evidence_meta = {
+        "evidence_gap": True,
+        "search_policy": "academic_literature",
+    }
+    stamped = {
+        "write": stamped_writer,
+        "review": RunState(phase=RunPhase.COMPLETED, content="ok"),
+    }
+    gaps2 = collect_evidence_deficit_gaps(nodes, stamped)
+    assert gaps2 and gaps2[0]["reason"] == "evidence_deficit"
+    assert "结构化证据差" in gaps2[0]["description"]
+
+    # Compat: legacy evidence_deficit stamp still trips
+    legacy_writer = RunState(
+        phase=RunPhase.COMPLETED,
+        content="成稿",
+        citations=[{"url": "https://arxiv.org/abs/1"}],
+    )
+    legacy_writer.evidence_meta = {"evidence_deficit": True}
+    gaps3 = collect_evidence_deficit_gaps(
+        nodes,
+        {
+            "write": legacy_writer,
+            "review": RunState(phase=RunPhase.COMPLETED, content="ok"),
+        },
+    )
+    assert gaps3 and gaps3[0]["reason"] == "evidence_deficit"
+
+    # Sticky attr path (executor copies RetrievalBudgetState.evidence_gap → state)
+    sticky = RunState(
+        phase=RunPhase.COMPLETED,
+        content="成稿",
+        citations=[{"url": "https://arxiv.org/abs/1"}],
+    )
+    sticky.evidence_gap = True
+    gaps4 = collect_evidence_deficit_gaps(
+        nodes,
+        {"write": sticky, "review": RunState(phase=RunPhase.COMPLETED, content="ok")},
+    )
+    assert gaps4 and gaps4[0]["reason"] == "evidence_deficit"
+
+
+def test_stamp_retrieval_evidence_gap_copies_sticky_budget(tmp_path: Path):
+    """Executor helper: RetrievalBudgetState.evidence_gap → RunState readable fields."""
+    from agentcore.runtime.runs.executor_node import _stamp_retrieval_evidence_gap
+
+    budget = RetrievalBudgetState(limit=3)
+    budget.note_evidence_gap()
+    ctx = _ctx(tmp_path, retrieval_budget=budget, search_policy="academic_literature")
+    state = RunState(phase=RunPhase.COMPLETED, content="ok")
+    out = _stamp_retrieval_evidence_gap(
+        state, ctx, search_policy="academic_literature"
+    )
+    assert out.evidence_gap is True
+    assert out.evidence_meta == {
+        "evidence_gap": True,
+        "search_policy": "academic_literature",
+    }
+    # No-op when sticky unset
+    clean = RunState(phase=RunPhase.COMPLETED, content="ok")
+    ctx2 = replace(ctx, retrieval_budget=RetrievalBudgetState(limit=1))
+    out2 = _stamp_retrieval_evidence_gap(clean, ctx2, search_policy="academic_literature")
+    assert getattr(out2, "evidence_gap", False) is False
+    assert getattr(out2, "evidence_meta", None) is None
+
+
+def test_transcript_web_search_evidence_gap_triggers_deficit():
+    """web_search tool JSON with evidence_gap + academic_literature → 结构化降档信号。"""
+    from agentcore.llm.provider.protocol import LLMMessage, ToolCall, ToolCallFunction
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    nodes = [
+        RunSpec(
+            run_id="write",
+            role="撰稿人",
+            task="写",
+            deliverable=Deliverable(
+                form="files",
+                artifacts=[f"{RESEARCH_PREFIX}报告.md"],
+                citation_mode="two_phase",
+            ),
+        ),
+        RunSpec(run_id="review", role="学术审校员", task="审"),
+    ]
+    transcript = [
+        LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    function=ToolCallFunction(name="web_search", arguments="{}"),
+                )
+            ],
+        ),
+        LLMMessage(
+            role="tool",
+            content=(
+                '{"query":"q","results":[],"evidence_gap":true,'
+                '"search_policy":"academic_literature"}'
+            ),
+            tool_call_id="tc1",
+        ),
+    ]
+    writer = RunState(
+        phase=RunPhase.COMPLETED,
+        content="成稿",
+        citations=[{"url": "https://arxiv.org/abs/1"}],
+        transcript=transcript,
+    )
+    gaps = collect_evidence_deficit_gaps(
+        nodes,
+        {"write": writer, "review": RunState(phase=RunPhase.COMPLETED, content="ok")},
+    )
+    assert gaps and gaps[0]["reason"] == "evidence_deficit"
+    assert "结构化证据差" in gaps[0]["description"]

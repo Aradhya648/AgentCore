@@ -838,9 +838,12 @@ def _parse_continue_from_run_id(raw: Any) -> str | None:
 
 
 def _parse_search_policy(raw: Any) -> str:
-    """Normalise optional ``search_policy``; only ``debate_evidence`` is recognised."""
-    if isinstance(raw, str) and raw.strip() == "debate_evidence":
-        return "debate_evidence"
+    """Normalise optional ``search_policy``; recognised values only."""
+    if not isinstance(raw, str):
+        return ""
+    cleaned = raw.strip()
+    if cleaned in ("debate_evidence", "academic_literature"):
+        return cleaned
     return ""
 
 

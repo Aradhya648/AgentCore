@@ -22,15 +22,11 @@
    空体（标了 ``python`` 却没有任何内容，等于「答应给代码却没给」）。都是「交付不完整」的
    机械信号，最终交付里几乎不会有意为之，故误报率近零。
     3. **交付验收对照**（仅 CEO：``check_citations`` + 本回合已发射的 ``delivery_verdict``）——
-       ``state=blocked`` 且无落盘时，正文不得宣称「已生成 / 已落盘 / 请下载」；
-       ``state`` 为 ``blocked`` / ``partial``（有 blocking 缺口）时，不得宣称「全部完成 /
-       全部就绪 / 全部交付」等全员成功话术，也不得宣称「已完整可用」等与卡冲突的完整可用句式，
-       也不得宣称「已修好 / 验证通过 / 已跑通」等与卡冲突的修码完成话术，
-       也不得宣称闭集「已完成交付 / 交付完成 / 已全部收卷 / 已收齐…」或
-       「站点/网站/页面…做好了」等与卡冲突的交付完成话术
-       （经 ``_claims_*`` + 否定前缀豁免；裸「已交付」不升到有文件闸，新词不进无否定空盘闸）；
-       有交付卡且落地仅为 md/脚本等、无 ``.pptx``
-       时，不得宣称「PPT 已落盘 / 可直接打开」；有交付卡时终稿超
+       **真源 = 对账档位**（见 ``closing_posture``）：``delivered``=正式完成；
+       ``partial``/``notes``≈草稿·部分；``blocked``=阻塞。档位非正式完成时不得姿势 A
+       （完整交付 / 收卷收齐 / 完整可用 / 修好验绿闭集；**禁止**案面加完成话术词修案）。
+       无对账卡时仅拦同条 A∪C。另：**产物结构**窄闸——``blocked`` 且无落盘时不得「已生成 /
+       请下载」；有落盘但无 ``.pptx`` 时不得宣称 PPT 可打开。有交付卡时终稿超
        ``engine_ceo_overview_max_chars`` → 回炉压缩为概览（细节在卡 / run 详情）。
 
 刻意**不**纳入「残留 TODO / 填空占位」之类：法律垂直会正当地在合同模板留空待填、worker 也会
@@ -66,61 +62,15 @@ _BIBLIO_FORM_RE = re.compile(
 # 强 GB/T 文献类型标（近零误报）：无 #rN 绑定时视为未核验/编造著录。
 _BIBLIO_TYPE_MARKER_RE = re.compile(r"\[(?:D|J|M|C|N)\]")
 
-# CEO false-completion claims when delivery_status is blocked with no landed files.
-# Near-zero FP: only fire with an explicit success claim, never on acknowledgment alone.
+# 产物结构窄闸 · 空盘：blocked + 零落盘时不得宣称「已生成 / 请下载」。
+# Near-zero FP: only fire with an explicit file-delivery claim, never on acknowledgment alone.
 _BLOCKED_EMPTY_DELIVERY_CLAIMS = re.compile(
     r"(已生成|文件已|已落盘|已交付|已写入工作区|已存在于工作区|"
     r"可以(?:在|到)[^。\n]{0,40}文件[^。\n]{0,24}面板|"
     r"请(?:直接)?下载|下载该文件|下载后用)"
 )
 
-# All-success claims when delivery_status is blocked/partial (blocking gaps present).
-# Prefer「全部/均已/都已」over bare「已就绪」to avoid FP on honest partial acknowledgments.
-# 「已全部收卷 / 已收齐」与 closing_posture A 姿势同源（cef27dfa / 案面「已收齐」误报面）。
-_ALL_SUCCESS_CLAIMS = re.compile(
-    r"已全部收卷|全部收卷|已收卷|"
-    r"已全部收齐|全部收齐|已收齐|"
-    r"已全部(?:完成|交付|就位|成功|就绪)|"
-    r"全部(?:完成|交付|就位|成功|就绪)|"
-    r"均已(?:完成|交付|就绪|成功|落盘)|"
-    r"都已(?:完成|交付|就绪|成功)|"
-    r"所有(?:任务|队员|节点)(?:已|都已)(?:完成|交付|就绪)"
-)
-
-# 可用性诚实性 · 与卡矛盾的窄闸（甲所需，非全面禁吹二期）：
-# blocked/partial 时拦「已完整可用 / 已可以使用」等与交付卡冲突的完整可用宣称。
-_FULLY_USABLE_CLAIMS = re.compile(
-    r"(?:"
-    r"已完整可用|已可以使用|已经可以使用|"
-    r"已完全可用|已可直接使用|已经可以直接使用|"
-    r"质检[^。\n]{0,12}已完整可用|"
-    r"(?:面板|站点|页面|产物)[^。\n]{0,16}已完整可用"
-    r")"
-)
-
-# 乙 · 与卡矛盾的修好/验绿宣称（窄闸，非全面禁可用类话术二期）：
-# blocked/partial 时拦「已修好 / 验证通过 / 已跑通」等修码完成话术。
-_FIXED_OR_VERIFIED_CLAIMS = re.compile(
-    r"(?:"
-    r"已修好|修复已完成|bug\s*已修复|缺陷已修复|问题已修复|"
-    r"已验证通过|验证通过|验证已绿|验证已通过|"
-    r"测试已通过|已跑通测试|测试已跑通"
-    r")"
-)
-
-# 交付完成闭集 + 站点族「做好了」（窄闸）：blocked/partial 时拦与卡冲突的交付完成话术。
-# 仅经 _claims_* + 否定前缀豁免；故意不拦裸「已交付/已经交付」、弱「可用」；新词不进空盘闸。
-# 与 closing_posture A 姿势对齐（含收卷 / 收齐）。
-_DELIVERY_DONE_CLAIMS = re.compile(
-    r"(?:"
-    r"已完成交付|交付已完成|完成交付|交付完成|已经交付完成|"
-    r"已全部收卷|全部收卷|已收卷|"
-    r"已全部收齐|全部收齐|已收齐|"
-    r"(?:站点|网站|页面)[^。\n]{0,16}(?:做好了|已做好)"
-    r")"
-)
-
-# PPT / 幻灯片「已可打开」类断言：有交付卡且落地文件无 .pptx 时拦（仅 md/脚本 ≠ PPT 已交付）。
+# 产物结构窄闸 · 类型：有落盘但无 .pptx 时不得宣称 PPT 可打开（仅 md/脚本 ≠ PPT 已交付）。
 # 要求句内同时出现 PPT 语义 + 完成/可打开话术，避免「代码可直接使用」误伤。
 _PPTX_READY_CLAIMS = re.compile(
     r"(?:"
@@ -164,8 +114,9 @@ def finish_guard(
          （含无 #rN 绑定的 GB/T ``[D]/[J]`` 著录）。
     2. **结构完整性**（始终查）：:func:`_code_fence_reworks`。
     3. **交付验收对照**（仅 ``check_citations``）：
-       - 完成态互斥 A∪C（不依赖 ``delivery_verdict``）：同条不得既「请确认」又「已全部收卷」；
-       - 有 ``delivery_verdict`` 时另拦假完成 / 全员成功 / 交付完成闭集等与卡矛盾话术；
+       - 收口诚实性（``closing_honesty_rework``）：真源=``delivery_verdict`` 档位；
+         非正式完成不得姿势 A；无卡时仅拦同条 A∪C；
+       - 产物结构窄闸（空盘下载宣称 / 无 pptx 说 PPT）；
        - 有交付卡时的概览篇幅（``overview_max_chars``，默认读设置）。
     """
     reworks: list[str] = []
@@ -187,13 +138,12 @@ def finish_guard(
     )
     reworks.extend(_code_fence_reworks(content))
     if check_citations:
-        # 完成态互斥（A∪C）：不依赖 delivery_verdict——单段正文自相矛盾即回炉。
-        from agentcore.runtime.closing_posture import mutual_exclusion_rework
+        from agentcore.runtime.closing_posture import closing_honesty_rework
 
-        conflict = mutual_exclusion_rework(content)
-        if conflict:
-            reworks.append(conflict)
-        reworks.extend(_delivery_claim_reworks(content, delivery_verdict))
+        honesty = closing_honesty_rework(content, delivery_verdict)
+        if honesty:
+            reworks.append(honesty)
+        reworks.extend(_delivery_structure_reworks(content, delivery_verdict))
         reworks.extend(
             _overview_length_reworks(
                 content,
@@ -369,53 +319,6 @@ def _overview_length_reworks(
     ]
 
 
-def _claims_fully_usable(content: str) -> bool:
-    """True when prose asserts full usability, ignoring negated forms (尚未可用…)."""
-    for match in _FULLY_USABLE_CLAIMS.finditer(content):
-        start = match.start()
-        prefix = content[max(0, start - 2) : start]
-        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
-            continue
-        return True
-    return False
-
-
-def _claims_fixed_or_verified(content: str) -> bool:
-    """True when prose asserts fix/verify-green done, ignoring negated forms (尚未修好…)."""
-    for match in _FIXED_OR_VERIFIED_CLAIMS.finditer(content):
-        start = match.start()
-        prefix = content[max(0, start - 2) : start]
-        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
-            continue
-        return True
-    return False
-
-
-def _claims_delivery_done(content: str) -> bool:
-    """True when prose asserts delivery-done / site-ready, ignoring negated forms."""
-    for match in _DELIVERY_DONE_CLAIMS.finditer(content):
-        start = match.start()
-        prefix = content[max(0, start - 2) : start]
-        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
-            continue
-        return True
-    return False
-
-
-def _claims_all_success(content: str) -> bool:
-    """True when prose asserts full-team success, ignoring negated forms (尚未全部…)."""
-    for match in _ALL_SUCCESS_CLAIMS.finditer(content):
-        start = match.start()
-        # 「已全部…」is always a positive claim.
-        if content.startswith("已全部", start):
-            return True
-        prefix = content[max(0, start - 2) : start]
-        if any(prefix.endswith(neg) for neg in _GAP_NEGATION_PREFIXES):
-            continue
-        return True
-    return False
-
-
 def _has_landed_pptx(delivered_files: tuple[str, ...]) -> bool:
     return any(str(path).lower().endswith(".pptx") for path in delivered_files)
 
@@ -431,11 +334,11 @@ def _claims_pptx_ready(content: str) -> bool:
     return False
 
 
-def _delivery_claim_reworks(
+def _delivery_structure_reworks(
     content: str,
     delivery_verdict: DeliveryVerdict | None,
 ) -> list[str]:
-    """Reject false completion prose when the batch delivery card shows blocking gaps."""
+    """产物类型/落盘结构窄闸（非完成话术词表）：空盘下载宣称、无 pptx 说 PPT。"""
     if delivery_verdict is None:
         return []
     if not content or not content.strip():
@@ -443,8 +346,7 @@ def _delivery_claim_reworks(
     state = delivery_verdict.state
     reworks: list[str] = []
 
-    # PPT honesty: landed files exist but none are .pptx → no「PPT 已落盘 / 可打开」.
-    # Empty landing stays on the blocked-empty gate above; this covers md/脚本伪完成.
+    # PPT honesty: landed files exist but none are .pptx → no「PPT 已落盘 / 可打开」。
     landed_files = delivery_verdict.delivered_files
     if (
         landed_files
@@ -461,9 +363,6 @@ def _delivery_claim_reworks(
             "不要用「PPT 已就绪」话术盖过部分交付。"
         )
 
-    if state not in ("blocked", "partial"):
-        return reworks
-
     # Narrow: blocked + zero files → no「已生成/请下载」file-delivery claims.
     if (
         state == "blocked"
@@ -475,41 +374,6 @@ def _delivery_claim_reworks(
             "正文不得宣称已生成 / 已落盘 / 已在工作区 / 请下载。"
             "请改为承认未交付，说明缺口，并给出用户可采取的下一步"
             "（例如绑定本地目录、或继续让团队用写文件工具落盘）；不要用完成话术盖过红卡。"
-        )
-    # Broader (C1): any blocking gaps → no「全部完成/全部就绪」all-success narrative.
-    if _claims_all_success(content):
-        label = "未满足" if state == "blocked" else "部分未满足"
-        reworks.append(
-            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
-            "正文不得宣称全部完成 / 全部就绪 / 全部交付 / 均已完成。"
-            "请点名说明缺口与影响，再写简短概览；不要用全员成功话术盖过验收卡。"
-        )
-    # 可用性诚实性 · 与卡矛盾窄闸：blocked/partial 不得写「已完整可用」类。
-    if _claims_fully_usable(content):
-        label = "未满足" if state == "blocked" else "部分未满足"
-        reworks.append(
-            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
-            "正文不得宣称已完整可用 / 已可以使用 / 已可直接使用。"
-            "请以交付状态卡为主答：点名缺口与待办，散文只作注释；不要用完整可用话术盖过红卡。"
-        )
-    # 乙 · 与卡矛盾的修好/验绿窄闸：blocked/partial 不得写「已修好 / 验证通过」类。
-    if _claims_fixed_or_verified(content):
-        label = "未满足" if state == "blocked" else "部分未满足"
-        reworks.append(
-            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
-            "正文不得宣称已修好 / 修复已完成 / 验证通过 / 测试已通过 / 已跑通。"
-            "请以交付状态卡为主答：点名未过验收的缺口，散文只作注释；"
-            "不要用修码完成或验绿话术盖过红卡。"
-        )
-    # 交付完成闭集 / 站点做好了：blocked/partial 不得写与卡冲突的交付完成话术。
-    if _claims_delivery_done(content):
-        label = "未满足" if state == "blocked" else "部分未满足"
-        reworks.append(
-            f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
-            "正文不得宣称已完成交付 / 交付完成 / 已全部收卷 / 已收齐 /"
-            "站点（网站/页面）做好了。"
-            "请以交付状态卡为主答：点名缺口与待办，散文只作注释；"
-            "不要用交付完成话术盖过红卡。"
         )
     return reworks
 

@@ -2,7 +2,7 @@
 
 Run from apps/server:
 
-    uv run python scripts/export_conversations.py [--days N] [--output DIR]
+    uv run python scripts/export_conversations.py [--days N] [--output DIR] [--skip-journal]
 
 Default output:
   - If ``DATA_DIR`` is set (prod container): ``$DATA_DIR/export``
@@ -194,7 +194,12 @@ async def _live_columns(conn: Any, table_name: str) -> set[str]:
     return {r[0] for r in rows}
 
 
-async def export_conversations(days: int, output_dir: Path) -> None:
+async def export_conversations(
+    days: int,
+    output_dir: Path,
+    *,
+    skip_journal: bool = False,
+) -> None:
     from sqlalchemy import select
 
     from agentcore.db.models.billing import CostEvent
@@ -226,11 +231,13 @@ async def export_conversations(days: int, output_dir: Path) -> None:
             _TURN_METRICS_KEEP,
             await _live_columns(conn, "turn_metrics"),
         )
-        tj_cols = _cols(
-            TurnJournalRow.__table__,
-            _TURN_JOURNAL_KEEP,
-            await _live_columns(conn, "turn_journal"),
-        )
+        tj_cols = None
+        if not skip_journal:
+            tj_cols = _cols(
+                TurnJournalRow.__table__,
+                _TURN_JOURNAL_KEEP,
+                await _live_columns(conn, "turn_journal"),
+            )
         conv_stmt = select(*conv_cols).where(Conversation.created_at >= cutoff)
         if "deleted_at" in Conversation.__table__.columns:
             conv_stmt = conv_stmt.where(Conversation.deleted_at.is_(None))
@@ -238,17 +245,20 @@ async def export_conversations(days: int, output_dir: Path) -> None:
         conv_ids = [c["id"] for c in conversations]
         conv_count = _write_jsonl(output_dir / "conversations.jsonl", conversations)
 
-        empty_targets = (
+        empty_targets: list[tuple[str, object]] = [
             ("messages.jsonl", msg_cols),
             ("cost_events.jsonl", cost_cols),
             ("turn_metrics.jsonl", tm_cols),
-            ("turn_journal.jsonl", tj_cols),
-        )
+        ]
+        if tj_cols is not None:
+            empty_targets.append(("turn_journal.jsonl", tj_cols))
 
         if not conv_ids:
             for name, _ in empty_targets:
                 _write_jsonl(output_dir / name, [])
             msg_count = cost_count = tm_count = tj_count = 0
+            if skip_journal:
+                tj_count = _write_jsonl(output_dir / "turn_journal.jsonl", [])
         else:
             msg_stmt = (
                 select(*msg_cols)
@@ -272,15 +282,19 @@ async def export_conversations(days: int, output_dir: Path) -> None:
                 _mapping_rows(await conn.execute(tm_stmt)),
             )
 
-            tj_stmt = (
-                select(*tj_cols)
-                .where(TurnJournalRow.conversation_id.in_(conv_ids))
-                .order_by(TurnJournalRow.turn_id, TurnJournalRow.seq)
-            )
-            tj_count = _write_jsonl(
-                output_dir / "turn_journal.jsonl",
-                _mapping_rows(await conn.execute(tj_stmt)),
-            )
+            if skip_journal:
+                tj_count = _write_jsonl(output_dir / "turn_journal.jsonl", [])
+            else:
+                assert tj_cols is not None
+                tj_stmt = (
+                    select(*tj_cols)
+                    .where(TurnJournalRow.conversation_id.in_(conv_ids))
+                    .order_by(TurnJournalRow.turn_id, TurnJournalRow.seq)
+                )
+                tj_count = _write_jsonl(
+                    output_dir / "turn_journal.jsonl",
+                    _mapping_rows(await conn.execute(tj_stmt)),
+                )
 
     await engine.dispose()
 
@@ -311,8 +325,19 @@ def main() -> None:
         default=_DEFAULT_OUTPUT,
         help=f"Output directory (default: {_DEFAULT_OUTPUT})",
     )
+    parser.add_argument(
+        "--skip-journal",
+        action="store_true",
+        help="Write empty turn_journal.jsonl (skip DB read; for slim prod sync)",
+    )
     args = parser.parse_args()
-    asyncio.run(export_conversations(args.days, args.output.resolve()))
+    asyncio.run(
+        export_conversations(
+            args.days,
+            args.output.resolve(),
+            skip_journal=args.skip_journal,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -401,3 +401,157 @@ async def test_web_search_debate_policy_rejects_weak_keeps_default(monkeypatch):
     assert "https://baike.baidu.com/item/x" not in debate_urls
     assert "https://thepaper.cn/newsDetail_ok" in debate_urls
     assert debate.metadata.get("search_policy") == "debate_evidence"
+
+
+def test_academic_literature_prefers_arxiv_demotes_baike():
+    """学术挡位：arxiv 优先；百科降权（有论文站时不进 inject）。"""
+    from agentcore.tools.builtin.web.relevance import (
+        SEARCH_POLICY_ACADEMIC_LITERATURE,
+        academic_demoted,
+        academic_preferred,
+    )
+
+    assert academic_preferred("https://arxiv.org/abs/2301.00001")
+    assert academic_preferred("https://pubmed.ncbi.nlm.nih.gov/12345/")
+    assert academic_preferred("https://doi.org/10.1000/xyz")
+    assert academic_demoted("https://baike.baidu.com/item/x")
+    assert academic_demoted("https://dict.youdao.com/w/foo")
+    assert academic_demoted("https://www.163.com/news/x")
+    # 不照搬辩论：知乎可 demote，但预印本讨论页不因 weak 被硬剔
+    assert not academic_preferred("https://zhuanlan.zhihu.com/p/1")
+    assert academic_demoted("https://zhuanlan.zhihu.com/p/1")
+
+    q = "medical report generation radiology R2Gen MIMIC"
+    arxiv = _r(
+        "R2Gen radiology report generation",
+        "https://arxiv.org/abs/2010.00001",
+        "medical report generation R2Gen MIMIC radiology",
+    )
+    baike = _r(
+        "医学报告生成 百科",
+        "https://baike.baidu.com/item/医学报告",
+        "medical report generation radiology R2Gen MIMIC 百科词条",
+    )
+    default_out = filter_results_for_injection(q, [baike, arxiv])
+    assert "https://baike.baidu.com/item/医学报告" in [r.url for r in default_out.kept]
+
+    academic_out = filter_results_for_injection(
+        q, [baike, arxiv], search_policy=SEARCH_POLICY_ACADEMIC_LITERATURE
+    )
+    kept_urls = [r.url for r in academic_out.kept]
+    assert "https://arxiv.org/abs/2010.00001" in kept_urls
+    assert "https://baike.baidu.com/item/医学报告" not in kept_urls
+    assert academic_out.evidence_gap is False
+
+
+def test_academic_literature_junk_serp_sets_evidence_gap():
+    """百科/词典/门户主导 → evidence_gap；默认姿态不戳。"""
+    from agentcore.tools.builtin.web.relevance import SEARCH_POLICY_ACADEMIC_LITERATURE
+
+    q = "医学报告生成 近三年 文献综述 radiology"
+    junk = [
+        _r(
+            "医学报告生成百科",
+            "https://baike.baidu.com/item/x",
+            "医学报告生成 近三年 文献综述 radiology",
+        ),
+        _r(
+            "report generation 词典",
+            "https://dict.youdao.com/w/report",
+            "医学报告生成 近三年 文献综述 radiology",
+        ),
+        _r(
+            "医学报告门户稿",
+            "https://www.163.com/dy/article/x.html",
+            "医学报告生成 近三年 文献综述 radiology",
+        ),
+        _r(
+            "知乎讨论",
+            "https://zhuanlan.zhihu.com/p/99",
+            "医学报告生成 近三年 文献综述 radiology",
+        ),
+    ]
+    default_out = filter_results_for_injection(q, junk)
+    assert default_out.evidence_gap is False
+    assert len(default_out.kept) >= 1
+
+    academic_out = filter_results_for_injection(
+        q, junk, search_policy=SEARCH_POLICY_ACADEMIC_LITERATURE
+    )
+    assert academic_out.evidence_gap is True
+    # 全是 demoted → 仍可残留注入，但必须标 gap
+    note = relevance_note(
+        dropped=academic_out.dropped,
+        truncated_snippets=academic_out.truncated_snippets,
+        uniformly_weak=academic_out.uniformly_weak,
+        evidence_gap=academic_out.evidence_gap,
+    )
+    assert note is not None
+    assert "证据差" in note
+
+
+def test_academic_literature_uniformly_weak_sets_evidence_gap():
+    from agentcore.tools.builtin.web.relevance import SEARCH_POLICY_ACADEMIC_LITERATURE
+
+    q = "起诉第三者 立案 商标"
+    results = [
+        _r(f"Weather {i}", f"https://weather.com/{i}", f"forecast {i}") for i in range(4)
+    ]
+    out = filter_results_for_injection(
+        q, results, search_policy=SEARCH_POLICY_ACADEMIC_LITERATURE
+    )
+    assert out.uniformly_weak is True
+    assert out.kept == []
+    assert out.evidence_gap is True
+
+
+@pytest.mark.asyncio
+async def test_web_search_academic_policy_stamps_evidence_gap(monkeypatch):
+    """工具结果 metadata / payload 带 evidence_gap，供降档块消费。"""
+    from dataclasses import replace
+
+    from agentcore.tools.protocol import RetrievalBudgetState
+
+    class _FakeBackend:
+        async def search(self, query, max_results=5, on_phase=None, *, language=None):
+            return [
+                _r(
+                    "医学报告百科",
+                    "https://baike.baidu.com/item/x",
+                    "医学报告生成 近三年 文献 radiology MIMIC",
+                ),
+                _r(
+                    "词典条",
+                    "https://iciba.com/word/report",
+                    "医学报告生成 近三年 文献 radiology MIMIC",
+                ),
+                _r(
+                    "门户稿",
+                    "https://www.sohu.com/a/1",
+                    "医学报告生成 近三年 文献 radiology MIMIC",
+                ),
+            ]
+
+    monkeypatch.setattr(search_mod, "get_search_backend", lambda: _FakeBackend())
+    budget = RetrievalBudgetState(limit=10)
+    q = "医学报告生成 近三年 文献 radiology MIMIC"
+    result = await WebSearchTool().execute(
+        {"query": q},
+        replace(_ctx(), search_policy="academic_literature", retrieval_budget=budget),
+    )
+    assert result.success is True
+    assert result.metadata.get("search_policy") == "academic_literature"
+    assert result.metadata.get("evidence_gap") is True
+    payload = json.loads(result.output)
+    assert payload.get("evidence_gap") is True
+    assert "证据差" in (payload.get("note") or "")
+    assert budget.evidence_gap is True
+
+
+def test_parse_search_policy_recognises_academic_literature():
+    from agentcore.runtime.runs.builder import _parse_search_policy
+
+    assert _parse_search_policy("academic_literature") == "academic_literature"
+    assert _parse_search_policy("debate_evidence") == "debate_evidence"
+    assert _parse_search_policy("unknown") == ""
+    assert _parse_search_policy(None) == ""

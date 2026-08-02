@@ -24,6 +24,12 @@ CEO finish；写盘通道挂仍可在备注里诚实归因。
 发射时写入回合 :data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，
 禁止与对账矛盾的假完成。
 
+文献成文（``research_report`` / 同等成文综述）：证据不足时注入
+``reason=evidence_deficit`` blocking gap → state 不得 ``delivered``（见
+``research_quality.collect_evidence_deficit_gaps``）；消费搜索真源
+``evidence_gap`` + ``search_policy=academic_literature``（兼容旧
+``evidence_deficit`` 戳）；不扫完成话术词，不套 ``parallel_brief``。
+
 挂在 drive 的各收尾路径旁路（正常终态 / 验收未满足 / 部分失败 stash / replan(stop)），
 永不抛错；纯 prose 成功批次（无落盘文件、无缺口）保持无声，不发事件。
 折叠语义：同 ``execution_id`` 保最新——反映最近一批委派的对账（多批场景下 FileArtifactsCard
@@ -53,6 +59,8 @@ REASON_PATH_HINT = "path_hint"
 REASON_FILES_NOT_LANDED = "files_not_landed"
 # Verify-shaped tool failure (browser_navigate / test_run / verify 形 code_execute·terminal).
 REASON_VERIFY_FAILED = "verify_failed"
+# Literature-report evidence deficit (research_quality.REASON_EVIDENCE_DEFICIT).
+REASON_EVIDENCE_DEFICIT = "evidence_deficit"
 # Keep in sync with runtime.runs.cutoff.REASON_DEGRADED_HANDOFF (wire gap reason).
 REASON_DEGRADED_HANDOFF = "degraded_handoff"
 _WRITING_CUTOFF_REASONS = frozenset({"token_budget", "worker_timeout"})
@@ -79,6 +87,8 @@ class DeliveryVerdict:
     state: str
     delivered_files: tuple[str, ...]
     execution_id: str
+    # True when gaps include evidence_deficit (literature draft framing required).
+    requires_draft_ack: bool = False
 
 
 current_delivery_verdict: ContextVar[DeliveryVerdict | None] = ContextVar(
@@ -632,6 +642,20 @@ def build_delivery_status(
                 continue
             reason = str(row.get("reason") or REASON_VERIFY_FAILED).strip()
             raw_gaps.append(_annotate_gap(role, text, reason=reason or REASON_VERIFY_FAILED))
+    # ①c 文献成文证据不足（学术综述诚实性）——仅 research_report / 同等成文综述；
+    # parallel_brief 不套。blocking → 不得 delivered（partial/blocked）；不扫完成话术词。
+    # 接缝真源：web_search / RunState.evidence_gap（academic_literature）；gap reason
+    # 仍为 evidence_deficit（交付卡契约）。
+    from agentcore.runtime.runs.research_quality import collect_evidence_deficit_gaps
+
+    for row in collect_evidence_deficit_gaps(plan.nodes, results):
+        text = str(row.get("description") or "").strip()
+        if not text:
+            continue
+        reason = str(row.get("reason") or REASON_EVIDENCE_DEFICIT).strip()
+        raw_gaps.append(
+            _annotate_gap("验收", text, reason=reason or REASON_EVIDENCE_DEFICIT)
+        )
     # ② 完成验收未满足 / soft overlay notes（批次级）。
     # Soft markers（「不阻断验收」等）经 _annotate_gap → severity=warning → state=notes。
     for gap in criteria_gaps or []:
@@ -644,6 +668,12 @@ def build_delivery_status(
     gaps = _project_user_gaps(raw_gaps, results)[:_MAX_GAPS]
     # 刀1 / 方案 A：有 accepted 落盘时 degraded_handoff 降为 warning 备注。
     gaps = _soften_landed_degraded_gaps(gaps, files_landed=bool(delivered))
+    # 文献证据降档仅绑 research_report / 同等成文综述；非该形态丢弃误入的
+    # evidence_deficit（parallel_brief 等不得因此离开 delivered）。
+    from agentcore.runtime.runs.research_quality import plan_is_literature_report_delivery
+
+    if not plan_is_literature_report_delivery(plan.nodes):
+        gaps = [g for g in gaps if g.get("reason") != REASON_EVIDENCE_DEFICIT]
 
     blocking = [g for g in gaps if _is_blocking(g)]
     warnings = [g for g in gaps if not _is_blocking(g)]
@@ -752,11 +782,17 @@ def maybe_emit_delivery_status(
         )
         if payload is None:
             return
+        gaps = payload.get("gaps") or []
+        requires_draft_ack = any(
+            isinstance(g, dict) and str(g.get("reason") or "") == REASON_EVIDENCE_DEFICIT
+            for g in gaps
+        )
         current_delivery_verdict.set(
             DeliveryVerdict(
                 state=str(payload["state"]),
                 delivered_files=tuple(payload.get("delivered_files") or ()),
                 execution_id=execution_id,
+                requires_draft_ack=requires_draft_ack,
             )
         )
         from agentcore.runtime.events import delivery_status
@@ -820,6 +856,10 @@ def _payload_to_verdict(payload: dict[str, Any]) -> DeliveryVerdict | None:
         state=state,
         delivered_files=tuple(str(p) for p in files if p),
         execution_id=execution_id,
+        requires_draft_ack=any(
+            isinstance(g, dict) and str(g.get("reason") or "") == REASON_EVIDENCE_DEFICIT
+            for g in (payload.get("gaps") or [])
+        ),
     )
 
 

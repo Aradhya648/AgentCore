@@ -99,11 +99,16 @@ class RetrievalBudgetState:
 
     ``consecutive_empty_searches`` tracks live empty SERPs in this run so the
     search tool can require a strategy change after a streak (成篇质量定案).
+
+    ``evidence_gap`` is a sticky run-scoped flag set when an academic_literature
+    search marks a structured gap (junk / no preferred paper host) — delivery
+    downgrade consumers may read it without scanning every tool event.
     """
 
     limit: int
     used: int = 0
     consecutive_empty_searches: int = 0
+    evidence_gap: bool = False
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     @property
@@ -118,6 +123,10 @@ class RetrievalBudgetState:
     def note_search_hit(self) -> None:
         """Reset empty streak after a non-empty injection."""
         self.consecutive_empty_searches = 0
+
+    def note_evidence_gap(self) -> None:
+        """Sticky-set academic literature evidence-gap (never clears mid-run)."""
+        self.evidence_gap = True
 
     async def try_reserve(self) -> bool:
         """Reserve one slot. False ⇒ exhausted (caller must not run the tool)."""
@@ -284,8 +293,10 @@ class ToolContext:
     retrieval_budget: RetrievalBudgetState | None = None
     # Per-run web_search posture (structured run signal — never prompt text).
     # ``""`` = default research; ``"debate_evidence"`` = debate investigator / debater
-    # speech research (reject weak-tier + mall/dict/hospital-encyclopedia). Wired from
-    # ``RunSpec.search_policy`` by the worker executor.
+    # speech research (reject weak-tier + mall/dict/hospital-encyclopedia);
+    # ``"academic_literature"`` = research_report literature posture (prefer
+    # paper/DOI hosts, demote encyclopedia/dict/portal, stamp evidence_gap).
+    # Wired from ``RunSpec.search_policy`` by the worker executor.
     search_policy: str = ""
     # ``""`` = outer verify allowed; ``"inner"`` = diagnose/review posture — refuse
     # full typecheck/build on ``test_run`` (use code_diagnostics / browser). Wired
