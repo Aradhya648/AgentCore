@@ -54,6 +54,9 @@ jobs:
           uv run alembic upgrade head
           uv run python scripts/check_schema_gate.py --live
 
+      - name: Install ripgrep
+        run: uv run python scripts/fetch_ripgrep.py --install-server
+
       - name: Test
         env:
           DATABASE_URL: postgresql+asyncpg://agentcore:agentcore@localhost:5432/agentcore
