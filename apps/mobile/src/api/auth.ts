@@ -53,6 +53,7 @@ export async function login(username: string, password: string): Promise<User> {
     body: JSON.stringify({
       username,
       password,
+      persist_session: true,
     } satisfies Schemas["LoginRequest"]),
   });
   if (!res.ok) {
