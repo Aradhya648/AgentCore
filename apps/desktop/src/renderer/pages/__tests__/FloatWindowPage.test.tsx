@@ -22,7 +22,12 @@ vi.mock("@/components/layout/SidePanelSurfaceBody", () => ({
 }));
 
 vi.mock("@/components/layout/WindowControls", () => ({
-  WindowControls: () => <div data-testid="window-controls" />,
+  WindowControls: (props: { showMinimize?: boolean }) => (
+    <div
+      data-testid="window-controls"
+      data-show-minimize={props.showMinimize === false ? "false" : "true"}
+    />
+  ),
 }));
 
 vi.mock("@/lib/theme", () => ({
@@ -88,7 +93,7 @@ describe("FloatWindowPage", () => {
     expect(screen.getByText("Worker")).toBeTruthy();
   });
 
-  it("renders system WindowControls only (no pin / custom close)", () => {
+  it("renders WindowControls without minimize (max + close only)", () => {
     const tab: DetailTab = {
       id: "run:abc",
       kind: "run",
@@ -100,6 +105,9 @@ describe("FloatWindowPage", () => {
     renderFloat("?cid=conv-1&tab=run:abc");
 
     expect(screen.getByTestId("window-controls")).toBeTruthy();
+    expect(screen.getByTestId("window-controls").getAttribute("data-show-minimize")).toBe(
+      "false",
+    );
     expect(screen.queryByLabelText("钉回主坞")).toBeNull();
     expect(screen.queryByLabelText("关闭浮窗")).toBeNull();
   });

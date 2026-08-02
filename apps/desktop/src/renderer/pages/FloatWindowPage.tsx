@@ -22,8 +22,8 @@ import { useSearchParams } from "react-router-dom";
  * Hash: `#/float?cid=…&tab=…` — body reuses {@link SidePanelSurfaceBody};
  * projection state arrives via BroadcastChannel from the main window (SSE authority).
  *
- * Chrome = title + system {@link WindowControls} only（**否决**钉回/自定义关闭，
- * 与系统关闭叠床架屋；关窗 → 主进程 closed → 钉回主坞）。
+ * Chrome = title + {@link WindowControls}（无最小化；关闭=钉回主坞）。
+ * **否决**钉回/自定义关闭、真窗最小化（Win owned + frameless 无法做好）。
  */
 export function FloatWindowPage() {
   useApplyTheme();
@@ -59,7 +59,7 @@ export function FloatWindowPage() {
           {title}
         </div>
         <div className="flex items-center gap-0.5 [-webkit-app-region:no-drag]">
-          <WindowControls />
+          <WindowControls showMinimize={false} />
         </div>
       </header>
 

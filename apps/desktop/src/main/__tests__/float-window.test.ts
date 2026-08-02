@@ -25,6 +25,13 @@ const { BrowserWindowCtor, created, mainSend, ipcHandle } = vi.hoisted(() => {
       setTitle: vi.fn(),
       setAppDetails: vi.fn(),
       show: vi.fn(),
+      hide: vi.fn(),
+      isVisible: vi.fn(() => true),
+      moveAbove: vi.fn(),
+      getMediaSourceId: vi.fn(() => "window:float:0"),
+      minimize: vi.fn(),
+      setParentWindow: vi.fn(),
+      getParentWindow: vi.fn(() => null),
       close: vi.fn(() => {
         for (const cb of handlers.get("closed") ?? []) cb();
       }),
@@ -77,6 +84,8 @@ import {
   dockFloatWindow,
   floatWindowCount,
   hasFloatWindow,
+  isManagedFloatWindow,
+  minimizeBrowserWindow,
   openFloatWindow,
   resetFloatWindowsForTests,
 } from "../float-window";
@@ -104,7 +113,10 @@ beforeEach(() => {
     getMainWindow: () =>
       ({
         isDestroyed: () => false,
+        isMinimized: () => false,
+        restore: vi.fn(),
         getBounds: mainGetBounds,
+        getMediaSourceId: () => "window:main:0",
         webContents: { send: mainSend },
       }) as never,
     buildFloatUrl: (cid, tab) =>
@@ -145,7 +157,11 @@ describe("openFloatWindow", () => {
     expect(opts.title).toBe("Run 1");
     expect(opts.frame).toBe(false);
     expect(opts.skipTaskbar).toBe(false);
-    expect(opts.parent).toBeUndefined();
+    expect(opts.parent).toBeTruthy();
+    expect(
+      (BrowserWindowCtor.mock.calls[0]?.[0] as { minimizable?: boolean })
+        .minimizable,
+    ).toBe(false);
     expect(opts.modal).toBeUndefined();
     expect(opts.type).toBeUndefined();
     expect(created[0]?.loadURL).toHaveBeenCalledWith(
@@ -203,6 +219,58 @@ describe("openFloatWindow", () => {
     expect(positions[0]).toMatchObject({ x: baseX + 48, y: baseY + 48 });
     expect(positions[1]).toMatchObject({ x: baseX + 96, y: baseY + 96 });
     expect(positions[2]).toMatchObject({ x: baseX + 144, y: baseY + 144 });
+  });
+
+  it("parents each float to the main window and disables minimize", () => {
+    openFloatWindow({
+      tabId: "tab-1",
+      conversationId: "cid-1",
+      title: "A",
+    });
+    openFloatWindow({
+      tabId: "tab-2",
+      conversationId: "cid-1",
+      title: "B",
+    });
+    for (let i = 0; i < 2; i++) {
+      const opts = BrowserWindowCtor.mock.calls[i]?.[0] as {
+        parent?: { getMediaSourceId?: () => string };
+        minimizable?: boolean;
+      };
+      expect(opts.parent?.getMediaSourceId?.()).toBe("window:main:0");
+      expect(opts.minimizable).toBe(false);
+    }
+  });
+
+  it("minimizeBrowserWindow is a no-op for managed floats", () => {
+    openFloatWindow({
+      tabId: "tab-1",
+      conversationId: "cid-1",
+      title: "A",
+    });
+    const win = created[0]!;
+    expect(isManagedFloatWindow(win as never)).toBe(true);
+    minimizeBrowserWindow(win as never);
+    expect(win.minimize).not.toHaveBeenCalled();
+    expect(win.hide).not.toHaveBeenCalled();
+  });
+
+  it("re-open shows a previously hidden float", () => {
+    openFloatWindow({
+      tabId: "tab-1",
+      conversationId: "cid-1",
+      title: "A",
+    });
+    const win = created[0]!;
+    win.isVisible.mockReturnValue(false);
+    win.show.mockClear();
+    openFloatWindow({
+      tabId: "tab-1",
+      conversationId: "cid-1",
+      title: "A2",
+    });
+    expect(win.show).toHaveBeenCalled();
+    expect(BrowserWindowCtor).toHaveBeenCalledTimes(1);
   });
 
   it("uses explicit bounds when provided", () => {

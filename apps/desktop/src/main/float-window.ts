@@ -1,5 +1,6 @@
 /**
- * 真 OS 浮窗生命周期（方案 C）—— 独立 BrowserWindow，复用主窗 preload / defaultSession。
+ * 真 OS 浮窗生命周期（方案 C）—— BrowserWindow + parent=主窗（JetBrains Float），
+ * 复用主窗 preload / defaultSession；不提供最小化。
  *
  * 不改 Local Browser 附着模型；不做无 preload 的 deprecated preview 子窗。
  */
@@ -207,6 +208,7 @@ export function openFloatWindow(input: FloatWindowOpenInput): boolean {
   const existing = floats.get(tabId);
   if (existing && !existing.win.isDestroyed()) {
     if (existing.win.isMinimized()) existing.win.restore();
+    if (!existing.win.isVisible()) existing.win.show();
     existing.win.setTitle(title);
     // Skip focus when already focused — avoids re-emitting window `focus`
     // which the float renderer broadcasts back as focusFloat.
@@ -232,8 +234,10 @@ export function openFloatWindow(input: FloatWindowOpenInput): boolean {
     title,
     show: false,
     frame: false,
-    // 显式占任务栏：最小化后仍在同 AppUserModelID 分组缩略图/列表可还原。
-    // 禁止 parent / modal / type:"toolbar"|tool —— 否则易被 OS 挤出任务栏入口。
+    // JetBrains Float：owner=主窗 → OS 相对主窗置顶（开第二窗不闪沉）。
+    // 禁止 modal / type:"toolbar"|tool；minimizable:false — 真窗否决最小化。
+    ...(main && !main.isDestroyed() ? { parent: main } : {}),
+    minimizable: false,
     skipTaskbar: false,
     autoHideMenuBar: true,
     ...(deps.icon ? { icon: deps.icon } : {}),
@@ -300,6 +304,24 @@ export function floatWindowCount(): number {
 export function hasFloatWindow(tabId: string): boolean {
   const entry = floats.get(tabId);
   return Boolean(entry && !entry.win.isDestroyed());
+}
+
+/** True if `win` is a managed方案 C float (for chrome IPC routing). */
+export function isManagedFloatWindow(win: BrowserWindow): boolean {
+  for (const entry of floats.values()) {
+    if (entry.win === win && !win.isDestroyed()) return true;
+  }
+  return false;
+}
+
+/**
+ * 真窗否决最小化（无按钮 + minimizable:false + IPC no-op）。
+ * 主窗仍走系统 minimize。
+ */
+export function minimizeBrowserWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  if (isManagedFloatWindow(win)) return;
+  win.minimize();
 }
 
 /** 单测重置。 */

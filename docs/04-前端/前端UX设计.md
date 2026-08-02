@@ -73,7 +73,7 @@ skip_if:
 
 ### ✅ 真 OS 窗（方案 C）
 
-桌面「弹出」= 独立 `BrowserWindow`（对标 JetBrains **Window** / VS Code Aux），可拖到任意显示器、可盖过主窗 UI。**否决**继续用应用内 absolute 层冒充「任意移到屏幕」；**否决** Copy 双开；终端/浏览器/指挥台/`content`/`simple-turn` 仍不可弹。
+桌面「弹出」= 独立 `BrowserWindow`（对标 JetBrains **Float**：`parent: main` owner，相对主窗置顶）。可拖到任意显示器、可盖过主窗 UI。**否决**继续用应用内 absolute 层冒充「任意移到屏幕」；**否决** Copy 双开；终端/浏览器/指挥台/`content`/`simple-turn` 仍不可弹。**否决**真窗最小化（Win frameless+owned 无法干净进任务栏；收起请关窗钉回）。**否决**默认 `alwaysOnTop`（压过其它应用）。
 
 | 项 | 定案 / 现状 |
 |---|---|
@@ -89,11 +89,13 @@ skip_if:
 | 状态 | 真窗 = 新 renderer；主窗 SSE 权威，经 BroadcastChannel 推投影快照（禁真窗各自开对话流） |
 | Local Browser | 仍不可弹；单 `hostWin` 附着模型首期不改为多宿主 |
 | 窗控 IPC | 按 **webContents/窗 id** 路由；`float-window:*` + preload `floatWindowApi` |
-| 任务栏（Win） | **单 AppUserModelID**（`com.agentcore.desktop`）分组 + 多预览；最小化后缩略图/列表可还原；预览标题=真窗 title；**否决**每真窗独立钉选图标 |
+| 任务栏（Win） | **单 AppUserModelID**（`com.agentcore.desktop`）分组；主窗最小化时真窗随藏（Float/owner 语义）。**否决**每真窗独立钉选图标 |
+| z-order | **`parent: main`**：OS 保证真窗在主窗之上；开窗 cascade 错位；后开/焦点者在上 |
+| 最小化 | **真窗不提供**：窗控无最小化键、`minimizable: false`、minimize IPC 对真窗 no-op。要收起 → 关闭钉回主坞 |
 
 → `main/float-window.ts`、`DesktopFloatWindowBridge`、`FloatWindowPage`、`lib/floatWindowSync.ts`
 
-**验收**：真窗可拖到副屏；盖过主窗侧栏/外框；两 worker 真窗并排跟流；钉回/切对话清空；审批在真窗可点；Web 仍为应用内浮窗。
+**验收**：真窗可拖到副屏；盖过主窗侧栏/外框；两 worker 真窗并排跟流（cascade + 均在主窗之上、开第二窗不闪沉）；无最小化按钮；关窗钉回；切对话清空；审批在真窗可点；Web 仍为应用内浮窗。
 ## 十一、Agent 可发现性
 
 `public`/`unlisted`/`private`；可发现 ≠ 手选。**否决**用户 Agent/Team 选择器、辩论角色手选实体。

@@ -14,6 +14,7 @@ import { WORKSPACE_SCHEME } from "./browser/workspace-paths";
 import {
   buildFloatHashRoute,
   destroyAllFloatWindows,
+  minimizeBrowserWindow,
   registerFloatWindowIpc,
 } from "./float-window";
 import { registerFsIpc } from "./fs-service";
@@ -63,7 +64,8 @@ function registerWindowChromeIpc(): void {
   if (windowChromeIpcRegistered) return;
   windowChromeIpcRegistered = true;
   ipcMain.on(WINDOW_CHANNELS.minimize, (e) => {
-    BrowserWindow.fromWebContents(e.sender)?.minimize();
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) minimizeBrowserWindow(win);
   });
   ipcMain.on(WINDOW_CHANNELS.maximize, (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
