@@ -97,3 +97,40 @@ def test_partial_verdict_rejects_rolled_up_claim():
         delivery_verdict=verdict,
     )
     assert any("收卷" in r or "全部" in r or "交付完成" in r for r in reworks)
+
+
+def test_partial_verdict_rejects_gathered_claim():
+    """案面「已收齐」：partial/blocked 时与收卷同闸。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("research/a.md",),
+        execution_id="e1",
+    )
+    for claim in (
+        "三路调研已收齐，汇总如下。",
+        "已全部收齐。",
+        "全部收齐，以下是决策简报。",
+        "已收齐。",
+    ):
+        assert claims_full_delivery(claim), claim
+        reworks = finish_guard(
+            claim,
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        assert any("收齐" in r or "收卷" in r or "交付完成" in r for r in reworks), claim
+
+
+def test_gathered_auc_same_message_flagged():
+    """「请确认」+「已收齐」同条 → 完成态互斥。"""
+    content = (
+        "方向：先问你 / 关键缺口（调研对象未定）调研对象未明确——请确认：\n"
+        "三路调研已收齐，汇总如下。"
+    )
+    assert claims_needs_confirm(content)
+    assert claims_full_delivery(content)
+    assert mutual_exclusion_rework(content) is not None
+    reworks = finish_guard(content, citation_count=0)
+    assert any("互斥" in r for r in reworks)

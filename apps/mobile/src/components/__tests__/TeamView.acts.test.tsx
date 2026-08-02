@@ -40,6 +40,7 @@ function makeRun(
     durationMs: null,
     error: null,
     failureKind: null,
+    productLanded: null,
     parentRunId: null,
     kind: "agent",
     role: "队员",

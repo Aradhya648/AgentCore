@@ -391,6 +391,7 @@ def run_failed(
     failure_kind: str | None = None,
     debrief: dict[str, Any] | None = None,
     execution_id: str = "",
+    product_landed: bool | None = None,
 ) -> SSEEvent:
     payload: dict[str, Any] = {"run_id": run_id, "agent_id": agent_id, "error": error}
     # Additive machine-readable face class (quality/model/call). Omit when unknown so
@@ -406,6 +407,10 @@ def run_failed(
         payload["debrief"] = debrief
     if execution_id:
         payload["execution_id"] = execution_id
+    # True when product files already landed before the terminal failure (e.g. write ok,
+    # then upstream 503). Face →「产出已落盘」.
+    if product_landed:
+        payload["product_landed"] = True
     return SSEEvent(type=EventType.RUN_FAILED, payload=payload)
 
 

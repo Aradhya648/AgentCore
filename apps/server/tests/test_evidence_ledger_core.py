@@ -18,6 +18,29 @@ def test_citable_for_tier_p2():
     assert citable_for_tier("blocked") is False
 
 
+def test_promote_refs_cited_in_landed_note_selects_search_only():
+    """方向笔记落盘：正文 #rN 升 selected，供 CEO 成稿闸继承。"""
+    led = EvidenceLedgerCore(id_prefix="#r")
+    led.load_entries(
+        [
+            {
+                "id": "#r1",
+                "url": "https://example.com/a",
+                "title": "A",
+                "tier": "unknown",
+                "citable": True,
+                "deep_read": False,
+                "selected": False,
+                "registrant": "worker:w1",
+            }
+        ]
+    )
+    assert led.draft_citable_ids() == frozenset()
+    newly = led.promote_refs_cited_in_landed_note("结论见 #r1 与伪造 #r9")
+    assert newly == frozenset({"#r1"})
+    assert led.draft_citable_ids() == frozenset({"#r1"})
+
+
 def test_load_entries_preserves_ids_and_continues():
     led = EvidenceLedgerCore(id_prefix="#r")
     led.load_entries(

@@ -19,9 +19,9 @@ import { PendingDecisionMarker } from "./PendingDecisionMarker";
  * Inline team_preview card — thin preflight before fan-out / moderator start.
  * Actionable surface is the durable ResumePrompt (挂起即收口). 方案 C（一个焦点 +
  * 一个入口）: inline pending is a single-line {@link PendingDecisionMarker} — the
- * full 分工表 / 辩题立场 live on the ResumePrompt 拍板中心; resolved keeps its
- * settled trace (collapsed one-line conclusion; expand for plan details + note),
- * same posture as PlanReviewCard.
+ * full 分工表 / 辩题立场 live on the ResumePrompt 拍板中心; resolved keeps a
+ * collapsible settled trace (one-line conclusion; expand for plan details + note).
+ * plan_review resolved 不占时间线，结论收进图节点 checkpoint 徽标。
  *
  * Branches on ``primitive``: delegate = 队员分工表; debate = 辩题 / 立场 / 轮次预算.
  *

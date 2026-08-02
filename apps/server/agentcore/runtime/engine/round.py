@@ -350,6 +350,7 @@ def apply_finish_guard_rework(
         round=round_idx,
         attempt=finish_guard_reworks + 1,
         issues=len(reworks),
+        issues_preview=[(r[:120] + "…" if len(r) > 120 else r) for r in reworks[:5]],
     )
     emit_reset("finish_guard")
     messages.append(LLMMessage(role="user", content=steer))

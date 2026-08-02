@@ -264,6 +264,9 @@ def test_core_teaches_split_criterion_over_count():
     assert "禁止" in hint and "research_report" in hint  # A 禁套 B
     assert "少扇出" in hint or "常 2" in hint
     assert "论文" in hint and ("资料" in hint or "开源" in hint)  # 论文/开源 ≠ 明示成文
+    # 三路/多路调研缺主体：统一硬 ask，禁静默自拟市场/topic
+    assert "缺主体" in hint
+    assert "静默自拟" in hint
     assert "一人包办" in hint or "自搜+成文" in hint
     assert "角 prose" in hint and "仅主笔落盘" in hint
     assert "form=files" in hint

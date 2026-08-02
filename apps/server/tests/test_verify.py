@@ -501,6 +501,8 @@ def test_partial_verdict_rejects_delivery_done_claims():
         "交付完成。",
         "已经交付完成。",
         "已全部收卷。",
+        "三路调研已收齐，汇总如下。",
+        "已全部收齐。",
         "站点做好了。",
         "网站已经做好了。",
         "页面基本做好了。",
@@ -511,7 +513,11 @@ def test_partial_verdict_rejects_delivery_done_claims():
             delivery_verdict=verdict,
         )
         assert any(
-            "已完成交付" in r or "交付完成" in r or "做好了" in r or "收卷" in r
+            "已完成交付" in r
+            or "交付完成" in r
+            or "做好了" in r
+            or "收卷" in r
+            or "收齐" in r
             for r in reworks
         ), claim
 

@@ -151,6 +151,7 @@
         "durationMs": null,
         "error": null,
         "failureKind": null,
+        "productLanded": null,
         "parentRunId": null,
         "kind": "agent",
         "role": null,

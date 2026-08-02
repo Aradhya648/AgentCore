@@ -911,6 +911,7 @@ export interface RunFailedPayload {
   failure_kind?: RunFailureKind;
   debrief?: RunDebrief;
   execution_id?: string;
+  product_landed?: boolean;
 }
 
 export interface RunCancelledPayload {

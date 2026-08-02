@@ -189,6 +189,8 @@ export interface ProjectedRun {
   error: string | null;
   /** `run_failed.failure_kind` — face class; null when absent (old journals). */
   failureKind: RunFailureKind | null;
+  /** `run_failed.product_landed` — files already on disk before failure. */
+  productLanded: boolean | null;
   parentRunId: string | null;
   kind: RunKind;
   role: string | null;

@@ -58,6 +58,8 @@ export interface FaceBadgeSignals {
   checkpointPending: boolean;
   /** 检查点已停止（异常桶）。 */
   checkpointStopped: boolean;
+  /** 检查点已放行/已调整（过程性桶；与 pending/stop 互斥）。 */
+  checkpointReleased: boolean;
   /** 方向风险 / 待关注（异常桶）。 */
   reviewConcern: boolean;
   /** 同人接续「续 ×N」角标（过程性；辩论轮次角标不走此路，属身份层）。 */
@@ -87,11 +89,13 @@ export function buildFaceBadgeDescriptors(
   ) {
     out.push({ key: "escalation", bucket: "process" });
   }
-  // 检查点：待放行=待拍板；已停止=异常（二者互斥，共用 checkpoint 键）。
+  // 检查点：待放行=待拍板；已停止=异常；已放行/已调整=过程性（三者互斥，共用 checkpoint 键）。
   if (s.checkpointPending) {
     out.push({ key: "checkpoint", bucket: "decision" });
   } else if (s.checkpointStopped) {
     out.push({ key: "checkpoint", bucket: "anomaly" });
+  } else if (s.checkpointReleased) {
+    out.push({ key: "checkpoint", bucket: "process" });
   }
   if (s.reviewConcern) out.push({ key: "reviewConcern", bucket: "anomaly" });
   // 右上角只占一枚：revision（续 ×N）优先于 handoff（接手），与既有互斥渲染一致。

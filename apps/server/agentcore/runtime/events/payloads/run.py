@@ -453,6 +453,8 @@ class RunFailedPayload(WirePayload):
     failure_kind: RunFailureKind | None = absent()
     debrief: RunDebrief | None = absent()
     execution_id: str | None = absent()
+    # Additive：失败前已有产物落盘（文件写成功后上游再挂）→ 脸「产出已落盘」。
+    product_landed: bool | None = absent()
 
 
 class RunCancelledPayload(WirePayload):

@@ -36,6 +36,23 @@ describe("statusFaceLabel", () => {
     expect(statusFaceLabel("skipped", null).text).toBe("未执行");
   });
 
+  it("surfaces productLanded failed face as 产出已落盘", () => {
+    expect(
+      statusFaceLabel(
+        "failed",
+        null,
+        undefined,
+        null,
+        false,
+        "上游模型服务暂时不可用（503），请稍后再试",
+        null,
+        null,
+        "call",
+        true,
+      ).text,
+    ).toBe("产出已落盘");
+  });
+
   it("prefers failureKind over error text for the failed face", () => {
     expect(
       statusFaceLabel(
@@ -428,6 +445,54 @@ describe("buildAgentNodePresentation revision face", () => {
     );
     expect(winding.statusFace.text).toBe("收尾中");
     expect(winding.liveThinking).toBe("");
+  });
+});
+
+describe("buildAgentNodePresentation checkpoint face", () => {
+  it("shows 待放行 as decision badge while pending", () => {
+    const p = buildAgentNodePresentation(
+      baseNode({ checkpoint: { status: "pending", decision: null } }),
+    );
+    expect(p.checkpointFace).toEqual(
+      expect.objectContaining({ label: "待放行" }),
+    );
+    expect(p.visibleFaceBadges.has("checkpoint")).toBe(true);
+  });
+
+  it("shows 已放行 / 已调整 as process badges when resolved", () => {
+    const released = buildAgentNodePresentation(
+      baseNode({ checkpoint: { status: "resolved", decision: "continue" } }),
+    );
+    expect(released.checkpointFace?.label).toBe("已放行");
+    expect(released.visibleFaceBadges.has("checkpoint")).toBe(true);
+
+    const adjusted = buildAgentNodePresentation(
+      baseNode({ checkpoint: { status: "resolved", decision: "adjust" } }),
+    );
+    expect(adjusted.checkpointFace?.label).toBe("已调整");
+    expect(adjusted.visibleFaceBadges.has("checkpoint")).toBe(true);
+  });
+
+  it("keeps stop in the anomaly bucket (cancelled label)", () => {
+    const p = buildAgentNodePresentation(
+      baseNode({ checkpoint: { status: "resolved", decision: "stop" } }),
+    );
+    expect(p.checkpointFace?.label).toBe("已停止");
+    expect(p.visibleFaceBadges.has("checkpoint")).toBe(true);
+  });
+
+  it("yields released checkpoint to higher-priority decision/anomaly badges", () => {
+    const p = buildAgentNodePresentation(
+      baseNode({
+        checkpoint: { status: "resolved", decision: "continue" },
+        escalationPending: 1,
+        reviewConcern: "critical",
+      }),
+    );
+    expect(p.checkpointFace?.label).toBe("已放行");
+    expect(p.visibleFaceBadges.has("checkpoint")).toBe(false);
+    expect(p.visibleFaceBadges.has("escalation")).toBe(true);
+    expect(p.visibleFaceBadges.has("reviewConcern")).toBe(true);
   });
 });
 

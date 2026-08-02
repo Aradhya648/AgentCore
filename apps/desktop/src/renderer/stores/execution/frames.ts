@@ -135,6 +135,8 @@ export type RunFrame =
       error: string;
       /** Additive face class; absent on old journals. */
       failureKind?: import("@/types/events").RunFailureKind;
+      /** Files already on disk before failure; absent on old journals. */
+      productLanded?: boolean | null;
       // 完工交接简报: a contract-missing run's authored wrap-up; absent for infra failures.
       debrief?: import("@/types/events").RunDebrief;
     }
@@ -394,6 +396,7 @@ export function frameFromEvent(event: SSEEvent): RunFrame | null {
         agentId: p.agent_id,
         error: p.error,
         failureKind: p.failure_kind,
+        productLanded: p.product_landed ?? null,
         debrief: p.debrief,
       };
     }

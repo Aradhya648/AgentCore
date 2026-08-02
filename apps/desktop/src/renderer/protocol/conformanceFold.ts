@@ -640,6 +640,7 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
     durationMs: r.durationMs,
     error: r.error,
     failureKind: r.failureKind ?? null,
+    productLanded: r.productLanded ?? null,
     parentRunId: r.parentRunId,
     kind: r.kind,
     role: r.role,

@@ -1737,6 +1737,14 @@ async def execute_agent_node(
             retryable=retryable,
             exc_info=True,
         )
+        frozen = freeze_partial_transcript(messages) if messages else []
+        product_landed = False
+        if frozen:
+            arts = locals().get("product_landing_artifacts")
+            touched = files_touched_from_transcript(frozen)
+            product_landed = (
+                len(filter_product_landing_paths(touched, arts)) > 0
+            )
         env.sink.emit(
             run_failed(
                 spec.run_id,
@@ -1744,9 +1752,9 @@ async def execute_agent_node(
                 str(e),
                 failure_kind="call",
                 execution_id=env.execution_id,
+                product_landed=product_landed or None,
             )
         )
-        frozen = freeze_partial_transcript(messages) if messages else []
         return _priced_failure(
             str(e),
             model=priced_model,

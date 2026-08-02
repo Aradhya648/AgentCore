@@ -8,6 +8,7 @@ guard live in the backend, so the same tools run unchanged against a server or a
 local (desktop) workspace.
 """
 
+import errno
 import hashlib
 import re
 import time
@@ -1004,6 +1005,32 @@ def _claim_write_path(
 
 
 
+def _promote_research_landed_refs(rel_path: str, content: str) -> None:
+    """方向笔记落盘后：正文已引用的台账 id 升 selected，供 CEO 汇总继承。"""
+    from agentcore.workspace.stage_dirs import RESEARCH_PREFIX
+
+    norm = (rel_path or "").replace("\\", "/").lstrip("./")
+    if not norm.startswith(RESEARCH_PREFIX) or not norm.endswith(".md"):
+        return
+    try:
+        from agentcore.runtime.suspension import turn_evidence_ledger
+    except Exception:  # noqa: BLE001
+        return
+    ledger = turn_evidence_ledger.get()
+    if ledger is None:
+        return
+    try:
+        newly = ledger.promote_refs_cited_in_landed_note(content)
+    except Exception:  # noqa: BLE001 — 晋升失败不挡写入回执
+        return
+    if newly:
+        logger.info(
+            "evidence.promote_landed_note_refs",
+            path=norm,
+            newly=len(newly),
+        )
+
+
 def _maybe_inject_research_ledger_anchors(
     rel_path: str, content: str, context: ToolContext
 ) -> str:
@@ -1437,6 +1464,16 @@ class FileWriteTool:
             old_content = None
         except WorkspaceError:
             old_content = None
+        except OSError as e:
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            if getattr(e, "errno", None) == errno.ENAMETOOLONG:
+                return _error(
+                    f"文件名过长，无法写入 `{rel_path}`。"
+                    "请改用更短的文件名（建议 ≤80 个汉字或英文词组）后重试。",
+                    start,
+                )
+            return _error(f"读取既有文件失败：{e}", start)
 
         # 代码落盘完整性闸 (D1)：括号截断 / 省略标记硬拒；SECTION 骨架豁免结构闸。
         if is_brace_code_path(rel_path):
@@ -1499,6 +1536,18 @@ class FileWriteTool:
             if dead is not None:
                 return dead
             return _error(f"写入文件失败：{e}", start)
+        except OSError as e:
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            if getattr(e, "errno", None) == errno.ENAMETOOLONG:
+                return _error(
+                    f"文件名过长，无法写入 `{rel_path}`。"
+                    "请改用更短的文件名（建议 ≤80 个汉字或英文词组）后重试。",
+                    start,
+                )
+            return _error(f"写入文件失败：{e}", start)
+
+        _promote_research_landed_refs(rel_path, write_content)
 
         anchor_note = (
             "；已补写来源台账锚脚注"

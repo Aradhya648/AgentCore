@@ -331,6 +331,7 @@ function AgentNodeStatusLine({
     d.status === "running" ? (d.phase ?? null) : null,
     d.phaseTool,
     d.failureKind,
+    d.productLanded,
   );
   const mark = d.debateCrossExamMark;
 

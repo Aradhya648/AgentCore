@@ -759,14 +759,23 @@ class OpenAICompatibleProvider:
         if status_code == 402:
             raise LLMInsufficientBalanceError()
         if status_code >= 500:
+            preview = body_preview(body)
             logger.warning(
                 "llm.upstream_error",
                 provider=self._name,
                 status_code=status_code,
                 attempt=attempt + 1,
+                body_preview=preview,
+            )
+            # ``platform`` is our credential leaf name — saying it in the face looks
+            # like AgentCore itself is down. Prefer an upstream-capacity phrasing.
+            message = (
+                f"上游模型服务暂时不可用（{status_code}），请稍后再试"
+                if self._name == "platform"
+                else f"{self._name} 服务端错误（{status_code}），请稍后再试"
             )
             err = upstream_error(
-                f"{self._name} 服务端错误（{status_code}），请稍后再试",
+                message,
                 status=status_code,
                 body=body,
                 retry_attempts=attempt,

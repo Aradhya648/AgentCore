@@ -190,6 +190,7 @@
         "durationMs": null,
         "error": "未通过契约：缺少必需的引用来源",
         "failureKind": "quality",
+        "productLanded": null,
         "parentRunId": null,
         "kind": "agent",
         "role": null,

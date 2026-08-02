@@ -128,6 +128,25 @@ class EvidenceLedgerCore:
             e["selected"] = True
         return frozenset(newly)
 
+    def promote_refs_cited_in_landed_note(self, content: str) -> frozenset[str]:
+        """调研方向笔记落盘：正文已引用且可登记的 ``#rN`` 升为 ``selected``。
+
+        供 CEO 汇总成稿闸继承队员笔记中的引用（search-only 亦可，因队员已写入交付物）。
+        伪造 / 越界 id 仍不进台账，本方法只提升已登记条目。
+        """
+        from agentcore.runtime.citations import extract_ledger_ref_ids
+
+        cited = set(extract_ledger_ref_ids(content or ""))
+        newly: set[str] = set()
+        for e in self._entries:
+            eid = e["id"]
+            if eid not in cited or not e.get("citable"):
+                continue
+            if not e.get("selected"):
+                newly.add(eid)
+            e["selected"] = True
+        return frozenset(newly)
+
     def load_entries(self, entries: list[dict[str, Any]]) -> None:
         """从 pause / 历史快照再水化台账（保留既有 id，后续登记续号）。
 

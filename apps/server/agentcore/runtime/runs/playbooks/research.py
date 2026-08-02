@@ -44,17 +44,23 @@ _SYNTHESIZER_MOTION_CARD_GUIDANCE = (
 
 def _research_angle_artifact(label: str) -> str:
     """Workspace-relative path for one research_report angle dossier (angle in filename)."""
-    return f"{RESEARCH_DIR}/{label}调研报告.md"
+    from agentcore.workspace._paths import truncate_filename_utf8
+
+    return f"{RESEARCH_DIR}/{truncate_filename_utf8(f'{label}调研报告.md')}"
 
 
 def _brief_angle_artifact(label: str) -> str:
     """Workspace-relative path for one parallel_brief direction note (angle in filename)."""
-    return f"{RESEARCH_DIR}/{label}方向笔记.md"
+    from agentcore.workspace._paths import truncate_filename_utf8
+
+    return f"{RESEARCH_DIR}/{truncate_filename_utf8(f'{label}方向笔记.md')}"
 
 
 def _lens_report_artifact(lens: str) -> str:
     """Workspace-relative Chinese-readable path for one lens report."""
-    return f"{_MULTI_LENS_RESEARCH_DIR}/{lens}透镜报告.md"
+    from agentcore.workspace._paths import truncate_filename_utf8
+
+    return f"{_MULTI_LENS_RESEARCH_DIR}/{truncate_filename_utf8(f'{lens}透镜报告.md')}"
 
 
 def _lens_report_artifact_for_parts(parts: list[str]) -> str:

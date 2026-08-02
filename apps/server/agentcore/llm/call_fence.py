@@ -85,6 +85,20 @@ class ObservingLLMProvider:
                 return raw + 1
         return 1
 
+    @staticmethod
+    def _upstream_log_fields(exc: BaseException) -> dict[str, Any]:
+        """Pull HTTP upstream context onto ``llm.call_failed`` when present."""
+        if not isinstance(exc, AgentCoreError):
+            return {}
+        out: dict[str, Any] = {}
+        status = exc.details.get("upstream_status")
+        if isinstance(status, int):
+            out["upstream_status"] = status
+        preview = exc.details.get("upstream_body_preview")
+        if isinstance(preview, str) and preview.strip():
+            out["upstream_body_preview"] = preview
+        return out
+
     async def complete(self, request: LLMRequest) -> LLMResponse:
         from agentcore.llm.turn_auth_dead import mark_turn_auth_dead, raise_if_turn_auth_dead
 
@@ -102,6 +116,7 @@ class ObservingLLMProvider:
                 error=str(e),
                 error_type=type(e).__name__,
                 stream=False,
+                **self._upstream_log_fields(e),
             )
             raise
         log_llm_call(
@@ -181,6 +196,7 @@ class ObservingLLMProvider:
                 error=str(e),
                 error_type=type(e).__name__,
                 stream=True,
+                **self._upstream_log_fields(e),
             )
             raise
         finally:

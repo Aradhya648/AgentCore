@@ -77,6 +77,7 @@ function makeRun(p: Partial<ProjectedRun> & { id: string }): ProjectedRun {
     durationMs: null,
     error: null,
     failureKind: null,
+    productLanded: null,
     parentRunId: null,
     kind: "agent",
     role: null,

@@ -395,6 +395,11 @@ export function projectFlowNodes({
             ? (roundRuns.find((r) => r.status === "failed")?.failureKind ??
               run.failureKind)
             : run.failureKind,
+        productLanded:
+          aggregatedStatus === "failed"
+            ? (roundRuns.find((r) => r.status === "failed")?.productLanded ??
+              run.productLanded)
+            : run.productLanded,
         outputPreview: tailText(output),
         debateFacePrimary: isDebateAgentNode({
           stance: run.stance,

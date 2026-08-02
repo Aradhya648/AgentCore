@@ -185,11 +185,15 @@ def log_llm_call_failed(
     stream: bool,
     attempt: int = 1,
     error_type: str | None = None,
+    upstream_status: int | None = None,
+    upstream_body_preview: str | None = None,
 ) -> None:
     """Emit one ``llm.call_failed`` line (observation only — no metering / retry).
 
     Always includes ``model`` + ambient ``credential_source`` (when bound). Optional
     ambient ``provider_id`` is attached when present — never ``base_url`` / secrets.
+    Optional ``upstream_status`` / ``upstream_body_preview`` when the failure carried
+    an HTTP upstream context (5xx diagnosis).
     """
     from agentcore.core.log_context import get_log_value
 
@@ -202,6 +206,10 @@ def log_llm_call_failed(
     provider_id = get_log_value("provider_id")
     if provider_id:
         extra["provider_id"] = provider_id
+    if upstream_status is not None:
+        extra["upstream_status"] = int(upstream_status)
+    if upstream_body_preview:
+        extra["upstream_body_preview"] = upstream_body_preview
     logger.error(
         "llm.call_failed",
         scenario=scenario,

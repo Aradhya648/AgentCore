@@ -68,6 +68,7 @@ export function buildAgentNodePresentation(
     phase,
     d.phaseTool,
     d.failureKind,
+    d.productLanded,
   );
   const statusFace =
     d.debateCrossExamMark?.mode === "replace"
@@ -173,11 +174,8 @@ export function buildAgentNodePresentation(
     );
   }
 
-  const checkpointFace =
-    d.checkpoint &&
-    (d.checkpoint.status === "pending" || d.checkpoint.decision === "stop")
-      ? checkpointBadge(d.checkpoint)
-      : null;
+  // pending / stop / resolved(放行|调整) 均走 face；文案由 checkpointBadge 归一。
+  const checkpointFace = d.checkpoint ? checkpointBadge(d.checkpoint) : null;
 
   const reviewConcernFace =
     d.reviewConcern === "critical"
@@ -196,6 +194,10 @@ export function buildAgentNodePresentation(
       checkpointFace != null && d.checkpoint?.status === "pending",
     checkpointStopped:
       checkpointFace != null && d.checkpoint?.decision === "stop",
+    checkpointReleased:
+      checkpointFace != null &&
+      d.checkpoint?.status === "resolved" &&
+      d.checkpoint?.decision !== "stop",
     reviewConcern: reviewConcernFace != null,
     revision: revisionBadge != null && revisionBadge.kind !== "debate",
     handoff: d.replacesRunId != null,

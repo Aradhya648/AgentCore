@@ -188,6 +188,7 @@
         "durationMs": 120000,
         "error": null,
         "failureKind": null,
+        "productLanded": null,
         "parentRunId": null,
         "kind": "agent",
         "role": "member",

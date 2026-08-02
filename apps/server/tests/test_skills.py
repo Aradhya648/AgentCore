@@ -257,6 +257,9 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "成文交付" in body or "成文专线" in body or "成篇" in body
     assert "默认 A" in body or "少扇出" in body
     assert "材料已齐" in body
+    # 三路/多路调研缺主体：硬 ask，禁静默自拟
+    assert "缺主体" in body
+    assert "静默自拟" in body
     # B 成文：落盘文档 + ≥2 角 → 各角与主笔均 files + 末环独立审校
     assert "角 prose" in body and "仅主笔落盘" in body
     assert "form=files" in body and "artifacts" in body
@@ -670,6 +673,9 @@ def test_deep_multi_lens_research_teaches_parallel_lenses_and_motion_card():
     assert "multi_lens_research" in body
     assert "motion_card" in body
     assert "handoff" in body
+    # 缺主体：禁静默自拟市场/产品占位当 topic
+    assert "缺主体" in body
+    assert "静默自拟" in body
     # 幕 1 案卷落盘：research/ + form=files / artifacts（叠加 handoff，不替代）
     assert "AgentCore/文档/research/" in body
     assert "透镜报告" in body

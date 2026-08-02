@@ -81,6 +81,7 @@ function runFromPlan(plan: ExecutionPlan, id: string): RunNode | null {
     startedAt: null,
     error: null,
     failureKind: null,
+    productLanded: null,
     parentRunId: spec.parentRunId ?? null,
     kind: spec.kind ?? "agent",
     role: null,
@@ -196,6 +197,7 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
             startedAt: null,
             error: null,
             failureKind: null,
+            productLanded: null,
             parentRunId: f.parentRunId,
             kind: f.runKind,
             role: null,
@@ -397,6 +399,7 @@ export function applyFrame(s: FoldState, f: RunFrame): void {
         run.status = "failed";
         run.error = f.error;
         run.failureKind = f.failureKind ?? null;
+        run.productLanded = f.productLanded ?? null;
         run.debrief = f.debrief ?? null;
         run.phase = null;
         run.phaseTool = null;

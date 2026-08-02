@@ -13,6 +13,7 @@ const EMPTY: FaceBadgeSignals = {
   escalationKind: null,
   checkpointPending: false,
   checkpointStopped: false,
+  checkpointReleased: false,
   reviewConcern: false,
   revision: false,
   handoff: false,
@@ -44,12 +45,32 @@ describe("buildFaceBadgeDescriptors", () => {
     ).toEqual([]);
   });
 
-  it("splits checkpoint into decision (待放行) vs anomaly (已停止)", () => {
+  it("splits checkpoint into decision / anomaly / process", () => {
     expect(
       buildFaceBadgeDescriptors(signals({ checkpointPending: true })),
     ).toEqual([{ key: "checkpoint", bucket: "decision" }]);
     expect(
       buildFaceBadgeDescriptors(signals({ checkpointStopped: true })),
+    ).toEqual([{ key: "checkpoint", bucket: "anomaly" }]);
+    expect(
+      buildFaceBadgeDescriptors(signals({ checkpointReleased: true })),
+    ).toEqual([{ key: "checkpoint", bucket: "process" }]);
+  });
+
+  it("prefers pending over stopped/released for the shared checkpoint key", () => {
+    expect(
+      buildFaceBadgeDescriptors(
+        signals({
+          checkpointPending: true,
+          checkpointStopped: true,
+          checkpointReleased: true,
+        }),
+      ),
+    ).toEqual([{ key: "checkpoint", bucket: "decision" }]);
+    expect(
+      buildFaceBadgeDescriptors(
+        signals({ checkpointStopped: true, checkpointReleased: true }),
+      ),
     ).toEqual([{ key: "checkpoint", bucket: "anomaly" }]);
   });
 
@@ -109,6 +130,23 @@ describe("pickFaceBadges", () => {
     );
     // anomaly (checkpoint 已停止) wins the first slot, then first process (revision).
     expect(picked).toEqual(new Set(["checkpoint", "revision"]));
+  });
+
+  it("keeps released checkpoint as process and yields to decision/anomaly", () => {
+    expect(
+      visibleFaceBadgeKeys(
+        signals({ checkpointReleased: true, revision: true }),
+      ),
+    ).toEqual(new Set(["checkpoint", "revision"]));
+    expect(
+      visibleFaceBadgeKeys(
+        signals({
+          escalationPending: 1,
+          reviewConcern: true,
+          checkpointReleased: true,
+        }),
+      ),
+    ).toEqual(new Set(["escalation", "reviewConcern"]));
   });
 
   it("respects an explicit budget override", () => {

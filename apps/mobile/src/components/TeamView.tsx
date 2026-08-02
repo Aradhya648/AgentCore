@@ -108,7 +108,9 @@ const RUN_STATUS: Record<RunStatus, { label: string; tone: string }> = {
 function failureFaceLabel(
   error: string | null | undefined,
   failureKind: ProjectedRun["failureKind"],
+  productLanded?: boolean | null,
 ): string {
+  if (productLanded) return "产出已落盘";
   if (failureKind === "quality") return "未达标";
   if (failureKind === "model") return "模型中断";
   if (failureKind === "call") return "调用失败";
@@ -141,6 +143,7 @@ function runStatusLabel(
     phase?: ProjectedRun["phase"];
     error?: string | null;
     failureKind?: ProjectedRun["failureKind"];
+    productLanded?: boolean | null;
   },
 ): { label: string; tone: string } {
   const base = RUN_STATUS[status];
@@ -153,7 +156,11 @@ function runStatusLabel(
   }
   if (status === "failed") {
     return {
-      label: failureFaceLabel(run.error, run.failureKind ?? null),
+      label: failureFaceLabel(
+        run.error,
+        run.failureKind ?? null,
+        run.productLanded ?? null,
+      ),
       tone: "err",
     };
   }

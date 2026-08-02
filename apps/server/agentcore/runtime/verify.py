@@ -26,7 +26,8 @@
        ``state`` 为 ``blocked`` / ``partial``（有 blocking 缺口）时，不得宣称「全部完成 /
        全部就绪 / 全部交付」等全员成功话术，也不得宣称「已完整可用」等与卡冲突的完整可用句式，
        也不得宣称「已修好 / 验证通过 / 已跑通」等与卡冲突的修码完成话术，
-       也不得宣称闭集「已完成交付 / 交付完成…」或「站点/网站/页面…做好了」等与卡冲突的交付完成话术
+       也不得宣称闭集「已完成交付 / 交付完成 / 已全部收卷 / 已收齐…」或
+       「站点/网站/页面…做好了」等与卡冲突的交付完成话术
        （经 ``_claims_*`` + 否定前缀豁免；裸「已交付」不升到有文件闸，新词不进无否定空盘闸）；
        有交付卡且落地仅为 md/脚本等、无 ``.pptx``
        时，不得宣称「PPT 已落盘 / 可直接打开」；有交付卡时终稿超
@@ -75,9 +76,10 @@ _BLOCKED_EMPTY_DELIVERY_CLAIMS = re.compile(
 
 # All-success claims when delivery_status is blocked/partial (blocking gaps present).
 # Prefer「全部/均已/都已」over bare「已就绪」to avoid FP on honest partial acknowledgments.
-# 「已全部收卷」与 closing_posture A 姿势同源（cef27dfa 误报面）。
+# 「已全部收卷 / 已收齐」与 closing_posture A 姿势同源（cef27dfa / 案面「已收齐」误报面）。
 _ALL_SUCCESS_CLAIMS = re.compile(
     r"已全部收卷|全部收卷|已收卷|"
+    r"已全部收齐|全部收齐|已收齐|"
     r"已全部(?:完成|交付|就位|成功|就绪)|"
     r"全部(?:完成|交付|就位|成功|就绪)|"
     r"均已(?:完成|交付|就绪|成功|落盘)|"
@@ -108,11 +110,12 @@ _FIXED_OR_VERIFIED_CLAIMS = re.compile(
 
 # 交付完成闭集 + 站点族「做好了」（窄闸）：blocked/partial 时拦与卡冲突的交付完成话术。
 # 仅经 _claims_* + 否定前缀豁免；故意不拦裸「已交付/已经交付」、弱「可用」；新词不进空盘闸。
-# 与 closing_posture A 姿势对齐（含收卷）。
+# 与 closing_posture A 姿势对齐（含收卷 / 收齐）。
 _DELIVERY_DONE_CLAIMS = re.compile(
     r"(?:"
     r"已完成交付|交付已完成|完成交付|交付完成|已经交付完成|"
     r"已全部收卷|全部收卷|已收卷|"
+    r"已全部收齐|全部收齐|已收齐|"
     r"(?:站点|网站|页面)[^。\n]{0,16}(?:做好了|已做好)"
     r")"
 )
@@ -503,7 +506,8 @@ def _delivery_claim_reworks(
         label = "未满足" if state == "blocked" else "部分未满足"
         reworks.append(
             f"本回合交付验收为「{label}」（见交付状态卡，仍有 blocking 缺口）——"
-            "正文不得宣称已完成交付 / 交付完成 / 已全部收卷 / 站点（网站/页面）做好了。"
+            "正文不得宣称已完成交付 / 交付完成 / 已全部收卷 / 已收齐 /"
+            "站点（网站/页面）做好了。"
             "请以交付状态卡为主答：点名缺口与待办，散文只作注释；"
             "不要用交付完成话术盖过红卡。"
         )

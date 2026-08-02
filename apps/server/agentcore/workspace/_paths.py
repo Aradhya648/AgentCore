@@ -40,6 +40,41 @@ _UNSAFE_IN_SEGMENT = re.compile(r'[\0-\x1f:*?"<>|]')
 _UNSAFE_IN_FILENAME = re.compile(r'[\0-\x1f\\/:*?"<>|]+')
 _MULTI_UNDERSCORE = re.compile(r"_+")
 
+# Linux NAME_MAX is 255 bytes; keep headroom for encoding edge cases / suffixes.
+_MAX_FILENAME_BYTES = 240
+
+
+def truncate_filename_utf8(
+    name: str, *, max_bytes: int = _MAX_FILENAME_BYTES
+) -> str:
+    """Truncate a single path segment / file name to ``max_bytes`` UTF-8 bytes.
+
+    Preserves a trailing extension when present (``报告.md`` → stem truncated,
+    ``.md`` kept). Empty-after-truncate falls back to ``untitled``.
+    """
+    if not name:
+        return name
+    if max_bytes < 1:
+        return "untitled"
+    raw = name.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return name
+    stem, dot, ext = name.rpartition(".")
+    if not dot or not stem or "/" in ext or "\\" in ext:
+        stem, ext = name, ""
+    else:
+        ext = dot + ext
+    ext_bytes = ext.encode("utf-8")
+    budget = max_bytes - len(ext_bytes)
+    if budget < 8:
+        # Extension alone eats the budget — hard-cut the whole name.
+        cut = raw[:max_bytes].decode("utf-8", errors="ignore").rstrip(" ._")
+        return cut or "untitled"
+    cut_stem = (
+        stem.encode("utf-8")[:budget].decode("utf-8", errors="ignore").rstrip(" ._")
+    )
+    return (cut_stem or "untitled") + ext
+
 # Longest-first so prefixes nest correctly if layouts ever share a stem.
 _DOSSIER_WRITE_PREFIXES: tuple[str, ...] = (
     RESEARCH_PREFIX,
@@ -277,14 +312,14 @@ def _clean_path_segment(segment: str) -> str:
     """Strip reserved chars from one path segment (directory or file name)."""
     cleaned = _UNSAFE_IN_SEGMENT.sub("_", segment)
     cleaned = _MULTI_UNDERSCORE.sub("_", cleaned).strip(" ._")
-    return cleaned or "_"
+    return truncate_filename_utf8(cleaned or "_")
 
 
 def _clean_dossier_filename(rest: str) -> str:
     """Flatten everything after a dossier prefix into one safe file name."""
     cleaned = _UNSAFE_IN_FILENAME.sub("_", rest.replace("\\", "/"))
     cleaned = _MULTI_UNDERSCORE.sub("_", cleaned).strip(" ._")
-    return cleaned or "untitled"
+    return truncate_filename_utf8(cleaned or "untitled")
 
 
 def sanitize_write_relpath(
@@ -296,6 +331,9 @@ def sanitize_write_relpath(
     * Under dossier prefixes (``research`` / ``reviews`` / ``debate`` / ``项目``),
       everything after the prefix is treated as a **single file name**: nested
       ``/`` ``\\`` become ``_`` so ``…/research/a/b.md`` → ``…/research/a_b.md``.
+    * Each file / segment name is capped to ``_MAX_FILENAME_BYTES`` UTF-8 bytes
+      (below Linux ``NAME_MAX``) so model-supplied angle titles cannot raise
+      ``ENAMETOOLONG``.
     * Elsewhere, directory structure is preserved; each segment is cleaned.
     * ``..`` segments are left intact so the containment guard still rejects them.
     * Empty / ``.`` inputs are returned unchanged (callers validate required paths).

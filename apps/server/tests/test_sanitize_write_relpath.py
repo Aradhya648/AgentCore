@@ -40,6 +40,23 @@ def test_dossier_flattens_nested_to_filename():
     )
 
 
+def test_dossier_filename_truncated_under_name_max():
+    """Angle-as-filename must stay under Linux NAME_MAX (255 UTF-8 bytes)."""
+    from agentcore.workspace._paths import _MAX_FILENAME_BYTES
+
+    long_label = (
+        "竞品定价：中国大陆主流 SaaS 项目管理工具（如 Worktile、Teambition、禅道、"
+        "明道云、飞书项目、ONES_PingCode、Tapd、Jira 中国区等）的定价结构与价位带分布，"
+        "重点看 200–500 元_月档的竞争格局与定价策略（按席_按量_免费层）"
+    )
+    path = sanitize_write_relpath(f"{RESEARCH_PREFIX}{long_label}方向笔记.md")
+    assert path.startswith(RESEARCH_PREFIX)
+    basename = path[len(RESEARCH_PREFIX) :]
+    assert len(basename.encode()) <= _MAX_FILENAME_BYTES
+    assert basename.endswith(".md")
+    assert len(basename.encode()) < len(f"{long_label}方向笔记.md".encode())
+
+
 def test_dossier_unsafe_chars_in_flat_name():
     assert (
         sanitize_write_relpath(f'{RESEARCH_PREFIX}报告:终稿?.md')

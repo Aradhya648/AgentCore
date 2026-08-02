@@ -316,6 +316,8 @@ export interface RunNode {
   error: string | null;
   /** `run_failed.failure_kind` — face class; null/absent on old journals. */
   failureKind?: import("@/types/events").RunFailureKind | null;
+  /** `run_failed.product_landed` — files already on disk before failure. */
+  productLanded?: boolean | null;
   /** Delegating run id (`run_started` slot). 阶段1 always null (flat workers
    * under the CEO); set for 阶段2 nested delegation. */
   parentRunId: string | null;
