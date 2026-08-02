@@ -42,14 +42,15 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
     id: "hotfix",
     label: "后端热修",
     description: "短更新 · 横幅 + IM",
-    title: "系统更新 · 约 HH:MM",
-    body: `我们将于今天 HH:MM（约）进行一次后端更新，预计 1–3 分钟。
+    title: "约 HH:MM 更新 · 请按需规划好时间 · 提前停止使用 AI 功能",
+    body: `我们将于今天约 HH:MM 进行一次系统更新，预计 1–3 分钟。
 
-更新期间 AI 功能不可用。请在约 HH:MM 前结束进行中的任务，避免中途中断。
-期间：已打开的界面可能短暂卡住或需点「重试」；更新完成后刷新即可继续。
+更新期间 AI 功能不可用。请按需规划好时间 · 提前停止使用 AI 功能，以免进行中的对话或任务被中断。
+
+更新完成后刷新即可；一般无需重装客户端。
 本次：…（一句话变更摘要；多条用「；」分隔）
 
-无需重装客户端。若结束后仍异常，打开消息页「AgentCore 官方」或稍后重试。`,
+若结束后仍异常，打开消息页「AgentCore 官方」或稍后重试。`,
     severity: "high",
     surface: "both",
     dismiss_policy: "once",
@@ -66,14 +67,15 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
       const time = s(v, "time", "HH:MM");
       const summary = s(v, "summary", "…（一句话变更摘要；多条用「；」分隔）");
       return {
-        title: `系统更新 · 约 ${time}`,
-        body: `我们将于今天 ${time}（约）进行一次后端更新，预计 1–3 分钟。
+        title: `约 ${time} 更新 · 请按需规划好时间 · 提前停止使用 AI 功能`,
+        body: `我们将于今天约 ${time} 进行一次系统更新，预计 1–3 分钟。
 
-更新期间 AI 功能不可用。请在约 ${time} 前结束进行中的任务，避免中途中断。
-期间：已打开的界面可能短暂卡住或需点「重试」；更新完成后刷新即可继续。
+更新期间 AI 功能不可用。请按需规划好时间 · 提前停止使用 AI 功能，以免进行中的对话或任务被中断。
+
+更新完成后刷新即可；一般无需重装客户端。
 本次：${summary}
 
-无需重装客户端。若结束后仍异常，打开消息页「AgentCore 官方」或稍后重试。`,
+若结束后仍异常，打开消息页「AgentCore 官方」或稍后重试。`,
       };
     },
   },
@@ -81,24 +83,26 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
     id: "release",
     label: "全端发版",
     description: "桌面/手机发版 · 横幅 + IM",
-    title: "版本更新 · 新版本 · 约 HH:MM",
-    body: `新版本将于今天 HH:MM 起陆续上线。
+    title: "约 HH:MM 发版 · 请按需规划好时间 · 提前停止使用 AI 功能",
+    body: `新版本将于今天约 HH:MM 起陆续上线。
 
-更新期间 AI 功能不可用。请在约 HH:MM 前结束进行中的任务，避免中途中断。
+更新期间 AI 功能不可用。请按需规划好时间 · 提前停止使用 AI 功能，以免进行中的对话或任务被中断。
 
-桌面：应用内检查更新，或官网重新下载安装。
-手机 / Web：刷新或打开应用商店/官网安装包即可。
+升级方式：
+· 桌面：应用内检查更新，或到官网重新下载安装
+· 手机 / Web：刷新页面，或按官网指引安装新包
+
 本次亮点：
 1. …
 2. …
 3. …
 
-更新过程可能短暂不可用；完成后按上面方式升级即可。`,
+完成后按上面方式升级即可继续使用。`,
     severity: "high",
     surface: "both",
     dismiss_policy: "once",
     slots: [
-      { key: "version", label: "版本号", placeholder: "如 0.4.2，可留空用「新版本」" },
+      { key: "version", label: "版本号（正文可选）", placeholder: "如 0.4.2，可留空" },
       { key: "time", label: "上线时间", placeholder: "如 14:30" },
       {
         key: "highlights",
@@ -108,7 +112,7 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
       },
     ],
     build: (v) => {
-      const version = s(v, "version", "新版本");
+      const version = v.version?.trim() ?? "";
       const time = s(v, "time", "HH:MM");
       const lines = (v.highlights ?? "")
         .split(/\r?\n/)
@@ -119,18 +123,21 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
         lines.length > 0
           ? lines.map((line, i) => `${i + 1}. ${line}`).join("\n")
           : "1. …\n2. …\n3. …";
+      const versionLine = version ? `（桌面 ${version}）` : "";
       return {
-        title: `版本更新 · ${version} · 约 ${time}`,
-        body: `新版本将于今天 ${time} 起陆续上线。
+        title: `约 ${time} 发版 · 请按需规划好时间 · 提前停止使用 AI 功能`,
+        body: `新版本${versionLine}将于今天约 ${time} 起陆续上线。
 
-更新期间 AI 功能不可用。请在约 ${time} 前结束进行中的任务，避免中途中断。
+更新期间 AI 功能不可用。请按需规划好时间 · 提前停止使用 AI 功能，以免进行中的对话或任务被中断。
 
-桌面：应用内检查更新，或官网重新下载安装。
-手机 / Web：刷新或打开应用商店/官网安装包即可。
+升级方式：
+· 桌面：应用内检查更新，或到官网重新下载安装
+· 手机 / Web：刷新页面，或按官网指引安装新包
+
 本次亮点：
 ${highlights}
 
-更新过程可能短暂不可用；完成后按上面方式升级即可。`,
+完成后按上面方式升级即可继续使用。`,
       };
     },
   },
@@ -138,10 +145,11 @@ ${highlights}
     id: "maintenance",
     label: "计划维护",
     description: "较长中断 · 横幅常驻至结束",
-    title: "维护通知 · HH:MM–HH:MM",
-    body: `计划维护窗口：今天 开始–结束（约 N 分钟）。
+    title: "HH:MM–HH:MM 维护 · 请按需规划好时间 · 提前停止使用 AI 功能",
+    body: `计划维护：今天 开始–结束（约 N 分钟）。
 
-维护期间无法登录或发送消息，AI 功能不可用；进行中的任务会中断，请提前停止。
+维护期间无法登录或发送消息，AI 功能不可用。请按需规划好时间 · 提前停止使用 AI 功能。
+
 窗口结束后自动恢复，无需重装。
 原因：…（如「数据库迁移 / 证书轮换」）`,
     severity: "critical",
@@ -164,10 +172,11 @@ ${highlights}
       const minutes = s(v, "minutes", "N");
       const reason = s(v, "reason", "…（如「数据库迁移 / 证书轮换」）");
       return {
-        title: `维护通知 · ${start}–${end}`,
-        body: `计划维护窗口：今天 ${start}–${end}（约 ${minutes} 分钟）。
+        title: `${start}–${end} 维护 · 请按需规划好时间 · 提前停止使用 AI 功能`,
+        body: `计划维护：今天 ${start}–${end}（约 ${minutes} 分钟）。
 
-维护期间无法登录或发送消息，AI 功能不可用；进行中的任务会中断，请提前停止。
+维护期间无法登录或发送消息，AI 功能不可用。请按需规划好时间 · 提前停止使用 AI 功能。
+
 窗口结束后自动恢复，无需重装。
 原因：${reason}`,
       };
